@@ -178,7 +178,10 @@ func connectTunnelHTTP3(ctx context.Context, tlsConfig *tls.Config, quicConfig *
 		return udpConn, nil, nil, nil, err
 	}
 
-	conn, err := quic.Dial(ctx, udpConn, endpoint, tlsConfig, quicConfig)
+	// without ConnectionIDLength set, backend occasionally throws PROTOCOL_VIOLATION
+	// and that closes our connection
+	qtr := &quic.Transport{Conn: udpConn, ConnectionIDLength: 20}
+	conn, err := qtr.Dial(ctx, endpoint, tlsConfig, quicConfig)
 	if err != nil {
 		_ = udpConn.Close()
 		return nil, nil, nil, nil, err

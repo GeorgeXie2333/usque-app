@@ -238,7 +238,10 @@ func (p *L4Proxy) getOrCreateClientConn(ctx context.Context) (*l4HTTP3Client, er
 	if err != nil {
 		return nil, err
 	}
-	quicConn, err := quic.Dial(ctx, udpConn, p.endpoint, p.tlsConfig, p.quicConfig)
+	// without ConnectionIDLength set, backend occasionally throws PROTOCOL_VIOLATION
+	// and that closes our connection
+	qtr := &quic.Transport{Conn: udpConn, ConnectionIDLength: 20}
+	quicConn, err := qtr.Dial(ctx, p.endpoint, p.tlsConfig, p.quicConfig)
 	if err != nil {
 		_ = udpConn.Close()
 		return nil, err
