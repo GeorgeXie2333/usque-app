@@ -285,6 +285,46 @@ class VpnControlClientTest {
     }
 
     @Test
+    fun clearAllRejectsConcurrentRequestWhileIpcPending() {
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        val first = RecordingResult()
+        val second = RecordingResult()
+
+        assertTrue(client.requestClearAllData(first))
+        assertFalse(client.requestClearAllData(second))
+
+        assertEquals("CLEAR_ALL_IN_PROGRESS", second.errorCode)
+        assertEquals(1, second.completionCount)
+        assertEquals(0, first.completionCount)
+        assertEquals(1, endpoint.messages.size)
+    }
+
+    @Test
+    fun clearAllRejectsConcurrentRequestWhileLocalWipeInFlight() {
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        val first = RecordingResult()
+        val second = RecordingResult()
+
+        assertTrue(client.requestClearAllData(first))
+        client.deliverSnapshotReply(
+            endpoint.messages.single().requestId,
+            null,
+            null,
+            mapOf("phase" to "disconnected"),
+        )
+        assertNotNull(client.inFlightClearAllForTest())
+        assertEquals(0, first.completionCount)
+
+        assertFalse(client.requestClearAllData(second))
+        assertEquals("CLEAR_ALL_IN_PROGRESS", second.errorCode)
+        assertEquals(1, second.completionCount)
+        assertSame(first, client.inFlightClearAllForTest())
+        assertEquals(0, first.completionCount)
+    }
+
+    @Test
     fun eventDeliveryUpdatesLastSnapshot() {
         client.deliverEvent(mapOf("phase" to "connected", "transport" to "h3"))
         assertEquals("connected", client.lastSnapshot["phase"])

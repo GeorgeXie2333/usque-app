@@ -335,6 +335,15 @@ internal class VpnControlClient(
             )
             return false
         }
+        // Single-slot in-flight tracking cannot own two results; reject overlap.
+        if (pendingClearAll.isNotEmpty() || inFlightClearAll != null) {
+            result.error(
+                "CLEAR_ALL_IN_PROGRESS",
+                "Another clear-all operation is already in progress.",
+                null,
+            )
+            return false
+        }
         val service = endpoint
         if (service == null) {
             bind()
@@ -422,11 +431,18 @@ internal class VpnControlClient(
     }
 
     /**
+     * Non-consuming peek: true while [result] is still the post-ack local wipe target
+     * and the client has not been destroyed.
+     */
+    fun shouldProceedWithLocalClearAll(result: MethodChannel.Result): Boolean =
+        !destroyed && inFlightClearAll === result
+
+    /**
      * Claims ownership of an in-flight clear-all result so the local wipe path may
      * complete it. Returns false if destroy already cancelled or the result is not tracked.
      */
     fun takeInFlightClearAll(result: MethodChannel.Result): Boolean {
-        if (inFlightClearAll !== result) return false
+        if (destroyed || inFlightClearAll !== result) return false
         inFlightClearAll = null
         return true
     }

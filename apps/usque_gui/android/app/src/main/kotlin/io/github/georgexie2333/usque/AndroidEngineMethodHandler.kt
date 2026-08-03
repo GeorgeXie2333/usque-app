@@ -210,6 +210,10 @@ internal class AndroidEngineMethodHandler(
 
     fun finishClearAllData(result: MethodChannel.Result) {
         identityExecutor.execute {
+            // Destroy may have already completed with CLEAR_ALL_CANCELLED — do not wipe.
+            if (!controlClient.shouldProceedWithLocalClearAll(result)) {
+                return@execute
+            }
             try {
                 identityStore.clearAll()
                 engineBridge.applyProfileCommand(
@@ -218,7 +222,6 @@ internal class AndroidEngineMethodHandler(
                 ) ?: throw IllegalStateException("Rust did not reset the Profile store")
                 maintenanceBridge.clearLocalState()
                 mainScheduler.post {
-                    // Destroy may have already completed with CLEAR_ALL_CANCELLED.
                     if (!controlClient.takeInFlightClearAll(result)) return@post
                     result.success(null)
                 }

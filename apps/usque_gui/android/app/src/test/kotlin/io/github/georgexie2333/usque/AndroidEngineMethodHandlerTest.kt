@@ -354,6 +354,9 @@ class AndroidEngineMethodHandlerTest {
     fun finishClearAllDataSkippedAfterDestroyCancel() {
         val localScheduler = ImmediateScheduler()
         val deferred = mutableListOf<Runnable>()
+        val localIdentity = RecordingIdentityStore()
+        val localEngine = FakeEngineBridge()
+        val localMaintenance = RecordingMaintenance()
         val localClient =
             VpnControlClient(
                 scheduler = localScheduler,
@@ -366,13 +369,13 @@ class AndroidEngineMethodHandlerTest {
         val localHandler =
             AndroidEngineMethodHandler(
                 profileConfigPath = "/tmp/profiles-v2.json",
-                identityStore = identityStore,
+                identityStore = localIdentity,
                 identityExecutor = Executor { deferred.add(it) },
                 mainScheduler = localScheduler,
                 controlClient = localClient,
                 activityCommands = activityCommands,
-                engineBridge = engineBridge,
-                maintenanceBridge = maintenance,
+                engineBridge = localEngine,
+                maintenanceBridge = localMaintenance,
                 warpSecretOkCode = 0,
             )
         localClient.clearAllAcknowledgedListener =
@@ -395,10 +398,17 @@ class AndroidEngineMethodHandlerTest {
         assertEquals("CLEAR_ALL_CANCELLED", wipeResult.errorCode)
         assertEquals(1, wipeResult.completionCount)
 
-        // Queued wipe runs after destroy — must not complete again.
+        // Queued wipe runs after destroy — must not complete again or mutate state.
+        val clearAllBefore = localIdentity.clearAllCount
+        val commandsBefore = localEngine.commands.size
+        val maintenanceBefore = localMaintenance.clearCount
         deferred.forEach { it.run() }
         assertEquals(1, wipeResult.completionCount)
         assertEquals("CLEAR_ALL_CANCELLED", wipeResult.errorCode)
+        assertEquals(clearAllBefore, localIdentity.clearAllCount)
+        assertEquals(commandsBefore, localEngine.commands.size)
+        assertEquals(maintenanceBefore, localMaintenance.clearCount)
+        assertFalse(localEngine.commands.any { it.contains("clear_all_data") })
     }
 
     private class RecordingActivityCommands : AndroidEngineMethodHandler.ActivityCommands {
