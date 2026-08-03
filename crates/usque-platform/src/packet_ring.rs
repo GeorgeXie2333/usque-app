@@ -55,7 +55,9 @@ pub struct SharedPacketRing {
 // mapped memory outlives every copy. All cross-thread state is accessed
 // atomically; each data direction is SPSC by protocol contract.
 unsafe impl Send for SharedPacketRing {}
-// SAFETY: same as Send — shared state is atomic and SPSC ownership is external.
+// SAFETY: `&SharedPacketRing` is safe to share: head/tail/dropped counters are
+// atomics, NonNull bases are immutable after attach, and SPSC ownership of each
+// direction is an external protocol invariant (not interior &mut sharing).
 unsafe impl Sync for SharedPacketRing {}
 
 impl SharedPacketRing {

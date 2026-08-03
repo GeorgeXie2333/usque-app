@@ -1,4 +1,9 @@
 # Keep intentional multi-parameter domain functions under #[expect] rather than
-# silent allows. Default Clippy threshold is 7 (fires when count > 7); several
-# Usque helpers take exactly 7 related parameters.
+# silent allows. Clippy fires too_many_arguments when argument count > threshold;
+# the upstream default is 7 (so exactly 7 args would pass silently). Threshold 6
+# forces 7-arg helpers to carry domain-reason expects.
+#
+# Host Clippy does not compile cfg(target_os = "android") code. After changing
+# this file or workspace lints, also run:
+#   pwsh -File tool/build_android_rust.ps1 -CargoAction clippy
 too-many-arguments-threshold = 6

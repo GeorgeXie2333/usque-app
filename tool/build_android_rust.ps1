@@ -23,6 +23,9 @@ $minimumApi = "26"
 if ($CargoAction -eq "clippy") {
     # Clippy is a static gate for the primary device ABI only; full multi-ABI
     # coverage remains with the build action and Flutter APK jobs.
+    if ($PSBoundParameters.ContainsKey("AbiFilter") -and $AbiFilter -ne "arm64-v8a") {
+        Write-Warning "Clippy mode only supports arm64-v8a; ignoring -AbiFilter '$AbiFilter'."
+    }
     $AbiFilter = "arm64-v8a"
 }
 

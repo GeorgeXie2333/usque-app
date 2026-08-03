@@ -76,7 +76,8 @@ pub struct WintunLibrary {
 // SAFETY: a loaded module and immutable function table may be called
 // concurrently; FreeLibrary runs only on unique drop.
 unsafe impl Send for WintunLibrary {}
-// SAFETY: same as Send — function pointers are immutable after load.
+// SAFETY: `&WintunLibrary` is safe to share: function pointers and the module
+// handle are immutable after load, and FreeLibrary runs only on exclusive Drop.
 unsafe impl Sync for WintunLibrary {}
 
 impl WintunLibrary {
@@ -259,7 +260,8 @@ struct AdapterInner {
 
 // SAFETY: adapter handle is owned uniquely; WintunLibrary is already Send.
 unsafe impl Send for AdapterInner {}
-// SAFETY: same as Send — no thread-affine state; close runs only on drop.
+// SAFETY: `&AdapterInner` is safe to share: the adapter handle is an opaque
+// immutable ID after open, library is Sync, and close runs only on exclusive Drop.
 unsafe impl Sync for AdapterInner {}
 
 impl Drop for AdapterInner {
@@ -280,8 +282,9 @@ pub struct WintunSession {
 
 // SAFETY: session handle is uniquely owned; adapter is Send and Sync.
 unsafe impl Send for WintunSession {}
-// SAFETY: same as Send — Wintun session ops are documented thread-safe with
-// single owner lifetime.
+// SAFETY: `&WintunSession` is safe to share: the session handle is an opaque
+// immutable ID for its lifetime, adapter is Sync, and end_session runs only on
+// exclusive Drop (Wintun allows concurrent packet APIs under single ownership).
 unsafe impl Sync for WintunSession {}
 
 impl WintunSession {

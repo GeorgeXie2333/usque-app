@@ -1432,6 +1432,10 @@ mod android_runtime {
             .and_then(|error| error.clone())
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "VPN runtime threads TUN, profile, identity, protector, pin refresh, cancellation, status, and start handshake as one unit"
+    )]
     async fn run(
         tun: OwnedFd,
         profile: Profile,
@@ -1541,6 +1545,10 @@ mod android_runtime {
         tunnel.shutdown().await;
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "proxy runtime threads identity, protector, pin refresh, cancellation, status, and start handshake as one unit"
+    )]
     async fn run_proxy(
         profile: Profile,
         identity: MasqueTlsIdentity,

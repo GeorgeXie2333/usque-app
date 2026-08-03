@@ -41,7 +41,9 @@ pub struct PacketMapping {
 // SAFETY: all owned handles and the mapping view are process-scoped kernel
 // objects; SharedPacketRing state is atomic and SPSC by protocol contract.
 unsafe impl Send for PacketMapping {}
-// SAFETY: same as Send — no thread-affine interior mutability.
+// SAFETY: `&PacketMapping` is safe to share: HANDLE fields are immutable after
+// construction, kernel waits/signals are thread-safe, and the ring is SPSC with
+// atomic indices (no thread-affine interior mutability).
 unsafe impl Sync for PacketMapping {}
 
 impl PacketMapping {
@@ -367,7 +369,8 @@ struct OwnedHandle(HANDLE);
 
 // SAFETY: uniquely owned Windows kernel handle; CloseHandle is thread-safe.
 unsafe impl Send for OwnedHandle {}
-// SAFETY: same as Send — unique ownership with no thread affinity.
+// SAFETY: `&OwnedHandle` is safe to share: the HANDLE value is immutable after
+// construction, kernel object ops are thread-safe, and Drop still closes once.
 unsafe impl Sync for OwnedHandle {}
 
 impl Drop for OwnedHandle {
@@ -389,7 +392,8 @@ struct MappedView {
 // SAFETY: mapped view is process memory with no thread-affine state; unique
 // ownership unmaps exactly once on drop.
 unsafe impl Send for MappedView {}
-// SAFETY: same as Send — shared access is coordinated by SharedPacketRing.
+// SAFETY: `&MappedView` is safe to share: the base address is immutable after
+// MapViewOfFile, and concurrent byte access is coordinated by SharedPacketRing.
 unsafe impl Sync for MappedView {}
 
 impl MappedView {

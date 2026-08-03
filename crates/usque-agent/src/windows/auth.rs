@@ -167,7 +167,8 @@ pub(crate) fn authenticate_named_pipe(
     // Re-read the pipe owner after opening the process to close the PID-reuse
     // race. Holding this process handle prevents subsequent reuse.
     let mut confirmed_process_id = 0_u32;
-    // SAFETY: all handles and output pointers are valid.
+    // SAFETY: `pipe` is still the live Named Pipe server handle and
+    // `&mut confirmed_process_id` is a valid out-pointer for the call duration.
     if unsafe { GetNamedPipeClientProcessId(pipe, &mut confirmed_process_id) } == 0
         || confirmed_process_id != process_id
         // SAFETY: process.0 is a live process handle owned by this function.
@@ -502,7 +503,8 @@ struct OwnedHandle(HANDLE);
 // SAFETY: Windows kernel handles may be used and closed from any process
 // thread. This wrapper has unique ownership and closes the handle exactly once.
 unsafe impl Send for OwnedHandle {}
-// SAFETY: same as Send — unique ownership; kernel handle is thread-safe.
+// SAFETY: `&OwnedHandle` is safe to share: the HANDLE value is immutable after
+// construction, kernel object ops are thread-safe, and Drop still closes once.
 unsafe impl Sync for OwnedHandle {}
 
 impl Drop for OwnedHandle {
