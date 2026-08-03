@@ -74,6 +74,7 @@ internal data class RoutePlan(
     val excluded: List<CidrBlock>,
 )
 
+@ConsistentCopyVisibility
 internal data class CidrBlock private constructor(
     val address: InetAddress,
     val prefixLength: Int,
