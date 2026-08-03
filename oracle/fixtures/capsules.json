@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "fixtures": [
+    {
+      "name": "empty-address-assign",
+      "hex": "0100"
+    },
+    {
+      "name": "unknown-type-42-future",
+      "hex": "2a06667574757265"
+    },
+    {
+      "name": "malformed-truncated-address",
+      "hex": "01030004c0",
+      "expected_error": "truncated-capsule-entry"
+    }
+  ]
+}

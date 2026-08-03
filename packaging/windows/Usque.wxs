@@ -1,0 +1,184 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" RequiredVersion="5.0.2">
+  <Package
+    Name="Usque $(DisplayVersion)"
+    Manufacturer="Usque contributors"
+    Version="$(MsiVersion)"
+    UpgradeCode="076CF387-E447-4666-9153-2DA16049A390"
+    Language="1033"
+    Scope="perMachine"
+    InstallerVersion="500">
+
+    <!--
+      Windows Installer compares only numeric versions. The build script maps
+      SemVer prereleases monotonically and keeps the user-facing SemVer in the
+      package name. Equal-version upgrades are intentional: they let users
+      replace x64-v1, x64-v2, and ARM64 variants without two products owning
+      the same installation directory.
+    -->
+    <MajorUpgrade
+      AllowSameVersionUpgrades="yes"
+      DowngradeErrorMessage="A newer version of [ProductName] is already installed."
+      Schedule="afterInstallInitialize" />
+
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Property Id="ARPCOMMENTS" Value="Unofficial Consumer WARP client. Installed variant: $(Variant)." />
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+    <Property Id="ARPPRODUCTICON" Value="UsqueProductIcon.ico" />
+    <Icon Id="UsqueProductIcon.ico" SourceFile="$(IconPath)" />
+
+    <Property Id="WINDOWSBUILDNUMBER" Secure="yes">
+      <RegistrySearch
+        Id="WindowsBuildNumberSearch"
+        Root="HKLM"
+        Key="SOFTWARE\Microsoft\Windows NT\CurrentVersion"
+        Name="CurrentBuildNumber"
+        Type="raw" />
+    </Property>
+    <Launch
+      Condition="Installed OR (VersionNT64 AND WINDOWSBUILDNUMBER &gt;= 19045)"
+      Message="Usque requires 64-bit Windows 10 22H2 (build 19045) or newer." />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Usque" />
+    </StandardDirectory>
+    <!-- ProgramMenuFolder resolves to the all-users menu for this package. -->
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="UsqueProgramMenuFolder" Name="Usque" />
+    </StandardDirectory>
+
+    <Component
+      Id="UsqueGuiComponent"
+      Directory="INSTALLFOLDER"
+      Guid="422D5D63-97E8-4B9A-89CF-C5C4C44BE55A">
+      <File
+        Id="UsqueGuiExecutable"
+        Source="!(bindpath.app)\usque.exe"
+        KeyPath="yes">
+        <Shortcut
+          Id="UsqueStartMenuShortcut"
+          Directory="UsqueProgramMenuFolder"
+          Name="Usque"
+          Description="Usque"
+          WorkingDirectory="INSTALLFOLDER"
+          Icon="UsqueProductIcon.ico"
+          IconIndex="0"
+          Advertise="yes" />
+      </File>
+      <RemoveFolder
+        Id="RemoveUsqueProgramMenuFolder"
+        Directory="UsqueProgramMenuFolder"
+        On="uninstall" />
+      <RegistryValue
+        Root="HKLM"
+        Key="Software\Usque"
+        Name="InstalledVariant"
+        Type="string"
+        Value="$(Variant)" />
+      <RegistryValue
+        Root="HKLM"
+        Key="Software\Usque"
+        Name="DisplayVersion"
+        Type="string"
+        Value="$(DisplayVersion)" />
+    </Component>
+
+    <Component
+      Id="UsqueEngineComponent"
+      Directory="INSTALLFOLDER"
+      Guid="28D99AC5-277C-4654-BFD9-C2288FC02E1C">
+      <File
+        Id="UsqueEngineExecutable"
+        Source="!(bindpath.app)\usque-engine.exe"
+        KeyPath="yes" />
+    </Component>
+
+    <Component
+      Id="UsqueAgentComponent"
+      Directory="INSTALLFOLDER"
+      Guid="E8A3C869-B571-4BD6-9CB6-98179A7CA9AF">
+      <File
+        Id="UsqueAgentExecutable"
+        Source="!(bindpath.app)\usque-agent.exe"
+        KeyPath="yes" />
+      <ServiceInstall
+        Id="UsqueAgentServiceInstall"
+        Name="UsqueAgent"
+        DisplayName="Usque Agent"
+        Description="Least-privilege service for Usque network state."
+        Arguments="--service --signer-sha256 $(SignerSha256)"
+        Type="ownProcess"
+        Start="auto"
+        ErrorControl="normal"
+        Vital="yes" />
+      <ServiceControl
+        Id="UsqueAgentServiceControl"
+        Name="UsqueAgent"
+        Start="install"
+        Stop="both"
+        Remove="uninstall"
+        Wait="yes" />
+    </Component>
+
+    <Component
+      Id="OfficialWintunComponent"
+      Directory="INSTALLFOLDER"
+      Guid="4612F8C8-5197-48C4-AA2A-18C7BF098516">
+      <!-- Keep the official pre-signed Wintun binary byte-for-byte intact. -->
+      <File
+        Id="OfficialWintunLibrary"
+        Source="!(bindpath.app)\wintun.dll"
+        KeyPath="yes" />
+    </Component>
+
+    <!--
+      Both deferred actions run as LocalSystem. Emergency WFP cleanup uses
+      stable Usque GUIDs and does not depend on a readable journal, so a later
+      detailed recovery failure can never leave the machine blocked offline.
+      Detailed recovery remains fatal: uninstall/major-upgrade must not remove
+      the Agent while leaving routes, DNS, proxy state, or an adapter behind.
+    -->
+    <CustomAction
+      Id="EmergencyRemoveKillSwitch"
+      FileRef="UsqueAgentExecutable"
+      ExeCommand="--emergency-remove-kill-switch"
+      Execute="deferred"
+      Impersonate="no"
+      Return="check" />
+    <CustomAction
+      Id="RecoverAgentState"
+      FileRef="UsqueAgentExecutable"
+      ExeCommand="--recover-state"
+      Execute="deferred"
+      Impersonate="no"
+      Return="check" />
+    <InstallExecuteSequence>
+      <Custom
+        Action="EmergencyRemoveKillSwitch"
+        After="StopServices"
+        Condition='REMOVE~="ALL"' />
+      <Custom
+        Action="RecoverAgentState"
+        After="EmergencyRemoveKillSwitch"
+        Condition='REMOVE~="ALL"' />
+    </InstallExecuteSequence>
+
+    <Feature Id="Complete" Title="Usque" Level="1">
+      <ComponentRef Id="UsqueGuiComponent" />
+      <ComponentRef Id="UsqueEngineComponent" />
+      <ComponentRef Id="UsqueAgentComponent" />
+      <ComponentRef Id="OfficialWintunComponent" />
+
+      <!-- Flutter runtime, plug-ins, data, and assets not owned above. -->
+      <Files Include="!(bindpath.app)\**" Directory="INSTALLFOLDER">
+        <Exclude Files="!(bindpath.app)\usque.exe" />
+        <Exclude Files="!(bindpath.app)\usque-engine.exe" />
+        <Exclude Files="!(bindpath.app)\usque-agent.exe" />
+        <Exclude Files="!(bindpath.app)\wintun.dll" />
+        <Exclude Files="!(bindpath.app)\**\*.pdb" />
+      </Files>
+    </Feature>
+  </Package>
+</Wix>

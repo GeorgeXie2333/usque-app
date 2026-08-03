@@ -23,10 +23,70 @@ go.work.sum
 
 # env file
 .env
+.env.*
+!.env.example
 
 # Usque specific
 config*.json*
-usque
+/usque
 usque.exe
 dist/.vscode/
 .vscode/
+
+# Rust
+/target/
+/.toolchains/
+/dist/
+**/*.rs.bk
+
+# Flutter and Dart
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/build/
+**/.packages
+
+# Python tooling
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+
+# IDE, OS and native-tool caches
+/.idea/
+/.vs/
+**/.gradle/
+**/.kotlin/
+**/.cxx/
+**/.externalNativeBuild/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Platform-local build configuration and signing material
+**/android/local.properties
+**/android/key.properties
+**/android/app/src/main/jniLibs/
+**/*.jks
+**/*.keystore
+**/*.p12
+**/*.pfx
+**/*.mobileprovision
+**/macos/Flutter/ephemeral/
+**/windows/flutter/ephemeral/
+
+# Local diagnostics and coverage
+/diagnostics/
+/coverage/
+/tmp/
+/release/READY
+*.lcov
+*.log
+*.dmp
+
+# Official signed Wintun redistribution payloads. Only the two Windows Beta
+# architectures are vendored; their source archive hash is documented beside
+# the files.
+!third_party/wintun-0.14.1/wintun/bin/amd64/wintun.dll
+!third_party/wintun-0.14.1/wintun/bin/arm64/wintun.dll

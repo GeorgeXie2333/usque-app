@@ -1,0 +1,19 @@
+[package]
+name = "usque-ipc"
+description = "Versioned protobuf control protocol for Usque processes"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+build = "build.rs"
+
+[dependencies]
+bytes.workspace = true
+prost.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[build-dependencies]
+prost-build.workspace = true
+protoc-bin-vendored.workspace = true

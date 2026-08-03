@@ -1,0 +1,173 @@
+name: Development platform builds
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - "apps/usque_gui/**"
+      - "crates/**"
+      - "third_party/**"
+      - "tool/build_android_rust.ps1"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".github/workflows/platform-builds.yml"
+
+concurrency:
+  group: platform-builds-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CMAKE_GENERATOR: Ninja
+  FLUTTER_COMMIT: 84fc5cbb223bc12f83d65b647ff8a56caf779ffd
+
+jobs:
+  android:
+    name: Android and Android TV APKs
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Java
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Flutter from pinned commit
+        run: |
+          mkdir -p "$RUNNER_TEMP/flutter"
+          git -C "$RUNNER_TEMP/flutter" init
+          git -C "$RUNNER_TEMP/flutter" remote add origin https://github.com/flutter/flutter.git
+          git -C "$RUNNER_TEMP/flutter" fetch --depth 1 origin "$FLUTTER_COMMIT"
+          git -C "$RUNNER_TEMP/flutter" checkout --detach FETCH_HEAD
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+
+      - name: Install Rust Android targets
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal
+          rustup default 1.97.1
+          rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+
+      - name: Install pinned Android NDK
+        run: |
+          sdkmanager \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;29.0.14206865" \
+            "cmake;3.22.1"
+
+      - name: Resolve locked Flutter packages
+        working-directory: apps/usque_gui
+        run: flutter --suppress-analytics pub get --enforce-lockfile
+
+      - name: Build split debug APKs
+        working-directory: apps/usque_gui
+        run: flutter --suppress-analytics build apk --debug --split-per-abi --no-pub
+
+      - name: Preserve split APKs
+        run: |
+          mkdir -p "$RUNNER_TEMP/usque-android"
+          cp apps/usque_gui/build/app/outputs/flutter-apk/*-debug.apk "$RUNNER_TEMP/usque-android/"
+
+      - name: Build Universal debug APK
+        working-directory: apps/usque_gui
+        run: flutter --suppress-analytics build apk --debug --no-pub
+
+      - name: Collect Universal APK
+        run: cp apps/usque_gui/build/app/outputs/flutter-apk/app-debug.apk "$RUNNER_TEMP/usque-android/usque-universal-debug.apk"
+
+      - name: Upload Android preview
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: usque-android-development
+          path: ${{ runner.temp }}/usque-android/*.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  windows:
+    name: Windows ${{ matrix.variant }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: x64-v1
+            runner: windows-2025
+            rust_target: x86_64-pc-windows-msvc
+            rust_cpu: x86-64
+          - variant: x64-v2
+            runner: windows-2025
+            rust_target: x86_64-pc-windows-msvc
+            rust_cpu: x86-64-v2
+          - variant: arm64
+            runner: windows-11-arm
+            rust_target: aarch64-pc-windows-msvc
+            rust_cpu: generic
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Flutter from pinned commit
+        shell: pwsh
+        run: |
+          $flutter = Join-Path $env:RUNNER_TEMP "flutter"
+          git init $flutter
+          git -C $flutter remote add origin https://github.com/flutter/flutter.git
+          git -C $flutter fetch --depth 1 origin $env:FLUTTER_COMMIT
+          git -C $flutter checkout --detach FETCH_HEAD
+          (Join-Path $flutter "bin") | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Build Rust engine and privileged Agent
+        shell: pwsh
+        env:
+          RUSTFLAGS: -C target-cpu=${{ matrix.rust_cpu }}
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal
+          rustup default 1.97.1
+          rustup target add "${{ matrix.rust_target }}"
+          cargo build --package usque-engine --package usque-agent --release --locked --target "${{ matrix.rust_target }}"
+
+      - name: Build Flutter Windows host
+        working-directory: apps/usque_gui
+        shell: pwsh
+        run: |
+          flutter --suppress-analytics pub get --enforce-lockfile
+          & "../../tool/prepare_windows_plugin_junctions.ps1" -FlutterProject "."
+          flutter --suppress-analytics build windows --release --no-pub
+
+      - name: Add engine to application directory
+        shell: pwsh
+        run: |
+          $app = Get-ChildItem apps/usque_gui/build/windows -Recurse -Filter usque.exe |
+            Select-Object -First 1
+          if ($null -eq $app) { throw "Flutter Windows executable not found" }
+          Copy-Item "target/${{ matrix.rust_target }}/release/usque-engine.exe" $app.Directory.FullName
+          Copy-Item "target/${{ matrix.rust_target }}/release/usque-agent.exe" $app.Directory.FullName
+          $wintunArch = if ("${{ matrix.rust_target }}" -eq "aarch64-pc-windows-msvc") {
+            "arm64"
+          } else {
+            "amd64"
+          }
+          Copy-Item "third_party/wintun-0.14.1/wintun/bin/$wintunArch/wintun.dll" $app.Directory.FullName
+          $app.Directory.FullName | Out-File -FilePath "$env:RUNNER_TEMP/app-path.txt"
+
+      - name: Collect application directory
+        shell: pwsh
+        run: |
+          $source = Get-Content "$env:RUNNER_TEMP/app-path.txt"
+          Copy-Item $source "$env:RUNNER_TEMP/usque-windows-${{ matrix.variant }}" -Recurse
+
+      - name: Upload Windows preview
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: usque-windows-${{ matrix.variant }}-development
+          path: ${{ runner.temp }}/usque-windows-${{ matrix.variant }}
+          if-no-files-found: error
+          retention-days: 7

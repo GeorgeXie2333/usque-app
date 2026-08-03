@@ -1,0 +1,161 @@
+syntax = "proto3";
+
+package usque.agent.v1;
+
+// The privileged Agent contract is deliberately narrower than the public
+// Engine control contract. It contains no registration, identity, Secret,
+// endpoint-pin material, bearer credentials, diagnostic-upload, or arbitrary
+// command execution fields. Numeric control-plane destinations carry no
+// identity data.
+
+enum AgentPhase {
+  AGENT_PHASE_UNSPECIFIED = 0;
+  AGENT_PHASE_CLEAN = 1;
+  AGENT_PHASE_PREPARING = 2;
+  AGENT_PHASE_PREPARED = 3;
+  AGENT_PHASE_ACTIVE = 4;
+  AGENT_PHASE_PAUSED = 5;
+  AGENT_PHASE_RECOVERING = 6;
+  AGENT_PHASE_RECOVERY_REQUIRED = 7;
+}
+
+message AgentError {
+  string code = 1;
+  string message = 2;
+  bool retryable = 3;
+}
+
+message AgentCapabilities {
+  bool wintun = 1;
+  bool wfp_kill_switch = 2;
+  bool interface_addresses = 3;
+  bool interface_dns = 4;
+  bool system_proxy = 5;
+  bool shared_packet_ring = 6;
+  string operating_system = 7;
+  string architecture = 8;
+  uint32 protocol_version = 9;
+}
+
+message TunnelPlan {
+  string profile_id = 1;
+  string endpoint = 2;
+  uint32 mtu = 3;
+  repeated string dns_servers = 4;
+  repeated string split_exclusions = 5;
+  bool allow_lan = 6;
+  bool kill_switch = 7;
+  string assigned_ipv4 = 8;
+  string assigned_ipv6 = 9;
+  // Both numeric candidates used by Happy Eyeballs. `endpoint` is the
+  // currently preferred/selected value and must be present in this list.
+  repeated string endpoint_candidates = 10;
+  // Pre-resolved Cloudflare registration API addresses. The Agent permits
+  // only the authenticated Engine binary to reach TCP/443 on these hosts so
+  // an endpoint-pin mismatch can refresh once without opening general egress.
+  repeated string control_api_candidates = 11;
+}
+
+message GetCapabilitiesRequest {}
+message GetStateRequest {}
+message RecoverRequest {}
+
+message PrepareTunnelRequest {
+  string operation_id = 1;
+  TunnelPlan plan = 2;
+}
+
+message CommitTunnelRequest { string operation_id = 1; }
+
+message RollbackTunnelRequest {
+  string operation_id = 1;
+  string reason_code = 2;
+}
+
+message PauseKillSwitchRequest {
+  string operation_id = 1;
+  uint32 seconds = 2;
+}
+
+message ApplySystemProxyRequest {
+  string operation_id = 1;
+  string proxy_uri = 2;
+  repeated string bypass_hosts = 3;
+}
+
+message RestoreSystemProxyRequest { string operation_id = 1; }
+
+message OpenPacketSessionRequest {
+  string operation_id = 1;
+  uint32 ring_capacity = 2;
+}
+
+message ClosePacketSessionRequest { string operation_id = 1; }
+
+// Recreates only the volatile Wintun session and shared packet ring for an
+// already-active, journaled tunnel. Persistent routes, DNS, and WFP policy are
+// intentionally left untouched while the authenticated Engine reattaches.
+message ResumeTunnelRequest {
+  string operation_id = 1;
+  string profile_id = 2;
+}
+
+// The response is written before the connection becomes a liveness lease.
+// Closing the owning Engine process/pipe detaches only the volatile packet
+// session; it never rolls back persistent WFP, routes, or DNS.
+message AcquireTunnelLeaseRequest { string operation_id = 1; }
+
+message AgentState {
+  AgentPhase phase = 1;
+  string operation_id = 2;
+  string profile_id = 3;
+  bool kill_switch_active = 4;
+  bool system_proxy_active = 5;
+  bool packet_session_active = 6;
+  uint64 journal_generation = 7;
+  repeated string warnings = 8;
+}
+
+// HANDLE values are duplicated into the authenticated Engine process before
+// being returned. They are opaque and valid only inside that exact process.
+message PacketSessionHandles {
+  uint64 mapping_handle = 1;
+  uint64 engine_to_agent_event_handle = 2;
+  uint64 agent_to_engine_event_handle = 3;
+  uint64 shutdown_event_handle = 4;
+  uint32 ring_capacity = 5;
+  uint32 layout_version = 6;
+}
+
+message Empty {}
+
+message AgentRequest {
+  string request_id = 1;
+  uint32 protocol_version = 2;
+  oneof payload {
+    GetCapabilitiesRequest get_capabilities = 10;
+    GetStateRequest get_state = 11;
+    PrepareTunnelRequest prepare_tunnel = 12;
+    CommitTunnelRequest commit_tunnel = 13;
+    RollbackTunnelRequest rollback_tunnel = 14;
+    PauseKillSwitchRequest pause_kill_switch = 15;
+    ApplySystemProxyRequest apply_system_proxy = 16;
+    RestoreSystemProxyRequest restore_system_proxy = 17;
+    RecoverRequest recover = 18;
+    OpenPacketSessionRequest open_packet_session = 19;
+    ClosePacketSessionRequest close_packet_session = 20;
+    ResumeTunnelRequest resume_tunnel = 21;
+    AcquireTunnelLeaseRequest acquire_tunnel_lease = 22;
+  }
+}
+
+message AgentResponse {
+  string request_id = 1;
+  AgentError error = 2;
+  oneof payload {
+    Empty empty = 10;
+    AgentCapabilities capabilities = 11;
+    AgentState state = 12;
+    PacketSessionHandles packet_session = 13;
+  }
+}

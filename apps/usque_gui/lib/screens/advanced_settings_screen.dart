@@ -1,0 +1,453 @@
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+
+import '../models/app_models.dart';
+import '../state/app_controller.dart';
+import '../widgets/common.dart';
+
+class AdvancedSettingsScreen extends StatefulWidget {
+  const AdvancedSettingsScreen({required this.controller, super.key});
+
+  final AppController controller;
+
+  @override
+  State<AdvancedSettingsScreen> createState() => _AdvancedSettingsScreenState();
+}
+
+class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+  late final TextEditingController _endpointV4;
+  late final TextEditingController _endpointV6;
+  late final TextEditingController _port;
+  late final TextEditingController _sni;
+  late final TextEditingController _mtu;
+  late final TextEditingController _dnsV4;
+  late final TextEditingController _dnsV6;
+  late final TextEditingController _bypass;
+  late TransportPolicy _transport;
+  late IpPolicy _ipPolicy;
+  late bool _killSwitch;
+  late bool _allowLan;
+
+  @override
+  void initState() {
+    super.initState();
+    _endpointV4 = TextEditingController();
+    _endpointV6 = TextEditingController();
+    _port = TextEditingController();
+    _sni = TextEditingController();
+    _mtu = TextEditingController();
+    _dnsV4 = TextEditingController();
+    _dnsV6 = TextEditingController();
+    _bypass = TextEditingController();
+    _load(widget.controller.activeProfile);
+  }
+
+  void _load(UsqueProfile profile) {
+    _endpointV4.text = profile.endpointIpv4;
+    _endpointV6.text = profile.endpointIpv6;
+    _port.text = profile.endpointPort.toString();
+    _sni.text = profile.sni;
+    _mtu.text = profile.mtu.toString();
+    _dnsV4.text = profile.dnsIpv4;
+    _dnsV6.text = profile.dnsIpv6;
+    _bypass.text = profile.bypassCidrs.join('\n');
+    _transport = profile.transport;
+    _ipPolicy = profile.ipPolicy;
+    _killSwitch = profile.killSwitch;
+    _allowLan = profile.allowLan;
+  }
+
+  @override
+  void dispose() {
+    for (final controller in <TextEditingController>[
+      _endpointV4,
+      _endpointV6,
+      _port,
+      _sni,
+      _mtu,
+      _dnsV4,
+      _dnsV6,
+      _bypass,
+    ]) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = widget.controller.strings;
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(strings.get('advanced')),
+        actions: <Widget>[
+          TextButton.icon(
+            onPressed: _reset,
+            icon: const Icon(LucideIcons.rotateCcw),
+            label: Text(strings.get('reset_defaults')),
+          ),
+          const SizedBox(width: 10),
+        ],
+      ),
+      body: Form(
+        key: _formKey,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(24, 18, 24, 40),
+          children: <Widget>[
+            Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 880),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    WarningBanner(
+                      title: strings.get('advanced'),
+                      message: strings.get('advanced_warning'),
+                    ),
+                    const SizedBox(height: 16),
+                    Panel(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: <Widget>[
+                          SectionTitle(
+                            icon: LucideIcons.cable,
+                            title: strings.get('transport'),
+                          ),
+                          const SizedBox(height: 20),
+                          SegmentedButton<TransportPolicy>(
+                            segments: <ButtonSegment<TransportPolicy>>[
+                              ButtonSegment<TransportPolicy>(
+                                value: TransportPolicy.automatic,
+                                label: Text(strings.get('automatic')),
+                              ),
+                              ButtonSegment<TransportPolicy>(
+                                value: TransportPolicy.http3,
+                                label: Text(strings.get('http3')),
+                              ),
+                              ButtonSegment<TransportPolicy>(
+                                value: TransportPolicy.http2,
+                                label: Text(strings.get('http2')),
+                              ),
+                            ],
+                            selected: <TransportPolicy>{_transport},
+                            onSelectionChanged: (selection) =>
+                                setState(() => _transport = selection.first),
+                            showSelectedIcon: false,
+                          ),
+                          const SizedBox(height: 18),
+                          _ResponsiveFields(
+                            children: <Widget>[
+                              TextFormField(
+                                controller: _endpointV4,
+                                decoration: InputDecoration(
+                                  labelText: strings.get('endpoint_ipv4'),
+                                ),
+                                validator: (value) => _validateIp(
+                                  value,
+                                  InternetAddressType.IPv4,
+                                ),
+                              ),
+                              TextFormField(
+                                controller: _endpointV6,
+                                decoration: InputDecoration(
+                                  labelText: strings.get('endpoint_ipv6'),
+                                ),
+                                validator: (value) => _validateIp(
+                                  value,
+                                  InternetAddressType.IPv6,
+                                ),
+                              ),
+                              TextFormField(
+                                controller: _port,
+                                keyboardType: TextInputType.number,
+                                inputFormatters: <TextInputFormatter>[
+                                  FilteringTextInputFormatter.digitsOnly,
+                                ],
+                                decoration: InputDecoration(
+                                  labelText: strings.get('port'),
+                                ),
+                                validator: _validatePort,
+                              ),
+                              TextFormField(
+                                controller: _sni,
+                                keyboardType: TextInputType.url,
+                                decoration: InputDecoration(
+                                  labelText: strings.get('sni'),
+                                ),
+                                validator: _validateSni,
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Panel(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: <Widget>[
+                          SectionTitle(
+                            icon: LucideIcons.network,
+                            title: strings.get('ip_dns'),
+                          ),
+                          const SizedBox(height: 20),
+                          DropdownButtonFormField<IpPolicy>(
+                            initialValue: _ipPolicy,
+                            decoration: InputDecoration(
+                              labelText: strings.get('ip_policy'),
+                            ),
+                            items: IpPolicy.values
+                                .map(
+                                  (value) => DropdownMenuItem<IpPolicy>(
+                                    value: value,
+                                    child: Text(_ipPolicyLabel(value)),
+                                  ),
+                                )
+                                .toList(growable: false),
+                            onChanged: (value) {
+                              if (value != null) {
+                                setState(() => _ipPolicy = value);
+                              }
+                            },
+                          ),
+                          const SizedBox(height: 14),
+                          _ResponsiveFields(
+                            children: <Widget>[
+                              TextFormField(
+                                controller: _dnsV4,
+                                decoration: InputDecoration(
+                                  labelText: strings.get('dns_ipv4'),
+                                ),
+                                validator: (value) => _validateIp(
+                                  value,
+                                  InternetAddressType.IPv4,
+                                ),
+                              ),
+                              TextFormField(
+                                controller: _dnsV6,
+                                decoration: InputDecoration(
+                                  labelText: strings.get('dns_ipv6'),
+                                ),
+                                validator: (value) => _validateIp(
+                                  value,
+                                  InternetAddressType.IPv6,
+                                ),
+                              ),
+                              TextFormField(
+                                controller: _mtu,
+                                keyboardType: TextInputType.number,
+                                inputFormatters: <TextInputFormatter>[
+                                  FilteringTextInputFormatter.digitsOnly,
+                                ],
+                                decoration: InputDecoration(
+                                  labelText: strings.get('mtu'),
+                                ),
+                                validator: _validateMtu,
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Panel(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: <Widget>[
+                          SectionTitle(
+                            icon: LucideIcons.shieldCheck,
+                            title: strings.get('routing_protection'),
+                          ),
+                          const SizedBox(height: 12),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(strings.get('kill_switch')),
+                            subtitle: Text(strings.get('kill_switch_help')),
+                            value: _killSwitch,
+                            onChanged: (value) =>
+                                setState(() => _killSwitch = value),
+                          ),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(strings.get('allow_lan')),
+                            value: _allowLan,
+                            onChanged: (value) =>
+                                setState(() => _allowLan = value),
+                          ),
+                          const SizedBox(height: 8),
+                          TextFormField(
+                            controller: _bypass,
+                            minLines: 3,
+                            maxLines: 6,
+                            decoration: InputDecoration(
+                              labelText: strings.get('bypass_cidrs'),
+                              hintText: strings.get('bypass_hint'),
+                              alignLabelWithHint: true,
+                            ),
+                            validator: _validateCidrs,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: FilledButton.icon(
+                        onPressed: _save,
+                        icon: const Icon(LucideIcons.save),
+                        label: Text(strings.get('save')),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _ipPolicyLabel(IpPolicy value) {
+    final strings = widget.controller.strings;
+    return strings.get(switch (value) {
+      IpPolicy.automatic => 'automatic',
+      IpPolicy.preferIpv4 => 'prefer_ipv4',
+      IpPolicy.preferIpv6 => 'prefer_ipv6',
+      IpPolicy.ipv4Only => 'ipv4_only',
+      IpPolicy.ipv6Only => 'ipv6_only',
+    });
+  }
+
+  String? _validateIp(String? value, InternetAddressType expected) {
+    final address = InternetAddress.tryParse(value?.trim() ?? '');
+    return address == null || address.type != expected
+        ? widget.controller.strings.get('invalid_address')
+        : null;
+  }
+
+  String? _validatePort(String? value) {
+    final port = int.tryParse(value ?? '');
+    return port == null || port < 1 || port > 65535 ? '1–65535' : null;
+  }
+
+  String? _validateMtu(String? value) {
+    final mtu = int.tryParse(value ?? '');
+    return mtu == null || mtu < 1280 || mtu > 9000 ? '1280–9000' : null;
+  }
+
+  String? _validateSni(String? value) {
+    final normalized = value?.trim() ?? '';
+    final valid = RegExp(
+      r'^(?=.{1,253}$)(?!-)(?:[a-zA-Z0-9-]{1,63}\.)+[a-zA-Z0-9-]{2,63}$',
+    ).hasMatch(normalized);
+    return valid ? null : widget.controller.strings.get('invalid_dns_name');
+  }
+
+  String? _validateCidrs(String? value) {
+    final cidrs = (value ?? '')
+        .split(RegExp(r'\r?\n'))
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty);
+    for (final cidr in cidrs) {
+      final parts = cidr.split('/');
+      final address = InternetAddress.tryParse(parts.first);
+      final prefix = parts.length == 2 ? int.tryParse(parts[1]) : null;
+      final maximum = address?.type == InternetAddressType.IPv4 ? 32 : 128;
+      if (parts.length != 2 ||
+          address == null ||
+          prefix == null ||
+          prefix < 0 ||
+          prefix > maximum) {
+        return '${widget.controller.strings.get('invalid_cidr')}: $cidr';
+      }
+    }
+    return null;
+  }
+
+  void _save() {
+    if (!(_formKey.currentState?.validate() ?? false)) {
+      return;
+    }
+    final profile = widget.controller.activeProfile;
+    widget.controller.updateProfile(
+      profile.copyWith(
+        transport: _transport,
+        ipPolicy: _ipPolicy,
+        endpointIpv4: _endpointV4.text.trim(),
+        endpointIpv6: _endpointV6.text.trim(),
+        endpointPort: int.parse(_port.text),
+        sni: _sni.text.trim(),
+        mtu: int.parse(_mtu.text),
+        dnsIpv4: _dnsV4.text.trim(),
+        dnsIpv6: _dnsV6.text.trim(),
+        killSwitch: _killSwitch,
+        allowLan: _allowLan,
+        bypassCidrs: _bypass.text
+            .split(RegExp(r'\r?\n'))
+            .map((line) => line.trim())
+            .where((line) => line.isNotEmpty)
+            .toList(growable: false),
+      ),
+    );
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(widget.controller.strings.get('saved'))),
+    );
+  }
+
+  Future<void> _reset() async {
+    final strings = widget.controller.strings;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        icon: const Icon(LucideIcons.rotateCcw),
+        title: Text(strings.get('reset_defaults')),
+        content: Text(strings.get('reset_defaults_body')),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(strings.get('cancel')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(strings.get('reset')),
+          ),
+        ],
+      ),
+    );
+    if (!(confirmed ?? false)) {
+      return;
+    }
+    final reset = widget.controller.activeProfile.resetAdvancedDefaults();
+    widget.controller.updateProfile(reset);
+    setState(() => _load(reset));
+  }
+}
+
+class _ResponsiveFields extends StatelessWidget {
+  const _ResponsiveFields({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth >= 620
+            ? (constraints.maxWidth - 12) / 2
+            : constraints.maxWidth;
+        return Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: children
+              .map((child) => SizedBox(width: width, child: child))
+              .toList(growable: false),
+        );
+      },
+    );
+  }
+}

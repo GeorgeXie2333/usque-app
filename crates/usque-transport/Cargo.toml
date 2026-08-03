@@ -1,0 +1,33 @@
+[package]
+name = "usque-transport"
+description = "MASQUE transports and user-space proxy data plane for Usque"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+boring.workspace = true
+bytes.workspace = true
+h2.workspace = true
+http.workspace = true
+httparse.workspace = true
+p256.workspace = true
+quiche.workspace = true
+rustls.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-boring.workspace = true
+tokio-rustls.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+ts_netstack_smoltcp.workspace = true
+usque-core = { path = "../usque-core" }
+usque-protocol = { path = "../usque-protocol" }
+webpki-roots.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

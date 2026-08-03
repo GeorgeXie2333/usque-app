@@ -1,0 +1,630 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:math';
+
+import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../core/app_strings.dart';
+import '../models/app_models.dart';
+import '../services/engine_client.dart';
+
+class AppController extends ChangeNotifier {
+  AppController(this._engine);
+
+  static const int _profileSchemaVersion = 1;
+  static const int _maximumProfilePayloadBytes = 1024 * 1024;
+  static const String _profilesKey = 'profiles_v1';
+  static const String _corruptProfilesBackupKey = 'profiles_v1_corrupt_backup';
+  static const List<Duration> _snapshotReconnectDelays = <Duration>[
+    Duration(seconds: 1),
+    Duration(seconds: 2),
+    Duration(seconds: 4),
+    Duration(seconds: 8),
+    Duration(seconds: 15),
+    Duration(seconds: 30),
+  ];
+
+  final EngineClient _engine;
+  SharedPreferences? _preferences;
+  Timer? _snapshotTimer;
+  Timer? _snapshotReconnectTimer;
+  StreamSubscription<EngineSnapshot>? _snapshotSubscription;
+  Future<void> _profileWriteTail = Future<void>.value();
+  int _snapshotReconnectAttempt = 0;
+  int _snapshotSubscriptionGeneration = 0;
+  bool _disposed = false;
+
+  bool initialized = false;
+  bool onboardingComplete = false;
+  bool busy = false;
+  bool updateChecksEnabled = true;
+  ThemePreference themePreference = ThemePreference.system;
+  LocalePreference localePreference = LocalePreference.system;
+  AppSection section = AppSection.home;
+  EngineSnapshot snapshot = const EngineSnapshot();
+  String? lastError;
+  String? lastNotice;
+  bool snapshotStreamDegraded = false;
+  UpdateCheckResult? updateResult;
+  List<UsqueProfile> profiles = <UsqueProfile>[UsqueProfile.defaultProfile()];
+  String activeProfileId = UsqueProfile.defaultProfileId;
+  Map<String, ProfileIdentityState> profileIdentityStates =
+      <String, ProfileIdentityState>{};
+
+  AppStrings get strings => AppStrings(localePreference);
+
+  UsqueProfile get activeProfile {
+    return profiles.firstWhere(
+      (profile) => profile.id == activeProfileId,
+      orElse: UsqueProfile.defaultProfile,
+    );
+  }
+
+  Future<void> initialize() async {
+    _preferences = await SharedPreferences.getInstance();
+    onboardingComplete = _preferences?.getBool('onboarding_complete') ?? false;
+    updateChecksEnabled =
+        _preferences?.getBool('update_checks_enabled') ?? true;
+    themePreference = _enumByName(
+      ThemePreference.values,
+      _preferences?.getString('theme'),
+      ThemePreference.system,
+    );
+    localePreference = _enumByName(
+      LocalePreference.values,
+      _preferences?.getString('locale'),
+      LocalePreference.system,
+    );
+    await _loadProfiles();
+    if (_disposed) {
+      return;
+    }
+    if (_engine.supportsSnapshotEvents) {
+      _subscribeToSnapshotEvents();
+    }
+    initialized = true;
+    _notifyListeners();
+    unawaited(refreshSnapshot(silent: true));
+    if (updateChecksEnabled) {
+      unawaited(_checkForUpdates(manual: false, silent: true));
+    }
+  }
+
+  Future<void> _loadProfiles() async {
+    final preferences = _preferences;
+    final raw = preferences?.getString(_profilesKey);
+    var legacyProfiles = <UsqueProfile>[UsqueProfile.defaultProfile()];
+    var legacyActiveProfileId = legacyProfiles.first.id;
+    if (preferences != null && raw != null) {
+      try {
+        if (utf8.encode(raw).length > _maximumProfilePayloadBytes) {
+          throw const FormatException('Profile data exceeds the safety limit');
+        }
+        final decoded = jsonDecode(raw);
+        if (decoded is! Map<String, dynamic> ||
+            decoded['schema_version'] != _profileSchemaVersion ||
+            decoded['profiles'] is! List) {
+          throw const FormatException('Unsupported profile schema');
+        }
+        final decodedProfiles = (decoded['profiles'] as List<dynamic>)
+            .map((value) {
+              if (value is! Map) {
+                throw const FormatException('Invalid profile entry');
+              }
+              return UsqueProfile.fromMap(Map<String, Object?>.from(value));
+            })
+            .toList(growable: false);
+        if (decodedProfiles.isEmpty || decodedProfiles.length > 128) {
+          throw const FormatException('Invalid profile count');
+        }
+        final ids = decodedProfiles.map((profile) => profile.id).toSet();
+        if (ids.length != decodedProfiles.length) {
+          throw const FormatException('Duplicate profile ID');
+        }
+        final active = decoded['active_profile_id'];
+        if (active is! String || !ids.contains(active)) {
+          throw const FormatException('Active profile is missing');
+        }
+        legacyProfiles = decodedProfiles;
+        legacyActiveProfileId = active;
+      } on Object {
+        await preferences.setString(_corruptProfilesBackupKey, raw);
+        await preferences.remove(_profilesKey);
+        lastError =
+            'Saved profiles were invalid and have been reset. A local backup was retained.';
+      }
+    }
+
+    profiles = legacyProfiles;
+    activeProfileId = legacyActiveProfileId;
+    try {
+      final catalog = await _engine.importLegacyProfiles(
+        legacyProfiles,
+        legacyActiveProfileId,
+      );
+      profiles = catalog.profiles;
+      activeProfileId = catalog.activeProfileId;
+      profileIdentityStates = catalog.identityStates;
+      await preferences?.remove(_profilesKey);
+    } on EngineException catch (error) {
+      lastError ??= error.message;
+    }
+  }
+
+  T _enumByName<T extends Enum>(List<T> values, String? name, T fallback) {
+    for (final value in values) {
+      if (value.name == name) {
+        return value;
+      }
+    }
+    return fallback;
+  }
+
+  void selectSection(AppSection value) {
+    section = value;
+    _notifyListeners();
+  }
+
+  Future<bool> finishOnboarding({String? warpSecret}) async {
+    return _run(() async {
+      await _engine.provisionIdentity(activeProfile, warpSecret: warpSecret);
+      profileIdentityStates = <String, ProfileIdentityState>{
+        ...profileIdentityStates,
+        activeProfile.id: ProfileIdentityState.ready,
+      };
+      onboardingComplete = true;
+      await _preferences?.setBool('onboarding_complete', true);
+    });
+  }
+
+  Future<void> connectOrDisconnect() async {
+    if (snapshot.isConnected || snapshot.isTransitional) {
+      await _run(() async {
+        snapshot = await _engine.disconnect();
+        if (snapshot.phase == ConnectionPhase.disconnected &&
+            !snapshotStreamDegraded) {
+          _stopPolling();
+        } else if (!_engine.supportsSnapshotEvents || snapshotStreamDegraded) {
+          _startPolling(force: snapshotStreamDegraded);
+        }
+      });
+      return;
+    }
+
+    snapshot = const EngineSnapshot(phase: ConnectionPhase.preparing);
+    _notifyListeners();
+    final success = await _run(() async {
+      if (identityState(activeProfile.id) != ProfileIdentityState.ready) {
+        throw const EngineException(
+          'IDENTITY_SETUP_REQUIRED',
+          'This profile needs a valid Consumer WARP identity before it can connect.',
+        );
+      }
+      snapshot = await _engine.connect(activeProfile);
+    });
+    if (success && (snapshot.isConnected || snapshot.isTransitional)) {
+      if (!_engine.supportsSnapshotEvents || snapshotStreamDegraded) {
+        _startPolling(force: snapshotStreamDegraded);
+      }
+    }
+  }
+
+  Future<void> refreshSnapshot({bool silent = false}) async {
+    try {
+      final next = await _engine.snapshot();
+      if (_disposed) {
+        return;
+      }
+      snapshot = next;
+      if (!snapshot.isConnected && !snapshotStreamDegraded) {
+        _stopPolling();
+      }
+      _notifyListeners();
+    } on EngineException catch (error) {
+      if (!silent && !_disposed) {
+        lastError = error.message;
+        _notifyListeners();
+      }
+    }
+  }
+
+  Future<void> pauseCaptivePortal() async {
+    await _run(() async {
+      snapshot = await _engine.pauseCaptivePortal();
+    });
+  }
+
+  Future<void> exportDiagnostics() async {
+    String? destination;
+    final success = await _run(() async {
+      destination = await _engine.exportDiagnostics();
+    }, affectsConnection: false);
+    if (success && destination != null) {
+      lastNotice = '${strings.get('diagnostics_saved')} $destination';
+      _notifyListeners();
+    }
+  }
+
+  Future<void> checkForUpdates() async {
+    await _checkForUpdates(manual: true, silent: false);
+  }
+
+  Future<void> clearAllData() async {
+    await flushProfileWrites();
+    final success = await _run(() async {
+      await _engine.clearAllData(confirmed: true);
+      await _preferences?.clear();
+      onboardingComplete = false;
+      updateChecksEnabled = true;
+      themePreference = ThemePreference.system;
+      localePreference = LocalePreference.system;
+      section = AppSection.home;
+      snapshot = const EngineSnapshot();
+      profiles = <UsqueProfile>[UsqueProfile.defaultProfile()];
+      activeProfileId = UsqueProfile.defaultProfileId;
+      profileIdentityStates = <String, ProfileIdentityState>{};
+      updateResult = null;
+    }, affectsConnection: false);
+    if (success) {
+      lastNotice = strings.get('clear_all_data_complete');
+      _notifyListeners();
+    }
+  }
+
+  Future<void> _checkForUpdates({
+    required bool manual,
+    required bool silent,
+  }) async {
+    if (silent) {
+      try {
+        final result = await _engine.checkForUpdates(manual: manual);
+        if (_disposed) {
+          return;
+        }
+        updateResult = result;
+        if (result.available) {
+          lastNotice =
+              '${strings.get('update_available')} ${result.version ?? ''}'
+                  .trim();
+          _notifyListeners();
+        }
+      } on Object {
+        // Automatic checks are optional and must not affect tunnel state.
+      }
+      return;
+    }
+
+    UpdateCheckResult? checked;
+    final success = await _run(() async {
+      checked = await _engine.checkForUpdates(manual: manual);
+    }, affectsConnection: false);
+    if (success && checked != null) {
+      updateResult = checked;
+      lastNotice = checked!.available
+          ? '${strings.get('update_available')} ${checked!.version ?? ''}'
+                .trim()
+          : strings.get('already_latest');
+      _notifyListeners();
+    }
+  }
+
+  Future<bool> _run(
+    Future<void> Function() operation, {
+    bool affectsConnection = true,
+  }) async {
+    busy = true;
+    lastError = null;
+    _notifyListeners();
+    try {
+      await operation();
+      return true;
+    } on EngineException catch (error) {
+      lastError = error.message;
+      if (affectsConnection && snapshot.phase != ConnectionPhase.disconnected) {
+        snapshot = EngineSnapshot(
+          phase: ConnectionPhase.error,
+          warning: error.message,
+        );
+      }
+      return false;
+    } catch (error) {
+      lastError = error.toString();
+      return false;
+    } finally {
+      busy = false;
+      _notifyListeners();
+    }
+  }
+
+  void clearError() {
+    lastError = null;
+    _notifyListeners();
+  }
+
+  void clearNotice() {
+    lastNotice = null;
+    _notifyListeners();
+  }
+
+  Future<void> setTheme(ThemePreference value) async {
+    themePreference = value;
+    _notifyListeners();
+    await _preferences?.setString('theme', value.name);
+  }
+
+  Future<void> setLocale(LocalePreference value) async {
+    localePreference = value;
+    _notifyListeners();
+    await _preferences?.setString('locale', value.name);
+  }
+
+  Future<void> setUpdateChecks(bool value) async {
+    updateChecksEnabled = value;
+    _notifyListeners();
+    await _preferences?.setBool('update_checks_enabled', value);
+  }
+
+  void addProfile(String name) {
+    final normalized = name.trim();
+    if (normalized.isEmpty || normalized.runes.length > 64) {
+      return;
+    }
+    final id = _newUuidV4();
+    final added = UsqueProfile(id: id, name: normalized);
+    profiles = <UsqueProfile>[...profiles, added];
+    profileIdentityStates = <String, ProfileIdentityState>{
+      ...profileIdentityStates,
+      added.id: ProfileIdentityState.missing,
+    };
+    _notifyListeners();
+    _queueProfileMutation(() => _engine.upsertProfile(added));
+  }
+
+  ProfileIdentityState identityState(String profileId) =>
+      profileIdentityStates[profileId] ?? ProfileIdentityState.missing;
+
+  Future<bool> createProfileWithIdentity(
+    String name, {
+    required IdentityProvisioningMethod method,
+    String? warpSecret,
+  }) async {
+    final normalized = name.trim();
+    if (normalized.isEmpty || normalized.runes.length > 64) return false;
+    final profile = UsqueProfile(id: _newUuidV4(), name: normalized);
+    ProfileCatalog? catalog;
+    final success = await _run(() async {
+      catalog = await _engine.createProfileWithIdentity(
+        profile,
+        method: method,
+        warpSecret: warpSecret,
+      );
+      profiles = catalog!.profiles;
+      activeProfileId = catalog!.activeProfileId;
+      profileIdentityStates = catalog!.identityStates;
+    }, affectsConnection: false);
+    return success;
+  }
+
+  Future<bool> provisionProfileIdentity(
+    UsqueProfile profile, {
+    required IdentityProvisioningMethod method,
+    String? warpSecret,
+  }) async {
+    final success = await _run(() async {
+      await _engine.provisionIdentity(
+        profile,
+        warpSecret: method == IdentityProvisioningMethod.importSecret
+            ? warpSecret
+            : null,
+      );
+      profileIdentityStates = <String, ProfileIdentityState>{
+        ...profileIdentityStates,
+        profile.id: ProfileIdentityState.ready,
+      };
+    }, affectsConnection: false);
+    return success;
+  }
+
+  void updateProfile(UsqueProfile updated) {
+    if (!profiles.any((profile) => profile.id == updated.id)) {
+      return;
+    }
+    final normalized = updated.mode == OperatingMode.httpProxy
+        ? updated
+        : updated.copyWith(proxy: updated.proxy.copyWith(systemProxy: false));
+    profiles = profiles
+        .map((profile) => profile.id == normalized.id ? normalized : profile)
+        .toList(growable: false);
+    _notifyListeners();
+    _queueProfileMutation(() => _engine.upsertProfile(normalized));
+  }
+
+  void setActiveProfile(String id) {
+    if (profiles.any((profile) => profile.id == id)) {
+      activeProfileId = id;
+      _notifyListeners();
+      _queueProfileMutation(() => _engine.setActiveProfile(id));
+    }
+  }
+
+  bool deleteProfile(String id) {
+    if (profiles.length == 1) {
+      return false;
+    }
+    profiles = profiles.where((profile) => profile.id != id).toList();
+    profileIdentityStates = Map<String, ProfileIdentityState>.from(
+      profileIdentityStates,
+    )..remove(id);
+    if (activeProfileId == id) {
+      activeProfileId = profiles.first.id;
+    }
+    _notifyListeners();
+    _queueProfileMutation(() => _engine.deleteProfile(id));
+    return true;
+  }
+
+  void _queueProfileMutation(Future<void> Function() mutation) {
+    _profileWriteTail = _profileWriteTail.then((_) async {
+      try {
+        await mutation();
+      } on Object catch (error) {
+        lastError = 'Profile changes could not be saved: $error';
+        try {
+          final catalog = await _engine.importLegacyProfiles(
+            const <UsqueProfile>[],
+            '',
+          );
+          profiles = catalog.profiles;
+          activeProfileId = catalog.activeProfileId;
+          profileIdentityStates = catalog.identityStates;
+        } on Object {
+          // Keep the optimistic in-memory state when the authoritative store
+          // cannot be reloaded; the original mutation error remains visible.
+        }
+        _notifyListeners();
+      }
+    });
+  }
+
+  /// Waits for already queued non-secret profile writes. Installers and tests
+  /// can use this before terminating the UI process.
+  Future<void> flushProfileWrites() => _profileWriteTail;
+
+  void _notifyListeners() {
+    if (!_disposed) {
+      notifyListeners();
+    }
+  }
+
+  void _startPolling({bool force = false}) {
+    if (_engine.supportsSnapshotEvents && !force) {
+      return;
+    }
+    if (_snapshotTimer != null) {
+      return;
+    }
+    _snapshotTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => unawaited(refreshSnapshot(silent: true)),
+    );
+  }
+
+  void _stopPolling() {
+    _snapshotTimer?.cancel();
+    _snapshotTimer = null;
+  }
+
+  void _subscribeToSnapshotEvents() {
+    if (_disposed || !_engine.supportsSnapshotEvents) {
+      return;
+    }
+    _snapshotReconnectTimer?.cancel();
+    _snapshotReconnectTimer = null;
+    final previous = _snapshotSubscription;
+    _snapshotSubscription = null;
+    if (previous != null) {
+      unawaited(previous.cancel());
+    }
+    final generation = ++_snapshotSubscriptionGeneration;
+    _snapshotSubscription = _engine.snapshotEvents.listen(
+      (EngineSnapshot next) => _handleSnapshotEvent(next, generation),
+      onError: (Object error, StackTrace stackTrace) =>
+          _handleSnapshotEventError(error, stackTrace, generation),
+      onDone: () => _handleSnapshotEventDone(generation),
+      cancelOnError: true,
+    );
+  }
+
+  void _handleSnapshotEvent(EngineSnapshot next, int generation) {
+    if (_disposed || generation != _snapshotSubscriptionGeneration) {
+      return;
+    }
+    final wasDegraded = snapshotStreamDegraded;
+    _snapshotReconnectAttempt = 0;
+    _snapshotReconnectTimer?.cancel();
+    _snapshotReconnectTimer = null;
+    snapshotStreamDegraded = false;
+    _stopPolling();
+    final nextError =
+        next.phase == ConnectionPhase.error &&
+            (next.warning?.trim().isNotEmpty ?? false)
+        ? <String?>[
+            next.errorCode?.trim(),
+            next.warning?.trim(),
+          ].whereType<String>().where((part) => part.isNotEmpty).join(': ')
+        : null;
+    final errorChanged = nextError != null && nextError != lastError;
+    final snapshotChanged = next != snapshot;
+    if (!snapshotChanged && !errorChanged && !wasDegraded) {
+      return;
+    }
+    snapshot = next;
+    if (errorChanged) {
+      lastError = nextError;
+    }
+    _notifyListeners();
+  }
+
+  void _handleSnapshotEventError(
+    Object error,
+    StackTrace stackTrace,
+    int generation,
+  ) {
+    _markSnapshotStreamUnavailable(generation);
+  }
+
+  void _handleSnapshotEventDone(int generation) {
+    _markSnapshotStreamUnavailable(generation);
+  }
+
+  void _markSnapshotStreamUnavailable(int generation) {
+    if (_disposed || generation != _snapshotSubscriptionGeneration) {
+      return;
+    }
+    _snapshotSubscription = null;
+    snapshotStreamDegraded = true;
+    _startPolling(force: true);
+    if (_snapshotReconnectTimer == null) {
+      final delay =
+          _snapshotReconnectDelays[_snapshotReconnectAttempt.clamp(
+            0,
+            _snapshotReconnectDelays.length - 1,
+          )];
+      if (_snapshotReconnectAttempt < _snapshotReconnectDelays.length - 1) {
+        _snapshotReconnectAttempt += 1;
+      }
+      _snapshotReconnectTimer = Timer(delay, () {
+        _snapshotReconnectTimer = null;
+        _subscribeToSnapshotEvents();
+      });
+    }
+    _notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _stopPolling();
+    _snapshotReconnectTimer?.cancel();
+    _snapshotReconnectTimer = null;
+    _snapshotSubscriptionGeneration += 1;
+    unawaited(_snapshotSubscription?.cancel());
+    _snapshotSubscription = null;
+    unawaited(_profileWriteTail.whenComplete(_engine.dispose));
+    super.dispose();
+  }
+}
+
+String _newUuidV4() {
+  final random = Random.secure();
+  final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  final hex = bytes
+      .map((value) => value.toRadixString(16).padLeft(2, '0'))
+      .join();
+  return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-'
+      '${hex.substring(12, 16)}-${hex.substring(16, 20)}-'
+      '${hex.substring(20)}';
+}

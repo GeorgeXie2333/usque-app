@@ -1,35 +1,859 @@
-name: Build and Release
+name: Public beta release
 
 on:
   push:
     tags:
-      - 'v*'
-  workflow_dispatch:  # Allows manual triggering
+      - "v0.1.0-beta.1"
+
+concurrency:
+  group: public-beta-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CMAKE_GENERATOR: Ninja
+  FLUTTER_COMMIT: 84fc5cbb223bc12f83d65b647ff8a56caf779ffd
+  RELEASE_TAG: v0.1.0-beta.1
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
 
 jobs:
-  release:
-    name: Build and Release
-    runs-on: ubuntu-latest
+  release-gate:
+    name: Validate protected release inputs
+    runs-on: ubuntu-24.04
     permissions:
-      contents: write  # Required for GitHub Releases
-
+      actions: read
+      contents: read
+    env:
+      WINDOWS_SIGNER_SHA256: ${{ vars.WINDOWS_SIGNER_SHA256 }}
+      ANDROID_SIGNER_SHA256: ${{ vars.ANDROID_SIGNER_SHA256 }}
+      WINDOWS_LAB_RUNNER: ${{ vars.WINDOWS_LAB_RUNNER }}
+      ANDROID_LAB_RUNNER: ${{ vars.ANDROID_LAB_RUNNER }}
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+      - name: Checkout exact tag
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0
+          fetch-depth: 1
+          persist-credentials: false
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: 1.26.3
-
-      - name: Install GoReleaser
+      - name: Reject a mismatched or pre-approved release
+        shell: bash
         run: |
-          curl -sL https://github.com/goreleaser/goreleaser/releases/latest/download/goreleaser_Linux_x86_64.tar.gz | tar xz -C /tmp
-          sudo mv /tmp/goreleaser /usr/local/bin/
+          set -euo pipefail
+          test "$GITHUB_REF_TYPE" = "tag"
+          test "$GITHUB_REF_NAME" = "$RELEASE_TAG"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
-      - name: Run GoReleaser
+          flutter_version="$(sed -nE 's/^version: ([^+]+)\+.*/\1/p' apps/usque_gui/pubspec.yaml)"
+          test "$flutter_version" = "${RELEASE_TAG#v}"
+
+          if [[ -e release/READY ]]; then
+            echo "::error::release/READY must be generated only after the exact signed artifacts pass both hardware laboratories."
+            exit 1
+          fi
+
+          for value in "$WINDOWS_SIGNER_SHA256" "$ANDROID_SIGNER_SHA256"; do
+            if [[ ! "$value" =~ ^[0-9A-Fa-f]{64}$ ]]; then
+              echo "::error::Protected signer fingerprint variables must each contain one SHA-256 digest."
+              exit 1
+            fi
+          done
+
+      - name: Require this exact main commit to have a successful CI run
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: goreleaser release --clean
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git fetch \
+            --no-tags \
+            --depth 1 \
+            origin \
+            +refs/heads/main:refs/remotes/origin/main
+          test "$(git rev-parse refs/remotes/origin/main)" = "$GITHUB_SHA" || {
+            echo "::error::The release tag must point to the current main commit."
+            exit 1
+          }
+
+          runs="$(
+            gh api \
+              --method GET \
+              "/repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
+              -f "head_sha=$GITHUB_SHA" \
+              -f "status=success" \
+              -f "per_page=100"
+          )"
+          jq -e \
+            --arg sha "$GITHUB_SHA" \
+            'any(.workflow_runs[]; .head_sha == $sha and .conclusion == "success" and .event == "push")' \
+            <<<"$runs" >/dev/null || {
+              echo "::error::No successful main CI push run exists for the exact release commit."
+              exit 1
+            }
+
+          for runner in "$WINDOWS_LAB_RUNNER" "$ANDROID_LAB_RUNNER"; do
+            if ! jq -e 'type == "array" and length > 0 and all(.[]; type == "string" and length > 0)' <<<"$runner" >/dev/null; then
+              echo "::error::Lab runner variables must be JSON arrays of protected self-hosted labels."
+              exit 1
+            fi
+          done
+
+  windows:
+    name: Windows ${{ matrix.variant }}
+    needs: release-gate
+    runs-on: ${{ matrix.variant == 'arm64' && (vars.WINDOWS_ARM64_RUNNER || 'windows-11-arm') || 'windows-2025' }}
+    timeout-minutes: 180
+    environment: release-signing
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: x64-v1
+            rust_target: x86_64-pc-windows-msvc
+            rust_cpu: x86-64
+            wintun_arch: amd64
+          - variant: x64-v2
+            rust_target: x86_64-pc-windows-msvc
+            rust_cpu: x86-64-v2
+            wintun_arch: amd64
+          - variant: arm64
+            rust_target: aarch64-pc-windows-msvc
+            rust_cpu: generic
+            wintun_arch: arm64
+    env:
+      WINDOWS_SIGNING_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
+      WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+      WINDOWS_SIGNER_SHA256: ${{ vars.WINDOWS_SIGNER_SHA256 }}
+      WINDOWS_TIMESTAMP_URL: http://timestamp.digicert.com
+    steps:
+      - name: Checkout exact tag
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install pinned .NET SDK
+        uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
+        with:
+          dotnet-version: 8.0.412
+
+      - name: Install Flutter from pinned commit
+        shell: pwsh
+        run: |
+          $flutter = Join-Path $env:RUNNER_TEMP "flutter"
+          git init $flutter
+          git -C $flutter remote add origin https://github.com/flutter/flutter.git
+          git -C $flutter fetch --depth 1 origin $env:FLUTTER_COMMIT
+          git -C $flutter checkout --detach FETCH_HEAD
+          if ((git -C $flutter rev-parse HEAD) -ne $env:FLUTTER_COMMIT) {
+            throw "Flutter checkout does not match FLUTTER_COMMIT."
+          }
+          (Join-Path $flutter "bin") | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Build locked Rust binaries
+        shell: pwsh
+        env:
+          RUSTFLAGS: -C target-cpu=${{ matrix.rust_cpu }}
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal
+          rustup default 1.97.1
+          rustup target add "${{ matrix.rust_target }}"
+          cargo build `
+            --package usque-engine `
+            --package usque-agent `
+            --release `
+            --locked `
+            --target "${{ matrix.rust_target }}"
+
+      - name: Build locked Flutter host
+        working-directory: apps/usque_gui
+        shell: pwsh
+        run: |
+          flutter --suppress-analytics pub get --enforce-lockfile
+          & "../../tool/prepare_windows_plugin_junctions.ps1" -FlutterProject "."
+          flutter --suppress-analytics build windows --release --no-pub
+
+      - name: Assemble unsigned application payload
+        shell: pwsh
+        run: |
+          $app = Get-ChildItem apps/usque_gui/build/windows -Recurse -Filter usque.exe |
+            Where-Object { $_.Directory.Name -eq "Release" } |
+            Select-Object -First 1
+          if ($null -eq $app) { throw "Flutter Windows executable not found." }
+          $payload = Join-Path $env:RUNNER_TEMP "usque-payload-${{ matrix.variant }}"
+          Copy-Item $app.Directory.FullName $payload -Recurse
+          Copy-Item `
+            "target/${{ matrix.rust_target }}/release/usque-engine.exe" `
+            $payload
+          Copy-Item `
+            "target/${{ matrix.rust_target }}/release/usque-agent.exe" `
+            $payload
+          Copy-Item `
+            "third_party/wintun-0.14.1/wintun/bin/${{ matrix.wintun_arch }}/wintun.dll" `
+            $payload
+          $payload | Out-File -FilePath (Join-Path $env:RUNNER_TEMP "payload-path.txt")
+
+      - name: Import protected signing identity
+        shell: pwsh
+        run: |
+          if (
+            [string]::IsNullOrWhiteSpace($env:WINDOWS_SIGNING_PFX_BASE64) -or
+            [string]::IsNullOrWhiteSpace($env:WINDOWS_SIGNING_PFX_PASSWORD)
+          ) {
+            throw "Protected Windows signing secrets are missing."
+          }
+
+          $pfx = Join-Path $env:RUNNER_TEMP "usque-signing.pfx"
+          [IO.File]::WriteAllBytes(
+            $pfx,
+            [Convert]::FromBase64String($env:WINDOWS_SIGNING_PFX_BASE64)
+          )
+          $password = ConvertTo-SecureString `
+            $env:WINDOWS_SIGNING_PFX_PASSWORD `
+            -AsPlainText `
+            -Force
+          $imported = @(
+            Import-PfxCertificate `
+              -FilePath $pfx `
+              -CertStoreLocation Cert:\CurrentUser\My `
+              -Password $password `
+              -Exportable:$false
+          )
+          $certificate = $imported |
+            Where-Object { $_.HasPrivateKey } |
+            Select-Object -First 1
+          if ($null -eq $certificate) {
+            throw "PFX does not contain one private code-signing identity."
+          }
+
+          $sha = [Security.Cryptography.SHA256]::Create()
+          try {
+            $rawFingerprint = (
+              $sha.ComputeHash($certificate.GetRawCertData()) |
+                ForEach-Object { $_.ToString("X2") }
+            ) -join ""
+          } finally {
+            $sha.Dispose()
+          }
+          if (
+            -not [StringComparer]::OrdinalIgnoreCase.Equals(
+              $rawFingerprint,
+              $env:WINDOWS_SIGNER_SHA256
+            )
+          ) {
+            throw "PFX signer does not match protected WINDOWS_SIGNER_SHA256."
+          }
+
+          $cer = Join-Path $env:RUNNER_TEMP "usque-signing.cer"
+          Export-Certificate -Cert $certificate -FilePath $cer | Out-Null
+          Import-Certificate `
+            -FilePath $cer `
+            -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
+          Import-Certificate `
+            -FilePath $cer `
+            -CertStoreLocation Cert:\CurrentUser\TrustedPublisher | Out-Null
+
+          $toolArch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") {
+            "arm64"
+          } else {
+            "x64"
+          }
+          $signTool = Get-ChildItem `
+            "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\$toolArch\signtool.exe" |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if ($null -eq $signTool) { throw "SignTool was not found." }
+
+          "USQUE_PFX_PATH=$pfx" | Out-File $env:GITHUB_ENV -Append
+          "USQUE_CERT_THUMBPRINT=$($certificate.Thumbprint)" |
+            Out-File $env:GITHUB_ENV -Append
+          "USQUE_SIGNTOOL=$($signTool.FullName)" |
+            Out-File $env:GITHUB_ENV -Append
+
+      - name: Sign and verify every project binary
+        shell: pwsh
+        run: |
+          $payload = Get-Content (Join-Path $env:RUNNER_TEMP "payload-path.txt")
+          $officialWintun = [IO.Path]::GetFullPath(
+            (Join-Path $payload "wintun.dll")
+          )
+          $binaries = Get-ChildItem $payload -File -Recurse |
+            Where-Object { $_.Extension -in ".exe", ".dll" }
+          foreach ($binary in $binaries) {
+            if (
+              [StringComparer]::OrdinalIgnoreCase.Equals(
+                [IO.Path]::GetFullPath($binary.FullName),
+                $officialWintun
+              )
+            ) {
+              continue
+            }
+            & $env:USQUE_SIGNTOOL sign `
+              /sha1 $env:USQUE_CERT_THUMBPRINT `
+              /s My `
+              /fd SHA256 `
+              /tr $env:WINDOWS_TIMESTAMP_URL `
+              /td SHA256 `
+              $binary.FullName
+            if ($LASTEXITCODE -ne 0) {
+              throw "Signing failed for $($binary.FullName)."
+            }
+            & $env:USQUE_SIGNTOOL verify /pa /all /v $binary.FullName
+            if ($LASTEXITCODE -ne 0) {
+              throw "Signature verification failed for $($binary.FullName)."
+            }
+          }
+
+      - name: Build, inspect, and ICE-validate MSI
+        shell: pwsh
+        run: |
+          $payload = Get-Content (Join-Path $env:RUNNER_TEMP "payload-path.txt")
+          $output = Join-Path $env:RUNNER_TEMP "windows-release"
+          & ./tool/build_windows_msi.ps1 `
+            -Variant "${{ matrix.variant }}" `
+            -AppDirectory $payload `
+            -OutputDirectory $output `
+            -SignerSha256 $env:WINDOWS_SIGNER_SHA256 `
+            -Version $env:RELEASE_TAG
+
+      - name: Sign and verify MSI
+        shell: pwsh
+        run: |
+          $msi = Get-ChildItem `
+            (Join-Path $env:RUNNER_TEMP "windows-release") `
+            -Filter "*.msi" |
+            Select-Object -First 1
+          if ($null -eq $msi) { throw "MSI was not produced." }
+          & $env:USQUE_SIGNTOOL sign `
+            /sha1 $env:USQUE_CERT_THUMBPRINT `
+            /s My `
+            /fd SHA256 `
+            /tr $env:WINDOWS_TIMESTAMP_URL `
+            /td SHA256 `
+            $msi.FullName
+          if ($LASTEXITCODE -ne 0) { throw "MSI signing failed." }
+          & $env:USQUE_SIGNTOOL verify /pa /all /v $msi.FullName
+          if ($LASTEXITCODE -ne 0) { throw "MSI signature verification failed." }
+
+      - name: Attest Windows build provenance
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-path: ${{ runner.temp }}/windows-release/*.msi
+
+      - name: Upload signed Windows release candidate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: usque-release-windows-${{ matrix.variant }}
+          path: ${{ runner.temp }}/windows-release/*.msi
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Remove signing identity from runner
+        if: always()
+        shell: pwsh
+        run: |
+          $thumbprint = $env:USQUE_CERT_THUMBPRINT
+          if (-not [string]::IsNullOrWhiteSpace($thumbprint)) {
+            foreach ($store in @("My", "Root", "TrustedPublisher")) {
+              $path = "Cert:\CurrentUser\$store\$thumbprint"
+              if (Test-Path -LiteralPath $path) {
+                Remove-Item -LiteralPath $path -Force
+              }
+            }
+          }
+          foreach ($path in @(
+            (Join-Path $env:RUNNER_TEMP "usque-signing.pfx"),
+            (Join-Path $env:RUNNER_TEMP "usque-signing.cer")
+          )) {
+            if (Test-Path -LiteralPath $path) {
+              Remove-Item -LiteralPath $path -Force
+            }
+          }
+
+  android:
+    name: Android and Android TV
+    needs: release-gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    environment: release-signing
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    env:
+      USQUE_ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+      USQUE_ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_STORE_PASSWORD }}
+      USQUE_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+      USQUE_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+      ANDROID_SIGNER_SHA256: ${{ vars.ANDROID_SIGNER_SHA256 }}
+    steps:
+      - name: Checkout exact tag
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install Java
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Flutter from pinned commit
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/flutter"
+          git -C "$RUNNER_TEMP/flutter" init
+          git -C "$RUNNER_TEMP/flutter" remote add origin https://github.com/flutter/flutter.git
+          git -C "$RUNNER_TEMP/flutter" fetch --depth 1 origin "$FLUTTER_COMMIT"
+          git -C "$RUNNER_TEMP/flutter" checkout --detach FETCH_HEAD
+          test "$(git -C "$RUNNER_TEMP/flutter" rev-parse HEAD)" = "$FLUTTER_COMMIT"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+
+      - name: Install pinned Rust and Android toolchains
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal
+          rustup default 1.97.1
+          rustup target add \
+            aarch64-linux-android \
+            armv7-linux-androideabi \
+            x86_64-linux-android
+          sdkmanager \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;29.0.14206865" \
+            "cmake;3.22.1"
+
+      - name: Restore protected Android signing identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          for value in \
+            "$USQUE_ANDROID_KEYSTORE_BASE64" \
+            "$USQUE_ANDROID_STORE_PASSWORD" \
+            "$USQUE_ANDROID_KEY_ALIAS" \
+            "$USQUE_ANDROID_KEY_PASSWORD"; do
+            test -n "$value" || {
+              echo "::error::Protected Android signing secrets are missing."
+              exit 1
+            }
+          done
+          keystore="$RUNNER_TEMP/usque-release.keystore"
+          printf '%s' "$USQUE_ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore"
+          chmod 600 "$keystore"
+          echo "USQUE_ANDROID_KEYSTORE=$keystore" >> "$GITHUB_ENV"
+
+      - name: Resolve locked Flutter packages
+        working-directory: apps/usque_gui
+        run: flutter --suppress-analytics pub get --enforce-lockfile
+
+      - name: Build signed split APKs
+        working-directory: apps/usque_gui
+        run: flutter --suppress-analytics build apk --release --split-per-abi --no-pub
+
+      - name: Preserve split APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/android-release"
+          mkdir -p "$output"
+          source_dir="apps/usque_gui/build/app/outputs/flutter-apk"
+          cp "$source_dir/app-arm64-v8a-release.apk" \
+            "$output/usque-$RELEASE_TAG-android-arm64-v8a.apk"
+          cp "$source_dir/app-armeabi-v7a-release.apk" \
+            "$output/usque-$RELEASE_TAG-android-armeabi-v7a.apk"
+          cp "$source_dir/app-x86_64-release.apk" \
+            "$output/usque-$RELEASE_TAG-android-x86_64.apk"
+
+      - name: Build signed Universal APK
+        working-directory: apps/usque_gui
+        run: flutter --suppress-analytics build apk --release --no-pub
+
+      - name: Preserve Universal APK
+        run: |
+          cp \
+            apps/usque_gui/build/app/outputs/flutter-apk/app-release.apk \
+            "$RUNNER_TEMP/android-release/usque-$RELEASE_TAG-android-universal.apk"
+
+      - name: Verify APK signatures and certificate identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          apksigner="$ANDROID_HOME/build-tools/36.0.0/apksigner"
+          test -x "$apksigner"
+          expected="$(tr '[:upper:]' '[:lower:]' <<<"$ANDROID_SIGNER_SHA256")"
+          count=0
+          for apk in "$RUNNER_TEMP"/android-release/*.apk; do
+            output="$("$apksigner" verify --verbose --print-certs "$apk")"
+            printf '%s\n' "$output"
+            actual="$(
+              sed -nE \
+                's/^Signer #1 certificate SHA-256 digest: ([0-9a-fA-F]+)$/\1/p' \
+                <<<"$output" |
+                head -n1 |
+                tr '[:upper:]' '[:lower:]'
+            )"
+            test "$actual" = "$expected" || {
+              echo "::error::Unexpected Android signer for $apk."
+              exit 1
+            }
+            count=$((count + 1))
+          done
+          test "$count" -eq 4
+
+      - name: Attest Android build provenance
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-path: ${{ runner.temp }}/android-release/*.apk
+
+      - name: Upload signed Android release candidate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: usque-release-android
+          path: ${{ runner.temp }}/android-release/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Remove Android signing material
+        if: always()
+        run: |
+          if [[ -n "${USQUE_ANDROID_KEYSTORE:-}" && -f "$USQUE_ANDROID_KEYSTORE" ]]; then
+            rm -f -- "$USQUE_ANDROID_KEYSTORE"
+          fi
+
+  stage-candidate:
+    name: Build checksums, SBOMs, and license inventories
+    needs: [release-gate, windows, android]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    env:
+      WINDOWS_SIGNER_SHA256: ${{ vars.WINDOWS_SIGNER_SHA256 }}
+      ANDROID_SIGNER_SHA256: ${{ vars.ANDROID_SIGNER_SHA256 }}
+    steps:
+      - name: Checkout exact tag
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Download every signed artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: usque-release-*
+          path: ${{ runner.temp }}/candidate
+          merge-multiple: true
+
+      - name: Install pinned Syft
+        id: syft
+        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          syft-version: v1.44.0
+
+      - name: Generate per-artifact SPDX, CycloneDX, and license lists
+        shell: bash
+        env:
+          SYFT: ${{ steps.syft.outputs.cmd }}
+        run: |
+          set -euo pipefail
+          candidate="$RUNNER_TEMP/candidate"
+          count=0
+          while IFS= read -r -d '' artifact; do
+            name="$(basename "$artifact")"
+            context="$(mktemp -d "$RUNNER_TEMP/sbom-context.XXXXXX")"
+            cp "$artifact" "$context/"
+            cp Cargo.lock "$context/"
+            cp apps/usque_gui/pubspec.lock "$context/"
+            cp apps/usque_gui/pubspec.yaml "$context/"
+            cp LICENSE.md "$context/"
+            cp third_party/wintun-0.14.1/wintun/LICENSE.txt \
+              "$context/WINTUN-LICENSE.txt"
+            "$SYFT" scan "dir:$context" \
+              -o "spdx-json=$artifact.spdx.json" \
+              -o "cyclonedx-json=$artifact.cdx.json"
+            {
+              printf 'name\tversion\tlicense_declared\tlicense_concluded\n'
+              jq -r '
+                .packages[]? |
+                [
+                  (.name // "UNKNOWN"),
+                  (.versionInfo // "UNKNOWN"),
+                  (.licenseDeclared // "NOASSERTION"),
+                  (.licenseConcluded // "NOASSERTION")
+                ] | @tsv
+              ' "$artifact.spdx.json"
+            } > "$artifact.licenses.tsv"
+            test -s "$artifact.spdx.json"
+            test -s "$artifact.cdx.json"
+            test -s "$artifact.licenses.tsv"
+            rm -rf -- "$context"
+            count=$((count + 1))
+          done < <(
+            find "$candidate" -maxdepth 1 -type f \
+              \( -name '*.msi' -o -name '*.apk' \) \
+              -print0 |
+              sort -z
+          )
+          test "$count" -eq 7
+
+      - name: Create immutable release manifest and SHA-256 sidecars
+        run: |
+          python tool/release_contract.py create-manifest \
+            --directory "$RUNNER_TEMP/candidate" \
+            --tag "$RELEASE_TAG" \
+            --commit "$GITHUB_SHA" \
+            --windows-signer-sha256 "$WINDOWS_SIGNER_SHA256" \
+            --android-signer-sha256 "$ANDROID_SIGNER_SHA256" \
+            --output "$RUNNER_TEMP/candidate/release-manifest.json"
+          python tool/release_contract.py verify-artifacts \
+            --directory "$RUNNER_TEMP/candidate" \
+            --manifest "$RUNNER_TEMP/candidate/release-manifest.json"
+
+      - name: Attest x64-v1 MSI SBOM
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-path: ${{ runner.temp }}/candidate/usque-v0.1.0-beta.1-windows-x64-v1.msi
+          sbom-path: ${{ runner.temp }}/candidate/usque-v0.1.0-beta.1-windows-x64-v1.msi.spdx.json
+
+      - name: Attest x64-v2 MSI SBOM
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-path: ${{ runner.temp }}/candidate/usque-v0.1.0-beta.1-windows-x64-v2.msi
+          sbom-path: ${{ runner.temp }}/candidate/usque-v0.1.0-beta.1-windows-x64-v2.msi.spdx.json
+
+      - name: Attest ARM64 MSI SBOM
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-path: ${{ runner.temp }}/candidate/usque-v0.1.0-beta.1-windows-arm64.msi
+          sbom-path: ${{ runner.temp }}/candidate/usque-v0.1.0-beta.1-windows-arm64.msi.spdx.json
+
+      - name: Attest arm64-v8a APK SBOM
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-path: ${{ runner.temp }}/candidate/usque-v0.1.0-beta.1-android-arm64-v8a.apk
+          sbom-path: ${{ runner.temp }}/candidate/usque-v0.1.0-beta.1-android-arm64-v8a.apk.spdx.json
+
+      - name: Attest armeabi-v7a APK SBOM
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-path: ${{ runner.temp }}/candidate/usque-v0.1.0-beta.1-android-armeabi-v7a.apk
+          sbom-path: ${{ runner.temp }}/candidate/usque-v0.1.0-beta.1-android-armeabi-v7a.apk.spdx.json
+
+      - name: Attest x86_64 APK SBOM
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-path: ${{ runner.temp }}/candidate/usque-v0.1.0-beta.1-android-x86_64.apk
+          sbom-path: ${{ runner.temp }}/candidate/usque-v0.1.0-beta.1-android-x86_64.apk.spdx.json
+
+      - name: Attest Universal APK SBOM
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-path: ${{ runner.temp }}/candidate/usque-v0.1.0-beta.1-android-universal.apk
+          sbom-path: ${{ runner.temp }}/candidate/usque-v0.1.0-beta.1-android-universal.apk.spdx.json
+
+      - name: Upload exact release candidate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: usque-release-candidate
+          path: ${{ runner.temp }}/candidate
+          if-no-files-found: error
+          retention-days: 14
+
+  windows-lab:
+    name: Isolated Windows leak and lifecycle laboratory
+    needs: stage-candidate
+    runs-on: ${{ fromJSON(vars.WINDOWS_LAB_RUNNER || '["self-hosted","usque-release-lab-not-configured"]') }}
+    timeout-minutes: 1800
+    environment: release-lab
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact tag
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Download exact candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: usque-release-candidate
+          path: ${{ runner.temp }}/candidate
+
+      - name: Verify candidate before lab mutation
+        shell: pwsh
+        run: |
+          python tool/release_contract.py verify-artifacts `
+            --directory "$env:RUNNER_TEMP/candidate" `
+            --manifest "$env:RUNNER_TEMP/candidate/release-manifest.json"
+
+      - name: Run fixed Windows hardware-lab harness
+        shell: pwsh
+        run: |
+          $harness = "C:\UsqueReleaseLab\run-windows-release.ps1"
+          if (-not (Test-Path -LiteralPath $harness -PathType Leaf)) {
+            throw "Protected Windows laboratory harness is not installed."
+          }
+          $evidence = Join-Path $env:RUNNER_TEMP "windows-evidence"
+          New-Item -ItemType Directory -Path $evidence -Force | Out-Null
+          & $harness `
+            -CandidateDirectory (Join-Path $env:RUNNER_TEMP "candidate") `
+            -ManifestPath (Join-Path $env:RUNNER_TEMP "candidate/release-manifest.json") `
+            -EvidenceDirectory $evidence
+          if ($LASTEXITCODE -ne 0) {
+            throw "Windows hardware laboratory failed."
+          }
+
+      - name: Verify Windows evidence and every attachment
+        shell: pwsh
+        run: |
+          python tool/release_contract.py verify-evidence `
+            --manifest "$env:RUNNER_TEMP/candidate/release-manifest.json" `
+            --evidence "$env:RUNNER_TEMP/windows-evidence/windows-evidence.json" `
+            --platform windows
+
+      - name: Upload Windows laboratory evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: usque-windows-lab-evidence
+          path: ${{ runner.temp }}/windows-evidence
+          if-no-files-found: error
+          retention-days: 90
+
+  android-lab:
+    name: Isolated Android and TV leak/lifecycle laboratory
+    needs: stage-candidate
+    runs-on: ${{ fromJSON(vars.ANDROID_LAB_RUNNER || '["self-hosted","usque-release-lab-not-configured"]') }}
+    timeout-minutes: 1800
+    environment: release-lab
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact tag
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Download exact candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: usque-release-candidate
+          path: ${{ runner.temp }}/candidate
+
+      - name: Verify candidate before lab mutation
+        run: |
+          python tool/release_contract.py verify-artifacts \
+            --directory "$RUNNER_TEMP/candidate" \
+            --manifest "$RUNNER_TEMP/candidate/release-manifest.json"
+
+      - name: Run fixed Android hardware-lab harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          harness="/opt/usque-release-lab/run-android-release"
+          test -x "$harness" || {
+            echo "::error::Protected Android laboratory harness is not installed."
+            exit 1
+          }
+          evidence="$RUNNER_TEMP/android-evidence"
+          mkdir -p "$evidence"
+          "$harness" \
+            --candidate-directory "$RUNNER_TEMP/candidate" \
+            --manifest "$RUNNER_TEMP/candidate/release-manifest.json" \
+            --evidence-directory "$evidence"
+
+      - name: Verify Android evidence and every attachment
+        run: |
+          python tool/release_contract.py verify-evidence \
+            --manifest "$RUNNER_TEMP/candidate/release-manifest.json" \
+            --evidence "$RUNNER_TEMP/android-evidence/android-evidence.json" \
+            --platform android
+
+      - name: Upload Android laboratory evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: usque-android-lab-evidence
+          path: ${{ runner.temp }}/android-evidence
+          if-no-files-found: error
+          retention-days: 90
+
+  publish:
+    name: Generate READY and publish prerelease
+    needs: [windows-lab, android-lab]
+    runs-on: ubuntu-24.04
+    environment: release-publish
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout exact tag
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Download exact candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: usque-release-candidate
+          path: ${{ runner.temp }}/candidate
+
+      - name: Download Windows evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: usque-windows-lab-evidence
+          path: ${{ runner.temp }}/windows-evidence
+
+      - name: Download Android evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: usque-android-lab-evidence
+          path: ${{ runner.temp }}/android-evidence
+
+      - name: Reverify exact artifacts and generate release/READY
+        run: |
+          set -euo pipefail
+          python tool/release_contract.py verify-artifacts \
+            --directory "$RUNNER_TEMP/candidate" \
+            --manifest "$RUNNER_TEMP/candidate/release-manifest.json"
+          mkdir -p "$RUNNER_TEMP/release"
+          python tool/release_contract.py create-ready \
+            --manifest "$RUNNER_TEMP/candidate/release-manifest.json" \
+            --windows-evidence "$RUNNER_TEMP/windows-evidence/windows-evidence.json" \
+            --android-evidence "$RUNNER_TEMP/android-evidence/android-evidence.json" \
+            --output "$RUNNER_TEMP/release/READY"
+          cp "$RUNNER_TEMP/release/READY" "$RUNNER_TEMP/candidate/release-READY.json"
+          cp \
+            "$RUNNER_TEMP/windows-evidence/windows-evidence.json" \
+            "$RUNNER_TEMP/candidate/windows-lab-evidence.json"
+          cp \
+            "$RUNNER_TEMP/android-evidence/android-evidence.json" \
+            "$RUNNER_TEMP/candidate/android-lab-evidence.json"
+
+      - name: Preserve final READY proof
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: usque-release-ready
+          path: |
+            ${{ runner.temp }}/release/READY
+            ${{ runner.temp }}/candidate/release-manifest.json
+            ${{ runner.temp }}/candidate/windows-lab-evidence.json
+            ${{ runner.temp }}/candidate/android-lab-evidence.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish GitHub prerelease only after every gate
+        uses: softprops/action-gh-release@fe965f7af51af5f2602596916f38a38df2e33de0 # v3.0.2
+        with:
+          prerelease: true
+          draft: false
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          files: ${{ runner.temp }}/candidate/**

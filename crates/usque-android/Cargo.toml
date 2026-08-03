@@ -1,0 +1,30 @@
+[package]
+name = "usque-android"
+description = "JNI boundary for the Android VpnService process"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "usque_android"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+async-trait.workspace = true
+ipnet.workspace = true
+jni.workspace = true
+libc.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+usque-core = { path = "../usque-core" }
+usque-transport = { path = "../usque-transport" }
+uuid.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

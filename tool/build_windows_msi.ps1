@@ -1,0 +1,274 @@
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory = $true)]
+    [ValidateSet("x64-v1", "x64-v2", "arm64")]
+    [string]$Variant,
+
+    [Parameter(Mandatory = $true)]
+    [string]$AppDirectory,
+
+    [Parameter(Mandatory = $true)]
+    [string]$OutputDirectory,
+
+    [Parameter(Mandatory = $true)]
+    [ValidatePattern("^[0-9A-Fa-f]{64}$")]
+    [string]$SignerSha256,
+
+    [Parameter(Mandatory = $true)]
+    [ValidatePattern("^v?[0-9]+\.[0-9]+\.[0-9]+(?:-beta\.[0-9]+)?$")]
+    [string]$Version,
+
+    [switch]$AllowPinnedUntrustedRoot
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+function Resolve-ExistingDirectory {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+        [Parameter(Mandatory = $true)]
+        [string]$Description
+    )
+
+    $resolved = Resolve-Path -LiteralPath $Path -ErrorAction Stop
+    if (-not (Test-Path -LiteralPath $resolved.Path -PathType Container)) {
+        throw "$Description is not a directory: $($resolved.Path)"
+    }
+    return $resolved.Path
+}
+
+function ConvertTo-MsiVersion {
+    param([Parameter(Mandatory = $true)][string]$SemVer)
+
+    if ($SemVer -notmatch '^v?(?<major>[0-9]+)\.(?<minor>[0-9]+)\.(?<patch>[0-9]+)(?:-beta\.(?<beta>[0-9]+))?$') {
+        throw "Unsupported release version: $SemVer"
+    }
+
+    $major = [int]$Matches.major
+    $minor = [int]$Matches.minor
+    $patch = [int]$Matches.patch
+    $ordinal = if ($Matches.beta) { [int]$Matches.beta } else { 99 }
+
+    if ($major -gt 255 -or $minor -gt 255) {
+        throw "MSI major and minor versions must be at most 255."
+    }
+    if ($ordinal -lt 1 -or $ordinal -gt 99) {
+        throw "Beta ordinal must be between 1 and 99."
+    }
+
+    $build = ([long]$patch * 100) + $ordinal
+    if ($build -gt 65535) {
+        throw "Mapped MSI build version exceeds 65535."
+    }
+
+    return "$major.$minor.$build"
+}
+
+function Get-CertificateSha256 {
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.Security.Cryptography.X509Certificates.X509Certificate2]$Certificate
+    )
+
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $digest = $sha256.ComputeHash($Certificate.GetRawCertData())
+        return (($digest | ForEach-Object { $_.ToString("X2") }) -join "")
+    }
+    finally {
+        $sha256.Dispose()
+    }
+}
+
+function Assert-NoReparsePoints {
+    param([Parameter(Mandatory = $true)][string]$Root)
+
+    $rootItem = Get-Item -LiteralPath $Root -Force
+    if (($rootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "Application directory must not be a reparse point: $Root"
+    }
+
+    $reparsePoint = Get-ChildItem -LiteralPath $Root -Force -Recurse |
+        Where-Object {
+            ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0
+        } |
+        Select-Object -First 1
+    if ($null -ne $reparsePoint) {
+        throw "Application payload contains a reparse point: $($reparsePoint.FullName)"
+    }
+}
+
+function Assert-ReleaseSignatures {
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [Parameter(Mandatory = $true)][string]$ExpectedSigner,
+        [switch]$AllowUntrustedRoot
+    )
+
+    $binaries = @(
+        Get-ChildItem -LiteralPath $Root -File -Recurse |
+            Where-Object { $_.Extension -in ".exe", ".dll" }
+    )
+    if ($binaries.Count -eq 0) {
+        throw "Application payload has no executable binaries."
+    }
+
+    $wintunPath = [IO.Path]::GetFullPath((Join-Path $Root "wintun.dll"))
+    foreach ($binary in $binaries) {
+        $binaryPath = [IO.Path]::GetFullPath($binary.FullName)
+        if ([StringComparer]::OrdinalIgnoreCase.Equals($binaryPath, $wintunPath)) {
+            continue
+        }
+
+        $signature = Get-AuthenticodeSignature -LiteralPath $binaryPath
+        $valid = $signature.Status -eq [System.Management.Automation.SignatureStatus]::Valid
+        $pinnedSelfSigned =
+            $AllowUntrustedRoot -and
+            $signature.Status -eq [System.Management.Automation.SignatureStatus]::UnknownError -and
+            $null -ne $signature.SignerCertificate -and
+            $signature.SignerCertificate.Subject -eq $signature.SignerCertificate.Issuer
+        if (-not $valid -and -not $pinnedSelfSigned) {
+            throw "Authenticode verification failed for $binaryPath ($($signature.Status))."
+        }
+        if ($null -eq $signature.SignerCertificate) {
+            throw "No signer certificate was returned for $binaryPath."
+        }
+
+        $actualSigner = Get-CertificateSha256 -Certificate $signature.SignerCertificate
+        if (-not [StringComparer]::OrdinalIgnoreCase.Equals($actualSigner, $ExpectedSigner)) {
+            throw "Unexpected signer for $binaryPath. Expected $ExpectedSigner, got $actualSigner."
+        }
+    }
+}
+
+function Assert-OfficialWintun {
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [Parameter(Mandatory = $true)][string]$BuildVariant
+    )
+
+    $expectedHashes = @{
+        "x64-v1" = "E5DA8447DC2C320EDC0FC52FA01885C103DE8C118481F683643CACC3220DAFCE"
+        "x64-v2" = "E5DA8447DC2C320EDC0FC52FA01885C103DE8C118481F683643CACC3220DAFCE"
+        "arm64"  = "F7BA89005544BE9D85231A9E0D5F23B2D15B3311667E2DAD0DEBD344918A3F80"
+    }
+
+    $wintunPath = Join-Path $Root "wintun.dll"
+    if (-not (Test-Path -LiteralPath $wintunPath -PathType Leaf)) {
+        throw "Official Wintun DLL is missing: $wintunPath"
+    }
+
+    $actual = (Get-FileHash -LiteralPath $wintunPath -Algorithm SHA256).Hash
+    $expected = $expectedHashes[$BuildVariant]
+    if (-not [StringComparer]::OrdinalIgnoreCase.Equals($actual, $expected)) {
+        throw "Wintun 0.14.1 hash mismatch for $BuildVariant. Expected $expected, got $actual."
+    }
+
+    $nestedWintun = Get-ChildItem -LiteralPath $Root -File -Recurse -Filter "wintun.dll" |
+        Where-Object {
+            -not [StringComparer]::OrdinalIgnoreCase.Equals(
+                [IO.Path]::GetFullPath($_.FullName),
+                [IO.Path]::GetFullPath($wintunPath)
+            )
+        } |
+        Select-Object -First 1
+    if ($null -ne $nestedWintun) {
+        throw "Unexpected additional Wintun DLL: $($nestedWintun.FullName)"
+    }
+}
+
+$repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
+$sourcePath = Join-Path $repositoryRoot "packaging\windows\Usque.wxs"
+$iconPath = Join-Path $repositoryRoot "assets\branding\usque-app-icon.ico"
+$appRoot = Resolve-ExistingDirectory -Path $AppDirectory -Description "Application payload"
+
+$requiredFiles = @("usque.exe", "usque-engine.exe", "usque-agent.exe", "wintun.dll")
+foreach ($requiredFile in $requiredFiles) {
+    $candidate = Join-Path $appRoot $requiredFile
+    if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+        throw "Required application file is missing: $candidate"
+    }
+}
+
+$pdb = Get-ChildItem -LiteralPath $appRoot -File -Recurse -Filter "*.pdb" |
+    Select-Object -First 1
+if ($null -ne $pdb) {
+    throw "Release payload must not contain PDB files: $($pdb.FullName)"
+}
+
+Assert-NoReparsePoints -Root $appRoot
+Assert-OfficialWintun -Root $appRoot -BuildVariant $Variant
+$normalizedSigner = $SignerSha256.ToUpperInvariant()
+Assert-ReleaseSignatures `
+    -Root $appRoot `
+    -ExpectedSigner $normalizedSigner `
+    -AllowUntrustedRoot:$AllowPinnedUntrustedRoot
+
+if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
+    throw "WiX authoring is missing: $sourcePath"
+}
+if (-not (Test-Path -LiteralPath $iconPath -PathType Leaf)) {
+    throw "Installer icon is missing: $iconPath"
+}
+
+New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
+$outputRoot = (Resolve-Path -LiteralPath $OutputDirectory).Path
+$displayVersion = $Version.TrimStart("v")
+$msiVersion = ConvertTo-MsiVersion -SemVer $Version
+$outputPath = Join-Path $outputRoot "usque-v$displayVersion-windows-$Variant.msi"
+$intermediatePath = Join-Path $outputRoot "wix-$Variant"
+New-Item -ItemType Directory -Path $intermediatePath -Force | Out-Null
+
+Push-Location $repositoryRoot
+try {
+    & dotnet tool restore
+    if ($LASTEXITCODE -ne 0) {
+        throw "dotnet tool restore failed with exit code $LASTEXITCODE."
+    }
+
+    $architecture = if ($Variant -eq "arm64") { "arm64" } else { "x64" }
+    & dotnet tool run wix -- build `
+        -arch $architecture `
+        -bindpath "app=$appRoot" `
+        -define "DisplayVersion=$displayVersion" `
+        -define "MsiVersion=$msiVersion" `
+        -define "Variant=$Variant" `
+        -define "SignerSha256=$normalizedSigner" `
+        -define "IconPath=$iconPath" `
+        -defaultcompressionlevel high `
+        -intermediateFolder $intermediatePath `
+        -pdbtype none `
+        -out $outputPath `
+        $sourcePath
+    if ($LASTEXITCODE -ne 0) {
+        throw "WiX build failed with exit code $LASTEXITCODE."
+    }
+}
+finally {
+    Pop-Location
+}
+
+if (-not (Test-Path -LiteralPath $outputPath -PathType Leaf)) {
+    throw "WiX did not produce the expected MSI: $outputPath"
+}
+
+& (Join-Path $PSScriptRoot "verify_windows_msi.ps1") `
+    -MsiPath $outputPath `
+    -Variant $Variant `
+    -ExpectedMsiVersion $msiVersion `
+    -ExpectedDisplayVersion $displayVersion `
+    -SignerSha256 $normalizedSigner
+if ($LASTEXITCODE -ne 0) {
+    throw "MSI table contract verification failed with exit code $LASTEXITCODE."
+}
+
+# ICE61 rejects the deliberately enabled equal-version major upgrade used to
+# replace x64-v1/x64-v2 variants. Every other standard ICE remains enabled.
+& dotnet tool run wix -- msi validate -sice ICE61 $outputPath
+if ($LASTEXITCODE -ne 0) {
+    throw "MSI ICE validation failed with exit code $LASTEXITCODE."
+}
+
+Write-Output $outputPath

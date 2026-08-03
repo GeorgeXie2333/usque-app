@@ -1,0 +1,43 @@
+[package]
+name = "usque-engine"
+description = "Unprivileged Usque engine process"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "usque-engine"
+path = "src/main.rs"
+
+[dependencies]
+async-trait.workspace = true
+bytes.workspace = true
+chrono.workspace = true
+clap.workspace = true
+ipnet.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+usque-core = { path = "../usque-core" }
+usque-ipc = { path = "../usque-ipc" }
+usque-platform = { path = "../usque-platform" }
+usque-transport = { path = "../usque-transport" }
+uuid.workspace = true
+zeroize.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc.workspace = true
+
+[dev-dependencies]
+base64.workspace = true
+p256.workspace = true

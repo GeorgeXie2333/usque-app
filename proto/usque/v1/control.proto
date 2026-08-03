@@ -1,0 +1,303 @@
+syntax = "proto3";
+
+package usque.v1;
+
+enum OperatingMode {
+  OPERATING_MODE_UNSPECIFIED = 0;
+  OPERATING_MODE_VPN = 1;
+  OPERATING_MODE_SOCKS5 = 2;
+  OPERATING_MODE_HTTP_PROXY = 3;
+}
+
+enum TransportPolicy {
+  TRANSPORT_POLICY_UNSPECIFIED = 0;
+  TRANSPORT_POLICY_AUTO = 1;
+  TRANSPORT_POLICY_HTTP3 = 2;
+  TRANSPORT_POLICY_HTTP2 = 3;
+}
+
+enum IpPolicy {
+  IP_POLICY_UNSPECIFIED = 0;
+  IP_POLICY_AUTO = 1;
+  IP_POLICY_PREFER_IPV4 = 2;
+  IP_POLICY_PREFER_IPV6 = 3;
+  IP_POLICY_IPV4_ONLY = 4;
+  IP_POLICY_IPV6_ONLY = 5;
+}
+
+enum DnsMode {
+  DNS_MODE_UNSPECIFIED = 0;
+  DNS_MODE_TUNNEL = 1;
+  DNS_MODE_LOCAL_CONFIGURED = 2;
+  DNS_MODE_SYSTEM = 3;
+}
+
+enum ProxyDnsMode {
+  PROXY_DNS_MODE_UNSPECIFIED = 0;
+  PROXY_DNS_MODE_REMOTE = 1;
+  PROXY_DNS_MODE_LOCAL_CONFIGURED = 2;
+  PROXY_DNS_MODE_SYSTEM = 3;
+}
+
+enum IdentityProvisioningMethod {
+  IDENTITY_PROVISIONING_METHOD_UNSPECIFIED = 0;
+  IDENTITY_PROVISIONING_METHOD_REGISTER = 1;
+  IDENTITY_PROVISIONING_METHOD_IMPORT_SECRET = 2;
+}
+
+enum ProfileIdentityState {
+  PROFILE_IDENTITY_STATE_UNSPECIFIED = 0;
+  PROFILE_IDENTITY_STATE_READY = 1;
+  PROFILE_IDENTITY_STATE_MISSING = 2;
+  PROFILE_IDENTITY_STATE_INVALID = 3;
+}
+
+enum ConnectionPhase {
+  CONNECTION_PHASE_UNSPECIFIED = 0;
+  CONNECTION_PHASE_DISCONNECTED = 1;
+  CONNECTION_PHASE_PREPARING = 2;
+  CONNECTION_PHASE_CONNECTING_HTTP3 = 3;
+  CONNECTION_PHASE_CONNECTING_HTTP2 = 4;
+  CONNECTION_PHASE_CONNECTED = 5;
+  CONNECTION_PHASE_DEGRADED = 6;
+  CONNECTION_PHASE_RECONNECTING = 7;
+  CONNECTION_PHASE_DISCONNECTING = 8;
+  CONNECTION_PHASE_CAPTIVE_PORTAL_PAUSED = 9;
+  CONNECTION_PHASE_ERROR = 10;
+}
+
+enum KillSwitchState {
+  KILL_SWITCH_STATE_UNSPECIFIED = 0;
+  KILL_SWITCH_STATE_NOT_APPLICABLE = 1;
+  KILL_SWITCH_STATE_INACTIVE = 2;
+  KILL_SWITCH_STATE_ACTIVE = 3;
+  KILL_SWITCH_STATE_PAUSED = 4;
+  KILL_SWITCH_STATE_ERROR = 5;
+}
+
+enum LockdownState {
+  LOCKDOWN_STATE_UNSPECIFIED = 0;
+  LOCKDOWN_STATE_NOT_SUPPORTED = 1;
+  LOCKDOWN_STATE_DISABLED = 2;
+  LOCKDOWN_STATE_ENABLED = 3;
+  LOCKDOWN_STATE_UNKNOWN = 4;
+}
+
+message EndpointSettings {
+  string ipv4 = 1;
+  string ipv6 = 2;
+  uint32 port = 3;
+  string sni = 4;
+}
+
+message ProxySettings {
+  repeated string socks5_listeners = 1;
+  repeated string http_listeners = 2;
+  bool system_proxy = 3;
+  uint32 udp_idle_timeout_seconds = 4;
+  ProxyDnsMode dns_mode = 5;
+}
+
+message Profile {
+  string id = 1;
+  string name = 2;
+  OperatingMode mode = 3;
+  TransportPolicy transport = 4;
+  EndpointSettings endpoint = 5;
+  IpPolicy ip_policy = 6;
+  uint32 mtu = 7;
+  repeated string dns_servers = 8;
+  bool allow_lan = 9;
+  repeated string split_exclusions = 10;
+  bool kill_switch = 11;
+  bool auto_connect = 12;
+  ProxySettings proxy = 13;
+  DnsMode dns_mode = 14;
+}
+
+message Statistics {
+  uint64 connected_seconds = 1;
+  uint64 bytes_sent = 2;
+  uint64 bytes_received = 3;
+  uint64 upload_bytes_per_second = 4;
+  uint64 download_bytes_per_second = 5;
+}
+
+message GeoLocation {
+  string ip = 1;
+  string country_code = 2;
+  string country = 3;
+  string region = 4;
+  string city = 5;
+  string flag_url = 6;
+  string flag_svg = 7;
+}
+
+message ExitInfo {
+  string ipv4 = 1;
+  string ipv6 = 2;
+  GeoLocation ipv4_location = 3;
+  GeoLocation ipv6_location = 4;
+  int64 checked_at_unix_milliseconds = 5;
+}
+
+message StructuredError {
+  string code = 1;
+  string message = 2;
+  bool retryable = 3;
+}
+
+message ConnectionWarning {
+  string code = 1;
+  string message = 2;
+}
+
+message Capabilities {
+  bool vpn = 1;
+  bool socks5 = 2;
+  bool http_proxy = 3;
+  bool system_proxy = 4;
+  bool platform_lockdown = 5;
+  string operating_system = 6;
+  string architecture = 7;
+  repeated string transports = 8;
+  bool secure_storage = 9;
+}
+
+message ConnectionSnapshot {
+  ConnectionPhase phase = 1;
+  string transport = 2;
+  string address_family = 3;
+  bool ipv4_available = 4;
+  bool ipv6_available = 5;
+  Statistics statistics = 6;
+  ExitInfo exit = 7;
+  StructuredError error = 8;
+  KillSwitchState kill_switch_state = 9;
+  LockdownState lockdown_state = 10;
+  uint32 reconnect_count = 11;
+  repeated string active_listeners = 12;
+  repeated ConnectionWarning warnings = 13;
+  uint32 captive_portal_pause_remaining_seconds = 14;
+}
+
+message Empty {}
+message GetStatusRequest {}
+message GetCapabilitiesRequest {}
+message ImportLegacyProfilesRequest {
+  repeated Profile profiles = 1;
+  string active_profile_id = 2;
+}
+message ListProfilesRequest {}
+message ConnectRequest { string profile_id = 1; }
+message DisconnectRequest {}
+message RetryRequest {}
+message UpsertProfileRequest { Profile profile = 1; }
+message DeleteProfileRequest { string profile_id = 1; }
+message SetActiveProfileRequest { string profile_id = 1; }
+message ResetProfileRequest { string profile_id = 1; }
+message PauseCaptivePortalRequest { uint32 seconds = 1; }
+message CheckUpdateRequest { bool manual = 1; }
+message ExportDiagnosticsRequest { string destination = 1; }
+message ClearAllDataRequest { bool confirmed = 1; }
+message ProvisionIdentityRequest {
+  string profile_id = 1;
+  bytes warp_secret = 2;
+  bool terms_accepted = 3;
+  string locale = 4;
+  string device_name = 5;
+}
+
+message IdentityProvisioning {
+  IdentityProvisioningMethod method = 1;
+  bytes warp_secret = 2;
+  bool terms_accepted = 3;
+  string locale = 4;
+  string device_name = 5;
+}
+
+message CreateProfileWithIdentityRequest {
+  Profile profile = 1;
+  IdentityProvisioning identity = 2;
+}
+
+message ProfileIdentityStatus {
+  string profile_id = 1;
+  ProfileIdentityState state = 2;
+}
+
+message ControlRequest {
+  string request_id = 1;
+  oneof payload {
+    GetStatusRequest get_status = 10;
+    ListProfilesRequest list_profiles = 11;
+    ConnectRequest connect = 12;
+    DisconnectRequest disconnect = 13;
+    RetryRequest retry = 14;
+    UpsertProfileRequest upsert_profile = 15;
+    DeleteProfileRequest delete_profile = 16;
+    SetActiveProfileRequest set_active_profile = 17;
+    ResetProfileRequest reset_profile = 18;
+    PauseCaptivePortalRequest pause_captive_portal = 19;
+    CheckUpdateRequest check_update = 20;
+    ExportDiagnosticsRequest export_diagnostics = 21;
+    ClearAllDataRequest clear_all_data = 22;
+    ProvisionIdentityRequest provision_identity = 23;
+    GetCapabilitiesRequest get_capabilities = 24;
+    ImportLegacyProfilesRequest import_legacy_profiles = 25;
+    CreateProfileWithIdentityRequest create_profile_with_identity = 26;
+  }
+}
+
+message ProfileList {
+  repeated Profile profiles = 1;
+  string active_profile_id = 2;
+  repeated ProfileIdentityStatus identity_statuses = 3;
+}
+
+message UpdateInfo {
+  bool available = 1;
+  string version = 2;
+  string release_url = 3;
+}
+
+message ControlResponse {
+  string request_id = 1;
+  StructuredError error = 2;
+  oneof payload {
+    Empty empty = 10;
+    ConnectionSnapshot status = 11;
+    ProfileList profile_list = 12;
+    Profile profile = 13;
+    UpdateInfo update = 14;
+    Capabilities capabilities = 15;
+  }
+}
+
+message StateChanged { ConnectionSnapshot snapshot = 1; }
+message StatisticsUpdated { Statistics statistics = 1; }
+message ExitInfoUpdated { ExitInfo exit = 1; }
+message WarningRaised { string code = 1; string message = 2; }
+message CapabilitiesChanged { Capabilities capabilities = 1; }
+message NetworkChanged {
+  uint64 generation = 1;
+  bool online = 2;
+}
+message DiagnosticsProgress {
+  string stage = 1;
+  uint32 percent = 2;
+  bool complete = 3;
+}
+
+message EventEnvelope {
+  uint64 sequence = 1;
+  oneof payload {
+    StateChanged state_changed = 10;
+    StatisticsUpdated statistics_updated = 11;
+    ExitInfoUpdated exit_info_updated = 12;
+    WarningRaised warning_raised = 13;
+    CapabilitiesChanged capabilities_changed = 14;
+    NetworkChanged network_changed = 15;
+    DiagnosticsProgress diagnostics_progress = 16;
+  }
+}

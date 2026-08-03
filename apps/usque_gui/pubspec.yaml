@@ -1,0 +1,27 @@
+name: usque
+description: "A native, unofficial Consumer WARP client powered by Rust."
+publish_to: 'none'
+version: 0.1.0-beta.1+4
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  flutter_svg: ^2.3.0
+  lucide_icons_flutter: ^3.1.15
+  shared_preferences: ^2.5.5
+  url_launcher: ^6.3.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/branding/usque-ui-icon.png

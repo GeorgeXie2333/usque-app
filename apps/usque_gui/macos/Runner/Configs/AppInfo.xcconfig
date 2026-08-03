@@ -1,0 +1,10 @@
+// Application-level settings for the Runner target.
+
+// The application's name. This is also the default Flutter window title.
+PRODUCT_NAME = Usque
+
+// Unified reverse-DNS identifier across every supported platform.
+PRODUCT_BUNDLE_IDENTIFIER = io.github.georgexie2333.usque
+
+// Displayed by Finder's application information panel.
+PRODUCT_COPYRIGHT = Copyright (c) 2026 Usque contributors.

@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "method": "CONNECT",
+  "uri": "https://cloudflareaccess.com/",
+  "http_version": "2",
+  "headers": {
+    "user-agent": "",
+    "cf-connect-proto": "cf-connect-ip",
+    "pq-enabled": "false"
+  },
+  "capsule_datagram_type": 0,
+  "tls": {
+    "client_certificate": "self-signed-p256-from-enrolled-private-key",
+    "trust": "enrolled-endpoint-spki-pin",
+    "hostname_verification": false
+  }
+}

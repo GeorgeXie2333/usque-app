@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "endpoint_v4": "162.159.198.2",
+  "endpoint_v6": "2606:4700:103::2",
+  "endpoint_port": 443,
+  "sni": "www.visa.cn",
+  "mtu": 1280,
+  "fallback_dns": [
+    "1.1.1.1",
+    "2606:4700:4700::1111"
+  ],
+  "socks5_listeners": [
+    "127.0.0.1:1080",
+    "[::1]:1080"
+  ],
+  "http_listeners": [
+    "127.0.0.1:8080",
+    "[::1]:8080"
+  ]
+}

@@ -1,0 +1,25 @@
+# Keep repository text deterministic across Windows, Android and CI hosts.
+* text=auto eol=lf
+
+# Windows command scripts require CRLF for reliable cmd.exe execution.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary application and documentation assets.
+*.dll binary
+*.exe binary
+*.jar binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.icns binary
+*.zip binary
+*.pdf binary
+
+# Preserve upstream BoringSSL whitespace verbatim. Its generated assembly,
+# historical licenses, and patch fixtures intentionally contain whitespace
+# that Git would otherwise report as project-authored errors.
+third_party/boring-sys-4.22.0/** whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab
