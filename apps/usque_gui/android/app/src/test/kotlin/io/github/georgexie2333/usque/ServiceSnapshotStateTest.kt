@@ -77,6 +77,121 @@ class ServiceSnapshotStateTest {
     }
 
     @Test
+    fun wireEntriesLockEveryMessengerBundleKeyNameAndValue() {
+        val snapshot = state()
+        clock.set(10_000L)
+        snapshot.phase = "connected"
+        snapshot.warning = "degraded path"
+        snapshot.errorCode = "E_TEST"
+        snapshot.transport = "h3"
+        snapshot.addressFamily = "dual"
+        snapshot.connectedAt = "2024-01-01T00:00:00Z"
+        snapshot.downloadBytesPerSecond = 11
+        snapshot.uploadBytesPerSecond = 22
+        snapshot.downloadedBytes = 33
+        snapshot.uploadedBytes = 44
+        snapshot.reconnectCount = 2
+        snapshot.activeListeners = listOf("127.0.0.1:1080", "[::1]:1080")
+        snapshot.exitIpv4 = "1.1.1.1"
+        snapshot.exitIpv6 = "2606:4700::1"
+        snapshot.exitCity = "Lisbon"
+        snapshot.exitCountry = "Portugal"
+        snapshot.exitCountryCode = "PT"
+        snapshot.exitFlagSvg = "<svg/>"
+        snapshot.killSwitchEnabled = true
+        snapshot.setCaptivePauseDeadline(0L)
+
+        val keys = ServiceSnapshotState.WireKeys
+        val wire =
+            snapshot.wireEntries(
+                platform(
+                    tunnelOpen = true,
+                    activeMode = "vpn",
+                    platformLockdown = true,
+                    alwaysOn = true,
+                ),
+            )
+
+        assertEquals(
+            setOf(
+                keys.PHASE,
+                keys.WARNING,
+                keys.ERROR_CODE,
+                keys.TRANSPORT,
+                keys.ADDRESS_FAMILY,
+                keys.CONNECTED_AT,
+                keys.DOWNLOAD_BYTES_PER_SECOND,
+                keys.UPLOAD_BYTES_PER_SECOND,
+                keys.DOWNLOADED_BYTES,
+                keys.UPLOADED_BYTES,
+                keys.RECONNECT_COUNT,
+                keys.ACTIVE_LISTENERS,
+                keys.EXIT_IPV4,
+                keys.EXIT_IPV6,
+                keys.EXIT_CITY,
+                keys.EXIT_COUNTRY,
+                keys.EXIT_COUNTRY_CODE,
+                keys.EXIT_FLAG_SVG,
+                keys.KILL_SWITCH_STATE,
+                keys.CAPTIVE_PAUSE_REMAINING_SECONDS,
+                keys.PLATFORM_LOCKDOWN,
+                keys.ALWAYS_ON,
+            ),
+            wire.keys,
+        )
+        // Exact snake_case strings MainActivity.snapshotFromBundle reads.
+        assertEquals("phase", keys.PHASE)
+        assertEquals("warning", keys.WARNING)
+        assertEquals("error_code", keys.ERROR_CODE)
+        assertEquals("transport", keys.TRANSPORT)
+        assertEquals("address_family", keys.ADDRESS_FAMILY)
+        assertEquals("connected_at", keys.CONNECTED_AT)
+        assertEquals("download_bytes_per_second", keys.DOWNLOAD_BYTES_PER_SECOND)
+        assertEquals("upload_bytes_per_second", keys.UPLOAD_BYTES_PER_SECOND)
+        assertEquals("downloaded_bytes", keys.DOWNLOADED_BYTES)
+        assertEquals("uploaded_bytes", keys.UPLOADED_BYTES)
+        assertEquals("reconnect_count", keys.RECONNECT_COUNT)
+        assertEquals("active_listeners", keys.ACTIVE_LISTENERS)
+        assertEquals("exit_ipv4", keys.EXIT_IPV4)
+        assertEquals("exit_ipv6", keys.EXIT_IPV6)
+        assertEquals("exit_city", keys.EXIT_CITY)
+        assertEquals("exit_country", keys.EXIT_COUNTRY)
+        assertEquals("exit_country_code", keys.EXIT_COUNTRY_CODE)
+        assertEquals("exit_flag_svg", keys.EXIT_FLAG_SVG)
+        assertEquals("kill_switch_state", keys.KILL_SWITCH_STATE)
+        assertEquals("captive_pause_remaining_seconds", keys.CAPTIVE_PAUSE_REMAINING_SECONDS)
+        assertEquals("platform_lockdown", keys.PLATFORM_LOCKDOWN)
+        assertEquals("always_on", keys.ALWAYS_ON)
+
+        assertEquals("connected", wire[keys.PHASE])
+        assertEquals("degraded path", wire[keys.WARNING])
+        assertEquals("E_TEST", wire[keys.ERROR_CODE])
+        assertEquals("h3", wire[keys.TRANSPORT])
+        assertEquals("dual", wire[keys.ADDRESS_FAMILY])
+        assertEquals("2024-01-01T00:00:00Z", wire[keys.CONNECTED_AT])
+        assertEquals(11L, wire[keys.DOWNLOAD_BYTES_PER_SECOND])
+        assertEquals(22L, wire[keys.UPLOAD_BYTES_PER_SECOND])
+        assertEquals(33L, wire[keys.DOWNLOADED_BYTES])
+        assertEquals(44L, wire[keys.UPLOADED_BYTES])
+        assertEquals(2, wire[keys.RECONNECT_COUNT])
+        assertEquals(arrayListOf("127.0.0.1:1080", "[::1]:1080"), wire[keys.ACTIVE_LISTENERS])
+        assertEquals("1.1.1.1", wire[keys.EXIT_IPV4])
+        assertEquals("2606:4700::1", wire[keys.EXIT_IPV6])
+        assertEquals("Lisbon", wire[keys.EXIT_CITY])
+        assertEquals("Portugal", wire[keys.EXIT_COUNTRY])
+        assertEquals("PT", wire[keys.EXIT_COUNTRY_CODE])
+        assertEquals("<svg/>", wire[keys.EXIT_FLAG_SVG])
+        assertEquals("active", wire[keys.KILL_SWITCH_STATE])
+        assertEquals(0, wire[keys.CAPTIVE_PAUSE_REMAINING_SECONDS])
+        assertEquals(true, wire[keys.PLATFORM_LOCKDOWN])
+        assertEquals(true, wire[keys.ALWAYS_ON])
+
+        // Fingerprint dedup path shares the same wire map source as toBundle.
+        assertTrue(snapshot.markBroadcastIfChanged(platform(tunnelOpen = true, alwaysOn = true)))
+        assertFalse(snapshot.markBroadcastIfChanged(platform(tunnelOpen = true, alwaysOn = true)))
+    }
+
+    @Test
     fun applyNativeSnapshotMergesJsonFields() {
         val snapshot = state()
         val source =
@@ -166,6 +281,10 @@ class ServiceSnapshotStateTest {
         snapshot.killSwitchEnabled = true
         assertEquals("active", snapshot.killSwitchState(tunnelOpen = true, activeMode = "vpn"))
 
+        // KS enabled but tunnel down (e.g. establishing / torn down) must not report active.
+        snapshot.killSwitchEnabled = true
+        assertEquals("inactive", snapshot.killSwitchState(tunnelOpen = false, activeMode = "vpn"))
+
         snapshot.killSwitchEnabled = false
         assertEquals("inactive", snapshot.killSwitchState(tunnelOpen = true, activeMode = "vpn"))
 
@@ -173,6 +292,27 @@ class ServiceSnapshotStateTest {
             "notApplicable",
             snapshot.killSwitchState(tunnelOpen = false, activeMode = "socks5"),
         )
+    }
+
+    @Test
+    fun resetLeavesFingerprintAndCaptiveDeadlineToCallers() {
+        val snapshot = state()
+        clock.set(1_000L)
+        snapshot.phase = "connected"
+        snapshot.transport = "h3"
+        val flags = platform()
+        assertTrue(snapshot.markBroadcastIfChanged(flags))
+        snapshot.scheduleCaptivePauseFromNow(30)
+
+        snapshot.reset("disconnected")
+
+        // Fingerprint retained: identical post-reset broadcast is still deduped until state moves.
+        assertNotNull(snapshot.lastBroadcastFingerprintForTest())
+        // Captive deadline is caller-owned; service pairs reset with clearCaptivePause.
+        assertEquals(30, snapshot.captivePauseRemainingSeconds())
+
+        snapshot.clearCaptivePause()
+        assertEquals(0, snapshot.captivePauseRemainingSeconds())
     }
 
     @Test

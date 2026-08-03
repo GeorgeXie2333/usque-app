@@ -82,6 +82,45 @@ internal class ServiceSnapshotState(
         val alwaysOn: Boolean,
     )
 
+    /**
+     * Messenger Bundle wire key names. [toBundle] / [wireEntries] must use these so unit tests
+     * can lock the Flutter bridge contract without depending on Android Bundle stubs.
+     */
+    object WireKeys {
+        const val PHASE = "phase"
+        const val WARNING = "warning"
+        const val ERROR_CODE = "error_code"
+        const val TRANSPORT = "transport"
+        const val ADDRESS_FAMILY = "address_family"
+        const val CONNECTED_AT = "connected_at"
+        const val DOWNLOAD_BYTES_PER_SECOND = "download_bytes_per_second"
+        const val UPLOAD_BYTES_PER_SECOND = "upload_bytes_per_second"
+        const val DOWNLOADED_BYTES = "downloaded_bytes"
+        const val UPLOADED_BYTES = "uploaded_bytes"
+        const val RECONNECT_COUNT = "reconnect_count"
+        const val ACTIVE_LISTENERS = "active_listeners"
+        const val EXIT_IPV4 = "exit_ipv4"
+        const val EXIT_IPV6 = "exit_ipv6"
+        const val EXIT_CITY = "exit_city"
+        const val EXIT_COUNTRY = "exit_country"
+        const val EXIT_COUNTRY_CODE = "exit_country_code"
+        const val EXIT_FLAG_SVG = "exit_flag_svg"
+        const val KILL_SWITCH_STATE = "kill_switch_state"
+        const val CAPTIVE_PAUSE_REMAINING_SECONDS = "captive_pause_remaining_seconds"
+        const val PLATFORM_LOCKDOWN = "platform_lockdown"
+        const val ALWAYS_ON = "always_on"
+    }
+
+    /**
+     * Resets connection snapshot fields for a new lifecycle phase.
+     *
+     * **Not cleared here (intentional, matches pre-split service):**
+     * - [captivePauseDeadlineUnixMillis] — callers must [clearCaptivePause] when leaving a pause
+     *   or tearing down (connect/disconnect/clear/resume already do this).
+     * - [lastBroadcastFingerprint] — retained so an identical post-reset snapshot (e.g. second
+     *   `disconnected` broadcast with zeroed counters) is still fingerprint-deduped. Reply and
+     *   register-events paths bypass dedup and always send a live Bundle.
+     */
     fun reset(nextPhase: String) {
         phase = nextPhase
         warning = null
@@ -311,31 +350,76 @@ internal class ServiceSnapshotState(
             alwaysOn = platform.alwaysOn,
         )
 
-    fun toBundle(platform: PlatformFlags): Bundle {
+    /**
+     * Platform-free wire map using [WireKeys]. Unit tests assert every Messenger key string
+     * and value here; [toBundle] is a thin Android adapter over this map.
+     */
+    fun wireEntries(platform: PlatformFlags): Map<String, Any?> {
         val fields = snapshotFields(platform)
+        return linkedMapOf(
+            WireKeys.PHASE to fields.phase,
+            WireKeys.WARNING to fields.warning,
+            WireKeys.ERROR_CODE to fields.errorCode,
+            WireKeys.TRANSPORT to fields.transport,
+            WireKeys.ADDRESS_FAMILY to fields.addressFamily,
+            WireKeys.CONNECTED_AT to fields.connectedAt,
+            WireKeys.DOWNLOAD_BYTES_PER_SECOND to fields.downloadBytesPerSecond,
+            WireKeys.UPLOAD_BYTES_PER_SECOND to fields.uploadBytesPerSecond,
+            WireKeys.DOWNLOADED_BYTES to fields.downloadedBytes,
+            WireKeys.UPLOADED_BYTES to fields.uploadedBytes,
+            WireKeys.RECONNECT_COUNT to fields.reconnectCount,
+            WireKeys.ACTIVE_LISTENERS to ArrayList(fields.activeListeners),
+            WireKeys.EXIT_IPV4 to fields.exitIpv4,
+            WireKeys.EXIT_IPV6 to fields.exitIpv6,
+            WireKeys.EXIT_CITY to fields.exitCity,
+            WireKeys.EXIT_COUNTRY to fields.exitCountry,
+            WireKeys.EXIT_COUNTRY_CODE to fields.exitCountryCode,
+            WireKeys.EXIT_FLAG_SVG to fields.exitFlagSvg,
+            WireKeys.KILL_SWITCH_STATE to fields.killSwitchState,
+            WireKeys.CAPTIVE_PAUSE_REMAINING_SECONDS to fields.captivePauseRemainingSeconds,
+            WireKeys.PLATFORM_LOCKDOWN to fields.platformLockdown,
+            WireKeys.ALWAYS_ON to fields.alwaysOn,
+        )
+    }
+
+    fun toBundle(platform: PlatformFlags): Bundle {
+        val entries = wireEntries(platform)
         return Bundle().apply {
-            putString("phase", fields.phase)
-            putString("warning", fields.warning)
-            putString("error_code", fields.errorCode)
-            putString("transport", fields.transport)
-            putString("address_family", fields.addressFamily)
-            putString("connected_at", fields.connectedAt)
-            putLong("download_bytes_per_second", fields.downloadBytesPerSecond)
-            putLong("upload_bytes_per_second", fields.uploadBytesPerSecond)
-            putLong("downloaded_bytes", fields.downloadedBytes)
-            putLong("uploaded_bytes", fields.uploadedBytes)
-            putInt("reconnect_count", fields.reconnectCount)
-            putStringArrayList("active_listeners", ArrayList(fields.activeListeners))
-            putString("exit_ipv4", fields.exitIpv4)
-            putString("exit_ipv6", fields.exitIpv6)
-            putString("exit_city", fields.exitCity)
-            putString("exit_country", fields.exitCountry)
-            putString("exit_country_code", fields.exitCountryCode)
-            putString("exit_flag_svg", fields.exitFlagSvg)
-            putString("kill_switch_state", fields.killSwitchState)
-            putInt("captive_pause_remaining_seconds", fields.captivePauseRemainingSeconds)
-            putBoolean("platform_lockdown", fields.platformLockdown)
-            putBoolean("always_on", fields.alwaysOn)
+            putString(WireKeys.PHASE, entries[WireKeys.PHASE] as String?)
+            putString(WireKeys.WARNING, entries[WireKeys.WARNING] as String?)
+            putString(WireKeys.ERROR_CODE, entries[WireKeys.ERROR_CODE] as String?)
+            putString(WireKeys.TRANSPORT, entries[WireKeys.TRANSPORT] as String?)
+            putString(WireKeys.ADDRESS_FAMILY, entries[WireKeys.ADDRESS_FAMILY] as String?)
+            putString(WireKeys.CONNECTED_AT, entries[WireKeys.CONNECTED_AT] as String?)
+            putLong(
+                WireKeys.DOWNLOAD_BYTES_PER_SECOND,
+                entries[WireKeys.DOWNLOAD_BYTES_PER_SECOND] as Long,
+            )
+            putLong(
+                WireKeys.UPLOAD_BYTES_PER_SECOND,
+                entries[WireKeys.UPLOAD_BYTES_PER_SECOND] as Long,
+            )
+            putLong(WireKeys.DOWNLOADED_BYTES, entries[WireKeys.DOWNLOADED_BYTES] as Long)
+            putLong(WireKeys.UPLOADED_BYTES, entries[WireKeys.UPLOADED_BYTES] as Long)
+            putInt(WireKeys.RECONNECT_COUNT, entries[WireKeys.RECONNECT_COUNT] as Int)
+            @Suppress("UNCHECKED_CAST")
+            putStringArrayList(
+                WireKeys.ACTIVE_LISTENERS,
+                entries[WireKeys.ACTIVE_LISTENERS] as ArrayList<String>,
+            )
+            putString(WireKeys.EXIT_IPV4, entries[WireKeys.EXIT_IPV4] as String?)
+            putString(WireKeys.EXIT_IPV6, entries[WireKeys.EXIT_IPV6] as String?)
+            putString(WireKeys.EXIT_CITY, entries[WireKeys.EXIT_CITY] as String?)
+            putString(WireKeys.EXIT_COUNTRY, entries[WireKeys.EXIT_COUNTRY] as String?)
+            putString(WireKeys.EXIT_COUNTRY_CODE, entries[WireKeys.EXIT_COUNTRY_CODE] as String?)
+            putString(WireKeys.EXIT_FLAG_SVG, entries[WireKeys.EXIT_FLAG_SVG] as String?)
+            putString(WireKeys.KILL_SWITCH_STATE, entries[WireKeys.KILL_SWITCH_STATE] as String?)
+            putInt(
+                WireKeys.CAPTIVE_PAUSE_REMAINING_SECONDS,
+                entries[WireKeys.CAPTIVE_PAUSE_REMAINING_SECONDS] as Int,
+            )
+            putBoolean(WireKeys.PLATFORM_LOCKDOWN, entries[WireKeys.PLATFORM_LOCKDOWN] as Boolean)
+            putBoolean(WireKeys.ALWAYS_ON, entries[WireKeys.ALWAYS_ON] as Boolean)
         }
     }
 

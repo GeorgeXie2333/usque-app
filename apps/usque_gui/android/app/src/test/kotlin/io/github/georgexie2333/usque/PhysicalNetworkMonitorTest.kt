@@ -7,6 +7,26 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PhysicalNetworkMonitorTest {
+    /**
+     * Mirrors [PhysicalNetworkMonitor.selectUnderlyingNetwork] generation path so tests and
+     * production share [hasUnderlyingSelectionChanged] + [NetworkRestartGeneration.bumpIfChanged].
+     */
+    private fun applySelectionChange(
+        generation: NetworkRestartGeneration,
+        previousHandle: Long?,
+        previousFamilyMask: Int,
+        selectedHandle: Long?,
+        selectedFamilyMask: Int,
+    ): Long? =
+        generation.bumpIfChanged(
+            hasUnderlyingSelectionChanged(
+                previousHandle = previousHandle,
+                previousFamilyMask = previousFamilyMask,
+                selectedHandle = selectedHandle,
+                selectedFamilyMask = selectedFamilyMask,
+            ),
+        )
+
     @Test
     fun selectionChangeDetectionDrivesGenerationBumps() {
         assertFalse(
@@ -49,42 +69,40 @@ class PhysicalNetworkMonitorTest {
         assertEquals(0L, generation.get())
 
         assertNull(
-            generation.bumpIfChanged(
-                hasUnderlyingSelectionChanged(
-                    previousHandle = 1L,
-                    previousFamilyMask = 1,
-                    selectedHandle = 1L,
-                    selectedFamilyMask = 1,
-                ),
+            applySelectionChange(
+                generation = generation,
+                previousHandle = 1L,
+                previousFamilyMask = 1,
+                selectedHandle = 1L,
+                selectedFamilyMask = 1,
             ),
         )
         assertEquals(0L, generation.get())
 
         assertEquals(
             1L,
-            generation.bumpIfChanged(
-                hasUnderlyingSelectionChanged(
-                    previousHandle = 1L,
-                    previousFamilyMask = 1,
-                    selectedHandle = 2L,
-                    selectedFamilyMask = 1,
-                ),
+            applySelectionChange(
+                generation = generation,
+                previousHandle = 1L,
+                previousFamilyMask = 1,
+                selectedHandle = 2L,
+                selectedFamilyMask = 1,
             ),
         )
         assertEquals(1L, generation.get())
 
         assertEquals(
             2L,
-            generation.bumpIfChanged(
-                hasUnderlyingSelectionChanged(
-                    previousHandle = 2L,
-                    previousFamilyMask = FAMILY_IPV4,
-                    selectedHandle = 2L,
-                    selectedFamilyMask = FAMILY_IPV6,
-                ),
+            applySelectionChange(
+                generation = generation,
+                previousHandle = 2L,
+                previousFamilyMask = FAMILY_IPV4,
+                selectedHandle = 2L,
+                selectedFamilyMask = FAMILY_IPV6,
             ),
         )
         assertEquals(2L, generation.get())
+        // Forced rebuild paths (disconnect/clear/captive) call bump() independently.
         assertEquals(3L, generation.bump())
         assertEquals(3L, generation.get())
     }

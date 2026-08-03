@@ -87,9 +87,11 @@ class UsqueVpnService : VpnService() {
 
                     override fun onUnderlyingNetworkChanged(
                         selectedNetwork: Network?,
-                        selectedFamilyMask: Int,
+                        @Suppress("UNUSED_PARAMETER") selectedFamilyMask: Int,
                         generation: Long,
                     ) {
+                        // selectedFamilyMask is already stored on PhysicalNetworkMonitor for
+                        // JNI getUnderlyingFamilyMask(); reconnect only needs network + generation.
                         handleUnderlyingNetworkChanged(selectedNetwork, generation)
                     }
                 },

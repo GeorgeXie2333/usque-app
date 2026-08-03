@@ -200,10 +200,16 @@ internal class PhysicalNetworkMonitor(
         val selectedFamilyMask = selection?.familyMask ?: 0
         val previousNetwork = underlyingNetwork.getAndSet(selectedNetwork)
         val previousFamilyMask = underlyingFamilyMask.getAndSet(selectedFamilyMask)
-        if (previousNetwork == selectedNetwork && previousFamilyMask == selectedFamilyMask) {
-            return
-        }
-        val generation = networkRestartGeneration.bump()
+        // Single source of truth with unit tests: handle + family-mask comparison.
+        val generation =
+            networkRestartGeneration.bumpIfChanged(
+                hasUnderlyingSelectionChanged(
+                    previousHandle = previousNetwork?.networkHandle,
+                    previousFamilyMask = previousFamilyMask,
+                    selectedHandle = selectedNetwork?.networkHandle,
+                    selectedFamilyMask = selectedFamilyMask,
+                ),
+            ) ?: return
         listener.onUnderlyingNetworkChanged(selectedNetwork, selectedFamilyMask, generation)
     }
 }
