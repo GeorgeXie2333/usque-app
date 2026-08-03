@@ -1,11 +1,15 @@
+[CmdletBinding()]
 param(
+    # Named BuildProfile to avoid PowerShell automatic $Profile; keep -Profile CLI alias.
+    [Alias("Profile")]
     [ValidateSet("debug", "release")]
-    [string]$Profile = "debug",
+    [string]$BuildProfile = "debug",
     [string]$NdkRoot = "",
     [ValidateSet("all", "arm64-v8a", "armeabi-v7a", "x86_64")]
     [string]$AbiFilter = "all"
 )
 
+Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $androidRoot = Join-Path $repoRoot "apps/usque_gui/android"
@@ -164,7 +168,7 @@ try {
             "--package", "usque-android",
             "--target", $target.RustTarget
         )
-        if ($Profile -eq "release") {
+        if ($BuildProfile -eq "release") {
             $cargoArguments += "--release"
         }
 
@@ -173,7 +177,7 @@ try {
             throw "Rust Android build failed for $($target.RustTarget)."
         }
 
-        $artifactProfile = if ($Profile -eq "release") { "release" } else { "debug" }
+        $artifactProfile = if ($BuildProfile -eq "release") { "release" } else { "debug" }
         $source = Join-Path $repoRoot "target/$($target.RustTarget)/$artifactProfile/libusque_android.so"
         if (-not (Test-Path -LiteralPath $source)) {
             throw "Expected Rust library was not produced: $source"

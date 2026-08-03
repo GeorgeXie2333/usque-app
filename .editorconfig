@@ -1,0 +1,25 @@
+# EditorConfig is awesome: https://EditorConfig.org
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{dart,yaml,yml,proto}]
+indent_style = space
+indent_size = 2
+
+[*.{rs,kt,kts,py,ps1,psm1,psd1,c,cc,cpp,cxx,h,hpp,hxx}]
+indent_style = space
+indent_size = 4
+
+[*.{kt,kts}]
+indent_style = space
+indent_size = 4
+max_line_length = 120
+ij_kotlin_code_style_defaults = android_studio
+
+[*.md]
+trim_trailing_whitespace = false

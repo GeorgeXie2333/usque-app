@@ -7,8 +7,8 @@ import android.util.AtomicFile
 import android.util.Base64
 import java.io.File
 import java.nio.ByteBuffer
-import java.security.MessageDigest
 import java.security.KeyStore
+import java.security.MessageDigest
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -22,8 +22,12 @@ import javax.crypto.spec.GCMParameterSpec
  * VPN process must reconnect in the background. A future reveal/copy UI must
  * independently require BiometricPrompt or device credentials.
  */
-internal class SecureIdentityStore(context: Context) {
-    internal enum class Record(val key: String) {
+internal class SecureIdentityStore(
+    context: Context,
+) {
+    internal enum class Record(
+        val key: String,
+    ) {
         WARP_SECRET("warp-secret"),
         MASQUE_PRIVATE_KEY("masque-private-key"),
         ACCESS_TOKEN("access-token"),
@@ -39,7 +43,11 @@ internal class SecureIdentityStore(context: Context) {
             check(isDirectory || mkdirs()) { "Encrypted identity directory could not be created" }
         }
 
-    fun put(profileId: String, record: Record, value: ByteArray) {
+    fun put(
+        profileId: String,
+        record: Record,
+        value: ByteArray,
+    ) {
         require(validProfileId(profileId)) { "Invalid profile ID" }
         require(value.isNotEmpty() && value.size <= MAX_SECRET_BYTES) {
             "Secret size is outside the allowed range"
@@ -82,7 +90,10 @@ internal class SecureIdentityStore(context: Context) {
      * The caller owns the returned plaintext and must overwrite it immediately
      * after transferring it to the Rust engine.
      */
-    fun get(profileId: String, record: Record): ByteArray? {
+    fun get(
+        profileId: String,
+        record: Record,
+    ): ByteArray? {
         require(validProfileId(profileId)) { "Invalid profile ID" }
         val target = target(profileId, record)
         val file = recordFile(target)
@@ -132,7 +143,10 @@ internal class SecureIdentityStore(context: Context) {
         }
     }
 
-    fun delete(profileId: String, record: Record) {
+    fun delete(
+        profileId: String,
+        record: Record,
+    ) {
         require(validProfileId(profileId)) { "Invalid profile ID" }
         val target = target(profileId, record)
         AtomicFile(recordFile(target)).delete()
@@ -174,8 +188,7 @@ internal class SecureIdentityStore(context: Context) {
                 .Builder(
                     KEY_ALIAS,
                     KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
-                )
-                .setKeySize(256)
+                ).setKeySize(256)
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                 .setRandomizedEncryptionRequired(true)
@@ -185,8 +198,10 @@ internal class SecureIdentityStore(context: Context) {
         return generator.generateKey()
     }
 
-    private fun target(profileId: String, record: Record): String =
-        "$TARGET_PREFIX/$profileId/${record.key}"
+    private fun target(
+        profileId: String,
+        record: Record,
+    ): String = "$TARGET_PREFIX/$profileId/${record.key}"
 
     private fun recordFile(target: String): File {
         val digest = MessageDigest.getInstance("SHA-256").digest(target.toByteArray(Charsets.UTF_8))

@@ -91,18 +91,25 @@ class MainActivity : FlutterFragmentActivity() {
                         }
                         true
                     }
+
                     UsqueVpnService.MSG_EVENT -> {
                         eventSink?.success(snapshotFromBundle(message.data))
                         true
                     }
-                    else -> false
+
+                    else -> {
+                        false
+                    }
                 }
             },
         )
 
     private val controlConnection =
         object : ServiceConnection {
-            override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+            override fun onServiceConnected(
+                name: ComponentName?,
+                binder: IBinder?,
+            ) {
                 controlMessenger = binder?.let(::Messenger)
                 if (eventSink != null) registerForEvents()
                 pendingDisconnectResult?.let { result ->
@@ -136,7 +143,10 @@ class MainActivity : FlutterFragmentActivity() {
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, EVENT_CHANNEL)
             .setStreamHandler(
                 object : EventChannel.StreamHandler {
-                    override fun onListen(arguments: Any?, events: EventChannel.EventSink) {
+                    override fun onListen(
+                        arguments: Any?,
+                        events: EventChannel.EventSink,
+                    ) {
                         eventSink = events
                         registerForEvents()
                     }
@@ -198,9 +208,15 @@ class MainActivity : FlutterFragmentActivity() {
         super.onDestroy()
     }
 
-    private fun handleEngineCall(call: MethodCall, result: MethodChannel.Result) {
+    private fun handleEngineCall(
+        call: MethodCall,
+        result: MethodChannel.Result,
+    ) {
         when (call.method) {
-            "snapshot" -> requestSnapshot(result)
+            "snapshot" -> {
+                requestSnapshot(result)
+            }
+
             "disconnect" -> {
                 pendingVpnConnection.cancel(
                     "VPN_PERMISSION_CANCELLED",
@@ -208,18 +224,54 @@ class MainActivity : FlutterFragmentActivity() {
                 )
                 requestDisconnect(result)
             }
-            "connect" -> connect(call, result)
-            "provisionIdentity" -> provisionIdentity(call, result)
-            "createProfileWithIdentity" -> createProfileWithIdentity(call, result)
-            "importLegacyProfiles" -> importLegacyProfiles(call, result)
-            "upsertProfile" -> upsertProfile(call, result)
-            "deleteProfile" -> deleteProfile(call, result)
-            "setActiveProfile" -> setActiveProfile(call, result)
-            "pauseCaptivePortal" -> pauseCaptivePortal(call, result)
-            "exportDiagnostics" -> selectDiagnosticsDestination(result)
-            "checkForUpdates" -> checkForUpdates(call, result)
-            "clearAllData" -> clearAllData(call, result)
-            else -> result.notImplemented()
+
+            "connect" -> {
+                connect(call, result)
+            }
+
+            "provisionIdentity" -> {
+                provisionIdentity(call, result)
+            }
+
+            "createProfileWithIdentity" -> {
+                createProfileWithIdentity(call, result)
+            }
+
+            "importLegacyProfiles" -> {
+                importLegacyProfiles(call, result)
+            }
+
+            "upsertProfile" -> {
+                upsertProfile(call, result)
+            }
+
+            "deleteProfile" -> {
+                deleteProfile(call, result)
+            }
+
+            "setActiveProfile" -> {
+                setActiveProfile(call, result)
+            }
+
+            "pauseCaptivePortal" -> {
+                pauseCaptivePortal(call, result)
+            }
+
+            "exportDiagnostics" -> {
+                selectDiagnosticsDestination(result)
+            }
+
+            "checkForUpdates" -> {
+                checkForUpdates(call, result)
+            }
+
+            "clearAllData" -> {
+                clearAllData(call, result)
+            }
+
+            else -> {
+                result.notImplemented()
+            }
         }
     }
 
@@ -381,15 +433,31 @@ class MainActivity : FlutterFragmentActivity() {
 
     private fun jsonValueToFlutter(value: Any?): Any? =
         when (value) {
-            null, JSONObject.NULL -> null
-            is JSONObject -> jsonObjectToFlutterMap(value)
-            is JSONArray ->
+            null, JSONObject.NULL -> {
+                null
+            }
+
+            is JSONObject -> {
+                jsonObjectToFlutterMap(value)
+            }
+
+            is JSONArray -> {
                 List(value.length()) { index ->
                     jsonValueToFlutter(value.get(index))
                 }
-            is Boolean, is Int, is Long, is Double, is String -> value
-            is Number -> value.toDouble()
-            else -> value.toString()
+            }
+
+            is Boolean, is Int, is Long, is Double, is String -> {
+                value
+            }
+
+            is Number -> {
+                value.toDouble()
+            }
+
+            else -> {
+                value.toString()
+            }
         }
 
     @Deprecated("The Storage Access Framework result is bridged to Flutter.")
@@ -569,7 +637,10 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
 
-    private fun provisionIdentity(call: MethodCall, result: MethodChannel.Result) {
+    private fun provisionIdentity(
+        call: MethodCall,
+        result: MethodChannel.Result,
+    ) {
         if (call.argument<Boolean>("terms_accepted") != true) {
             result.error(
                 "TERMS_NOT_ACCEPTED",
@@ -594,7 +665,8 @@ class MainActivity : FlutterFragmentActivity() {
                 try {
                     if (secret.isNullOrBlank()) {
                         val locale =
-                            call.argument<String>("locale")
+                            call
+                                .argument<String>("locale")
                                 ?.replace('-', '_')
                                 ?.takeIf { it.isNotBlank() }
                                 ?: Locale.getDefault().toString()
@@ -648,7 +720,10 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
 
-    private fun createProfileWithIdentity(call: MethodCall, result: MethodChannel.Result) {
+    private fun createProfileWithIdentity(
+        call: MethodCall,
+        result: MethodChannel.Result,
+    ) {
         val arguments = call.arguments as? Map<*, *>
         val profile = arguments?.get("profile") as? Map<*, *>
         val profileId = profile?.get("id") as? String
@@ -656,9 +731,9 @@ class MainActivity : FlutterFragmentActivity() {
         val secret = arguments?.get("warp_secret") as? String
         if (
             profile == null ||
-                profileId.isNullOrBlank() ||
-                method !in setOf("register", "importSecret") ||
-                arguments?.get("terms_accepted") != true
+            profileId.isNullOrBlank() ||
+            method !in setOf("register", "importSecret") ||
+            arguments?.get("terms_accepted") != true
         ) {
             result.error("INVALID_ARGUMENT", "The profile identity request is malformed.", null)
             return
@@ -695,8 +770,9 @@ class MainActivity : FlutterFragmentActivity() {
                         NativeEngine.registerConsumerWarp(locale)
                             ?: throw IllegalStateException("Rust registration returned no identity")
                     } else {
-                        val value = secret?.takeIf { it.isNotBlank() }
-                            ?: throw IllegalArgumentException("A WARP Secret is required")
+                        val value =
+                            secret?.takeIf { it.isNotBlank() }
+                                ?: throw IllegalArgumentException("A WARP Secret is required")
                         value.toByteArray(Charsets.UTF_8).also { candidate ->
                             if (NativeEngine.validateWarpSecret(candidate) != NativeEngine.OK) {
                                 candidate.fill(0)
@@ -741,20 +817,33 @@ class MainActivity : FlutterFragmentActivity() {
                 }
                 val code =
                     when {
-                        method == "register" && error !is IllegalArgumentException ->
+                        method == "register" && error !is IllegalArgumentException -> {
                             "REGISTRATION_FAILED"
-                        error is IllegalArgumentException -> "INVALID_WARP_SECRET"
-                        else -> "PROFILE_STORE_FAILED"
+                        }
+
+                        error is IllegalArgumentException -> {
+                            "INVALID_WARP_SECRET"
+                        }
+
+                        else -> {
+                            "PROFILE_STORE_FAILED"
+                        }
                     }
                 mainHandler.post {
                     result.error(
                         code,
                         when (code) {
-                            "REGISTRATION_FAILED" ->
+                            "REGISTRATION_FAILED" -> {
                                 "Consumer WARP registration failed. Check the network and try again."
-                            "INVALID_WARP_SECRET" ->
+                            }
+
+                            "INVALID_WARP_SECRET" -> {
                                 "The WARP Secret is malformed or missing."
-                            else -> "The profile and its identity could not be saved safely."
+                            }
+
+                            else -> {
+                                "The profile and its identity could not be saved safely."
+                            }
                         },
                         error.javaClass.simpleName,
                     )
@@ -797,7 +886,10 @@ class MainActivity : FlutterFragmentActivity() {
         catalog.put("identity_statuses", statuses)
     }
 
-    private fun connect(call: MethodCall, result: MethodChannel.Result) {
+    private fun connect(
+        call: MethodCall,
+        result: MethodChannel.Result,
+    ) {
         if (!NativeEngine.isReady()) {
             result.error(
                 "ENGINE_UNAVAILABLE",
@@ -1122,29 +1214,29 @@ class MainActivity : FlutterFragmentActivity() {
     private fun snapshotFromBundle(bundle: Bundle): Map<String, Any?> {
         val snapshot =
             mapOf(
-            "phase" to (bundle.getString("phase") ?: "error"),
-            "warning" to bundle.getString("warning"),
-            "error_code" to bundle.getString("error_code"),
-            "transport" to bundle.getString("transport"),
-            "address_family" to bundle.getString("address_family"),
-            "connected_at" to bundle.getString("connected_at"),
-            "download_bytes_per_second" to bundle.getLong("download_bytes_per_second"),
-            "upload_bytes_per_second" to bundle.getLong("upload_bytes_per_second"),
-            "downloaded_bytes" to bundle.getLong("downloaded_bytes"),
-            "uploaded_bytes" to bundle.getLong("uploaded_bytes"),
-            "reconnect_count" to bundle.getInt("reconnect_count"),
-            "active_listeners" to
-                (bundle.getStringArrayList("active_listeners") ?: arrayListOf<String>()),
-            "kill_switch_state" to bundle.getString("kill_switch_state"),
-            "platform_lockdown" to bundle.getBoolean("platform_lockdown"),
-            "always_on" to bundle.getBoolean("always_on"),
-            "captive_pause_remaining_seconds" to
-                bundle.getInt("captive_pause_remaining_seconds"),
-            "exit_ipv4" to bundle.getString("exit_ipv4"),
-            "exit_ipv6" to bundle.getString("exit_ipv6"),
-            "exit_city" to bundle.getString("exit_city"),
-            "exit_country" to bundle.getString("exit_country"),
-            "exit_country_code" to bundle.getString("exit_country_code"),
+                "phase" to (bundle.getString("phase") ?: "error"),
+                "warning" to bundle.getString("warning"),
+                "error_code" to bundle.getString("error_code"),
+                "transport" to bundle.getString("transport"),
+                "address_family" to bundle.getString("address_family"),
+                "connected_at" to bundle.getString("connected_at"),
+                "download_bytes_per_second" to bundle.getLong("download_bytes_per_second"),
+                "upload_bytes_per_second" to bundle.getLong("upload_bytes_per_second"),
+                "downloaded_bytes" to bundle.getLong("downloaded_bytes"),
+                "uploaded_bytes" to bundle.getLong("uploaded_bytes"),
+                "reconnect_count" to bundle.getInt("reconnect_count"),
+                "active_listeners" to
+                    (bundle.getStringArrayList("active_listeners") ?: arrayListOf<String>()),
+                "kill_switch_state" to bundle.getString("kill_switch_state"),
+                "platform_lockdown" to bundle.getBoolean("platform_lockdown"),
+                "always_on" to bundle.getBoolean("always_on"),
+                "captive_pause_remaining_seconds" to
+                    bundle.getInt("captive_pause_remaining_seconds"),
+                "exit_ipv4" to bundle.getString("exit_ipv4"),
+                "exit_ipv6" to bundle.getString("exit_ipv6"),
+                "exit_city" to bundle.getString("exit_city"),
+                "exit_country" to bundle.getString("exit_country"),
+                "exit_country_code" to bundle.getString("exit_country_code"),
                 "exit_flag_svg" to bundle.getString("exit_flag_svg"),
             )
         lastSnapshot = snapshot

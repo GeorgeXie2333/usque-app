@@ -1,11 +1,11 @@
 package io.github.georgexie2333.usque
 
-import java.net.InetAddress
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.net.InetAddress
 
 class VpnRoutePlannerTest {
     @Test

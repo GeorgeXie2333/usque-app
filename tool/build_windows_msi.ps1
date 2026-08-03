@@ -82,7 +82,7 @@ function Get-CertificateSha256 {
     }
 }
 
-function Assert-NoReparsePoints {
+function Assert-NoReparsePoint {
     param([Parameter(Mandatory = $true)][string]$Root)
 
     $rootItem = Get-Item -LiteralPath $Root -Force
@@ -100,7 +100,7 @@ function Assert-NoReparsePoints {
     }
 }
 
-function Assert-ReleaseSignatures {
+function Assert-ReleaseSignature {
     param(
         [Parameter(Mandatory = $true)][string]$Root,
         [Parameter(Mandatory = $true)][string]$ExpectedSigner,
@@ -198,10 +198,10 @@ if ($null -ne $pdb) {
     throw "Release payload must not contain PDB files: $($pdb.FullName)"
 }
 
-Assert-NoReparsePoints -Root $appRoot
+Assert-NoReparsePoint -Root $appRoot
 Assert-OfficialWintun -Root $appRoot -BuildVariant $Variant
 $normalizedSigner = $SignerSha256.ToUpperInvariant()
-Assert-ReleaseSignatures `
+Assert-ReleaseSignature `
     -Root $appRoot `
     -ExpectedSigner $normalizedSigner `
     -AllowUntrustedRoot:$AllowPinnedUntrustedRoot

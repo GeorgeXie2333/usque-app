@@ -1,8 +1,10 @@
+[CmdletBinding()]
 param(
     [string]$SdkRoot = "$env:USERPROFILE\.local\share\android-sdk",
     [string]$LogPath = "$PSScriptRoot\android-sdk-install.log"
 )
 
+Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 Start-Transcript -LiteralPath $LogPath -Force

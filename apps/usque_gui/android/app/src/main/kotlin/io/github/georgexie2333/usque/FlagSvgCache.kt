@@ -4,7 +4,9 @@ import android.content.Context
 import android.util.AtomicFile
 import java.io.File
 
-internal class FlagSvgCache(context: Context) {
+internal class FlagSvgCache(
+    context: Context,
+) {
     private val directory =
         File(context.applicationContext.cacheDir, CACHE_DIRECTORY).apply {
             check(isDirectory || mkdirs()) { "Flag cache directory could not be created" }
@@ -21,7 +23,10 @@ internal class FlagSvgCache(context: Context) {
         }
     }
 
-    fun put(countryCode: String, svg: String) {
+    fun put(
+        countryCode: String,
+        svg: String,
+    ) {
         val file = file(countryCode) ?: return
         val bytes = svg.toByteArray(Charsets.UTF_8)
         if (bytes.size !in 1..MAX_BYTES || validate(bytes) == null) {

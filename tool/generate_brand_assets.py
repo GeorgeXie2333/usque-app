@@ -10,7 +10,6 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "assets" / "branding" / "usque-app-icon.png"
 FLUTTER = ROOT / "apps" / "usque_gui"

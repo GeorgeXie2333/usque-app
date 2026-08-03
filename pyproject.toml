@@ -1,0 +1,34 @@
+[project]
+name = "usque-tools"
+version = "0.1.0"
+requires-python = ">=3.10"
+description = "Usque repository tooling and release-contract helpers"
+
+[tool.ruff]
+# Pin and verify in CI / tool/check_source.ps1: ruff 0.16.0
+required-version = "==0.16.0"
+target-version = "py310"
+line-length = 100
+src = ["tool"]
+extend-exclude = [
+    "oracle",
+    "third_party",
+    "apps/usque_gui/build",
+    "target",
+]
+
+[tool.ruff.lint]
+select = [
+    "E4",
+    "E7",
+    "E9",
+    "F",
+    "I",
+    "B",
+    "UP",
+    "S",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tool/test_*.py" = ["S101"]
+"**/test_*.py" = ["S101"]

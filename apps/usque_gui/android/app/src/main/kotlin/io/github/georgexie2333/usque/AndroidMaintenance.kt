@@ -30,8 +30,8 @@ internal object AndroidMaintenance {
             val cached = preferences.getString(UPDATE_RESULT, null)
             if (
                 checkedAt in 1..now &&
-                    now - checkedAt < UPDATE_INTERVAL_MILLIS &&
-                    cached != null
+                now - checkedAt < UPDATE_INTERVAL_MILLIS &&
+                cached != null
             ) {
                 return parseUpdateResult(cached)
             }
@@ -81,15 +81,13 @@ internal object AndroidMaintenance {
                             context.packageManager
                                 .getPackageInfo(context.packageName, 0)
                                 .versionName,
-                        )
-                        .put("platform", "android")
+                        ).put("platform", "android")
                         .put("sdk", Build.VERSION.SDK_INT)
                         .put("supported_abis", Build.SUPPORTED_ABIS.joinToString(","))
                         .put(
                             "contents",
                             contents,
-                        )
-                        .put(
+                        ).put(
                             "excluded",
                             listOf(
                                 "WARP Secret",
@@ -112,8 +110,7 @@ internal object AndroidMaintenance {
                         .put(
                             "download_bytes_per_second",
                             snapshot["download_bytes_per_second"],
-                        )
-                        .put("upload_bytes_per_second", snapshot["upload_bytes_per_second"])
+                        ).put("upload_bytes_per_second", snapshot["upload_bytes_per_second"])
                         .put("downloaded_bytes", snapshot["downloaded_bytes"])
                         .put("uploaded_bytes", snapshot["uploaded_bytes"])
                         .put("reconnect_count", snapshot["reconnect_count"])
@@ -123,8 +120,7 @@ internal object AndroidMaintenance {
                         .put(
                             "active_listener_count",
                             (snapshot["active_listeners"] as? List<*>)?.size ?: 0,
-                        )
-                        .put("exit_ipv4_observed", snapshot["exit_ipv4"] != null)
+                        ).put("exit_ipv4_observed", snapshot["exit_ipv4"] != null)
                         .put("exit_ipv6_observed", snapshot["exit_ipv6"] != null)
 
                 archive.writeEntry("manifest.json", manifest.toString(2))

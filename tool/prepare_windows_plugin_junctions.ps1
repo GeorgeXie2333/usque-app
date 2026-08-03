@@ -1,7 +1,9 @@
+[CmdletBinding()]
 param(
     [string]$FlutterProject = ""
 )
 
+Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 if ([string]::IsNullOrWhiteSpace($FlutterProject)) {
     $FlutterProject = Join-Path $PSScriptRoot "../apps/usque_gui"

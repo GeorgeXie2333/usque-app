@@ -189,17 +189,35 @@ message ImportLegacyProfilesRequest {
   string active_profile_id = 2;
 }
 message ListProfilesRequest {}
-message ConnectRequest { string profile_id = 1; }
+message ConnectRequest {
+  string profile_id = 1;
+}
 message DisconnectRequest {}
 message RetryRequest {}
-message UpsertProfileRequest { Profile profile = 1; }
-message DeleteProfileRequest { string profile_id = 1; }
-message SetActiveProfileRequest { string profile_id = 1; }
-message ResetProfileRequest { string profile_id = 1; }
-message PauseCaptivePortalRequest { uint32 seconds = 1; }
-message CheckUpdateRequest { bool manual = 1; }
-message ExportDiagnosticsRequest { string destination = 1; }
-message ClearAllDataRequest { bool confirmed = 1; }
+message UpsertProfileRequest {
+  Profile profile = 1;
+}
+message DeleteProfileRequest {
+  string profile_id = 1;
+}
+message SetActiveProfileRequest {
+  string profile_id = 1;
+}
+message ResetProfileRequest {
+  string profile_id = 1;
+}
+message PauseCaptivePortalRequest {
+  uint32 seconds = 1;
+}
+message CheckUpdateRequest {
+  bool manual = 1;
+}
+message ExportDiagnosticsRequest {
+  string destination = 1;
+}
+message ClearAllDataRequest {
+  bool confirmed = 1;
+}
 message ProvisionIdentityRequest {
   string profile_id = 1;
   bytes warp_secret = 2;
@@ -274,11 +292,22 @@ message ControlResponse {
   }
 }
 
-message StateChanged { ConnectionSnapshot snapshot = 1; }
-message StatisticsUpdated { Statistics statistics = 1; }
-message ExitInfoUpdated { ExitInfo exit = 1; }
-message WarningRaised { string code = 1; string message = 2; }
-message CapabilitiesChanged { Capabilities capabilities = 1; }
+message StateChanged {
+  ConnectionSnapshot snapshot = 1;
+}
+message StatisticsUpdated {
+  Statistics statistics = 1;
+}
+message ExitInfoUpdated {
+  ExitInfo exit = 1;
+}
+message WarningRaised {
+  string code = 1;
+  string message = 2;
+}
+message CapabilitiesChanged {
+  Capabilities capabilities = 1;
+}
 message NetworkChanged {
   uint64 generation = 1;
   bool online = 2;

@@ -1,0 +1,11 @@
+# Buf v2 workspace for Usque control-plane and agent protos.
+# Fixed CLI version: buf 1.72.0 (verified in CI and tool/check_source.ps1)
+version: v2
+modules:
+  - path: proto
+lint:
+  use:
+    - STANDARD
+breaking:
+  use:
+    - FILE

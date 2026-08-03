@@ -2,6 +2,7 @@ plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+    id("org.jlleitschuh.gradle.ktlint")
 }
 
 android {
@@ -50,10 +51,22 @@ android {
             }
         }
     }
+
+    lint {
+        warningsAsErrors = true
+        checkReleaseBuilds = true
+        abortOnError = true
+    }
 }
 
 gradle.taskGraph.whenReady {
-    val releaseRequested = allTasks.any { it.name.contains("Release") }
+    // Fail-closed for release *builds*. Ignore incidental task names that
+    // contain "Release" (for example ktlint's *ReleaseSourceSet* checks).
+    val releaseRequested =
+        allTasks.any { task ->
+            val name = task.name
+            name.contains("Release") && !name.contains("ktlint", ignoreCase = true)
+        }
     if (releaseRequested) {
         val requiredVariables =
             listOf(
@@ -74,7 +87,13 @@ gradle.taskGraph.whenReady {
 kotlin {
     compilerOptions {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+        allWarningsAsErrors.set(true)
     }
+}
+
+ktlint {
+    version.set("1.8.0")
+    android.set(true)
 }
 
 flutter {
@@ -114,37 +133,39 @@ val powerShellExecutable =
         "pwsh"
     }
 
-fun registerRustAndroidBuild(name: String, profile: String) =
-    tasks.register<Exec>(name) {
-        group = "build"
-        description = "Builds the Rust JNI library for every supported Android ABI."
-        workingDir(rootProject.file("../../.."))
-        commandLine(
-            powerShellExecutable,
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            rustBuildScript.absolutePath,
-            "-Profile",
-            profile,
-            "-AbiFilter",
-            rustAbiFilter.get(),
-        )
-        inputs.files(
-            rustBuildScript,
-            rootProject.file("../../../Cargo.toml"),
-            rootProject.file("../../../Cargo.lock"),
-            rootProject.file("../../../rust-toolchain.toml"),
-            rootProject.fileTree("../../../crates") {
-                include("**/*.rs", "**/Cargo.toml")
-            },
-            rootProject.fileTree("../../../third_party/boring-sys-4.22.0"),
-            rootProject.fileTree("../../../third_party/ts_netstack_smoltcp_core"),
-        )
-        outputs.dir(file("src/main/jniLibs"))
-        inputs.property("rustAbiFilter", rustAbiFilter)
-    }
+fun registerRustAndroidBuild(
+    name: String,
+    profile: String,
+) = tasks.register<Exec>(name) {
+    group = "build"
+    description = "Builds the Rust JNI library for every supported Android ABI."
+    workingDir(rootProject.file("../../.."))
+    commandLine(
+        powerShellExecutable,
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        rustBuildScript.absolutePath,
+        "-Profile",
+        profile,
+        "-AbiFilter",
+        rustAbiFilter.get(),
+    )
+    inputs.files(
+        rustBuildScript,
+        rootProject.file("../../../Cargo.toml"),
+        rootProject.file("../../../Cargo.lock"),
+        rootProject.file("../../../rust-toolchain.toml"),
+        rootProject.fileTree("../../../crates") {
+            include("**/*.rs", "**/Cargo.toml")
+        },
+        rootProject.fileTree("../../../third_party/boring-sys-4.22.0"),
+        rootProject.fileTree("../../../third_party/ts_netstack_smoltcp_core"),
+    )
+    outputs.dir(file("src/main/jniLibs"))
+    inputs.property("rustAbiFilter", rustAbiFilter)
+}
 
 val buildRustAndroidDebug = registerRustAndroidBuild("buildRustAndroidDebug", "debug")
 val buildRustAndroidRelease = registerRustAndroidBuild("buildRustAndroidRelease", "release")

@@ -127,7 +127,10 @@ internal data class WarpAddressAssignment(
     }
 }
 
-private fun JSONObject.requiredString(name: String, maximumLength: Int): String {
+private fun JSONObject.requiredString(
+    name: String,
+    maximumLength: Int,
+): String {
     val value = getString(name).trim()
     require(value.isNotEmpty() && value.length <= maximumLength) { "Invalid $name" }
     return value
@@ -140,7 +143,10 @@ private fun JSONArray.strings(): List<String> =
         value
     }
 
-private fun parseNumericAddress(value: String, ipv6: Boolean): InetAddress {
+private fun parseNumericAddress(
+    value: String,
+    ipv6: Boolean,
+): InetAddress {
     require(value.isNotBlank() && '%' !in value) { "Invalid IP address" }
     if (ipv6) {
         require(':' in value) { "Expected an IPv6 address" }

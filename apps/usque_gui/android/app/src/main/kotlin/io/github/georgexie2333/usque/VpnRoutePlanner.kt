@@ -48,8 +48,7 @@ internal object VpnRoutePlanner {
             ((if (allowLan) lanExclusions else emptyList()) + bypassCidrs.map(CidrBlock::parse))
                 .filter { block ->
                     (block.isIpv4 && includeIpv4) || (block.isIpv6 && includeIpv6)
-                }
-                .distinctBy(CidrBlock::key)
+                }.distinctBy(CidrBlock::key)
 
         require(exclusions.none { it.prefixLength == 0 }) {
             "A /0 bypass would disable VPN protection for an address family"
@@ -120,8 +119,7 @@ internal data class CidrBlock private constructor(
         return prefixMatches(address.address, other.address, prefixLength)
     }
 
-    private fun overlaps(other: CidrBlock): Boolean =
-        contains(other) || other.contains(this)
+    private fun overlaps(other: CidrBlock): Boolean = contains(other) || other.contains(this)
 
     private fun split(): Pair<CidrBlock, CidrBlock> {
         val bitCount = address.address.size * 8
@@ -144,9 +142,11 @@ internal data class CidrBlock private constructor(
             require('%' !in host && host.isNotBlank()) { "Scoped addresses are not supported" }
             val bytes =
                 if (':' in host) {
-                    InetAddress.getByName(host).also {
-                        require(it is Inet6Address) { "Invalid IPv6 CIDR" }
-                    }.address
+                    InetAddress
+                        .getByName(host)
+                        .also {
+                            require(it is Inet6Address) { "Invalid IPv6 CIDR" }
+                        }.address
                 } else {
                     parseIpv4(host)
                 }
@@ -155,7 +155,10 @@ internal data class CidrBlock private constructor(
             return create(bytes, prefix)
         }
 
-        private fun create(source: ByteArray, prefixLength: Int): CidrBlock {
+        private fun create(
+            source: ByteArray,
+            prefixLength: Int,
+        ): CidrBlock {
             val network = source.copyOf()
             val fullBytes = prefixLength / 8
             val remainingBits = prefixLength % 8
@@ -184,7 +187,11 @@ internal data class CidrBlock private constructor(
             }
         }
 
-        private fun prefixMatches(left: ByteArray, right: ByteArray, prefixLength: Int): Boolean {
+        private fun prefixMatches(
+            left: ByteArray,
+            right: ByteArray,
+            prefixLength: Int,
+        ): Boolean {
             val wholeBytes = prefixLength / 8
             for (index in 0 until wholeBytes) {
                 if (left[index] != right[index]) return false

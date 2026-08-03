@@ -12,7 +12,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 ORACLE = ROOT / "oracle" / "go"
 SOURCE_COMMIT = (ORACLE / "UPSTREAM_COMMIT").read_text(encoding="ascii").strip()
@@ -35,8 +34,9 @@ BINARY_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico"}
 
 
 def git_bytes(path: str) -> bytes:
-    return subprocess.run(
-        ["git", "show", f"{SOURCE_COMMIT}:{path}"],
+    # Trusted fixed argv: only `git show` against the pinned oracle commit.
+    return subprocess.run(  # noqa: S603  # fixed git argv, no shell
+        ["git", "show", f"{SOURCE_COMMIT}:{path}"],  # noqa: S607  # PATH-resolved git binary
         cwd=ROOT,
         check=True,
         stdout=subprocess.PIPE,
@@ -44,15 +44,27 @@ def git_bytes(path: str) -> bytes:
 
 
 def source_files() -> list[str]:
-    output = subprocess.run(
-        ["git", "ls-tree", "-r", "--name-only", SOURCE_COMMIT, "--", *SOURCE_PATHS],
-        cwd=ROOT,
-        check=True,
-        stdout=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-    ).stdout
-    return [line for line in output.splitlines() if line]
+    # Trusted fixed argv: only `git ls-tree` against the pinned oracle commit.
+    return [
+        line
+        for line in subprocess.run(  # noqa: S603  # fixed git argv, no shell
+            [  # noqa: S607  # PATH-resolved git binary
+                "git",
+                "ls-tree",
+                "-r",
+                "--name-only",
+                SOURCE_COMMIT,
+                "--",
+                *SOURCE_PATHS,
+            ],
+            cwd=ROOT,
+            check=True,
+            stdout=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+        ).stdout.splitlines()
+        if line
+    ]
 
 
 def normalized(path: str, payload: bytes) -> bytes:

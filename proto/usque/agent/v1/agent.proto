@@ -65,7 +65,9 @@ message PrepareTunnelRequest {
   TunnelPlan plan = 2;
 }
 
-message CommitTunnelRequest { string operation_id = 1; }
+message CommitTunnelRequest {
+  string operation_id = 1;
+}
 
 message RollbackTunnelRequest {
   string operation_id = 1;
@@ -83,14 +85,18 @@ message ApplySystemProxyRequest {
   repeated string bypass_hosts = 3;
 }
 
-message RestoreSystemProxyRequest { string operation_id = 1; }
+message RestoreSystemProxyRequest {
+  string operation_id = 1;
+}
 
 message OpenPacketSessionRequest {
   string operation_id = 1;
   uint32 ring_capacity = 2;
 }
 
-message ClosePacketSessionRequest { string operation_id = 1; }
+message ClosePacketSessionRequest {
+  string operation_id = 1;
+}
 
 // Recreates only the volatile Wintun session and shared packet ring for an
 // already-active, journaled tunnel. Persistent routes, DNS, and WFP policy are
@@ -103,7 +109,9 @@ message ResumeTunnelRequest {
 // The response is written before the connection becomes a liveness lease.
 // Closing the owning Engine process/pipe detaches only the volatile packet
 // session; it never rolls back persistent WFP, routes, or DNS.
-message AcquireTunnelLeaseRequest { string operation_id = 1; }
+message AcquireTunnelLeaseRequest {
+  string operation_id = 1;
+}
 
 message AgentState {
   AgentPhase phase = 1;

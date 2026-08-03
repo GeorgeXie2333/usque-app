@@ -24,8 +24,8 @@ import android.os.RemoteException
 import androidx.annotation.Keep
 import org.json.JSONObject
 import java.time.Instant
-import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
@@ -163,7 +163,10 @@ class UsqueVpnService : VpnService() {
                 scheduleUnderlyingNetworkSelection()
             }
 
-            override fun onBlockedStatusChanged(network: Network, blocked: Boolean) {
+            override fun onBlockedStatusChanged(
+                network: Network,
+                blocked: Boolean,
+            ) {
                 availableNetworks.compute(network) { _, previous ->
                     (previous ?: NetworkCandidate()).copy(blocked = blocked)
                 }
@@ -184,6 +187,7 @@ class UsqueVpnService : VpnService() {
                         replyWithSnapshot(message)
                         true
                     }
+
                     MSG_REGISTER_EVENTS -> {
                         message.replyTo?.let { client ->
                             if (!eventClients.contains(client)) eventClients += client
@@ -191,23 +195,30 @@ class UsqueVpnService : VpnService() {
                         }
                         true
                     }
+
                     MSG_UNREGISTER_EVENTS -> {
                         message.replyTo?.let(eventClients::remove)
                         true
                     }
+
                     MSG_PAUSE_CAPTIVE_PORTAL -> {
                         pauseForCaptivePortal(message)
                         true
                     }
+
                     MSG_CLEAR_ALL_DATA -> {
                         clearAllData(message)
                         true
                     }
+
                     MSG_DISCONNECT -> {
                         disconnect(stopService = true, request = message)
                         true
                     }
-                    else -> false
+
+                    else -> {
+                        false
+                    }
                 }
             },
         )
@@ -227,7 +238,8 @@ class UsqueVpnService : VpnService() {
             },
         )
         val request =
-            NetworkRequest.Builder()
+            NetworkRequest
+                .Builder()
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
                 .build()
@@ -242,11 +254,20 @@ class UsqueVpnService : VpnService() {
             super.onBind(intent)
         }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    override fun onStartCommand(
+        intent: Intent?,
+        flags: Int,
+        startId: Int,
+    ): Int {
         when (intent?.action) {
-            ACTION_CONNECT ->
+            ACTION_CONNECT -> {
                 beginConnection(intent.getStringExtra(EXTRA_PROFILE_JSON) ?: "{}")
-            ACTION_DISCONNECT -> disconnect(stopService = true)
+            }
+
+            ACTION_DISCONNECT -> {
+                disconnect(stopService = true)
+            }
+
             null -> {
                 val recoveryProfile = recoveryPreferences.getString(RECOVERY_PROFILE, null)
                 val recoveryMode =
@@ -257,8 +278,8 @@ class UsqueVpnService : VpnService() {
                     }
                 if (
                     recoveryProfile != null &&
-                        (recoveryMode != "vpn" || VpnService.prepare(this) == null) &&
-                        recoveryProfile.toByteArray(Charsets.UTF_8).size <= MAX_PROFILE_BYTES
+                    (recoveryMode != "vpn" || VpnService.prepare(this) == null) &&
+                    recoveryProfile.toByteArray(Charsets.UTF_8).size <= MAX_PROFILE_BYTES
                 ) {
                     beginConnection(recoveryProfile)
                 } else {
@@ -379,7 +400,10 @@ class UsqueVpnService : VpnService() {
         }
     }
 
-    private fun startConnection(generation: Long, profileJson: String) {
+    private fun startConnection(
+        generation: Long,
+        profileJson: String,
+    ) {
         if (!NativeEngine.isReady()) {
             fail(generation, "The Rust data channel is unavailable; no VPN interface was created.")
             return
@@ -529,7 +553,10 @@ class UsqueVpnService : VpnService() {
         }
     }
 
-    private fun startProxyConnection(generation: Long, profileJson: String) {
+    private fun startProxyConnection(
+        generation: Long,
+        profileJson: String,
+    ) {
         val profileId =
             try {
                 JSONObject(profileJson).getString("id")
@@ -703,12 +730,12 @@ class UsqueVpnService : VpnService() {
                     val capabilities = candidate.capabilities ?: return@mapNotNull null
                     if (
                         candidate.blocked ||
-                            !capabilities.hasCapability(
-                                NetworkCapabilities.NET_CAPABILITY_INTERNET,
-                            ) ||
-                            !capabilities.hasCapability(
-                                NetworkCapabilities.NET_CAPABILITY_NOT_VPN,
-                            )
+                        !capabilities.hasCapability(
+                            NetworkCapabilities.NET_CAPABILITY_INTERNET,
+                        ) ||
+                        !capabilities.hasCapability(
+                            NetworkCapabilities.NET_CAPABILITY_NOT_VPN,
+                        )
                     ) {
                         return@mapNotNull null
                     }
@@ -722,13 +749,15 @@ class UsqueVpnService : VpnService() {
                         )
                 }
         val current = underlyingNetwork.get()
-        val selection = choosePhysicalNetwork(
-            currentHandle = current?.networkHandle,
-            candidates = candidates.map { it.second },
-        )
-        val selectedNetwork = candidates
-            .firstOrNull { it.second.handle == selection?.handle }
-            ?.first
+        val selection =
+            choosePhysicalNetwork(
+                currentHandle = current?.networkHandle,
+                candidates = candidates.map { it.second },
+            )
+        val selectedNetwork =
+            candidates
+                .firstOrNull { it.second.handle == selection?.handle }
+                ?.first
         val selectedFamilyMask = selection?.familyMask ?: 0
         val previousNetwork = underlyingNetwork.getAndSet(selectedNetwork)
         val previousFamilyMask = underlyingFamilyMask.getAndSet(selectedFamilyMask)
@@ -806,8 +835,9 @@ class UsqueVpnService : VpnService() {
     }
 
     private fun awaitPhysicalNetwork(connectionToken: Long): Boolean {
-        val deadline = System.nanoTime() +
-            TimeUnit.MILLISECONDS.toNanos(PHYSICAL_NETWORK_WAIT_MILLIS)
+        val deadline =
+            System.nanoTime() +
+                TimeUnit.MILLISECONDS.toNanos(PHYSICAL_NETWORK_WAIT_MILLIS)
         while (System.nanoTime() < deadline) {
             if (!isCurrent(connectionToken)) return false
             if (underlyingNetwork.get() != null) return true
@@ -836,13 +866,21 @@ class UsqueVpnService : VpnService() {
         val seconds = request.data.getInt("seconds", 0)
         val error =
             when {
-                seconds !in 1..600 ->
+                seconds !in 1..600 -> {
                     "Captive Portal Pause must be between 1 and 600 seconds."
-                activeMode.get() != "vpn" || tunnel.get() == null ->
+                }
+
+                activeMode.get() != "vpn" || tunnel.get() == null -> {
                     "Captive Portal Pause requires an active Android VPN."
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && isLockdownEnabled ->
+                }
+
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && isLockdownEnabled -> {
                     "Android Block connections without VPN is enabled. Disable it in system settings before pausing."
-                else -> null
+                }
+
+                else -> {
+                    null
+                }
             }
         if (error != null) {
             replyControlError(request, "CAPTIVE_PORTAL_PAUSE_UNAVAILABLE", error)
@@ -889,7 +927,7 @@ class UsqueVpnService : VpnService() {
                     mainHandler.post {
                         if (
                             connectionGeneration.get() == generation &&
-                                phase == "captivePortalPaused"
+                            phase == "captivePortalPaused"
                         ) {
                             if (captivePauseRemainingSeconds() == 0) {
                                 resumeFromCaptivePortalPause()
@@ -985,9 +1023,9 @@ class UsqueVpnService : VpnService() {
             }
         } else if (
             nativeFlag == null &&
-                exitFlagSvg == null &&
-                exitCountryCode != null &&
-                flagCacheLookupCode != exitCountryCode
+            exitFlagSvg == null &&
+            exitCountryCode != null &&
+            flagCacheLookupCode != exitCountryCode
         ) {
             val countryCode = requireNotNull(exitCountryCode)
             flagCacheLookupCode = countryCode
@@ -1023,7 +1061,11 @@ class UsqueVpnService : VpnService() {
         broadcastSnapshot()
     }
 
-    private fun postPhase(generation: Long, nextPhase: String, nextWarning: String?) {
+    private fun postPhase(
+        generation: Long,
+        nextPhase: String,
+        nextWarning: String?,
+    ) {
         mainHandler.post {
             if (isCurrent(generation)) {
                 phase = nextPhase
@@ -1041,7 +1083,10 @@ class UsqueVpnService : VpnService() {
         }
     }
 
-    private fun fail(generation: Long, message: String) {
+    private fun fail(
+        generation: Long,
+        message: String,
+    ) {
         fail(generation, "ANDROID_RUNTIME_FAILED", message)
     }
 
@@ -1219,17 +1264,45 @@ class UsqueVpnService : VpnService() {
     private fun updateNotification() {
         val text =
             when (phase) {
-                "preparing" -> "Preparing secure tunnel"
-                "connectingH3" -> "Connecting with HTTP/3"
-                "connectingH2" -> "Connecting with HTTP/2"
-                "connected" -> "Connected${transport?.let { " via ${it.uppercase()}" } ?: ""}"
-                "degraded" -> "Connected with reduced address-family support"
-                "reconnecting" -> "Reconnecting securely"
-                "captivePortalPaused" ->
+                "preparing" -> {
+                    "Preparing secure tunnel"
+                }
+
+                "connectingH3" -> {
+                    "Connecting with HTTP/3"
+                }
+
+                "connectingH2" -> {
+                    "Connecting with HTTP/2"
+                }
+
+                "connected" -> {
+                    "Connected${transport?.let { " via ${it.uppercase()}" } ?: ""}"
+                }
+
+                "degraded" -> {
+                    "Connected with reduced address-family support"
+                }
+
+                "reconnecting" -> {
+                    "Reconnecting securely"
+                }
+
+                "captivePortalPaused" -> {
                     "VPN paused for captive portal (${captivePauseRemainingSeconds()} s)"
-                "error" -> "Network service stopped after an error"
-                "disconnecting" -> "Disconnecting"
-                else -> "Usque VPN"
+                }
+
+                "error" -> {
+                    "Network service stopped after an error"
+                }
+
+                "disconnecting" -> {
+                    "Disconnecting"
+                }
+
+                else -> {
+                    "Usque VPN"
+                }
             }
         getSystemService(NotificationManager::class.java).notify(
             NOTIFICATION_ID,
@@ -1253,7 +1326,8 @@ class UsqueVpnService : VpnService() {
                 Intent(this, UsqueVpnService::class.java).setAction(ACTION_DISCONNECT),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
-        return Notification.Builder(this, CHANNEL_ID)
+        return Notification
+            .Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_usque)
             .setContentTitle("Usque")
             .setContentText(status)
@@ -1261,21 +1335,19 @@ class UsqueVpnService : VpnService() {
             .setCategory(Notification.CATEGORY_SERVICE)
             .setOngoing(true)
             .addAction(
-                Notification.Action.Builder(
-                    null,
-                    "Disconnect",
-                    disconnectIntent,
-                ).build(),
-            )
-            .build()
+                Notification.Action
+                    .Builder(
+                        null,
+                        "Disconnect",
+                        disconnectIntent,
+                    ).build(),
+            ).build()
     }
 
-    private fun isCurrent(generation: Long): Boolean =
-        !destroyed && connectionGeneration.get() == generation
+    private fun isCurrent(generation: Long): Boolean = !destroyed && connectionGeneration.get() == generation
 
     @Keep
-    fun getUnderlyingNetworkHandle(): Long =
-        underlyingNetwork.get()?.networkHandle ?: 0L
+    fun getUnderlyingNetworkHandle(): Long = underlyingNetwork.get()?.networkHandle ?: 0L
 
     @Keep
     fun getUnderlyingFamilyMask(): Int = underlyingFamilyMask.get()
@@ -1328,41 +1400,54 @@ class UsqueVpnService : VpnService() {
         val structuredMessage = nativeSnapshot?.optNullableString("warning")
         val fallback =
             when (result) {
-                NativeEngine.ERROR_INVALID_WARP_SECRET ->
+                NativeEngine.ERROR_INVALID_WARP_SECRET -> {
                     NativeStartFailure(
                         "IDENTITY_INVALID",
                         "The stored WARP identity was rejected.",
                     )
-                NativeEngine.ERROR_ALREADY_RUNNING ->
+                }
+
+                NativeEngine.ERROR_ALREADY_RUNNING -> {
                     NativeStartFailure(
                         "ANDROID_RUNTIME_FAILED",
                         "Another native data channel is already running.",
                     )
-                NativeEngine.ERROR_INVALID_PROFILE ->
+                }
+
+                NativeEngine.ERROR_INVALID_PROFILE -> {
                     NativeStartFailure(
                         "ANDROID_RUNTIME_FAILED",
                         "The Rust engine rejected this profile.",
                     )
-                NativeEngine.ERROR_PLATFORM_FAILURE ->
+                }
+
+                NativeEngine.ERROR_PLATFORM_FAILURE -> {
                     NativeStartFailure(
                         "ANDROID_RUNTIME_FAILED",
                         "Android could not initialize the native runtime.",
                     )
-                NativeEngine.ERROR_TRANSPORT_FAILURE ->
+                }
+
+                NativeEngine.ERROR_TRANSPORT_FAILURE -> {
                     NativeStartFailure(
                         "MASQUE_CONNECT_FAILED",
                         "The MASQUE endpoint could not be reached with HTTP/3 or HTTP/2.",
                     )
-                NativeEngine.ERROR_TUN_FAILURE ->
+                }
+
+                NativeEngine.ERROR_TUN_FAILURE -> {
                     NativeStartFailure(
                         "ANDROID_RUNTIME_FAILED",
                         "The Rust engine could not own the VPN interface.",
                     )
-                else ->
+                }
+
+                else -> {
                     NativeStartFailure(
                         "ANDROID_RUNTIME_FAILED",
                         "The native engine rejected the network request ($result).",
                     )
+                }
             }
         return NativeStartFailure(
             structuredCode?.take(64) ?: fallback.code,
@@ -1370,8 +1455,7 @@ class UsqueVpnService : VpnService() {
         )
     }
 
-    private fun safeMessage(error: Exception): String =
-        (error.message ?: error.javaClass.simpleName).take(256)
+    private fun safeMessage(error: Exception): String = (error.message ?: error.javaClass.simpleName).take(256)
 
     private fun closeQuietly(descriptor: ParcelFileDescriptor?) {
         try {
