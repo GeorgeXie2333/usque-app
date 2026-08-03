@@ -134,9 +134,12 @@ jobs:
         run: |
           set -euo pipefail
           BUF_VERSION=1.72.0
+          # sha256 from https://github.com/bufbuild/buf/releases/download/v1.72.0/sha256.txt
+          BUF_SHA256=8720830e26a733da55bb89bcd3cb44849c0965fc0c44fb5d691cccdc64dca5af
           curl -fsSL \
             "https://github.com/bufbuild/buf/releases/download/v${BUF_VERSION}/buf-Linux-x86_64" \
             -o /tmp/buf
+          echo "${BUF_SHA256}  /tmp/buf" | sha256sum -c -
           sudo install -m 0755 /tmp/buf /usr/local/bin/buf
           test "$(buf --version)" = "${BUF_VERSION}"
 
@@ -151,7 +154,11 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --no-tags origin "${{ github.base_ref }}"
-          buf breaking --against ".git#ref=refs/remotes/origin/${{ github.base_ref }}"
+          # --against-config applies the current module path policy (proto/) even when
+          # the PR base lacks buf.yaml, avoiding false FILE-path breaking failures.
+          buf breaking \
+            --against ".git#ref=refs/remotes/origin/${{ github.base_ref }}" \
+            --against-config buf.yaml
 
   android-host:
     name: Android host unit tests and lint

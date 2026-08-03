@@ -74,32 +74,34 @@ try {
     Invoke-Checked "Dart format (check-only)" {
         $dart = $null
         if (Get-Command dart -ErrorAction SilentlyContinue) {
-            $dart = "dart"
+            $dart = (Get-Command dart).Source
         }
         elseif (Get-Command flutter -ErrorAction SilentlyContinue) {
+            # Resolve dart from the Flutter SDK layout only (bin/dart[.bat] beside flutter).
+            # Do not use `flutter dart format`; it is not a reliable first-class subcommand.
             $flutterBin = (Get-Command flutter).Source
-            $candidate = Join-Path (Split-Path -Parent $flutterBin) "dart"
-            if ($env:OS -eq "Windows_NT") {
-                $candidate = "$candidate.bat"
+            $flutterDir = Split-Path -Parent $flutterBin
+            $candidates = @(
+                (Join-Path $flutterDir "dart"),
+                (Join-Path $flutterDir "dart.bat"),
+                (Join-Path $flutterDir "dart.exe")
+            )
+            foreach ($candidate in $candidates) {
+                if (Test-Path -LiteralPath $candidate) {
+                    $dart = $candidate
+                    break
+                }
             }
-            if (Test-Path -LiteralPath $candidate) {
-                $dart = $candidate
-            }
-            else {
-                $dart = "flutter"
+            if (-not $dart) {
+                throw "Found 'flutter' at $flutterBin but no sibling dart executable. Install a complete Flutter SDK so dart is available on PATH (or next to flutter)."
             }
         }
         if (-not $dart) {
-            throw "Required tool 'dart' (or 'flutter') was not found on PATH."
+            throw "Required tool 'dart' was not found on PATH. Install the Flutter SDK (which provides dart) or add dart to PATH."
         }
         Push-Location $flutterRoot
         try {
-            if ($dart -eq "flutter") {
-                & flutter dart format --output=none --set-exit-if-changed lib test
-            }
-            else {
-                & $dart format --output=none --set-exit-if-changed lib test
-            }
+            & $dart format --output=none --set-exit-if-changed lib test
         }
         finally {
             Pop-Location

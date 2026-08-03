@@ -67,11 +67,13 @@ python -m unittest discover -s tool -p "test_*.py" -v
 
 ### PowerShell (`tool/*.ps1`)
 
-Every script under `tool/` must start with `[CmdletBinding()]`, call `Set-StrictMode -Version Latest`, and set `$ErrorActionPreference = 'Stop'`.
+Every script under `tool/` must declare `[CmdletBinding()]` near the top (before `param`), call `Set-StrictMode -Version Latest`, and set `$ErrorActionPreference = 'Stop'`. A short file-level comment block above `[CmdletBinding()]` is fine.
 
 ```shell
 Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser -Force
 # Warning and Error both block (see tool/PSScriptAnalyzerSettings.psd1).
+# The fail-closed gate is tool/check_source.ps1 (or the tooling-quality CI job);
+# a bare Invoke-ScriptAnalyzer invocation does not exit non-zero by itself.
 Invoke-ScriptAnalyzer -Path tool -Recurse -Settings tool/PSScriptAnalyzerSettings.psd1
 ```
 
