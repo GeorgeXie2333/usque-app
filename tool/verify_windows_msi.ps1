@@ -205,18 +205,18 @@ try {
         "ARPCOMMENTS"
 
     $shortcut = Assert-OneRow `
-        (Invoke-MsiQuery `
+    (Invoke-MsiQuery `
             -Database $database `
             -Query "SELECT ``Shortcut``,``Directory_``,``Name``,``Component_``,``Icon_``,``IconIndex``,``WkDir`` FROM ``Shortcut`` WHERE ``Shortcut``='UsqueStartMenuShortcut'" `
             -Columns @(
-                "Shortcut",
-                "Directory",
-                "Name",
-                "Component",
-                "Icon",
-                "IconIndex",
-                "WorkingDirectory"
-            )) `
+            "Shortcut",
+            "Directory",
+            "Name",
+            "Component",
+            "Icon",
+            "IconIndex",
+            "WorkingDirectory"
+        )) `
         "Usque Start Menu shortcut"
     Assert-Equal $shortcut.Directory "UsqueProgramMenuFolder" "shortcut directory"
     Assert-Equal $shortcut.Name "Usque" "shortcut name"
@@ -226,7 +226,7 @@ try {
     Assert-Equal $shortcut.WorkingDirectory "INSTALLFOLDER" "shortcut working directory"
 
     $icon = Assert-OneRow `
-        (Invoke-MsiQuery `
+    (Invoke-MsiQuery `
             -Database $database `
             -Query "SELECT ``Name`` FROM ``Icon`` WHERE ``Name``='UsqueProductIcon.ico'" `
             -Columns @("Name")) `
@@ -240,18 +240,18 @@ try {
     }
 
     $serviceInstall = Assert-OneRow `
-        (Invoke-MsiQuery `
+    (Invoke-MsiQuery `
             -Database $database `
             -Query "SELECT ``ServiceInstall``,``Name``,``ServiceType``,``StartType``,``ErrorControl``,``Arguments``,``Component_`` FROM ``ServiceInstall``" `
             -Columns @(
-                "ServiceInstall",
-                "Name",
-                "ServiceType",
-                "StartType",
-                "ErrorControl",
-                "Arguments",
-                "Component"
-            )) `
+            "ServiceInstall",
+            "Name",
+            "ServiceType",
+            "StartType",
+            "ErrorControl",
+            "Arguments",
+            "Component"
+        )) `
         "Agent ServiceInstall"
     Assert-Equal $serviceInstall.Name "UsqueAgent" "Agent service name"
     Assert-Equal $serviceInstall.ServiceType "16" "Agent service type"
@@ -264,7 +264,7 @@ try {
         "Agent service arguments"
 
     $serviceControl = Assert-OneRow `
-        (Invoke-MsiQuery `
+    (Invoke-MsiQuery `
             -Database $database `
             -Query "SELECT ``ServiceControl``,``Name``,``Event``,``Wait``,``Component_`` FROM ``ServiceControl``" `
             -Columns @("ServiceControl", "Name", "Event", "Wait", "Component")) `
@@ -275,7 +275,7 @@ try {
     Assert-Equal $serviceControl.Component "UsqueAgentComponent" "service control component"
 
     $customAction = Assert-OneRow `
-        (Invoke-MsiQuery `
+    (Invoke-MsiQuery `
             -Database $database `
             -Query "SELECT ``Action``,``Type``,``Source``,``Target`` FROM ``CustomAction`` WHERE ``Action``='RecoverAgentState'" `
             -Columns @("Action", "Type", "Source", "Target")) `
@@ -285,7 +285,7 @@ try {
     Assert-Equal $customAction.Target "--recover-state" "recovery command"
 
     $emergencyAction = Assert-OneRow `
-        (Invoke-MsiQuery `
+    (Invoke-MsiQuery `
             -Database $database `
             -Query "SELECT ``Action``,``Type``,``Source``,``Target`` FROM ``CustomAction`` WHERE ``Action``='EmergencyRemoveKillSwitch'" `
             -Columns @("Action", "Type", "Source", "Target")) `
@@ -306,13 +306,13 @@ try {
         $sequences[$row.Action] = $row
     }
     foreach ($requiredAction in @(
-        "RemoveExistingProducts",
-        "StopServices",
-        "EmergencyRemoveKillSwitch",
-        "RecoverAgentState",
-        "DeleteServices",
-        "RemoveFiles"
-    )) {
+            "RemoveExistingProducts",
+            "StopServices",
+            "EmergencyRemoveKillSwitch",
+            "RecoverAgentState",
+            "DeleteServices",
+            "RemoveFiles"
+        )) {
         if (-not $sequences.ContainsKey($requiredAction)) {
             throw "MSI is missing the $requiredAction execute-sequence row."
         }
@@ -325,13 +325,13 @@ try {
     Assert-Equal $sequences.RecoverAgentState.Condition 'REMOVE~="ALL"' "recovery condition"
     if (
         [int]$sequences.EmergencyRemoveKillSwitch.Sequence -ne
-            ([int]$sequences.StopServices.Sequence + 1) -or
+        ([int]$sequences.StopServices.Sequence + 1) -or
         [int]$sequences.RecoverAgentState.Sequence -ne
-            ([int]$sequences.EmergencyRemoveKillSwitch.Sequence + 1) -or
+        ([int]$sequences.EmergencyRemoveKillSwitch.Sequence + 1) -or
         [int]$sequences.RecoverAgentState.Sequence -ge
-            [int]$sequences.DeleteServices.Sequence -or
+        [int]$sequences.DeleteServices.Sequence -or
         [int]$sequences.RecoverAgentState.Sequence -ge
-            [int]$sequences.RemoveFiles.Sequence
+        [int]$sequences.RemoveFiles.Sequence
     ) {
         throw "Emergency WFP cleanup and detailed recovery must run immediately after StopServices and before service/file removal."
     }
@@ -343,7 +343,7 @@ try {
     $launchConditions = @($launchRows | ForEach-Object { $_.Condition })
     if (
         $launchConditions -notcontains
-            "Installed OR (VersionNT64 AND WINDOWSBUILDNUMBER >= 19045)"
+        "Installed OR (VersionNT64 AND WINDOWSBUILDNUMBER >= 19045)"
     ) {
         throw "MSI does not enforce Windows 10 22H2 build 19045+."
     }
@@ -356,7 +356,7 @@ try {
         -Query "SELECT ``UpgradeCode``,``VersionMin``,``VersionMax``,``Attributes``,``ActionProperty`` FROM ``Upgrade``" `
         -Columns @("UpgradeCode", "VersionMin", "VersionMax", "Attributes", "ActionProperty")
     $detected = Assert-OneRow `
-        @($upgradeRows | Where-Object { $_.ActionProperty -eq "WIX_UPGRADE_DETECTED" }) `
+    @($upgradeRows | Where-Object { $_.ActionProperty -eq "WIX_UPGRADE_DETECTED" }) `
         "WIX_UPGRADE_DETECTED"
     Assert-Equal $detected.UpgradeCode "{076CF387-E447-4666-9153-2DA16049A390}" "detected upgrade code"
     Assert-Equal $detected.VersionMax $ExpectedMsiVersion "upgrade maximum version"
@@ -379,11 +379,11 @@ try {
         }
     )
     foreach ($requiredFile in @(
-        "usque.exe",
-        "usque-engine.exe",
-        "usque-agent.exe",
-        "wintun.dll"
-    )) {
+            "usque.exe",
+            "usque-engine.exe",
+            "usque-agent.exe",
+            "wintun.dll"
+        )) {
         if (@($longNames | Where-Object { $_ -ieq $requiredFile }).Count -ne 1) {
             throw "MSI must contain exactly one $requiredFile."
         }

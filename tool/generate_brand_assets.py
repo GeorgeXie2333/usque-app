@@ -23,13 +23,8 @@ def resize(source: Image.Image, size: int) -> Image.Image:
 
 def save_android(source: Image.Image) -> None:
     resources = FLUTTER / "android" / "app" / "src" / "main" / "res"
-    legacy_sizes = {
-        "mipmap-mdpi": 48,
-        "mipmap-hdpi": 72,
-        "mipmap-xhdpi": 96,
-        "mipmap-xxhdpi": 144,
-        "mipmap-xxxhdpi": 192,
-    }
+    # Android minSdk 26 uses adaptive launcher icons; only their foreground
+    # layers need density-specific bitmap variants.
     foreground_sizes = {
         "mipmap-mdpi": 108,
         "mipmap-hdpi": 162,
@@ -37,13 +32,9 @@ def save_android(source: Image.Image) -> None:
         "mipmap-xxhdpi": 324,
         "mipmap-xxxhdpi": 432,
     }
-    for folder, size in legacy_sizes.items():
-        destination = resources / folder
-        destination.mkdir(parents=True, exist_ok=True)
-        resize(source, size).save(destination / "ic_launcher.png", optimize=True)
-
     for folder, size in foreground_sizes.items():
         destination = resources / folder
+        destination.mkdir(parents=True, exist_ok=True)
         canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
         artwork_size = round(size * 0.72)
         artwork = resize(source, artwork_size)
@@ -72,13 +63,7 @@ def save_android(source: Image.Image) -> None:
 
 
 def save_macos(source: Image.Image) -> None:
-    destination = (
-        FLUTTER
-        / "macos"
-        / "Runner"
-        / "Assets.xcassets"
-        / "AppIcon.appiconset"
-    )
+    destination = FLUTTER / "macos" / "Runner" / "Assets.xcassets" / "AppIcon.appiconset"
     destination.mkdir(parents=True, exist_ok=True)
     for size in (16, 32, 64, 128, 256, 512, 1024):
         resize(source, size).save(
@@ -88,9 +73,7 @@ def save_macos(source: Image.Image) -> None:
 
 
 def save_windows(source: Image.Image) -> None:
-    windows_icon = (
-        FLUTTER / "windows" / "runner" / "resources" / "app_icon.ico"
-    )
+    windows_icon = FLUTTER / "windows" / "runner" / "resources" / "app_icon.ico"
     windows_icon.parent.mkdir(parents=True, exist_ok=True)
     source.save(
         windows_icon,

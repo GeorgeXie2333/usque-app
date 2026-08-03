@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<lint>
+    <!-- Versions are deliberately pinned and updated together with dependency locks and verification metadata. -->
+    <issue id="AndroidGradlePluginVersion" severity="ignore" />
+    <issue id="GradleDependency" severity="ignore" />
+
+    <!-- The Android TV banner has the platform-prescribed xhdpi dimensions and is not a multi-density icon. -->
+    <issue id="IconMissingDensityFolder" severity="ignore" />
+</lint>

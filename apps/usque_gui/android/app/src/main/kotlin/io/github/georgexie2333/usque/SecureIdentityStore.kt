@@ -1,5 +1,6 @@
 package io.github.georgexie2333.usque
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
@@ -21,6 +22,9 @@ import javax.crypto.spec.GCMParameterSpec
  * Operational access is intentionally not authentication-gated: the dedicated
  * VPN process must reconnect in the background. A future reveal/copy UI must
  * independently require BiometricPrompt or device credentials.
+ *
+ * Identity migrations and wipes use synchronous commits so they are durable
+ * before their callers continue.
  */
 internal class SecureIdentityStore(
     context: Context,
@@ -43,6 +47,7 @@ internal class SecureIdentityStore(
             check(isDirectory || mkdirs()) { "Encrypted identity directory could not be created" }
         }
 
+    @SuppressLint("ApplySharedPref", "UseKtx")
     fun put(
         profileId: String,
         record: Record,
@@ -143,6 +148,7 @@ internal class SecureIdentityStore(
         }
     }
 
+    @SuppressLint("ApplySharedPref", "UseKtx")
     fun delete(
         profileId: String,
         record: Record,
@@ -153,6 +159,7 @@ internal class SecureIdentityStore(
         legacyPreferences.edit().remove(target).commit()
     }
 
+    @SuppressLint("ApplySharedPref", "UseKtx")
     fun deleteIdentity(profileId: String) {
         require(validProfileId(profileId)) { "Invalid profile ID" }
         val editor = legacyPreferences.edit()
@@ -164,6 +171,7 @@ internal class SecureIdentityStore(
         editor.commit()
     }
 
+    @SuppressLint("ApplySharedPref", "UseKtx")
     fun clearAll() {
         identityDirectory.listFiles()?.forEach { file ->
             if (file.isFile) AtomicFile(file).delete()

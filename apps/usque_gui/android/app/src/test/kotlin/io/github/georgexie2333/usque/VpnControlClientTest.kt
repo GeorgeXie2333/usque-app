@@ -236,8 +236,8 @@ class VpnControlClientTest {
         assertEquals(1, result.completionCount)
         assertNull(client.inFlightClearAllForTest())
 
-        // Wipe completion must not double-complete.
-        assertFalse(client.takeInFlightClearAll(result))
+        // A cancelled acknowledgement can no longer be claimed by a wipe worker.
+        assertFalse(client.claimInFlightClearAll(result))
         client.destroy()
         assertEquals(1, result.completionCount)
     }
@@ -255,11 +255,14 @@ class VpnControlClientTest {
             null,
             mapOf("phase" to "disconnected"),
         )
-        assertTrue(client.takeInFlightClearAll(result))
+        assertTrue(client.claimInFlightClearAll(result))
+        assertSame(result, client.claimedClearAllForTest())
+        assertTrue(client.takeClaimedClearAll(result))
         result.success(null)
 
         assertEquals(1, result.completionCount)
         assertNull(client.inFlightClearAllForTest())
+        assertNull(client.claimedClearAllForTest())
         client.destroy()
         assertEquals(1, result.completionCount)
     }
@@ -301,7 +304,7 @@ class VpnControlClientTest {
     }
 
     @Test
-    fun clearAllRejectsConcurrentRequestWhileLocalWipeInFlight() {
+    fun clearAllRejectsConcurrentRequestWhileLocalWipeClaimed() {
         val endpoint = RecordingEndpoint()
         client.attachEndpointForTest(endpoint)
         val first = RecordingResult()
@@ -314,13 +317,14 @@ class VpnControlClientTest {
             null,
             mapOf("phase" to "disconnected"),
         )
-        assertNotNull(client.inFlightClearAllForTest())
+        assertTrue(client.claimInFlightClearAll(first))
+        assertSame(first, client.claimedClearAllForTest())
         assertEquals(0, first.completionCount)
 
         assertFalse(client.requestClearAllData(second))
         assertEquals("CLEAR_ALL_IN_PROGRESS", second.errorCode)
         assertEquals(1, second.completionCount)
-        assertSame(first, client.inFlightClearAllForTest())
+        assertSame(first, client.claimedClearAllForTest())
         assertEquals(0, first.completionCount)
     }
 

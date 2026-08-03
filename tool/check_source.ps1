@@ -163,6 +163,10 @@ try {
         if ($LASTEXITCODE -ne 0) {
             throw "ruff check failed (exit $LASTEXITCODE)"
         }
+        & $ruffCmd[0] @ruffArgs format --check tool
+        if ($LASTEXITCODE -ne 0) {
+            throw "ruff format --check failed (exit $LASTEXITCODE)"
+        }
     }
 
     # --- PowerShell (PSScriptAnalyzer) ---
@@ -179,15 +183,17 @@ try {
         $findings = @()
         foreach ($script in $scripts) {
             $findings += Invoke-ScriptAnalyzer -Path $script.FullName -Settings $settings
+            # Correct-casing diagnostics are Information, outside the settings severity filter.
+            $findings += Invoke-ScriptAnalyzer -Path $script.FullName -IncludeRule PSUseCorrectCasing
         }
         if ($findings.Count -gt 0) {
             $findings |
                 Format-Table -AutoSize Severity, RuleName, ScriptName, Line, Message |
                 Out-String |
                 Write-Output
-            throw "PSScriptAnalyzer reported $($findings.Count) Error/Warning finding(s)."
+            throw "PSScriptAnalyzer reported $($findings.Count) blocking finding(s)."
         }
-        Write-Output "PSScriptAnalyzer: no Error/Warning findings in tool/*.ps1"
+        Write-Output "PSScriptAnalyzer: no Error/Warning or casing findings in tool/*.ps1"
     }
 
     # --- Proto (Buf) ---

@@ -36,9 +36,7 @@ class ReleaseContractTests(unittest.TestCase):
     def test_manifest_rejects_an_unexpected_primary_artifact(self) -> None:
         (self.root / "unexpected.apk").write_bytes(b"no")
         with self.assertRaises(release_contract.ContractError):
-            release_contract.create_manifest(
-                self.root, self.tag, self.commit, "b" * 64, "c" * 64
-            )
+            release_contract.create_manifest(self.root, self.tag, self.commit, "b" * 64, "c" * 64)
 
     def test_artifact_tampering_is_rejected(self) -> None:
         manifest = release_contract.create_manifest(
@@ -67,21 +65,15 @@ class ReleaseContractTests(unittest.TestCase):
             self._evidence(manifest, manifest_sha, "android"),
         )
 
-        ready = release_contract.create_ready(
-            manifest_path, windows_path, android_path
-        )
+        ready = release_contract.create_ready(manifest_path, windows_path, android_path)
         self.assertTrue(ready["ready"])
         self.assertEqual(self.tag, ready["tag"])
 
         evidence = json.loads(windows_path.read_text())
-        evidence["tests"]["performance.oracle_thresholds"][
-            "candidate_throughput_mbps"
-        ] = 89
+        evidence["tests"]["performance.oracle_thresholds"]["candidate_throughput_mbps"] = 89
         release_contract.write_json(windows_path, evidence)
         with self.assertRaises(release_contract.ContractError):
-            release_contract.create_ready(
-                manifest_path, windows_path, android_path
-            )
+            release_contract.create_ready(manifest_path, windows_path, android_path)
 
     def _evidence(
         self, manifest: dict[str, object], manifest_sha: str, platform: str
@@ -89,9 +81,7 @@ class ReleaseContractTests(unittest.TestCase):
         attachments: dict[str, str] = {}
 
         def attachment(label: str) -> str:
-            relative = Path(platform) / (
-                label.replace(".", "-").replace(":", "-") + ".evidence"
-            )
+            relative = Path(platform) / (label.replace(".", "-").replace(":", "-") + ".evidence")
             content = f"{platform}:{label}".encode()
             path = self.root / relative
             path.parent.mkdir(parents=True, exist_ok=True)

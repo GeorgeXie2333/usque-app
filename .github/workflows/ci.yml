@@ -84,8 +84,10 @@ jobs:
           python -m pip install "ruff==0.16.0"
           test "$(ruff --version)" = "ruff 0.16.0"
 
-      - name: Ruff check
-        run: ruff check tool
+      - name: Ruff lint and format check
+        run: |
+          ruff check tool
+          ruff format --check tool
 
       - name: Install PowerShell
         shell: bash
@@ -114,7 +116,7 @@ jobs:
           }
           Write-Output "PSScriptAnalyzer $($mod.Version)"
 
-      - name: PSScriptAnalyzer (warnings and errors block)
+      - name: PSScriptAnalyzer (warnings, errors, and casing block)
         shell: pwsh
         run: |
           Set-StrictMode -Version Latest
@@ -123,10 +125,12 @@ jobs:
           $settings = "tool/PSScriptAnalyzerSettings.psd1"
           $findings = @(Get-ChildItem tool -Filter *.ps1 | ForEach-Object {
             Invoke-ScriptAnalyzer -Path $_.FullName -Settings $settings
+            # PSUseCorrectCasing is Information, so run it outside the settings severity filter.
+            Invoke-ScriptAnalyzer -Path $_.FullName -IncludeRule PSUseCorrectCasing
           })
           if ($findings.Count -gt 0) {
             $findings | Format-Table -AutoSize Severity, RuleName, ScriptName, Line, Message
-            throw "PSScriptAnalyzer reported $($findings.Count) Error/Warning finding(s)."
+            throw "PSScriptAnalyzer reported $($findings.Count) blocking finding(s)."
           }
           Write-Output "PSScriptAnalyzer: clean"
 

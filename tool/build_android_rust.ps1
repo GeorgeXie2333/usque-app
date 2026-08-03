@@ -87,17 +87,17 @@ if (-not (Test-Path -LiteralPath $toolchainBin)) {
     throw "NDK LLVM toolchain was not found at $toolchainBin"
 }
 $libclangDirectory =
-    if ($isWindowsHost) {
-        $toolchainBin
-    } else {
-        Join-Path $NdkRoot "toolchains/llvm/prebuilt/$hostTag/lib64"
-    }
+if ($isWindowsHost) {
+    $toolchainBin
+} else {
+    Join-Path $NdkRoot "toolchains/llvm/prebuilt/$hostTag/lib64"
+}
 $libclang =
-    if ($isWindowsHost) {
-        Join-Path $libclangDirectory "libclang.dll"
-    } else {
-        Join-Path $libclangDirectory "libclang.so"
-    }
+if ($isWindowsHost) {
+    Join-Path $libclangDirectory "libclang.dll"
+} else {
+    Join-Path $libclangDirectory "libclang.so"
+}
 if (-not (Test-Path -LiteralPath $libclang)) {
     throw "NDK libclang was not found at $libclang"
 }

@@ -1,5 +1,6 @@
 package io.github.georgexie2333.usque
 
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.IpPrefix
@@ -231,6 +232,8 @@ class UsqueVpnService : VpnService() {
         super.onDestroy()
     }
 
+    // Recovery state must be durable before starting the native connection.
+    @SuppressLint("ApplySharedPref", "UseKtx")
     private fun beginConnection(profileJson: String) {
         captivePauseTask?.cancel(false)
         captivePauseTask = null
@@ -556,6 +559,8 @@ class UsqueVpnService : VpnService() {
         return builder.establish()
     }
 
+    // Remove recovery state before the service can be stopped.
+    @SuppressLint("ApplySharedPref", "UseKtx")
     private fun disconnect(
         stopService: Boolean,
         request: Message? = null,
@@ -594,6 +599,8 @@ class UsqueVpnService : VpnService() {
         }
     }
 
+    // Clear recovery state before acknowledging the destructive request.
+    @SuppressLint("ApplySharedPref", "UseKtx")
     private fun clearAllData(request: Message) {
         if (!request.data.getBoolean("confirmed", false)) {
             replyControlError(

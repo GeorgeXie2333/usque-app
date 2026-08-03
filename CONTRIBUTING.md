@@ -60,6 +60,7 @@ cd apps/usque_gui/android
 # Ruff 0.16.0 is required (see pyproject.toml required-version).
 pip install ruff==0.16.0
 ruff check tool
+ruff format --check tool
 python -m unittest discover -s tool -p "test_*.py" -v
 ```
 
@@ -71,10 +72,11 @@ Every script under `tool/` must declare `[CmdletBinding()]` near the top (before
 
 ```shell
 Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser -Force
-# Warning and Error both block (see tool/PSScriptAnalyzerSettings.psd1).
+# Warning, Error, and PSUseCorrectCasing findings block.
 # The fail-closed gate is tool/check_source.ps1 (or the tooling-quality CI job);
 # a bare Invoke-ScriptAnalyzer invocation does not exit non-zero by itself.
 Invoke-ScriptAnalyzer -Path tool -Recurse -Settings tool/PSScriptAnalyzerSettings.psd1
+Invoke-ScriptAnalyzer -Path tool -Recurse -IncludeRule PSUseCorrectCasing
 ```
 
 ### Protocol Buffers (`proto/`)

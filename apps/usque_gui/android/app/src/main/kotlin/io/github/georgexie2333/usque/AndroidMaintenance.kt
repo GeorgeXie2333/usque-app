@@ -1,5 +1,6 @@
 package io.github.georgexie2333.usque
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.net.Uri
 import android.os.Build
@@ -18,6 +19,8 @@ internal object AndroidMaintenance {
     private const val RELEASE_URL_PREFIX =
         "https://github.com/GeorgeXie2333/usque-app/releases/"
 
+    // A cached update result must be durable before reporting success.
+    @SuppressLint("ApplySharedPref", "UseKtx")
     fun checkForUpdates(
         context: Context,
         manual: Boolean,
@@ -142,6 +145,8 @@ internal object AndroidMaintenance {
         }
     }
 
+    // Clear-all must know whether persistence succeeded before continuing.
+    @SuppressLint("ApplySharedPref", "UseKtx")
     fun clearLocalState(context: Context) {
         check(
             context

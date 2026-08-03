@@ -210,8 +210,9 @@ internal class AndroidEngineMethodHandler(
 
     fun finishClearAllData(result: MethodChannel.Result) {
         identityExecutor.execute {
-            // Destroy may have already completed with CLEAR_ALL_CANCELLED — do not wipe.
-            if (!controlClient.shouldProceedWithLocalClearAll(result)) {
+            // Claim and cancellation are one synchronized transition: destroy can cancel before
+            // this point, but cannot report cancellation after destructive work has started.
+            if (!controlClient.claimInFlightClearAll(result)) {
                 return@execute
             }
             try {
@@ -222,12 +223,12 @@ internal class AndroidEngineMethodHandler(
                 ) ?: throw IllegalStateException("Rust did not reset the Profile store")
                 maintenanceBridge.clearLocalState()
                 mainScheduler.post {
-                    if (!controlClient.takeInFlightClearAll(result)) return@post
+                    if (!controlClient.takeClaimedClearAll(result)) return@post
                     result.success(null)
                 }
             } catch (error: Exception) {
                 mainScheduler.post {
-                    if (!controlClient.takeInFlightClearAll(result)) return@post
+                    if (!controlClient.takeClaimedClearAll(result)) return@post
                     result.error(
                         "CLEAR_ALL_FAILED",
                         "Android could not clear all local Usque data.",

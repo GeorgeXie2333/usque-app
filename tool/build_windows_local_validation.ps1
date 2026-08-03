@@ -44,7 +44,7 @@ function Get-CertificateSha256 {
     $sha256 = [Security.Cryptography.SHA256]::Create()
     try {
         return (($sha256.ComputeHash($Certificate.GetRawCertData()) |
-            ForEach-Object { $_.ToString("X2") }) -join "")
+                    ForEach-Object { $_.ToString("X2") }) -join "")
     }
     finally {
         $sha256.Dispose()
@@ -67,8 +67,8 @@ function Assert-PinnedLocalSignature {
     }
     $valid = $signature.Status -eq [Management.Automation.SignatureStatus]::Valid
     $pinnedSelfSigned =
-        $signature.Status -eq [Management.Automation.SignatureStatus]::UnknownError -and
-        $signature.SignerCertificate.Subject -eq $signature.SignerCertificate.Issuer
+    $signature.Status -eq [Management.Automation.SignatureStatus]::UnknownError -and
+    $signature.SignerCertificate.Subject -eq $signature.SignerCertificate.Issuer
     if (-not $valid -and -not $pinnedSelfSigned) {
         throw "Local Authenticode verification failed for $Path ($($signature.Status))."
     }
@@ -126,12 +126,12 @@ try {
 
     $officialWintun = [IO.Path]::GetFullPath((Join-Path $payload "wintun.dll"))
     $binaries = @(Get-ChildItem -LiteralPath $payload -File -Recurse |
-        Where-Object { $_.Extension -in ".exe", ".dll" })
+            Where-Object { $_.Extension -in ".exe", ".dll" })
     foreach ($binary in $binaries) {
         if ([StringComparer]::OrdinalIgnoreCase.Equals(
-            [IO.Path]::GetFullPath($binary.FullName),
-            $officialWintun
-        )) {
+                [IO.Path]::GetFullPath($binary.FullName),
+                $officialWintun
+            )) {
             continue
         }
         & $signTool.FullName sign `

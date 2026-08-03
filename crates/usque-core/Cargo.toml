@@ -35,4 +35,3 @@ proptest.workspace = true
 
 [lints]
 workspace = true
-

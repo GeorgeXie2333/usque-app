@@ -125,10 +125,10 @@ function Assert-ReleaseSignature {
         $signature = Get-AuthenticodeSignature -LiteralPath $binaryPath
         $valid = $signature.Status -eq [System.Management.Automation.SignatureStatus]::Valid
         $pinnedSelfSigned =
-            $AllowUntrustedRoot -and
-            $signature.Status -eq [System.Management.Automation.SignatureStatus]::UnknownError -and
-            $null -ne $signature.SignerCertificate -and
-            $signature.SignerCertificate.Subject -eq $signature.SignerCertificate.Issuer
+        $AllowUntrustedRoot -and
+        $signature.Status -eq [System.Management.Automation.SignatureStatus]::UnknownError -and
+        $null -ne $signature.SignerCertificate -and
+        $signature.SignerCertificate.Subject -eq $signature.SignerCertificate.Issuer
         if (-not $valid -and -not $pinnedSelfSigned) {
             throw "Authenticode verification failed for $binaryPath ($($signature.Status))."
         }

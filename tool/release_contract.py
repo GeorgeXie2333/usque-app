@@ -114,8 +114,7 @@ def sha256_file(path: Path) -> str:
 
 def canonical_json_bytes(value: Any) -> bytes:
     return (
-        json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-        + "\n"
+        json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n"
     ).encode("utf-8")
 
 
@@ -225,12 +224,8 @@ def artifact_index(manifest: dict[str, Any]) -> dict[str, dict[str, Any]]:
     signers = manifest.get("signers")
     if not isinstance(signers, dict):
         raise ContractError("manifest signers must be an object")
-    normalize_sha256(
-        signers.get("windows_certificate_sha256"), "Windows manifest signer"
-    )
-    normalize_sha256(
-        signers.get("android_certificate_sha256"), "Android manifest signer"
-    )
+    normalize_sha256(signers.get("windows_certificate_sha256"), "Windows manifest signer")
+    normalize_sha256(signers.get("android_certificate_sha256"), "Android manifest signer")
 
     artifacts = manifest.get("artifacts")
     if not isinstance(artifacts, list):
@@ -269,9 +264,7 @@ def verify_artifacts(directory: Path, manifest: dict[str, Any]) -> None:
             raise ContractError(f"artifact SHA-256 mismatch: {name}")
 
 
-def require_passed_test(
-    tests: dict[str, Any], test_id: str, evidence_path: Path
-) -> dict[str, Any]:
+def require_passed_test(tests: dict[str, Any], test_id: str, evidence_path: Path) -> dict[str, Any]:
     result = tests.get(test_id)
     if not isinstance(result, dict) or result.get("status") != "passed":
         raise ContractError(f"{evidence_path}: required test did not pass: {test_id}")
@@ -319,9 +312,10 @@ def verify_evidence(
         raise ContractError(f"{evidence_path}: tag does not match the manifest")
     if evidence.get("commit") != manifest["commit"]:
         raise ContractError(f"{evidence_path}: commit does not match the manifest")
-    if normalize_sha256(
-        evidence.get("manifest_sha256"), f"{evidence_path}:manifest_sha256"
-    ) != manifest_digest:
+    if (
+        normalize_sha256(evidence.get("manifest_sha256"), f"{evidence_path}:manifest_sha256")
+        != manifest_digest
+    ):
         raise ContractError(f"{evidence_path}: manifest SHA-256 does not match")
     packet_capture_digest = normalize_sha256(
         evidence.get("packet_capture_sha256"),
@@ -339,18 +333,14 @@ def verify_evidence(
             raise ContractError(f"{evidence_path}: unsafe attachment path {relative_name}")
         attachment_path = (evidence_root / relative_path).resolve(strict=True)
         if evidence_root not in attachment_path.parents:
-            raise ContractError(
-                f"{evidence_path}: attachment escapes evidence directory"
-            )
+            raise ContractError(f"{evidence_path}: attachment escapes evidence directory")
         if not attachment_path.is_file():
             raise ContractError(f"{evidence_path}: attachment is not a file")
         expected_digest = normalize_sha256(
             expected_digest_value, f"{evidence_path}:{relative_name}"
         )
         if sha256_file(attachment_path) != expected_digest:
-            raise ContractError(
-                f"{evidence_path}: attachment digest mismatch: {relative_name}"
-            )
+            raise ContractError(f"{evidence_path}: attachment digest mismatch: {relative_name}")
         attachment_digests.add(expected_digest)
     if packet_capture_digest not in attachment_digests:
         raise ContractError(f"{evidence_path}: packet capture attachment is missing")
@@ -362,9 +352,7 @@ def verify_evidence(
     for test_id in sorted(required_tests):
         result = require_passed_test(tests, test_id, evidence_path)
         if result["evidence_sha256"] not in attachment_digests:
-            raise ContractError(
-                f"{evidence_path}: attachment for test {test_id} is missing"
-            )
+            raise ContractError(f"{evidence_path}: attachment for test {test_id} is missing")
 
     stress = tests["stress.connect_disconnect_100"]
     if not isinstance(stress.get("iterations"), int) or stress["iterations"] < 100:
@@ -389,9 +377,10 @@ def verify_evidence(
     if set(reported_artifacts) != set(platform_artifacts):
         raise ContractError(f"{evidence_path}: evidence artifact set is incomplete")
     for name, digest in reported_artifacts.items():
-        if normalize_sha256(
-            digest, f"{evidence_path}:{name}"
-        ) != platform_artifacts[name]["sha256"]:
+        if (
+            normalize_sha256(digest, f"{evidence_path}:{name}")
+            != platform_artifacts[name]["sha256"]
+        ):
             raise ContractError(f"{evidence_path}: artifact digest mismatch for {name}")
 
     required_devices = WINDOWS_DEVICES if platform == "windows" else ANDROID_DEVICES
@@ -427,9 +416,7 @@ def verify_evidence(
             f"{evidence_path}:{device_id} evidence",
         )
         if device["evidence_sha256"] not in attachment_digests:
-            raise ContractError(
-                f"{evidence_path}: attachment for device {device_id} is missing"
-            )
+            raise ContractError(f"{evidence_path}: attachment for device {device_id} is missing")
     return evidence
 
 
@@ -441,12 +428,8 @@ def create_ready(
     manifest = load_json(manifest_path)
     artifact_index(manifest)
     manifest_digest = sha256_file(manifest_path)
-    windows = verify_evidence(
-        windows_evidence_path, manifest, manifest_digest, "windows"
-    )
-    android = verify_evidence(
-        android_evidence_path, manifest, manifest_digest, "android"
-    )
+    windows = verify_evidence(windows_evidence_path, manifest, manifest_digest, "windows")
+    android = verify_evidence(android_evidence_path, manifest, manifest_digest, "android")
     return {
         "schema_version": SCHEMA_VERSION,
         "ready": True,
@@ -506,9 +489,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "verify-artifacts":
             verify_artifacts(args.directory, load_json(args.manifest))
         elif args.command == "create-ready":
-            ready = create_ready(
-                args.manifest, args.windows_evidence, args.android_evidence
-            )
+            ready = create_ready(args.manifest, args.windows_evidence, args.android_evidence)
             write_json(args.output, ready)
         elif args.command == "verify-evidence":
             manifest = load_json(args.manifest)

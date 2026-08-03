@@ -102,11 +102,14 @@ internal class VpnControlClient(
     private var eventsWanted = false
     private var pendingDisconnectResult: MethodChannel.Result? = null
 
-    /**
-     * Clear-all result after the VPN service acked, while local wipe is still running.
-     * Destroy must complete this with [CLEAR_ALL_CANCELLED] if wipe has not finished.
-     */
+    /** Guards the acknowledgement-to-local-wipe ownership transition across threads. */
+    private val clearAllStateLock = Any()
+
+    /** Clear-all result acknowledged by the service but not yet claimed by the wipe worker. */
     private var inFlightClearAll: MethodChannel.Result? = null
+
+    /** Clear-all result owned by a running wipe. Once claimed, destroy must not report cancellation. */
+    private var claimedClearAll: MethodChannel.Result? = null
     private var destroyed = false
 
     var lastSnapshot: Map<String, Any?> = disconnectedSnapshot()
@@ -335,8 +338,12 @@ internal class VpnControlClient(
             )
             return false
         }
-        // Single-slot in-flight tracking cannot own two results; reject overlap.
-        if (pendingClearAll.isNotEmpty() || inFlightClearAll != null) {
+        // Single-slot local wipe tracking cannot own two results; reject overlap.
+        val localWipeActive =
+            synchronized(clearAllStateLock) {
+                inFlightClearAll != null || claimedClearAll != null
+            }
+        if (pendingClearAll.isNotEmpty() || localWipeActive) {
             result.error(
                 "CLEAR_ALL_IN_PROGRESS",
                 "Another clear-all operation is already in progress.",
@@ -378,8 +385,12 @@ internal class VpnControlClient(
     }
 
     fun destroy() {
-        if (destroyed) return
-        destroyed = true
+        val acknowledgedClearAllToCancel =
+            synchronized(clearAllStateLock) {
+                if (destroyed) return
+                destroyed = true
+                inFlightClearAll.also { inFlightClearAll = null }
+            }
 
         pendingSnapshots.keys.toList().forEach { requestId ->
             scheduler.cancel(snapshotTimeoutToken(requestId))
@@ -405,13 +416,13 @@ internal class VpnControlClient(
         }
         pendingClearAll.clear()
 
-        // Local wipe may still be running after service ack — complete exactly once.
-        inFlightClearAll?.error(
+        // Only an acknowledged-but-unclaimed wipe is still cancellable. A claimed wipe owns
+        // the destructive operation and will report its real success/failure exactly once.
+        acknowledgedClearAllToCancel?.error(
             "CLEAR_ALL_CANCELLED",
             "The Android UI closed before local data could be cleared.",
             null,
         )
-        inFlightClearAll = null
 
         pendingDisconnectResult?.let { result ->
             scheduler.cancel(disconnectPendingToken(result))
@@ -431,21 +442,26 @@ internal class VpnControlClient(
     }
 
     /**
-     * Non-consuming peek: true while [result] is still the post-ack local wipe target
-     * and the client has not been destroyed.
+     * Atomically claims an acknowledged clear-all result for the wipe worker. Returns false
+     * when destroy already cancelled it or another worker owns the destructive operation.
      */
-    fun shouldProceedWithLocalClearAll(result: MethodChannel.Result): Boolean =
-        !destroyed && inFlightClearAll === result
+    fun claimInFlightClearAll(result: MethodChannel.Result): Boolean =
+        synchronized(clearAllStateLock) {
+            if (destroyed || inFlightClearAll !== result || claimedClearAll != null) {
+                return@synchronized false
+            }
+            inFlightClearAll = null
+            claimedClearAll = result
+            true
+        }
 
-    /**
-     * Claims ownership of an in-flight clear-all result so the local wipe path may
-     * complete it. Returns false if destroy already cancelled or the result is not tracked.
-     */
-    fun takeInFlightClearAll(result: MethodChannel.Result): Boolean {
-        if (destroyed || inFlightClearAll !== result) return false
-        inFlightClearAll = null
-        return true
-    }
+    /** Releases a worker-owned clear-all result for its one terminal completion. */
+    fun takeClaimedClearAll(result: MethodChannel.Result): Boolean =
+        synchronized(clearAllStateLock) {
+            if (claimedClearAll !== result) return@synchronized false
+            claimedClearAll = null
+            true
+        }
 
     /** Test and reply-path entry: complete a pending snapshot/disconnect/pause request. */
     fun deliverSnapshotReply(
@@ -474,8 +490,10 @@ internal class VpnControlClient(
                         null,
                     )
                 } else {
-                    // Track until local wipe finishes so destroy can still cancel once.
-                    inFlightClearAll = clearResult
+                    // Track as cancellable until the background worker atomically claims it.
+                    synchronized(clearAllStateLock) {
+                        inFlightClearAll = clearResult
+                    }
                     listener.onClearAllAcknowledged(clearResult)
                 }
             }
@@ -529,7 +547,9 @@ internal class VpnControlClient(
 
     fun pendingDisconnectForTest(): MethodChannel.Result? = pendingDisconnectResult
 
-    fun inFlightClearAllForTest(): MethodChannel.Result? = inFlightClearAll
+    fun inFlightClearAllForTest(): MethodChannel.Result? = synchronized(clearAllStateLock) { inFlightClearAll }
+
+    fun claimedClearAllForTest(): MethodChannel.Result? = synchronized(clearAllStateLock) { claimedClearAll }
 
     private fun onReply(
         what: Int,

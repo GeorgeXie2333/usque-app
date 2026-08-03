@@ -6,10 +6,14 @@ import io.flutter.plugin.common.MethodChannel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class AndroidEngineMethodHandlerTest {
     private lateinit var scheduler: ImmediateScheduler
@@ -411,6 +415,74 @@ class AndroidEngineMethodHandlerTest {
         assertFalse(localEngine.commands.any { it.contains("clear_all_data") })
     }
 
+    @Test
+    fun finishClearAllDataClaimedWipeReportsRealResultAfterDestroy() {
+        val localScheduler = ImmediateScheduler()
+        val wipeStarted = CountDownLatch(1)
+        val releaseWipe = CountDownLatch(1)
+        val localIdentity = BlockingClearIdentityStore(wipeStarted, releaseWipe)
+        val localEngine = FakeEngineBridge()
+        val localMaintenance = RecordingMaintenance()
+        val wipeExecutor = Executors.newSingleThreadExecutor()
+        val localClient =
+            VpnControlClient(
+                scheduler = localScheduler,
+                serviceBinder = { true },
+                serviceUnbinder = { },
+                endpointFromBinder = { _, _ -> error("unused") },
+            )
+        val localEndpoint = RecordingEndpoint()
+        localClient.attachEndpointForTest(localEndpoint)
+        val localHandler =
+            AndroidEngineMethodHandler(
+                profileConfigPath = "/tmp/profiles-v2.json",
+                identityStore = localIdentity,
+                identityExecutor = wipeExecutor,
+                mainScheduler = localScheduler,
+                controlClient = localClient,
+                activityCommands = activityCommands,
+                engineBridge = localEngine,
+                maintenanceBridge = localMaintenance,
+                warpSecretOkCode = 0,
+            )
+        localClient.clearAllAcknowledgedListener =
+            VpnControlClient.ClearAllAcknowledgedListener { r ->
+                localHandler.finishClearAllData(r)
+            }
+
+        try {
+            val wipeResult = RecordingResult()
+            assertTrue(localClient.requestClearAllData(wipeResult))
+            localClient.deliverSnapshotReply(
+                localEndpoint.messages.single().second,
+                null,
+                null,
+                mapOf("phase" to "disconnected"),
+            )
+
+            assertTrue(wipeStarted.await(5, TimeUnit.SECONDS))
+            assertSame(wipeResult, localClient.claimedClearAllForTest())
+
+            // Once destructive work is claimed, destroy must not falsely report cancellation.
+            localClient.destroy()
+            assertEquals(0, wipeResult.completionCount)
+
+            releaseWipe.countDown()
+            wipeExecutor.shutdown()
+            assertTrue(wipeExecutor.awaitTermination(5, TimeUnit.SECONDS))
+
+            assertEquals(1, wipeResult.completionCount)
+            assertNull(wipeResult.errorCode)
+            assertEquals(1, localIdentity.clearAllCount)
+            assertTrue(localEngine.commands.any { it.contains("clear_all_data") })
+            assertEquals(1, localMaintenance.clearCount)
+            assertNull(localClient.claimedClearAllForTest())
+        } finally {
+            releaseWipe.countDown()
+            wipeExecutor.shutdownNow()
+        }
+    }
+
     private class RecordingActivityCommands : AndroidEngineMethodHandler.ActivityCommands {
         var cancelCount = 0
         var lastCancelCode: String? = null
@@ -502,6 +574,34 @@ class AndroidEngineMethodHandlerTest {
         override fun deleteIdentity(profileId: String) = Unit
 
         override fun clearAll() {
+            clearAllCount += 1
+        }
+    }
+
+    private class BlockingClearIdentityStore(
+        private val wipeStarted: CountDownLatch,
+        private val releaseWipe: CountDownLatch,
+    ) : AndroidEngineMethodHandler.IdentityStore {
+        var clearAllCount = 0
+
+        override fun put(
+            profileId: String,
+            record: SecureIdentityStore.Record,
+            value: ByteArray,
+        ) = Unit
+
+        override fun get(
+            profileId: String,
+            record: SecureIdentityStore.Record,
+        ): ByteArray? = null
+
+        override fun deleteIdentity(profileId: String) = Unit
+
+        override fun clearAll() {
+            wipeStarted.countDown()
+            if (!releaseWipe.await(5, TimeUnit.SECONDS)) {
+                throw IllegalStateException("Timed out waiting to release the clear-all test")
+            }
             clearAllCount += 1
         }
     }
