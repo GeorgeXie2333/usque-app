@@ -20,20 +20,22 @@ export 'control_codec.dart'
 /// transport. Public API, MethodChannel names, named pipes, and protobuf wire
 /// data are unchanged from the pre-split client.
 class DesktopEngineClient implements EngineClient {
-  DesktopEngineClient({
-    DesktopEngineTransport? transport,
-    this._codec = const ControlCodec(),
-  }) : _transport = transport ?? DesktopEngineTransport();
+  DesktopEngineClient()
+    : _transport = DesktopEngineTransport(),
+      _codec = const ControlCodec(),
+      _requestTimeoutOverride = null;
 
   /// Test-only constructor with an injected transport (and optional codec).
   @visibleForTesting
   DesktopEngineClient.forTest({
     required this._transport,
     this._codec = const ControlCodec(),
-  });
+    Duration Function(int payloadField)? requestTimeout,
+  }) : _requestTimeoutOverride = requestTimeout;
 
   final DesktopEngineTransport _transport;
   final ControlCodec _codec;
+  final Duration Function(int payloadField)? _requestTimeoutOverride;
   Future<void> _requestTail = Future<void>.value();
 
   @override
@@ -205,6 +207,13 @@ class DesktopEngineClient implements EngineClient {
       );
     }
     await _transport.ensureStarted();
+    // Dispose may race startup; refuse work that would talk to a closed client.
+    if (_transport.isDisposed) {
+      throw const EngineException(
+        'ENGINE_CLOSED',
+        'The Usque Engine client has already closed.',
+      );
+    }
     final requestId = _transport.allocateRequestId();
     final frame = _codec.buildRequestFrame(
       requestId: requestId,
@@ -218,7 +227,7 @@ class DesktopEngineClient implements EngineClient {
       try {
         responseFrame = await _transport
             .exchangeFrame(frame)
-            .timeout(_requestTimeout(payloadField));
+            .timeout(_timeoutFor(payloadField));
       } on TimeoutException {
         // Once a frame has reached the Engine it may still be executing.
         // Retrying a mutating request could start a second registration or
@@ -248,6 +257,14 @@ class DesktopEngineClient implements EngineClient {
     );
   }
 
+  Duration _timeoutFor(int payloadField) {
+    final override = _requestTimeoutOverride;
+    if (override != null) {
+      return override(payloadField);
+    }
+    return requestTimeoutForPayload(payloadField);
+  }
+
   Future<T> _serialized<T>(Future<T> Function() operation) {
     final completer = Completer<T>();
     _requestTail = _requestTail.then((_) async {
@@ -266,7 +283,9 @@ class DesktopEngineClient implements EngineClient {
   }
 }
 
-Duration _requestTimeout(int payloadField) {
+/// Production request deadlines by control payload field number.
+@visibleForTesting
+Duration requestTimeoutForPayload(int payloadField) {
   switch (payloadField) {
     case 12:
       return const Duration(seconds: 55);

@@ -8,6 +8,58 @@ import 'package:usque/services/desktop_engine_client.dart';
 import 'package:usque/services/desktop_engine_transport.dart';
 import 'package:usque/services/engine_client.dart';
 
+/// Compact profile used only for fixed encode goldens (short wire fields).
+const UsqueProfile _goldenProfile = UsqueProfile(
+  id: 'p',
+  name: 'X',
+  endpointIpv4: 'a',
+  endpointIpv6: 'b',
+  endpointPort: 1,
+  sni: 'c',
+  mtu: 1280,
+  dnsIpv4: 'd',
+  dnsIpv6: 'e',
+  killSwitch: true,
+  allowLan: false,
+  autoConnect: false,
+  proxy: ProxySettings(
+    socksIpv4: 's',
+    socksIpv6: 't',
+    socksPort: 1,
+    httpIpv4: 'h',
+    httpIpv6: 'i',
+    httpPort: 1,
+  ),
+);
+
+/// Fixed protobuf bytes for [_goldenProfile] encode (pins v1 field layout).
+const List<int> _goldenProfileBytes = <int>[
+  0x0a, 0x01, 0x70, // id "p"
+  0x12, 0x01, 0x58, // name "X"
+  0x18, 0x01, // mode VPN
+  0x20, 0x01, // transport AUTO
+  0x2a, 0x0b, // endpoint { (11 bytes)
+  0x0a, 0x01, 0x61, //   ipv4 "a"
+  0x12, 0x01, 0x62, //   ipv6 "b"
+  0x18, 0x01, //   port 1
+  0x22, 0x01, 0x63, //   sni "c"
+  // }
+  0x30, 0x01, // ip policy AUTO
+  0x38, 0x80, 0x0a, // mtu 1280
+  0x42, 0x01, 0x64, // dns "d"
+  0x42, 0x01, 0x65, // dns "e"
+  0x58, 0x01, // kill_switch true
+  0x6a, 0x1c, // proxy {
+  0x0a, 0x03, 0x73, 0x3a, 0x31, //   socks "s:1"
+  0x0a, 0x05, 0x5b, 0x74, 0x5d, 0x3a, 0x31, //   socks "[t]:1"
+  0x12, 0x03, 0x68, 0x3a, 0x31, //   http "h:1"
+  0x12, 0x05, 0x5b, 0x69, 0x5d, 0x3a, 0x31, //   http "[i]:1"
+  0x20, 0x3c, //   udp idle 60
+  0x28, 0x01, //   dns mode REMOTE
+  // }
+  0x70, 0x01, // dns mode TUNNEL
+];
+
 void main() {
   group('ControlCodec protobuf golden bytes', () {
     const codec = ControlCodec();
@@ -57,17 +109,32 @@ void main() {
       expect(frame, debugEncodeGetStatusFrame('r1'));
     });
 
-    test(
-      'encodeProfile then round-trips catalog identity through wire shape',
-      () {
-        final profile = UsqueProfile.defaultProfile();
-        final encoded = codec.encodeProfile(profile);
-        // Field 1 = id (length-delimited): tag 0x0a
-        expect(encoded.first, 0x0a);
-        expect(encoded, isNotEmpty);
-        expect(encoded.length, lessThan(kMaximumFrameBytes));
-      },
-    );
+    test('minimal profile encode matches fixed golden bytes', () {
+      expect(codec.encodeProfile(_goldenProfile), _goldenProfileBytes);
+    });
+
+    test('encoded profile decodes through a catalog response frame', () {
+      final profileBytes = codec.encodeProfile(_goldenProfile);
+      final catalogBody = ControlPayloadWriter()
+        ..message(1, Uint8List.fromList(profileBytes))
+        ..string(2, 'p');
+      final responseBody = ControlPayloadWriter()
+        ..string(1, 'r2')
+        ..message(12, catalogBody.takeBytes());
+      final framed = codec.frame(responseBody.takeBytes());
+      final catalog = debugDecodeProfileCatalogFrame(framed, 'r2');
+      expect(catalog.activeProfileId, 'p');
+      expect(catalog.profiles, hasLength(1));
+      expect(catalog.profiles.single.id, 'p');
+      expect(catalog.profiles.single.name, 'X');
+      expect(catalog.profiles.single.endpointIpv4, 'a');
+      expect(catalog.profiles.single.endpointPort, 1);
+      expect(catalog.profiles.single.sni, 'c');
+      expect(catalog.profiles.single.mtu, 1280);
+      expect(catalog.profiles.single.killSwitch, isTrue);
+      expect(catalog.profiles.single.proxy.socksPort, 1);
+      expect(catalog.profiles.single.proxy.httpPort, 1);
+    });
   });
 
   group('ControlCodec truncated / oversized handling', () {
@@ -250,8 +317,40 @@ void main() {
       },
     );
 
+    test(
+      'dispose during ensureStarted closes waiters with ENGINE_CLOSED',
+      () async {
+        final entered = Completer<void>();
+        final release = Completer<void>();
+        final transport = DesktopEngineTransport.forTest(
+          exchange: (_) async => _statusResponse('1'),
+          ensureStarted: () async {
+            entered.complete();
+            await release.future;
+          },
+          requestIdFactory: () => '1',
+        );
+        final client = DesktopEngineClient.forTest(transport: transport);
+        final pending = client.snapshot();
+        await entered.future;
+        client.dispose();
+        release.complete();
+        await expectLater(
+          pending,
+          throwsA(
+            isA<EngineException>().having(
+              (e) => e.code,
+              'code',
+              'ENGINE_CLOSED',
+            ),
+          ),
+        );
+      },
+    );
+
     test('concurrent requests are serialized on the client queue', () async {
       final order = <String>[];
+      final firstEntered = Completer<void>();
       final releaseFirst = Completer<void>();
       var requestIds = 0;
       final transport = DesktopEngineTransport.forTest(
@@ -259,6 +358,7 @@ void main() {
           final id = ++requestIds;
           order.add('start-$id');
           if (id == 1) {
+            firstEntered.complete();
             await releaseFirst.future;
           }
           order.add('end-$id');
@@ -270,9 +370,7 @@ void main() {
 
       final first = client.snapshot();
       final second = client.snapshot();
-      // Allow the first request to reach exchange before releasing.
-      await Future<void>.delayed(Duration.zero);
-      await Future<void>.delayed(Duration.zero);
+      await firstEntered.future;
       expect(order, <String>['start-1']);
       releaseFirst.complete();
       await Future.wait(<Future<EngineSnapshot>>[first, second]);
@@ -361,6 +459,47 @@ void main() {
         ),
       );
       client.dispose();
+    });
+
+    test(
+      'hanging exchange maps to ENGINE_REQUEST_TIMEOUT without retry',
+      () async {
+        var exchanges = 0;
+        final transport = DesktopEngineTransport.forTest(
+          exchange: (_) async {
+            exchanges++;
+            // Never complete — client timeout must abort without a second attempt.
+            return Completer<Uint8List>().future;
+          },
+          requestIdFactory: () => 'r1',
+        );
+        final client = DesktopEngineClient.forTest(
+          transport: transport,
+          requestTimeout: (_) => const Duration(milliseconds: 30),
+        );
+        await expectLater(
+          client.snapshot(),
+          throwsA(
+            isA<EngineException>().having(
+              (e) => e.code,
+              'code',
+              'ENGINE_REQUEST_TIMEOUT',
+            ),
+          ),
+        );
+        expect(exchanges, 1);
+        client.dispose();
+      },
+    );
+
+    test('production timeout table matches the pre-split contract', () {
+      expect(requestTimeoutForPayload(12), const Duration(seconds: 55));
+      expect(requestTimeoutForPayload(23), const Duration(seconds: 60));
+      expect(requestTimeoutForPayload(26), const Duration(seconds: 60));
+      expect(requestTimeoutForPayload(20), const Duration(seconds: 20));
+      expect(requestTimeoutForPayload(21), const Duration(seconds: 15));
+      expect(requestTimeoutForPayload(22), const Duration(seconds: 30));
+      expect(requestTimeoutForPayload(10), const Duration(seconds: 5));
     });
 
     test(

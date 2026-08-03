@@ -123,16 +123,25 @@ class DesktopEngineTransport {
     if (_isTestTransport) {
       // Mirror production coalescing: start at most once, share in-flight work.
       if (_startCount > 0) {
+        _throwIfDisposed();
         return;
       }
       final existing = _starting;
       if (existing != null) {
-        return existing;
+        await existing;
+        _throwIfDisposed();
+        return;
       }
       final start = () async {
         final testStart = _testEnsureStarted;
         if (testStart != null) {
           await testStart();
+        }
+        if (_disposed) {
+          throw const EngineException(
+            'ENGINE_CLOSED',
+            'The Usque Engine client has already closed.',
+          );
         }
         _startCount++;
       }();
@@ -142,26 +151,34 @@ class DesktopEngineTransport {
       } finally {
         _starting = null;
       }
+      _throwIfDisposed();
       return;
     }
     if (_process != null) {
+      _throwIfDisposed();
       return;
     }
     final existing = _starting;
     if (existing != null) {
-      return existing;
+      await existing;
+      _throwIfDisposed();
+      return;
     }
     final start = _startEngine();
     _starting = start;
     try {
       await start;
-      _startCount++;
+      if (!_disposed) {
+        _startCount++;
+      }
     } finally {
       _starting = null;
     }
+    _throwIfDisposed();
   }
 
   Future<Uint8List> exchangeFrame(Uint8List request) async {
+    _throwIfDisposed();
     final testExchange = _testExchange;
     if (testExchange != null) {
       return testExchange(request);
@@ -221,6 +238,15 @@ class DesktopEngineTransport {
     process?.kill();
   }
 
+  void _throwIfDisposed() {
+    if (_disposed) {
+      throw const EngineException(
+        'ENGINE_CLOSED',
+        'The Usque Engine client has already closed.',
+      );
+    }
+  }
+
   Future<void> _startEngine() async {
     final executable = _engineExecutable();
     if (!await File(executable).exists()) {
@@ -250,6 +276,16 @@ class DesktopEngineTransport {
       arguments,
       mode: ProcessStartMode.normal,
     );
+    // Dispose may race Process.start. Never publish an orphaned sidecar.
+    if (_disposed) {
+      process.kill();
+      unawaited(process.stdout.drain<void>());
+      unawaited(process.stderr.drain<void>());
+      throw const EngineException(
+        'ENGINE_CLOSED',
+        'The Usque Engine client has already closed.',
+      );
+    }
     _process = process;
     unawaited(process.stdout.drain<void>());
     unawaited(process.stderr.drain<void>());
