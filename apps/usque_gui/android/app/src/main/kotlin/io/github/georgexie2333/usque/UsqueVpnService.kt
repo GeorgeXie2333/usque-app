@@ -1,16 +1,9 @@
 package io.github.georgexie2333.usque
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.IpPrefix
-import android.net.LinkProperties
 import android.net.Network
-import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
@@ -23,14 +16,11 @@ import android.os.ParcelFileDescriptor
 import android.os.RemoteException
 import androidx.annotation.Keep
 import org.json.JSONObject
-import java.time.Instant
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
@@ -49,15 +39,11 @@ class UsqueVpnService : VpnService() {
         const val MSG_CLEAR_ALL_DATA = 6
         const val MSG_DISCONNECT = 7
 
-        private const val CHANNEL_ID = "usque_vpn"
-        private const val NOTIFICATION_ID = 1048
         private const val NATIVE_STATUS_INTERVAL_MILLIS = 1_000L
         private const val PHYSICAL_NETWORK_WAIT_MILLIS = 8_000L
         private const val RECOVERY_PREFERENCES = "usque_vpn_recovery_v1"
         private const val RECOVERY_PROFILE = "active_profile_json"
         private const val MAX_PROFILE_BYTES = 256 * 1024
-        private const val FAMILY_IPV4 = 0x1
-        private const val FAMILY_IPV6 = 0x2
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -74,15 +60,11 @@ class UsqueVpnService : VpnService() {
             Thread(task, "usque-android-status").apply { isDaemon = true }
         }
     private val connectionGeneration = AtomicLong()
-    private val networkRestartGeneration = AtomicLong()
     private val tunnel = AtomicReference<ParcelFileDescriptor?>()
     private val nativeRuntimeActive = AtomicBoolean()
     private val clearAllRequested = AtomicBoolean()
     private val activeProfileJson = AtomicReference<String?>(null)
     private val activeMode = AtomicReference<String?>(null)
-    private val underlyingNetwork = AtomicReference<Network?>(null)
-    private val underlyingFamilyMask = AtomicInteger()
-    private val availableNetworks = ConcurrentHashMap<Network, NetworkCandidate>()
     private val eventClients = CopyOnWriteArrayList<Messenger>()
     private val recoveryPreferences by lazy {
         createDeviceProtectedStorageContext()
@@ -90,94 +72,32 @@ class UsqueVpnService : VpnService() {
     }
     private val flagCache by lazy { FlagSvgCache(this) }
     private val logStore by lazy { AndroidLogStore(this) }
+    private val snapshotState = ServiceSnapshotState()
+    private val notifications by lazy { VpnNotificationController(this) }
+    private val networkMonitor =
+        PhysicalNetworkMonitor(
+            mainHandler = mainHandler,
+            listener =
+                object : PhysicalNetworkMonitor.Listener {
+                    override fun onValidatedNetworkAvailable() {
+                        if (snapshotState.phase == "captivePortalPaused") {
+                            resumeFromCaptivePortalPause()
+                        }
+                    }
+
+                    override fun onUnderlyingNetworkChanged(
+                        selectedNetwork: Network?,
+                        selectedFamilyMask: Int,
+                        generation: Long,
+                    ) {
+                        handleUnderlyingNetworkChanged(selectedNetwork, generation)
+                    }
+                },
+        )
 
     @Volatile private var destroyed = false
     private var statusTask: ScheduledFuture<*>? = null
     private var captivePauseTask: ScheduledFuture<*>? = null
-    private var captivePauseDeadlineUnixMillis = 0L
-    private var phase = "disconnected"
-    private var warning: String? = null
-    private var errorCode: String? = null
-    private var transport: String? = null
-    private var addressFamily: String? = null
-    private var connectedAt: String? = null
-    private var downloadBytesPerSecond = 0L
-    private var uploadBytesPerSecond = 0L
-    private var downloadedBytes = 0L
-    private var uploadedBytes = 0L
-    private var reconnectCount = 0
-    private var activeListeners = emptyList<String>()
-    private var exitIpv4: String? = null
-    private var exitIpv6: String? = null
-    private var exitCity: String? = null
-    private var exitCountry: String? = null
-    private var exitCountryCode: String? = null
-    private var exitFlagSvg: String? = null
-    private var flagCacheLookupCode: String? = null
-    private var killSwitchEnabled = false
-    private var lastBroadcastFingerprint: String? = null
-
-    private data class NetworkCandidate(
-        val capabilities: NetworkCapabilities? = null,
-        val linkProperties: LinkProperties? = null,
-        val blocked: Boolean = false,
-    )
-
-    private val networkSelectionTask = Runnable(::selectUnderlyingNetwork)
-
-    private val networkCallback =
-        object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                availableNetworks.putIfAbsent(network, NetworkCandidate())
-                scheduleUnderlyingNetworkSelection()
-            }
-
-            override fun onCapabilitiesChanged(
-                network: Network,
-                networkCapabilities: NetworkCapabilities,
-            ) {
-                availableNetworks.compute(network) { _, previous ->
-                    (previous ?: NetworkCandidate()).copy(capabilities = networkCapabilities)
-                }
-                if (
-                    networkCapabilities.hasCapability(
-                        NetworkCapabilities.NET_CAPABILITY_VALIDATED,
-                    )
-                ) {
-                    mainHandler.post {
-                        if (phase == "captivePortalPaused") {
-                            resumeFromCaptivePortalPause()
-                        }
-                    }
-                }
-                scheduleUnderlyingNetworkSelection()
-            }
-
-            override fun onLinkPropertiesChanged(
-                network: Network,
-                linkProperties: LinkProperties,
-            ) {
-                availableNetworks.compute(network) { _, previous ->
-                    (previous ?: NetworkCandidate()).copy(linkProperties = linkProperties)
-                }
-                scheduleUnderlyingNetworkSelection()
-            }
-
-            override fun onBlockedStatusChanged(
-                network: Network,
-                blocked: Boolean,
-            ) {
-                availableNetworks.compute(network) { _, previous ->
-                    (previous ?: NetworkCandidate()).copy(blocked = blocked)
-                }
-                scheduleUnderlyingNetworkSelection()
-            }
-
-            override fun onLost(network: Network) {
-                availableNetworks.remove(network)
-                scheduleUnderlyingNetworkSelection()
-            }
-        }
 
     private val controlMessenger =
         Messenger(
@@ -226,25 +146,8 @@ class UsqueVpnService : VpnService() {
     override fun onCreate() {
         super.onCreate()
         logStore.record(AndroidLogStore.Event.SERVICE_CREATED)
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(
-            NotificationChannel(
-                CHANNEL_ID,
-                "Usque network service",
-                NotificationManager.IMPORTANCE_LOW,
-            ).apply {
-                description = "Persistent status for the active Usque VPN or local proxy"
-                setShowBadge(false)
-            },
-        )
-        val request =
-            NetworkRequest
-                .Builder()
-                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
-                .build()
-        getSystemService(ConnectivityManager::class.java)
-            .registerNetworkCallback(request, networkCallback)
+        notifications.createChannel()
+        networkMonitor.register(getSystemService(ConnectivityManager::class.java))
     }
 
     override fun onBind(intent: Intent?): IBinder? =
@@ -292,19 +195,19 @@ class UsqueVpnService : VpnService() {
     }
 
     override fun onRevoke() {
-        logStore.record(AndroidLogStore.Event.VPN_PERMISSION_REVOKED, phase = phase)
+        logStore.record(AndroidLogStore.Event.VPN_PERMISSION_REVOKED, phase = snapshotState.phase)
         disconnect(stopService = true)
         super.onRevoke()
     }
 
     override fun onDestroy() {
         if (!clearAllRequested.get()) {
-            logStore.record(AndroidLogStore.Event.SERVICE_DESTROYED, phase = phase)
+            logStore.record(AndroidLogStore.Event.SERVICE_DESTROYED, phase = snapshotState.phase)
         }
         destroyed = true
-        mainHandler.removeCallbacks(networkSelectionTask)
+        networkMonitor.cancelScheduledSelection()
         connectionGeneration.incrementAndGet()
-        networkRestartGeneration.incrementAndGet()
+        networkMonitor.bumpGeneration()
         activeProfileJson.set(null)
         activeMode.set(null)
         nativeRuntimeActive.set(false)
@@ -322,23 +225,21 @@ class UsqueVpnService : VpnService() {
         engineExecutor.shutdownNow()
         statusExecutor.shutdownNow()
         stopExecutor.shutdown()
-        try {
-            getSystemService(ConnectivityManager::class.java)
-                .unregisterNetworkCallback(networkCallback)
-        } catch (_: IllegalArgumentException) {
-            // The callback may already have been revoked while the process exited.
-        }
+        networkMonitor.unregister(getSystemService(ConnectivityManager::class.java))
         super.onDestroy()
     }
 
     private fun beginConnection(profileJson: String) {
         captivePauseTask?.cancel(false)
         captivePauseTask = null
-        captivePauseDeadlineUnixMillis = 0L
+        snapshotState.clearCaptivePause()
         if (profileJson.toByteArray(Charsets.UTF_8).size > MAX_PROFILE_BYTES) {
-            startForeground(NOTIFICATION_ID, buildNotification("Invalid VPN profile"))
-            resetSnapshot("error")
-            warning = "The VPN profile exceeds the Android safety limit."
+            startForeground(
+                VpnNotificationController.NOTIFICATION_ID,
+                notifications.build("Invalid VPN profile"),
+            )
+            snapshotState.reset("error")
+            snapshotState.warning = "The VPN profile exceeds the Android safety limit."
             broadcastSnapshot()
             return
         }
@@ -349,9 +250,12 @@ class UsqueVpnService : VpnService() {
                     if (parsedMode == "vpn") AndroidVpnProfile.parse(profileJson)
                 }
             } catch (error: Exception) {
-                startForeground(NOTIFICATION_ID, buildNotification("Invalid network profile"))
-                resetSnapshot("error")
-                warning = "The network profile is invalid: ${safeMessage(error)}"
+                startForeground(
+                    VpnNotificationController.NOTIFICATION_ID,
+                    notifications.build("Invalid network profile"),
+                )
+                snapshotState.reset("error")
+                snapshotState.warning = "The network profile is invalid: ${safeMessage(error)}"
                 broadcastSnapshot()
                 return
             }
@@ -361,14 +265,17 @@ class UsqueVpnService : VpnService() {
                 .putString(RECOVERY_PROFILE, profileJson)
                 .commit()
         ) {
-            startForeground(NOTIFICATION_ID, buildNotification("VPN recovery unavailable"))
-            resetSnapshot("error")
-            warning = "Android could not save the non-secret recovery profile."
+            startForeground(
+                VpnNotificationController.NOTIFICATION_ID,
+                notifications.build("VPN recovery unavailable"),
+            )
+            snapshotState.reset("error")
+            snapshotState.warning = "Android could not save the non-secret recovery profile."
             broadcastSnapshot()
             return
         }
         val generation = connectionGeneration.incrementAndGet()
-        networkRestartGeneration.incrementAndGet()
+        networkMonitor.bumpGeneration()
         activeProfileJson.set(profileJson)
         activeMode.set(mode)
         logStore.record(
@@ -376,8 +283,11 @@ class UsqueVpnService : VpnService() {
             phase = "preparing",
             mode = mode,
         )
-        startForeground(NOTIFICATION_ID, buildNotification("Preparing secure tunnel"))
-        resetSnapshot("preparing")
+        startForeground(
+            VpnNotificationController.NOTIFICATION_ID,
+            notifications.build("Preparing secure tunnel"),
+        )
+        snapshotState.reset("preparing")
         broadcastSnapshot()
 
         val staleDescriptor = tunnel.getAndSet(null)
@@ -543,7 +453,7 @@ class UsqueVpnService : VpnService() {
             nativeRuntimeActive.set(true)
             mainHandler.post {
                 if (isCurrent(generation)) {
-                    killSwitchEnabled = profile.killSwitch
+                    snapshotState.killSwitchEnabled = profile.killSwitch
                     ensureStatusTask()
                     refreshNativeSnapshot()
                 }
@@ -604,7 +514,7 @@ class UsqueVpnService : VpnService() {
             nativeRuntimeActive.set(true)
             mainHandler.post {
                 if (isCurrent(generation)) {
-                    killSwitchEnabled = false
+                    snapshotState.killSwitchEnabled = false
                     ensureStatusTask()
                     refreshNativeSnapshot()
                 }
@@ -624,7 +534,7 @@ class UsqueVpnService : VpnService() {
                 .setSession(profile.name)
                 .setMtu(profile.mtu)
                 .setBlocking(false)
-        underlyingNetwork.get()?.let { network ->
+        networkMonitor.underlyingNetwork()?.let { network ->
             builder.setUnderlyingNetworks(arrayOf(network))
         }
         if (profile.includeIpv4) builder.addAddress(assignment.ipv4, 32)
@@ -650,7 +560,7 @@ class UsqueVpnService : VpnService() {
     ) {
         recoveryPreferences.edit().remove(RECOVERY_PROFILE).commit()
         val generation = connectionGeneration.incrementAndGet()
-        networkRestartGeneration.incrementAndGet()
+        networkMonitor.bumpGeneration()
         activeProfileJson.set(null)
         val stoppedMode = activeMode.getAndSet(null)
         nativeRuntimeActive.set(false)
@@ -658,14 +568,14 @@ class UsqueVpnService : VpnService() {
         statusTask = null
         captivePauseTask?.cancel(false)
         captivePauseTask = null
-        captivePauseDeadlineUnixMillis = 0L
+        snapshotState.clearCaptivePause()
         NativeEngine.cancel()
         val descriptor = tunnel.getAndSet(null)
         closeQuietly(descriptor)
-        resetSnapshot("disconnected")
+        snapshotState.reset("disconnected")
         logStore.record(
             AndroidLogStore.Event.CONNECTION_STOPPED,
-            phase = phase,
+            phase = snapshotState.phase,
             mode = stoppedMode,
         )
         broadcastSnapshot()
@@ -694,7 +604,7 @@ class UsqueVpnService : VpnService() {
         clearAllRequested.set(true)
         recoveryPreferences.edit().clear().commit()
         val generation = connectionGeneration.incrementAndGet()
-        networkRestartGeneration.incrementAndGet()
+        networkMonitor.bumpGeneration()
         activeProfileJson.set(null)
         activeMode.set(null)
         nativeRuntimeActive.set(false)
@@ -702,9 +612,9 @@ class UsqueVpnService : VpnService() {
         statusTask = null
         captivePauseTask?.cancel(false)
         captivePauseTask = null
-        captivePauseDeadlineUnixMillis = 0L
-        phase = "disconnecting"
-        warning = null
+        snapshotState.clearCaptivePause()
+        snapshotState.phase = "disconnecting"
+        snapshotState.warning = null
         broadcastSnapshot()
         NativeEngine.cancel()
         val descriptor = tunnel.getAndSet(null)
@@ -713,7 +623,7 @@ class UsqueVpnService : VpnService() {
             NativeEngine.stop()
             mainHandler.post {
                 if (connectionGeneration.get() == generation) {
-                    resetSnapshot("disconnected")
+                    snapshotState.reset("disconnected")
                     broadcastSnapshot()
                     replyWithSnapshot(request)
                     stopForeground(STOP_FOREGROUND_REMOVE)
@@ -723,54 +633,18 @@ class UsqueVpnService : VpnService() {
         }
     }
 
-    private fun selectUnderlyingNetwork() {
-        val candidates =
-            availableNetworks.entries
-                .mapNotNull { (network, candidate) ->
-                    val capabilities = candidate.capabilities ?: return@mapNotNull null
-                    if (
-                        candidate.blocked ||
-                        !capabilities.hasCapability(
-                            NetworkCapabilities.NET_CAPABILITY_INTERNET,
-                        ) ||
-                        !capabilities.hasCapability(
-                            NetworkCapabilities.NET_CAPABILITY_NOT_VPN,
-                        )
-                    ) {
-                        return@mapNotNull null
-                    }
-                    val familyMask = familyMask(candidate.linkProperties)
-                    if (familyMask == 0) return@mapNotNull null
-                    network to
-                        PhysicalNetworkCandidate(
-                            handle = network.networkHandle,
-                            score = networkScore(capabilities),
-                            familyMask = familyMask,
-                        )
-                }
-        val current = underlyingNetwork.get()
-        val selection =
-            choosePhysicalNetwork(
-                currentHandle = current?.networkHandle,
-                candidates = candidates.map { it.second },
-            )
-        val selectedNetwork =
-            candidates
-                .firstOrNull { it.second.handle == selection?.handle }
-                ?.first
-        val selectedFamilyMask = selection?.familyMask ?: 0
-        val previousNetwork = underlyingNetwork.getAndSet(selectedNetwork)
-        val previousFamilyMask = underlyingFamilyMask.getAndSet(selectedFamilyMask)
-        if (previousNetwork == selectedNetwork && previousFamilyMask == selectedFamilyMask) return
-        val generation = networkRestartGeneration.incrementAndGet()
+    private fun handleUnderlyingNetworkChanged(
+        selectedNetwork: Network?,
+        generation: Long,
+    ) {
         NativeEngine.notifyNetworkChanged(generation)
         logStore.record(
             AndroidLogStore.Event.NETWORK_CHANGED,
-            phase = phase,
+            phase = snapshotState.phase,
             mode = activeMode.get(),
         )
 
-        if (phase == "captivePortalPaused") {
+        if (snapshotState.phase == "captivePortalPaused") {
             mainHandler.post(::resumeFromCaptivePortalPause)
             return
         }
@@ -783,9 +657,9 @@ class UsqueVpnService : VpnService() {
             }
             mainHandler.post {
                 if (nativeRuntimeActive.get() || tunnel.get() != null) {
-                    phase = "reconnecting"
-                    errorCode = null
-                    warning =
+                    snapshotState.phase = "reconnecting"
+                    snapshotState.errorCode = null
+                    snapshotState.warning =
                         if (selectedNetwork == null) {
                             "ANDROID_WAITING_FOR_PHYSICAL_NETWORK: waiting for a usable non-VPN network."
                         } else {
@@ -799,57 +673,11 @@ class UsqueVpnService : VpnService() {
         }
     }
 
-    private fun scheduleUnderlyingNetworkSelection() {
-        mainHandler.removeCallbacks(networkSelectionTask)
-        mainHandler.postDelayed(networkSelectionTask, 100L)
-    }
-
-    private fun familyMask(linkProperties: LinkProperties?): Int {
-        if (linkProperties == null) return FAMILY_IPV4 or FAMILY_IPV6
-        var mask = 0
-        for (route in linkProperties.routes) {
-            if (!route.isDefaultRoute) continue
-            when (route.destination.address) {
-                is java.net.Inet4Address -> mask = mask or FAMILY_IPV4
-                is java.net.Inet6Address -> mask = mask or FAMILY_IPV6
-            }
-        }
-        return mask
-    }
-
-    private fun networkScore(capabilities: NetworkCapabilities): Int {
-        var score =
-            if (capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
-                100
-            } else {
-                0
-            }
-        score +=
-            when {
-                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> 40
-                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> 30
-                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> 20
-                else -> 10
-            }
-        return score
-    }
-
-    private fun awaitPhysicalNetwork(connectionToken: Long): Boolean {
-        val deadline =
-            System.nanoTime() +
-                TimeUnit.MILLISECONDS.toNanos(PHYSICAL_NETWORK_WAIT_MILLIS)
-        while (System.nanoTime() < deadline) {
-            if (!isCurrent(connectionToken)) return false
-            if (underlyingNetwork.get() != null) return true
-            try {
-                Thread.sleep(50)
-            } catch (_: InterruptedException) {
-                Thread.currentThread().interrupt()
-                return false
-            }
-        }
-        return underlyingNetwork.get() != null && isCurrent(connectionToken)
-    }
+    private fun awaitPhysicalNetwork(connectionToken: Long): Boolean =
+        networkMonitor.awaitPhysicalNetwork(
+            isCurrent = { isCurrent(connectionToken) },
+            waitMillis = PHYSICAL_NETWORK_WAIT_MILLIS,
+        )
 
     private fun ensureStatusTask() {
         if (statusTask?.isDone == false) return
@@ -897,20 +725,19 @@ class UsqueVpnService : VpnService() {
             return
         }
         val generation = connectionGeneration.incrementAndGet()
-        networkRestartGeneration.incrementAndGet()
+        networkMonitor.bumpGeneration()
         nativeRuntimeActive.set(false)
         statusTask?.cancel(false)
         statusTask = null
         captivePauseTask?.cancel(false)
-        captivePauseDeadlineUnixMillis =
-            System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(seconds.toLong())
-        phase = "captivePortalPaused"
+        snapshotState.scheduleCaptivePauseFromNow(seconds)
+        snapshotState.phase = "captivePortalPaused"
         logStore.record(
             AndroidLogStore.Event.CAPTIVE_PORTAL_PAUSED,
-            phase = phase,
+            phase = snapshotState.phase,
             mode = activeMode.get(),
         )
-        warning =
+        snapshotState.warning =
             "VPN and Kill Switch are paused temporarily for captive portal access."
         updateNotification()
         broadcastSnapshot()
@@ -927,9 +754,9 @@ class UsqueVpnService : VpnService() {
                     mainHandler.post {
                         if (
                             connectionGeneration.get() == generation &&
-                            phase == "captivePortalPaused"
+                            snapshotState.phase == "captivePortalPaused"
                         ) {
-                            if (captivePauseRemainingSeconds() == 0) {
+                            if (snapshotState.captivePauseRemainingSeconds() == 0) {
                                 resumeFromCaptivePortalPause()
                             } else {
                                 broadcastSnapshot()
@@ -944,27 +771,17 @@ class UsqueVpnService : VpnService() {
     }
 
     private fun resumeFromCaptivePortalPause() {
-        if (phase != "captivePortalPaused") return
+        if (snapshotState.phase != "captivePortalPaused") return
         val profileJson = activeProfileJson.get() ?: return
         captivePauseTask?.cancel(false)
         captivePauseTask = null
-        captivePauseDeadlineUnixMillis = 0L
+        snapshotState.clearCaptivePause()
         logStore.record(
             AndroidLogStore.Event.CAPTIVE_PORTAL_RESUMED,
-            phase = phase,
+            phase = snapshotState.phase,
             mode = activeMode.get(),
         )
         beginConnection(profileJson)
-    }
-
-    private fun captivePauseRemainingSeconds(): Int {
-        if (captivePauseDeadlineUnixMillis <= 0L) return 0
-        val remaining = captivePauseDeadlineUnixMillis - System.currentTimeMillis()
-        return if (remaining <= 0L) {
-            0
-        } else {
-            ((remaining + 999L) / 1_000L).coerceAtMost(600L).toInt()
-        }
     }
 
     private fun refreshNativeSnapshot() {
@@ -988,73 +805,43 @@ class UsqueVpnService : VpnService() {
     }
 
     private fun applyNativeSnapshot(source: JSONObject) {
-        val previousPhase = phase
-        phase = source.optString("phase", "error")
-        warning = source.optNullableString("warning")
-        errorCode = source.optNullableString("error_code")
-        transport = source.optNullableString("transport")
-        addressFamily = source.optNullableString("address_family")
-        downloadBytesPerSecond = source.optLong("download_bytes_per_second", 0).coerceAtLeast(0)
-        uploadBytesPerSecond = source.optLong("upload_bytes_per_second", 0).coerceAtLeast(0)
-        downloadedBytes = source.optLong("downloaded_bytes", 0).coerceAtLeast(0)
-        uploadedBytes = source.optLong("uploaded_bytes", 0).coerceAtLeast(0)
-        reconnectCount = source.optInt("reconnect_count", 0).coerceAtLeast(0)
-        activeListeners =
-            source.optJSONArray("active_listeners")?.let { listeners ->
-                List(listeners.length()) { index -> listeners.getString(index) }
-            } ?: emptyList()
-        exitIpv4 = source.optNullableString("exit_ipv4")
-        exitIpv6 = source.optNullableString("exit_ipv6")
-        exitCity = source.optNullableString("exit_city")
-        exitCountry = source.optNullableString("exit_country")
-        exitCountryCode = source.optNullableString("exit_country_code")
-        val nativeFlag = source.optNullableString("exit_flag_svg")
-        if (nativeFlag != null && nativeFlag != exitFlagSvg) {
-            exitFlagSvg = nativeFlag
-            val countryCode = exitCountryCode
-            if (countryCode != null) {
-                statusExecutor.execute {
-                    try {
-                        flagCache.put(countryCode, nativeFlag)
-                    } catch (_: Exception) {
-                        // A cache write failure is diagnostic-only.
-                    }
+        val merge = snapshotState.applyNativeSnapshot(source)
+        merge.cacheWrite?.let { write ->
+            statusExecutor.execute {
+                try {
+                    flagCache.put(write.countryCode, write.svg)
+                } catch (_: Exception) {
+                    // A cache write failure is diagnostic-only.
                 }
             }
-        } else if (
-            nativeFlag == null &&
-            exitFlagSvg == null &&
-            exitCountryCode != null &&
-            flagCacheLookupCode != exitCountryCode
-        ) {
-            val countryCode = requireNotNull(exitCountryCode)
-            flagCacheLookupCode = countryCode
+        }
+        merge.cacheLookupCountryCode?.let { countryCode ->
             statusExecutor.execute {
                 val cached = flagCache.get(countryCode)
                 if (cached != null) {
                     mainHandler.post {
-                        if (exitCountryCode == countryCode && exitFlagSvg == null) {
-                            exitFlagSvg = cached
+                        if (
+                            snapshotState.exitCountryCode == countryCode &&
+                            snapshotState.exitFlagSvg == null
+                        ) {
+                            snapshotState.exitFlagSvg = cached
                             broadcastSnapshot()
                         }
                     }
                 }
             }
         }
-        if ((phase == "connected" || phase == "degraded") && connectedAt == null) {
-            connectedAt = Instant.now().toString()
-        }
-        if (phase == "error") {
+        if (merge.enteredError) {
             // Keep the TUN open and fail closed until the user retries or disconnects.
             statusTask?.cancel(false)
             statusTask = null
         }
-        if (phase != previousPhase) {
+        if (merge.phaseChanged) {
             logStore.record(
                 AndroidLogStore.Event.CONNECTION_PHASE_CHANGED,
-                phase = phase,
+                phase = snapshotState.phase,
                 mode = activeMode.get(),
-                transport = transport,
+                transport = snapshotState.transport,
             )
             updateNotification()
         }
@@ -1068,14 +855,14 @@ class UsqueVpnService : VpnService() {
     ) {
         mainHandler.post {
             if (isCurrent(generation)) {
-                phase = nextPhase
-                warning = nextWarning
-                errorCode = null
+                snapshotState.phase = nextPhase
+                snapshotState.warning = nextWarning
+                snapshotState.errorCode = null
                 logStore.record(
                     AndroidLogStore.Event.CONNECTION_PHASE_CHANGED,
-                    phase = phase,
+                    phase = snapshotState.phase,
                     mode = activeMode.get(),
-                    transport = transport,
+                    transport = snapshotState.transport,
                 )
                 updateNotification()
                 broadcastSnapshot()
@@ -1098,42 +885,19 @@ class UsqueVpnService : VpnService() {
         mainHandler.post {
             if (!isCurrent(generation)) return@post
             nativeRuntimeActive.set(false)
-            phase = "error"
-            errorCode = code
+            snapshotState.phase = "error"
+            snapshotState.errorCode = code
             logStore.record(
                 AndroidLogStore.Event.CONNECTION_FAILED,
-                phase = phase,
+                phase = snapshotState.phase,
                 mode = activeMode.get(),
             )
-            warning = message.take(512)
-            transport = null
-            addressFamily = null
+            snapshotState.warning = message.take(512)
+            snapshotState.transport = null
+            snapshotState.addressFamily = null
             updateNotification()
             broadcastSnapshot()
         }
-    }
-
-    private fun resetSnapshot(nextPhase: String) {
-        phase = nextPhase
-        warning = null
-        errorCode = null
-        transport = null
-        addressFamily = null
-        connectedAt = null
-        downloadBytesPerSecond = 0
-        uploadBytesPerSecond = 0
-        downloadedBytes = 0
-        uploadedBytes = 0
-        reconnectCount = 0
-        activeListeners = emptyList()
-        exitIpv4 = null
-        exitIpv6 = null
-        exitCity = null
-        exitCountry = null
-        exitCountryCode = null
-        exitFlagSvg = null
-        flagCacheLookupCode = null
-        killSwitchEnabled = false
     }
 
     private fun replyWithSnapshot(request: Message) {
@@ -1171,10 +935,7 @@ class UsqueVpnService : VpnService() {
     }
 
     private fun broadcastSnapshot() {
-        val fingerprint = snapshotFingerprint()
-        if (fingerprint == lastBroadcastFingerprint) return
-        lastBroadcastFingerprint = fingerprint
-        val snapshot = snapshotBundle()
+        val snapshot = snapshotState.takeBroadcastBundle(platformFlags()) ?: return
         eventClients.forEach { client -> sendEvent(client, snapshot) }
     }
 
@@ -1193,171 +954,35 @@ class UsqueVpnService : VpnService() {
         }
     }
 
-    private fun snapshotBundle(): Bundle =
-        Bundle().apply {
-            putString("phase", phase)
-            putString("warning", warning)
-            putString("error_code", errorCode)
-            putString("transport", transport)
-            putString("address_family", addressFamily)
-            putString("connected_at", connectedAt)
-            putLong("download_bytes_per_second", downloadBytesPerSecond)
-            putLong("upload_bytes_per_second", uploadBytesPerSecond)
-            putLong("downloaded_bytes", downloadedBytes)
-            putLong("uploaded_bytes", uploadedBytes)
-            putInt("reconnect_count", reconnectCount)
-            putStringArrayList("active_listeners", ArrayList(activeListeners))
-            putString("exit_ipv4", exitIpv4)
-            putString("exit_ipv6", exitIpv6)
-            putString("exit_city", exitCity)
-            putString("exit_country", exitCountry)
-            putString("exit_country_code", exitCountryCode)
-            putString("exit_flag_svg", exitFlagSvg)
-            putString(
-                "kill_switch_state",
-                when {
-                    phase == "captivePortalPaused" -> "paused"
-                    killSwitchEnabled && tunnel.get() != null -> "active"
-                    activeMode.get() == "vpn" -> "inactive"
-                    else -> "notApplicable"
-                },
-            )
-            putInt("captive_pause_remaining_seconds", captivePauseRemainingSeconds())
-            putBoolean(
-                "platform_lockdown",
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && isLockdownEnabled,
-            )
-            putBoolean(
-                "always_on",
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && isAlwaysOn,
-            )
-        }
+    private fun snapshotBundle(): Bundle = snapshotState.toBundle(platformFlags())
 
-    private fun snapshotFingerprint(): String =
-        listOf(
-            phase,
-            warning,
-            errorCode,
-            transport,
-            addressFamily,
-            connectedAt,
-            downloadBytesPerSecond,
-            uploadBytesPerSecond,
-            downloadedBytes,
-            uploadedBytes,
-            reconnectCount,
-            activeListeners.joinToString("\u001f"),
-            exitIpv4,
-            exitIpv6,
-            exitCity,
-            exitCountry,
-            exitCountryCode,
-            exitFlagSvg,
-            killSwitchEnabled,
-            tunnel.get() != null,
-            activeMode.get(),
-            captivePauseRemainingSeconds(),
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) isLockdownEnabled else false,
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) isAlwaysOn else false,
-        ).joinToString("\u001e")
+    private fun platformFlags(): ServiceSnapshotState.PlatformFlags =
+        ServiceSnapshotState.PlatformFlags(
+            tunnelOpen = tunnel.get() != null,
+            activeMode = activeMode.get(),
+            platformLockdown =
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && isLockdownEnabled,
+            alwaysOn = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && isAlwaysOn,
+        )
 
     private fun updateNotification() {
-        val text =
-            when (phase) {
-                "preparing" -> {
-                    "Preparing secure tunnel"
-                }
-
-                "connectingH3" -> {
-                    "Connecting with HTTP/3"
-                }
-
-                "connectingH2" -> {
-                    "Connecting with HTTP/2"
-                }
-
-                "connected" -> {
-                    "Connected${transport?.let { " via ${it.uppercase()}" } ?: ""}"
-                }
-
-                "degraded" -> {
-                    "Connected with reduced address-family support"
-                }
-
-                "reconnecting" -> {
-                    "Reconnecting securely"
-                }
-
-                "captivePortalPaused" -> {
-                    "VPN paused for captive portal (${captivePauseRemainingSeconds()} s)"
-                }
-
-                "error" -> {
-                    "Network service stopped after an error"
-                }
-
-                "disconnecting" -> {
-                    "Disconnecting"
-                }
-
-                else -> {
-                    "Usque VPN"
-                }
-            }
-        getSystemService(NotificationManager::class.java).notify(
-            NOTIFICATION_ID,
-            buildNotification(text),
-        )
-    }
-
-    private fun buildNotification(status: String): Notification {
-        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
-        val contentIntent =
-            PendingIntent.getActivity(
-                this,
-                0,
-                launchIntent,
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-            )
-        val disconnectIntent =
-            PendingIntent.getService(
-                this,
-                1,
-                Intent(this, UsqueVpnService::class.java).setAction(ACTION_DISCONNECT),
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-            )
-        return Notification
-            .Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_stat_usque)
-            .setContentTitle("Usque")
-            .setContentText(status)
-            .setContentIntent(contentIntent)
-            .setCategory(Notification.CATEGORY_SERVICE)
-            .setOngoing(true)
-            .addAction(
-                Notification.Action
-                    .Builder(
-                        null,
-                        "Disconnect",
-                        disconnectIntent,
-                    ).build(),
-            ).build()
+        notifications.update(snapshotState.notificationText())
     }
 
     private fun isCurrent(generation: Long): Boolean = !destroyed && connectionGeneration.get() == generation
 
     @Keep
-    fun getUnderlyingNetworkHandle(): Long = underlyingNetwork.get()?.networkHandle ?: 0L
+    fun getUnderlyingNetworkHandle(): Long = networkMonitor.underlyingNetwork()?.networkHandle ?: 0L
 
     @Keep
-    fun getUnderlyingFamilyMask(): Int = underlyingFamilyMask.get()
+    fun getUnderlyingFamilyMask(): Int = networkMonitor.underlyingFamilyMask()
 
     @Keep
-    fun getUnderlyingNetworkGeneration(): Long = networkRestartGeneration.get()
+    fun getUnderlyingNetworkGeneration(): Long = networkMonitor.generation()
 
     @Keep
     fun resolveUnderlyingHost(host: String): Array<String> {
-        val network = underlyingNetwork.get() ?: return emptyArray()
+        val network = networkMonitor.underlyingNetwork() ?: return emptyArray()
         return network
             .getAllByName(host)
             .mapNotNull { address -> address.hostAddress?.substringBefore('%') }
@@ -1465,6 +1090,3 @@ class UsqueVpnService : VpnService() {
         }
     }
 }
-
-private fun JSONObject.optNullableString(name: String): String? =
-    if (has(name) && !isNull(name)) optString(name).takeIf(String::isNotBlank) else null
