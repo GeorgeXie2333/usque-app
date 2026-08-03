@@ -11,6 +11,7 @@ on:
       - "tool/build_android_rust.ps1"
       - "Cargo.toml"
       - "Cargo.lock"
+      - "clippy.toml"
       - "rust-toolchain.toml"
       - ".github/workflows/platform-builds.yml"
 
@@ -51,7 +52,7 @@ jobs:
 
       - name: Install Rust Android targets
         run: |
-          rustup toolchain install 1.97.1 --profile minimal
+          rustup toolchain install 1.97.1 --profile minimal --component clippy
           rustup default 1.97.1
           rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
 
@@ -62,6 +63,13 @@ jobs:
             "build-tools;36.0.0" \
             "ndk;29.0.14206865" \
             "cmake;3.22.1"
+
+      - name: Clippy Android Rust (arm64-v8a lib)
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = "Stop"
+          & ./tool/build_android_rust.ps1 -CargoAction clippy
 
       - name: Resolve locked Flutter packages
         working-directory: apps/usque_gui
@@ -90,6 +98,25 @@ jobs:
           path: ${{ runner.temp }}/usque-android/*.apk
           if-no-files-found: error
           retention-days: 7
+
+  windows-clippy:
+    name: Windows x64 Clippy
+    runs-on: windows-2025
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install pinned Rust toolchain
+        shell: pwsh
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal --component clippy
+          rustup default 1.97.1
+          rustup target add x86_64-pc-windows-msvc
+
+      - name: Clippy workspace for Windows x64
+        shell: pwsh
+        run: |
+          cargo clippy --workspace --all-targets --locked --target x86_64-pc-windows-msvc -- -D warnings
 
   windows:
     name: Windows ${{ matrix.variant }}

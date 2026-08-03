@@ -1,0 +1,4 @@
+# Keep intentional multi-parameter domain functions under #[expect] rather than
+# silent allows. Default Clippy threshold is 7 (fires when count > 7); several
+# Usque helpers take exactly 7 related parameters.
+too-many-arguments-threshold = 6

@@ -883,6 +883,8 @@ impl SocketProtector for AndroidSocketProtector {
             if network <= 0 {
                 return Err("Android has no selected non-VPN physical network".to_owned());
             }
+            // SAFETY: descriptor is a live socket FD; network is a valid
+            // Android Network handle from getUnderlyingNetworkHandle.
             let result =
                 unsafe { android_setsocknetwork(network as u64, descriptor as libc::c_int) };
             if result != 0 {
@@ -1164,10 +1166,13 @@ mod android_runtime {
             return START_ALREADY_RUNNING;
         }
 
+        // SAFETY: tun_file_descriptor is the VpnService TUN FD passed from Java.
         let duplicated = unsafe { libc::dup(tun_file_descriptor) };
         if duplicated < 0 {
             return START_TUN_FAILURE;
         }
+        // SAFETY: duplicated is a freshly owned FD from dup; ownership transfers
+        // to OwnedFd.
         let owned = unsafe { OwnedFd::from_raw_fd(duplicated) };
         if let Err(error) = set_nonblocking(&owned) {
             tracing::error!(%error, "could not make Android TUN nonblocking");
@@ -1722,10 +1727,12 @@ mod android_runtime {
     }
 
     fn set_nonblocking(fd: &OwnedFd) -> io::Result<()> {
+        // SAFETY: fd is a live OwnedFd; F_GETFL takes no extra pointer args.
         let flags = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETFL) };
         if flags < 0 {
             return Err(io::Error::last_os_error());
         }
+        // SAFETY: fd is live; flags is the previous F_GETFL result.
         if unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
             return Err(io::Error::last_os_error());
         }
@@ -1736,6 +1743,8 @@ mod android_runtime {
         loop {
             let mut ready = tun.readable().await?;
             match ready.try_io(|inner| {
+                // SAFETY: fd is readable (AsyncFd); packet buffer is writable for
+                // its full length and outlives the read call.
                 let read = unsafe {
                     libc::read(
                         inner.get_ref().as_raw_fd(),
@@ -1759,6 +1768,8 @@ mod android_runtime {
         loop {
             let mut ready = tun.writable().await?;
             match ready.try_io(|inner| {
+                // SAFETY: fd is writable (AsyncFd); packet is a valid readable
+                // buffer for its full length and outlives the write call.
                 let written = unsafe {
                     libc::write(
                         inner.get_ref().as_raw_fd(),

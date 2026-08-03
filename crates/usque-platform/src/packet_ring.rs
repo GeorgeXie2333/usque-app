@@ -51,10 +51,11 @@ pub struct SharedPacketRing {
     capacity: u32,
 }
 
-// Construction validates alignment/layout and callers guarantee the mapped
-// memory outlives every copy. All cross-thread state is accessed atomically;
-// each data direction is SPSC by protocol contract.
+// SAFETY: construction validates alignment/layout and callers guarantee the
+// mapped memory outlives every copy. All cross-thread state is accessed
+// atomically; each data direction is SPSC by protocol contract.
 unsafe impl Send for SharedPacketRing {}
+// SAFETY: same as Send — shared state is atomic and SPSC ownership is external.
 unsafe impl Sync for SharedPacketRing {}
 
 impl SharedPacketRing {
@@ -126,6 +127,8 @@ impl SharedPacketRing {
         // capacity-byte regions.
         let engine_to_agent =
             unsafe { NonNull::new_unchecked(base.as_ptr().add(mem::size_of::<RingHeader>())) };
+        // SAFETY: second region starts at capacity bytes after the first and
+        // remains inside the validated mapping.
         let agent_to_engine = unsafe {
             NonNull::new_unchecked(engine_to_agent.as_ptr().add(header.capacity as usize))
         };

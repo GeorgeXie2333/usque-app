@@ -38,7 +38,10 @@ pub struct PacketMapping {
     capacity: u32,
 }
 
+// SAFETY: all owned handles and the mapping view are process-scoped kernel
+// objects; SharedPacketRing state is atomic and SPSC by protocol contract.
 unsafe impl Send for PacketMapping {}
+// SAFETY: same as Send — no thread-affine interior mutability.
 unsafe impl Sync for PacketMapping {}
 
 impl PacketMapping {
@@ -362,7 +365,9 @@ fn close_remote_handle(target_process: HANDLE, remote: HANDLE) {
 
 struct OwnedHandle(HANDLE);
 
+// SAFETY: uniquely owned Windows kernel handle; CloseHandle is thread-safe.
 unsafe impl Send for OwnedHandle {}
+// SAFETY: same as Send — unique ownership with no thread affinity.
 unsafe impl Sync for OwnedHandle {}
 
 impl Drop for OwnedHandle {
@@ -381,7 +386,10 @@ struct MappedView {
     length: usize,
 }
 
+// SAFETY: mapped view is process memory with no thread-affine state; unique
+// ownership unmaps exactly once on drop.
 unsafe impl Send for MappedView {}
+// SAFETY: same as Send — shared access is coordinated by SharedPacketRing.
 unsafe impl Sync for MappedView {}
 
 impl MappedView {

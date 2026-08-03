@@ -534,6 +534,8 @@ fn replace_file(source: &Path, destination: &Path) -> io::Result<()> {
         .encode_wide()
         .chain(std::iter::once(0))
         .collect::<Vec<_>>();
+    // SAFETY: source and destination are null-terminated wide paths that outlive
+    // the synchronous MoveFileExW call.
     let result = unsafe {
         MoveFileExW(
             source.as_ptr(),

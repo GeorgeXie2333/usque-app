@@ -1077,7 +1077,10 @@ async fn refresh_and_retry_connection(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "tunnel pump must thread path, identity, I/O, cancellation, counters, and control channels as one runtime unit"
+)]
 async fn pump_active_tunnel(
     tunnel: MasqueTunnel,
     active_path: RuntimePath,

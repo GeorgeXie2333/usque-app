@@ -139,11 +139,15 @@ async fn wait_for_parent_exit(parent_pid: Option<u32>) -> std::io::Result<()> {
             INFINITE, OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject,
         };
 
+        // SAFETY: parent_pid is the GUI process that spawned this engine; the
+        // returned handle is owned until CloseHandle below.
         let process = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, parent_pid) };
         if process.is_null() {
             return Err(std::io::Error::last_os_error());
         }
+        // SAFETY: process is a live handle owned by this task.
         let wait_result = unsafe { WaitForSingleObject(process, INFINITE) };
+        // SAFETY: process is still owned here and is closed exactly once.
         unsafe {
             CloseHandle(process);
         }

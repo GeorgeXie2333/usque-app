@@ -29,6 +29,17 @@ license = "MIT"
 repository = "https://github.com/GeorgeXie2333/usque-app"
 authors = ["Usque contributors"]
 
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "deny"
+missing_safety_doc = "deny"
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+
 [workspace.dependencies]
 async-trait = "0.1.89"
 base64 = "0.22.1"

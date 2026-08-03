@@ -443,7 +443,10 @@ fn add_sublayer(
     })
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "WFP filter install needs provider, sublayer, filter identity, rule fields, and app-id blob as one call"
+)]
 fn add_filter(
     engine: &WfpEngine,
     provider_key: Uuid,
@@ -503,7 +506,10 @@ fn add_filter(
 // Each box gives WFP condition unions a stable pointee while their owning
 // vectors grow. A plain Vec<T> would invalidate earlier raw pointers on
 // reallocation before FwpmFilterAdd0 consumes the condition array.
-#[allow(clippy::vec_box)]
+#[expect(
+    clippy::vec_box,
+    reason = "boxed condition payloads keep stable addresses while the condition vector grows before FwpmFilterAdd0"
+)]
 struct CompiledConditions {
     conditions: Vec<FWPM_FILTER_CONDITION0>,
     uint64: Vec<Box<u64>>,

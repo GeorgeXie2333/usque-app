@@ -20,3 +20,7 @@ windows-sys.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework.workspace = true
+
+[lints]
+workspace = true
+

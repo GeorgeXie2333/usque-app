@@ -186,7 +186,7 @@ jobs:
 
       - name: Install pinned Rust and Android toolchains
         run: |
-          rustup toolchain install 1.97.1 --profile minimal
+          rustup toolchain install 1.97.1 --profile minimal --component clippy
           rustup default 1.97.1
           rustup target add \
             aarch64-linux-android \
@@ -197,6 +197,13 @@ jobs:
             "build-tools;36.0.0" \
             "ndk;29.0.14206865" \
             "cmake;3.22.1"
+
+      - name: Clippy Android Rust (arm64-v8a lib)
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = "Stop"
+          & ./tool/build_android_rust.ps1 -CargoAction clippy
 
       - name: Resolve locked Flutter packages
         working-directory: apps/usque_gui

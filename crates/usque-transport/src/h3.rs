@@ -328,6 +328,10 @@ impl StartupFailure {
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "H3 entrypoint threads socket, connection, channels, and startup oneshot into the actor"
+)]
 async fn run_h3_actor(
     socket: UdpSocket,
     connection: quiche::Connection,
@@ -360,7 +364,10 @@ async fn run_h3_actor(
     result
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "H3 actor owns the socket, connection, packet channels, control plane, and startup handshake together"
+)]
 async fn drive_h3_actor(
     socket: UdpSocket,
     mut connection: quiche::Connection,

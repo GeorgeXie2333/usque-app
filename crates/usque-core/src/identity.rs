@@ -154,6 +154,10 @@ impl WarpIdentity {
     /// This constructor intentionally accepts owned credential strings so the
     /// returned identity can zeroize them. It must never be used for values
     /// loaded from the non-secret profile JSON.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "vault reconstruction must accept every zeroizing credential and address field as one atomic constructor"
+    )]
     pub fn from_secure_records(
         key_pair: MasqueKeyPair,
         endpoint_pin: EndpointPin,
@@ -177,6 +181,10 @@ impl WarpIdentity {
         })
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "identity factory mirrors from_secure_records field set for registration and vault paths"
+    )]
     pub(crate) fn new(
         key_pair: MasqueKeyPair,
         endpoint_pin: EndpointPin,

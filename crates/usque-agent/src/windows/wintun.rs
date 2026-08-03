@@ -73,8 +73,10 @@ pub struct WintunLibrary {
     send_packet: SendPacket,
 }
 
-// A loaded module and immutable function table may be called concurrently.
+// SAFETY: a loaded module and immutable function table may be called
+// concurrently; FreeLibrary runs only on unique drop.
 unsafe impl Send for WintunLibrary {}
+// SAFETY: same as Send — function pointers are immutable after load.
 unsafe impl Sync for WintunLibrary {}
 
 impl WintunLibrary {
@@ -106,27 +108,29 @@ impl WintunLibrary {
         }
 
         let library = (|| {
-            Ok(Self {
-                module,
-                // SAFETY: every symbol name and function signature is copied
-                // verbatim from the pinned 0.14.1 wintun.h.
-                create_adapter: unsafe { resolve(module, b"WintunCreateAdapter\0")? },
-                open_adapter: unsafe { resolve(module, b"WintunOpenAdapter\0")? },
-                close_adapter: unsafe { resolve(module, b"WintunCloseAdapter\0")? },
-                get_adapter_luid: unsafe { resolve(module, b"WintunGetAdapterLUID\0")? },
-                get_running_driver_version: unsafe {
-                    resolve(module, b"WintunGetRunningDriverVersion\0")?
-                },
-                start_session: unsafe { resolve(module, b"WintunStartSession\0")? },
-                end_session: unsafe { resolve(module, b"WintunEndSession\0")? },
-                get_read_wait_event: unsafe { resolve(module, b"WintunGetReadWaitEvent\0")? },
-                receive_packet: unsafe { resolve(module, b"WintunReceivePacket\0")? },
-                release_receive_packet: unsafe {
-                    resolve(module, b"WintunReleaseReceivePacket\0")?
-                },
-                allocate_send_packet: unsafe { resolve(module, b"WintunAllocateSendPacket\0")? },
-                send_packet: unsafe { resolve(module, b"WintunSendPacket\0")? },
-            })
+            // SAFETY: every symbol name and function signature is copied
+            // verbatim from the pinned 0.14.1 wintun.h; module remains loaded
+            // for the entire resolve sequence.
+            unsafe {
+                Ok(Self {
+                    module,
+                    create_adapter: resolve(module, b"WintunCreateAdapter\0")?,
+                    open_adapter: resolve(module, b"WintunOpenAdapter\0")?,
+                    close_adapter: resolve(module, b"WintunCloseAdapter\0")?,
+                    get_adapter_luid: resolve(module, b"WintunGetAdapterLUID\0")?,
+                    get_running_driver_version: resolve(
+                        module,
+                        b"WintunGetRunningDriverVersion\0",
+                    )?,
+                    start_session: resolve(module, b"WintunStartSession\0")?,
+                    end_session: resolve(module, b"WintunEndSession\0")?,
+                    get_read_wait_event: resolve(module, b"WintunGetReadWaitEvent\0")?,
+                    receive_packet: resolve(module, b"WintunReceivePacket\0")?,
+                    release_receive_packet: resolve(module, b"WintunReleaseReceivePacket\0")?,
+                    allocate_send_packet: resolve(module, b"WintunAllocateSendPacket\0")?,
+                    send_packet: resolve(module, b"WintunSendPacket\0")?,
+                })
+            }
         })();
         match library {
             Ok(library) => Ok(Arc::new(library)),
@@ -253,7 +257,9 @@ struct AdapterInner {
     name: String,
 }
 
+// SAFETY: adapter handle is owned uniquely; WintunLibrary is already Send.
 unsafe impl Send for AdapterInner {}
+// SAFETY: same as Send — no thread-affine state; close runs only on drop.
 unsafe impl Sync for AdapterInner {}
 
 impl Drop for AdapterInner {
@@ -272,7 +278,10 @@ pub struct WintunSession {
     handle: SessionHandle,
 }
 
+// SAFETY: session handle is uniquely owned; adapter is Send and Sync.
 unsafe impl Send for WintunSession {}
+// SAFETY: same as Send — Wintun session ops are documented thread-safe with
+// single owner lifetime.
 unsafe impl Sync for WintunSession {}
 
 impl WintunSession {

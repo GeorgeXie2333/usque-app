@@ -170,6 +170,7 @@ pub(crate) fn authenticate_named_pipe(
     // SAFETY: all handles and output pointers are valid.
     if unsafe { GetNamedPipeClientProcessId(pipe, &mut confirmed_process_id) } == 0
         || confirmed_process_id != process_id
+        // SAFETY: process.0 is a live process handle owned by this function.
         || unsafe { GetProcessId(process.0) } != process_id
     {
         return Err(AuthenticationError::ProcessChanged);
@@ -498,9 +499,10 @@ impl Drop for RevertGuard {
 
 struct OwnedHandle(HANDLE);
 
-// Windows kernel handles can be used and closed from any process thread. This
-// wrapper has unique ownership and closes the handle exactly once.
+// SAFETY: Windows kernel handles may be used and closed from any process
+// thread. This wrapper has unique ownership and closes the handle exactly once.
 unsafe impl Send for OwnedHandle {}
+// SAFETY: same as Send — unique ownership; kernel handle is thread-safe.
 unsafe impl Sync for OwnedHandle {}
 
 impl Drop for OwnedHandle {

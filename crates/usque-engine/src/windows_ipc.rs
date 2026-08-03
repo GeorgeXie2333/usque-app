@@ -141,6 +141,7 @@ fn current_user_sid() -> io::Result<String> {
 
     let mut required = 0_u32;
     // The first call determines the variable-sized TOKEN_USER buffer.
+    // SAFETY: token is live; null info pointer with zero length is the size probe.
     unsafe {
         GetTokenInformation(token.0, TokenUser, ptr::null_mut(), 0, &mut required);
     }

@@ -6,7 +6,10 @@ param(
     [string]$BuildProfile = "debug",
     [string]$NdkRoot = "",
     [ValidateSet("all", "arm64-v8a", "armeabi-v7a", "x86_64")]
-    [string]$AbiFilter = "all"
+    [string]$AbiFilter = "all",
+    # build: compile and copy .so into jniLibs. clippy: lint arm64-v8a lib only, no .so copy.
+    [ValidateSet("build", "clippy")]
+    [string]$CargoAction = "build"
 )
 
 Set-StrictMode -Version Latest
@@ -16,6 +19,12 @@ $androidRoot = Join-Path $repoRoot "apps/usque_gui/android"
 $jniRoot = Join-Path $androidRoot "app/src/main/jniLibs"
 $ndkVersion = "29.0.14206865"
 $minimumApi = "26"
+
+if ($CargoAction -eq "clippy") {
+    # Clippy is a static gate for the primary device ABI only; full multi-ABI
+    # coverage remains with the build action and Flutter APK jobs.
+    $AbiFilter = "arm64-v8a"
+}
 
 if ([string]::IsNullOrWhiteSpace($NdkRoot)) {
     if (-not [string]::IsNullOrWhiteSpace($env:ANDROID_NDK_HOME)) {
@@ -162,6 +171,27 @@ try {
         $archiver = (Join-Path $toolchainBin "llvm-ar$executableSuffix").Replace("\", "/")
         Set-Item -Path "Env:$($target.ArEnvironment)" -Value $archiver
 
+        if ($CargoAction -eq "clippy") {
+            $cargoArguments = @(
+                "clippy",
+                "--locked",
+                "--package", "usque-android",
+                "--lib",
+                "--target", $target.RustTarget
+            )
+            if ($BuildProfile -eq "release") {
+                $cargoArguments += "--release"
+            }
+            $cargoArguments += @("--", "-D", "warnings")
+
+            & $cargoPath @cargoArguments
+            if ($LASTEXITCODE -ne 0) {
+                throw "Rust Android clippy failed for $($target.RustTarget)."
+            }
+            # Clippy does not produce a shared library; skip jniLibs install.
+            continue
+        }
+
         $cargoArguments = @(
             "build",
             "--locked",
@@ -190,4 +220,8 @@ try {
     Pop-Location
 }
 
-Write-Output "RUST_ANDROID_LIBS_READY=$jniRoot"
+if ($CargoAction -eq "clippy") {
+    Write-Output "RUST_ANDROID_CLIPPY_OK=arm64-v8a"
+} else {
+    Write-Output "RUST_ANDROID_LIBS_READY=$jniRoot"
+}

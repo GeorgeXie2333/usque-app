@@ -607,6 +607,7 @@ fn delete_address(interface_luid: u64, network: IpNet) -> Result<(), NetworkErro
     // Delete the exact row returned by Windows rather than reconstructing a
     // partially populated row. This makes recovery safe for an Intended
     // receipt whose CreateUnicastIpAddressEntry never ran.
+    // SAFETY: `row` is a complete MIB_UNICASTIPADDRESS_ROW from find_address.
     let status = unsafe { DeleteUnicastIpAddressEntry(&row) };
     if status == NO_ERROR || status == ERROR_NOT_FOUND || status == ERROR_FILE_NOT_FOUND {
         Ok(())
