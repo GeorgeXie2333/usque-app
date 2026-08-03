@@ -214,12 +214,17 @@ internal class AndroidEngineMethodHandler(
                 identityStore.clearAll()
                 engineBridge.applyProfileCommand(
                     profileConfigPath,
-                    JSONObject().put("command", "clear_all_data").toString(),
+                    """{"command":"clear_all_data"}""",
                 ) ?: throw IllegalStateException("Rust did not reset the Profile store")
                 maintenanceBridge.clearLocalState()
-                mainScheduler.post { result.success(null) }
+                mainScheduler.post {
+                    // Destroy may have already completed with CLEAR_ALL_CANCELLED.
+                    if (!controlClient.takeInFlightClearAll(result)) return@post
+                    result.success(null)
+                }
             } catch (error: Exception) {
                 mainScheduler.post {
+                    if (!controlClient.takeInFlightClearAll(result)) return@post
                     result.error(
                         "CLEAR_ALL_FAILED",
                         "Android could not clear all local Usque data.",
@@ -245,11 +250,15 @@ internal class AndroidEngineMethodHandler(
             )
             return
         }
+        if (!requireProfileEngine(result)) return
         runProfileCommand(
-            JSONObject()
-                .put("command", "import_legacy_profiles")
-                .put("profiles", JSONArray(profiles))
-                .put("active_profile_id", activeProfileId),
+            flutterValueToJson(
+                mapOf(
+                    "command" to "import_legacy_profiles",
+                    "profiles" to profiles,
+                    "active_profile_id" to activeProfileId,
+                ),
+            ),
             result,
             returnCatalog = true,
         )
@@ -264,10 +273,14 @@ internal class AndroidEngineMethodHandler(
             result.error("INVALID_ARGUMENT", "The profile is malformed.", null)
             return
         }
+        if (!requireProfileEngine(result)) return
         runProfileCommand(
-            JSONObject()
-                .put("command", "upsert_profile")
-                .put("profile", JSONObject(profile)),
+            flutterValueToJson(
+                mapOf(
+                    "command" to "upsert_profile",
+                    "profile" to profile,
+                ),
+            ),
             result,
         )
     }
@@ -281,10 +294,14 @@ internal class AndroidEngineMethodHandler(
             result.error("INVALID_ARGUMENT", "The profile ID is missing.", null)
             return
         }
+        if (!requireProfileEngine(result)) return
         runProfileCommand(
-            JSONObject()
-                .put("command", "delete_profile")
-                .put("profile_id", profileId),
+            flutterValueToJson(
+                mapOf(
+                    "command" to "delete_profile",
+                    "profile_id" to profileId,
+                ),
+            ),
             result,
         )
     }
@@ -298,31 +315,38 @@ internal class AndroidEngineMethodHandler(
             result.error("INVALID_ARGUMENT", "The profile ID is missing.", null)
             return
         }
+        if (!requireProfileEngine(result)) return
         runProfileCommand(
-            JSONObject()
-                .put("command", "set_active_profile")
-                .put("profile_id", profileId),
+            flutterValueToJson(
+                mapOf(
+                    "command" to "set_active_profile",
+                    "profile_id" to profileId,
+                ),
+            ),
             result,
         )
     }
 
+    private fun requireProfileEngine(result: MethodChannel.Result): Boolean {
+        if (engineBridge.isLinked()) return true
+        result.error(
+            "ENGINE_UNAVAILABLE",
+            "The Rust profile store is not linked in this build.",
+            null,
+        )
+        return false
+    }
+
     private fun runProfileCommand(
-        command: JSONObject,
+        commandJson: String,
         result: MethodChannel.Result,
         returnCatalog: Boolean = false,
     ) {
-        if (!engineBridge.isLinked()) {
-            result.error(
-                "ENGINE_UNAVAILABLE",
-                "The Rust profile store is not linked in this build.",
-                null,
-            )
-            return
-        }
+        if (!requireProfileEngine(result)) return
         identityExecutor.execute {
             try {
                 var response =
-                    engineBridge.applyProfileCommand(profileConfigPath, command.toString())
+                    engineBridge.applyProfileCommand(profileConfigPath, commandJson)
                         ?: throw IllegalStateException("Rust returned no profile catalog")
                 var responseObject = JSONObject(response)
                 val pending = responseObject.optJSONArray("pending_identity_deletions")
@@ -719,9 +743,10 @@ internal class AndroidEngineMethodHandler(
 
     /**
      * Encode Flutter method maps without org.json so JVM unit tests do not hit
-     * Android framework stubs. Wire shape matches JSONObject(map).toString().
+     * Android framework stubs. Null-valued map keys are omitted (same as
+     * `JSONObject(Map)`); list null elements encode as JSON null.
      */
-    private fun flutterValueToJson(value: Any?): String =
+    internal fun flutterValueToJson(value: Any?): String =
         when (value) {
             null -> {
                 "null"
@@ -740,9 +765,11 @@ internal class AndroidEngineMethodHandler(
             }
 
             is Map<*, *> -> {
-                value.entries.joinToString(prefix = "{", postfix = "}") { (key, entryValue) ->
-                    "${jsonQuote(key.toString())}:${flutterValueToJson(entryValue)}"
-                }
+                value.entries
+                    .filter { (_, entryValue) -> entryValue != null }
+                    .joinToString(prefix = "{", postfix = "}") { (key, entryValue) ->
+                        "${jsonQuote(key.toString())}:${flutterValueToJson(entryValue)}"
+                    }
             }
 
             is List<*> -> {

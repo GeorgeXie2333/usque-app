@@ -101,6 +101,12 @@ internal class VpnControlClient(
     private var controlBound = false
     private var eventsWanted = false
     private var pendingDisconnectResult: MethodChannel.Result? = null
+
+    /**
+     * Clear-all result after the VPN service acked, while local wipe is still running.
+     * Destroy must complete this with [CLEAR_ALL_CANCELLED] if wipe has not finished.
+     */
+    private var inFlightClearAll: MethodChannel.Result? = null
     private var destroyed = false
 
     var lastSnapshot: Map<String, Any?> = disconnectedSnapshot()
@@ -168,6 +174,7 @@ internal class VpnControlClient(
     }
 
     fun setEventsWanted(wanted: Boolean) {
+        if (destroyed) return
         eventsWanted = wanted
         if (wanted) {
             registerForEvents()
@@ -177,6 +184,14 @@ internal class VpnControlClient(
     }
 
     fun requestSnapshot(result: MethodChannel.Result) {
+        if (destroyed) {
+            result.error(
+                "ENGINE_IPC_CLOSED",
+                "The Android UI closed before the VPN process replied.",
+                null,
+            )
+            return
+        }
         val service = endpoint
         if (service == null) {
             bind()
@@ -207,6 +222,14 @@ internal class VpnControlClient(
     }
 
     fun requestDisconnect(result: MethodChannel.Result) {
+        if (destroyed) {
+            result.error(
+                "ENGINE_IPC_CLOSED",
+                "The Android UI closed before the connection could be stopped.",
+                null,
+            )
+            return
+        }
         val service = endpoint
         if (service == null) {
             if (pendingDisconnectResult != null) {
@@ -259,6 +282,14 @@ internal class VpnControlClient(
         seconds: Int,
         result: MethodChannel.Result,
     ) {
+        if (destroyed) {
+            result.error(
+                "ENGINE_IPC_CLOSED",
+                "The Android UI closed before the VPN process replied.",
+                null,
+            )
+            return
+        }
         val service = endpoint
         if (service == null) {
             bind()
@@ -296,6 +327,14 @@ internal class VpnControlClient(
      * @return false when the control endpoint is unavailable (caller already received the error).
      */
     fun requestClearAllData(result: MethodChannel.Result): Boolean {
+        if (destroyed) {
+            result.error(
+                "CLEAR_ALL_CANCELLED",
+                "The Android UI closed before local data could be cleared.",
+                null,
+            )
+            return false
+        }
         val service = endpoint
         if (service == null) {
             bind()
@@ -333,6 +372,9 @@ internal class VpnControlClient(
         if (destroyed) return
         destroyed = true
 
+        pendingSnapshots.keys.toList().forEach { requestId ->
+            scheduler.cancel(snapshotTimeoutToken(requestId))
+        }
         pendingSnapshots.values.forEach { result ->
             result.error(
                 "ENGINE_IPC_CLOSED",
@@ -342,6 +384,9 @@ internal class VpnControlClient(
         }
         pendingSnapshots.clear()
 
+        pendingClearAll.keys.toList().forEach { requestId ->
+            scheduler.cancel(clearAllTimeoutToken(requestId))
+        }
         pendingClearAll.values.forEach { result ->
             result.error(
                 "CLEAR_ALL_CANCELLED",
@@ -351,11 +396,22 @@ internal class VpnControlClient(
         }
         pendingClearAll.clear()
 
-        pendingDisconnectResult?.error(
-            "ENGINE_IPC_CLOSED",
-            "The Android UI closed before the connection could be stopped.",
+        // Local wipe may still be running after service ack — complete exactly once.
+        inFlightClearAll?.error(
+            "CLEAR_ALL_CANCELLED",
+            "The Android UI closed before local data could be cleared.",
             null,
         )
+        inFlightClearAll = null
+
+        pendingDisconnectResult?.let { result ->
+            scheduler.cancel(disconnectPendingToken(result))
+            result.error(
+                "ENGINE_IPC_CLOSED",
+                "The Android UI closed before the connection could be stopped.",
+                null,
+            )
+        }
         pendingDisconnectResult = null
 
         eventsWanted = false
@@ -365,6 +421,16 @@ internal class VpnControlClient(
         clearAllAcknowledgedListener = null
     }
 
+    /**
+     * Claims ownership of an in-flight clear-all result so the local wipe path may
+     * complete it. Returns false if destroy already cancelled or the result is not tracked.
+     */
+    fun takeInFlightClearAll(result: MethodChannel.Result): Boolean {
+        if (inFlightClearAll !== result) return false
+        inFlightClearAll = null
+        return true
+    }
+
     /** Test and reply-path entry: complete a pending snapshot/disconnect/pause request. */
     fun deliverSnapshotReply(
         requestId: Int,
@@ -372,6 +438,8 @@ internal class VpnControlClient(
         errorMessage: String?,
         snapshot: Map<String, Any?>?,
     ) {
+        if (destroyed) return
+
         val clearResult = pendingClearAll.remove(requestId)
         if (clearResult != null) {
             scheduler.cancel(clearAllTimeoutToken(requestId))
@@ -382,8 +450,18 @@ internal class VpnControlClient(
                     null,
                 )
             } else {
-                clearAllAcknowledgedListener?.onClearAllAcknowledged(clearResult)
-                    ?: clearResult.success(null)
+                val listener = clearAllAcknowledgedListener
+                if (listener == null) {
+                    clearResult.error(
+                        "CLEAR_ALL_FAILED",
+                        "Clear-all acknowledgement handler is not configured.",
+                        null,
+                    )
+                } else {
+                    // Track until local wipe finishes so destroy can still cancel once.
+                    inFlightClearAll = clearResult
+                    listener.onClearAllAcknowledged(clearResult)
+                }
             }
             return
         }
@@ -434,6 +512,8 @@ internal class VpnControlClient(
     fun pendingClearAllCountForTest(): Int = pendingClearAll.size
 
     fun pendingDisconnectForTest(): MethodChannel.Result? = pendingDisconnectResult
+
+    fun inFlightClearAllForTest(): MethodChannel.Result? = inFlightClearAll
 
     private fun onReply(
         what: Int,

@@ -6,6 +6,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -110,6 +111,23 @@ class VpnControlClientTest {
     }
 
     @Test
+    fun destroyCancelsOutstandingTimeouts() {
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        val result = RecordingResult()
+
+        client.requestSnapshot(result)
+        assertEquals(1, scheduler.pendingTimeoutCount())
+
+        client.destroy()
+
+        assertEquals(0, scheduler.pendingTimeoutCount())
+        assertEquals(1, result.completionCount)
+        scheduler.fireAllDelayed()
+        assertEquals(1, result.completionCount)
+    }
+
+    @Test
     fun destroyDoesNotRecompleteAlreadyFinishedResults() {
         val endpoint = RecordingEndpoint()
         client.attachEndpointForTest(endpoint)
@@ -136,6 +154,34 @@ class VpnControlClientTest {
         assertEquals(1, binder.unbindCount)
         assertEquals(2, binder.bindCount)
         assertTrue(client.isBound)
+    }
+
+    @Test
+    fun bindingDiedDoesNotCompletePendingSnapshot() {
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        client.bind()
+        val result = RecordingResult()
+
+        client.requestSnapshot(result)
+        val requestId = endpoint.messages.single().requestId
+        val messagesBeforeReconnect = endpoint.messages.size
+
+        client.notifyBindingDiedForTest()
+
+        assertEquals(0, result.completionCount)
+        assertEquals(1, client.pendingSnapshotCountForTest())
+        // Reconnect must not re-send the in-flight snapshot.
+        assertEquals(messagesBeforeReconnect, endpoint.messages.size)
+        assertEquals(2, binder.bindCount)
+
+        scheduler.fireAllDelayed()
+        assertEquals("ENGINE_IPC_TIMEOUT", result.errorCode)
+        assertEquals(1, result.completionCount)
+
+        // Late reply after timeout must not double-complete.
+        client.deliverSnapshotReply(requestId, null, null, mapOf("phase" to "connected"))
+        assertEquals(1, result.completionCount)
     }
 
     @Test
@@ -166,7 +212,76 @@ class VpnControlClientTest {
         client.deliverSnapshotReply(requestId, null, null, mapOf("phase" to "disconnected"))
 
         assertEquals(1, clearAllAcks.size)
+        assertSame(result, client.inFlightClearAllForTest())
         assertEquals(0, result.completionCount)
+    }
+
+    @Test
+    fun clearAllAckThenDestroyCompletesOnceWithCancelled() {
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        val result = RecordingResult()
+
+        assertTrue(client.requestClearAllData(result))
+        val requestId = endpoint.messages.single().requestId
+        client.deliverSnapshotReply(requestId, null, null, mapOf("phase" to "disconnected"))
+
+        assertEquals(0, result.completionCount)
+        assertNotNull(client.inFlightClearAllForTest())
+
+        // Activity destroy before local wipe finishes.
+        client.destroy()
+
+        assertEquals("CLEAR_ALL_CANCELLED", result.errorCode)
+        assertEquals(1, result.completionCount)
+        assertNull(client.inFlightClearAllForTest())
+
+        // Wipe completion must not double-complete.
+        assertFalse(client.takeInFlightClearAll(result))
+        client.destroy()
+        assertEquals(1, result.completionCount)
+    }
+
+    @Test
+    fun clearAllLocalWipeCompletesOnceAfterAck() {
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        val result = RecordingResult()
+
+        assertTrue(client.requestClearAllData(result))
+        client.deliverSnapshotReply(
+            endpoint.messages.single().requestId,
+            null,
+            null,
+            mapOf("phase" to "disconnected"),
+        )
+        assertTrue(client.takeInFlightClearAll(result))
+        result.success(null)
+
+        assertEquals(1, result.completionCount)
+        assertNull(client.inFlightClearAllForTest())
+        client.destroy()
+        assertEquals(1, result.completionCount)
+    }
+
+    @Test
+    fun clearAllFailsClosedWhenListenerMissing() {
+        client.clearAllAcknowledgedListener = null
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        val result = RecordingResult()
+
+        assertTrue(client.requestClearAllData(result))
+        client.deliverSnapshotReply(
+            endpoint.messages.single().requestId,
+            null,
+            null,
+            mapOf("phase" to "disconnected"),
+        )
+
+        assertEquals("CLEAR_ALL_FAILED", result.errorCode)
+        assertEquals(1, result.completionCount)
+        assertNull(client.inFlightClearAllForTest())
     }
 
     @Test
@@ -249,6 +364,8 @@ class VpnControlClientTest {
             delayed.clear()
             snapshot.forEach { it.action() }
         }
+
+        fun pendingTimeoutCount(): Int = delayed.size
     }
 
     private class RecordingResult : MethodChannel.Result {

@@ -4,6 +4,7 @@ import android.content.ServiceConnection
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -16,6 +17,8 @@ class AndroidEngineMethodHandlerTest {
     private lateinit var endpoint: RecordingEndpoint
     private lateinit var activityCommands: RecordingActivityCommands
     private lateinit var engineBridge: FakeEngineBridge
+    private lateinit var maintenance: RecordingMaintenance
+    private lateinit var identityStore: RecordingIdentityStore
     private lateinit var handler: AndroidEngineMethodHandler
 
     @Before
@@ -32,23 +35,24 @@ class AndroidEngineMethodHandlerTest {
         controlClient.attachEndpointForTest(endpoint)
         activityCommands = RecordingActivityCommands()
         engineBridge = FakeEngineBridge()
+        maintenance = RecordingMaintenance()
+        identityStore = RecordingIdentityStore()
         handler =
             AndroidEngineMethodHandler(
                 profileConfigPath = "/tmp/profiles-v2.json",
-                identityStore = NoopIdentityStore(),
+                identityStore = identityStore,
                 identityExecutor = Executor { it.run() },
                 mainScheduler = scheduler,
                 controlClient = controlClient,
                 activityCommands = activityCommands,
                 engineBridge = engineBridge,
-                maintenanceBridge =
-                    object : AndroidEngineMethodHandler.MaintenanceBridge {
-                        override fun checkForUpdates(manual: Boolean): Map<String, Any?> = mapOf("manual" to manual)
-
-                        override fun clearLocalState() = Unit
-                    },
+                maintenanceBridge = maintenance,
                 warpSecretOkCode = 0,
             )
+        controlClient.clearAllAcknowledgedListener =
+            VpnControlClient.ClearAllAcknowledgedListener { result ->
+                handler.finishClearAllData(result)
+            }
     }
 
     @Test
@@ -127,6 +131,27 @@ class AndroidEngineMethodHandlerTest {
     }
 
     @Test
+    fun connectOmitsNullMapEntriesInProfileJson() {
+        engineBridge.ready = true
+        val ok = RecordingResult()
+        handler.handle(
+            MethodCall(
+                "connect",
+                mapOf(
+                    "mode" to "httpProxy",
+                    "id" to "p1",
+                    "optional" to null,
+                ),
+            ),
+            ok,
+        )
+        val json = activityCommands.lastProfileJson!!
+        assertTrue(json.contains("\"mode\":\"httpProxy\""))
+        assertFalse(json.contains("\"optional\""))
+        assertFalse(json.contains(":null"))
+    }
+
+    @Test
     fun unknownMethodIsNotImplemented() {
         val result = RecordingResult()
         handler.handle(MethodCall("noSuchMethod", null), result)
@@ -146,6 +171,234 @@ class AndroidEngineMethodHandlerTest {
         val result = RecordingResult()
         handler.handle(MethodCall("provisionIdentity", mapOf("terms_accepted" to false)), result)
         assertEquals("TERMS_NOT_ACCEPTED", result.errorCode)
+    }
+
+    @Test
+    fun importLegacyProfilesRejectsMalformedCatalog() {
+        val result = RecordingResult()
+        handler.handle(MethodCall("importLegacyProfiles", mapOf("profiles" to emptyList<Any>())), result)
+        assertEquals("INVALID_ARGUMENT", result.errorCode)
+        assertTrue(engineBridge.commands.isEmpty())
+    }
+
+    @Test
+    fun importLegacyProfilesRequiresLinkedEngine() {
+        engineBridge.linked = false
+        val result = RecordingResult()
+        handler.handle(
+            MethodCall(
+                "importLegacyProfiles",
+                mapOf(
+                    "profiles" to listOf(mapOf("id" to "p1")),
+                    "active_profile_id" to "p1",
+                ),
+            ),
+            result,
+        )
+        assertEquals("ENGINE_UNAVAILABLE", result.errorCode)
+        assertTrue(engineBridge.commands.isEmpty())
+    }
+
+    @Test
+    fun upsertProfileRejectsMalformedAndRequiresLinkedEngine() {
+        val bad = RecordingResult()
+        handler.handle(MethodCall("upsertProfile", "not-a-map"), bad)
+        assertEquals("INVALID_ARGUMENT", bad.errorCode)
+
+        engineBridge.linked = false
+        val unavailable = RecordingResult()
+        handler.handle(MethodCall("upsertProfile", mapOf("id" to "p1", "name" to "Home")), unavailable)
+        assertEquals("ENGINE_UNAVAILABLE", unavailable.errorCode)
+        assertTrue(engineBridge.commands.isEmpty())
+    }
+
+    @Test
+    fun deleteProfileRequiresIdAndLinkedEngine() {
+        val bad = RecordingResult()
+        handler.handle(MethodCall("deleteProfile", emptyMap<String, Any>()), bad)
+        assertEquals("INVALID_ARGUMENT", bad.errorCode)
+
+        engineBridge.linked = false
+        val unavailable = RecordingResult()
+        handler.handle(MethodCall("deleteProfile", mapOf("profile_id" to "p1")), unavailable)
+        assertEquals("ENGINE_UNAVAILABLE", unavailable.errorCode)
+        assertTrue(engineBridge.commands.isEmpty())
+    }
+
+    @Test
+    fun setActiveProfileRequiresIdAndLinkedEngine() {
+        val bad = RecordingResult()
+        handler.handle(MethodCall("setActiveProfile", emptyMap<String, Any>()), bad)
+        assertEquals("INVALID_ARGUMENT", bad.errorCode)
+
+        engineBridge.linked = false
+        val unavailable = RecordingResult()
+        handler.handle(MethodCall("setActiveProfile", mapOf("profile_id" to "p2")), unavailable)
+        assertEquals("ENGINE_UNAVAILABLE", unavailable.errorCode)
+        assertTrue(engineBridge.commands.isEmpty())
+    }
+
+    @Test
+    fun checkForUpdatesRequiresLinkedEngineAndDispatches() {
+        engineBridge.linked = false
+        val unavailable = RecordingResult()
+        handler.handle(MethodCall("checkForUpdates", mapOf("manual" to true)), unavailable)
+        assertEquals("ENGINE_UNAVAILABLE", unavailable.errorCode)
+        assertEquals(0, maintenance.checkCount)
+
+        engineBridge.linked = true
+        val ok = RecordingResult()
+        handler.handle(MethodCall("checkForUpdates", mapOf("manual" to false)), ok)
+        assertEquals(1, maintenance.checkCount)
+        assertEquals(false, maintenance.lastManual)
+        assertEquals(1, ok.completionCount)
+        assertNull(ok.errorCode)
+    }
+
+    @Test
+    fun createProfileWithIdentityRejectsMalformedRequest() {
+        val missingTerms = RecordingResult()
+        handler.handle(
+            MethodCall(
+                "createProfileWithIdentity",
+                mapOf(
+                    "profile" to mapOf("id" to "p1"),
+                    "method" to "register",
+                    "terms_accepted" to false,
+                ),
+            ),
+            missingTerms,
+        )
+        assertEquals("INVALID_ARGUMENT", missingTerms.errorCode)
+
+        val missingProfile = RecordingResult()
+        handler.handle(
+            MethodCall(
+                "createProfileWithIdentity",
+                mapOf(
+                    "method" to "register",
+                    "terms_accepted" to true,
+                ),
+            ),
+            missingProfile,
+        )
+        assertEquals("INVALID_ARGUMENT", missingProfile.errorCode)
+        assertTrue(engineBridge.commands.isEmpty())
+    }
+
+    @Test
+    fun createProfileWithIdentityRequiresLinkedEngine() {
+        engineBridge.linked = false
+        val result = RecordingResult()
+        handler.handle(
+            MethodCall(
+                "createProfileWithIdentity",
+                mapOf(
+                    "profile" to mapOf("id" to "p1", "name" to "Work"),
+                    "method" to "register",
+                    "terms_accepted" to true,
+                ),
+            ),
+            result,
+        )
+        assertEquals("ENGINE_UNAVAILABLE", result.errorCode)
+        assertTrue(engineBridge.commands.isEmpty())
+    }
+
+    @Test
+    fun finishClearAllDataCompletesOnlyWhenStillInFlight() {
+        val localScheduler = ImmediateScheduler()
+        val localClient =
+            VpnControlClient(
+                scheduler = localScheduler,
+                serviceBinder = { true },
+                serviceUnbinder = { },
+                endpointFromBinder = { _, _ -> error("unused") },
+            )
+        val localEndpoint = RecordingEndpoint()
+        localClient.attachEndpointForTest(localEndpoint)
+        val localHandler =
+            AndroidEngineMethodHandler(
+                profileConfigPath = "/tmp/profiles-v2.json",
+                identityStore = identityStore,
+                identityExecutor = Executor { it.run() },
+                mainScheduler = localScheduler,
+                controlClient = localClient,
+                activityCommands = activityCommands,
+                engineBridge = engineBridge,
+                maintenanceBridge = maintenance,
+                warpSecretOkCode = 0,
+            )
+        localClient.clearAllAcknowledgedListener =
+            VpnControlClient.ClearAllAcknowledgedListener { r ->
+                localHandler.finishClearAllData(r)
+            }
+
+        val wipeResult = RecordingResult()
+        assertTrue(localClient.requestClearAllData(wipeResult))
+        localClient.deliverSnapshotReply(
+            localEndpoint.messages.single().second,
+            null,
+            null,
+            mapOf("phase" to "disconnected"),
+        )
+
+        assertEquals(1, wipeResult.completionCount)
+        assertNull(wipeResult.errorCode)
+        assertTrue(identityStore.clearAllCount >= 1)
+        assertTrue(engineBridge.commands.any { it.contains("clear_all_data") })
+        assertTrue(maintenance.clearCount >= 1)
+    }
+
+    @Test
+    fun finishClearAllDataSkippedAfterDestroyCancel() {
+        val localScheduler = ImmediateScheduler()
+        val deferred = mutableListOf<Runnable>()
+        val localClient =
+            VpnControlClient(
+                scheduler = localScheduler,
+                serviceBinder = { true },
+                serviceUnbinder = { },
+                endpointFromBinder = { _, _ -> error("unused") },
+            )
+        val localEndpoint = RecordingEndpoint()
+        localClient.attachEndpointForTest(localEndpoint)
+        val localHandler =
+            AndroidEngineMethodHandler(
+                profileConfigPath = "/tmp/profiles-v2.json",
+                identityStore = identityStore,
+                identityExecutor = Executor { deferred.add(it) },
+                mainScheduler = localScheduler,
+                controlClient = localClient,
+                activityCommands = activityCommands,
+                engineBridge = engineBridge,
+                maintenanceBridge = maintenance,
+                warpSecretOkCode = 0,
+            )
+        localClient.clearAllAcknowledgedListener =
+            VpnControlClient.ClearAllAcknowledgedListener { r ->
+                localHandler.finishClearAllData(r)
+            }
+
+        val wipeResult = RecordingResult()
+        assertTrue(localClient.requestClearAllData(wipeResult))
+        localClient.deliverSnapshotReply(
+            localEndpoint.messages.single().second,
+            null,
+            null,
+            mapOf("phase" to "disconnected"),
+        )
+        assertEquals(1, deferred.size)
+        assertEquals(0, wipeResult.completionCount)
+
+        localClient.destroy()
+        assertEquals("CLEAR_ALL_CANCELLED", wipeResult.errorCode)
+        assertEquals(1, wipeResult.completionCount)
+
+        // Queued wipe runs after destroy — must not complete again.
+        deferred.forEach { it.run() }
+        assertEquals(1, wipeResult.completionCount)
+        assertEquals("CLEAR_ALL_CANCELLED", wipeResult.errorCode)
     }
 
     private class RecordingActivityCommands : AndroidEngineMethodHandler.ActivityCommands {
@@ -184,6 +437,7 @@ class AndroidEngineMethodHandlerTest {
     private class FakeEngineBridge : AndroidEngineMethodHandler.EngineBridge {
         var ready = true
         var linked = true
+        val commands = mutableListOf<String>()
 
         override fun isLinked(): Boolean = linked
 
@@ -192,19 +446,43 @@ class AndroidEngineMethodHandlerTest {
         override fun applyProfileCommand(
             configPath: String,
             requestJson: String,
-        ): String? = """{"profiles":[]}"""
+        ): String? {
+            commands.add(requestJson)
+            return """{"profiles":[{"id":"p1"}]}"""
+        }
 
-        override fun registerConsumerWarp(locale: String): ByteArray? = byteArrayOf(1)
+        override fun registerConsumerWarp(locale: String): ByteArray? = byteArrayOf(1, 2, 3)
 
         override fun validateWarpSecret(secret: ByteArray): Int = 0
     }
 
-    private class NoopIdentityStore : AndroidEngineMethodHandler.IdentityStore {
+    private class RecordingMaintenance : AndroidEngineMethodHandler.MaintenanceBridge {
+        var checkCount = 0
+        var lastManual: Boolean? = null
+        var clearCount = 0
+
+        override fun checkForUpdates(manual: Boolean): Map<String, Any?> {
+            checkCount += 1
+            lastManual = manual
+            return mapOf("manual" to manual, "available" to false)
+        }
+
+        override fun clearLocalState() {
+            clearCount += 1
+        }
+    }
+
+    private class RecordingIdentityStore : AndroidEngineMethodHandler.IdentityStore {
+        var putCount = 0
+        var clearAllCount = 0
+
         override fun put(
             profileId: String,
             record: SecureIdentityStore.Record,
             value: ByteArray,
-        ) = Unit
+        ) {
+            putCount += 1
+        }
 
         override fun get(
             profileId: String,
@@ -213,12 +491,15 @@ class AndroidEngineMethodHandlerTest {
 
         override fun deleteIdentity(profileId: String) = Unit
 
-        override fun clearAll() = Unit
+        override fun clearAll() {
+            clearAllCount += 1
+        }
     }
 
     private class RecordingEndpoint : VpnControlClient.ControlEndpoint {
         val whats = mutableListOf<Int>()
         var lastExtras: Map<String, Any?>? = null
+        val messages = mutableListOf<Pair<Int, Int>>()
 
         override fun send(
             what: Int,
@@ -226,6 +507,7 @@ class AndroidEngineMethodHandlerTest {
             extras: Map<String, Any?>?,
         ): Boolean {
             whats.add(what)
+            messages.add(what to requestId)
             lastExtras = extras
             return true
         }
