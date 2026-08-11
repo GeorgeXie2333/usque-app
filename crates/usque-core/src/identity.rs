@@ -5,7 +5,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use p256::PublicKey;
 use p256::SecretKey;
-use p256::elliptic_curve::rand_core::OsRng;
+use p256::elliptic_curve::Generate;
 use p256::pkcs8::{DecodePublicKey, EncodePublicKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -91,7 +91,7 @@ pub struct MasqueKeyPair {
 impl MasqueKeyPair {
     pub fn generate() -> Self {
         Self {
-            secret_key: SecretKey::random(&mut OsRng),
+            secret_key: SecretKey::generate(),
         }
     }
 
