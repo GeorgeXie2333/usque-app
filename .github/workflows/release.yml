@@ -337,7 +337,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "MSI signature verification failed." }
 
       - name: Attest Windows build provenance
-        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: ${{ runner.temp }}/windows-release/*.msi
 
@@ -395,7 +395,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Java
-        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
           java-version: "17"
@@ -494,7 +494,7 @@ jobs:
           test "$count" -eq 1
 
       - name: Attest Android build provenance
-        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: ${{ runner.temp }}/android-release/*.apk
 
@@ -604,13 +604,13 @@ jobs:
             --manifest "$RUNNER_TEMP/candidate/release-manifest.json"
 
       - name: Attest x64-v2 MSI SBOM
-        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: ${{ runner.temp }}/candidate/usque-v0.1.1-beta.2-windows-x64-v2.msi
           sbom-path: ${{ runner.temp }}/candidate/usque-v0.1.1-beta.2-windows-x64-v2.msi.spdx.json
 
       - name: Attest arm64-v8a APK SBOM
-        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: ${{ runner.temp }}/candidate/usque-v0.1.1-beta.2-android-arm64-v8a.apk
           sbom-path: ${{ runner.temp }}/candidate/usque-v0.1.1-beta.2-android-arm64-v8a.apk.spdx.json
