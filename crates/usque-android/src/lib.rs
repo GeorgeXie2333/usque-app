@@ -17,8 +17,12 @@ use std::{
 };
 
 use jni::{
-    JNIEnv, JavaVM,
-    objects::{GlobalRef, JByteArray, JClass, JObject, JObjectArray, JString, JValue},
+    Env, EnvUnowned, JValue, JavaVM,
+    errors::ThrowRuntimeExAndDefault,
+    jni_sig, jni_str,
+    objects::{JByteArray, JClass, JObject, JObjectArray, JString},
+    refs::Global,
+    strings::JNIString,
     sys::{JNI_FALSE, JNI_TRUE, jboolean, jbyteArray, jint, jlong, jstring},
 };
 use serde::{Deserialize, Serialize};
@@ -43,28 +47,74 @@ pub const START_PLATFORM_FAILURE: i32 = -6;
 pub const START_TRANSPORT_FAILURE: i32 = -7;
 pub const START_TUN_FAILURE: i32 = -8;
 
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeIsReady(
-    _environment: JNIEnv<'_>,
-    _class: JClass<'_>,
-) -> jboolean {
-    if engine_ready() { JNI_TRUE } else { JNI_FALSE }
+#[derive(Debug)]
+struct JniCode(jint);
+
+impl Default for JniCode {
+    fn default() -> Self {
+        Self(START_PLATFORM_FAILURE)
+    }
+}
+
+fn with_jni_env<'local, T, F>(environment: &mut EnvUnowned<'local>, operation: F) -> T
+where
+    T: Default + 'local,
+    F: FnOnce(&mut Env<'local>) -> T,
+{
+    environment
+        .with_env(|environment| -> jni::errors::Result<T> { Ok(operation(environment)) })
+        .resolve::<ThrowRuntimeExAndDefault>()
+}
+
+fn with_jni_code<'local, F>(environment: &mut EnvUnowned<'local>, operation: F) -> jint
+where
+    F: FnOnce(&mut Env<'local>) -> jint,
+{
+    with_jni_env(environment, |environment| JniCode(operation(environment))).0
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeStart(
-    mut environment: JNIEnv<'_>,
-    _class: JClass<'_>,
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeIsReady<'local>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
+) -> jboolean {
+    with_jni_env(&mut environment, |_| {
+        if engine_ready() { JNI_TRUE } else { JNI_FALSE }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeStart<'local>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
     tun_file_descriptor: jint,
-    profile_json: JString<'_>,
-    warp_secret: JByteArray<'_>,
-    vpn_service: JObject<'_>,
+    profile_json: JString<'local>,
+    warp_secret: JByteArray<'local>,
+    vpn_service: JObject<'local>,
+) -> jint {
+    with_jni_code(&mut environment, |environment| {
+        native_start(
+            environment,
+            tun_file_descriptor,
+            profile_json,
+            warp_secret,
+            vpn_service,
+        )
+    })
+}
+
+fn native_start<'local>(
+    environment: &mut Env<'local>,
+    tun_file_descriptor: jint,
+    profile_json: JString<'local>,
+    warp_secret: JByteArray<'local>,
+    vpn_service: JObject<'local>,
 ) -> jint {
     if tun_file_descriptor < 0 || !engine_ready() {
         return START_NOT_READY;
     }
-    let profile_json = match environment.get_string(&profile_json) {
-        Ok(value) => value.to_string_lossy().into_owned(),
+    let profile_json = match profile_json.try_to_string(environment) {
+        Ok(value) => value,
         Err(_) => return START_INVALID_PROFILE,
     };
     let secret = match environment.convert_byte_array(&warp_secret) {
@@ -84,7 +134,12 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeSta
         Err(_) => return START_PLATFORM_FAILURE,
     };
     let network_generation = environment
-        .call_method(&vpn_service, "getUnderlyingNetworkGeneration", "()J", &[])
+        .call_method(
+            &vpn_service,
+            jni_str!("getUnderlyingNetworkGeneration"),
+            jni_sig!("()J"),
+            &[],
+        )
         .and_then(|value| value.j())
         .unwrap_or_default()
         .max(0) as u64;
@@ -106,18 +161,29 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeSta
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeStartProxy(
-    mut environment: JNIEnv<'_>,
-    _class: JClass<'_>,
-    profile_json: JString<'_>,
-    warp_secret: JByteArray<'_>,
-    vpn_service: JObject<'_>,
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeStartProxy<'local>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    profile_json: JString<'local>,
+    warp_secret: JByteArray<'local>,
+    vpn_service: JObject<'local>,
+) -> jint {
+    with_jni_code(&mut environment, |environment| {
+        native_start_proxy(environment, profile_json, warp_secret, vpn_service)
+    })
+}
+
+fn native_start_proxy<'local>(
+    environment: &mut Env<'local>,
+    profile_json: JString<'local>,
+    warp_secret: JByteArray<'local>,
+    vpn_service: JObject<'local>,
 ) -> jint {
     if !engine_ready() {
         return START_NOT_READY;
     }
-    let profile_json = match environment.get_string(&profile_json) {
-        Ok(value) => value.to_string_lossy().into_owned(),
+    let profile_json = match profile_json.try_to_string(environment) {
+        Ok(value) => value,
         Err(_) => return START_INVALID_PROFILE,
     };
     let secret = match environment.convert_byte_array(&warp_secret) {
@@ -144,7 +210,12 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeSta
         Err(_) => return START_PLATFORM_FAILURE,
     };
     let network_generation = environment
-        .call_method(&vpn_service, "getUnderlyingNetworkGeneration", "()J", &[])
+        .call_method(
+            &vpn_service,
+            jni_str!("getUnderlyingNetworkGeneration"),
+            jni_sig!("()J"),
+            &[],
+        )
         .and_then(|value| value.j())
         .unwrap_or_default()
         .max(0) as u64;
@@ -165,38 +236,50 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeSta
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCancel(
-    _environment: JNIEnv<'_>,
-    _class: JClass<'_>,
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCancel<'local>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
 ) {
-    cancel_engine();
+    with_jni_env(&mut environment, |_| cancel_engine());
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeStop(
-    _environment: JNIEnv<'_>,
-    _class: JClass<'_>,
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeStop<'local>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
 ) {
-    stop_engine();
+    with_jni_env(&mut environment, |_| stop_engine());
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeNotifyNetworkChanged(
-    _environment: JNIEnv<'_>,
-    _class: JClass<'_>,
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeNotifyNetworkChanged<
+    'local,
+>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
     generation: jlong,
 ) {
-    if generation >= 0 {
-        notify_network_changed(generation as u64);
-    }
+    with_jni_env(&mut environment, |_| {
+        if generation >= 0 {
+            notify_network_changed(generation as u64);
+        }
+    });
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeValidateWarpSecret(
-    environment: JNIEnv<'_>,
-    _class: JClass<'_>,
-    secret: JByteArray<'_>,
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeValidateWarpSecret<
+    'local,
+>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    secret: JByteArray<'local>,
 ) -> jint {
+    with_jni_code(&mut environment, |environment| {
+        native_validate_warp_secret(environment, secret)
+    })
+}
+
+fn native_validate_warp_secret(environment: &mut Env<'_>, secret: JByteArray<'_>) -> jint {
     let bytes = match environment.convert_byte_array(&secret) {
         Ok(bytes) => Zeroizing::new(bytes),
         Err(_) => return INVALID_WARP_SECRET,
@@ -205,11 +288,19 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeVal
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeInspectWarpSecret(
-    mut environment: JNIEnv<'_>,
-    _class: JClass<'_>,
-    secret: JByteArray<'_>,
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeInspectWarpSecret<
+    'local,
+>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    secret: JByteArray<'local>,
 ) -> jstring {
+    with_jni_env(&mut environment, |environment| {
+        native_inspect_warp_secret(environment, secret)
+    })
+}
+
+fn native_inspect_warp_secret(environment: &mut Env<'_>, secret: JByteArray<'_>) -> jstring {
     let bytes = match environment.convert_byte_array(&secret) {
         Ok(bytes) => Zeroizing::new(bytes),
         Err(_) => return std::ptr::null_mut(),
@@ -217,7 +308,8 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeIns
     let metadata = match identity_metadata(&bytes) {
         Ok(metadata) => metadata,
         Err(error) => {
-            let _ = environment.throw_new("java/lang/IllegalArgumentException", error);
+            let error = JNIString::from(error);
+            let _ = environment.throw_new(jni_str!("java/lang/IllegalArgumentException"), &error);
             return std::ptr::null_mut();
         }
     };
@@ -232,10 +324,14 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeIns
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeSnapshot(
-    environment: JNIEnv<'_>,
-    _class: JClass<'_>,
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeSnapshot<'local>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
 ) -> jstring {
+    with_jni_env(&mut environment, native_snapshot)
+}
+
+fn native_snapshot(environment: &mut Env<'_>) -> jstring {
     let json = serde_json::to_string(&engine_snapshot()).unwrap_or_else(|_| {
         r#"{"phase":"error","warning":"Native status serialization failed."}"#.to_owned()
     });
@@ -246,146 +342,192 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeSna
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeRegisterConsumerWarp(
-    mut environment: JNIEnv<'_>,
-    _class: JClass<'_>,
-    locale: JString<'_>,
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeRegisterConsumerWarp<
+    'local,
+>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    locale: JString<'local>,
 ) -> jbyteArray {
-    let locale = match environment.get_string(&locale) {
-        Ok(locale) => locale.to_string_lossy().into_owned(),
+    with_jni_env(&mut environment, |environment| {
+        native_register_consumer_warp(environment, locale)
+    })
+}
+
+fn native_register_consumer_warp(environment: &mut Env<'_>, locale: JString<'_>) -> jbyteArray {
+    let locale = match locale.try_to_string(environment) {
+        Ok(locale) => locale,
         Err(error) => {
-            throw_io_error(&mut environment, &error.to_string());
+            throw_io_error(environment, &error.to_string());
             return std::ptr::null_mut();
         }
     };
     let secret = match register_consumer_warp(&locale) {
         Ok(secret) => secret,
         Err(error) => {
-            throw_io_error(&mut environment, &error);
+            throw_io_error(environment, &error);
             return std::ptr::null_mut();
         }
     };
     match environment.byte_array_from_slice(secret.as_bytes()) {
         Ok(output) => output.into_raw(),
         Err(error) => {
-            throw_io_error(&mut environment, &error.to_string());
+            throw_io_error(environment, &error.to_string());
             std::ptr::null_mut()
         }
     }
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeRegisterConsumerWarpWithLicense(
-    mut environment: JNIEnv<'_>,
-    _class: JClass<'_>,
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeRegisterConsumerWarpWithLicense<
+    'local,
+>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    locale: JString<'local>,
+    license_key: JString<'local>,
+) -> jbyteArray {
+    with_jni_env(&mut environment, |environment| {
+        native_register_consumer_warp_with_license(environment, locale, license_key)
+    })
+}
+
+fn native_register_consumer_warp_with_license(
+    environment: &mut Env<'_>,
     locale: JString<'_>,
     license_key: JString<'_>,
 ) -> jbyteArray {
-    let locale = match environment.get_string(&locale) {
-        Ok(locale) => locale.to_string_lossy().into_owned(),
+    let locale = match locale.try_to_string(environment) {
+        Ok(locale) => locale,
         Err(error) => {
-            throw_io_error(&mut environment, &error.to_string());
+            throw_io_error(environment, &error.to_string());
             return std::ptr::null_mut();
         }
     };
-    let license_key = match environment.get_string(&license_key) {
-        Ok(value) => Zeroizing::new(value.to_string_lossy().into_owned()),
+    let license_key = match license_key.try_to_string(environment) {
+        Ok(value) => Zeroizing::new(value),
         Err(error) => {
-            throw_io_error(&mut environment, &error.to_string());
+            throw_io_error(environment, &error.to_string());
             return std::ptr::null_mut();
         }
     };
     let secret = match register_consumer_warp_with_license(&locale, license_key.as_str()) {
         Ok(secret) => secret,
         Err(error) => {
-            throw_io_error(&mut environment, &error);
+            throw_io_error(environment, &error);
             return std::ptr::null_mut();
         }
     };
     match environment.byte_array_from_slice(secret.as_bytes()) {
         Ok(output) => output.into_raw(),
         Err(error) => {
-            throw_io_error(&mut environment, &error.to_string());
+            throw_io_error(environment, &error.to_string());
             std::ptr::null_mut()
         }
     }
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeUnbindConsumerWarp(
-    mut environment: JNIEnv<'_>,
-    _class: JClass<'_>,
-    warp_secret: JByteArray<'_>,
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeUnbindConsumerWarp<
+    'local,
+>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    warp_secret: JByteArray<'local>,
 ) -> jint {
+    with_jni_code(&mut environment, |environment| {
+        native_unbind_consumer_warp(environment, warp_secret)
+    })
+}
+
+fn native_unbind_consumer_warp(environment: &mut Env<'_>, warp_secret: JByteArray<'_>) -> jint {
     let secret = match environment.convert_byte_array(&warp_secret) {
         Ok(value) => Zeroizing::new(value),
         Err(error) => {
-            throw_io_error(&mut environment, &error.to_string());
+            throw_io_error(environment, &error.to_string());
             return INVALID_WARP_SECRET;
         }
     };
     match unbind_consumer_warp(&secret) {
         Ok(()) => START_OK,
         Err(error) => {
-            throw_io_error(&mut environment, &error);
+            throw_io_error(environment, &error);
             START_PLATFORM_FAILURE
         }
     }
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCheckForUpdates(
-    mut environment: JNIEnv<'_>,
-    _class: JClass<'_>,
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCheckForUpdates<
+    'local,
+>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
 ) -> jstring {
+    with_jni_env(&mut environment, native_check_for_updates)
+}
+
+fn native_check_for_updates(environment: &mut Env<'_>) -> jstring {
     let result = match check_for_updates() {
         Ok(result) => result,
         Err(error) => {
-            throw_io_error(&mut environment, &error);
+            throw_io_error(environment, &error);
             return std::ptr::null_mut();
         }
     };
     match environment.new_string(result) {
         Ok(output) => output.into_raw(),
         Err(error) => {
-            throw_io_error(&mut environment, &error.to_string());
+            throw_io_error(environment, &error.to_string());
             std::ptr::null_mut()
         }
     }
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeApplyProfileCommand(
-    mut environment: JNIEnv<'_>,
-    _class: JClass<'_>,
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeApplyProfileCommand<
+    'local,
+>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    config_path: JString<'local>,
+    request_json: JString<'local>,
+) -> jstring {
+    with_jni_env(&mut environment, |environment| {
+        native_apply_profile_command(environment, config_path, request_json)
+    })
+}
+
+fn native_apply_profile_command(
+    environment: &mut Env<'_>,
     config_path: JString<'_>,
     request_json: JString<'_>,
 ) -> jstring {
-    let config_path = match environment.get_string(&config_path) {
-        Ok(value) => value.to_string_lossy().into_owned(),
+    let config_path = match config_path.try_to_string(environment) {
+        Ok(value) => value,
         Err(error) => {
-            throw_io_error(&mut environment, &error.to_string());
+            throw_io_error(environment, &error.to_string());
             return std::ptr::null_mut();
         }
     };
-    let request_json = match environment.get_string(&request_json) {
-        Ok(value) => value.to_string_lossy().into_owned(),
+    let request_json = match request_json.try_to_string(environment) {
+        Ok(value) => value,
         Err(error) => {
-            throw_io_error(&mut environment, &error.to_string());
+            throw_io_error(environment, &error.to_string());
             return std::ptr::null_mut();
         }
     };
     let result = match apply_profile_command(&config_path, &request_json) {
         Ok(result) => result,
         Err(error) => {
-            throw_io_error(&mut environment, &error);
+            throw_io_error(environment, &error);
             return std::ptr::null_mut();
         }
     };
     match environment.new_string(result) {
         Ok(output) => output.into_raw(),
         Err(error) => {
-            throw_io_error(&mut environment, &error.to_string());
+            throw_io_error(environment, &error.to_string());
             std::ptr::null_mut()
         }
     }
@@ -904,7 +1046,7 @@ fn listener_for_family(listeners: &[SocketAddr], ipv4: bool) -> SocketAddr {
 
 struct AndroidSocketProtector {
     java_vm: JavaVM,
-    service: GlobalRef,
+    service: Global<JObject<'static>>,
     policy: AndroidSocketRoutePolicy,
     network_generation: AtomicU64,
 }
@@ -931,36 +1073,43 @@ impl SocketProtector for AndroidSocketProtector {
     fn protect(&self, socket: SocketHandle) -> Result<(), String> {
         let descriptor = jint::try_from(socket.value())
             .map_err(|_| "endpoint socket descriptor is out of range".to_owned())?;
-        let mut environment = self
+        let (protected, network) = self
             .java_vm
-            .attach_current_thread()
+            .attach_current_thread(|environment| -> jni::errors::Result<_> {
+                let protected = if self.policy.requires_vpn_protection() {
+                    environment
+                        .call_method(
+                            &self.service,
+                            jni_str!("protect"),
+                            jni_sig!("(I)Z"),
+                            &[JValue::Int(descriptor)],
+                        )
+                        .and_then(|value| value.z())?
+                } else {
+                    true
+                };
+
+                #[cfg(target_os = "android")]
+                let network = environment
+                    .call_method(
+                        &self.service,
+                        jni_str!("getUnderlyingNetworkHandle"),
+                        jni_sig!("()J"),
+                        &[],
+                    )
+                    .and_then(|value| value.j())?;
+                #[cfg(not(target_os = "android"))]
+                let network = 0;
+
+                Ok((protected, network))
+            })
             .map_err(|error| format!("attach VpnService protector thread: {error}"))?;
-        if self.policy.requires_vpn_protection() {
-            let protected = environment
-                .call_method(
-                    self.service.as_obj(),
-                    "protect",
-                    "(I)Z",
-                    &[JValue::Int(descriptor)],
-                )
-                .and_then(|value| value.z())
-                .map_err(|error| format!("VpnService.protect failed: {error}"))?;
-            if !protected {
-                return Err("VpnService.protect rejected the endpoint socket".to_owned());
-            }
+        if !protected {
+            return Err("VpnService.protect rejected the endpoint socket".to_owned());
         }
 
         #[cfg(target_os = "android")]
         {
-            let network = environment
-                .call_method(
-                    self.service.as_obj(),
-                    "getUnderlyingNetworkHandle",
-                    "()J",
-                    &[],
-                )
-                .and_then(|value| value.j())
-                .map_err(|error| format!("read Android underlying network: {error}"))?;
             if network <= 0 {
                 return Err("Android has no selected non-VPN physical network".to_owned());
             }
@@ -975,14 +1124,24 @@ impl SocketProtector for AndroidSocketProtector {
                 ));
             }
         }
+        #[cfg(not(target_os = "android"))]
+        let _ = network;
         Ok(())
     }
 
     fn endpoint_family_available(&self, endpoint: SocketAddr) -> Option<bool> {
-        let mut environment = self.java_vm.attach_current_thread().ok()?;
-        let mask = environment
-            .call_method(self.service.as_obj(), "getUnderlyingFamilyMask", "()I", &[])
-            .and_then(|value| value.i())
+        let mask = self
+            .java_vm
+            .attach_current_thread(|environment| -> jni::errors::Result<_> {
+                environment
+                    .call_method(
+                        &self.service,
+                        jni_str!("getUnderlyingFamilyMask"),
+                        jni_sig!("()I"),
+                        &[],
+                    )
+                    .and_then(|value| value.i())
+            })
             .ok()?;
         if mask == 0 {
             return None;
@@ -999,37 +1158,32 @@ impl SocketProtector for AndroidSocketProtector {
     }
 
     fn resolve(&self, host: &str, port: u16) -> Result<Vec<SocketAddr>, String> {
-        let mut environment = self
+        let resolved = self
             .java_vm
-            .attach_current_thread()
-            .map_err(|error| format!("attach Android resolver thread: {error}"))?;
-        let host = environment
-            .new_string(host)
-            .map_err(|error| format!("create Android resolver host: {error}"))?;
-        let host_object = JObject::from(host);
-        let resolved = environment
-            .call_method(
-                self.service.as_obj(),
-                "resolveUnderlyingHost",
-                "(Ljava/lang/String;)[Ljava/lang/String;",
-                &[JValue::Object(&host_object)],
-            )
-            .and_then(|value| value.l())
+            .attach_current_thread(|environment| -> jni::errors::Result<Vec<String>> {
+                let host = environment.new_string(host)?;
+                let host_object = JObject::from(host);
+                let resolved = environment
+                    .call_method(
+                        &self.service,
+                        jni_str!("resolveUnderlyingHost"),
+                        jni_sig!("(Ljava/lang/String;)[Ljava/lang/String;"),
+                        &[JValue::Object(&host_object)],
+                    )?
+                    .l()?;
+                let resolved =
+                    environment.cast_local::<JObjectArray<JString<'static>>>(resolved)?;
+                let length = resolved.len(environment)?;
+                let mut values = Vec::with_capacity(length);
+                for index in 0..length {
+                    let value = resolved.get_element(environment, index)?;
+                    values.push(value.try_to_string(environment)?);
+                }
+                Ok(values)
+            })
             .map_err(|error| format!("resolve on Android underlying network: {error}"))?;
-        let resolved = JObjectArray::from(resolved);
-        let length = environment
-            .get_array_length(&resolved)
-            .map_err(|error| format!("read Android resolver result: {error}"))?;
-        let mut addresses = Vec::with_capacity(length as usize);
-        for index in 0..length {
-            let value = environment
-                .get_object_array_element(&resolved, index)
-                .map_err(|error| format!("read Android resolver address: {error}"))?;
-            let value = JString::from(value);
-            let value = environment
-                .get_string(&value)
-                .map_err(|error| format!("decode Android resolver address: {error}"))?;
-            let value = value.to_string_lossy();
+        let mut addresses = Vec::with_capacity(resolved.len());
+        for value in resolved {
             if let Ok(ip) = value
                 .split('%')
                 .next()
@@ -1065,30 +1219,26 @@ impl AndroidEndpointPinRefresher {
         let portable = identity
             .to_portable_secret_json()
             .map_err(|error| TransportError::EndpointPinRefresh(error.to_string()))?;
-        let mut environment = self
+        let persisted = self
             .protector
             .java_vm
-            .attach_current_thread()
-            .map_err(|error| TransportError::EndpointPinRefresh(error.to_string()))?;
-        let profile_id = environment
-            .new_string(&self.profile_id)
-            .map_err(|error| TransportError::EndpointPinRefresh(error.to_string()))?;
-        let secret = environment
-            .byte_array_from_slice(portable.as_bytes())
-            .map_err(|error| TransportError::EndpointPinRefresh(error.to_string()))?;
-        let profile_object = JObject::from(profile_id);
-        let secret_object = JObject::from(secret);
-        let persisted = environment
-            .call_method(
-                self.protector.service.as_obj(),
-                "persistRefreshedWarpIdentity",
-                "(Ljava/lang/String;[B)Z",
-                &[
-                    JValue::Object(&profile_object),
-                    JValue::Object(&secret_object),
-                ],
-            )
-            .and_then(|value| value.z())
+            .attach_current_thread(|environment| -> jni::errors::Result<_> {
+                let profile_id = environment.new_string(&self.profile_id)?;
+                let secret = environment.byte_array_from_slice(portable.as_bytes())?;
+                let profile_object = JObject::from(profile_id);
+                let secret_object = JObject::from(secret);
+                environment
+                    .call_method(
+                        &self.protector.service,
+                        jni_str!("persistRefreshedWarpIdentity"),
+                        jni_sig!("(Ljava/lang/String;[B)Z"),
+                        &[
+                            JValue::Object(&profile_object),
+                            JValue::Object(&secret_object),
+                        ],
+                    )
+                    .and_then(|value| value.z())
+            })
             .map_err(|error| TransportError::EndpointPinRefresh(error.to_string()))?;
         if persisted {
             Ok(())
@@ -2019,14 +2169,20 @@ fn check_for_updates() -> Result<String, String> {
     serde_json::to_string(&result).map_err(|error| error.to_string())
 }
 
-fn throw_io_error(environment: &mut JNIEnv<'_>, message: &str) {
+fn throw_io_error(environment: &mut Env<'_>, message: &str) {
     let message: String = message.chars().take(512).collect();
-    let _ = environment.throw_new("java/io/IOException", message);
+    let message = JNIString::from(message);
+    let _ = environment.throw_new(jni_str!("java/io/IOException"), &message);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn jni_boundary_failure_default_never_reports_success() {
+        assert_eq!(JniCode::default().0, START_PLATFORM_FAILURE);
+    }
 
     #[test]
     fn proxy_socket_routing_does_not_require_vpn_permission() {
