@@ -31,21 +31,43 @@ abstract interface class EngineClient {
 
   Future<void> setActiveProfile(String profileId);
 
-  Future<void> provisionIdentity(UsqueProfile profile, {String? warpSecret});
+  Future<void> provisionIdentity(
+    UsqueProfile profile, {
+    required IdentityProvisioningMethod method,
+    String? licenseKey,
+  });
 
   Future<ProfileCatalog> createProfileWithIdentity(
     UsqueProfile profile, {
     required IdentityProvisioningMethod method,
-    String? warpSecret,
+    String? licenseKey,
   });
+
+  Future<void> reconfigureActiveProfile(UsqueProfile profile);
+
+  Future<void> copyLicenseKey(String profileId);
+
+  Future<void> updateLicenseKey(String profileId, String licenseKey);
+
+  Future<void> unbindLicenseKey(String profileId);
+
+  Future<String?> exportWarpSecret(String profileId);
+
+  Future<String?> consumeLaunchTarget();
+
+  Future<PlatformPreferences> platformPreferences();
+
+  Future<void> setStartOnBoot(bool enabled);
+
+  Future<void> setCloseToTray(bool enabled);
+
+  Future<void> requestAddQuickSettingsTile();
 
   Future<EngineSnapshot> connect(UsqueProfile profile);
 
   Future<EngineSnapshot> disconnect();
 
   Future<EngineSnapshot> snapshot();
-
-  Future<EngineSnapshot> pauseCaptivePortal({int seconds = 600});
 
   Future<String?> exportDiagnostics();
 
@@ -95,7 +117,7 @@ class MethodChannelEngineClient implements EngineClient {
     final map = result ?? const <Object?, Object?>{};
     final decodedProfiles =
         (map['profiles'] as List?)
-            ?.whereType<Map>()
+            ?.whereType<Map<Object?, Object?>>()
             .map(
               (profile) =>
                   UsqueProfile.fromMap(Map<String, Object?>.from(profile)),
@@ -113,8 +135,30 @@ class MethodChannelEngineClient implements EngineClient {
       profiles: decodedProfiles,
       activeProfileId: active,
       identityStates: _identityStatesFromMap(map),
+      identityStatuses: _identityStatusesFromMap(map),
     );
   }
+
+  @override
+  Future<String?> consumeLaunchTarget() =>
+      _invoke<String>('consumeLaunchTarget');
+
+  @override
+  Future<PlatformPreferences> platformPreferences() async {
+    final value = await _invoke<Map<Object?, Object?>>('platformPreferences');
+    return PlatformPreferences.fromMap(value ?? const <Object?, Object?>{});
+  }
+
+  @override
+  Future<void> setStartOnBoot(bool enabled) =>
+      _invoke<void>('setStartOnBoot', <String, Object>{'enabled': enabled});
+
+  @override
+  Future<void> setCloseToTray(bool enabled) async {}
+
+  @override
+  Future<void> requestAddQuickSettingsTile() =>
+      _invoke<void>('requestAddQuickSettingsTile');
 
   @override
   Future<void> upsertProfile(UsqueProfile profile) =>
@@ -133,11 +177,13 @@ class MethodChannelEngineClient implements EngineClient {
   @override
   Future<void> provisionIdentity(
     UsqueProfile profile, {
-    String? warpSecret,
+    required IdentityProvisioningMethod method,
+    String? licenseKey,
   }) async {
     await _invoke<void>('provisionIdentity', <String, Object?>{
       'profile_id': profile.id,
-      'warp_secret': warpSecret,
+      'method': method.name,
+      'license_key': licenseKey,
       'terms_accepted': true,
       'locale': PlatformDispatcher.instance.locale.toLanguageTag(),
     });
@@ -147,14 +193,14 @@ class MethodChannelEngineClient implements EngineClient {
   Future<ProfileCatalog> createProfileWithIdentity(
     UsqueProfile profile, {
     required IdentityProvisioningMethod method,
-    String? warpSecret,
+    String? licenseKey,
   }) async {
     final result = await _invoke<Map<Object?, Object?>>(
       'createProfileWithIdentity',
       <String, Object?>{
         'profile': profile.toMap(),
         'method': method.name,
-        'warp_secret': warpSecret,
+        'license_key': licenseKey,
         'terms_accepted': true,
         'locale': PlatformDispatcher.instance.locale.toLanguageTag(),
       },
@@ -162,7 +208,7 @@ class MethodChannelEngineClient implements EngineClient {
     final map = result ?? const <Object?, Object?>{};
     final profiles =
         (map['profiles'] as List?)
-            ?.whereType<Map>()
+            ?.whereType<Map<Object?, Object?>>()
             .map(
               (value) => UsqueProfile.fromMap(Map<String, Object?>.from(value)),
             )
@@ -179,8 +225,45 @@ class MethodChannelEngineClient implements EngineClient {
       profiles: profiles,
       activeProfileId: active,
       identityStates: _identityStatesFromMap(map),
+      identityStatuses: _identityStatusesFromMap(map),
     );
   }
+
+  @override
+  Future<void> reconfigureActiveProfile(UsqueProfile profile) async {
+    // The Android service does not yet expose in-place listener mutation.
+    // Persist first, then perform one explicit stop/start transaction so an
+    // output toggle can never appear applied while the old runtime remains
+    // active. Desktop uses its separate protobuf client and rollback path.
+    await _invoke<void>('reconfigureActiveProfile', profile.toMap());
+    await disconnect();
+    await connect(profile);
+  }
+
+  @override
+  Future<void> copyLicenseKey(String profileId) => _invoke<void>(
+    'copyLicenseKey',
+    <String, Object>{'profile_id': profileId},
+  );
+
+  @override
+  Future<void> updateLicenseKey(String profileId, String licenseKey) =>
+      _invoke<void>('updateLicenseKey', <String, Object>{
+        'profile_id': profileId,
+        'license_key': licenseKey,
+      });
+
+  @override
+  Future<void> unbindLicenseKey(String profileId) => _invoke<void>(
+    'unbindLicenseKey',
+    <String, Object>{'profile_id': profileId},
+  );
+
+  @override
+  Future<String?> exportWarpSecret(String profileId) => _invoke<String>(
+    'exportWarpSecret',
+    <String, Object>{'profile_id': profileId},
+  );
 
   @override
   Future<EngineSnapshot> connect(UsqueProfile profile) async {
@@ -200,15 +283,6 @@ class MethodChannelEngineClient implements EngineClient {
   @override
   Future<EngineSnapshot> snapshot() async {
     final result = await _invoke<Map<Object?, Object?>>('snapshot');
-    return EngineSnapshot.fromMap(result ?? const <Object?, Object?>{});
-  }
-
-  @override
-  Future<EngineSnapshot> pauseCaptivePortal({int seconds = 600}) async {
-    final result = await _invoke<Map<Object?, Object?>>(
-      'pauseCaptivePortal',
-      <String, Object>{'seconds': seconds},
-    );
     return EngineSnapshot.fromMap(result ?? const <Object?, Object?>{});
   }
 
@@ -263,4 +337,32 @@ Map<String, ProfileIdentityState> _identityStatesFromMap(
     );
   }
   return Map<String, ProfileIdentityState>.unmodifiable(states);
+}
+
+Map<String, ProfileIdentityStatus> _identityStatusesFromMap(
+  Map<Object?, Object?> map,
+) {
+  final statuses = <String, ProfileIdentityStatus>{};
+  for (final value in (map['identity_statuses'] as List?) ?? const <Object>[]) {
+    if (value is! Map) continue;
+    final id = value['profile_id'];
+    final rawState = value['state'];
+    if (id is! String || rawState is! String) continue;
+    final state = ProfileIdentityState.values.firstWhere(
+      (item) => item.name == rawState,
+      orElse: () => ProfileIdentityState.invalid,
+    );
+    final rawLicense = value['license_state'];
+    final licenseState = LicenseState.values.firstWhere(
+      (item) => item.name == rawLicense,
+      orElse: () => LicenseState.unknown,
+    );
+    statuses[id] = ProfileIdentityStatus(
+      state: state,
+      licenseState: licenseState,
+      accountType: value['account_type'] as String? ?? '',
+      cleanupPending: value['cleanup_pending'] as bool? ?? false,
+    );
+  }
+  return Map<String, ProfileIdentityStatus>.unmodifiable(statuses);
 }

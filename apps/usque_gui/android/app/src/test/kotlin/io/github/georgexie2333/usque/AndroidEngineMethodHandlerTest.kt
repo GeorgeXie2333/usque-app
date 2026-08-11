@@ -77,22 +77,6 @@ class AndroidEngineMethodHandlerTest {
     }
 
     @Test
-    fun dispatchesPauseCaptivePortal() {
-        val result = RecordingResult()
-        handler.handle(MethodCall("pauseCaptivePortal", mapOf("seconds" to 120)), result)
-        assertEquals(listOf(UsqueVpnService.MSG_PAUSE_CAPTIVE_PORTAL), endpoint.whats)
-        assertEquals(120, endpoint.lastExtras?.get("seconds"))
-    }
-
-    @Test
-    fun rejectsInvalidPauseCaptivePortalRange() {
-        val result = RecordingResult()
-        handler.handle(MethodCall("pauseCaptivePortal", mapOf("seconds" to 0)), result)
-        assertEquals("INVALID_ARGUMENT", result.errorCode)
-        assertTrue(endpoint.whats.isEmpty())
-    }
-
-    @Test
     fun clearAllDataRequiresConfirmation() {
         val result = RecordingResult()
         handler.handle(MethodCall("clearAllData", mapOf("confirmed" to false)), result)
@@ -143,6 +127,12 @@ class AndroidEngineMethodHandlerTest {
                 "connect",
                 mapOf(
                     "mode" to "httpProxy",
+                    "frontends" to
+                        mapOf(
+                            "tunnel" to false,
+                            "socks5" to false,
+                            "http" to true,
+                        ),
                     "id" to "p1",
                     "optional" to null,
                 ),
@@ -150,7 +140,7 @@ class AndroidEngineMethodHandlerTest {
             ok,
         )
         val json = activityCommands.lastProfileJson!!
-        assertTrue(json.contains("\"mode\":\"httpProxy\""))
+        assertTrue(json.contains("\"mode\":\"socks5\""))
         assertFalse(json.contains("\"optional\""))
         assertFalse(json.contains(":null"))
     }
@@ -514,6 +504,28 @@ class AndroidEngineMethodHandlerTest {
             diagnosticsCount += 1
             result.success(null)
         }
+
+        override fun selectWarpSecretDestination(
+            profileId: String,
+            result: MethodChannel.Result,
+        ) {
+            result.success(null)
+        }
+
+        override fun copySensitiveText(
+            label: String,
+            value: String,
+        ) = Unit
+
+        override fun consumeLaunchTarget(): String? = null
+
+        override fun platformPreferences(): Map<String, Any?> = mapOf("start_on_boot" to false, "close_to_tray" to true)
+
+        override fun setStartOnBoot(enabled: Boolean) = Unit
+
+        override fun requestAddQuickSettingsTile(result: MethodChannel.Result) {
+            result.success(null)
+        }
     }
 
     private class FakeEngineBridge : AndroidEngineMethodHandler.EngineBridge {
@@ -534,6 +546,13 @@ class AndroidEngineMethodHandlerTest {
         }
 
         override fun registerConsumerWarp(locale: String): ByteArray? = byteArrayOf(1, 2, 3)
+
+        override fun registerConsumerWarpWithLicense(
+            locale: String,
+            licenseKey: String,
+        ): ByteArray? = byteArrayOf(4, 5, 6)
+
+        override fun unbindConsumerWarp(warpSecret: ByteArray): Boolean = true
 
         override fun validateWarpSecret(secret: ByteArray): Int = 0
     }
@@ -571,6 +590,11 @@ class AndroidEngineMethodHandlerTest {
             record: SecureIdentityStore.Record,
         ): ByteArray? = null
 
+        override fun delete(
+            profileId: String,
+            record: SecureIdentityStore.Record,
+        ) = Unit
+
         override fun deleteIdentity(profileId: String) = Unit
 
         override fun clearAll() {
@@ -594,6 +618,11 @@ class AndroidEngineMethodHandlerTest {
             profileId: String,
             record: SecureIdentityStore.Record,
         ): ByteArray? = null
+
+        override fun delete(
+            profileId: String,
+            record: SecureIdentityStore.Record,
+        ) = Unit
 
         override fun deleteIdentity(profileId: String) = Unit
 

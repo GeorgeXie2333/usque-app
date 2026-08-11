@@ -181,7 +181,10 @@ function Assert-OfficialWintun {
 
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $sourcePath = Join-Path $repositoryRoot "packaging\windows\Usque.wxs"
+$uiSourcePath = Join-Path $repositoryRoot "packaging\windows\UsqueUI.wxs"
+$licensePath = Join-Path $repositoryRoot "packaging\windows\LICENSE.rtf"
 $iconPath = Join-Path $repositoryRoot "assets\branding\usque-app-icon.ico"
+$uiExtension = "WixToolset.UI.wixext/5.0.2"
 $appRoot = Resolve-ExistingDirectory -Path $AppDirectory -Description "Application payload"
 
 $requiredFiles = @("usque.exe", "usque-engine.exe", "usque-agent.exe", "wintun.dll")
@@ -209,6 +212,12 @@ Assert-ReleaseSignature `
 if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
     throw "WiX authoring is missing: $sourcePath"
 }
+if (-not (Test-Path -LiteralPath $uiSourcePath -PathType Leaf)) {
+    throw "WiX UI authoring is missing: $uiSourcePath"
+}
+if (-not (Test-Path -LiteralPath $licensePath -PathType Leaf)) {
+    throw "Installer license is missing: $licensePath"
+}
 if (-not (Test-Path -LiteralPath $iconPath -PathType Leaf)) {
     throw "Installer icon is missing: $iconPath"
 }
@@ -228,20 +237,28 @@ try {
         throw "dotnet tool restore failed with exit code $LASTEXITCODE."
     }
 
+    & dotnet tool run wix -- extension add $uiExtension
+    if ($LASTEXITCODE -ne 0) {
+        throw "WiX UI extension restore failed with exit code $LASTEXITCODE."
+    }
+
     $architecture = if ($Variant -eq "arm64") { "arm64" } else { "x64" }
     & dotnet tool run wix -- build `
         -arch $architecture `
+        -ext $uiExtension `
         -bindpath "app=$appRoot" `
         -define "DisplayVersion=$displayVersion" `
         -define "MsiVersion=$msiVersion" `
         -define "Variant=$Variant" `
         -define "SignerSha256=$normalizedSigner" `
         -define "IconPath=$iconPath" `
+        -define "LicensePath=$licensePath" `
         -defaultcompressionlevel high `
         -intermediateFolder $intermediatePath `
         -pdbtype none `
         -out $outputPath `
-        $sourcePath
+        $sourcePath `
+        $uiSourcePath
     if ($LASTEXITCODE -ne 0) {
         throw "WiX build failed with exit code $LASTEXITCODE."
     }
@@ -265,7 +282,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # ICE61 rejects the deliberately enabled equal-version major upgrade used to
-# replace x64-v1/x64-v2 variants. Every other standard ICE remains enabled.
+# replace the same validation product. Every other standard ICE remains enabled.
 & dotnet tool run wix -- msi validate -sice ICE61 $outputPath
 if ($LASTEXITCODE -ne 0) {
     throw "MSI ICE validation failed with exit code $LASTEXITCODE."

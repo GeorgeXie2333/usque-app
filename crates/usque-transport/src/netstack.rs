@@ -10,8 +10,12 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, sleep, timeout};
 use tokio_util::sync::CancellationToken;
-use ts_netstack_smoltcp::netcore::{Channel, Config, HasChannel, NetstackControl};
-use ts_netstack_smoltcp::{WakingPipe, WakingPipeReceiver, WakingPipeSender, piped};
+use ts_netstack_smoltcp::netcore::{
+    Channel, Config, HasChannel, NetstackControl, TcpBufferMetrics, TcpBufferPolicy, TcpBufferTier,
+};
+use ts_netstack_smoltcp::{
+    Netstack, WakingPipe, WakingPipeDev, WakingPipeReceiver, WakingPipeSender,
+};
 use usque_core::{AddressFamily, IpPolicy, Profile, Transport, TransportPolicy};
 use usque_protocol::{IpAddressRange, IpPrefix, PeerNetworkState};
 
@@ -28,6 +32,11 @@ const STABLE_CONNECTION_RESET: Duration = Duration::from_secs(60);
 const H3_PROBE_INTERVAL: Duration = Duration::from_secs(10 * 60);
 const H3_PROBE_JITTER_PERCENT: u64 = 20;
 const RAW_PACKET_CHANNEL_CAPACITY: usize = 1_024;
+const PROXY_PACKET_PIPE_CAPACITY: usize = 1_024;
+const PREFERRED_TCP_RECEIVE_BUFFER: usize = 4 * 1024 * 1024;
+const PREFERRED_TCP_TRANSMIT_BUFFER: usize = 1024 * 1024;
+const FALLBACK_TCP_RECEIVE_BUFFER: usize = 1024 * 1024;
+const FALLBACK_TCP_TRANSMIT_BUFFER: usize = 256 * 1024;
 const RECONNECT_DELAYS: [Duration; 6] = [
     Duration::from_secs(1),
     Duration::from_secs(2),
@@ -40,7 +49,9 @@ const RECONNECT_DELAYS: [Duration; 6] = [
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimePath {
     pub transport: Transport,
+    /// Physical address family of the one active MASQUE connection.
     pub endpoint_family: AddressFamily,
+    /// CONNECT-IP payload families, independent from `endpoint_family`.
     pub ipv4_available: bool,
     pub ipv6_available: bool,
 }
@@ -93,6 +104,19 @@ pub struct TrafficSnapshot {
     pub bytes_received: u64,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ProxyPerformanceSnapshot {
+    pub preferred_tcp_buffer_bytes: usize,
+    pub total_tcp_buffer_bytes: usize,
+    pub preferred_tcp_sockets: usize,
+    pub fallback_tcp_sockets: usize,
+    pub rejected_tcp_sockets: usize,
+    pub http_pool_hits: u64,
+    pub http_pool_misses: u64,
+    pub http_stale_retries: u64,
+    pub http_busy_rejections: u64,
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct TrafficCounters {
     sent: AtomicU64,
@@ -113,7 +137,7 @@ pub(crate) struct PacketStack {
     pub(crate) cancellation: CancellationToken,
     pub(crate) failure: watch::Receiver<Option<String>>,
     pub(crate) counters: Arc<TrafficCounters>,
-    pub(crate) failure_tx: watch::Sender<Option<String>>,
+    tcp_buffer_metrics: TcpBufferMetrics,
     health: watch::Receiver<RuntimeHealth>,
     // Retain a receiver so the supervisor can publish control state even
     // though proxy modes do not currently expose route diagnostics.
@@ -122,6 +146,41 @@ pub(crate) struct PacketStack {
 }
 
 impl PacketStack {
+    /// Starts only the local smoltcp side of a shared MASQUE runtime.
+    ///
+    /// The returned pipe must be driven by the runtime's packet multiplexer;
+    /// this stack deliberately does not create a second remote tunnel.
+    pub(crate) async fn start_detached(
+        profile: &Profile,
+        assigned_ipv4: std::net::Ipv4Addr,
+        assigned_ipv6: std::net::Ipv6Addr,
+        monitor: &ManagedTunnelMonitor,
+        parent_cancellation: &CancellationToken,
+    ) -> Result<(Self, WakingPipe), TransportError> {
+        let (config, tcp_buffer_metrics) = proxy_netstack_config(profile);
+        let (stack, pipe) = bounded_piped(config);
+        let channel = stack.command_channel();
+        let stack_task = stack.spawn_tokio();
+        channel
+            .set_ips([IpAddr::V4(assigned_ipv4), IpAddr::V6(assigned_ipv6)])
+            .await
+            .map_err(|error| TransportError::Netstack(error.to_string()))?;
+
+        Ok((
+            Self {
+                channel,
+                cancellation: parent_cancellation.child_token(),
+                failure: monitor.failure.clone(),
+                counters: Arc::clone(&monitor.counters),
+                tcp_buffer_metrics,
+                health: monitor.health.clone(),
+                _control: monitor.control.clone(),
+                tasks: vec![stack_task],
+            },
+            pipe,
+        ))
+    }
+
     pub(crate) async fn start_with_refresh(
         profile: &Profile,
         identity: Arc<MasqueTlsIdentity>,
@@ -137,17 +196,9 @@ impl PacketStack {
             )
             .await?;
         let transport = tunnel.transport();
-        let initial_path =
-            platform_runtime_path(profile, transport, endpoint_family, protector.as_ref());
-        let config = Config {
-            command_channel_capacity: Some(STACK_COMMAND_CAPACITY),
-            mtu: usize::from(profile.mtu),
-            tcp_buffer_size: 64 * 1024,
-            udp_buffer_size: 64 * 1024,
-            udp_message_count: 128,
-            ..Config::default()
-        };
-        let (stack, pipe) = piped(config);
+        let initial_path = runtime_path(transport, endpoint_family);
+        let (config, tcp_buffer_metrics) = proxy_netstack_config(profile);
+        let (stack, pipe) = bounded_piped(config);
         let channel = stack.command_channel();
         let stack_task = stack.spawn_tokio();
         channel
@@ -204,7 +255,7 @@ impl PacketStack {
             cancellation,
             failure,
             counters,
-            failure_tx,
+            tcp_buffer_metrics,
             health,
             _control: control,
             tasks,
@@ -223,6 +274,21 @@ impl PacketStack {
         self.health.clone()
     }
 
+    pub(crate) fn performance(&self) -> ProxyPerformanceSnapshot {
+        let snapshot = self.tcp_buffer_metrics.snapshot();
+        ProxyPerformanceSnapshot {
+            preferred_tcp_buffer_bytes: snapshot.preferred_bytes,
+            total_tcp_buffer_bytes: snapshot.total_bytes,
+            preferred_tcp_sockets: snapshot.preferred_sockets,
+            fallback_tcp_sockets: snapshot.fallback_sockets,
+            rejected_tcp_sockets: snapshot.rejected_sockets,
+            http_pool_hits: 0,
+            http_pool_misses: 0,
+            http_stale_retries: 0,
+            http_busy_rejections: 0,
+        }
+    }
+
     pub(crate) fn cancel_immediately(&mut self) {
         self.cancellation.cancel();
         for task in &self.tasks {
@@ -235,6 +301,61 @@ impl PacketStack {
         for task in self.tasks.drain(..) {
             let _ = task.await;
         }
+    }
+}
+
+fn proxy_netstack_config(profile: &Profile) -> (Config, TcpBufferMetrics) {
+    let (preferred_budget, total_budget) = tcp_buffer_budgets();
+    let metrics = TcpBufferMetrics::default();
+    let config = Config {
+        command_channel_capacity: Some(STACK_COMMAND_CAPACITY),
+        mtu: usize::from(profile.mtu),
+        // Retained as a conservative default for the upstream listener path.
+        // Outbound proxy connections use the bounded asymmetric policy below.
+        tcp_buffer_size: FALLBACK_TCP_RECEIVE_BUFFER,
+        tcp_buffer_policy: Some(TcpBufferPolicy {
+            preferred: TcpBufferTier {
+                receive: PREFERRED_TCP_RECEIVE_BUFFER,
+                transmit: PREFERRED_TCP_TRANSMIT_BUFFER,
+            },
+            fallback: TcpBufferTier {
+                receive: FALLBACK_TCP_RECEIVE_BUFFER,
+                transmit: FALLBACK_TCP_TRANSMIT_BUFFER,
+            },
+            preferred_budget,
+            total_budget,
+        }),
+        tcp_buffer_metrics: Some(metrics.clone()),
+        tcp_nagle_enabled: false,
+        udp_buffer_size: 64 * 1024,
+        udp_message_count: 128,
+        ..Config::default()
+    };
+    (config, metrics)
+}
+
+fn bounded_piped(config: Config) -> (Netstack<WakingPipeDev>, WakingPipe) {
+    let (stack_pipe, remote_pipe) = WakingPipe::bounded(PROXY_PACKET_PIPE_CAPACITY);
+    let device = WakingPipeDev {
+        pipe: stack_pipe,
+        mtu: config.mtu,
+        medium: ts_netstack_smoltcp::netcore::smoltcp::phy::Medium::Ip,
+    };
+    (Netstack::new(device, config), remote_pipe)
+}
+
+const fn tcp_buffer_budgets() -> (usize, usize) {
+    #[cfg(all(target_os = "android", target_pointer_width = "32"))]
+    {
+        (32 * 1024 * 1024, 48 * 1024 * 1024)
+    }
+    #[cfg(all(target_os = "android", target_pointer_width = "64"))]
+    {
+        (96 * 1024 * 1024, 128 * 1024 * 1024)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        (192 * 1024 * 1024, 256 * 1024 * 1024)
     }
 }
 
@@ -281,8 +402,13 @@ pub struct ManagedTunnelSender {
 impl ManagedTunnelSender {
     pub async fn send_packet(&self, packet: &[u8]) -> Result<(), TransportError> {
         crate::h2::validate_ip_packet(packet)?;
+        self.send_owned_packet(Bytes::copy_from_slice(packet)).await
+    }
+
+    pub(crate) async fn send_owned_packet(&self, packet: Bytes) -> Result<(), TransportError> {
+        crate::h2::validate_ip_packet(&packet)?;
         self.outgoing
-            .send(Bytes::copy_from_slice(packet))
+            .send(packet)
             .await
             .map_err(|_| TransportError::TunnelClosed)
     }
@@ -341,12 +467,7 @@ impl ManagedTunnelRuntime {
                 pin_refresher.as_ref(),
             )
             .await?;
-        let path = platform_runtime_path(
-            profile,
-            tunnel.transport(),
-            endpoint_family,
-            protector.as_ref(),
-        );
+        let path = runtime_path(tunnel.transport(), endpoint_family);
         let (outgoing, outgoing_rx) = mpsc::channel(RAW_PACKET_CHANNEL_CAPACITY);
         let (incoming_tx, incoming) = mpsc::channel(RAW_PACKET_CHANNEL_CAPACITY);
         let cancellation = CancellationToken::new();
@@ -771,7 +892,9 @@ impl PacketIo {
         loop {
             let packet = match self {
                 Self::Pipe { rx, .. } => rx.recv_async().await.map(|packet| {
-                    let mut packet = packet.to_vec();
+                    let mut packet = packet
+                        .try_into_mut()
+                        .unwrap_or_else(|packet| bytes::BytesMut::from(packet.as_ref()));
                     if let Err(error) = prepare_forwarded_packet(&mut packet) {
                         tracing::warn!(
                             %error,
@@ -779,15 +902,17 @@ impl PacketIo {
                         );
                         return None;
                     }
-                    Some(Bytes::from(packet))
+                    Some(packet.freeze())
                 }),
                 Self::Channel { outgoing, .. } => outgoing.recv().await.map(|packet| {
-                    let mut packet = packet.to_vec();
+                    let mut packet = packet
+                        .try_into_mut()
+                        .unwrap_or_else(|packet| bytes::BytesMut::from(packet.as_ref()));
                     if let Err(error) = prepare_forwarded_packet(&mut packet) {
                         tracing::warn!(%error, "discarded malformed packet from the TUN source");
                         return None;
                     }
-                    Some(Bytes::from(packet))
+                    Some(packet.freeze())
                 }),
             };
             match packet {
@@ -848,12 +973,7 @@ async fn run_transport_supervisor(
 
     loop {
         let active_transport = active_tunnel.transport();
-        let active_path = platform_runtime_path(
-            &profile,
-            active_transport,
-            active_family,
-            protector.as_ref(),
-        );
+        let active_path = runtime_path(active_transport, active_family);
         let _ = health_tx.send(RuntimeHealth::Connected {
             path: active_path,
             reconnect_count,
@@ -1159,14 +1279,18 @@ async fn pump_active_tunnel(
                     );
                     continue;
                 }
-                match timeout(PACKET_SEND_TIMEOUT, send.send_packet(&packet)).await {
+                let packet_length = packet.len();
+                // A cheap reference-counted view is retained only so an H3
+                // datagram-size rejection can be reflected as ICMP.
+                let retained_packet = packet.clone();
+                match timeout(PACKET_SEND_TIMEOUT, send.send_owned_packet(packet)).await {
                     Ok(Ok(())) => {
-                        counters.sent.fetch_add(packet.len() as u64, Ordering::Relaxed);
+                        counters.sent.fetch_add(packet_length as u64, Ordering::Relaxed);
                     }
                     Ok(Err(TransportError::Http3DatagramTooLarge {
                         maximum_packet_size,
                     })) => {
-                        match crate::icmp::packet_too_big(&packet, maximum_packet_size) {
+                        match crate::icmp::packet_too_big(&retained_packet, maximum_packet_size) {
                             Ok(icmp) => {
                                 if !packet_io.send_incoming(icmp).await {
                                     break ActiveOutcome::Shutdown;
@@ -1491,32 +1615,15 @@ fn packet_allowed_by_peer_state(packet: &[u8], path: RuntimePath) -> bool {
     }
 }
 
-fn platform_runtime_path(
-    profile: &Profile,
-    transport: Transport,
-    endpoint_family: AddressFamily,
-    protector: &dyn SocketProtector,
-) -> RuntimePath {
-    let mut path = runtime_path(profile.ip_policy, transport, endpoint_family);
-    if let Some(available) = protector.endpoint_family_available(profile.endpoint.ipv4_socket()) {
-        path.ipv4_available &= available;
-    }
-    if let Some(available) = protector.endpoint_family_available(profile.endpoint.ipv6_socket()) {
-        path.ipv6_available &= available;
-    }
-    path
-}
-
-fn runtime_path(
-    policy: IpPolicy,
-    transport: Transport,
-    endpoint_family: AddressFamily,
-) -> RuntimePath {
+fn runtime_path(transport: Transport, endpoint_family: AddressFamily) -> RuntimePath {
     RuntimePath {
         transport,
         endpoint_family,
-        ipv4_available: !matches!(policy, IpPolicy::Ipv6Only),
-        ipv6_available: !matches!(policy, IpPolicy::Ipv4Only),
+        // The outer endpoint family is only the CONNECT-IP carrier. WARP's
+        // out-of-band identity assigns both payload families over that single
+        // active channel. Peer capsules may narrow these flags later.
+        ipv4_available: true,
+        ipv6_available: true,
     }
 }
 
@@ -1632,13 +1739,13 @@ mod tests {
     }
 
     #[test]
-    fn runtime_path_respects_single_family_policy() {
-        let v4 = runtime_path(IpPolicy::Ipv4Only, Transport::Http3, AddressFamily::Ipv4);
+    fn endpoint_family_does_not_limit_connect_ip_payload_families() {
+        let v4 = runtime_path(Transport::Http3, AddressFamily::Ipv4);
         assert!(v4.ipv4_available);
-        assert!(!v4.ipv6_available);
+        assert!(v4.ipv6_available);
 
-        let v6 = runtime_path(IpPolicy::Ipv6Only, Transport::Http2, AddressFamily::Ipv6);
-        assert!(!v6.ipv4_available);
+        let v6 = runtime_path(Transport::Http2, AddressFamily::Ipv6);
+        assert!(v6.ipv4_available);
         assert!(v6.ipv6_available);
     }
 
@@ -1688,7 +1795,7 @@ mod tests {
 
     #[test]
     fn absent_peer_capsules_preserve_out_of_band_dual_stack_configuration() {
-        let base = runtime_path(IpPolicy::Auto, Transport::Http3, AddressFamily::Ipv4);
+        let base = runtime_path(Transport::Http3, AddressFamily::Ipv4);
         let path = apply_peer_network_state(
             base,
             &PeerNetworkState::default(),
@@ -1701,7 +1808,7 @@ mod tests {
 
     #[test]
     fn address_assignment_withdrawal_degrades_or_stops_families_fail_closed() {
-        let base = runtime_path(IpPolicy::Auto, Transport::Http3, AddressFamily::Ipv4);
+        let base = runtime_path(Transport::Http3, AddressFamily::Ipv4);
         let ipv4_only = PeerNetworkState {
             assignments_advertised: true,
             assigned_addresses: vec![IpPrefix {
@@ -1736,7 +1843,7 @@ mod tests {
 
     #[test]
     fn peer_routes_must_cover_a_complete_family_for_full_tunnel_policy() {
-        let base = runtime_path(IpPolicy::Auto, Transport::Http3, AddressFamily::Ipv6);
+        let base = runtime_path(Transport::Http3, AddressFamily::Ipv6);
         let state = PeerNetworkState {
             routes_advertised: true,
             available_routes: vec![
@@ -1775,7 +1882,7 @@ mod tests {
 
     #[tokio::test]
     async fn cancelled_udp_receive_does_not_replay_a_stale_socket_handle() {
-        let (stack, _pipe) = piped(Config::default());
+        let (stack, _pipe) = bounded_piped(Config::default());
         let channel = stack.command_channel();
         let stack_task = stack.spawn_tokio();
         channel

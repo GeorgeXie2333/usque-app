@@ -56,6 +56,10 @@ class ControlCodec {
       ..boolean(3, profile.proxy.systemProxy)
       ..unsigned(4, 60)
       ..enumeration(5, profile.proxy.dnsMode.index + 1);
+    final frontends = ControlPayloadWriter()
+      ..boolean(1, profile.frontends.tunnel)
+      ..boolean(2, profile.frontends.socks5)
+      ..boolean(3, profile.frontends.http);
     final writer = ControlPayloadWriter()
       ..string(1, profile.id)
       ..string(2, profile.name)
@@ -74,7 +78,8 @@ class ControlCodec {
       ..boolean(11, profile.killSwitch)
       ..boolean(12, profile.autoConnect)
       ..message(13, proxy.takeBytes())
-      ..enumeration(14, profile.dnsMode.index + 1);
+      ..enumeration(14, profile.dnsMode.index + 1)
+      ..message(15, frontends.takeBytes());
     return writer.takeBytes();
   }
 
@@ -277,6 +282,7 @@ ProfileCatalog debugDecodeProfileCatalogFrame(
 ProfileCatalog _decodeProfileCatalog(_ProtoReader reader) {
   final profiles = <UsqueProfile>[];
   final identityStates = <String, ProfileIdentityState>{};
+  final identityStatuses = <String, ProfileIdentityStatus>{};
   String? activeProfileId;
   while (!reader.isDone) {
     final field = reader.field();
@@ -289,6 +295,9 @@ ProfileCatalog _decodeProfileCatalog(_ProtoReader reader) {
         final status = reader.message(field);
         String? profileId;
         ProfileIdentityState? state;
+        var licenseState = LicenseState.unknown;
+        var accountType = '';
+        var cleanupPending = false;
         while (!status.isDone) {
           final statusField = status.field();
           switch (statusField.number) {
@@ -299,12 +308,27 @@ ProfileCatalog _decodeProfileCatalog(_ProtoReader reader) {
               if (value >= 1 && value <= ProfileIdentityState.values.length) {
                 state = ProfileIdentityState.values[value - 1];
               }
+            case 3:
+              final value = status.varint(statusField);
+              if (value >= 1 && value <= LicenseState.values.length) {
+                licenseState = LicenseState.values[value - 1];
+              }
+            case 4:
+              accountType = status.string(statusField);
+            case 5:
+              cleanupPending = status.varint(statusField) != 0;
             default:
               status.skip(statusField);
           }
         }
         if (profileId != null && state != null) {
           identityStates[profileId] = state;
+          identityStatuses[profileId] = ProfileIdentityStatus(
+            state: state,
+            licenseState: licenseState,
+            accountType: accountType,
+            cleanupPending: cleanupPending,
+          );
         }
       default:
         reader.skip(field);
@@ -323,6 +347,9 @@ ProfileCatalog _decodeProfileCatalog(_ProtoReader reader) {
     activeProfileId: activeProfileId,
     identityStates: Map<String, ProfileIdentityState>.unmodifiable(
       identityStates,
+    ),
+    identityStatuses: Map<String, ProfileIdentityStatus>.unmodifiable(
+      identityStatuses,
     ),
   );
 }
@@ -346,6 +373,8 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
   var autoConnect = defaults.autoConnect;
   var dnsMode = defaults.dnsMode;
   var proxy = defaults.proxy;
+  var frontends = defaults.frontends;
+  var frontendsSeen = false;
 
   while (!reader.isDone) {
     final field = reader.field();
@@ -387,7 +416,7 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
         ipPolicy = _decodeIndexedEnum(
           IpPolicy.values,
           reader.varint(field),
-          'IP policy',
+          'Endpoint family policy',
         );
       case 7:
         mtu = reader.varint(field);
@@ -409,9 +438,40 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
           reader.varint(field),
           'DNS mode',
         );
+      case 15:
+        final source = reader.message(field);
+        var tunnel = false;
+        var socks5 = false;
+        var http = false;
+        while (!source.isDone) {
+          final frontendField = source.field();
+          switch (frontendField.number) {
+            case 1:
+              tunnel = source.varint(frontendField) != 0;
+            case 2:
+              socks5 = source.varint(frontendField) != 0;
+            case 3:
+              http = source.varint(frontendField) != 0;
+            default:
+              source.skip(frontendField);
+          }
+        }
+        frontends = FrontendSettings(
+          tunnel: tunnel,
+          socks5: socks5,
+          http: http,
+        );
+        frontendsSeen = true;
       default:
         reader.skip(field);
     }
+  }
+  if (!frontendsSeen) {
+    frontends = FrontendSettings(
+      tunnel: mode == OperatingMode.vpn,
+      socks5: mode == OperatingMode.socks5,
+      http: mode == OperatingMode.httpProxy,
+    );
   }
   return UsqueProfile(
     id: id,
@@ -436,6 +496,7 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
     autoConnect: autoConnect,
     bypassCidrs: List<String>.unmodifiable(bypassCidrs),
     proxy: proxy,
+    frontends: frontends,
   );
 }
 
@@ -601,7 +662,9 @@ EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
   var downloadRate = 0;
   ExitInfo exit = const ExitInfo();
   String? warning;
-  var captivePauseRemainingSeconds = 0;
+  var reconnectCount = 0;
+  final activeListeners = <String>[];
+  final frontends = <FrontendRuntimeStatus>[];
   while (!reader.isDone) {
     final field = reader.field();
     switch (field.number) {
@@ -634,9 +697,14 @@ EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
         exit = _decodeExit(reader.message(field));
       case 8:
         warning = _decodeError(reader.message(field)).message;
-      case 14:
-        captivePauseRemainingSeconds = reader.varint(field);
+      case 11:
+        reconnectCount = reader.varint(field);
+      case 12:
+        activeListeners.add(reader.string(field));
+      case 15:
+        frontends.add(_decodeFrontendStatus(reader.message(field)));
       default:
+        // Includes reserved field 14 (legacy captive-portal countdown).
         reader.skip(field);
     }
   }
@@ -653,7 +721,43 @@ EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
     uploadedBytes: uploaded,
     exit: exit,
     warning: warning,
-    captivePauseRemainingSeconds: captivePauseRemainingSeconds,
+    reconnectCount: reconnectCount,
+    activeListeners: List<String>.unmodifiable(activeListeners),
+    frontends: List<FrontendRuntimeStatus>.unmodifiable(frontends),
+  );
+}
+
+FrontendRuntimeStatus _decodeFrontendStatus(_ProtoReader reader) {
+  var kind = FrontendKind.tunnel;
+  var phase = FrontendPhase.error;
+  final listeners = <String>[];
+  String? errorCode;
+  while (!reader.isDone) {
+    final field = reader.field();
+    switch (field.number) {
+      case 1:
+        final value = reader.varint(field);
+        if (value >= 1 && value <= FrontendKind.values.length) {
+          kind = FrontendKind.values[value - 1];
+        }
+      case 2:
+        final value = reader.varint(field);
+        if (value >= 1 && value <= FrontendPhase.values.length) {
+          phase = FrontendPhase.values[value - 1];
+        }
+      case 3:
+        listeners.add(reader.string(field));
+      case 4:
+        errorCode = _decodeError(reader.message(field)).code;
+      default:
+        reader.skip(field);
+    }
+  }
+  return FrontendRuntimeStatus(
+    kind: kind,
+    phase: phase,
+    listeners: List<String>.unmodifiable(listeners),
+    errorCode: errorCode,
   );
 }
 
@@ -721,7 +825,7 @@ ConnectionPhase _decodePhase(int value) {
     6 => ConnectionPhase.degraded,
     7 => ConnectionPhase.reconnecting,
     8 => ConnectionPhase.disconnecting,
-    9 => ConnectionPhase.captivePortalPaused,
+    // 9 was captivePortalPaused (removed).
     10 => ConnectionPhase.error,
     _ => ConnectionPhase.error,
   };

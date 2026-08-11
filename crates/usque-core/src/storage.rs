@@ -5,7 +5,10 @@ use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
 use thiserror::Error;
 
-use crate::config::{AppConfig, CURRENT_SCHEMA_VERSION, ConfigError, DnsMode, OperatingMode};
+use crate::config::{
+    AppConfig, CURRENT_SCHEMA_VERSION, ConfigError, DnsMode, FrontendSettings, LEGACY_DEFAULT_SNI,
+    OperatingMode,
+};
 
 #[derive(Debug, Clone)]
 pub struct ConfigStore {
@@ -105,21 +108,36 @@ fn migrate(config: &mut AppConfig) -> Result<(), StoreError> {
                 config.pending_identity_creations.clear();
                 config.schema_version = 5;
             }
+            5 => {
+                for profile in &mut config.profiles {
+                    profile.frontends = FrontendSettings::platform_default();
+                    profile.mode = OperatingMode::legacy_platform_default();
+                    profile.auto_connect = false;
+                    profile.proxy.system_proxy = cfg!(windows);
+                    if cfg!(windows)
+                        && !profile
+                            .proxy
+                            .http_listeners
+                            .iter()
+                            .any(|listener| listener.ip().is_loopback())
+                    {
+                        profile
+                            .proxy
+                            .http_listeners
+                            .push("127.0.0.1:8080".parse().expect("static listener"));
+                    }
+                    if profile.endpoint.sni == LEGACY_DEFAULT_SNI {
+                        profile.endpoint.sni = crate::config::DEFAULT_SNI.to_owned();
+                    }
+                }
+                config.schema_version = 6;
+            }
             found => {
                 return Err(StoreError::UnsupportedMigration {
                     found,
                     target: CURRENT_SCHEMA_VERSION,
                 });
             }
-        }
-    }
-    // Older Flutter-owned profile drafts could retain the Windows system
-    // proxy toggle after switching away from HTTP Proxy mode. The native
-    // schema rejects that combination, so repair it while the legacy file is
-    // already being backed up and migrated.
-    for profile in &mut config.profiles {
-        if profile.mode != OperatingMode::HttpProxy {
-            profile.proxy.system_proxy = false;
         }
     }
     Ok(())
@@ -237,7 +255,7 @@ mod tests {
     }
 
     #[test]
-    fn migration_disables_stale_system_proxy_outside_http_mode() {
+    fn schema_six_applies_platform_frontend_defaults() {
         let directory = tempfile::tempdir().unwrap();
         let store = ConfigStore::new(directory.path().join("config.json"));
         let mut legacy = AppConfig {
@@ -251,8 +269,15 @@ mod tests {
         let migrated = store.load().unwrap();
 
         assert_eq!(migrated.schema_version, CURRENT_SCHEMA_VERSION);
-        assert_eq!(migrated.profiles[0].mode, OperatingMode::Socks5);
-        assert!(!migrated.profiles[0].proxy.system_proxy);
+        assert_eq!(
+            migrated.profiles[0].mode,
+            OperatingMode::legacy_platform_default()
+        );
+        assert_eq!(
+            migrated.profiles[0].frontends,
+            FrontendSettings::platform_default()
+        );
+        assert_eq!(migrated.profiles[0].proxy.system_proxy, cfg!(windows));
         let backup: serde_json::Value =
             serde_json::from_slice(&fs::read(store.backup_path()).unwrap()).unwrap();
         assert_eq!(backup["profiles"][0]["proxy"]["system_proxy"], true);
@@ -266,6 +291,7 @@ mod tests {
             schema_version: 3,
             ..AppConfig::default()
         };
+        legacy.profiles[0].mode = OperatingMode::Vpn;
         legacy.profiles[0].dns_mode = DnsMode::System;
         fs::write(store.path(), serde_json::to_vec_pretty(&legacy).unwrap()).unwrap();
 
@@ -277,5 +303,47 @@ mod tests {
             serde_json::from_slice(&fs::read(store.backup_path()).unwrap()).unwrap();
         assert_eq!(backup["schema_version"], 3);
         assert_eq!(backup["profiles"][0]["dns_mode"], "system");
+    }
+
+    #[test]
+    fn schema_five_migrates_only_the_exact_legacy_sni_and_keeps_custom_listeners() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ConfigStore::new(directory.path().join("config.json"));
+        let mut legacy = AppConfig {
+            schema_version: 5,
+            ..AppConfig::default()
+        };
+        legacy.profiles[0].endpoint.sni = LEGACY_DEFAULT_SNI.to_owned();
+        legacy.profiles[0].auto_connect = true;
+        legacy.profiles[0].proxy.http_listeners = vec!["192.0.2.5:9090".parse().unwrap()];
+        let mut custom = legacy.profiles[0].clone();
+        custom.id = uuid::Uuid::new_v4();
+        custom.name = "Custom".to_owned();
+        custom.endpoint.sni = "custom.example.com".to_owned();
+        legacy.profiles.push(custom);
+        fs::write(store.path(), serde_json::to_vec_pretty(&legacy).unwrap()).unwrap();
+
+        let migrated = store.load().unwrap();
+
+        assert_eq!(
+            migrated.profiles[0].endpoint.sni,
+            crate::config::DEFAULT_SNI
+        );
+        assert_eq!(migrated.profiles[1].endpoint.sni, "custom.example.com");
+        assert!(!migrated.profiles[0].auto_connect);
+        assert!(
+            migrated.profiles[0]
+                .proxy
+                .http_listeners
+                .contains(&"192.0.2.5:9090".parse().unwrap())
+        );
+        if cfg!(windows) {
+            assert!(
+                migrated.profiles[0]
+                    .proxy
+                    .http_listeners
+                    .contains(&"127.0.0.1:8080".parse().unwrap())
+            );
+        }
     }
 }

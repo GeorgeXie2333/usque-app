@@ -970,6 +970,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
 
 [[package]]
+name = "httpdate"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
+
+[[package]]
 name = "hyper"
 version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -983,6 +989,7 @@ dependencies = [
  "http",
  "http-body",
  "httparse",
+ "httpdate",
  "itoa",
  "pin-project-lite",
  "smallvec",
@@ -2677,7 +2684,7 @@ dependencies = [
 
 [[package]]
 name = "usque-agent"
-version = "0.1.0-beta.1"
+version = "0.1.1-beta.2"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2700,7 +2707,7 @@ dependencies = [
 
 [[package]]
 name = "usque-android"
-version = "0.1.0-beta.1"
+version = "0.1.1-beta.2"
 dependencies = [
  "async-trait",
  "ipnet",
@@ -2720,7 +2727,7 @@ dependencies = [
 
 [[package]]
 name = "usque-core"
-version = "0.1.0-beta.1"
+version = "0.1.1-beta.2"
 dependencies = [
  "async-trait",
  "base64",
@@ -2746,7 +2753,7 @@ dependencies = [
 
 [[package]]
 name = "usque-engine"
-version = "0.1.0-beta.1"
+version = "0.1.1-beta.2"
 dependencies = [
  "async-trait",
  "base64",
@@ -2775,7 +2782,7 @@ dependencies = [
 
 [[package]]
 name = "usque-ipc"
-version = "0.1.0-beta.1"
+version = "0.1.1-beta.2"
 dependencies = [
  "bytes",
  "prost",
@@ -2787,7 +2794,7 @@ dependencies = [
 
 [[package]]
 name = "usque-platform"
-version = "0.1.0-beta.1"
+version = "0.1.1-beta.2"
 dependencies = [
  "async-trait",
  "security-framework",
@@ -2801,7 +2808,7 @@ dependencies = [
 
 [[package]]
 name = "usque-protocol"
-version = "0.1.0-beta.1"
+version = "0.1.1-beta.2"
 dependencies = [
  "bytes",
  "proptest",
@@ -2812,14 +2819,16 @@ dependencies = [
 
 [[package]]
 name = "usque-transport"
-version = "0.1.0-beta.1"
+version = "0.1.1-beta.2"
 dependencies = [
  "async-trait",
  "boring",
  "bytes",
  "h2",
  "http",
- "httparse",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
  "p256",
  "quiche",
  "rustls",

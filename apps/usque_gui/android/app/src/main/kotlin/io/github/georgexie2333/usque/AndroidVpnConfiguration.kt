@@ -18,11 +18,13 @@ internal data class AndroidVpnProfile(
     val allowLan: Boolean,
     val bypassCidrs: List<String>,
 ) {
+    // ipPolicy controls only the physical MASQUE endpoint. CONNECT-IP remains
+    // dual-stack regardless of which outer address family carries it.
     val includeIpv4: Boolean
-        get() = ipPolicy != "ipv6Only"
+        get() = true
 
     val includeIpv6: Boolean
-        get() = ipPolicy != "ipv4Only"
+        get() = true
 
     val dnsServers: List<InetAddress>
         get() =
@@ -74,11 +76,7 @@ internal data class AndroidVpnProfile(
                 parseNumericAddress(source.requiredString("endpoint_v4", 64), false) as Inet4Address
             val endpointIpv6 =
                 parseNumericAddress(source.requiredString("endpoint_v6", 128), true) as Inet6Address
-            val activeDnsServers =
-                buildList {
-                    if (ipPolicy != "ipv6Only") add(dnsIpv4)
-                    if (ipPolicy != "ipv4Only") add(dnsIpv6)
-                }
+            val activeDnsServers = listOf(dnsIpv4, dnsIpv6)
             require(
                 activeDnsServers.none { server -> server == endpointIpv4 || server == endpointIpv6 },
             ) { "VPN DNS server cannot equal a protected MASQUE endpoint" }

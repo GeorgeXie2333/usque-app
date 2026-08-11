@@ -1,0 +1,260 @@
+name: Build
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  CMAKE_GENERATOR: Ninja
+  FLUTTER_COMMIT: 84fc5cbb223bc12f83d65b647ff8a56caf779ffd
+
+jobs:
+  windows:
+    name: Windows x64-v2 compile
+    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    runs-on: windows-2025
+    timeout-minutes: 240
+    steps:
+      - name: Checkout untrusted source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install Java for Android SDK tooling
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Flutter from pinned commit
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = "Stop"
+          $flutter = Join-Path $env:RUNNER_TEMP "flutter"
+          git init $flutter
+          git -C $flutter remote add origin https://github.com/flutter/flutter.git
+          git -C $flutter fetch --depth 1 origin $env:FLUTTER_COMMIT
+          git -C $flutter checkout --detach FETCH_HEAD
+          if ((git -C $flutter rev-parse HEAD) -ne $env:FLUTTER_COMMIT) {
+            throw "Flutter revision mismatch."
+          }
+          (Join-Path $flutter "bin") | Out-File -FilePath $env:GITHUB_PATH -Append
+          "USQUE_FLUTTER_ROOT=$flutter" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Install pinned Rust and native build tools
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = "Stop"
+          rustup toolchain install 1.97.1 --profile minimal --component clippy,rustfmt
+          rustup default 1.97.1
+          rustup target add x86_64-pc-windows-msvc
+          sdkmanager.bat "ndk;29.0.14206865" "cmake;3.22.1"
+
+      - name: Create ignored local SDK configuration
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = "Stop"
+          $androidSdk = $env:ANDROID_SDK_ROOT
+          if ([string]::IsNullOrWhiteSpace($androidSdk)) {
+            $androidSdk = $env:ANDROID_HOME
+          }
+          if ([string]::IsNullOrWhiteSpace($androidSdk)) {
+            throw "Android SDK root is unavailable."
+          }
+          $escape = {
+            param([string]$Value)
+            $Value.Replace("\", "\\").Replace(":", "\:")
+          }
+          $properties = @(
+            "sdk.dir=$(& $escape $androidSdk)"
+            "flutter.sdk=$(& $escape $env:USQUE_FLUTTER_ROOT)"
+          )
+          Set-Content apps/usque_gui/android/local.properties $properties -Encoding utf8NoBOM
+
+      - name: Clippy Windows workspace through pinned helper
+        shell: pwsh
+        run: ./tool/build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction clippy
+
+      - name: Build Windows engine and Agent through pinned helper
+        shell: pwsh
+        run: ./tool/build_windows_rust_release.ps1 -Variant x64-v2
+
+      - name: Build Flutter Windows Release
+        working-directory: apps/usque_gui
+        shell: pwsh
+        run: |
+          flutter --suppress-analytics pub get --enforce-lockfile
+          & ../../tool/prepare_windows_plugin_junctions.ps1 -FlutterProject .
+          flutter --suppress-analytics build windows --release --no-pub
+
+      - name: Assemble and verify compile-only application directory
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = "Stop"
+          $app = Get-ChildItem apps/usque_gui/build/windows -Recurse -Filter usque.exe |
+            Select-Object -First 1
+          if ($null -eq $app) { throw "Flutter Windows executable was not found." }
+          $directory = $app.Directory.FullName
+          Copy-Item target/x86_64-pc-windows-msvc/release/usque-engine.exe $directory
+          Copy-Item target/x86_64-pc-windows-msvc/release/usque-agent.exe $directory
+          Copy-Item third_party/wintun-0.14.1/wintun/bin/amd64/wintun.dll $directory
+          $required = @(
+            "usque.exe"
+            "usque-engine.exe"
+            "usque-agent.exe"
+            "wintun.dll"
+            "flutter_windows.dll"
+            "data"
+          )
+          foreach ($name in $required) {
+            $path = Join-Path $directory $name
+            if (-not (Test-Path -LiteralPath $path)) {
+              throw "Compile-only Windows output is missing $name."
+            }
+          }
+          Write-Output "WINDOWS_BUILD_OK=$directory"
+
+      - name: Remove local build configuration
+        if: ${{ always() }}
+        shell: pwsh
+        run: Remove-Item apps/usque_gui/android/local.properties -Force -ErrorAction SilentlyContinue
+
+  android:
+    name: Android arm64-v8a Release compile
+    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - name: Checkout untrusted source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install Java
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Flutter from pinned commit
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/flutter"
+          git -C "$RUNNER_TEMP/flutter" init
+          git -C "$RUNNER_TEMP/flutter" remote add origin https://github.com/flutter/flutter.git
+          git -C "$RUNNER_TEMP/flutter" fetch --depth 1 origin "$FLUTTER_COMMIT"
+          git -C "$RUNNER_TEMP/flutter" checkout --detach FETCH_HEAD
+          test "$(git -C "$RUNNER_TEMP/flutter" rev-parse HEAD)" = "$FLUTTER_COMMIT"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+
+      - name: Install pinned Rust and Android toolchains
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component clippy
+          rustup default 1.97.1
+          rustup target add aarch64-linux-android
+          sdkmanager \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;29.0.14206865" \
+            "cmake;3.22.1"
+
+      - name: Clippy Android Rust
+        shell: pwsh
+        run: ./tool/build_android_rust.ps1 -AbiFilter arm64-v8a -CargoAction clippy
+
+      - name: Resolve locked Flutter packages
+        working-directory: apps/usque_gui
+        run: flutter --suppress-analytics pub get --enforce-lockfile
+
+      - name: Create ephemeral build-only signing identity
+        env:
+          STORE_PASSWORD: usque-build-only-password
+        run: |
+          set -euo pipefail
+          keytool -genkeypair \
+            -keystore "$RUNNER_TEMP/usque-build-only.jks" \
+            -storepass "$STORE_PASSWORD" \
+            -keypass "$STORE_PASSWORD" \
+            -alias usque-build-only \
+            -keyalg RSA \
+            -keysize 3072 \
+            -validity 1 \
+            -dname "CN=Untrusted Usque CI Build, O=Usque Development, C=XX"
+
+      - name: Build arm64-v8a Release APK without release secrets
+        working-directory: apps/usque_gui
+        env:
+          USQUE_ANDROID_ABI: arm64-v8a
+          USQUE_ANDROID_KEYSTORE: ${{ runner.temp }}/usque-build-only.jks
+          USQUE_ANDROID_STORE_PASSWORD: usque-build-only-password
+          USQUE_ANDROID_KEY_ALIAS: usque-build-only
+          USQUE_ANDROID_KEY_PASSWORD: usque-build-only-password
+        run: |
+          flutter --suppress-analytics build apk \
+            --release \
+            --split-per-abi \
+            --target-platform android-arm64 \
+            --no-pub
+
+      - name: Verify APK architecture and release hygiene
+        run: |
+          set -euo pipefail
+          apk=apps/usque_gui/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+          test -s "$apk"
+          unzip -Z1 "$apk" > "$RUNNER_TEMP/apk-entries.txt"
+          grep -q '^lib/arm64-v8a/libusque_android\.so$' "$RUNNER_TEMP/apk-entries.txt"
+          if grep -Eq '^lib/(armeabi-v7a|x86|x86_64)/' "$RUNNER_TEMP/apk-entries.txt"; then
+            echo "APK contains an unexpected ABI." >&2
+            exit 1
+          fi
+          if grep -Eq 'kernel_blob\.bin|libVkLayer_khronos_validation\.so' "$RUNNER_TEMP/apk-entries.txt"; then
+            echo "APK contains a forbidden debug artifact." >&2
+            exit 1
+          fi
+          unzip -p "$apk" lib/arm64-v8a/libusque_android.so > "$RUNNER_TEMP/libusque_android.so"
+          if readelf --sections "$RUNNER_TEMP/libusque_android.so" | grep -q '\.debug_info'; then
+            echo "Rust JNI library contains debug information." >&2
+            exit 1
+          fi
+          apksigner="$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner"
+          test -x "$apksigner"
+          "$apksigner" verify --verbose --print-certs "$apk"
+          echo "ANDROID_BUILD_OK=$apk"
+
+      - name: Remove ephemeral identity and compile output
+        if: ${{ always() }}
+        run: |
+          rm -f "$RUNNER_TEMP/usque-build-only.jks"
+          rm -rf apps/usque_gui/build apps/usque_gui/android/app/src/main/jniLibs
+
+  gate:
+    name: Build / gate
+    if: ${{ always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    needs: [windows, android]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require both platform builds
+        env:
+          WINDOWS_RESULT: ${{ needs.windows.result }}
+          ANDROID_RESULT: ${{ needs.android.result }}
+        run: |
+          set -euo pipefail
+          test "$WINDOWS_RESULT" = "success"
+          test "$ANDROID_RESULT" = "success"

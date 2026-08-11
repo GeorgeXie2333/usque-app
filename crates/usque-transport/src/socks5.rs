@@ -1,7 +1,6 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::num::NonZeroU16;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU16, Ordering};
 use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -13,12 +12,15 @@ use tokio_util::sync::CancellationToken;
 use ts_netstack_smoltcp::CreateSocket;
 use ts_netstack_smoltcp::netcore::Channel;
 use ts_netstack_smoltcp::netsock::{TcpStream as StackTcpStream, UdpSocket as StackUdpSocket};
-use usque_core::{IpPolicy, OperatingMode, Profile};
+use usque_core::{OperatingMode, Profile};
 
 use crate::dns::Resolver;
 use crate::h2::{MasqueTlsIdentity, TransportError};
-use crate::netstack::{PacketStack, RuntimeHealth, RuntimePath, TrafficSnapshot};
+use crate::netstack::{
+    PacketStack, ProxyPerformanceSnapshot, RuntimeHealth, RuntimePath, TrafficSnapshot,
+};
 use crate::pin_refresh::EndpointPinRefresher;
+use crate::port_allocator::{next_tcp_port, next_udp_port};
 use crate::socket::{SocketProtector, noop_socket_protector};
 
 const SOCKS_VERSION: u8 = 5;
@@ -30,6 +32,7 @@ const ADDRESS_IPV4: u8 = 1;
 const ADDRESS_DOMAIN: u8 = 3;
 const ADDRESS_IPV6: u8 = 4;
 const REPLY_SUCCEEDED: u8 = 0;
+const REPLY_GENERAL_FAILURE: u8 = 1;
 const REPLY_CONNECTION_NOT_ALLOWED: u8 = 2;
 const REPLY_NETWORK_UNREACHABLE: u8 = 3;
 const REPLY_HOST_UNREACHABLE: u8 = 4;
@@ -41,13 +44,16 @@ const MAX_TARGET_ADDRESSES: usize = 16;
 const MAX_UDP_DATAGRAM: usize = 65_535;
 const UDP_RESPONSE_CAPACITY: usize = 128;
 
-static NEXT_TCP_PORT: AtomicU16 = AtomicU16::new(49_152);
-static NEXT_UDP_PORT: AtomicU16 = AtomicU16::new(49_152);
-
 pub struct Socks5Runtime {
     stack: PacketStack,
+    frontend: Socks5Frontend,
+}
+
+pub(crate) struct Socks5Frontend {
     listener_tasks: Vec<JoinHandle<()>>,
     listeners: Vec<SocketAddr>,
+    cancellation: CancellationToken,
+    failure: watch::Receiver<Option<String>>,
 }
 
 impl Socks5Runtime {
@@ -78,49 +84,15 @@ impl Socks5Runtime {
 
         // Reserve every configured address before opening the remote session so
         // a partial listener set can never be reported as ready.
-        let mut bound = Vec::with_capacity(profile.proxy.socks5_listeners.len());
-        for address in &profile.proxy.socks5_listeners {
-            bound.push(bind_listener(*address)?);
-        }
+        let bound = Socks5Frontend::prebind(profile)?;
 
         let assigned_ipv4 = identity.assigned_ipv4;
         let assigned_ipv6 = identity.assigned_ipv6;
         let mut stack =
             PacketStack::start_with_refresh(profile, Arc::new(identity), protector, pin_refresher)
                 .await?;
-        let resolver = Resolver::new(
-            stack.channel.clone(),
-            assigned_ipv4,
-            assigned_ipv6,
-            profile.dns_servers.clone(),
-            profile.proxy.dns_mode,
-            profile.ip_policy,
-        );
-        let context = Arc::new(SocksContext {
-            channel: stack.channel.clone(),
-            resolver,
-            assigned_ipv4,
-            assigned_ipv6,
-            ip_policy: profile.ip_policy,
-            udp_idle_timeout: Duration::from_secs(u64::from(
-                profile.proxy.udp_idle_timeout_seconds.max(1),
-            )),
-            cancellation: stack.cancellation.clone(),
-            failure: stack.failure_tx.clone(),
-            health: stack.subscribe_health(),
-        });
-
-        let listeners = bound
-            .iter()
-            .filter_map(|listener| listener.local_addr().ok())
-            .collect::<Vec<_>>();
-        let mut listener_tasks = Vec::with_capacity(bound.len());
-        for listener in bound {
-            let context = Arc::clone(&context);
-            listener_tasks.push(tokio::spawn(async move {
-                run_listener(listener, context).await;
-            }));
-        }
+        let frontend =
+            Socks5Frontend::activate(profile, assigned_ipv4, assigned_ipv6, &stack, bound);
 
         // Yield once so immediately-failed accept loops cannot be presented as
         // successfully started.
@@ -131,11 +103,7 @@ impl Socks5Runtime {
             return Err(TransportError::Socks5(message));
         }
 
-        Ok(Self {
-            stack,
-            listener_tasks,
-            listeners,
-        })
+        Ok(Self { stack, frontend })
     }
 
     pub fn path(&self) -> RuntimePath {
@@ -147,29 +115,33 @@ impl Socks5Runtime {
     }
 
     pub fn listeners(&self) -> &[SocketAddr] {
-        &self.listeners
+        self.frontend.listeners()
     }
 
     pub fn statistics(&self) -> TrafficSnapshot {
         self.stack.counters.snapshot()
     }
 
+    pub fn performance(&self) -> ProxyPerformanceSnapshot {
+        self.stack.performance()
+    }
+
     pub fn failure(&self) -> Option<String> {
-        self.stack.failure.borrow().clone()
+        self.stack
+            .failure
+            .borrow()
+            .clone()
+            .or_else(|| self.frontend.failure())
     }
 
     pub fn cancel_immediately(&mut self) {
         self.stack.cancel_immediately();
-        for task in &self.listener_tasks {
-            task.abort();
-        }
+        self.frontend.cancel_immediately();
     }
 
     pub async fn shutdown(&mut self) {
         self.cancel_immediately();
-        for task in self.listener_tasks.drain(..) {
-            let _ = task.await;
-        }
+        self.frontend.shutdown().await;
         self.stack.shutdown().await;
     }
 }
@@ -180,12 +152,100 @@ impl Drop for Socks5Runtime {
     }
 }
 
+impl Socks5Frontend {
+    pub(crate) fn prebind(profile: &Profile) -> Result<Vec<TcpListener>, TransportError> {
+        profile
+            .proxy
+            .socks5_listeners
+            .iter()
+            .copied()
+            .map(bind_listener)
+            .collect()
+    }
+
+    pub(crate) fn activate(
+        profile: &Profile,
+        assigned_ipv4: Ipv4Addr,
+        assigned_ipv6: Ipv6Addr,
+        stack: &PacketStack,
+        bound: Vec<TcpListener>,
+    ) -> Self {
+        let cancellation = stack.cancellation.child_token();
+        let (failure_tx, failure) = watch::channel(None);
+        let resolver = Resolver::new(
+            stack.channel.clone(),
+            assigned_ipv4,
+            assigned_ipv6,
+            profile.dns_servers.clone(),
+            profile.proxy.dns_mode,
+        );
+        let context = Arc::new(SocksContext {
+            channel: stack.channel.clone(),
+            resolver,
+            assigned_ipv4,
+            assigned_ipv6,
+            udp_idle_timeout: Duration::from_secs(u64::from(
+                profile.proxy.udp_idle_timeout_seconds.max(1),
+            )),
+            cancellation: cancellation.clone(),
+            failure: failure_tx,
+            health: stack.subscribe_health(),
+        });
+        let listeners = bound
+            .iter()
+            .filter_map(|listener| listener.local_addr().ok())
+            .collect::<Vec<_>>();
+        let listener_tasks = bound
+            .into_iter()
+            .map(|listener| {
+                let context = Arc::clone(&context);
+                tokio::spawn(async move {
+                    run_listener(listener, context).await;
+                })
+            })
+            .collect();
+        Self {
+            listener_tasks,
+            listeners,
+            cancellation,
+            failure,
+        }
+    }
+
+    pub(crate) fn listeners(&self) -> &[SocketAddr] {
+        &self.listeners
+    }
+
+    pub(crate) fn failure(&self) -> Option<String> {
+        self.failure.borrow().clone()
+    }
+
+    pub(crate) fn cancel_immediately(&mut self) {
+        self.cancellation.cancel();
+        for task in &self.listener_tasks {
+            task.abort();
+        }
+    }
+
+    pub(crate) async fn shutdown(&mut self) {
+        self.cancel_immediately();
+        for task in self.listener_tasks.drain(..) {
+            let _ = task.await;
+        }
+    }
+}
+
+impl Drop for Socks5Frontend {
+    fn drop(&mut self) {
+        self.cancel_immediately();
+    }
+}
+
 struct SocksContext {
     channel: Channel,
     resolver: Resolver,
     assigned_ipv4: Ipv4Addr,
     assigned_ipv6: Ipv6Addr,
-    ip_policy: IpPolicy,
     udp_idle_timeout: Duration,
     cancellation: tokio_util::sync::CancellationToken,
     failure: watch::Sender<Option<String>>,
@@ -225,6 +285,9 @@ async fn run_listener(listener: TcpListener, context: Arc<SocksContext>) {
                 break;
             }
         };
+        if let Err(error) = stream.set_nodelay(true) {
+            tracing::debug!(%peer, %error, "could not disable Nagle on SOCKS5 client socket");
+        }
         if !peer.ip().is_loopback()
             && stream
                 .local_addr()
@@ -320,7 +383,7 @@ async fn serve_connect(
     send_reply(&mut client, REPLY_SUCCEEDED, remote.local_addr()).await?;
     tokio::select! {
         _ = context.cancellation.cancelled() => Ok(()),
-        result = tokio::io::copy_bidirectional(&mut client, &mut remote) => {
+        result = crate::relay::copy_bidirectional(&mut client, &mut remote) => {
             result
                 .map(|_| ())
                 .map_err(|error| TransportError::Socks5(error.to_string()))
@@ -358,52 +421,38 @@ async fn serve_udp_association(
     let association_cancel = CancellationToken::new();
     let (response_tx, mut response_rx) = mpsc::channel(UDP_RESPONSE_CAPACITY);
     let mut response_tasks = Vec::with_capacity(2);
-    let v4_socket = if allows_family(context.ip_policy, false) {
-        let socket = Arc::new(
-            context
-                .channel
-                .udp_bind(SocketAddr::new(
-                    IpAddr::V4(context.assigned_ipv4),
-                    next_udp_port(),
-                ))
-                .await
-                .map_err(|error| {
-                    TransportError::Socks5(format!("bind tunnel UDP/IPv4: {error}"))
-                })?,
-        );
-        response_tasks.push(spawn_udp_receiver(
-            Arc::clone(&socket),
-            response_tx.clone(),
-            association_cancel.clone(),
-            context.cancellation.clone(),
-        ));
-        Some(socket)
-    } else {
-        None
-    };
-    let v6_socket = if allows_family(context.ip_policy, true) {
-        let socket = Arc::new(
-            context
-                .channel
-                .udp_bind(SocketAddr::new(
-                    IpAddr::V6(context.assigned_ipv6),
-                    next_udp_port(),
-                ))
-                .await
-                .map_err(|error| {
-                    TransportError::Socks5(format!("bind tunnel UDP/IPv6: {error}"))
-                })?,
-        );
-        response_tasks.push(spawn_udp_receiver(
-            Arc::clone(&socket),
-            response_tx,
-            association_cancel.clone(),
-            context.cancellation.clone(),
-        ));
-        Some(socket)
-    } else {
-        None
-    };
+    let v4_socket = Arc::new(
+        context
+            .channel
+            .udp_bind(SocketAddr::new(
+                IpAddr::V4(context.assigned_ipv4),
+                next_udp_port(),
+            ))
+            .await
+            .map_err(|error| TransportError::Socks5(format!("bind tunnel UDP/IPv4: {error}")))?,
+    );
+    response_tasks.push(spawn_udp_receiver(
+        Arc::clone(&v4_socket),
+        response_tx.clone(),
+        association_cancel.clone(),
+        context.cancellation.clone(),
+    ));
+    let v6_socket = Arc::new(
+        context
+            .channel
+            .udp_bind(SocketAddr::new(
+                IpAddr::V6(context.assigned_ipv6),
+                next_udp_port(),
+            ))
+            .await
+            .map_err(|error| TransportError::Socks5(format!("bind tunnel UDP/IPv6: {error}")))?,
+    );
+    response_tasks.push(spawn_udp_receiver(
+        Arc::clone(&v6_socket),
+        response_tx,
+        association_cancel.clone(),
+        context.cancellation.clone(),
+    ));
 
     let requested_port = NonZeroU16::new(request.port);
     let mut client_endpoint = requested_port.map(|port| SocketAddr::new(peer.ip(), port.get()));
@@ -453,22 +502,15 @@ async fn serve_udp_association(
                         }
                     },
                 };
-                let Some(remote_ip) = addresses
-                    .into_iter()
-                    .find(|address| allows_address(context.ip_policy, *address))
-                else {
-                    tracing::debug!("SOCKS5 UDP target has no address allowed by the IP policy");
+                let Some(remote_ip) = addresses.into_iter().next() else {
+                    tracing::debug!("SOCKS5 UDP target has no usable address");
                     continue;
                 };
                 let remote = SocketAddr::new(remote_ip, parsed.port);
                 let socket = if remote.is_ipv4() {
-                    v4_socket.as_ref()
+                    &v4_socket
                 } else {
-                    v6_socket.as_ref()
-                };
-                let Some(socket) = socket else {
-                    tracing::debug!(%remote, "SOCKS5 UDP target family is unavailable");
-                    continue;
+                    &v6_socket
                 };
                 if let Err(error) = socket.send_to(remote, parsed.payload).await {
                     tracing::debug!(%remote, %error, "SOCKS5 UDP tunnel send failed");
@@ -622,18 +664,6 @@ fn encode_udp_response(source: SocketAddr, payload: &[u8]) -> Vec<u8> {
     packet
 }
 
-fn allows_family(policy: IpPolicy, ipv6: bool) -> bool {
-    if ipv6 {
-        !matches!(policy, IpPolicy::Ipv4Only)
-    } else {
-        !matches!(policy, IpPolicy::Ipv6Only)
-    }
-}
-
-fn allows_address(policy: IpPolicy, address: IpAddr) -> bool {
-    allows_family(policy, address.is_ipv6())
-}
-
 fn unspecified_for(peer: SocketAddr) -> SocketAddr {
     if peer.is_ipv6() {
         SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), 0)
@@ -747,11 +777,7 @@ async fn connect_remote(
     port: u16,
 ) -> Result<StackTcpStream, ConnectFailure> {
     let mut failures = Vec::new();
-    for address in addresses
-        .iter()
-        .filter(|address| allows_address(context.ip_policy, **address))
-        .take(MAX_TARGET_ADDRESSES)
-    {
+    for address in addresses.iter().take(MAX_TARGET_ADDRESSES) {
         let local_ip = match address {
             IpAddr::V4(_) => IpAddr::V4(context.assigned_ipv4),
             IpAddr::V6(_) => IpAddr::V6(context.assigned_ipv6),
@@ -765,6 +791,13 @@ async fn connect_remote(
         .await
         {
             Ok(Ok(stream)) => return Ok(stream),
+            Ok(Err(error)) if error.is_tcp_buffer_budget_exhausted() => {
+                return Err(ConnectFailure {
+                    reply: REPLY_GENERAL_FAILURE,
+                    message: "the proxy connection memory budget is temporarily exhausted"
+                        .to_owned(),
+                });
+            }
             Ok(Err(error)) => failures.push(format!("{remote}: {error}")),
             Err(_) => failures.push(format!("{remote}: timed out")),
         }
@@ -787,22 +820,6 @@ async fn connect_remote(
             failures.join("; ")
         },
     })
-}
-
-fn next_tcp_port() -> u16 {
-    NEXT_TCP_PORT
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
-            Some(if value >= 65_534 { 49_152 } else { value + 1 })
-        })
-        .unwrap_or(49_152)
-}
-
-fn next_udp_port() -> u16 {
-    NEXT_UDP_PORT
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
-            Some(if value >= 65_534 { 49_152 } else { value + 1 })
-        })
-        .unwrap_or(49_152)
 }
 
 async fn send_reply(

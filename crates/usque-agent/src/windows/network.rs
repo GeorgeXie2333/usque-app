@@ -23,13 +23,13 @@ use windows_sys::{
         NetworkManagement::{
             IpHelper::{
                 CreateIpForwardEntry2, CreateUnicastIpAddressEntry, DNS_INTERFACE_SETTINGS,
-                DNS_INTERFACE_SETTINGS_VERSION1, DNS_SETTING_NAMESERVER, DeleteIpForwardEntry2,
-                DeleteUnicastIpAddressEntry, FreeInterfaceDnsSettings, GetBestInterfaceEx,
-                GetBestRoute2, GetInterfaceDnsSettings, GetIpForwardEntry2, GetIpInterfaceEntry,
-                GetUnicastIpAddressEntry, IP_ADDRESS_PREFIX, InitializeIpForwardEntry,
-                InitializeIpInterfaceEntry, InitializeUnicastIpAddressEntry, MIB_IPFORWARD_ROW2,
-                MIB_IPINTERFACE_ROW, MIB_UNICASTIPADDRESS_ROW, SetInterfaceDnsSettings,
-                SetIpInterfaceEntry,
+                DNS_INTERFACE_SETTINGS_VERSION1, DNS_SETTING_IPV6, DNS_SETTING_NAMESERVER,
+                DeleteIpForwardEntry2, DeleteUnicastIpAddressEntry, FreeInterfaceDnsSettings,
+                GetBestInterfaceEx, GetBestRoute2, GetInterfaceDnsSettings, GetIpForwardEntry2,
+                GetIpInterfaceEntry, GetUnicastIpAddressEntry, IP_ADDRESS_PREFIX,
+                InitializeIpForwardEntry, InitializeIpInterfaceEntry,
+                InitializeUnicastIpAddressEntry, MIB_IPFORWARD_ROW2, MIB_IPINTERFACE_ROW,
+                MIB_UNICASTIPADDRESS_ROW, SetInterfaceDnsSettings, SetIpInterfaceEntry,
             },
             Ndis::NET_LUID_LH,
         },
@@ -661,28 +661,46 @@ fn get_dns_servers(interface_guid: Uuid) -> Result<Vec<IpAddr>, NetworkError> {
 }
 
 fn set_dns_servers(interface_guid: Uuid, servers: &[IpAddr]) -> Result<(), NetworkError> {
-    let mut text = servers
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join(",");
-    text.push('\0');
-    let mut wide = text.encode_utf16().collect::<Vec<_>>();
+    set_dns_servers_for_family(interface_guid, servers, false)?;
+    set_dns_servers_for_family(interface_guid, servers, true)
+}
+
+fn set_dns_servers_for_family(
+    interface_guid: Uuid,
+    servers: &[IpAddr],
+    ipv6: bool,
+) -> Result<(), NetworkError> {
+    let mut wide = dns_server_text(servers, ipv6);
     let settings = DNS_INTERFACE_SETTINGS {
         Version: DNS_INTERFACE_SETTINGS_VERSION1,
-        Flags: u64::from(DNS_SETTING_NAMESERVER),
-        NameServer: if servers.is_empty() {
-            ptr::null_mut()
-        } else {
-            wide.as_mut_ptr()
-        },
+        Flags: dns_server_flags(ipv6),
+        NameServer: wide.as_mut_ptr(),
         ..Default::default()
+    };
+    let operation = if ipv6 {
+        "SetInterfaceDnsSettings (IPv6)"
+    } else {
+        "SetInterfaceDnsSettings (IPv4)"
     };
     // SAFETY: all fields without matching flags are zero, NameServer points to
     // a live null-terminated buffer, and settings remains valid for the call.
-    check("SetInterfaceDnsSettings", unsafe {
+    check(operation, unsafe {
         SetInterfaceDnsSettings(guid_from_uuid(interface_guid), &settings)
     })
+}
+
+fn dns_server_text(servers: &[IpAddr], ipv6: bool) -> Vec<u16> {
+    let text = servers
+        .iter()
+        .filter(|server| server.is_ipv6() == ipv6)
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(",");
+    text.encode_utf16().chain([0]).collect()
+}
+
+fn dns_server_flags(ipv6: bool) -> u64 {
+    u64::from(DNS_SETTING_NAMESERVER) | if ipv6 { u64::from(DNS_SETTING_IPV6) } else { 0 }
 }
 
 struct DnsSettingsGuard(DNS_INTERFACE_SETTINGS);
@@ -971,6 +989,45 @@ mod tests {
             ]
         );
         assert!(parse_dns_servers("resolver.example").is_err());
+    }
+
+    #[test]
+    fn dns_settings_separate_ipv4_and_ipv6_servers() {
+        let servers = [
+            "1.1.1.1".parse::<IpAddr>().expect("IPv4"),
+            "2606:4700:4700::1111".parse::<IpAddr>().expect("IPv6"),
+            "8.8.8.8".parse::<IpAddr>().expect("IPv4"),
+            "2001:4860:4860::8888".parse::<IpAddr>().expect("IPv6"),
+        ];
+
+        assert_eq!(
+            dns_server_text(&servers, false),
+            "1.1.1.1,8.8.8.8"
+                .encode_utf16()
+                .chain([0])
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            dns_server_text(&servers, true),
+            "2606:4700:4700::1111,2001:4860:4860::8888"
+                .encode_utf16()
+                .chain([0])
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(dns_server_flags(false), u64::from(DNS_SETTING_NAMESERVER));
+        assert_eq!(
+            dns_server_flags(true),
+            u64::from(DNS_SETTING_NAMESERVER | DNS_SETTING_IPV6)
+        );
+    }
+
+    #[test]
+    fn empty_dns_family_uses_a_non_null_empty_string() {
+        assert_eq!(dns_server_text(&[], false), vec![0]);
+        assert_eq!(
+            dns_server_text(&["1.1.1.1".parse().expect("IPv4")], true),
+            vec![0]
+        );
     }
 
     #[test]

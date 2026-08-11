@@ -31,15 +31,15 @@ class _ProfileIdentityDialog extends StatefulWidget {
 
 class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog> {
   late final TextEditingController _nameController;
-  late final TextEditingController _secretController;
+  late final TextEditingController _licenseController;
   late final FocusNode _nameFocusNode;
-  late final FocusNode _secretFocusNode;
+  late final FocusNode _licenseFocusNode;
   late int _step;
   IdentityProvisioningMethod _method = IdentityProvisioningMethod.register;
   String? _nameError;
-  String? _secretError;
+  String? _licenseError;
   String? _operationError;
-  bool _showSecret = false;
+  bool _showLicense = false;
   bool _submitting = false;
 
   AppStrings get _strings => widget.controller.strings;
@@ -50,17 +50,17 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog> {
     super.initState();
     _step = _isRepair ? 1 : 0;
     _nameController = TextEditingController(text: widget.profile?.name ?? '');
-    _secretController = TextEditingController();
+    _licenseController = TextEditingController();
     _nameFocusNode = FocusNode();
-    _secretFocusNode = FocusNode();
+    _licenseFocusNode = FocusNode();
   }
 
   @override
   void dispose() {
-    _secretController.clear();
-    _secretFocusNode.dispose();
+    _licenseController.clear();
+    _licenseFocusNode.dispose();
     _nameFocusNode.dispose();
-    _secretController.dispose();
+    _licenseController.dispose();
     _nameController.dispose();
     super.dispose();
   }
@@ -92,35 +92,35 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog> {
       return;
     }
 
-    String? secret;
-    if (_method == IdentityProvisioningMethod.importSecret) {
-      secret = _secretController.text.trim();
-      _secretController.clear();
-      if (secret.isEmpty) {
-        secret = null;
-        setState(() => _secretError = _strings.get('required'));
-        _secretFocusNode.requestFocus();
+    String? licenseKey;
+    if (_method == IdentityProvisioningMethod.registerWithLicense) {
+      licenseKey = _licenseController.text.trim();
+      _licenseController.clear();
+      if (licenseKey.isEmpty) {
+        licenseKey = null;
+        setState(() => _licenseError = _strings.get('required'));
+        _licenseFocusNode.requestFocus();
         return;
       }
     }
 
     setState(() {
       _submitting = true;
-      _secretError = null;
+      _licenseError = null;
       _operationError = null;
     });
     final success = _isRepair
         ? await widget.controller.provisionProfileIdentity(
             widget.profile!,
             method: _method,
-            warpSecret: secret,
+            licenseKey: licenseKey,
           )
         : await widget.controller.createProfileWithIdentity(
             name,
             method: _method,
-            warpSecret: secret,
+            licenseKey: licenseKey,
           );
-    secret = null;
+    licenseKey = null;
     if (!mounted) return;
     if (success) {
       Navigator.of(context).pop(true);
@@ -155,7 +155,7 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog> {
           onPressed: _submitting
               ? null
               : () {
-                  _secretController.clear();
+                  _licenseController.clear();
                   Navigator.of(context).pop(false);
                 },
           child: Text(_strings.get('cancel')),
@@ -196,8 +196,6 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        Text(_strings.get('profile_name_step_help')),
-        const SizedBox(height: 18),
         TextField(
           controller: _nameController,
           focusNode: _nameFocusNode,
@@ -223,16 +221,14 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        Text(_strings.get('profile_identity_step_help')),
-        const SizedBox(height: 12),
         RadioGroup<IdentityProvisioningMethod>(
           groupValue: _method,
           onChanged: (value) {
             if (_submitting || value == null) return;
-            _secretController.clear();
+            _licenseController.clear();
             setState(() {
               _method = value;
-              _secretError = null;
+              _licenseError = null;
               _operationError = null;
             });
           },
@@ -244,37 +240,37 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog> {
                 secondary: const Icon(LucideIcons.userPlus),
               ),
               RadioListTile<IdentityProvisioningMethod>(
-                value: IdentityProvisioningMethod.importSecret,
-                title: Text(_strings.get('manual_secret')),
-                secondary: const Icon(LucideIcons.keyRound),
+                value: IdentityProvisioningMethod.registerWithLicense,
+                title: Text(_strings.get('use_license_key')),
+                secondary: const Icon(LucideIcons.badgePlus),
               ),
             ],
           ),
         ),
-        if (_method == IdentityProvisioningMethod.importSecret) ...<Widget>[
+        if (_method ==
+            IdentityProvisioningMethod.registerWithLicense) ...<Widget>[
           const SizedBox(height: 10),
           TextField(
-            controller: _secretController,
-            focusNode: _secretFocusNode,
+            controller: _licenseController,
+            focusNode: _licenseFocusNode,
             autofocus: true,
-            obscureText: !_showSecret,
+            obscureText: !_showLicense,
             enableSuggestions: false,
             autocorrect: false,
             textInputAction: TextInputAction.done,
             decoration: InputDecoration(
-              labelText: _strings.get('warp_secret'),
-              helperText: _strings.get('secret_help'),
-              errorText: _secretError,
+              labelText: _strings.get('warp_license_key'),
+              errorText: _licenseError,
               suffixIcon: IconButton(
                 tooltip: _strings.get(
-                  _showSecret ? 'hide_secret' : 'show_secret',
+                  _showLicense ? 'hide_license' : 'show_license',
                 ),
-                onPressed: () => setState(() => _showSecret = !_showSecret),
-                icon: Icon(_showSecret ? LucideIcons.eyeOff : LucideIcons.eye),
+                onPressed: () => setState(() => _showLicense = !_showLicense),
+                icon: Icon(_showLicense ? LucideIcons.eyeOff : LucideIcons.eye),
               ),
             ),
             onChanged: (_) {
-              if (_secretError != null) setState(() => _secretError = null);
+              if (_licenseError != null) setState(() => _licenseError = null);
             },
             onSubmitted: (_) => _submit(),
           ),

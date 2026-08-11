@@ -166,19 +166,6 @@ where
                     self.coordinator.packet_session_attached(),
                 ))
             }
-            agent_request::Payload::PauseKillSwitch(request) => {
-                let operation_id = parse_operation_id(&request.operation_id)
-                    .map_err(|error| (request_id.clone(), error))?;
-                let state = self
-                    .coordinator
-                    .pause(operation_id, request.seconds, caller)
-                    .await
-                    .map_err(|error| (request_id.clone(), ServiceError::Coordinator(error)))?;
-                agent_response::Payload::State(state_to_proto(
-                    &state,
-                    self.coordinator.packet_session_attached(),
-                ))
-            }
             agent_request::Payload::Recover(_) => {
                 self.coordinator
                     .recover_stale()
@@ -359,6 +346,16 @@ where
     Backend: PrivilegedBackend + 'static,
 {
     serve_until(service, policy, pipe_name, std::future::pending()).await
+}
+
+/// Verifies that the fixed Agent pipe name, security descriptor, and first
+/// server instance can be created, then immediately releases the handle.
+/// This is safe for installer diagnostics because it accepts no client and
+/// performs no privileged network operation.
+pub fn validate_pipe_creation(pipe_name: &str) -> Result<(), ServerError> {
+    validate_pipe_name(pipe_name)?;
+    drop(create_agent_pipe(pipe_name, true)?);
+    Ok(())
 }
 
 pub async fn serve_until<Backend, Shutdown>(
@@ -574,7 +571,9 @@ fn state_to_proto(journal: &RecoveryJournal, packet_session_attached: bool) -> A
             RecoveryPhase::Preparing => agent_v1::AgentPhase::Preparing as i32,
             RecoveryPhase::Prepared => agent_v1::AgentPhase::Prepared as i32,
             RecoveryPhase::Active => agent_v1::AgentPhase::Active as i32,
-            RecoveryPhase::Paused => agent_v1::AgentPhase::Paused as i32,
+            // Legacy journals may still deserialize as Paused after captive-portal
+            // removal; surface them as recovery-required until recover_stale runs.
+            RecoveryPhase::Paused => agent_v1::AgentPhase::RecoveryRequired as i32,
             RecoveryPhase::Recovering => agent_v1::AgentPhase::Recovering as i32,
             RecoveryPhase::RecoveryRequired => agent_v1::AgentPhase::RecoveryRequired as i32,
         },
@@ -777,6 +776,13 @@ mod tests {
     };
 
     use super::*;
+
+    #[tokio::test]
+    async fn startup_pipe_validation_releases_the_first_instance() {
+        let pipe_name = format!("{AGENT_PIPE_NAME}.test-{}", Uuid::new_v4());
+        validate_pipe_creation(&pipe_name).expect("first validation");
+        validate_pipe_creation(&pipe_name).expect("released validation pipe");
+    }
 
     struct RejectingBackend;
 

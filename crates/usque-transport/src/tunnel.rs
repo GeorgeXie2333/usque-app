@@ -59,10 +59,10 @@ pub(crate) enum MasqueSendHalf {
 }
 
 impl MasqueSendHalf {
-    pub(crate) async fn send_packet(&mut self, packet: &[u8]) -> Result<(), TransportError> {
+    pub(crate) async fn send_owned_packet(&mut self, packet: Bytes) -> Result<(), TransportError> {
         match self {
-            Self::Http3(send) => send.send_packet(packet).await,
-            Self::Http2(send) => send.send_packet(packet).await,
+            Self::Http3(send) => send.send_owned_packet(packet).await,
+            Self::Http2(send) => send.send_packet(&packet).await,
         }
     }
 

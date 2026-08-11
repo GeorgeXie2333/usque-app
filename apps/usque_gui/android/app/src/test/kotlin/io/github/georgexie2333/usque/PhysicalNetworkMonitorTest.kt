@@ -102,7 +102,7 @@ class PhysicalNetworkMonitorTest {
             ),
         )
         assertEquals(2L, generation.get())
-        // Forced rebuild paths (disconnect/clear/captive) call bump() independently.
+        // Forced rebuild paths (disconnect/clear) call bump() independently.
         assertEquals(3L, generation.bump())
         assertEquals(3L, generation.get())
     }

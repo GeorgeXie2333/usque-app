@@ -37,15 +37,20 @@ impl Netstack {
                     );
                 }
 
-                let mut sock = tcp::Socket::new(self.tcp_buffer(), self.tcp_buffer());
+                let (mut sock, allocation) = match self.new_outbound_tcp_socket() {
+                    Ok(value) => value,
+                    Err(error) => return Response::Error(error),
+                };
 
                 if let Err(e) = sock.connect(self.iface.context(), remote_endpoint, local_endpoint)
                 {
+                    self.release_unregistered_tcp_buffer(allocation);
                     tracing::error!(error = %e, "tcp connect");
                     return Response::Error(e.into());
                 }
 
                 let handle = self.socket_set.add(sock);
+                self.register_tcp_buffer_allocation(handle, allocation);
 
                 Response::WouldBlock {
                     handle: Some(handle),
@@ -116,7 +121,8 @@ impl Netstack {
     /// Drop all TCP sockets that have finished closing.
     #[tracing::instrument(skip_all)]
     pub(crate) fn drain_tcp_closes(&mut self) {
-        self.pending_tcp_closes.retain(|&handle| {
+        let pending = core::mem::take(&mut self.pending_tcp_closes);
+        for handle in pending {
             let state = {
                 let sock = self.socket_set.get::<tcp::Socket>(handle);
                 sock.state()
@@ -125,10 +131,11 @@ impl Netstack {
             let should_remove = state == tcp::State::Closed;
             if should_remove {
                 self.socket_set.remove(handle);
+                self.release_tcp_buffer_allocation(handle);
+            } else {
+                self.pending_tcp_closes.push(handle);
             }
-
-            !should_remove
-        });
+        }
     }
 
     fn check_conn(&mut self, handle: SocketHandle, orig_cmd: TcpStreamCommand) -> Response {

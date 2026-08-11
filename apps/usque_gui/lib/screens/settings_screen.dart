@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -17,7 +18,6 @@ class SettingsScreen extends StatelessWidget {
     final strings = controller.strings;
     return PageFrame(
       title: strings.get('settings'),
-      subtitle: strings.get('settings_subtitle'),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
@@ -108,6 +108,36 @@ class SettingsScreen extends StatelessWidget {
               ],
             ),
           ),
+          if (defaultTargetPlatform != TargetPlatform.android) ...<Widget>[
+            const SizedBox(height: 16),
+            Panel(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  SectionTitle(
+                    icon: LucideIcons.monitorCog,
+                    title: strings.get('system_integration'),
+                  ),
+                  const SizedBox(height: 12),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    secondary: const Icon(LucideIcons.power),
+                    title: Text(strings.get('start_on_boot')),
+                    value: controller.startOnBoot,
+                    onChanged: controller.setStartOnBoot,
+                  ),
+                  if (defaultTargetPlatform == TargetPlatform.windows)
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      secondary: const Icon(LucideIcons.panelTopClose),
+                      title: Text(strings.get('close_to_tray')),
+                      value: controller.closeToTray,
+                      onChanged: controller.setCloseToTray,
+                    ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 16),
           Panel(
             child: Column(
@@ -115,14 +145,12 @@ class SettingsScreen extends StatelessWidget {
                 SectionTitle(
                   icon: LucideIcons.refreshCw,
                   title: strings.get('updates'),
-                  subtitle: strings.get('check_updates_help'),
                 ),
                 const SizedBox(height: 12),
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   secondary: const Icon(LucideIcons.bell),
                   title: Text(strings.get('check_updates')),
-                  subtitle: Text(strings.get('check_updates_help')),
                   value: controller.updateChecksEnabled,
                   onChanged: controller.setUpdateChecks,
                 ),
@@ -156,62 +184,29 @@ class SettingsScreen extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(height: 16),
           Panel(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
                 SectionTitle(
-                  icon: LucideIcons.keyRound,
-                  title: strings.get('identity'),
-                  subtitle: strings.get('identity_secure'),
-                  trailing: StatusPill(
-                    label: strings.get('system_vault'),
-                    tone: StatusTone.success,
-                    icon: LucideIcons.lockKeyhole,
-                  ),
+                  icon: LucideIcons.slidersHorizontal,
+                  title: strings.get('advanced'),
                 ),
-                const SizedBox(height: 20),
-                DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surfaceContainerLow,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Row(
-                      children: <Widget>[
-                        Icon(LucideIcons.keyRound, size: 19),
-                        SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            'WARP Secret  ••••••••••••••••••••••••',
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: FilledButton.tonalIcon(
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) =>
+                            AdvancedSettingsScreen(controller: controller),
+                      ),
                     ),
+                    icon: const Icon(LucideIcons.chevronRight),
+                    label: Text(strings.get('open_advanced')),
                   ),
                 ),
               ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          Panel(
-            child: SectionTitle(
-              icon: LucideIcons.slidersHorizontal,
-              title: strings.get('advanced'),
-              subtitle: strings.get('advanced_help'),
-              trailing: FilledButton.tonalIcon(
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) =>
-                        AdvancedSettingsScreen(controller: controller),
-                  ),
-                ),
-                icon: const Icon(LucideIcons.chevronRight),
-                label: Text(strings.get('open_advanced')),
-              ),
             ),
           ),
         ],

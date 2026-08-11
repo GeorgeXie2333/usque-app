@@ -3,7 +3,7 @@ use std::{
         Arc,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
-    time::{Duration, SystemTime},
+    time::Duration,
 };
 
 use async_trait::async_trait;
@@ -139,6 +139,43 @@ where
 
     pub async fn state(&self) -> RecoveryJournal {
         self.journal.lock().await.clone()
+    }
+
+    /// Finalizes journal entries whose exact Wintun adapter has already been
+    /// removed by an earlier best-effort recovery pass. Interface addresses,
+    /// MTU, and DNS state cannot survive removal of that same adapter, so these
+    /// receipts no longer require another Windows mutation. This deliberately
+    /// does not cover routes because a default-route receipt can also contain
+    /// physical-interface split exclusions that still need explicit cleanup.
+    pub async fn reconcile_removed_adapter_dependencies(&self) -> Result<bool, CoordinatorError> {
+        let mut journal = self.journal.lock().await;
+        if journal.phase != RecoveryPhase::RecoveryRequired {
+            return Ok(false);
+        }
+
+        let original = journal.clone();
+        let reconciled = (0..journal.steps.len())
+            .filter(|index| dependency_satisfied_by_restored_wintun(&journal, *index))
+            .collect::<Vec<_>>();
+        if reconciled.is_empty() {
+            return Ok(false);
+        }
+        for index in reconciled {
+            journal.steps[index].state = MutationState::Restored;
+        }
+        if journal
+            .steps
+            .iter()
+            .all(|step| step.state == MutationState::Restored)
+        {
+            let generation = journal.generation;
+            *journal = RecoveryJournal::clean(generation);
+        }
+        if let Err(error) = self.store.save(&mut journal) {
+            *journal = original;
+            return Err(error.into());
+        }
+        Ok(true)
     }
 
     pub fn packet_session_attached(&self) -> bool {
@@ -551,6 +588,62 @@ where
     ) -> Result<RecoveryJournal, CoordinatorError> {
         validate_caller(&caller)?;
         let mut journal = self.journal.lock().await;
+        if journal.phase == RecoveryPhase::Active
+            && journal.operation_kind == Some(OperationKind::Tunnel)
+        {
+            ensure_owner(&journal, operation_id, &caller)?;
+            if journal.steps.iter().any(|step| {
+                step.kind == MutationKind::SystemProxy && step.state != MutationState::Restored
+            }) {
+                return Err(CoordinatorError::DuplicateStep(MutationKind::SystemProxy));
+            }
+            let receipt = self
+                .backend
+                .plan_system_proxy(operation_id, &caller, &settings)
+                .await?;
+            if receipt.kind() != MutationKind::SystemProxy {
+                return Err(CoordinatorError::BackendReceiptMismatch {
+                    expected: MutationKind::SystemProxy,
+                    actual: receipt.kind(),
+                });
+            }
+            journal.steps.push(MutationRecord {
+                kind: MutationKind::SystemProxy,
+                state: MutationState::Intended,
+                receipt,
+            });
+            self.store.save(&mut journal)?;
+            let index = journal.steps.len() - 1;
+            let applied = match self
+                .backend
+                .apply_system_proxy(journal.steps[index].receipt.clone())
+                .await
+            {
+                Ok(receipt) if receipt.kind() == MutationKind::SystemProxy => receipt,
+                Ok(receipt) => {
+                    let error = CoordinatorError::BackendReceiptMismatch {
+                        expected: MutationKind::SystemProxy,
+                        actual: receipt.kind(),
+                    };
+                    return Err(self
+                        .rollback_appended_system_proxy(&mut journal, index, error.to_string())
+                        .await);
+                }
+                Err(error) => {
+                    return Err(self
+                        .rollback_appended_system_proxy(&mut journal, index, error.to_string())
+                        .await);
+                }
+            };
+            journal.steps[index].receipt = applied;
+            journal.steps[index].state = MutationState::Applied;
+            if let Err(error) = self.store.save(&mut journal) {
+                return Err(self
+                    .rollback_appended_system_proxy(&mut journal, index, error.to_string())
+                    .await);
+            }
+            return Ok(journal.clone());
+        }
         ensure_clean(&journal)?;
         *journal = RecoveryJournal {
             schema_version: crate::journal::JOURNAL_SCHEMA_VERSION,
@@ -646,38 +739,70 @@ where
     ) -> Result<RecoveryJournal, CoordinatorError> {
         let mut journal = self.journal.lock().await;
         ensure_owner(&journal, operation_id, caller)?;
-        ensure_operation_kind(&journal, OperationKind::SystemProxy)?;
-        self.recover_locked(&mut journal).await?;
+        if journal.operation_kind == Some(OperationKind::Tunnel) {
+            if journal.phase != RecoveryPhase::Active {
+                return Err(CoordinatorError::InvalidPhase {
+                    expected: "active",
+                    actual: journal.phase,
+                });
+            }
+            let Some(index) = journal.steps.iter().position(|step| {
+                step.kind == MutationKind::SystemProxy && step.state != MutationState::Restored
+            }) else {
+                return Ok(journal.clone());
+            };
+            if let Err(error) = self
+                .backend
+                .restore_step(&journal.steps[index].receipt)
+                .await
+            {
+                journal.phase = RecoveryPhase::RecoveryRequired;
+                let _ = self.store.save(&mut journal);
+                return Err(error.into());
+            }
+            journal.steps[index].state = MutationState::Restored;
+            self.store.save(&mut journal)?;
+            journal.steps.remove(index);
+            self.store.save(&mut journal)?;
+        } else {
+            ensure_operation_kind(&journal, OperationKind::SystemProxy)?;
+            self.recover_locked(&mut journal).await?;
+        }
         Ok(journal.clone())
     }
 
-    pub async fn pause(
+    async fn rollback_appended_system_proxy(
         &self,
-        operation_id: Uuid,
-        seconds: u32,
-        caller: &AuthenticatedCaller,
-    ) -> Result<RecoveryJournal, CoordinatorError> {
-        if !(1..=600).contains(&seconds) {
-            return Err(CoordinatorError::InvalidPause(seconds));
+        journal: &mut RecoveryJournal,
+        index: usize,
+        apply: String,
+    ) -> CoordinatorError {
+        let recovery = self
+            .backend
+            .restore_step(&journal.steps[index].receipt)
+            .await;
+        match recovery {
+            Ok(()) => {
+                journal.steps.remove(index);
+                match self.store.save(journal) {
+                    Ok(()) => CoordinatorError::Backend(BackendError::Operation(apply)),
+                    Err(error) => CoordinatorError::ApplyAndRecovery {
+                        apply,
+                        recovery: format!(
+                            "persist active tunnel after system-proxy rollback: {error}"
+                        ),
+                    },
+                }
+            }
+            Err(recovery) => {
+                journal.phase = RecoveryPhase::RecoveryRequired;
+                let _ = self.store.save(journal);
+                CoordinatorError::ApplyAndRecovery {
+                    apply,
+                    recovery: recovery.to_string(),
+                }
+            }
         }
-        let mut journal = self.journal.lock().await;
-        ensure_owner(&journal, operation_id, caller)?;
-        ensure_operation_kind(&journal, OperationKind::Tunnel)?;
-        if journal.phase != RecoveryPhase::Active {
-            return Err(CoordinatorError::InvalidPhase {
-                expected: "active",
-                actual: journal.phase,
-            });
-        }
-        if let Err(error) = self.restore_steps_locked(&mut journal).await {
-            journal.phase = RecoveryPhase::RecoveryRequired;
-            self.store.save(&mut journal)?;
-            return Err(error);
-        }
-        journal.phase = RecoveryPhase::Paused;
-        journal.pause_deadline_unix_seconds = Some(unix_now().saturating_add(i64::from(seconds)));
-        self.store.save(&mut journal)?;
-        Ok(journal.clone())
     }
 
     async fn apply_new_step(
@@ -778,6 +903,13 @@ where
                 continue;
             }
             let kind = journal.steps[index].kind;
+            if dependency_satisfied_by_restored_wintun(journal, index) {
+                journal.steps[index].state = MutationState::Restored;
+                if let Err(error) = self.store.save(journal) {
+                    failures.push(format!("persist {kind:?} recovery: {error}"));
+                }
+                continue;
+            }
             match self
                 .backend
                 .restore_step(&journal.steps[index].receipt)
@@ -801,6 +933,38 @@ where
             Err(CoordinatorError::RecoveryFailures(failures.join("; ")))
         }
     }
+}
+
+fn dependency_satisfied_by_restored_wintun(
+    journal: &RecoveryJournal,
+    dependency_index: usize,
+) -> bool {
+    let dependency = &journal.steps[dependency_index];
+    if dependency.state == MutationState::Restored {
+        return false;
+    }
+
+    journal.steps.iter().any(|adapter| {
+        if adapter.kind != MutationKind::WintunAdapter || adapter.state != MutationState::Restored {
+            return false;
+        }
+        let MutationReceipt::WintunAdapter {
+            adapter_guid,
+            interface_luid,
+            ..
+        } = &adapter.receipt
+        else {
+            return false;
+        };
+        match &dependency.receipt {
+            MutationReceipt::InterfaceConfiguration {
+                interface_luid: dependency_luid,
+                ..
+            } => dependency_luid == interface_luid,
+            MutationReceipt::Dns { interface_guid, .. } => interface_guid == adapter_guid,
+            _ => false,
+        }
+    })
 }
 
 fn ensure_clean(journal: &RecoveryJournal) -> Result<(), CoordinatorError> {
@@ -854,13 +1018,6 @@ fn validate_caller(caller: &AuthenticatedCaller) -> Result<(), CoordinatorError>
         return Err(CoordinatorError::InvalidCaller);
     }
     Ok(())
-}
-
-fn unix_now() -> i64 {
-    SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64
 }
 
 #[derive(Debug, Error)]
@@ -926,8 +1083,6 @@ pub enum CoordinatorError {
         expected: MutationKind,
         actual: MutationKind,
     },
-    #[error("captive portal pause must be between 1 and 600 seconds: {0}")]
-    InvalidPause(u32),
     #[error("apply failed ({apply}) and recovery also failed ({recovery})")]
     ApplyAndRecovery { apply: String, recovery: String },
     #[error("one or more recovery operations failed after all cleanup steps were attempted: {0}")]
@@ -1351,6 +1506,89 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn removed_wintun_supersedes_its_stale_interface_receipt() {
+        let backend = Arc::new(MockBackend::default());
+        let (_directory, coordinator) = coordinator(Arc::clone(&backend));
+        let operation = Uuid::new_v4();
+        let owner = caller();
+        coordinator
+            .prepare(operation, plan(), owner.clone())
+            .await
+            .expect("prepare");
+        backend
+            .fail_restore
+            .lock()
+            .await
+            .insert(MutationKind::InterfaceConfiguration);
+
+        assert!(matches!(
+            coordinator.rollback(operation, &owner).await,
+            Err(CoordinatorError::RecoveryFailures(_))
+        ));
+        let state = coordinator.state().await;
+        assert_eq!(state.phase, RecoveryPhase::RecoveryRequired);
+        assert_eq!(
+            state
+                .steps
+                .iter()
+                .find(|step| step.kind == MutationKind::WintunAdapter)
+                .map(|step| step.state),
+            Some(MutationState::Restored)
+        );
+        let interface_attempts_before = backend
+            .restored
+            .lock()
+            .await
+            .iter()
+            .filter(|kind| **kind == MutationKind::InterfaceConfiguration)
+            .count();
+
+        coordinator
+            .recover_stale()
+            .await
+            .expect("removed adapter makes its interface receipt complete");
+
+        assert_eq!(coordinator.state().await.phase, RecoveryPhase::Clean);
+        let interface_attempts_after = backend
+            .restored
+            .lock()
+            .await
+            .iter()
+            .filter(|kind| **kind == MutationKind::InterfaceConfiguration)
+            .count();
+        assert_eq!(interface_attempts_after, interface_attempts_before);
+    }
+
+    #[tokio::test]
+    async fn startup_reconciliation_clears_journal_without_backend_mutation() {
+        let backend = Arc::new(MockBackend::default());
+        let (_directory, coordinator) = coordinator(Arc::clone(&backend));
+        let operation = Uuid::new_v4();
+        let owner = caller();
+        coordinator
+            .prepare(operation, plan(), owner.clone())
+            .await
+            .expect("prepare");
+        backend
+            .fail_restore
+            .lock()
+            .await
+            .insert(MutationKind::InterfaceConfiguration);
+        assert!(coordinator.rollback(operation, &owner).await.is_err());
+        let restore_attempts_before = backend.restored.lock().await.len();
+
+        assert!(
+            coordinator
+                .reconcile_removed_adapter_dependencies()
+                .await
+                .expect("journal-only reconciliation")
+        );
+
+        assert_eq!(coordinator.state().await.phase, RecoveryPhase::Clean);
+        assert_eq!(backend.restored.lock().await.len(), restore_attempts_before);
+    }
+
+    #[tokio::test]
     async fn journal_write_failure_cannot_prevent_os_cleanup_attempts() {
         let backend = Arc::new(MockBackend::default());
         let (directory, coordinator) = coordinator(Arc::clone(&backend));
@@ -1631,32 +1869,31 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn pause_restores_physical_state_before_recording_a_deadline() {
+    async fn legacy_paused_journal_is_recovered_on_startup() {
+        let directory = tempfile::tempdir().expect("tempdir");
         let backend = Arc::new(MockBackend::default());
-        let (_directory, coordinator) = coordinator(Arc::clone(&backend));
+        let store = JournalStore::new(directory.path().join("journal.json"));
         let operation = Uuid::new_v4();
         let owner = caller();
-        coordinator
-            .prepare(operation, plan(), owner.clone())
-            .await
-            .expect("prepare");
-        coordinator
-            .open_packet_session(operation, 1024 * 1024, &owner)
-            .await
-            .expect("packet");
-        coordinator.commit(operation, &owner).await.expect("commit");
-        let paused = coordinator
-            .pause(operation, 600, &owner)
-            .await
-            .expect("pause");
-        assert_eq!(paused.phase, RecoveryPhase::Paused);
-        assert!(
-            paused
-                .steps
-                .iter()
-                .all(|step| step.state == MutationState::Restored)
-        );
-        assert!(paused.pause_deadline_unix_seconds.is_some());
+        let mut legacy = RecoveryJournal {
+            schema_version: crate::journal::JOURNAL_SCHEMA_VERSION,
+            generation: 1,
+            phase: RecoveryPhase::Paused,
+            operation_kind: Some(OperationKind::Tunnel),
+            operation_id: Some(operation),
+            owner_sid: Some(owner.user_sid.clone()),
+            owner_process_id: Some(owner.process_id),
+            plan: Some(plan()),
+            pause_deadline_unix_seconds: Some(1_700_000_000),
+            steps: Vec::new(),
+        };
+        // Seed a restored-style journal like a pre-removal captive-portal pause.
+        store.save(&mut legacy).expect("seed paused journal");
+        let coordinator = AgentCoordinator::open(store, Arc::clone(&backend)).expect("coordinator");
+        coordinator.recover_stale().await.expect("recover");
+        let state = coordinator.state().await;
+        assert_eq!(state.phase, RecoveryPhase::Clean);
+        assert!(state.pause_deadline_unix_seconds.is_none());
     }
 
     #[tokio::test]
@@ -1698,5 +1935,55 @@ mod tests {
             backend.restored.lock().await.as_slice(),
             [MutationKind::SystemProxy]
         );
+    }
+
+    #[tokio::test]
+    async fn system_proxy_can_join_and_leave_an_active_tunnel_transaction() {
+        let backend = Arc::new(MockBackend::default());
+        let (_directory, coordinator) = coordinator(Arc::clone(&backend));
+        let operation = Uuid::new_v4();
+        let owner = caller();
+        coordinator
+            .prepare(operation, plan(), owner.clone())
+            .await
+            .expect("prepare");
+        coordinator
+            .open_packet_session(operation, 1024 * 1024, &owner)
+            .await
+            .expect("packet");
+        coordinator.commit(operation, &owner).await.expect("commit");
+
+        let with_proxy = coordinator
+            .apply_system_proxy(
+                operation,
+                SystemProxySettings {
+                    proxy_uri: "127.0.0.1:8080".to_owned(),
+                    bypass_hosts: vec!["<local>".to_owned()],
+                },
+                owner.clone(),
+            )
+            .await
+            .expect("apply system proxy");
+        assert_eq!(with_proxy.phase, RecoveryPhase::Active);
+        assert_eq!(with_proxy.operation_kind, Some(OperationKind::Tunnel));
+        assert!(with_proxy.steps.iter().any(|step| {
+            step.kind == MutationKind::SystemProxy && step.state == MutationState::Applied
+        }));
+
+        let without_proxy = coordinator
+            .restore_system_proxy(operation, &owner)
+            .await
+            .expect("restore system proxy");
+        assert_eq!(without_proxy.phase, RecoveryPhase::Active);
+        assert_eq!(without_proxy.operation_kind, Some(OperationKind::Tunnel));
+        assert!(
+            without_proxy
+                .steps
+                .iter()
+                .all(|step| step.kind != MutationKind::SystemProxy)
+        );
+        assert!(without_proxy.steps.iter().any(|step| {
+            step.kind == MutationKind::KillSwitch && step.state == MutationState::Applied
+        }));
     }
 }

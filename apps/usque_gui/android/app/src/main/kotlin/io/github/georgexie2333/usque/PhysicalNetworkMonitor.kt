@@ -28,9 +28,6 @@ internal class PhysicalNetworkMonitor(
     private val selectionDelayMillis: Long = 100L,
 ) {
     interface Listener {
-        /** A candidate network reported VALIDATED while captive-portal handling may care. */
-        fun onValidatedNetworkAvailable()
-
         /**
          * Called only when the selected underlying network or family mask actually changes.
          * [generation] is the new network-restart generation after the bump.
@@ -67,13 +64,6 @@ internal class PhysicalNetworkMonitor(
             ) {
                 availableNetworks.compute(network) { _, previous ->
                     (previous ?: NetworkCandidate()).copy(capabilities = networkCapabilities)
-                }
-                if (
-                    networkCapabilities.hasCapability(
-                        NetworkCapabilities.NET_CAPABILITY_VALIDATED,
-                    )
-                ) {
-                    mainHandler.post { listener.onValidatedNetworkAvailable() }
                 }
                 scheduleSelection()
             }
@@ -256,7 +246,7 @@ internal fun networkScore(capabilities: NetworkCapabilities): Int {
 }
 
 /**
- * Generation counter used when disconnect/clear/pause paths force a transport rebuild
+ * Generation counter used when disconnect/clear paths force a transport rebuild
  * independent of ConnectivityManager callbacks. Covered by unit tests.
  */
 internal class NetworkRestartGeneration(

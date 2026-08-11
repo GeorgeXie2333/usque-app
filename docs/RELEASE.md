@@ -1,15 +1,17 @@
 # Protected public-beta release
 
-This is the operational contract for `v0.1.0-beta.1`. It does not declare the
+This is the operational contract for `v0.1.1-beta.2`. It does not declare the
 beta ready. The workflow remains fail-closed until the signing environments,
 hardware laboratories, and every required test are configured and pass.
 
 ## Repository protection
 
-- Protect the exact `v0.1.0-beta.1` tag pattern. Only the release maintainer may
+- Follow [GITHUB_GOVERNANCE.md](GITHUB_GOVERNANCE.md) when the repository is
+  made public and when the `main` ruleset is created.
+- Protect the exact `v0.1.1-beta.2` tag pattern. Only the release maintainer may
   create it. The release gate requires the tag to point to the current `main`
-  commit and verifies that the exact SHA has a successful `CI` push run before
-  any signing job can start.
+  commit and verifies that the exact SHA has a successful `ci.yml` push run,
+  including `CI / gate`, before any signing job can start.
 - Require approval on the `release-signing`, `release-lab`, and
   `release-publish` GitHub Environments.
 - Do not put signing material in repository variables, files, artifacts, logs,
@@ -37,7 +39,6 @@ The repository or protected environments provide these non-secret variables:
 | --- | --- |
 | `WINDOWS_SIGNER_SHA256` | SHA-256 of the raw Authenticode signer certificate, 64 hex characters |
 | `ANDROID_SIGNER_SHA256` | SHA-256 of the Android signing certificate, 64 hex characters |
-| `WINDOWS_ARM64_RUNNER` | Optional single runner label; defaults to `windows-11-arm` |
 | `WINDOWS_LAB_RUNNER` | JSON array of protected self-hosted Windows-lab labels |
 | `ANDROID_LAB_RUNNER` | JSON array of protected self-hosted Android-lab labels |
 
@@ -64,7 +65,7 @@ and every other trust result remain fatal.
 
 ## Artifact flow
 
-1. The exact tag builds three signed MSIs and four signed APKs in the
+1. The exact tag builds one signed x64-v2 MSI and one signed arm64-v8a APK in the
    approval-protected signing environment.
 2. Each platform job verifies its certificate identity and creates GitHub build
    provenance.
@@ -80,13 +81,8 @@ and every other trust result remain fatal.
 
 The fixed primary files are:
 
-- `usque-v0.1.0-beta.1-windows-x64-v1.msi`
-- `usque-v0.1.0-beta.1-windows-x64-v2.msi`
-- `usque-v0.1.0-beta.1-windows-arm64.msi`
-- `usque-v0.1.0-beta.1-android-arm64-v8a.apk`
-- `usque-v0.1.0-beta.1-android-armeabi-v7a.apk`
-- `usque-v0.1.0-beta.1-android-x86_64.apk`
-- `usque-v0.1.0-beta.1-android-universal.apk`
+- `usque-v0.1.1-beta.2-windows-x64-v2.msi`
+- `usque-v0.1.1-beta.2-android-arm64-v8a.apk`
 
 ## Windows package rules
 
@@ -98,16 +94,34 @@ MSI build = SemVer patch * 100 + beta ordinal
 stable ordinal = 99
 ```
 
-Therefore `v0.1.0-beta.1` is MSI ProductVersion `0.1.1`; the actual SemVer is
+Therefore `v0.1.1-beta.2` is MSI ProductVersion `0.1.102`; the actual SemVer is
 kept in ProductName and all filenames. Equal-version major upgrades are enabled
-so a user can replace x64-v1, x64-v2, and ARM64 variants without parallel
-products owning `Program Files\Usque`. WiX validation therefore suppresses only
+so a validation build can replace the same product without parallel products
+owning `Program Files\Usque`. WiX validation therefore suppresses only
 ICE61, whose older-version-only rule conflicts with that deliberate policy; all
 other standard ICE checks remain enabled.
 
 The build rejects unsigned project EXE/DLL files, a signer mismatch, PDBs,
 reparse points, a modified Wintun DLL, a wrong service command, a wrong
-uninstall action sequence, a 32-bit component, or an ICE validation failure.
+uninstall action/condition sequence, a 32-bit component, or an ICE validation
+failure. True uninstall must run emergency WFP cleanup, detailed journal
+recovery, optional current-user data cleanup, and clean-state finalization after
+the service stops and before its binary is removed. Major upgrade runs the
+first two actions but must skip user-data cleanup and clean-state finalization
+so the replacement service retains both user state and its machine-state
+directory. The full installer UI exposes `INSTALLFOLDER`; its selected value is
+persisted in the 64-bit machine registry and reused by a major upgrade.
+
+The isolated Windows uninstall result must prove that the service, Usque WFP
+objects, Usque Wintun adapter, owned routes, interface DNS changes, system proxy
+owner marker, program files, Start Menu shortcut, and clean ProgramData journal
+are absent or restored as appropriate. The laboratory must exercise both
+uninstall choices: the default path preserves current-user Profiles,
+preferences, logs, caches, and Credential Manager records; the checked path
+deletes only the uninstalling user's Usque directories and exact credential
+namespace. Silent uninstall preserves data unless
+`USQUE_REMOVE_USER_DATA=1` is explicitly supplied. The shared Wintun driver
+package is not an Usque-owned uninstall target.
 The MSI is never installed on an ordinary development or Codex host.
 
 ## Laboratory boundary

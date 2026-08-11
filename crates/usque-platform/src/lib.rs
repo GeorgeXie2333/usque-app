@@ -28,7 +28,6 @@ pub struct PlatformCapabilities {
     pub kill_switch: bool,
     pub system_proxy: bool,
     pub secure_storage: bool,
-    pub captive_portal_pause: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -45,7 +44,6 @@ pub struct TunnelPlan {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct AppliedPlatformState {
     pub plan: Option<TunnelPlan>,
-    pub captive_portal_pause_deadline_unix_seconds: Option<i64>,
 }
 
 #[async_trait]
@@ -54,7 +52,6 @@ pub trait PlatformAgent: Send + Sync {
     async fn prepare(&self, plan: TunnelPlan) -> Result<(), AgentError>;
     async fn commit(&self) -> Result<(), AgentError>;
     async fn rollback(&self) -> Result<(), AgentError>;
-    async fn pause_for_captive_portal(&self, seconds: u32) -> Result<(), AgentError>;
     async fn state(&self) -> Result<AppliedPlatformState, AgentError>;
 }
 
@@ -141,7 +138,6 @@ impl PlatformAgent for MockPlatformAgent {
             kill_switch: true,
             system_proxy: true,
             secure_storage: false,
-            captive_portal_pause: true,
         }
     }
 
@@ -164,36 +160,15 @@ impl PlatformAgent for MockPlatformAgent {
         Ok(())
     }
 
-    async fn pause_for_captive_portal(&self, seconds: u32) -> Result<(), AgentError> {
-        if seconds == 0 || seconds > 600 {
-            return Err(AgentError::InvalidPause(seconds));
-        }
-        self.state
-            .lock()
-            .await
-            .captive_portal_pause_deadline_unix_seconds =
-            Some(chrono_like_unix_now() + i64::from(seconds));
-        Ok(())
-    }
-
     async fn state(&self) -> Result<AppliedPlatformState, AgentError> {
         Ok(self.state.lock().await.clone())
     }
-}
-
-fn chrono_like_unix_now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64
 }
 
 #[derive(Debug, Error)]
 pub enum AgentError {
     #[error("platform operation was called in an invalid order: {0}")]
     InvalidOrder(String),
-    #[error("captive portal pause must be between 1 and 600 seconds, got {0}")]
-    InvalidPause(u32),
     #[error("platform permission was denied: {0}")]
     PermissionDenied(String),
     #[error("platform operation failed: {0}")]
@@ -206,19 +181,4 @@ pub enum VaultError {
     InvalidSecretSize,
     #[error("the platform credential operation failed: {0}")]
     Platform(String),
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn captive_portal_pause_is_capped_at_ten_minutes() {
-        let agent = MockPlatformAgent::default();
-        assert!(agent.pause_for_captive_portal(600).await.is_ok());
-        assert!(matches!(
-            agent.pause_for_captive_portal(601).await,
-            Err(AgentError::InvalidPause(601))
-        ));
-    }
 }

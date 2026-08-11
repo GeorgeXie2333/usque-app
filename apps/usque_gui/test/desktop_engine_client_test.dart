@@ -58,6 +58,10 @@ const List<int> _goldenProfileBytes = <int>[
   0x28, 0x01, //   dns mode REMOTE
   // }
   0x70, 0x01, // dns mode TUNNEL
+  0x7a, 0x04, // frontends {
+  0x10, 0x01, //   socks5 true
+  0x18, 0x01, //   http true
+  // }
 ];
 
 void main() {

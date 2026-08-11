@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" RequiredVersion="5.0.2">
+<Wix
+  xmlns="http://wixtoolset.org/schemas/v4/wxs"
+  xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
+  RequiredVersion="5.0.2">
   <Package
     Name="Usque $(DisplayVersion)"
     Manufacturer="Usque contributors"
@@ -13,8 +16,8 @@
       Windows Installer compares only numeric versions. The build script maps
       SemVer prereleases monotonically and keeps the user-facing SemVer in the
       package name. Equal-version upgrades are intentional: they let users
-      replace x64-v1, x64-v2, and ARM64 variants without two products owning
-      the same installation directory.
+      replace a validation build of the same x64-v2 product without two
+      products owning the same installation directory.
     -->
     <MajorUpgrade
       AllowSameVersionUpgrades="yes"
@@ -22,12 +25,28 @@
       Schedule="afterInstallInitialize" />
 
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+    <ui:WixUI
+      Id="UsqueWixUI_InstallDir"
+      InstallDirectory="INSTALLFOLDER" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(LicensePath)" />
 
     <Property Id="ARPCOMMENTS" Value="Unofficial Consumer WARP client. Installed variant: $(Variant)." />
     <Property Id="ARPNOMODIFY" Value="1" />
     <Property Id="ARPNOREPAIR" Value="1" />
     <Property Id="ARPPRODUCTICON" Value="UsqueProductIcon.ico" />
+    <Property Id="USQUE_REMOVE_USER_DATA" Value="0" Secure="yes" />
     <Icon Id="UsqueProductIcon.ico" SourceFile="$(IconPath)" />
+
+    <!-- Preserve a user-selected target directory across major upgrades. -->
+    <Property Id="INSTALLFOLDER" Secure="yes">
+      <RegistrySearch
+        Id="UsqueInstallLocationSearch"
+        Root="HKLM"
+        Key="Software\Usque"
+        Name="InstallLocation"
+        Type="directory"
+        Bitness="always64" />
+    </Property>
 
     <Property Id="WINDOWSBUILDNUMBER" Secure="yes">
       <RegistrySearch
@@ -83,6 +102,12 @@
         Name="DisplayVersion"
         Type="string"
         Value="$(DisplayVersion)" />
+      <RegistryValue
+        Root="HKLM"
+        Key="Software\Usque"
+        Name="InstallLocation"
+        Type="string"
+        Value="[INSTALLFOLDER]" />
     </Component>
 
     <Component
@@ -134,12 +159,26 @@
     </Component>
 
     <!--
-      Both deferred actions run as LocalSystem. Emergency WFP cleanup uses
+      Deferred actions run as LocalSystem. The install preflight executes the
+      exact installed Agent before SCM is asked to start it, so missing Wintun,
+      an invalid signer argument, or an unusable secure pipe fails immediately
+      instead of making StartServices retry for several minutes.
+
+      Emergency WFP cleanup uses
       stable Usque GUIDs and does not depend on a readable journal, so a later
       detailed recovery failure can never leave the machine blocked offline.
       Detailed recovery remains fatal: uninstall/major-upgrade must not remove
       the Agent while leaving routes, DNS, proxy state, or an adapter behind.
+      A final true-uninstall-only action removes the proven-clean ProgramData
+      journal. It is deliberately skipped during a major upgrade.
     -->
+    <CustomAction
+      Id="ValidateAgentStartup"
+      FileRef="UsqueAgentExecutable"
+      ExeCommand="--validate-only --signer-sha256 $(SignerSha256)"
+      Execute="deferred"
+      Impersonate="no"
+      Return="check" />
     <CustomAction
       Id="EmergencyRemoveKillSwitch"
       FileRef="UsqueAgentExecutable"
@@ -154,7 +193,38 @@
       Execute="deferred"
       Impersonate="no"
       Return="check" />
+    <!--
+      This action deliberately impersonates the uninstalling user: Usque's
+      Credential Manager entries and application-data directories are
+      current-user resources. It runs only after explicit opt-in and never
+      during a major upgrade.
+    -->
+    <CustomAction
+      Id="PurgeUserData"
+      FileRef="UsqueEngineExecutable"
+      ExeCommand='--config &quot;[LocalAppDataFolder]Usque\config.json&quot; --purge-user-data --preferences-directory &quot;[AppDataFolder]io.github.georgexie2333\Usque&quot;'
+      Execute="deferred"
+      Impersonate="yes"
+      Return="check" />
+    <CustomAction
+      Id="RemoveUserStartupRegistration"
+      FileRef="UsqueGuiExecutable"
+      ExeCommand="--remove-startup"
+      Execute="deferred"
+      Impersonate="yes"
+      Return="check" />
+    <CustomAction
+      Id="FinalizeAgentUninstall"
+      FileRef="UsqueAgentExecutable"
+      ExeCommand="--finalize-uninstall"
+      Execute="deferred"
+      Impersonate="no"
+      Return="check" />
     <InstallExecuteSequence>
+      <Custom
+        Action="ValidateAgentStartup"
+        After="InstallServices"
+        Condition='NOT Installed AND NOT REMOVE~="ALL"' />
       <Custom
         Action="EmergencyRemoveKillSwitch"
         After="StopServices"
@@ -163,6 +233,18 @@
         Action="RecoverAgentState"
         After="EmergencyRemoveKillSwitch"
         Condition='REMOVE~="ALL"' />
+      <Custom
+        Action="PurgeUserData"
+        After="RecoverAgentState"
+        Condition='REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE AND USQUE_REMOVE_USER_DATA="1"' />
+      <Custom
+        Action="RemoveUserStartupRegistration"
+        After="PurgeUserData"
+        Condition='REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE' />
+      <Custom
+        Action="FinalizeAgentUninstall"
+        After="RemoveUserStartupRegistration"
+        Condition='REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE' />
     </InstallExecuteSequence>
 
     <Feature Id="Complete" Title="Usque" Level="1">

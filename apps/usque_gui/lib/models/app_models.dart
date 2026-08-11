@@ -11,7 +11,6 @@ enum ConnectionPhase {
   degraded,
   reconnecting,
   disconnecting,
-  captivePortalPaused,
   error,
 }
 
@@ -25,9 +24,22 @@ enum DnsMode { tunnel, localConfigured, system }
 
 enum ProxyDnsMode { remote, localConfigured, system }
 
-enum IdentityProvisioningMethod { register, importSecret }
+enum IdentityProvisioningMethod { register, registerWithLicense }
 
 enum ProfileIdentityState { ready, missing, invalid }
+
+enum LicenseState { free, warpPlus, unknown, cleanupPending }
+
+enum FrontendKind { tunnel, socks5, http, systemProxy }
+
+enum FrontendPhase {
+  disabled,
+  preparing,
+  active,
+  degraded,
+  reconnecting,
+  error,
+}
 
 enum ThemePreference { system, light, dark }
 
@@ -58,16 +70,95 @@ class UpdateCheckResult {
   }
 }
 
+class PlatformPreferences {
+  const PlatformPreferences({
+    this.startOnBoot = false,
+    this.closeToTray = true,
+  });
+
+  final bool startOnBoot;
+  final bool closeToTray;
+
+  factory PlatformPreferences.fromMap(Map<Object?, Object?> map) {
+    return PlatformPreferences(
+      startOnBoot: map['start_on_boot'] as bool? ?? false,
+      closeToTray: map['close_to_tray'] as bool? ?? true,
+    );
+  }
+}
+
 class ProfileCatalog {
   const ProfileCatalog({
     required this.profiles,
     required this.activeProfileId,
     this.identityStates = const <String, ProfileIdentityState>{},
+    this.identityStatuses = const <String, ProfileIdentityStatus>{},
   });
 
   final List<UsqueProfile> profiles;
   final String activeProfileId;
   final Map<String, ProfileIdentityState> identityStates;
+  final Map<String, ProfileIdentityStatus> identityStatuses;
+}
+
+class ProfileIdentityStatus {
+  const ProfileIdentityStatus({
+    required this.state,
+    this.licenseState = LicenseState.unknown,
+    this.accountType = '',
+    this.cleanupPending = false,
+  });
+
+  final ProfileIdentityState state;
+  final LicenseState licenseState;
+  final String accountType;
+  final bool cleanupPending;
+}
+
+class FrontendSettings {
+  const FrontendSettings({
+    required this.tunnel,
+    required this.socks5,
+    required this.http,
+  });
+
+  const FrontendSettings.windowsDefault()
+    : tunnel = false,
+      socks5 = true,
+      http = true;
+
+  const FrontendSettings.androidDefault()
+    : tunnel = true,
+      socks5 = true,
+      http = true;
+
+  final bool tunnel;
+  final bool socks5;
+  final bool http;
+
+  bool get any => tunnel || socks5 || http;
+
+  FrontendSettings copyWith({bool? tunnel, bool? socks5, bool? http}) {
+    return FrontendSettings(
+      tunnel: tunnel ?? this.tunnel,
+      socks5: socks5 ?? this.socks5,
+      http: http ?? this.http,
+    );
+  }
+
+  factory FrontendSettings.fromMap(Map<String, Object?> map) {
+    return FrontendSettings(
+      tunnel: _bool(map, 'tunnel'),
+      socks5: _bool(map, 'socks5'),
+      http: _bool(map, 'http'),
+    );
+  }
+
+  Map<String, Object?> toMap() => <String, Object?>{
+    'tunnel': tunnel,
+    'socks5': socks5,
+    'http': http,
+  };
 }
 
 class ProxySettings {
@@ -172,12 +263,13 @@ class UsqueProfile {
     this.autoConnect = false,
     this.bypassCidrs = const <String>[],
     this.proxy = const ProxySettings(),
+    this.frontends = const FrontendSettings.windowsDefault(),
   });
 
   static const defaultEndpointIpv4 = '162.159.198.2';
   static const defaultEndpointIpv6 = '2606:4700:103::2';
   static const defaultEndpointPort = 443;
-  static const defaultSni = 'www.visa.cn';
+  static const defaultSni = 'speed.cloudflare.com';
   static const defaultMtu = 1280;
   static const defaultDnsIpv4 = '1.1.1.1';
   static const defaultDnsIpv6 = '2606:4700:4700::1111';
@@ -201,9 +293,18 @@ class UsqueProfile {
   final bool autoConnect;
   final List<String> bypassCidrs;
   final ProxySettings proxy;
+  final FrontendSettings frontends;
 
   factory UsqueProfile.defaultProfile() {
-    return const UsqueProfile(id: defaultProfileId, name: 'Default');
+    final android = defaultTargetPlatform == TargetPlatform.android;
+    return UsqueProfile(
+      id: defaultProfileId,
+      name: 'Default',
+      frontends: android
+          ? const FrontendSettings.androidDefault()
+          : const FrontendSettings.windowsDefault(),
+      proxy: ProxySettings(systemProxy: !android),
+    );
   }
 
   UsqueProfile resetAdvancedDefaults() {
@@ -243,6 +344,7 @@ class UsqueProfile {
     bool? autoConnect,
     List<String>? bypassCidrs,
     ProxySettings? proxy,
+    FrontendSettings? frontends,
   }) {
     return UsqueProfile(
       id: id ?? this.id,
@@ -263,6 +365,7 @@ class UsqueProfile {
       autoConnect: autoConnect ?? this.autoConnect,
       bypassCidrs: bypassCidrs ?? this.bypassCidrs,
       proxy: proxy ?? this.proxy,
+      frontends: frontends ?? this.frontends,
     );
   }
 
@@ -286,6 +389,7 @@ class UsqueProfile {
       'auto_connect': autoConnect,
       'bypass_cidrs': bypassCidrs,
       'proxy': proxy.toMap(),
+      'frontends': frontends.toMap(),
     };
   }
 
@@ -310,10 +414,20 @@ class UsqueProfile {
       throw const FormatException('Missing proxy settings');
     }
 
+    final frontends = map['frontends'];
+    final legacyMode = _enumByName(OperatingMode.values, _string(map, 'mode'));
+    final migratedFrontends = frontends is Map
+        ? FrontendSettings.fromMap(Map<String, Object?>.from(frontends))
+        : FrontendSettings(
+            tunnel: legacyMode == OperatingMode.vpn,
+            socks5: legacyMode == OperatingMode.socks5,
+            http: legacyMode == OperatingMode.httpProxy,
+          );
+
     return UsqueProfile(
       id: id,
       name: name,
-      mode: _enumByName(OperatingMode.values, _string(map, 'mode')),
+      mode: legacyMode,
       transport: _enumByName(TransportPolicy.values, _string(map, 'transport')),
       ipPolicy: _enumByName(IpPolicy.values, _string(map, 'ip_policy')),
       endpointIpv4: _string(map, 'endpoint_v4'),
@@ -329,6 +443,7 @@ class UsqueProfile {
       autoConnect: _bool(map, 'auto_connect'),
       bypassCidrs: List<String>.unmodifiable(bypass),
       proxy: ProxySettings.fromMap(Map<String, Object?>.from(proxy)),
+      frontends: migratedFrontends,
     );
   }
 }
@@ -431,6 +546,34 @@ class ExitInfo {
       Object.hash(city, country, countryCode, flagSvg, ipv4, ipv6);
 }
 
+class FrontendRuntimeStatus {
+  const FrontendRuntimeStatus({
+    required this.kind,
+    required this.phase,
+    this.listeners = const <String>[],
+    this.errorCode,
+  });
+
+  final FrontendKind kind;
+  final FrontendPhase phase;
+  final List<String> listeners;
+  final String? errorCode;
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        other is FrontendRuntimeStatus &&
+            kind == other.kind &&
+            phase == other.phase &&
+            listEquals(listeners, other.listeners) &&
+            errorCode == other.errorCode;
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(kind, phase, Object.hashAll(listeners), errorCode);
+}
+
 class EngineSnapshot {
   const EngineSnapshot({
     this.phase = ConnectionPhase.disconnected,
@@ -446,10 +589,10 @@ class EngineSnapshot {
     this.killSwitchState,
     this.platformLockdown = false,
     this.alwaysOn = false,
-    this.captivePauseRemainingSeconds = 0,
     this.exit = const ExitInfo(),
     this.warning,
     this.errorCode,
+    this.frontends = const <FrontendRuntimeStatus>[],
   });
 
   final ConnectionPhase phase;
@@ -465,15 +608,13 @@ class EngineSnapshot {
   final String? killSwitchState;
   final bool platformLockdown;
   final bool alwaysOn;
-  final int captivePauseRemainingSeconds;
   final ExitInfo exit;
   final String? warning;
   final String? errorCode;
+  final List<FrontendRuntimeStatus> frontends;
 
   bool get isConnected =>
-      phase == ConnectionPhase.connected ||
-      phase == ConnectionPhase.degraded ||
-      phase == ConnectionPhase.captivePortalPaused;
+      phase == ConnectionPhase.connected || phase == ConnectionPhase.degraded;
 
   bool get isTransitional =>
       phase == ConnectionPhase.preparing ||
@@ -511,8 +652,6 @@ class EngineSnapshot {
       killSwitchState: map['kill_switch_state'] as String?,
       platformLockdown: map['platform_lockdown'] as bool? ?? false,
       alwaysOn: map['always_on'] as bool? ?? false,
-      captivePauseRemainingSeconds:
-          (map['captive_pause_remaining_seconds'] as num?)?.toInt() ?? 0,
       exit: ExitInfo(
         city: map['exit_city'] as String?,
         country: map['exit_country'] as String?,
@@ -523,6 +662,31 @@ class EngineSnapshot {
       ),
       warning: map['warning'] as String?,
       errorCode: map['error_code'] as String?,
+      frontends:
+          (map['frontends'] as List?)
+              ?.whereType<Map<Object?, Object?>>()
+              .map((value) {
+                final kind = FrontendKind.values.firstWhere(
+                  (item) => item.name == value['kind'],
+                  orElse: () => FrontendKind.tunnel,
+                );
+                final phase = FrontendPhase.values.firstWhere(
+                  (item) => item.name == value['phase'],
+                  orElse: () => FrontendPhase.error,
+                );
+                return FrontendRuntimeStatus(
+                  kind: kind,
+                  phase: phase,
+                  listeners:
+                      (value['listeners'] as List?)?.whereType<String>().toList(
+                        growable: false,
+                      ) ??
+                      const <String>[],
+                  errorCode: value['error_code'] as String?,
+                );
+              })
+              .toList(growable: false) ??
+          const <FrontendRuntimeStatus>[],
     );
   }
 
@@ -543,11 +707,10 @@ class EngineSnapshot {
             killSwitchState == other.killSwitchState &&
             platformLockdown == other.platformLockdown &&
             alwaysOn == other.alwaysOn &&
-            captivePauseRemainingSeconds ==
-                other.captivePauseRemainingSeconds &&
             exit == other.exit &&
             warning == other.warning &&
-            errorCode == other.errorCode;
+            errorCode == other.errorCode &&
+            listEquals(frontends, other.frontends);
   }
 
   @override
@@ -565,9 +728,9 @@ class EngineSnapshot {
     killSwitchState,
     platformLockdown,
     alwaysOn,
-    captivePauseRemainingSeconds,
     exit,
     warning,
     errorCode,
+    Object.hashAll(frontends),
   ]);
 }

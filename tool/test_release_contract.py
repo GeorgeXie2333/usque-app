@@ -17,7 +17,7 @@ class ReleaseContractTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
-        self.tag = "v0.1.0-beta.1"
+        self.tag = "v0.1.1-beta.2"
         self.commit = "a" * 40
         for name in release_contract.expected_artifact_names(self.tag):
             (self.root / name).write_bytes(name.encode())
@@ -25,12 +25,12 @@ class ReleaseContractTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
-    def test_manifest_requires_the_exact_seven_artifacts(self) -> None:
+    def test_manifest_requires_the_exact_two_artifacts(self) -> None:
         manifest = release_contract.create_manifest(
             self.root, self.tag, self.commit, "b" * 64, "c" * 64
         )
         index = release_contract.artifact_index(manifest)
-        self.assertEqual(7, len(index))
+        self.assertEqual(2, len(index))
         release_contract.verify_artifacts(self.root, manifest)
 
     def test_manifest_rejects_an_unexpected_primary_artifact(self) -> None:
@@ -75,6 +75,24 @@ class ReleaseContractTests(unittest.TestCase):
         with self.assertRaises(release_contract.ContractError):
             release_contract.create_ready(manifest_path, windows_path, android_path)
 
+    def test_ready_rejects_a_proxy_ratio_below_the_rtt_gate(self) -> None:
+        manifest = release_contract.create_manifest(
+            self.root, self.tag, self.commit, "b" * 64, "c" * 64
+        )
+        manifest_path = self.root / "release-manifest.json"
+        release_contract.write_json(manifest_path, manifest)
+        manifest_sha = release_contract.sha256_file(manifest_path)
+        windows_path = self.root / "windows-evidence.json"
+        android_path = self.root / "android-evidence.json"
+        windows = self._evidence(manifest, manifest_sha, "windows")
+        windows["tests"]["performance.oracle_thresholds"]["proxy_throughput_mbps"][1][
+            "http_connect_four_mbps"
+        ] = 89
+        release_contract.write_json(windows_path, windows)
+        release_contract.write_json(android_path, self._evidence(manifest, manifest_sha, "android"))
+        with self.assertRaises(release_contract.ContractError):
+            release_contract.create_ready(manifest_path, windows_path, android_path)
+
     def _evidence(
         self, manifest: dict[str, object], manifest_sha: str, platform: str
     ) -> dict[str, object]:
@@ -112,6 +130,18 @@ class ReleaseContractTests(unittest.TestCase):
                 "candidate_p95_latency_ms": 11,
                 "oracle_memory_mib": 100,
                 "candidate_memory_mib": 125,
+                "proxy_throughput_mbps": [
+                    {
+                        "rtt_ms": rtt_ms,
+                        "tun_single_mbps": 100,
+                        "http_connect_single_mbps": 80,
+                        "socks5_tcp_single_mbps": 80,
+                        "tun_four_mbps": 100,
+                        "http_connect_four_mbps": 90,
+                        "socks5_tcp_four_mbps": 90,
+                    }
+                    for rtt_ms in (20, 100, 300)
+                ],
             }
         )
 

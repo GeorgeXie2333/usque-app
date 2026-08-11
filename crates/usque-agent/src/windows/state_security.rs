@@ -26,6 +26,8 @@ use windows_sys::Win32::{
     },
 };
 
+use crate::journal::{JournalError, JournalStore};
+
 const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
 const AGENT_STATE_SDDL: &str = "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)";
 
@@ -50,6 +52,47 @@ pub fn secure_agent_state_path(journal_path: &Path) -> Result<(), StateSecurityE
         apply_protected_dacl(journal_path)?;
     }
     Ok(())
+}
+
+/// Deletes only clean, machine-owned recovery state during a true uninstall.
+/// Unknown files are never recursively removed. The parent directories are
+/// pruned only when they are the expected `Usque\agent` path and are empty.
+pub fn finalize_uninstall_state(journal_path: &Path) -> Result<(), StateSecurityError> {
+    secure_agent_state_path(journal_path)?;
+    JournalStore::new(journal_path).remove_if_clean()?;
+
+    let agent_directory = journal_path
+        .parent()
+        .ok_or_else(|| StateSecurityError::InvalidPath(journal_path.to_path_buf()))?;
+    if agent_directory
+        .file_name()
+        .is_some_and(|name| name.eq_ignore_ascii_case("agent"))
+    {
+        remove_directory_if_empty(agent_directory)?;
+        if let Some(product_directory) = agent_directory.parent()
+            && product_directory
+                .file_name()
+                .is_some_and(|name| name.eq_ignore_ascii_case("Usque"))
+        {
+            remove_directory_if_empty(product_directory)?;
+        }
+    }
+    Ok(())
+}
+
+fn remove_directory_if_empty(path: &Path) -> io::Result<()> {
+    match fs::remove_dir(path) {
+        Ok(()) => Ok(()),
+        Err(error)
+            if matches!(
+                error.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::DirectoryNotEmpty
+            ) =>
+        {
+            Ok(())
+        }
+        Err(error) => Err(error),
+    }
 }
 
 fn reject_existing_reparse_points(path: &Path) -> Result<(), StateSecurityError> {
@@ -156,6 +199,8 @@ pub enum StateSecurityError {
     UnsafeEntry(PathBuf),
     #[error("Agent recovery state filesystem failed: {0}")]
     Io(#[from] io::Error),
+    #[error("Agent recovery journal finalization failed: {0}")]
+    Journal(#[from] JournalError),
     #[error("Windows {0} failed while securing Agent recovery state: {1}")]
     Windows(&'static str, io::Error),
 }

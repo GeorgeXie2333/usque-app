@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -77,185 +76,145 @@ class _ProxyScreenState extends State<ProxyScreen> {
     final currentProxy = profile.proxy;
     return PageFrame(
       title: strings.get('proxy'),
-      subtitle: strings.get('mode_help'),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          Panel(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                SectionTitle(
-                  icon: LucideIcons.waypoints,
-                  title: strings.get('mode'),
-                  subtitle: strings.get('mode_help'),
-                ),
-                const SizedBox(height: 22),
-                SegmentedButton<OperatingMode>(
-                  segments: <ButtonSegment<OperatingMode>>[
-                    ButtonSegment<OperatingMode>(
-                      value: OperatingMode.vpn,
-                      icon: const Icon(LucideIcons.shield),
-                      label: Text(strings.get('vpn_mode')),
-                    ),
-                    ButtonSegment<OperatingMode>(
-                      value: OperatingMode.socks5,
-                      icon: const Icon(LucideIcons.route),
-                      label: Text(strings.get('socks_mode')),
-                    ),
-                    ButtonSegment<OperatingMode>(
-                      value: OperatingMode.httpProxy,
-                      icon: const Icon(LucideIcons.globe2),
-                      label: Text(strings.get('http_mode')),
-                    ),
-                  ],
-                  selected: <OperatingMode>{profile.mode},
-                  onSelectionChanged: (selection) => widget.controller
-                      .updateProfile(profile.copyWith(mode: selection.first)),
-                  showSelectedIcon: false,
-                ),
-              ],
+          if (currentProxy.exposesLan) ...<Widget>[
+            WarningBanner(
+              title: strings.get('lan_warning'),
+              message: strings.get('lan_warning_body'),
             ),
-          ),
-          if (profile.mode != OperatingMode.vpn) ...<Widget>[
             const SizedBox(height: 16),
-            if (currentProxy.exposesLan) ...<Widget>[
-              WarningBanner(
-                title: strings.get('lan_warning'),
-                message: strings.get('lan_warning_body'),
+          ],
+          if (currentProxy.dnsMode != ProxyDnsMode.remote) ...<Widget>[
+            WarningBanner(
+              title: strings.get('dns_leak_warning'),
+              message: strings.get('dns_leak_warning_body'),
+            ),
+            const SizedBox(height: 16),
+          ],
+          _listenerPanel(context, profile, socks5: true),
+          const SizedBox(height: 16),
+          _listenerPanel(context, profile, socks5: false),
+          const SizedBox(height: 16),
+          Panel(
+            child: DropdownButtonFormField<ProxyDnsMode>(
+              initialValue: currentProxy.dnsMode,
+              decoration: InputDecoration(
+                prefixIcon: const Icon(LucideIcons.server),
+                labelText: strings.get('proxy_dns_mode'),
               ),
-              const SizedBox(height: 16),
-            ],
-            if (currentProxy.dnsMode != ProxyDnsMode.remote) ...<Widget>[
-              WarningBanner(
-                title: strings.get('dns_leak_warning'),
-                message: strings.get('dns_leak_warning_body'),
-              ),
-              const SizedBox(height: 16),
-            ],
-            Panel(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  SectionTitle(
-                    icon: profile.mode == OperatingMode.socks5
-                        ? LucideIcons.route
-                        : LucideIcons.globe2,
-                    title: strings.get(
-                      profile.mode == OperatingMode.socks5
-                          ? 'socks_listener'
-                          : 'http_listener',
-                    ),
-                    subtitle: profile.mode == OperatingMode.socks5
-                        ? strings.get('socks_capabilities')
-                        : strings.get('http_capabilities'),
-                  ),
-                  const SizedBox(height: 22),
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      final narrow = constraints.maxWidth < 640;
-                      final v4 = _AddressField(
-                        label: strings.get('listen_ipv4'),
-                        controller: profile.mode == OperatingMode.socks5
-                            ? _socksV4
-                            : _httpV4,
-                        onChanged: (_) => _saveListeners(profile),
-                      );
-                      final v6 = _AddressField(
-                        label: strings.get('listen_ipv6'),
-                        controller: profile.mode == OperatingMode.socks5
-                            ? _socksV6
-                            : _httpV6,
-                        onChanged: (_) => _saveListeners(profile),
-                      );
-                      final port = SizedBox(
-                        width: narrow ? double.infinity : 150,
-                        child: TextField(
-                          controller: profile.mode == OperatingMode.socks5
-                              ? _socksPort
-                              : _httpPort,
-                          keyboardType: TextInputType.number,
-                          inputFormatters: <TextInputFormatter>[
-                            FilteringTextInputFormatter.digitsOnly,
-                          ],
-                          decoration: InputDecoration(
-                            labelText: strings.get('port'),
-                          ),
-                          onChanged: (_) => _saveListeners(profile),
-                        ),
-                      );
-                      if (narrow) {
-                        return Column(
-                          children: <Widget>[
-                            v4,
-                            const SizedBox(height: 12),
-                            v6,
-                            const SizedBox(height: 12),
-                            port,
-                          ],
-                        );
-                      }
-                      return Row(
-                        children: <Widget>[
-                          Expanded(child: v4),
-                          const SizedBox(width: 12),
-                          Expanded(child: v6),
-                          const SizedBox(width: 12),
-                          port,
-                        ],
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 14),
-                  DropdownButtonFormField<ProxyDnsMode>(
-                    initialValue: currentProxy.dnsMode,
-                    decoration: InputDecoration(
-                      prefixIcon: const Icon(LucideIcons.server),
-                      labelText: strings.get('proxy_dns_mode'),
-                      helperText: strings.get('remote_dns_help'),
-                    ),
-                    items: ProxyDnsMode.values
-                        .map(
-                          (mode) => DropdownMenuItem<ProxyDnsMode>(
-                            value: mode,
-                            child: Text(
-                              strings.get(switch (mode) {
-                                ProxyDnsMode.remote => 'proxy_dns_remote',
-                                ProxyDnsMode.localConfigured =>
-                                  'proxy_dns_configured',
-                                ProxyDnsMode.system => 'proxy_dns_system',
-                              }),
-                            ),
-                          ),
-                        )
-                        .toList(growable: false),
-                    onChanged: (value) {
-                      if (value != null) {
-                        widget.controller.updateProfile(
-                          profile.copyWith(
-                            proxy: currentProxy.copyWith(dnsMode: value),
-                          ),
-                        );
-                      }
-                    },
-                  ),
-                  if (profile.mode == OperatingMode.httpProxy &&
-                      defaultTargetPlatform == TargetPlatform.windows)
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      secondary: const Icon(LucideIcons.monitorCog),
-                      title: Text(strings.get('system_proxy')),
-                      value: currentProxy.systemProxy,
-                      onChanged: (value) => widget.controller.updateProfile(
-                        profile.copyWith(
-                          proxy: currentProxy.copyWith(systemProxy: value),
-                        ),
+              items: ProxyDnsMode.values
+                  .map(
+                    (mode) => DropdownMenuItem<ProxyDnsMode>(
+                      value: mode,
+                      child: Text(
+                        strings.get(switch (mode) {
+                          ProxyDnsMode.remote => 'proxy_dns_remote',
+                          ProxyDnsMode.localConfigured =>
+                            'proxy_dns_configured',
+                          ProxyDnsMode.system => 'proxy_dns_system',
+                        }),
                       ),
                     ),
-                ],
-              ),
+                  )
+                  .toList(growable: false),
+              onChanged: (value) {
+                if (value != null) {
+                  widget.controller.updateProfile(
+                    profile.copyWith(
+                      proxy: currentProxy.copyWith(dnsMode: value),
+                    ),
+                  );
+                }
+              },
             ),
-          ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _listenerPanel(
+    BuildContext context,
+    UsqueProfile profile, {
+    required bool socks5,
+  }) {
+    final strings = widget.controller.strings;
+    final enabled = socks5 ? profile.frontends.socks5 : profile.frontends.http;
+    final v4Controller = socks5 ? _socksV4 : _httpV4;
+    final v6Controller = socks5 ? _socksV6 : _httpV6;
+    final portController = socks5 ? _socksPort : _httpPort;
+    return Panel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          SectionTitle(
+            icon: socks5 ? LucideIcons.route : LucideIcons.globe2,
+            title: strings.get(socks5 ? 'socks_listener' : 'http_listener'),
+            subtitle: strings.get(
+              enabled
+                  ? (socks5 ? 'socks_capabilities' : 'http_capabilities')
+                  : 'output_disabled_in_profile',
+            ),
+          ),
+          const SizedBox(height: 22),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final narrow = constraints.maxWidth < 640;
+              final fields = <Widget>[
+                Expanded(
+                  child: _AddressField(
+                    label: strings.get('listen_ipv4'),
+                    controller: v4Controller,
+                    onChanged: (_) => _saveListeners(profile),
+                  ),
+                ),
+                Expanded(
+                  child: _AddressField(
+                    label: strings.get('listen_ipv6'),
+                    controller: v6Controller,
+                    onChanged: (_) => _saveListeners(profile),
+                  ),
+                ),
+                SizedBox(
+                  width: narrow ? double.infinity : 150,
+                  child: TextField(
+                    controller: portController,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: <TextInputFormatter>[
+                      FilteringTextInputFormatter.digitsOnly,
+                    ],
+                    decoration: InputDecoration(labelText: strings.get('port')),
+                    onChanged: (_) => _saveListeners(profile),
+                  ),
+                ),
+              ];
+              if (narrow) {
+                return Column(
+                  children: <Widget>[
+                    for (var index = 0; index < fields.length; index++) ...[
+                      if (fields[index] is Expanded)
+                        (fields[index] as Expanded).child
+                      else
+                        fields[index],
+                      if (index != fields.length - 1)
+                        const SizedBox(height: 12),
+                    ],
+                  ],
+                );
+              }
+              return Row(
+                children: <Widget>[
+                  fields[0],
+                  const SizedBox(width: 12),
+                  fields[1],
+                  const SizedBox(width: 12),
+                  fields[2],
+                ],
+              );
+            },
+          ),
         ],
       ),
     );

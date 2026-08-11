@@ -15,7 +15,9 @@ import android.os.Message
 import android.os.Messenger
 import android.os.ParcelFileDescriptor
 import android.os.RemoteException
+import android.service.quicksettings.TileService
 import androidx.annotation.Keep
+import androidx.core.content.ContextCompat
 import org.json.JSONObject
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
@@ -30,20 +32,29 @@ class UsqueVpnService : VpnService() {
         const val ACTION_CONNECT = "io.github.georgexie2333.usque.CONNECT"
         const val ACTION_DISCONNECT = "io.github.georgexie2333.usque.DISCONNECT"
         const val ACTION_CONTROL = "io.github.georgexie2333.usque.CONTROL"
+        const val ACTION_CONNECT_LAST = "io.github.georgexie2333.usque.CONNECT_LAST"
+        const val ACTION_TOGGLE = "io.github.georgexie2333.usque.TOGGLE"
+        private const val ACTION_RETAIN_TILE_CONNECTION =
+            "io.github.georgexie2333.usque.RETAIN_TILE_CONNECTION"
         const val EXTRA_PROFILE_JSON = "profile_json"
 
         const val MSG_SNAPSHOT = 1
         const val MSG_REGISTER_EVENTS = 2
         const val MSG_UNREGISTER_EVENTS = 3
         const val MSG_EVENT = 4
-        const val MSG_PAUSE_CAPTIVE_PORTAL = 5
+
+        // 5 was MSG_PAUSE_CAPTIVE_PORTAL (removed).
         const val MSG_CLEAR_ALL_DATA = 6
         const val MSG_DISCONNECT = 7
+        const val MSG_TILE_TOGGLE = 8
 
         private const val NATIVE_STATUS_INTERVAL_MILLIS = 1_000L
         private const val PHYSICAL_NETWORK_WAIT_MILLIS = 8_000L
-        private const val RECOVERY_PREFERENCES = "usque_vpn_recovery_v1"
-        private const val RECOVERY_PROFILE = "active_profile_json"
+        internal const val RECOVERY_PREFERENCES = "usque_vpn_recovery_v1"
+        internal const val RECOVERY_PROFILE = "active_profile_json"
+        internal const val LAST_PROFILE = "last_profile_json"
+        internal const val START_ON_BOOT = "start_on_boot"
+        internal const val TILE_VPN_ACTIVE = "tile_vpn_active"
         private const val MAX_PROFILE_BYTES = 256 * 1024
     }
 
@@ -75,17 +86,12 @@ class UsqueVpnService : VpnService() {
     private val logStore by lazy { AndroidLogStore(this) }
     private val snapshotState = ServiceSnapshotState()
     private val notifications by lazy { VpnNotificationController(this) }
+    private var lastTilePresentation: QuickSettingsTileState.Presentation? = null
     private val networkMonitor =
         PhysicalNetworkMonitor(
             mainHandler = mainHandler,
             listener =
                 object : PhysicalNetworkMonitor.Listener {
-                    override fun onValidatedNetworkAvailable() {
-                        if (snapshotState.phase == "captivePortalPaused") {
-                            resumeFromCaptivePortalPause()
-                        }
-                    }
-
                     override fun onUnderlyingNetworkChanged(
                         selectedNetwork: Network?,
                         @Suppress("UNUSED_PARAMETER") selectedFamilyMask: Int,
@@ -100,7 +106,6 @@ class UsqueVpnService : VpnService() {
 
     @Volatile private var destroyed = false
     private var statusTask: ScheduledFuture<*>? = null
-    private var captivePauseTask: ScheduledFuture<*>? = null
 
     private val controlMessenger =
         Messenger(
@@ -124,11 +129,6 @@ class UsqueVpnService : VpnService() {
                         true
                     }
 
-                    MSG_PAUSE_CAPTIVE_PORTAL -> {
-                        pauseForCaptivePortal(message)
-                        true
-                    }
-
                     MSG_CLEAR_ALL_DATA -> {
                         clearAllData(message)
                         true
@@ -136,6 +136,11 @@ class UsqueVpnService : VpnService() {
 
                     MSG_DISCONNECT -> {
                         disconnect(stopService = true, request = message)
+                        true
+                    }
+
+                    MSG_TILE_TOGGLE -> {
+                        toggleFromTile(message)
                         true
                     }
 
@@ -172,6 +177,22 @@ class UsqueVpnService : VpnService() {
 
             ACTION_DISCONNECT -> {
                 disconnect(stopService = true)
+            }
+
+            ACTION_CONNECT_LAST -> {
+                connectLastProfile()
+            }
+
+            ACTION_TOGGLE -> {
+                if (recoveryPreferences.contains(RECOVERY_PROFILE)) {
+                    disconnect(stopService = true)
+                } else {
+                    connectLastProfile()
+                }
+            }
+
+            ACTION_RETAIN_TILE_CONNECTION -> {
+                Unit
             }
 
             null -> {
@@ -216,8 +237,6 @@ class UsqueVpnService : VpnService() {
         nativeRuntimeActive.set(false)
         statusTask?.cancel(false)
         statusTask = null
-        captivePauseTask?.cancel(false)
-        captivePauseTask = null
         eventClients.clear()
         NativeEngine.cancel()
         val descriptor = tunnel.getAndSet(null)
@@ -235,9 +254,6 @@ class UsqueVpnService : VpnService() {
     // Recovery state must be durable before starting the native connection.
     @SuppressLint("ApplySharedPref", "UseKtx")
     private fun beginConnection(profileJson: String) {
-        captivePauseTask?.cancel(false)
-        captivePauseTask = null
-        snapshotState.clearCaptivePause()
         if (profileJson.toByteArray(Charsets.UTF_8).size > MAX_PROFILE_BYTES) {
             startForeground(
                 VpnNotificationController.NOTIFICATION_ID,
@@ -268,6 +284,7 @@ class UsqueVpnService : VpnService() {
             !recoveryPreferences
                 .edit()
                 .putString(RECOVERY_PROFILE, profileJson)
+                .putString(LAST_PROFILE, profileJson)
                 .commit()
         ) {
             startForeground(
@@ -293,6 +310,7 @@ class UsqueVpnService : VpnService() {
             notifications.build("Preparing secure tunnel"),
         )
         snapshotState.reset("preparing")
+        notifyTileStateChanged()
         broadcastSnapshot()
 
         val staleDescriptor = tunnel.getAndSet(null)
@@ -313,6 +331,129 @@ class UsqueVpnService : VpnService() {
                 )
             }
         }
+    }
+
+    private fun connectLastProfile(request: Message? = null) {
+        val profileJson = recoveryPreferences.getString(LAST_PROFILE, null)
+        if (
+            profileJson == null ||
+            profileJson.toByteArray(Charsets.UTF_8).size > MAX_PROFILE_BYTES
+        ) {
+            request?.let {
+                replyControlError(
+                    it,
+                    "TILE_PROFILE_REQUIRED",
+                    "Open Usque and connect a VPN profile once before using the tile.",
+                )
+            }
+            stopSelf()
+            return
+        }
+
+        val profile = runCatching { JSONObject(profileJson) }.getOrNull()
+        val profileId = profile?.optString("id").orEmpty()
+        if (profile == null || profile.optString("mode") != "vpn" || profileId.isBlank()) {
+            request?.let {
+                replyControlError(
+                    it,
+                    "TILE_VPN_PROFILE_REQUIRED",
+                    "The last active profile does not have the Android VPN frontend enabled.",
+                )
+            }
+            stopSelf()
+            return
+        }
+
+        val hasIdentity =
+            runCatching {
+                SecureIdentityStore(this)
+                    .get(profileId, SecureIdentityStore.Record.WARP_SECRET)
+                    ?.let { secret ->
+                        val present = secret.isNotEmpty()
+                        secret.fill(0)
+                        present
+                    } ?: false
+            }.getOrDefault(false)
+        if (!hasIdentity) {
+            request?.let {
+                replyControlError(
+                    it,
+                    "TILE_IDENTITY_REQUIRED",
+                    "Open Usque and configure the WARP identity for this profile.",
+                )
+            }
+            stopSelf()
+            return
+        }
+
+        if (VpnService.prepare(this) != null) {
+            request?.let {
+                replyControlError(
+                    it,
+                    "TILE_VPN_PERMISSION_REQUIRED",
+                    "Open Usque to grant Android VPN permission.",
+                )
+            }
+            if (request == null) {
+                packageManager.getLaunchIntentForPackage(packageName)?.let { launch ->
+                    launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    startActivity(launch)
+                }
+            }
+            stopSelf()
+            return
+        }
+        val retained =
+            runCatching {
+                ContextCompat.startForegroundService(
+                    this,
+                    Intent(this, UsqueVpnService::class.java)
+                        .setAction(ACTION_RETAIN_TILE_CONNECTION),
+                )
+            }.isSuccess
+        if (!retained) {
+            request?.let {
+                replyControlError(
+                    it,
+                    "TILE_START_FAILED",
+                    "Android did not allow the VPN service to start from Quick Settings.",
+                )
+            }
+            stopSelf()
+            return
+        }
+        beginConnection(profileJson)
+        request?.let(::replyWithSnapshot)
+    }
+
+    private fun toggleFromTile(request: Message) {
+        val anyFrontendActive = activeProfileJson.get() != null
+        val vpnFrontendActive = anyFrontendActive && activeMode.get() == "vpn"
+        if (vpnFrontendActive) {
+            disconnect(stopService = true, request = request)
+        } else if (anyFrontendActive) {
+            replyControlError(
+                request,
+                "TILE_VPN_FRONTEND_INACTIVE",
+                "A proxy-only connection is active. Open Usque to enable the VPN frontend.",
+            )
+        } else {
+            connectLastProfile(request)
+        }
+    }
+
+    private fun notifyTileStateChanged() {
+        val nextPresentation =
+            QuickSettingsTileState.fromSnapshot(
+                snapshotState.phase,
+                activeProfileJson.get() != null && activeMode.get() == "vpn",
+            )
+        if (nextPresentation == lastTilePresentation) return
+        lastTilePresentation = nextPresentation
+        TileService.requestListeningState(
+            this,
+            android.content.ComponentName(this, UsqueTileService::class.java),
+        )
     }
 
     private fun startConnection(
@@ -573,13 +714,11 @@ class UsqueVpnService : VpnService() {
         nativeRuntimeActive.set(false)
         statusTask?.cancel(false)
         statusTask = null
-        captivePauseTask?.cancel(false)
-        captivePauseTask = null
-        snapshotState.clearCaptivePause()
         NativeEngine.cancel()
         val descriptor = tunnel.getAndSet(null)
         closeQuietly(descriptor)
         snapshotState.reset("disconnected")
+        notifyTileStateChanged()
         logStore.record(
             AndroidLogStore.Event.CONNECTION_STOPPED,
             phase = snapshotState.phase,
@@ -619,11 +758,9 @@ class UsqueVpnService : VpnService() {
         nativeRuntimeActive.set(false)
         statusTask?.cancel(false)
         statusTask = null
-        captivePauseTask?.cancel(false)
-        captivePauseTask = null
-        snapshotState.clearCaptivePause()
         snapshotState.phase = "disconnecting"
         snapshotState.warning = null
+        notifyTileStateChanged()
         broadcastSnapshot()
         NativeEngine.cancel()
         val descriptor = tunnel.getAndSet(null)
@@ -633,6 +770,7 @@ class UsqueVpnService : VpnService() {
             mainHandler.post {
                 if (connectionGeneration.get() == generation) {
                     snapshotState.reset("disconnected")
+                    notifyTileStateChanged()
                     broadcastSnapshot()
                     replyWithSnapshot(request)
                     stopForeground(STOP_FOREGROUND_REMOVE)
@@ -653,11 +791,6 @@ class UsqueVpnService : VpnService() {
             mode = activeMode.get(),
         )
 
-        if (snapshotState.phase == "captivePortalPaused") {
-            mainHandler.post(::resumeFromCaptivePortalPause)
-            return
-        }
-
         if (nativeRuntimeActive.get() || tunnel.get() != null) {
             if (tunnel.get() != null) {
                 setUnderlyingNetworks(
@@ -675,6 +808,7 @@ class UsqueVpnService : VpnService() {
                             "The underlying Android network changed; rebuilding the secure channel."
                         }
                     updateNotification()
+                    notifyTileStateChanged()
                     broadcastSnapshot()
                     ensureStatusTask()
                 }
@@ -697,100 +831,6 @@ class UsqueVpnService : VpnService() {
                 NATIVE_STATUS_INTERVAL_MILLIS,
                 TimeUnit.MILLISECONDS,
             )
-    }
-
-    private fun pauseForCaptivePortal(request: Message) {
-        val seconds = request.data.getInt("seconds", 0)
-        val error =
-            when {
-                seconds !in 1..600 -> {
-                    "Captive Portal Pause must be between 1 and 600 seconds."
-                }
-
-                activeMode.get() != "vpn" || tunnel.get() == null -> {
-                    "Captive Portal Pause requires an active Android VPN."
-                }
-
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && isLockdownEnabled -> {
-                    "Android Block connections without VPN is enabled. Disable it in system settings before pausing."
-                }
-
-                else -> {
-                    null
-                }
-            }
-        if (error != null) {
-            replyControlError(request, "CAPTIVE_PORTAL_PAUSE_UNAVAILABLE", error)
-            return
-        }
-
-        val profileJson = activeProfileJson.get()
-        if (profileJson == null) {
-            replyControlError(
-                request,
-                "CAPTIVE_PORTAL_PAUSE_UNAVAILABLE",
-                "The active VPN profile cannot be resumed safely.",
-            )
-            return
-        }
-        val generation = connectionGeneration.incrementAndGet()
-        networkMonitor.bumpGeneration()
-        nativeRuntimeActive.set(false)
-        statusTask?.cancel(false)
-        statusTask = null
-        captivePauseTask?.cancel(false)
-        snapshotState.scheduleCaptivePauseFromNow(seconds)
-        snapshotState.phase = "captivePortalPaused"
-        logStore.record(
-            AndroidLogStore.Event.CAPTIVE_PORTAL_PAUSED,
-            phase = snapshotState.phase,
-            mode = activeMode.get(),
-        )
-        snapshotState.warning =
-            "VPN and Kill Switch are paused temporarily for captive portal access."
-        updateNotification()
-        broadcastSnapshot()
-        replyWithSnapshot(request)
-
-        val descriptor = tunnel.getAndSet(null)
-        stopExecutor.execute {
-            NativeEngine.stop()
-            closeQuietly(descriptor)
-        }
-        captivePauseTask =
-            statusExecutor.scheduleWithFixedDelay(
-                {
-                    mainHandler.post {
-                        if (
-                            connectionGeneration.get() == generation &&
-                            snapshotState.phase == "captivePortalPaused"
-                        ) {
-                            if (snapshotState.captivePauseRemainingSeconds() == 0) {
-                                resumeFromCaptivePortalPause()
-                            } else {
-                                broadcastSnapshot()
-                            }
-                        }
-                    }
-                },
-                1,
-                1,
-                TimeUnit.SECONDS,
-            )
-    }
-
-    private fun resumeFromCaptivePortalPause() {
-        if (snapshotState.phase != "captivePortalPaused") return
-        val profileJson = activeProfileJson.get() ?: return
-        captivePauseTask?.cancel(false)
-        captivePauseTask = null
-        snapshotState.clearCaptivePause()
-        logStore.record(
-            AndroidLogStore.Event.CAPTIVE_PORTAL_RESUMED,
-            phase = snapshotState.phase,
-            mode = activeMode.get(),
-        )
-        beginConnection(profileJson)
     }
 
     private fun refreshNativeSnapshot() {
@@ -853,6 +893,7 @@ class UsqueVpnService : VpnService() {
                 transport = snapshotState.transport,
             )
             updateNotification()
+            notifyTileStateChanged()
         }
         broadcastSnapshot()
     }
@@ -864,6 +905,7 @@ class UsqueVpnService : VpnService() {
     ) {
         mainHandler.post {
             if (isCurrent(generation)) {
+                val phaseChanged = snapshotState.phase != nextPhase
                 snapshotState.phase = nextPhase
                 snapshotState.warning = nextWarning
                 snapshotState.errorCode = null
@@ -874,6 +916,7 @@ class UsqueVpnService : VpnService() {
                     transport = snapshotState.transport,
                 )
                 updateNotification()
+                if (phaseChanged) notifyTileStateChanged()
                 broadcastSnapshot()
             }
         }
@@ -905,6 +948,7 @@ class UsqueVpnService : VpnService() {
             snapshotState.transport = null
             snapshotState.addressFamily = null
             updateNotification()
+            notifyTileStateChanged()
             broadcastSnapshot()
         }
     }
@@ -963,7 +1007,13 @@ class UsqueVpnService : VpnService() {
         }
     }
 
-    private fun snapshotBundle(): Bundle = snapshotState.toBundle(platformFlags())
+    private fun snapshotBundle(): Bundle =
+        snapshotState.toBundle(platformFlags()).apply {
+            putBoolean(
+                TILE_VPN_ACTIVE,
+                activeProfileJson.get() != null && activeMode.get() == "vpn",
+            )
+        }
 
     private fun platformFlags(): ServiceSnapshotState.PlatformFlags =
         ServiceSnapshotState.PlatformFlags(

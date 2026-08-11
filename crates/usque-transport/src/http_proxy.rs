@@ -1,41 +1,66 @@
 use std::collections::HashSet;
-use std::io::Cursor;
+use std::convert::Infallible;
+use std::error::Error as StdError;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU16, Ordering};
-use std::time::Duration;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
+use bytes::Bytes;
+use http::header::{CONNECTION, CONTENT_TYPE, HOST, RETRY_AFTER};
 use http::uri::Authority;
-use tokio::io::{AsyncBufRead, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
+use http::{
+    HeaderMap, HeaderName, HeaderValue, Method, Request, Response, StatusCode, Uri, Version,
+};
+use http_body_util::combinators::BoxBody;
+use http_body_util::{BodyExt, Empty, Full};
+use hyper::body::{Body, Incoming};
+use hyper::client::conn::http1::SendRequest;
+use hyper::service::service_fn;
+use hyper_util::rt::{TokioIo, TokioTimer};
 use tokio::net::{TcpListener, TcpSocket, TcpStream};
-use tokio::sync::watch;
+use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore, watch};
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
+use tokio_util::sync::CancellationToken;
 use ts_netstack_smoltcp::CreateSocket;
 use ts_netstack_smoltcp::netcore::Channel;
 use ts_netstack_smoltcp::netsock::TcpStream as StackTcpStream;
-use usque_core::{IpPolicy, OperatingMode, Profile};
+use usque_core::{OperatingMode, Profile};
 
 use crate::dns::Resolver;
 use crate::h2::{MasqueTlsIdentity, TransportError};
-use crate::netstack::{PacketStack, RuntimeHealth, RuntimePath, TrafficSnapshot};
+use crate::netstack::{
+    PacketStack, ProxyPerformanceSnapshot, RuntimeHealth, RuntimePath, TrafficSnapshot,
+};
 use crate::pin_refresh::EndpointPinRefresher;
+use crate::port_allocator::next_tcp_port;
 use crate::socket::{SocketProtector, noop_socket_protector};
 
 const MAX_HEADER_BYTES: usize = 64 * 1024;
 const MAX_HEADERS: usize = 128;
-const MAX_CHUNK_LINE_BYTES: usize = 8 * 1024;
 const HEADER_TIMEOUT: Duration = Duration::from_secs(15);
 const REMOTE_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_TARGET_ADDRESSES: usize = 16;
+const MAX_SESSION_CONNECTIONS: usize = 32;
+const MAX_IDLE_PER_AUTHORITY: usize = 2;
+const UPSTREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(90);
 
-static NEXT_TCP_PORT: AtomicU16 = AtomicU16::new(49_152);
+type BoxError = Box<dyn StdError + Send + Sync>;
+type ProxyBody = BoxBody<Bytes, BoxError>;
 
 pub struct HttpProxyRuntime {
     stack: PacketStack,
+    frontend: HttpProxyFrontend,
+}
+
+pub(crate) struct HttpProxyFrontend {
     listener_tasks: Vec<JoinHandle<()>>,
     listeners: Vec<SocketAddr>,
+    cancellation: CancellationToken,
+    failure: watch::Receiver<Option<String>>,
+    performance: Arc<HttpPoolCounters>,
 }
 
 impl HttpProxyRuntime {
@@ -64,46 +89,14 @@ impl HttpProxyRuntime {
             return Err(TransportError::UnsupportedOperatingMode);
         }
 
-        let mut bound = Vec::with_capacity(profile.proxy.http_listeners.len());
-        for address in &profile.proxy.http_listeners {
-            bound.push(bind_listener(*address)?);
-        }
-
+        let bound = HttpProxyFrontend::prebind(profile)?;
         let assigned_ipv4 = identity.assigned_ipv4;
         let assigned_ipv6 = identity.assigned_ipv6;
         let mut stack =
             PacketStack::start_with_refresh(profile, Arc::new(identity), protector, pin_refresher)
                 .await?;
-        let resolver = Resolver::new(
-            stack.channel.clone(),
-            assigned_ipv4,
-            assigned_ipv6,
-            profile.dns_servers.clone(),
-            profile.proxy.dns_mode,
-            profile.ip_policy,
-        );
-        let context = Arc::new(HttpContext {
-            channel: stack.channel.clone(),
-            resolver,
-            assigned_ipv4,
-            assigned_ipv6,
-            ip_policy: profile.ip_policy,
-            cancellation: stack.cancellation.clone(),
-            failure: stack.failure_tx.clone(),
-            health: stack.subscribe_health(),
-        });
-
-        let listeners = bound
-            .iter()
-            .filter_map(|listener| listener.local_addr().ok())
-            .collect::<Vec<_>>();
-        let mut listener_tasks = Vec::with_capacity(bound.len());
-        for listener in bound {
-            let context = Arc::clone(&context);
-            listener_tasks.push(tokio::spawn(async move {
-                run_listener(listener, context).await;
-            }));
-        }
+        let frontend =
+            HttpProxyFrontend::activate(profile, assigned_ipv4, assigned_ipv6, &stack, bound);
 
         tokio::task::yield_now().await;
         let startup_failure = stack.failure.borrow().clone();
@@ -112,11 +105,7 @@ impl HttpProxyRuntime {
             return Err(TransportError::HttpProxy(message));
         }
 
-        Ok(Self {
-            stack,
-            listener_tasks,
-            listeners,
-        })
+        Ok(Self { stack, frontend })
     }
 
     pub fn path(&self) -> RuntimePath {
@@ -128,29 +117,35 @@ impl HttpProxyRuntime {
     }
 
     pub fn listeners(&self) -> &[SocketAddr] {
-        &self.listeners
+        self.frontend.listeners()
     }
 
     pub fn statistics(&self) -> TrafficSnapshot {
         self.stack.counters.snapshot()
     }
 
+    pub fn performance(&self) -> ProxyPerformanceSnapshot {
+        let mut snapshot = self.stack.performance();
+        self.frontend.augment_performance(&mut snapshot);
+        snapshot
+    }
+
     pub fn failure(&self) -> Option<String> {
-        self.stack.failure.borrow().clone()
+        self.stack
+            .failure
+            .borrow()
+            .clone()
+            .or_else(|| self.frontend.failure())
     }
 
     pub fn cancel_immediately(&mut self) {
         self.stack.cancel_immediately();
-        for task in &self.listener_tasks {
-            task.abort();
-        }
+        self.frontend.cancel_immediately();
     }
 
     pub async fn shutdown(&mut self) {
         self.cancel_immediately();
-        for task in self.listener_tasks.drain(..) {
-            let _ = task.await;
-        }
+        self.frontend.shutdown().await;
         self.stack.shutdown().await;
     }
 }
@@ -161,15 +156,125 @@ impl Drop for HttpProxyRuntime {
     }
 }
 
+impl HttpProxyFrontend {
+    pub(crate) fn prebind(profile: &Profile) -> Result<Vec<TcpListener>, TransportError> {
+        profile
+            .proxy
+            .http_listeners
+            .iter()
+            .copied()
+            .map(bind_listener)
+            .collect()
+    }
+
+    pub(crate) fn activate(
+        profile: &Profile,
+        assigned_ipv4: Ipv4Addr,
+        assigned_ipv6: Ipv6Addr,
+        stack: &PacketStack,
+        bound: Vec<TcpListener>,
+    ) -> Self {
+        let cancellation = stack.cancellation.child_token();
+        let (failure_tx, failure) = watch::channel(None);
+        let performance = Arc::new(HttpPoolCounters::default());
+        let resolver = Resolver::new(
+            stack.channel.clone(),
+            assigned_ipv4,
+            assigned_ipv6,
+            profile.dns_servers.clone(),
+            profile.proxy.dns_mode,
+        );
+        let context = Arc::new(HttpContext {
+            channel: stack.channel.clone(),
+            resolver,
+            assigned_ipv4,
+            assigned_ipv6,
+            cancellation: cancellation.clone(),
+            failure: failure_tx,
+            health: stack.subscribe_health(),
+            performance: Arc::clone(&performance),
+        });
+        let listeners = bound
+            .iter()
+            .filter_map(|listener| listener.local_addr().ok())
+            .collect::<Vec<_>>();
+        let listener_tasks = bound
+            .into_iter()
+            .map(|listener| {
+                let context = Arc::clone(&context);
+                tokio::spawn(async move {
+                    run_listener(listener, context).await;
+                })
+            })
+            .collect();
+        Self {
+            listener_tasks,
+            listeners,
+            cancellation,
+            failure,
+            performance,
+        }
+    }
+
+    pub(crate) fn listeners(&self) -> &[SocketAddr] {
+        &self.listeners
+    }
+
+    pub(crate) fn failure(&self) -> Option<String> {
+        self.failure.borrow().clone()
+    }
+
+    pub(crate) fn augment_performance(&self, snapshot: &mut ProxyPerformanceSnapshot) {
+        self.performance.augment(snapshot);
+    }
+
+    pub(crate) fn cancel_immediately(&mut self) {
+        self.cancellation.cancel();
+        for task in &self.listener_tasks {
+            task.abort();
+        }
+    }
+
+    pub(crate) async fn shutdown(&mut self) {
+        self.cancel_immediately();
+        for task in self.listener_tasks.drain(..) {
+            let _ = task.await;
+        }
+    }
+}
+
+impl Drop for HttpProxyFrontend {
+    fn drop(&mut self) {
+        self.cancel_immediately();
+    }
+}
+
 struct HttpContext {
     channel: Channel,
     resolver: Resolver,
     assigned_ipv4: Ipv4Addr,
     assigned_ipv6: Ipv6Addr,
-    ip_policy: IpPolicy,
-    cancellation: tokio_util::sync::CancellationToken,
+    cancellation: CancellationToken,
     failure: watch::Sender<Option<String>>,
     health: watch::Receiver<RuntimeHealth>,
+    performance: Arc<HttpPoolCounters>,
+}
+
+#[derive(Default)]
+struct HttpPoolCounters {
+    hits: AtomicU64,
+    misses: AtomicU64,
+    stale_retries: AtomicU64,
+    busy_rejections: AtomicU64,
+}
+
+impl HttpPoolCounters {
+    fn augment(&self, snapshot: &mut ProxyPerformanceSnapshot) {
+        snapshot.http_pool_hits = self.hits.load(Ordering::Relaxed);
+        snapshot.http_pool_misses = self.misses.load(Ordering::Relaxed);
+        snapshot.http_stale_retries = self.stale_retries.load(Ordering::Relaxed);
+        snapshot.http_busy_rejections = self.busy_rejections.load(Ordering::Relaxed);
+    }
 }
 
 fn bind_listener(address: SocketAddr) -> Result<TcpListener, TransportError> {
@@ -205,6 +310,9 @@ async fn run_listener(listener: TcpListener, context: Arc<HttpContext>) {
                 break;
             }
         };
+        if let Err(error) = stream.set_nodelay(true) {
+            tracing::debug!(%peer, %error, "could not disable Nagle on HTTP proxy client socket");
+        }
         if !peer.ip().is_loopback()
             && stream
                 .local_addr()
@@ -215,602 +323,482 @@ async fn run_listener(listener: TcpListener, context: Arc<HttpContext>) {
         }
         let connection_context = Arc::clone(&context);
         tokio::spawn(async move {
-            if let Err(error) = serve_client(stream, connection_context).await {
+            if let Err(error) = serve_client(stream, Arc::clone(&connection_context)).await {
                 tracing::debug!(%peer, %error, "HTTP proxy session ended");
             }
         });
     }
 }
 
-async fn serve_client(
-    mut client: TcpStream,
-    context: Arc<HttpContext>,
-) -> Result<(), TransportError> {
-    let (head, buffered_body) = match timeout(HEADER_TIMEOUT, read_request_head(&mut client)).await
-    {
-        Ok(Ok(value)) => value,
-        Ok(Err(error)) => {
-            let _ = send_error(&mut client, 400, "Bad Request").await;
-            return Err(error);
-        }
-        Err(_) => {
-            let _ = send_error(&mut client, 408, "Request Timeout").await;
-            return Err(TransportError::HttpProxy(
-                "HTTP proxy request header timed out".to_owned(),
-            ));
-        }
-    };
-    let request = match parse_proxy_request(&head) {
-        Ok(request) => request,
-        Err(error) => {
-            let _ = send_error(&mut client, error.status, error.reason).await;
-            return Err(TransportError::HttpProxy(error.message));
-        }
-    };
-    if matches!(
-        request.kind,
-        RequestKind::Forward {
-            body: BodyFraming::None,
-            ..
-        }
-    ) && !buffered_body.is_empty()
-    {
-        let _ = send_error(&mut client, 400, "Bad Request").await;
-        return Err(TransportError::HttpProxy(
-            "unexpected bytes after a bodyless proxy request".to_owned(),
-        ));
-    }
-    if let RequestKind::Forward {
-        body: BodyFraming::ContentLength(length),
-        ..
-    } = request.kind
-        && buffered_body.len() as u64 > length
-    {
-        let _ = send_error(&mut client, 400, "Bad Request").await;
-        return Err(TransportError::HttpProxy(
-            "pipelined bytes after the declared HTTP request body are not allowed".to_owned(),
-        ));
-    }
-
-    if !matches!(&*context.health.borrow(), RuntimeHealth::Connected { .. }) {
-        let _ = send_error(&mut client, 503, "Service Unavailable").await;
-        return Err(TransportError::HttpProxy(
-            "the MASQUE channel is reconnecting".to_owned(),
-        ));
-    }
-
-    let addresses = match context.resolver.resolve(&request.destination.host).await {
-        Ok(addresses) => addresses,
-        Err(error) => {
-            let _ = send_error(&mut client, 502, "Bad Gateway").await;
-            return Err(error);
-        }
-    };
-    let mut remote = match connect_remote(&context, &addresses, request.destination.port).await {
-        Ok(remote) => remote,
-        Err(error) => {
-            let _ = send_error(&mut client, 502, "Bad Gateway").await;
-            return Err(TransportError::HttpProxy(error));
-        }
-    };
-
-    match request.kind {
-        RequestKind::Connect => {
-            client
-                .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
-                .await?;
-            if !buffered_body.is_empty() {
-                remote.write_all(&buffered_body).await.map_err(|error| {
-                    TransportError::HttpProxy(format!("write early CONNECT data: {error}"))
-                })?;
-            }
-            tokio::select! {
-                _ = context.cancellation.cancelled() => Ok(()),
-                result = tokio::io::copy_bidirectional(&mut client, &mut remote) => {
-                    result
-                        .map(|_| ())
-                        .map_err(|error| TransportError::HttpProxy(error.to_string()))
-                }
-            }
-        }
-        RequestKind::Forward {
-            rewritten_head,
-            body,
-        } => {
-            remote
-                .write_all(&rewritten_head)
-                .await
-                .map_err(|error| TransportError::HttpProxy(error.to_string()))?;
-            relay_forward_request(client, remote, buffered_body, body, &context).await
-        }
-    }
-}
-
-async fn relay_forward_request(
-    client: TcpStream,
-    remote: StackTcpStream,
-    buffered_body: Vec<u8>,
-    body: BodyFraming,
-    context: &HttpContext,
-) -> Result<(), TransportError> {
-    let (client_read, mut client_write) = tokio::io::split(client);
-    let (mut remote_read, mut remote_write) = tokio::io::split(remote);
-    let initial = Cursor::new(buffered_body);
-    let mut source = BufReader::new(initial.chain(client_read));
-
-    let upload = async {
-        match body {
-            BodyFraming::None => {}
-            BodyFraming::ContentLength(length) => {
-                let mut body = (&mut source).take(length);
-                let copied = tokio::io::copy(&mut body, &mut remote_write)
-                    .await
-                    .map_err(|error| TransportError::HttpProxy(error.to_string()))?;
-                if copied != length {
-                    return Err(TransportError::HttpProxy(
-                        "HTTP request body ended before Content-Length".to_owned(),
-                    ));
-                }
-            }
-            BodyFraming::Chunked => {
-                relay_chunked_body(&mut source, &mut remote_write).await?;
-            }
-        }
-        remote_write
-            .shutdown()
-            .await
-            .map_err(|error| TransportError::HttpProxy(error.to_string()))
-    };
-    let download = async {
-        tokio::io::copy(&mut remote_read, &mut client_write)
-            .await
-            .map_err(|error| TransportError::HttpProxy(error.to_string()))?;
-        client_write
-            .shutdown()
-            .await
-            .map_err(|error| TransportError::HttpProxy(error.to_string()))
-    };
-
+async fn serve_client(client: TcpStream, context: Arc<HttpContext>) -> Result<(), TransportError> {
+    let pool = Arc::new(SessionPool::new(Arc::clone(&context)));
+    let service_context = Arc::clone(&context);
+    let service = service_fn(move |request| {
+        handle_request(request, Arc::clone(&service_context), Arc::clone(&pool))
+    });
+    let connection = hyper::server::conn::http1::Builder::new()
+        .timer(TokioTimer::new())
+        .header_read_timeout(HEADER_TIMEOUT)
+        .max_headers(MAX_HEADERS)
+        .max_buf_size(MAX_HEADER_BYTES)
+        .keep_alive(true)
+        .serve_connection(TokioIo::new(client), service)
+        .with_upgrades();
     tokio::select! {
         _ = context.cancellation.cancelled() => Ok(()),
-        result = async { tokio::try_join!(upload, download).map(|_| ()) } => result,
+        result = connection => result.map_err(|error| TransportError::HttpProxy(error.to_string())),
     }
 }
 
-async fn relay_chunked_body<R, W>(source: &mut R, destination: &mut W) -> Result<(), TransportError>
-where
-    R: AsyncBufRead + Unpin,
-    W: AsyncWrite + Unpin,
-{
-    loop {
-        let line = read_bounded_line(source).await?;
-        let size = parse_chunk_size(&line)?;
-        destination.write_all(&line).await?;
-        if size == 0 {
-            loop {
-                let trailer = read_bounded_line(source).await?;
-                destination.write_all(&trailer).await?;
-                if trailer == b"\r\n" {
-                    return Ok(());
+async fn handle_request(
+    mut request: Request<Incoming>,
+    context: Arc<HttpContext>,
+    pool: Arc<SessionPool>,
+) -> Result<Response<ProxyBody>, Infallible> {
+    if !matches!(&*context.health.borrow(), RuntimeHealth::Connected { .. }) {
+        return Ok(error_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "the MASQUE channel is reconnecting",
+            true,
+        ));
+    }
+
+    let response = if request.method() == Method::CONNECT {
+        handle_connect(&mut request, context).await
+    } else {
+        handle_forward(request, pool).await
+    };
+    Ok(response)
+}
+
+async fn handle_connect(
+    request: &mut Request<Incoming>,
+    context: Arc<HttpContext>,
+) -> Response<ProxyBody> {
+    let destination = match connect_destination(request.uri()) {
+        Ok(destination) => destination,
+        Err(message) => return error_response(StatusCode::BAD_REQUEST, &message, false),
+    };
+    let addresses = match context.resolver.resolve(&destination.host).await {
+        Ok(addresses) => addresses,
+        Err(error) => {
+            return error_response(StatusCode::BAD_GATEWAY, &error.to_string(), false);
+        }
+    };
+    let remote = match connect_remote(&context, &addresses, destination.port).await {
+        Ok(remote) => remote,
+        Err(RemoteConnectError::BudgetExhausted) => {
+            return error_response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "the proxy connection memory budget is temporarily exhausted",
+                true,
+            );
+        }
+        Err(RemoteConnectError::Failed(message)) => {
+            return error_response(StatusCode::BAD_GATEWAY, &message, false);
+        }
+    };
+    let upgrade = hyper::upgrade::on(request);
+    let cancellation = context.cancellation.clone();
+    tokio::spawn(async move {
+        let Ok(upgraded) = upgrade.await else {
+            return;
+        };
+        let mut client = TokioIo::new(upgraded);
+        let mut remote = remote;
+        tokio::select! {
+            _ = cancellation.cancelled() => {}
+            result = crate::relay::copy_bidirectional(&mut client, &mut remote) => {
+                if let Err(error) = result {
+                    tracing::debug!(%error, "HTTP CONNECT relay ended");
                 }
             }
         }
+    });
 
-        let mut chunk = (&mut *source).take(size);
-        let copied = tokio::io::copy(&mut chunk, &mut *destination).await?;
-        if copied != size {
-            return Err(TransportError::HttpProxy(
-                "chunked HTTP body ended inside a chunk".to_owned(),
-            ));
-        }
-        let mut terminator = [0u8; 2];
-        source.read_exact(&mut terminator).await?;
-        if terminator != *b"\r\n" {
-            return Err(TransportError::HttpProxy(
-                "invalid HTTP chunk terminator".to_owned(),
-            ));
-        }
-        destination.write_all(&terminator).await?;
-    }
+    let mut response = Response::new(empty_body());
+    *response.status_mut() = StatusCode::OK;
+    response
 }
 
-async fn read_bounded_line<R>(source: &mut R) -> Result<Vec<u8>, TransportError>
-where
-    R: AsyncRead + Unpin,
-{
-    let mut line = Vec::with_capacity(64);
-    while line.len() <= MAX_CHUNK_LINE_BYTES {
-        let byte = source.read_u8().await?;
-        line.push(byte);
-        if byte == b'\n' {
-            if line.len() < 2 || line[line.len() - 2] != b'\r' {
-                return Err(TransportError::HttpProxy(
-                    "HTTP chunk line is not CRLF-terminated".to_owned(),
-                ));
+async fn handle_forward(
+    mut request: Request<Incoming>,
+    pool: Arc<SessionPool>,
+) -> Response<ProxyBody> {
+    let destination = match forward_destination(request.uri(), request.headers()) {
+        Ok(destination) => destination,
+        Err(message) => return error_response(StatusCode::BAD_REQUEST, &message, false),
+    };
+    if let Err(message) = prepare_forward_request(&mut request, &destination) {
+        return error_response(StatusCode::BAD_REQUEST, &message, false);
+    }
+
+    let replay = ReplayTemplate::from_request(&request);
+    let replayable =
+        request.body().size_hint().exact() == Some(0) && is_safely_replayable(request.method());
+    let (parts, body) = request.into_parts();
+    let body = body
+        .map_err(|error| -> BoxError { Box::new(error) })
+        .boxed();
+    let request = Request::from_parts(parts, body);
+
+    let first = pool.send(&destination.authority, request, false).await;
+    let mut response = match first {
+        Ok(response) => response,
+        Err(PoolError::StaleReused) if replayable => {
+            let Some(replay) = replay else {
+                return error_response(StatusCode::BAD_GATEWAY, "upstream closed", false);
+            };
+            match pool
+                .send(&destination.authority, replay.into_request(), true)
+                .await
+            {
+                Ok(response) => response,
+                Err(error) => return pool_error_response(error),
             }
-            return Ok(line);
         }
-    }
-    Err(TransportError::HttpProxy(
-        "HTTP chunk line exceeds the safety limit".to_owned(),
-    ))
+        Err(error) => return pool_error_response(error),
+    };
+    strip_hop_by_hop(response.headers_mut());
+    let (parts, body) = response.into_parts();
+    let body = body
+        .map_err(|error| -> BoxError { Box::new(error) })
+        .boxed();
+    Response::from_parts(parts, body)
 }
 
-fn parse_chunk_size(line: &[u8]) -> Result<u64, TransportError> {
-    let text = std::str::from_utf8(
-        line.strip_suffix(b"\r\n")
-            .ok_or_else(|| TransportError::HttpProxy("invalid HTTP chunk line".to_owned()))?,
+#[derive(Clone)]
+struct ReplayTemplate {
+    method: Method,
+    uri: Uri,
+    version: Version,
+    headers: HeaderMap,
+}
+
+impl ReplayTemplate {
+    fn from_request(request: &Request<Incoming>) -> Option<Self> {
+        (request.body().size_hint().exact() == Some(0)).then(|| Self {
+            method: request.method().clone(),
+            uri: request.uri().clone(),
+            version: request.version(),
+            headers: request.headers().clone(),
+        })
+    }
+
+    fn into_request(self) -> Request<ProxyBody> {
+        let mut request = Request::new(empty_body());
+        *request.method_mut() = self.method;
+        *request.uri_mut() = self.uri;
+        *request.version_mut() = self.version;
+        *request.headers_mut() = self.headers;
+        request
+    }
+}
+
+fn is_safely_replayable(method: &Method) -> bool {
+    matches!(
+        *method,
+        Method::GET | Method::HEAD | Method::OPTIONS | Method::TRACE
     )
-    .map_err(|_| TransportError::HttpProxy("non-UTF-8 HTTP chunk line".to_owned()))?;
-    let size = text.split(';').next().unwrap_or_default().trim();
-    if size.is_empty() || size.len() > 16 {
-        return Err(TransportError::HttpProxy(
-            "invalid HTTP chunk size".to_owned(),
-        ));
-    }
-    u64::from_str_radix(size, 16)
-        .map_err(|_| TransportError::HttpProxy("invalid HTTP chunk size".to_owned()))
 }
 
-async fn read_request_head(client: &mut TcpStream) -> Result<(Vec<u8>, Vec<u8>), TransportError> {
-    let mut bytes = Vec::with_capacity(4096);
-    loop {
-        if let Some(end) = find_header_end(&bytes) {
-            let body = bytes.split_off(end);
-            return Ok((bytes, body));
+struct SessionPool {
+    context: Arc<HttpContext>,
+    idle: Mutex<Vec<PoolEntry>>,
+    permits: Arc<Semaphore>,
+}
+
+struct PoolEntry {
+    authority: String,
+    last_used: Instant,
+    sender: SendRequest<ProxyBody>,
+    _permit: OwnedSemaphorePermit,
+}
+
+impl SessionPool {
+    fn new(context: Arc<HttpContext>) -> Self {
+        Self {
+            context,
+            idle: Mutex::new(Vec::new()),
+            permits: Arc::new(Semaphore::new(MAX_SESSION_CONNECTIONS)),
         }
-        if bytes.len() >= MAX_HEADER_BYTES {
-            return Err(TransportError::HttpProxy(
-                "HTTP proxy request headers exceed the safety limit".to_owned(),
-            ));
+    }
+
+    async fn send(
+        &self,
+        authority: &str,
+        request: Request<ProxyBody>,
+        force_new: bool,
+    ) -> Result<Response<Incoming>, PoolError> {
+        let (mut entry, reused) = self.acquire(authority, force_new).await?;
+        if entry.sender.ready().await.is_err() {
+            if reused {
+                self.context
+                    .performance
+                    .stale_retries
+                    .fetch_add(1, Ordering::Relaxed);
+            }
+            return Err(if reused {
+                PoolError::StaleReused
+            } else {
+                PoolError::Upstream("new upstream connection closed before use".to_owned())
+            });
         }
-        let read = client
-            .read_buf(&mut bytes)
+        let response = match entry.sender.send_request(request).await {
+            Ok(response) => response,
+            Err(error) => {
+                if reused {
+                    self.context
+                        .performance
+                        .stale_retries
+                        .fetch_add(1, Ordering::Relaxed);
+                }
+                return Err(if reused {
+                    PoolError::StaleReused
+                } else {
+                    PoolError::Upstream(error.to_string())
+                });
+            }
+        };
+        self.release(entry).await;
+        Ok(response)
+    }
+
+    async fn acquire(
+        &self,
+        authority: &str,
+        force_new: bool,
+    ) -> Result<(PoolEntry, bool), PoolError> {
+        if !force_new {
+            let mut idle = self.idle.lock().await;
+            prune_idle(&mut idle);
+            if let Some(index) = idle.iter().rposition(|entry| {
+                entry.authority.eq_ignore_ascii_case(authority) && entry.sender.is_ready()
+            }) {
+                self.context
+                    .performance
+                    .hits
+                    .fetch_add(1, Ordering::Relaxed);
+                return Ok((idle.swap_remove(index), true));
+            }
+        }
+
+        self.context
+            .performance
+            .misses
+            .fetch_add(1, Ordering::Relaxed);
+
+        let permit = Arc::clone(&self.permits).try_acquire_owned().map_err(|_| {
+            self.context
+                .performance
+                .busy_rejections
+                .fetch_add(1, Ordering::Relaxed);
+            PoolError::Busy
+        })?;
+        let destination = parse_destination(authority, 80).map_err(PoolError::Upstream)?;
+        let addresses = self
+            .context
+            .resolver
+            .resolve(&destination.host)
             .await
-            .map_err(TransportError::Io)?;
-        if read == 0 {
-            return Err(TransportError::HttpProxy(
-                "HTTP proxy client closed before finishing headers".to_owned(),
-            ));
+            .map_err(|error| PoolError::Upstream(error.to_string()))?;
+        let remote = connect_remote(&self.context, &addresses, destination.port)
+            .await
+            .map_err(|error| match error {
+                RemoteConnectError::BudgetExhausted => PoolError::Busy,
+                RemoteConnectError::Failed(message) => PoolError::Upstream(message),
+            })?;
+        let (sender, connection) = hyper::client::conn::http1::Builder::new()
+            .max_buf_size(MAX_HEADER_BYTES)
+            .handshake::<_, ProxyBody>(TokioIo::new(remote))
+            .await
+            .map_err(|error| PoolError::Upstream(error.to_string()))?;
+        let cancellation = self.context.cancellation.clone();
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = cancellation.cancelled() => {}
+                result = connection => {
+                    if let Err(error) = result {
+                        tracing::debug!(%error, "pooled HTTP upstream connection ended");
+                    }
+                }
+            }
+        });
+        Ok((
+            PoolEntry {
+                authority: destination.authority,
+                last_used: Instant::now(),
+                sender,
+                _permit: permit,
+            },
+            false,
+        ))
+    }
+
+    async fn release(&self, mut entry: PoolEntry) {
+        if entry.sender.is_closed() {
+            return;
         }
-        if bytes.len() > MAX_HEADER_BYTES {
-            return Err(TransportError::HttpProxy(
-                "HTTP proxy request headers exceed the safety limit".to_owned(),
-            ));
+        entry.last_used = Instant::now();
+        let mut idle = self.idle.lock().await;
+        prune_idle(&mut idle);
+        let same_authority = idle
+            .iter()
+            .filter(|candidate| candidate.authority.eq_ignore_ascii_case(&entry.authority))
+            .count();
+        if same_authority < MAX_IDLE_PER_AUTHORITY {
+            idle.push(entry);
         }
     }
 }
 
-fn find_header_end(bytes: &[u8]) -> Option<usize> {
-    bytes
-        .windows(4)
-        .position(|window| window == b"\r\n\r\n")
-        .map(|index| index + 4)
+fn prune_idle(idle: &mut Vec<PoolEntry>) {
+    idle.retain(|entry| {
+        !entry.sender.is_closed() && entry.last_used.elapsed() < UPSTREAM_IDLE_TIMEOUT
+    });
 }
 
-struct ProxyRequest {
-    destination: Destination,
-    kind: RequestKind,
+#[derive(Debug)]
+enum PoolError {
+    Busy,
+    StaleReused,
+    Upstream(String),
+}
+
+fn pool_error_response(error: PoolError) -> Response<ProxyBody> {
+    match error {
+        PoolError::Busy => error_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "the proxy connection memory budget is temporarily exhausted",
+            true,
+        ),
+        PoolError::StaleReused => error_response(
+            StatusCode::BAD_GATEWAY,
+            "the reused upstream connection closed before responding",
+            false,
+        ),
+        PoolError::Upstream(message) => error_response(StatusCode::BAD_GATEWAY, &message, false),
+    }
 }
 
 struct Destination {
     host: String,
     port: u16,
     authority: String,
+    origin_form: Option<Uri>,
 }
 
-enum RequestKind {
-    Connect,
-    Forward {
-        rewritten_head: Vec<u8>,
-        body: BodyFraming,
-    },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BodyFraming {
-    None,
-    ContentLength(u64),
-    Chunked,
-}
-
-#[derive(Debug)]
-struct RequestError {
-    status: u16,
-    reason: &'static str,
-    message: String,
-}
-
-impl RequestError {
-    fn bad_request(message: impl Into<String>) -> Self {
-        Self {
-            status: 400,
-            reason: "Bad Request",
-            message: message.into(),
-        }
-    }
-
-    fn not_implemented(message: impl Into<String>) -> Self {
-        Self {
-            status: 501,
-            reason: "Not Implemented",
-            message: message.into(),
-        }
-    }
-}
-
-fn parse_proxy_request(head: &[u8]) -> Result<ProxyRequest, RequestError> {
-    let mut headers = [httparse::EMPTY_HEADER; MAX_HEADERS];
-    let mut request = httparse::Request::new(&mut headers);
-    let parsed = request
-        .parse(head)
-        .map_err(|error| RequestError::bad_request(format!("parse HTTP request: {error}")))?;
-    if !parsed.is_complete() {
-        return Err(RequestError::bad_request("incomplete HTTP request"));
-    }
-    let method = request
-        .method
-        .ok_or_else(|| RequestError::bad_request("HTTP method is missing"))?;
-    let target = request
-        .path
-        .ok_or_else(|| RequestError::bad_request("HTTP request target is missing"))?;
-    let version = request
-        .version
-        .ok_or_else(|| RequestError::bad_request("HTTP version is missing"))?;
-    if version > 1 {
-        return Err(RequestError::bad_request(
-            "only HTTP/1.0 and HTTP/1.1 are supported",
-        ));
-    }
-
-    let metadata = inspect_headers(request.headers)?;
-    if method.eq_ignore_ascii_case("CONNECT") {
-        if metadata.body != BodyFraming::None {
-            return Err(RequestError::bad_request(
-                "CONNECT requests cannot contain a framed request body",
-            ));
-        }
-        return Ok(ProxyRequest {
-            destination: parse_destination(target, 443)?,
-            kind: RequestKind::Connect,
-        });
-    }
-
-    let (destination, origin_form) = parse_forward_target(target, metadata.host.as_deref())?;
-    let rewritten_head = rewrite_forward_head(
-        method,
-        version,
-        &origin_form,
-        &destination.authority,
-        request.headers,
-        &metadata,
-    )?;
-    Ok(ProxyRequest {
-        destination,
-        kind: RequestKind::Forward {
-            rewritten_head,
-            body: metadata.body,
-        },
-    })
-}
-
-struct HeaderMetadata {
-    host: Option<String>,
-    body: BodyFraming,
-    connection_tokens: HashSet<String>,
-}
-
-fn inspect_headers(headers: &[httparse::Header<'_>]) -> Result<HeaderMetadata, RequestError> {
-    let mut hosts = Vec::new();
-    let mut content_lengths = Vec::new();
-    let mut transfer_encodings = Vec::new();
-    let mut connection_tokens = HashSet::new();
-
-    for header in headers {
-        let value = std::str::from_utf8(header.value)
-            .map_err(|_| RequestError::bad_request("HTTP header value is not UTF-8"))?
-            .trim();
-        match header.name.to_ascii_lowercase().as_str() {
-            "host" => hosts.push(value.to_owned()),
-            "content-length" => {
-                let length = value
-                    .parse::<u64>()
-                    .map_err(|_| RequestError::bad_request("invalid HTTP Content-Length header"))?;
-                content_lengths.push(length);
-            }
-            "transfer-encoding" => {
-                transfer_encodings.extend(
-                    value
-                        .split(',')
-                        .map(|token| token.trim().to_ascii_lowercase()),
-                );
-            }
-            "connection" => {
-                connection_tokens.extend(value.split(',').filter_map(normalized_header_token));
-            }
-            _ => {}
-        }
-    }
-
-    if hosts
-        .windows(2)
-        .any(|pair| !pair[0].eq_ignore_ascii_case(&pair[1]))
-    {
-        return Err(RequestError::bad_request("conflicting HTTP Host headers"));
-    }
-    if content_lengths.windows(2).any(|pair| pair[0] != pair[1]) {
-        return Err(RequestError::bad_request(
-            "conflicting HTTP Content-Length headers",
-        ));
-    }
-    if !content_lengths.is_empty() && !transfer_encodings.is_empty() {
-        return Err(RequestError::bad_request(
-            "Content-Length and Transfer-Encoding cannot be combined",
-        ));
-    }
-    let body = if !transfer_encodings.is_empty() {
-        if transfer_encodings != ["chunked"] {
-            return Err(RequestError::not_implemented(
-                "only a single chunked Transfer-Encoding is supported",
-            ));
-        }
-        BodyFraming::Chunked
-    } else {
-        match content_lengths.first().copied().unwrap_or(0) {
-            0 => BodyFraming::None,
-            length => BodyFraming::ContentLength(length),
-        }
-    };
-
-    Ok(HeaderMetadata {
-        host: hosts.first().cloned(),
-        body,
-        connection_tokens,
-    })
-}
-
-fn normalized_header_token(value: &str) -> Option<String> {
-    let token = value.trim().to_ascii_lowercase();
-    if token.is_empty()
-        || !token
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&byte))
-    {
-        None
-    } else {
-        Some(token)
-    }
-}
-
-fn parse_forward_target(
-    target: &str,
-    host_header: Option<&str>,
-) -> Result<(Destination, String), RequestError> {
-    if target.starts_with('/') || target == "*" {
-        let host = host_header.ok_or_else(|| {
-            RequestError::bad_request("origin-form proxy request requires a Host header")
-        })?;
-        return Ok((parse_destination(host, 80)?, target.to_owned()));
-    }
-
-    let uri = http::Uri::from_str(target)
-        .map_err(|_| RequestError::bad_request("invalid absolute-form request target"))?;
-    let scheme = uri
-        .scheme_str()
-        .ok_or_else(|| RequestError::bad_request("proxy target must be absolute-form"))?;
-    if scheme != "http" {
-        return Err(RequestError::not_implemented(
-            "ordinary forwarding supports only http://; use CONNECT for TLS",
-        ));
-    }
+fn connect_destination(uri: &Uri) -> Result<Destination, String> {
     let authority = uri
         .authority()
-        .ok_or_else(|| RequestError::bad_request("absolute URI has no authority"))?
-        .as_str();
-    let destination = parse_destination(authority, 80)?;
-    let origin_form = uri
-        .path_and_query()
-        .map(|value| value.as_str())
-        .filter(|value| !value.is_empty())
-        .unwrap_or("/")
-        .to_owned();
-    Ok((destination, origin_form))
+        .map(Authority::as_str)
+        .unwrap_or_else(|| uri.path());
+    parse_destination(authority, 443)
 }
 
-fn parse_destination(value: &str, default_port: u16) -> Result<Destination, RequestError> {
-    if value.contains('@') {
-        return Err(RequestError::bad_request(
-            "userinfo is not allowed in proxy authorities",
-        ));
+fn forward_destination(uri: &Uri, headers: &HeaderMap) -> Result<Destination, String> {
+    if let Some(scheme) = uri.scheme_str()
+        && !scheme.eq_ignore_ascii_case("http")
+    {
+        return Err(
+            "ordinary proxy forwarding supports only http://; use CONNECT for TLS".to_owned(),
+        );
     }
-    let authority = Authority::from_str(value)
-        .map_err(|_| RequestError::bad_request("invalid proxy authority"))?;
-    let host = authority.host();
-    if host.is_empty() {
-        return Err(RequestError::bad_request("proxy authority host is empty"));
+    let authority = if let Some(authority) = uri.authority() {
+        authority.as_str()
+    } else {
+        headers
+            .get(HOST)
+            .and_then(|value| value.to_str().ok())
+            .ok_or_else(|| "origin-form proxy request requires a valid Host header".to_owned())?
+    };
+    let mut destination = parse_destination(authority, 80)?;
+    destination.origin_form = Some(
+        uri.path_and_query()
+            .map(|value| value.as_str())
+            .filter(|value| !value.is_empty())
+            .unwrap_or("/")
+            .parse()
+            .map_err(|_| "invalid HTTP request target".to_owned())?,
+    );
+    Ok(destination)
+}
+
+fn parse_destination(value: &str, default_port: u16) -> Result<Destination, String> {
+    if value.contains('@') {
+        return Err("userinfo is not allowed in proxy authorities".to_owned());
+    }
+    let authority = Authority::from_str(value).map_err(|_| "invalid proxy authority".to_owned())?;
+    if authority.host().is_empty() {
+        return Err("proxy authority host is empty".to_owned());
     }
     let port = authority.port_u16().unwrap_or(default_port);
     if port == 0 {
-        return Err(RequestError::bad_request("proxy target port is zero"));
+        return Err("proxy target port is zero".to_owned());
     }
     Ok(Destination {
-        host: host.to_owned(),
+        host: authority.host().to_owned(),
         port,
         authority: authority.to_string(),
+        origin_form: None,
     })
 }
 
-fn rewrite_forward_head(
-    method: &str,
-    version: u8,
-    origin_form: &str,
-    authority: &str,
-    headers: &[httparse::Header<'_>],
-    metadata: &HeaderMetadata,
-) -> Result<Vec<u8>, RequestError> {
-    let mut rewritten = Vec::with_capacity(1024);
-    rewritten.extend_from_slice(method.as_bytes());
-    rewritten.push(b' ');
-    rewritten.extend_from_slice(origin_form.as_bytes());
-    rewritten.extend_from_slice(if version == 0 {
-        b" HTTP/1.0\r\n"
-    } else {
-        b" HTTP/1.1\r\n"
-    });
-    rewritten.extend_from_slice(b"Host: ");
-    rewritten.extend_from_slice(authority.as_bytes());
-    rewritten.extend_from_slice(b"\r\n");
+fn prepare_forward_request(
+    request: &mut Request<Incoming>,
+    destination: &Destination,
+) -> Result<(), String> {
+    strip_hop_by_hop(request.headers_mut());
+    request.headers_mut().insert(
+        HOST,
+        HeaderValue::from_str(&destination.authority)
+            .map_err(|_| "invalid proxy authority".to_owned())?,
+    );
+    *request.uri_mut() = destination
+        .origin_form
+        .clone()
+        .ok_or_else(|| "forward target has no origin form".to_owned())?;
+    Ok(())
+}
 
-    for header in headers {
-        let name = header.name.to_ascii_lowercase();
-        if matches!(
-            name.as_str(),
-            "host"
-                | "connection"
-                | "proxy-connection"
-                | "proxy-authorization"
-                | "keep-alive"
-                | "upgrade"
-                | "content-length"
-                | "transfer-encoding"
-        ) || metadata.connection_tokens.contains(&name)
-        {
-            continue;
-        }
-        rewritten.extend_from_slice(header.name.as_bytes());
-        rewritten.extend_from_slice(b": ");
-        rewritten.extend_from_slice(header.value);
-        rewritten.extend_from_slice(b"\r\n");
+fn strip_hop_by_hop(headers: &mut HeaderMap) {
+    let connection_tokens = headers
+        .get_all(CONNECTION)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(','))
+        .filter_map(|token| HeaderName::from_bytes(token.trim().as_bytes()).ok())
+        .collect::<HashSet<_>>();
+    for name in connection_tokens {
+        headers.remove(name);
     }
-    match metadata.body {
-        BodyFraming::None => {}
-        BodyFraming::ContentLength(length) => {
-            rewritten.extend_from_slice(format!("Content-Length: {length}\r\n").as_bytes());
-        }
-        BodyFraming::Chunked => {
-            rewritten.extend_from_slice(b"Transfer-Encoding: chunked\r\n");
-        }
+    for name in [
+        "connection",
+        "proxy-connection",
+        "proxy-authorization",
+        "proxy-authenticate",
+        "keep-alive",
+        "te",
+        "trailer",
+        "transfer-encoding",
+        "upgrade",
+    ] {
+        headers.remove(name);
     }
-    rewritten.extend_from_slice(b"Connection: close\r\n\r\n");
-    if rewritten.len() > MAX_HEADER_BYTES {
-        return Err(RequestError::bad_request(
-            "rewritten HTTP request exceeds the safety limit",
-        ));
-    }
-    Ok(rewritten)
+}
+
+enum RemoteConnectError {
+    BudgetExhausted,
+    Failed(String),
 }
 
 async fn connect_remote(
     context: &HttpContext,
     addresses: &[IpAddr],
     port: u16,
-) -> Result<StackTcpStream, String> {
+) -> Result<StackTcpStream, RemoteConnectError> {
     let mut failures = Vec::new();
-    for address in addresses
-        .iter()
-        .filter(|address| allows_address(context.ip_policy, **address))
-        .take(MAX_TARGET_ADDRESSES)
-    {
+    for address in addresses.iter().take(MAX_TARGET_ADDRESSES) {
         let local_ip = match address {
             IpAddr::V4(_) => IpAddr::V4(context.assigned_ipv4),
             IpAddr::V6(_) => IpAddr::V6(context.assigned_ipv6),
@@ -824,102 +812,191 @@ async fn connect_remote(
         .await
         {
             Ok(Ok(stream)) => return Ok(stream),
+            Ok(Err(error)) if error.is_tcp_buffer_budget_exhausted() => {
+                return Err(RemoteConnectError::BudgetExhausted);
+            }
             Ok(Err(error)) => failures.push(format!("{remote}: {error}")),
             Err(_) => failures.push(format!("{remote}: timed out")),
         }
     }
-    Err(if failures.is_empty() {
+    Err(RemoteConnectError::Failed(if failures.is_empty() {
         "no usable target address".to_owned()
     } else {
         failures.join("; ")
-    })
+    }))
 }
 
-fn allows_address(policy: IpPolicy, address: IpAddr) -> bool {
-    match policy {
-        IpPolicy::Ipv4Only => address.is_ipv4(),
-        IpPolicy::Ipv6Only => address.is_ipv6(),
-        _ => true,
-    }
-}
-
-fn next_tcp_port() -> u16 {
-    NEXT_TCP_PORT
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
-            Some(if value >= 65_534 { 49_152 } else { value + 1 })
-        })
-        .unwrap_or(49_152)
-}
-
-async fn send_error(
-    client: &mut TcpStream,
-    status: u16,
-    reason: &str,
-) -> Result<(), std::io::Error> {
-    let body = format!("{status} {reason}\n");
-    let response = format!(
-        "HTTP/1.1 {status} {reason}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-        body.len()
+fn error_response(status: StatusCode, message: &str, retry: bool) -> Response<ProxyBody> {
+    let body = format!(
+        "{} {}\n",
+        status.as_u16(),
+        status.canonical_reason().unwrap_or(message)
     );
-    client.write_all(response.as_bytes()).await
+    let mut response = Response::new(full_body(Bytes::from(body)));
+    *response.status_mut() = status;
+    response.headers_mut().insert(
+        CONTENT_TYPE,
+        HeaderValue::from_static("text/plain; charset=utf-8"),
+    );
+    if retry {
+        response
+            .headers_mut()
+            .insert(RETRY_AFTER, HeaderValue::from_static("1"));
+    }
+    response
+}
+
+fn empty_body() -> ProxyBody {
+    Empty::<Bytes>::new()
+        .map_err(|never| -> BoxError { match never {} })
+        .boxed()
+}
+
+fn full_body(bytes: Bytes) -> ProxyBody {
+    Full::new(bytes)
+        .map_err(|never| -> BoxError { match never {} })
+        .boxed()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::AtomicUsize;
+    use ts_netstack_smoltcp::netcore::{Config, HasChannel, NetstackControl};
 
     #[test]
-    fn parses_connect_and_absolute_forward_targets() {
-        let connect =
-            parse_proxy_request(b"CONNECT example.com:443 HTTP/1.1\r\nHost: ignored\r\n\r\n")
+    fn parses_absolute_and_origin_form_targets() {
+        let absolute: Uri = "http://example.com:8080/a?q=1".parse().unwrap();
+        let destination = forward_destination(&absolute, &HeaderMap::new()).unwrap();
+        assert_eq!(destination.host, "example.com");
+        assert_eq!(destination.port, 8080);
+        assert_eq!(destination.origin_form.unwrap().to_string(), "/a?q=1");
+
+        let origin: Uri = "/resource".parse().unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert(HOST, HeaderValue::from_static("example.net"));
+        let destination = forward_destination(&origin, &headers).unwrap();
+        assert_eq!(destination.authority, "example.net");
+        assert_eq!(destination.origin_form.unwrap().to_string(), "/resource");
+    }
+
+    #[test]
+    fn strips_declared_and_standard_hop_headers() {
+        let mut headers = HeaderMap::new();
+        headers.insert(CONNECTION, HeaderValue::from_static("X-Hop, keep-alive"));
+        headers.insert("x-hop", HeaderValue::from_static("remove"));
+        headers.insert("proxy-authorization", HeaderValue::from_static("remove"));
+        headers.insert("x-end-to-end", HeaderValue::from_static("keep"));
+        strip_hop_by_hop(&mut headers);
+        assert!(!headers.contains_key(CONNECTION));
+        assert!(!headers.contains_key("x-hop"));
+        assert!(!headers.contains_key("proxy-authorization"));
+        assert_eq!(headers["x-end-to-end"], "keep");
+    }
+
+    #[test]
+    fn retry_policy_is_limited_to_safe_bodyless_methods() {
+        assert!(is_safely_replayable(&Method::GET));
+        assert!(is_safely_replayable(&Method::HEAD));
+        assert!(is_safely_replayable(&Method::OPTIONS));
+        assert!(is_safely_replayable(&Method::TRACE));
+        assert!(!is_safely_replayable(&Method::POST));
+        assert!(!is_safely_replayable(&Method::PUT));
+    }
+
+    #[test]
+    fn rejects_non_http_forwarding_and_userinfo() {
+        let https: Uri = "https://example.com/".parse().unwrap();
+        assert!(forward_destination(&https, &HeaderMap::new()).is_err());
+        assert!(parse_destination("user@example.com", 80).is_err());
+    }
+
+    #[tokio::test]
+    async fn session_pool_reuses_one_upstream_connection_for_two_requests() {
+        let (client_stack, server_stack) = ts_netstack_smoltcp::piped_pair(Config::default());
+        let client_channel = client_stack.command_channel();
+        let server_channel = server_stack.command_channel();
+        let client_task = client_stack.spawn_tokio();
+        let server_task = server_stack.spawn_tokio();
+        let client_ip = Ipv4Addr::new(10, 0, 0, 1);
+        let server_ip = Ipv4Addr::new(10, 0, 0, 2);
+        client_channel
+            .set_ips([IpAddr::V4(client_ip)])
+            .await
+            .unwrap();
+        server_channel
+            .set_ips([IpAddr::V4(server_ip)])
+            .await
+            .unwrap();
+        let endpoint = SocketAddr::new(IpAddr::V4(server_ip), 8080);
+        let listener = server_channel.tcp_listen(endpoint).await.unwrap();
+        let accepts = Arc::new(AtomicUsize::new(0));
+        let requests = Arc::new(AtomicUsize::new(0));
+        let server_accepts = Arc::clone(&accepts);
+        let server_requests = Arc::clone(&requests);
+        let http_server = tokio::spawn(async move {
+            let stream = listener.accept().await.unwrap();
+            server_accepts.fetch_add(1, Ordering::Relaxed);
+            let service = service_fn(move |_request| {
+                server_requests.fetch_add(1, Ordering::Relaxed);
+                async move { Ok::<_, Infallible>(Response::new(Full::new(Bytes::from_static(b"ok")))) }
+            });
+            hyper::server::conn::http1::Builder::new()
+                .keep_alive(true)
+                .serve_connection(TokioIo::new(stream), service)
+                .await
                 .unwrap();
-        assert!(matches!(connect.kind, RequestKind::Connect));
-        assert_eq!(connect.destination.host, "example.com");
-        assert_eq!(connect.destination.port, 443);
+        });
 
-        let forward = parse_proxy_request(
-            b"GET http://example.com:8080/a?q=1 HTTP/1.1\r\nHost: wrong.example\r\nProxy-Connection: keep-alive\r\n\r\n",
-        )
-        .unwrap();
-        assert_eq!(forward.destination.host, "example.com");
-        assert_eq!(forward.destination.port, 8080);
-        let RequestKind::Forward { rewritten_head, .. } = forward.kind else {
-            panic!("expected forward request");
-        };
-        let rewritten = String::from_utf8(rewritten_head).unwrap();
-        assert!(rewritten.starts_with("GET /a?q=1 HTTP/1.1\r\n"));
-        assert!(rewritten.contains("Host: example.com:8080\r\n"));
-        assert!(!rewritten.to_ascii_lowercase().contains("proxy-connection"));
-        assert!(rewritten.ends_with("Connection: close\r\n\r\n"));
-    }
+        let (failure, _) = watch::channel(None);
+        let (_, health) = watch::channel(RuntimeHealth::Connected {
+            path: RuntimePath {
+                transport: usque_core::Transport::Http3,
+                endpoint_family: usque_core::AddressFamily::Ipv4,
+                ipv4_available: true,
+                ipv6_available: true,
+            },
+            reconnect_count: 0,
+        });
+        let performance = Arc::new(HttpPoolCounters::default());
+        let context = Arc::new(HttpContext {
+            resolver: Resolver::new(
+                client_channel.clone(),
+                client_ip,
+                Ipv6Addr::LOCALHOST,
+                Vec::new(),
+                usque_core::ProxyDnsMode::Remote,
+            ),
+            channel: client_channel,
+            assigned_ipv4: client_ip,
+            assigned_ipv6: Ipv6Addr::LOCALHOST,
+            cancellation: CancellationToken::new(),
+            failure,
+            health,
+            performance: Arc::clone(&performance),
+        });
+        let pool = SessionPool::new(context);
 
-    #[test]
-    fn rejects_request_smuggling_framing() {
-        let error = parse_proxy_request(
-            b"POST http://example.com/ HTTP/1.1\r\nHost: example.com\r\nContent-Length: 4\r\nTransfer-Encoding: chunked\r\n\r\n",
-        )
-        .err()
-        .expect("ambiguous framing must fail");
-        assert_eq!(error.status, 400);
+        for path in ["/one", "/two"] {
+            let mut request = Request::new(empty_body());
+            *request.method_mut() = Method::GET;
+            *request.uri_mut() = path.parse().unwrap();
+            request
+                .headers_mut()
+                .insert(HOST, HeaderValue::from_static("10.0.0.2:8080"));
+            let response = pool.send("10.0.0.2:8080", request, false).await.unwrap();
+            let body = response.into_body().collect().await.unwrap().to_bytes();
+            assert_eq!(body, "ok");
+        }
 
-        let error = parse_proxy_request(
-            b"POST / HTTP/1.1\r\nHost: example.com\r\nContent-Length: 4\r\nContent-Length: 5\r\n\r\n",
-        )
-        .err()
-        .expect("conflicting lengths must fail");
-        assert_eq!(error.status, 400);
-    }
+        assert_eq!(accepts.load(Ordering::Relaxed), 1);
+        assert_eq!(requests.load(Ordering::Relaxed), 2);
+        assert_eq!(performance.hits.load(Ordering::Relaxed), 1);
+        assert_eq!(performance.misses.load(Ordering::Relaxed), 1);
 
-    #[test]
-    fn parses_chunk_sizes_with_extensions_but_bounds_them() {
-        assert_eq!(parse_chunk_size(b"a;name=value\r\n").unwrap(), 10);
-        assert!(parse_chunk_size(b"\r\n").is_err());
-        assert!(parse_chunk_size(b"1234567890abcdef0\r\n").is_err());
-    }
-
-    #[test]
-    fn header_end_is_exact() {
-        assert_eq!(find_header_end(b"GET / HTTP/1.1\r\n\r\nbody"), Some(18));
-        assert_eq!(find_header_end(b"GET / HTTP/1.1\r\n"), None);
+        drop(pool);
+        http_server.abort();
+        client_task.abort();
+        server_task.abort();
     }
 }

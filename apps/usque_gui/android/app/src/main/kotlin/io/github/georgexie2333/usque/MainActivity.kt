@@ -1,11 +1,22 @@
 package io.github.georgexie2333.usque
 
+import android.Manifest
 import android.app.Activity
+import android.app.StatusBarManager
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.graphics.drawable.Icon
 import android.net.VpnService
+import android.os.Build
 import android.os.Bundle
+import android.os.PersistableBundle
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -19,10 +30,13 @@ import java.util.concurrent.Executors
  * traffic lives in [VpnControlClient].
  */
 class MainActivity : FlutterFragmentActivity() {
-    private companion object {
+    internal companion object {
         const val CHANNEL = "io.github.georgexie2333.usque/engine"
         const val EVENT_CHANNEL = "io.github.georgexie2333.usque/engine_events"
         const val CREATE_DIAGNOSTICS_REQUEST = 1049
+        const val ACTION_SHORTCUT_CONNECT = "io.github.georgexie2333.usque.SHORTCUT_CONNECT"
+        const val ACTION_SHORTCUT_DISCONNECT = "io.github.georgexie2333.usque.SHORTCUT_DISCONNECT"
+        const val ACTION_SHORTCUT_PROFILES = "io.github.georgexie2333.usque.SHORTCUT_PROFILES"
     }
 
     private val identityExecutor = Executors.newSingleThreadExecutor()
@@ -32,6 +46,9 @@ class MainActivity : FlutterFragmentActivity() {
     }
     private val pendingVpnConnection = VpnPermissionRequestQueue()
     private var pendingDiagnosticsResult: MethodChannel.Result? = null
+    private var pendingWarpSecretResult: MethodChannel.Result? = null
+    private var pendingWarpSecretProfileId: String? = null
+    private var pendingLaunchTarget: String? = null
     private var eventSink: EventChannel.EventSink? = null
 
     private lateinit var controlClient: VpnControlClient
@@ -40,6 +57,16 @@ class MainActivity : FlutterFragmentActivity() {
     private val vpnPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { activityResult ->
             finishVpnPermissionRequest(activityResult.resultCode == Activity.RESULT_OK)
+        }
+
+    private val warpSecretDestinationLauncher =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { destination ->
+            finishWarpSecretExport(destination)
+        }
+
+    private val notificationPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+            // Notification permission never gates VPN or proxy connectivity.
         }
 
     private val activityCommands =
@@ -62,6 +89,65 @@ class MainActivity : FlutterFragmentActivity() {
             override fun selectDiagnosticsDestination(result: MethodChannel.Result) {
                 this@MainActivity.selectDiagnosticsDestination(result)
             }
+
+            override fun selectWarpSecretDestination(
+                profileId: String,
+                result: MethodChannel.Result,
+            ) {
+                this@MainActivity.selectWarpSecretDestination(profileId, result)
+            }
+
+            override fun copySensitiveText(
+                label: String,
+                value: String,
+            ) {
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                val clip = ClipData.newPlainText(label, value)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    clip.description.extras =
+                        PersistableBundle().apply {
+                            putBoolean("android.content.extra.IS_SENSITIVE", true)
+                        }
+                }
+                clipboard.setPrimaryClip(clip)
+            }
+
+            override fun consumeLaunchTarget(): String? = pendingLaunchTarget.also { pendingLaunchTarget = null }
+
+            override fun platformPreferences(): Map<String, Any?> {
+                val preferences =
+                    createDeviceProtectedStorageContext().getSharedPreferences(
+                        UsqueVpnService.RECOVERY_PREFERENCES,
+                        MODE_PRIVATE,
+                    )
+                return mapOf(
+                    "start_on_boot" to
+                        preferences.getBoolean(UsqueVpnService.START_ON_BOOT, false),
+                    "close_to_tray" to true,
+                )
+            }
+
+            override fun setStartOnBoot(enabled: Boolean) {
+                createDeviceProtectedStorageContext()
+                    .getSharedPreferences(UsqueVpnService.RECOVERY_PREFERENCES, MODE_PRIVATE)
+                    .edit { putBoolean(UsqueVpnService.START_ON_BOOT, enabled) }
+            }
+
+            override fun requestAddQuickSettingsTile(result: MethodChannel.Result) {
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                    result.success(null)
+                    return
+                }
+                val statusBar = getSystemService(StatusBarManager::class.java)
+                statusBar.requestAddTileService(
+                    android.content.ComponentName(this@MainActivity, UsqueTileService::class.java),
+                    "Usque",
+                    Icon.createWithResource(this@MainActivity, R.drawable.ic_stat_usque),
+                    mainExecutor,
+                ) {
+                    result.success(null)
+                }
+            }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -69,6 +155,53 @@ class MainActivity : FlutterFragmentActivity() {
         // super.onCreate; wire control + method handlers first.
         ensureEngineComponents()
         super.onCreate(savedInstanceState)
+        configureQuickSettingsTileAvailability()
+        AndroidShortcutController.sync(this)
+        handleShortcutIntent(intent)
+    }
+
+    private fun configureQuickSettingsTileAvailability() {
+        val state =
+            if (packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)) {
+                PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+            } else {
+                PackageManager.COMPONENT_ENABLED_STATE_DEFAULT
+            }
+        packageManager.setComponentEnabledSetting(
+            ComponentName(this, UsqueTileService::class.java),
+            state,
+            PackageManager.DONT_KILL_APP,
+        )
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleShortcutIntent(intent)
+    }
+
+    private fun handleShortcutIntent(intent: Intent?) {
+        when (intent?.action) {
+            ACTION_SHORTCUT_CONNECT -> {
+                ContextCompat.startForegroundService(
+                    this,
+                    Intent(this, UsqueVpnService::class.java)
+                        .setAction(UsqueVpnService.ACTION_CONNECT_LAST),
+                )
+            }
+
+            ACTION_SHORTCUT_DISCONNECT -> {
+                ContextCompat.startForegroundService(
+                    this,
+                    Intent(this, UsqueVpnService::class.java)
+                        .setAction(UsqueVpnService.ACTION_DISCONNECT),
+                )
+            }
+
+            ACTION_SHORTCUT_PROFILES -> {
+                pendingLaunchTarget = "profiles"
+            }
+        }
     }
 
     private fun ensureEngineComponents() {
@@ -139,6 +272,13 @@ class MainActivity : FlutterFragmentActivity() {
             null,
         )
         pendingDiagnosticsResult = null
+        pendingWarpSecretResult?.error(
+            "SENSITIVE_OUTPUT_CANCELLED",
+            "The Android UI closed before the WARP Secret was saved.",
+            null,
+        )
+        pendingWarpSecretResult = null
+        pendingWarpSecretProfileId = null
         eventSink = null
         if (::controlClient.isInitialized) {
             controlClient.destroy()
@@ -217,11 +357,79 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
 
+    private fun selectWarpSecretDestination(
+        profileId: String,
+        result: MethodChannel.Result,
+    ) {
+        if (pendingWarpSecretResult != null) {
+            result.error(
+                "SENSITIVE_OUTPUT_IN_PROGRESS",
+                "Another WARP Secret export is already waiting for a destination.",
+                null,
+            )
+            return
+        }
+        pendingWarpSecretResult = result
+        pendingWarpSecretProfileId = profileId
+        try {
+            warpSecretDestinationLauncher.launch("usque-warp-secret.json")
+        } catch (error: Exception) {
+            pendingWarpSecretResult = null
+            pendingWarpSecretProfileId = null
+            result.error(
+                "SENSITIVE_OUTPUT_FAILED",
+                "No Android document provider is available.",
+                error.javaClass.simpleName,
+            )
+        }
+    }
+
+    private fun finishWarpSecretExport(destination: android.net.Uri?) {
+        val result = pendingWarpSecretResult ?: return
+        val profileId = pendingWarpSecretProfileId
+        pendingWarpSecretResult = null
+        pendingWarpSecretProfileId = null
+        if (destination == null) {
+            result.success(null)
+            return
+        }
+        if (profileId == null) {
+            result.error("SENSITIVE_OUTPUT_FAILED", "The Profile identity is unavailable.", null)
+            return
+        }
+        val mainHandler = android.os.Handler(mainLooper)
+        identityExecutor.execute {
+            var secret: ByteArray? = null
+            try {
+                secret =
+                    identityStore.get(profileId, SecureIdentityStore.Record.WARP_SECRET)
+                        ?: throw IllegalStateException("The Profile identity is missing")
+                contentResolver.openOutputStream(destination, "wt").use { output ->
+                    checkNotNull(output) { "The document provider returned no output stream" }
+                    output.write(secret)
+                    output.flush()
+                }
+                mainHandler.post { result.success(destination.toString()) }
+            } catch (error: Exception) {
+                mainHandler.post {
+                    result.error(
+                        "SENSITIVE_OUTPUT_FAILED",
+                        "Android could not save the WARP Secret.",
+                        error.javaClass.simpleName,
+                    )
+                }
+            } finally {
+                secret?.fill(0)
+            }
+        }
+    }
+
     private fun connectWithPermission(
         profileJson: String,
         mode: String,
         result: MethodChannel.Result,
     ) {
+        maybeRequestNotificationPermission()
         if (pendingVpnConnection.hasPending) {
             result.error(
                 "VPN_PERMISSION_IN_PROGRESS",
@@ -258,6 +466,20 @@ class MainActivity : FlutterFragmentActivity() {
             }
         }
         startNetworkService(profileJson, mode, result)
+    }
+
+    private fun maybeRequestNotificationPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        if (
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        val preferences = getSharedPreferences("usque_ui_permissions", MODE_PRIVATE)
+        if (preferences.getBoolean("notification_requested", false)) return
+        preferences.edit { putBoolean("notification_requested", true) }
+        runCatching { notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }
     }
 
     private fun finishVpnPermissionRequest(granted: Boolean) {

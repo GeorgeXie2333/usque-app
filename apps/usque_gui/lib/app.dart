@@ -7,6 +7,7 @@ import 'screens/onboarding_screen.dart';
 import 'screens/shell_screen.dart';
 import 'services/engine_client.dart';
 import 'services/engine_client_factory.dart';
+import 'services/platform_shell_bridge.dart';
 import 'state/app_controller.dart';
 import 'widgets/controller_selector.dart';
 
@@ -30,16 +31,19 @@ class UsqueBootstrap extends StatefulWidget {
 
 class _UsqueBootstrapState extends State<UsqueBootstrap> {
   late final AppController controller;
+  late final PlatformShellBridge shellBridge;
 
   @override
   void initState() {
     super.initState();
     controller = AppController(widget.engine ?? createDefaultEngineClient());
+    shellBridge = PlatformShellBridge(controller);
     controller.initialize();
   }
 
   @override
   void dispose() {
+    shellBridge.dispose();
     controller.dispose();
     super.dispose();
   }

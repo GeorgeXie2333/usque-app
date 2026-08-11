@@ -6,11 +6,12 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 5;
+pub const CURRENT_SCHEMA_VERSION: u32 = 6;
 pub const DEFAULT_ENDPOINT_V4: Ipv4Addr = Ipv4Addr::new(162, 159, 198, 2);
 pub const DEFAULT_ENDPOINT_V6: Ipv6Addr = Ipv6Addr::new(0x2606, 0x4700, 0x0103, 0, 0, 0, 0, 2);
 pub const DEFAULT_PORT: u16 = 443;
-pub const DEFAULT_SNI: &str = "www.visa.cn";
+pub const DEFAULT_SNI: &str = "speed.cloudflare.com";
+pub const LEGACY_DEFAULT_SNI: &str = "www.visa.cn";
 pub const DEFAULT_MTU: u16 = 1280;
 pub const DEFAULT_DNS_V4: Ipv4Addr = Ipv4Addr::new(1, 1, 1, 1);
 pub const DEFAULT_DNS_V6: Ipv6Addr = Ipv6Addr::new(0x2606, 0x4700, 0x4700, 0, 0, 0, 0, 0x1111);
@@ -178,8 +179,14 @@ pub struct Profile {
     pub id: Uuid,
     pub name: String,
     pub mode: OperatingMode,
+    /// Independently selectable local consumers of the one active MASQUE
+    /// channel. `mode` remains serialized only for v1 wire/config migration.
+    #[serde(default)]
+    pub frontends: FrontendSettings,
     pub transport: TransportPolicy,
     pub endpoint: EndpointSettings,
+    /// Selects the physical address family used to reach the MASQUE endpoint.
+    /// It never restricts IPv4 or IPv6 payloads carried inside CONNECT-IP.
     pub ip_policy: IpPolicy,
     pub mtu: u16,
     pub dns_mode: DnsMode,
@@ -196,7 +203,8 @@ impl Default for Profile {
         Self {
             id: DEFAULT_PROFILE_ID,
             name: "Default".to_owned(),
-            mode: OperatingMode::Vpn,
+            mode: OperatingMode::legacy_platform_default(),
+            frontends: FrontendSettings::default(),
             transport: TransportPolicy::Auto,
             endpoint: EndpointSettings::default(),
             ip_policy: IpPolicy::Auto,
@@ -241,7 +249,7 @@ impl Profile {
         {
             return Err(ConfigError::DuplicateSplitExclusion);
         }
-        if self.mode == OperatingMode::Vpn {
+        if self.frontends.tunnel {
             if self.dns_mode == DnsMode::System {
                 return Err(ConfigError::VpnSystemDnsForbidden);
             }
@@ -252,13 +260,6 @@ impl Profile {
                 .find(|server| invalid_vpn_dns_address(*server))
             {
                 return Err(ConfigError::InvalidVpnDnsServer(server));
-            }
-            if !self
-                .dns_servers
-                .iter()
-                .any(|server| dns_family_enabled(*server, self.ip_policy))
-            {
-                return Err(ConfigError::NoCompatibleVpnDnsServer);
             }
             if let Some(server) = self.dns_servers.iter().copied().find(|server| {
                 self.split_exclusions
@@ -272,7 +273,13 @@ impl Profile {
             }
         }
         self.proxy.validate()?;
-        if self.proxy.system_proxy && self.mode != OperatingMode::HttpProxy {
+        if self.frontends.socks5 && self.proxy.socks5_listeners.is_empty() {
+            return Err(ConfigError::MissingSocks5Listener);
+        }
+        if self.frontends.http && self.proxy.http_listeners.is_empty() {
+            return Err(ConfigError::MissingHttpListener);
+        }
+        if self.proxy.system_proxy && !self.frontends.http {
             return Err(ConfigError::SystemProxyRequiresHttpMode);
         }
         if self.proxy.system_proxy
@@ -288,6 +295,8 @@ impl Profile {
     }
 
     pub fn reset_network_defaults(&mut self) {
+        self.mode = OperatingMode::legacy_platform_default();
+        self.frontends = FrontendSettings::default();
         self.transport = TransportPolicy::Auto;
         self.endpoint = EndpointSettings::default();
         self.ip_policy = IpPolicy::Auto;
@@ -300,10 +309,46 @@ impl Profile {
     }
 }
 
-fn dns_family_enabled(server: IpAddr, policy: IpPolicy) -> bool {
-    match server {
-        IpAddr::V4(_) => policy != IpPolicy::Ipv6Only,
-        IpAddr::V6(_) => policy != IpPolicy::Ipv4Only,
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FrontendSettings {
+    pub tunnel: bool,
+    pub socks5: bool,
+    pub http: bool,
+}
+
+impl FrontendSettings {
+    pub const fn windows_default() -> Self {
+        Self {
+            tunnel: false,
+            socks5: true,
+            http: true,
+        }
+    }
+
+    pub const fn android_default() -> Self {
+        Self {
+            tunnel: true,
+            socks5: true,
+            http: true,
+        }
+    }
+
+    pub const fn platform_default() -> Self {
+        if cfg!(target_os = "android") {
+            Self::android_default()
+        } else {
+            Self::windows_default()
+        }
+    }
+
+    pub const fn any(self) -> bool {
+        self.tunnel || self.socks5 || self.http
+    }
+}
+
+impl Default for FrontendSettings {
+    fn default() -> Self {
+        Self::platform_default()
     }
 }
 
@@ -350,6 +395,16 @@ pub enum OperatingMode {
     HttpProxy,
 }
 
+impl OperatingMode {
+    pub const fn legacy_platform_default() -> Self {
+        if cfg!(target_os = "android") {
+            Self::Vpn
+        } else {
+            Self::Socks5
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TransportPolicy {
@@ -361,6 +416,9 @@ pub enum TransportPolicy {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
+/// Policy for selecting the outer MASQUE endpoint address family.
+///
+/// Even the `Only` variants keep IPv4 and IPv6 enabled inside CONNECT-IP.
 pub enum IpPolicy {
     #[default]
     Auto,
@@ -439,7 +497,7 @@ impl Default for ProxySettings {
                 SocketAddr::from(([127, 0, 0, 1], 8080)),
                 SocketAddr::new(Ipv6Addr::LOCALHOST.into(), 8080),
             ],
-            system_proxy: false,
+            system_proxy: cfg!(windows),
             udp_idle_timeout_seconds: 60,
             dns_mode: ProxyDnsMode::Remote,
         }
@@ -448,9 +506,6 @@ impl Default for ProxySettings {
 
 impl ProxySettings {
     pub fn validate(&self) -> Result<(), ConfigError> {
-        if self.socks5_listeners.is_empty() || self.http_listeners.is_empty() {
-            return Err(ConfigError::MissingProxyListener);
-        }
         if self.socks5_listeners.len() > MAX_PROXY_LISTENERS_PER_PROTOCOL
             || self.http_listeners.len() > MAX_PROXY_LISTENERS_PER_PROTOCOL
         {
@@ -485,6 +540,18 @@ impl ProxySettings {
             OperatingMode::HttpProxy => &self.http_listeners,
         };
         listeners.iter().any(|address| !address.ip().is_loopback())
+    }
+
+    pub fn socks5_exposes_lan(&self) -> bool {
+        self.socks5_listeners
+            .iter()
+            .any(|address| !address.ip().is_loopback())
+    }
+
+    pub fn http_exposes_lan(&self) -> bool {
+        self.http_listeners
+            .iter()
+            .any(|address| !address.ip().is_loopback())
     }
 }
 
@@ -536,8 +603,6 @@ pub enum ConfigError {
     DuplicateDnsServer,
     #[error("VPN mode cannot use the physical system DNS resolver")]
     VpnSystemDnsForbidden,
-    #[error("VPN mode needs at least one DNS server for an enabled address family")]
-    NoCompatibleVpnDnsServer,
     #[error("VPN DNS server {0} is not a routable unicast address")]
     InvalidVpnDnsServer(IpAddr),
     #[error("VPN DNS server {0} is covered by a LAN or CIDR bypass")]
@@ -546,15 +611,17 @@ pub enum ConfigError {
     TooManySplitExclusions(usize),
     #[error("duplicate split exclusion")]
     DuplicateSplitExclusion,
-    #[error("at least one listener for each proxy protocol is required")]
-    MissingProxyListener,
+    #[error("at least one SOCKS5 listener is required while SOCKS5 is enabled")]
+    MissingSocks5Listener,
+    #[error("at least one HTTP listener is required while HTTP is enabled")]
+    MissingHttpListener,
     #[error(
         "no more than {MAX_PROXY_LISTENERS_PER_PROTOCOL} listeners per proxy protocol are allowed"
     )]
     TooManyProxyListeners,
     #[error("duplicate proxy listener: {0}")]
     DuplicateProxyListener(SocketAddr),
-    #[error("Windows system proxy is available only in HTTP Proxy mode")]
+    #[error("Windows system proxy requires the HTTP frontend")]
     SystemProxyRequiresHttpMode,
     #[error("Windows system proxy requires at least one Loopback HTTP listener")]
     SystemProxyRequiresLoopback,
@@ -610,7 +677,7 @@ mod tests {
             u64::from(profile.endpoint.port),
             fixture["endpoint_port"].as_u64().expect("endpoint_port")
         );
-        assert_eq!(profile.endpoint.sni, fixture["sni"].as_str().expect("sni"));
+        assert_eq!(profile.endpoint.sni, "speed.cloudflare.com");
         assert_eq!(
             u64::from(profile.mtu),
             fixture["mtu"].as_u64().expect("mtu")
@@ -656,7 +723,8 @@ mod tests {
                 .map(|value| value.as_str().expect("HTTP listener").to_owned())
                 .collect::<Vec<_>>()
         );
-        assert_eq!(profile.mode, OperatingMode::Vpn);
+        assert_eq!(profile.mode, OperatingMode::legacy_platform_default());
+        assert_eq!(profile.frontends, FrontendSettings::platform_default());
         assert_eq!(profile.transport, TransportPolicy::Auto);
         assert!(profile.kill_switch);
         assert!(!profile.proxy.exposes_lan(OperatingMode::Socks5));
@@ -716,6 +784,15 @@ mod tests {
     fn vpn_dns_cannot_escape_through_system_or_bypass_routes() {
         let mut profile = Profile {
             dns_mode: DnsMode::System,
+            frontends: FrontendSettings {
+                tunnel: true,
+                socks5: false,
+                http: false,
+            },
+            proxy: ProxySettings {
+                system_proxy: false,
+                ..ProxySettings::default()
+            },
             ..Profile::default()
         };
         assert_eq!(profile.validate(), Err(ConfigError::VpnSystemDnsForbidden));
@@ -729,12 +806,12 @@ mod tests {
             ))
         );
 
+        // Endpoint-only policies do not disable the opposite family inside
+        // CONNECT-IP, so an IPv6 tunnel DNS server remains valid over an
+        // IPv4-only MASQUE ingress.
         profile.ip_policy = IpPolicy::Ipv4Only;
         profile.dns_servers = vec!["2606:4700:4700::1111".parse().unwrap()];
-        assert_eq!(
-            profile.validate(),
-            Err(ConfigError::NoCompatibleVpnDnsServer)
-        );
+        assert_eq!(profile.validate(), Ok(()));
 
         profile.dns_servers = vec!["1.1.1.1".parse().unwrap()];
         profile.split_exclusions = vec!["1.1.1.0/24".parse().unwrap()];
@@ -769,6 +846,15 @@ mod tests {
         let profile = Profile {
             dns_mode: DnsMode::LocalConfigured,
             dns_servers: vec!["9.9.9.9".parse().unwrap(), "2620:fe::fe".parse().unwrap()],
+            frontends: FrontendSettings {
+                tunnel: true,
+                socks5: false,
+                http: false,
+            },
+            proxy: ProxySettings {
+                system_proxy: false,
+                ..ProxySettings::default()
+            },
             ..Profile::default()
         };
         assert!(profile.validate().is_ok());

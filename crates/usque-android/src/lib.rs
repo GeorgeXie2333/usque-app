@@ -23,9 +23,9 @@ use jni::{
 };
 use serde::{Deserialize, Serialize};
 use usque_core::{
-    AppConfig, ConsumerRegistrationClient, DnsMode, EndpointSettings, IpPolicy, OperatingMode,
-    Profile, ProxyDnsMode, ProxySettings, RegistrationOptions, TransportPolicy, WarpIdentity,
-    parse_manual_warp_secret, storage::ConfigStore, update::UpdateChecker,
+    AppConfig, ConsumerRegistrationClient, DnsMode, EndpointSettings, FrontendSettings, IpPolicy,
+    OperatingMode, Profile, ProxyDnsMode, ProxySettings, RegistrationOptions, TransportPolicy,
+    WarpIdentity, parse_manual_warp_secret, storage::ConfigStore, update::UpdateChecker,
 };
 #[cfg(target_os = "android")]
 use usque_transport::{
@@ -275,6 +275,65 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeReg
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeRegisterConsumerWarpWithLicense(
+    mut environment: JNIEnv<'_>,
+    _class: JClass<'_>,
+    locale: JString<'_>,
+    license_key: JString<'_>,
+) -> jbyteArray {
+    let locale = match environment.get_string(&locale) {
+        Ok(locale) => locale.to_string_lossy().into_owned(),
+        Err(error) => {
+            throw_io_error(&mut environment, &error.to_string());
+            return std::ptr::null_mut();
+        }
+    };
+    let license_key = match environment.get_string(&license_key) {
+        Ok(value) => Zeroizing::new(value.to_string_lossy().into_owned()),
+        Err(error) => {
+            throw_io_error(&mut environment, &error.to_string());
+            return std::ptr::null_mut();
+        }
+    };
+    let secret = match register_consumer_warp_with_license(&locale, license_key.as_str()) {
+        Ok(secret) => secret,
+        Err(error) => {
+            throw_io_error(&mut environment, &error);
+            return std::ptr::null_mut();
+        }
+    };
+    match environment.byte_array_from_slice(secret.as_bytes()) {
+        Ok(output) => output.into_raw(),
+        Err(error) => {
+            throw_io_error(&mut environment, &error.to_string());
+            std::ptr::null_mut()
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeUnbindConsumerWarp(
+    mut environment: JNIEnv<'_>,
+    _class: JClass<'_>,
+    warp_secret: JByteArray<'_>,
+) -> jint {
+    let secret = match environment.convert_byte_array(&warp_secret) {
+        Ok(value) => Zeroizing::new(value),
+        Err(error) => {
+            throw_io_error(&mut environment, &error.to_string());
+            return INVALID_WARP_SECRET;
+        }
+    };
+    match unbind_consumer_warp(&secret) {
+        Ok(()) => START_OK,
+        Err(error) => {
+            throw_io_error(&mut environment, &error);
+            START_PLATFORM_FAILURE
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCheckForUpdates(
     mut environment: JNIEnv<'_>,
     _class: JClass<'_>,
@@ -376,6 +435,8 @@ struct AndroidProfile {
     id: String,
     name: String,
     mode: String,
+    #[serde(default)]
+    frontends: Option<AndroidFrontends>,
     transport: String,
     ip_policy: String,
     endpoint_v4: String,
@@ -395,6 +456,13 @@ struct AndroidProfile {
 }
 
 #[derive(Debug, Deserialize)]
+struct AndroidFrontends {
+    tunnel: bool,
+    socks5: bool,
+    http: bool,
+}
+
+#[derive(Debug, Deserialize)]
 struct AndroidProxy {
     socks_ipv4: String,
     socks_ipv6: String,
@@ -403,7 +471,6 @@ struct AndroidProxy {
     http_ipv6: String,
     http_port: u16,
     dns_mode: String,
-    system_proxy: bool,
 }
 
 fn parse_android_profile(json: &str) -> Result<Profile, String> {
@@ -448,6 +515,14 @@ fn android_profile_to_core(source: AndroidProfile) -> Result<Profile, String> {
         "system" => ProxyDnsMode::System,
         _ => return Err("invalid Android proxy DNS mode".to_owned()),
     };
+    let frontends = source
+        .frontends
+        .map(|frontends| FrontendSettings {
+            tunnel: frontends.tunnel,
+            socks5: frontends.socks5,
+            http: frontends.http,
+        })
+        .unwrap_or_else(FrontendSettings::android_default);
 
     let socks_ipv4: IpAddr = parse_value(&source.proxy.socks_ipv4, "SOCKS5 IPv4 listener")?;
     let socks_ipv6: IpAddr = parse_value(&source.proxy.socks_ipv6, "SOCKS5 IPv6 listener")?;
@@ -457,6 +532,7 @@ fn android_profile_to_core(source: AndroidProfile) -> Result<Profile, String> {
         id: parse_value(&source.id, "profile ID")?,
         name: source.name,
         mode,
+        frontends,
         transport,
         endpoint: EndpointSettings {
             ipv4: parse_value(&source.endpoint_v4, "endpoint IPv4")?,
@@ -488,7 +564,7 @@ fn android_profile_to_core(source: AndroidProfile) -> Result<Profile, String> {
                 SocketAddr::new(http_ipv4, source.proxy.http_port),
                 SocketAddr::new(http_ipv6, source.proxy.http_port),
             ],
-            system_proxy: source.proxy.system_proxy,
+            system_proxy: false,
             udp_idle_timeout_seconds: 60,
             dns_mode: proxy_dns_mode,
         },
@@ -757,6 +833,11 @@ fn android_profile_value(profile: &Profile) -> serde_json::Value {
             OperatingMode::Vpn => "vpn",
             OperatingMode::Socks5 => "socks5",
             OperatingMode::HttpProxy => "httpProxy",
+        },
+        "frontends": {
+            "tunnel": profile.frontends.tunnel,
+            "socks5": profile.frontends.socks5,
+            "http": profile.frontends.http,
         },
         "transport": match profile.transport {
             TransportPolicy::Auto => "automatic",
@@ -1130,7 +1211,7 @@ mod android_runtime {
     use tokio_util::sync::CancellationToken;
     use usque_core::{AddressFamily, IpSbProbe, OperatingMode, Transport, WarpIdentity};
     use usque_transport::{
-        EndpointPinRefresher, ManagedTunnelRuntime, ProxyRuntime, RuntimeHealth, TrafficSnapshot,
+        EndpointPinRefresher, MasqueRuntime, ProxyRuntime, RuntimeHealth, TrafficSnapshot,
         TransportError,
     };
 
@@ -1458,12 +1539,8 @@ mod android_runtime {
                 return;
             }
         };
-        let startup = ManagedTunnelRuntime::start_with_refresh(
-            &profile,
-            identity,
-            protector,
-            Some(pin_refresher),
-        );
+        let startup =
+            MasqueRuntime::start_with_refresh(&profile, identity, protector, Some(pin_refresher));
         tokio::pin!(startup);
         let started_tunnel = tokio::select! {
             biased;
@@ -1482,6 +1559,10 @@ mod android_runtime {
             }
         };
         update_health(&status, tunnel.health());
+        if let Ok(mut snapshot) = status.lock() {
+            snapshot.active_listeners =
+                tunnel.listeners().iter().map(ToString::to_string).collect();
+        }
         let _ = started.send(START_OK);
         if let Ok(probe) = IpSbProbe::new() {
             tokio::spawn(populate_exit(Arc::clone(&status), probe));
@@ -1668,9 +1749,9 @@ mod android_runtime {
                 snapshot.phase = if dual_stack { "connected" } else { "degraded" }.to_owned();
                 snapshot.warning = (!dual_stack).then(|| {
                     if path.ipv4_available {
-                        "IPv6 is unavailable on the selected physical network; Usque is using IPv4."
+                        "The CONNECT-IP peer is not currently routing IPv6; IPv4 remains protected."
                     } else {
-                        "IPv4 is unavailable on the selected physical network; Usque is using IPv6."
+                        "The CONNECT-IP peer is not currently routing IPv4; IPv6 remains protected."
                     }
                     .to_owned()
                 });
@@ -1883,6 +1964,46 @@ fn register_consumer_warp(locale: &str) -> Result<Zeroizing<String>, String> {
         .map_err(|error| error.to_string())?;
     identity
         .to_portable_secret_json()
+        .map_err(|error| error.to_string())
+}
+
+fn register_consumer_warp_with_license(
+    locale: &str,
+    license_key: &str,
+) -> Result<Zeroizing<String>, String> {
+    if locale.trim().is_empty() || locale.chars().count() > 32 {
+        return Err("Android locale is invalid".to_owned());
+    }
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| format!("registration runtime failed: {error}"))?;
+    let client = ConsumerRegistrationClient::new().map_err(|error| error.to_string())?;
+    let identity = runtime
+        .block_on(client.register_with_license(
+            &RegistrationOptions {
+                terms_accepted: true,
+                model: "Android".to_owned(),
+                device_name: None,
+                locale: locale.to_owned(),
+            },
+            license_key,
+        ))
+        .map_err(|error| error.to_string())?;
+    identity
+        .to_portable_secret_json()
+        .map_err(|error| error.to_string())
+}
+
+fn unbind_consumer_warp(secret: &[u8]) -> Result<(), String> {
+    let identity = warp_identity_from_secret(secret).map_err(|error| error.to_string())?;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| format!("license cleanup runtime failed: {error}"))?;
+    let client = ConsumerRegistrationClient::new().map_err(|error| error.to_string())?;
+    runtime
+        .block_on(client.unbind_license(&identity))
         .map_err(|error| error.to_string())
 }
 

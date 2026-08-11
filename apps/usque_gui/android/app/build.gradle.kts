@@ -56,6 +56,10 @@ android {
         warningsAsErrors = true
         checkReleaseBuilds = true
         abortOnError = true
+        // Flutter rewrites the ignored local.properties file with ordinary
+        // Windows paths. It is consumed correctly by Gradle and is not a
+        // distributable project resource.
+        disable += "PropertyEscape"
     }
 }
 

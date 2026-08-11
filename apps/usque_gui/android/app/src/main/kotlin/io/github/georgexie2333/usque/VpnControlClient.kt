@@ -281,50 +281,6 @@ internal class VpnControlClient(
         }
     }
 
-    fun requestPauseCaptivePortal(
-        seconds: Int,
-        result: MethodChannel.Result,
-    ) {
-        if (destroyed) {
-            result.error(
-                "ENGINE_IPC_CLOSED",
-                "The Android UI closed before the VPN process replied.",
-                null,
-            )
-            return
-        }
-        val service = endpoint
-        if (service == null) {
-            bind()
-            result.error(
-                "ENGINE_IPC_UNAVAILABLE",
-                "The Android VPN process is not ready.",
-                null,
-            )
-            return
-        }
-        val requestId = allocateRequestId()
-        pendingSnapshots[requestId] = result
-        val extras = mapOf("seconds" to seconds)
-        if (!service.send(UsqueVpnService.MSG_PAUSE_CAPTIVE_PORTAL, requestId, extras)) {
-            pendingSnapshots.remove(requestId)
-            endpoint = null
-            result.error(
-                "ENGINE_IPC_UNAVAILABLE",
-                "The Android VPN process could not receive the pause request.",
-                null,
-            )
-            return
-        }
-        scheduler.postDelayed(snapshotTimeoutMillis, snapshotTimeoutToken(requestId)) {
-            pendingSnapshots.remove(requestId)?.error(
-                "ENGINE_IPC_TIMEOUT",
-                "The Android VPN process did not acknowledge the pause in time.",
-                null,
-            )
-        }
-    }
-
     /**
      * Sends MSG_CLEAR_ALL_DATA and holds [result] until the service acknowledges.
      * @return false when the control endpoint is unavailable (caller already received the error).
@@ -629,8 +585,6 @@ internal class VpnControlClient(
                 "kill_switch_state" to bundle.getString("kill_switch_state"),
                 "platform_lockdown" to bundle.getBoolean("platform_lockdown"),
                 "always_on" to bundle.getBoolean("always_on"),
-                "captive_pause_remaining_seconds" to
-                    bundle.getInt("captive_pause_remaining_seconds"),
                 "exit_ipv4" to bundle.getString("exit_ipv4"),
                 "exit_ipv6" to bundle.getString("exit_ipv6"),
                 "exit_city" to bundle.getString("exit_city"),

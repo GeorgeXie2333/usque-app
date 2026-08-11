@@ -16,7 +16,6 @@ class DiagnosticsScreen extends StatelessWidget {
     final strings = controller.strings;
     return PageFrame(
       title: strings.get('diagnostics_title'),
-      subtitle: strings.get('diagnostics_subtitle'),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
@@ -113,7 +112,6 @@ class DiagnosticsScreen extends StatelessWidget {
                 SectionTitle(
                   icon: LucideIcons.logs,
                   title: strings.get('logs'),
-                  subtitle: strings.get('logs_help'),
                 ),
                 const SizedBox(height: 18),
                 Align(
@@ -124,13 +122,6 @@ class DiagnosticsScreen extends StatelessWidget {
                         : () => _confirmAndExport(context),
                     icon: const Icon(LucideIcons.fileArchive),
                     label: Text(strings.get('export_diagnostics')),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  strings.get('export_help'),
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
                 ),
               ],
@@ -147,12 +138,6 @@ class DiagnosticsScreen extends StatelessWidget {
                   subtitle: strings.get('unofficial'),
                 ),
                 const SizedBox(height: 20),
-                _InfoRow(
-                  icon: LucideIcons.shieldCheck,
-                  title: strings.get('privacy'),
-                  value: strings.get('privacy_body'),
-                ),
-                const Divider(height: 30),
                 _InfoRow(
                   icon: LucideIcons.scale,
                   title: strings.get('license'),
@@ -248,7 +233,6 @@ String _connectionPhaseKey(ConnectionPhase phase) {
     ConnectionPhase.degraded => 'degraded',
     ConnectionPhase.reconnecting => 'reconnecting',
     ConnectionPhase.disconnecting => 'disconnecting',
-    ConnectionPhase.captivePortalPaused => 'captive_pause',
     ConnectionPhase.error => 'error',
   };
 }

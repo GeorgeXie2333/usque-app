@@ -65,6 +65,20 @@ impl Error {
         Error::Internal(InternalErrorKind::BufferFull)
     }
 
+    /// Error constructor for a TCP buffer budget that cannot fit another socket.
+    pub fn tcp_buffer_budget_exhausted() -> Self {
+        Error::Internal(InternalErrorKind::TcpBufferBudgetExhausted)
+    }
+
+    /// Whether creating a TCP socket failed because the configured memory
+    /// budget was exhausted.
+    pub const fn is_tcp_buffer_budget_exhausted(self) -> bool {
+        matches!(
+            self,
+            Error::Internal(InternalErrorKind::TcpBufferBudgetExhausted)
+        )
+    }
+
     /// Error constructor for an unaddressable packet.
     pub fn unaddressable() -> Self {
         Error::BadRequest(BadRequestReason::Unaddressable)
@@ -102,6 +116,8 @@ pub enum InternalErrorKind {
     BadSocketHandle,
     /// buffer full
     BufferFull,
+    /// The configured aggregate TCP socket-buffer budget was exhausted.
+    TcpBufferBudgetExhausted,
 }
 
 impl fmt::Display for InternalErrorKind {
@@ -115,6 +131,9 @@ impl fmt::Display for InternalErrorKind {
             InternalErrorKind::BadListenerHandle => write!(f, "handle to invalid TCP listener"),
             InternalErrorKind::BadSocketHandle => write!(f, "handle to invalid socket"),
             InternalErrorKind::BufferFull => write!(f, "buffer full"),
+            InternalErrorKind::TcpBufferBudgetExhausted => {
+                write!(f, "TCP socket buffer budget exhausted")
+            }
         }
     }
 }

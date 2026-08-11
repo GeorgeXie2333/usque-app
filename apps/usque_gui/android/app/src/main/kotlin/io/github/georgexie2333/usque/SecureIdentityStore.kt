@@ -37,6 +37,7 @@ internal class SecureIdentityStore(
         ACCESS_TOKEN("access-token"),
         DEVICE_ID("device-id"),
         LICENSE("license"),
+        PENDING_CLEANUP_SECRET("pending-cleanup-secret"),
         ENDPOINT_PIN("endpoint-pin"),
     }
 

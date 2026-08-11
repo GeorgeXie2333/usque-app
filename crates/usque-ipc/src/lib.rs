@@ -80,8 +80,10 @@ mod tests {
     };
     use crate::v1::{
         Capabilities, CapabilitiesChanged, ControlRequest, CreateProfileWithIdentityRequest,
-        EventEnvelope, GetStatusRequest, IdentityProvisioning, IdentityProvisioningMethod, Profile,
-        WarningRaised, control_request, event_envelope,
+        EventEnvelope, ExportWarpSecretRequest, FrontendKind, FrontendPhase, FrontendSettings,
+        FrontendStatus, GetStatusRequest, IdentityProvisioning, IdentityProvisioningMethod,
+        Profile, ReconfigureActiveProfileRequest, UpdateLicenseKeyRequest, WarningRaised,
+        control_request, event_envelope,
     };
 
     // Checked-in v1 wire snapshots. Changing an established field number or
@@ -107,6 +109,15 @@ mod tests {
     const CREATE_PROFILE_WITH_IDENTITY_V1_FRAME: &[u8] = &[
         0, 0, 0, 26, 0x0a, 2, b'c', b'1', 0xd2, 0x01, 19, 0x0a, 7, 0x0a, 2, b'i', b'd', 0x12, 1,
         b'n', 0x12, 8, 0x08, 1, 0x18, 1, 0x22, 2, b'e', b'n',
+    ];
+    const RECONFIGURE_V2_FRAME: &[u8] = &[
+        0, 0, 0, 11, 0x0a, 1, b'x', 0xda, 0x01, 5, 0x0a, 3, 0x0a, 1, b'p',
+    ];
+    const UPDATE_LICENSE_V2_FRAME: &[u8] = &[
+        0, 0, 0, 12, 0x0a, 1, b'x', 0xea, 0x01, 6, 0x0a, 1, b'p', 0x12, 1, b'k',
+    ];
+    const EXPORT_WARP_SECRET_V2_FRAME: &[u8] = &[
+        0, 0, 0, 14, 0x0a, 1, b'x', 0xfa, 0x01, 8, 0x0a, 1, b'p', 0x12, 1, b'd', 0x18, 1,
     ];
     const AGENT_CAPABILITIES_V1_FRAME: &[u8] = &[0, 0, 0, 8, 0x0a, 2, b'a', b'1', 0x10, 1, 0x52, 0];
     const AGENT_RESUME_TUNNEL_V1_FRAME: &[u8] = &[
@@ -286,6 +297,85 @@ mod tests {
         assert_eq!(
             encode_frame(&decoded).expect("re-encode").as_ref(),
             CREATE_PROFILE_WITH_IDENTITY_V1_FRAME
+        );
+    }
+
+    #[test]
+    fn composable_frontends_and_runtime_status_use_append_only_field_fifteen() {
+        let profile = Profile {
+            id: "p".to_owned(),
+            frontends: Some(FrontendSettings {
+                tunnel: true,
+                socks5: true,
+                http: false,
+            }),
+            ..Profile::default()
+        };
+        assert_eq!(
+            profile.encode_to_vec(),
+            [0x0a, 1, b'p', 0x7a, 4, 0x08, 1, 0x10, 1]
+        );
+
+        let snapshot = crate::v1::ConnectionSnapshot {
+            frontends: vec![FrontendStatus {
+                kind: FrontendKind::Socks5 as i32,
+                phase: FrontendPhase::Active as i32,
+                listeners: vec!["l".to_owned()],
+                error: None,
+            }],
+            ..crate::v1::ConnectionSnapshot::default()
+        };
+        assert_eq!(
+            snapshot.encode_to_vec(),
+            [0x7a, 7, 0x08, 2, 0x10, 3, 0x1a, 1, b'l']
+        );
+    }
+
+    #[test]
+    fn reconfigure_license_and_secret_export_requests_are_append_only() {
+        let reconfigure = ControlRequest {
+            request_id: "x".to_owned(),
+            payload: Some(control_request::Payload::ReconfigureActiveProfile(
+                Box::new(ReconfigureActiveProfileRequest {
+                    profile: Some(Profile {
+                        id: "p".to_owned(),
+                        ..Profile::default()
+                    }),
+                }),
+            )),
+        };
+        assert_eq!(
+            encode_frame(&reconfigure).unwrap().as_ref(),
+            RECONFIGURE_V2_FRAME
+        );
+
+        let update = ControlRequest {
+            request_id: "x".to_owned(),
+            payload: Some(control_request::Payload::UpdateLicenseKey(
+                UpdateLicenseKeyRequest {
+                    profile_id: "p".to_owned(),
+                    license_key: b"k".to_vec(),
+                },
+            )),
+        };
+        assert_eq!(
+            encode_frame(&update).unwrap().as_ref(),
+            UPDATE_LICENSE_V2_FRAME
+        );
+
+        let export = ControlRequest {
+            request_id: "x".to_owned(),
+            payload: Some(control_request::Payload::ExportWarpSecret(
+                ExportWarpSecretRequest {
+                    profile_id: "p".to_owned(),
+                    destination: "d".to_owned(),
+                    confirmed: true,
+                },
+            )),
+        };
+        assert_eq!(
+            encode_frame(&export).unwrap().as_ref(),
+            EXPORT_WARP_SECRET_V2_FRAME
         );
     }
 

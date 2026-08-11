@@ -88,19 +88,23 @@ class DesktopEngineClient implements EngineClient {
   }
 
   @override
-  Future<void> provisionIdentity(UsqueProfile profile, {String? warpSecret}) {
+  Future<void> provisionIdentity(
+    UsqueProfile profile, {
+    required IdentityProvisioningMethod method,
+    String? licenseKey,
+  }) {
     return _serialized(() async {
       await _upsertProfile(profile);
-      final secret = Uint8List.fromList(utf8.encode(warpSecret ?? ''));
+      final license = Uint8List.fromList(utf8.encode(licenseKey ?? ''));
       try {
         final payload = ControlPayloadWriter()
           ..string(1, profile.id)
-          ..bytes(2, secret)
           ..boolean(3, true)
-          ..string(4, Platform.localeName);
+          ..string(4, Platform.localeName)
+          ..bytes(6, license);
         await _request(23, payload.takeBytes());
       } finally {
-        secret.fillRange(0, secret.length, 0);
+        license.fillRange(0, license.length, 0);
       }
     });
   }
@@ -109,26 +113,104 @@ class DesktopEngineClient implements EngineClient {
   Future<ProfileCatalog> createProfileWithIdentity(
     UsqueProfile profile, {
     required IdentityProvisioningMethod method,
-    String? warpSecret,
+    String? licenseKey,
   }) {
     return _serialized(() async {
-      final secret = Uint8List.fromList(utf8.encode(warpSecret ?? ''));
+      final license = Uint8List.fromList(utf8.encode(licenseKey ?? ''));
       try {
         final identity = ControlPayloadWriter()
-          ..enumeration(1, method.index + 1)
-          ..bytes(2, secret)
+          ..enumeration(1, _identityProvisioningWireValue(method))
           ..boolean(3, true)
-          ..string(4, Platform.localeName);
+          ..string(4, Platform.localeName)
+          ..bytes(6, license);
         final payload = ControlPayloadWriter()
           ..message(1, _codec.encodeProfile(profile))
           ..message(2, identity.takeBytes());
         final response = await _request(26, payload.takeBytes());
         return _codec.requireProfileCatalog(response);
       } finally {
-        secret.fillRange(0, secret.length, 0);
+        license.fillRange(0, license.length, 0);
       }
     });
   }
+
+  @override
+  Future<void> reconfigureActiveProfile(UsqueProfile profile) {
+    return _serialized(() async {
+      final payload = ControlPayloadWriter()
+        ..message(1, _codec.encodeProfile(profile));
+      await _request(27, payload.takeBytes());
+    });
+  }
+
+  @override
+  Future<void> copyLicenseKey(String profileId) {
+    return _serialized(() async {
+      final payload = ControlPayloadWriter()..string(1, profileId);
+      await _request(28, payload.takeBytes());
+    });
+  }
+
+  @override
+  Future<void> updateLicenseKey(String profileId, String licenseKey) {
+    return _serialized(() async {
+      final license = Uint8List.fromList(utf8.encode(licenseKey));
+      try {
+        final payload = ControlPayloadWriter()
+          ..string(1, profileId)
+          ..bytes(2, license);
+        await _request(29, payload.takeBytes());
+      } finally {
+        license.fillRange(0, license.length, 0);
+      }
+    });
+  }
+
+  @override
+  Future<void> unbindLicenseKey(String profileId) {
+    return _serialized(() async {
+      final payload = ControlPayloadWriter()..string(1, profileId);
+      await _request(30, payload.takeBytes());
+    });
+  }
+
+  @override
+  Future<String?> exportWarpSecret(String profileId) async {
+    final destination = await _transport.selectWarpSecretDestination();
+    if (destination == null || destination.isEmpty) return null;
+    final payload = ControlPayloadWriter()
+      ..string(1, profileId)
+      ..string(2, destination)
+      ..boolean(3, true);
+    await _serialized(() => _request(31, payload.takeBytes()));
+    return destination;
+  }
+
+  @override
+  Future<String?> consumeLaunchTarget() async => null;
+
+  @override
+  Future<PlatformPreferences> platformPreferences() async {
+    final value = await _transport.invokePlatformMethod<Map<Object?, Object?>>(
+      'platformPreferences',
+    );
+    return PlatformPreferences.fromMap(value ?? const <Object?, Object?>{});
+  }
+
+  @override
+  Future<void> setStartOnBoot(bool enabled) =>
+      _transport.invokePlatformMethod<void>('setStartOnBoot', <String, Object?>{
+        'enabled': enabled,
+      });
+
+  @override
+  Future<void> setCloseToTray(bool enabled) =>
+      _transport.invokePlatformMethod<void>('setCloseToTray', <String, Object?>{
+        'enabled': enabled,
+      });
+
+  @override
+  Future<void> requestAddQuickSettingsTile() async {}
 
   @override
   Future<EngineSnapshot> connect(UsqueProfile profile) {
@@ -152,15 +234,6 @@ class DesktopEngineClient implements EngineClient {
   Future<EngineSnapshot> snapshot() {
     return _serialized(() async {
       final response = await _request(10, Uint8List(0));
-      return response.snapshot ?? const EngineSnapshot();
-    });
-  }
-
-  @override
-  Future<EngineSnapshot> pauseCaptivePortal({int seconds = 600}) {
-    return _serialized(() async {
-      final payload = ControlPayloadWriter()..unsigned(1, seconds);
-      final response = await _request(19, payload.takeBytes());
       return response.snapshot ?? const EngineSnapshot();
     });
   }
@@ -291,6 +364,8 @@ Duration requestTimeoutForPayload(int payloadField) {
       return const Duration(seconds: 55);
     case 23:
     case 26:
+    case 29:
+    case 30:
       return const Duration(seconds: 60);
     case 20:
       return const Duration(seconds: 20);
@@ -301,4 +376,11 @@ Duration requestTimeoutForPayload(int payloadField) {
     default:
       return const Duration(seconds: 5);
   }
+}
+
+int _identityProvisioningWireValue(IdentityProvisioningMethod method) {
+  return switch (method) {
+    IdentityProvisioningMethod.register => 1,
+    IdentityProvisioningMethod.registerWithLicense => 3,
+  };
 }

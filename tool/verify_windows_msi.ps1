@@ -203,6 +203,137 @@ try {
         $propertyMap.ARPCOMMENTS `
         "Unofficial Consumer WARP client. Installed variant: $Variant." `
         "ARPCOMMENTS"
+    Assert-Equal $propertyMap.WIXUI_INSTALLDIR "INSTALLFOLDER" "WixUI install directory"
+    Assert-Equal `
+        $propertyMap.USQUE_REMOVE_USER_DATA `
+        "0" `
+        "default uninstall user-data choice"
+
+    $secureProperties = @($propertyMap.SecureCustomProperties -split ";")
+    foreach ($secureProperty in @("INSTALLFOLDER", "USQUE_REMOVE_USER_DATA")) {
+        if ($secureProperties -notcontains $secureProperty) {
+            throw "$secureProperty must be listed in SecureCustomProperties."
+        }
+    }
+
+    $installDirectory = Assert-OneRow `
+    (Invoke-MsiQuery `
+            -Database $database `
+            -Query "SELECT ``Directory``,``Directory_Parent``,``DefaultDir`` FROM ``Directory`` WHERE ``Directory``='INSTALLFOLDER'" `
+            -Columns @("Directory", "Parent", "DefaultDir")) `
+        "INSTALLFOLDER directory"
+    Assert-Equal $installDirectory.Parent "ProgramFiles64Folder" "INSTALLFOLDER parent"
+    Assert-Equal $installDirectory.DefaultDir "Usque" "INSTALLFOLDER default name"
+
+    $installLocationRegistry = Assert-OneRow `
+    (Invoke-MsiQuery `
+            -Database $database `
+            -Query "SELECT ``Root``,``Key``,``Name``,``Value``,``Component_`` FROM ``Registry`` WHERE ``Name``='InstallLocation'" `
+            -Columns @("Root", "Key", "Name", "Value", "Component")) `
+        "persisted install location"
+    Assert-Equal $installLocationRegistry.Root "2" "InstallLocation registry root"
+    Assert-Equal $installLocationRegistry.Key "Software\Usque" "InstallLocation registry key"
+    Assert-Equal $installLocationRegistry.Value "[INSTALLFOLDER]" "InstallLocation registry value"
+    Assert-Equal `
+        $installLocationRegistry.Component `
+        "UsqueGuiComponent" `
+        "InstallLocation registry component"
+
+    $installLocationSearch = Assert-OneRow `
+    (Invoke-MsiQuery `
+            -Database $database `
+            -Query "SELECT ``Property``,``Signature_`` FROM ``AppSearch`` WHERE ``Property``='INSTALLFOLDER'" `
+            -Columns @("Property", "Signature")) `
+        "install location AppSearch"
+    Assert-Equal `
+        $installLocationSearch.Signature `
+        "UsqueInstallLocationSearch" `
+        "InstallLocation search signature"
+
+    $installLocationLocator = Assert-OneRow `
+    (Invoke-MsiQuery `
+            -Database $database `
+            -Query "SELECT ``Root``,``Key``,``Name``,``Type`` FROM ``RegLocator`` WHERE ``Signature_``='UsqueInstallLocationSearch'" `
+            -Columns @("Root", "Key", "Name", "Type")) `
+        "install location registry locator"
+    Assert-Equal $installLocationLocator.Root "2" "InstallLocation locator root"
+    Assert-Equal $installLocationLocator.Key "Software\Usque" "InstallLocation locator key"
+    Assert-Equal $installLocationLocator.Name "InstallLocation" "InstallLocation locator name"
+    if (([int]$installLocationLocator.Type -band 16) -eq 0) {
+        throw "InstallLocation registry search must read the 64-bit registry view."
+    }
+
+    $installDirectoryDialog = Assert-OneRow `
+    (Invoke-MsiQuery `
+            -Database $database `
+            -Query "SELECT ``Dialog`` FROM ``Dialog`` WHERE ``Dialog``='InstallDirDlg'" `
+            -Columns @("Dialog")) `
+        "install-directory dialog"
+    Assert-Equal $installDirectoryDialog.Dialog "InstallDirDlg" "install-directory dialog id"
+
+    $removeDataDialog = Assert-OneRow `
+    (Invoke-MsiQuery `
+            -Database $database `
+            -Query "SELECT ``Dialog`` FROM ``Dialog`` WHERE ``Dialog``='UsqueRemoveDataDlg'" `
+            -Columns @("Dialog")) `
+        "uninstall data dialog"
+    Assert-Equal $removeDataDialog.Dialog "UsqueRemoveDataDlg" "uninstall data dialog id"
+
+    $removeDataCheckbox = Assert-OneRow `
+    (Invoke-MsiQuery `
+            -Database $database `
+            -Query "SELECT ``Type``,``Property``,``Text`` FROM ``Control`` WHERE ``Dialog_``='UsqueRemoveDataDlg' AND ``Control``='DeleteUserData'" `
+            -Columns @("Type", "Property", "Text")) `
+        "uninstall data checkbox"
+    Assert-Equal $removeDataCheckbox.Type "CheckBox" "uninstall data control type"
+    Assert-Equal `
+        $removeDataCheckbox.Property `
+        "USQUE_REMOVE_USER_DATA" `
+        "uninstall data checkbox property"
+    if ([string]::IsNullOrWhiteSpace($removeDataCheckbox.Text)) {
+        throw "Uninstall data checkbox must have a user-visible label."
+    }
+
+    $removeDataCheckboxValue = Assert-OneRow `
+    (Invoke-MsiQuery `
+            -Database $database `
+            -Query "SELECT ``Property``,``Value`` FROM ``CheckBox`` WHERE ``Property``='USQUE_REMOVE_USER_DATA'" `
+            -Columns @("Property", "Value")) `
+        "uninstall data checkbox value"
+    Assert-Equal $removeDataCheckboxValue.Value "1" "uninstall data checked value"
+
+    foreach ($route in @(
+            @("MaintenanceTypeDlg", "RemoveButton", "UsqueRemoveDataDlg"),
+            @("UsqueRemoveDataDlg", "Back", "MaintenanceTypeDlg"),
+            @("UsqueRemoveDataDlg", "Next", "VerifyReadyDlg")
+        )) {
+        $routeRow = Assert-OneRow `
+        (Invoke-MsiQuery `
+                -Database $database `
+                -Query "SELECT ``Event``,``Argument`` FROM ``ControlEvent`` WHERE ``Dialog_``='$($route[0])' AND ``Control_``='$($route[1])' AND ``Event``='NewDialog' AND ``Argument``='$($route[2])'" `
+                -Columns @("Event", "Argument")) `
+            "$($route[0]).$($route[1]) dialog route"
+        Assert-Equal $routeRow.Event "NewDialog" "$($route[0]).$($route[1]) route event"
+    }
+
+    $removeMode = Assert-OneRow `
+    (Invoke-MsiQuery `
+            -Database $database `
+            -Query "SELECT ``Argument`` FROM ``ControlEvent`` WHERE ``Dialog_``='MaintenanceTypeDlg' AND ``Control_``='RemoveButton' AND ``Event``='[WixUI_InstallMode]'" `
+            -Columns @("Argument")) `
+        "maintenance uninstall-mode selection"
+    Assert-Equal $removeMode.Argument "Remove" "maintenance uninstall mode"
+
+    $removeBackRoute = Assert-OneRow `
+    (Invoke-MsiQuery `
+            -Database $database `
+            -Query "SELECT ``Condition`` FROM ``ControlEvent`` WHERE ``Dialog_``='VerifyReadyDlg' AND ``Control_``='Back' AND ``Event``='NewDialog' AND ``Argument``='UsqueRemoveDataDlg'" `
+            -Columns @("Condition")) `
+        "uninstall confirmation back route"
+    Assert-Equal `
+        $removeBackRoute.Condition `
+        'Installed AND NOT PATCH AND WixUI_InstallMode="Remove"' `
+        "uninstall confirmation back condition"
 
     $shortcut = Assert-OneRow `
     (Invoke-MsiQuery `
@@ -274,6 +405,19 @@ try {
     Assert-Equal $serviceControl.Wait "1" "service wait policy"
     Assert-Equal $serviceControl.Component "UsqueAgentComponent" "service control component"
 
+    $preflightAction = Assert-OneRow `
+    (Invoke-MsiQuery `
+            -Database $database `
+            -Query "SELECT ``Action``,``Type``,``Source``,``Target`` FROM ``CustomAction`` WHERE ``Action``='ValidateAgentStartup'" `
+            -Columns @("Action", "Type", "Source", "Target")) `
+        "ValidateAgentStartup CustomAction"
+    Assert-Equal $preflightAction.Type "3090" "Agent startup preflight custom action type"
+    Assert-Equal $preflightAction.Source "UsqueAgentExecutable" "Agent startup preflight executable"
+    Assert-Equal `
+        $preflightAction.Target `
+        "--validate-only --signer-sha256 $($SignerSha256.ToUpperInvariant())" `
+        "Agent startup preflight command"
+
     $customAction = Assert-OneRow `
     (Invoke-MsiQuery `
             -Database $database `
@@ -283,6 +427,29 @@ try {
     Assert-Equal $customAction.Type "3090" "recovery custom action type"
     Assert-Equal $customAction.Source "UsqueAgentExecutable" "recovery executable"
     Assert-Equal $customAction.Target "--recover-state" "recovery command"
+
+    $purgeAction = Assert-OneRow `
+    (Invoke-MsiQuery `
+            -Database $database `
+            -Query "SELECT ``Action``,``Type``,``Source``,``Target`` FROM ``CustomAction`` WHERE ``Action``='PurgeUserData'" `
+            -Columns @("Action", "Type", "Source", "Target")) `
+        "PurgeUserData CustomAction"
+    Assert-Equal $purgeAction.Type "1042" "current-user purge custom action type"
+    Assert-Equal $purgeAction.Source "UsqueEngineExecutable" "current-user purge executable"
+    Assert-Equal `
+        $purgeAction.Target `
+        '--config "[LocalAppDataFolder]Usque\config.json" --purge-user-data --preferences-directory "[AppDataFolder]io.github.georgexie2333\Usque"' `
+        "current-user purge command"
+
+    $startupAction = Assert-OneRow `
+    (Invoke-MsiQuery `
+            -Database $database `
+            -Query "SELECT ``Action``,``Type``,``Source``,``Target`` FROM ``CustomAction`` WHERE ``Action``='RemoveUserStartupRegistration'" `
+            -Columns @("Action", "Type", "Source", "Target")) `
+        "RemoveUserStartupRegistration CustomAction"
+    Assert-Equal $startupAction.Type "1042" "current-user startup cleanup custom action type"
+    Assert-Equal $startupAction.Source "UsqueGuiExecutable" "current-user startup cleanup executable"
+    Assert-Equal $startupAction.Target "--remove-startup" "current-user startup cleanup command"
 
     $emergencyAction = Assert-OneRow `
     (Invoke-MsiQuery `
@@ -297,9 +464,22 @@ try {
         "--emergency-remove-kill-switch" `
         "emergency cleanup command"
 
+    $finalizeAction = Assert-OneRow `
+    (Invoke-MsiQuery `
+            -Database $database `
+            -Query "SELECT ``Action``,``Type``,``Source``,``Target`` FROM ``CustomAction`` WHERE ``Action``='FinalizeAgentUninstall'" `
+            -Columns @("Action", "Type", "Source", "Target")) `
+        "FinalizeAgentUninstall CustomAction"
+    Assert-Equal $finalizeAction.Type "3090" "uninstall finalization custom action type"
+    Assert-Equal $finalizeAction.Source "UsqueAgentExecutable" "uninstall finalization executable"
+    Assert-Equal `
+        $finalizeAction.Target `
+        "--finalize-uninstall" `
+        "uninstall finalization command"
+
     $sequenceRows = Invoke-MsiQuery `
         -Database $database `
-        -Query "SELECT ``Action``,``Condition``,``Sequence`` FROM ``InstallExecuteSequence`` WHERE ``Action``='RemoveExistingProducts' OR ``Action``='StopServices' OR ``Action``='EmergencyRemoveKillSwitch' OR ``Action``='RecoverAgentState' OR ``Action``='DeleteServices' OR ``Action``='RemoveFiles'" `
+        -Query "SELECT ``Action``,``Condition``,``Sequence`` FROM ``InstallExecuteSequence`` WHERE ``Action``='RemoveExistingProducts' OR ``Action``='StopServices' OR ``Action``='EmergencyRemoveKillSwitch' OR ``Action``='RecoverAgentState' OR ``Action``='PurgeUserData' OR ``Action``='RemoveUserStartupRegistration' OR ``Action``='FinalizeAgentUninstall' OR ``Action``='DeleteServices' OR ``Action``='RemoveFiles' OR ``Action``='InstallServices' OR ``Action``='ValidateAgentStartup' OR ``Action``='StartServices'" `
         -Columns @("Action", "Condition", "Sequence")
     $sequences = @{}
     foreach ($row in $sequenceRows) {
@@ -310,8 +490,14 @@ try {
             "StopServices",
             "EmergencyRemoveKillSwitch",
             "RecoverAgentState",
+            "PurgeUserData",
+            "RemoveUserStartupRegistration",
+            "FinalizeAgentUninstall",
             "DeleteServices",
-            "RemoveFiles"
+            "RemoveFiles",
+            "InstallServices",
+            "ValidateAgentStartup",
+            "StartServices"
         )) {
         if (-not $sequences.ContainsKey($requiredAction)) {
             throw "MSI is missing the $requiredAction execute-sequence row."
@@ -319,21 +505,51 @@ try {
     }
     Assert-Equal $sequences.RemoveExistingProducts.Sequence "1501" "major-upgrade removal sequence"
     Assert-Equal `
+        $sequences.ValidateAgentStartup.Condition `
+        'NOT Installed AND NOT REMOVE~="ALL"' `
+        "Agent startup preflight condition"
+    if (
+        [int]$sequences.ValidateAgentStartup.Sequence -le
+        [int]$sequences.InstallServices.Sequence -or
+        [int]$sequences.ValidateAgentStartup.Sequence -ge
+        [int]$sequences.StartServices.Sequence
+    ) {
+        throw "Agent startup preflight must run after InstallServices and before StartServices."
+    }
+    Assert-Equal `
         $sequences.EmergencyRemoveKillSwitch.Condition `
         'REMOVE~="ALL"' `
         "emergency cleanup condition"
     Assert-Equal $sequences.RecoverAgentState.Condition 'REMOVE~="ALL"' "recovery condition"
+    Assert-Equal `
+        $sequences.PurgeUserData.Condition `
+        'REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE AND USQUE_REMOVE_USER_DATA="1"' `
+        "current-user purge condition"
+    Assert-Equal `
+        $sequences.RemoveUserStartupRegistration.Condition `
+        'REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE' `
+        "current-user startup cleanup condition"
+    Assert-Equal `
+        $sequences.FinalizeAgentUninstall.Condition `
+        'REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE' `
+        "true-uninstall finalization condition"
     if (
         [int]$sequences.EmergencyRemoveKillSwitch.Sequence -ne
         ([int]$sequences.StopServices.Sequence + 1) -or
         [int]$sequences.RecoverAgentState.Sequence -ne
         ([int]$sequences.EmergencyRemoveKillSwitch.Sequence + 1) -or
-        [int]$sequences.RecoverAgentState.Sequence -ge
+        [int]$sequences.PurgeUserData.Sequence -ne
+        ([int]$sequences.RecoverAgentState.Sequence + 1) -or
+        [int]$sequences.RemoveUserStartupRegistration.Sequence -ne
+        ([int]$sequences.PurgeUserData.Sequence + 1) -or
+        [int]$sequences.FinalizeAgentUninstall.Sequence -ne
+        ([int]$sequences.RemoveUserStartupRegistration.Sequence + 1) -or
+        [int]$sequences.FinalizeAgentUninstall.Sequence -ge
         [int]$sequences.DeleteServices.Sequence -or
-        [int]$sequences.RecoverAgentState.Sequence -ge
+        [int]$sequences.FinalizeAgentUninstall.Sequence -ge
         [int]$sequences.RemoveFiles.Sequence
     ) {
-        throw "Emergency WFP cleanup and detailed recovery must run immediately after StopServices and before service/file removal."
+        throw "Emergency WFP cleanup, detailed recovery, optional user-data purge, startup cleanup, and true-uninstall finalization must run immediately after StopServices and before service/file removal."
     }
 
     $launchRows = Invoke-MsiQuery `

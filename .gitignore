@@ -36,6 +36,7 @@ dist/.vscode/
 # Rust
 /target/
 /.toolchains/
+/.wix/
 /dist/
 **/*.rs.bk
 

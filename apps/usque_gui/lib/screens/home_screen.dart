@@ -20,7 +20,6 @@ class HomeScreen extends StatelessWidget {
     final snapshot = controller.snapshot;
     return PageFrame(
       title: strings.get('home'),
-      subtitle: strings.get('tagline'),
       header: MediaQuery.sizeOf(context).width < 760
           ? const _NarrowBrandHeader()
           : null,
@@ -45,7 +44,7 @@ class HomeScreen extends StatelessWidget {
               );
               final details = _ConnectionDetails(
                 snapshot: snapshot,
-                mode: controller.activeProfile.mode,
+                profile: controller.activeProfile,
                 strings: strings,
               );
               if (sideBySide) {
@@ -167,11 +166,10 @@ class _ConnectionHero extends StatelessWidget {
                   style: Theme.of(context).textTheme.displaySmall,
                 ),
                 const SizedBox(height: 8),
-                Text(
-                  _modeLabel(strings, controller.activeProfile.mode),
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
+                _FrontendChips(
+                  profile: controller.activeProfile,
+                  snapshot: snapshot,
+                  strings: strings,
                 ),
                 const SizedBox(height: 30),
                 SizedBox(
@@ -216,72 +214,12 @@ class _ConnectionHero extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (controller.activeProfile.mode == OperatingMode.vpn &&
-                    connected) ...<Widget>[
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed:
-                          controller.busy ||
-                              snapshot.platformLockdown ||
-                              snapshot.phase ==
-                                  ConnectionPhase.captivePortalPaused
-                          ? null
-                          : () => _confirmCaptivePortalPause(context),
-                      icon: const Icon(LucideIcons.wifiOff),
-                      label: Text(strings.get('captive_portal_access')),
-                    ),
-                  ),
-                  if (snapshot.platformLockdown) ...<Widget>[
-                    const SizedBox(height: 8),
-                    Text(
-                      strings.get('lockdown_pause_blocked'),
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                    ),
-                  ],
-                  if (snapshot.phase ==
-                      ConnectionPhase.captivePortalPaused) ...<Widget>[
-                    const SizedBox(height: 8),
-                    Text(
-                      '${strings.get('pause_remaining')}: '
-                      '${formatDuration(Duration(seconds: snapshot.captivePauseRemainingSeconds))}',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
-                ],
               ],
             ),
           ),
         ),
       ),
     );
-  }
-
-  Future<void> _confirmCaptivePortalPause(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        icon: const Icon(LucideIcons.wifiOff),
-        title: Text(strings.get('captive_portal_access')),
-        content: Text(strings.get('captive_pause_help')),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(strings.get('cancel')),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(strings.get('pause_10_minutes')),
-          ),
-        ],
-      ),
-    );
-    if (confirmed == true) {
-      await controller.pauseCaptivePortal();
-    }
   }
 
   Future<void> _connectOrRepairIdentity(BuildContext context) async {
@@ -305,12 +243,12 @@ class _ConnectionHero extends StatelessWidget {
 class _ConnectionDetails extends StatelessWidget {
   const _ConnectionDetails({
     required this.snapshot,
-    required this.mode,
+    required this.profile,
     required this.strings,
   });
 
   final EngineSnapshot snapshot;
-  final OperatingMode mode;
+  final UsqueProfile profile;
   final AppStrings strings;
 
   @override
@@ -346,16 +284,77 @@ class _ConnectionDetails extends StatelessWidget {
           ),
           const Divider(height: 28),
           _DetailRow(
-            icon: mode == OperatingMode.vpn
+            icon: profile.frontends.tunnel
                 ? LucideIcons.shieldCheck
                 : LucideIcons.shieldOff,
             label: strings.get('kill_switch'),
-            value: mode == OperatingMode.vpn
+            value: profile.frontends.tunnel
                 ? strings.get(snapshot.isConnected ? 'on' : 'ready')
                 : strings.get('not_used_proxy'),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _FrontendChips extends StatelessWidget {
+  const _FrontendChips({
+    required this.profile,
+    required this.snapshot,
+    required this.strings,
+  });
+
+  final UsqueProfile profile;
+  final EngineSnapshot snapshot;
+  final AppStrings strings;
+
+  @override
+  Widget build(BuildContext context) {
+    final configured = <FrontendKind, bool>{
+      FrontendKind.tunnel: profile.frontends.tunnel,
+      FrontendKind.socks5: profile.frontends.socks5,
+      FrontendKind.http: profile.frontends.http,
+      FrontendKind.systemProxy: profile.proxy.systemProxy,
+    };
+    final runtime = <FrontendKind, FrontendPhase>{
+      for (final status in snapshot.frontends) status.kind: status.phase,
+    };
+    final enabled = configured.entries.where((entry) => entry.value).toList();
+    if (enabled.isEmpty) {
+      return Text(
+        strings.get('channel_only_warning'),
+        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+      );
+    }
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: enabled
+          .map((entry) {
+            final phase = runtime[entry.key];
+            final active = phase == FrontendPhase.active;
+            final degraded =
+                phase == FrontendPhase.degraded ||
+                phase == FrontendPhase.reconnecting ||
+                phase == FrontendPhase.error;
+            return StatusPill(
+              label: switch (entry.key) {
+                FrontendKind.tunnel => strings.get('tunnel_output'),
+                FrontendKind.socks5 => 'SOCKS5',
+                FrontendKind.http => 'HTTP',
+                FrontendKind.systemProxy => strings.get('system_proxy'),
+              },
+              tone: degraded
+                  ? StatusTone.warning
+                  : active
+                  ? StatusTone.success
+                  : StatusTone.neutral,
+            );
+          })
+          .toList(growable: false),
     );
   }
 }
@@ -585,15 +584,6 @@ String _phaseLabel(AppStrings strings, ConnectionPhase phase) {
     ConnectionPhase.degraded => 'degraded',
     ConnectionPhase.reconnecting => 'reconnecting',
     ConnectionPhase.disconnecting => 'disconnecting',
-    ConnectionPhase.captivePortalPaused => 'captive_pause',
     ConnectionPhase.error => 'error',
-  });
-}
-
-String _modeLabel(AppStrings strings, OperatingMode mode) {
-  return strings.get(switch (mode) {
-    OperatingMode.vpn => 'vpn_mode',
-    OperatingMode.socks5 => 'socks_mode',
-    OperatingMode.httpProxy => 'http_mode',
   });
 }

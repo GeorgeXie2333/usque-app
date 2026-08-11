@@ -24,6 +24,7 @@ class DesktopEngineTransport {
       _testSupportsSnapshotEvents = null,
       _testRequestIdFactory = null,
       _testSelectDiagnostics = null,
+      _testSelectWarpSecret = null,
       _isTestTransport = false,
       _endpoint = Platform.isWindows
           ? '$_pipePrefix$pid-${DateTime.now().microsecondsSinceEpoch}'
@@ -38,12 +39,14 @@ class DesktopEngineTransport {
     bool supportsSnapshotEvents = false,
     String Function()? requestIdFactory,
     Future<String?> Function()? selectDiagnosticsDestination,
+    Future<String?> Function()? selectWarpSecretDestination,
   }) : _testExchange = exchange,
        _testEnsureStarted = ensureStarted,
        _testRawEvents = rawEventFrames,
        _testSupportsSnapshotEvents = supportsSnapshotEvents,
        _testRequestIdFactory = requestIdFactory,
        _testSelectDiagnostics = selectDiagnosticsDestination,
+       _testSelectWarpSecret = selectWarpSecretDestination,
        _isTestTransport = true,
        _endpoint = 'test-endpoint';
 
@@ -60,6 +63,7 @@ class DesktopEngineTransport {
   final bool? _testSupportsSnapshotEvents;
   final String Function()? _testRequestIdFactory;
   final Future<String?> Function()? _testSelectDiagnostics;
+  final Future<String?> Function()? _testSelectWarpSecret;
   final bool _isTestTransport;
 
   final String _endpoint;
@@ -230,6 +234,17 @@ class DesktopEngineTransport {
       'selectDiagnosticsDestination',
     );
   }
+
+  Future<String?> selectWarpSecretDestination() async {
+    final testSelect = _testSelectWarpSecret;
+    if (testSelect != null) return testSelect();
+    return _nativeTransport.invokeMethod<String>('selectWarpSecretDestination');
+  }
+
+  Future<T?> invokePlatformMethod<T>(
+    String method, [
+    Map<String, Object?>? arguments,
+  ]) => _nativeTransport.invokeMethod<T>(method, arguments);
 
   void dispose() {
     _disposed = true;

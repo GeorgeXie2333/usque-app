@@ -50,6 +50,13 @@ pub struct EndpointPinRefresh {
     pub assigned_ipv6: Ipv6Addr,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WarpAccountStatus {
+    pub account_type: String,
+    pub warp_plus: bool,
+    pub has_license: bool,
+}
+
 /// A bounded, authenticated endpoint-pin refresh request for a platform
 /// transport that must create and protect its own socket.
 ///
@@ -193,6 +200,76 @@ impl ConsumerRegistrationClient {
         identity_from_enrollment(key_pair, registered.token, enrolled)
     }
 
+    /// Creates a new Consumer device, binds it to an existing WARP License,
+    /// and re-enrolls the MASQUE key against the resulting account.
+    pub async fn register_with_license(
+        &self,
+        options: &RegistrationOptions,
+        license_key: &str,
+    ) -> Result<WarpIdentity, RegistrationError> {
+        validate_license_key(license_key)?;
+        let identity = self.register(options).await?;
+        self.bind_license(&identity, license_key).await?;
+        let access_token = identity.access_token().to_owned();
+        let enrolled = self
+            .enroll(
+                identity.device_id(),
+                identity.access_token(),
+                &identity.key_pair.public_spki_der()?,
+                options.device_name.as_deref(),
+            )
+            .await?;
+        identity_from_enrollment(identity.key_pair, access_token, enrolled)
+    }
+
+    pub async fn account_status(
+        &self,
+        identity: &WarpIdentity,
+    ) -> Result<WarpAccountStatus, RegistrationError> {
+        let account: Account = self
+            .send_without_body(
+                Method::GET,
+                self.account_url(identity.device_id())?,
+                identity.access_token(),
+            )
+            .await?;
+        Ok(WarpAccountStatus {
+            account_type: account.account_type,
+            warp_plus: account.warp_plus,
+            has_license: account
+                .license
+                .as_deref()
+                .is_some_and(|license| !license.trim().is_empty()),
+        })
+    }
+
+    pub async fn bind_license(
+        &self,
+        identity: &WarpIdentity,
+        license_key: &str,
+    ) -> Result<(), RegistrationError> {
+        validate_license_key(license_key)?;
+        self.send_empty(
+            Method::PUT,
+            self.account_url(identity.device_id())?,
+            identity.access_token(),
+            Some(&LicenseUpdate {
+                license: license_key,
+            }),
+        )
+        .await
+    }
+
+    pub async fn unbind_license(&self, identity: &WarpIdentity) -> Result<(), RegistrationError> {
+        self.send_empty::<LicenseUpdate<'_>>(
+            Method::DELETE,
+            self.account_url(identity.device_id())?,
+            identity.access_token(),
+            None,
+        )
+        .await
+    }
+
     /// Re-enrolls the existing public key using the stored device bearer token.
     /// This is the only supported source for replacing an endpoint pin.
     pub async fn refresh_endpoint_pin(
@@ -278,6 +355,61 @@ impl ConsumerRegistrationClient {
         serde_json::from_slice(&bytes).map_err(|_| RegistrationError::InvalidApiResponse)
     }
 
+    async fn send_without_body<Response>(
+        &self,
+        method: Method,
+        url: Url,
+        bearer_token: &str,
+    ) -> Result<Response, RegistrationError>
+    where
+        Response: DeserializeOwned,
+    {
+        let response = self
+            .http
+            .request(method, url)
+            .header("User-Agent", "WARP for Android")
+            .header("CF-Client-Version", CF_CLIENT_VERSION)
+            .header("Connection", "Keep-Alive")
+            .bearer_auth(bearer_token)
+            .send()
+            .await?;
+        let (status, bytes) = bounded_response(response).await?;
+        if status != StatusCode::OK {
+            return Err(api_error(status, &bytes));
+        }
+        serde_json::from_slice(&bytes).map_err(|_| RegistrationError::InvalidApiResponse)
+    }
+
+    async fn send_empty<Request>(
+        &self,
+        method: Method,
+        url: Url,
+        bearer_token: &str,
+        body: Option<&Request>,
+    ) -> Result<(), RegistrationError>
+    where
+        Request: Serialize + ?Sized,
+    {
+        let mut request = self
+            .http
+            .request(method, url)
+            .header("User-Agent", "WARP for Android")
+            .header("CF-Client-Version", CF_CLIENT_VERSION)
+            .header("Connection", "Keep-Alive")
+            .bearer_auth(bearer_token);
+        if let Some(body) = body {
+            request = request
+                .header("Content-Type", "application/json; charset=UTF-8")
+                .json(body);
+        }
+        let response = request.send().await?;
+        let (status, bytes) = bounded_response(response).await?;
+        if status != StatusCode::OK {
+            return Err(api_error(status, &bytes));
+        }
+        Ok(())
+    }
+
     fn registration_url(&self, device_id: Option<&str>) -> Result<Url, RegistrationError> {
         let mut url = self.api_root.clone();
         let mut segments = url
@@ -290,6 +422,32 @@ impl ConsumerRegistrationClient {
         drop(segments);
         Ok(url)
     }
+
+    fn account_url(&self, device_id: &str) -> Result<Url, RegistrationError> {
+        validate_device_id(device_id)?;
+        let mut url = self.registration_url(Some(device_id))?;
+        url.path_segments_mut()
+            .map_err(|_| RegistrationError::InvalidApiUrl)?
+            .push("account");
+        Ok(url)
+    }
+}
+
+async fn bounded_response(
+    response: reqwest::Response,
+) -> Result<(StatusCode, Vec<u8>), RegistrationError> {
+    let status = response.status();
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_API_RESPONSE_BYTES as u64)
+    {
+        return Err(RegistrationError::ApiResponseTooLarge);
+    }
+    let bytes = response.bytes().await?.to_vec();
+    if bytes.len() > MAX_API_RESPONSE_BYTES {
+        return Err(RegistrationError::ApiResponseTooLarge);
+    }
+    Ok((status, bytes))
 }
 
 #[derive(Debug, Serialize)]
@@ -337,6 +495,11 @@ struct EnrollmentRequest<'a> {
     name: Option<&'a str>,
 }
 
+#[derive(Debug, Serialize)]
+struct LicenseUpdate<'a> {
+    license: &'a str,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct AccountData {
     id: String,
@@ -349,6 +512,10 @@ struct AccountData {
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct Account {
+    #[serde(default)]
+    account_type: String,
+    #[serde(default)]
+    warp_plus: bool,
     #[serde(default)]
     license: Option<String>,
 }
@@ -415,6 +582,22 @@ fn validate_device_id(device_id: &str) -> Result<(), RegistrationError> {
         return Err(RegistrationError::InvalidDeviceId);
     }
     Ok(())
+}
+
+fn validate_license_key(license_key: &str) -> Result<(), RegistrationError> {
+    let value = license_key.trim();
+    let valid = value.len() == 26
+        && value.as_bytes().get(8) == Some(&b'-')
+        && value.as_bytes().get(17) == Some(&b'-')
+        && value
+            .bytes()
+            .enumerate()
+            .all(|(index, byte)| matches!(index, 8 | 17) || byte.is_ascii_alphanumeric());
+    if valid {
+        Ok(())
+    } else {
+        Err(RegistrationError::InvalidLicenseKey)
+    }
 }
 
 fn enrollment_snapshot(enrollment: &AccountData) -> Result<EndpointPinRefresh, RegistrationError> {
@@ -489,6 +672,8 @@ pub enum RegistrationError {
     InvalidApiUrl,
     #[error("the registration API returned an invalid device identifier")]
     InvalidDeviceId,
+    #[error("the WARP License Key format is invalid")]
+    InvalidLicenseKey,
     #[error("the registration API returned more than 1 MiB")]
     ApiResponseTooLarge,
     #[error("the registration API returned an invalid response")]
@@ -515,6 +700,8 @@ mod tests {
             id: "device-123".to_owned(),
             token: String::new(),
             account: Account {
+                account_type: "plus".to_owned(),
+                warp_plus: true,
                 license: Some("license".to_owned()),
             },
             config: AccountConfig {
@@ -591,6 +778,20 @@ mod tests {
             client.registration_url(Some("device-1")).unwrap().as_str(),
             "http://127.0.0.1:12345/base/v0a4471/reg/device-1"
         );
+        assert_eq!(
+            client.account_url("device-1").unwrap().as_str(),
+            "http://127.0.0.1:12345/base/v0a4471/reg/device-1/account"
+        );
+    }
+
+    #[test]
+    fn license_key_validation_is_strict_and_never_logs_the_value() {
+        assert!(validate_license_key("12345678-abcdefgh-ABCDEFGH").is_ok());
+        assert!(matches!(
+            validate_license_key("12345678-abcdefgh-too-long"),
+            Err(RegistrationError::InvalidLicenseKey)
+        ));
+        assert!(!format!("{:?}", RegistrationError::InvalidLicenseKey).contains("12345678"));
     }
 
     #[test]

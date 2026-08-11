@@ -6,7 +6,6 @@ import '../core/usque_theme.dart';
 class PageFrame extends StatelessWidget {
   const PageFrame({
     required this.title,
-    required this.subtitle,
     required this.child,
     this.header,
     this.actions = const <Widget>[],
@@ -14,7 +13,6 @@ class PageFrame extends StatelessWidget {
   });
 
   final String title;
-  final String subtitle;
   final Widget child;
   final Widget? header;
   final List<Widget> actions;
@@ -43,16 +41,6 @@ class PageFrame extends StatelessWidget {
                         Text(
                           title,
                           style: Theme.of(context).textTheme.headlineMedium,
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          subtitle,
-                          style: Theme.of(context).textTheme.bodyLarge
-                              ?.copyWith(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant,
-                              ),
                         ),
                       ],
                     ),

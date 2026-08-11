@@ -68,13 +68,17 @@ pub struct H3SendHalf {
 
 impl H3SendHalf {
     pub async fn send_packet(&mut self, packet: &[u8]) -> Result<(), TransportError> {
-        validate_ip_packet(packet)?;
+        self.send_owned_packet(Bytes::copy_from_slice(packet)).await
+    }
+
+    pub(crate) async fn send_owned_packet(&mut self, packet: Bytes) -> Result<(), TransportError> {
+        validate_ip_packet(&packet)?;
         let (completion_tx, completion_rx) = oneshot::channel();
         self.sender
             .as_ref()
             .ok_or(TransportError::TunnelClosed)?
             .send(OutgoingPacket {
-                packet: Bytes::copy_from_slice(packet),
+                packet,
                 completion: completion_tx,
             })
             .await

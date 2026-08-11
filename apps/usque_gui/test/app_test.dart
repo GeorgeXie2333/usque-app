@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -7,8 +8,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:usque/app.dart';
 import 'package:usque/core/app_strings.dart';
 import 'package:usque/models/app_models.dart';
-import 'package:usque/services/engine_client.dart';
 import 'package:usque/services/desktop_engine_client.dart';
+import 'package:usque/services/engine_client.dart';
 import 'package:usque/state/app_controller.dart';
 import 'package:usque/widgets/controller_selector.dart';
 
@@ -81,7 +82,8 @@ class FakeEngineClient implements EngineClient {
   @override
   Future<void> provisionIdentity(
     UsqueProfile profile, {
-    String? warpSecret,
+    required IdentityProvisioningMethod method,
+    String? licenseKey,
   }) async {
     if (failProfileIdentityCreation) {
       throw const EngineException(
@@ -96,7 +98,7 @@ class FakeEngineClient implements EngineClient {
   Future<ProfileCatalog> createProfileWithIdentity(
     UsqueProfile profile, {
     required IdentityProvisioningMethod method,
-    String? warpSecret,
+    String? licenseKey,
   }) async {
     if (failProfileIdentityCreation) {
       throw const EngineException(
@@ -104,11 +106,11 @@ class FakeEngineClient implements EngineClient {
         'Registration failed.',
       );
     }
-    if (method == IdentityProvisioningMethod.importSecret &&
-        (warpSecret == null || warpSecret.isEmpty)) {
+    if (method == IdentityProvisioningMethod.registerWithLicense &&
+        (licenseKey == null || licenseKey.isEmpty)) {
       throw const EngineException(
-        'INVALID_WARP_SECRET',
-        'A WARP Secret is required.',
+        'INVALID_LICENSE_KEY',
+        'A WARP License Key is required.',
       );
     }
     provisioned = true;
@@ -122,6 +124,39 @@ class FakeEngineClient implements EngineClient {
       },
     );
   }
+
+  @override
+  Future<void> reconfigureActiveProfile(UsqueProfile profile) =>
+      upsertProfile(profile);
+
+  @override
+  Future<void> copyLicenseKey(String profileId) async {}
+
+  @override
+  Future<void> updateLicenseKey(String profileId, String licenseKey) async {}
+
+  @override
+  Future<void> unbindLicenseKey(String profileId) async {}
+
+  @override
+  Future<String?> exportWarpSecret(String profileId) async =>
+      'test-warp-secret.json';
+
+  @override
+  Future<String?> consumeLaunchTarget() async => null;
+
+  @override
+  Future<PlatformPreferences> platformPreferences() async =>
+      const PlatformPreferences();
+
+  @override
+  Future<void> setStartOnBoot(bool enabled) async {}
+
+  @override
+  Future<void> setCloseToTray(bool enabled) async {}
+
+  @override
+  Future<void> requestAddQuickSettingsTile() async {}
 
   @override
   Future<EngineSnapshot> connect(UsqueProfile profile) async {
@@ -142,15 +177,6 @@ class FakeEngineClient implements EngineClient {
 
   @override
   Future<EngineSnapshot> snapshot() async => current;
-
-  @override
-  Future<EngineSnapshot> pauseCaptivePortal({int seconds = 600}) async {
-    current = EngineSnapshot(
-      phase: ConnectionPhase.captivePortalPaused,
-      captivePauseRemainingSeconds: seconds,
-    );
-    return current;
-  }
 
   @override
   Future<String?> exportDiagnostics() async => 'test-diagnostics.zip';
@@ -212,7 +238,7 @@ void main() {
     expect(profile.endpointIpv4, '162.159.198.2');
     expect(profile.endpointIpv6, '2606:4700:103::2');
     expect(profile.endpointPort, 443);
-    expect(profile.sni, 'www.visa.cn');
+    expect(profile.sni, 'speed.cloudflare.com');
     expect(profile.mtu, 1280);
     expect(profile.proxy.socksPort, 1080);
     expect(profile.proxy.httpPort, 8080);
@@ -601,7 +627,7 @@ void main() {
     },
   );
 
-  test('leaving HTTP mode disables the Windows system proxy setting', () async {
+  test('disabling HTTP output disables the Windows system proxy', () async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     final engine = FakeEngineClient();
     final controller = AppController(engine);
@@ -609,17 +635,19 @@ void main() {
 
     controller.updateProfile(
       controller.activeProfile.copyWith(
-        mode: OperatingMode.httpProxy,
+        frontends: controller.activeProfile.frontends.copyWith(http: true),
         proxy: controller.activeProfile.proxy.copyWith(systemProxy: true),
       ),
     );
     await controller.flushProfileWrites();
     controller.updateProfile(
-      controller.activeProfile.copyWith(mode: OperatingMode.socks5),
+      controller.activeProfile.copyWith(
+        frontends: controller.activeProfile.frontends.copyWith(http: false),
+      ),
     );
     await controller.flushProfileWrites();
 
-    expect(controller.activeProfile.mode, OperatingMode.socks5);
+    expect(controller.activeProfile.frontends.http, isFalse);
     expect(controller.activeProfile.proxy.systemProxy, isFalse);
     expect(engine.storedProfiles.single.proxy.systemProxy, isFalse);
     controller.dispose();
@@ -896,12 +924,33 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
-    expect(
-      find.text(
-        'Save endpoint and routing choices as profiles. '
-        'Identity secrets stay in the system vault.',
-      ),
-      findsOneWidget,
-    );
+    expect(find.widgetWithText(FilledButton, 'New profile'), findsOneWidget);
+  });
+
+  testWidgets('Android settings omits the in-app system integration panel', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    try {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(430, 900);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'onboarding_complete': true,
+      });
+
+      await tester.pumpWidget(UsqueBootstrap(engine: FakeEngineClient()));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Settings').last);
+      await tester.pumpAndSettle();
+
+      expect(find.text('System integration'), findsNothing);
+      expect(find.text('Start Usque when you sign in'), findsNothing);
+      expect(find.text('Add Quick Settings Tile'), findsNothing);
+      expect(find.text('Updates'), findsOneWidget);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
   });
 }

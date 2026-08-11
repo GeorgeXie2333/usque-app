@@ -24,8 +24,8 @@ mod windows_main {
         windows::{
             auth::{CallerPolicy, SignerFingerprint},
             backend::WindowsBackend,
-            server::{AGENT_PIPE_NAME, AgentService, serve_until},
-            state_security::secure_agent_state_path,
+            server::{AGENT_PIPE_NAME, AgentService, serve_until, validate_pipe_creation},
+            state_security::{finalize_uninstall_state, secure_agent_state_path},
             wfp,
         },
     };
@@ -42,6 +42,33 @@ mod windows_main {
 
     const SERVICE_NAME: &str = "UsqueAgent";
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum StartupRecoveryAction {
+        None,
+        RecoverOnce,
+        RetainActiveTunnel,
+        QuarantineRecoveryRequired,
+    }
+
+    fn startup_recovery_action(
+        phase: RecoveryPhase,
+        operation_kind: Option<OperationKind>,
+    ) -> StartupRecoveryAction {
+        if phase == RecoveryPhase::Clean {
+            StartupRecoveryAction::None
+        } else if operation_kind == Some(OperationKind::SystemProxy) {
+            StartupRecoveryAction::RecoverOnce
+        } else {
+            match phase {
+                RecoveryPhase::Active => StartupRecoveryAction::RetainActiveTunnel,
+                RecoveryPhase::RecoveryRequired => {
+                    StartupRecoveryAction::QuarantineRecoveryRequired
+                }
+                _ => StartupRecoveryAction::RecoverOnce,
+            }
+        }
+    }
+
     #[derive(Debug, Clone, Parser)]
     #[command(name = "usque-agent", hide = true)]
     struct Arguments {
@@ -55,11 +82,28 @@ mod windows_main {
         /// elevated MSI uninstall/upgrade sequence after the service stops.
         #[arg(long, conflicts_with_all = ["service", "validate_only"])]
         recover_state: bool,
+        /// Remove a proven-clean recovery journal and empty Agent state
+        /// directories. Reserved for true MSI uninstall, never major upgrade.
+        #[arg(
+            long,
+            conflicts_with_all = [
+                "service",
+                "validate_only",
+                "recover_state",
+                "emergency_remove_kill_switch"
+            ]
+        )]
+        finalize_uninstall: bool,
         /// Remove every persistent WFP object owned by current Usque builds
         /// without consulting the recovery journal. Reserved for MSI recovery.
         #[arg(
             long,
-            conflicts_with_all = ["service", "validate_only", "recover_state"]
+            conflicts_with_all = [
+                "service",
+                "validate_only",
+                "recover_state",
+                "finalize_uninstall"
+            ]
         )]
         emergency_remove_kill_switch: bool,
         /// Exact signed Engine path accepted by the privileged Named Pipe.
@@ -160,6 +204,14 @@ mod windows_main {
             info!("removed all stable Usque WFP Kill Switch resources");
             return Ok(());
         }
+        if arguments.finalize_uninstall {
+            finalize_uninstall_state(journal_path)?;
+            info!(
+                path = %journal_path.display(),
+                "removed clean Agent recovery state for uninstall"
+            );
+            return Ok(());
+        }
         if arguments.recover_state {
             // Always restore basic connectivity first. This path is independent
             // of journal parsing and therefore still works if an interrupted
@@ -182,6 +234,23 @@ mod windows_main {
                 return Err(error.into());
             }
         };
+        if !arguments.recover_state && !arguments.validate_only {
+            match coordinator.reconcile_removed_adapter_dependencies().await {
+                Ok(true) => {
+                    let reconciled = coordinator.state().await;
+                    info!(
+                        phase = ?reconciled.phase,
+                        generation = reconciled.generation,
+                        "reconciled adapter-dependent recovery receipts after the exact Wintun adapter was already removed"
+                    );
+                }
+                Ok(false) => {}
+                Err(error) => error!(
+                    %error,
+                    "could not persist journal-only startup reconciliation; retaining recovery-required state"
+                ),
+            }
+        }
         let state = coordinator.state().await;
         if arguments.recover_state {
             if state.phase != RecoveryPhase::Clean {
@@ -196,6 +265,10 @@ mod windows_main {
             return Ok(());
         }
 
+        let pipe_name = arguments
+            .pipe
+            .clone()
+            .unwrap_or_else(|| AGENT_PIPE_NAME.to_owned());
         let signer = arguments
             .signer_sha256
             .as_deref()
@@ -207,32 +280,58 @@ mod windows_main {
             arguments.allow_unsigned_debug_client,
         )?);
         if arguments.validate_only {
-            info!("Agent configuration and pinned Wintun library are valid");
+            validate_pipe_creation(&pipe_name)?;
+            info!(
+                phase = ?state.phase,
+                %pipe_name,
+                "Agent configuration, pinned Wintun library, recovery journal, and pipe ACL are valid"
+            );
             return Ok(());
         }
-        if state.phase != RecoveryPhase::Clean {
-            if state.operation_kind == Some(OperationKind::SystemProxy) {
+        match startup_recovery_action(state.phase, state.operation_kind) {
+            StartupRecoveryAction::None => {}
+            StartupRecoveryAction::RecoverOnce => {
                 // A dead local proxy would otherwise strand WinINet clients.
-                // Its write-ahead receipt is per-user and safe to restore
-                // automatically.
-                coordinator.recover_stale().await?;
-                info!("recovered stale per-user system proxy transaction");
-            } else if state.phase != RecoveryPhase::Active {
-                // Preparing/Prepared/Recovering/RecoveryRequired cannot carry
-                // traffic and must never retain a persistent block-all policy
-                // across an Agent or machine restart.
-                coordinator.recover_stale().await?;
-                info!(
-                    phase = ?state.phase,
-                    generation = state.generation,
-                    "recovered incomplete tunnel transaction during Agent startup"
-                );
-            } else {
+                // Incomplete tunnel setup also gets one bounded recovery pass.
+                // A failure is quarantined instead of terminating the service:
+                // the authenticated Engine must still be able to inspect state
+                // and request an explicit retry, and MSI must not loop on SCM
+                // startup while the journal remains RecoveryRequired.
+                match coordinator.recover_stale().await {
+                    Ok(()) => info!(
+                        phase = ?state.phase,
+                        generation = state.generation,
+                        "recovered incomplete Agent transaction during startup"
+                    ),
+                    Err(recovery_error) => {
+                        error!(
+                            phase = ?state.phase,
+                            generation = state.generation,
+                            %recovery_error,
+                            "startup recovery failed; keeping Agent available in recovery-required mode"
+                        );
+                        emergency_wfp_cleanup_best_effort("failed startup recovery");
+                    }
+                }
+            }
+            StartupRecoveryAction::RetainActiveTunnel => {
                 warn!(
                     phase = ?state.phase,
                     generation = state.generation,
                     grace_seconds = ORPHANED_TUNNEL_RECOVERY_GRACE.as_secs(),
                     "active tunnel retained briefly for authenticated Engine reattachment"
+                );
+            }
+            StartupRecoveryAction::QuarantineRecoveryRequired => {
+                // Never repeat an already failed OS recovery merely because
+                // SCM restarted the process. Remove only stable Usque WFP
+                // objects here; all remaining receipts stay available for a
+                // deliberate recovery attempt and diagnostics.
+                emergency_wfp_cleanup_best_effort("recovery-required startup quarantine");
+                warn!(
+                    phase = ?state.phase,
+                    generation = state.generation,
+                    "Agent recovery remains required; service will stay online without applying network changes"
                 );
             }
         }
@@ -261,12 +360,22 @@ mod windows_main {
             });
         }
 
-        let pipe_name = arguments.pipe.unwrap_or_else(|| AGENT_PIPE_NAME.to_owned());
         let service = Arc::new(AgentService::new(Arc::clone(&coordinator), capabilities));
         info!(%pipe_name, "starting privileged Agent Named Pipe");
         serve_until(service, policy, pipe_name, shutdown).await?;
         info!("Agent stop requested; persistent recovery state was retained");
         Ok(())
+    }
+
+    fn emergency_wfp_cleanup_best_effort(context: &'static str) {
+        match wfp::emergency_remove_kill_switch() {
+            Ok(()) => info!(context, "removed stable Usque WFP resources"),
+            Err(error) => error!(
+                context,
+                %error,
+                "emergency WFP cleanup failed while preserving Agent availability"
+            ),
+        }
     }
 
     fn run_service_dispatcher() -> io::Result<()> {
@@ -420,6 +529,41 @@ mod windows_main {
 
     fn wide(value: &str) -> Vec<u16> {
         value.encode_utf16().chain(std::iter::once(0)).collect()
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn recovery_required_tunnel_is_quarantined_without_automatic_retry() {
+            assert_eq!(
+                startup_recovery_action(
+                    RecoveryPhase::RecoveryRequired,
+                    Some(OperationKind::Tunnel)
+                ),
+                StartupRecoveryAction::QuarantineRecoveryRequired
+            );
+        }
+
+        #[test]
+        fn stale_system_proxy_gets_one_recovery_attempt() {
+            assert_eq!(
+                startup_recovery_action(
+                    RecoveryPhase::RecoveryRequired,
+                    Some(OperationKind::SystemProxy)
+                ),
+                StartupRecoveryAction::RecoverOnce
+            );
+        }
+
+        #[test]
+        fn active_tunnel_is_retained_for_reattachment() {
+            assert_eq!(
+                startup_recovery_action(RecoveryPhase::Active, Some(OperationKind::Tunnel)),
+                StartupRecoveryAction::RetainActiveTunnel
+            );
+        }
     }
 }
 

@@ -39,6 +39,8 @@ class AppController extends ChangeNotifier {
   bool onboardingComplete = false;
   bool busy = false;
   bool updateChecksEnabled = true;
+  bool startOnBoot = false;
+  bool closeToTray = true;
   ThemePreference themePreference = ThemePreference.system;
   LocalePreference localePreference = LocalePreference.system;
   AppSection section = AppSection.home;
@@ -51,6 +53,8 @@ class AppController extends ChangeNotifier {
   String activeProfileId = UsqueProfile.defaultProfileId;
   Map<String, ProfileIdentityState> profileIdentityStates =
       <String, ProfileIdentityState>{};
+  Map<String, ProfileIdentityStatus> profileIdentityStatuses =
+      <String, ProfileIdentityStatus>{};
 
   AppStrings get strings => AppStrings(localePreference);
 
@@ -79,6 +83,21 @@ class AppController extends ChangeNotifier {
     await _loadProfiles();
     if (_disposed) {
       return;
+    }
+    try {
+      final launchTarget = await _engine.consumeLaunchTarget();
+      if (launchTarget == 'profiles') {
+        section = AppSection.profiles;
+      }
+    } on Object {
+      // A launcher shortcut is optional and must not block initialization.
+    }
+    try {
+      final platformPreferences = await _engine.platformPreferences();
+      startOnBoot = platformPreferences.startOnBoot;
+      closeToTray = platformPreferences.closeToTray;
+    } on Object {
+      // Native shell preferences are optional in unsupported test hosts.
     }
     if (_engine.supportsSnapshotEvents) {
       _subscribeToSnapshotEvents();
@@ -146,6 +165,7 @@ class AppController extends ChangeNotifier {
       profiles = catalog.profiles;
       activeProfileId = catalog.activeProfileId;
       profileIdentityStates = catalog.identityStates;
+      profileIdentityStatuses = catalog.identityStatuses;
       await preferences?.remove(_profilesKey);
     } on EngineException catch (error) {
       lastError ??= error.message;
@@ -166,12 +186,31 @@ class AppController extends ChangeNotifier {
     _notifyListeners();
   }
 
-  Future<bool> finishOnboarding({String? warpSecret}) async {
+  Future<bool> finishOnboarding({
+    IdentityProvisioningMethod method = IdentityProvisioningMethod.register,
+    String? licenseKey,
+  }) async {
     return _run(() async {
-      await _engine.provisionIdentity(activeProfile, warpSecret: warpSecret);
+      await _engine.provisionIdentity(
+        activeProfile,
+        method: method,
+        licenseKey: licenseKey,
+      );
       profileIdentityStates = <String, ProfileIdentityState>{
         ...profileIdentityStates,
         activeProfile.id: ProfileIdentityState.ready,
+      };
+      profileIdentityStatuses = <String, ProfileIdentityStatus>{
+        ...profileIdentityStatuses,
+        activeProfile.id: ProfileIdentityStatus(
+          state: ProfileIdentityState.ready,
+          licenseState: method == IdentityProvisioningMethod.registerWithLicense
+              ? LicenseState.warpPlus
+              : LicenseState.free,
+          accountType: method == IdentityProvisioningMethod.registerWithLicense
+              ? 'WARP+'
+              : 'Free',
+        ),
       };
       onboardingComplete = true;
       await _preferences?.setBool('onboarding_complete', true);
@@ -210,6 +249,18 @@ class AppController extends ChangeNotifier {
     }
   }
 
+  Future<void> disconnectForExit() async {
+    if (snapshot.phase != ConnectionPhase.disconnected) {
+      try {
+        snapshot = await _engine.disconnect();
+        _notifyListeners();
+      } on Object {
+        // The native disconnect path is fail-fast; exit must not leave the UI
+        // alive indefinitely if the cleanup acknowledgement is unavailable.
+      }
+    }
+  }
+
   Future<void> refreshSnapshot({bool silent = false}) async {
     try {
       final next = await _engine.snapshot();
@@ -229,12 +280,6 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  Future<void> pauseCaptivePortal() async {
-    await _run(() async {
-      snapshot = await _engine.pauseCaptivePortal();
-    });
-  }
-
   Future<void> exportDiagnostics() async {
     String? destination;
     final success = await _run(() async {
@@ -244,6 +289,79 @@ class AppController extends ChangeNotifier {
       lastNotice = '${strings.get('diagnostics_saved')} $destination';
       _notifyListeners();
     }
+  }
+
+  Future<void> copyLicenseKey(String profileId) async {
+    final success = await _run(
+      () => _engine.copyLicenseKey(profileId),
+      affectsConnection: false,
+    );
+    if (success) {
+      lastNotice = strings.get('license_copied');
+      _notifyListeners();
+    }
+  }
+
+  Future<bool> updateLicenseKey(String profileId, String licenseKey) async {
+    final success = await _run(() async {
+      final reconnect = profileId == activeProfileId && snapshot.isConnected;
+      if (reconnect) {
+        snapshot = await _engine.disconnect();
+        _notifyListeners();
+      }
+      try {
+        await _engine.updateLicenseKey(profileId, licenseKey);
+        await _refreshProfileCatalog();
+      } finally {
+        if (reconnect) {
+          snapshot = await _engine.connect(activeProfile);
+          _notifyListeners();
+        }
+      }
+    });
+    return success;
+  }
+
+  Future<bool> unbindLicenseKey(String profileId) async {
+    final success = await _run(() async {
+      final reconnect = profileId == activeProfileId && snapshot.isConnected;
+      if (reconnect) {
+        snapshot = await _engine.disconnect();
+        _notifyListeners();
+      }
+      try {
+        await _engine.unbindLicenseKey(profileId);
+        await _refreshProfileCatalog();
+      } finally {
+        if (reconnect) {
+          snapshot = await _engine.connect(activeProfile);
+          _notifyListeners();
+        }
+      }
+    });
+    return success;
+  }
+
+  Future<void> exportWarpSecret(String profileId) async {
+    String? destination;
+    final success = await _run(() async {
+      destination = await _engine.exportWarpSecret(profileId);
+    }, affectsConnection: false);
+    if (success && destination != null) {
+      lastNotice = '${strings.get('warp_secret_saved')} $destination';
+      _notifyListeners();
+    }
+  }
+
+  Future<void> _refreshProfileCatalog() async {
+    final catalog = await _engine.importLegacyProfiles(
+      const <UsqueProfile>[],
+      '',
+    );
+    profiles = catalog.profiles;
+    activeProfileId = catalog.activeProfileId;
+    profileIdentityStates = catalog.identityStates;
+    profileIdentityStatuses = catalog.identityStatuses;
   }
 
   Future<void> checkForUpdates() async {
@@ -264,6 +382,7 @@ class AppController extends ChangeNotifier {
       profiles = <UsqueProfile>[UsqueProfile.defaultProfile()];
       activeProfileId = UsqueProfile.defaultProfileId;
       profileIdentityStates = <String, ProfileIdentityState>{};
+      profileIdentityStatuses = <String, ProfileIdentityStatus>{};
       updateResult = null;
     }, affectsConnection: false);
     if (success) {
@@ -365,17 +484,55 @@ class AppController extends ChangeNotifier {
     await _preferences?.setBool('update_checks_enabled', value);
   }
 
+  Future<void> setStartOnBoot(bool value) async {
+    final previous = startOnBoot;
+    startOnBoot = value;
+    _notifyListeners();
+    try {
+      await _engine.setStartOnBoot(value);
+    } on Object catch (error) {
+      startOnBoot = previous;
+      lastError = error is EngineException ? error.message : error.toString();
+      _notifyListeners();
+    }
+  }
+
+  Future<void> setCloseToTray(bool value) async {
+    final previous = closeToTray;
+    closeToTray = value;
+    _notifyListeners();
+    try {
+      await _engine.setCloseToTray(value);
+    } on Object catch (error) {
+      closeToTray = previous;
+      lastError = error is EngineException ? error.message : error.toString();
+      _notifyListeners();
+    }
+  }
+
+  Future<void> requestAddQuickSettingsTile() =>
+      _run(_engine.requestAddQuickSettingsTile, affectsConnection: false);
+
   void addProfile(String name) {
     final normalized = name.trim();
     if (normalized.isEmpty || normalized.runes.length > 64) {
       return;
     }
     final id = _newUuidV4();
-    final added = UsqueProfile(id: id, name: normalized);
+    final added = UsqueProfile.defaultProfile().copyWith(
+      id: id,
+      name: normalized,
+    );
     profiles = <UsqueProfile>[...profiles, added];
     profileIdentityStates = <String, ProfileIdentityState>{
       ...profileIdentityStates,
       added.id: ProfileIdentityState.missing,
+    };
+    profileIdentityStatuses = <String, ProfileIdentityStatus>{
+      ...profileIdentityStatuses,
+      added.id: const ProfileIdentityStatus(
+        state: ProfileIdentityState.missing,
+      ),
     };
     _notifyListeners();
     _queueProfileMutation(() => _engine.upsertProfile(added));
@@ -384,24 +541,32 @@ class AppController extends ChangeNotifier {
   ProfileIdentityState identityState(String profileId) =>
       profileIdentityStates[profileId] ?? ProfileIdentityState.missing;
 
+  ProfileIdentityStatus identityStatus(String profileId) =>
+      profileIdentityStatuses[profileId] ??
+      ProfileIdentityStatus(state: identityState(profileId));
+
   Future<bool> createProfileWithIdentity(
     String name, {
     required IdentityProvisioningMethod method,
-    String? warpSecret,
+    String? licenseKey,
   }) async {
     final normalized = name.trim();
     if (normalized.isEmpty || normalized.runes.length > 64) return false;
-    final profile = UsqueProfile(id: _newUuidV4(), name: normalized);
+    final profile = UsqueProfile.defaultProfile().copyWith(
+      id: _newUuidV4(),
+      name: normalized,
+    );
     ProfileCatalog? catalog;
     final success = await _run(() async {
       catalog = await _engine.createProfileWithIdentity(
         profile,
         method: method,
-        warpSecret: warpSecret,
+        licenseKey: licenseKey,
       );
       profiles = catalog!.profiles;
       activeProfileId = catalog!.activeProfileId;
       profileIdentityStates = catalog!.identityStates;
+      profileIdentityStatuses = catalog!.identityStatuses;
     }, affectsConnection: false);
     return success;
   }
@@ -409,18 +574,29 @@ class AppController extends ChangeNotifier {
   Future<bool> provisionProfileIdentity(
     UsqueProfile profile, {
     required IdentityProvisioningMethod method,
-    String? warpSecret,
+    String? licenseKey,
   }) async {
     final success = await _run(() async {
       await _engine.provisionIdentity(
         profile,
-        warpSecret: method == IdentityProvisioningMethod.importSecret
-            ? warpSecret
-            : null,
+        method: method,
+        licenseKey: licenseKey,
       );
       profileIdentityStates = <String, ProfileIdentityState>{
         ...profileIdentityStates,
         profile.id: ProfileIdentityState.ready,
+      };
+      profileIdentityStatuses = <String, ProfileIdentityStatus>{
+        ...profileIdentityStatuses,
+        profile.id: ProfileIdentityStatus(
+          state: ProfileIdentityState.ready,
+          licenseState: method == IdentityProvisioningMethod.registerWithLicense
+              ? LicenseState.warpPlus
+              : LicenseState.free,
+          accountType: method == IdentityProvisioningMethod.registerWithLicense
+              ? 'WARP+'
+              : 'Free',
+        ),
       };
     }, affectsConnection: false);
     return success;
@@ -430,14 +606,19 @@ class AppController extends ChangeNotifier {
     if (!profiles.any((profile) => profile.id == updated.id)) {
       return;
     }
-    final normalized = updated.mode == OperatingMode.httpProxy
+    final normalized = updated.frontends.http
         ? updated
         : updated.copyWith(proxy: updated.proxy.copyWith(systemProxy: false));
     profiles = profiles
         .map((profile) => profile.id == normalized.id ? normalized : profile)
         .toList(growable: false);
     _notifyListeners();
-    _queueProfileMutation(() => _engine.upsertProfile(normalized));
+    _queueProfileMutation(() {
+      if (normalized.id == activeProfileId && snapshot.isConnected) {
+        return _engine.reconfigureActiveProfile(normalized);
+      }
+      return _engine.upsertProfile(normalized);
+    });
   }
 
   void setActiveProfile(String id) {
@@ -455,6 +636,9 @@ class AppController extends ChangeNotifier {
     profiles = profiles.where((profile) => profile.id != id).toList();
     profileIdentityStates = Map<String, ProfileIdentityState>.from(
       profileIdentityStates,
+    )..remove(id);
+    profileIdentityStatuses = Map<String, ProfileIdentityStatus>.from(
+      profileIdentityStatuses,
     )..remove(id);
     if (activeProfileId == id) {
       activeProfileId = profiles.first.id;
@@ -478,6 +662,7 @@ class AppController extends ChangeNotifier {
           profiles = catalog.profiles;
           activeProfileId = catalog.activeProfileId;
           profileIdentityStates = catalog.identityStates;
+          profileIdentityStatuses = catalog.identityStatuses;
         } on Object {
           // Keep the optimistic in-memory state when the authoritative store
           // cannot be reloaded; the original mutation error remains visible.

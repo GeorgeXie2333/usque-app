@@ -6,8 +6,8 @@ use async_trait::async_trait;
 use uuid::Uuid;
 use windows_sys::Win32::Foundation::{ERROR_NOT_FOUND, GetLastError};
 use windows_sys::Win32::Security::Credentials::{
-    CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC, CREDENTIALW, CredDeleteW, CredFree, CredReadW,
-    CredWriteW,
+    CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC, CREDENTIALW, CredDeleteW, CredEnumerateW,
+    CredFree, CredReadW, CredWriteW,
 };
 use zeroize::Zeroizing;
 
@@ -18,6 +18,90 @@ const TARGET_PREFIX: &str = "io.github.georgexie2333.usque/identity";
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct WindowsCredentialVault;
+
+impl WindowsCredentialVault {
+    /// Removes every Usque identity owned by the current Windows user.
+    ///
+    /// This is intentionally namespace-scoped and is used by the optional
+    /// uninstall cleanup path. Enumerating the namespace also removes orphaned
+    /// transaction records that can no longer be reached from `config.json`.
+    pub fn delete_all_namespaced() -> Result<(), VaultError> {
+        let filter = wide_null(&enumeration_filter());
+        let mut count = 0_u32;
+        let mut raw_credentials = ptr::null_mut::<*mut CREDENTIALW>();
+        // SAFETY: filter is null-terminated and both output pointers are valid
+        // for the duration of CredEnumerateW.
+        if unsafe { CredEnumerateW(filter.as_ptr(), 0, &mut count, &mut raw_credentials) } == 0 {
+            // SAFETY: called immediately after the failing Win32 operation.
+            let code = unsafe { GetLastError() };
+            return if code == ERROR_NOT_FOUND {
+                Ok(())
+            } else {
+                Err(platform_error(code))
+            };
+        }
+
+        let credentials = CredentialListBuffer(raw_credentials);
+        if count != 0 && credentials.0.is_null() {
+            return Err(VaultError::Platform(
+                "CredEnumerateW returned a null credential list".to_owned(),
+            ));
+        }
+
+        let entries = if count == 0 {
+            &[][..]
+        } else {
+            // SAFETY: CredEnumerateW returned `count` pointers in this buffer,
+            // which remains owned by CredentialListBuffer for the whole loop.
+            unsafe { slice::from_raw_parts(credentials.0, count as usize) }
+        };
+        let mut first_error = None;
+        for &credential in entries {
+            if credential.is_null() {
+                if first_error.is_none() {
+                    first_error = Some(VaultError::Platform(
+                        "CredEnumerateW returned a null credential".to_owned(),
+                    ));
+                }
+                continue;
+            }
+            // SAFETY: each non-null entry points to a CREDENTIALW owned by the
+            // enumeration buffer.
+            let target = unsafe { wide_null_to_string((*credential).TargetName) };
+            let target = match target {
+                Ok(target) if is_namespaced_target(&target) => target,
+                Ok(_) => {
+                    if first_error.is_none() {
+                        first_error = Some(VaultError::Platform(
+                            "Credential Manager returned a target outside the Usque namespace"
+                                .to_owned(),
+                        ));
+                    }
+                    continue;
+                }
+                Err(error) => {
+                    if first_error.is_none() {
+                        first_error = Some(error);
+                    }
+                    continue;
+                }
+            };
+            let target = wide_null(&target);
+            // Usque writes only generic credentials in this namespace. Using
+            // the fixed type prevents an unexpected record type from widening
+            // the cleanup operation.
+            // SAFETY: target is a valid null-terminated UTF-16 string.
+            if unsafe { CredDeleteW(target.as_ptr(), CRED_TYPE_GENERIC, 0) } == 0 {
+                // SAFETY: called immediately after the failing Win32 operation.
+                let code = unsafe { GetLastError() };
+                if code != ERROR_NOT_FOUND && first_error.is_none() {
+                    first_error = Some(platform_error(code));
+                }
+            }
+        }
+        first_error.map_or(Ok(()), Err)
+    }
+}
 
 #[async_trait]
 impl SecretVault for WindowsCredentialVault {
@@ -115,8 +199,55 @@ impl Drop for CredentialBuffer {
     }
 }
 
+struct CredentialListBuffer(*mut *mut CREDENTIALW);
+
+impl Drop for CredentialListBuffer {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            // SAFETY: the pointer was allocated by CredEnumerateW and is freed
+            // exactly once after all nested credential pointers are unused.
+            unsafe { CredFree(self.0.cast()) };
+        }
+    }
+}
+
 fn target_name(profile_id: Uuid, record: SecretRecord) -> String {
     format!("{TARGET_PREFIX}/{profile_id}/{}", record.key())
+}
+
+fn enumeration_filter() -> String {
+    format!("{TARGET_PREFIX}/*")
+}
+
+fn is_namespaced_target(value: &str) -> bool {
+    value
+        .strip_prefix(TARGET_PREFIX)
+        .is_some_and(|suffix| suffix.starts_with('/'))
+}
+
+unsafe fn wide_null_to_string(value: *const u16) -> Result<String, VaultError> {
+    const MAX_TARGET_UNITS: usize = 32_768;
+    if value.is_null() {
+        return Err(VaultError::Platform(
+            "Credential Manager returned a null target name".to_owned(),
+        ));
+    }
+    for length in 0..MAX_TARGET_UNITS {
+        // SAFETY: the caller supplies a Windows-owned null-terminated buffer;
+        // the defensive bound prevents an unbounded scan if it is malformed.
+        if unsafe { *value.add(length) } == 0 {
+            // SAFETY: every unit in this slice precedes the terminator.
+            let units = unsafe { slice::from_raw_parts(value, length) };
+            return String::from_utf16(units).map_err(|_| {
+                VaultError::Platform(
+                    "Credential Manager returned a non-UTF-16 target name".to_owned(),
+                )
+            });
+        }
+    }
+    Err(VaultError::Platform(
+        "Credential Manager returned an unterminated target name".to_owned(),
+    ))
 }
 
 fn wide_null(value: &str) -> Vec<u16> {
@@ -143,6 +274,16 @@ mod tests {
             target_name(profile, SecretRecord::EndpointPin),
             "io.github.georgexie2333.usque/identity/8c30b771-9ebd-457a-b67b-bbc74a1ddba6/endpoint-pin"
         );
+        assert_eq!(
+            enumeration_filter(),
+            "io.github.georgexie2333.usque/identity/*"
+        );
+        assert!(is_namespaced_target(
+            "io.github.georgexie2333.usque/identity/profile/warp-secret"
+        ));
+        assert!(!is_namespaced_target(
+            "io.github.georgexie2333.usque/identity-other/profile/warp-secret"
+        ));
     }
 
     #[tokio::test]

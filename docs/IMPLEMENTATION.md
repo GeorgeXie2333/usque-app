@@ -1,6 +1,6 @@
 # Usque GUI implementation roadmap
 
-This document turns the Windows and Android/Android TV first-public-beta product contract into release gates. macOS source is retained for later work but is not built, packaged, tested, or used as a `v0.1.0-beta.1` gate. A checked item means code exists and its current automated tests pass; it does not mean the public beta is ready.
+This document turns the Windows and Android/Android TV public-beta product contract into release gates. macOS source is retained for later work but is not built, packaged, tested, or used as a `v0.1.1-beta.2` gate. A checked item means code exists and its current automated tests pass; it does not mean the public beta is ready.
 
 ## Architecture
 
@@ -36,11 +36,12 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 
 - [x] Encode/decode QUIC variable integers and CONNECT-IP datagram context IDs.
 - [x] Implement Auto transport orchestration with H3-to-H2 fallback decisions.
-- [x] Implement IPv4/IPv6 Happy Eyeballs scheduling with one winning path.
+- [x] Implement IPv4/IPv6 Happy Eyeballs scheduling with one winning physical
+  endpoint path while keeping CONNECT-IP payload IPv4/IPv6 independent.
 - [x] Model strict endpoint-pin requirements and structured failures.
 - [x] Implement IP.SB dual-stack and geo-location probing interfaces.
 - [x] Add log redaction for secret fields and values.
-- [x] Implement Consumer WARP registration and manual Secret parsing with zeroized temporary buffers.
+- [x] Implement Consumer WARP registration, WARP License Key registration, and manual Secret parsing with zeroized temporary buffers.
 - [x] Port the Abobo7 P-256 Endpoint Pin semantics and authenticated one-shot refresh.
 - [x] Implement bounded RFC 9484 ADDRESS_ASSIGN, ADDRESS_REQUEST, and ROUTE_ADVERTISEMENT codecs.
 - [x] Implement the engine-side protobuf control service and serialized, atomic Profile CRUD.
@@ -58,6 +59,12 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] Interoperate SOCKS5 TCP and UDP over forced H3 and forced H2 live paths without TUN.
 - [x] Implement HTTP CONNECT and ordinary Forward with bounded parsing and strict body framing.
 - [x] Interoperate HTTP CONNECT and Forward over forced H3 and forced H2 live paths without TUN.
+- [x] Replace fixed 64 KiB proxy TCP windows with bounded preferred/fallback tiers,
+  CUBIC, disabled Nagle, 128 KiB bidirectional relays, and a 1024-packet pipe.
+- [x] Reuse up to two idle HTTP/1.1 upstream connections per authority within each
+  local client session, with a 32-connection cap, 90-second expiry, and one safe
+  bodyless retry after a stale keep-alive connection.
+- [x] Emit redacted proxy memory-tier and HTTP-pool counters into local diagnostics.
 - [ ] Gate `smoltcp` against the Go oracle performance and compatibility thresholds.
 - [x] Add jittered ten-minute H3 recovery probes after an H2 fallback and atomically retain only one active channel.
 
@@ -72,24 +79,30 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] Implement Wintun session ownership, shared-memory packet rings, endpoint bypass, dual-stack route/DNS plans, and a write-ahead cleanup journal.
 - [x] Implement a persistent Windows Filtering Platform Kill Switch and fail-closed Agent/Engine reattachment after either process restarts.
 - [x] Credential Manager vault backend for all identity record types.
-- [x] Keep saved identity write-only in the first beta; no reveal/copy/export API is exposed.
+- [x] Export a saved Secret only after explicit confirmation to a user-selected destination, without revealing it in the UI or diagnostics.
 - [x] Implement transactional system-proxy snapshot, apply, and crash/uninstall recovery.
-- [x] Add WiX 5 MSI authoring, exact Wintun/signature validation, Agent service installation, and fatal uninstall/upgrade recovery sequencing.
-- [ ] ARM64, x86-64-v2, and x86-64-v1 MSI packaging.
+- [x] Add WiX 5 MSI authoring, a selectable and upgrade-persistent install
+  directory, a default-off current-user data purge choice, exact
+  Wintun/signature validation, Agent service installation, and fatal
+  uninstall/upgrade recovery sequencing.
+- [x] Remove crash-surviving Usque Wintun devices by journaled name/GUID/LUID,
+  distinguish true uninstall from major upgrade, and delete only proven-clean
+  machine recovery state before MSI removes the Agent binary.
+- [ ] Signed x86-64-v2 MSI packaging and isolated clean-install/upgrade/uninstall validation.
 
 ### Android and Android TV
 
 - [x] API 26 minimum, TV Leanback entry, and non-touchscreen compatibility.
 - [x] Dedicated `:vpn` process, `VpnService`, foreground notification, control Binder, and JNI boundary.
 - [x] Fail closed before creating the VPN if the Rust data channel is unavailable.
-- [x] Wire arm64-v8a, armeabi-v7a, and x86_64 Rust targets into Gradle `jniLibs`.
+- [x] Wire the arm64-v8a Rust target into the v0.1.1 Gradle release build.
 - [x] Transfer connection snapshots from `:vpn` to the UI over a bounded-time Binder request.
 - [x] Validate manually entered WARP Secrets in Rust before encrypting them with Android Keystore.
 - [x] Stream native events/counters from `:vpn` through Binder callbacks and Flutter `EventChannel`.
 - [x] Automatic Consumer registration through Rust before Android Keystore persistence.
-- [x] Keep saved identity write-only in the first beta; no reveal/copy/export API is exposed.
+- [x] Export a saved Secret through Android SAF after explicit confirmation, without revealing it in the UI or diagnostics.
 - [x] Implement `VpnService.Builder` address/DNS setup, API 26–32 CIDR complements, API 33+ exclusions, a 256-route ceiling, retained TUN reconnects, `protect(fd)`, and underlying-network rebinding.
-- [ ] Sleep, network-switch, captive-portal, and TV lifecycle tests.
+- [ ] Sleep, network-switch, and TV lifecycle tests.
 
 ### macOS (deferred; not a first-beta gate)
 
@@ -108,7 +121,7 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] Four-step permissions, terms, and Consumer WARP identity onboarding.
 - [x] White/orange visual system, dark mode, and Lucide-only interface icons.
 - [x] Exact default endpoints, SNI, MTU, DNS, listener addresses, and reset action.
-- [x] VPN/SOCKS5/HTTP mutual exclusion and non-loopback listener warning.
+- [x] Composable VPN/SOCKS5/HTTP outputs, Windows system-proxy dependency, and non-loopback listener warning.
 - [x] Remote/configured/system Proxy DNS selection with an explicit local-DNS leak warning.
 - [x] Exit location, IPv4, IPv6, protocol, family, duration, and traffic UI.
 - [x] English and Simplified Chinese string catalogs.
@@ -116,9 +129,11 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] Retain a bounded, corruption-safe one-time reader for the legacy Flutter Profile draft.
 - [x] Make versioned Rust configuration the authoritative Profile store on Windows and Android, then remove the migrated Flutter draft.
 - [x] Connect desktop and Android identity provisioning to their platform vaults.
-- [x] Do not expose reveal/copy/export in the first beta.
+- [x] Keep identity plaintext hidden while supporting explicit, confirmed Secret export to a user-selected destination.
+- [x] Add per-Profile output toggles, frontend status chips, shared-session totals, WARP License Key management, and platform quick actions.
+- [x] Apply online output changes through a rollback-capable desktop reconnect or one controlled Android reconnect.
+- [ ] Replace controlled reconnects with true no-drop frontend hot mutation while retaining the same MASQUE channel.
 - [x] Fetch fixed-version `flag-icons` SVG through the active tunnel, validate it, cache it, and return SVG bytes to Flutter.
-- [x] Add the captive-portal confirmation/countdown UI and Android pause/resume behavior with Lockdown and network-change safeguards.
 - [x] Add diagnostics content review plus Windows and Android native save pickers; exported bundles contain bounded sanitized summaries and logs.
 - [x] Add manual and rate-limited automatic GitHub prerelease checks without automatic installation.
 - [x] Add privacy-filtered 7-day/20-MiB JSON log rotation on Windows and Android.
@@ -128,7 +143,7 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 ## Milestone 5 — release hardening
 
 - [ ] Real-device H3/H2 interoperability and hostile-network matrix.
-- [ ] IPv4, IPv6, DNS, route, reconnect, crash, sleep/wake, and uninstall leak tests.
+- [ ] IPv4, IPv6, DNS, route, reconnect, crash, sleep/wake, and real-MSI uninstall leak tests.
 - [ ] Throughput >= 90% of Go oracle, p95 latency regression <= 10%, memory <= 125%.
 - [ ] Stable signing identities and published fingerprints.
 - [ ] All declared packages built from one protected SemVer tag.
@@ -140,4 +155,4 @@ The release workflow must remain disabled or fail closed while any Windows or An
 The protected workflow and hardware-lab handoff are specified in
 [RELEASE.md](RELEASE.md) and [LAB_EVIDENCE.md](LAB_EVIDENCE.md). `release/READY`
 is generated by CI only after both evidence sets validate against the hashes of
-the seven signed artifacts; it is never a pre-committed approval switch.
+the two signed artifacts; it is never a pre-committed approval switch.

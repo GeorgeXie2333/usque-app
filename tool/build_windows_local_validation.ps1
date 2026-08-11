@@ -1,9 +1,9 @@
 [CmdletBinding()]
 param(
-    [ValidateSet("x64-v1")]
-    [string]$Variant = "x64-v1",
-    [string]$Version = "0.1.0-beta.1",
-    [string]$BuildLabel = "fix4-local-dev",
+    [ValidateSet("x64-v1", "x64-v2")]
+    [string]$Variant = "x64-v2",
+    [string]$Version = "0.1.1-beta.2",
+    [string]$BuildLabel = "local-validation",
     [string]$FlutterReleaseDirectory = "",
     [string]$OutputDirectory = ""
 )
@@ -22,7 +22,7 @@ $FlutterReleaseDirectory = (Resolve-Path -LiteralPath $FlutterReleaseDirectory).
 New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 $OutputDirectory = (Resolve-Path -LiteralPath $OutputDirectory).Path
 
-$stagingRoot = Join-Path $repositoryRoot "build/fix4-windows-local-packaging"
+$stagingRoot = Join-Path $repositoryRoot "build/v0.1.1-windows-$Variant-local-packaging"
 if (Test-Path -LiteralPath $stagingRoot) {
     throw "Refusing to reuse the local signing staging directory: $stagingRoot"
 }
@@ -94,8 +94,8 @@ try {
 
     $certificate = New-SelfSignedCertificate `
         -Type CodeSigningCert `
-        -Subject "CN=Usque Fix4 Local Development Preview" `
-        -FriendlyName "Usque Fix4 Local Development Preview" `
+        -Subject "CN=Usque v0.1.1 Local Validation" `
+        -FriendlyName "Usque v0.1.1 Local Validation" `
         -CertStoreLocation "Cert:\CurrentUser\My" `
         -KeyAlgorithm RSA `
         -KeyLength 3072 `
@@ -104,7 +104,7 @@ try {
     $certificateThumbprint = $certificate.Thumbprint
     $certificateSha256 = Get-CertificateSha256 -Certificate $certificate
 
-    $cerPath = Join-Path $stagingRoot "usque-fix4-local.cer"
+    $cerPath = Join-Path $stagingRoot "usque-v0.1.1-local.cer"
     Export-Certificate -Cert $certificate -FilePath $cerPath | Out-Null
     # Trust the exact leaf for this local validation run. TrustedPeople avoids
     # adding a development identity as a root CA while still allowing

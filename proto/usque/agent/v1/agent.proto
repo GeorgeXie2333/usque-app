@@ -14,7 +14,8 @@ enum AgentPhase {
   AGENT_PHASE_PREPARING = 2;
   AGENT_PHASE_PREPARED = 3;
   AGENT_PHASE_ACTIVE = 4;
-  AGENT_PHASE_PAUSED = 5;
+  // 5 was AGENT_PHASE_PAUSED (removed with captive-portal pause).
+  reserved 5;
   AGENT_PHASE_RECOVERING = 6;
   AGENT_PHASE_RECOVERY_REQUIRED = 7;
 }
@@ -72,11 +73,6 @@ message CommitTunnelRequest {
 message RollbackTunnelRequest {
   string operation_id = 1;
   string reason_code = 2;
-}
-
-message PauseKillSwitchRequest {
-  string operation_id = 1;
-  uint32 seconds = 2;
 }
 
 message ApplySystemProxyRequest {
@@ -140,13 +136,14 @@ message Empty {}
 message AgentRequest {
   string request_id = 1;
   uint32 protocol_version = 2;
+  // 15 was PauseKillSwitchRequest (removed with captive-portal pause).
+  reserved 15;
   oneof payload {
     GetCapabilitiesRequest get_capabilities = 10;
     GetStateRequest get_state = 11;
     PrepareTunnelRequest prepare_tunnel = 12;
     CommitTunnelRequest commit_tunnel = 13;
     RollbackTunnelRequest rollback_tunnel = 14;
-    PauseKillSwitchRequest pause_kill_switch = 15;
     ApplySystemProxyRequest apply_system_proxy = 16;
     RestoreSystemProxyRequest restore_system_proxy = 17;
     RecoverRequest recover = 18;

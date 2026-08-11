@@ -24,8 +24,6 @@ internal class AndroidLogStore internal constructor(
         CONNECTION_FAILED,
         CONNECTION_STOPPED,
         NETWORK_CHANGED,
-        CAPTIVE_PORTAL_PAUSED,
-        CAPTIVE_PORTAL_RESUMED,
         VPN_PERMISSION_REVOKED,
     }
 
@@ -183,7 +181,6 @@ internal class AndroidLogStore internal constructor(
                 "degraded",
                 "reconnecting",
                 "disconnecting",
-                "captivePortalPaused",
                 "error",
             )
         val ALLOWED_MODES = setOf("vpn", "socks5", "httpProxy")

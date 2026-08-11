@@ -20,9 +20,10 @@ use tokio::sync::{Mutex, RwLock};
 use usque_core::{
     AddressFamily, AppConfig, ConnectionError, ConnectionPhase, ConnectionSnapshot,
     ConnectionWarning, ConsumerRegistrationClient, DnsMode, EndpointPin, EndpointSettings,
-    ErrorCode, IpPolicy, IpSbProbe, KillSwitchState, LockdownState, MasqueKeyPair, OperatingMode,
-    Profile, ProxyDnsMode, ProxySettings, RegistrationOptions, StateMachine, Statistics, Transport,
-    TransportPolicy, WarpIdentity, parse_manual_warp_secret,
+    ErrorCode, FrontendKind, FrontendPhase, FrontendSettings, FrontendStatus, IpPolicy, IpSbProbe,
+    KillSwitchState, LockdownState, MasqueKeyPair, OperatingMode, Profile, ProxyDnsMode,
+    ProxySettings, RegistrationOptions, StateMachine, Statistics, Transport, TransportPolicy,
+    WarpIdentity,
     storage::{ConfigStore, StoreError},
 };
 use usque_ipc::v1::{
@@ -30,8 +31,9 @@ use usque_ipc::v1::{
 };
 use usque_platform::{SecretRecord, SecretVault, VaultError};
 use usque_transport::{
-    EndpointPinRefresher, MasqueTlsIdentity, NoopSocketProtector, ProxyRuntime, RuntimeHealth,
-    RuntimePath, TrafficSnapshot, TransportError, refresh_endpoint_pin_over_protected_socket,
+    EndpointPinRefresher, MasqueTlsIdentity, NoopSocketProtector, ProxyPerformanceSnapshot,
+    ProxyRuntime, RuntimeHealth, RuntimePath, TrafficSnapshot, TransportError,
+    refresh_endpoint_pin_over_protected_socket,
 };
 use uuid::Uuid;
 use zeroize::Zeroizing;
@@ -40,6 +42,7 @@ mod event_stream;
 mod ipc_stream;
 pub mod logging;
 mod maintenance;
+mod sensitive_output;
 
 #[cfg(windows)]
 mod windows_agent;
@@ -49,6 +52,9 @@ pub mod macos_ipc;
 
 #[cfg(windows)]
 pub mod windows_ipc;
+
+#[cfg(windows)]
+pub mod windows_purge;
 
 pub struct ControlService {
     store: ConfigStore,
@@ -64,12 +70,13 @@ pub struct ControlService {
 
 struct ActiveDataPlane {
     profile_id: Uuid,
+    frontends: FrontendSettings,
     connected_at: Instant,
     last_sample_at: Instant,
     last_bytes_sent: u64,
     last_bytes_received: u64,
+    last_proxy_performance: ProxyPerformanceSnapshot,
     runtime: ActiveRuntime,
-    captive_pause_deadline: Option<Instant>,
 }
 
 enum ActiveRuntime {
@@ -224,7 +231,7 @@ impl ActiveRuntime {
         match self {
             Self::Proxy(runtime) => runtime.runtime.listeners(),
             #[cfg(windows)]
-            Self::Vpn(_) => &[],
+            Self::Vpn(runtime) => runtime.listeners(),
         }
     }
 
@@ -244,6 +251,14 @@ impl ActiveRuntime {
         }
     }
 
+    fn proxy_performance(&self) -> Option<ProxyPerformanceSnapshot> {
+        match self {
+            Self::Proxy(runtime) => Some(runtime.runtime.performance()),
+            #[cfg(windows)]
+            Self::Vpn(_) => None,
+        }
+    }
+
     fn failure(&self) -> Option<String> {
         match self {
             Self::Proxy(runtime) => runtime.runtime.failure(),
@@ -258,6 +273,117 @@ impl ActiveRuntime {
             #[cfg(windows)]
             Self::Vpn(_) => true,
         }
+    }
+
+    fn frontend_statuses(&self, configured: FrontendSettings) -> Vec<FrontendStatus> {
+        let runtime_phase = match self.health() {
+            RuntimeHealth::Connected { .. } => FrontendPhase::Active,
+            RuntimeHealth::Reconnecting { .. } => FrontendPhase::Reconnecting,
+            RuntimeHealth::Failed { .. } => FrontendPhase::Error,
+        };
+        let mut statuses = Vec::with_capacity(4);
+        statuses.push(FrontendStatus {
+            kind: FrontendKind::Tunnel,
+            phase: if configured.tunnel && self.is_vpn() {
+                runtime_phase
+            } else {
+                FrontendPhase::Disabled
+            },
+            listeners: Vec::new(),
+            error: None,
+        });
+        match self {
+            Self::Proxy(runtime) => {
+                statuses.push(FrontendStatus {
+                    kind: FrontendKind::Socks5,
+                    phase: if configured.socks5 {
+                        runtime_phase
+                    } else {
+                        FrontendPhase::Disabled
+                    },
+                    listeners: runtime
+                        .runtime
+                        .socks5_listeners()
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect(),
+                    error: None,
+                });
+                statuses.push(FrontendStatus {
+                    kind: FrontendKind::Http,
+                    phase: if configured.http {
+                        runtime_phase
+                    } else {
+                        FrontendPhase::Disabled
+                    },
+                    listeners: runtime
+                        .runtime
+                        .http_listeners()
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect(),
+                    error: None,
+                });
+                #[cfg(windows)]
+                let system_proxy_active = runtime.system_proxy.is_some();
+                #[cfg(not(windows))]
+                let system_proxy_active = false;
+                statuses.push(FrontendStatus {
+                    kind: FrontendKind::SystemProxy,
+                    phase: if system_proxy_active {
+                        runtime_phase
+                    } else {
+                        FrontendPhase::Disabled
+                    },
+                    listeners: Vec::new(),
+                    error: None,
+                });
+            }
+            #[cfg(windows)]
+            Self::Vpn(runtime) => {
+                statuses.extend([
+                    FrontendStatus {
+                        kind: FrontendKind::Socks5,
+                        phase: if configured.socks5 {
+                            runtime_phase
+                        } else {
+                            FrontendPhase::Disabled
+                        },
+                        listeners: runtime
+                            .socks5_listeners()
+                            .iter()
+                            .map(ToString::to_string)
+                            .collect(),
+                        error: None,
+                    },
+                    FrontendStatus {
+                        kind: FrontendKind::Http,
+                        phase: if configured.http {
+                            runtime_phase
+                        } else {
+                            FrontendPhase::Disabled
+                        },
+                        listeners: runtime
+                            .http_listeners()
+                            .iter()
+                            .map(ToString::to_string)
+                            .collect(),
+                        error: None,
+                    },
+                    FrontendStatus {
+                        kind: FrontendKind::SystemProxy,
+                        phase: if runtime.system_proxy_active() {
+                            runtime_phase
+                        } else {
+                            FrontendPhase::Disabled
+                        },
+                        listeners: Vec::new(),
+                        error: None,
+                    },
+                ]);
+            }
+        }
+        statuses
     }
 
     #[cfg(windows)]
@@ -275,17 +401,6 @@ impl ActiveRuntime {
             Self::Proxy(_) => Err(ControlServiceError::InvalidRequest(
                 "only an active Windows VPN can reattach to the Agent".to_owned(),
             )),
-        }
-    }
-
-    async fn pause_for_captive_portal(&mut self, seconds: u32) -> Result<(), ControlServiceError> {
-        match self {
-            Self::Proxy(_) => Err(ControlServiceError::CaptivePortalPauseUnavailable),
-            #[cfg(windows)]
-            Self::Vpn(runtime) => runtime
-                .pause_for_captive_portal(seconds)
-                .await
-                .map_err(map_windows_vpn_error),
         }
     }
 
@@ -308,6 +423,13 @@ impl ActiveRuntime {
             Self::Vpn(runtime) => runtime.shutdown().await.map_err(map_windows_vpn_error),
         }
     }
+}
+
+fn runtime_path_changed(snapshot: &ConnectionSnapshot, path: RuntimePath) -> bool {
+    snapshot.transport != Some(path.transport)
+        || snapshot.address_family != Some(path.endpoint_family)
+        || snapshot.ipv4_available != path.ipv4_available
+        || snapshot.ipv6_available != path.ipv6_available
 }
 
 impl ControlService {
@@ -474,6 +596,40 @@ impl ControlService {
                     self.profile_catalog().await,
                 ))
             }
+            control_request::Payload::ReconfigureActiveProfile(request) => {
+                let profile = request
+                    .profile
+                    .ok_or_else(|| {
+                        ControlServiceError::InvalidRequest(
+                            "reconfigure profile payload is missing".to_owned(),
+                        )
+                    })
+                    .and_then(profile_from_proto)?;
+                let result = self.reconfigure_active_profile(profile).await?;
+                Ok(control_response::Payload::Reconfigure(Box::new(result)))
+            }
+            control_request::Payload::CopyLicenseKey(request) => {
+                self.copy_license_key(parse_profile_id(&request.profile_id)?)
+                    .await?;
+                Ok(control_response::Payload::Empty(v1::Empty {}))
+            }
+            control_request::Payload::UpdateLicenseKey(request) => {
+                self.update_license_key(
+                    parse_profile_id(&request.profile_id)?,
+                    Zeroizing::new(request.license_key),
+                )
+                .await?;
+                Ok(control_response::Payload::Empty(v1::Empty {}))
+            }
+            control_request::Payload::UnbindLicenseKey(request) => {
+                self.unbind_license_key(parse_profile_id(&request.profile_id)?)
+                    .await?;
+                Ok(control_response::Payload::Empty(v1::Empty {}))
+            }
+            control_request::Payload::ExportWarpSecret(request) => {
+                self.export_warp_secret(request).await?;
+                Ok(control_response::Payload::Empty(v1::Empty {}))
+            }
             control_request::Payload::Retry(_) => {
                 let snapshot = self.retry().await?;
                 Ok(control_response::Payload::Status(Box::new(
@@ -483,12 +639,6 @@ impl ControlService {
             control_request::Payload::ClearAllData(request) => {
                 self.clear_all_data(request.confirmed).await?;
                 Ok(control_response::Payload::Empty(v1::Empty {}))
-            }
-            control_request::Payload::PauseCaptivePortal(request) => {
-                let snapshot = self.pause_captive_portal(request.seconds).await?;
-                Ok(control_response::Payload::Status(Box::new(
-                    snapshot_to_proto(&snapshot),
-                )))
             }
             control_request::Payload::CheckUpdate(request) => {
                 let enabled = self.config.read().await.preferences.update_check_enabled;
@@ -520,22 +670,18 @@ impl ControlService {
     }
 
     async fn status_snapshot(&self) -> ConnectionSnapshot {
-        self.resume_captive_portal_if_due().await;
         let mut data_plane = self.data_plane.lock().await;
         let mut state = self.state.lock().await;
         if let Some(active) = data_plane.as_mut() {
-            if let Some(deadline) = active.captive_pause_deadline {
-                let remaining = deadline
-                    .checked_duration_since(Instant::now())
-                    .map(|duration| {
-                        u32::try_from(duration.as_secs().saturating_add(1)).unwrap_or(u32::MAX)
-                    })
-                    .unwrap_or(0);
-                state.update_captive_portal_pause_remaining(remaining);
-            }
             match active.runtime.health() {
                 RuntimeHealth::Connected { path, .. }
-                    if state.snapshot().phase == ConnectionPhase::Reconnecting =>
+                    if matches!(
+                        state.snapshot().phase,
+                        ConnectionPhase::Connected
+                            | ConnectionPhase::Degraded
+                            | ConnectionPhase::Reconnecting
+                    ) && (state.snapshot().phase == ConnectionPhase::Reconnecting
+                        || runtime_path_changed(state.snapshot(), path)) =>
                 {
                     if let Err(error) = state.mark_connected(
                         path.transport,
@@ -574,6 +720,7 @@ impl ControlService {
                 _ => {}
             }
             state.update_reconnect_count(active.runtime.health().reconnect_count());
+            state.update_frontends(active.runtime.frontend_statuses(active.frontends));
             let traffic = active.runtime.statistics();
             let now = Instant::now();
             let sample_seconds = now.duration_since(active.last_sample_at).as_secs_f64();
@@ -587,6 +734,22 @@ impl ControlService {
             active.last_sample_at = now;
             active.last_bytes_sent = traffic.bytes_sent;
             active.last_bytes_received = traffic.bytes_received;
+            if let Some(performance) = active.runtime.proxy_performance()
+                && performance != active.last_proxy_performance
+            {
+                tracing::debug!(
+                    preferred_tcp_sockets = performance.preferred_tcp_sockets,
+                    fallback_tcp_sockets = performance.fallback_tcp_sockets,
+                    total_tcp_buffer_bytes = performance.total_tcp_buffer_bytes,
+                    rejected_tcp_sockets = performance.rejected_tcp_sockets,
+                    http_pool_hits = performance.http_pool_hits,
+                    http_pool_misses = performance.http_pool_misses,
+                    http_stale_retries = performance.http_stale_retries,
+                    http_busy_rejections = performance.http_busy_rejections,
+                    "proxy performance counters changed"
+                );
+                active.last_proxy_performance = performance;
+            }
             state.update_statistics(Statistics {
                 connected_seconds: active.connected_at.elapsed().as_secs(),
                 bytes_sent: traffic.bytes_sent,
@@ -608,44 +771,6 @@ impl ControlService {
             }
         }
         state.snapshot().clone()
-    }
-
-    async fn resume_captive_portal_if_due(&self) {
-        let due = self
-            .data_plane
-            .lock()
-            .await
-            .as_ref()
-            .and_then(|active| active.captive_pause_deadline)
-            .is_some_and(|deadline| deadline <= Instant::now());
-        if !due {
-            return;
-        }
-        // A status/event tick must never deadlock a user mutation already in
-        // progress. The next tick retries automatic resume if the lock is busy.
-        let Ok(_mutation) = self.mutation_lock.try_lock() else {
-            return;
-        };
-        let profile_id = {
-            let data_plane = self.data_plane.lock().await;
-            let Some(active) = data_plane.as_ref() else {
-                return;
-            };
-            if active
-                .captive_pause_deadline
-                .is_none_or(|deadline| deadline > Instant::now())
-            {
-                return;
-            }
-            active.profile_id
-        };
-        if let Err(error) = self.disconnect_locked().await {
-            tracing::warn!(%error, "failed to clear a completed captive-portal pause");
-            return;
-        }
-        if let Err(error) = self.connect_locked(profile_id).await {
-            tracing::warn!(%error, "automatic VPN resume after captive-portal pause failed");
-        }
     }
 
     pub(crate) async fn event_snapshot(&self) -> v1::ConnectionSnapshot {
@@ -686,7 +811,7 @@ impl ControlService {
             .find(|profile| profile.id == profile_id)
             .cloned()
             .ok_or(ControlServiceError::ProfileNotFound(profile_id))?;
-        if profile.mode == OperatingMode::Vpn && !cfg!(windows) {
+        if profile.frontends.tunnel && !cfg!(windows) {
             return Err(ControlServiceError::OperatingModeUnavailable(profile.mode));
         }
 
@@ -730,7 +855,7 @@ impl ControlService {
             }
         }
 
-        let runtime = if profile.mode == OperatingMode::Vpn {
+        let runtime = if profile.frontends.tunnel {
             #[cfg(windows)]
             {
                 match windows_agent::WindowsVpnRuntime::start(
@@ -763,17 +888,15 @@ impl ControlService {
             {
                 Ok(mut runtime) => {
                     #[cfg(windows)]
-                    let system_proxy = if profile.mode == OperatingMode::HttpProxy
-                        && profile.proxy.system_proxy
-                    {
+                    let system_proxy = if profile.frontends.http && profile.proxy.system_proxy {
                         let listener = runtime
-                            .listeners()
+                            .http_listeners()
                             .iter()
                             .copied()
                             .find(|listener| listener.ip().is_loopback() && listener.ip().is_ipv4())
                             .or_else(|| {
                                 runtime
-                                    .listeners()
+                                    .http_listeners()
                                     .iter()
                                     .copied()
                                     .find(|listener| listener.ip().is_loopback())
@@ -824,17 +947,24 @@ impl ControlService {
             .unwrap_or_else(|| std::path::Path::new("."))
             .join("cache")
             .join("flag-icons-7.5.0");
-        let exit_probe = match (profile.mode, exit_listener) {
-            (OperatingMode::Socks5, Some(listener)) => IpSbProbe::through_socks(listener)
+        let exit_probe = if profile.frontends.socks5 {
+            runtime
+                .listeners()
+                .iter()
+                .copied()
+                .find(|address| address.ip().is_loopback())
+                .and_then(|listener| IpSbProbe::through_socks(listener).ok())
+                .map(|probe| probe.with_flag_cache(&flag_cache))
+        } else if profile.frontends.http {
+            exit_listener
+                .and_then(|listener| IpSbProbe::through_http(listener).ok())
+                .map(|probe| probe.with_flag_cache(&flag_cache))
+        } else if profile.frontends.tunnel {
+            IpSbProbe::new()
                 .ok()
-                .map(|probe| probe.with_flag_cache(&flag_cache)),
-            (OperatingMode::HttpProxy, Some(listener)) => IpSbProbe::through_http(listener)
-                .ok()
-                .map(|probe| probe.with_flag_cache(&flag_cache)),
-            (OperatingMode::Vpn, _) => IpSbProbe::new()
-                .ok()
-                .map(|probe| probe.with_flag_cache(&flag_cache)),
-            _ => None,
+                .map(|probe| probe.with_flag_cache(&flag_cache))
+        } else {
+            None
         };
         let exit = match exit_probe {
             Some(probe) => probe.probe().await.ok(),
@@ -855,7 +985,9 @@ impl ControlService {
                 state.set_exit_info(exit);
             }
             let mut warnings = Vec::new();
-            if profile.proxy.exposes_lan(profile.mode) {
+            if (profile.frontends.socks5 && profile.proxy.socks5_exposes_lan())
+                || (profile.frontends.http && profile.proxy.http_exposes_lan())
+            {
                 warnings.push(ConnectionWarning {
                     code: "LAN_EXPOSED".to_owned(),
                     message:
@@ -871,7 +1003,7 @@ impl ControlService {
                             .to_owned(),
                 });
             }
-            if profile.mode == OperatingMode::Vpn && !profile.kill_switch {
+            if profile.frontends.tunnel && !profile.kill_switch {
                 warnings.push(ConnectionWarning {
                     code: "KILL_SWITCH_DISABLED".to_owned(),
                     message:
@@ -888,8 +1020,9 @@ impl ControlService {
                     .collect(),
                 warnings,
             );
+            state.update_frontends(runtime.frontend_statuses(profile.frontends));
             state.update_safety_state(
-                if profile.mode == OperatingMode::Vpn {
+                if profile.frontends.tunnel {
                     if profile.kill_switch {
                         KillSwitchState::Active
                     } else {
@@ -904,12 +1037,13 @@ impl ControlService {
         };
         *self.data_plane.lock().await = Some(ActiveDataPlane {
             profile_id,
+            frontends: profile.frontends,
             connected_at: Instant::now(),
             last_sample_at: Instant::now(),
             last_bytes_sent: 0,
             last_bytes_received: 0,
+            last_proxy_performance: ProxyPerformanceSnapshot::default(),
             runtime,
-            captive_pause_deadline: None,
         });
         Ok(snapshot)
     }
@@ -1007,36 +1141,6 @@ impl ControlService {
 
         self.disconnect_locked().await?;
         self.connect_locked(profile_id).await
-    }
-
-    async fn pause_captive_portal(
-        &self,
-        seconds: u32,
-    ) -> Result<ConnectionSnapshot, ControlServiceError> {
-        if !(1..=600).contains(&seconds) {
-            return Err(ControlServiceError::InvalidRequest(
-                "captive portal pause must be between 1 and 600 seconds".to_owned(),
-            ));
-        }
-        let _mutation = self.mutation_lock.lock().await;
-        let mut data_plane = self.data_plane.lock().await;
-        let active = data_plane
-            .as_mut()
-            .ok_or(ControlServiceError::CaptivePortalPauseUnavailable)?;
-        if !active.runtime.is_vpn() || !current_capabilities().vpn {
-            return Err(ControlServiceError::CaptivePortalPauseUnavailable);
-        }
-        active.runtime.pause_for_captive_portal(seconds).await?;
-        active.captive_pause_deadline =
-            Some(Instant::now() + std::time::Duration::from_secs(u64::from(seconds)));
-        let snapshot = {
-            let mut state = self.state.lock().await;
-            state.transition(ConnectionPhase::CaptivePortalPaused)?;
-            state.update_captive_portal_pause_remaining(seconds);
-            state.update_safety_state(KillSwitchState::Paused, LockdownState::NotSupported);
-            state.snapshot().clone()
-        };
-        Ok(snapshot)
     }
 
     async fn clear_all_data(&self, confirmed: bool) -> Result<(), ControlServiceError> {
@@ -1156,32 +1260,21 @@ impl ControlService {
 
         let _mutation = self.mutation_lock.lock().await;
         let manual_secret = Zeroizing::new(request.warp_secret);
-        let identity = if manual_secret.is_empty() {
-            let options = RegistrationOptions {
-                terms_accepted: true,
-                model: desktop_registration_model().to_owned(),
-                device_name: nonempty(request.device_name),
-                locale: if request.locale.trim().is_empty() {
-                    "en_US".to_owned()
-                } else {
-                    request.locale
-                },
-            };
-            ConsumerRegistrationClient::new()?
-                .register(&options)
-                .await?
+        if !manual_secret.is_empty() {
+            return Err(ControlServiceError::FeatureRemoved("WARP Secret import"));
+        }
+        let license_key = Zeroizing::new(request.license_key);
+        let options = registration_options(request.device_name, request.locale);
+        let client = ConsumerRegistrationClient::new()?;
+        let identity = if license_key.is_empty() {
+            client.register(&options).await?
         } else {
-            let value = std::str::from_utf8(&manual_secret)
-                .map_err(|_| ControlServiceError::InvalidManualSecretEncoding)?;
-            parse_manual_warp_secret(value)?
+            let license = std::str::from_utf8(&license_key)
+                .map_err(|_| ControlServiceError::InvalidLicenseEncoding)?;
+            client.register_with_license(&options, license).await?
         };
 
-        self.persist_identity(
-            profile_id,
-            &identity,
-            (!manual_secret.is_empty()).then_some(manual_secret.as_slice()),
-        )
-        .await
+        self.persist_identity(profile_id, &identity, None).await
     }
 
     async fn create_profile_with_identity(
@@ -1220,29 +1313,30 @@ impl ControlService {
                         "registration provisioning must not contain a WARP Secret".to_owned(),
                     ));
                 }
-                let options = RegistrationOptions {
-                    terms_accepted: true,
-                    model: desktop_registration_model().to_owned(),
-                    device_name: nonempty(provisioning.device_name),
-                    locale: if provisioning.locale.trim().is_empty() {
-                        "en_US".to_owned()
-                    } else {
-                        provisioning.locale
-                    },
-                };
+                let options = registration_options(
+                    provisioning.device_name.clone(),
+                    provisioning.locale.clone(),
+                );
                 ConsumerRegistrationClient::new()?
                     .register(&options)
                     .await?
             }
             v1::IdentityProvisioningMethod::ImportSecret => {
-                if secret.is_empty() {
+                return Err(ControlServiceError::FeatureRemoved("WARP Secret import"));
+            }
+            v1::IdentityProvisioningMethod::RegisterWithLicense => {
+                if !secret.is_empty() {
                     return Err(ControlServiceError::InvalidRequest(
-                        "import provisioning requires a WARP Secret".to_owned(),
+                        "License provisioning must not contain a WARP Secret".to_owned(),
                     ));
                 }
-                let value = std::str::from_utf8(&secret)
-                    .map_err(|_| ControlServiceError::InvalidManualSecretEncoding)?;
-                parse_manual_warp_secret(value)?
+                let license_key = Zeroizing::new(provisioning.license_key);
+                let license = std::str::from_utf8(&license_key)
+                    .map_err(|_| ControlServiceError::InvalidLicenseEncoding)?;
+                let options = registration_options(provisioning.device_name, provisioning.locale);
+                ConsumerRegistrationClient::new()?
+                    .register_with_license(&options, license)
+                    .await?
             }
             v1::IdentityProvisioningMethod::Unspecified => {
                 return Err(ControlServiceError::InvalidRequest(
@@ -1267,15 +1361,7 @@ impl ControlService {
         pending.pending_identity_creations.push(profile.id);
         self.persist(pending).await?;
 
-        if let Err(error) = self
-            .persist_identity(
-                profile.id,
-                &identity,
-                matches!(method, v1::IdentityProvisioningMethod::ImportSecret)
-                    .then_some(secret.as_slice()),
-            )
-            .await
-        {
+        if let Err(error) = self.persist_identity(profile.id, &identity, None).await {
             self.abort_pending_identity_creation(profile.id).await;
             return Err(error);
         }
@@ -1304,15 +1390,37 @@ impl ControlService {
     async fn profile_catalog(&self) -> v1::ProfileList {
         let config = self.config.read().await.clone();
         let mut catalog = profile_list_to_proto(&config);
+        let cleanup_pending = !config.pending_identity_deletions.is_empty();
         for profile in &config.profiles {
-            let state = match self.load_warp_identity(profile.id).await {
-                Ok(_) => v1::ProfileIdentityState::Ready,
-                Err(ControlServiceError::MissingCredential(_)) => v1::ProfileIdentityState::Missing,
-                Err(_) => v1::ProfileIdentityState::Invalid,
-            };
+            let (state, license_state, account_type) =
+                match self.load_warp_identity(profile.id).await {
+                    Ok(identity) if identity.license().is_some() => (
+                        v1::ProfileIdentityState::Ready,
+                        v1::LicenseState::WarpPlus,
+                        "WARP+".to_owned(),
+                    ),
+                    Ok(_) => (
+                        v1::ProfileIdentityState::Ready,
+                        v1::LicenseState::Free,
+                        "Free".to_owned(),
+                    ),
+                    Err(ControlServiceError::MissingCredential(_)) => (
+                        v1::ProfileIdentityState::Missing,
+                        v1::LicenseState::Unknown,
+                        String::new(),
+                    ),
+                    Err(_) => (
+                        v1::ProfileIdentityState::Invalid,
+                        v1::LicenseState::Unknown,
+                        String::new(),
+                    ),
+                };
             catalog.identity_statuses.push(v1::ProfileIdentityStatus {
                 profile_id: profile.id.to_string(),
                 state: state as i32,
+                license_state: license_state as i32,
+                account_type,
+                cleanup_pending,
             });
         }
         catalog
@@ -1376,11 +1484,158 @@ impl ControlService {
         Ok(())
     }
 
+    async fn copy_license_key(&self, profile_id: Uuid) -> Result<(), ControlServiceError> {
+        self.ensure_profile_exists(profile_id).await?;
+        let license = self
+            .required_secret(profile_id, SecretRecord::License)
+            .await?;
+        sensitive_output::copy_sensitive_text(&license)
+            .map_err(ControlServiceError::SensitiveOutput)
+    }
+
+    async fn update_license_key(
+        &self,
+        profile_id: Uuid,
+        license_key: Zeroizing<Vec<u8>>,
+    ) -> Result<(), ControlServiceError> {
+        self.ensure_profile_exists(profile_id).await?;
+        let license = std::str::from_utf8(&license_key)
+            .map_err(|_| ControlServiceError::InvalidLicenseEncoding)?;
+        let _mutation = self.mutation_lock.lock().await;
+        let reconnect = self.connected_profile_id().await == Some(profile_id);
+        if reconnect {
+            self.disconnect_locked().await?;
+            self.await_disconnect_cleanup().await?;
+        }
+        let new_identity = ConsumerRegistrationClient::new()?
+            .register_with_license(
+                &registration_options(String::new(), "en_US".to_owned()),
+                license,
+            )
+            .await?;
+        self.replace_identity_locked(profile_id, new_identity)
+            .await?;
+        if reconnect {
+            self.connect_locked(profile_id).await?;
+        }
+        Ok(())
+    }
+
+    async fn unbind_license_key(&self, profile_id: Uuid) -> Result<(), ControlServiceError> {
+        self.ensure_profile_exists(profile_id).await?;
+        let _mutation = self.mutation_lock.lock().await;
+        let reconnect = self.connected_profile_id().await == Some(profile_id);
+        if reconnect {
+            self.disconnect_locked().await?;
+            self.await_disconnect_cleanup().await?;
+        }
+        let new_identity = ConsumerRegistrationClient::new()?
+            .register(&registration_options(String::new(), "en_US".to_owned()))
+            .await?;
+        self.replace_identity_locked(profile_id, new_identity)
+            .await?;
+        if reconnect {
+            self.connect_locked(profile_id).await?;
+        }
+        Ok(())
+    }
+
+    async fn export_warp_secret(
+        &self,
+        request: v1::ExportWarpSecretRequest,
+    ) -> Result<(), ControlServiceError> {
+        if !request.confirmed {
+            return Err(ControlServiceError::ConfirmationRequired);
+        }
+        if request.destination.trim().is_empty() {
+            return Err(ControlServiceError::InvalidRequest(
+                "WARP Secret export destination is missing".to_owned(),
+            ));
+        }
+        let profile_id = parse_profile_id(&request.profile_id)?;
+        self.ensure_profile_exists(profile_id).await?;
+        let identity = self.load_warp_identity(profile_id).await?;
+        let secret = identity.to_portable_secret_json()?;
+        let destination = std::path::PathBuf::from(request.destination);
+        tokio::task::spawn_blocking(move || {
+            sensitive_output::export_secret_noclobber(&destination, &secret)
+        })
+        .await
+        .map_err(|error| ControlServiceError::SensitiveOutputWorker(error.to_string()))?
+        .map_err(ControlServiceError::SensitiveOutput)
+    }
+
+    async fn ensure_profile_exists(&self, profile_id: Uuid) -> Result<(), ControlServiceError> {
+        if self
+            .config
+            .read()
+            .await
+            .profiles
+            .iter()
+            .any(|profile| profile.id == profile_id)
+        {
+            Ok(())
+        } else {
+            Err(ControlServiceError::ProfileNotFound(profile_id))
+        }
+    }
+
+    async fn connected_profile_id(&self) -> Option<Uuid> {
+        self.data_plane
+            .lock()
+            .await
+            .as_ref()
+            .map(|active| active.profile_id)
+    }
+
+    async fn replace_identity_locked(
+        &self,
+        profile_id: Uuid,
+        new_identity: WarpIdentity,
+    ) -> Result<(), ControlServiceError> {
+        let previous = self.load_warp_identity(profile_id).await?;
+        let cleanup_id = Uuid::new_v4();
+        self.persist_identity(cleanup_id, &previous, None).await?;
+
+        if let Err(error) = self.persist_identity(profile_id, &new_identity, None).await {
+            let restore = self.persist_identity(profile_id, &previous, None).await;
+            let _ = self.vault.delete_identity(cleanup_id).await;
+            restore?;
+            return Err(error);
+        }
+
+        let mut next = self.config.read().await.clone();
+        next.pending_identity_deletions.push(cleanup_id);
+        if let Err(error) = self.persist(next).await {
+            let restore = self.persist_identity(profile_id, &previous, None).await;
+            let _ = self.vault.delete_identity(cleanup_id).await;
+            if new_identity.license().is_some() {
+                let _ = ConsumerRegistrationClient::new()?
+                    .unbind_license(&new_identity)
+                    .await;
+            }
+            restore?;
+            return Err(error);
+        }
+
+        if let Err(error) = self.reap_pending_identity_deletions_locked().await {
+            tracing::warn!(%error, "old WARP device cleanup was queued for a later retry");
+        }
+        Ok(())
+    }
+
     async fn upsert_profile(&self, profile: Profile) -> Result<Profile, ControlServiceError> {
         profile
             .validate()
             .map_err(ControlServiceError::configuration)?;
         let _mutation = self.mutation_lock.lock().await;
+        self.upsert_profile_locked(profile).await
+    }
+
+    async fn upsert_profile_locked(
+        &self,
+        profile: Profile,
+    ) -> Result<Profile, ControlServiceError> {
         let mut next = self.config.read().await.clone();
         match next
             .profiles
@@ -1395,6 +1650,56 @@ impl ControlService {
         }
         self.persist(next).await?;
         Ok(profile)
+    }
+
+    async fn reconfigure_active_profile(
+        &self,
+        profile: Profile,
+    ) -> Result<v1::ReconfigureResult, ControlServiceError> {
+        profile
+            .validate()
+            .map_err(ControlServiceError::configuration)?;
+        let _mutation = self.mutation_lock.lock().await;
+        let active_profile_id = self
+            .data_plane
+            .lock()
+            .await
+            .as_ref()
+            .map(|runtime| runtime.profile_id);
+        if active_profile_id != Some(profile.id) {
+            return Err(ControlServiceError::InvalidRequest(
+                "only the connected Active Profile can be reconfigured".to_owned(),
+            ));
+        }
+        let previous = self
+            .config
+            .read()
+            .await
+            .profiles
+            .iter()
+            .find(|candidate| candidate.id == profile.id)
+            .cloned()
+            .ok_or(ControlServiceError::ProfileNotFound(profile.id))?;
+
+        self.disconnect_locked().await?;
+        if let Err(error) = self.upsert_profile_locked(profile.clone()).await {
+            let _ = self.connect_locked(previous.id).await;
+            return Err(error);
+        }
+        let snapshot = match self.connect_locked(profile.id).await {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                self.upsert_profile_locked(previous.clone()).await?;
+                if let Err(rollback_error) = self.connect_locked(previous.id).await {
+                    tracing::error!(%rollback_error, "failed to restore the previous active Profile");
+                }
+                return Err(error);
+            }
+        };
+        Ok(v1::ReconfigureResult {
+            profile: Some(profile_to_proto(&profile)),
+            snapshot: Some(snapshot_to_proto(&snapshot)),
+        })
     }
 
     async fn import_legacy_profiles(
@@ -1504,21 +1809,33 @@ impl ControlService {
         let mut completed = std::collections::HashSet::new();
         let mut first_error = None;
         for profile_id in pending {
+            if let Err(error) = self.cleanup_remote_license(profile_id).await {
+                if first_error.is_none() {
+                    first_error = Some(error);
+                }
+                continue;
+            }
             match self.vault.delete_identity(profile_id).await {
                 Ok(()) => {
                     completed.insert(profile_id);
                 }
-                Err(error) if first_error.is_none() => first_error = Some(error),
+                Err(error) if first_error.is_none() => first_error = Some(error.into()),
                 Err(_) => {}
             }
         }
         let mut completed_creations = std::collections::HashSet::new();
         for profile_id in pending_creations {
+            if let Err(error) = self.cleanup_remote_license(profile_id).await {
+                if first_error.is_none() {
+                    first_error = Some(error);
+                }
+                continue;
+            }
             match self.vault.delete_identity(profile_id).await {
                 Ok(()) => {
                     completed_creations.insert(profile_id);
                 }
-                Err(error) if first_error.is_none() => first_error = Some(error),
+                Err(error) if first_error.is_none() => first_error = Some(error.into()),
                 Err(_) => {}
             }
         }
@@ -1530,7 +1847,20 @@ impl ControlService {
                 .retain(|profile_id| !completed_creations.contains(profile_id));
             self.persist(next).await?;
         }
-        first_error.map_or(Ok(()), |error| Err(error.into()))
+        first_error.map_or(Ok(()), Err)
+    }
+
+    async fn cleanup_remote_license(&self, profile_id: Uuid) -> Result<(), ControlServiceError> {
+        match self.load_warp_identity(profile_id).await {
+            Ok(identity) if identity.license().is_some() => {
+                ConsumerRegistrationClient::new()?
+                    .unbind_license(&identity)
+                    .await?;
+                Ok(())
+            }
+            Ok(_) | Err(ControlServiceError::MissingCredential(_)) => Ok(()),
+            Err(error) => Err(error),
+        }
     }
 
     async fn persist(&self, next: AppConfig) -> Result<(), ControlServiceError> {
@@ -1550,6 +1880,10 @@ impl ControlService {
 pub enum ControlServiceError {
     #[error("invalid request: {0}")]
     InvalidRequest(String),
+    #[error("the requested feature is not available yet: {0}")]
+    FeatureUnavailable(&'static str),
+    #[error("the requested feature has been removed: {0}")]
+    FeatureRemoved(&'static str),
     #[error("invalid profile configuration: {0}")]
     InvalidConfiguration(String),
     #[error("profile does not exist: {0}")]
@@ -1572,12 +1906,12 @@ pub enum ControlServiceError {
     Transport(#[from] TransportError),
     #[error("the Windows platform VPN failed: {0}")]
     PlatformVpn(String),
-    #[error("captive portal pause is only available for an active platform VPN")]
-    CaptivePortalPauseUnavailable,
     #[error("Cloudflare terms must be accepted before identity provisioning")]
     TermsNotAccepted,
     #[error("the manually entered WARP Secret is not UTF-8")]
     InvalidManualSecretEncoding,
+    #[error("the WARP License Key is not UTF-8")]
+    InvalidLicenseEncoding,
     #[error("identity validation failed: {0}")]
     Identity(#[from] usque_core::IdentityError),
     #[error("Consumer WARP registration failed: {0}")]
@@ -1590,6 +1924,10 @@ pub enum ControlServiceError {
     PersistenceWorker(String),
     #[error("maintenance operation failed: {0}")]
     Maintenance(#[from] maintenance::MaintenanceError),
+    #[error("sensitive output operation failed: {0}")]
+    SensitiveOutput(#[source] std::io::Error),
+    #[error("sensitive output worker failed: {0}")]
+    SensitiveOutputWorker(String),
     #[error("the previous disconnect cleanup failed: {0}")]
     DisconnectCleanup(String),
 }
@@ -1602,6 +1940,8 @@ impl ControlServiceError {
     fn as_structured_error(&self) -> StructuredError {
         let (code, retryable) = match self {
             Self::InvalidRequest(_) | Self::InvalidConfiguration(_) => ("INVALID_ARGUMENT", false),
+            Self::FeatureUnavailable(_) => ("FEATURE_UNAVAILABLE", false),
+            Self::FeatureRemoved(_) => ("FEATURE_REMOVED", false),
             Self::ProfileNotFound(_) => ("PROFILE_NOT_FOUND", false),
             Self::AlreadyConnected(_) => ("ALREADY_CONNECTED", false),
             Self::LastProfile => ("LAST_PROFILE", false),
@@ -1627,9 +1967,9 @@ impl ControlServiceError {
             ) => ("PROXY_LISTENER_FAILED", false),
             Self::Transport(_) => ("DATA_PLANE_FAILED", true),
             Self::PlatformVpn(_) => ("PLATFORM_VPN_FAILED", true),
-            Self::CaptivePortalPauseUnavailable => ("CAPTIVE_PORTAL_PAUSE_UNAVAILABLE", false),
             Self::TermsNotAccepted => ("TERMS_NOT_ACCEPTED", false),
             Self::InvalidManualSecretEncoding | Self::Identity(_) => ("INVALID_WARP_SECRET", false),
+            Self::InvalidLicenseEncoding => ("INVALID_LICENSE_KEY", false),
             Self::Registration(_) => ("REGISTRATION_FAILED", true),
             Self::Vault(_) => ("SECURE_STORAGE_FAILED", false),
             Self::Persistence(_) | Self::PersistenceWorker(_) => ("PERSISTENCE_FAILED", true),
@@ -1637,6 +1977,9 @@ impl ControlServiceError {
                 ("UPDATE_CHECK_FAILED", true)
             }
             Self::Maintenance(_) => ("DIAGNOSTICS_EXPORT_FAILED", false),
+            Self::SensitiveOutput(_) | Self::SensitiveOutputWorker(_) => {
+                ("SENSITIVE_OUTPUT_FAILED", false)
+            }
             Self::DisconnectCleanup(_) => ("DISCONNECT_CLEANUP_FAILED", true),
         };
         StructuredError {
@@ -1713,6 +2056,19 @@ fn nonempty(value: String) -> Option<String> {
     (!value.trim().is_empty()).then_some(value)
 }
 
+fn registration_options(device_name: String, locale: String) -> RegistrationOptions {
+    RegistrationOptions {
+        terms_accepted: true,
+        model: desktop_registration_model().to_owned(),
+        device_name: nonempty(device_name),
+        locale: if locale.trim().is_empty() {
+            "en_US".to_owned()
+        } else {
+            locale
+        },
+    }
+}
+
 const fn desktop_registration_model() -> &'static str {
     if cfg!(target_os = "macos") {
         "Mac"
@@ -1784,21 +2140,49 @@ fn profile_from_proto(source: v1::Profile) -> Result<Profile, ControlServiceErro
     let proxy = source
         .proxy
         .unwrap_or_else(|| proxy_to_proto(&defaults.proxy));
+    let mode = match source.mode {
+        value if value == v1::OperatingMode::Unspecified as i32 => {
+            OperatingMode::legacy_platform_default()
+        }
+        value if value == v1::OperatingMode::Vpn as i32 => OperatingMode::Vpn,
+        value if value == v1::OperatingMode::Socks5 as i32 => OperatingMode::Socks5,
+        value if value == v1::OperatingMode::HttpProxy as i32 => OperatingMode::HttpProxy,
+        _ => {
+            return Err(ControlServiceError::InvalidRequest(
+                "unknown operating mode".to_owned(),
+            ));
+        }
+    };
+    let frontends = source
+        .frontends
+        .map(|frontends| FrontendSettings {
+            tunnel: frontends.tunnel,
+            socks5: frontends.socks5,
+            http: frontends.http,
+        })
+        .unwrap_or_else(|| match mode {
+            OperatingMode::Vpn => FrontendSettings {
+                tunnel: true,
+                socks5: false,
+                http: false,
+            },
+            OperatingMode::Socks5 => FrontendSettings {
+                tunnel: false,
+                socks5: true,
+                http: false,
+            },
+            OperatingMode::HttpProxy => FrontendSettings {
+                tunnel: false,
+                socks5: false,
+                http: true,
+            },
+        });
 
     let profile = Profile {
         id: parse_profile_id(&source.id)?,
         name: source.name,
-        mode: match source.mode {
-            value if value == v1::OperatingMode::Unspecified as i32 => OperatingMode::Vpn,
-            value if value == v1::OperatingMode::Vpn as i32 => OperatingMode::Vpn,
-            value if value == v1::OperatingMode::Socks5 as i32 => OperatingMode::Socks5,
-            value if value == v1::OperatingMode::HttpProxy as i32 => OperatingMode::HttpProxy,
-            _ => {
-                return Err(ControlServiceError::InvalidRequest(
-                    "unknown operating mode".to_owned(),
-                ));
-            }
-        },
+        mode,
+        frontends,
         transport: match source.transport {
             value if value == v1::TransportPolicy::Unspecified as i32 => TransportPolicy::Auto,
             value if value == v1::TransportPolicy::Auto as i32 => TransportPolicy::Auto,
@@ -1952,6 +2336,11 @@ fn profile_to_proto(profile: &Profile) -> v1::Profile {
             DnsMode::LocalConfigured => v1::DnsMode::LocalConfigured as i32,
             DnsMode::System => v1::DnsMode::System as i32,
         },
+        frontends: Some(v1::FrontendSettings {
+            tunnel: profile.frontends.tunnel,
+            socks5: profile.frontends.socks5,
+            http: profile.frontends.http,
+        }),
     }
 }
 
@@ -1999,6 +2388,16 @@ fn current_capabilities() -> v1::Capabilities {
         architecture: std::env::consts::ARCH.to_owned(),
         transports: vec!["h3".to_owned(), "h2".to_owned()],
         secure_storage: cfg!(any(windows, target_os = "macos", target_os = "android")),
+        composable_frontends: true,
+        // Output changes currently use a rollback-capable reconnect. Do not
+        // advertise in-place mutation until every frontend can be swapped
+        // without replacing the MASQUE channel.
+        hot_reconfigure: false,
+        windows_tray: cfg!(windows),
+        android_quick_settings_tile: cfg!(target_os = "android"),
+        system_start: cfg!(any(windows, target_os = "android")),
+        license_management: true,
+        warp_secret_export: true,
     }
 }
 
@@ -2013,7 +2412,6 @@ fn snapshot_to_proto(snapshot: &ConnectionSnapshot) -> v1::ConnectionSnapshot {
             ConnectionPhase::Degraded => v1::ConnectionPhase::Degraded as i32,
             ConnectionPhase::Reconnecting => v1::ConnectionPhase::Reconnecting as i32,
             ConnectionPhase::Disconnecting => v1::ConnectionPhase::Disconnecting as i32,
-            ConnectionPhase::CaptivePortalPaused => v1::ConnectionPhase::CaptivePortalPaused as i32,
             ConnectionPhase::Error => v1::ConnectionPhase::Error as i32,
         },
         transport: snapshot
@@ -2051,7 +2449,6 @@ fn snapshot_to_proto(snapshot: &ConnectionSnapshot) -> v1::ConnectionSnapshot {
             KillSwitchState::NotApplicable => v1::KillSwitchState::NotApplicable as i32,
             KillSwitchState::Inactive => v1::KillSwitchState::Inactive as i32,
             KillSwitchState::Active => v1::KillSwitchState::Active as i32,
-            KillSwitchState::Paused => v1::KillSwitchState::Paused as i32,
             KillSwitchState::Error => v1::KillSwitchState::Error as i32,
         },
         lockdown_state: match snapshot.lockdown_state {
@@ -2070,7 +2467,36 @@ fn snapshot_to_proto(snapshot: &ConnectionSnapshot) -> v1::ConnectionSnapshot {
                 message: warning.message.clone(),
             })
             .collect(),
-        captive_portal_pause_remaining_seconds: snapshot.captive_portal_pause_remaining_seconds,
+        frontends: snapshot
+            .frontends
+            .iter()
+            .map(frontend_status_to_proto)
+            .collect(),
+    }
+}
+
+fn frontend_status_to_proto(status: &FrontendStatus) -> v1::FrontendStatus {
+    v1::FrontendStatus {
+        kind: match status.kind {
+            FrontendKind::Tunnel => v1::FrontendKind::Tunnel as i32,
+            FrontendKind::Socks5 => v1::FrontendKind::Socks5 as i32,
+            FrontendKind::Http => v1::FrontendKind::Http as i32,
+            FrontendKind::SystemProxy => v1::FrontendKind::SystemProxy as i32,
+        },
+        phase: match status.phase {
+            FrontendPhase::Disabled => v1::FrontendPhase::Disabled as i32,
+            FrontendPhase::Preparing => v1::FrontendPhase::Preparing as i32,
+            FrontendPhase::Active => v1::FrontendPhase::Active as i32,
+            FrontendPhase::Degraded => v1::FrontendPhase::Degraded as i32,
+            FrontendPhase::Reconnecting => v1::FrontendPhase::Reconnecting as i32,
+            FrontendPhase::Error => v1::FrontendPhase::Error as i32,
+        },
+        listeners: status.listeners.clone(),
+        error: status.error.as_ref().map(|error| StructuredError {
+            code: format!("{:?}", error.code).to_ascii_uppercase(),
+            message: error.message.clone(),
+            retryable: error.retryable,
+        }),
     }
 }
 
@@ -2108,6 +2534,34 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn runtime_path_updates_are_edge_triggered() {
+        let mut state = StateMachine::default();
+        state
+            .transition(ConnectionPhase::Preparing)
+            .expect("prepare");
+        state
+            .transition(ConnectionPhase::ConnectingHttp3)
+            .expect("connect H3");
+        state
+            .mark_connected(Transport::Http3, AddressFamily::Ipv4, true, true)
+            .expect("connected");
+
+        let unchanged = RuntimePath {
+            transport: Transport::Http3,
+            endpoint_family: AddressFamily::Ipv4,
+            ipv4_available: true,
+            ipv6_available: true,
+        };
+        assert!(!runtime_path_changed(state.snapshot(), unchanged));
+
+        let peer_withdrew_ipv6 = RuntimePath {
+            ipv6_available: false,
+            ..unchanged
+        };
+        assert!(runtime_path_changed(state.snapshot(), peer_withdrew_ipv6));
+    }
 
     #[derive(Default)]
     struct MemoryVault {
@@ -2519,6 +2973,7 @@ mod tests {
                     terms_accepted: false,
                     locale: "en_US".to_owned(),
                     device_name: String::new(),
+                    license_key: Vec::new(),
                 }),
             ))
             .await;
@@ -2536,17 +2991,18 @@ mod tests {
                     terms_accepted: true,
                     locale: "en_US".to_owned(),
                     device_name: String::new(),
+                    license_key: Vec::new(),
                 }),
             ))
             .await;
         assert_eq!(
             encoding.error.as_ref().map(|error| error.code.as_str()),
-            Some("INVALID_WARP_SECRET")
+            Some("FEATURE_REMOVED")
         );
     }
 
     #[tokio::test]
-    async fn create_profile_with_identity_is_committed_as_one_transaction() {
+    async fn removed_secret_import_cannot_leave_a_partial_profile_transaction() {
         let directory = tempfile::tempdir().expect("tempdir");
         let config_path = directory.path().join("config.json");
         let vault = Arc::new(MemoryVault::default());
@@ -2573,12 +3029,16 @@ mod tests {
                             terms_accepted: true,
                             locale: "en_US".to_owned(),
                             device_name: String::new(),
+                            license_key: Vec::new(),
                         }),
                     },
                 )),
             ))
             .await;
-        assert!(rejected.error.is_some());
+        assert_eq!(
+            rejected.error.as_ref().map(|error| error.code.as_str()),
+            Some("FEATURE_REMOVED")
+        );
         let rejected_config = service.config_snapshot().await;
         assert!(
             !rejected_config
@@ -2595,58 +3055,6 @@ mod tests {
                 .is_none()
         );
 
-        let identity_key = usque_core::MasqueKeyPair::generate();
-        let endpoint_key = usque_core::MasqueKeyPair::generate();
-        let endpoint_public =
-            PublicKey::from_public_key_der(&endpoint_key.public_spki_der().expect("endpoint DER"))
-                .expect("endpoint key");
-        let secret = serde_json::json!({
-            "private_key": BASE64_STANDARD.encode(
-                identity_key.private_sec1_der().expect("private DER").as_slice()
-            ),
-            "endpoint_pub_key": endpoint_public
-                .to_public_key_pem(LineEnding::LF)
-                .expect("endpoint PEM"),
-            "id": "transaction-device",
-            "access_token": "transaction-token",
-            "license": "transaction-license",
-            "ipv4": "172.16.0.2",
-            "ipv6": "2606:4700:110:8f13::2"
-        })
-        .to_string();
-        let committed = service
-            .handle(request(
-                "create-valid",
-                control_request::Payload::CreateProfileWithIdentity(Box::new(
-                    v1::CreateProfileWithIdentityRequest {
-                        profile: Some(profile_to_proto(&profile)),
-                        identity: Some(v1::IdentityProvisioning {
-                            method: v1::IdentityProvisioningMethod::ImportSecret as i32,
-                            warp_secret: secret.into_bytes(),
-                            terms_accepted: true,
-                            locale: "en_US".to_owned(),
-                            device_name: String::new(),
-                        }),
-                    },
-                )),
-            ))
-            .await;
-        assert!(committed.error.is_none(), "{:?}", committed.error);
-        let committed_config = service.config_snapshot().await;
-        assert!(
-            committed_config
-                .profiles
-                .iter()
-                .any(|item| item.id == profile.id)
-        );
-        assert!(committed_config.pending_identity_creations.is_empty());
-        assert!(
-            vault
-                .get(profile.id, SecretRecord::AccessToken)
-                .await
-                .expect("read committed identity")
-                .is_some()
-        );
         let plaintext_config = std::fs::read_to_string(config_path).expect("config");
         assert!(!plaintext_config.contains("transaction-token"));
         assert!(!plaintext_config.contains("transaction-license"));
@@ -3011,19 +3419,11 @@ mod tests {
         })
         .to_string();
 
-        let response = service
-            .handle(request(
-                "provision",
-                control_request::Payload::ProvisionIdentity(v1::ProvisionIdentityRequest {
-                    profile_id: profile_id.to_string(),
-                    warp_secret: secret.as_bytes().to_vec(),
-                    terms_accepted: true,
-                    locale: "en_US".to_owned(),
-                    device_name: String::new(),
-                }),
-            ))
-            .await;
-        assert!(response.error.is_none(), "{:?}", response.error);
+        let identity = usque_core::parse_manual_warp_secret(&secret).expect("legacy identity");
+        service
+            .persist_identity(profile_id, &identity, Some(secret.as_bytes()))
+            .await
+            .expect("persist legacy identity records");
 
         let records = vault.records.lock().await;
         for record in SecretRecord::ALL {

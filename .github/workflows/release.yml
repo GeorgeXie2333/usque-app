@@ -3,7 +3,7 @@ name: Public beta release
 on:
   push:
     tags:
-      - "v0.1.0-beta.1"
+      - "v0.1.1-beta.2"
 
 concurrency:
   group: public-beta-${{ github.ref }}
@@ -16,7 +16,7 @@ env:
   CARGO_TERM_COLOR: always
   CMAKE_GENERATOR: Ninja
   FLUTTER_COMMIT: 84fc5cbb223bc12f83d65b647ff8a56caf779ffd
-  RELEASE_TAG: v0.1.0-beta.1
+  RELEASE_TAG: v0.1.1-beta.2
   DOTNET_CLI_TELEMETRY_OPTOUT: "1"
 
 jobs:
@@ -61,7 +61,7 @@ jobs:
             fi
           done
 
-      - name: Require this exact main commit to have a successful CI run
+      - name: Require this exact main commit to have a successful CI / gate workflow
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -89,7 +89,7 @@ jobs:
             --arg sha "$GITHUB_SHA" \
             'any(.workflow_runs[]; .head_sha == $sha and .conclusion == "success" and .event == "push")' \
             <<<"$runs" >/dev/null || {
-              echo "::error::No successful main CI push run exists for the exact release commit."
+              echo "::error::No successful main CI / gate workflow exists for the exact release commit."
               exit 1
             }
 
@@ -103,7 +103,7 @@ jobs:
   windows:
     name: Windows ${{ matrix.variant }}
     needs: release-gate
-    runs-on: ${{ matrix.variant == 'arm64' && (vars.WINDOWS_ARM64_RUNNER || 'windows-11-arm') || 'windows-2025' }}
+    runs-on: windows-2025
     timeout-minutes: 180
     environment: release-signing
     permissions:
@@ -115,18 +115,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - variant: x64-v1
-            rust_target: x86_64-pc-windows-msvc
-            rust_cpu: x86-64
-            wintun_arch: amd64
           - variant: x64-v2
             rust_target: x86_64-pc-windows-msvc
             rust_cpu: x86-64-v2
             wintun_arch: amd64
-          - variant: arm64
-            rust_target: aarch64-pc-windows-msvc
-            rust_cpu: generic
-            wintun_arch: arm64
     env:
       WINDOWS_SIGNING_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
       WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
@@ -421,10 +413,7 @@ jobs:
           set -euo pipefail
           rustup toolchain install 1.97.1 --profile minimal
           rustup default 1.97.1
-          rustup target add \
-            aarch64-linux-android \
-            armv7-linux-androideabi \
-            x86_64-linux-android
+          rustup target add aarch64-linux-android
           sdkmanager \
             "platforms;android-36" \
             "build-tools;36.0.0" \
@@ -454,9 +443,11 @@ jobs:
         working-directory: apps/usque_gui
         run: flutter --suppress-analytics pub get --enforce-lockfile
 
-      - name: Build signed split APKs
+      - name: Build signed arm64-v8a APK
         working-directory: apps/usque_gui
-        run: flutter --suppress-analytics build apk --release --split-per-abi --no-pub
+        env:
+          USQUE_ANDROID_ABI: arm64-v8a
+        run: flutter --suppress-analytics build apk --release --split-per-abi --target-platform android-arm64 --no-pub
 
       - name: Preserve split APKs
         shell: bash
@@ -467,20 +458,6 @@ jobs:
           source_dir="apps/usque_gui/build/app/outputs/flutter-apk"
           cp "$source_dir/app-arm64-v8a-release.apk" \
             "$output/usque-$RELEASE_TAG-android-arm64-v8a.apk"
-          cp "$source_dir/app-armeabi-v7a-release.apk" \
-            "$output/usque-$RELEASE_TAG-android-armeabi-v7a.apk"
-          cp "$source_dir/app-x86_64-release.apk" \
-            "$output/usque-$RELEASE_TAG-android-x86_64.apk"
-
-      - name: Build signed Universal APK
-        working-directory: apps/usque_gui
-        run: flutter --suppress-analytics build apk --release --no-pub
-
-      - name: Preserve Universal APK
-        run: |
-          cp \
-            apps/usque_gui/build/app/outputs/flutter-apk/app-release.apk \
-            "$RUNNER_TEMP/android-release/usque-$RELEASE_TAG-android-universal.apk"
 
       - name: Verify APK signatures and certificate identity
         shell: bash
@@ -506,7 +483,7 @@ jobs:
             }
             count=$((count + 1))
           done
-          test "$count" -eq 4
+          test "$count" -eq 1
 
       - name: Attest Android build provenance
         uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
@@ -604,7 +581,7 @@ jobs:
               -print0 |
               sort -z
           )
-          test "$count" -eq 7
+          test "$count" -eq 2
 
       - name: Create immutable release manifest and SHA-256 sidecars
         run: |
@@ -619,47 +596,17 @@ jobs:
             --directory "$RUNNER_TEMP/candidate" \
             --manifest "$RUNNER_TEMP/candidate/release-manifest.json"
 
-      - name: Attest x64-v1 MSI SBOM
-        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
-        with:
-          subject-path: ${{ runner.temp }}/candidate/usque-v0.1.0-beta.1-windows-x64-v1.msi
-          sbom-path: ${{ runner.temp }}/candidate/usque-v0.1.0-beta.1-windows-x64-v1.msi.spdx.json
-
       - name: Attest x64-v2 MSI SBOM
         uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
         with:
-          subject-path: ${{ runner.temp }}/candidate/usque-v0.1.0-beta.1-windows-x64-v2.msi
-          sbom-path: ${{ runner.temp }}/candidate/usque-v0.1.0-beta.1-windows-x64-v2.msi.spdx.json
-
-      - name: Attest ARM64 MSI SBOM
-        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
-        with:
-          subject-path: ${{ runner.temp }}/candidate/usque-v0.1.0-beta.1-windows-arm64.msi
-          sbom-path: ${{ runner.temp }}/candidate/usque-v0.1.0-beta.1-windows-arm64.msi.spdx.json
+          subject-path: ${{ runner.temp }}/candidate/usque-v0.1.1-beta.2-windows-x64-v2.msi
+          sbom-path: ${{ runner.temp }}/candidate/usque-v0.1.1-beta.2-windows-x64-v2.msi.spdx.json
 
       - name: Attest arm64-v8a APK SBOM
         uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
         with:
-          subject-path: ${{ runner.temp }}/candidate/usque-v0.1.0-beta.1-android-arm64-v8a.apk
-          sbom-path: ${{ runner.temp }}/candidate/usque-v0.1.0-beta.1-android-arm64-v8a.apk.spdx.json
-
-      - name: Attest armeabi-v7a APK SBOM
-        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
-        with:
-          subject-path: ${{ runner.temp }}/candidate/usque-v0.1.0-beta.1-android-armeabi-v7a.apk
-          sbom-path: ${{ runner.temp }}/candidate/usque-v0.1.0-beta.1-android-armeabi-v7a.apk.spdx.json
-
-      - name: Attest x86_64 APK SBOM
-        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
-        with:
-          subject-path: ${{ runner.temp }}/candidate/usque-v0.1.0-beta.1-android-x86_64.apk
-          sbom-path: ${{ runner.temp }}/candidate/usque-v0.1.0-beta.1-android-x86_64.apk.spdx.json
-
-      - name: Attest Universal APK SBOM
-        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
-        with:
-          subject-path: ${{ runner.temp }}/candidate/usque-v0.1.0-beta.1-android-universal.apk
-          sbom-path: ${{ runner.temp }}/candidate/usque-v0.1.0-beta.1-android-universal.apk.spdx.json
+          subject-path: ${{ runner.temp }}/candidate/usque-v0.1.1-beta.2-android-arm64-v8a.apk
+          sbom-path: ${{ runner.temp }}/candidate/usque-v0.1.1-beta.2-android-arm64-v8a.apk.spdx.json
 
       - name: Upload exact release candidate
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

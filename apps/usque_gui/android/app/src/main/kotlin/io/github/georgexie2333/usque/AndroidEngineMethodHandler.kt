@@ -44,6 +44,24 @@ internal class AndroidEngineMethodHandler(
         )
 
         fun selectDiagnosticsDestination(result: MethodChannel.Result)
+
+        fun selectWarpSecretDestination(
+            profileId: String,
+            result: MethodChannel.Result,
+        )
+
+        fun copySensitiveText(
+            label: String,
+            value: String,
+        )
+
+        fun consumeLaunchTarget(): String?
+
+        fun platformPreferences(): Map<String, Any?>
+
+        fun setStartOnBoot(enabled: Boolean)
+
+        fun requestAddQuickSettingsTile(result: MethodChannel.Result)
     }
 
     /**
@@ -60,6 +78,11 @@ internal class AndroidEngineMethodHandler(
             profileId: String,
             record: SecureIdentityStore.Record,
         ): ByteArray?
+
+        fun delete(
+            profileId: String,
+            record: SecureIdentityStore.Record,
+        )
 
         fun deleteIdentity(profileId: String)
 
@@ -80,6 +103,13 @@ internal class AndroidEngineMethodHandler(
         ): String?
 
         fun registerConsumerWarp(locale: String): ByteArray?
+
+        fun registerConsumerWarpWithLicense(
+            locale: String,
+            licenseKey: String,
+        ): ByteArray?
+
+        fun unbindConsumerWarp(warpSecret: ByteArray): Boolean
 
         fun validateWarpSecret(secret: ByteArray): Int
     }
@@ -102,6 +132,13 @@ internal class AndroidEngineMethodHandler(
 
         override fun registerConsumerWarp(locale: String): ByteArray? = NativeEngine.registerConsumerWarp(locale)
 
+        override fun registerConsumerWarpWithLicense(
+            locale: String,
+            licenseKey: String,
+        ): ByteArray? = NativeEngine.registerConsumerWarpWithLicense(locale, licenseKey)
+
+        override fun unbindConsumerWarp(warpSecret: ByteArray): Boolean = NativeEngine.unbindConsumerWarp(warpSecret)
+
         override fun validateWarpSecret(secret: ByteArray): Int = NativeEngine.validateWarpSecret(secret)
     }
 
@@ -120,6 +157,13 @@ internal class AndroidEngineMethodHandler(
             profileId: String,
             record: SecureIdentityStore.Record,
         ): ByteArray? = store.get(profileId, record)
+
+        override fun delete(
+            profileId: String,
+            record: SecureIdentityStore.Record,
+        ) {
+            store.delete(profileId, record)
+        }
 
         override fun deleteIdentity(profileId: String) {
             store.deleteIdentity(profileId)
@@ -186,8 +230,46 @@ internal class AndroidEngineMethodHandler(
                 setActiveProfile(call, result)
             }
 
-            "pauseCaptivePortal" -> {
-                pauseCaptivePortal(call, result)
+            "reconfigureActiveProfile" -> {
+                reconfigureActiveProfile(call, result)
+            }
+
+            "copyLicenseKey" -> {
+                copyLicenseKey(call, result)
+            }
+
+            "updateLicenseKey" -> {
+                replaceLicenseIdentity(call, result, withLicense = true)
+            }
+
+            "unbindLicenseKey" -> {
+                replaceLicenseIdentity(call, result, withLicense = false)
+            }
+
+            "exportWarpSecret" -> {
+                exportWarpSecret(call, result)
+            }
+
+            "consumeLaunchTarget" -> {
+                result.success(activityCommands.consumeLaunchTarget())
+            }
+
+            "platformPreferences" -> {
+                result.success(activityCommands.platformPreferences())
+            }
+
+            "setStartOnBoot" -> {
+                val enabled = call.argument<Boolean>("enabled")
+                if (enabled == null) {
+                    result.error("INVALID_ARGUMENT", "The startup setting is malformed.", null)
+                } else {
+                    activityCommands.setStartOnBoot(enabled)
+                    result.success(null)
+                }
+            }
+
+            "requestAddQuickSettingsTile" -> {
+                activityCommands.requestAddQuickSettingsTile(result)
             }
 
             "exportDiagnostics" -> {
@@ -331,6 +413,175 @@ internal class AndroidEngineMethodHandler(
         )
     }
 
+    private fun reconfigureActiveProfile(
+        call: MethodCall,
+        result: MethodChannel.Result,
+    ) {
+        val profile = call.arguments as? Map<*, *>
+        if (profile == null) {
+            result.error("INVALID_ARGUMENT", "The profile is malformed.", null)
+            return
+        }
+        if (!requireProfileEngine(result)) return
+        runProfileCommand(
+            flutterValueToJson(
+                mapOf(
+                    "command" to "upsert_profile",
+                    "profile" to profile,
+                ),
+            ),
+            result,
+        )
+    }
+
+    private fun copyLicenseKey(
+        call: MethodCall,
+        result: MethodChannel.Result,
+    ) {
+        val profileId = call.argument<String>("profile_id")
+        if (profileId.isNullOrBlank()) {
+            result.error("INVALID_ARGUMENT", "The profile ID is missing.", null)
+            return
+        }
+        identityExecutor.execute {
+            var license: ByteArray? = null
+            try {
+                license = identityStore.get(profileId, SecureIdentityStore.Record.LICENSE)
+                    ?: throw IllegalStateException("This Profile has no bound License Key")
+                val clipboardValue = license.toString(Charsets.UTF_8)
+                mainScheduler.post {
+                    activityCommands.copySensitiveText("WARP License Key", clipboardValue)
+                    result.success(null)
+                }
+            } catch (error: Exception) {
+                mainScheduler.post {
+                    result.error(
+                        "LICENSE_NOT_AVAILABLE",
+                        "This Profile has no License Key to copy.",
+                        error.javaClass.simpleName,
+                    )
+                }
+            } finally {
+                license?.fill(0)
+            }
+        }
+    }
+
+    private fun exportWarpSecret(
+        call: MethodCall,
+        result: MethodChannel.Result,
+    ) {
+        val profileId = call.argument<String>("profile_id")
+        if (profileId.isNullOrBlank()) {
+            result.error("INVALID_ARGUMENT", "The profile ID is missing.", null)
+            return
+        }
+        activityCommands.selectWarpSecretDestination(profileId, result)
+    }
+
+    private fun replaceLicenseIdentity(
+        call: MethodCall,
+        result: MethodChannel.Result,
+        withLicense: Boolean,
+    ) {
+        val profileId = call.argument<String>("profile_id")
+        val licenseKey = call.argument<String>("license_key")?.trim()
+        if (profileId.isNullOrBlank() || (withLicense && licenseKey.isNullOrBlank())) {
+            result.error("INVALID_ARGUMENT", "The License request is malformed.", null)
+            return
+        }
+        if (!engineBridge.isLinked()) {
+            result.error("ENGINE_UNAVAILABLE", "The Rust identity engine is not linked.", null)
+            return
+        }
+        identityExecutor.execute {
+            var oldIdentity: ByteArray? = null
+            var oldLicense: ByteArray? = null
+            var newIdentity: ByteArray? = null
+            var newLicense: ByteArray? = null
+            var identityReplaced = false
+            try {
+                oldIdentity =
+                    identityStore.get(profileId, SecureIdentityStore.Record.WARP_SECRET)
+                        ?: throw IllegalStateException("The Profile identity is missing")
+                oldLicense = identityStore.get(profileId, SecureIdentityStore.Record.LICENSE)
+                val locale = Locale.getDefault().toString()
+                newIdentity =
+                    if (withLicense) {
+                        engineBridge.registerConsumerWarpWithLicense(locale, licenseKey!!)
+                    } else {
+                        engineBridge.registerConsumerWarp(locale)
+                    } ?: throw IllegalStateException("Rust registration returned no identity")
+                newLicense = licenseKey?.toByteArray(Charsets.UTF_8)
+
+                identityStore.put(
+                    profileId,
+                    SecureIdentityStore.Record.WARP_SECRET,
+                    newIdentity,
+                )
+                identityReplaced = true
+                if (withLicense) {
+                    identityStore.put(
+                        profileId,
+                        SecureIdentityStore.Record.LICENSE,
+                        newLicense!!,
+                    )
+                } else {
+                    identityStore.delete(profileId, SecureIdentityStore.Record.LICENSE)
+                }
+
+                if (engineBridge.unbindConsumerWarp(oldIdentity)) {
+                    identityStore.delete(
+                        profileId,
+                        SecureIdentityStore.Record.PENDING_CLEANUP_SECRET,
+                    )
+                } else {
+                    identityStore.put(
+                        profileId,
+                        SecureIdentityStore.Record.PENDING_CLEANUP_SECRET,
+                        oldIdentity,
+                    )
+                }
+                mainScheduler.post { result.success(null) }
+            } catch (error: Exception) {
+                if (identityReplaced && oldIdentity != null) {
+                    runCatching {
+                        identityStore.put(
+                            profileId,
+                            SecureIdentityStore.Record.WARP_SECRET,
+                            oldIdentity,
+                        )
+                        if (oldLicense != null) {
+                            identityStore.put(
+                                profileId,
+                                SecureIdentityStore.Record.LICENSE,
+                                oldLicense,
+                            )
+                        } else {
+                            identityStore.delete(profileId, SecureIdentityStore.Record.LICENSE)
+                        }
+                    }
+                }
+                mainScheduler.post {
+                    result.error(
+                        if (withLicense) "INVALID_LICENSE_KEY" else "LICENSE_UNBIND_FAILED",
+                        if (withLicense) {
+                            "The License Key could not be applied; the previous identity remains active."
+                        } else {
+                            "A replacement free WARP identity could not be created."
+                        },
+                        error.javaClass.simpleName,
+                    )
+                }
+            } finally {
+                oldIdentity?.fill(0)
+                oldLicense?.fill(0)
+                newIdentity?.fill(0)
+                newLicense?.fill(0)
+            }
+        }
+    }
+
     private fun requireProfileEngine(result: MethodChannel.Result): Boolean {
         if (engineBridge.isLinked()) return true
         result.error(
@@ -470,7 +721,20 @@ internal class AndroidEngineMethodHandler(
             return
         }
         val profileId = call.argument<String>("profile_id") ?: defaultIdentityProfile
-        val secret = call.argument<String>("warp_secret")
+        val method = call.argument<String>("method") ?: "register"
+        val licenseKey = call.argument<String>("license_key")?.trim()
+        if (method !in setOf("register", "registerWithLicense")) {
+            result.error(
+                "FEATURE_REMOVED",
+                "New WARP Secret imports are no longer supported.",
+                null,
+            )
+            return
+        }
+        if (method == "registerWithLicense" && licenseKey.isNullOrBlank()) {
+            result.error("INVALID_LICENSE_KEY", "A WARP License Key is required.", null)
+            return
+        }
         if (!engineBridge.isLinked()) {
             result.error(
                 "ENGINE_UNAVAILABLE",
@@ -481,41 +745,36 @@ internal class AndroidEngineMethodHandler(
         }
 
         identityExecutor.execute {
+            var licenseBytes: ByteArray? = null
             val bytes =
                 try {
-                    if (secret.isNullOrBlank()) {
-                        val locale =
-                            call
-                                .argument<String>("locale")
-                                ?.replace('-', '_')
-                                ?.takeIf { it.isNotBlank() }
-                                ?: Locale.getDefault().toString()
+                    val locale =
+                        call
+                            .argument<String>("locale")
+                            ?.replace('-', '_')
+                            ?.takeIf { it.isNotBlank() }
+                            ?: Locale.getDefault().toString()
+                    if (method == "registerWithLicense") {
+                        licenseBytes = licenseKey!!.toByteArray(Charsets.UTF_8)
+                        engineBridge.registerConsumerWarpWithLicense(locale, licenseKey)
+                            ?: throw IllegalStateException("Rust licensed registration returned no identity")
+                    } else {
                         engineBridge.registerConsumerWarp(locale)
                             ?: throw IllegalStateException("Rust registration returned no identity")
-                    } else {
-                        secret.toByteArray(Charsets.UTF_8).also { candidate ->
-                            if (engineBridge.validateWarpSecret(candidate) != warpSecretOkCode) {
-                                candidate.fill(0)
-                                throw IllegalArgumentException("Invalid WARP Secret")
-                            }
-                        }
                     }
                 } catch (error: Exception) {
                     mainScheduler.post {
                         result.error(
-                            if (secret.isNullOrBlank()) {
+                            if (method == "registerWithLicense") {
+                                "INVALID_LICENSE_KEY"
+                            } else {
                                 "REGISTRATION_FAILED"
-                            } else {
-                                "INVALID_WARP_SECRET"
                             },
-                            if (secret.isNullOrBlank()) {
-                                "Consumer WARP registration failed. Check the network and try again."
-                            } else {
-                                "The WARP Secret is malformed or contains unsupported identity material."
-                            },
+                            "Consumer WARP registration failed. Check the network and credentials, then try again.",
                             error.javaClass.simpleName,
                         )
                     }
+                    licenseBytes?.fill(0)
                     return@execute
                 }
 
@@ -525,6 +784,15 @@ internal class AndroidEngineMethodHandler(
                     SecureIdentityStore.Record.WARP_SECRET,
                     bytes,
                 )
+                if (licenseBytes != null) {
+                    identityStore.put(
+                        profileId,
+                        SecureIdentityStore.Record.LICENSE,
+                        licenseBytes,
+                    )
+                } else {
+                    identityStore.delete(profileId, SecureIdentityStore.Record.LICENSE)
+                }
                 mainScheduler.post { result.success(null) }
             } catch (error: Exception) {
                 mainScheduler.post {
@@ -536,6 +804,7 @@ internal class AndroidEngineMethodHandler(
                 }
             } finally {
                 bytes.fill(0)
+                licenseBytes?.fill(0)
             }
         }
     }
@@ -552,11 +821,12 @@ internal class AndroidEngineMethodHandler(
         val profile = arguments["profile"] as? Map<*, *>
         val profileId = profile?.get("id") as? String
         val method = arguments["method"] as? String
-        val secret = arguments["warp_secret"] as? String
+        val licenseKey = (arguments["license_key"] as? String)?.trim()
         if (
             profile == null ||
             profileId.isNullOrBlank() ||
-            method !in setOf("register", "importSecret") ||
+            method !in setOf("register", "registerWithLicense") ||
+            (method == "registerWithLicense" && licenseKey.isNullOrBlank()) ||
             arguments["terms_accepted"] != true
         ) {
             result.error("INVALID_ARGUMENT", "The profile identity request is malformed.", null)
@@ -571,6 +841,7 @@ internal class AndroidEngineMethodHandler(
             var prepared = false
             var stored = false
             var bytes: ByteArray? = null
+            var licenseBytes: ByteArray? = null
             try {
                 engineBridge.applyProfileCommand(
                     profileConfigPath,
@@ -581,28 +852,21 @@ internal class AndroidEngineMethodHandler(
                 ) ?: throw IllegalStateException("Rust did not prepare profile creation")
                 prepared = true
 
+                val locale =
+                    (arguments["locale"] as? String)
+                        ?.replace('-', '_')
+                        ?.takeIf { it.isNotBlank() }
+                        ?: Locale.getDefault().toString()
                 val provisionedIdentity =
-                    if (method == "register") {
-                        if (!secret.isNullOrBlank()) {
-                            throw IllegalArgumentException("Registration must not contain a Secret")
-                        }
-                        val locale =
-                            (arguments["locale"] as? String)
-                                ?.replace('-', '_')
-                                ?.takeIf { it.isNotBlank() }
-                                ?: Locale.getDefault().toString()
+                    if (method == "registerWithLicense") {
+                        licenseBytes = licenseKey!!.toByteArray(Charsets.UTF_8)
+                        engineBridge.registerConsumerWarpWithLicense(locale, licenseKey)
+                            ?: throw IllegalStateException(
+                                "Rust licensed registration returned no identity",
+                            )
+                    } else {
                         engineBridge.registerConsumerWarp(locale)
                             ?: throw IllegalStateException("Rust registration returned no identity")
-                    } else {
-                        val value =
-                            secret?.takeIf { it.isNotBlank() }
-                                ?: throw IllegalArgumentException("A WARP Secret is required")
-                        value.toByteArray(Charsets.UTF_8).also { candidate ->
-                            if (engineBridge.validateWarpSecret(candidate) != warpSecretOkCode) {
-                                candidate.fill(0)
-                                throw IllegalArgumentException("Invalid WARP Secret")
-                            }
-                        }
                     }
 
                 bytes = provisionedIdentity
@@ -612,6 +876,13 @@ internal class AndroidEngineMethodHandler(
                     provisionedIdentity,
                 )
                 stored = true
+                if (licenseBytes != null) {
+                    identityStore.put(
+                        profileId,
+                        SecureIdentityStore.Record.LICENSE,
+                        licenseBytes,
+                    )
+                }
                 val response =
                     engineBridge.applyProfileCommand(
                         profileConfigPath,
@@ -641,12 +912,12 @@ internal class AndroidEngineMethodHandler(
                 }
                 val code =
                     when {
-                        method == "register" && error !is IllegalArgumentException -> {
-                            "REGISTRATION_FAILED"
+                        method == "registerWithLicense" -> {
+                            "INVALID_LICENSE_KEY"
                         }
 
-                        error is IllegalArgumentException -> {
-                            "INVALID_WARP_SECRET"
+                        method == "register" -> {
+                            "REGISTRATION_FAILED"
                         }
 
                         else -> {
@@ -661,8 +932,8 @@ internal class AndroidEngineMethodHandler(
                                 "Consumer WARP registration failed. Check the network and try again."
                             }
 
-                            "INVALID_WARP_SECRET" -> {
-                                "The WARP Secret is malformed or missing."
+                            "INVALID_LICENSE_KEY" -> {
+                                "The WARP License Key could not be applied."
                             }
 
                             else -> {
@@ -674,6 +945,7 @@ internal class AndroidEngineMethodHandler(
                 }
             } finally {
                 bytes?.fill(0)
+                licenseBytes?.fill(0)
             }
         }
     }
@@ -683,6 +955,8 @@ internal class AndroidEngineMethodHandler(
         val profiles = catalog.optJSONArray("profiles") ?: JSONArray()
         for (index in 0 until profiles.length()) {
             val profileId = profiles.getJSONObject(index).optString("id")
+            var license: ByteArray? = null
+            var pendingCleanup: ByteArray? = null
             val state =
                 if (profileId.isBlank()) {
                     "invalid"
@@ -701,11 +975,28 @@ internal class AndroidEngineMethodHandler(
                         identity?.fill(0)
                     }
                 }
+            try {
+                if (profileId.isNotBlank()) {
+                    license = identityStore.get(profileId, SecureIdentityStore.Record.LICENSE)
+                    pendingCleanup =
+                        identityStore.get(
+                            profileId,
+                            SecureIdentityStore.Record.PENDING_CLEANUP_SECRET,
+                        )
+                }
+            } catch (_: Exception) {
+                // Identity state remains authoritative; optional account metadata degrades safely.
+            }
             statuses.put(
                 JSONObject()
                     .put("profile_id", profileId)
-                    .put("state", state),
+                    .put("state", state)
+                    .put("license_state", if (license == null) "free" else "warpPlus")
+                    .put("account_type", if (license == null) "Free" else "WARP+")
+                    .put("cleanup_pending", pendingCleanup != null),
             )
+            license?.fill(0)
+            pendingCleanup?.fill(0)
         }
         catalog.put("identity_statuses", statuses)
     }
@@ -732,8 +1023,8 @@ internal class AndroidEngineMethodHandler(
             )
             return
         }
-        val mode = arguments["mode"] as? String
-        if (mode == null || mode !in setOf("vpn", "socks5", "httpProxy")) {
+        val legacyMode = arguments["mode"] as? String
+        if (legacyMode == null || legacyMode !in setOf("vpn", "socks5", "httpProxy")) {
             result.error(
                 "INVALID_PROFILE",
                 "The Android operating mode is invalid.",
@@ -741,7 +1032,12 @@ internal class AndroidEngineMethodHandler(
             )
             return
         }
-        val profileJson = flutterValueToJson(arguments)
+        val frontends = arguments["frontends"] as? Map<*, *>
+        val tunnelEnabled = frontends?.get("tunnel") as? Boolean ?: (legacyMode == "vpn")
+        val mode = if (tunnelEnabled) "vpn" else "socks5"
+        val normalized = arguments.entries.associate { entry -> entry.key to entry.value }.toMutableMap()
+        normalized["mode"] = mode
+        val profileJson = flutterValueToJson(normalized)
         activityCommands.connectAfterValidation(profileJson, mode, result)
     }
 
@@ -838,22 +1134,6 @@ internal class AndroidEngineMethodHandler(
                 }
             }
         return "\"$escaped\""
-    }
-
-    private fun pauseCaptivePortal(
-        call: MethodCall,
-        result: MethodChannel.Result,
-    ) {
-        val seconds = call.argument<Int>("seconds") ?: 600
-        if (seconds !in 1..600) {
-            result.error(
-                "INVALID_ARGUMENT",
-                "Captive Portal Pause must be between 1 and 600 seconds.",
-                null,
-            )
-            return
-        }
-        controlClient.requestPauseCaptivePortal(seconds, result)
     }
 
     private fun jsonObjectToFlutterMap(source: JSONObject): Map<String, Any?> =

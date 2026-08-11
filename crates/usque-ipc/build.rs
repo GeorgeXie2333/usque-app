@@ -18,8 +18,10 @@ fn main() {
     // Keep control envelopes small enough to pass cheaply across async queues.
     config.boxed(".usque.v1.ControlRequest.payload.upsert_profile");
     config.boxed(".usque.v1.ControlRequest.payload.create_profile_with_identity");
+    config.boxed(".usque.v1.ControlRequest.payload.reconfigure_active_profile");
     config.boxed(".usque.v1.ControlResponse.payload.status");
     config.boxed(".usque.v1.ControlResponse.payload.profile");
+    config.boxed(".usque.v1.ControlResponse.payload.reconfigure");
     config.boxed(".usque.v1.EventEnvelope.payload.state_changed");
     config.boxed(".usque.v1.EventEnvelope.payload.exit_info_updated");
     config

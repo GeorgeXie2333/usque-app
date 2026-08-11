@@ -403,7 +403,11 @@ fn restore_sync(inner: &BackendInner, receipt: &MutationReceipt) -> Result<(), B
             }
             Ok(())
         }
-        MutationReceipt::WintunAdapter { adapter_name, .. } => {
+        MutationReceipt::WintunAdapter {
+            adapter_name,
+            adapter_guid,
+            interface_luid,
+        } => {
             if !valid_recovery_adapter_name(adapter_name) {
                 return Err(backend_error("journal Wintun adapter name is invalid"));
             }
@@ -425,20 +429,10 @@ fn restore_sync(inner: &BackendInner, receipt: &MutationReceipt) -> Result<(), B
             }
             if let Some(adapter) = adapter {
                 drop(adapter);
-                return Ok(());
             }
-            // Crash recovery may run in a fresh Agent process. Opening and
-            // closing the exact journaled adapter name is idempotent: missing
-            // adapters are already recovered.
-            match library.open_adapter(adapter_name) {
-                Ok(adapter) => {
-                    drop(adapter);
-                    Ok(())
-                }
-                Err(error) if error.raw_os_error() == Some(1168) => Ok(()),
-                Err(error) if error.raw_os_error() == Some(2) => Ok(()),
-                Err(error) => Err(backend_error(error.to_string())),
-            }
+            library
+                .remove_adapter_if_present(adapter_name, *adapter_guid, *interface_luid)
+                .map_err(|error| backend_error(error.to_string()))
         }
         receipt @ MutationReceipt::EndpointBypass { .. } => {
             network::restore_endpoint_bypass(receipt)

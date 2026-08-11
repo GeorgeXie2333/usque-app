@@ -1,0 +1,55 @@
+name: Feature request
+description: Propose a product or engineering improvement.
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Explain the user problem before prescribing an implementation. Security-sensitive proposals may be redirected to private reporting.
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight
+      options:
+        - label: I searched existing Issues, Pull Requests, and the implementation roadmap.
+          required: true
+        - label: This request is within the currently declared product scope or explains why that scope should change.
+          required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Who is affected, and what cannot be done safely or conveniently today?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe observable behavior and success criteria.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false
+  - type: checkboxes
+    id: platforms
+    attributes:
+      label: Platforms
+      options:
+        - label: Windows
+        - label: Android
+        - label: Android TV
+        - label: Shared Rust core
+  - type: textarea
+    id: security
+    attributes:
+      label: Security, privacy, and compatibility impact
+      description: Cover permissions, network leakage, identity storage, old OS versions, and migration where applicable.
+    validations:
+      required: true

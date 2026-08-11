@@ -38,7 +38,9 @@ pub use command::{
     Channel, ChannelClosedError, Command, Error, HasChannel, InternalErrorKind, Request, Response,
     raw, request, request_blocking, request_nonblocking, stack_control, tcp, udp,
 };
-pub use config::Config;
+pub use config::{
+    Config, TcpBufferMetrics, TcpBufferMetricsSnapshot, TcpBufferPolicy, TcpBufferTier,
+};
 pub use pipe::{Pipe, PipeDev};
 pub use socket_impl::tcp::ListenerHandle as TcpListenerHandle;
 pub use stack_control_impl::NetstackControl;
@@ -64,6 +66,12 @@ pub struct Netstack {
     /// Set of TCP socket handles that are expected to close in the future, held onto for
     /// graceful shutdown.
     pending_tcp_closes: Vec<SocketHandle>,
+
+    /// Buffer reservations associated with live TCP sockets.
+    tcp_buffer_allocations: Vec<(SocketHandle, socket_impl::tcp::TcpBufferAllocation)>,
+
+    /// Current bounded TCP buffer usage.
+    tcp_buffer_usage: socket_impl::tcp::TcpBufferUsage,
 
     /// Active TCP listeners.
     ///
@@ -114,6 +122,8 @@ impl Netstack {
             config: ns_config,
             blocked_commands: Default::default(),
             pending_tcp_closes: Default::default(),
+            tcp_buffer_allocations: Default::default(),
+            tcp_buffer_usage: Default::default(),
             tcp_listeners: Default::default(),
             next_tcp_listener_id: 0,
         }

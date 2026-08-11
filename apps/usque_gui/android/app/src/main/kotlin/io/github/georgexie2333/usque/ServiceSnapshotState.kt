@@ -8,12 +8,8 @@ import java.time.Instant
  * Mutable connection snapshot held by [UsqueVpnService]. Pure merge/fingerprint/kill-switch
  * and notification text logic lives here so JVM unit tests can cover wire fields without
  * standing up the full VPN service.
- *
- * @param clockMillis injectable clock for captive-portal countdown tests.
  */
-internal class ServiceSnapshotState(
-    private val clockMillis: () -> Long = System::currentTimeMillis,
-) {
+internal class ServiceSnapshotState {
     var phase: String = "disconnected"
     var warning: String? = null
     var errorCode: String? = null
@@ -34,7 +30,6 @@ internal class ServiceSnapshotState(
     var exitFlagSvg: String? = null
     var flagCacheLookupCode: String? = null
     var killSwitchEnabled: Boolean = false
-    var captivePauseDeadlineUnixMillis: Long = 0L
     private var lastBroadcastFingerprint: String? = null
 
     data class PlatformFlags(
@@ -77,7 +72,6 @@ internal class ServiceSnapshotState(
         val exitCountryCode: String?,
         val exitFlagSvg: String?,
         val killSwitchState: String,
-        val captivePauseRemainingSeconds: Int,
         val platformLockdown: Boolean,
         val alwaysOn: Boolean,
     )
@@ -106,7 +100,6 @@ internal class ServiceSnapshotState(
         const val EXIT_COUNTRY_CODE = "exit_country_code"
         const val EXIT_FLAG_SVG = "exit_flag_svg"
         const val KILL_SWITCH_STATE = "kill_switch_state"
-        const val CAPTIVE_PAUSE_REMAINING_SECONDS = "captive_pause_remaining_seconds"
         const val PLATFORM_LOCKDOWN = "platform_lockdown"
         const val ALWAYS_ON = "always_on"
     }
@@ -114,9 +107,7 @@ internal class ServiceSnapshotState(
     /**
      * Resets connection snapshot fields for a new lifecycle phase.
      *
-     * **Not cleared here (intentional, matches pre-split service):**
-     * - [captivePauseDeadlineUnixMillis] — callers must [clearCaptivePause] when leaving a pause
-     *   or tearing down (connect/disconnect/clear/resume already do this).
+     * **Not cleared here (intentional):**
      * - [lastBroadcastFingerprint] — retained so an identical post-reset snapshot (e.g. second
      *   `disconnected` broadcast with zeroed counters) is still fingerprint-deduped. Reply and
      *   register-events paths bypass dedup and always send a live Bundle.
@@ -144,37 +135,11 @@ internal class ServiceSnapshotState(
         killSwitchEnabled = false
     }
 
-    fun clearCaptivePause() {
-        captivePauseDeadlineUnixMillis = 0L
-    }
-
-    fun setCaptivePauseDeadline(deadlineUnixMillis: Long) {
-        captivePauseDeadlineUnixMillis = deadlineUnixMillis
-    }
-
-    fun scheduleCaptivePauseFromNow(seconds: Int) {
-        captivePauseDeadlineUnixMillis =
-            clockMillis() +
-            java.util.concurrent.TimeUnit.SECONDS
-                .toMillis(seconds.toLong())
-    }
-
-    fun captivePauseRemainingSeconds(): Int {
-        if (captivePauseDeadlineUnixMillis <= 0L) return 0
-        val remaining = captivePauseDeadlineUnixMillis - clockMillis()
-        return if (remaining <= 0L) {
-            0
-        } else {
-            ((remaining + 999L) / 1_000L).coerceAtMost(600L).toInt()
-        }
-    }
-
     fun killSwitchState(
         tunnelOpen: Boolean,
         activeMode: String?,
     ): String =
         when {
-            phase == "captivePortalPaused" -> "paused"
             killSwitchEnabled && tunnelOpen -> "active"
             activeMode == "vpn" -> "inactive"
             else -> "notApplicable"
@@ -204,10 +169,6 @@ internal class ServiceSnapshotState(
 
             "reconnecting" -> {
                 "Reconnecting securely"
-            }
-
-            "captivePortalPaused" -> {
-                "VPN paused for captive portal (${captivePauseRemainingSeconds()} s)"
             }
 
             "error" -> {
@@ -345,7 +306,6 @@ internal class ServiceSnapshotState(
             exitCountryCode = exitCountryCode,
             exitFlagSvg = exitFlagSvg,
             killSwitchState = killSwitchState(platform.tunnelOpen, platform.activeMode),
-            captivePauseRemainingSeconds = captivePauseRemainingSeconds(),
             platformLockdown = platform.platformLockdown,
             alwaysOn = platform.alwaysOn,
         )
@@ -376,7 +336,6 @@ internal class ServiceSnapshotState(
             WireKeys.EXIT_COUNTRY_CODE to fields.exitCountryCode,
             WireKeys.EXIT_FLAG_SVG to fields.exitFlagSvg,
             WireKeys.KILL_SWITCH_STATE to fields.killSwitchState,
-            WireKeys.CAPTIVE_PAUSE_REMAINING_SECONDS to fields.captivePauseRemainingSeconds,
             WireKeys.PLATFORM_LOCKDOWN to fields.platformLockdown,
             WireKeys.ALWAYS_ON to fields.alwaysOn,
         )
@@ -414,10 +373,6 @@ internal class ServiceSnapshotState(
             putString(WireKeys.EXIT_COUNTRY_CODE, entries[WireKeys.EXIT_COUNTRY_CODE] as String?)
             putString(WireKeys.EXIT_FLAG_SVG, entries[WireKeys.EXIT_FLAG_SVG] as String?)
             putString(WireKeys.KILL_SWITCH_STATE, entries[WireKeys.KILL_SWITCH_STATE] as String?)
-            putInt(
-                WireKeys.CAPTIVE_PAUSE_REMAINING_SECONDS,
-                entries[WireKeys.CAPTIVE_PAUSE_REMAINING_SECONDS] as Int,
-            )
             putBoolean(WireKeys.PLATFORM_LOCKDOWN, entries[WireKeys.PLATFORM_LOCKDOWN] as Boolean)
             putBoolean(WireKeys.ALWAYS_ON, entries[WireKeys.ALWAYS_ON] as Boolean)
         }
@@ -446,7 +401,6 @@ internal class ServiceSnapshotState(
             killSwitchEnabled,
             platform.tunnelOpen,
             platform.activeMode,
-            captivePauseRemainingSeconds(),
             platform.platformLockdown,
             platform.alwaysOn,
         ).joinToString("\u001e")

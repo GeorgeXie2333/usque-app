@@ -45,7 +45,11 @@ impl UpdateChecker {
         let mut headers = HeaderMap::new();
         headers.insert(
             USER_AGENT,
-            HeaderValue::from_static("Usque/0.1.0-beta.1 update-check"),
+            HeaderValue::from_static(concat!(
+                "Usque/",
+                env!("CARGO_PKG_VERSION"),
+                " update-check"
+            )),
         );
         headers.insert(
             ACCEPT,

@@ -1,0 +1,6 @@
+# OSV exceptions must be temporary, reviewed, and include all three fields:
+#
+# [[IgnoredVulns]]
+# id = "GHSA-xxxx-xxxx-xxxx"
+# reason = "Why the affected code is not reachable and the planned remediation."
+# ignoreUntil = 2026-12-31

@@ -15,7 +15,6 @@ pub enum ConnectionPhase {
     Degraded,
     Reconnecting,
     Disconnecting,
-    CaptivePortalPaused,
     Error,
 }
 
@@ -58,7 +57,7 @@ pub struct ConnectionSnapshot {
     pub reconnect_count: u32,
     pub active_listeners: Vec<String>,
     pub warnings: Vec<ConnectionWarning>,
-    pub captive_portal_pause_remaining_seconds: u32,
+    pub frontends: Vec<FrontendStatus>,
 }
 
 impl Default for ConnectionSnapshot {
@@ -78,12 +77,12 @@ impl Default for ConnectionSnapshot {
             reconnect_count: 0,
             active_listeners: Vec::new(),
             warnings: Vec::new(),
-            captive_portal_pause_remaining_seconds: 0,
+            frontends: Vec::new(),
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ConnectionError {
     pub code: ErrorCode,
     pub message: String,
@@ -97,7 +96,6 @@ pub enum KillSwitchState {
     NotApplicable,
     Inactive,
     Active,
-    Paused,
     Error,
 }
 
@@ -171,7 +169,7 @@ impl StateMachine {
             self.snapshot.reconnect_count = 0;
             self.snapshot.active_listeners.clear();
             self.snapshot.warnings.clear();
-            self.snapshot.captive_portal_pause_remaining_seconds = 0;
+            self.snapshot.frontends.clear();
         }
         Ok(&self.snapshot)
     }
@@ -235,9 +233,37 @@ impl StateMachine {
         self.snapshot.lockdown_state = lockdown_state;
     }
 
-    pub fn update_captive_portal_pause_remaining(&mut self, seconds: u32) {
-        self.snapshot.captive_portal_pause_remaining_seconds = seconds;
+    pub fn update_frontends(&mut self, frontends: Vec<FrontendStatus>) {
+        self.snapshot.frontends = frontends;
     }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum FrontendKind {
+    Tunnel,
+    Socks5,
+    Http,
+    SystemProxy,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum FrontendPhase {
+    Disabled,
+    Preparing,
+    Active,
+    Degraded,
+    Reconnecting,
+    Error,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FrontendStatus {
+    pub kind: FrontendKind,
+    pub phase: FrontendPhase,
+    pub listeners: Vec<String>,
+    pub error: Option<ConnectionError>,
 }
 
 fn can_transition(from: ConnectionPhase, to: ConnectionPhase) -> bool {
@@ -246,7 +272,7 @@ fn can_transition(from: ConnectionPhase, to: ConnectionPhase) -> bool {
         Disconnected => matches!(to, Preparing | Disconnected),
         Preparing => matches!(
             to,
-            ConnectingHttp3 | ConnectingHttp2 | Disconnecting | CaptivePortalPaused | Error
+            ConnectingHttp3 | ConnectingHttp2 | Disconnecting | Error
         ),
         ConnectingHttp3 => matches!(
             to,
@@ -258,14 +284,13 @@ fn can_transition(from: ConnectionPhase, to: ConnectionPhase) -> bool {
         ),
         Connected | Degraded => matches!(
             to,
-            Degraded | Connected | Reconnecting | Disconnecting | CaptivePortalPaused | Error
+            Degraded | Connected | Reconnecting | Disconnecting | Error
         ),
         Reconnecting => matches!(
             to,
             ConnectingHttp3 | ConnectingHttp2 | Connected | Degraded | Disconnecting | Error
         ),
         Disconnecting => matches!(to, Disconnected | Error),
-        CaptivePortalPaused => matches!(to, Preparing | Disconnecting | Disconnected | Error),
         Error => matches!(to, Preparing | Disconnecting | Disconnected | Error),
     }
 }

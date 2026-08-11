@@ -25,6 +25,8 @@ pub enum RecoveryPhase {
     Preparing,
     Prepared,
     Active,
+    /// Legacy phase written by pre-removal captive-portal pause. New code never
+    /// enters this phase; recovery must still accept and clean such journals.
     Paused,
     Recovering,
     RecoveryRequired,
@@ -162,6 +164,7 @@ pub struct RecoveryJournal {
     pub owner_sid: Option<String>,
     pub owner_process_id: Option<u32>,
     pub plan: Option<ValidatedTunnelPlan>,
+    /// Legacy field from captive-portal pause. Kept for upgrade recovery only.
     pub pause_deadline_unix_seconds: Option<i64>,
     pub steps: Vec<MutationRecord>,
 }
@@ -573,6 +576,22 @@ impl JournalStore {
         let _ = temporary.keep();
         Ok(())
     }
+
+    /// Removes the durable recovery journal only after it proves that no
+    /// privileged mutation remains. This is intentionally separate from
+    /// normal recovery so major upgrades can retain a clean journal while a
+    /// true uninstall can remove machine-owned state.
+    pub fn remove_if_clean(&self) -> Result<bool, JournalError> {
+        let journal = self.load_or_clean()?;
+        if journal.phase != RecoveryPhase::Clean {
+            return Err(JournalError::RemovalRequiresClean(journal.phase));
+        }
+        match fs::remove_file(&self.path) {
+            Ok(()) => Ok(true),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+            Err(error) => Err(error.into()),
+        }
+    }
 }
 
 fn valid_sid_text(value: &str) -> bool {
@@ -659,6 +678,8 @@ pub enum JournalError {
     UnexpectedPauseDeadline,
     #[error("journal generation overflowed")]
     GenerationOverflow,
+    #[error("cannot remove Agent recovery state while journal phase is {0:?}")]
+    RemovalRequiresClean(RecoveryPhase),
     #[error("journal path has no parent: {0}")]
     MissingParent(PathBuf),
     #[error("journal tunnel plan is invalid: {0}")]
@@ -729,6 +750,50 @@ mod tests {
         store.save(&mut journal).expect("save");
         assert_eq!(journal.generation, 1);
         assert_eq!(store.load_or_clean().expect("load"), journal);
+    }
+
+    #[test]
+    fn uninstall_removes_only_a_clean_journal() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let store = JournalStore::new(directory.path().join("recovery.json"));
+        let mut journal = RecoveryJournal::default();
+        store.save(&mut journal).expect("save clean journal");
+        assert!(store.path().is_file());
+        assert!(store.remove_if_clean().expect("remove clean journal"));
+        assert!(!store.path().exists());
+        assert!(!store.remove_if_clean().expect("missing journal is clean"));
+    }
+
+    #[test]
+    fn uninstall_refuses_to_remove_recovery_evidence() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let store = JournalStore::new(directory.path().join("recovery.json"));
+        let mut journal = RecoveryJournal {
+            schema_version: JOURNAL_SCHEMA_VERSION,
+            generation: 0,
+            phase: RecoveryPhase::Preparing,
+            operation_kind: Some(OperationKind::Tunnel),
+            operation_id: Some(Uuid::new_v4()),
+            owner_sid: Some("S-1-5-21-1000".to_owned()),
+            owner_process_id: Some(42),
+            plan: Some(plan()),
+            pause_deadline_unix_seconds: None,
+            steps: vec![MutationRecord {
+                kind: MutationKind::WintunAdapter,
+                state: MutationState::Intended,
+                receipt: MutationReceipt::WintunAdapter {
+                    adapter_name: "Usque-0123456789ab".to_owned(),
+                    adapter_guid: Uuid::new_v4(),
+                    interface_luid: 0,
+                },
+            }],
+        };
+        store.save(&mut journal).expect("save recovery journal");
+        assert!(matches!(
+            store.remove_if_clean(),
+            Err(JournalError::RemovalRequiresClean(RecoveryPhase::Preparing))
+        ));
+        assert!(store.path().is_file());
     }
 
     #[test]

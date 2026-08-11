@@ -64,6 +64,19 @@ internal object NativeEngine {
         return nativeRegisterConsumerWarp(locale)
     }
 
+    fun registerConsumerWarpWithLicense(
+        locale: String,
+        licenseKey: String,
+    ): ByteArray? {
+        if (!libraryLoaded) return null
+        return nativeRegisterConsumerWarpWithLicense(locale, licenseKey)
+    }
+
+    fun unbindConsumerWarp(warpSecret: ByteArray): Boolean {
+        if (!libraryLoaded) return false
+        return nativeUnbindConsumerWarp(warpSecret) == OK
+    }
+
     fun checkForUpdates(): String? {
         if (!libraryLoaded) return null
         return nativeCheckForUpdates()
@@ -105,6 +118,13 @@ internal object NativeEngine {
     private external fun nativeSnapshot(): String?
 
     private external fun nativeRegisterConsumerWarp(locale: String): ByteArray?
+
+    private external fun nativeRegisterConsumerWarpWithLicense(
+        locale: String,
+        licenseKey: String,
+    ): ByteArray?
+
+    private external fun nativeUnbindConsumerWarp(warpSecret: ByteArray): Int
 
     private external fun nativeCheckForUpdates(): String?
 

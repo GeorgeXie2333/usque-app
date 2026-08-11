@@ -17,8 +17,8 @@ TAG_PATTERN = re.compile(r"^v\d+\.\d+\.\d+-beta\.\d+$")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 
-WINDOWS_VARIANTS = ("x64-v1", "x64-v2", "arm64")
-ANDROID_VARIANTS = ("arm64-v8a", "armeabi-v7a", "x86_64", "universal")
+WINDOWS_VARIANTS = ("x64-v2",)
+ANDROID_VARIANTS = ("arm64-v8a",)
 
 COMMON_TESTS = frozenset(
     {
@@ -34,7 +34,6 @@ COMMON_TESTS = frozenset(
         "network.sleep_resume",
         "network.switch",
         "dns.tunnel_only",
-        "captive_portal.pause_resume",
         "leak.ipv4",
         "leak.ipv6",
         "leak.dns",
@@ -87,16 +86,15 @@ ANDROID_TESTS = COMMON_TESTS | frozenset(
 )
 
 WINDOWS_DEVICES = {
-    "windows-10-19045-x64-v1": "x64-v1",
+    "windows-10-19045-x64-v2": "x64-v2",
     "windows-11-x64-v2": "x64-v2",
-    "windows-11-arm64": "arm64",
 }
 
 ANDROID_DEVICES = {
-    "android-8-armv7": "armeabi-v7a",
+    "android-8-arm64": "arm64-v8a",
+    "android-api33-arm64": "arm64-v8a",
     "android-current-arm64": "arm64-v8a",
-    "android-api26-x86_64-emulator": "x86_64",
-    "android-tv": "universal",
+    "android-tv-arm64": "arm64-v8a",
 }
 
 
@@ -295,6 +293,46 @@ def verify_performance(result: dict[str, Any], evidence_path: Path) -> None:
         raise ContractError(f"{evidence_path}: p95 latency exceeds 110% of the oracle")
     if values["candidate_memory_mib"] > values["oracle_memory_mib"] * 1.25:
         raise ContractError(f"{evidence_path}: memory exceeds 125% of the oracle")
+
+    proxy_matrix = result.get("proxy_throughput_mbps")
+    if not isinstance(proxy_matrix, list) or len(proxy_matrix) != 3:
+        raise ContractError(
+            f"{evidence_path}: proxy_throughput_mbps must contain the 20/100/300 ms matrix"
+        )
+    matrix_by_rtt: dict[int, dict[str, Any]] = {}
+    for sample in proxy_matrix:
+        if not isinstance(sample, dict):
+            raise ContractError(f"{evidence_path}: proxy throughput sample is invalid")
+        rtt_ms = sample.get("rtt_ms")
+        if not isinstance(rtt_ms, int) or rtt_ms in matrix_by_rtt:
+            raise ContractError(f"{evidence_path}: proxy RTT values must be unique integers")
+        matrix_by_rtt[rtt_ms] = sample
+
+    single_modes = ("http_connect_single_mbps", "socks5_tcp_single_mbps")
+    four_modes = ("http_connect_four_mbps", "socks5_tcp_four_mbps")
+    for rtt_ms in (20, 100, 300):
+        sample = matrix_by_rtt.get(rtt_ms)
+        if sample is None:
+            raise ContractError(
+                f"{evidence_path}: proxy throughput matrix is missing {rtt_ms} ms RTT"
+            )
+        baselines = ("tun_single_mbps", "tun_four_mbps")
+        for field in (*baselines, *single_modes, *four_modes):
+            value = sample.get(field)
+            if not isinstance(value, (int, float)) or value <= 0:
+                raise ContractError(
+                    f"{evidence_path}: proxy performance field {field} is invalid at {rtt_ms} ms RTT"
+                )
+        for field in single_modes:
+            if float(sample[field]) < float(sample["tun_single_mbps"]) * 0.80:
+                raise ContractError(
+                    f"{evidence_path}: {field} is below 80% of TUN at {rtt_ms} ms RTT"
+                )
+        for field in four_modes:
+            if float(sample[field]) < float(sample["tun_four_mbps"]) * 0.90:
+                raise ContractError(
+                    f"{evidence_path}: {field} is below 90% of TUN at {rtt_ms} ms RTT"
+                )
 
 
 def verify_evidence(

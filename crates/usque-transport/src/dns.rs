@@ -7,9 +7,10 @@ use tokio::net::lookup_host;
 use tokio::time::timeout;
 use ts_netstack_smoltcp::CreateSocket;
 use ts_netstack_smoltcp::netcore::Channel;
-use usque_core::{IpPolicy, ProxyDnsMode};
+use usque_core::ProxyDnsMode;
 
 use crate::h2::TransportError;
+use crate::port_allocator::next_udp_port;
 
 const DNS_TIMEOUT: Duration = Duration::from_secs(4);
 const DNS_PORT: u16 = 53;
@@ -20,8 +21,6 @@ const TYPE_AAAA: u16 = 28;
 const CLASS_IN: u16 = 1;
 
 static NEXT_DNS_ID: AtomicU16 = AtomicU16::new(0x5173);
-static NEXT_UDP_PORT: AtomicU16 = AtomicU16::new(49_152);
-
 #[derive(Clone)]
 pub(crate) struct Resolver {
     channel: Channel,
@@ -29,7 +28,6 @@ pub(crate) struct Resolver {
     assigned_ipv6: Ipv6Addr,
     servers: Vec<IpAddr>,
     mode: ProxyDnsMode,
-    policy: IpPolicy,
 }
 
 impl Resolver {
@@ -39,7 +37,6 @@ impl Resolver {
         assigned_ipv6: Ipv6Addr,
         servers: Vec<IpAddr>,
         mode: ProxyDnsMode,
-        policy: IpPolicy,
     ) -> Self {
         Self {
             channel,
@@ -47,7 +44,6 @@ impl Resolver {
             assigned_ipv6,
             servers,
             mode,
-            policy,
         }
     }
 
@@ -66,7 +62,6 @@ impl Resolver {
                 .collect(),
         };
         deduplicate(&mut addresses);
-        order_for_policy(&mut addresses, self.policy);
         if addresses.is_empty() {
             return Err(TransportError::Dns(format!(
                 "no usable A or AAAA records were returned for {name}"
@@ -143,14 +138,6 @@ impl Resolver {
             errors.join("; ")
         }))
     }
-}
-
-fn next_udp_port() -> u16 {
-    NEXT_UDP_PORT
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
-            Some(if value >= 65_534 { 49_152 } else { value + 1 })
-        })
-        .unwrap_or(49_152)
 }
 
 fn validate_name(name: &str) -> Result<(), TransportError> {
@@ -307,16 +294,6 @@ fn read_u16(packet: &[u8], offset: usize) -> Result<u16, TransportError> {
 fn deduplicate(addresses: &mut Vec<IpAddr>) {
     let mut seen = HashSet::new();
     addresses.retain(|address| seen.insert(*address));
-}
-
-fn order_for_policy(addresses: &mut Vec<IpAddr>, policy: IpPolicy) {
-    addresses.retain(|address| match policy {
-        IpPolicy::Ipv4Only => address.is_ipv4(),
-        IpPolicy::Ipv6Only => address.is_ipv6(),
-        _ => true,
-    });
-    let prefer_v6 = matches!(policy, IpPolicy::PreferIpv6 | IpPolicy::Ipv6Only);
-    addresses.sort_by_key(|address| if address.is_ipv6() == prefer_v6 { 0 } else { 1 });
 }
 
 #[cfg(test)]

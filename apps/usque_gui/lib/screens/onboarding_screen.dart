@@ -3,6 +3,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/app_strings.dart';
 import '../core/usque_theme.dart';
+import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
 
@@ -16,17 +17,17 @@ class OnboardingScreen extends StatefulWidget {
 }
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
-  final TextEditingController _secretController = TextEditingController();
+  final TextEditingController _licenseController = TextEditingController();
   int _step = 0;
   bool _termsAccepted = false;
-  bool _manualSecret = false;
-  bool _secretVisible = false;
+  bool _useLicense = false;
+  bool _licenseVisible = false;
 
   AppStrings get strings => widget.controller.strings;
 
   @override
   void dispose() {
-    _secretController
+    _licenseController
       ..clear()
       ..dispose();
     super.dispose();
@@ -41,8 +42,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             final wide = constraints.maxWidth >= 820;
             return Row(
               children: <Widget>[
-                if (wide)
-                  Expanded(flex: 4, child: _BrandPane(strings: strings)),
+                if (wide) const Expanded(flex: 4, child: _BrandPane()),
                 Expanded(
                   flex: 6,
                   child: Center(
@@ -121,12 +121,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       ),
       _ => _IdentityStep(
         strings: strings,
-        manualSecret: _manualSecret,
-        secretVisible: _secretVisible,
-        secretController: _secretController,
-        onMethodChanged: (value) => setState(() => _manualSecret = value),
+        useLicense: _useLicense,
+        licenseVisible: _licenseVisible,
+        licenseController: _licenseController,
+        onMethodChanged: (value) => setState(() => _useLicense = value),
         onVisibilityChanged: () =>
-            setState(() => _secretVisible = !_secretVisible),
+            setState(() => _licenseVisible = !_licenseVisible),
       ),
     };
   }
@@ -135,7 +135,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     final isLast = _step == 3;
     final canContinue = switch (_step) {
       2 => _termsAccepted,
-      3 => !_manualSecret || _secretController.text.trim().isNotEmpty,
+      3 => !_useLicense || _licenseController.text.trim().isNotEmpty,
       _ => true,
     };
     return Row(
@@ -157,11 +157,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     setState(() => _step++);
                     return;
                   }
-                  final value = _manualSecret
-                      ? _secretController.text.trim()
+                  final value = _useLicense
+                      ? _licenseController.text.trim()
                       : null;
-                  await widget.controller.finishOnboarding(warpSecret: value);
-                  _secretController.clear();
+                  await widget.controller.finishOnboarding(
+                    method: _useLicense
+                        ? IdentityProvisioningMethod.registerWithLicense
+                        : IdentityProvisioningMethod.register,
+                    licenseKey: value,
+                  );
+                  _licenseController.clear();
                 },
           icon: widget.controller.busy
               ? const SizedBox(
@@ -181,9 +186,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 }
 
 class _BrandPane extends StatelessWidget {
-  const _BrandPane({required this.strings});
-
-  final AppStrings strings;
+  const _BrandPane();
 
   @override
   Widget build(BuildContext context) {
@@ -236,52 +239,11 @@ class _BrandPane extends StatelessWidget {
                     color: Theme.of(context).colorScheme.onSurface,
                   ),
                 ),
-                const SizedBox(height: 12),
-                Text(
-                  strings.get('onboarding_hero'),
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    height: 1.4,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(height: 32),
-                _Feature(
-                  icon: LucideIcons.gauge,
-                  label: strings.get('native_ui'),
-                ),
-                const SizedBox(height: 15),
-                _Feature(
-                  icon: LucideIcons.shieldCheck,
-                  label: strings.get('leak_resistant'),
-                ),
-                const SizedBox(height: 15),
-                _Feature(
-                  icon: LucideIcons.database,
-                  label: strings.get('no_telemetry'),
-                ),
               ],
             ),
           ),
         ],
       ),
-    );
-  }
-}
-
-class _Feature extends StatelessWidget {
-  const _Feature({required this.icon, required this.label});
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: <Widget>[
-        Icon(icon, size: 20, color: UsqueColors.orange),
-        const SizedBox(width: 11),
-        Text(label, style: Theme.of(context).textTheme.titleMedium),
-      ],
     );
   }
 }
@@ -322,15 +284,11 @@ class _StepIndicator extends StatelessWidget {
 }
 
 class _StepHeading extends StatelessWidget {
-  const _StepHeading({
-    required this.icon,
-    required this.title,
-    required this.body,
-  });
+  const _StepHeading({required this.icon, required this.title, this.body});
 
   final IconData icon;
   final String title;
-  final String body;
+  final String? body;
 
   @override
   Widget build(BuildContext context) {
@@ -353,13 +311,15 @@ class _StepHeading extends StatelessWidget {
         ),
         const SizedBox(height: 24),
         Text(title, style: Theme.of(context).textTheme.headlineMedium),
-        const SizedBox(height: 12),
-        Text(
-          body,
-          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
+        if (body case final body?) ...<Widget>[
+          const SizedBox(height: 12),
+          Text(
+            body,
+            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
           ),
-        ),
+        ],
       ],
     );
   }
@@ -375,7 +335,6 @@ class _IntroStep extends StatelessWidget {
     return _StepHeading(
       icon: LucideIcons.sparkles,
       title: strings.get('welcome_title'),
-      body: strings.get('welcome_body'),
     );
   }
 }
@@ -442,17 +401,17 @@ class _TermsStep extends StatelessWidget {
 class _IdentityStep extends StatelessWidget {
   const _IdentityStep({
     required this.strings,
-    required this.manualSecret,
-    required this.secretVisible,
-    required this.secretController,
+    required this.useLicense,
+    required this.licenseVisible,
+    required this.licenseController,
     required this.onMethodChanged,
     required this.onVisibilityChanged,
   });
 
   final AppStrings strings;
-  final bool manualSecret;
-  final bool secretVisible;
-  final TextEditingController secretController;
+  final bool useLicense;
+  final bool licenseVisible;
+  final TextEditingController licenseController;
   final ValueChanged<bool> onMethodChanged;
   final VoidCallback onVisibilityChanged;
 
@@ -464,7 +423,6 @@ class _IdentityStep extends StatelessWidget {
         _StepHeading(
           icon: LucideIcons.keyRound,
           title: strings.get('identity_title'),
-          body: strings.get('identity_body'),
         ),
         const SizedBox(height: 24),
         SegmentedButton<bool>(
@@ -476,33 +434,31 @@ class _IdentityStep extends StatelessWidget {
             ),
             ButtonSegment<bool>(
               value: true,
-              icon: const Icon(LucideIcons.keyRound),
-              label: Text(strings.get('manual_secret')),
+              icon: const Icon(LucideIcons.badgePlus),
+              label: Text(strings.get('use_license_key')),
             ),
           ],
-          selected: <bool>{manualSecret},
+          selected: <bool>{useLicense},
           onSelectionChanged: (selection) => onMethodChanged(selection.first),
           showSelectedIcon: false,
         ),
-        if (manualSecret) ...<Widget>[
+        if (useLicense) ...<Widget>[
           const SizedBox(height: 20),
           TextField(
-            controller: secretController,
-            obscureText: !secretVisible,
+            controller: licenseController,
+            obscureText: !licenseVisible,
             enableSuggestions: false,
             autocorrect: false,
             onChanged: (_) => (context as Element).markNeedsBuild(),
             decoration: InputDecoration(
-              labelText: strings.get('warp_secret'),
-              helperText: strings.get('secret_help'),
-              helperMaxLines: 3,
+              labelText: strings.get('warp_license_key'),
               suffixIcon: IconButton(
                 tooltip: strings.get(
-                  secretVisible ? 'hide_secret' : 'show_secret',
+                  licenseVisible ? 'hide_license' : 'show_license',
                 ),
                 onPressed: onVisibilityChanged,
                 icon: Icon(
-                  secretVisible ? LucideIcons.eyeOff : LucideIcons.eye,
+                  licenseVisible ? LucideIcons.eyeOff : LucideIcons.eye,
                 ),
               ),
             ),

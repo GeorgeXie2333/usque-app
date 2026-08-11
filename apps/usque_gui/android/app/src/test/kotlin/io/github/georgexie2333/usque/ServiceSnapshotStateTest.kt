@@ -7,12 +7,9 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.util.concurrent.atomic.AtomicLong
 
 class ServiceSnapshotStateTest {
-    private val clock = AtomicLong(1_700_000_000_000L)
-
-    private fun state(): ServiceSnapshotState = ServiceSnapshotState(clockMillis = clock::get)
+    private fun state(): ServiceSnapshotState = ServiceSnapshotState()
 
     private fun platform(
         tunnelOpen: Boolean = true,
@@ -71,7 +68,6 @@ class ServiceSnapshotStateTest {
         assertEquals("PT", fields.exitCountryCode)
         assertEquals("<svg/>", fields.exitFlagSvg)
         assertEquals("active", fields.killSwitchState)
-        assertEquals(0, fields.captivePauseRemainingSeconds)
         assertEquals(false, fields.platformLockdown)
         assertEquals(true, fields.alwaysOn)
     }
@@ -79,7 +75,6 @@ class ServiceSnapshotStateTest {
     @Test
     fun wireEntriesLockEveryMessengerBundleKeyNameAndValue() {
         val snapshot = state()
-        clock.set(10_000L)
         snapshot.phase = "connected"
         snapshot.warning = "degraded path"
         snapshot.errorCode = "E_TEST"
@@ -99,7 +94,6 @@ class ServiceSnapshotStateTest {
         snapshot.exitCountryCode = "PT"
         snapshot.exitFlagSvg = "<svg/>"
         snapshot.killSwitchEnabled = true
-        snapshot.setCaptivePauseDeadline(0L)
 
         val keys = ServiceSnapshotState.WireKeys
         val wire =
@@ -133,7 +127,6 @@ class ServiceSnapshotStateTest {
                 keys.EXIT_COUNTRY_CODE,
                 keys.EXIT_FLAG_SVG,
                 keys.KILL_SWITCH_STATE,
-                keys.CAPTIVE_PAUSE_REMAINING_SECONDS,
                 keys.PLATFORM_LOCKDOWN,
                 keys.ALWAYS_ON,
             ),
@@ -159,7 +152,6 @@ class ServiceSnapshotStateTest {
         assertEquals("exit_country_code", keys.EXIT_COUNTRY_CODE)
         assertEquals("exit_flag_svg", keys.EXIT_FLAG_SVG)
         assertEquals("kill_switch_state", keys.KILL_SWITCH_STATE)
-        assertEquals("captive_pause_remaining_seconds", keys.CAPTIVE_PAUSE_REMAINING_SECONDS)
         assertEquals("platform_lockdown", keys.PLATFORM_LOCKDOWN)
         assertEquals("always_on", keys.ALWAYS_ON)
 
@@ -182,7 +174,6 @@ class ServiceSnapshotStateTest {
         assertEquals("PT", wire[keys.EXIT_COUNTRY_CODE])
         assertEquals("<svg/>", wire[keys.EXIT_FLAG_SVG])
         assertEquals("active", wire[keys.KILL_SWITCH_STATE])
-        assertEquals(0, wire[keys.CAPTIVE_PAUSE_REMAINING_SECONDS])
         assertEquals(true, wire[keys.PLATFORM_LOCKDOWN])
         assertEquals(true, wire[keys.ALWAYS_ON])
 
@@ -270,12 +261,8 @@ class ServiceSnapshotStateTest {
     }
 
     @Test
-    fun killSwitchStateCoversPausedActiveInactiveAndNotApplicable() {
+    fun killSwitchStateCoversActiveInactiveAndNotApplicable() {
         val snapshot = state()
-
-        snapshot.phase = "captivePortalPaused"
-        snapshot.killSwitchEnabled = true
-        assertEquals("paused", snapshot.killSwitchState(tunnelOpen = false, activeMode = "vpn"))
 
         snapshot.phase = "connected"
         snapshot.killSwitchEnabled = true
@@ -295,42 +282,17 @@ class ServiceSnapshotStateTest {
     }
 
     @Test
-    fun resetLeavesFingerprintAndCaptiveDeadlineToCallers() {
+    fun resetLeavesFingerprintForDedup() {
         val snapshot = state()
-        clock.set(1_000L)
         snapshot.phase = "connected"
         snapshot.transport = "h3"
         val flags = platform()
         assertTrue(snapshot.markBroadcastIfChanged(flags))
-        snapshot.scheduleCaptivePauseFromNow(30)
 
         snapshot.reset("disconnected")
 
         // Fingerprint retained: identical post-reset broadcast is still deduped until state moves.
         assertNotNull(snapshot.lastBroadcastFingerprintForTest())
-        // Captive deadline is caller-owned; service pairs reset with clearCaptivePause.
-        assertEquals(30, snapshot.captivePauseRemainingSeconds())
-
-        snapshot.clearCaptivePause()
-        assertEquals(0, snapshot.captivePauseRemainingSeconds())
-    }
-
-    @Test
-    fun captiveCountdownUsesInjectedClock() {
-        val snapshot = state()
-        clock.set(1_000_000L)
-        snapshot.scheduleCaptivePauseFromNow(30)
-
-        assertEquals(30, snapshot.captivePauseRemainingSeconds())
-
-        clock.addAndGet(29_500L)
-        assertEquals(1, snapshot.captivePauseRemainingSeconds())
-
-        clock.addAndGet(500L)
-        assertEquals(0, snapshot.captivePauseRemainingSeconds())
-
-        snapshot.clearCaptivePause()
-        assertEquals(0, snapshot.captivePauseRemainingSeconds())
     }
 
     @Test
@@ -356,11 +318,6 @@ class ServiceSnapshotStateTest {
         snapshot.phase = "reconnecting"
         assertEquals("Reconnecting securely", snapshot.notificationText())
 
-        clock.set(5_000L)
-        snapshot.phase = "captivePortalPaused"
-        snapshot.setCaptivePauseDeadline(15_000L)
-        assertEquals("VPN paused for captive portal (10 s)", snapshot.notificationText())
-
         snapshot.phase = "error"
         assertEquals("Network service stopped after an error", snapshot.notificationText())
 
@@ -380,10 +337,8 @@ class ServiceSnapshotStateTest {
         snapshot.downloadBytesPerSecond = 5
         snapshot.exitCountryCode = "PT"
         snapshot.killSwitchEnabled = true
-        snapshot.scheduleCaptivePauseFromNow(10)
 
         snapshot.reset("disconnected")
-        snapshot.clearCaptivePause()
 
         val fields = snapshot.snapshotFields(platform(tunnelOpen = false, activeMode = null))
         assertEquals("disconnected", fields.phase)
@@ -392,6 +347,5 @@ class ServiceSnapshotStateTest {
         assertEquals(0L, fields.downloadBytesPerSecond)
         assertNull(fields.exitCountryCode)
         assertEquals("notApplicable", fields.killSwitchState)
-        assertEquals(0, fields.captivePauseRemainingSeconds)
     }
 }

@@ -1,0 +1,94 @@
+name: Bug report
+description: Report a reproducible, non-security defect in Usque.
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not report traffic leaks, credential exposure, pin bypasses, or privilege-boundary failures here. Use the private security reporting link in the chooser. Remove Secrets, tokens, licenses, device IDs, endpoint pins, and personal addresses from every attachment.
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight
+      options:
+        - label: I searched existing Issues and Pull Requests.
+          required: true
+        - label: This is not a security vulnerability or Code of Conduct report.
+          required: true
+        - label: I removed credentials and sensitive identifiers from the report.
+          required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Use the exact release tag, validation label, or commit SHA.
+      placeholder: v0.1.1-beta.2 or 40-character commit SHA
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Windows 10 22H2
+        - Windows 11
+        - Android
+        - Android TV
+        - Other source build
+    validations:
+      required: true
+  - type: input
+    id: platform_details
+    attributes:
+      label: OS version and architecture
+      placeholder: Windows 11 24H2 x64-v2, or Android 15 arm64-v8a
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Affected output
+      options:
+        - VPN/TUN
+        - SOCKS5
+        - HTTP Proxy
+        - Windows system proxy
+        - Profile or identity management
+        - Installer, upgrade, or uninstall
+        - User interface
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Provide the shortest deterministic sequence.
+      placeholder: |
+        1. Open ...
+        2. Enable ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Sanitized diagnostics
+      description: Paste only the minimum redacted log or link to a sanitized attachment. Never attach a raw diagnostic bundle.
+      render: text
+    validations:
+      required: false

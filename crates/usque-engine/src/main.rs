@@ -15,6 +15,19 @@ struct Arguments {
     /// Validate configuration and exit. Intended for CI and installers.
     #[arg(long)]
     validate_only: bool,
+    /// Permanently remove current-user profiles, preferences, logs, caches,
+    /// and namespaced Windows Credential Manager records during MSI uninstall.
+    #[cfg(windows)]
+    #[arg(
+        long,
+        conflicts_with = "validate_only",
+        requires = "preferences_directory"
+    )]
+    purge_user_data: bool,
+    /// Exact SharedPreferences directory supplied by the MSI uninstall action.
+    #[cfg(windows)]
+    #[arg(long, requires = "purge_user_data")]
+    preferences_directory: Option<PathBuf>,
     /// Override the per-user Windows Named Pipe name (development only).
     #[cfg(windows)]
     #[arg(long, hide = true)]
@@ -33,6 +46,17 @@ struct Arguments {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let arguments = Arguments::parse();
     let config_path = arguments.config.clone();
+
+    #[cfg(windows)]
+    if arguments.purge_user_data {
+        let preferences_directory = arguments
+            .preferences_directory
+            .as_deref()
+            .ok_or("--preferences-directory is required with --purge-user-data")?;
+        usque_engine::windows_purge::purge_current_user_data(&config_path, preferences_directory)?;
+        return Ok(());
+    }
+
     let store = ConfigStore::new(config_path.clone());
     let config = store.load_or_default()?;
     config.validate()?;

@@ -10,6 +10,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <string>
 
 #include "win32_window.h"
 
@@ -17,7 +18,8 @@
 class FlutterWindow : public Win32Window {
  public:
   // Creates a new FlutterWindow hosting a Flutter view running |project|.
-  explicit FlutterWindow(const flutter::DartProject& project);
+  explicit FlutterWindow(const flutter::DartProject& project,
+                         bool start_hidden = false);
   virtual ~FlutterWindow();
 
  protected:
@@ -29,6 +31,12 @@ class FlutterWindow : public Win32Window {
 
  private:
   void StopEngineEventStream();
+  void AddTrayIcon();
+  void RemoveTrayIcon();
+  void ShowTrayMenu();
+  void UpdateTrayState(const std::string& phase, bool connected);
+  void InvokeTrayCommand(const std::string& command, bool exit_on_success);
+  void ShowAndActivate();
 
   // The project to run.
   flutter::DartProject project_;
@@ -43,6 +51,14 @@ class FlutterWindow : public Win32Window {
       engine_event_sink_;
   std::shared_ptr<std::atomic_bool> engine_event_active_;
   uint64_t engine_event_generation_ = 0;
+  bool start_hidden_ = false;
+  bool close_to_tray_ = true;
+  bool force_exit_ = false;
+  bool exit_pending_ = false;
+  bool tray_icon_added_ = false;
+  bool tray_connected_ = false;
+  std::wstring tray_status_ = L"Disconnected";
+  NOTIFYICONDATAW tray_icon_{};
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

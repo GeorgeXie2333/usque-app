@@ -1,0 +1,19 @@
+# Security policy and community enforcement.
+/CODE_OF_CONDUCT.md @GeorgeXie2333
+/SECURITY.md @GeorgeXie2333
+/.github/ @GeorgeXie2333
+
+# Release, installer, and privileged platform boundaries.
+/packaging/windows/ @GeorgeXie2333
+/tool/build_*.ps1 @GeorgeXie2333
+/tool/install_android_sdk.ps1 @GeorgeXie2333
+/tool/release_* @GeorgeXie2333
+/tool/verify_windows_*.ps1 @GeorgeXie2333
+/crates/usque-agent/ @GeorgeXie2333
+/crates/usque-platform/ @GeorgeXie2333
+/crates/usque-android/ @GeorgeXie2333
+/proto/usque/agent/ @GeorgeXie2333
+/apps/usque_gui/windows/runner/ @GeorgeXie2333
+/apps/usque_gui/android/app/build.gradle.kts @GeorgeXie2333
+/apps/usque_gui/android/app/src/main/AndroidManifest.xml @GeorgeXie2333
+/apps/usque_gui/android/app/src/main/kotlin/io/github/georgexie2333/usque/ @GeorgeXie2333

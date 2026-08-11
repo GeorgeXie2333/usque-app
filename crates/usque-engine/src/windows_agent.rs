@@ -15,8 +15,8 @@ use usque_ipc::{
         self, AcquireTunnelLeaseRequest, AgentCapabilities, AgentRequest, AgentResponse,
         AgentState, ApplySystemProxyRequest, ClosePacketSessionRequest, CommitTunnelRequest,
         GetCapabilitiesRequest, GetStateRequest, OpenPacketSessionRequest, PacketSessionHandles,
-        PauseKillSwitchRequest, PrepareTunnelRequest, RestoreSystemProxyRequest,
-        ResumeTunnelRequest, RollbackTunnelRequest, agent_request, agent_response,
+        PrepareTunnelRequest, RestoreSystemProxyRequest, ResumeTunnelRequest,
+        RollbackTunnelRequest, agent_request, agent_response,
     },
     decode_frame, encode_frame,
 };
@@ -24,7 +24,7 @@ use usque_platform::packet_ring::{
     PACKET_RING_LAYOUT_VERSION, PacketDirection, PacketRingError, SharedPacketRing,
 };
 use usque_transport::{
-    EndpointPinRefresher, ManagedTunnelMonitor, ManagedTunnelRuntime, MasqueTlsIdentity,
+    EndpointPinRefresher, ManagedTunnelMonitor, MasqueRuntime, MasqueTlsIdentity,
     NoopSocketProtector, RuntimeHealth, RuntimePath, SocketHandle, SocketProtector,
     TrafficSnapshot, TransportError,
 };
@@ -83,6 +83,20 @@ pub(crate) struct WindowsSystemProxyGuard {
 
 impl WindowsSystemProxyGuard {
     pub(crate) async fn start(listener: std::net::SocketAddr) -> Result<Self, WindowsVpnError> {
+        Self::start_internal(listener, None).await
+    }
+
+    pub(crate) async fn start_for_tunnel(
+        listener: std::net::SocketAddr,
+        operation_id: Uuid,
+    ) -> Result<Self, WindowsVpnError> {
+        Self::start_internal(listener, Some(operation_id)).await
+    }
+
+    async fn start_internal(
+        listener: std::net::SocketAddr,
+        tunnel_operation_id: Option<Uuid>,
+    ) -> Result<Self, WindowsVpnError> {
         if !listener.ip().is_loopback() || listener.port() == 0 {
             return Err(WindowsVpnError::InvalidSystemProxyListener(listener));
         }
@@ -98,14 +112,19 @@ impl WindowsSystemProxyGuard {
                 "system_proxy".to_owned(),
             ));
         }
-        let state = client.get_state().await?;
-        if state.phase != agent_v1::AgentPhase::Clean as i32 {
-            return Err(WindowsVpnError::RecoveryRequired {
-                phase: state.phase,
-                operation_id: state.operation_id,
-            });
-        }
-        let operation_id = Uuid::new_v4();
+        let operation_id = match tunnel_operation_id {
+            Some(operation_id) => operation_id,
+            None => {
+                let state = client.get_state().await?;
+                if state.phase != agent_v1::AgentPhase::Clean as i32 {
+                    return Err(WindowsVpnError::RecoveryRequired {
+                        phase: state.phase,
+                        operation_id: state.operation_id,
+                    });
+                }
+                Uuid::new_v4()
+            }
+        };
         let pipe = client
             .apply_system_proxy_lease(
                 operation_id,
@@ -157,6 +176,10 @@ pub(crate) struct WindowsVpnRuntime {
     cancellation: CancellationToken,
     mapping: Arc<PacketSessionMapping>,
     tasks: Vec<JoinHandle<()>>,
+    listeners: Vec<SocketAddr>,
+    socks5_listeners: Vec<SocketAddr>,
+    http_listeners: Vec<SocketAddr>,
+    system_proxy: Option<WindowsSystemProxyGuard>,
     transaction_open: bool,
 }
 
@@ -245,7 +268,7 @@ impl WindowsVpnRuntime {
             }
         };
 
-        let mut tunnel = match ManagedTunnelRuntime::start_with_refresh(
+        let mut tunnel = match MasqueRuntime::start_with_refresh(
             profile,
             identity,
             protector,
@@ -288,18 +311,11 @@ impl WindowsVpnRuntime {
         let cancellation = CancellationToken::new();
         let (pump_failure_tx, pump_failure) = watch::channel(None);
         let (agent_disconnected_tx, agent_disconnected) = watch::channel(false);
-        let sender = match tunnel.packet_sender() {
-            Ok(sender) => sender,
-            Err(error) => {
-                mapping.signal_shutdown();
-                tunnel.shutdown().await;
-                abort_startup(&agent, operation_id, resuming, "PACKET_SENDER_FAILED").await?;
-                return Err(error.into());
-            }
-        };
+        let listeners = tunnel.listeners().to_vec();
+        let socks5_listeners = tunnel.socks5_listeners().to_vec();
+        let http_listeners = tunnel.http_listeners().to_vec();
         let mut tasks = start_packet_pumps(
             tunnel,
-            sender,
             Arc::clone(&mapping),
             cancellation.clone(),
             pump_failure_tx.clone(),
@@ -331,6 +347,45 @@ impl WindowsVpnRuntime {
             agent_disconnected_tx,
         ));
 
+        let system_proxy = if profile.frontends.http && profile.proxy.system_proxy {
+            let listener = http_listeners
+                .iter()
+                .copied()
+                .find(|listener| listener.ip().is_loopback() && listener.ip().is_ipv4())
+                .or_else(|| {
+                    http_listeners
+                        .iter()
+                        .copied()
+                        .find(|listener| listener.ip().is_loopback())
+                });
+            let Some(listener) = listener else {
+                mapping.signal_shutdown();
+                cancellation.cancel();
+                stop_tasks(tasks).await;
+                abort_startup(
+                    &agent,
+                    operation_id,
+                    resuming,
+                    "SYSTEM_PROXY_LISTENER_MISSING",
+                )
+                .await?;
+                return Err(WindowsVpnError::MissingSystemProxyListener);
+            };
+            match WindowsSystemProxyGuard::start_for_tunnel(listener, operation_id).await {
+                Ok(guard) => Some(guard),
+                Err(error) => {
+                    mapping.signal_shutdown();
+                    cancellation.cancel();
+                    stop_tasks(tasks).await;
+                    abort_startup(&agent, operation_id, resuming, "SYSTEM_PROXY_APPLY_FAILED")
+                        .await?;
+                    return Err(error);
+                }
+            }
+        } else {
+            None
+        };
+
         if resuming {
             tracing::info!(
                 %operation_id,
@@ -350,6 +405,10 @@ impl WindowsVpnRuntime {
             cancellation,
             mapping,
             tasks,
+            listeners,
+            socks5_listeners,
+            http_listeners,
+            system_proxy,
             transaction_open: true,
         })
     }
@@ -368,6 +427,22 @@ impl WindowsVpnRuntime {
 
     pub(crate) fn failure(&self) -> Option<String> {
         self.monitor.failure()
+    }
+
+    pub(crate) fn listeners(&self) -> &[SocketAddr] {
+        &self.listeners
+    }
+
+    pub(crate) fn socks5_listeners(&self) -> &[SocketAddr] {
+        &self.socks5_listeners
+    }
+
+    pub(crate) fn http_listeners(&self) -> &[SocketAddr] {
+        &self.http_listeners
+    }
+
+    pub(crate) fn system_proxy_active(&self) -> bool {
+        self.system_proxy.is_some()
     }
 
     pub(crate) fn requires_agent_reattach(&self) -> bool {
@@ -394,20 +469,15 @@ impl WindowsVpnRuntime {
         Ok(())
     }
 
-    pub(crate) async fn pause_for_captive_portal(
-        &mut self,
-        seconds: u32,
-    ) -> Result<(), WindowsVpnError> {
-        self.agent.pause(self.operation_id, seconds).await?;
-        self.stop_packet_pumps().await;
-        Ok(())
-    }
-
     pub(crate) async fn shutdown(&mut self) -> Result<(), WindowsVpnError> {
         // Cut packet forwarding before any Agent RPC. Rollback may need to
         // restore routes, DNS, WFP, and the adapter, but no user packet may
         // remain attached to MASQUE while that cleanup is in progress.
         self.cancel_immediately();
+        let system_proxy_result = match self.system_proxy.as_mut() {
+            Some(system_proxy) => system_proxy.shutdown().await,
+            None => Ok(()),
+        };
         let rollback = if self.transaction_open {
             self.agent
                 .rollback(self.operation_id, "USER_DISCONNECT")
@@ -419,6 +489,7 @@ impl WindowsVpnRuntime {
             self.transaction_open = false;
         }
         self.stop_packet_pumps().await;
+        system_proxy_result?;
         rollback.map(|_| ())
     }
 
@@ -490,14 +561,11 @@ fn tunnel_plan(
         profile_id: profile.id.to_string(),
         endpoint: endpoint.to_string(),
         mtu: u32::from(profile.mtu),
+        // Endpoint policy selects the physical MASQUE ingress only. DNS is
+        // carried inside CONNECT-IP and remains dual-stack over either ingress.
         dns_servers: profile
             .dns_servers
             .iter()
-            .filter(|server| match profile.ip_policy {
-                IpPolicy::Ipv4Only => server.is_ipv4(),
-                IpPolicy::Ipv6Only => server.is_ipv6(),
-                IpPolicy::Auto | IpPolicy::PreferIpv4 | IpPolicy::PreferIpv6 => true,
-            })
             .map(ToString::to_string)
             .collect(),
         split_exclusions: profile
@@ -547,8 +615,7 @@ fn validate_capabilities(
 }
 
 fn start_packet_pumps(
-    mut tunnel: ManagedTunnelRuntime,
-    sender: usque_transport::ManagedTunnelSender,
+    mut tunnel: MasqueRuntime,
     mapping: Arc<PacketSessionMapping>,
     cancellation: CancellationToken,
     failure: watch::Sender<Option<String>>,
@@ -574,35 +641,35 @@ fn start_packet_pumps(
         }
     });
 
-    let inbound_mapping = Arc::clone(&mapping);
-    let inbound_cancel = cancellation.clone();
-    let inbound_failure = failure.clone();
-    let inbound_task = tokio::spawn(async move {
+    let pump_mapping = Arc::clone(&mapping);
+    let pump_cancel = cancellation.clone();
+    let pump_failure = failure.clone();
+    let pump_task = tokio::spawn(async move {
         loop {
             tokio::select! {
-                () = inbound_cancel.cancelled() => break,
+                () = pump_cancel.cancelled() => break,
                 ready = packet_ready_rx.recv() => {
                     if ready.is_none() {
-                        if !inbound_cancel.is_cancelled() {
+                        if !pump_cancel.is_cancelled() {
                             report_pump_failure(
-                                &inbound_failure,
-                                &inbound_cancel,
+                                &pump_failure,
+                                &pump_cancel,
                                 "Agent packet notification channel closed".to_owned(),
                             );
                         }
                         break;
                     }
                     loop {
-                        match inbound_mapping
+                        match pump_mapping
                             .ring()
                             .try_pop(PacketDirection::AgentToEngine)
                         {
                             Ok(Some(packet)) => {
-                                if let Err(error) = sender.send_packet(&packet).await {
-                                    if !inbound_cancel.is_cancelled() {
+                                if let Err(error) = tunnel.send_packet(&packet).await {
+                                    if !pump_cancel.is_cancelled() {
                                         report_pump_failure(
-                                            &inbound_failure,
-                                            &inbound_cancel,
+                                            &pump_failure,
+                                            &pump_cancel,
                                             format!("failed to send a TUN packet into MASQUE: {error}"),
                                         );
                                     }
@@ -612,8 +679,8 @@ fn start_packet_pumps(
                             Ok(None) => break,
                             Err(error) => {
                                 report_pump_failure(
-                                    &inbound_failure,
-                                    &inbound_cancel,
+                                    &pump_failure,
+                                    &pump_cancel,
                                     format!("Agent-to-Engine packet ring failed: {error}"),
                                 );
                                 return;
@@ -621,29 +688,18 @@ fn start_packet_pumps(
                         }
                     }
                 }
-            }
-        }
-    });
-
-    let outbound_mapping = mapping;
-    let outbound_cancel = cancellation;
-    let outbound_failure = failure;
-    let outbound_task = tokio::spawn(async move {
-        loop {
-            tokio::select! {
-                () = outbound_cancel.cancelled() => break,
                 packet = tunnel.receive_packet() => {
                     match packet {
                         Ok(packet) => {
-                            match outbound_mapping
+                            match pump_mapping
                                 .ring()
                                 .try_push(PacketDirection::EngineToAgent, &packet)
                             {
                                 Ok(true) => {
-                                    if let Err(error) = outbound_mapping.signal_engine_to_agent() {
+                                    if let Err(error) = pump_mapping.signal_engine_to_agent() {
                                         report_pump_failure(
-                                            &outbound_failure,
-                                            &outbound_cancel,
+                                            &pump_failure,
+                                            &pump_cancel,
                                             error.to_string(),
                                         );
                                         break;
@@ -655,8 +711,8 @@ fn start_packet_pumps(
                                 }
                                 Err(error) => {
                                     report_pump_failure(
-                                        &outbound_failure,
-                                        &outbound_cancel,
+                                        &pump_failure,
+                                        &pump_cancel,
                                         format!("Engine-to-Agent packet ring failed: {error}"),
                                     );
                                     break;
@@ -664,10 +720,10 @@ fn start_packet_pumps(
                             }
                         }
                         Err(error) => {
-                            if !outbound_cancel.is_cancelled() {
+                            if !pump_cancel.is_cancelled() {
                                 report_pump_failure(
-                                    &outbound_failure,
-                                    &outbound_cancel,
+                                    &pump_failure,
+                                    &pump_cancel,
                                     format!("failed to receive a MASQUE packet: {error}"),
                                 );
                             }
@@ -680,7 +736,7 @@ fn start_packet_pumps(
         tunnel.shutdown().await;
     });
 
-    vec![wait_task, inbound_task, outbound_task]
+    vec![wait_task, pump_task]
 }
 
 fn report_pump_failure(
@@ -950,28 +1006,6 @@ impl WindowsAgentClient {
         {
             agent_response::Payload::State(state)
                 if state.phase == agent_v1::AgentPhase::Clean as i32 =>
-            {
-                Ok(state)
-            }
-            agent_response::Payload::State(state) => {
-                Err(WindowsVpnError::UnexpectedAgentPhase(state.phase))
-            }
-            payload => Err(WindowsVpnError::UnexpectedResponse(payload_name(&payload))),
-        }
-    }
-
-    async fn pause(&self, operation_id: Uuid, seconds: u32) -> Result<AgentState, WindowsVpnError> {
-        match self
-            .call(agent_request::Payload::PauseKillSwitch(
-                PauseKillSwitchRequest {
-                    operation_id: operation_id.to_string(),
-                    seconds,
-                },
-            ))
-            .await?
-        {
-            agent_response::Payload::State(state)
-                if state.phase == agent_v1::AgentPhase::Paused as i32 =>
             {
                 Ok(state)
             }
@@ -1314,6 +1348,8 @@ pub(crate) enum WindowsVpnError {
     MissingCapabilities(String),
     #[error("Windows system proxy requires a Loopback listener, got {0}")]
     InvalidSystemProxyListener(std::net::SocketAddr),
+    #[error("Windows system proxy requires an active Loopback HTTP listener")]
+    MissingSystemProxyListener,
     #[error(
         "Windows Agent has persistent recovery state (phase {phase}, operation {operation_id}); explicit recovery is required"
     )]
@@ -1382,7 +1418,7 @@ mod tests {
     }
 
     #[test]
-    fn tunnel_plan_filters_dns_to_the_enabled_tunnel_family() {
+    fn endpoint_only_policy_preserves_dual_stack_tunnel_dns() {
         let identity_key = MasqueKeyPair::generate();
         let endpoint_key = MasqueKeyPair::generate();
         let identity = MasqueTlsIdentity::new(
@@ -1399,7 +1435,7 @@ mod tests {
 
         let plan = tunnel_plan(&profile, &identity, &["198.51.100.10:443".parse().unwrap()]);
 
-        assert_eq!(plan.dns_servers, vec!["1.1.1.1"]);
+        assert_eq!(plan.dns_servers, vec!["1.1.1.1", "2606:4700:4700::1111"]);
     }
 
     #[test]
