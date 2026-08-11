@@ -62,6 +62,14 @@ updates:
       android-minor-patch:
         patterns: ["*"]
         update-types: [minor, patch]
+    ignore:
+      # Kotlin 2.4.10 is fully supported only through AGP 9.1.x and Gradle
+      # 9.5.x. Keep accepting patch releases, but defer later minor lines
+      # until the upstream compatibility matrices overlap again.
+      - dependency-name: com.android.application
+        update-types: ["version-update:semver-minor"]
+      - dependency-name: gradle-wrapper
+        update-types: ["version-update:semver-minor"]
 
   - package-ecosystem: nuget
     directory: /.config

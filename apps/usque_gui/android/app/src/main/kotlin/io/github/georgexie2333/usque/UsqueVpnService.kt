@@ -192,7 +192,8 @@ class UsqueVpnService : VpnService() {
             }
 
             ACTION_RETAIN_TILE_CONNECTION -> {
-                Unit
+                // Keep the foreground service alive while the tile-triggered
+                // connection is handed over to the regular service lifecycle.
             }
 
             null -> {
