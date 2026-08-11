@@ -77,3 +77,8 @@ updates:
       dotnet-minor-patch:
         patterns: ["*"]
         update-types: [minor, patch]
+    ignore:
+      # WiX 7 adopts the Open Source Maintenance Fee EULA and is not a
+      # compatible upgrade for Usque's pinned WiX 5 installer toolchain.
+      - dependency-name: wix
+        update-types: ["version-update:semver-major"]

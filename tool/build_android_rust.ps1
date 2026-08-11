@@ -30,12 +30,17 @@ if ($CargoAction -eq "clippy") {
 }
 
 if ([string]::IsNullOrWhiteSpace($NdkRoot)) {
-    if (-not [string]::IsNullOrWhiteSpace($env:ANDROID_NDK_HOME)) {
+    # Hosted runners may predefine ANDROID_NDK_HOME to an arbitrary image
+    # default. The repository contract pins NDK 29, so prefer the pinned SDK
+    # side-by-side installation whenever an SDK root is available.
+    if (-not [string]::IsNullOrWhiteSpace($env:ANDROID_SDK_ROOT)) {
+        $NdkRoot = Join-Path $env:ANDROID_SDK_ROOT "ndk/$ndkVersion"
+    } elseif (-not [string]::IsNullOrWhiteSpace($env:ANDROID_HOME)) {
+        $NdkRoot = Join-Path $env:ANDROID_HOME "ndk/$ndkVersion"
+    } elseif (-not [string]::IsNullOrWhiteSpace($env:ANDROID_NDK_HOME)) {
         $NdkRoot = $env:ANDROID_NDK_HOME
     } elseif (-not [string]::IsNullOrWhiteSpace($env:ANDROID_NDK_ROOT)) {
         $NdkRoot = $env:ANDROID_NDK_ROOT
-    } elseif (-not [string]::IsNullOrWhiteSpace($env:ANDROID_SDK_ROOT)) {
-        $NdkRoot = Join-Path $env:ANDROID_SDK_ROOT "ndk/$ndkVersion"
     } else {
         $localProperties = Join-Path $androidRoot "local.properties"
         if (Test-Path -LiteralPath $localProperties) {
@@ -90,7 +95,10 @@ $libclangDirectory =
 if ($isWindowsHost) {
     $toolchainBin
 } else {
-    Join-Path $NdkRoot "toolchains/llvm/prebuilt/$hostTag/lib64"
+    # NDK r29 follows the upstream LLVM layout on Linux and ships libclang
+    # directly under lib/. Older NDK images used lib64/, but accepting that
+    # layout here would silently select an unpinned runner default again.
+    Join-Path $NdkRoot "toolchains/llvm/prebuilt/$hostTag/lib"
 }
 $libclang =
 if ($isWindowsHost) {

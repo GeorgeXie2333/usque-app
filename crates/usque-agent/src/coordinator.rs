@@ -1337,10 +1337,15 @@ mod tests {
     }
 
     fn caller() -> AuthenticatedCaller {
+        #[cfg(windows)]
+        let executable_path = PathBuf::from(r"C:\Program Files\Usque\usque-engine.exe");
+        #[cfg(not(windows))]
+        let executable_path = PathBuf::from("/opt/usque/usque-engine");
+
         AuthenticatedCaller {
             process_id: 42,
             user_sid: "S-1-5-21-1000".to_owned(),
-            executable_path: PathBuf::from(r"C:\Program Files\Usque\usque-engine.exe"),
+            executable_path,
             process_handle: None,
         }
     }

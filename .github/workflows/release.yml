@@ -16,6 +16,7 @@ env:
   CARGO_TERM_COLOR: always
   CMAKE_GENERATOR: Ninja
   FLUTTER_COMMIT: 84fc5cbb223bc12f83d65b647ff8a56caf779ffd
+  FLUTTER_VERSION: 3.44.7
   RELEASE_TAG: v0.1.1-beta.2
   DOTNET_CLI_TELEMETRY_OPTOUT: "1"
 
@@ -141,8 +142,10 @@ jobs:
           $flutter = Join-Path $env:RUNNER_TEMP "flutter"
           git init $flutter
           git -C $flutter remote add origin https://github.com/flutter/flutter.git
-          git -C $flutter fetch --depth 1 origin $env:FLUTTER_COMMIT
-          git -C $flutter checkout --detach FETCH_HEAD
+          $tagRef = "refs/tags/$($env:FLUTTER_VERSION)"
+          $refspec = "$($tagRef):$($tagRef)"
+          git -C $flutter fetch --depth 1 origin $refspec
+          git -C $flutter checkout --detach $tagRef
           if ((git -C $flutter rev-parse HEAD) -ne $env:FLUTTER_COMMIT) {
             throw "Flutter checkout does not match FLUTTER_COMMIT."
           }
@@ -403,8 +406,9 @@ jobs:
           mkdir -p "$RUNNER_TEMP/flutter"
           git -C "$RUNNER_TEMP/flutter" init
           git -C "$RUNNER_TEMP/flutter" remote add origin https://github.com/flutter/flutter.git
-          git -C "$RUNNER_TEMP/flutter" fetch --depth 1 origin "$FLUTTER_COMMIT"
-          git -C "$RUNNER_TEMP/flutter" checkout --detach FETCH_HEAD
+          git -C "$RUNNER_TEMP/flutter" fetch --depth 1 origin \
+            "refs/tags/$FLUTTER_VERSION:refs/tags/$FLUTTER_VERSION"
+          git -C "$RUNNER_TEMP/flutter" checkout --detach "refs/tags/$FLUTTER_VERSION"
           test "$(git -C "$RUNNER_TEMP/flutter" rev-parse HEAD)" = "$FLUTTER_COMMIT"
           echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
 
@@ -414,7 +418,11 @@ jobs:
           rustup toolchain install 1.97.1 --profile minimal
           rustup default 1.97.1
           rustup target add aarch64-linux-android
-          sdkmanager \
+          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          test -n "$android_sdk"
+          sdkmanager="$android_sdk/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$sdkmanager"
+          "$sdkmanager" \
             "platforms;android-36" \
             "build-tools;36.0.0" \
             "ndk;29.0.14206865" \
@@ -546,7 +554,6 @@ jobs:
           candidate="$RUNNER_TEMP/candidate"
           count=0
           while IFS= read -r -d '' artifact; do
-            name="$(basename "$artifact")"
             context="$(mktemp -d "$RUNNER_TEMP/sbom-context.XXXXXX")"
             cp "$artifact" "$context/"
             cp Cargo.lock "$context/"

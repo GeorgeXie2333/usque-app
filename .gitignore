@@ -45,6 +45,9 @@ dist/.vscode/
 **/.flutter-plugins
 **/.flutter-plugins-dependencies
 **/build/
+!third_party/boring-sys-4.22.0/build/
+!third_party/boring-sys-4.22.0/build/main.rs
+!third_party/boring-sys-4.22.0/build/config.rs
 **/.packages
 
 # Python tooling

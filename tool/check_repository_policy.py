@@ -40,7 +40,7 @@ PLACEHOLDERS = (
     "TBD: security",
 )
 TITLE_PATTERN = re.compile(
-    r"^(?:feat|fix|perf|refactor|docs|test|build|ci|chore|revert)"
+    r"^(?:feat|fix|perf|refactor|docs|test|build|ci|chore|deps|revert)"
     r"(?:\([a-z0-9][a-z0-9._/-]*\))?!?: .+\S$"
 )
 MARKDOWN_LINK_PATTERN = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")

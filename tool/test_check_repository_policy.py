@@ -15,6 +15,9 @@ class PullRequestTitleTests(unittest.TestCase):
     def test_accepts_conventional_title(self) -> None:
         self.assertEqual([], validate_pr_title("fix(android): reconnect HTTP proxy"))
 
+    def test_accepts_dependabot_title(self) -> None:
+        self.assertEqual([], validate_pr_title("deps(actions): bump actions/checkout"))
+
     def test_rejects_unstructured_and_draft_titles(self) -> None:
         self.assertTrue(validate_pr_title("Reconnect the proxy"))
         self.assertTrue(validate_pr_title("WIP: fix(android): reconnect proxy"))

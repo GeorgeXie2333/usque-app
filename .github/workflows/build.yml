@@ -18,6 +18,7 @@ env:
   CARGO_INCREMENTAL: "0"
   CMAKE_GENERATOR: Ninja
   FLUTTER_COMMIT: 84fc5cbb223bc12f83d65b647ff8a56caf779ffd
+  FLUTTER_VERSION: 3.44.7
 
 jobs:
   windows:
@@ -45,8 +46,10 @@ jobs:
           $flutter = Join-Path $env:RUNNER_TEMP "flutter"
           git init $flutter
           git -C $flutter remote add origin https://github.com/flutter/flutter.git
-          git -C $flutter fetch --depth 1 origin $env:FLUTTER_COMMIT
-          git -C $flutter checkout --detach FETCH_HEAD
+          $tagRef = "refs/tags/$($env:FLUTTER_VERSION)"
+          $refspec = "$($tagRef):$($tagRef)"
+          git -C $flutter fetch --depth 1 origin $refspec
+          git -C $flutter checkout --detach $tagRef
           if ((git -C $flutter rev-parse HEAD) -ne $env:FLUTTER_COMMIT) {
             throw "Flutter revision mismatch."
           }
@@ -61,7 +64,19 @@ jobs:
           rustup toolchain install 1.97.1 --profile minimal --component clippy,rustfmt
           rustup default 1.97.1
           rustup target add x86_64-pc-windows-msvc
-          sdkmanager.bat "ndk;29.0.14206865" "cmake;3.22.1"
+          $androidSdk = if (-not [string]::IsNullOrWhiteSpace($env:ANDROID_SDK_ROOT)) {
+            $env:ANDROID_SDK_ROOT
+          } else {
+            $env:ANDROID_HOME
+          }
+          if ([string]::IsNullOrWhiteSpace($androidSdk)) {
+            throw "Android SDK root is unavailable."
+          }
+          $sdkManager = Join-Path $androidSdk "cmdline-tools\latest\bin\sdkmanager.bat"
+          if (-not (Test-Path -LiteralPath $sdkManager -PathType Leaf)) {
+            throw "sdkmanager.bat was not found at $sdkManager"
+          }
+          & $sdkManager "ndk;29.0.14206865" "cmake;3.22.1"
 
       - name: Create ignored local SDK configuration
         shell: pwsh
@@ -157,8 +172,9 @@ jobs:
           mkdir -p "$RUNNER_TEMP/flutter"
           git -C "$RUNNER_TEMP/flutter" init
           git -C "$RUNNER_TEMP/flutter" remote add origin https://github.com/flutter/flutter.git
-          git -C "$RUNNER_TEMP/flutter" fetch --depth 1 origin "$FLUTTER_COMMIT"
-          git -C "$RUNNER_TEMP/flutter" checkout --detach FETCH_HEAD
+          git -C "$RUNNER_TEMP/flutter" fetch --depth 1 origin \
+            "refs/tags/$FLUTTER_VERSION:refs/tags/$FLUTTER_VERSION"
+          git -C "$RUNNER_TEMP/flutter" checkout --detach "refs/tags/$FLUTTER_VERSION"
           test "$(git -C "$RUNNER_TEMP/flutter" rev-parse HEAD)" = "$FLUTTER_COMMIT"
           echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
 
@@ -168,7 +184,11 @@ jobs:
           rustup toolchain install 1.97.1 --profile minimal --component clippy
           rustup default 1.97.1
           rustup target add aarch64-linux-android
-          sdkmanager \
+          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          test -n "$android_sdk"
+          sdkmanager="$android_sdk/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$sdkmanager"
+          "$sdkmanager" \
             "platforms;android-36" \
             "build-tools;36.0.0" \
             "ndk;29.0.14206865" \
