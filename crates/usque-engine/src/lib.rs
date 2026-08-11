@@ -7,12 +7,12 @@
 
 use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
+    sync::Arc,
     time::Instant,
 };
+
+#[cfg(any(windows, test))]
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use ipnet::IpNet;
 use thiserror::Error;
@@ -38,7 +38,9 @@ use usque_transport::{
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
+#[cfg(any(windows, test))]
 mod event_stream;
+#[cfg(any(windows, target_os = "macos", test))]
 mod ipc_stream;
 pub mod logging;
 mod maintenance;
@@ -65,6 +67,7 @@ pub struct ControlService {
     data_plane: Mutex<Option<ActiveDataPlane>>,
     disconnect_cleanup: Mutex<Option<tokio::task::JoinHandle<Result<(), ControlServiceError>>>>,
     maintenance: maintenance::Maintenance,
+    #[cfg(any(windows, test))]
     event_sequence: AtomicU64,
 }
 
@@ -457,6 +460,7 @@ impl ControlService {
             vault,
             data_plane: Mutex::new(None),
             disconnect_cleanup: Mutex::new(None),
+            #[cfg(any(windows, test))]
             event_sequence: AtomicU64::new(0),
         })
     }
@@ -773,10 +777,12 @@ impl ControlService {
         state.snapshot().clone()
     }
 
+    #[cfg(any(windows, test))]
     pub(crate) async fn event_snapshot(&self) -> v1::ConnectionSnapshot {
         snapshot_to_proto(&self.status_snapshot().await)
     }
 
+    #[cfg(any(windows, test))]
     pub(crate) fn next_event_sequence(&self) -> u64 {
         self.event_sequence.fetch_add(1, Ordering::Relaxed) + 1
     }
@@ -886,7 +892,9 @@ impl ControlService {
             )
             .await
             {
-                Ok(mut runtime) => {
+                Ok(runtime) => {
+                    #[cfg(windows)]
+                    let mut runtime = runtime;
                     #[cfg(windows)]
                     let system_proxy = if profile.frontends.http && profile.proxy.system_proxy {
                         let listener = runtime
@@ -2786,11 +2794,7 @@ mod tests {
             .await;
         assert_eq!(
             retry.error.as_ref().map(|error| error.code.as_str()),
-            Some(if cfg!(windows) {
-                "MISSING_CREDENTIAL"
-            } else {
-                "OPERATING_MODE_UNAVAILABLE"
-            })
+            Some("MISSING_CREDENTIAL")
         );
 
         let profile_id = service.config_snapshot().await.active_profile_id.unwrap();
@@ -2870,7 +2874,14 @@ mod tests {
         let directory = tempfile::tempdir().expect("tempdir");
         let service = ControlService::open(ConfigStore::new(directory.path().join("config.json")))
             .expect("service");
-        let profile_id = service.config_snapshot().await.profiles[0].id;
+        let mut profile = service.config_snapshot().await.profiles[0].clone();
+        profile.frontends = FrontendSettings {
+            tunnel: true,
+            socks5: false,
+            http: false,
+        };
+        let profile_id = profile.id;
+        service.upsert_profile(profile).await.expect("upsert");
 
         let response = service
             .handle(request(

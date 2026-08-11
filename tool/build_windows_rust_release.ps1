@@ -79,6 +79,9 @@ if (-not [string]::IsNullOrWhiteSpace($env:LIBCLANG_PATH) -and
 }
 if ($null -eq $libClangDirectory) {
     $visualStudioLibClang = & $vswhere -latest -products * -find "**\libclang.dll" |
+        # VS 18 can install the ARM64 LLVM tools beside x64. bindgen will find
+        # an ARM64 DLL by name but cannot load it in the x64 Cargo process.
+        Where-Object { $_ -notmatch '[\\/]ARM64[\\/]' } |
         Select-Object -First 1
     if (-not [string]::IsNullOrWhiteSpace($visualStudioLibClang)) {
         $libClangDirectory = Split-Path -Parent $visualStudioLibClang

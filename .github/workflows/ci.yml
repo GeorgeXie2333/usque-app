@@ -20,6 +20,7 @@ env:
   CARGO_INCREMENTAL: "0"
   CMAKE_GENERATOR: Ninja
   FLUTTER_COMMIT: 84fc5cbb223bc12f83d65b647ff8a56caf779ffd
+  FLUTTER_VERSION: 3.44.7
 
 jobs:
   workflow-lint:
@@ -171,13 +172,16 @@ jobs:
 
       - name: Proto breaking check against PR target
         if: github.event_name == 'pull_request'
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          git fetch --no-tags origin "${{ github.base_ref }}"
+          [[ "$PR_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git cat-file -e "${PR_BASE_SHA}^{commit}"
           # --against-config applies the current module path policy (proto/) even when
           # the PR base lacks buf.yaml, avoiding false FILE-path breaking failures.
           buf breaking \
-            --against ".git#ref=refs/remotes/origin/${{ github.base_ref }}" \
+            --against ".git#ref=${PR_BASE_SHA}" \
             --against-config buf.yaml
 
   android-host:
@@ -202,8 +206,9 @@ jobs:
           mkdir -p "$RUNNER_TEMP/flutter"
           git -C "$RUNNER_TEMP/flutter" init
           git -C "$RUNNER_TEMP/flutter" remote add origin https://github.com/flutter/flutter.git
-          git -C "$RUNNER_TEMP/flutter" fetch --depth 1 origin "$FLUTTER_COMMIT"
-          git -C "$RUNNER_TEMP/flutter" checkout --detach FETCH_HEAD
+          git -C "$RUNNER_TEMP/flutter" fetch --depth 1 origin \
+            "refs/tags/$FLUTTER_VERSION:refs/tags/$FLUTTER_VERSION"
+          git -C "$RUNNER_TEMP/flutter" checkout --detach "refs/tags/$FLUTTER_VERSION"
           test "$(git -C "$RUNNER_TEMP/flutter" rev-parse HEAD)" = "$FLUTTER_COMMIT"
           echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
 
@@ -212,7 +217,11 @@ jobs:
           rustup toolchain install 1.97.1 --profile minimal --component clippy
           rustup default 1.97.1
           rustup target add aarch64-linux-android
-          sdkmanager \
+          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          test -n "$android_sdk"
+          sdkmanager="$android_sdk/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$sdkmanager"
+          "$sdkmanager" \
             "platforms;android-36" \
             "build-tools;36.0.0" \
             "ndk;29.0.14206865" \
@@ -255,8 +264,9 @@ jobs:
           mkdir -p "$RUNNER_TEMP/flutter"
           git -C "$RUNNER_TEMP/flutter" init
           git -C "$RUNNER_TEMP/flutter" remote add origin https://github.com/flutter/flutter.git
-          git -C "$RUNNER_TEMP/flutter" fetch --depth 1 origin "$FLUTTER_COMMIT"
-          git -C "$RUNNER_TEMP/flutter" checkout --detach FETCH_HEAD
+          git -C "$RUNNER_TEMP/flutter" fetch --depth 1 origin \
+            "refs/tags/$FLUTTER_VERSION:refs/tags/$FLUTTER_VERSION"
+          git -C "$RUNNER_TEMP/flutter" checkout --detach "refs/tags/$FLUTTER_VERSION"
           echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
 
       - name: Verify Flutter revision
@@ -289,6 +299,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Install Go

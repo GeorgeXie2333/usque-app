@@ -602,6 +602,7 @@ fn valid_sid_text(value: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || byte == b'-')
 }
 
+#[cfg(windows)]
 pub(crate) fn valid_sid(value: &str) -> bool {
     valid_sid_text(value)
 }
