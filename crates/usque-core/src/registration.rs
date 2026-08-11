@@ -4,7 +4,7 @@ use std::time::Duration;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use chrono::{SecondsFormat, Utc};
-use p256::elliptic_curve::rand_core::{OsRng, RngCore};
+use p256::elliptic_curve::Generate;
 use reqwest::{Client, Method, StatusCode, Url};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use thiserror::Error;
@@ -466,10 +466,8 @@ struct RegistrationRequest<'a> {
 
 impl<'a> RegistrationRequest<'a> {
     fn new(options: &'a RegistrationOptions) -> Self {
-        let mut wireguard_placeholder = [0_u8; 32];
-        let mut serial = [0_u8; 8];
-        OsRng.fill_bytes(&mut wireguard_placeholder);
-        OsRng.fill_bytes(&mut serial);
+        let wireguard_placeholder = <[u8; 32]>::generate();
+        let serial = <[u8; 8]>::generate();
         Self {
             key: BASE64_STANDARD.encode(wireguard_placeholder),
             install_id: "",
