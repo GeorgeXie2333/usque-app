@@ -33,7 +33,7 @@ Usque 是独立项目，与 Cloudflare 无隶属、赞助或背书关系。Cloud
 | Windows | MSI | Windows 10 22H2，Build 19045 | x86-64-v2 |
 | Android / Android TV | APK | Android 8.0，API 26 | arm64-v8a |
 
-macOS 保留为后续源码目标，但不参与当前构建或发布门禁。本 Beta 不支持 Linux、iOS、Zero Trust、应用商店、公开 CLI 或多路径带宽聚合。
+macOS 保留为后续源码目标，但不参与当前构建或发布门禁。本 Beta 不支持 iOS、Zero Trust、应用商店、公开 CLI 或多路径带宽聚合。
 
 ## 主要功能
 

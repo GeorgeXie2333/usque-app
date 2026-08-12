@@ -33,7 +33,7 @@ The `v0.1.1-beta.2` release is blocked until every declared target passes instal
 | Windows | MSI | Windows 10 22H2, build 19045 | x86-64-v2 |
 | Android / Android TV | APK | Android 8.0, API 26 | arm64-v8a |
 
-macOS remains a future source target and is not a build or release gate. Linux, iOS, Zero Trust, application stores, a public CLI, and multipath bandwidth aggregation are outside this beta.
+macOS remains a future source target and is not a build or release gate. iOS, Zero Trust, application stores, a public CLI, and multipath bandwidth aggregation are outside this beta.
 
 ## Highlights
 
