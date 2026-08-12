@@ -438,6 +438,29 @@ jobs:
           dotnet tool restore
           dotnet tool run wix -- extension add WixToolset.UI.wixext/5.0.2
 
+      - name: Verify MSI version mapping
+        shell: pwsh
+        run: |
+          $stable = & ./tool/convert_to_msi_version.ps1 -SemVer "v0.1.2"
+          if ($stable -ne "0.1.299") {
+            throw "Stable MSI version mapping is invalid: $stable"
+          }
+
+          $beta = & ./tool/convert_to_msi_version.ps1 -SemVer "0.1.2-beta.3"
+          if ($beta -ne "0.1.203") {
+            throw "Beta MSI version mapping is invalid: $beta"
+          }
+
+          $rejected = $false
+          try {
+            & ./tool/convert_to_msi_version.ps1 -SemVer "0.1.2-beta.0"
+          } catch {
+            $rejected = $_.Exception.Message -like "Beta ordinal must be*"
+          }
+          if (-not $rejected) {
+            throw "Invalid beta ordinal was not rejected."
+          }
+
       - name: Create inert authoring fixture
         shell: pwsh
         run: |
