@@ -43,9 +43,9 @@ if ($null -eq $signature.SignerCertificate) {
 
 $valid = $signature.Status -eq [System.Management.Automation.SignatureStatus]::Valid
 $pinnedSelfSigned =
-    $AllowPinnedUntrustedRoot -and
-    $signature.Status -eq [System.Management.Automation.SignatureStatus]::UnknownError -and
-    $signature.SignerCertificate.Subject -eq $signature.SignerCertificate.Issuer
+$AllowPinnedUntrustedRoot -and
+$signature.Status -eq [System.Management.Automation.SignatureStatus]::UnknownError -and
+$signature.SignerCertificate.Subject -eq $signature.SignerCertificate.Issuer
 if (-not $valid -and -not $pinnedSelfSigned) {
     throw "Authenticode verification failed for $resolvedPath ($($signature.Status))."
 }
