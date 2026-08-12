@@ -681,7 +681,7 @@ internal class AndroidEngineMethodHandler(
                 mainScheduler.post {
                     result.error(
                         "UPDATE_CHECK_FAILED",
-                        "The GitHub prerelease update check failed.",
+                        "The GitHub release update check failed.",
                         error.javaClass.simpleName,
                     )
                 }

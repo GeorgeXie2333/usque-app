@@ -13,12 +13,12 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA_VERSION = 1
-TAG_PATTERN = re.compile(r"^v\d+\.\d+\.\d+-beta\.\d+$")
+TAG_PATTERN = re.compile(r"^v\d+\.\d+\.\d+(?:-beta\.\d+)?$")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 
-WINDOWS_VARIANTS = ("x64-v2",)
-ANDROID_VARIANTS = ("arm64-v8a",)
+WINDOWS_VARIANTS = ("x64-v2", "arm64")
+ANDROID_VARIANTS = ("arm64-v8a", "x86_64", "armeabi-v7a", "universal")
 
 COMMON_TESTS = frozenset(
     {
@@ -88,6 +88,7 @@ ANDROID_TESTS = COMMON_TESTS | frozenset(
 WINDOWS_DEVICES = {
     "windows-10-19045-x64-v2": "x64-v2",
     "windows-11-x64-v2": "x64-v2",
+    "windows-11-arm64": "arm64",
 }
 
 ANDROID_DEVICES = {
@@ -95,11 +96,14 @@ ANDROID_DEVICES = {
     "android-api33-arm64": "arm64-v8a",
     "android-current-arm64": "arm64-v8a",
     "android-tv-arm64": "arm64-v8a",
+    "android-8-armv7": "armeabi-v7a",
+    "android-current-x86_64": "x86_64",
+    "android-current-universal": "universal",
 }
 
 
 class ContractError(ValueError):
-    """A release input violates the public beta contract."""
+    """A release input violates the protected release contract."""
 
 
 def sha256_file(path: Path) -> str:
@@ -133,7 +137,7 @@ def load_json(path: Path) -> dict[str, Any]:
 
 def expected_artifact_names(tag: str) -> dict[str, tuple[str, str]]:
     if not TAG_PATTERN.fullmatch(tag):
-        raise ContractError(f"unsupported public beta tag: {tag}")
+        raise ContractError(f"unsupported release tag: {tag}")
     expected: dict[str, tuple[str, str]] = {}
     for variant in WINDOWS_VARIANTS:
         expected[f"usque-{tag}-windows-{variant}.msi"] = ("windows", variant)

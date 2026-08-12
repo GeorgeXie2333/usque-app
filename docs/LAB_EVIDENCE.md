@@ -58,7 +58,7 @@ attachments, path traversal, digest changes, incomplete devices/tests, a soak
 shorter than 24 hours, fewer than 100 cycles, throughput below 90% of the Go
 oracle, p95 latency above 110%, or memory above 125%.
 
-For `v0.1.1-beta.2`, the proxy matrix is an additional release gate. At every
+For `v0.1.2`, the proxy matrix is an additional release gate. At every
 declared RTT, each single-stream HTTP CONNECT and SOCKS5 TCP result must reach at
 least 80% of the same-build TUN baseline, and each four-stream aggregate must
 reach at least 90%. The laboratory must use the exact candidate binary and the
@@ -83,11 +83,15 @@ change. The current device IDs are:
 | --- | --- | --- |
 | Windows | `windows-10-19045-x64-v2` | x64-v2 MSI |
 | Windows | `windows-11-x64-v2` | x64-v2 MSI |
+| Windows | `windows-11-arm64` | ARM64 MSI |
 | Android | `android-8-arm64` | arm64-v8a APK |
 | Android | `android-api33-arm64` | arm64-v8a APK |
 | Android | `android-current-arm64` | arm64-v8a APK |
 | Android TV | `android-tv-arm64` | arm64-v8a APK |
+| Android | `android-8-armv7` | armeabi-v7a APK |
+| Android emulator | `android-current-x86_64` | x86_64 APK |
+| Android | `android-current-universal` | universal APK |
 
 Evidence attachments are retained as protected workflow artifacts for 90 days.
-The public prerelease receives the validated evidence JSON and its attachment
+The public release receives the validated evidence JSON and its attachment
 hashes, not raw captures that may contain laboratory addresses.

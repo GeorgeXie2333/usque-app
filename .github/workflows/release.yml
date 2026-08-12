@@ -1,12 +1,12 @@
-name: Public beta release
+name: Public release
 
 on:
   push:
     tags:
-      - "v0.1.1-beta.2"
+      - "v0.1.2"
 
 concurrency:
-  group: public-beta-${{ github.ref }}
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -17,7 +17,7 @@ env:
   CMAKE_GENERATOR: Ninja
   FLUTTER_COMMIT: 84fc5cbb223bc12f83d65b647ff8a56caf779ffd
   FLUTTER_VERSION: 3.44.7
-  RELEASE_TAG: v0.1.1-beta.2
+  RELEASE_TAG: v0.1.2
   DOTNET_CLI_TELEMETRY_OPTOUT: "1"
 
 jobs:
@@ -104,7 +104,7 @@ jobs:
   windows:
     name: Windows ${{ matrix.variant }}
     needs: release-gate
-    runs-on: windows-2025
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 180
     environment: release-signing
     permissions:
@@ -117,9 +117,17 @@ jobs:
       matrix:
         include:
           - variant: x64-v2
+            runner: windows-2025
             rust_target: x86_64-pc-windows-msvc
-            rust_cpu: x86-64-v2
+            flutter_arch: x64
             wintun_arch: amd64
+            pe_arch: x64
+          - variant: arm64
+            runner: windows-11-arm
+            rust_target: aarch64-pc-windows-msvc
+            flutter_arch: arm64
+            wintun_arch: arm64
+            pe_arch: arm64
     env:
       WINDOWS_SIGNING_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
       WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
@@ -153,18 +161,11 @@ jobs:
 
       - name: Build locked Rust binaries
         shell: pwsh
-        env:
-          RUSTFLAGS: -C target-cpu=${{ matrix.rust_cpu }}
         run: |
           rustup toolchain install 1.97.1 --profile minimal
           rustup default 1.97.1
           rustup target add "${{ matrix.rust_target }}"
-          cargo build `
-            --package usque-engine `
-            --package usque-agent `
-            --release `
-            --locked `
-            --target "${{ matrix.rust_target }}"
+          & ./tool/build_windows_rust_release.ps1 -Variant "${{ matrix.variant }}"
 
       - name: Build locked Flutter host
         working-directory: apps/usque_gui
@@ -177,12 +178,11 @@ jobs:
       - name: Assemble unsigned application payload
         shell: pwsh
         run: |
-          $app = Get-ChildItem apps/usque_gui/build/windows -Recurse -Filter usque.exe |
-            Where-Object { $_.Directory.Name -eq "Release" } |
-            Select-Object -First 1
-          if ($null -eq $app) { throw "Flutter Windows executable not found." }
+          $releaseDirectory = (
+            Resolve-Path "apps/usque_gui/build/windows/${{ matrix.flutter_arch }}/runner/Release"
+          ).Path
           $payload = Join-Path $env:RUNNER_TEMP "usque-payload-${{ matrix.variant }}"
-          Copy-Item $app.Directory.FullName $payload -Recurse
+          Copy-Item $releaseDirectory $payload -Recurse
           Copy-Item `
             "target/${{ matrix.rust_target }}/release/usque-engine.exe" `
             $payload
@@ -192,6 +192,9 @@ jobs:
           Copy-Item `
             "third_party/wintun-0.14.1/wintun/bin/${{ matrix.wintun_arch }}/wintun.dll" `
             $payload
+          & ./tool/verify_pe_architecture.ps1 `
+            -Root $payload `
+            -Architecture "${{ matrix.pe_arch }}"
           $payload | Out-File -FilePath (Join-Path $env:RUNNER_TEMP "payload-path.txt")
 
       - name: Import protected signing identity
@@ -417,7 +420,10 @@ jobs:
           set -euo pipefail
           rustup toolchain install 1.97.1 --profile minimal
           rustup default 1.97.1
-          rustup target add aarch64-linux-android
+          rustup target add \
+            aarch64-linux-android \
+            armv7-linux-androideabi \
+            x86_64-linux-android
           android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
           test -n "$android_sdk"
           sdkmanager="$android_sdk/cmdline-tools/latest/bin/sdkmanager"
@@ -451,13 +457,69 @@ jobs:
         working-directory: apps/usque_gui
         run: flutter --suppress-analytics pub get --enforce-lockfile
 
-      - name: Build signed arm64-v8a APK
+      - name: Build signed split and universal APKs
         working-directory: apps/usque_gui
         env:
-          USQUE_ANDROID_ABI: arm64-v8a
-        run: flutter --suppress-analytics build apk --release --split-per-abi --target-platform android-arm64 --no-pub
+          USQUE_ANDROID_ABI: all
+        run: |
+          flutter --suppress-analytics build apk \
+            --release \
+            --split-per-abi \
+            --target-platform android-arm,android-arm64,android-x64 \
+            --no-pub
+          flutter --suppress-analytics build apk \
+            --release \
+            --target-platform android-arm,android-arm64,android-x64 \
+            --no-pub
 
-      - name: Preserve split APKs
+      - name: Verify APK architectures and release hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_dir="apps/usque_gui/build/app/outputs/flutter-apk"
+          declare -A expected_abis=(
+            [app-arm64-v8a-release.apk]="arm64-v8a"
+            [app-armeabi-v7a-release.apk]="armeabi-v7a"
+            [app-x86_64-release.apk]="x86_64"
+            [app-release.apk]="arm64-v8a armeabi-v7a x86_64"
+          )
+          count=0
+          for name in "${!expected_abis[@]}"; do
+            apk="$source_dir/$name"
+            test -s "$apk"
+            entries="$RUNNER_TEMP/$name.entries"
+            unzip -Z1 "$apk" > "$entries"
+            actual_abis="$(
+              sed -nE 's#^lib/([^/]+)/.*#\1#p' "$entries" |
+                sort -u |
+                paste -sd ' ' -
+            )"
+            test "$actual_abis" = "${expected_abis[$name]}" || {
+              echo "::error::Unexpected ABI set in $name: $actual_abis"
+              exit 1
+            }
+            for abi in ${expected_abis[$name]}; do
+              grep -q "^lib/$abi/libusque_android\.so$" "$entries"
+            done
+            if grep -Eq 'kernel_blob\.bin|libVkLayer_khronos_validation\.so' "$entries"; then
+              echo "::error::$name contains a forbidden debug artifact."
+              exit 1
+            fi
+            while IFS= read -r library; do
+              extracted="$RUNNER_TEMP/$(tr '/.' '__' <<<"$library")"
+              unzip -p "$apk" "$library" > "$extracted"
+              sections="$extracted.sections"
+              readelf --sections "$extracted" > "$sections"
+              if grep -q '\.debug_info' "$sections"; then
+                echo "::error::$library in $name contains debug information."
+                exit 1
+              fi
+            done < <(grep '/libusque_android\.so$' "$entries")
+            count=$((count + 1))
+          done
+          test "$count" -eq 4
+
+      - name: Preserve release APKs with fixed names
         shell: bash
         run: |
           set -euo pipefail
@@ -466,12 +528,20 @@ jobs:
           source_dir="apps/usque_gui/build/app/outputs/flutter-apk"
           cp "$source_dir/app-arm64-v8a-release.apk" \
             "$output/usque-$RELEASE_TAG-android-arm64-v8a.apk"
+          cp "$source_dir/app-x86_64-release.apk" \
+            "$output/usque-$RELEASE_TAG-android-x86_64.apk"
+          cp "$source_dir/app-armeabi-v7a-release.apk" \
+            "$output/usque-$RELEASE_TAG-android-armeabi-v7a.apk"
+          cp "$source_dir/app-release.apk" \
+            "$output/usque-$RELEASE_TAG-android-universal.apk"
 
       - name: Verify APK signatures and certificate identity
         shell: bash
         run: |
           set -euo pipefail
-          apksigner="$ANDROID_HOME/build-tools/36.0.0/apksigner"
+          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          test -n "$android_sdk"
+          apksigner="$android_sdk/build-tools/36.0.0/apksigner"
           test -x "$apksigner"
           expected="$(tr '[:upper:]' '[:lower:]' <<<"$ANDROID_SIGNER_SHA256")"
           count=0
@@ -491,7 +561,7 @@ jobs:
             }
             count=$((count + 1))
           done
-          test "$count" -eq 1
+          test "$count" -eq 4
 
       - name: Attest Android build provenance
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
@@ -588,7 +658,7 @@ jobs:
               -print0 |
               sort -z
           )
-          test "$count" -eq 2
+          test "$count" -eq 6
 
       - name: Create immutable release manifest and SHA-256 sidecars
         run: |
@@ -606,14 +676,38 @@ jobs:
       - name: Attest x64-v2 MSI SBOM
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
-          subject-path: ${{ runner.temp }}/candidate/usque-v0.1.1-beta.2-windows-x64-v2.msi
-          sbom-path: ${{ runner.temp }}/candidate/usque-v0.1.1-beta.2-windows-x64-v2.msi.spdx.json
+          subject-path: ${{ runner.temp }}/candidate/usque-v0.1.2-windows-x64-v2.msi
+          sbom-path: ${{ runner.temp }}/candidate/usque-v0.1.2-windows-x64-v2.msi.spdx.json
+
+      - name: Attest ARM64 MSI SBOM
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/candidate/usque-v0.1.2-windows-arm64.msi
+          sbom-path: ${{ runner.temp }}/candidate/usque-v0.1.2-windows-arm64.msi.spdx.json
 
       - name: Attest arm64-v8a APK SBOM
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
-          subject-path: ${{ runner.temp }}/candidate/usque-v0.1.1-beta.2-android-arm64-v8a.apk
-          sbom-path: ${{ runner.temp }}/candidate/usque-v0.1.1-beta.2-android-arm64-v8a.apk.spdx.json
+          subject-path: ${{ runner.temp }}/candidate/usque-v0.1.2-android-arm64-v8a.apk
+          sbom-path: ${{ runner.temp }}/candidate/usque-v0.1.2-android-arm64-v8a.apk.spdx.json
+
+      - name: Attest Android x86_64 APK SBOM
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/candidate/usque-v0.1.2-android-x86_64.apk
+          sbom-path: ${{ runner.temp }}/candidate/usque-v0.1.2-android-x86_64.apk.spdx.json
+
+      - name: Attest Android armeabi-v7a APK SBOM
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/candidate/usque-v0.1.2-android-armeabi-v7a.apk
+          sbom-path: ${{ runner.temp }}/candidate/usque-v0.1.2-android-armeabi-v7a.apk.spdx.json
+
+      - name: Attest Android universal APK SBOM
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/candidate/usque-v0.1.2-android-universal.apk
+          sbom-path: ${{ runner.temp }}/candidate/usque-v0.1.2-android-universal.apk.spdx.json
 
       - name: Upload exact release candidate
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -741,7 +835,7 @@ jobs:
           retention-days: 90
 
   publish:
-    name: Generate READY and publish prerelease
+    name: Generate READY and publish release
     needs: [windows-lab, android-lab]
     runs-on: ubuntu-24.04
     environment: release-publish
@@ -803,10 +897,10 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-      - name: Publish GitHub prerelease only after every gate
+      - name: Publish GitHub release only after every gate
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
-          prerelease: true
+          prerelease: false
           draft: false
           fail_on_unmatched_files: true
           generate_release_notes: true

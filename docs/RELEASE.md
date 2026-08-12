@@ -1,14 +1,14 @@
-# Protected public-beta release
+# Protected public release
 
-This is the operational contract for `v0.1.1-beta.2`. It does not declare the
-beta ready. The workflow remains fail-closed until the signing environments,
-hardware laboratories, and every required test are configured and pass.
+This is the operational contract for `v0.1.2`. The workflow remains fail-closed
+until the signing environments, hardware laboratories, and every required test
+are configured and pass.
 
 ## Repository protection
 
 - Follow [GITHUB_GOVERNANCE.md](GITHUB_GOVERNANCE.md) when the repository is
   made public and when the `main` ruleset is created.
-- Protect the exact `v0.1.1-beta.2` tag pattern. Only the release maintainer may
+- Protect the exact `v0.1.2` tag. Only the release maintainer may
   create it. The release gate requires the tag to point to the current `main`
   commit and verifies that the exact SHA has a successful `ci.yml` push run,
   including `CI / gate`, before any signing job can start.
@@ -65,8 +65,9 @@ and every other trust result remain fatal.
 
 ## Artifact flow
 
-1. The exact tag builds one signed x64-v2 MSI and one signed arm64-v8a APK in the
-   approval-protected signing environment.
+1. The exact tag builds signed x64-v2 and ARM64 MSIs plus signed arm64-v8a,
+   x86_64, armeabi-v7a, and universal APKs in the approval-protected signing
+   environment.
 2. Each platform job verifies its certificate identity and creates GitHub build
    provenance.
 3. A staging job downloads those exact artifacts, rejects missing or additional
@@ -77,12 +78,16 @@ and every other trust result remain fatal.
 5. Each lab re-hashes the candidate, runs its fixed external harness, and
    uploads evidence plus every referenced attachment.
 6. The publish job re-verifies both evidence trees. Only then does it generate
-   `release/READY` and create the GitHub prerelease.
+   `release/READY` and create the GitHub release.
 
 The fixed primary files are:
 
-- `usque-v0.1.1-beta.2-windows-x64-v2.msi`
-- `usque-v0.1.1-beta.2-android-arm64-v8a.apk`
+- `usque-v0.1.2-windows-x64-v2.msi`
+- `usque-v0.1.2-windows-arm64.msi`
+- `usque-v0.1.2-android-arm64-v8a.apk`
+- `usque-v0.1.2-android-x86_64.apk`
+- `usque-v0.1.2-android-armeabi-v7a.apk`
+- `usque-v0.1.2-android-universal.apk`
 
 ## Windows package rules
 
@@ -94,7 +99,7 @@ MSI build = SemVer patch * 100 + beta ordinal
 stable ordinal = 99
 ```
 
-Therefore `v0.1.1-beta.2` is MSI ProductVersion `0.1.102`; the actual SemVer is
+Therefore stable `v0.1.2` is MSI ProductVersion `0.1.299`; the actual SemVer is
 kept in ProductName and all filenames. Equal-version major upgrades are enabled
 so a validation build can replace the same product without parallel products
 owning `Program Files\Usque`. WiX validation therefore suppresses only

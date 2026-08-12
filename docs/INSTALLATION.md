@@ -1,19 +1,23 @@
 # Installation and removal
 
-Usque has not published a public beta. This document defines the installation and removal behavior that the first beta must meet; it is not an invitation to install an arbitrary repository build.
+This document defines the verification, installation, upgrade, and removal behavior for the official `v0.1.2` release. It is not an invitation to install an arbitrary repository build.
 
 ## Official packages
 
-Official packages will be attached only to this repository's GitHub prerelease for the exact version tag:
+Official packages are attached only to this repository's GitHub release for the exact version tag:
 
-- `usque-v0.1.1-beta.2-windows-x64-v2.msi`
-- `usque-v0.1.1-beta.2-android-arm64-v8a.apk`
+- `usque-v0.1.2-windows-x64-v2.msi`
+- `usque-v0.1.2-windows-arm64.msi`
+- `usque-v0.1.2-android-arm64-v8a.apk`
+- `usque-v0.1.2-android-x86_64.apk`
+- `usque-v0.1.2-android-armeabi-v7a.apk`
+- `usque-v0.1.2-android-universal.apk`
 
 Each release must also provide SHA-256 sidecars, signer fingerprints, SPDX and CycloneDX SBOMs, dependency license inventories, GitHub build provenance, and laboratory evidence. A local validation package, Actions development output, fork artifact, or file shared elsewhere is not an official release.
 
 ## Verify before installing
 
-1. Download the package and its `.sha256` file from the same GitHub prerelease.
+1. Download the package and its `.sha256` file from the same GitHub release.
 2. Calculate the package SHA-256 and compare the complete 64-character value.
 3. Compare the package signer with the fingerprint published in the release notes.
 4. Verify the GitHub artifact attestation when it is available.
@@ -23,7 +27,7 @@ Never disable endpoint pinning, import signing certificates from an unofficial p
 
 ## Windows
 
-The first beta targets Windows 10 22H2 build 19045 or later on x86-64-v2 processors.
+The release targets Windows 10 22H2 build 19045 or later with separate x86-64-v2 and ARM64 MSIs. Install the package matching the native Windows architecture.
 
 The MSI uses a stable self-signed Authenticode identity, so Windows may show an unknown-publisher warning. The installer does not add that certificate to the machine Root or Trusted Publisher stores. Confirm the exact certificate SHA-256 from the release notes before accepting the warning.
 
@@ -59,7 +63,7 @@ If recovery fails, uninstall stops rather than concealing privileged network res
 
 ## Android and Android TV
 
-The first beta targets Android 8.0 / API 26 or later on arm64-v8a devices, including compatible Android TV devices.
+The release targets Android 8.0 / API 26 or later, including compatible Android TV devices. Use the arm64-v8a package for ARMv8 devices, x86_64 for x64 devices, or armeabi-v7a for ARMv7 devices. The universal APK contains all three ABIs and is larger; use it only when the architecture-specific package cannot be determined.
 
 The APK is signed by a fixed release keystore but is not distributed through Google Play. Android may require an advanced sideload flow or ADB. Verify the APK signing certificate SHA-256 before installation or upgrade.
 
@@ -69,7 +73,7 @@ Uninstalling the application removes its Android Keystore entries and applicatio
 
 ## Updates
 
-Usque never downloads or installs an update automatically. At most once every 24 hours, the application can check this repository for a newer prerelease, display a notification, and open the release page. Automatic checks can be disabled, and a manual check remains available.
+Usque never downloads or installs an update automatically. At most once every 24 hours, the application can check this repository for a newer release, display a notification, and open the release page. Automatic checks can be disabled, and a manual check remains available.
 
 Treat each update as a new package: verify its filename, hash, signer, architecture, and release evidence before installation.
 

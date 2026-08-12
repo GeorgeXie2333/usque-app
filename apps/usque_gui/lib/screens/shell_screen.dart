@@ -198,8 +198,6 @@ class ShellScreen extends StatelessWidget {
                                       context,
                                     ).textTheme.titleLarge,
                                   ),
-                                  const SizedBox(width: 10),
-                                  const _BetaBadge(),
                                 ],
                               ],
                             ),
@@ -258,30 +256,6 @@ class ShellScreen extends StatelessWidget {
           },
         );
       },
-    );
-  }
-}
-
-class _BetaBadge extends StatelessWidget {
-  const _BetaBadge();
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.secondaryContainer,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        child: Text(
-          'BETA',
-          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-            fontWeight: FontWeight.w800,
-            letterSpacing: 0.7,
-          ),
-        ),
-      ),
     );
   }
 }

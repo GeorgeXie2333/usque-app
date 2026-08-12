@@ -54,7 +54,7 @@ The repository owner retains bypass permission. Bypass does not manufacture succ
 
 Keep the protected release contract in [RELEASE.md](RELEASE.md):
 
-- protect the exact beta tag pattern used by the current release workflow;
+- protect the exact stable tag used by the current release workflow;
 - allow only the release maintainer to create a release tag;
 - require approval for `release-signing`, `release-lab`, and `release-publish` environments;
 - keep signing identities only in `release-signing` environment secrets;
@@ -67,4 +67,4 @@ Keep the protected release contract in [RELEASE.md](RELEASE.md):
 - A public test PR runs Dependency Review and rejects a deliberately vulnerable fixture before that fixture is merged.
 - A fork test PR has a read-only token, cannot read secrets, and cannot upload installable output.
 - CodeQL, Dependabot, Secret Scanning, and Push Protection show as enabled under repository security settings.
-- The README continues to say that no public beta exists until the protected release workflow publishes one.
+- The README names only artifacts published by the protected release workflow as official.
