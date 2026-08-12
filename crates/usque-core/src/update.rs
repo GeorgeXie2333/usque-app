@@ -1,4 +1,4 @@
-//! GitHub prerelease update discovery.
+//! GitHub release update discovery.
 //!
 //! The checker only discovers a newer release and returns its GitHub URL. It
 //! never downloads or installs application binaries.

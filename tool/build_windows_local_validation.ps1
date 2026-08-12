@@ -1,8 +1,8 @@
 [CmdletBinding()]
 param(
-    [ValidateSet("x64-v1", "x64-v2")]
+    [ValidateSet("x64-v1", "x64-v2", "arm64")]
     [string]$Variant = "x64-v2",
-    [string]$Version = "0.1.1-beta.2",
+    [string]$Version = "0.1.2",
     [string]$BuildLabel = "local-validation",
     [string]$FlutterReleaseDirectory = "",
     [string]$OutputDirectory = ""
@@ -12,8 +12,25 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$architecture = if ($Variant -eq "arm64") {
+    @{
+        Flutter = "arm64"
+        RustTarget = "aarch64-pc-windows-msvc"
+        SignTool = "arm64"
+        Wintun = "arm64"
+    }
+}
+else {
+    @{
+        Flutter = "x64"
+        RustTarget = "x86_64-pc-windows-msvc"
+        SignTool = "x64"
+        Wintun = "amd64"
+    }
+}
+$displayVersion = $Version.TrimStart("v")
 if ([string]::IsNullOrWhiteSpace($FlutterReleaseDirectory)) {
-    $FlutterReleaseDirectory = Join-Path $repositoryRoot "apps/usque_gui/build/windows/x64/runner/Release"
+    $FlutterReleaseDirectory = Join-Path $repositoryRoot "apps/usque_gui/build/windows/$($architecture.Flutter)/runner/Release"
 }
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
     $OutputDirectory = Join-Path $repositoryRoot "dist/windows"
@@ -22,7 +39,7 @@ $FlutterReleaseDirectory = (Resolve-Path -LiteralPath $FlutterReleaseDirectory).
 New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 $OutputDirectory = (Resolve-Path -LiteralPath $OutputDirectory).Path
 
-$stagingRoot = Join-Path $repositoryRoot "build/v0.1.1-windows-$Variant-local-packaging"
+$stagingRoot = Join-Path $repositoryRoot "build/v$displayVersion-windows-$Variant-local-packaging"
 if (Test-Path -LiteralPath $stagingRoot) {
     throw "Refusing to reuse the local signing staging directory: $stagingRoot"
 }
@@ -33,7 +50,7 @@ New-Item -ItemType Directory -Path $stagingRoot | Out-Null
 $certificate = $null
 $certificateThumbprint = $null
 $certificateSha256 = $null
-$finalMsi = Join-Path $OutputDirectory "usque-v$Version-windows-$Variant-$BuildLabel.msi"
+$finalMsi = Join-Path $OutputDirectory "usque-v$displayVersion-windows-$Variant-$BuildLabel.msi"
 
 function Get-CertificateSha256 {
     param(
@@ -77,13 +94,13 @@ function Assert-PinnedLocalSignature {
 try {
     Copy-Item -LiteralPath $FlutterReleaseDirectory -Destination $payload -Recurse
     Copy-Item -LiteralPath (
-        Join-Path $repositoryRoot "target/x86_64-pc-windows-msvc/release/usque-engine.exe"
+        Join-Path $repositoryRoot "target/$($architecture.RustTarget)/release/usque-engine.exe"
     ) -Destination $payload
     Copy-Item -LiteralPath (
-        Join-Path $repositoryRoot "target/x86_64-pc-windows-msvc/release/usque-agent.exe"
+        Join-Path $repositoryRoot "target/$($architecture.RustTarget)/release/usque-agent.exe"
     ) -Destination $payload
     Copy-Item -LiteralPath (
-        Join-Path $repositoryRoot "third_party/wintun-0.14.1/wintun/bin/amd64/wintun.dll"
+        Join-Path $repositoryRoot "third_party/wintun-0.14.1/wintun/bin/$($architecture.Wintun)/wintun.dll"
     ) -Destination $payload
 
     $pdb = Get-ChildItem -LiteralPath $payload -Recurse -File -Filter "*.pdb" |
@@ -94,8 +111,8 @@ try {
 
     $certificate = New-SelfSignedCertificate `
         -Type CodeSigningCert `
-        -Subject "CN=Usque v0.1.1 Local Validation" `
-        -FriendlyName "Usque v0.1.1 Local Validation" `
+        -Subject "CN=Usque v$displayVersion Local Validation" `
+        -FriendlyName "Usque v$displayVersion Local Validation" `
         -CertStoreLocation "Cert:\CurrentUser\My" `
         -KeyAlgorithm RSA `
         -KeyLength 3072 `
@@ -104,7 +121,7 @@ try {
     $certificateThumbprint = $certificate.Thumbprint
     $certificateSha256 = Get-CertificateSha256 -Certificate $certificate
 
-    $cerPath = Join-Path $stagingRoot "usque-v0.1.1-local.cer"
+    $cerPath = Join-Path $stagingRoot "usque-v$displayVersion-local.cer"
     Export-Certificate -Cert $certificate -FilePath $cerPath | Out-Null
     # Trust the exact leaf for this local validation run. TrustedPeople avoids
     # adding a development identity as a root CA while still allowing
@@ -117,7 +134,7 @@ try {
         Out-Null
 
     $signTool = Get-ChildItem `
-        "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
+        "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\$($architecture.SignTool)\signtool.exe" |
         Sort-Object FullName -Descending |
         Select-Object -First 1
     if ($null -eq $signTool) {
@@ -157,7 +174,7 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "MSI construction failed."
     }
-    $unsignedName = "usque-v$Version-windows-$Variant.msi"
+    $unsignedName = "usque-v$displayVersion-windows-$Variant.msi"
     $builtMsi = Join-Path $msiOutput $unsignedName
     if (-not (Test-Path -LiteralPath $builtMsi -PathType Leaf)) {
         throw "Expected MSI was not produced: $builtMsi"

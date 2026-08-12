@@ -419,6 +419,9 @@ jobs:
           - arch: x64
             variant: x64-v2
             wintun_arch: amd64
+          - arch: arm64
+            variant: arm64
+            wintun_arch: arm64
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -456,8 +459,8 @@ jobs:
             -arch "${{ matrix.arch }}" `
             -ext "WixToolset.UI.wixext/5.0.2" `
             -bindpath "app=$payload" `
-            -define "DisplayVersion=0.1.1-beta.2" `
-            -define "MsiVersion=0.1.102" `
+            -define "DisplayVersion=0.1.2" `
+            -define "MsiVersion=0.1.299" `
             -define "Variant=${{ matrix.variant }}" `
             -define "SignerSha256=$("0" * 64)" `
             -define "IconPath=$((Resolve-Path "assets/branding/usque-app-icon.ico").Path)" `
@@ -473,8 +476,8 @@ jobs:
           & ./tool/verify_windows_msi.ps1 `
             -MsiPath $output `
             -Variant "${{ matrix.variant }}" `
-            -ExpectedMsiVersion "0.1.102" `
-            -ExpectedDisplayVersion "0.1.1-beta.2" `
+            -ExpectedMsiVersion "0.1.299" `
+            -ExpectedDisplayVersion "0.1.2" `
             -SignerSha256 ("0" * 64)
 
           # Equal-version validation packages intentionally replace the same

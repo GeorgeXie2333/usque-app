@@ -16,8 +16,8 @@
       Windows Installer compares only numeric versions. The build script maps
       SemVer prereleases monotonically and keeps the user-facing SemVer in the
       package name. Equal-version upgrades are intentional: they let users
-      replace a validation build of the same x64-v2 product without two
-      products owning the same installation directory.
+      replace a validation build of the same architecture without two products
+      owning the same installation directory.
     -->
     <MajorUpgrade
       AllowSameVersionUpgrades="yes"

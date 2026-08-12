@@ -4,13 +4,11 @@ Usque is security-sensitive networking software. Please report suspected vulnera
 
 ## Supported versions
 
-Usque has not published its first public beta. Until then, security fixes apply only to the latest `main` branch.
-
-After the first public beta, the project supports:
+The project supports:
 
 | Version | Supported |
 | --- | --- |
-| Latest published beta | Yes |
+| Latest published release | Yes |
 | `main` | Yes |
 | Older prereleases and development packages | No |
 
@@ -62,7 +60,7 @@ Maintainers may request more time for a complex leak, platform, or supply-chain 
 
 Confirmed vulnerabilities are handled in a private GitHub Security Advisory. The project will develop and validate a fix, assess affected versions, prepare release and upgrade guidance, and request a CVE when appropriate. Public credit is offered only with the reporter's consent.
 
-The first public beta remains blocked until its declared targets pass endpoint-pin, credential, redaction, IPv4, IPv6, DNS, reconnect, crash, sleep/wake, upgrade, uninstall, signature, provenance, and independent leak-prevention gates.
+Every public release remains blocked until its declared targets pass endpoint-pin, credential, redaction, IPv4, IPv6, DNS, reconnect, crash, sleep/wake, upgrade, uninstall, signature, provenance, and independent leak-prevention gates.
 
 ## Research boundaries
 

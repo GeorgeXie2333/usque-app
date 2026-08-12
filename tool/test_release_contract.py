@@ -17,7 +17,7 @@ class ReleaseContractTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
-        self.tag = "v0.1.1-beta.2"
+        self.tag = "v0.1.2"
         self.commit = "a" * 40
         for name in release_contract.expected_artifact_names(self.tag):
             (self.root / name).write_bytes(name.encode())
@@ -25,12 +25,12 @@ class ReleaseContractTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
-    def test_manifest_requires_the_exact_two_artifacts(self) -> None:
+    def test_manifest_requires_the_exact_six_artifacts(self) -> None:
         manifest = release_contract.create_manifest(
             self.root, self.tag, self.commit, "b" * 64, "c" * 64
         )
         index = release_contract.artifact_index(manifest)
-        self.assertEqual(2, len(index))
+        self.assertEqual(6, len(index))
         release_contract.verify_artifacts(self.root, manifest)
 
     def test_manifest_rejects_an_unexpected_primary_artifact(self) -> None:

@@ -20,20 +20,24 @@
 Usque is an open-source, native GUI client for Consumer Cloudflare WARP. Flutter renders the interface, while a memory-safe Rust engine owns MASQUE, CONNECT-IP, DNS, proxying, and connection state. Usque does not use a WebView.
 
 > [!IMPORTANT]
-> Usque is under active development. **No public beta binary is available yet.** The repository has not completed its clean-install, real-device, performance, signing, and independent leak-prevention gates. Do not use repository builds as a production VPN.
+> The current release is **v0.1.2**. Only files attached to the protected [`v0.1.2` GitHub Release](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.1.2), with matching checksums and signer fingerprints, are official. Pull Request artifacts, local builds, and untagged binaries are development outputs.
 
 Usque is an independent project. It is not affiliated with, sponsored by, or endorsed by Cloudflare. Cloudflare and WARP are trademarks of Cloudflare, Inc. Use of Consumer WARP remains subject to Cloudflare's applicable terms and privacy policy.
 
-## Beta target
+## Release targets
 
-The `v0.1.1-beta.2` release is blocked until every declared target passes installation, interoperability, lifecycle, and leak-prevention testing.
+The protected `v0.1.2` workflow builds and validates these six installable artifacts from one exact `main` commit.
 
-| Platform | Planned package | Minimum OS | Architecture |
+| Platform | Package | Minimum OS | Architecture / variant |
 | --- | --- | --- | --- |
 | Windows | MSI | Windows 10 22H2, build 19045 | x86-64-v2 |
-| Android / Android TV | APK | Android 8.0, API 26 | arm64-v8a |
+| Windows | MSI | Windows 10 22H2, build 19045 | ARM64 |
+| Android / Android TV | split APK | Android 8.0, API 26 | ARMv8 (`arm64-v8a`) |
+| Android / Android TV | split APK | Android 8.0, API 26 | x64 (`x86_64`) |
+| Android / Android TV | split APK | Android 8.0, API 26 | ARMv7 (`armeabi-v7a`) |
+| Android / Android TV | universal APK | Android 8.0, API 26 | all three Android ABIs |
 
-macOS remains a future source target and is not a build or release gate. iOS, Zero Trust, application stores, a public CLI, and multipath bandwidth aggregation are outside this beta.
+macOS remains a future source target and is not a build or release gate. iOS, Zero Trust, application stores, a public CLI, and multipath bandwidth aggregation are outside this release.
 
 ## Highlights
 
@@ -67,7 +71,18 @@ Advanced users can change these values and restore them in one action. A non-loo
 
 ## Availability and installation
 
-There are no public installable releases yet. When the beta is ready, packages will appear only on this repository's [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) page.
+Download `v0.1.2` only from the [official release page](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.1.2):
+
+| Target | File |
+| --- | --- |
+| Windows x64 | [`usque-v0.1.2-windows-x64-v2.msi`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.2/usque-v0.1.2-windows-x64-v2.msi) |
+| Windows ARM64 | [`usque-v0.1.2-windows-arm64.msi`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.2/usque-v0.1.2-windows-arm64.msi) |
+| Android ARMv8 | [`usque-v0.1.2-android-arm64-v8a.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.2/usque-v0.1.2-android-arm64-v8a.apk) |
+| Android x64 | [`usque-v0.1.2-android-x86_64.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.2/usque-v0.1.2-android-x86_64.apk) |
+| Android ARMv7 | [`usque-v0.1.2-android-armeabi-v7a.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.2/usque-v0.1.2-android-armeabi-v7a.apk) |
+| Android universal | [`usque-v0.1.2-android-universal.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.2/usque-v0.1.2-android-universal.apk) |
+
+Prefer the APK matching the device ABI. The universal APK contains ARMv8, x64, and ARMv7 native libraries and is intended for cases where the device architecture is unknown; it is larger than a split APK. The release also includes `SHA256SUMS`, one `.sha256` sidecar per package, SPDX/CycloneDX SBOMs, license inventories, build attestations, and validated laboratory evidence.
 
 - Windows packages use a stable self-signed identity. Verify the published SHA-256 checksum and certificate fingerprint before accepting the operating-system warning.
 - Android packages use a fixed release keystore and are distributed outside Google Play. Advanced sideloading or ADB may be required.

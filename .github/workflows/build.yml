@@ -22,10 +22,30 @@ env:
 
 jobs:
   windows:
-    name: Windows x64-v2 compile
+    name: Windows ${{ matrix.label }} compile
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
-    runs-on: windows-2025
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: x64-v2
+            variant: x64-v2
+            runner: windows-2025
+            rust_target: x86_64-pc-windows-msvc
+            flutter_arch: x64
+            wintun_arch: amd64
+            pe_arch: x64
+            run_clippy: true
+          - label: ARM64
+            variant: arm64
+            runner: windows-11-arm
+            rust_target: aarch64-pc-windows-msvc
+            flutter_arch: arm64
+            wintun_arch: arm64
+            pe_arch: arm64
+            run_clippy: false
     steps:
       - name: Checkout untrusted source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -33,6 +53,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Java for Android SDK tooling
+        if: matrix.variant == 'x64-v2'
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
@@ -63,7 +84,14 @@ jobs:
           $ErrorActionPreference = "Stop"
           rustup toolchain install 1.97.1 --profile minimal --component clippy,rustfmt
           rustup default 1.97.1
-          rustup target add x86_64-pc-windows-msvc
+          rustup target add "${{ matrix.rust_target }}"
+
+      - name: Install pinned Android SDK CMake for x64 build
+        if: matrix.variant == 'x64-v2'
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = "Stop"
           $androidSdk = if (-not [string]::IsNullOrWhiteSpace($env:ANDROID_SDK_ROOT)) {
             $env:ANDROID_SDK_ROOT
           } else {
@@ -79,6 +107,7 @@ jobs:
           & $sdkManager "ndk;29.0.14206865" "cmake;3.22.1"
 
       - name: Create ignored local SDK configuration
+        if: matrix.variant == 'x64-v2'
         shell: pwsh
         run: |
           Set-StrictMode -Version Latest
@@ -101,12 +130,13 @@ jobs:
           Set-Content apps/usque_gui/android/local.properties $properties -Encoding utf8NoBOM
 
       - name: Clippy Windows workspace through pinned helper
+        if: matrix.run_clippy
         shell: pwsh
-        run: ./tool/build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction clippy
+        run: ./tool/build_windows_rust_release.ps1 -Variant "${{ matrix.variant }}" -CargoAction clippy
 
       - name: Build Windows engine and Agent through pinned helper
         shell: pwsh
-        run: ./tool/build_windows_rust_release.ps1 -Variant x64-v2
+        run: ./tool/build_windows_rust_release.ps1 -Variant "${{ matrix.variant }}"
 
       - name: Build Flutter Windows Release
         working-directory: apps/usque_gui
@@ -121,13 +151,18 @@ jobs:
         run: |
           Set-StrictMode -Version Latest
           $ErrorActionPreference = "Stop"
-          $app = Get-ChildItem apps/usque_gui/build/windows -Recurse -Filter usque.exe |
-            Select-Object -First 1
-          if ($null -eq $app) { throw "Flutter Windows executable was not found." }
-          $directory = $app.Directory.FullName
-          Copy-Item target/x86_64-pc-windows-msvc/release/usque-engine.exe $directory
-          Copy-Item target/x86_64-pc-windows-msvc/release/usque-agent.exe $directory
-          Copy-Item third_party/wintun-0.14.1/wintun/bin/amd64/wintun.dll $directory
+          $directory = (
+            Resolve-Path "apps/usque_gui/build/windows/${{ matrix.flutter_arch }}/runner/Release"
+          ).Path
+          Copy-Item `
+            "target/${{ matrix.rust_target }}/release/usque-engine.exe" `
+            $directory
+          Copy-Item `
+            "target/${{ matrix.rust_target }}/release/usque-agent.exe" `
+            $directory
+          Copy-Item `
+            "third_party/wintun-0.14.1/wintun/bin/${{ matrix.wintun_arch }}/wintun.dll" `
+            $directory
           $required = @(
             "usque.exe"
             "usque-engine.exe"
@@ -142,6 +177,9 @@ jobs:
               throw "Compile-only Windows output is missing $name."
             }
           }
+          & ./tool/verify_pe_architecture.ps1 `
+            -Root $directory `
+            -Architecture "${{ matrix.pe_arch }}"
           Write-Output "WINDOWS_BUILD_OK=$directory"
 
       - name: Remove local build configuration
@@ -150,7 +188,7 @@ jobs:
         run: Remove-Item apps/usque_gui/android/local.properties -Force -ErrorAction SilentlyContinue
 
   android:
-    name: Android arm64-v8a Release compile
+    name: Android ARMv8, x64, ARMv7, and universal compile
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     runs-on: ubuntu-24.04
     timeout-minutes: 240
@@ -183,7 +221,10 @@ jobs:
           set -euo pipefail
           rustup toolchain install 1.97.1 --profile minimal --component clippy
           rustup default 1.97.1
-          rustup target add aarch64-linux-android
+          rustup target add \
+            aarch64-linux-android \
+            armv7-linux-androideabi \
+            x86_64-linux-android
           android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
           test -n "$android_sdk"
           sdkmanager="$android_sdk/cmdline-tools/latest/bin/sdkmanager"
@@ -217,10 +258,10 @@ jobs:
             -validity 1 \
             -dname "CN=Untrusted Usque CI Build, O=Usque Development, C=XX"
 
-      - name: Build arm64-v8a Release APK without release secrets
+      - name: Build split and universal Release APKs without release secrets
         working-directory: apps/usque_gui
         env:
-          USQUE_ANDROID_ABI: arm64-v8a
+          USQUE_ANDROID_ABI: all
           USQUE_ANDROID_KEYSTORE: ${{ runner.temp }}/usque-build-only.jks
           USQUE_ANDROID_STORE_PASSWORD: usque-build-only-password
           USQUE_ANDROID_KEY_ALIAS: usque-build-only
@@ -229,33 +270,64 @@ jobs:
           flutter --suppress-analytics build apk \
             --release \
             --split-per-abi \
-            --target-platform android-arm64 \
+            --target-platform android-arm,android-arm64,android-x64 \
+            --no-pub
+          flutter --suppress-analytics build apk \
+            --release \
+            --target-platform android-arm,android-arm64,android-x64 \
             --no-pub
 
-      - name: Verify APK architecture and release hygiene
+      - name: Verify all APK architectures and release hygiene
         run: |
           set -euo pipefail
-          apk=apps/usque_gui/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
-          test -s "$apk"
-          unzip -Z1 "$apk" > "$RUNNER_TEMP/apk-entries.txt"
-          grep -q '^lib/arm64-v8a/libusque_android\.so$' "$RUNNER_TEMP/apk-entries.txt"
-          if grep -Eq '^lib/(armeabi-v7a|x86|x86_64)/' "$RUNNER_TEMP/apk-entries.txt"; then
-            echo "APK contains an unexpected ABI." >&2
-            exit 1
-          fi
-          if grep -Eq 'kernel_blob\.bin|libVkLayer_khronos_validation\.so' "$RUNNER_TEMP/apk-entries.txt"; then
-            echo "APK contains a forbidden debug artifact." >&2
-            exit 1
-          fi
-          unzip -p "$apk" lib/arm64-v8a/libusque_android.so > "$RUNNER_TEMP/libusque_android.so"
-          if readelf --sections "$RUNNER_TEMP/libusque_android.so" | grep -q '\.debug_info'; then
-            echo "Rust JNI library contains debug information." >&2
-            exit 1
-          fi
-          apksigner="$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner"
+          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          test -n "$android_sdk"
+          apksigner="$android_sdk/build-tools/36.0.0/apksigner"
           test -x "$apksigner"
-          "$apksigner" verify --verbose --print-certs "$apk"
-          echo "ANDROID_BUILD_OK=$apk"
+          source_dir=apps/usque_gui/build/app/outputs/flutter-apk
+          declare -A expected_abis=(
+            [app-arm64-v8a-release.apk]="arm64-v8a"
+            [app-armeabi-v7a-release.apk]="armeabi-v7a"
+            [app-x86_64-release.apk]="x86_64"
+            [app-release.apk]="arm64-v8a armeabi-v7a x86_64"
+          )
+          count=0
+          for name in "${!expected_abis[@]}"; do
+            apk="$source_dir/$name"
+            test -s "$apk"
+            entries="$RUNNER_TEMP/$name.entries"
+            unzip -Z1 "$apk" > "$entries"
+            actual_abis="$(
+              sed -nE 's#^lib/([^/]+)/.*#\1#p' "$entries" |
+                sort -u |
+                paste -sd ' ' -
+            )"
+            test "$actual_abis" = "${expected_abis[$name]}" || {
+              echo "Unexpected ABI set in $name: $actual_abis" >&2
+              exit 1
+            }
+            for abi in ${expected_abis[$name]}; do
+              grep -q "^lib/$abi/libusque_android\.so$" "$entries"
+            done
+            if grep -Eq 'kernel_blob\.bin|libVkLayer_khronos_validation\.so' "$entries"; then
+              echo "$name contains a forbidden debug artifact." >&2
+              exit 1
+            fi
+            while IFS= read -r library; do
+              extracted="$RUNNER_TEMP/$(tr '/.' '__' <<<"$library")"
+              unzip -p "$apk" "$library" > "$extracted"
+              sections="$extracted.sections"
+              readelf --sections "$extracted" > "$sections"
+              if grep -q '\.debug_info' "$sections"; then
+                echo "$library in $name contains debug information." >&2
+                exit 1
+              fi
+            done < <(grep '/libusque_android\.so$' "$entries")
+            "$apksigner" verify --verbose --print-certs "$apk"
+            count=$((count + 1))
+          done
+          test "$count" -eq 4
+          echo "ANDROID_BUILD_OK=$source_dir"
 
       - name: Remove ephemeral identity and compile output
         if: ${{ always() }}

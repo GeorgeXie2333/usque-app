@@ -20,20 +20,24 @@
 Usque 是面向 Consumer Cloudflare WARP 的开源原生 GUI 客户端。Flutter 负责界面，内存安全的 Rust Engine 负责 MASQUE、CONNECT-IP、DNS、代理与连接状态；项目不使用 WebView。
 
 > [!IMPORTANT]
-> Usque 正在积极开发中，**目前没有可安装的公开 Beta**。仓库尚未完成干净安装、真实设备、性能、签名和独立防泄漏门禁。请勿将仓库构建当作生产 VPN 使用。
+> 当前发布版本为 **v0.1.2**。只有受保护的 [`v0.1.2` GitHub Release](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.1.2) 所附文件，并且校验和与签名者指纹一致时，才属于官方产物。Pull Request 产物、本地构建和未打标签的二进制均为开发输出。
 
 Usque 是独立项目，与 Cloudflare 无隶属、赞助或背书关系。Cloudflare 与 WARP 是 Cloudflare, Inc. 的商标。使用 Consumer WARP 仍须遵守 Cloudflare 适用的条款与隐私政策。
 
-## Beta 目标
+## 发布目标
 
-只有全部目标均通过安装、互操作、生命周期和防泄漏测试后，才会发布 `v0.1.1-beta.2`。
+受保护的 `v0.1.2` 工作流从同一个 `main` 精确提交构建并验证以下六个可安装产物。
 
-| 平台 | 计划产物 | 最低系统 | 架构 |
+| 平台 | 产物 | 最低系统 | 架构 / 变体 |
 | --- | --- | --- | --- |
 | Windows | MSI | Windows 10 22H2，Build 19045 | x86-64-v2 |
-| Android / Android TV | APK | Android 8.0，API 26 | arm64-v8a |
+| Windows | MSI | Windows 10 22H2，Build 19045 | ARM64 |
+| Android / Android TV | 拆分 APK | Android 8.0，API 26 | ARMv8（`arm64-v8a`） |
+| Android / Android TV | 拆分 APK | Android 8.0，API 26 | x64（`x86_64`） |
+| Android / Android TV | 拆分 APK | Android 8.0，API 26 | ARMv7（`armeabi-v7a`） |
+| Android / Android TV | Universal APK | Android 8.0，API 26 | 包含上述三种 Android ABI |
 
-macOS 保留为后续源码目标，但不参与当前构建或发布门禁。本 Beta 不支持 iOS、Zero Trust、应用商店、公开 CLI 或多路径带宽聚合。
+macOS 保留为后续源码目标，但不参与当前构建或发布门禁。当前版本不支持 iOS、Zero Trust、应用商店、公开 CLI 或多路径带宽聚合。
 
 ## 主要功能
 
@@ -67,7 +71,18 @@ macOS 保留为后续源码目标，但不参与当前构建或发布门禁。�
 
 ## 获取与安装
 
-目前没有公开安装包。Beta 准备完成后，安装包只会发布在本仓库的 [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) 页面。
+请只从[官方发布页面](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.1.2)下载 `v0.1.2`：
+
+| 目标 | 文件 |
+| --- | --- |
+| Windows x64 | [`usque-v0.1.2-windows-x64-v2.msi`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.2/usque-v0.1.2-windows-x64-v2.msi) |
+| Windows ARM64 | [`usque-v0.1.2-windows-arm64.msi`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.2/usque-v0.1.2-windows-arm64.msi) |
+| Android ARMv8 | [`usque-v0.1.2-android-arm64-v8a.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.2/usque-v0.1.2-android-arm64-v8a.apk) |
+| Android x64 | [`usque-v0.1.2-android-x86_64.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.2/usque-v0.1.2-android-x86_64.apk) |
+| Android ARMv7 | [`usque-v0.1.2-android-armeabi-v7a.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.2/usque-v0.1.2-android-armeabi-v7a.apk) |
+| Android Universal | [`usque-v0.1.2-android-universal.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.2/usque-v0.1.2-android-universal.apk) |
+
+优先下载与设备 ABI 匹配的 APK。Universal APK 同时包含 ARMv8、x64 和 ARMv7 原生库，仅建议在无法确定设备架构时使用，文件也会比拆分 APK 更大。发布页同时提供 `SHA256SUMS`、每个安装包对应的 `.sha256` 文件、SPDX/CycloneDX SBOM、许可证清单、构建证明和经验证的实验室证据。
 
 - Windows 使用稳定的自签名身份。接受系统警告前，请核对发布的 SHA-256 与证书指纹。
 - Android 使用固定 Release Keystore，不通过 Google Play 分发，可能需要高级侧载流程或 ADB。

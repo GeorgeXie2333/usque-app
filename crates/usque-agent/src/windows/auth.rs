@@ -324,7 +324,7 @@ fn verify_authenticode(path: &Path) -> Result<(), AuthenticationError> {
             (&mut data as *mut WINTRUST_DATA).cast(),
         );
     }
-    // The public beta intentionally uses a stable self-signed publisher
+    // The public release intentionally uses a stable self-signed publisher
     // certificate and does not install it as a machine-wide root CA. Windows
     // therefore reports CERT_E_UNTRUSTEDROOT after the Authenticode provider
     // has successfully checked the embedded file digest and signature. That
