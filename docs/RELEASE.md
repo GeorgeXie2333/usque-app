@@ -42,10 +42,13 @@ Keep offline encrypted primary and secondary backups of both signing identities.
 All pre-1.0 packages use fixed, project-controlled self-signed identities. Any
 v1.0.0 signing transition is a separate reviewed change and must preserve the
 documented update-compatibility guarantees.
-The Windows workflow imports the certificate only into the current runner user,
-trusts it only for the job, and removes it in an `always()` cleanup step. It
-never re-signs the official Wintun DLL. The Android workflow deletes its
-temporary keystore in the same way.
+The Windows workflow imports the private signing identity only into the current
+runner user's personal certificate store. It does not add the self-signed
+certificate to Root or TrustedPublisher; verification accepts the pinned
+untrusted-root result and independently checks the DER SHA-256 fingerprint. An
+`always()` cleanup step removes the private identity. The workflow never
+re-signs the official Wintun DLL. The Android workflow deletes its temporary
+keystore in the same way.
 
 Android builds verify the Gradle 9.5.1 distribution against its published
 SHA-256, use the checked-in strict `app/gradle.lockfile`, and verify resolved

@@ -234,15 +234,6 @@ jobs:
             throw "PFX signer does not match protected WINDOWS_SIGNER_SHA256."
           }
 
-          $cer = Join-Path $env:RUNNER_TEMP "usque-signing.cer"
-          Export-Certificate -Cert $certificate -FilePath $cer | Out-Null
-          Import-Certificate `
-            -FilePath $cer `
-            -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
-          Import-Certificate `
-            -FilePath $cer `
-            -CertStoreLocation Cert:\CurrentUser\TrustedPublisher | Out-Null
-
           $toolArch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") {
             "arm64"
           } else {
@@ -288,10 +279,10 @@ jobs:
             if ($LASTEXITCODE -ne 0) {
               throw "Signing failed for $($binary.FullName)."
             }
-            & $env:USQUE_SIGNTOOL verify /pa /all /v $binary.FullName
-            if ($LASTEXITCODE -ne 0) {
-              throw "Signature verification failed for $($binary.FullName)."
-            }
+            & ./tool/verify_windows_authenticode.ps1 `
+              -Path $binary.FullName `
+              -SignerSha256 $env:WINDOWS_SIGNER_SHA256 `
+              -AllowPinnedUntrustedRoot | Out-Null
           }
 
       - name: Build, inspect, and ICE-validate MSI
@@ -304,7 +295,8 @@ jobs:
             -AppDirectory $payload `
             -OutputDirectory $output `
             -SignerSha256 $env:WINDOWS_SIGNER_SHA256 `
-            -Version $env:RELEASE_TAG
+            -Version $env:RELEASE_TAG `
+            -AllowPinnedUntrustedRoot
 
       - name: Sign and verify MSI
         shell: pwsh
@@ -322,8 +314,10 @@ jobs:
             /td SHA256 `
             $msi.FullName
           if ($LASTEXITCODE -ne 0) { throw "MSI signing failed." }
-          & $env:USQUE_SIGNTOOL verify /pa /all /v $msi.FullName
-          if ($LASTEXITCODE -ne 0) { throw "MSI signature verification failed." }
+          & ./tool/verify_windows_authenticode.ps1 `
+            -Path $msi.FullName `
+            -SignerSha256 $env:WINDOWS_SIGNER_SHA256 `
+            -AllowPinnedUntrustedRoot | Out-Null
 
       - name: Attest Windows build provenance
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
@@ -344,20 +338,14 @@ jobs:
         run: |
           $thumbprint = $env:USQUE_CERT_THUMBPRINT
           if (-not [string]::IsNullOrWhiteSpace($thumbprint)) {
-            foreach ($store in @("My", "Root", "TrustedPublisher")) {
-              $path = "Cert:\CurrentUser\$store\$thumbprint"
-              if (Test-Path -LiteralPath $path) {
-                Remove-Item -LiteralPath $path -Force
-              }
-            }
-          }
-          foreach ($path in @(
-            (Join-Path $env:RUNNER_TEMP "usque-signing.pfx"),
-            (Join-Path $env:RUNNER_TEMP "usque-signing.cer")
-          )) {
+            $path = "Cert:\CurrentUser\My\$thumbprint"
             if (Test-Path -LiteralPath $path) {
               Remove-Item -LiteralPath $path -Force
             }
+          }
+          $pfx = Join-Path $env:RUNNER_TEMP "usque-signing.pfx"
+          if (Test-Path -LiteralPath $pfx) {
+            Remove-Item -LiteralPath $pfx -Force
           }
 
   android:
