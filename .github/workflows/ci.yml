@@ -394,7 +394,7 @@ jobs:
             --config osv-scanner.toml
 
   release-contract:
-    name: Release manifest and evidence contract
+    name: Release artifact manifest contract
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -404,7 +404,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Test fail-closed release contract
+      - name: Test fail-closed artifact contract
         run: python -m unittest discover -s tool -p "test_*.py" -v
 
   windows-installer-authoring:

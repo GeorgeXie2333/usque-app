@@ -48,7 +48,7 @@ Create an active repository ruleset targeting `~DEFAULT_BRANCH` with:
 - squash merge as the only merge method and linear history required;
 - force pushes and branch deletion blocked.
 
-The repository owner retains bypass permission. Bypass does not manufacture successful checks and must never be used to publish a release that failed signing, laboratory, provenance, or release-contract gates.
+The repository owner retains bypass permission. Bypass does not manufacture successful checks and must never be used to publish a release that failed signing, provenance, artifact-integrity, or release-contract gates.
 
 ## Release tags and environments
 
@@ -56,9 +56,8 @@ Keep the protected release contract in [RELEASE.md](RELEASE.md):
 
 - protect the exact stable tag used by the current release workflow;
 - allow only the release maintainer to create a release tag;
-- require approval for `release-signing`, `release-lab`, and `release-publish` environments;
+- require approval for `release-signing` and `release-publish` environments;
 - keep signing identities only in `release-signing` environment secrets;
-- keep laboratory runner labels in protected variables;
 - never substitute a local build for a failed GitHub Actions candidate.
 
 ## Verification after publication

@@ -1,8 +1,8 @@
 # Protected public release
 
 This is the operational contract for `v0.1.2`. The workflow remains fail-closed
-until the signing environments, hardware laboratories, and every required test
-are configured and pass.
+until the protected signing inputs, exact artifact set, supply-chain metadata,
+and required GitHub Actions checks are configured and pass.
 
 ## Repository protection
 
@@ -12,12 +12,10 @@ are configured and pass.
   create it. The release gate requires the tag to point to the current `main`
   commit and verifies that the exact SHA has a successful `ci.yml` push run,
   including `CI / gate`, before any signing job can start.
-- Require approval on the `release-signing`, `release-lab`, and
-  `release-publish` GitHub Environments.
+- Require approval on the `release-signing` and `release-publish` GitHub
+  Environments.
 - Do not put signing material in repository variables, files, artifacts, logs,
-  caches, or a self-hosted runner image.
-- Do not commit `release/READY`. The release workflow generates it after both
-  laboratories verify the exact signed artifact hashes.
+  or caches.
 - A local MSI/APK cannot replace a failed or unavailable GitHub Actions build.
 
 ## Protected inputs
@@ -39,10 +37,11 @@ The repository or protected environments provide these non-secret variables:
 | --- | --- |
 | `WINDOWS_SIGNER_SHA256` | SHA-256 of the raw Authenticode signer certificate, 64 hex characters |
 | `ANDROID_SIGNER_SHA256` | SHA-256 of the Android signing certificate, 64 hex characters |
-| `WINDOWS_LAB_RUNNER` | JSON array of protected self-hosted Windows-lab labels |
-| `ANDROID_LAB_RUNNER` | JSON array of protected self-hosted Android-lab labels |
 
 Keep offline encrypted primary and secondary backups of both signing identities.
+All pre-1.0 packages use fixed, project-controlled self-signed identities. Any
+v1.0.0 signing transition is a separate reviewed change and must preserve the
+documented update-compatibility guarantees.
 The Windows workflow imports the certificate only into the current runner user,
 trusts it only for the job, and removes it in an `always()` cleanup step. It
 never re-signs the official Wintun DLL. The Android workflow deletes its
@@ -73,12 +72,9 @@ and every other trust result remain fatal.
 3. A staging job downloads those exact artifacts, rejects missing or additional
    MSI/APK files, creates SHA-256 sidecars, SPDX and CycloneDX SBOMs, license
    inventories, and SBOM attestations.
-4. The staging artifact is passed unchanged to the Windows and Android
-   isolated laboratories.
-5. Each lab re-hashes the candidate, runs its fixed external harness, and
-   uploads evidence plus every referenced attachment.
-6. The publish job re-verifies both evidence trees. Only then does it generate
-   `release/READY` and create the GitHub release.
+4. The approval-protected publish job downloads the staged candidate and
+   re-verifies every primary artifact against the immutable manifest.
+5. Only after that verification does the workflow create the GitHub release.
 
 The fixed primary files are:
 
@@ -117,26 +113,18 @@ so the replacement service retains both user state and its machine-state
 directory. The full installer UI exposes `INSTALLFOLDER`; its selected value is
 persisted in the 64-bit machine registry and reused by a major upgrade.
 
-The isolated Windows uninstall result must prove that the service, Usque WFP
-objects, Usque Wintun adapter, owned routes, interface DNS changes, system proxy
-owner marker, program files, Start Menu shortcut, and clean ProgramData journal
-are absent or restored as appropriate. The laboratory must exercise both
-uninstall choices: the default path preserves current-user Profiles,
-preferences, logs, caches, and Credential Manager records; the checked path
-deletes only the uninstalling user's Usque directories and exact credential
-namespace. Silent uninstall preserves data unless
-`USQUE_REMOVE_USER_DATA=1` is explicitly supplied. The shared Wintun driver
-package is not an Usque-owned uninstall target.
-The MSI is never installed on an ordinary development or Codex host.
+The authored uninstall paths preserve current-user Profiles, preferences, logs,
+caches, and Credential Manager records by default. The explicit deletion path
+targets only the uninstalling user's Usque directories and credential namespace;
+silent uninstall preserves data unless `USQUE_REMOVE_USER_DATA=1` is supplied.
+The shared Wintun driver package is not an Usque-owned uninstall target.
 
-## Laboratory boundary
+## Validation boundary
 
-The workflow intentionally does not contain commands that run VPN tests on a
-general GitHub-hosted runner. Protected self-hosted runners must provide:
-
-- `C:\UsqueReleaseLab\run-windows-release.ps1`
-- `/opt/usque-release-lab/run-android-release`
-
-Those adapters own device orchestration and the isolated gateway. Their command
-line and evidence contract are defined in [LAB_EVIDENCE.md](LAB_EVIDENCE.md).
-Absence of either adapter blocks the release.
+The protected workflow uses GitHub-hosted runners. It compiles, tests, signs,
+inspects, hashes, inventories, and attests the release candidate, but it does not
+install an MSI, start Windows VPN/TUN, mutate host networking, install APKs on
+physical devices, or run long-duration soak and hostile-network tests. Hardware
+laboratory evidence is not a release prerequisite. Real-device interoperability,
+lifecycle, leak, performance, and clean-machine installation testing remain
+project hardening work rather than claims made by the `v0.1.2` release pipeline.

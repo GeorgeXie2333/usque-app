@@ -84,7 +84,6 @@ Thumbs.db
 /diagnostics/
 /coverage/
 /tmp/
-/release/READY
 *.lcov
 *.log
 *.dmp
