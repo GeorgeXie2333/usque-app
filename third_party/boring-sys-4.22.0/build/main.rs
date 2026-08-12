@@ -207,6 +207,15 @@ fn get_boringssl_cmake_config(config: &Config) -> cmake::Config {
     let mut boringssl_cmake = cmake::Config::new(src_path);
 
     if config.host == config.target {
+        // The generated BoringSSL CMake project enables its generic ASM list
+        // for native Windows ARM64 and then asks MSVC to compile GNU-style
+        // AArch64 sources. MSVC rejects the injected -Wa flags before reaching
+        // the supported C fallback. Cross-compiled Windows builds already take
+        // the OPENSSL_NO_ASM branch below; apply the same fail-safe to the
+        // native ARM64 hosted runner while retaining NASM on Windows x64.
+        if config.target_os == "windows" && config.target_arch == "aarch64" {
+            boringssl_cmake.define("OPENSSL_NO_ASM", "YES");
+        }
         return boringssl_cmake;
     }
 
