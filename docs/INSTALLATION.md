@@ -13,7 +13,7 @@ Official packages are attached only to this repository's GitHub release for the 
 - `usque-v0.1.2-android-armeabi-v7a.apk`
 - `usque-v0.1.2-android-universal.apk`
 
-Each release must also provide SHA-256 sidecars, signer fingerprints, SPDX and CycloneDX SBOMs, dependency license inventories, GitHub build provenance, and laboratory evidence. A local validation package, Actions development output, fork artifact, or file shared elsewhere is not an official release.
+Each release must also provide SHA-256 sidecars, signer fingerprints, SPDX and CycloneDX SBOMs, dependency license inventories, and GitHub build provenance. A local validation package, Actions development output, fork artifact, or file shared elsewhere is not an official release.
 
 ## Verify before installing
 
@@ -29,7 +29,7 @@ Never disable endpoint pinning, import signing certificates from an unofficial p
 
 The release targets Windows 10 22H2 build 19045 or later with separate x86-64-v2 and ARM64 MSIs. Install the package matching the native Windows architecture.
 
-The MSI uses a stable self-signed Authenticode identity, so Windows may show an unknown-publisher warning. The installer does not add that certificate to the machine Root or Trusted Publisher stores. Confirm the exact certificate SHA-256 from the release notes before accepting the warning.
+The pre-1.0 MSI uses a fixed self-signed Authenticode identity, so Windows may show an unknown-publisher warning. The installer does not add that certificate to the machine Root or Trusted Publisher stores. Confirm the exact certificate SHA-256 from the release notes before accepting the warning.
 
 The interactive installer:
 
@@ -65,7 +65,7 @@ If recovery fails, uninstall stops rather than concealing privileged network res
 
 The release targets Android 8.0 / API 26 or later, including compatible Android TV devices. Use the arm64-v8a package for ARMv8 devices, x86_64 for x64 devices, or armeabi-v7a for ARMv7 devices. The universal APK contains all three ABIs and is larger; use it only when the architecture-specific package cannot be determined.
 
-The APK is signed by a fixed release keystore but is not distributed through Google Play. Android may require an advanced sideload flow or ADB. Verify the APK signing certificate SHA-256 before installation or upgrade.
+The pre-1.0 APK is signed by a fixed, project-controlled self-signed release certificate but is not distributed through Google Play. Android may require an advanced sideload flow or ADB. Verify the APK signing certificate SHA-256 before installation or upgrade.
 
 Android requests VPN consent only when VPN output is first enabled. SOCKS5 and HTTP-only modes do not request `VpnService` permission. For process-level leak protection after the application is terminated, enable Android **Always-on VPN** and **Block connections without VPN** in system settings.
 
@@ -75,10 +75,10 @@ Uninstalling the application removes its Android Keystore entries and applicatio
 
 Usque never downloads or installs an update automatically. At most once every 24 hours, the application can check this repository for a newer release, display a notification, and open the release page. Automatic checks can be disabled, and a manual check remains available.
 
-Treat each update as a new package: verify its filename, hash, signer, architecture, and release evidence before installation.
+Treat each update as a new package: verify its filename, hash, signer, architecture, manifest, and attestations before installation.
 
 ## Development-host boundary
 
 Do not install a generated MSI, start Windows VPN mode, create a TUN/Wintun session, or apply WFP, route, DNS, or system-proxy mutations on an ordinary development host. Safe local operations are source checks, compile-only builds, MSI table/ICE validation, `usque-agent --validate-only`, and SOCKS5/HTTP loopback testing.
 
-See [Release process](RELEASE.md) for the protected build and laboratory contract.
+The GitHub release workflow does not install packages on physical devices or run long-duration VPN tests. See [Release process](RELEASE.md) for the protected signing, build, and supply-chain contract.

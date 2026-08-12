@@ -82,10 +82,12 @@ macOS 保留为后续源码目标，但不参与当前构建或发布门禁。�
 | Android ARMv7 | [`usque-v0.1.2-android-armeabi-v7a.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.2/usque-v0.1.2-android-armeabi-v7a.apk) |
 | Android Universal | [`usque-v0.1.2-android-universal.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.2/usque-v0.1.2-android-universal.apk) |
 
-优先下载与设备 ABI 匹配的 APK。Universal APK 同时包含 ARMv8、x64 和 ARMv7 原生库，仅建议在无法确定设备架构时使用，文件也会比拆分 APK 更大。发布页同时提供 `SHA256SUMS`、每个安装包对应的 `.sha256` 文件、SPDX/CycloneDX SBOM、许可证清单、构建证明和经验证的实验室证据。
+优先下载与设备 ABI 匹配的 APK。Universal APK 同时包含 ARMv8、x64 和 ARMv7 原生库，仅建议在无法确定设备架构时使用，文件也会比拆分 APK 更大。发布页同时提供 `SHA256SUMS`、每个安装包对应的 `.sha256` 文件、SPDX/CycloneDX SBOM、许可证清单和构建证明。
 
-- Windows 使用稳定的自签名身份。接受系统警告前，请核对发布的 SHA-256 与证书指纹。
-- Android 使用固定 Release Keystore，不通过 Google Play 分发，可能需要高级侧载流程或 ADB。
+- 1.0 之前的 Windows 安装包使用固定自签名身份。接受系统警告前，请核对发布的 SHA-256 与证书指纹。
+- 1.0 之前的 Android 安装包使用项目自行管理的固定自签名 Release 证书，不通过 Google Play 分发，可能需要高级侧载流程或 ADB。
+- v1.0.0 的签名迁移将作为独立变更进行兼容性审查。
+- 受保护工作流执行 CI、架构、签名、安装包、校验和、SBOM 与构建来源检查，但不声称已完成硬件实验室、物理设备或长时间 VPN 验证。
 - Usque 不会自动安装更新；可选的更新检查只会打开发布页面。
 - Windows 卸载会先恢复 Usque 管理的网络状态，并可选择删除当前用户的本地数据。
 
@@ -119,7 +121,7 @@ Windows 默认启用 SOCKS5、HTTP 和 VPN（TUN），默认关闭系统代理�
 
 项目固定使用 Rust `1.97.1`、Flutter commit `84fc5cbb223bc12f83d65b647ff8a56caf779ffd`、Android NDK `29.0.14206865` 和锁定的打包工具。开发环境、检查命令、安全边界及 Pull Request 要求见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
-架构和进度见[实施路线](docs/IMPLEMENTATION.md)，受保护的签名及实验室链路见[发布流程](docs/RELEASE.md)。
+架构和进度见[实施路线](docs/IMPLEMENTATION.md)，受保护的签名及供应链检查见[发布流程](docs/RELEASE.md)。
 
 ## 上游与许可
 

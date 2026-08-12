@@ -82,10 +82,12 @@ Download `v0.1.2` only from the [official release page](https://github.com/Georg
 | Android ARMv7 | [`usque-v0.1.2-android-armeabi-v7a.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.2/usque-v0.1.2-android-armeabi-v7a.apk) |
 | Android universal | [`usque-v0.1.2-android-universal.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.2/usque-v0.1.2-android-universal.apk) |
 
-Prefer the APK matching the device ABI. The universal APK contains ARMv8, x64, and ARMv7 native libraries and is intended for cases where the device architecture is unknown; it is larger than a split APK. The release also includes `SHA256SUMS`, one `.sha256` sidecar per package, SPDX/CycloneDX SBOMs, license inventories, build attestations, and validated laboratory evidence.
+Prefer the APK matching the device ABI. The universal APK contains ARMv8, x64, and ARMv7 native libraries and is intended for cases where the device architecture is unknown; it is larger than a split APK. The release also includes `SHA256SUMS`, one `.sha256` sidecar per package, SPDX/CycloneDX SBOMs, license inventories, and build attestations.
 
-- Windows packages use a stable self-signed identity. Verify the published SHA-256 checksum and certificate fingerprint before accepting the operating-system warning.
-- Android packages use a fixed release keystore and are distributed outside Google Play. Advanced sideloading or ADB may be required.
+- The pre-1.0 Windows packages use a fixed self-signed identity. Verify the published SHA-256 checksum and certificate fingerprint before accepting the operating-system warning.
+- The pre-1.0 Android packages use a fixed, project-controlled self-signed release certificate and are distributed outside Google Play. Advanced sideloading or ADB may be required.
+- The v1.0.0 signing transition will be handled as a separate compatibility-reviewed release change.
+- The protected workflow performs CI, architecture, signature, package, checksum, SBOM, and provenance checks. It does not claim hardware-laboratory, physical-device, or long-duration VPN validation.
 - Updates are never installed automatically. Optional update checks only open the release page.
 - Windows uninstall restores Usque-owned network state before removing the service and can optionally delete the current user's local data.
 
@@ -119,7 +121,7 @@ Read [SECURITY.md](SECURITY.md) before reporting a vulnerability. Never put cred
 
 The project pins Rust `1.97.1`, Flutter commit `84fc5cbb223bc12f83d65b647ff8a56caf779ffd`, Android NDK `29.0.14206865`, and its packaging tools. Start with [CONTRIBUTING.md](CONTRIBUTING.md) for setup, check commands, safety boundaries, and Pull Request requirements.
 
-Architecture and status are tracked in [Implementation roadmap](docs/IMPLEMENTATION.md). The protected signing and laboratory chain is documented in [Release process](docs/RELEASE.md).
+Architecture and status are tracked in [Implementation roadmap](docs/IMPLEMENTATION.md). The protected signing and supply-chain checks are documented in [Release process](docs/RELEASE.md).
 
 ## Upstream and license
 

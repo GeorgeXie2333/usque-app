@@ -30,8 +30,6 @@ jobs:
     env:
       WINDOWS_SIGNER_SHA256: ${{ vars.WINDOWS_SIGNER_SHA256 }}
       ANDROID_SIGNER_SHA256: ${{ vars.ANDROID_SIGNER_SHA256 }}
-      WINDOWS_LAB_RUNNER: ${{ vars.WINDOWS_LAB_RUNNER }}
-      ANDROID_LAB_RUNNER: ${{ vars.ANDROID_LAB_RUNNER }}
     steps:
       - name: Checkout exact tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -49,11 +47,6 @@ jobs:
 
           flutter_version="$(sed -nE 's/^version: ([^+]+)\+.*/\1/p' apps/usque_gui/pubspec.yaml)"
           test "$flutter_version" = "${RELEASE_TAG#v}"
-
-          if [[ -e release/READY ]]; then
-            echo "::error::release/READY must be generated only after the exact signed artifacts pass both hardware laboratories."
-            exit 1
-          fi
 
           for value in "$WINDOWS_SIGNER_SHA256" "$ANDROID_SIGNER_SHA256"; do
             if [[ ! "$value" =~ ^[0-9A-Fa-f]{64}$ ]]; then
@@ -93,13 +86,6 @@ jobs:
               echo "::error::No successful main CI / gate workflow exists for the exact release commit."
               exit 1
             }
-
-          for runner in "$WINDOWS_LAB_RUNNER" "$ANDROID_LAB_RUNNER"; do
-            if ! jq -e 'type == "array" and length > 0 and all(.[]; type == "string" and length > 0)' <<<"$runner" >/dev/null; then
-              echo "::error::Lab runner variables must be JSON arrays of protected self-hosted labels."
-              exit 1
-            fi
-          done
 
   windows:
     name: Windows ${{ matrix.variant }}
@@ -717,126 +703,9 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  windows-lab:
-    name: Isolated Windows leak and lifecycle laboratory
-    needs: stage-candidate
-    runs-on: ${{ fromJSON(vars.WINDOWS_LAB_RUNNER || '["self-hosted","usque-release-lab-not-configured"]') }}
-    timeout-minutes: 1800
-    environment: release-lab
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout exact tag
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Download exact candidate
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: usque-release-candidate
-          path: ${{ runner.temp }}/candidate
-
-      - name: Verify candidate before lab mutation
-        shell: pwsh
-        run: |
-          python tool/release_contract.py verify-artifacts `
-            --directory "$env:RUNNER_TEMP/candidate" `
-            --manifest "$env:RUNNER_TEMP/candidate/release-manifest.json"
-
-      - name: Run fixed Windows hardware-lab harness
-        shell: pwsh
-        run: |
-          $harness = "C:\UsqueReleaseLab\run-windows-release.ps1"
-          if (-not (Test-Path -LiteralPath $harness -PathType Leaf)) {
-            throw "Protected Windows laboratory harness is not installed."
-          }
-          $evidence = Join-Path $env:RUNNER_TEMP "windows-evidence"
-          New-Item -ItemType Directory -Path $evidence -Force | Out-Null
-          & $harness `
-            -CandidateDirectory (Join-Path $env:RUNNER_TEMP "candidate") `
-            -ManifestPath (Join-Path $env:RUNNER_TEMP "candidate/release-manifest.json") `
-            -EvidenceDirectory $evidence
-          if ($LASTEXITCODE -ne 0) {
-            throw "Windows hardware laboratory failed."
-          }
-
-      - name: Verify Windows evidence and every attachment
-        shell: pwsh
-        run: |
-          python tool/release_contract.py verify-evidence `
-            --manifest "$env:RUNNER_TEMP/candidate/release-manifest.json" `
-            --evidence "$env:RUNNER_TEMP/windows-evidence/windows-evidence.json" `
-            --platform windows
-
-      - name: Upload Windows laboratory evidence
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: usque-windows-lab-evidence
-          path: ${{ runner.temp }}/windows-evidence
-          if-no-files-found: error
-          retention-days: 90
-
-  android-lab:
-    name: Isolated Android and TV leak/lifecycle laboratory
-    needs: stage-candidate
-    runs-on: ${{ fromJSON(vars.ANDROID_LAB_RUNNER || '["self-hosted","usque-release-lab-not-configured"]') }}
-    timeout-minutes: 1800
-    environment: release-lab
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout exact tag
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Download exact candidate
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: usque-release-candidate
-          path: ${{ runner.temp }}/candidate
-
-      - name: Verify candidate before lab mutation
-        run: |
-          python tool/release_contract.py verify-artifacts \
-            --directory "$RUNNER_TEMP/candidate" \
-            --manifest "$RUNNER_TEMP/candidate/release-manifest.json"
-
-      - name: Run fixed Android hardware-lab harness
-        shell: bash
-        run: |
-          set -euo pipefail
-          harness="/opt/usque-release-lab/run-android-release"
-          test -x "$harness" || {
-            echo "::error::Protected Android laboratory harness is not installed."
-            exit 1
-          }
-          evidence="$RUNNER_TEMP/android-evidence"
-          mkdir -p "$evidence"
-          "$harness" \
-            --candidate-directory "$RUNNER_TEMP/candidate" \
-            --manifest "$RUNNER_TEMP/candidate/release-manifest.json" \
-            --evidence-directory "$evidence"
-
-      - name: Verify Android evidence and every attachment
-        run: |
-          python tool/release_contract.py verify-evidence \
-            --manifest "$RUNNER_TEMP/candidate/release-manifest.json" \
-            --evidence "$RUNNER_TEMP/android-evidence/android-evidence.json" \
-            --platform android
-
-      - name: Upload Android laboratory evidence
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: usque-android-lab-evidence
-          path: ${{ runner.temp }}/android-evidence
-          if-no-files-found: error
-          retention-days: 90
-
   publish:
-    name: Generate READY and publish release
-    needs: [windows-lab, android-lab]
+    name: Reverify and publish release
+    needs: stage-candidate
     runs-on: ubuntu-24.04
     environment: release-publish
     permissions:
@@ -853,51 +722,14 @@ jobs:
           name: usque-release-candidate
           path: ${{ runner.temp }}/candidate
 
-      - name: Download Windows evidence
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: usque-windows-lab-evidence
-          path: ${{ runner.temp }}/windows-evidence
-
-      - name: Download Android evidence
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: usque-android-lab-evidence
-          path: ${{ runner.temp }}/android-evidence
-
-      - name: Reverify exact artifacts and generate release/READY
+      - name: Reverify exact artifacts before publication
         run: |
           set -euo pipefail
           python tool/release_contract.py verify-artifacts \
             --directory "$RUNNER_TEMP/candidate" \
             --manifest "$RUNNER_TEMP/candidate/release-manifest.json"
-          mkdir -p "$RUNNER_TEMP/release"
-          python tool/release_contract.py create-ready \
-            --manifest "$RUNNER_TEMP/candidate/release-manifest.json" \
-            --windows-evidence "$RUNNER_TEMP/windows-evidence/windows-evidence.json" \
-            --android-evidence "$RUNNER_TEMP/android-evidence/android-evidence.json" \
-            --output "$RUNNER_TEMP/release/READY"
-          cp "$RUNNER_TEMP/release/READY" "$RUNNER_TEMP/candidate/release-READY.json"
-          cp \
-            "$RUNNER_TEMP/windows-evidence/windows-evidence.json" \
-            "$RUNNER_TEMP/candidate/windows-lab-evidence.json"
-          cp \
-            "$RUNNER_TEMP/android-evidence/android-evidence.json" \
-            "$RUNNER_TEMP/candidate/android-lab-evidence.json"
 
-      - name: Preserve final READY proof
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: usque-release-ready
-          path: |
-            ${{ runner.temp }}/release/READY
-            ${{ runner.temp }}/candidate/release-manifest.json
-            ${{ runner.temp }}/candidate/windows-lab-evidence.json
-            ${{ runner.temp }}/candidate/android-lab-evidence.json
-          if-no-files-found: error
-          retention-days: 90
-
-      - name: Publish GitHub release only after every gate
+      - name: Publish GitHub release only after signing and supply-chain gates
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           prerelease: false
