@@ -105,12 +105,12 @@ flutter {
 }
 
 dependencies {
-    implementation("androidx.activity:activity:1.8.1")
+    implementation("androidx.activity:activity:1.13.0")
     testImplementation("junit:junit:4.13.2")
     // Flutter's Android plugin resolves this Kotlin metadata artifact late
     // while merging assets. Declare it explicitly so strict dependency
     // locking covers the same graph during both reports and real builds.
-    runtimeOnly("org.jetbrains.kotlin:kotlin-stdlib-common:2.3.20")
+    runtimeOnly("org.jetbrains.kotlin:kotlin-stdlib-common:2.4.10")
 }
 
 dependencyLocking {

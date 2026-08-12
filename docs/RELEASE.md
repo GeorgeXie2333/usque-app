@@ -48,7 +48,7 @@ trusts it only for the job, and removes it in an `always()` cleanup step. It
 never re-signs the official Wintun DLL. The Android workflow deletes its
 temporary keystore in the same way.
 
-Android builds verify the Gradle 9.1.0 distribution against its published
+Android builds verify the Gradle 9.5.0 distribution against its published
 SHA-256, use the checked-in strict `app/gradle.lockfile`, and verify resolved
 Gradle/Maven artifacts against `gradle/verification-metadata.xml`. Updating an
 Android dependency therefore requires an explicit review and regeneration of
