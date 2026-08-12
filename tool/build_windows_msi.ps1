@@ -39,33 +39,6 @@ function Resolve-ExistingDirectory {
     return $resolved.Path
 }
 
-function ConvertTo-MsiVersion {
-    param([Parameter(Mandatory = $true)][string]$SemVer)
-
-    if ($SemVer -notmatch '^v?(?<major>[0-9]+)\.(?<minor>[0-9]+)\.(?<patch>[0-9]+)(?:-beta\.(?<beta>[0-9]+))?$') {
-        throw "Unsupported release version: $SemVer"
-    }
-
-    $major = [int]$Matches.major
-    $minor = [int]$Matches.minor
-    $patch = [int]$Matches.patch
-    $ordinal = if ($Matches.beta) { [int]$Matches.beta } else { 99 }
-
-    if ($major -gt 255 -or $minor -gt 255) {
-        throw "MSI major and minor versions must be at most 255."
-    }
-    if ($ordinal -lt 1 -or $ordinal -gt 99) {
-        throw "Beta ordinal must be between 1 and 99."
-    }
-
-    $build = ([long]$patch * 100) + $ordinal
-    if ($build -gt 65535) {
-        throw "Mapped MSI build version exceeds 65535."
-    }
-
-    return "$major.$minor.$build"
-}
-
 function Get-CertificateSha256 {
     param(
         [Parameter(Mandatory = $true)]
@@ -225,7 +198,8 @@ if (-not (Test-Path -LiteralPath $iconPath -PathType Leaf)) {
 New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 $outputRoot = (Resolve-Path -LiteralPath $OutputDirectory).Path
 $displayVersion = $Version.TrimStart("v")
-$msiVersion = ConvertTo-MsiVersion -SemVer $Version
+$msiVersion = & (Join-Path $PSScriptRoot "convert_to_msi_version.ps1") `
+    -SemVer $Version
 $outputPath = Join-Path $outputRoot "usque-v$displayVersion-windows-$Variant.msi"
 $intermediatePath = Join-Path $outputRoot "wix-$Variant"
 New-Item -ItemType Directory -Path $intermediatePath -Force | Out-Null
