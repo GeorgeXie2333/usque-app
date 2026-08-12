@@ -2786,6 +2786,23 @@ mod tests {
         let service =
             ControlService::open_with_vault(ConfigStore::new(&config_path), vault.clone()).unwrap();
 
+        let mut retry_profile = service
+            .config_snapshot()
+            .await
+            .active_profile()
+            .cloned()
+            .expect("active profile");
+        retry_profile.mode = OperatingMode::Socks5;
+        retry_profile.frontends = FrontendSettings {
+            tunnel: false,
+            socks5: true,
+            http: true,
+        };
+        service
+            .upsert_profile(retry_profile)
+            .await
+            .expect("save proxy-only retry profile");
+
         let retry = service
             .handle(request(
                 "retry",
