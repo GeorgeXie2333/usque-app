@@ -123,7 +123,7 @@ class FrontendSettings {
   });
 
   const FrontendSettings.windowsDefault()
-    : tunnel = false,
+    : tunnel = true,
       socks5 = true,
       http = true;
 
@@ -303,7 +303,7 @@ class UsqueProfile {
       frontends: android
           ? const FrontendSettings.androidDefault()
           : const FrontendSettings.windowsDefault(),
-      proxy: ProxySettings(systemProxy: !android),
+      proxy: const ProxySettings(),
     );
   }
 

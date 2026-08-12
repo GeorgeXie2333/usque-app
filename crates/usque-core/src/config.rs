@@ -319,7 +319,7 @@ pub struct FrontendSettings {
 impl FrontendSettings {
     pub const fn windows_default() -> Self {
         Self {
-            tunnel: false,
+            tunnel: true,
             socks5: true,
             http: true,
         }
@@ -497,7 +497,7 @@ impl Default for ProxySettings {
                 SocketAddr::from(([127, 0, 0, 1], 8080)),
                 SocketAddr::new(Ipv6Addr::LOCALHOST.into(), 8080),
             ],
-            system_proxy: cfg!(windows),
+            system_proxy: false,
             udp_idle_timeout_seconds: 60,
             dns_mode: ProxyDnsMode::Remote,
         }
@@ -727,7 +727,28 @@ mod tests {
         assert_eq!(profile.frontends, FrontendSettings::platform_default());
         assert_eq!(profile.transport, TransportPolicy::Auto);
         assert!(profile.kill_switch);
+        assert!(!profile.proxy.system_proxy);
         assert!(!profile.proxy.exposes_lan(OperatingMode::Socks5));
+    }
+
+    #[test]
+    fn platform_frontend_defaults_enable_all_outputs() {
+        assert_eq!(
+            FrontendSettings::windows_default(),
+            FrontendSettings {
+                tunnel: true,
+                socks5: true,
+                http: true,
+            }
+        );
+        assert_eq!(
+            FrontendSettings::android_default(),
+            FrontendSettings {
+                tunnel: true,
+                socks5: true,
+                http: true,
+            }
+        );
     }
 
     #[test]

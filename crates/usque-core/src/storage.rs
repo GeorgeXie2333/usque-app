@@ -113,7 +113,7 @@ fn migrate(config: &mut AppConfig) -> Result<(), StoreError> {
                     profile.frontends = FrontendSettings::platform_default();
                     profile.mode = OperatingMode::legacy_platform_default();
                     profile.auto_connect = false;
-                    profile.proxy.system_proxy = cfg!(windows);
+                    profile.proxy.system_proxy = false;
                     if cfg!(windows)
                         && !profile
                             .proxy
@@ -277,7 +277,7 @@ mod tests {
             migrated.profiles[0].frontends,
             FrontendSettings::platform_default()
         );
-        assert_eq!(migrated.profiles[0].proxy.system_proxy, cfg!(windows));
+        assert!(!migrated.profiles[0].proxy.system_proxy);
         let backup: serde_json::Value =
             serde_json::from_slice(&fs::read(store.backup_path()).unwrap()).unwrap();
         assert_eq!(backup["profiles"][0]["proxy"]["system_proxy"], true);

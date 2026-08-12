@@ -87,7 +87,7 @@ One profile can enable several outputs at once. They share one pinned MASQUE tra
 | HTTP Proxy | Supports CONNECT and ordinary HTTP forwarding. |
 | Windows system proxy | Depends on HTTP output and points Windows at its local listener. |
 
-Windows defaults to SOCKS5 + HTTP + system proxy with TUN disabled. Android defaults to VPN + SOCKS5 + HTTP. Turning every output off is allowed and keeps only the transport available.
+Windows defaults to VPN/TUN + SOCKS5 + HTTP with the system proxy disabled. Android defaults to VPN + SOCKS5 + HTTP. Turning every output off is allowed and keeps only the transport available.
 
 ## Security and privacy
 
@@ -108,6 +108,6 @@ Architecture and status are tracked in [Implementation roadmap](docs/IMPLEMENTAT
 
 ## Upstream and license
 
-Usque GUI is forked from [Diniboy1123/usque](https://github.com/Diniboy1123/usque). Android compatibility behavior is informed by [Abobo7/usque-android](https://github.com/Abobo7/usque-android). Upstream copyright and attribution are retained.
+Usque GUI is forked from [Diniboy1123/usque](https://github.com/Diniboy1123/usque). Upstream copyright and attribution are retained.
 
 Source code is released under the [MIT License](LICENSE.md). Third-party components retain their own licenses.

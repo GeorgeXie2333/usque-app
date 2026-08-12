@@ -87,7 +87,7 @@ macOS 保留为后续源码目标，但不参与当前构建或发布门禁。�
 | HTTP Proxy | 支持 CONNECT 和普通 HTTP 转发。 |
 | Windows 系统代理 | 依赖 HTTP 输出，将 Windows 指向本地监听器。 |
 
-Windows 默认启用 SOCKS5、HTTP 和系统代理，关闭 TUN；Android 默认启用 VPN、SOCKS5 和 HTTP。允许关闭全部输出，只保持传输可用。
+Windows 默认启用 SOCKS5、HTTP 和 VPN（TUN），默认关闭系统代理；Android 默认启用 VPN、SOCKS5 和 HTTP。允许关闭全部输出，只保持传输可用。
 
 ## 安全与隐私
 
@@ -108,6 +108,6 @@ Windows 默认启用 SOCKS5、HTTP 和系统代理，关闭 TUN；Android 默认
 
 ## 上游与许可
 
-Usque GUI fork 自 [Diniboy1123/usque](https://github.com/Diniboy1123/usque)，Android 兼容行为参考 [Abobo7/usque-android](https://github.com/Abobo7/usque-android)，并保留上游版权和归属。
+Usque GUI fork 自 [Diniboy1123/usque](https://github.com/Diniboy1123/usque)，并保留上游版权和归属。
 
 源码采用 [MIT License](LICENSE.md)，第三方组件保留各自许可证。

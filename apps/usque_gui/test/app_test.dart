@@ -233,18 +233,40 @@ class EventEngineClient extends FakeEngineClient {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('profile defaults match the product contract', () {
-    final profile = UsqueProfile.defaultProfile();
-    expect(profile.endpointIpv4, '162.159.198.2');
-    expect(profile.endpointIpv6, '2606:4700:103::2');
-    expect(profile.endpointPort, 443);
-    expect(profile.sni, 'speed.cloudflare.com');
-    expect(profile.mtu, 1280);
-    expect(profile.proxy.socksPort, 1080);
-    expect(profile.proxy.httpPort, 8080);
-    expect(profile.killSwitch, isTrue);
-    expect(profile.proxy.exposesLan, isFalse);
-    expect(profile.proxy.dnsMode, ProxyDnsMode.remote);
+  test('Windows profile defaults match the product contract', () {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    try {
+      final profile = UsqueProfile.defaultProfile();
+      expect(profile.endpointIpv4, '162.159.198.2');
+      expect(profile.endpointIpv6, '2606:4700:103::2');
+      expect(profile.endpointPort, 443);
+      expect(profile.sni, 'speed.cloudflare.com');
+      expect(profile.mtu, 1280);
+      expect(profile.proxy.socksPort, 1080);
+      expect(profile.proxy.httpPort, 8080);
+      expect(profile.killSwitch, isTrue);
+      expect(profile.proxy.exposesLan, isFalse);
+      expect(profile.proxy.dnsMode, ProxyDnsMode.remote);
+      expect(profile.frontends.tunnel, isTrue);
+      expect(profile.frontends.socks5, isTrue);
+      expect(profile.frontends.http, isTrue);
+      expect(profile.proxy.systemProxy, isFalse);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  test('Android profile output defaults remain unchanged', () {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    try {
+      final profile = UsqueProfile.defaultProfile();
+      expect(profile.frontends.tunnel, isTrue);
+      expect(profile.frontends.socks5, isTrue);
+      expect(profile.frontends.http, isTrue);
+      expect(profile.proxy.systemProxy, isFalse);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
   });
 
   test('Android snapshots preserve structured errors and compare by value', () {
