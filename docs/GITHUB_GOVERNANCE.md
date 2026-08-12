@@ -38,9 +38,10 @@ The conduct and security links intentionally use GitHub Private Vulnerability Re
 Create an active repository ruleset targeting `~DEFAULT_BRANCH` with:
 
 - a Pull Request required before merge;
-- one approving review from a collaborator with write permission;
-- stale approvals dismissed when new commits are pushed;
-- Code Owner approval for matching sensitive paths;
+- no mandatory approving review while the repository has only one active
+  maintainer with write permission;
+- `CODEOWNERS` retained for ownership routing, with mandatory Code Owner review
+  enabled only after a second independent maintainer is available;
 - the branch required to be up to date before merge;
 - required status checks `PR Check / gate`, `CI / gate`, and `Build / gate`;
 - all review conversations resolved;
