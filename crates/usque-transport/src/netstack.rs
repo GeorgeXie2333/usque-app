@@ -1627,7 +1627,8 @@ fn runtime_path(transport: Transport, endpoint_family: AddressFamily) -> Runtime
     }
 }
 
-fn jitter_duration(base: Duration, percent: u64, salt: u32) -> Duration {
+/// Adds bounded, non-cryptographic scheduling jitter for reconnects and probes.
+fn jitter_duration(base: Duration, percent: u64, sequence: u32) -> Duration {
     let base_millis = base.as_millis().min(u128::from(u64::MAX)) as u64;
     let span = base_millis.saturating_mul(percent).saturating_div(100);
     if span == 0 {
@@ -1637,7 +1638,7 @@ fn jitter_duration(base: Duration, percent: u64, salt: u32) -> Duration {
         .duration_since(UNIX_EPOCH)
         .map(|duration| u64::from(duration.subsec_nanos()))
         .unwrap_or_default()
-        ^ u64::from(salt).wrapping_mul(0x9e37_79b9);
+        ^ u64::from(sequence).wrapping_mul(0x9e37_79b9);
     let offset = entropy % span.saturating_mul(2).saturating_add(1);
     Duration::from_millis(base_millis.saturating_sub(span).saturating_add(offset))
 }
@@ -1728,8 +1729,8 @@ mod tests {
 
     #[test]
     fn reconnect_and_probe_jitter_stays_within_twenty_percent() {
-        for (salt, base) in RECONNECT_DELAYS.into_iter().enumerate() {
-            let delay = jitter_duration(base, H3_PROBE_JITTER_PERCENT, salt as u32);
+        for (sequence, base) in RECONNECT_DELAYS.into_iter().enumerate() {
+            let delay = jitter_duration(base, H3_PROBE_JITTER_PERCENT, sequence as u32);
             assert!(delay >= base.mul_f64(0.8));
             assert!(delay <= base.mul_f64(1.2));
         }

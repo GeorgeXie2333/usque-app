@@ -1,5 +1,5 @@
 use std::io;
-use std::ptr;
+use std::ptr::{self, NonNull};
 use std::slice;
 
 use async_trait::async_trait;
@@ -153,23 +153,20 @@ impl SecretVault for WindowsCredentialVault {
             };
         }
 
-        let credential = CredentialBuffer(raw_credential);
-        if credential.0.is_null() {
-            return Err(VaultError::Platform(
-                "CredReadW returned a null credential".to_owned(),
-            ));
-        }
-        // SAFETY: CredReadW returned a valid CREDENTIALW allocation owned by
-        // CredentialBuffer until after this copy completes.
-        let value = unsafe {
-            let size = (*credential.0).CredentialBlobSize as usize;
-            let pointer = (*credential.0).CredentialBlob;
-            if size > MAX_CREDENTIAL_BLOB_BYTES || (size != 0 && pointer.is_null()) {
-                return Err(VaultError::Platform(
-                    "Credential Manager returned an invalid blob".to_owned(),
-                ));
+        let credential = CredentialBuffer::new(raw_credential).ok_or_else(|| {
+            VaultError::Platform("CredReadW returned a null credential".to_owned())
+        })?;
+        let record = credential.as_ref();
+        let size = record.CredentialBlobSize as usize;
+        let pointer = checked_blob_pointer(size, record.CredentialBlob)?;
+        let value = match pointer {
+            None => Zeroizing::new(Vec::new()),
+            Some(pointer) => {
+                // SAFETY: CredReadW guarantees that the credential allocation
+                // owns at least `size` blob bytes until CredFree. The checked
+                // pointer is non-null, and a byte slice has no alignment gap.
+                Zeroizing::new(unsafe { slice::from_raw_parts(pointer.as_ptr(), size).to_vec() })
             }
-            Zeroizing::new(slice::from_raw_parts(pointer, size).to_vec())
         };
         Ok(Some(value))
     }
@@ -188,14 +185,24 @@ impl SecretVault for WindowsCredentialVault {
     }
 }
 
-struct CredentialBuffer(*mut CREDENTIALW);
+struct CredentialBuffer(NonNull<CREDENTIALW>);
+
+impl CredentialBuffer {
+    fn new(pointer: *mut CREDENTIALW) -> Option<Self> {
+        NonNull::new(pointer).map(Self)
+    }
+
+    fn as_ref(&self) -> &CREDENTIALW {
+        // SAFETY: CredReadW returned this non-null allocation and it remains
+        // owned by this buffer until Drop runs.
+        unsafe { self.0.as_ref() }
+    }
+}
 
 impl Drop for CredentialBuffer {
     fn drop(&mut self) {
-        if !self.0.is_null() {
-            // SAFETY: the pointer was allocated by CredReadW and is freed once.
-            unsafe { CredFree(self.0.cast()) };
-        }
+        // SAFETY: the pointer was allocated by CredReadW and is freed once.
+        unsafe { CredFree(self.0.as_ptr().cast()) };
     }
 }
 
@@ -223,6 +230,20 @@ fn is_namespaced_target(value: &str) -> bool {
     value
         .strip_prefix(TARGET_PREFIX)
         .is_some_and(|suffix| suffix.starts_with('/'))
+}
+
+fn checked_blob_pointer(size: usize, pointer: *mut u8) -> Result<Option<NonNull<u8>>, VaultError> {
+    if size > MAX_CREDENTIAL_BLOB_BYTES {
+        return Err(VaultError::Platform(
+            "Credential Manager returned an invalid blob".to_owned(),
+        ));
+    }
+    if size == 0 {
+        return Ok(None);
+    }
+    NonNull::new(pointer).map(Some).ok_or_else(|| {
+        VaultError::Platform("Credential Manager returned an invalid blob".to_owned())
+    })
 }
 
 unsafe fn wide_null_to_string(value: *const u16) -> Result<String, VaultError> {
@@ -284,6 +305,18 @@ mod tests {
         assert!(!is_namespaced_target(
             "io.github.georgexie2333.usque/identity-other/profile/warp-secret"
         ));
+    }
+
+    #[test]
+    fn credential_blob_pointer_validation_handles_empty_and_invalid_blobs() {
+        assert!(checked_blob_pointer(0, ptr::null_mut()).unwrap().is_none());
+        assert!(checked_blob_pointer(1, ptr::null_mut()).is_err());
+        assert!(checked_blob_pointer(MAX_CREDENTIAL_BLOB_BYTES + 1, ptr::dangling_mut()).is_err());
+
+        let mut byte = 42_u8;
+        let expected = NonNull::from(&mut byte);
+        let pointer = checked_blob_pointer(1, &mut byte).unwrap().unwrap();
+        assert_eq!(pointer, expected);
     }
 
     #[tokio::test]
