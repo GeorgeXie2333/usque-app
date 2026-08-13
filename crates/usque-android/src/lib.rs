@@ -613,6 +613,18 @@ struct AndroidProxy {
     http_ipv6: String,
     http_port: u16,
     dns_mode: String,
+    #[serde(default = "default_proxy_dns_v4")]
+    dns_v4: String,
+    #[serde(default = "default_proxy_dns_v6")]
+    dns_v6: String,
+}
+
+fn default_proxy_dns_v4() -> String {
+    usque_core::config::DEFAULT_DNS_V4.to_string()
+}
+
+fn default_proxy_dns_v6() -> String {
+    usque_core::config::DEFAULT_DNS_V6.to_string()
 }
 
 fn parse_android_profile(json: &str) -> Result<Profile, String> {
@@ -709,6 +721,10 @@ fn android_profile_to_core(source: AndroidProfile) -> Result<Profile, String> {
             system_proxy: false,
             udp_idle_timeout_seconds: 60,
             dns_mode: proxy_dns_mode,
+            dns_servers: vec![
+                parse_value(&source.proxy.dns_v4, "proxy DNS IPv4")?,
+                parse_value(&source.proxy.dns_v6, "proxy DNS IPv6")?,
+            ],
         },
     };
     profile.validate().map_err(|error| error.to_string())?;
@@ -1025,6 +1041,22 @@ fn android_profile_value(profile: &Profile) -> serde_json::Value {
                 ProxyDnsMode::LocalConfigured => "localConfigured",
                 ProxyDnsMode::System => "system",
             },
+            "dns_v4": profile
+                .proxy
+                .dns_servers
+                .iter()
+                .find(|server| server.is_ipv4())
+                .copied()
+                .unwrap_or_else(|| usque_core::config::DEFAULT_DNS_V4.into())
+                .to_string(),
+            "dns_v6": profile
+                .proxy
+                .dns_servers
+                .iter()
+                .find(|server| server.is_ipv6())
+                .copied()
+                .unwrap_or_else(|| usque_core::config::DEFAULT_DNS_V6.into())
+                .to_string(),
             "system_proxy": profile.proxy.system_proxy,
         }
     })
@@ -2217,6 +2249,8 @@ mod tests {
                 "http_ipv6": "::1",
                 "http_port": 8080,
                 "dns_mode": "remote",
+                "dns_v4": "1.1.1.1",
+                "dns_v6": "2606:4700:4700::1111",
                 "system_proxy": false
             }
         })
@@ -2237,6 +2271,13 @@ mod tests {
         assert_eq!(
             profile.proxy.socks5_listeners[0].to_string(),
             "127.0.0.1:1080"
+        );
+        assert_eq!(
+            profile.proxy.dns_servers,
+            vec![
+                "1.1.1.1".parse::<IpAddr>().unwrap(),
+                "2606:4700:4700::1111".parse::<IpAddr>().unwrap(),
+            ]
         );
     }
 

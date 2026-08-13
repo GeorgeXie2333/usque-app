@@ -172,12 +172,18 @@ impl Socks5Frontend {
     ) -> Self {
         let cancellation = stack.cancellation.child_token();
         let (failure_tx, failure) = watch::channel(None);
+        let dns_servers = if profile.proxy.dns_mode == usque_core::ProxyDnsMode::LocalConfigured {
+            profile.proxy.dns_servers.clone()
+        } else {
+            profile.dns_servers.clone()
+        };
         let resolver = Resolver::new(
             stack.channel.clone(),
             assigned_ipv4,
             assigned_ipv6,
-            profile.dns_servers.clone(),
+            dns_servers,
             profile.proxy.dns_mode,
+            Arc::clone(&stack.protector),
         );
         let context = Arc::new(SocksContext {
             channel: stack.channel.clone(),

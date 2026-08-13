@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -22,6 +24,10 @@ class _ProxyScreenState extends State<ProxyScreen> {
   late final TextEditingController _httpV4;
   late final TextEditingController _httpV6;
   late final TextEditingController _httpPort;
+  late final TextEditingController _dnsV4;
+  late final TextEditingController _dnsV6;
+  String? _dnsV4Error;
+  String? _dnsV6Error;
   String? _loadedProfileId;
 
   @override
@@ -33,6 +39,8 @@ class _ProxyScreenState extends State<ProxyScreen> {
     _httpV4 = TextEditingController();
     _httpV6 = TextEditingController();
     _httpPort = TextEditingController();
+    _dnsV4 = TextEditingController();
+    _dnsV6 = TextEditingController();
     _load(widget.controller.activeProfile);
   }
 
@@ -52,6 +60,10 @@ class _ProxyScreenState extends State<ProxyScreen> {
     _httpV4.text = profile.proxy.httpIpv4;
     _httpV6.text = profile.proxy.httpIpv6;
     _httpPort.text = profile.proxy.httpPort.toString();
+    _dnsV4.text = profile.proxy.dnsIpv4;
+    _dnsV6.text = profile.proxy.dnsIpv6;
+    _dnsV4Error = null;
+    _dnsV6Error = null;
   }
 
   @override
@@ -63,6 +75,8 @@ class _ProxyScreenState extends State<ProxyScreen> {
       _httpV4,
       _httpV6,
       _httpPort,
+      _dnsV4,
+      _dnsV6,
     ]) {
       controller.dispose();
     }
@@ -98,39 +112,131 @@ class _ProxyScreenState extends State<ProxyScreen> {
           _listenerPanel(context, profile, socks5: false),
           const SizedBox(height: 16),
           Panel(
-            child: DropdownButtonFormField<ProxyDnsMode>(
-              initialValue: currentProxy.dnsMode,
-              decoration: InputDecoration(
-                prefixIcon: const Icon(LucideIcons.server),
-                labelText: strings.get('proxy_dns_mode'),
-              ),
-              items: ProxyDnsMode.values
-                  .map(
-                    (mode) => DropdownMenuItem<ProxyDnsMode>(
-                      value: mode,
-                      child: Text(
-                        strings.get(switch (mode) {
-                          ProxyDnsMode.remote => 'proxy_dns_remote',
-                          ProxyDnsMode.localConfigured =>
-                            'proxy_dns_configured',
-                          ProxyDnsMode.system => 'proxy_dns_system',
-                        }),
-                      ),
-                    ),
-                  )
-                  .toList(growable: false),
-              onChanged: (value) {
-                if (value != null) {
-                  widget.controller.updateProfile(
-                    profile.copyWith(
-                      proxy: currentProxy.copyWith(dnsMode: value),
-                    ),
-                  );
-                }
-              },
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                DropdownButtonFormField<ProxyDnsMode>(
+                  key: const ValueKey<String>('proxy-dns-mode'),
+                  initialValue: currentProxy.dnsMode,
+                  decoration: InputDecoration(
+                    prefixIcon: const Icon(LucideIcons.server),
+                    labelText: strings.get('proxy_dns_mode'),
+                  ),
+                  items: ProxyDnsMode.values
+                      .map(
+                        (mode) => DropdownMenuItem<ProxyDnsMode>(
+                          value: mode,
+                          child: Text(
+                            strings.get(switch (mode) {
+                              ProxyDnsMode.remote => 'proxy_dns_remote',
+                              ProxyDnsMode.localConfigured =>
+                                'proxy_dns_configured',
+                              ProxyDnsMode.system => 'proxy_dns_system',
+                            }),
+                          ),
+                        ),
+                      )
+                      .toList(growable: false),
+                  onChanged: (value) {
+                    if (value != null) {
+                      widget.controller.updateProfile(
+                        profile.copyWith(
+                          proxy: currentProxy.copyWith(dnsMode: value),
+                        ),
+                      );
+                    }
+                  },
+                ),
+                if (currentProxy.dnsMode ==
+                    ProxyDnsMode.localConfigured) ...<Widget>[
+                  const SizedBox(height: 14),
+                  _dnsFields(profile),
+                ],
+              ],
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _dnsFields(UsqueProfile profile) {
+    final strings = widget.controller.strings;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final fields = <Widget>[
+          TextField(
+            key: const ValueKey<String>('proxy-dns-ipv4'),
+            controller: _dnsV4,
+            keyboardType: TextInputType.url,
+            autocorrect: false,
+            enableSuggestions: false,
+            textInputAction: TextInputAction.next,
+            decoration: InputDecoration(
+              labelText: strings.get('dns_ipv4'),
+              errorText: _dnsV4Error,
+            ),
+            onChanged: (_) => _saveDns(profile),
+          ),
+          TextField(
+            key: const ValueKey<String>('proxy-dns-ipv6'),
+            controller: _dnsV6,
+            keyboardType: TextInputType.url,
+            autocorrect: false,
+            enableSuggestions: false,
+            textInputAction: TextInputAction.done,
+            decoration: InputDecoration(
+              labelText: strings.get('dns_ipv6'),
+              errorText: _dnsV6Error,
+            ),
+            onChanged: (_) => _saveDns(profile),
+          ),
+        ];
+        if (constraints.maxWidth < 640) {
+          return Column(
+            children: <Widget>[
+              fields[0],
+              const SizedBox(height: 12),
+              fields[1],
+            ],
+          );
+        }
+        return Row(
+          children: <Widget>[
+            Expanded(child: fields[0]),
+            const SizedBox(width: 12),
+            Expanded(child: fields[1]),
+          ],
+        );
+      },
+    );
+  }
+
+  void _saveDns(UsqueProfile profile) {
+    final ipv4 = _dnsV4.text.trim();
+    final ipv6 = _dnsV6.text.trim();
+    final ipv4Valid =
+        InternetAddress.tryParse(ipv4)?.type == InternetAddressType.IPv4;
+    final ipv6Valid =
+        InternetAddress.tryParse(ipv6)?.type == InternetAddressType.IPv6;
+    final invalidAddress = widget.controller.strings.get('invalid_address');
+    final ipv4Error = ipv4Valid ? null : invalidAddress;
+    final ipv6Error = ipv6Valid ? null : invalidAddress;
+    if (ipv4Error != _dnsV4Error || ipv6Error != _dnsV6Error) {
+      setState(() {
+        _dnsV4Error = ipv4Error;
+        _dnsV6Error = ipv6Error;
+      });
+    }
+    if (!ipv4Valid || !ipv6Valid) {
+      return;
+    }
+    if (profile.proxy.dnsIpv4 == ipv4 && profile.proxy.dnsIpv6 == ipv6) {
+      return;
+    }
+    widget.controller.updateProfile(
+      profile.copyWith(
+        proxy: profile.proxy.copyWith(dnsIpv4: ipv4, dnsIpv6: ipv6),
       ),
     );
   }

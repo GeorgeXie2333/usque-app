@@ -134,6 +134,7 @@ impl TrafficCounters {
 
 pub(crate) struct PacketStack {
     pub(crate) channel: Channel,
+    pub(crate) protector: Arc<dyn SocketProtector>,
     pub(crate) cancellation: CancellationToken,
     pub(crate) failure: watch::Receiver<Option<String>>,
     pub(crate) counters: Arc<TrafficCounters>,
@@ -156,6 +157,7 @@ impl PacketStack {
         assigned_ipv6: std::net::Ipv6Addr,
         monitor: &ManagedTunnelMonitor,
         parent_cancellation: &CancellationToken,
+        protector: Arc<dyn SocketProtector>,
     ) -> Result<(Self, WakingPipe), TransportError> {
         let (config, tcp_buffer_metrics) = proxy_netstack_config(profile);
         let (stack, pipe) = bounded_piped(config);
@@ -169,6 +171,7 @@ impl PacketStack {
         Ok((
             Self {
                 channel,
+                protector,
                 cancellation: parent_cancellation.child_token(),
                 failure: monitor.failure.clone(),
                 counters: Arc::clone(&monitor.counters),
@@ -225,7 +228,7 @@ impl PacketStack {
             SupervisorContext {
                 profile: profile.clone(),
                 identity,
-                protector,
+                protector: Arc::clone(&protector),
                 pin_refresher,
                 pin_refresh_attempted,
                 cancellation: cancellation.clone(),
@@ -252,6 +255,7 @@ impl PacketStack {
 
         Ok(Self {
             channel,
+            protector,
             cancellation,
             failure,
             counters,

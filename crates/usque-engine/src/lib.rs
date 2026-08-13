@@ -2278,6 +2278,22 @@ fn profile_from_proto(source: v1::Profile) -> Result<Profile, ControlServiceErro
                     ));
                 }
             },
+            dns_servers: if proxy.dns_servers.is_empty() {
+                vec![
+                    usque_core::config::DEFAULT_DNS_V4.into(),
+                    usque_core::config::DEFAULT_DNS_V6.into(),
+                ]
+            } else {
+                proxy
+                    .dns_servers
+                    .iter()
+                    .map(|value| {
+                        value
+                            .parse::<IpAddr>()
+                            .map_err(ControlServiceError::configuration)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?
+            },
         },
     };
     profile
@@ -2382,6 +2398,7 @@ fn proxy_to_proto(proxy: &ProxySettings) -> v1::ProxySettings {
             ProxyDnsMode::LocalConfigured => v1::ProxyDnsMode::LocalConfigured as i32,
             ProxyDnsMode::System => v1::ProxyDnsMode::System as i32,
         },
+        dns_servers: proxy.dns_servers.iter().map(ToString::to_string).collect(),
     }
 }
 

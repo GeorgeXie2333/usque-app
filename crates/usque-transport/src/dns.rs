@@ -1,9 +1,10 @@
 use std::collections::HashSet;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket as StdUdpSocket};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::time::Duration;
 
-use tokio::net::lookup_host;
+use tokio::net::{UdpSocket, lookup_host};
 use tokio::time::timeout;
 use ts_netstack_smoltcp::CreateSocket;
 use ts_netstack_smoltcp::netcore::Channel;
@@ -11,6 +12,7 @@ use usque_core::ProxyDnsMode;
 
 use crate::h2::TransportError;
 use crate::port_allocator::next_udp_port;
+use crate::socket::{SocketProtector, socket_handle};
 
 const DNS_TIMEOUT: Duration = Duration::from_secs(4);
 const DNS_PORT: u16 = 53;
@@ -28,6 +30,7 @@ pub(crate) struct Resolver {
     assigned_ipv6: Ipv6Addr,
     servers: Vec<IpAddr>,
     mode: ProxyDnsMode,
+    protector: Arc<dyn SocketProtector>,
 }
 
 impl Resolver {
@@ -37,6 +40,7 @@ impl Resolver {
         assigned_ipv6: Ipv6Addr,
         servers: Vec<IpAddr>,
         mode: ProxyDnsMode,
+        protector: Arc<dyn SocketProtector>,
     ) -> Self {
         Self {
             channel,
@@ -44,6 +48,7 @@ impl Resolver {
             assigned_ipv6,
             servers,
             mode,
+            protector,
         }
     }
 
@@ -55,7 +60,8 @@ impl Resolver {
 
         let mut addresses = match self.mode {
             ProxyDnsMode::Remote => self.resolve_through_tunnel(name).await?,
-            ProxyDnsMode::LocalConfigured | ProxyDnsMode::System => lookup_host((name, 0))
+            ProxyDnsMode::LocalConfigured => self.resolve_with_configured_servers(name).await?,
+            ProxyDnsMode::System => lookup_host((name, 0))
                 .await
                 .map_err(|error| TransportError::Dns(error.to_string()))?
                 .map(|address| address.ip())
@@ -72,27 +78,27 @@ impl Resolver {
     }
 
     async fn resolve_through_tunnel(&self, name: &str) -> Result<Vec<IpAddr>, TransportError> {
-        let query_v4 = self.query(name, TYPE_A);
-        let query_v6 = self.query(name, TYPE_AAAA);
+        let query_v4 = self.query_through_tunnel(name, TYPE_A);
+        let query_v6 = self.query_through_tunnel(name, TYPE_AAAA);
         let (v4, v6) = tokio::join!(query_v4, query_v6);
-
-        let mut addresses = Vec::new();
-        let mut errors = Vec::new();
-        match v4 {
-            Ok(mut values) => addresses.append(&mut values),
-            Err(error) => errors.push(error.to_string()),
-        }
-        match v6 {
-            Ok(mut values) => addresses.append(&mut values),
-            Err(error) => errors.push(error.to_string()),
-        }
-        if addresses.is_empty() {
-            return Err(TransportError::Dns(errors.join("; ")));
-        }
-        Ok(addresses)
+        merge_query_results(v4, v6)
     }
 
-    async fn query(&self, name: &str, query_type: u16) -> Result<Vec<IpAddr>, TransportError> {
+    async fn resolve_with_configured_servers(
+        &self,
+        name: &str,
+    ) -> Result<Vec<IpAddr>, TransportError> {
+        let query_v4 = self.query_configured_server(name, TYPE_A);
+        let query_v6 = self.query_configured_server(name, TYPE_AAAA);
+        let (v4, v6) = tokio::join!(query_v4, query_v6);
+        merge_query_results(v4, v6)
+    }
+
+    async fn query_through_tunnel(
+        &self,
+        name: &str,
+        query_type: u16,
+    ) -> Result<Vec<IpAddr>, TransportError> {
         let transaction_id = NEXT_DNS_ID.fetch_add(1, Ordering::Relaxed);
         let query = encode_query(transaction_id, name, query_type)?;
         let mut errors = Vec::new();
@@ -138,6 +144,100 @@ impl Resolver {
             errors.join("; ")
         }))
     }
+
+    async fn query_configured_server(
+        &self,
+        name: &str,
+        query_type: u16,
+    ) -> Result<Vec<IpAddr>, TransportError> {
+        let transaction_id = NEXT_DNS_ID.fetch_add(1, Ordering::Relaxed);
+        let query = encode_query(transaction_id, name, query_type)?;
+        let mut errors = Vec::new();
+
+        for server in &self.servers {
+            let remote = SocketAddr::new(*server, DNS_PORT);
+            match query_local_server(
+                self.protector.as_ref(),
+                remote,
+                &query,
+                transaction_id,
+                query_type,
+            )
+            .await
+            {
+                Ok(addresses) if !addresses.is_empty() => return Ok(addresses),
+                Ok(_) => errors.push(format!("{server}: empty response")),
+                Err(error) => errors.push(format!("{server}: {error}")),
+            }
+        }
+
+        Err(TransportError::Dns(if errors.is_empty() {
+            "no configured DNS servers are available".to_owned()
+        } else {
+            errors.join("; ")
+        }))
+    }
+}
+
+fn merge_query_results(
+    v4: Result<Vec<IpAddr>, TransportError>,
+    v6: Result<Vec<IpAddr>, TransportError>,
+) -> Result<Vec<IpAddr>, TransportError> {
+    let mut addresses = Vec::new();
+    let mut errors = Vec::new();
+    match v4 {
+        Ok(mut values) => addresses.append(&mut values),
+        Err(error) => errors.push(error.to_string()),
+    }
+    match v6 {
+        Ok(mut values) => addresses.append(&mut values),
+        Err(error) => errors.push(error.to_string()),
+    }
+    if addresses.is_empty() {
+        return Err(TransportError::Dns(errors.join("; ")));
+    }
+    Ok(addresses)
+}
+
+async fn query_local_server(
+    protector: &dyn SocketProtector,
+    remote: SocketAddr,
+    query: &[u8],
+    transaction_id: u16,
+    query_type: u16,
+) -> Result<Vec<IpAddr>, TransportError> {
+    let bind_address = if remote.is_ipv4() {
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0)
+    } else {
+        SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0)
+    };
+    let std_socket = StdUdpSocket::bind(bind_address)?;
+    protector
+        .protect(socket_handle(&std_socket))
+        .map_err(TransportError::SocketProtection)?;
+    std_socket.set_nonblocking(true)?;
+    let socket = UdpSocket::from_std(std_socket)?;
+
+    let sent = timeout(DNS_TIMEOUT, socket.send_to(query, remote))
+        .await
+        .map_err(|_| TransportError::Dns(format!("send to {remote} timed out")))??;
+    if sent != query.len() {
+        return Err(TransportError::Dns(format!(
+            "send to {remote} wrote only {sent} of {} bytes",
+            query.len()
+        )));
+    }
+
+    let mut response = [0u8; MAX_DNS_PACKET];
+    let (length, source) = timeout(DNS_TIMEOUT, socket.recv_from(&mut response))
+        .await
+        .map_err(|_| TransportError::Dns(format!("response from {remote} timed out")))??;
+    if source.ip() != remote.ip() || source.port() != remote.port() {
+        return Err(TransportError::Dns(format!(
+            "response came from {source} instead of {remote}"
+        )));
+    }
+    decode_response(&response[..length], transaction_id, query_type)
 }
 
 fn validate_name(name: &str) -> Result<(), TransportError> {
@@ -299,6 +399,7 @@ fn deduplicate(addresses: &mut Vec<IpAddr>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::socket::NoopSocketProtector;
 
     #[test]
     fn encodes_bounded_dns_query() {
@@ -318,5 +419,30 @@ mod tests {
             decode_response(&response, 0x1234, TYPE_A).unwrap(),
             vec![IpAddr::V4(Ipv4Addr::new(203, 0, 113, 9))]
         );
+    }
+
+    #[tokio::test]
+    async fn configured_query_uses_the_requested_dns_server() {
+        let server = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let server_address = server.local_addr().unwrap();
+        let responder = tokio::spawn(async move {
+            let mut packet = [0u8; MAX_DNS_PACKET];
+            let (length, client) = server.recv_from(&mut packet).await.unwrap();
+            let mut response = packet[..length].to_vec();
+            response[2..4].copy_from_slice(&0x8180u16.to_be_bytes());
+            response[6..8].copy_from_slice(&1u16.to_be_bytes());
+            response
+                .extend_from_slice(&[0xc0, 0x0c, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 203, 0, 113, 9]);
+            server.send_to(&response, client).await.unwrap();
+        });
+
+        let query = encode_query(0x1234, "example.com", TYPE_A).unwrap();
+        let addresses =
+            query_local_server(&NoopSocketProtector, server_address, &query, 0x1234, TYPE_A)
+                .await
+                .unwrap();
+        responder.await.unwrap();
+
+        assert_eq!(addresses, vec![IpAddr::V4(Ipv4Addr::new(203, 0, 113, 9))]);
     }
 }

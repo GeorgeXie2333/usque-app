@@ -72,9 +72,13 @@ impl MasqueRuntime {
 
         let assigned_ipv4 = identity.assigned_ipv4;
         let assigned_ipv6 = identity.assigned_ipv6;
-        let mut tunnel =
-            ManagedTunnelRuntime::start_with_refresh(profile, identity, protector, pin_refresher)
-                .await?;
+        let mut tunnel = ManagedTunnelRuntime::start_with_refresh(
+            profile,
+            identity,
+            Arc::clone(&protector),
+            pin_refresher,
+        )
+        .await?;
         let monitor = tunnel.monitor();
         let cancellation = CancellationToken::new();
         let (mut stack, proxy_pipe) = PacketStack::start_detached(
@@ -83,6 +87,7 @@ impl MasqueRuntime {
             assigned_ipv6,
             &monitor,
             &cancellation,
+            protector,
         )
         .await?;
 

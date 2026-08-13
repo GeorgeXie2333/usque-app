@@ -122,7 +122,7 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] White/orange visual system, dark mode, and Lucide-only interface icons.
 - [x] Exact default endpoints, SNI, MTU, DNS, listener addresses, and reset action.
 - [x] Composable VPN/SOCKS5/HTTP outputs, Windows system-proxy dependency, and non-loopback listener warning.
-- [x] Remote/configured/system Proxy DNS selection with an explicit local-DNS leak warning.
+- [x] Remote/custom/system Proxy DNS selection with dedicated IPv4/IPv6 servers and an explicit local-DNS leak warning.
 - [x] Exit location, IPv4, IPv6, protocol, family, duration, and traffic UI.
 - [x] English and Simplified Chinese string catalogs.
 - [x] Adaptive desktop/mobile navigation and focusable Material controls.

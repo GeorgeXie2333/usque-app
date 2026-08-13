@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:usque/app.dart';
 import 'package:usque/core/app_strings.dart';
 import 'package:usque/models/app_models.dart';
+import 'package:usque/screens/proxy_screen.dart';
 import 'package:usque/services/desktop_engine_client.dart';
 import 'package:usque/services/engine_client.dart';
 import 'package:usque/state/app_controller.dart';
@@ -247,6 +248,8 @@ void main() {
       expect(profile.killSwitch, isTrue);
       expect(profile.proxy.exposesLan, isFalse);
       expect(profile.proxy.dnsMode, ProxyDnsMode.remote);
+      expect(profile.proxy.dnsIpv4, '1.1.1.1');
+      expect(profile.proxy.dnsIpv6, '2606:4700:4700::1111');
       expect(profile.frontends.tunnel, isTrue);
       expect(profile.frontends.socks5, isTrue);
       expect(profile.frontends.http, isTrue);
@@ -561,6 +564,75 @@ void main() {
     expect(settings.exposesLan, isTrue);
   });
 
+  testWidgets(
+    'custom proxy DNS reveals Cloudflare address fields and saves valid edits',
+    (tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final engine = FakeEngineClient();
+      final controller = AppController(engine);
+      await controller.initialize();
+      controller.updateProfile(
+        controller.activeProfile.copyWith(
+          dnsIpv4: '8.8.8.8',
+          dnsIpv6: '2001:4860:4860::8888',
+        ),
+      );
+      await controller.flushProfileWrites();
+      await controller.setLocale(LocalePreference.simplifiedChinese);
+      addTearDown(controller.dispose);
+      addTearDown(() => tester.view.resetPhysicalSize());
+      addTearDown(() => tester.view.resetDevicePixelRatio());
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1200, 900);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ListenableBuilder(
+            listenable: controller,
+            builder: (context, _) => ProxyScreen(controller: controller),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('proxy-dns-ipv4')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('proxy-dns-ipv6')),
+        findsNothing,
+      );
+
+      await tester.tap(find.byKey(const ValueKey<String>('proxy-dns-mode')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('自定义 DNS 服务器').last);
+      await tester.pumpAndSettle();
+
+      final ipv4 = find.byKey(const ValueKey<String>('proxy-dns-ipv4'));
+      final ipv6 = find.byKey(const ValueKey<String>('proxy-dns-ipv6'));
+      expect(ipv4, findsOneWidget);
+      expect(ipv6, findsOneWidget);
+      expect(tester.widget<TextField>(ipv4).controller?.text, '1.1.1.1');
+      expect(
+        tester.widget<TextField>(ipv6).controller?.text,
+        '2606:4700:4700::1111',
+      );
+
+      await tester.enterText(ipv4, '9.9.9.9');
+      await tester.pump();
+      await controller.flushProfileWrites();
+
+      expect(
+        controller.activeProfile.proxy.dnsMode,
+        ProxyDnsMode.localConfigured,
+      );
+      expect(controller.activeProfile.proxy.dnsIpv4, '9.9.9.9');
+      expect(controller.activeProfile.dnsIpv4, '8.8.8.8');
+      expect(engine.storedProfiles.single.proxy.dnsIpv4, '9.9.9.9');
+    },
+  );
+
   test('profile model survives its versioned map representation', () {
     const profile = UsqueProfile(
       id: '4cf46553-86ea-4bf7-a283-dc26fa58ed79',
@@ -580,7 +652,12 @@ void main() {
       allowLan: true,
       autoConnect: true,
       bypassCidrs: <String>['192.168.0.0/16'],
-      proxy: ProxySettings(dnsMode: ProxyDnsMode.system, systemProxy: true),
+      proxy: ProxySettings(
+        dnsMode: ProxyDnsMode.system,
+        dnsIpv4: '149.112.112.112',
+        dnsIpv6: '2620:fe::9',
+        systemProxy: true,
+      ),
     );
 
     final restored = UsqueProfile.fromMap(profile.toMap());

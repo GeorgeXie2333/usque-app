@@ -55,7 +55,9 @@ class ControlCodec {
       ..string(2, '[${profile.proxy.httpIpv6}]:${profile.proxy.httpPort}')
       ..boolean(3, profile.proxy.systemProxy)
       ..unsigned(4, 60)
-      ..enumeration(5, profile.proxy.dnsMode.index + 1);
+      ..enumeration(5, profile.proxy.dnsMode.index + 1)
+      ..string(6, profile.proxy.dnsIpv4)
+      ..string(6, profile.proxy.dnsIpv6);
     final frontends = ControlPayloadWriter()
       ..boolean(1, profile.frontends.tunnel)
       ..boolean(2, profile.frontends.socks5)
@@ -506,6 +508,7 @@ ProxySettings _decodeProxySettings(
 ) {
   final socksListeners = <String>[];
   final httpListeners = <String>[];
+  final dnsServers = <String>[];
   var systemProxy = defaults.systemProxy;
   var dnsMode = defaults.dnsMode;
   while (!reader.isDone) {
@@ -523,6 +526,8 @@ ProxySettings _decodeProxySettings(
           reader.varint(field),
           'proxy DNS mode',
         );
+      case 6:
+        dnsServers.add(reader.string(field));
       default:
         reader.skip(field);
     }
@@ -547,6 +552,12 @@ ProxySettings _decodeProxySettings(
     httpIpv6: http.ipv6,
     httpPort: http.port,
     dnsMode: dnsMode,
+    dnsIpv4:
+        dnsServers.where((value) => value.contains('.')).firstOrNull ??
+        defaults.dnsIpv4,
+    dnsIpv6:
+        dnsServers.where((value) => value.contains(':')).firstOrNull ??
+        defaults.dnsIpv6,
     systemProxy: systemProxy,
   );
 }

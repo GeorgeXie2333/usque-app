@@ -210,7 +210,7 @@ impl Default for Profile {
             ip_policy: IpPolicy::Auto,
             mtu: DEFAULT_MTU,
             dns_mode: DnsMode::Tunnel,
-            dns_servers: vec![DEFAULT_DNS_V4.into(), DEFAULT_DNS_V6.into()],
+            dns_servers: default_dns_servers(),
             allow_lan: false,
             split_exclusions: Vec::new(),
             kill_switch: true,
@@ -302,7 +302,7 @@ impl Profile {
         self.ip_policy = IpPolicy::Auto;
         self.mtu = DEFAULT_MTU;
         self.dns_mode = DnsMode::Tunnel;
-        self.dns_servers = vec![DEFAULT_DNS_V4.into(), DEFAULT_DNS_V6.into()];
+        self.dns_servers = default_dns_servers();
         self.allow_lan = false;
         self.split_exclusions.clear();
         self.proxy = ProxySettings::default();
@@ -484,6 +484,8 @@ pub struct ProxySettings {
     pub udp_idle_timeout_seconds: u32,
     #[serde(default)]
     pub dns_mode: ProxyDnsMode,
+    #[serde(default = "default_dns_servers")]
+    pub dns_servers: Vec<IpAddr>,
 }
 
 impl Default for ProxySettings {
@@ -500,6 +502,7 @@ impl Default for ProxySettings {
             system_proxy: false,
             udp_idle_timeout_seconds: 60,
             dns_mode: ProxyDnsMode::Remote,
+            dns_servers: default_dns_servers(),
         }
     }
 }
@@ -515,6 +518,15 @@ impl ProxySettings {
             return Err(ConfigError::InvalidUdpIdleTimeout(
                 self.udp_idle_timeout_seconds,
             ));
+        }
+        if self.dns_servers.is_empty() {
+            return Err(ConfigError::MissingDnsServer);
+        }
+        if self.dns_servers.len() > MAX_DNS_SERVERS {
+            return Err(ConfigError::TooManyDnsServers(self.dns_servers.len()));
+        }
+        if self.dns_servers.iter().collect::<HashSet<_>>().len() != self.dns_servers.len() {
+            return Err(ConfigError::DuplicateDnsServer);
         }
 
         let mut listeners = HashSet::new();
@@ -553,6 +565,10 @@ impl ProxySettings {
             .iter()
             .any(|address| !address.ip().is_loopback())
     }
+}
+
+fn default_dns_servers() -> Vec<IpAddr> {
+    vec![DEFAULT_DNS_V4.into(), DEFAULT_DNS_V6.into()]
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -728,6 +744,7 @@ mod tests {
         assert_eq!(profile.transport, TransportPolicy::Auto);
         assert!(profile.kill_switch);
         assert!(!profile.proxy.system_proxy);
+        assert_eq!(profile.proxy.dns_servers, profile.dns_servers);
         assert!(!profile.proxy.exposes_lan(OperatingMode::Socks5));
     }
 
@@ -791,6 +808,10 @@ mod tests {
     fn configuration_collections_are_bounded_and_unique() {
         let mut profile = Profile::default();
         profile.dns_servers.push(DEFAULT_DNS_V4.into());
+        assert_eq!(profile.validate(), Err(ConfigError::DuplicateDnsServer));
+
+        profile.dns_servers = default_dns_servers();
+        profile.proxy.dns_servers.push(DEFAULT_DNS_V4.into());
         assert_eq!(profile.validate(), Err(ConfigError::DuplicateDnsServer));
 
         let empty = AppConfig {

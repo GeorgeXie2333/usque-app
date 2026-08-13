@@ -125,6 +125,7 @@ message ProxySettings {
   bool system_proxy = 3;
   uint32 udp_idle_timeout_seconds = 4;
   ProxyDnsMode dns_mode = 5;
+  repeated string dns_servers = 6;
 }
 
 message FrontendSettings {

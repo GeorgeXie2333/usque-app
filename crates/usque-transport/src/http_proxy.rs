@@ -177,12 +177,18 @@ impl HttpProxyFrontend {
         let cancellation = stack.cancellation.child_token();
         let (failure_tx, failure) = watch::channel(None);
         let performance = Arc::new(HttpPoolCounters::default());
+        let dns_servers = if profile.proxy.dns_mode == usque_core::ProxyDnsMode::LocalConfigured {
+            profile.proxy.dns_servers.clone()
+        } else {
+            profile.dns_servers.clone()
+        };
         let resolver = Resolver::new(
             stack.channel.clone(),
             assigned_ipv4,
             assigned_ipv6,
-            profile.dns_servers.clone(),
+            dns_servers,
             profile.proxy.dns_mode,
+            Arc::clone(&stack.protector),
         );
         let context = Arc::new(HttpContext {
             channel: stack.channel.clone(),
@@ -966,6 +972,7 @@ mod tests {
                 Ipv6Addr::LOCALHOST,
                 Vec::new(),
                 usque_core::ProxyDnsMode::Remote,
+                crate::socket::noop_socket_protector(),
             ),
             channel: client_channel,
             assigned_ipv4: client_ip,

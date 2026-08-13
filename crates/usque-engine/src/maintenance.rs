@@ -299,6 +299,7 @@ fn configuration_summary(config: &AppConfig) -> serde_json::Value {
                     "http_listener_count": profile.proxy.http_listeners.len(),
                     "system_proxy": profile.proxy.system_proxy,
                     "dns_mode": profile.proxy.dns_mode,
+                    "dns_server_count": profile.proxy.dns_servers.len(),
                     "udp_idle_timeout_seconds": profile.proxy.udp_idle_timeout_seconds,
                 }
             })

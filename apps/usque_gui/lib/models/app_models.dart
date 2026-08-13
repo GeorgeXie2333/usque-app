@@ -170,6 +170,8 @@ class ProxySettings {
     this.httpIpv6 = '::1',
     this.httpPort = 8080,
     this.dnsMode = ProxyDnsMode.remote,
+    this.dnsIpv4 = '1.1.1.1',
+    this.dnsIpv6 = '2606:4700:4700::1111',
     this.systemProxy = false,
   });
 
@@ -180,6 +182,8 @@ class ProxySettings {
   final String httpIpv6;
   final int httpPort;
   final ProxyDnsMode dnsMode;
+  final String dnsIpv4;
+  final String dnsIpv6;
   final bool systemProxy;
 
   bool get remoteDns => dnsMode == ProxyDnsMode.remote;
@@ -202,6 +206,8 @@ class ProxySettings {
     String? httpIpv6,
     int? httpPort,
     ProxyDnsMode? dnsMode,
+    String? dnsIpv4,
+    String? dnsIpv6,
     bool? systemProxy,
   }) {
     return ProxySettings(
@@ -212,6 +218,8 @@ class ProxySettings {
       httpIpv6: httpIpv6 ?? this.httpIpv6,
       httpPort: httpPort ?? this.httpPort,
       dnsMode: dnsMode ?? this.dnsMode,
+      dnsIpv4: dnsIpv4 ?? this.dnsIpv4,
+      dnsIpv6: dnsIpv6 ?? this.dnsIpv6,
       systemProxy: systemProxy ?? this.systemProxy,
     );
   }
@@ -225,6 +233,8 @@ class ProxySettings {
       httpIpv6: _string(map, 'http_ipv6'),
       httpPort: _boundedInt(map, 'http_port', 1, 65535),
       dnsMode: _enumByName(ProxyDnsMode.values, _string(map, 'dns_mode')),
+      dnsIpv4: _stringOr(map, 'dns_v4', '1.1.1.1'),
+      dnsIpv6: _stringOr(map, 'dns_v6', '2606:4700:4700::1111'),
       systemProxy: _bool(map, 'system_proxy'),
     );
   }
@@ -238,6 +248,8 @@ class ProxySettings {
       'http_ipv6': httpIpv6,
       'http_port': httpPort,
       'dns_mode': dnsMode.name,
+      'dns_v4': dnsIpv4,
+      'dns_v6': dnsIpv6,
       'system_proxy': systemProxy,
     };
   }
@@ -454,6 +466,13 @@ String _string(Map<String, Object?> map, String key) {
     throw FormatException('Invalid $key');
   }
   return value;
+}
+
+String _stringOr(Map<String, Object?> map, String key, String fallback) {
+  if (!map.containsKey(key)) {
+    return fallback;
+  }
+  return _string(map, key);
 }
 
 bool _bool(Map<String, Object?> map, String key) {
