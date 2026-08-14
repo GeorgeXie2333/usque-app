@@ -17,61 +17,61 @@
 
 # Usque
 
-Usque 是面向 Consumer Cloudflare WARP 的开源原生 GUI 客户端。Flutter 负责界面，内存安全的 Rust Engine 负责 MASQUE、CONNECT-IP、DNS、代理与连接状态；项目不使用 WebView。
+Usque 是面向个人版 Cloudflare WARP（Consumer WARP）的非官方图形客户端。界面用 Flutter，传输、CONNECT-IP、DNS、代理和连接状态由 Rust 引擎处理，不用 WebView。
 
 > [!IMPORTANT]
-> 当前发布版本为 **v0.1.2**。只有受保护的 [`v0.1.2` GitHub Release](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.1.2) 所附文件，并且校验和与签名者指纹一致时，才属于官方产物。Pull Request 产物、本地构建和未打标签的二进制均为开发输出。
+> 当前版本是 **v0.1.2**。只有 [`v0.1.2` GitHub Release](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.1.2) 上的附件，并且校验和、签名指纹对得上，才算正式包。Pull Request 里的构建、本地构建和没打标签的二进制都不算。
 
-Usque 是独立项目，与 Cloudflare 无隶属、赞助或背书关系。Cloudflare 与 WARP 是 Cloudflare, Inc. 的商标。使用 Consumer WARP 仍须遵守 Cloudflare 适用的条款与隐私政策。
+Usque 是独立项目，与 Cloudflare 没有隶属、赞助或背书关系。Cloudflare 和 WARP 是 Cloudflare, Inc. 的商标。使用个人版 WARP 仍须遵守 Cloudflare 的条款和隐私政策。
 
-## 发布目标
+## 发布范围
 
-受保护的 `v0.1.2` 工作流从同一个 `main` 精确提交构建并验证以下六个可安装产物。
+`main` 上的 `v0.1.2` 标签会构建并检查下面六个安装包：
 
-| 平台 | 产物 | 最低系统 | 架构 / 变体 |
+| 平台 | 安装包 | 最低系统 | 架构 |
 | --- | --- | --- | --- |
-| Windows | MSI | Windows 10 22H2，Build 19045 | x86-64-v2 |
+| Windows | MSI | Windows 10 22H2，Build 19045 | x64-v2 |
 | Windows | MSI | Windows 10 22H2，Build 19045 | ARM64 |
-| Android / Android TV | 拆分 APK | Android 8.0，API 26 | ARMv8（`arm64-v8a`） |
-| Android / Android TV | 拆分 APK | Android 8.0，API 26 | x64（`x86_64`） |
-| Android / Android TV | 拆分 APK | Android 8.0，API 26 | ARMv7（`armeabi-v7a`） |
-| Android / Android TV | Universal APK | Android 8.0，API 26 | 包含上述三种 Android ABI |
+| Android / Android TV | 分 ABI 安装包 | Android 8.0，API 26 | ARMv8（`arm64-v8a`） |
+| Android / Android TV | 分 ABI 安装包 | Android 8.0，API 26 | x64（`x86_64`） |
+| Android / Android TV | 分 ABI 安装包 | Android 8.0，API 26 | ARMv7（`armeabi-v7a`） |
+| Android / Android TV | 通用安装包 | Android 8.0，API 26 | 上述三种 Android ABI |
 
-macOS 保留为后续源码目标，但不参与当前构建或发布门禁。当前版本不支持 iOS、Zero Trust、应用商店、公开 CLI 或多路径带宽聚合。
+仓库里有 macOS 源码，但当前不构建、不发布。这个版本也没有 iOS、Zero Trust、应用商店、公开命令行，或把多条路径的带宽加在一起。
 
 ## 主要功能
 
-- 注册 Consumer WARP、使用 WARP License Key 注册，以及导入/导出现有 WARP Secret。
-- VPN、SOCKS5、HTTP Proxy 与 Windows 系统代理可组合输出，共享一条 MASQUE 通道。
-- HTTP/3 over QUIC，失败后回退到 HTTP/2 over TLS，并使用 IPv4/IPv6 Happy Eyeballs 选择入口。
+- 注册个人版 WARP、用 License Key 注册，以及导入/导出 WARP Secret。
+- VPN、SOCKS5、HTTP 代理和 Windows 系统代理可以一起开，共用一条 MASQUE 通道。
+- 先走 HTTP/3（QUIC），不行再回退 HTTP/2（TLS）；入口用 IPv4/IPv6 Happy Eyeballs。
 - 全隧道 VPN、隧道内 DNS、Kill Switch、局域网访问和自定义 CIDR 绕过。
-- SOCKS5 TCP/UDP 与 HTTP CONNECT/Forward；代理默认只监听 Loopback。
-- 多 Profile、单一 Active Profile，并为各 Profile 隔离保存身份。
-- Android 快捷设置磁贴、启动器快捷操作、开机恢复和 TV 导航。
-- Windows 系统托盘、单实例唤醒、开机启动和关闭到托盘。
-- 本地脱敏诊断，无分析、自动遥测或自动上传。
+- SOCKS5 的 TCP/UDP 和 HTTP 的 CONNECT/普通转发；代理默认只听本机回环。
+- 多个配置档，同时只有一个在用，身份按配置档分开存。
+- Android 快捷设置磁贴、桌面快捷方式、开机恢复，以及电视遥控器操作。
+- Windows 托盘、单实例唤醒、开机启动、关闭后进托盘。
+- 诊断只留在本地并做脱敏。没有用量统计，也不会自动上传。
 
-选择 IPv4 或 IPv6 MASQUE Endpoint 只会改变物理入口。任一入口均可在 CONNECT-IP 内承载 IPv4 与 IPv6 数据；Usque 始终只保留一条活动传输，不做带宽叠加。
+选 IPv4 还是 IPv6 的 MASQUE 端点，只决定物理入口。两条入口都能在 CONNECT-IP 里带 IPv4 和 IPv6。Usque 同一时间只保一条传输，不会把多条路径的带宽加起来。
 
 ## 默认网络设置
 
 | 设置 | 默认值 |
 | --- | --- |
-| Endpoint IPv4 | `162.159.198.2` |
-| Endpoint IPv6 | `2606:4700:103::2` |
+| 端点 IPv4 | `162.159.198.2` |
+| 端点 IPv6 | `2606:4700:103::2` |
 | 端口 | `443` |
 | SNI | `speed.cloudflare.com` |
-| 传输 | Auto：HTTP/3，然后 HTTP/2 |
+| 传输 | 自动：先 HTTP/3，再 HTTP/2 |
 | MTU | `1280` |
 | 备用 DNS | `1.1.1.1`、`2606:4700:4700::1111` |
 | SOCKS5 | `127.0.0.1:1080`、`[::1]:1080` |
-| HTTP Proxy | `127.0.0.1:8080`、`[::1]:8080` |
+| HTTP 代理 | `127.0.0.1:8080`、`[::1]:8080` |
 
-高级用户可以修改这些值并一键恢复。非 Loopback 代理监听刻意不提供账号密码认证，并始终显示醒目的安全警告。
+这些值可以改，也可以一键改回默认。代理如果监听非回环地址，不会设账号密码，界面会一直显示警告。
 
 ## 获取与安装
 
-请只从[官方发布页面](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.1.2)下载 `v0.1.2`：
+请只从[正式发布页](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.1.2)下载 `v0.1.2`：
 
 | 目标 | 文件 |
 | --- | --- |
@@ -80,51 +80,51 @@ macOS 保留为后续源码目标，但不参与当前构建或发布门禁。�
 | Android ARMv8 | [`usque-v0.1.2-android-arm64-v8a.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.2/usque-v0.1.2-android-arm64-v8a.apk) |
 | Android x64 | [`usque-v0.1.2-android-x86_64.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.2/usque-v0.1.2-android-x86_64.apk) |
 | Android ARMv7 | [`usque-v0.1.2-android-armeabi-v7a.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.2/usque-v0.1.2-android-armeabi-v7a.apk) |
-| Android Universal | [`usque-v0.1.2-android-universal.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.2/usque-v0.1.2-android-universal.apk) |
+| Android 通用包 | [`usque-v0.1.2-android-universal.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.2/usque-v0.1.2-android-universal.apk) |
 
-优先下载与设备 ABI 匹配的 APK。Universal APK 同时包含 ARMv8、x64 和 ARMv7 原生库，仅建议在无法确定设备架构时使用，文件也会比拆分 APK 更大。发布页同时提供 `SHA256SUMS`、每个安装包对应的 `.sha256` 文件、SPDX/CycloneDX SBOM、许可证清单和构建证明。
+尽量选和设备 ABI 一致的 APK。通用包装了 ARMv8、x64 和 ARMv7 的原生库，体积更大，只在搞不清架构时用。发布页还有 `SHA256SUMS`、每个包对应的 `.sha256`、SPDX/CycloneDX SBOM、许可证清单和构建证明。
 
-- 1.0 之前的 Windows 安装包使用固定自签名身份。接受系统警告前，请核对发布的 SHA-256 与证书指纹。
-- 1.0 之前的 Android 安装包使用项目自行管理的固定自签名 Release 证书，不通过 Google Play 分发，可能需要高级侧载流程或 ADB。
-- v1.0.0 的签名迁移将作为独立变更进行兼容性审查。
-- 受保护工作流执行 CI、架构、签名、安装包、校验和、SBOM 与构建来源检查，但不声称已完成硬件实验室、物理设备或长时间 VPN 验证。
-- Usque 不会自动安装更新；可选的更新检查只会打开发布页面。
-- Windows 卸载会在系统应用页先要求确认，再恢复 Usque 管理的网络状态，并可选择删除当前用户的本地数据。
+- 1.0 之前的 Windows 包是固定自签名。点掉系统警告前，先对一下公布的 SHA-256 和证书指纹。
+- 1.0 之前的 Android 包也是项目自己的自签名证书，不在 Google Play 上，可能要手动安装或用 ADB。
+- 以后换到 v1.0.0 签名会单独发一版。
+- 发布流水线会编译、签名，并检查架构、校验和、SBOM 和构建来源。它不会在真机上装包，也不会跑长时间 VPN。
+- Usque 不会自己装更新。可选的更新检查只打开发布页。
+- Windows 卸载会在系统应用页先确认，再清掉 Usque 改过的网络状态；如果勾选，也可以删掉当前用户的本地数据。
 
-完整的产物验证、平台警告、升级、卸载和恢复边界见[安装与卸载](docs/INSTALLATION.md)。
+核对安装包、升级、卸载和恢复见[安装说明（英文）](docs/INSTALLATION.md)。
 
-## 可组合输出
+## 可同时开的出口
 
-一个 Profile 可以同时启用多种输出；它们共享一条严格 Pin 的 MASQUE 传输和 Packet Multiplexer。
+一个配置档可以同时开多种出口，它们共用一条已固定端点的 MASQUE 通道和包复用。
 
-| 输出 | 行为 |
+| 出口 | 做什么 |
 | --- | --- |
-| VPN/TUN | 创建系统隧道并管理路由、DNS 和 Kill Switch。 |
-| SOCKS5 | 支持 TCP 与 UDP，默认远程解析 DNS。 |
-| HTTP Proxy | 支持 CONNECT 和普通 HTTP 转发。 |
-| Windows 系统代理 | 依赖 HTTP 输出，将 Windows 指向本地监听器。 |
+| VPN/TUN | 建系统隧道，管路由、DNS 和 Kill Switch。 |
+| SOCKS5 | TCP 和 UDP，默认远程解析 DNS。 |
+| HTTP 代理 | CONNECT 和普通 HTTP 转发。 |
+| Windows 系统代理 | 依赖 HTTP 出口，把系统代理指到本地监听。 |
 
-Windows 默认启用 SOCKS5、HTTP 和 VPN（TUN），默认关闭系统代理；Android 默认启用 VPN、SOCKS5 和 HTTP。允许关闭全部输出，只保持传输可用。
+Windows 默认开 VPN（TUN）、SOCKS5 和 HTTP，系统代理默认关。Android 默认开 VPN、SOCKS5 和 HTTP。也可以全关，只留传输。
 
 ## 安全与隐私
 
-- Endpoint Pin 必须启用，GUI 不提供不安全 TLS 模式。
-- Secret、私钥、Token、设备 ID、License 与 Endpoint Pin 保存在 Windows Credential Manager 或 Android Keystore。
-- Secret 导出必须明确确认，并只写入用户选择的目标。
-- Windows Engine 不持有特权；最小权限 Agent 只管理 TUN、路由、DNS、防火墙和系统代理。
-- Android 使用 `VpnService` 和独立 `:vpn` 进程。
-- 日志默认为 INFO，最多保留 7 天或 20 MiB。
+- 端点固定不能关，界面里没有「不安全 TLS」开关。
+- Secret、私钥、Token、设备 ID、License 和端点固定信息放在 Windows 凭据管理器或 Android Keystore。
+- 导出 Secret 必须确认，并且只写到你选的位置。
+- Windows 引擎没有特权；只有一个很小的 Agent 管 TUN、路由、DNS、防火墙和系统代理。
+- Android 用 `VpnService`，VPN 跑在单独的 `:vpn` 进程里。
+- 日志默认 INFO，最多留 7 天或 20 MiB。
 
-报告漏洞前请阅读 [SECURITY.md](SECURITY.md)。不得在公开 Issue 中提交凭据或未脱敏诊断包。
+报漏洞前先看 [SECURITY.md](SECURITY.md)（英文）。不要在公开 Issue 里贴凭据或未脱敏的诊断包。
 
 ## 构建与贡献
 
-项目固定使用 Rust `1.97.1`、Flutter commit `84fc5cbb223bc12f83d65b647ff8a56caf779ffd`、Android NDK `29.0.14206865` 和锁定的打包工具。开发环境、检查命令、安全边界及 Pull Request 要求见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+工具链钉在 Rust `1.97.1`、Flutter `3.44.7`、Android NDK `29.0.14206865` 以及仓库里的打包工具。环境、检查命令和 Pull Request 要求见 [CONTRIBUTING.md](CONTRIBUTING.md)（英文）。
 
-架构和进度见[实施路线](docs/IMPLEMENTATION.md)，受保护的签名及供应链检查见[发布流程](docs/RELEASE.md)。
+进度见[实现进度（英文）](docs/IMPLEMENTATION.md)，签名和发布流程见[发布说明（英文）](docs/RELEASE.md)。
 
 ## 上游与许可
 
-Usque GUI fork 自 [Diniboy1123/usque](https://github.com/Diniboy1123/usque)，并保留上游版权和归属。
+协议和行为参考归档的 Go 客户端 [Diniboy1123/usque](https://github.com/Diniboy1123/usque)，源码在本仓库的 `oracle/go`。Flutter 界面和 Rust 引擎是新写的。上游版权仍写在许可证里。
 
-源码采用 [MIT License](LICENSE.md)，第三方组件保留各自许可证。
+源码使用 [MIT License](LICENSE.md)，第三方组件保留各自的许可证。

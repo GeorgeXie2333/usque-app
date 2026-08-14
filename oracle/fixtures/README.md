@@ -1,6 +1,6 @@
 # Sanitized interoperability fixtures
 
-These fixtures freeze protocol facts observed in the archived Go oracle. They
+These fixtures record protocol defaults and capsule bytes from the archived Go oracle. They
 contain no WARP Secret, private key, access token, device identifier, license,
 assigned customer address, or live packet capture.
 

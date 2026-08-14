@@ -2,9 +2,13 @@
 
 ## Safety boundary
 
-- On the Codex development host, never install a generated MSI, start Windows VPN mode, create a TUN/Wintun session, or run commands that apply WFP, routes, DNS, or system-proxy mutations.
-- `usque-agent --validate-only` and MSI table/static verification are safe. Do not run `--recover-state` or `--emergency-remove-kill-switch` on this host merely to test a build.
-- Windows VPN and uninstall recovery require a snapshot-enabled isolated VM with out-of-band access. SOCKS5/HTTP tests are allowed on the development host.
+On this development host, never install a generated MSI, start Windows VPN mode, create a TUN/Wintun session, or run commands that apply WFP, routes, DNS, or system-proxy mutations.
+
+`usque-agent --validate-only` and MSI table/static verification are safe. Do not run `--recover-state` or `--emergency-remove-kill-switch` on this host merely to test a build.
+
+Windows VPN and uninstall recovery need a snapshot-enabled isolated VM with another way in. SOCKS5/HTTP tests are allowed here.
+
+Install and uninstall behavior for end users is in `docs/INSTALLATION.md`. Do not run `usque-uninstall.exe` against a real ProductCode on this host, and do not run the engine `--purge-user-data`.
 
 ## Pinned local toolchains
 
@@ -17,15 +21,9 @@
 
 Do not invoke a plain release Cargo build in a fresh shell. With Visual Studio 18 Build Tools, the `cmake` crate may auto-select `Visual Studio 18 2026`, while the installed CMake 3.22 only understands generators through Visual Studio 17. The resulting BoringSSL build fails before compiling.
 
-Use the checked-in helper, which imports the MSVC x64 environment and forces the Ninja generator. Use the same helper for full-workspace tests and Clippy because they also compile BoringSSL:
+Use the checked-in helper, which imports the MSVC x64 environment and forces the Ninja generator. Use the same helper for full-workspace tests and Clippy because they also compile BoringSSL.
 
-The helper must invoke the `vcvars64.bat` wrapper with no `-arch` or
-`-host_arch` arguments; those switches are invalid for the installed Visual
-Studio 18 wrapper and can leave `INCLUDE` unset while appearing to return
-success. The helper also locates `libclang.dll`, places its dependency directory
-on `PATH`, and the vendored `boring-sys` build forwards the imported MSVC/Windows
-SDK include directories to bindgen. Do not remove any of these steps merely
-because a cached BoringSSL binding makes one local build pass.
+The helper must invoke the `vcvars64.bat` wrapper with no `-arch` or `-host_arch` arguments; those switches are invalid for the installed Visual Studio 18 wrapper and can leave `INCLUDE` unset while appearing to return success. The helper also locates `libclang.dll`, places its dependency directory on `PATH`, and the vendored `boring-sys` build forwards the imported MSVC/Windows SDK include directories to bindgen. Do not remove any of these steps merely because a cached BoringSSL binding makes one local build pass.
 
 ```powershell
 & .\tool\build_windows_rust_release.ps1 -Variant x64-v2
@@ -62,13 +60,9 @@ Package the local validation MSI only after Rust tests/Clippy and Flutter checks
 & .\tool\build_windows_local_validation.ps1 -Variant x64-v2 -Version "0.1.2"
 ```
 
-The packaging script creates one temporary self-signed code-signing identity, signs the copied payload and MSI, validates the MSI tables, then removes the private key and temporary trust entries. Certificate-store access may require an approved elevated run. Never install the produced MSI automatically.
+The packaging script creates one temporary self-signed identity, signs the copied payload and MSI, validates the MSI tables, then removes the private key and temporary trust entries. Certificate-store access may need an approved elevated run. Never install the produced MSI automatically.
 
-The Windows installer UI depends on the pinned WiX extension `WixToolset.UI.wixext/5.0.2`. `tool/build_windows_msi.ps1` restores it into the ignored local `.wix` cache and compiles both `packaging/windows/Usque.wxs` and `packaging/windows/UsqueUI.wxs`; do not replace this with the stock `WixUI_InstallDir`, because the custom source owns the default-off uninstall data checkbox on the maintenance path.
-
-Settings uninstall ignores that wizard. The package therefore sets `ARPSYSTEMCOMPONENT` and registers `usque-uninstall.exe` as the visible ARP `UninstallString`. Do not remove the helper or unhide the MSI ARP entry without another Settings-visible confirmation path. `USQUE_REMOVE_USER_DATA` must stay unset by default so both the helper and the MSI checkbox remain off until the user opts in.
-
-Interactive installation exposes `INSTALLFOLDER` and persists the choice for major upgrades. Interactive uninstall preserves current-user data unless the user checks the explicit deletion option. For unattended automation, preserve data by default; pass `USQUE_REMOVE_USER_DATA=1` only when deletion is intentionally requested. Never execute the Engine's `--purge-user-data` diagnostic command on the development host. Do not run `usque-uninstall.exe` against a real ProductCode on the development host.
+WiX, ARP hiding, `usque-uninstall.exe`, and `USQUE_REMOVE_USER_DATA` are documented in `docs/RELEASE.md`. Do not replace the custom installer UI with stock `WixUI_InstallDir`.
 
 ## Android arm64-v8a build
 

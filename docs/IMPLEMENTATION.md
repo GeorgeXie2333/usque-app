@@ -1,6 +1,8 @@
-# Usque GUI implementation roadmap
+# Usque implementation progress
 
-This document turns the Windows and Android/Android TV product contract into protected release gates. macOS source is retained for later work but is not built, packaged, tested, or used as a `v0.1.2` gate. A checked item means code exists and its current automated tests pass; it does not by itself authorize a public release.
+This is the Windows and Android / Android TV checklist. macOS source is kept for later work and is not built, packaged, or tested for `v0.1.2`.
+
+A checked item means the code is in the tree and its current automated tests pass. An unchecked item is unfinished, or only valid in an isolated environment that CI does not run.
 
 ## Architecture
 
@@ -88,7 +90,8 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] Remove crash-surviving Usque Wintun devices by journaled name/GUID/LUID,
   distinguish true uninstall from major upgrade, and delete only proven-clean
   machine recovery state before MSI removes the Agent binary.
-- [ ] Signed x86-64-v2 and ARM64 MSI packaging plus isolated clean-install/upgrade/uninstall validation.
+- [x] Signed x64-v2 and ARM64 MSI packaging.
+- [ ] Isolated clean-install, upgrade, and uninstall validation.
 
 ### Android and Android TV
 
@@ -144,18 +147,12 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 
 - [ ] Real-device H3/H2 interoperability and hostile-network matrix.
 - [ ] IPv4, IPv6, DNS, route, reconnect, crash, sleep/wake, and real-MSI uninstall leak tests.
-- [ ] Throughput >= 90% of Go oracle, p95 latency regression <= 10%, memory <= 125%.
-- [ ] Stable signing identities and published fingerprints.
-- [ ] All declared packages built from one protected SemVer tag.
-- [ ] SHA-256, SPDX/CycloneDX SBOM, provenance, commit, certificate fingerprint, and license inventory.
+- [ ] Throughput, latency, and memory versus the Go oracle (wish targets: throughput >= 90%, p95 latency regression <= 10%, memory <= 125%). These are not v0.1.2 release gates, and the pipeline does not measure them yet.
+- [x] Stable signing identities and published fingerprints.
+- [x] All declared packages built from the `v0.1.2` tag on `main`.
+- [x] SHA-256, SPDX/CycloneDX SBOM, provenance, commit, certificate fingerprint, and license inventory.
 - [ ] Clean-machine installation and removal validation for every artifact.
 
-The release workflow must remain disabled or fail closed while any Windows or
-Android artifact, signing input, architecture, required CI result, manifest,
-SBOM, or attestation is missing. A locally built binary cannot replace a failed
-GitHub Actions artifact. The real-device and hostile-network items above remain
-release-hardening work, but are not automated publication gates.
+The release workflow fails if a Windows or Android artifact, signing input, architecture check, required CI result, manifest, SBOM, or attestation is missing. A local binary cannot replace a failed GitHub Actions artifact. Real-device, leak, performance, and clean-machine items above are still open hardening work.
 
-The protected signing and supply-chain workflow is specified in
-[RELEASE.md](RELEASE.md). The approval-protected publish job re-verifies all six
-signed artifacts against the immutable manifest before creating the release.
+How `v0.1.2` is built and published is in [RELEASE.md](RELEASE.md).
