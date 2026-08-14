@@ -11,6 +11,8 @@
   <a href="https://github.com/GeorgeXie2333/usque-app/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/GeorgeXie2333/usque-app/actions/workflows/ci.yml/badge.svg?branch=main"></a>
   <a href="https://github.com/GeorgeXie2333/usque-app/actions/workflows/build.yml"><img alt="Build" src="https://github.com/GeorgeXie2333/usque-app/actions/workflows/build.yml/badge.svg"></a>
   <a href="LICENSE.md"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-F48120.svg"></a>
+  <img alt="Rust 1.97.1" src="https://img.shields.io/badge/Rust-1.97.1-dea584.svg?logo=rust&logoColor=white">
+  <img alt="Flutter 3.44.7" src="https://img.shields.io/badge/Flutter-3.44.7-02569B.svg?logo=flutter&logoColor=white">
   <img alt="Windows 10 22H2 or later" src="https://img.shields.io/badge/Windows-10%2022H2%2B-2F2F2F.svg">
   <img alt="Android 8 or later" src="https://img.shields.io/badge/Android-8.0%2B-2F2F2F.svg">
 </p>
