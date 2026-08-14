@@ -21,7 +21,9 @@ On an ordinary development or Codex host, never:
 - run commands that apply WFP filters, routes, interface DNS, or system-proxy changes;
 - use `usque-agent --recover-state`, `--emergency-remove-kill-switch`, or the Engine's `--purge-user-data` merely to test a build.
 
-Windows VPN, recovery, upgrade, and uninstall tests require a snapshot-enabled isolated VM with out-of-band access. Android VPN lifecycle tests require a dedicated device or isolated emulator. SOCKS5 and HTTP loopback tests, compile-only builds, MSI table/ICE validation, and `usque-agent --validate-only` are safe on the development host.
+Windows VPN, recovery, upgrade, and uninstall tests require a snapshot-enabled isolated VM with out-of-band access. Android VPN lifecycle tests require a dedicated device or isolated emulator. SOCKS5 and HTTP loopback tests, compile-only builds, MSI table/ICE validation, `usque-agent --validate-only`, and `usque-uninstall --dry-run` (without a live ProductCode) are safe on the development host.
+
+On a snapshot VM, a package that includes `usque-uninstall.exe` must: show one Usque entry in Settings; present Cancel/Uninstall with the data-deletion checkbox default-off; keep the product installed after Cancel; preserve current-user data when Uninstall is confirmed without the checkbox; delete only that user's Usque data when the checkbox is selected; stay silent for `msiexec /x {ProductCode} /qn`; and skip the helper during a major upgrade.
 
 ## Toolchains
 

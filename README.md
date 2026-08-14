@@ -89,7 +89,7 @@ Prefer the APK matching the device ABI. The universal APK contains ARMv8, x64, a
 - The v1.0.0 signing transition will be handled as a separate compatibility-reviewed release change.
 - The protected workflow performs CI, architecture, signature, package, checksum, SBOM, and provenance checks. It does not claim hardware-laboratory, physical-device, or long-duration VPN validation.
 - Updates are never installed automatically. Optional update checks only open the release page.
-- Windows uninstall restores Usque-owned network state before removing the service and can optionally delete the current user's local data.
+- Windows uninstall asks for confirmation in Settings, restores Usque-owned network state before removing the service, and can optionally delete the current user's local data.
 
 See [Installation and removal](docs/INSTALLATION.md) for package verification, platform warnings, upgrades, uninstall behavior, and recovery boundaries.
 

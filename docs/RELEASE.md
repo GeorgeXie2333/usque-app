@@ -117,10 +117,15 @@ directory. The full installer UI exposes `INSTALLFOLDER`; its selected value is
 persisted in the 64-bit machine registry and reused by a major upgrade.
 
 The authored uninstall paths preserve current-user Profiles, preferences, logs,
-caches, and Credential Manager records by default. The explicit deletion path
+caches, and Credential Manager records by default. Settings does not host the
+MSI wizard, so the package hides the Windows Installer ARP entry
+(`ARPSYSTEMCOMPONENT`) and registers `usque-uninstall.exe` as the visible
+uninstall command. That helper asks for confirmation and, only if requested,
+passes `USQUE_REMOVE_USER_DATA=1` into `msiexec`. The explicit deletion path
 targets only the uninstalling user's Usque directories and credential namespace;
-silent uninstall preserves data unless `USQUE_REMOVE_USER_DATA=1` is supplied.
-The shared Wintun driver package is not an Usque-owned uninstall target.
+silent uninstall (`QuietUninstallString` / `msiexec /x /qn`) preserves data
+unless `USQUE_REMOVE_USER_DATA=1` is supplied. The shared Wintun driver package
+is not an Usque-owned uninstall target.
 
 ## Validation boundary
 

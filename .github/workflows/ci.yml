@@ -470,6 +470,7 @@ jobs:
           Copy-Item $fixture (Join-Path $payload "usque.exe")
           Copy-Item $fixture (Join-Path $payload "usque-engine.exe")
           Copy-Item $fixture (Join-Path $payload "usque-agent.exe")
+          Copy-Item $fixture (Join-Path $payload "usque-uninstall.exe")
           Copy-Item $fixture (Join-Path $payload "wintun.dll")
           Copy-Item LICENSE.md (Join-Path $payload "data/LICENSE.md")
 

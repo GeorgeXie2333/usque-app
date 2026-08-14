@@ -176,6 +176,9 @@ jobs:
             "target/${{ matrix.rust_target }}/release/usque-agent.exe" `
             $payload
           Copy-Item `
+            "target/${{ matrix.rust_target }}/release/usque-uninstall.exe" `
+            $payload
+          Copy-Item `
             "third_party/wintun-0.14.1/wintun/bin/${{ matrix.wintun_arch }}/wintun.dll" `
             $payload
           & ./tool/verify_pe_architecture.ps1 `

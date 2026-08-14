@@ -197,7 +197,8 @@ try {
                 "--release",
                 "--target", $platform.RustTarget,
                 "--package", "usque-agent",
-                "--package", "usque-engine"
+                "--package", "usque-engine",
+                "--package", "usque-uninstall"
             )
         }
         "test" {

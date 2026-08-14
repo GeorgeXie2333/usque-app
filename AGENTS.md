@@ -64,9 +64,11 @@ Package the local validation MSI only after Rust tests/Clippy and Flutter checks
 
 The packaging script creates one temporary self-signed code-signing identity, signs the copied payload and MSI, validates the MSI tables, then removes the private key and temporary trust entries. Certificate-store access may require an approved elevated run. Never install the produced MSI automatically.
 
-The Windows installer UI depends on the pinned WiX extension `WixToolset.UI.wixext/5.0.2`. `tool/build_windows_msi.ps1` restores it into the ignored local `.wix` cache and compiles both `packaging/windows/Usque.wxs` and `packaging/windows/UsqueUI.wxs`; do not replace this with the stock `WixUI_InstallDir`, because the custom source owns the default-off uninstall data checkbox.
+The Windows installer UI depends on the pinned WiX extension `WixToolset.UI.wixext/5.0.2`. `tool/build_windows_msi.ps1` restores it into the ignored local `.wix` cache and compiles both `packaging/windows/Usque.wxs` and `packaging/windows/UsqueUI.wxs`; do not replace this with the stock `WixUI_InstallDir`, because the custom source owns the default-off uninstall data checkbox on the maintenance path.
 
-Interactive installation exposes `INSTALLFOLDER` and persists the choice for major upgrades. Interactive uninstall preserves current-user data unless the user checks the explicit deletion option. For unattended automation, preserve data by default; pass `USQUE_REMOVE_USER_DATA=1` only when deletion is intentionally requested. Never execute the Engine's `--purge-user-data` diagnostic command on the development host.
+Settings uninstall ignores that wizard. The package therefore sets `ARPSYSTEMCOMPONENT` and registers `usque-uninstall.exe` as the visible ARP `UninstallString`. Do not remove the helper or unhide the MSI ARP entry without another Settings-visible confirmation path. `USQUE_REMOVE_USER_DATA` must stay unset by default so both the helper and the MSI checkbox remain off until the user opts in.
+
+Interactive installation exposes `INSTALLFOLDER` and persists the choice for major upgrades. Interactive uninstall preserves current-user data unless the user checks the explicit deletion option. For unattended automation, preserve data by default; pass `USQUE_REMOVE_USER_DATA=1` only when deletion is intentionally requested. Never execute the Engine's `--purge-user-data` diagnostic command on the development host. Do not run `usque-uninstall.exe` against a real ProductCode on the development host.
 
 ## Android arm64-v8a build
 

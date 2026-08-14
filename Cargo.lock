@@ -2903,6 +2903,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "usque-uninstall"
+version = "0.1.2"
+dependencies = [
+ "thiserror",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "utf8_iter"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"

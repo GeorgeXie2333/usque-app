@@ -160,7 +160,7 @@ $iconPath = Join-Path $repositoryRoot "assets\branding\usque-app-icon.ico"
 $uiExtension = "WixToolset.UI.wixext/5.0.2"
 $appRoot = Resolve-ExistingDirectory -Path $AppDirectory -Description "Application payload"
 
-$requiredFiles = @("usque.exe", "usque-engine.exe", "usque-agent.exe", "wintun.dll")
+$requiredFiles = @("usque.exe", "usque-engine.exe", "usque-agent.exe", "usque-uninstall.exe", "wintun.dll")
 foreach ($requiredFile in $requiredFiles) {
     $candidate = Join-Path $appRoot $requiredFile
     if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {

@@ -47,7 +47,7 @@ The upgrade must abort with a detailed error if privileged network state cannot 
 
 ### Uninstall
 
-Uninstall Usque from **Settings > Apps > Installed apps** or the classic Programs and Features panel. The MSI performs recovery before deleting the binaries:
+Uninstall Usque from **Settings > Apps > Installed apps** or the classic Programs and Features panel. Settings launches `usque-uninstall.exe`, which asks for confirmation and offers an unchecked option to delete only the uninstalling user's Usque profiles, preferences, logs, caches, and Credential Manager entries. Cancel leaves the product installed. Confirming Uninstall starts Windows Installer, which then:
 
 1. stop the Agent;
 2. remove Usque WFP Kill Switch objects;
@@ -57,7 +57,7 @@ Uninstall Usque from **Settings > Apps > Installed apps** or the classic Program
 
 The shared Wintun driver package is not removed because another application may use it. No Usque-owned adapter may remain after a successful uninstall.
 
-User data is preserved by default. The uninstall UI offers an unchecked option to delete only the uninstalling user's Usque profiles, preferences, logs, caches, and Credential Manager entries. This action is irreversible and does not affect other Windows users. Silent uninstall also preserves data unless an administrator explicitly supplies `USQUE_REMOVE_USER_DATA=1`; upgrades never purge user data.
+The data-deletion option is irreversible and does not affect other Windows users. Leave it unchecked to keep local data for a later reinstall. Silent uninstall (`msiexec /x {ProductCode} /qn`, or the registered `QuietUninstallString`) also preserves data unless an administrator explicitly supplies `USQUE_REMOVE_USER_DATA=1`; upgrades never show the confirmation dialog and never purge user data. Re-running the MSI while Usque is installed still offers the same default-off data-deletion checkbox on the maintenance remove path.
 
 If recovery fails, uninstall stops rather than concealing privileged network residue. Recovery and leak testing must take place only in a snapshot-enabled isolated VM with out-of-band access.
 

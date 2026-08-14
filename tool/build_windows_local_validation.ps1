@@ -100,6 +100,9 @@ try {
         Join-Path $repositoryRoot "target/$($architecture.RustTarget)/release/usque-agent.exe"
     ) -Destination $payload
     Copy-Item -LiteralPath (
+        Join-Path $repositoryRoot "target/$($architecture.RustTarget)/release/usque-uninstall.exe"
+    ) -Destination $payload
+    Copy-Item -LiteralPath (
         Join-Path $repositoryRoot "third_party/wintun-0.14.1/wintun/bin/$($architecture.Wintun)/wintun.dll"
     ) -Destination $payload
 
