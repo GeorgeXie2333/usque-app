@@ -117,7 +117,7 @@ Windows 默认启用 VPN（TUN）、SOCKS5 与 HTTP，系统代理默认关闭�
 - Android 使用 `VpnService`，并在独立的 `:vpn` 进程中运行。
 - 日志级别默认为 INFO，最多保留 7 天或 20 MiB。
 
-报告漏洞前请阅读 [SECURITY.md](SECURITY.md)（英文）。请勿在公开 Issue 中提交凭据或未经脱敏的诊断信息。
+报告漏洞前请阅读 [SECURITY.md](SECURITY.md)（英文）。请勿在公开 Issue 中提交凭据或未经脱敏的诊断信息。正式包的签名规则见[代码签名策略（英文）](docs/CODE_SIGNING.md)。
 
 ## 构建与贡献
 

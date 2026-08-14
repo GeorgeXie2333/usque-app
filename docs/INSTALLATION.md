@@ -11,7 +11,7 @@ Install only packages from this repository's GitHub release for `v0.1.2`.
 - `usque-v0.1.2-android-armeabi-v7a.apk`
 - `usque-v0.1.2-android-universal.apk`
 
-Each release also has SHA-256 sidecars, signer fingerprints, SPDX and CycloneDX SBOMs, dependency license inventories, and GitHub build provenance. A local validation package, Actions development output, fork artifact, or a file from somewhere else is not an official release.
+Each release also has SHA-256 sidecars, signer fingerprints, SPDX and CycloneDX SBOMs, dependency license inventories, and GitHub build provenance. A local validation package, Actions development output, fork artifact, or a file from somewhere else is not an official release. Official identities and fingerprint rules are in [CODE_SIGNING.md](CODE_SIGNING.md).
 
 ## Verify before installing
 

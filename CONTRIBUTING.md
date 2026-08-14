@@ -37,7 +37,7 @@ If you change privileged networking or the installer and cannot run the isolated
 - Ruff `0.16.0`, PSScriptAnalyzer `1.25.0`, Buf `1.72.0`, actionlint `1.7.12`
 - WiX `5.0.2` via the checked-in .NET tool manifest
 
-Flutter and Android SDK paths come from `apps/usque_gui/android/local.properties`. Do not commit that file, signing material, generated JNI libraries, build directories, logs, diagnostics, or release artifacts.
+Flutter and Android SDK paths come from `apps/usque_gui/android/local.properties`. Do not commit that file, signing material, generated JNI libraries, build directories, logs, diagnostics, or release artifacts. Official signing rules are in [docs/CODE_SIGNING.md](docs/CODE_SIGNING.md).
 
 ## Branches, commits, and pull requests
 

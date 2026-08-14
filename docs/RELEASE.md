@@ -2,7 +2,7 @@
 
 `v0.1.2` is built by the tag workflow on the current `main` commit. The `v0.1.2` tag is maintainer-only. Signing and publish jobs run in GitHub Environments that need approval. If a required file, signature input, or CI result is missing, the workflow fails. A local MSI or APK cannot replace a failed Actions build.
 
-Repository rules that sit around this workflow are in [GITHUB_GOVERNANCE.md](GITHUB_GOVERNANCE.md).
+Which signatures count as official, how fingerprints are published, and what happens if a key is lost or leaked are in [CODE_SIGNING.md](CODE_SIGNING.md). Repository rules around this workflow are in [GITHUB_GOVERNANCE.md](GITHUB_GOVERNANCE.md).
 
 ## Before signing starts
 

@@ -117,7 +117,7 @@ Windows defaults to VPN/TUN + SOCKS5 + HTTP, with the system proxy off. Android 
 - Android uses `VpnService` and an isolated `:vpn` process.
 - Logs default to INFO and stop at 7 days or 20 MiB.
 
-Read [SECURITY.md](SECURITY.md) before reporting a vulnerability. Do not put credentials or raw diagnostics in a public Issue.
+Read [SECURITY.md](SECURITY.md) before reporting a vulnerability. Do not put credentials or raw diagnostics in a public Issue. Official package signatures are described in the [code signing policy](docs/CODE_SIGNING.md).
 
 ## Build and contribute
 

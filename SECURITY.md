@@ -58,7 +58,7 @@ Please do not publish exploit details until a fix or an agreed date exists.
 
 Confirmed issues are handled in a private GitHub Security Advisory. We will write and test a fix, list affected versions, prepare upgrade notes, and request a CVE when that makes sense. Public credit is only with the reporter's consent.
 
-How official packages are signed and published is in [docs/RELEASE.md](docs/RELEASE.md).
+The [code signing policy](docs/CODE_SIGNING.md) covers official identities, fingerprints, and key handling. How those packages are built and published is in [docs/RELEASE.md](docs/RELEASE.md).
 
 ## Research
 
