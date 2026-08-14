@@ -10,7 +10,7 @@ Thanks for helping. This project changes DNS, routes, credentials, and leak prev
 - Use a Bug Issue for a reproducible defect and a Feature Issue for a product proposal.
 - Talk through large protocol, privilege, storage, installer, release, or UX changes before building them.
 - Do not use a public Issue for traffic leaks, pin bypasses, credential exposure, privilege bugs, or release-chain problems.
-- Leave the archived Go oracle and its attribution alone. `oracle/go` is a frozen reference, not a shipping client.
+- Leave the Go oracle snapshot in `oracle/go` and its attribution alone. It is a frozen local reference for interoperability, not a shipping client.
 
 ## Development machines
 
@@ -147,7 +147,7 @@ Do not run a plain `cargo build --release` in a fresh Windows shell. Use the hel
 
 Why the helper exists is in [AGENTS.md](AGENTS.md). For MSI work, restore the pinned .NET tool and follow the CI fixture build. Table and ICE validation are safe; installing the MSI is not.
 
-### Archived Go oracle
+### Go oracle snapshot
 
 ```shell
 cd oracle/go

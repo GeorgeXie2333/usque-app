@@ -125,6 +125,6 @@ Progress is in [Implementation](docs/IMPLEMENTATION.md). Signing and the release
 
 ## Upstream and license
 
-Protocol behavior is taken from the archived Go client [Diniboy1123/usque](https://github.com/Diniboy1123/usque), kept here as `oracle/go`. The Flutter UI and Rust engine are new code. Upstream copyright stays in the license.
+Protocol behavior follows [Diniboy1123/usque](https://github.com/Diniboy1123/usque). This repository keeps a snapshot of that client in `oracle/go` for interoperability tests. The Flutter UI and Rust engine are new code. Upstream copyright stays in the license.
 
 Source is [MIT](LICENSE.md). Third-party components keep their own licenses.

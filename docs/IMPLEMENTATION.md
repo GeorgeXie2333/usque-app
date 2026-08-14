@@ -14,7 +14,7 @@ flowchart LR
     Agent --> System["TUN · Routes · DNS<br>Firewall · System Proxy"]
     Android["Android Flutter host"] -->|"MethodChannel"| VPN["VpnService in :vpn"]
     VPN -->|"JNI"| Core
-    Oracle["Archived Go oracle"] -. "fixtures and interoperability" .-> Core
+    Oracle["Go oracle snapshot"] -. "fixtures and interoperability" .-> Core
 ```
 
 Desktop UI and engine remain unprivileged. The desktop agent accepts only versioned, authenticated operations for TUN, routes, DNS, firewall state, and system proxy state. Android hosts the Rust `cdylib` inside the dedicated `:vpn` process.

@@ -17,16 +17,16 @@
 
 # Usque
 
-Usque 是面向个人版 Cloudflare WARP（Consumer WARP）的非官方图形客户端。界面用 Flutter，传输、CONNECT-IP、DNS、代理和连接状态由 Rust 引擎处理，不用 WebView。
+Usque 是面向 Cloudflare WARP 个人版（Consumer WARP）的非官方图形客户端。界面由 Flutter 实现；MASQUE、CONNECT-IP、DNS、代理与连接状态由 Rust 引擎处理。项目不使用 WebView。
 
 > [!IMPORTANT]
-> 当前版本是 **v0.1.2**。只有 [`v0.1.2` GitHub Release](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.1.2) 上的附件，并且校验和、签名指纹对得上，才算正式包。Pull Request 里的构建、本地构建和没打标签的二进制都不算。
+> 当前发布版本为 **v0.1.2**。仅 [`v0.1.2` GitHub Release](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.1.2) 所附文件，且校验和与签名者指纹一致时，视为正式发布包。Pull Request 构建、本地构建以及未打标签的二进制均非正式发布。
 
-Usque 是独立项目，与 Cloudflare 没有隶属、赞助或背书关系。Cloudflare 和 WARP 是 Cloudflare, Inc. 的商标。使用个人版 WARP 仍须遵守 Cloudflare 的条款和隐私政策。
+Usque 为独立项目，与 Cloudflare 无隶属、赞助或背书关系。Cloudflare 与 WARP 是 Cloudflare, Inc. 的商标。使用个人版 WARP 仍须遵守 Cloudflare 的适用条款与隐私政策。
 
 ## 发布范围
 
-`main` 上的 `v0.1.2` 标签会构建并检查下面六个安装包：
+`v0.1.2` 由 `main` 上的对应标签构建并校验以下六个安装包：
 
 | 平台 | 安装包 | 最低系统 | 架构 |
 | --- | --- | --- | --- |
@@ -37,21 +37,21 @@ Usque 是独立项目，与 Cloudflare 没有隶属、赞助或背书关系。Cl
 | Android / Android TV | 分 ABI 安装包 | Android 8.0，API 26 | ARMv7（`armeabi-v7a`） |
 | Android / Android TV | 通用安装包 | Android 8.0，API 26 | 上述三种 Android ABI |
 
-仓库里有 macOS 源码，但当前不构建、不发布。这个版本也没有 iOS、Zero Trust、应用商店、公开命令行，或把多条路径的带宽加在一起。
+仓库保留 macOS 源码，但不参与当前构建与发布。本版本不提供 iOS、Zero Trust、应用商店分发、公开命令行，也不支持多路径带宽聚合。
 
 ## 主要功能
 
-- 注册个人版 WARP、用 License Key 注册，以及导入/导出 WARP Secret。
-- VPN、SOCKS5、HTTP 代理和 Windows 系统代理可以一起开，共用一条 MASQUE 通道。
-- 先走 HTTP/3（QUIC），不行再回退 HTTP/2（TLS）；入口用 IPv4/IPv6 Happy Eyeballs。
-- 全隧道 VPN、隧道内 DNS、Kill Switch、局域网访问和自定义 CIDR 绕过。
-- SOCKS5 的 TCP/UDP 和 HTTP 的 CONNECT/普通转发；代理默认只听本机回环。
-- 多个配置档，同时只有一个在用，身份按配置档分开存。
-- Android 快捷设置磁贴、桌面快捷方式、开机恢复，以及电视遥控器操作。
-- Windows 托盘、单实例唤醒、开机启动、关闭后进托盘。
-- 诊断只留在本地并做脱敏。没有用量统计，也不会自动上传。
+- 支持个人版 WARP 注册、WARP License Key 注册，以及 WARP Secret 的导入与导出。
+- VPN、SOCKS5、HTTP 代理与 Windows 系统代理可同时启用，共享同一条 MASQUE 通道。
+- 优先使用 HTTP/3（QUIC），失败后回退至 HTTP/2（TLS）；物理入口通过 IPv4/IPv6 Happy Eyeballs 选择。
+- 全隧道 VPN、隧道内 DNS、Kill Switch、局域网访问与自定义 CIDR 绕过。
+- SOCKS5 支持 TCP/UDP，HTTP 支持 CONNECT 与普通转发；代理默认仅监听回环地址。
+- 支持多个配置，同一时间仅一个处于活动状态；身份材料按配置隔离存储。
+- Android 快捷设置磁贴、启动器快捷方式、开机恢复与电视端导航。
+- Windows 系统托盘、单实例激活、开机启动，以及关闭后最小化到托盘。
+- 诊断信息仅保存在本地并经过脱敏，不含统计分析、遥测或自动上传。
 
-选 IPv4 还是 IPv6 的 MASQUE 端点，只决定物理入口。两条入口都能在 CONNECT-IP 里带 IPv4 和 IPv6。Usque 同一时间只保一条传输，不会把多条路径的带宽加起来。
+选择 IPv4 或 IPv6 MASQUE 端点仅改变物理入口。任一入口均可在 CONNECT-IP 内承载 IPv4 与 IPv6。Usque 同一时间只保持一条活动传输，不聚合多路径带宽。
 
 ## 默认网络设置
 
@@ -67,11 +67,11 @@ Usque 是独立项目，与 Cloudflare 没有隶属、赞助或背书关系。Cl
 | SOCKS5 | `127.0.0.1:1080`、`[::1]:1080` |
 | HTTP 代理 | `127.0.0.1:8080`、`[::1]:8080` |
 
-这些值可以改，也可以一键改回默认。代理如果监听非回环地址，不会设账号密码，界面会一直显示警告。
+上述默认值可修改，也可一键恢复。非回环代理监听不提供认证，并始终显示安全警告。
 
 ## 获取与安装
 
-请只从[正式发布页](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.1.2)下载 `v0.1.2`：
+请仅从[正式发布页面](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.1.2)下载 `v0.1.2`：
 
 | 目标 | 文件 |
 | --- | --- |
@@ -82,49 +82,49 @@ Usque 是独立项目，与 Cloudflare 没有隶属、赞助或背书关系。Cl
 | Android ARMv7 | [`usque-v0.1.2-android-armeabi-v7a.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.2/usque-v0.1.2-android-armeabi-v7a.apk) |
 | Android 通用包 | [`usque-v0.1.2-android-universal.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.2/usque-v0.1.2-android-universal.apk) |
 
-尽量选和设备 ABI 一致的 APK。通用包装了 ARMv8、x64 和 ARMv7 的原生库，体积更大，只在搞不清架构时用。发布页还有 `SHA256SUMS`、每个包对应的 `.sha256`、SPDX/CycloneDX SBOM、许可证清单和构建证明。
+请优先选择与设备 ABI 匹配的 APK。通用安装包同时包含 ARMv8、x64 与 ARMv7 原生库，体积更大，仅建议在无法确定设备架构时使用。发布页同时提供 `SHA256SUMS`、各安装包对应的 `.sha256` 文件、SPDX/CycloneDX SBOM、许可证清单与构建证明。
 
-- 1.0 之前的 Windows 包是固定自签名。点掉系统警告前，先对一下公布的 SHA-256 和证书指纹。
-- 1.0 之前的 Android 包也是项目自己的自签名证书，不在 Google Play 上，可能要手动安装或用 ADB。
-- 以后换到 v1.0.0 签名会单独发一版。
-- 发布流水线会编译、签名，并检查架构、校验和、SBOM 和构建来源。它不会在真机上装包，也不会跑长时间 VPN。
-- Usque 不会自己装更新。可选的更新检查只打开发布页。
-- Windows 卸载会在系统应用页先确认，再清掉 Usque 改过的网络状态；如果勾选，也可以删掉当前用户的本地数据。
+- 1.0 之前的 Windows 安装包使用固定自签名身份。接受系统警告前，请核对已公布的 SHA-256 与证书指纹。
+- 1.0 之前的 Android 安装包使用项目自行管理的固定自签名证书，不通过 Google Play 分发，可能需要手动安装或使用 ADB。
+- v1.0.0 的签名变更将作为独立版本发布。
+- 发布流程会完成编译、签名，以及架构、校验和、SBOM 与构建来源检查，但不会在真机上安装软件包，也不会进行长时间 VPN 验证。
+- Usque 不会自动安装更新；可选的更新检查仅打开发布页面。
+- Windows 卸载会在系统设置中要求确认，随后恢复 Usque 修改过的网络状态；用户可选择删除当前用户的本地数据。
 
-核对安装包、升级、卸载和恢复见[安装说明（英文）](docs/INSTALLATION.md)。
+安装包校验、升级、卸载与恢复见[安装说明（英文）](docs/INSTALLATION.md)。
 
-## 可同时开的出口
+## 可组合输出
 
-一个配置档可以同时开多种出口，它们共用一条已固定端点的 MASQUE 通道和包复用。
+一个配置可同时启用多种输出。它们共享一条已固定端点的 MASQUE 传输与包复用。
 
-| 出口 | 做什么 |
+| 输出 | 说明 |
 | --- | --- |
-| VPN/TUN | 建系统隧道，管路由、DNS 和 Kill Switch。 |
-| SOCKS5 | TCP 和 UDP，默认远程解析 DNS。 |
-| HTTP 代理 | CONNECT 和普通 HTTP 转发。 |
-| Windows 系统代理 | 依赖 HTTP 出口，把系统代理指到本地监听。 |
+| VPN/TUN | 创建系统隧道，并管理路由、DNS 与 Kill Switch。 |
+| SOCKS5 | 支持 TCP 与 UDP，默认使用远程 DNS。 |
+| HTTP 代理 | 支持 CONNECT 与普通 HTTP 转发。 |
+| Windows 系统代理 | 依赖 HTTP 输出，将系统代理指向本地监听地址。 |
 
-Windows 默认开 VPN（TUN）、SOCKS5 和 HTTP，系统代理默认关。Android 默认开 VPN、SOCKS5 和 HTTP。也可以全关，只留传输。
+Windows 默认启用 VPN（TUN）、SOCKS5 与 HTTP，系统代理默认关闭。Android 默认启用 VPN、SOCKS5 与 HTTP。允许关闭全部输出，仅保留传输。
 
 ## 安全与隐私
 
-- 端点固定不能关，界面里没有「不安全 TLS」开关。
-- Secret、私钥、Token、设备 ID、License 和端点固定信息放在 Windows 凭据管理器或 Android Keystore。
-- 导出 Secret 必须确认，并且只写到你选的位置。
-- Windows 引擎没有特权；只有一个很小的 Agent 管 TUN、路由、DNS、防火墙和系统代理。
-- Android 用 `VpnService`，VPN 跑在单独的 `:vpn` 进程里。
-- 日志默认 INFO，最多留 7 天或 20 MiB。
+- 端点固定为强制策略，界面不提供不安全的 TLS 模式。
+- Secret、私钥、令牌、设备标识、许可证与端点固定信息存储于 Windows 凭据管理器或 Android Keystore。
+- 导出 Secret 须经确认，且仅写入用户指定的位置。
+- Windows 引擎不以特权运行；由最小权限 Agent 管理 TUN、路由、DNS、防火墙与系统代理。
+- Android 使用 `VpnService`，并在独立的 `:vpn` 进程中运行。
+- 日志级别默认为 INFO，最多保留 7 天或 20 MiB。
 
-报漏洞前先看 [SECURITY.md](SECURITY.md)（英文）。不要在公开 Issue 里贴凭据或未脱敏的诊断包。
+报告漏洞前请阅读 [SECURITY.md](SECURITY.md)（英文）。请勿在公开 Issue 中提交凭据或未经脱敏的诊断信息。
 
 ## 构建与贡献
 
-工具链钉在 Rust `1.97.1`、Flutter `3.44.7`、Android NDK `29.0.14206865` 以及仓库里的打包工具。环境、检查命令和 Pull Request 要求见 [CONTRIBUTING.md](CONTRIBUTING.md)（英文）。
+本项目固定使用 Rust `1.97.1`、Flutter `3.44.7`、Android NDK `29.0.14206865` 以及仓库内的打包工具。开发环境、检查命令与 Pull Request 要求见 [CONTRIBUTING.md](CONTRIBUTING.md)（英文）。
 
-进度见[实现进度（英文）](docs/IMPLEMENTATION.md)，签名和发布流程见[发布说明（英文）](docs/RELEASE.md)。
+实现进度见[实现进度（英文）](docs/IMPLEMENTATION.md)，签名与发布流程见[发布说明（英文）](docs/RELEASE.md)。
 
 ## 上游与许可
 
-协议和行为参考归档的 Go 客户端 [Diniboy1123/usque](https://github.com/Diniboy1123/usque)，源码在本仓库的 `oracle/go`。Flutter 界面和 Rust 引擎是新写的。上游版权仍写在许可证里。
+协议与行为参考 [Diniboy1123/usque](https://github.com/Diniboy1123/usque)。本仓库在 `oracle/go` 中保存一份快照，供互操作测试使用。Flutter 界面与 Rust 引擎为本项目新实现。上游版权声明见许可证。
 
-源码使用 [MIT License](LICENSE.md)，第三方组件保留各自的许可证。
+源码采用 [MIT License](LICENSE.md)，第三方组件保留各自许可证。
