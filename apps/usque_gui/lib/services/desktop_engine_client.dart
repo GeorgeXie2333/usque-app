@@ -92,19 +92,30 @@ class DesktopEngineClient implements EngineClient {
     UsqueProfile profile, {
     required IdentityProvisioningMethod method,
     String? licenseKey,
+    String? teamName,
+    String? callbackUri,
   }) {
     return _serialized(() async {
       await _upsertProfile(profile);
       final license = Uint8List.fromList(utf8.encode(licenseKey ?? ''));
+      final callback = Uint8List.fromList(utf8.encode(callbackUri ?? ''));
       try {
         final payload = ControlPayloadWriter()
           ..string(1, profile.id)
           ..boolean(3, true)
           ..string(4, Platform.localeName)
-          ..bytes(6, license);
+          ..bytes(6, license)
+          ..enumeration(7, _identityProvisioningWireValue(method));
+        if (method == IdentityProvisioningMethod.zeroTrust) {
+          final enrollment = ControlPayloadWriter()
+            ..string(1, teamName ?? '')
+            ..bytes(2, callback);
+          payload.message(8, enrollment.takeBytes());
+        }
         await _request(23, payload.takeBytes());
       } finally {
         license.fillRange(0, license.length, 0);
+        callback.fillRange(0, callback.length, 0);
       }
     });
   }
@@ -114,15 +125,24 @@ class DesktopEngineClient implements EngineClient {
     UsqueProfile profile, {
     required IdentityProvisioningMethod method,
     String? licenseKey,
+    String? teamName,
+    String? callbackUri,
   }) {
     return _serialized(() async {
       final license = Uint8List.fromList(utf8.encode(licenseKey ?? ''));
+      final callback = Uint8List.fromList(utf8.encode(callbackUri ?? ''));
       try {
         final identity = ControlPayloadWriter()
           ..enumeration(1, _identityProvisioningWireValue(method))
           ..boolean(3, true)
           ..string(4, Platform.localeName)
           ..bytes(6, license);
+        if (method == IdentityProvisioningMethod.zeroTrust) {
+          final enrollment = ControlPayloadWriter()
+            ..string(1, teamName ?? '')
+            ..bytes(2, callback);
+          identity.message(7, enrollment.takeBytes());
+        }
         final payload = ControlPayloadWriter()
           ..message(1, _codec.encodeProfile(profile))
           ..message(2, identity.takeBytes());
@@ -130,6 +150,7 @@ class DesktopEngineClient implements EngineClient {
         return _codec.requireProfileCatalog(response);
       } finally {
         license.fillRange(0, license.length, 0);
+        callback.fillRange(0, callback.length, 0);
       }
     });
   }
@@ -188,6 +209,15 @@ class DesktopEngineClient implements EngineClient {
 
   @override
   Future<String?> consumeLaunchTarget() async => null;
+
+  @override
+  Future<String?> beginZeroTrustLogin(String teamName) async => null;
+
+  @override
+  Future<String?> consumeZeroTrustCallback() async => null;
+
+  @override
+  Future<void> cancelZeroTrustLogin() async {}
 
   @override
   Future<PlatformPreferences> platformPreferences() async {
@@ -382,5 +412,6 @@ int _identityProvisioningWireValue(IdentityProvisioningMethod method) {
   return switch (method) {
     IdentityProvisioningMethod.register => 1,
     IdentityProvisioningMethod.registerWithLicense => 3,
+    IdentityProvisioningMethod.zeroTrust => 4,
   };
 }

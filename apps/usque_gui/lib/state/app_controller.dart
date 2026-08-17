@@ -549,6 +549,8 @@ class AppController extends ChangeNotifier {
     String name, {
     required IdentityProvisioningMethod method,
     String? licenseKey,
+    String? teamName,
+    String? callbackUri,
   }) async {
     final normalized = name.trim();
     if (normalized.isEmpty || normalized.runes.length > 64) return false;
@@ -562,6 +564,8 @@ class AppController extends ChangeNotifier {
         profile,
         method: method,
         licenseKey: licenseKey,
+        teamName: teamName,
+        callbackUri: callbackUri,
       );
       profiles = catalog!.profiles;
       activeProfileId = catalog!.activeProfileId;
@@ -575,32 +579,74 @@ class AppController extends ChangeNotifier {
     UsqueProfile profile, {
     required IdentityProvisioningMethod method,
     String? licenseKey,
+    String? teamName,
+    String? callbackUri,
   }) async {
     final success = await _run(() async {
-      await _engine.provisionIdentity(
-        profile,
-        method: method,
-        licenseKey: licenseKey,
-      );
-      profileIdentityStates = <String, ProfileIdentityState>{
-        ...profileIdentityStates,
-        profile.id: ProfileIdentityState.ready,
-      };
-      profileIdentityStatuses = <String, ProfileIdentityStatus>{
-        ...profileIdentityStatuses,
-        profile.id: ProfileIdentityStatus(
-          state: ProfileIdentityState.ready,
-          licenseState: method == IdentityProvisioningMethod.registerWithLicense
-              ? LicenseState.warpPlus
-              : LicenseState.free,
-          accountType: method == IdentityProvisioningMethod.registerWithLicense
-              ? 'WARP+'
-              : 'Free',
-        ),
-      };
+      final reconnect = profile.id == activeProfileId && snapshot.isConnected;
+      var mutationCommitted = false;
+      var refreshedZeroTrustProfile = false;
+      if (reconnect) {
+        snapshot = await _engine.disconnect();
+        _notifyListeners();
+      }
+      try {
+        await _engine.provisionIdentity(
+          profile,
+          method: method,
+          licenseKey: licenseKey,
+          teamName: teamName,
+          callbackUri: callbackUri,
+        );
+        mutationCommitted = true;
+        if (method == IdentityProvisioningMethod.zeroTrust) {
+          await _refreshProfileCatalog();
+          refreshedZeroTrustProfile = true;
+          return;
+        }
+        profileIdentityStates = <String, ProfileIdentityState>{
+          ...profileIdentityStates,
+          profile.id: ProfileIdentityState.ready,
+        };
+        profileIdentityStatuses = <String, ProfileIdentityStatus>{
+          ...profileIdentityStatuses,
+          profile.id: ProfileIdentityStatus(
+            state: ProfileIdentityState.ready,
+            licenseState:
+                method == IdentityProvisioningMethod.registerWithLicense
+                ? LicenseState.warpPlus
+                : LicenseState.free,
+            accountType:
+                method == IdentityProvisioningMethod.registerWithLicense
+                ? 'WARP+'
+                : 'Free',
+            provider: IdentityProvider.consumer,
+          ),
+        };
+      } finally {
+        final safeToReconnect =
+            !mutationCommitted ||
+            method != IdentityProvisioningMethod.zeroTrust ||
+            refreshedZeroTrustProfile;
+        if (reconnect && safeToReconnect) {
+          snapshot = await _engine.connect(activeProfile);
+          _notifyListeners();
+        }
+      }
     }, affectsConnection: false);
     return success;
   }
+
+  Future<String> beginZeroTrustLogin(String teamName) async {
+    final team = teamName.trim().toLowerCase();
+    final nativeUrl = await _engine.beginZeroTrustLogin(team);
+    return nativeUrl ?? 'https://$team.cloudflareaccess.com/warp';
+  }
+
+  Future<String?> consumeZeroTrustCallback() =>
+      _engine.consumeZeroTrustCallback();
+
+  Future<void> cancelZeroTrustLogin() => _engine.cancelZeroTrustLogin();
 
   void updateProfile(UsqueProfile updated) {
     if (!profiles.any((profile) => profile.id == updated.id)) {

@@ -39,11 +39,12 @@ Usque 为独立项目，与 Cloudflare 无隶属、赞助或背书关系。Cloud
 | Android / Android TV | 分 ABI 安装包 | Android 8.0，API 26 | ARMv7（`armeabi-v7a`） |
 | Android / Android TV | 通用安装包 | Android 8.0，API 26 | 上述三种 Android ABI |
 
-仓库保留 macOS 源码，但不参与当前构建与发布。本版本不提供 iOS、Zero Trust、应用商店分发、公开命令行，也不支持多路径带宽聚合。
+仓库保留 macOS 源码，但不参与当前构建与发布。本版本不提供 iOS、生产级 Zero Trust 支持、应用商店分发、公开命令行，也不支持多路径带宽聚合。源码构建包含下述受发布门槛约束的 Zero Trust 组织注册实验功能。
 
 ## 主要功能
 
 - 支持个人版 WARP 注册、WARP License Key 注册，以及 WARP Secret 的导入与导出。
+- Windows 与 Android 提供实验性的 Cloudflare Zero Trust 设备注册，仅用于以组织身份复用现有 MASQUE 公网隧道。
 - VPN、SOCKS5、HTTP 代理与 Windows 系统代理可同时启用，共享同一条 MASQUE 通道。
 - 优先使用 HTTP/3（QUIC），失败后回退至 HTTP/2（TLS）；物理入口通过 IPv4/IPv6 Happy Eyeballs 选择。
 - 全隧道 VPN、隧道内 DNS、Kill Switch、局域网访问与自定义 CIDR 绕过。

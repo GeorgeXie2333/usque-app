@@ -72,6 +72,15 @@ internal object NativeEngine {
         return nativeRegisterConsumerWarpWithLicense(locale, licenseKey)
     }
 
+    fun registerZeroTrustWarp(
+        locale: String,
+        team: String,
+        callbackUri: String,
+    ): ByteArray? {
+        if (!libraryLoaded) return null
+        return nativeRegisterZeroTrustWarp(locale, team, callbackUri)
+    }
+
     fun unbindConsumerWarp(warpSecret: ByteArray): Boolean {
         if (!libraryLoaded) return false
         return nativeUnbindConsumerWarp(warpSecret) == OK
@@ -122,6 +131,12 @@ internal object NativeEngine {
     private external fun nativeRegisterConsumerWarpWithLicense(
         locale: String,
         licenseKey: String,
+    ): ByteArray?
+
+    private external fun nativeRegisterZeroTrustWarp(
+        locale: String,
+        team: String,
+        callbackUri: String,
     ): ByteArray?
 
     private external fun nativeUnbindConsumerWarp(warpSecret: ByteArray): Int

@@ -44,6 +44,7 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] Implement IP.SB dual-stack and geo-location probing interfaces.
 - [x] Add log redaction for secret fields and values.
 - [x] Implement Consumer WARP registration, WARP License Key registration, and manual Secret parsing with zeroized temporary buffers.
+- [x] Add experimental Zero Trust Access callback exchange, secure provider metadata plus a non-secret profile binding, registered endpoint discovery, and rollback-safe profile commits.
 - [x] Port the Abobo7 P-256 Endpoint Pin semantics and authenticated one-shot refresh.
 - [x] Implement bounded RFC 9484 ADDRESS_ASSIGN, ADDRESS_REQUEST, and ROUTE_ADVERTISEMENT codecs.
 - [x] Implement the engine-side protobuf control service and serialized, atomic Profile CRUD.
@@ -132,6 +133,7 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] Retain a bounded, corruption-safe one-time reader for the legacy Flutter Profile draft.
 - [x] Make versioned Rust configuration the authoritative Profile store on Windows and Android, then remove the migrated Flutter draft.
 - [x] Connect desktop and Android identity provisioning to their platform vaults.
+- [x] Add Windows manual Zero Trust callback entry and an Android process-local, same-team, single-consumption protocol callback.
 - [x] Keep identity plaintext hidden while supporting explicit, confirmed Secret export to a user-selected destination.
 - [x] Add per-Profile output toggles, frontend status chips, shared-session totals, WARP License Key management, and platform quick actions.
 - [x] Apply online output changes through a rollback-capable desktop reconnect or one controlled Android reconnect.

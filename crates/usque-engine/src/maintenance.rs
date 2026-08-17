@@ -220,6 +220,8 @@ fn write_diagnostic_bundle(
             "WARP Secret",
             "private key",
             "access token",
+            "Cloudflare Access assertion",
+            "Zero Trust callback URL",
             "device ID",
             "license",
             "endpoint pin",

@@ -104,12 +104,21 @@ class ProfilesScreen extends StatelessWidget {
       ).showSnackBar(SnackBar(content: Text(strings.get('profile_required'))));
       return;
     }
+    final zeroTrust =
+        controller.identityStatus(profile.id).provider ==
+        IdentityProvider.zeroTrust;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         icon: const Icon(LucideIcons.trash2),
         title: Text(strings.get('delete_profile')),
-        content: Text(strings.get('delete_profile_body')),
+        content: Text(
+          strings.get(
+            zeroTrust
+                ? 'delete_zero_trust_profile_body'
+                : 'delete_profile_body',
+          ),
+        ),
         actions: <Widget>[
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -342,11 +351,21 @@ class _IdentityManagementDialogState extends State<_IdentityManagementDialog> {
     }
   }
 
+  Future<void> _reauthenticateZeroTrust() async {
+    final success = await showProfileIdentityDialog(
+      context,
+      controller: widget.controller,
+      profile: widget.profile,
+    );
+    if (success && mounted) Navigator.of(context).pop();
+  }
+
   @override
   Widget build(BuildContext context) {
     final plus = widget.status.licenseState == LicenseState.warpPlus;
+    final zeroTrust = widget.status.provider == IdentityProvider.zeroTrust;
     return AlertDialog(
-      icon: const Icon(LucideIcons.keyRound),
+      icon: Icon(zeroTrust ? LucideIcons.building2 : LucideIcons.keyRound),
       title: Text(widget.strings.get('identity_and_license')),
       content: SizedBox(
         width: 480,
@@ -356,16 +375,31 @@ class _IdentityManagementDialogState extends State<_IdentityManagementDialog> {
           children: <Widget>[
             ListTile(
               contentPadding: EdgeInsets.zero,
-              leading: Icon(plus ? LucideIcons.badgeCheck : LucideIcons.user),
+              leading: Icon(
+                zeroTrust
+                    ? LucideIcons.building2
+                    : plus
+                    ? LucideIcons.badgeCheck
+                    : LucideIcons.user,
+              ),
               title: Text(
                 widget.status.accountType.isEmpty
-                    ? (plus ? 'WARP+' : 'Free')
+                    ? (zeroTrust
+                          ? 'Zero Trust'
+                          : plus
+                          ? 'WARP+'
+                          : 'Free')
                     : widget.status.accountType,
               ),
-              subtitle: widget.status.cleanupPending
+              subtitle: zeroTrust
+                  ? Text(
+                      '${widget.status.organization}\n${widget.strings.get('license_not_applicable')}',
+                    )
+                  : widget.status.cleanupPending
                   ? Text(widget.strings.get('license_cleanup_pending'))
                   : null,
-              trailing: plus
+              isThreeLine: zeroTrust,
+              trailing: plus && !zeroTrust
                   ? IconButton(
                       tooltip: widget.strings.get('copy_license'),
                       onPressed: _busy
@@ -377,43 +411,59 @@ class _IdentityManagementDialogState extends State<_IdentityManagementDialog> {
                     )
                   : null,
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _licenseController,
-              obscureText: !_showLicense,
-              enableSuggestions: false,
-              autocorrect: false,
-              decoration: InputDecoration(
-                labelText: widget.strings.get('warp_license_key'),
-                errorText: _error,
-                suffixIcon: IconButton(
-                  onPressed: () => setState(() => _showLicense = !_showLicense),
-                  icon: Icon(
-                    _showLicense ? LucideIcons.eyeOff : LucideIcons.eye,
+            if (zeroTrust) ...<Widget>[
+              const SizedBox(height: 12),
+              FilledButton.tonalIcon(
+                onPressed: _busy ? null : _reauthenticateZeroTrust,
+                icon: const Icon(LucideIcons.logIn),
+                label: Text(widget.strings.get('zero_trust_reauthenticate')),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                widget.strings.get('zero_trust_admin_cleanup_note'),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ] else ...<Widget>[
+              const SizedBox(height: 12),
+              TextField(
+                controller: _licenseController,
+                obscureText: !_showLicense,
+                enableSuggestions: false,
+                autocorrect: false,
+                decoration: InputDecoration(
+                  labelText: widget.strings.get('warp_license_key'),
+                  errorText: _error,
+                  suffixIcon: IconButton(
+                    onPressed: () =>
+                        setState(() => _showLicense = !_showLicense),
+                    icon: Icon(
+                      _showLicense ? LucideIcons.eyeOff : LucideIcons.eye,
+                    ),
                   ),
                 ),
+                onSubmitted: (_) => _updateLicense(),
               ),
-              onSubmitted: (_) => _updateLicense(),
-            ),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: _busy ? null : _updateLicense,
-              icon: const Icon(LucideIcons.refreshCw),
-              label: Text(widget.strings.get('change_license')),
-            ),
-            if (plus)
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: _busy ? null : _updateLicense,
+                icon: const Icon(LucideIcons.refreshCw),
+                label: Text(widget.strings.get('change_license')),
+              ),
+              if (plus)
+                TextButton.icon(
+                  onPressed: _busy ? null : _unbind,
+                  icon: const Icon(LucideIcons.unlink),
+                  label: Text(widget.strings.get('unbind_license')),
+                ),
               TextButton.icon(
-                onPressed: _busy ? null : _unbind,
-                icon: const Icon(LucideIcons.unlink),
-                label: Text(widget.strings.get('unbind_license')),
+                onPressed: _busy
+                    ? null
+                    : () =>
+                          widget.controller.exportWarpSecret(widget.profile.id),
+                icon: const Icon(LucideIcons.download),
+                label: Text(widget.strings.get('export_warp_secret')),
               ),
-            TextButton.icon(
-              onPressed: _busy
-                  ? null
-                  : () => widget.controller.exportWarpSecret(widget.profile.id),
-              icon: const Icon(LucideIcons.download),
-              label: Text(widget.strings.get('export_warp_secret')),
-            ),
+            ],
           ],
         ),
       ),
@@ -494,6 +544,13 @@ class _ProfileCard extends StatelessWidget {
                   ProfileIdentityState.invalid => 'identity_invalid',
                 }),
               ),
+              if (identityStatus.provider == IdentityProvider.zeroTrust)
+                _ProfileTag(
+                  icon: LucideIcons.building2,
+                  label: identityStatus.organization.isEmpty
+                      ? 'Zero Trust · ${strings.get('experimental')}'
+                      : '${identityStatus.organization} · ${strings.get('experimental')}',
+                ),
               if (profile.killSwitch)
                 _ProfileTag(
                   icon: LucideIcons.shieldCheck,

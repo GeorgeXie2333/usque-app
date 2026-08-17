@@ -24,11 +24,13 @@ enum DnsMode { tunnel, localConfigured, system }
 
 enum ProxyDnsMode { remote, localConfigured, system }
 
-enum IdentityProvisioningMethod { register, registerWithLicense }
+enum IdentityProvisioningMethod { register, registerWithLicense, zeroTrust }
+
+enum IdentityProvider { consumer, zeroTrust }
 
 enum ProfileIdentityState { ready, missing, invalid }
 
-enum LicenseState { free, warpPlus, unknown, cleanupPending }
+enum LicenseState { free, warpPlus, unknown, cleanupPending, notApplicable }
 
 enum FrontendKind { tunnel, socks5, http, systemProxy }
 
@@ -107,12 +109,16 @@ class ProfileIdentityStatus {
     this.licenseState = LicenseState.unknown,
     this.accountType = '',
     this.cleanupPending = false,
+    this.provider = IdentityProvider.consumer,
+    this.organization = '',
   });
 
   final ProfileIdentityState state;
   final LicenseState licenseState;
   final String accountType;
   final bool cleanupPending;
+  final IdentityProvider provider;
+  final String organization;
 }
 
 class FrontendSettings {

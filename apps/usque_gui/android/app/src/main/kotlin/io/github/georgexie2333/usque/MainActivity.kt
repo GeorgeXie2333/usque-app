@@ -49,6 +49,7 @@ class MainActivity : FlutterFragmentActivity() {
     private var pendingWarpSecretResult: MethodChannel.Result? = null
     private var pendingWarpSecretProfileId: String? = null
     private var pendingLaunchTarget: String? = null
+    private val zeroTrustCallbackSession = ZeroTrustCallbackSession()
     private var eventSink: EventChannel.EventSink? = null
 
     private lateinit var controlClient: VpnControlClient
@@ -114,6 +115,14 @@ class MainActivity : FlutterFragmentActivity() {
 
             override fun consumeLaunchTarget(): String? = pendingLaunchTarget.also { pendingLaunchTarget = null }
 
+            override fun beginZeroTrustLogin(team: String): String = zeroTrustCallbackSession.begin(team)
+
+            override fun consumeZeroTrustCallback(): String? = zeroTrustCallbackSession.consume()
+
+            override fun cancelZeroTrustLogin() {
+                zeroTrustCallbackSession.cancel()
+            }
+
             override fun platformPreferences(): Map<String, Any?> {
                 val preferences =
                     createDeviceProtectedStorageContext().getSharedPreferences(
@@ -157,7 +166,7 @@ class MainActivity : FlutterFragmentActivity() {
         super.onCreate(savedInstanceState)
         configureQuickSettingsTileAvailability()
         AndroidShortcutController.sync(this)
-        handleShortcutIntent(intent)
+        handleIncomingIntent(intent)
     }
 
     private fun configureQuickSettingsTileAvailability() {
@@ -177,7 +186,20 @@ class MainActivity : FlutterFragmentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        handleIncomingIntent(intent)
+    }
+
+    private fun handleIncomingIntent(intent: Intent?) {
+        handleZeroTrustCallbackIntent(intent)
         handleShortcutIntent(intent)
+    }
+
+    private fun handleZeroTrustCallbackIntent(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_VIEW) return
+        val callback = intent.data ?: return
+        // Never retain the Access assertion on the Activity's launch Intent.
+        intent.data = null
+        zeroTrustCallbackSession.accept(callback.toString())
     }
 
     private fun handleShortcutIntent(intent: Intent?) {

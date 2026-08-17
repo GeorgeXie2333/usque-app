@@ -52,6 +52,15 @@
                 <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="com.cloudflare.warp"
+                    android:host="*.cloudflareaccess.com"
+                    android:path="/auth" />
+            </intent-filter>
         </activity>
         <service
             android:name=".UsqueVpnService"
@@ -64,7 +73,7 @@
             </intent-filter>
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Consumer WARP VPN tunnel or local proxy service" />
+                android:value="Cloudflare WARP or experimental Zero Trust VPN tunnel or local proxy service" />
         </service>
         <service
             android:name=".UsqueTileService"

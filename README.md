@@ -39,11 +39,12 @@ The `v0.1.2` tag on `main` builds and checks these six packages:
 | Android / Android TV | per-ABI APK | Android 8.0, API 26 | ARMv7 (`armeabi-v7a`) |
 | Android / Android TV | universal APK | Android 8.0, API 26 | all three Android ABIs |
 
-macOS source is in the tree but is not built or released. This release does not include iOS, Zero Trust, store listings, a public CLI, or multipath bandwidth aggregation.
+macOS source is in the tree but is not built or released. This release does not include iOS, production-supported Zero Trust, store listings, a public CLI, or multipath bandwidth aggregation. Source builds expose an experimental, release-gated Zero Trust organization enrollment described below.
 
 ## Highlights
 
-- Consumer WARP registration, WARP License Key registration, and WARP Secret import/export.
+- Consumer WARP registration, WARP License Key registration, and confirmed Consumer WARP Secret export.
+- Experimental Cloudflare Zero Trust device enrollment on Windows and Android, limited to using an organization identity with the existing MASQUE Internet tunnel.
 - VPN, SOCKS5, HTTP proxy, and Windows system proxy can run together on one MASQUE channel.
 - HTTP/3 over QUIC, falling back to HTTP/2 over TLS, with IPv4/IPv6 Happy Eyeballs for the physical path.
 - Full-tunnel VPN, tunneled DNS, Kill Switch, LAN access, and custom CIDR bypass rules.
@@ -123,7 +124,7 @@ Read [SECURITY.md](SECURITY.md) before reporting a vulnerability. Do not put cre
 
 The tree pins Rust `1.97.1`, Flutter `3.44.7`, Android NDK `29.0.14206865`, and the packaging tools. [CONTRIBUTING.md](CONTRIBUTING.md) has setup, checks, safety limits, and pull request rules.
 
-Progress is in [Implementation](docs/IMPLEMENTATION.md). Signing and the release workflow are in [Release process](docs/RELEASE.md).
+Progress is in [Implementation](docs/IMPLEMENTATION.md). The experimental scope and live-tenant release gate are in [Zero Trust experimental support](docs/ZERO_TRUST_EXPERIMENTAL.md). Signing and the release workflow are in [Release process](docs/RELEASE.md).
 
 ## Upstream and license
 

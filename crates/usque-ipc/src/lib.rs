@@ -82,8 +82,9 @@ mod tests {
         Capabilities, CapabilitiesChanged, ControlRequest, CreateProfileWithIdentityRequest,
         EventEnvelope, ExportWarpSecretRequest, FrontendKind, FrontendPhase, FrontendSettings,
         FrontendStatus, GetStatusRequest, IdentityProvisioning, IdentityProvisioningMethod,
-        Profile, ReconfigureActiveProfileRequest, UpdateLicenseKeyRequest, WarningRaised,
-        control_request, event_envelope,
+        Profile, ProvisionIdentityRequest, ReconfigureActiveProfileRequest,
+        UpdateLicenseKeyRequest, WarningRaised, ZeroTrustEnrollment, control_request,
+        event_envelope,
     };
 
     // Checked-in v1 wire snapshots. Changing an established field number or
@@ -97,6 +98,10 @@ mod tests {
     const PROVISION_IDENTITY_V1_FRAME: &[u8] = &[
         0, 0, 0, 24, 0x0a, 2, b'p', b'1', 0xba, 0x01, 17, 0x0a, 2, b'i', b'd', 0x12, 1, b'x', 0x18,
         1, 0x22, 2, b'e', b'n', 0x2a, 2, b'p', b'c',
+    ];
+    const PROVISION_ZERO_TRUST_V2_FRAME: &[u8] = &[
+        0, 0, 0, 22, 0x0a, 1, b'z', 0xba, 0x01, 16, 0x0a, 2, b'i', b'd', 0x18, 1, 0x38, 4, 0x42, 6,
+        0x0a, 1, b't', 0x12, 1, b'c',
     ];
     const CAPABILITIES_V1_FRAME: &[u8] = &[
         0, 0, 0, 37, 0x08, 0x08, 0x72, 33, 0x0a, 31, 0x10, 1, 0x18, 1, 0x32, 7, b'w', b'i', b'n',
@@ -266,6 +271,49 @@ mod tests {
         assert_eq!(
             encode_frame(&decoded).expect("re-encode").as_ref(),
             PROVISION_IDENTITY_V1_FRAME
+        );
+    }
+
+    #[test]
+    fn zero_trust_identity_fields_are_append_only_wire_snapshots() {
+        let decoded: ControlRequest =
+            decode_frame(Bytes::from_static(PROVISION_ZERO_TRUST_V2_FRAME))
+                .expect("decode Zero Trust snapshot");
+        assert!(matches!(
+            decoded.payload.as_ref(),
+            Some(control_request::Payload::ProvisionIdentity(ProvisionIdentityRequest {
+                profile_id,
+                method,
+                zero_trust: Some(ZeroTrustEnrollment {
+                    team_name,
+                    callback_uri,
+                }),
+                ..
+            })) if profile_id == "id"
+                && *method == IdentityProvisioningMethod::RegisterZeroTrust as i32
+                && team_name == "t"
+                && callback_uri == b"c"
+        ));
+        assert_eq!(
+            encode_frame(&decoded).expect("re-encode").as_ref(),
+            PROVISION_ZERO_TRUST_V2_FRAME
+        );
+
+        let status = crate::v1::ProfileIdentityStatus {
+            profile_id: "p".to_owned(),
+            state: crate::v1::ProfileIdentityState::Ready as i32,
+            license_state: crate::v1::LicenseState::NotApplicable as i32,
+            account_type: "Zero Trust".to_owned(),
+            provider: crate::v1::IdentityProvider::ZeroTrust as i32,
+            organization: "t".to_owned(),
+            ..Default::default()
+        };
+        assert_eq!(
+            status.encode_to_vec(),
+            [
+                0x0a, 1, b'p', 0x10, 1, 0x18, 5, 0x22, 10, b'Z', b'e', b'r', b'o', b' ', b'T',
+                b'r', b'u', b's', b't', 0x30, 2, 0x3a, 1, b't'
+            ]
         );
     }
 

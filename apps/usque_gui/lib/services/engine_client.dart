@@ -35,12 +35,16 @@ abstract interface class EngineClient {
     UsqueProfile profile, {
     required IdentityProvisioningMethod method,
     String? licenseKey,
+    String? teamName,
+    String? callbackUri,
   });
 
   Future<ProfileCatalog> createProfileWithIdentity(
     UsqueProfile profile, {
     required IdentityProvisioningMethod method,
     String? licenseKey,
+    String? teamName,
+    String? callbackUri,
   });
 
   Future<void> reconfigureActiveProfile(UsqueProfile profile);
@@ -54,6 +58,12 @@ abstract interface class EngineClient {
   Future<String?> exportWarpSecret(String profileId);
 
   Future<String?> consumeLaunchTarget();
+
+  Future<String?> beginZeroTrustLogin(String teamName);
+
+  Future<String?> consumeZeroTrustCallback();
+
+  Future<void> cancelZeroTrustLogin();
 
   Future<PlatformPreferences> platformPreferences();
 
@@ -144,6 +154,19 @@ class MethodChannelEngineClient implements EngineClient {
       _invoke<String>('consumeLaunchTarget');
 
   @override
+  Future<String?> beginZeroTrustLogin(String teamName) => _invoke<String>(
+    'beginZeroTrustLogin',
+    <String, Object>{'team_name': teamName},
+  );
+
+  @override
+  Future<String?> consumeZeroTrustCallback() =>
+      _invoke<String>('consumeZeroTrustCallback');
+
+  @override
+  Future<void> cancelZeroTrustLogin() => _invoke<void>('cancelZeroTrustLogin');
+
+  @override
   Future<PlatformPreferences> platformPreferences() async {
     final value = await _invoke<Map<Object?, Object?>>('platformPreferences');
     return PlatformPreferences.fromMap(value ?? const <Object?, Object?>{});
@@ -179,11 +202,15 @@ class MethodChannelEngineClient implements EngineClient {
     UsqueProfile profile, {
     required IdentityProvisioningMethod method,
     String? licenseKey,
+    String? teamName,
+    String? callbackUri,
   }) async {
     await _invoke<void>('provisionIdentity', <String, Object?>{
       'profile_id': profile.id,
       'method': method.name,
       'license_key': licenseKey,
+      'team_name': teamName,
+      'callback_uri': callbackUri,
       'terms_accepted': true,
       'locale': PlatformDispatcher.instance.locale.toLanguageTag(),
     });
@@ -194,6 +221,8 @@ class MethodChannelEngineClient implements EngineClient {
     UsqueProfile profile, {
     required IdentityProvisioningMethod method,
     String? licenseKey,
+    String? teamName,
+    String? callbackUri,
   }) async {
     final result = await _invoke<Map<Object?, Object?>>(
       'createProfileWithIdentity',
@@ -201,6 +230,8 @@ class MethodChannelEngineClient implements EngineClient {
         'profile': profile.toMap(),
         'method': method.name,
         'license_key': licenseKey,
+        'team_name': teamName,
+        'callback_uri': callbackUri,
         'terms_accepted': true,
         'locale': PlatformDispatcher.instance.locale.toLanguageTag(),
       },
@@ -362,6 +393,11 @@ Map<String, ProfileIdentityStatus> _identityStatusesFromMap(
       licenseState: licenseState,
       accountType: value['account_type'] as String? ?? '',
       cleanupPending: value['cleanup_pending'] as bool? ?? false,
+      provider: IdentityProvider.values.firstWhere(
+        (item) => item.name == value['provider'],
+        orElse: () => IdentityProvider.consumer,
+      ),
+      organization: value['organization'] as String? ?? '',
     );
   }
   return Map<String, ProfileIdentityStatus>.unmodifiable(statuses);

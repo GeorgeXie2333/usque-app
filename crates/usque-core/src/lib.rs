@@ -17,12 +17,16 @@ pub use connector::{
 };
 pub use exit_probe::{ExitInfo, GeoLocation, IpSbProbe, ProbeError};
 pub use identity::{
-    EndpointPin, IdentityError, MasqueKeyPair, WarpIdentity, parse_manual_warp_secret,
+    EndpointPin, IdentityError, IdentityProvider, MasqueKeyPair, WarpIdentity,
+    parse_manual_warp_secret,
 };
 pub use registration::{
     ConsumerRegistrationClient, EndpointPinRefresh, PreparedEndpointPinRefresh,
     REGISTRATION_API_HOST, REGISTRATION_API_PORT, RegistrationError, RegistrationOptions,
-    WarpAccountStatus, parse_endpoint_pin_refresh_response, prepare_endpoint_pin_refresh,
+    WarpAccountStatus, ZERO_TRUST_PORT, ZERO_TRUST_SNI, ZeroTrustCallback,
+    ZeroTrustRegistrationResult, ZeroTrustRegistrationStage, is_zero_trust_endpoint,
+    normalize_zero_trust_team, parse_endpoint_pin_refresh_response, parse_zero_trust_callback,
+    prepare_endpoint_pin_refresh, zero_trust_login_url,
 };
 pub use state::{
     AddressFamily, ConnectionError, ConnectionPhase, ConnectionSnapshot, ConnectionWarning,

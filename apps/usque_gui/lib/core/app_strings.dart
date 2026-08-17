@@ -76,6 +76,27 @@ class AppStrings {
     'identity_setup_failed': 'The WARP identity could not be configured.',
     'use_license_key': 'Use a WARP License Key',
     'warp_license_key': 'WARP License Key',
+    'zero_trust_title': 'Cloudflare Zero Trust',
+    'zero_trust_subtitle': 'Sign in with an organization account',
+    'zero_trust_team': 'Organization team name',
+    'zero_trust_team_invalid': 'Enter one DNS-label team name.',
+    'zero_trust_open_login': 'Open organization login',
+    'zero_trust_browser_failed': 'The system browser could not be opened.',
+    'zero_trust_manual_callback':
+        'After sign-in, return here automatically or paste the complete callback URL.',
+    'zero_trust_callback_received': 'Organization callback received securely.',
+    'zero_trust_callback': 'Complete callback URL',
+    'zero_trust_callback_required':
+        'Paste a fresh complete callback URL or sign in again.',
+    'zero_trust_scope_note':
+        'Experimental: uses the organization device registration for Internet access; policy sync and device posture are not implemented.',
+    'zero_trust_repair_same_team':
+        'Sign in again to the same organization to refresh this device registration.',
+    'zero_trust_metadata_missing':
+        'The saved organization binding is missing. For safety, this profile cannot be repaired in place; create a new Zero Trust profile.',
+    'zero_trust_endpoint_managed':
+        'This endpoint is managed by the Zero Trust device registration and cannot be edited here.',
+    'experimental': 'Experimental',
     'show_license': 'Show License Key',
     'hide_license': 'Hide License Key',
     'license_copied': 'License Key copied',
@@ -89,6 +110,12 @@ class AppStrings {
     'delete_profile': 'Delete profile?',
     'delete_profile_body':
         'This removes the non-secret settings for this profile. Stored identity data is not deleted.',
+    'delete_zero_trust_profile_body':
+        'This deletes only the local profile and credentials. Ask an organization administrator to remove the residual device registration in Zero Trust.',
+    'license_not_applicable': 'License not applicable · Experimental',
+    'zero_trust_reauthenticate': 'Sign in again to this organization',
+    'zero_trust_admin_cleanup_note':
+        'Removing this profile does not revoke the device in the Zero Trust dashboard.',
     'mode': 'Connection mode',
     'vpn_mode': 'VPN',
     'socks_mode': 'SOCKS5',
@@ -273,6 +300,22 @@ class AppStrings {
     'identity_setup_failed': '无法配置 WARP 身份。',
     'use_license_key': '使用 WARP License Key',
     'warp_license_key': 'WARP License Key',
+    'zero_trust_title': 'Cloudflare Zero Trust',
+    'zero_trust_subtitle': '使用组织账号登录',
+    'zero_trust_team': '组织 Team Name',
+    'zero_trust_team_invalid': '请输入单个有效的 DNS 标签形式 Team Name。',
+    'zero_trust_open_login': '打开组织登录页面',
+    'zero_trust_browser_failed': '无法打开系统浏览器。',
+    'zero_trust_manual_callback': '登录后可自动返回，或在此粘贴完整回调 URL。',
+    'zero_trust_callback_received': '已安全接收组织登录回调。',
+    'zero_trust_callback': '完整回调 URL',
+    'zero_trust_callback_required': '请粘贴新的完整回调 URL，或重新登录。',
+    'zero_trust_scope_note': '实验性功能：仅复用组织设备注册访问公网；暂不实现策略同步和设备姿态。',
+    'zero_trust_repair_same_team': '重新登录同一组织，以刷新此设备注册。',
+    'zero_trust_metadata_missing':
+        '保存的组织绑定信息缺失。为避免跨身份回退，无法原地修复此配置；请新建 Zero Trust 配置。',
+    'zero_trust_endpoint_managed': '此端点由 Zero Trust 设备注册管理，不能在此修改。',
+    'experimental': '实验性',
     'show_license': '显示 License Key',
     'hide_license': '隐藏 License Key',
     'license_copied': 'License Key 已复制',
@@ -285,6 +328,11 @@ class AppStrings {
     'delete': '删除',
     'delete_profile': '删除配置？',
     'delete_profile_body': '这会删除此配置的非秘密设置，不会删除系统中保存的身份数据。',
+    'delete_zero_trust_profile_body':
+        '此操作仅删除本地配置和凭据。请联系组织管理员在 Zero Trust 后台删除残留设备注册。',
+    'license_not_applicable': '许可证不适用 · 实验性',
+    'zero_trust_reauthenticate': '重新登录此组织',
+    'zero_trust_admin_cleanup_note': '删除此配置不会撤销 Zero Trust 后台中的设备注册。',
     'mode': '连接模式',
     'vpn_mode': 'VPN',
     'socks_mode': 'SOCKS5',

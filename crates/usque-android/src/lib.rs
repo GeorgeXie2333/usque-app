@@ -27,9 +27,10 @@ use jni::{
 };
 use serde::{Deserialize, Serialize};
 use usque_core::{
-    AppConfig, ConsumerRegistrationClient, DnsMode, EndpointSettings, FrontendSettings, IpPolicy,
-    OperatingMode, Profile, ProxyDnsMode, ProxySettings, RegistrationOptions, TransportPolicy,
-    WarpIdentity, parse_manual_warp_secret, storage::ConfigStore, update::UpdateChecker,
+    AppConfig, ConsumerRegistrationClient, DnsMode, EndpointSettings, FrontendSettings,
+    IdentityProvider, IpPolicy, OperatingMode, Profile, ProxyDnsMode, ProxySettings,
+    RegistrationError, RegistrationOptions, TransportPolicy, WarpIdentity,
+    parse_manual_warp_secret, storage::ConfigStore, update::UpdateChecker,
 };
 #[cfg(target_os = "android")]
 use usque_transport::{
@@ -428,6 +429,64 @@ fn native_register_consumer_warp_with_license(
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeRegisterZeroTrustWarp<
+    'local,
+>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    locale: JString<'local>,
+    team: JString<'local>,
+    callback_uri: JString<'local>,
+) -> jbyteArray {
+    with_jni_env(&mut environment, |environment| {
+        native_register_zero_trust_warp(environment, locale, team, callback_uri)
+    })
+}
+
+fn native_register_zero_trust_warp(
+    environment: &mut Env<'_>,
+    locale: JString<'_>,
+    team: JString<'_>,
+    callback_uri: JString<'_>,
+) -> jbyteArray {
+    let locale = match locale.try_to_string(environment) {
+        Ok(value) => value,
+        Err(error) => {
+            throw_io_error(environment, &error.to_string());
+            return std::ptr::null_mut();
+        }
+    };
+    let team = match team.try_to_string(environment) {
+        Ok(value) => value,
+        Err(error) => {
+            throw_io_error(environment, &error.to_string());
+            return std::ptr::null_mut();
+        }
+    };
+    let callback_uri = match callback_uri.try_to_string(environment) {
+        Ok(value) => Zeroizing::new(value),
+        Err(error) => {
+            throw_io_error(environment, &error.to_string());
+            return std::ptr::null_mut();
+        }
+    };
+    let envelope = match register_zero_trust_warp(&locale, &team, &callback_uri) {
+        Ok(value) => value,
+        Err(error) => {
+            throw_io_error(environment, &error);
+            return std::ptr::null_mut();
+        }
+    };
+    match environment.byte_array_from_slice(envelope.as_bytes()) {
+        Ok(output) => output.into_raw(),
+        Err(error) => {
+            throw_io_error(environment, &error.to_string());
+            std::ptr::null_mut()
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeUnbindConsumerWarp<
     'local,
 >(
@@ -561,6 +620,8 @@ fn validate_warp_secret_bytes(secret: &[u8]) -> jint {
 struct IdentityMetadata {
     ipv4: String,
     ipv6: String,
+    provider: &'static str,
+    organization: Option<String>,
 }
 
 fn identity_metadata(secret: &[u8]) -> Result<IdentityMetadata, String> {
@@ -569,6 +630,11 @@ fn identity_metadata(secret: &[u8]) -> Result<IdentityMetadata, String> {
     Ok(IdentityMetadata {
         ipv4: identity.assigned_ipv4.to_string(),
         ipv6: identity.assigned_ipv6.to_string(),
+        provider: match identity.provider() {
+            IdentityProvider::Consumer => "consumer",
+            IdentityProvider::ZeroTrust { .. } => "zeroTrust",
+        },
+        organization: identity.provider().organization().map(ToOwned::to_owned),
     })
 }
 
@@ -747,6 +813,8 @@ enum AndroidConfigCommand {
     },
     UpsertProfile {
         profile: Box<AndroidProfile>,
+        identity_provider: Option<String>,
+        organization: Option<String>,
     },
     DeleteProfile {
         profile_id: String,
@@ -762,6 +830,8 @@ enum AndroidConfigCommand {
     },
     CommitProfileWithIdentity {
         profile: Box<AndroidProfile>,
+        identity_provider: Option<String>,
+        organization: Option<String>,
     },
     CompleteIdentityCreations {
         profile_ids: Vec<String>,
@@ -823,15 +893,40 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
                 changed = true;
             }
         }
-        AndroidConfigCommand::UpsertProfile { profile } => {
-            let profile = android_profile_to_core(*profile)?;
+        AndroidConfigCommand::UpsertProfile {
+            profile,
+            identity_provider,
+            organization,
+        } => {
+            let binding = parse_identity_binding(identity_provider, organization)?;
+            let mut profile = android_profile_to_core(*profile)?;
+            let profile_id = profile.id;
             match config
                 .profiles
                 .iter()
                 .position(|existing| existing.id == profile.id)
             {
-                Some(index) => config.profiles[index] = profile,
+                Some(index) => {
+                    if let (Some(existing), Some(incoming)) =
+                        (config.identity_bindings.get(&profile.id), binding.as_ref())
+                        && existing != incoming
+                    {
+                        return Err("profile identity provider cannot be changed".to_owned());
+                    }
+                    if binding.is_none()
+                        && matches!(
+                            config.identity_bindings.get(&profile.id),
+                            Some(IdentityProvider::ZeroTrust { .. })
+                        )
+                    {
+                        profile.endpoint = config.profiles[index].endpoint.clone();
+                    }
+                    config.profiles[index] = profile;
+                }
                 None => config.profiles.push(profile),
+            }
+            if let Some(binding) = binding {
+                config.identity_bindings.insert(profile_id, binding);
             }
             config.preferences.profiles_migrated_from_flutter = true;
             changed = true;
@@ -847,6 +942,7 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
                 .position(|profile| profile.id == profile_id)
                 .ok_or_else(|| "profile does not exist".to_owned())?;
             config.profiles.remove(index);
+            config.identity_bindings.remove(&profile_id);
             if config.active_profile_id == Some(profile_id) {
                 config.active_profile_id = config.profiles.first().map(|profile| profile.id);
             }
@@ -894,7 +990,12 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
             }
             changed = true;
         }
-        AndroidConfigCommand::CommitProfileWithIdentity { profile } => {
+        AndroidConfigCommand::CommitProfileWithIdentity {
+            profile,
+            identity_provider,
+            organization,
+        } => {
+            let binding = parse_identity_binding(identity_provider, organization)?;
             let profile = android_profile_to_core(*profile)?;
             if !config.pending_identity_creations.contains(&profile.id) {
                 return Err("profile identity creation was not prepared".to_owned());
@@ -909,6 +1010,9 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
             config
                 .pending_identity_creations
                 .retain(|profile_id| *profile_id != profile.id);
+            if let Some(binding) = binding {
+                config.identity_bindings.insert(profile.id, binding);
+            }
             config.profiles.push(profile);
             config.preferences.profiles_migrated_from_flutter = true;
             changed = true;
@@ -948,7 +1052,9 @@ fn android_profile_catalog(config: &AppConfig) -> serde_json::Value {
         "profiles": config
             .profiles
             .iter()
-            .map(android_profile_value)
+            .map(|profile| {
+                android_profile_value(profile, config.identity_bindings.get(&profile.id))
+            })
             .collect::<Vec<_>>(),
         "active_profile_id": config
             .active_profile_id
@@ -967,7 +1073,10 @@ fn android_profile_catalog(config: &AppConfig) -> serde_json::Value {
     })
 }
 
-fn android_profile_value(profile: &Profile) -> serde_json::Value {
+fn android_profile_value(
+    profile: &Profile,
+    binding: Option<&IdentityProvider>,
+) -> serde_json::Value {
     let dns_ipv4 = profile
         .dns_servers
         .iter()
@@ -1013,6 +1122,14 @@ fn android_profile_value(profile: &Profile) -> serde_json::Value {
         "endpoint_v6": profile.endpoint.ipv6.to_string(),
         "endpoint_port": profile.endpoint.port,
         "sni": profile.endpoint.sni,
+        "identity_provider": match binding {
+            Some(IdentityProvider::Consumer) => "consumer",
+            Some(IdentityProvider::ZeroTrust { .. }) => "zero_trust",
+            None => "",
+        },
+        "identity_organization": binding
+            .and_then(IdentityProvider::organization)
+            .unwrap_or_default(),
         "mtu": profile.mtu,
         "dns_v4": dns_ipv4.to_string(),
         "dns_v6": dns_ipv6.to_string(),
@@ -1060,6 +1177,27 @@ fn android_profile_value(profile: &Profile) -> serde_json::Value {
             "system_proxy": profile.proxy.system_proxy,
         }
     })
+}
+
+fn parse_identity_binding(
+    provider: Option<String>,
+    organization: Option<String>,
+) -> Result<Option<IdentityProvider>, String> {
+    match provider.as_deref() {
+        None | Some("") if organization.as_deref().unwrap_or_default().is_empty() => Ok(None),
+        Some("consumer") if organization.as_deref().unwrap_or_default().is_empty() => {
+            Ok(Some(IdentityProvider::Consumer))
+        }
+        Some("zero_trust") => {
+            let organization = organization.ok_or_else(|| {
+                "Zero Trust identity binding is missing its organization".to_owned()
+            })?;
+            IdentityProvider::zero_trust(organization)
+                .map(Some)
+                .map_err(|_| "Zero Trust identity binding is invalid".to_owned())
+        }
+        _ => Err("profile identity binding is invalid".to_owned()),
+    }
 }
 
 fn listener_for_family(listeners: &[SocketAddr], ipv4: bool) -> SocketAddr {
@@ -2129,13 +2267,14 @@ fn engine_snapshot() -> NativeSnapshot {
 
 fn register_consumer_warp(locale: &str) -> Result<Zeroizing<String>, String> {
     if locale.trim().is_empty() || locale.chars().count() > 32 {
-        return Err("Android locale is invalid".to_owned());
+        return Err("USQUE_CONSUMER_INVALID_LOCALE".to_owned());
     }
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|error| format!("registration runtime failed: {error}"))?;
-    let client = ConsumerRegistrationClient::new().map_err(|error| error.to_string())?;
+        .map_err(|_| "USQUE_CONSUMER_RUNTIME_INITIALIZATION_FAILED".to_owned())?;
+    let client = ConsumerRegistrationClient::new()
+        .map_err(|_| "USQUE_CONSUMER_HTTP_CLIENT_INITIALIZATION_FAILED".to_owned())?;
     let identity = runtime
         .block_on(client.register(&RegistrationOptions {
             terms_accepted: true,
@@ -2143,10 +2282,10 @@ fn register_consumer_warp(locale: &str) -> Result<Zeroizing<String>, String> {
             device_name: None,
             locale: locale.to_owned(),
         }))
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| safe_consumer_registration_error(&error))?;
     identity
         .to_portable_secret_json()
-        .map_err(|error| error.to_string())
+        .map_err(|_| "USQUE_CONSUMER_IDENTITY_SERIALIZATION_FAILED".to_owned())
 }
 
 fn register_consumer_warp_with_license(
@@ -2154,13 +2293,14 @@ fn register_consumer_warp_with_license(
     license_key: &str,
 ) -> Result<Zeroizing<String>, String> {
     if locale.trim().is_empty() || locale.chars().count() > 32 {
-        return Err("Android locale is invalid".to_owned());
+        return Err("USQUE_CONSUMER_INVALID_LOCALE".to_owned());
     }
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|error| format!("registration runtime failed: {error}"))?;
-    let client = ConsumerRegistrationClient::new().map_err(|error| error.to_string())?;
+        .map_err(|_| "USQUE_CONSUMER_RUNTIME_INITIALIZATION_FAILED".to_owned())?;
+    let client = ConsumerRegistrationClient::new()
+        .map_err(|_| "USQUE_CONSUMER_HTTP_CLIENT_INITIALIZATION_FAILED".to_owned())?;
     let identity = runtime
         .block_on(client.register_with_license(
             &RegistrationOptions {
@@ -2171,10 +2311,125 @@ fn register_consumer_warp_with_license(
             },
             license_key,
         ))
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| safe_consumer_registration_error(&error))?;
     identity
         .to_portable_secret_json()
-        .map_err(|error| error.to_string())
+        .map_err(|_| "USQUE_CONSUMER_IDENTITY_SERIALIZATION_FAILED".to_owned())
+}
+
+fn safe_consumer_registration_error(error: &RegistrationError) -> String {
+    match error {
+        RegistrationError::InvalidLicenseKey => "USQUE_CONSUMER_INVALID_LICENSE_KEY".to_owned(),
+        RegistrationError::Http(_) => "USQUE_CONSUMER_NETWORK".to_owned(),
+        RegistrationError::Api { status, .. } => {
+            format!("USQUE_CONSUMER_HTTP:{}", status.as_u16())
+        }
+        _ => "USQUE_CONSUMER_REGISTRATION_FAILED".to_owned(),
+    }
+}
+
+#[derive(Serialize)]
+struct AndroidZeroTrustRegistration<'a> {
+    warp_secret: &'a str,
+    identity_metadata: &'a str,
+    endpoint_v4: String,
+    endpoint_v6: String,
+    endpoint_port: u16,
+    sni: &'a str,
+    organization: &'a str,
+}
+
+fn register_zero_trust_warp(
+    locale: &str,
+    team: &str,
+    callback_uri: &str,
+) -> Result<Zeroizing<String>, String> {
+    if locale.trim().is_empty() || locale.chars().count() > 32 {
+        return Err("Android locale is invalid".to_owned());
+    }
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| format!("registration runtime failed: {error}"))?;
+    let client = ConsumerRegistrationClient::new().map_err(|error| error.to_string())?;
+    let result = runtime
+        .block_on(client.register_zero_trust(
+            &RegistrationOptions {
+                terms_accepted: true,
+                model: "Android".to_owned(),
+                device_name: None,
+                locale: locale.to_owned(),
+            },
+            team,
+            callback_uri,
+        ))
+        .map_err(|error| safe_zero_trust_registration_error(&error))?;
+    let secret = result
+        .identity
+        .to_portable_secret_json()
+        .map_err(|_| "USQUE_ZT_LOCAL_COMMIT_FAILED".to_owned())?;
+    let metadata = result
+        .identity
+        .provider()
+        .to_metadata_json()
+        .map_err(|_| "USQUE_ZT_LOCAL_COMMIT_FAILED".to_owned())?;
+    let metadata =
+        std::str::from_utf8(&metadata).map_err(|_| "USQUE_ZT_LOCAL_COMMIT_FAILED".to_owned())?;
+    let organization = result
+        .identity
+        .provider()
+        .organization()
+        .ok_or_else(|| "USQUE_ZT_CONTRACT_CHANGED".to_owned())?;
+    serde_json::to_string(&AndroidZeroTrustRegistration {
+        warp_secret: &secret,
+        identity_metadata: metadata,
+        endpoint_v4: result.endpoint.ipv4.to_string(),
+        endpoint_v6: result.endpoint.ipv6.to_string(),
+        endpoint_port: result.endpoint.port,
+        sni: &result.endpoint.sni,
+        organization,
+    })
+    .map(Zeroizing::new)
+    .map_err(|_| "USQUE_ZT_LOCAL_COMMIT_FAILED".to_owned())
+}
+
+fn safe_zero_trust_registration_error(error: &RegistrationError) -> String {
+    match error {
+        RegistrationError::InvalidZeroTrustTeam => "USQUE_ZT_TEAM_INVALID".to_owned(),
+        RegistrationError::InvalidZeroTrustCallback => "USQUE_ZT_CALLBACK_INVALID".to_owned(),
+        RegistrationError::ZeroTrustLoginExpired => "USQUE_ZT_LOGIN_EXPIRED".to_owned(),
+        RegistrationError::ZeroTrustLoginDenied => "USQUE_ZT_LOGIN_DENIED".to_owned(),
+        RegistrationError::ZeroTrustRegistrationFailed { stage, status } => {
+            format!("USQUE_ZT_HTTP:{}:{}", stage.as_code(), status.as_u16())
+        }
+        RegistrationError::ZeroTrustNetwork { stage } => {
+            format!("USQUE_ZT_NETWORK:{}", stage.as_code())
+        }
+        RegistrationError::ZeroTrustContractChanged => "USQUE_ZT_CONTRACT_CHANGED".to_owned(),
+        RegistrationError::TermsNotAccepted => "USQUE_ZT_DIAGNOSTIC:terms_not_accepted".to_owned(),
+        RegistrationError::InvalidRegistrationOptions => {
+            "USQUE_ZT_DIAGNOSTIC:invalid_registration_options".to_owned()
+        }
+        RegistrationError::InvalidApiUrl => "USQUE_ZT_DIAGNOSTIC:invalid_api_url".to_owned(),
+        RegistrationError::InvalidDeviceId => "USQUE_ZT_DIAGNOSTIC:invalid_device_id".to_owned(),
+        RegistrationError::InvalidLicenseKey => {
+            "USQUE_ZT_DIAGNOSTIC:unexpected_license_error".to_owned()
+        }
+        RegistrationError::ApiResponseTooLarge => {
+            "USQUE_ZT_DIAGNOSTIC:response_too_large".to_owned()
+        }
+        RegistrationError::InvalidApiResponse => {
+            "USQUE_ZT_DIAGNOSTIC:invalid_api_response".to_owned()
+        }
+        RegistrationError::RequestSerialization => {
+            "USQUE_ZT_DIAGNOSTIC:request_serialization".to_owned()
+        }
+        RegistrationError::Api { status, .. } => {
+            format!("USQUE_ZT_HTTP:unknown:{}", status.as_u16())
+        }
+        RegistrationError::Http(_) => "USQUE_ZT_NETWORK:unknown".to_owned(),
+        RegistrationError::Identity(_) => "USQUE_ZT_DIAGNOSTIC:identity_contract".to_owned(),
+    }
 }
 
 fn unbind_consumer_warp(secret: &[u8]) -> Result<(), String> {
@@ -2220,6 +2475,25 @@ mod tests {
     fn proxy_socket_routing_does_not_require_vpn_permission() {
         assert!(AndroidSocketRoutePolicy::Vpn.requires_vpn_protection());
         assert!(!AndroidSocketRoutePolicy::Proxy.requires_vpn_protection());
+    }
+
+    #[test]
+    fn zero_trust_native_errors_expose_only_safe_stage_and_status() {
+        let network = safe_zero_trust_registration_error(&RegistrationError::ZeroTrustNetwork {
+            stage: usque_core::ZeroTrustRegistrationStage::MasqueEnrollment,
+        });
+        assert_eq!(network, "USQUE_ZT_NETWORK:masque_enrollment");
+        assert!(!network.contains("token"));
+    }
+
+    #[test]
+    fn consumer_registration_errors_never_use_zero_trust_codes() {
+        for error in [
+            register_consumer_warp("").unwrap_err(),
+            register_consumer_warp_with_license("", "unused").unwrap_err(),
+        ] {
+            assert!(!error.contains("USQUE_ZT_"), "{error}");
+        }
     }
 
     fn valid_profile_json() -> String {
@@ -2337,6 +2611,62 @@ mod tests {
         let stored = ConfigStore::new(config_path).load().unwrap();
         assert!(stored.preferences.profiles_migrated_from_flutter);
         assert_eq!(stored.profiles[0].name, "Default");
+    }
+
+    #[test]
+    fn android_profile_store_persists_and_protects_zero_trust_binding() {
+        let directory = tempfile::tempdir().unwrap();
+        let config_path = directory.path().join("profiles-v2.json");
+        let mut registered: serde_json::Value =
+            serde_json::from_str(&valid_profile_json()).unwrap();
+        registered["endpoint_v4"] = serde_json::json!("162.159.197.2");
+        registered["endpoint_v6"] = serde_json::json!("2606:4700:102::2");
+        registered["sni"] = serde_json::json!("zt-masque.cloudflareclient.com");
+        let response = apply_profile_command(
+            config_path.to_str().unwrap(),
+            &serde_json::json!({
+                "command": "upsert_profile",
+                "profile": registered,
+                "identity_provider": "zero_trust",
+                "organization": "example-team",
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let response: serde_json::Value = serde_json::from_str(&response).unwrap();
+        assert_eq!(response["profiles"][0]["identity_provider"], "zero_trust");
+        assert_eq!(
+            response["profiles"][0]["identity_organization"],
+            "example-team"
+        );
+
+        let generic_edit: serde_json::Value = serde_json::from_str(&valid_profile_json()).unwrap();
+        let response = apply_profile_command(
+            config_path.to_str().unwrap(),
+            &serde_json::json!({
+                "command": "upsert_profile",
+                "profile": generic_edit,
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let response: serde_json::Value = serde_json::from_str(&response).unwrap();
+        assert_eq!(response["profiles"][0]["endpoint_v4"], "162.159.197.2");
+        assert_eq!(
+            response["profiles"][0]["sni"],
+            "zt-masque.cloudflareclient.com"
+        );
+
+        let conversion = apply_profile_command(
+            config_path.to_str().unwrap(),
+            &serde_json::json!({
+                "command": "upsert_profile",
+                "profile": serde_json::from_str::<serde_json::Value>(&valid_profile_json()).unwrap(),
+                "identity_provider": "consumer",
+            })
+            .to_string(),
+        );
+        assert!(conversion.is_err());
     }
 
     #[test]

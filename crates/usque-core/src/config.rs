@@ -1,10 +1,12 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
+
+use crate::identity::IdentityProvider;
 
 pub const CURRENT_SCHEMA_VERSION: u32 = 6;
 pub const DEFAULT_ENDPOINT_V4: Ipv4Addr = Ipv4Addr::new(162, 159, 198, 2);
@@ -27,6 +29,10 @@ pub struct AppConfig {
     pub active_profile_id: Option<Uuid>,
     pub profiles: Vec<Profile>,
     pub preferences: AppPreferences,
+    /// Non-secret provider boundary used to classify a profile even if its
+    /// secure IdentityMetadata record is missing or corrupted.
+    #[serde(default)]
+    pub identity_bindings: BTreeMap<Uuid, IdentityProvider>,
     #[serde(default)]
     pub pending_identity_deletions: Vec<Uuid>,
     /// Profile identities durably staged before the non-secret profile is
@@ -43,6 +49,7 @@ impl Default for AppConfig {
             active_profile_id: Some(profile.id),
             profiles: vec![profile],
             preferences: AppPreferences::default(),
+            identity_bindings: BTreeMap::new(),
             pending_identity_deletions: Vec::new(),
             pending_identity_creations: Vec::new(),
         }
@@ -76,6 +83,22 @@ impl AppConfig {
                 return Err(ConfigError::DuplicateProfileId(profile.id));
             }
             profile.validate()?;
+        }
+
+        if self.identity_bindings.len() > MAX_PROFILES {
+            return Err(ConfigError::TooManyIdentityBindings(
+                self.identity_bindings.len(),
+            ));
+        }
+        for (profile_id, provider) in &self.identity_bindings {
+            if !ids.contains(profile_id) {
+                return Err(ConfigError::IdentityBindingWithoutProfile(*profile_id));
+            }
+            if let IdentityProvider::ZeroTrust { organization } = provider
+                && IdentityProvider::zero_trust(organization.clone()).is_err()
+            {
+                return Err(ConfigError::InvalidIdentityBinding(*profile_id));
+            }
         }
 
         if self.pending_identity_deletions.len() > MAX_PROFILES {
@@ -651,6 +674,12 @@ pub enum ConfigError {
     NoActiveProfile,
     #[error("active profile does not exist: {0}")]
     MissingActiveProfile(Uuid),
+    #[error("no more than {MAX_PROFILES} identity bindings are allowed, got {0}")]
+    TooManyIdentityBindings(usize),
+    #[error("identity binding references a missing profile: {0}")]
+    IdentityBindingWithoutProfile(Uuid),
+    #[error("identity binding is invalid for profile: {0}")]
+    InvalidIdentityBinding(Uuid),
     #[error("no more than {MAX_PROFILES} pending identity deletions are allowed, got {0}")]
     TooManyPendingIdentityDeletions(usize),
     #[error("duplicate pending identity deletion: {0}")]
@@ -931,6 +960,32 @@ mod tests {
         assert_eq!(
             config.validate(),
             Err(ConfigError::DuplicatePendingIdentityCreation(pending))
+        );
+    }
+
+    #[test]
+    fn identity_bindings_are_bounded_valid_and_reference_live_profiles() {
+        let mut config = AppConfig::default();
+        let missing = Uuid::new_v4();
+        config
+            .identity_bindings
+            .insert(missing, IdentityProvider::Consumer);
+        assert_eq!(
+            config.validate(),
+            Err(ConfigError::IdentityBindingWithoutProfile(missing))
+        );
+
+        let mut config = AppConfig::default();
+        let active = config.active_profile_id.unwrap();
+        config.identity_bindings.insert(
+            active,
+            IdentityProvider::ZeroTrust {
+                organization: "Invalid.Team".to_owned(),
+            },
+        );
+        assert_eq!(
+            config.validate(),
+            Err(ConfigError::InvalidIdentityBinding(active))
         );
     }
 }

@@ -254,8 +254,11 @@ fn is_sensitive_log_key(key: &str) -> bool {
     let normalized = key.to_ascii_lowercase();
     [
         "access_token",
+        "assertion",
         "authorization",
+        "callback_uri",
         "certificate",
+        "cf-access-jwt-assertion",
         "cookie",
         "credential",
         "device_id",
@@ -266,6 +269,7 @@ fn is_sensitive_log_key(key: &str) -> bool {
         "ipv6",
         "license",
         "listener",
+        "jwt",
         "name",
         "peer",
         "private_key",
@@ -275,6 +279,7 @@ fn is_sensitive_log_key(key: &str) -> bool {
         "source",
         "token",
         "warp_secret",
+        "zero_trust_callback",
     ]
     .iter()
     .any(|candidate| {
@@ -310,6 +315,7 @@ fn looks_like_network_identifier(token: &str) -> bool {
     if token.parse::<IpAddr>().is_ok()
         || token.parse::<SocketAddr>().is_ok()
         || token.contains("://")
+        || looks_like_jwt(token)
     {
         return true;
     }
@@ -322,6 +328,21 @@ fn looks_like_network_identifier(token: &str) -> bool {
                 && label
                     .chars()
                     .all(|character| character.is_ascii_alphanumeric() || character == '-')
+        })
+}
+
+fn looks_like_jwt(token: &str) -> bool {
+    let mut segments = token.split('.');
+    let parts = [segments.next(), segments.next(), segments.next()];
+    segments.next().is_none()
+        && token.len() >= 32
+        && parts.into_iter().all(|part| {
+            part.is_some_and(|part| {
+                !part.is_empty()
+                    && part
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+            })
         })
 }
 
@@ -341,6 +362,24 @@ mod tests {
         assert!(!text.contains("2001:db8"));
         assert!(text.contains("[REDACTED]"));
         assert!(text.contains("[NETWORK_REDACTED]"));
+    }
+
+    #[test]
+    fn zero_trust_headers_callbacks_and_jwts_are_always_redacted() {
+        let sanitized = sanitize_log_bytes(
+            br#"{"CF-Access-Jwt-Assertion":"header-secret","jwt":"jwt-secret","assertion":"assertion-secret","zero_trust_callback":"callback-secret","message":"callback com.cloudflare.warp://example.cloudflareaccess.com/auth?token=secret JWT eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyIn0.signature"}"#,
+        );
+        let text = String::from_utf8(sanitized).unwrap();
+        for secret in [
+            "header-secret",
+            "jwt-secret",
+            "assertion-secret",
+            "callback-secret",
+            "com.cloudflare.warp",
+            "eyJhbGciOiJIUzI1NiJ9",
+        ] {
+            assert!(!text.contains(secret), "log retained {secret}");
+        }
     }
 
     #[test]

@@ -14,6 +14,92 @@ use thiserror::Error;
 use zeroize::{Zeroize, Zeroizing};
 
 const MAX_MANUAL_SECRET_BYTES: usize = 128 * 1024;
+const IDENTITY_METADATA_VERSION: u8 = 1;
+
+/// Identifies the Cloudflare account boundary that issued a device identity.
+///
+/// This value is not secret, but it is stored alongside the credential so an
+/// identity cannot silently change from Consumer WARP to an organization
+/// registration when a profile is repaired.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(tag = "provider", rename_all = "snake_case")]
+pub enum IdentityProvider {
+    #[default]
+    Consumer,
+    ZeroTrust {
+        organization: String,
+    },
+}
+
+impl IdentityProvider {
+    pub fn zero_trust(organization: impl Into<String>) -> Result<Self, IdentityError> {
+        let organization = organization.into();
+        if !valid_zero_trust_organization(&organization) {
+            return Err(IdentityError::InvalidIdentityMetadata);
+        }
+        Ok(Self::ZeroTrust { organization })
+    }
+
+    pub fn organization(&self) -> Option<&str> {
+        match self {
+            Self::Consumer => None,
+            Self::ZeroTrust { organization } => Some(organization),
+        }
+    }
+
+    pub fn to_metadata_json(&self) -> Result<Zeroizing<Vec<u8>>, IdentityError> {
+        serde_json::to_vec(&IdentityMetadataEnvelope {
+            version: IDENTITY_METADATA_VERSION,
+            identity: self,
+        })
+        .map(Zeroizing::new)
+        .map_err(|_| IdentityError::IdentitySerialization)
+    }
+
+    pub fn from_metadata_json(bytes: &[u8]) -> Result<Self, IdentityError> {
+        let envelope: OwnedIdentityMetadataEnvelope =
+            serde_json::from_slice(bytes).map_err(|_| IdentityError::InvalidIdentityMetadata)?;
+        if envelope.version != IDENTITY_METADATA_VERSION
+            || envelope
+                .identity
+                .organization()
+                .is_some_and(|organization| !valid_zero_trust_organization(organization))
+        {
+            return Err(IdentityError::InvalidIdentityMetadata);
+        }
+        Ok(envelope.identity)
+    }
+}
+
+#[derive(Serialize)]
+struct IdentityMetadataEnvelope<'a> {
+    version: u8,
+    #[serde(flatten)]
+    identity: &'a IdentityProvider,
+}
+
+#[derive(Deserialize)]
+struct OwnedIdentityMetadataEnvelope {
+    version: u8,
+    #[serde(flatten)]
+    identity: IdentityProvider,
+}
+
+fn valid_zero_trust_organization(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 63
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        && value
+            .as_bytes()
+            .first()
+            .is_some_and(u8::is_ascii_alphanumeric)
+        && value
+            .as_bytes()
+            .last()
+            .is_some_and(u8::is_ascii_alphanumeric)
+}
 
 /// A validated P-256 SubjectPublicKeyInfo pin returned by the WARP enrollment API.
 ///
@@ -144,6 +230,7 @@ pub struct WarpIdentity {
     device_id: Zeroizing<String>,
     access_token: Zeroizing<String>,
     license: Option<Zeroizing<String>>,
+    provider: IdentityProvider,
     pub assigned_ipv4: Ipv4Addr,
     pub assigned_ipv6: Ipv6Addr,
 }
@@ -164,18 +251,26 @@ impl WarpIdentity {
         device_id: String,
         access_token: String,
         license: Option<String>,
+        provider: IdentityProvider,
         assigned_ipv4: Ipv4Addr,
         assigned_ipv6: Ipv6Addr,
     ) -> Result<Self, IdentityError> {
+        let device_id = Zeroizing::new(device_id);
+        let access_token = Zeroizing::new(access_token);
+        let license = license.map(Zeroizing::new);
         if device_id.trim().is_empty() || access_token.trim().is_empty() {
             return Err(IdentityError::MissingCredential);
+        }
+        if matches!(provider, IdentityProvider::ZeroTrust { .. }) && license.is_some() {
+            return Err(IdentityError::InvalidIdentityMetadata);
         }
         Ok(Self {
             key_pair,
             endpoint_pin,
-            device_id: Zeroizing::new(device_id),
-            access_token: Zeroizing::new(access_token),
-            license: license.map(Zeroizing::new),
+            device_id,
+            access_token,
+            license,
+            provider,
             assigned_ipv4,
             assigned_ipv6,
         })
@@ -191,6 +286,7 @@ impl WarpIdentity {
         device_id: String,
         access_token: String,
         license: Option<String>,
+        provider: IdentityProvider,
         assigned_ipv4: Ipv4Addr,
         assigned_ipv6: Ipv6Addr,
     ) -> Result<Self, IdentityError> {
@@ -200,6 +296,7 @@ impl WarpIdentity {
             device_id,
             access_token,
             license,
+            provider,
             assigned_ipv4,
             assigned_ipv6,
         )
@@ -215,6 +312,10 @@ impl WarpIdentity {
 
     pub fn license(&self) -> Option<&str> {
         self.license.as_deref().map(String::as_str)
+    }
+
+    pub fn provider(&self) -> &IdentityProvider {
+        &self.provider
     }
 
     /// Serializes an oracle-compatible identity for immediate transfer into a
@@ -236,6 +337,11 @@ impl WarpIdentity {
             id: self.device_id(),
             access_token: self.access_token(),
             license: self.license(),
+            identity_provider: match self.provider() {
+                IdentityProvider::Consumer => "consumer",
+                IdentityProvider::ZeroTrust { .. } => "zero_trust",
+            },
+            zero_trust_team: self.provider().organization(),
             ipv4: self.assigned_ipv4.to_string(),
             ipv6: self.assigned_ipv6.to_string(),
         };
@@ -253,6 +359,9 @@ struct PortableIdentityEnvelope<'a> {
     access_token: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     license: Option<&'a str>,
+    identity_provider: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    zero_trust_team: Option<&'a str>,
     ipv4: String,
     ipv6: String,
 }
@@ -266,6 +375,7 @@ impl fmt::Debug for WarpIdentity {
             .field("device_id", &"[REDACTED]")
             .field("access_token", &"[REDACTED]")
             .field("license", &self.license.as_ref().map(|_| "[REDACTED]"))
+            .field("provider", &self.provider)
             .field("assigned_ipv4", &self.assigned_ipv4)
             .field("assigned_ipv6", &self.assigned_ipv6)
             .finish()
@@ -315,6 +425,10 @@ struct OracleIdentityEnvelope {
     access_token: String,
     #[serde(default)]
     license: Option<String>,
+    #[serde(default)]
+    identity_provider: String,
+    #[serde(default)]
+    zero_trust_team: Option<String>,
     ipv4: String,
     ipv6: String,
 }
@@ -357,12 +471,34 @@ impl TryFrom<OracleIdentityEnvelope> for WarpIdentity {
             }
         };
 
+        let provider = match value.identity_provider.as_str() {
+            "" | "consumer" if value.zero_trust_team.is_none() => IdentityProvider::Consumer,
+            "zero_trust" => {
+                let Some(team) = value.zero_trust_team.take() else {
+                    value.zeroize_secrets();
+                    return Err(IdentityError::InvalidIdentityMetadata);
+                };
+                match IdentityProvider::zero_trust(team) {
+                    Ok(provider) => provider,
+                    Err(error) => {
+                        value.zeroize_secrets();
+                        return Err(error);
+                    }
+                }
+            }
+            _ => {
+                value.zeroize_secrets();
+                return Err(IdentityError::InvalidIdentityMetadata);
+            }
+        };
+
         let identity = Self::new(
             key_pair,
             endpoint_pin,
             std::mem::take(&mut value.id),
             std::mem::take(&mut value.access_token),
             value.license.take(),
+            provider,
             assigned_ipv4,
             assigned_ipv6,
         )?;
@@ -379,6 +515,10 @@ impl OracleIdentityEnvelope {
         self.access_token.zeroize();
         if let Some(license) = &mut self.license {
             license.zeroize();
+        }
+        self.identity_provider.zeroize();
+        if let Some(team) = &mut self.zero_trust_team {
+            team.zeroize();
         }
         self.ipv4.zeroize();
         self.ipv6.zeroize();
@@ -413,6 +553,8 @@ pub enum IdentityError {
     InvalidAssignedAddress,
     #[error("the identity could not be serialized for secure platform transfer")]
     IdentitySerialization,
+    #[error("the identity provider metadata is invalid")]
+    InvalidIdentityMetadata,
 }
 
 #[cfg(test)]
@@ -485,6 +627,48 @@ mod tests {
             identity.key_pair.public_spki_der().expect("identity key")
         );
         assert_eq!(reparsed.endpoint_pin, identity.endpoint_pin);
+    }
+
+    #[test]
+    fn identity_metadata_is_versioned_and_old_secrets_default_to_consumer() {
+        let (legacy, _, _) = sample_secret();
+        let legacy = parse_manual_warp_secret(&legacy).unwrap();
+        assert_eq!(legacy.provider(), &IdentityProvider::Consumer);
+
+        let provider = IdentityProvider::zero_trust("example-team").unwrap();
+        let metadata = provider.to_metadata_json().unwrap();
+        assert_eq!(
+            IdentityProvider::from_metadata_json(&metadata).unwrap(),
+            provider
+        );
+        assert!(matches!(
+            IdentityProvider::from_metadata_json(
+                br#"{"version":2,"provider":"zero_trust","organization":"example-team"}"#
+            ),
+            Err(IdentityError::InvalidIdentityMetadata)
+        ));
+    }
+
+    #[test]
+    fn zero_trust_portable_secret_round_trips_provider_without_a_license() {
+        let (consumer, _, _) = sample_secret();
+        let mut value: serde_json::Value = serde_json::from_str(&consumer).unwrap();
+        value.as_object_mut().unwrap().remove("license");
+        value["identity_provider"] = json!("zero_trust");
+        value["zero_trust_team"] = json!("example-team");
+        let identity = parse_manual_warp_secret(&value.to_string()).unwrap();
+        assert_eq!(
+            identity.provider(),
+            &IdentityProvider::ZeroTrust {
+                organization: "example-team".to_owned()
+            }
+        );
+        assert!(identity.license().is_none());
+
+        let portable = identity.to_portable_secret_json().unwrap();
+        let reparsed = parse_manual_warp_secret(&portable).unwrap();
+        assert_eq!(reparsed.provider(), identity.provider());
+        assert!(!format!("{reparsed:?}").contains("access-token"));
     }
 
     #[test]

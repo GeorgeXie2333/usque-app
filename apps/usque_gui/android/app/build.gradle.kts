@@ -107,6 +107,9 @@ flutter {
 dependencies {
     implementation("androidx.activity:activity:1.13.0")
     testImplementation("junit:junit:4.13.2")
+    // Host-side Android unit tests otherwise resolve org.json to framework stubs.
+    // Keep the real implementation test-only; Android still supplies it at runtime.
+    testImplementation("org.json:json:20260719")
     // Flutter's Android plugin resolves this Kotlin metadata artifact late
     // while merging assets. Declare it explicitly so strict dependency
     // locking covers the same graph during both reports and real builds.

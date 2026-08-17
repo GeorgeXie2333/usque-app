@@ -20,10 +20,10 @@ use tokio::sync::{Mutex, RwLock};
 use usque_core::{
     AddressFamily, AppConfig, ConnectionError, ConnectionPhase, ConnectionSnapshot,
     ConnectionWarning, ConsumerRegistrationClient, DnsMode, EndpointPin, EndpointSettings,
-    ErrorCode, FrontendKind, FrontendPhase, FrontendSettings, FrontendStatus, IpPolicy, IpSbProbe,
-    KillSwitchState, LockdownState, MasqueKeyPair, OperatingMode, Profile, ProxyDnsMode,
-    ProxySettings, RegistrationOptions, StateMachine, Statistics, Transport, TransportPolicy,
-    WarpIdentity,
+    ErrorCode, FrontendKind, FrontendPhase, FrontendSettings, FrontendStatus, IdentityProvider,
+    IpPolicy, IpSbProbe, KillSwitchState, LockdownState, MasqueKeyPair, OperatingMode, Profile,
+    ProxyDnsMode, ProxySettings, RegistrationError, RegistrationOptions, StateMachine, Statistics,
+    Transport, TransportPolicy, WarpIdentity, is_zero_trust_endpoint, normalize_zero_trust_team,
     storage::{ConfigStore, StoreError},
 };
 use usque_ipc::v1::{
@@ -80,6 +80,48 @@ struct ActiveDataPlane {
     last_bytes_received: u64,
     last_proxy_performance: ProxyPerformanceSnapshot,
     runtime: ActiveRuntime,
+}
+
+enum ProvisionedIdentity {
+    Consumer(WarpIdentity),
+    ZeroTrust {
+        identity: WarpIdentity,
+        endpoint: EndpointSettings,
+    },
+}
+
+impl ProvisionedIdentity {
+    fn consumer(identity: WarpIdentity) -> Self {
+        Self::Consumer(identity)
+    }
+
+    fn zero_trust(identity: WarpIdentity, endpoint: EndpointSettings) -> Self {
+        Self::ZeroTrust { identity, endpoint }
+    }
+
+    fn is_zero_trust(&self) -> bool {
+        matches!(self, Self::ZeroTrust { .. })
+    }
+
+    fn identity(&self) -> &WarpIdentity {
+        match self {
+            Self::Consumer(identity) | Self::ZeroTrust { identity, .. } => identity,
+        }
+    }
+
+    fn endpoint(&self) -> Option<&EndpointSettings> {
+        match self {
+            Self::Consumer(_) => None,
+            Self::ZeroTrust { endpoint, .. } => Some(endpoint),
+        }
+    }
+
+    fn into_parts(self) -> (WarpIdentity, Option<EndpointSettings>) {
+        match self {
+            Self::Consumer(identity) => (identity, None),
+            Self::ZeroTrust { identity, endpoint } => (identity, Some(endpoint)),
+        }
+    }
 }
 
 enum ActiveRuntime {
@@ -1197,6 +1239,7 @@ impl ControlService {
             .required_secret(profile_id, SecretRecord::DeviceId)
             .await?;
         let license = self.vault.get(profile_id, SecretRecord::License).await?;
+        let provider = self.load_identity_provider(profile_id).await?;
         let key_pair = MasqueKeyPair::from_sec1_der(&private_key)?;
         let endpoint_pin = EndpointPin::from_spki_der(&endpoint_pin)?;
         let assigned_ipv4 = std::str::from_utf8(&assigned_ipv4)
@@ -1223,10 +1266,73 @@ impl ControlService {
             device_id,
             access_token,
             license,
+            provider,
             assigned_ipv4,
             assigned_ipv6,
         )
         .map_err(Into::into)
+    }
+
+    async fn load_identity_provider(
+        &self,
+        profile_id: Uuid,
+    ) -> Result<IdentityProvider, ControlServiceError> {
+        let config = self.config.read().await;
+        let endpoint = config
+            .profiles
+            .iter()
+            .find(|profile| profile.id == profile_id)
+            .map(|profile| profile.endpoint.clone());
+        let binding = config.identity_bindings.get(&profile_id).cloned();
+        drop(config);
+        self.load_identity_provider_for_profile(profile_id, endpoint.as_ref(), binding.as_ref())
+            .await
+    }
+
+    async fn load_identity_provider_for_profile(
+        &self,
+        profile_id: Uuid,
+        endpoint: Option<&EndpointSettings>,
+        binding: Option<&IdentityProvider>,
+    ) -> Result<IdentityProvider, ControlServiceError> {
+        let metadata = self
+            .vault
+            .get(profile_id, SecretRecord::IdentityMetadata)
+            .await?;
+        match metadata {
+            Some(metadata) => {
+                let provider = IdentityProvider::from_metadata_json(&metadata)
+                    .map_err(|_| ControlServiceError::InvalidStoredIdentity)?;
+                if binding.is_some_and(|binding| binding != &provider) {
+                    return Err(ControlServiceError::InvalidStoredIdentity);
+                }
+                Ok(provider)
+            }
+            None if binding.is_some() || endpoint.is_some_and(is_zero_trust_endpoint) => {
+                Err(ControlServiceError::InvalidStoredIdentity)
+            }
+            None => Ok(IdentityProvider::Consumer),
+        }
+    }
+
+    async fn load_identity_boundary_for_repair(
+        &self,
+        profile_id: Uuid,
+    ) -> Result<IdentityProvider, ControlServiceError> {
+        let binding = self
+            .config
+            .read()
+            .await
+            .identity_bindings
+            .get(&profile_id)
+            .cloned();
+        match self.load_identity_provider(profile_id).await {
+            Ok(provider) => Ok(provider),
+            Err(ControlServiceError::InvalidStoredIdentity) => {
+                binding.ok_or(ControlServiceError::InvalidStoredIdentity)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     async fn required_secret(
@@ -1266,28 +1372,117 @@ impl ControlService {
             return Err(ControlServiceError::ProfileNotFound(profile_id));
         }
 
-        let _mutation = self.mutation_lock.lock().await;
         let manual_secret = Zeroizing::new(request.warp_secret);
         if !manual_secret.is_empty() {
             return Err(ControlServiceError::FeatureRemoved("WARP Secret import"));
         }
         let license_key = Zeroizing::new(request.license_key);
+        let method = v1::IdentityProvisioningMethod::try_from(request.method)
+            .unwrap_or(v1::IdentityProvisioningMethod::Unspecified);
         let options = registration_options(request.device_name, request.locale);
         let client = ConsumerRegistrationClient::new()?;
-        let identity = if license_key.is_empty() {
-            client.register(&options).await?
-        } else {
-            let license = std::str::from_utf8(&license_key)
-                .map_err(|_| ControlServiceError::InvalidLicenseEncoding)?;
-            client.register_with_license(&options, license).await?
+        let existing_provider = self.load_identity_boundary_for_repair(profile_id).await?;
+        let provisioned = match method {
+            v1::IdentityProvisioningMethod::Register => {
+                if !license_key.is_empty() {
+                    return Err(ControlServiceError::InvalidRequest(
+                        "registration provisioning must not contain a License Key".to_owned(),
+                    ));
+                }
+                Self::require_consumer_identity(&existing_provider)?;
+                ProvisionedIdentity::consumer(client.register(&options).await?)
+            }
+            v1::IdentityProvisioningMethod::RegisterWithLicense => {
+                Self::require_consumer_identity(&existing_provider)?;
+                let license = std::str::from_utf8(&license_key)
+                    .map_err(|_| ControlServiceError::InvalidLicenseEncoding)?;
+                ProvisionedIdentity::consumer(
+                    client.register_with_license(&options, license).await?,
+                )
+            }
+            v1::IdentityProvisioningMethod::RegisterZeroTrust => {
+                if !license_key.is_empty() {
+                    return Err(ControlServiceError::IdentityOperationUnsupported);
+                }
+                let enrollment = request.zero_trust.ok_or_else(|| {
+                    ControlServiceError::InvalidRequest(
+                        "Zero Trust enrollment details are missing".to_owned(),
+                    )
+                })?;
+                let team = normalize_zero_trust_team(&enrollment.team_name)?;
+                match &existing_provider {
+                    IdentityProvider::ZeroTrust { organization } if organization == &team => {}
+                    _ => return Err(ControlServiceError::IdentityProviderChangeUnsupported),
+                }
+                let callback = Zeroizing::new(enrollment.callback_uri);
+                let callback = std::str::from_utf8(&callback)
+                    .map_err(|_| RegistrationError::InvalidZeroTrustCallback)?;
+                let result = client
+                    .register_zero_trust(&options, &team, callback)
+                    .await?;
+                ProvisionedIdentity::zero_trust(result.identity, result.endpoint)
+            }
+            v1::IdentityProvisioningMethod::ImportSecret => {
+                return Err(ControlServiceError::FeatureRemoved("WARP Secret import"));
+            }
+            // Older clients did not send this field. Preserve their existing
+            // license-key based Consumer provisioning behavior.
+            v1::IdentityProvisioningMethod::Unspecified => {
+                Self::require_consumer_identity(&existing_provider)?;
+                if license_key.is_empty() {
+                    ProvisionedIdentity::consumer(client.register(&options).await?)
+                } else {
+                    let license = std::str::from_utf8(&license_key)
+                        .map_err(|_| ControlServiceError::InvalidLicenseEncoding)?;
+                    ProvisionedIdentity::consumer(
+                        client.register_with_license(&options, license).await?,
+                    )
+                }
+            }
         };
 
-        self.persist_identity(profile_id, &identity, None).await
+        let is_zero_trust = provisioned.is_zero_trust();
+        let _mutation = self.mutation_lock.lock().await;
+        if let Err(error) = self.ensure_profile_exists(profile_id).await {
+            return Err(Self::after_zero_trust_registration(error, is_zero_trust));
+        }
+        let current_provider = match self.load_identity_boundary_for_repair(profile_id).await {
+            Ok(provider) => provider,
+            Err(error) => {
+                return Err(Self::after_zero_trust_registration(error, is_zero_trust));
+            }
+        };
+        if current_provider != existing_provider {
+            return Err(Self::after_zero_trust_registration(
+                ControlServiceError::IdentityProviderChangeUnsupported,
+                is_zero_trust,
+            ));
+        }
+        let reconnect = self.connected_profile_id().await == Some(profile_id);
+        if reconnect {
+            if let Err(error) = self.disconnect_locked().await {
+                return Err(Self::after_zero_trust_registration(error, is_zero_trust));
+            }
+            if let Err(error) = self.await_disconnect_cleanup().await {
+                return Err(Self::after_zero_trust_registration(error, is_zero_trust));
+            }
+        }
+        let (identity, endpoint) = provisioned.into_parts();
+        if let Err(error) = self
+            .replace_identity_locked(profile_id, identity, endpoint)
+            .await
+        {
+            return Err(Self::after_zero_trust_registration(error, is_zero_trust));
+        }
+        if reconnect {
+            self.connect_locked(profile_id).await?;
+        }
+        Ok(())
     }
 
     async fn create_profile_with_identity(
         &self,
-        profile: Profile,
+        mut profile: Profile,
         provisioning: v1::IdentityProvisioning,
     ) -> Result<(), ControlServiceError> {
         let profile_id = profile.id;
@@ -1314,7 +1509,7 @@ impl ControlService {
         let secret = Zeroizing::new(provisioning.warp_secret);
         let method = v1::IdentityProvisioningMethod::try_from(provisioning.method)
             .unwrap_or(v1::IdentityProvisioningMethod::Unspecified);
-        let identity = match method {
+        let provisioned = match method {
             v1::IdentityProvisioningMethod::Register => {
                 if !secret.is_empty() {
                     return Err(ControlServiceError::InvalidRequest(
@@ -1325,9 +1520,11 @@ impl ControlService {
                     provisioning.device_name.clone(),
                     provisioning.locale.clone(),
                 );
-                ConsumerRegistrationClient::new()?
-                    .register(&options)
-                    .await?
+                ProvisionedIdentity::consumer(
+                    ConsumerRegistrationClient::new()?
+                        .register(&options)
+                        .await?,
+                )
             }
             v1::IdentityProvisioningMethod::ImportSecret => {
                 return Err(ControlServiceError::FeatureRemoved("WARP Secret import"));
@@ -1342,9 +1539,29 @@ impl ControlService {
                 let license = std::str::from_utf8(&license_key)
                     .map_err(|_| ControlServiceError::InvalidLicenseEncoding)?;
                 let options = registration_options(provisioning.device_name, provisioning.locale);
-                ConsumerRegistrationClient::new()?
-                    .register_with_license(&options, license)
-                    .await?
+                ProvisionedIdentity::consumer(
+                    ConsumerRegistrationClient::new()?
+                        .register_with_license(&options, license)
+                        .await?,
+                )
+            }
+            v1::IdentityProvisioningMethod::RegisterZeroTrust => {
+                if !secret.is_empty() || !provisioning.license_key.is_empty() {
+                    return Err(ControlServiceError::IdentityOperationUnsupported);
+                }
+                let enrollment = provisioning.zero_trust.ok_or_else(|| {
+                    ControlServiceError::InvalidRequest(
+                        "Zero Trust enrollment details are missing".to_owned(),
+                    )
+                })?;
+                let callback = Zeroizing::new(enrollment.callback_uri);
+                let callback = std::str::from_utf8(&callback)
+                    .map_err(|_| RegistrationError::InvalidZeroTrustCallback)?;
+                let options = registration_options(provisioning.device_name, provisioning.locale);
+                let result = ConsumerRegistrationClient::new()?
+                    .register_zero_trust(&options, &enrollment.team_name, callback)
+                    .await?;
+                ProvisionedIdentity::zero_trust(result.identity, result.endpoint)
             }
             v1::IdentityProvisioningMethod::Unspecified => {
                 return Err(ControlServiceError::InvalidRequest(
@@ -1352,6 +1569,18 @@ impl ControlService {
                 ));
             }
         };
+
+        let is_zero_trust = provisioned.is_zero_trust();
+        let identity_provider = provisioned.identity().provider().clone();
+        if let Some(endpoint) = provisioned.endpoint() {
+            profile.endpoint = endpoint.clone();
+            if let Err(error) = profile
+                .validate()
+                .map_err(ControlServiceError::configuration)
+            {
+                return Err(Self::after_zero_trust_registration(error, is_zero_trust));
+            }
+        }
 
         let _mutation = self.mutation_lock.lock().await;
         let mut pending = self.config.read().await.clone();
@@ -1361,28 +1590,39 @@ impl ControlService {
             .any(|existing| existing.id == profile.id)
             || pending.pending_identity_creations.contains(&profile.id)
         {
-            return Err(ControlServiceError::InvalidRequest(format!(
-                "profile already exists or is being created: {}",
-                profile.id
-            )));
+            return Err(Self::after_zero_trust_registration(
+                ControlServiceError::InvalidRequest(format!(
+                    "profile already exists or is being created: {}",
+                    profile.id
+                )),
+                is_zero_trust,
+            ));
         }
         pending.pending_identity_creations.push(profile.id);
-        self.persist(pending).await?;
+        if let Err(error) = self.persist(pending).await {
+            return Err(Self::after_zero_trust_registration(error, is_zero_trust));
+        }
 
-        if let Err(error) = self.persist_identity(profile.id, &identity, None).await {
+        if let Err(error) = self
+            .persist_identity(profile.id, provisioned.identity(), None)
+            .await
+        {
             self.abort_pending_identity_creation(profile.id).await;
-            return Err(error);
+            return Err(Self::after_zero_trust_registration(error, is_zero_trust));
         }
 
         let mut committed = self.config.read().await.clone();
         committed
             .pending_identity_creations
             .retain(|profile_id| *profile_id != profile.id);
+        committed
+            .identity_bindings
+            .insert(profile.id, identity_provider);
         committed.profiles.push(profile);
         if let Err(error) = self.persist(committed).await {
             let _ = self.vault.delete_identity(profile_id).await;
             self.abort_pending_identity_creation(profile_id).await;
-            return Err(error);
+            return Err(Self::after_zero_trust_registration(error, is_zero_trust));
         }
         Ok(())
     }
@@ -1400,35 +1640,80 @@ impl ControlService {
         let mut catalog = profile_list_to_proto(&config);
         let cleanup_pending = !config.pending_identity_deletions.is_empty();
         for profile in &config.profiles {
-            let (state, license_state, account_type) =
+            let binding = config.identity_bindings.get(&profile.id).cloned();
+            let stored_provider = self
+                .load_identity_provider_for_profile(
+                    profile.id,
+                    Some(&profile.endpoint),
+                    binding.as_ref(),
+                )
+                .await
+                .ok();
+            let boundary_provider = stored_provider.clone().or(binding);
+            let (mut state, mut license_state, mut account_type, provider) =
                 match self.load_warp_identity(profile.id).await {
+                    Ok(identity)
+                        if matches!(identity.provider(), IdentityProvider::ZeroTrust { .. }) =>
+                    {
+                        (
+                            v1::ProfileIdentityState::Ready,
+                            v1::LicenseState::NotApplicable,
+                            "Zero Trust".to_owned(),
+                            identity.provider().clone(),
+                        )
+                    }
                     Ok(identity) if identity.license().is_some() => (
                         v1::ProfileIdentityState::Ready,
                         v1::LicenseState::WarpPlus,
                         "WARP+".to_owned(),
+                        IdentityProvider::Consumer,
                     ),
                     Ok(_) => (
                         v1::ProfileIdentityState::Ready,
                         v1::LicenseState::Free,
                         "Free".to_owned(),
+                        IdentityProvider::Consumer,
                     ),
                     Err(ControlServiceError::MissingCredential(_)) => (
                         v1::ProfileIdentityState::Missing,
                         v1::LicenseState::Unknown,
                         String::new(),
+                        boundary_provider.clone().unwrap_or_default(),
                     ),
                     Err(_) => (
                         v1::ProfileIdentityState::Invalid,
                         v1::LicenseState::Unknown,
                         String::new(),
+                        boundary_provider.clone().unwrap_or_default(),
                     ),
                 };
+            let inferred_zero_trust =
+                boundary_provider.is_none() && is_zero_trust_endpoint(&profile.endpoint);
+            if inferred_zero_trust {
+                state = v1::ProfileIdentityState::Invalid;
+            }
+            let zero_trust =
+                inferred_zero_trust || matches!(provider, IdentityProvider::ZeroTrust { .. });
+            if zero_trust {
+                license_state = v1::LicenseState::NotApplicable;
+                if account_type.is_empty() {
+                    account_type = "Zero Trust".to_owned();
+                }
+            }
+            let organization = provider.organization().unwrap_or_default().to_owned();
+            let provider = if zero_trust {
+                v1::IdentityProvider::ZeroTrust
+            } else {
+                v1::IdentityProvider::Consumer
+            };
             catalog.identity_statuses.push(v1::ProfileIdentityStatus {
                 profile_id: profile.id.to_string(),
                 state: state as i32,
                 license_state: license_state as i32,
                 account_type,
                 cleanup_pending,
+                provider: provider as i32,
+                organization,
             });
         }
         catalog
@@ -1440,7 +1725,7 @@ impl ControlService {
         identity: &WarpIdentity,
         manual_secret: Option<&[u8]>,
     ) -> Result<(), ControlServiceError> {
-        let mut records = Vec::with_capacity(8);
+        let mut records = Vec::with_capacity(9);
         if let Some(secret) = manual_secret {
             records.push((SecretRecord::WarpSecret, Zeroizing::new(secret.to_vec())));
         }
@@ -1474,6 +1759,10 @@ impl ControlService {
             SecretRecord::AssignedIpv6,
             Zeroizing::new(identity.assigned_ipv6.to_string().into_bytes()),
         ));
+        records.push((
+            SecretRecord::IdentityMetadata,
+            identity.provider().to_metadata_json()?,
+        ));
 
         for (record, value) in records {
             if let Err(error) = self.vault.put(profile_id, record, &value).await {
@@ -1481,19 +1770,27 @@ impl ControlService {
                 return Err(error.into());
             }
         }
-        if manual_secret.is_none() {
-            self.vault
+        if manual_secret.is_none()
+            && let Err(error) = self
+                .vault
                 .delete(profile_id, SecretRecord::WarpSecret)
-                .await?;
+                .await
+        {
+            let _ = self.vault.delete_identity(profile_id).await;
+            return Err(error.into());
         }
-        if identity.license().is_none() {
-            self.vault.delete(profile_id, SecretRecord::License).await?;
+        if identity.license().is_none()
+            && let Err(error) = self.vault.delete(profile_id, SecretRecord::License).await
+        {
+            let _ = self.vault.delete_identity(profile_id).await;
+            return Err(error.into());
         }
         Ok(())
     }
 
     async fn copy_license_key(&self, profile_id: Uuid) -> Result<(), ControlServiceError> {
         self.ensure_profile_exists(profile_id).await?;
+        Self::require_consumer_identity(&self.load_identity_provider(profile_id).await?)?;
         let license = self
             .required_secret(profile_id, SecretRecord::License)
             .await?;
@@ -1510,6 +1807,7 @@ impl ControlService {
         let license = std::str::from_utf8(&license_key)
             .map_err(|_| ControlServiceError::InvalidLicenseEncoding)?;
         let _mutation = self.mutation_lock.lock().await;
+        Self::require_consumer_identity(&self.load_identity_provider(profile_id).await?)?;
         let reconnect = self.connected_profile_id().await == Some(profile_id);
         if reconnect {
             self.disconnect_locked().await?;
@@ -1521,7 +1819,7 @@ impl ControlService {
                 license,
             )
             .await?;
-        self.replace_identity_locked(profile_id, new_identity)
+        self.replace_identity_locked(profile_id, new_identity, None)
             .await?;
         if reconnect {
             self.connect_locked(profile_id).await?;
@@ -1532,6 +1830,7 @@ impl ControlService {
     async fn unbind_license_key(&self, profile_id: Uuid) -> Result<(), ControlServiceError> {
         self.ensure_profile_exists(profile_id).await?;
         let _mutation = self.mutation_lock.lock().await;
+        Self::require_consumer_identity(&self.load_identity_provider(profile_id).await?)?;
         let reconnect = self.connected_profile_id().await == Some(profile_id);
         if reconnect {
             self.disconnect_locked().await?;
@@ -1540,7 +1839,7 @@ impl ControlService {
         let new_identity = ConsumerRegistrationClient::new()?
             .register(&registration_options(String::new(), "en_US".to_owned()))
             .await?;
-        self.replace_identity_locked(profile_id, new_identity)
+        self.replace_identity_locked(profile_id, new_identity, None)
             .await?;
         if reconnect {
             self.connect_locked(profile_id).await?;
@@ -1562,6 +1861,7 @@ impl ControlService {
         }
         let profile_id = parse_profile_id(&request.profile_id)?;
         self.ensure_profile_exists(profile_id).await?;
+        Self::require_consumer_identity(&self.load_identity_provider(profile_id).await?)?;
         let identity = self.load_warp_identity(profile_id).await?;
         let secret = identity.to_portable_secret_json()?;
         let destination = std::path::PathBuf::from(request.destination);
@@ -1588,6 +1888,26 @@ impl ControlService {
         }
     }
 
+    fn require_consumer_identity(provider: &IdentityProvider) -> Result<(), ControlServiceError> {
+        if matches!(provider, IdentityProvider::Consumer) {
+            Ok(())
+        } else {
+            Err(ControlServiceError::IdentityOperationUnsupported)
+        }
+    }
+
+    fn after_zero_trust_registration(
+        error: ControlServiceError,
+        zero_trust_registered: bool,
+    ) -> ControlServiceError {
+        if zero_trust_registered {
+            tracing::warn!(%error, "local Zero Trust identity commit failed after remote registration");
+            ControlServiceError::ZeroTrustLocalCommit
+        } else {
+            error
+        }
+    }
+
     async fn connected_profile_id(&self) -> Option<Uuid> {
         self.data_plane
             .lock()
@@ -1600,23 +1920,61 @@ impl ControlService {
         &self,
         profile_id: Uuid,
         new_identity: WarpIdentity,
+        new_endpoint: Option<EndpointSettings>,
     ) -> Result<(), ControlServiceError> {
-        let previous = self.load_warp_identity(profile_id).await?;
-        let cleanup_id = Uuid::new_v4();
-        self.persist_identity(cleanup_id, &previous, None).await?;
+        let new_provider = new_identity.provider().clone();
+        let mut next = self.config.read().await.clone();
+        let profile = next
+            .profiles
+            .iter_mut()
+            .find(|profile| profile.id == profile_id)
+            .ok_or(ControlServiceError::ProfileNotFound(profile_id))?;
+        if let Some(endpoint) = new_endpoint {
+            profile.endpoint = endpoint;
+        }
+        next.identity_bindings.insert(profile_id, new_provider);
+
+        let previous = match self.load_warp_identity(profile_id).await {
+            Ok(identity) => Some(identity),
+            Err(
+                ControlServiceError::MissingCredential(_)
+                | ControlServiceError::InvalidStoredIdentity
+                | ControlServiceError::Identity(_),
+            ) => None,
+            Err(error) => return Err(error),
+        };
+        let cleanup_id = previous.as_ref().map(|_| Uuid::new_v4());
+        if let (Some(cleanup_id), Some(previous)) = (cleanup_id, previous.as_ref()) {
+            self.persist_identity(cleanup_id, previous, None).await?;
+        }
 
         if let Err(error) = self.persist_identity(profile_id, &new_identity, None).await {
-            let restore = self.persist_identity(profile_id, &previous, None).await;
-            let _ = self.vault.delete_identity(cleanup_id).await;
-            restore?;
+            if let Some(previous) = previous.as_ref() {
+                self.persist_identity(profile_id, previous, None).await?;
+            } else {
+                let _ = self.vault.delete_identity(profile_id).await;
+            }
+            if let Some(cleanup_id) = cleanup_id {
+                let _ = self.vault.delete_identity(cleanup_id).await;
+            }
             return Err(error);
         }
 
-        let mut next = self.config.read().await.clone();
-        next.pending_identity_deletions.push(cleanup_id);
+        if let Some(cleanup_id) = cleanup_id {
+            next.pending_identity_deletions.push(cleanup_id);
+        }
         if let Err(error) = self.persist(next).await {
-            let restore = self.persist_identity(profile_id, &previous, None).await;
-            let _ = self.vault.delete_identity(cleanup_id).await;
+            let restore = if let Some(previous) = previous.as_ref() {
+                self.persist_identity(profile_id, previous, None).await
+            } else {
+                self.vault
+                    .delete_identity(profile_id)
+                    .await
+                    .map_err(ControlServiceError::from)
+            };
+            if let Some(cleanup_id) = cleanup_id {
+                let _ = self.vault.delete_identity(cleanup_id).await;
+            }
             if new_identity.license().is_some() {
                 let _ = ConsumerRegistrationClient::new()?
                     .unbind_license(&new_identity)
@@ -1642,7 +2000,7 @@ impl ControlService {
 
     async fn upsert_profile_locked(
         &self,
-        profile: Profile,
+        mut profile: Profile,
     ) -> Result<Profile, ControlServiceError> {
         let mut next = self.config.read().await.clone();
         match next
@@ -1650,7 +2008,15 @@ impl ControlService {
             .iter()
             .position(|existing| existing.id == profile.id)
         {
-            Some(index) => next.profiles[index] = profile.clone(),
+            Some(index) => {
+                if matches!(
+                    next.identity_bindings.get(&profile.id),
+                    Some(IdentityProvider::ZeroTrust { .. })
+                ) {
+                    profile.endpoint = next.profiles[index].endpoint.clone();
+                }
+                next.profiles[index] = profile.clone();
+            }
             None => next.profiles.push(profile.clone()),
         }
         if next.active_profile_id.is_none() {
@@ -1690,11 +2056,15 @@ impl ControlService {
             .ok_or(ControlServiceError::ProfileNotFound(profile.id))?;
 
         self.disconnect_locked().await?;
-        if let Err(error) = self.upsert_profile_locked(profile.clone()).await {
-            let _ = self.connect_locked(previous.id).await;
-            return Err(error);
-        }
-        let snapshot = match self.connect_locked(profile.id).await {
+        let profile_id = profile.id;
+        let applied = match self.upsert_profile_locked(profile).await {
+            Ok(applied) => applied,
+            Err(error) => {
+                let _ = self.connect_locked(previous.id).await;
+                return Err(error);
+            }
+        };
+        let snapshot = match self.connect_locked(profile_id).await {
             Ok(snapshot) => snapshot,
             Err(error) => {
                 self.upsert_profile_locked(previous.clone()).await?;
@@ -1705,7 +2075,7 @@ impl ControlService {
             }
         };
         Ok(v1::ReconfigureResult {
-            profile: Some(profile_to_proto(&profile)),
+            profile: Some(profile_to_proto(&applied)),
             snapshot: Some(snapshot_to_proto(&snapshot)),
         })
     }
@@ -1772,6 +2142,7 @@ impl ControlService {
             return Err(ControlServiceError::LastProfile);
         }
         next.profiles.remove(index);
+        next.identity_bindings.remove(&id);
         if next.active_profile_id == Some(id) {
             next.active_profile_id = next.profiles.first().map(|profile| profile.id);
         }
@@ -1795,12 +2166,20 @@ impl ControlService {
     async fn reset_profile(&self, id: Uuid) -> Result<Profile, ControlServiceError> {
         let _mutation = self.mutation_lock.lock().await;
         let mut next = self.config.read().await.clone();
+        let preserve_endpoint = matches!(
+            next.identity_bindings.get(&id),
+            Some(IdentityProvider::ZeroTrust { .. })
+        );
         let profile = next
             .profiles
             .iter_mut()
             .find(|profile| profile.id == id)
             .ok_or(ControlServiceError::ProfileNotFound(id))?;
+        let endpoint = profile.endpoint.clone();
         profile.reset_network_defaults();
+        if preserve_endpoint {
+            profile.endpoint = endpoint;
+        }
         let profile = profile.clone();
         self.persist(next).await?;
         Ok(profile)
@@ -1860,7 +2239,10 @@ impl ControlService {
 
     async fn cleanup_remote_license(&self, profile_id: Uuid) -> Result<(), ControlServiceError> {
         match self.load_warp_identity(profile_id).await {
-            Ok(identity) if identity.license().is_some() => {
+            Ok(identity)
+                if matches!(identity.provider(), IdentityProvider::Consumer)
+                    && identity.license().is_some() =>
+            {
                 ConsumerRegistrationClient::new()?
                     .unbind_license(&identity)
                     .await?;
@@ -1920,9 +2302,19 @@ pub enum ControlServiceError {
     InvalidManualSecretEncoding,
     #[error("the WARP License Key is not UTF-8")]
     InvalidLicenseEncoding,
+    #[error(
+        "changing a profile between Consumer WARP and Zero Trust organizations is not supported"
+    )]
+    IdentityProviderChangeUnsupported,
+    #[error("this identity operation is not available for a Zero Trust profile")]
+    IdentityOperationUnsupported,
+    #[error(
+        "Zero Trust registration completed remotely, but the local profile could not be committed; an organization administrator may need to remove the residual device"
+    )]
+    ZeroTrustLocalCommit,
     #[error("identity validation failed: {0}")]
     Identity(#[from] usque_core::IdentityError),
-    #[error("Consumer WARP registration failed: {0}")]
+    #[error("Cloudflare device registration failed: {0}")]
     Registration(#[from] usque_core::RegistrationError),
     #[error("secure identity storage failed: {0}")]
     Vault(#[from] VaultError),
@@ -1978,6 +2370,35 @@ impl ControlServiceError {
             Self::TermsNotAccepted => ("TERMS_NOT_ACCEPTED", false),
             Self::InvalidManualSecretEncoding | Self::Identity(_) => ("INVALID_WARP_SECRET", false),
             Self::InvalidLicenseEncoding => ("INVALID_LICENSE_KEY", false),
+            Self::IdentityProviderChangeUnsupported => {
+                ("IDENTITY_PROVIDER_CHANGE_UNSUPPORTED", false)
+            }
+            Self::IdentityOperationUnsupported => ("IDENTITY_OPERATION_UNSUPPORTED", false),
+            Self::ZeroTrustLocalCommit => ("ZERO_TRUST_LOCAL_COMMIT_FAILED", false),
+            Self::Registration(RegistrationError::InvalidZeroTrustTeam) => {
+                ("ZERO_TRUST_TEAM_INVALID", false)
+            }
+            Self::Registration(RegistrationError::InvalidZeroTrustCallback) => {
+                ("ZERO_TRUST_CALLBACK_INVALID", false)
+            }
+            Self::Registration(RegistrationError::ZeroTrustLoginExpired) => {
+                ("ZERO_TRUST_LOGIN_EXPIRED", false)
+            }
+            Self::Registration(RegistrationError::ZeroTrustLoginDenied) => {
+                ("ZERO_TRUST_LOGIN_DENIED", false)
+            }
+            Self::Registration(RegistrationError::ZeroTrustContractChanged) => {
+                ("ZERO_TRUST_CONTRACT_CHANGED", false)
+            }
+            Self::Registration(RegistrationError::ZeroTrustRegistrationFailed {
+                status, ..
+            }) if status.as_u16() == 401 => ("ZERO_TRUST_LOGIN_EXPIRED", false),
+            Self::Registration(RegistrationError::ZeroTrustRegistrationFailed {
+                status, ..
+            }) => ("ZERO_TRUST_REGISTRATION_FAILED", status.is_server_error()),
+            Self::Registration(RegistrationError::ZeroTrustNetwork { .. }) => {
+                ("ZERO_TRUST_REGISTRATION_FAILED", true)
+            }
             Self::Registration(_) => ("REGISTRATION_FAILED", true),
             Self::Vault(_) => ("SECURE_STORAGE_FAILED", false),
             Self::Persistence(_) | Self::PersistenceWorker(_) => ("PERSISTENCE_FAILED", true),
@@ -2628,6 +3049,21 @@ mod tests {
         }
     }
 
+    fn test_identity(provider: IdentityProvider, license: Option<&str>) -> WarpIdentity {
+        let endpoint_key = MasqueKeyPair::generate();
+        WarpIdentity::from_secure_records(
+            MasqueKeyPair::generate(),
+            EndpointPin::from_spki_der(&endpoint_key.public_spki_der().unwrap()).unwrap(),
+            format!("device-{}", Uuid::new_v4()),
+            format!("token-{}", Uuid::new_v4()),
+            license.map(ToOwned::to_owned),
+            provider,
+            "172.16.0.2".parse().unwrap(),
+            "2606:4700:110:8f13::2".parse().unwrap(),
+        )
+        .unwrap()
+    }
+
     #[tokio::test]
     async fn profile_crud_is_persisted_atomically() {
         let directory = tempfile::tempdir().expect("tempdir");
@@ -3019,6 +3455,8 @@ mod tests {
                     locale: "en_US".to_owned(),
                     device_name: String::new(),
                     license_key: Vec::new(),
+                    method: v1::IdentityProvisioningMethod::Unspecified as i32,
+                    zero_trust: None,
                 }),
             ))
             .await;
@@ -3037,6 +3475,8 @@ mod tests {
                     locale: "en_US".to_owned(),
                     device_name: String::new(),
                     license_key: Vec::new(),
+                    method: v1::IdentityProvisioningMethod::Unspecified as i32,
+                    zero_trust: None,
                 }),
             ))
             .await;
@@ -3075,6 +3515,7 @@ mod tests {
                             locale: "en_US".to_owned(),
                             device_name: String::new(),
                             license_key: Vec::new(),
+                            zero_trust: None,
                         }),
                     },
                 )),
@@ -3483,6 +3924,273 @@ mod tests {
         assert!(!config.contains("access-token-test"));
         assert!(!config.contains("license-test"));
         assert!(!config.contains("private_key"));
+    }
+
+    #[tokio::test]
+    async fn identity_metadata_defaults_to_consumer_and_zero_trust_disables_license_surfaces() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let vault = Arc::new(MemoryVault::default());
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::clone(&vault) as Arc<dyn SecretVault>,
+        )
+        .expect("service");
+        let profile_id = service.config_snapshot().await.profiles[0].id;
+
+        let consumer = test_identity(IdentityProvider::Consumer, None);
+        service
+            .persist_identity(profile_id, &consumer, None)
+            .await
+            .unwrap();
+        vault
+            .delete(profile_id, SecretRecord::IdentityMetadata)
+            .await
+            .unwrap();
+        assert_eq!(
+            service
+                .load_warp_identity(profile_id)
+                .await
+                .unwrap()
+                .provider(),
+            &IdentityProvider::Consumer
+        );
+
+        let zero_trust = test_identity(IdentityProvider::zero_trust("example-team").unwrap(), None);
+        service
+            .persist_identity(profile_id, &zero_trust, None)
+            .await
+            .unwrap();
+        let catalog = service.profile_catalog().await;
+        let status = catalog.identity_statuses.first().unwrap();
+        assert_eq!(status.provider, v1::IdentityProvider::ZeroTrust as i32);
+        assert_eq!(status.organization, "example-team");
+        assert_eq!(status.license_state, v1::LicenseState::NotApplicable as i32);
+
+        assert!(matches!(
+            service.copy_license_key(profile_id).await,
+            Err(ControlServiceError::IdentityOperationUnsupported)
+        ));
+        assert!(matches!(
+            service
+                .export_warp_secret(v1::ExportWarpSecretRequest {
+                    profile_id: profile_id.to_string(),
+                    destination: directory.path().join("secret.json").display().to_string(),
+                    confirmed: true,
+                })
+                .await,
+            Err(ControlServiceError::IdentityOperationUnsupported)
+        ));
+
+        vault
+            .delete(profile_id, SecretRecord::AccessToken)
+            .await
+            .unwrap();
+        let missing_catalog = service.profile_catalog().await;
+        let missing = missing_catalog.identity_statuses.first().unwrap();
+        assert_eq!(missing.state, v1::ProfileIdentityState::Missing as i32);
+        assert_eq!(
+            missing.license_state,
+            v1::LicenseState::NotApplicable as i32
+        );
+        assert_eq!(missing.account_type, "Zero Trust");
+        assert_eq!(missing.organization, "example-team");
+    }
+
+    #[tokio::test]
+    async fn missing_metadata_on_a_zero_trust_endpoint_fails_closed() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let vault = Arc::new(MemoryVault::default());
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::clone(&vault) as Arc<dyn SecretVault>,
+        )
+        .expect("service");
+        let profile_id = service.config_snapshot().await.profiles[0].id;
+
+        let consumer = test_identity(IdentityProvider::Consumer, None);
+        service
+            .persist_identity(profile_id, &consumer, None)
+            .await
+            .unwrap();
+        vault
+            .delete(profile_id, SecretRecord::IdentityMetadata)
+            .await
+            .unwrap();
+        assert_eq!(
+            service
+                .load_warp_identity(profile_id)
+                .await
+                .unwrap()
+                .provider(),
+            &IdentityProvider::Consumer,
+            "pre-metadata Consumer identities must remain compatible"
+        );
+
+        let provider = IdentityProvider::zero_trust("example-team").unwrap();
+        service
+            .persist_identity(profile_id, &test_identity(provider.clone(), None), None)
+            .await
+            .unwrap();
+        let mut config = service.config_snapshot().await;
+        config.profiles[0].endpoint = EndpointSettings {
+            ipv4: "162.159.197.8".parse().unwrap(),
+            ipv6: "2606:4700:102::8".parse().unwrap(),
+            port: 443,
+            sni: usque_core::ZERO_TRUST_SNI.to_owned(),
+        };
+        config
+            .identity_bindings
+            .insert(profile_id, provider.clone());
+        service.persist(config).await.unwrap();
+        vault
+            .delete(profile_id, SecretRecord::IdentityMetadata)
+            .await
+            .unwrap();
+
+        assert!(matches!(
+            service.load_warp_identity(profile_id).await,
+            Err(ControlServiceError::InvalidStoredIdentity)
+        ));
+        assert!(matches!(
+            service.copy_license_key(profile_id).await,
+            Err(ControlServiceError::InvalidStoredIdentity)
+        ));
+        assert!(matches!(
+            service
+                .export_warp_secret(v1::ExportWarpSecretRequest {
+                    profile_id: profile_id.to_string(),
+                    destination: directory.path().join("secret.json").display().to_string(),
+                    confirmed: true,
+                })
+                .await,
+            Err(ControlServiceError::InvalidStoredIdentity)
+        ));
+
+        let catalog = service.profile_catalog().await;
+        let status = catalog.identity_statuses.first().unwrap();
+        assert_eq!(status.state, v1::ProfileIdentityState::Invalid as i32);
+        assert_eq!(status.provider, v1::IdentityProvider::ZeroTrust as i32);
+        assert_eq!(status.license_state, v1::LicenseState::NotApplicable as i32);
+        assert_eq!(status.organization, "example-team");
+        assert_eq!(
+            service
+                .load_identity_boundary_for_repair(profile_id)
+                .await
+                .unwrap(),
+            provider
+        );
+
+        let mut edited = service.config_snapshot().await.profiles[0].clone();
+        let registered_endpoint = edited.endpoint.clone();
+        edited.endpoint = EndpointSettings::default();
+        let stored = service.upsert_profile(edited).await.unwrap();
+        assert_eq!(stored.endpoint, registered_endpoint);
+        assert_eq!(
+            service.reset_profile(profile_id).await.unwrap().endpoint,
+            registered_endpoint
+        );
+    }
+
+    #[tokio::test]
+    async fn zero_trust_repair_updates_endpoint_atomically_and_provider_changes_are_rejected() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let vault = Arc::new(MemoryVault::default());
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::clone(&vault) as Arc<dyn SecretVault>,
+        )
+        .expect("service");
+        let profile_id = service.config_snapshot().await.profiles[0].id;
+        let provider = IdentityProvider::zero_trust("example-team").unwrap();
+        service
+            .persist_identity(profile_id, &test_identity(provider.clone(), None), None)
+            .await
+            .unwrap();
+        let endpoint = EndpointSettings {
+            ipv4: "162.159.197.8".parse().unwrap(),
+            ipv6: "2606:4700:102::8".parse().unwrap(),
+            port: 443,
+            sni: usque_core::ZERO_TRUST_SNI.to_owned(),
+        };
+        service
+            .replace_identity_locked(
+                profile_id,
+                test_identity(provider.clone(), None),
+                Some(endpoint.clone()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            service.config_snapshot().await.profiles[0].endpoint,
+            endpoint
+        );
+
+        vault.delete_identity(profile_id).await.unwrap();
+        let metadata = provider.to_metadata_json().unwrap();
+        vault
+            .put(profile_id, SecretRecord::IdentityMetadata, &metadata)
+            .await
+            .unwrap();
+        let repaired_endpoint = EndpointSettings {
+            ipv4: "162.159.197.9".parse().unwrap(),
+            ipv6: "2606:4700:102::9".parse().unwrap(),
+            port: 443,
+            sni: usque_core::ZERO_TRUST_SNI.to_owned(),
+        };
+        service
+            .replace_identity_locked(
+                profile_id,
+                test_identity(provider, None),
+                Some(repaired_endpoint.clone()),
+            )
+            .await
+            .expect("missing credentials should be repairable");
+        assert_eq!(
+            service.config_snapshot().await.profiles[0].endpoint,
+            repaired_endpoint
+        );
+
+        let cross_team = service
+            .provision_identity(v1::ProvisionIdentityRequest {
+                profile_id: profile_id.to_string(),
+                terms_accepted: true,
+                method: v1::IdentityProvisioningMethod::RegisterZeroTrust as i32,
+                zero_trust: Some(v1::ZeroTrustEnrollment {
+                    team_name: "other-team".to_owned(),
+                    callback_uri: b"not-consumed".to_vec(),
+                }),
+                ..Default::default()
+            })
+            .await;
+        assert!(matches!(
+            cross_team,
+            Err(ControlServiceError::IdentityProviderChangeUnsupported)
+        ));
+
+        service
+            .replace_identity_locked(
+                profile_id,
+                test_identity(IdentityProvider::Consumer, None),
+                None,
+            )
+            .await
+            .unwrap();
+        let consumer_conversion = service
+            .provision_identity(v1::ProvisionIdentityRequest {
+                profile_id: profile_id.to_string(),
+                terms_accepted: true,
+                method: v1::IdentityProvisioningMethod::RegisterZeroTrust as i32,
+                zero_trust: Some(v1::ZeroTrustEnrollment {
+                    team_name: "example-team".to_owned(),
+                    callback_uri: b"not-consumed".to_vec(),
+                }),
+                ..Default::default()
+            })
+            .await;
+        assert!(matches!(
+            consumer_conversion,
+            Err(ControlServiceError::IdentityProviderChangeUnsupported)
+        ));
     }
 
     fn request(id: &str, payload: control_request::Payload) -> ControlRequest {

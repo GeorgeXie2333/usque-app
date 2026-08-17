@@ -10,6 +10,7 @@ import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.io.IOException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
@@ -168,6 +169,46 @@ class AndroidEngineMethodHandlerTest {
     }
 
     @Test
+    fun zeroTrustRepairRestoresTheOldSecretWhenMetadataStorageFails() {
+        val oldSecret = "old-secret".toByteArray()
+        identityStore.put(
+            "p1",
+            SecureIdentityStore.Record.WARP_SECRET,
+            oldSecret,
+        )
+        identityStore.put(
+            "p1",
+            SecureIdentityStore.Record.IDENTITY_METADATA,
+            """{"version":1,"provider":"zero_trust","organization":"example-team"}"""
+                .toByteArray(),
+        )
+        identityStore.failOnPut = SecureIdentityStore.Record.IDENTITY_METADATA
+
+        val result = RecordingResult()
+        handler.handle(
+            MethodCall(
+                "provisionIdentity",
+                mapOf(
+                    "profile_id" to "p1",
+                    "method" to "zeroTrust",
+                    "team_name" to "example-team",
+                    "callback_uri" to
+                        "com.cloudflare.warp://example-team.cloudflareaccess.com/auth?token=test",
+                    "terms_accepted" to true,
+                ),
+            ),
+            result,
+        )
+
+        assertEquals("ZERO_TRUST_LOCAL_COMMIT_FAILED", result.errorCode)
+        assertTrue(
+            identityStore
+                .get("p1", SecureIdentityStore.Record.WARP_SECRET)!!
+                .contentEquals(oldSecret),
+        )
+    }
+
+    @Test
     fun importLegacyProfilesRejectsMalformedCatalog() {
         val result = RecordingResult()
         handler.handle(MethodCall("importLegacyProfiles", mapOf("profiles" to emptyList<Any>())), result)
@@ -297,6 +338,254 @@ class AndroidEngineMethodHandlerTest {
         )
         assertEquals("ENGINE_UNAVAILABLE", result.errorCode)
         assertTrue(engineBridge.commands.isEmpty())
+    }
+
+    @Test
+    fun zeroTrustCreationDeletesPartialIdentityWhenMetadataStorageFails() {
+        identityStore.failOnPut = SecureIdentityStore.Record.IDENTITY_METADATA
+        val result = RecordingResult()
+        handler.handle(
+            MethodCall(
+                "createProfileWithIdentity",
+                mapOf(
+                    "profile" to mapOf("id" to "p-new", "name" to "Work"),
+                    "method" to "zeroTrust",
+                    "team_name" to "example-team",
+                    "callback_uri" to
+                        "com.cloudflare.warp://example-team.cloudflareaccess.com/auth?token=test",
+                    "terms_accepted" to true,
+                ),
+            ),
+            result,
+        )
+
+        assertEquals("ZERO_TRUST_LOCAL_COMMIT_FAILED", result.errorCode)
+        assertEquals(1, identityStore.deleteIdentityCount)
+        assertNull(identityStore.get("p-new", SecureIdentityStore.Record.WARP_SECRET))
+        assertTrue(engineBridge.commands.any { it.contains("complete_identity_creations") })
+    }
+
+    @Test
+    fun zeroTrustRegistrationFailureReportsOnlySafeHttpStageAndStatus() {
+        engineBridge.zeroTrustFailure =
+            IOException("USQUE_ZT_HTTP:device_registration:422")
+        val result = RecordingResult()
+        handler.handle(
+            MethodCall(
+                "createProfileWithIdentity",
+                mapOf(
+                    "profile" to mapOf("id" to "p-new", "name" to "Work"),
+                    "method" to "zeroTrust",
+                    "team_name" to "example-team",
+                    "callback_uri" to
+                        "com.cloudflare.warp://example-team.cloudflareaccess.com/auth?token=secret",
+                    "terms_accepted" to true,
+                ),
+            ),
+            result,
+        )
+
+        assertEquals("ZERO_TRUST_HTTP_DEVICE_REGISTRATION_422", result.errorCode)
+        assertTrue(result.errorMessage!!.contains("HTTP 422"))
+        assertFalse(result.errorMessage!!.contains("secret"))
+        assertFalse(result.errorDetails.toString().contains("secret"))
+    }
+
+    @Test
+    fun consumerLicenseNetworkFailureIsNotReportedAsInvalidLicenseOrZeroTrust() {
+        engineBridge.consumerLicenseFailure = IOException("USQUE_CONSUMER_NETWORK")
+        val network = RecordingResult()
+        handler.handle(
+            MethodCall(
+                "provisionIdentity",
+                mapOf(
+                    "profile_id" to "p1",
+                    "method" to "registerWithLicense",
+                    "license_key" to "AAAA-BBBB-CCCC",
+                    "terms_accepted" to true,
+                ),
+            ),
+            network,
+        )
+        assertEquals("REGISTRATION_FAILED", network.errorCode)
+        assertFalse(network.errorMessage.orEmpty().contains("Zero Trust"))
+        assertFalse(network.errorMessage.orEmpty().contains("residual device"))
+
+        engineBridge.consumerLicenseFailure =
+            IOException("USQUE_CONSUMER_INVALID_LICENSE_KEY")
+        val invalidLicense = RecordingResult()
+        handler.handle(
+            MethodCall(
+                "provisionIdentity",
+                mapOf(
+                    "profile_id" to "p1",
+                    "method" to "registerWithLicense",
+                    "license_key" to "AAAA-BBBB-CCCC",
+                    "terms_accepted" to true,
+                ),
+            ),
+            invalidLicense,
+        )
+        assertEquals("INVALID_LICENSE_KEY", invalidLicense.errorCode)
+    }
+
+    @Test
+    fun zeroTrustEnrollmentNetworkFailureWarnsAboutResidualDevice() {
+        engineBridge.zeroTrustFailure =
+            IOException("USQUE_ZT_NETWORK:masque_enrollment")
+        val result = RecordingResult()
+        handler.handle(
+            MethodCall(
+                "createProfileWithIdentity",
+                mapOf(
+                    "profile" to mapOf("id" to "p-new", "name" to "Work"),
+                    "method" to "zeroTrust",
+                    "team_name" to "example-team",
+                    "callback_uri" to
+                        "com.cloudflare.warp://example-team.cloudflareaccess.com/auth?token=secret",
+                    "terms_accepted" to true,
+                ),
+            ),
+            result,
+        )
+
+        assertEquals("ZERO_TRUST_NETWORK_MASQUE_ENROLLMENT", result.errorCode)
+        assertTrue(result.errorMessage!!.contains("residual device"))
+        assertFalse(result.errorMessage!!.contains("secret"))
+    }
+
+    @Test
+    fun zeroTrustSafeDiagnosticReasonNeverIncludesTheCallback() {
+        engineBridge.zeroTrustFailure = IOException("USQUE_ZT_DIAGNOSTIC:invalid_device_id")
+        val result = RecordingResult()
+        handler.handle(
+            MethodCall(
+                "createProfileWithIdentity",
+                mapOf(
+                    "profile" to mapOf("id" to "p-new", "name" to "Work"),
+                    "method" to "zeroTrust",
+                    "team_name" to "example-team",
+                    "callback_uri" to
+                        "com.cloudflare.warp://example-team.cloudflareaccess.com/auth?token=secret",
+                    "terms_accepted" to true,
+                ),
+            ),
+            result,
+        )
+
+        assertEquals("ZERO_TRUST_DIAGNOSTIC_INVALID_DEVICE_ID", result.errorCode)
+        assertTrue(result.errorMessage!!.contains("invalid_device_id"))
+        assertFalse(result.errorMessage!!.contains("secret"))
+    }
+
+    @Test
+    fun missingMetadataOnZeroTrustEndpointIsInvalidAndBlocksExport() {
+        identityStore.put(
+            "p1",
+            SecureIdentityStore.Record.WARP_SECRET,
+            "stored-secret".toByteArray(),
+        )
+        engineBridge.profileCatalogJson =
+            """
+            {
+              "profiles":[{
+                "id":"p1",
+                "endpoint_v4":"162.159.198.2",
+                "endpoint_v6":"2606:4700:103::2",
+                "endpoint_port":443,
+                "sni":"speed.cloudflare.com",
+                "identity_provider":"zero_trust",
+                "identity_organization":"example-team"
+              }]
+            }
+            """.trimIndent()
+
+        val catalogResult = RecordingResult()
+        handler.handle(
+            MethodCall(
+                "importLegacyProfiles",
+                mapOf(
+                    "profiles" to emptyList<Any>(),
+                    "active_profile_id" to "",
+                ),
+            ),
+            catalogResult,
+        )
+        @Suppress("UNCHECKED_CAST")
+        val catalog = catalogResult.successValue as Map<String, Any?>
+
+        @Suppress("UNCHECKED_CAST")
+        val statuses = catalog["identity_statuses"] as List<Map<String, Any?>>
+        assertEquals("invalid", statuses.single()["state"])
+        assertEquals("zeroTrust", statuses.single()["provider"])
+        assertEquals("notApplicable", statuses.single()["license_state"])
+
+        val exportResult = RecordingResult()
+        handler.handle(
+            MethodCall("exportWarpSecret", mapOf("profile_id" to "p1")),
+            exportResult,
+        )
+        assertEquals("IDENTITY_OPERATION_UNSUPPORTED", exportResult.errorCode)
+    }
+
+    @Test
+    fun missingMetadataWithBoundTeamAllowsOnlySameTeamRepair() {
+        identityStore.put(
+            "p1",
+            SecureIdentityStore.Record.WARP_SECRET,
+            "old-secret".toByteArray(),
+        )
+        engineBridge.profileCatalogJson =
+            """
+            {
+              "profiles":[{
+                "id":"p1",
+                "identity_provider":"zero_trust",
+                "identity_organization":"example-team"
+              }]
+            }
+            """.trimIndent()
+
+        val repaired = RecordingResult()
+        handler.handle(
+            MethodCall(
+                "provisionIdentity",
+                mapOf(
+                    "profile_id" to "p1",
+                    "method" to "zeroTrust",
+                    "team_name" to "example-team",
+                    "callback_uri" to
+                        "com.cloudflare.warp://example-team.cloudflareaccess.com/auth?token=test",
+                    "terms_accepted" to true,
+                ),
+            ),
+            repaired,
+        )
+        assertNull(repaired.errorCode)
+        assertTrue(
+            engineBridge.commands.any {
+                it.contains("\"identity_provider\":\"zero_trust\"") &&
+                    it.contains("\"organization\":\"example-team\"")
+            },
+        )
+
+        identityStore.delete("p1", SecureIdentityStore.Record.IDENTITY_METADATA)
+        val crossTeam = RecordingResult()
+        handler.handle(
+            MethodCall(
+                "provisionIdentity",
+                mapOf(
+                    "profile_id" to "p1",
+                    "method" to "zeroTrust",
+                    "team_name" to "other-team",
+                    "callback_uri" to
+                        "com.cloudflare.warp://other-team.cloudflareaccess.com/auth?token=test",
+                    "terms_accepted" to true,
+                ),
+            ),
+            crossTeam,
+        )
+        assertEquals("IDENTITY_PROVIDER_CHANGE_UNSUPPORTED", crossTeam.errorCode)
     }
 
     @Test
@@ -519,6 +808,12 @@ class AndroidEngineMethodHandlerTest {
 
         override fun consumeLaunchTarget(): String? = null
 
+        override fun beginZeroTrustLogin(team: String): String = "https://$team.cloudflareaccess.com/warp"
+
+        override fun consumeZeroTrustCallback(): String? = null
+
+        override fun cancelZeroTrustLogin() = Unit
+
         override fun platformPreferences(): Map<String, Any?> = mapOf("start_on_boot" to false, "close_to_tray" to true)
 
         override fun setStartOnBoot(enabled: Boolean) = Unit
@@ -531,6 +826,9 @@ class AndroidEngineMethodHandlerTest {
     private class FakeEngineBridge : AndroidEngineMethodHandler.EngineBridge {
         var ready = true
         var linked = true
+        var zeroTrustFailure: IOException? = null
+        var consumerLicenseFailure: IOException? = null
+        var profileCatalogJson = """{"profiles":[{"id":"p1"}]}"""
         val commands = mutableListOf<String>()
 
         override fun isLinked(): Boolean = linked
@@ -542,7 +840,7 @@ class AndroidEngineMethodHandlerTest {
             requestJson: String,
         ): String? {
             commands.add(requestJson)
-            return """{"profiles":[{"id":"p1"}]}"""
+            return profileCatalogJson
         }
 
         override fun registerConsumerWarp(locale: String): ByteArray? = byteArrayOf(1, 2, 3)
@@ -550,7 +848,30 @@ class AndroidEngineMethodHandlerTest {
         override fun registerConsumerWarpWithLicense(
             locale: String,
             licenseKey: String,
-        ): ByteArray? = byteArrayOf(4, 5, 6)
+        ): ByteArray? {
+            consumerLicenseFailure?.let { throw it }
+            return byteArrayOf(4, 5, 6)
+        }
+
+        override fun registerZeroTrustWarp(
+            locale: String,
+            team: String,
+            callbackUri: String,
+        ): ByteArray? {
+            zeroTrustFailure?.let { throw it }
+            return """
+                {
+                  "warp_secret":"secret",
+                  "identity_metadata":
+                    "{\"version\":1,\"provider\":\"zero_trust\",\"organization\":\"$team\"}",
+                  "endpoint_v4":"162.159.197.2",
+                  "endpoint_v6":"2606:4700:102::2",
+                  "endpoint_port":443,
+                  "sni":"zt-masque.cloudflareclient.com"
+                }
+                """.trimIndent()
+                .toByteArray()
+        }
 
         override fun unbindConsumerWarp(warpSecret: ByteArray): Boolean = true
 
@@ -576,6 +897,9 @@ class AndroidEngineMethodHandlerTest {
     private class RecordingIdentityStore : AndroidEngineMethodHandler.IdentityStore {
         var putCount = 0
         var clearAllCount = 0
+        var deleteIdentityCount = 0
+        var failOnPut: SecureIdentityStore.Record? = null
+        private val records = mutableMapOf<Pair<String, SecureIdentityStore.Record>, ByteArray>()
 
         override fun put(
             profileId: String,
@@ -583,22 +907,30 @@ class AndroidEngineMethodHandlerTest {
             value: ByteArray,
         ) {
             putCount += 1
+            if (record == failOnPut) throw IllegalStateException("injected secure-storage failure")
+            records[profileId to record] = value.clone()
         }
 
         override fun get(
             profileId: String,
             record: SecureIdentityStore.Record,
-        ): ByteArray? = null
+        ): ByteArray? = records[profileId to record]?.clone()
 
         override fun delete(
             profileId: String,
             record: SecureIdentityStore.Record,
-        ) = Unit
+        ) {
+            records.remove(profileId to record)
+        }
 
-        override fun deleteIdentity(profileId: String) = Unit
+        override fun deleteIdentity(profileId: String) {
+            deleteIdentityCount += 1
+            records.keys.removeAll { it.first == profileId }
+        }
 
         override fun clearAll() {
             clearAllCount += 1
+            records.clear()
         }
     }
 
@@ -668,6 +1000,8 @@ class AndroidEngineMethodHandlerTest {
         var completionCount = 0
         var successValue: Any? = null
         var errorCode: String? = null
+        var errorMessage: String? = null
+        var errorDetails: Any? = null
         var notImplementedCalled = false
 
         override fun success(result: Any?) {
@@ -682,6 +1016,8 @@ class AndroidEngineMethodHandlerTest {
         ) {
             completionCount += 1
             this.errorCode = errorCode
+            this.errorMessage = errorMessage
+            this.errorDetails = errorDetails
         }
 
         override fun notImplemented() {

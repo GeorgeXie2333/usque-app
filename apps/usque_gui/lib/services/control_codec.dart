@@ -300,6 +300,8 @@ ProfileCatalog _decodeProfileCatalog(_ProtoReader reader) {
         var licenseState = LicenseState.unknown;
         var accountType = '';
         var cleanupPending = false;
+        var provider = IdentityProvider.consumer;
+        var organization = '';
         while (!status.isDone) {
           final statusField = status.field();
           switch (statusField.number) {
@@ -319,6 +321,13 @@ ProfileCatalog _decodeProfileCatalog(_ProtoReader reader) {
               accountType = status.string(statusField);
             case 5:
               cleanupPending = status.varint(statusField) != 0;
+            case 6:
+              final value = status.varint(statusField);
+              if (value >= 1 && value <= IdentityProvider.values.length) {
+                provider = IdentityProvider.values[value - 1];
+              }
+            case 7:
+              organization = status.string(statusField);
             default:
               status.skip(statusField);
           }
@@ -330,6 +339,8 @@ ProfileCatalog _decodeProfileCatalog(_ProtoReader reader) {
             licenseState: licenseState,
             accountType: accountType,
             cleanupPending: cleanupPending,
+            provider: provider,
+            organization: organization,
           );
         }
       default:

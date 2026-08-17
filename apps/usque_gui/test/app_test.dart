@@ -8,11 +8,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:usque/app.dart';
 import 'package:usque/core/app_strings.dart';
 import 'package:usque/models/app_models.dart';
+import 'package:usque/screens/advanced_settings_screen.dart';
 import 'package:usque/screens/proxy_screen.dart';
 import 'package:usque/services/desktop_engine_client.dart';
 import 'package:usque/services/engine_client.dart';
 import 'package:usque/state/app_controller.dart';
 import 'package:usque/widgets/controller_selector.dart';
+import 'package:usque/widgets/profile_identity_dialog.dart';
 
 class FakeEngineClient implements EngineClient {
   @override
@@ -23,13 +25,20 @@ class FakeEngineClient implements EngineClient {
       const Stream<EngineSnapshot>.empty();
 
   bool provisioned = false;
+  IdentityProvisioningMethod? lastProvisioningMethod;
+  String? lastZeroTrustTeam;
+  String? lastZeroTrustCallback;
   bool failProfileIdentityCreation = false;
+  final List<String> calls = <String>[];
+  UsqueProfile? lastConnectedProfile;
   EngineSnapshot current = const EngineSnapshot();
   List<UsqueProfile> storedProfiles = <UsqueProfile>[
     UsqueProfile.defaultProfile(),
   ];
   String storedActiveProfileId = UsqueProfile.defaultProfileId;
   bool legacyProfilesImported = false;
+  Map<String, ProfileIdentityStatus> storedIdentityStatuses =
+      <String, ProfileIdentityStatus>{};
 
   @override
   Future<ProfileCatalog> importLegacyProfiles(
@@ -50,6 +59,7 @@ class FakeEngineClient implements EngineClient {
         for (final profile in storedProfiles)
           profile.id: ProfileIdentityState.ready,
       },
+      identityStatuses: storedIdentityStatuses,
     );
   }
 
@@ -85,7 +95,10 @@ class FakeEngineClient implements EngineClient {
     UsqueProfile profile, {
     required IdentityProvisioningMethod method,
     String? licenseKey,
+    String? teamName,
+    String? callbackUri,
   }) async {
+    calls.add('provision');
     if (failProfileIdentityCreation) {
       throw const EngineException(
         'REGISTRATION_FAILED',
@@ -93,6 +106,9 @@ class FakeEngineClient implements EngineClient {
       );
     }
     provisioned = true;
+    lastProvisioningMethod = method;
+    lastZeroTrustTeam = teamName;
+    lastZeroTrustCallback = callbackUri;
   }
 
   @override
@@ -100,6 +116,8 @@ class FakeEngineClient implements EngineClient {
     UsqueProfile profile, {
     required IdentityProvisioningMethod method,
     String? licenseKey,
+    String? teamName,
+    String? callbackUri,
   }) async {
     if (failProfileIdentityCreation) {
       throw const EngineException(
@@ -115,6 +133,9 @@ class FakeEngineClient implements EngineClient {
       );
     }
     provisioned = true;
+    lastProvisioningMethod = method;
+    lastZeroTrustTeam = teamName;
+    lastZeroTrustCallback = callbackUri;
     storedProfiles = <UsqueProfile>[...storedProfiles, profile];
     return ProfileCatalog(
       profiles: List<UsqueProfile>.unmodifiable(storedProfiles),
@@ -123,6 +144,7 @@ class FakeEngineClient implements EngineClient {
         for (final stored in storedProfiles)
           stored.id: ProfileIdentityState.ready,
       },
+      identityStatuses: storedIdentityStatuses,
     );
   }
 
@@ -147,6 +169,15 @@ class FakeEngineClient implements EngineClient {
   Future<String?> consumeLaunchTarget() async => null;
 
   @override
+  Future<String?> beginZeroTrustLogin(String teamName) async => null;
+
+  @override
+  Future<String?> consumeZeroTrustCallback() async => null;
+
+  @override
+  Future<void> cancelZeroTrustLogin() async {}
+
+  @override
   Future<PlatformPreferences> platformPreferences() async =>
       const PlatformPreferences();
 
@@ -161,6 +192,8 @@ class FakeEngineClient implements EngineClient {
 
   @override
   Future<EngineSnapshot> connect(UsqueProfile profile) async {
+    calls.add('connect');
+    lastConnectedProfile = profile;
     current = EngineSnapshot(
       phase: ConnectionPhase.connected,
       transport: 'HTTP/3',
@@ -172,6 +205,7 @@ class FakeEngineClient implements EngineClient {
 
   @override
   Future<EngineSnapshot> disconnect() async {
+    calls.add('disconnect');
     current = const EngineSnapshot();
     return current;
   }
@@ -750,6 +784,155 @@ void main() {
     expect(controller.activeProfile.proxy.systemProxy, isFalse);
     expect(engine.storedProfiles.single.proxy.systemProxy, isFalse);
     controller.dispose();
+  });
+
+  testWidgets('new profile accepts a manual Zero Trust callback and clears it', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1280, 900);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+    });
+    final engine = FakeEngineClient();
+
+    await tester.pumpWidget(UsqueBootstrap(engine: engine));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(NavigationRail),
+        matching: find.text('Profiles'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('New profile'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'Organization');
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cloudflare Zero Trust'));
+    await tester.pumpAndSettle();
+
+    final callback =
+        'com.cloudflare.warp://example-team.cloudflareaccess.com/auth?token=test-assertion';
+    expect(find.byType(TextField), findsNWidgets(2));
+    await tester.enterText(find.byType(TextField).at(0), 'Example-Team');
+    await tester.enterText(find.byType(TextField).at(1), callback);
+    expect(find.text('Organization callback received securely.'), findsNothing);
+    await tester.tap(find.text('Create'));
+    await tester.pumpAndSettle();
+
+    expect(engine.lastProvisioningMethod, IdentityProvisioningMethod.zeroTrust);
+    expect(engine.lastZeroTrustTeam, 'example-team');
+    expect(engine.lastZeroTrustCallback, callback);
+    expect(find.text('Complete callback URL'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  test('connected Zero Trust repair disconnects and reconnects', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+    });
+    final engine = FakeEngineClient();
+    final controller = AppController(engine);
+    await controller.initialize();
+    controller.snapshot = const EngineSnapshot(
+      phase: ConnectionPhase.connected,
+    );
+    engine.calls.clear();
+
+    final success = await controller.provisionProfileIdentity(
+      controller.activeProfile,
+      method: IdentityProvisioningMethod.zeroTrust,
+      teamName: 'example-team',
+      callbackUri:
+          'com.cloudflare.warp://example-team.cloudflareaccess.com/auth?token=test',
+    );
+
+    expect(success, isTrue);
+    expect(engine.calls, <String>['disconnect', 'provision', 'connect']);
+    expect(engine.lastConnectedProfile?.id, controller.activeProfile.id);
+    controller.dispose();
+  });
+
+  testWidgets('Zero Trust registered endpoint fields are read only', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+    });
+    final engine = FakeEngineClient();
+    engine.storedIdentityStatuses = <String, ProfileIdentityStatus>{
+      UsqueProfile.defaultProfileId: const ProfileIdentityStatus(
+        state: ProfileIdentityState.ready,
+        licenseState: LicenseState.notApplicable,
+        accountType: 'Zero Trust',
+        provider: IdentityProvider.zeroTrust,
+        organization: 'example-team',
+      ),
+    };
+    final controller = AppController(engine);
+    await controller.initialize();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: AdvancedSettingsScreen(controller: controller)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(
+        'This endpoint is managed by the Zero Trust device registration and cannot be edited here.',
+      ),
+      findsOneWidget,
+    );
+    final endpointFields = tester
+        .widgetList<TextField>(find.byType(TextField))
+        .take(4);
+    expect(endpointFields.every((field) => field.readOnly), isTrue);
+  });
+
+  testWidgets('Zero Trust identity choice remains readable on a narrow phone', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(360, 800);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+    });
+    final controller = AppController(FakeEngineClient());
+    await controller.initialize();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () =>
+                  showProfileIdentityDialog(context, controller: controller),
+              child: const Text('Open'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'Organization');
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+
+    final title = find.text('Cloudflare Zero Trust');
+    expect(title, findsOneWidget);
+    expect(tester.getSize(title).width, greaterThan(100));
+    expect(tester.getSize(title).height, lessThan(72));
+    expect(find.text('Experimental'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   test('corrupt profile data is backed up and reset safely', () async {
