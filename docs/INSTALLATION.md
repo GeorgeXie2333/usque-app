@@ -1,15 +1,15 @@
 # Installation and removal
 
-Install only packages from this repository's GitHub release for `v0.1.2`.
+Install only packages from this repository's GitHub release for `v0.1.3`.
 
 ## Official packages
 
-- `usque-v0.1.2-windows-x64-v2.msi`
-- `usque-v0.1.2-windows-arm64.msi`
-- `usque-v0.1.2-android-arm64-v8a.apk`
-- `usque-v0.1.2-android-x86_64.apk`
-- `usque-v0.1.2-android-armeabi-v7a.apk`
-- `usque-v0.1.2-android-universal.apk`
+- `usque-v0.1.3-windows-x64-v2.msi`
+- `usque-v0.1.3-windows-arm64.msi`
+- `usque-v0.1.3-android-arm64-v8a.apk`
+- `usque-v0.1.3-android-x86_64.apk`
+- `usque-v0.1.3-android-armeabi-v7a.apk`
+- `usque-v0.1.3-android-universal.apk`
 
 Each release also has SHA-256 sidecars, signer fingerprints, SPDX and CycloneDX SBOMs, dependency license inventories, and GitHub build provenance. A local validation package, Actions development output, fork artifact, or a file from somewhere else is not an official release. Official identities and fingerprint rules are in [CODE_SIGNING.md](CODE_SIGNING.md).
 

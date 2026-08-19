@@ -22,13 +22,13 @@
 Usque 是面向 Cloudflare WARP 个人版（Consumer WARP）的非官方图形客户端。界面由 Flutter 实现；MASQUE、CONNECT-IP、DNS、代理与连接状态由 Rust 引擎处理。项目不使用 WebView。
 
 > [!IMPORTANT]
-> 当前发布版本为 **v0.1.2**。仅 [`v0.1.2` GitHub Release](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.1.2) 所附文件，且校验和与签名者指纹一致时，视为正式发布包。Pull Request 构建、本地构建以及未打标签的二进制均非正式发布。
+> 当前发布版本为 **v0.1.3**。仅 [`v0.1.3` GitHub Release](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.1.3) 所附文件，且校验和与签名者指纹一致时，视为正式发布包。Pull Request 构建、本地构建以及未打标签的二进制均非正式发布。
 
 Usque 为独立项目，与 Cloudflare 无隶属、赞助或背书关系。Cloudflare 与 WARP 是 Cloudflare, Inc. 的商标。使用个人版 WARP 仍须遵守 Cloudflare 的适用条款与隐私政策。
 
 ## 发布范围
 
-`v0.1.2` 由 `main` 上的对应标签构建并校验以下六个安装包：
+`v0.1.3` 由 `main` 上的对应标签构建并校验以下六个安装包：
 
 | 平台 | 安装包 | 最低系统 | 架构 |
 | --- | --- | --- | --- |
@@ -50,6 +50,7 @@ Usque 为独立项目，与 Cloudflare 无隶属、赞助或背书关系。Cloud
 - 全隧道 VPN、隧道内 DNS、Kill Switch、局域网访问与自定义 CIDR 绕过。
 - SOCKS5 支持 TCP/UDP，HTTP 支持 CONNECT 与普通转发；代理默认仅监听回环地址。
 - 支持多个配置，同一时间仅一个处于活动状态；身份材料按配置隔离存储。
+- Android 分应用代理（仅包含所选应用）：关闭时全部应用走 VPN；开启后仅勾选的应用走隧道。新安装的应用默认不进入隧道，直至勾选。
 - Android 快捷设置磁贴、启动器快捷方式、开机恢复与电视端导航。
 - Windows 系统托盘、单实例激活、开机启动，以及关闭后最小化到托盘。
 - 诊断信息仅保存在本地并经过脱敏，不含统计分析、遥测或自动上传。
@@ -74,16 +75,16 @@ Usque 为独立项目，与 Cloudflare 无隶属、赞助或背书关系。Cloud
 
 ## 获取与安装
 
-请仅从[正式发布页面](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.1.2)下载 `v0.1.2`：
+请仅从[正式发布页面](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.1.3)下载 `v0.1.3`：
 
 | 目标 | 文件 |
 | --- | --- |
-| Windows x64 | [`usque-v0.1.2-windows-x64-v2.msi`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.2/usque-v0.1.2-windows-x64-v2.msi) |
-| Windows ARM64 | [`usque-v0.1.2-windows-arm64.msi`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.2/usque-v0.1.2-windows-arm64.msi) |
-| Android ARMv8 | [`usque-v0.1.2-android-arm64-v8a.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.2/usque-v0.1.2-android-arm64-v8a.apk) |
-| Android x64 | [`usque-v0.1.2-android-x86_64.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.2/usque-v0.1.2-android-x86_64.apk) |
-| Android ARMv7 | [`usque-v0.1.2-android-armeabi-v7a.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.2/usque-v0.1.2-android-armeabi-v7a.apk) |
-| Android 通用包 | [`usque-v0.1.2-android-universal.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.2/usque-v0.1.2-android-universal.apk) |
+| Windows x64 | [`usque-v0.1.3-windows-x64-v2.msi`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.3/usque-v0.1.3-windows-x64-v2.msi) |
+| Windows ARM64 | [`usque-v0.1.3-windows-arm64.msi`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.3/usque-v0.1.3-windows-arm64.msi) |
+| Android ARMv8 | [`usque-v0.1.3-android-arm64-v8a.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.3/usque-v0.1.3-android-arm64-v8a.apk) |
+| Android x64 | [`usque-v0.1.3-android-x86_64.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.3/usque-v0.1.3-android-x86_64.apk) |
+| Android ARMv7 | [`usque-v0.1.3-android-armeabi-v7a.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.3/usque-v0.1.3-android-armeabi-v7a.apk) |
+| Android 通用包 | [`usque-v0.1.3-android-universal.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.3/usque-v0.1.3-android-universal.apk) |
 
 请优先选择与设备 ABI 匹配的 APK。通用安装包同时包含 ARMv8、x64 与 ARMv7 原生库，体积更大，仅建议在无法确定设备架构时使用。发布页同时提供 `SHA256SUMS`、各安装包对应的 `.sha256` 文件、SPDX/CycloneDX SBOM、许可证清单与构建证明。
 
@@ -107,7 +108,7 @@ Usque 为独立项目，与 Cloudflare 无隶属、赞助或背书关系。Cloud
 | HTTP 代理 | 支持 CONNECT 与普通 HTTP 转发。 |
 | Windows 系统代理 | 依赖 HTTP 输出，将系统代理指向本地监听地址。 |
 
-Windows 默认启用 VPN（TUN）、SOCKS5 与 HTTP，系统代理默认关闭。Android 默认启用 VPN、SOCKS5 与 HTTP。允许关闭全部输出，仅保留传输。
+Windows 默认启用 VPN（TUN）、SOCKS5 与 HTTP，系统代理默认关闭。Android 默认启用 VPN、SOCKS5 与 HTTP。分应用代理是 Android 应用设置，不属于某个配置：开启后仅勾选的应用走 VPN。允许关闭全部输出，仅保留传输。
 
 ## 安全与隐私
 

@@ -1,6 +1,6 @@
 # Usque implementation progress
 
-This is the Windows and Android / Android TV checklist. macOS source is kept for later work and is not built, packaged, or tested for `v0.1.2`.
+This is the Windows and Android / Android TV checklist. macOS source is kept for later work and is not built, packaged, or tested for `v0.1.3`.
 
 A checked item means the code is in the tree and its current automated tests pass. An unchecked item is unfinished, or only valid in an isolated environment that CI does not run.
 
@@ -112,7 +112,7 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] Expose Android start-on-boot, Quick Settings tile request, and a deep link to system Always-on VPN settings.
 - [ ] Sleep, network-switch, and TV lifecycle tests.
 
-### macOS (deferred; not a v0.1.2 gate)
+### macOS (deferred; not a v0.1.3 gate)
 
 - [x] Current-user Unix Socket permissions, peer-UID validation, and protobuf engine IPC.
 - [x] Connect the Flutter macOS host to the Unix Socket client and sidecar lifecycle.
@@ -157,12 +157,12 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 
 - [ ] Real-device H3/H2 interoperability and hostile-network matrix.
 - [ ] IPv4, IPv6, DNS, route, reconnect, crash, sleep/wake, and real-MSI uninstall leak tests.
-- [ ] Throughput, latency, and memory versus the Go oracle (wish targets: throughput >= 90%, p95 latency regression <= 10%, memory <= 125%). These are not v0.1.2 release gates, and the pipeline does not measure them yet.
+- [ ] Throughput, latency, and memory versus the Go oracle (wish targets: throughput >= 90%, p95 latency regression <= 10%, memory <= 125%). These are not v0.1.3 release gates, and the pipeline does not measure them yet.
 - [x] Stable signing identities and published fingerprints.
-- [x] All declared packages built from the `v0.1.2` tag on `main`.
+- [x] All declared packages built from the `v0.1.3` tag on `main`.
 - [x] SHA-256, SPDX/CycloneDX SBOM, provenance, commit, certificate fingerprint, and license inventory.
 - [ ] Clean-machine installation and removal validation for every artifact.
 
 The release workflow fails if a Windows or Android artifact, signing input, architecture check, required CI result, manifest, SBOM, or attestation is missing. A local binary cannot replace a failed GitHub Actions artifact. Real-device, leak, performance, and clean-machine items above are still open hardening work.
 
-How `v0.1.2` is built and published is in [RELEASE.md](RELEASE.md).
+How `v0.1.3` is built and published is in [RELEASE.md](RELEASE.md).

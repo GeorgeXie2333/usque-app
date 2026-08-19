@@ -22,13 +22,13 @@
 Usque is an unofficial GUI client for consumer Cloudflare WARP. Flutter draws the UI. A Rust engine handles MASQUE, CONNECT-IP, DNS, proxies, and connection state. There is no WebView.
 
 > [!IMPORTANT]
-> The current release is **v0.1.2**. Only files attached to the [`v0.1.2` GitHub Release](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.1.2), with matching checksums and signer fingerprints, are official. Pull Request artifacts, local builds, and untagged binaries are not.
+> The current release is **v0.1.3**. Only files attached to the [`v0.1.3` GitHub Release](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.1.3), with matching checksums and signer fingerprints, are official. Pull Request artifacts, local builds, and untagged binaries are not.
 
 Usque is an independent project. It is not affiliated with, sponsored by, or endorsed by Cloudflare. Cloudflare and WARP are trademarks of Cloudflare, Inc. Use of consumer WARP remains subject to Cloudflare's terms and privacy policy.
 
 ## Release targets
 
-The `v0.1.2` tag on `main` builds and checks these six packages:
+The `v0.1.3` tag on `main` builds and checks these six packages:
 
 | Platform | Package | Minimum OS | Architecture |
 | --- | --- | --- | --- |
@@ -50,6 +50,7 @@ macOS source is in the tree but is not built or released. This release does not 
 - Full-tunnel VPN, tunneled DNS, Kill Switch, LAN access, and custom CIDR bypass rules.
 - SOCKS5 TCP/UDP and HTTP CONNECT/forward; listeners default to loopback.
 - Several profiles, one active at a time, with identity stored per profile.
+- Android per-app proxy (include-only): when off, every app uses the VPN; when on, only selected apps do. Newly installed apps stay off the tunnel until selected.
 - Android Quick Settings tile, launcher shortcuts, boot recovery, and TV navigation.
 - Windows tray, single-instance activation, start on boot, and close-to-tray.
 - Local redacted diagnostics. No analytics, telemetry, or automatic upload.
@@ -74,16 +75,16 @@ These values can be changed and reset. A non-loopback proxy listener has no pass
 
 ## Availability and installation
 
-Download `v0.1.2` only from the [official release page](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.1.2):
+Download `v0.1.3` only from the [official release page](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.1.3):
 
 | Target | File |
 | --- | --- |
-| Windows x64 | [`usque-v0.1.2-windows-x64-v2.msi`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.2/usque-v0.1.2-windows-x64-v2.msi) |
-| Windows ARM64 | [`usque-v0.1.2-windows-arm64.msi`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.2/usque-v0.1.2-windows-arm64.msi) |
-| Android ARMv8 | [`usque-v0.1.2-android-arm64-v8a.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.2/usque-v0.1.2-android-arm64-v8a.apk) |
-| Android x64 | [`usque-v0.1.2-android-x86_64.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.2/usque-v0.1.2-android-x86_64.apk) |
-| Android ARMv7 | [`usque-v0.1.2-android-armeabi-v7a.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.2/usque-v0.1.2-android-armeabi-v7a.apk) |
-| Android universal | [`usque-v0.1.2-android-universal.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.2/usque-v0.1.2-android-universal.apk) |
+| Windows x64 | [`usque-v0.1.3-windows-x64-v2.msi`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.3/usque-v0.1.3-windows-x64-v2.msi) |
+| Windows ARM64 | [`usque-v0.1.3-windows-arm64.msi`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.3/usque-v0.1.3-windows-arm64.msi) |
+| Android ARMv8 | [`usque-v0.1.3-android-arm64-v8a.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.3/usque-v0.1.3-android-arm64-v8a.apk) |
+| Android x64 | [`usque-v0.1.3-android-x86_64.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.3/usque-v0.1.3-android-x86_64.apk) |
+| Android ARMv7 | [`usque-v0.1.3-android-armeabi-v7a.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.3/usque-v0.1.3-android-armeabi-v7a.apk) |
+| Android universal | [`usque-v0.1.3-android-universal.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.3/usque-v0.1.3-android-universal.apk) |
 
 Prefer the APK that matches the device ABI. The universal APK includes ARMv8, x64, and ARMv7 libraries and is larger; use it when the architecture is unknown. The release also has `SHA256SUMS`, a `.sha256` file per package, SPDX/CycloneDX SBOMs, license inventories, and build attestations.
 
@@ -107,7 +108,7 @@ One profile can enable several outputs. They share one pinned MASQUE transport a
 | HTTP Proxy | CONNECT and ordinary HTTP forwarding. |
 | Windows system proxy | Needs HTTP output; points Windows at the local listener. |
 
-Windows defaults to VPN/TUN + SOCKS5 + HTTP, with the system proxy off. Android defaults to VPN + SOCKS5 + HTTP. You can turn every output off and leave only the transport up.
+Windows defaults to VPN/TUN + SOCKS5 + HTTP, with the system proxy off. Android defaults to VPN + SOCKS5 + HTTP. Per-app proxy is an Android app setting, not part of a Profile: when it is on, only selected apps use the VPN. You can turn every output off and leave only the transport up.
 
 ## Security and privacy
 
