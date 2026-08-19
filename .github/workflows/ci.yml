@@ -107,31 +107,25 @@ jobs:
           ruff check tool
           ruff format --check tool
 
-      - name: Install PowerShell
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Microsoft package repository for PowerShell on Ubuntu 24.04
-          curl -fsSL https://packages.microsoft.com/keys/microsoft.asc |
-            sudo gpg --dearmor -o /usr/share/keyrings/microsoft.gpg
-          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/24.04/prod noble main" |
-            sudo tee /etc/apt/sources.list.d/microsoft-prod.list >/dev/null
-          sudo apt-get update
-          sudo apt-get install -y powershell
-
-      - name: Install and verify PSScriptAnalyzer 1.25.0
+      - name: Verify runner PowerShell and PSScriptAnalyzer 1.25.0
         shell: pwsh
         run: |
           Set-StrictMode -Version Latest
           $ErrorActionPreference = "Stop"
-          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-          Install-Module -Name PSScriptAnalyzer -RequiredVersion 1.25.0 -Force -Scope CurrentUser -AllowClobber
           $mod = Get-Module -ListAvailable PSScriptAnalyzer |
             Where-Object { $_.Version.ToString() -eq "1.25.0" } |
             Select-Object -First 1
           if (-not $mod) {
+            Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+            Install-Module -Name PSScriptAnalyzer -RequiredVersion 1.25.0 -Force -Scope CurrentUser -AllowClobber
+            $mod = Get-Module -ListAvailable PSScriptAnalyzer |
+              Where-Object { $_.Version.ToString() -eq "1.25.0" } |
+              Select-Object -First 1
+          }
+          if (-not $mod) {
             throw "PSScriptAnalyzer 1.25.0 was not installed."
           }
+          Write-Output "PowerShell $($PSVersionTable.PSVersion)"
           Write-Output "PSScriptAnalyzer $($mod.Version)"
 
       - name: PSScriptAnalyzer (warnings, errors, and casing block)
