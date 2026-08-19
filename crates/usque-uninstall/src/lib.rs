@@ -175,6 +175,10 @@ pub fn emit_error(error: &UninstallError, show_dialog: bool) {
     if show_dialog {
         windows::show_error_message(error);
     }
+    #[cfg(not(windows))]
+    {
+        let _ = show_dialog;
+    }
 }
 
 fn run_interactive(product_code: Option<String>) -> Result<i32, UninstallError> {
