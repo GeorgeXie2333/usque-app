@@ -1,7 +1,7 @@
 name: usque
 description: "A native, unofficial Consumer WARP client powered by Rust."
 publish_to: 'none'
-version: 0.1.2+9
+version: 0.1.3+10
 
 environment:
   sdk: ^3.12.2

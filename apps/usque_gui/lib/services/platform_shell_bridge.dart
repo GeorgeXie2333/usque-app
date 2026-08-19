@@ -22,6 +22,10 @@ class PlatformShellBridge {
   String? _lastTrayFingerprint;
 
   Future<Object?> _handleMethod(MethodCall call) async {
+    if (call.method == 'zeroTrustCallbackArrived') {
+      _controller.noteZeroTrustCallbackArrived();
+      return null;
+    }
     if (call.method != 'trayCommand') return null;
     switch (call.arguments) {
       case 'toggle':

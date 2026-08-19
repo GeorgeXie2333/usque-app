@@ -1,0 +1,25 @@
+[package]
+name = "usque-uninstall"
+description = "Interactive Windows uninstall confirmation helper"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "usque-uninstall"
+path = "src/main.rs"
+
+[lib]
+name = "usque_uninstall"
+path = "src/lib.rs"
+
+[dependencies]
+thiserror.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
+
+[lints]
+workspace = true

@@ -35,15 +35,26 @@ abstract interface class EngineClient {
     UsqueProfile profile, {
     required IdentityProvisioningMethod method,
     String? licenseKey,
+    String? teamName,
+    String? callbackUri,
   });
 
   Future<ProfileCatalog> createProfileWithIdentity(
     UsqueProfile profile, {
     required IdentityProvisioningMethod method,
     String? licenseKey,
+    String? teamName,
+    String? callbackUri,
   });
 
   Future<void> reconfigureActiveProfile(UsqueProfile profile);
+
+  Future<void> updateProxyAuth(
+    String profileId, {
+    required String username,
+    required String password,
+    bool confirmed = true,
+  });
 
   Future<void> copyLicenseKey(String profileId);
 
@@ -55,19 +66,39 @@ abstract interface class EngineClient {
 
   Future<String?> consumeLaunchTarget();
 
+  Future<String?> beginZeroTrustLogin(String teamName);
+
+  Future<String?> consumeZeroTrustCallback();
+
+  Future<void> cancelZeroTrustLogin();
+
   Future<PlatformPreferences> platformPreferences();
 
   Future<void> setStartOnBoot(bool enabled);
 
   Future<void> setCloseToTray(bool enabled);
 
+  Future<void> setWarpProtocolAssociation(bool enabled);
+
   Future<void> requestAddQuickSettingsTile();
+
+  Future<PerAppProxySettings> perAppProxy();
+
+  Future<PerAppProxySettings> setPerAppProxy(PerAppProxySettings settings);
+
+  Future<List<InstalledAppInfo>> listInstalledApps();
+
+  Future<Uint8List?> getAppIcon(String packageName);
 
   Future<EngineSnapshot> connect(UsqueProfile profile);
 
   Future<EngineSnapshot> disconnect();
 
+  Future<EngineSnapshot> retry();
+
   Future<EngineSnapshot> snapshot();
+
+  Future<void> openAlwaysOnVpnSettings();
 
   Future<String?> exportDiagnostics();
 
@@ -144,6 +175,19 @@ class MethodChannelEngineClient implements EngineClient {
       _invoke<String>('consumeLaunchTarget');
 
   @override
+  Future<String?> beginZeroTrustLogin(String teamName) => _invoke<String>(
+    'beginZeroTrustLogin',
+    <String, Object>{'team_name': teamName},
+  );
+
+  @override
+  Future<String?> consumeZeroTrustCallback() =>
+      _invoke<String>('consumeZeroTrustCallback');
+
+  @override
+  Future<void> cancelZeroTrustLogin() => _invoke<void>('cancelZeroTrustLogin');
+
+  @override
   Future<PlatformPreferences> platformPreferences() async {
     final value = await _invoke<Map<Object?, Object?>>('platformPreferences');
     return PlatformPreferences.fromMap(value ?? const <Object?, Object?>{});
@@ -157,8 +201,48 @@ class MethodChannelEngineClient implements EngineClient {
   Future<void> setCloseToTray(bool enabled) async {}
 
   @override
+  Future<void> setWarpProtocolAssociation(bool enabled) async {}
+
+  @override
   Future<void> requestAddQuickSettingsTile() =>
       _invoke<void>('requestAddQuickSettingsTile');
+
+  @override
+  Future<PerAppProxySettings> perAppProxy() async {
+    final value = await _invoke<Map<Object?, Object?>>('perAppProxy');
+    return PerAppProxySettings.fromMap(value ?? const <Object?, Object?>{});
+  }
+
+  @override
+  Future<PerAppProxySettings> setPerAppProxy(
+    PerAppProxySettings settings,
+  ) async {
+    final value = await _invoke<Map<Object?, Object?>>(
+      'setPerAppProxy',
+      settings.toMap(),
+    );
+    return PerAppProxySettings.fromMap(value ?? settings.toMap());
+  }
+
+  @override
+  Future<List<InstalledAppInfo>> listInstalledApps() async {
+    final value = await _invoke<List<Object?>>('listInstalledApps');
+    return (value ?? const <Object?>[])
+        .whereType<Map<Object?, Object?>>()
+        .map(InstalledAppInfo.fromMap)
+        .where((app) => app.packageName.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  @override
+  Future<Uint8List?> getAppIcon(String packageName) => _invoke<Uint8List>(
+    'getAppIcon',
+    <String, Object>{'package_name': packageName},
+  );
+
+  @override
+  Future<void> openAlwaysOnVpnSettings() =>
+      _invoke<void>('openAlwaysOnVpnSettings');
 
   @override
   Future<void> upsertProfile(UsqueProfile profile) =>
@@ -179,11 +263,15 @@ class MethodChannelEngineClient implements EngineClient {
     UsqueProfile profile, {
     required IdentityProvisioningMethod method,
     String? licenseKey,
+    String? teamName,
+    String? callbackUri,
   }) async {
     await _invoke<void>('provisionIdentity', <String, Object?>{
       'profile_id': profile.id,
       'method': method.name,
       'license_key': licenseKey,
+      'team_name': teamName,
+      'callback_uri': callbackUri,
       'terms_accepted': true,
       'locale': PlatformDispatcher.instance.locale.toLanguageTag(),
     });
@@ -194,6 +282,8 @@ class MethodChannelEngineClient implements EngineClient {
     UsqueProfile profile, {
     required IdentityProvisioningMethod method,
     String? licenseKey,
+    String? teamName,
+    String? callbackUri,
   }) async {
     final result = await _invoke<Map<Object?, Object?>>(
       'createProfileWithIdentity',
@@ -201,6 +291,8 @@ class MethodChannelEngineClient implements EngineClient {
         'profile': profile.toMap(),
         'method': method.name,
         'license_key': licenseKey,
+        'team_name': teamName,
+        'callback_uri': callbackUri,
         'terms_accepted': true,
         'locale': PlatformDispatcher.instance.locale.toLanguageTag(),
       },
@@ -230,14 +322,23 @@ class MethodChannelEngineClient implements EngineClient {
   }
 
   @override
-  Future<void> reconfigureActiveProfile(UsqueProfile profile) async {
-    // The Android service does not yet expose in-place listener mutation.
-    // Persist first, then perform one explicit stop/start transaction so an
-    // output toggle can never appear applied while the old runtime remains
-    // active. Desktop uses its separate protobuf client and rollback path.
-    await _invoke<void>('reconfigureActiveProfile', profile.toMap());
-    await disconnect();
-    await connect(profile);
+  Future<void> reconfigureActiveProfile(UsqueProfile profile) {
+    return _invoke<void>('reconfigureActiveProfile', profile.toMap());
+  }
+
+  @override
+  Future<void> updateProxyAuth(
+    String profileId, {
+    required String username,
+    required String password,
+    bool confirmed = true,
+  }) {
+    return _invoke<void>('updateProxyAuth', <String, Object>{
+      'profile_id': profileId,
+      'username': username,
+      'password': password,
+      'confirmed': confirmed,
+    });
   }
 
   @override
@@ -277,6 +378,12 @@ class MethodChannelEngineClient implements EngineClient {
   @override
   Future<EngineSnapshot> disconnect() async {
     final result = await _invoke<Map<Object?, Object?>>('disconnect');
+    return EngineSnapshot.fromMap(result ?? const <Object?, Object?>{});
+  }
+
+  @override
+  Future<EngineSnapshot> retry() async {
+    final result = await _invoke<Map<Object?, Object?>>('retry');
     return EngineSnapshot.fromMap(result ?? const <Object?, Object?>{});
   }
 
@@ -362,6 +469,11 @@ Map<String, ProfileIdentityStatus> _identityStatusesFromMap(
       licenseState: licenseState,
       accountType: value['account_type'] as String? ?? '',
       cleanupPending: value['cleanup_pending'] as bool? ?? false,
+      provider: IdentityProvider.values.firstWhere(
+        (item) => item.name == value['provider'],
+        orElse: () => IdentityProvider.consumer,
+      ),
+      organization: value['organization'] as String? ?? '',
     );
   }
   return Map<String, ProfileIdentityStatus>.unmodifiable(statuses);

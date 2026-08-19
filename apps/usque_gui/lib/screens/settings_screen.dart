@@ -7,6 +7,7 @@ import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
 import 'advanced_settings_screen.dart';
+import 'per_app_proxy_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({required this.controller, super.key});
@@ -108,36 +109,87 @@ class SettingsScreen extends StatelessWidget {
               ],
             ),
           ),
-          if (defaultTargetPlatform != TargetPlatform.android) ...<Widget>[
-            const SizedBox(height: 16),
-            Panel(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  SectionTitle(
-                    icon: LucideIcons.monitorCog,
-                    title: strings.get('system_integration'),
-                  ),
-                  const SizedBox(height: 12),
+          const SizedBox(height: 16),
+          Panel(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                SectionTitle(
+                  icon: LucideIcons.monitorCog,
+                  title: strings.get('system_integration'),
+                ),
+                const SizedBox(height: 12),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  secondary: const Icon(LucideIcons.power),
+                  title: Text(strings.get('start_on_boot')),
+                  subtitle: defaultTargetPlatform == TargetPlatform.android
+                      ? Text(strings.get('start_on_boot_android'))
+                      : null,
+                  value: controller.startOnBoot,
+                  onChanged: controller.setStartOnBoot,
+                ),
+                if (defaultTargetPlatform ==
+                    TargetPlatform.windows) ...<Widget>[
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
-                    secondary: const Icon(LucideIcons.power),
-                    title: Text(strings.get('start_on_boot')),
-                    value: controller.startOnBoot,
-                    onChanged: controller.setStartOnBoot,
+                    secondary: const Icon(LucideIcons.panelTopClose),
+                    title: Text(strings.get('close_to_tray')),
+                    value: controller.closeToTray,
+                    onChanged: controller.setCloseToTray,
                   ),
-                  if (defaultTargetPlatform == TargetPlatform.windows)
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      secondary: const Icon(LucideIcons.panelTopClose),
-                      title: Text(strings.get('close_to_tray')),
-                      value: controller.closeToTray,
-                      onChanged: controller.setCloseToTray,
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    secondary: const Icon(LucideIcons.link),
+                    title: Text(strings.get('zero_trust_protocol_association')),
+                    subtitle: Text(
+                      strings.get('zero_trust_protocol_association_help'),
                     ),
+                    value: controller.warpProtocolAssociation,
+                    onChanged: controller.setWarpProtocolAssociation,
+                  ),
                 ],
-              ),
+                if (defaultTargetPlatform ==
+                    TargetPlatform.android) ...<Widget>[
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(LucideIcons.panelTop),
+                    title: Text(strings.get('add_quick_settings_tile')),
+                    subtitle: Text(strings.get('add_quick_settings_tile_help')),
+                    onTap: controller.requestAddQuickSettingsTile,
+                  ),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(LucideIcons.shield),
+                    title: Text(strings.get('always_on_vpn')),
+                    subtitle: Text(strings.get('always_on_vpn_help')),
+                    onTap: controller.openAlwaysOnVpnSettings,
+                  ),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(LucideIcons.layers3),
+                    title: Text(strings.get('per_app_proxy')),
+                    subtitle: Text(
+                      controller.perAppProxy.enabled
+                          ? strings
+                                .get('per_app_proxy_on')
+                                .replaceAll(
+                                  '{count}',
+                                  '${controller.perAppProxy.packageNames.length}',
+                                )
+                          : strings.get('per_app_proxy_off'),
+                    ),
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) =>
+                            PerAppProxyScreen(controller: controller),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
             ),
-          ],
+          ),
           const SizedBox(height: 16),
           Panel(
             child: Column(

@@ -29,6 +29,8 @@ const UsqueProfile _goldenProfile = UsqueProfile(
     httpIpv4: 'h',
     httpIpv6: 'i',
     httpPort: 1,
+    dnsIpv4: 'j.j',
+    dnsIpv6: 'k:k',
   ),
 );
 
@@ -49,13 +51,15 @@ const List<int> _goldenProfileBytes = <int>[
   0x42, 0x01, 0x64, // dns "d"
   0x42, 0x01, 0x65, // dns "e"
   0x58, 0x01, // kill_switch true
-  0x6a, 0x1c, // proxy {
+  0x6a, 0x26, // proxy {
   0x0a, 0x03, 0x73, 0x3a, 0x31, //   socks "s:1"
   0x0a, 0x05, 0x5b, 0x74, 0x5d, 0x3a, 0x31, //   socks "[t]:1"
   0x12, 0x03, 0x68, 0x3a, 0x31, //   http "h:1"
   0x12, 0x05, 0x5b, 0x69, 0x5d, 0x3a, 0x31, //   http "[i]:1"
   0x20, 0x3c, //   udp idle 60
   0x28, 0x01, //   dns mode REMOTE
+  0x32, 0x03, 0x6a, 0x2e, 0x6a, //   dns "j.j"
+  0x32, 0x03, 0x6b, 0x3a, 0x6b, //   dns "k:k"
   // }
   0x70, 0x01, // dns mode TUNNEL
   0x7a, 0x06, // frontends {
@@ -139,6 +143,8 @@ void main() {
       expect(catalog.profiles.single.killSwitch, isTrue);
       expect(catalog.profiles.single.proxy.socksPort, 1);
       expect(catalog.profiles.single.proxy.httpPort, 1);
+      expect(catalog.profiles.single.proxy.dnsIpv4, 'j.j');
+      expect(catalog.profiles.single.proxy.dnsIpv6, 'k:k');
     });
   });
 
@@ -544,6 +550,32 @@ void main() {
         client.dispose();
       },
     );
+
+    test('retry encodes control request payload field 14', () async {
+      Uint8List? seen;
+      final client = DesktopEngineClient.forTest(
+        transport: DesktopEngineTransport.forTest(
+          exchange: (Uint8List request) async {
+            seen = request;
+            return _statusResponse('1');
+          },
+          requestIdFactory: () => '1',
+        ),
+      );
+      await client.retry();
+      expect(seen, isNotNull);
+      // ControlRequest.retry is protobuf field 14, wire type 2 (tag 0x72).
+      expect(seen!.sublist(4), contains(0x72));
+      expect(
+        const ControlCodec().buildRequestFrame(
+          requestId: '1',
+          payloadField: 14,
+          payload: Uint8List(0),
+        ),
+        seen,
+      );
+      client.dispose();
+    });
   });
 }
 

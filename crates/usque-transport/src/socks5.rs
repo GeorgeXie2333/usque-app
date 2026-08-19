@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 use ts_netstack_smoltcp::CreateSocket;
 use ts_netstack_smoltcp::netcore::Channel;
 use ts_netstack_smoltcp::netsock::{TcpStream as StackTcpStream, UdpSocket as StackUdpSocket};
-use usque_core::{OperatingMode, Profile};
+use usque_core::{OperatingMode, Profile, ProxyAuthCredentials};
 
 use crate::dns::Resolver;
 use crate::h2::{MasqueTlsIdentity, TransportError};
@@ -25,7 +25,11 @@ use crate::socket::{SocketProtector, noop_socket_protector};
 
 const SOCKS_VERSION: u8 = 5;
 const AUTH_NONE: u8 = 0;
+const AUTH_USERPASS: u8 = 2;
 const AUTH_UNACCEPTABLE: u8 = 0xff;
+const USERPASS_VERSION: u8 = 1;
+const USERPASS_SUCCESS: u8 = 0;
+const USERPASS_FAILURE: u8 = 1;
 const COMMAND_CONNECT: u8 = 1;
 const COMMAND_UDP_ASSOCIATE: u8 = 3;
 const ADDRESS_IPV4: u8 = 1;
@@ -80,6 +84,9 @@ impl Socks5Runtime {
     ) -> Result<Self, TransportError> {
         if profile.mode != OperatingMode::Socks5 {
             return Err(TransportError::UnsupportedOperatingMode);
+        }
+        if let Err(error) = profile.proxy.listener_credentials() {
+            return Err(TransportError::Socks5(error.to_string()));
         }
 
         // Reserve every configured address before opening the remote session so
@@ -172,12 +179,18 @@ impl Socks5Frontend {
     ) -> Self {
         let cancellation = stack.cancellation.child_token();
         let (failure_tx, failure) = watch::channel(None);
+        let dns_servers = if profile.proxy.dns_mode == usque_core::ProxyDnsMode::LocalConfigured {
+            profile.proxy.dns_servers.clone()
+        } else {
+            profile.dns_servers.clone()
+        };
         let resolver = Resolver::new(
             stack.channel.clone(),
             assigned_ipv4,
             assigned_ipv6,
-            profile.dns_servers.clone(),
+            dns_servers,
             profile.proxy.dns_mode,
+            Arc::clone(&stack.protector),
         );
         let context = Arc::new(SocksContext {
             channel: stack.channel.clone(),
@@ -190,6 +203,11 @@ impl Socks5Frontend {
             cancellation: cancellation.clone(),
             failure: failure_tx,
             health: stack.subscribe_health(),
+            auth: profile
+                .proxy
+                .listener_credentials()
+                .expect("proxy listener credentials were validated before activate")
+                .map(Arc::new),
         });
         let listeners = bound
             .iter()
@@ -250,6 +268,7 @@ struct SocksContext {
     cancellation: tokio_util::sync::CancellationToken,
     failure: watch::Sender<Option<String>>,
     health: watch::Receiver<RuntimeHealth>,
+    auth: Option<Arc<ProxyAuthCredentials>>,
 }
 
 fn bind_listener(address: SocketAddr) -> Result<TcpListener, TransportError> {
@@ -310,7 +329,7 @@ async fn serve_client(
     peer: SocketAddr,
     context: Arc<SocksContext>,
 ) -> Result<(), TransportError> {
-    negotiate_auth(&mut client).await?;
+    negotiate_auth(&mut client, context.auth.as_deref()).await?;
     let request = read_request(&mut client).await?;
     if !matches!(&*context.health.borrow(), RuntimeHealth::Connected { .. }) {
         send_reply(
@@ -672,7 +691,13 @@ fn unspecified_for(peer: SocketAddr) -> SocketAddr {
     }
 }
 
-async fn negotiate_auth(client: &mut TcpStream) -> Result<(), TransportError> {
+async fn negotiate_auth<S>(
+    client: &mut S,
+    credentials: Option<&ProxyAuthCredentials>,
+) -> Result<(), TransportError>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
     let version = client.read_u8().await?;
     let method_count = usize::from(client.read_u8().await?);
     if version != SOCKS_VERSION || method_count == 0 {
@@ -680,18 +705,85 @@ async fn negotiate_auth(client: &mut TcpStream) -> Result<(), TransportError> {
     }
     let mut methods = vec![0u8; method_count];
     client.read_exact(&mut methods).await?;
-    let selected = if methods.contains(&AUTH_NONE) {
-        AUTH_NONE
-    } else {
-        AUTH_UNACCEPTABLE
-    };
-    client.write_all(&[SOCKS_VERSION, selected]).await?;
-    if selected == AUTH_UNACCEPTABLE {
+    match credentials {
+        None => {
+            let selected = if methods.contains(&AUTH_NONE) {
+                AUTH_NONE
+            } else {
+                AUTH_UNACCEPTABLE
+            };
+            client.write_all(&[SOCKS_VERSION, selected]).await?;
+            if selected == AUTH_UNACCEPTABLE {
+                return Err(TransportError::Socks5(
+                    "the client did not offer no-auth SOCKS5".to_owned(),
+                ));
+            }
+            Ok(())
+        }
+        Some(expected) => {
+            let selected = if methods.contains(&AUTH_USERPASS) {
+                AUTH_USERPASS
+            } else {
+                AUTH_UNACCEPTABLE
+            };
+            client.write_all(&[SOCKS_VERSION, selected]).await?;
+            if selected == AUTH_UNACCEPTABLE {
+                return Err(TransportError::Socks5(
+                    "the client did not offer username/password SOCKS5".to_owned(),
+                ));
+            }
+            negotiate_userpass(client, expected).await
+        }
+    }
+}
+
+async fn negotiate_userpass<S>(
+    client: &mut S,
+    expected: &ProxyAuthCredentials,
+) -> Result<(), TransportError>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    let version = client.read_u8().await?;
+    let username_len = usize::from(client.read_u8().await?);
+    if version != USERPASS_VERSION || username_len == 0 {
+        client
+            .write_all(&[USERPASS_VERSION, USERPASS_FAILURE])
+            .await?;
         return Err(TransportError::Socks5(
-            "the client did not offer no-auth SOCKS5".to_owned(),
+            "invalid SOCKS5 username/password request".to_owned(),
         ));
     }
-    Ok(())
+    let mut username = vec![0u8; username_len];
+    client.read_exact(&mut username).await?;
+    let password_len = usize::from(client.read_u8().await?);
+    if password_len == 0 {
+        username.fill(0);
+        client
+            .write_all(&[USERPASS_VERSION, USERPASS_FAILURE])
+            .await?;
+        return Err(TransportError::Socks5(
+            "invalid SOCKS5 username/password request".to_owned(),
+        ));
+    }
+    let mut password = vec![0u8; password_len];
+    client.read_exact(&mut password).await?;
+    let accepted = expected.matches(&username, &password);
+    username.fill(0);
+    password.fill(0);
+    let status = if accepted {
+        USERPASS_SUCCESS
+    } else {
+        USERPASS_FAILURE
+    };
+    client.write_all(&[USERPASS_VERSION, status]).await?;
+    if accepted {
+        Ok(())
+    } else {
+        Err(TransportError::Socks5(
+            "SOCKS5 username/password authentication failed".to_owned(),
+        ))
+    }
 }
 
 struct SocksRequest {
@@ -891,5 +983,87 @@ mod tests {
         );
         assert!(decode_udp_request(&[0, 0, 0, ADDRESS_IPV6, 1]).is_err());
         assert!(decode_udp_request(&[0, 0, 0, ADDRESS_IPV4, 1, 1, 1, 1, 0, 0]).is_err());
+    }
+
+    #[tokio::test]
+    async fn no_credentials_accepts_only_no_auth() {
+        let (mut client, mut server) = tokio::io::duplex(64);
+        let server = tokio::spawn(async move { negotiate_auth(&mut server, None).await });
+        client
+            .write_all(&[SOCKS_VERSION, 2, AUTH_NONE, AUTH_USERPASS])
+            .await
+            .unwrap();
+        let mut reply = [0u8; 2];
+        client.read_exact(&mut reply).await.unwrap();
+        assert_eq!(reply, [SOCKS_VERSION, AUTH_NONE]);
+        server.await.unwrap().unwrap();
+
+        let (mut client, mut server) = tokio::io::duplex(64);
+        let server = tokio::spawn(async move { negotiate_auth(&mut server, None).await });
+        client
+            .write_all(&[SOCKS_VERSION, 1, AUTH_USERPASS])
+            .await
+            .unwrap();
+        let mut reply = [0u8; 2];
+        client.read_exact(&mut reply).await.unwrap();
+        assert_eq!(reply, [SOCKS_VERSION, AUTH_UNACCEPTABLE]);
+        assert!(server.await.unwrap().is_err());
+    }
+
+    #[tokio::test]
+    async fn credentials_offer_only_rfc1929_and_reject_wrong_password() {
+        let credentials = ProxyAuthCredentials::parse("lan-user", b"s3cret").unwrap();
+
+        let (mut client, mut server) = tokio::io::duplex(64);
+        let expected = credentials.clone();
+        let server =
+            tokio::spawn(async move { negotiate_auth(&mut server, Some(&expected)).await });
+        client
+            .write_all(&[SOCKS_VERSION, 2, AUTH_NONE, AUTH_USERPASS])
+            .await
+            .unwrap();
+        let mut method = [0u8; 2];
+        client.read_exact(&mut method).await.unwrap();
+        assert_eq!(method, [SOCKS_VERSION, AUTH_USERPASS]);
+        client.write_all(&[USERPASS_VERSION, 8]).await.unwrap();
+        client.write_all(b"lan-user").await.unwrap();
+        client.write_all(&[6]).await.unwrap();
+        client.write_all(b"s3cret").await.unwrap();
+        let mut status = [0u8; 2];
+        client.read_exact(&mut status).await.unwrap();
+        assert_eq!(status, [USERPASS_VERSION, USERPASS_SUCCESS]);
+        server.await.unwrap().unwrap();
+
+        let (mut client, mut server) = tokio::io::duplex(64);
+        let expected = credentials.clone();
+        let server =
+            tokio::spawn(async move { negotiate_auth(&mut server, Some(&expected)).await });
+        client
+            .write_all(&[SOCKS_VERSION, 1, AUTH_NONE])
+            .await
+            .unwrap();
+        let mut method = [0u8; 2];
+        client.read_exact(&mut method).await.unwrap();
+        assert_eq!(method, [SOCKS_VERSION, AUTH_UNACCEPTABLE]);
+        assert!(server.await.unwrap().is_err());
+
+        let (mut client, mut server) = tokio::io::duplex(64);
+        let server =
+            tokio::spawn(async move { negotiate_auth(&mut server, Some(&credentials)).await });
+        client
+            .write_all(&[SOCKS_VERSION, 1, AUTH_USERPASS])
+            .await
+            .unwrap();
+        let mut method = [0u8; 2];
+        client.read_exact(&mut method).await.unwrap();
+        assert_eq!(method, [SOCKS_VERSION, AUTH_USERPASS]);
+        client.write_all(&[USERPASS_VERSION, 8]).await.unwrap();
+        client.write_all(b"lan-user").await.unwrap();
+        client.write_all(&[5]).await.unwrap();
+        client.write_all(b"wrong").await.unwrap();
+        let mut status = [0u8; 2];
+        client.read_exact(&mut status).await.unwrap();
+        assert_eq!(status, [USERPASS_VERSION, USERPASS_FAILURE]);
+        assert!(server.await.unwrap().is_err());
     }
 }

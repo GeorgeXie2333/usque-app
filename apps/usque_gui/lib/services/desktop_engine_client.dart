@@ -92,19 +92,30 @@ class DesktopEngineClient implements EngineClient {
     UsqueProfile profile, {
     required IdentityProvisioningMethod method,
     String? licenseKey,
+    String? teamName,
+    String? callbackUri,
   }) {
     return _serialized(() async {
       await _upsertProfile(profile);
       final license = Uint8List.fromList(utf8.encode(licenseKey ?? ''));
+      final callback = Uint8List.fromList(utf8.encode(callbackUri ?? ''));
       try {
         final payload = ControlPayloadWriter()
           ..string(1, profile.id)
           ..boolean(3, true)
           ..string(4, Platform.localeName)
-          ..bytes(6, license);
+          ..bytes(6, license)
+          ..enumeration(7, _identityProvisioningWireValue(method));
+        if (method == IdentityProvisioningMethod.zeroTrust) {
+          final enrollment = ControlPayloadWriter()
+            ..string(1, teamName ?? '')
+            ..bytes(2, callback);
+          payload.message(8, enrollment.takeBytes());
+        }
         await _request(23, payload.takeBytes());
       } finally {
         license.fillRange(0, license.length, 0);
+        callback.fillRange(0, callback.length, 0);
       }
     });
   }
@@ -114,15 +125,24 @@ class DesktopEngineClient implements EngineClient {
     UsqueProfile profile, {
     required IdentityProvisioningMethod method,
     String? licenseKey,
+    String? teamName,
+    String? callbackUri,
   }) {
     return _serialized(() async {
       final license = Uint8List.fromList(utf8.encode(licenseKey ?? ''));
+      final callback = Uint8List.fromList(utf8.encode(callbackUri ?? ''));
       try {
         final identity = ControlPayloadWriter()
           ..enumeration(1, _identityProvisioningWireValue(method))
           ..boolean(3, true)
           ..string(4, Platform.localeName)
           ..bytes(6, license);
+        if (method == IdentityProvisioningMethod.zeroTrust) {
+          final enrollment = ControlPayloadWriter()
+            ..string(1, teamName ?? '')
+            ..bytes(2, callback);
+          identity.message(7, enrollment.takeBytes());
+        }
         final payload = ControlPayloadWriter()
           ..message(1, _codec.encodeProfile(profile))
           ..message(2, identity.takeBytes());
@@ -130,6 +150,7 @@ class DesktopEngineClient implements EngineClient {
         return _codec.requireProfileCatalog(response);
       } finally {
         license.fillRange(0, license.length, 0);
+        callback.fillRange(0, callback.length, 0);
       }
     });
   }
@@ -140,6 +161,28 @@ class DesktopEngineClient implements EngineClient {
       final payload = ControlPayloadWriter()
         ..message(1, _codec.encodeProfile(profile));
       await _request(27, payload.takeBytes());
+    });
+  }
+
+  @override
+  Future<void> updateProxyAuth(
+    String profileId, {
+    required String username,
+    required String password,
+    bool confirmed = true,
+  }) {
+    return _serialized(() async {
+      final secret = Uint8List.fromList(utf8.encode(password));
+      try {
+        final payload = ControlPayloadWriter()
+          ..string(1, profileId)
+          ..string(2, username)
+          ..bytes(3, secret)
+          ..boolean(4, confirmed);
+        await _request(32, payload.takeBytes());
+      } finally {
+        secret.fillRange(0, secret.length, 0);
+      }
     });
   }
 
@@ -190,6 +233,27 @@ class DesktopEngineClient implements EngineClient {
   Future<String?> consumeLaunchTarget() async => null;
 
   @override
+  Future<String?> beginZeroTrustLogin(String teamName) async {
+    if (!Platform.isWindows) return null;
+    return _transport.invokePlatformMethod<String>(
+      'beginZeroTrustLogin',
+      <String, Object>{'team_name': teamName},
+    );
+  }
+
+  @override
+  Future<String?> consumeZeroTrustCallback() async {
+    if (!Platform.isWindows) return null;
+    return _transport.invokePlatformMethod<String>('consumeZeroTrustCallback');
+  }
+
+  @override
+  Future<void> cancelZeroTrustLogin() async {
+    if (!Platform.isWindows) return;
+    await _transport.invokePlatformMethod<void>('cancelZeroTrustLogin');
+  }
+
+  @override
   Future<PlatformPreferences> platformPreferences() async {
     final value = await _transport.invokePlatformMethod<Map<Object?, Object?>>(
       'platformPreferences',
@@ -210,7 +274,35 @@ class DesktopEngineClient implements EngineClient {
       });
 
   @override
+  Future<void> setWarpProtocolAssociation(bool enabled) async {
+    if (!Platform.isWindows) return;
+    await _transport.invokePlatformMethod<void>(
+      'setWarpProtocolAssociation',
+      <String, Object?>{'enabled': enabled},
+    );
+  }
+
+  @override
   Future<void> requestAddQuickSettingsTile() async {}
+
+  @override
+  Future<PerAppProxySettings> perAppProxy() async =>
+      const PerAppProxySettings();
+
+  @override
+  Future<PerAppProxySettings> setPerAppProxy(
+    PerAppProxySettings settings,
+  ) async => const PerAppProxySettings();
+
+  @override
+  Future<List<InstalledAppInfo>> listInstalledApps() async =>
+      const <InstalledAppInfo>[];
+
+  @override
+  Future<Uint8List?> getAppIcon(String packageName) async => null;
+
+  @override
+  Future<void> openAlwaysOnVpnSettings() async {}
 
   @override
   Future<EngineSnapshot> connect(UsqueProfile profile) {
@@ -228,6 +320,14 @@ class DesktopEngineClient implements EngineClient {
     // profile persistence, status reads, or other non-critical requests.
     final response = await _request(13, Uint8List(0));
     return response.snapshot ?? const EngineSnapshot();
+  }
+
+  @override
+  Future<EngineSnapshot> retry() {
+    return _serialized(() async {
+      final response = await _request(14, Uint8List(0));
+      return response.snapshot ?? const EngineSnapshot();
+    });
   }
 
   @override
@@ -361,6 +461,7 @@ class DesktopEngineClient implements EngineClient {
 Duration requestTimeoutForPayload(int payloadField) {
   switch (payloadField) {
     case 12:
+    case 14:
       return const Duration(seconds: 55);
     case 23:
     case 26:
@@ -382,5 +483,6 @@ int _identityProvisioningWireValue(IdentityProvisioningMethod method) {
   return switch (method) {
     IdentityProvisioningMethod.register => 1,
     IdentityProvisioningMethod.registerWithLicense => 3,
+    IdentityProvisioningMethod.zeroTrust => 4,
   };
 }

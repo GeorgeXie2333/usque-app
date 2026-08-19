@@ -1,23 +1,146 @@
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::time::Duration;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use chrono::{SecondsFormat, Utc};
 use p256::elliptic_curve::Generate;
+use reqwest::header::HeaderValue;
 use reqwest::{Client, Method, StatusCode, Url};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use thiserror::Error;
 use zeroize::Zeroizing;
 
-use crate::identity::{EndpointPin, IdentityError, MasqueKeyPair, WarpIdentity};
+use crate::config::EndpointSettings;
+use crate::identity::{EndpointPin, IdentityError, IdentityProvider, MasqueKeyPair, WarpIdentity};
 
 const API_ROOT: &str = "https://api.cloudflareclient.com/";
 const API_VERSION: &str = "v0a4471";
 const CF_CLIENT_VERSION: &str = "a-6.35-4471";
 const MAX_API_RESPONSE_BYTES: usize = 1024 * 1024;
+const MAX_ZERO_TRUST_CALLBACK_BYTES: usize = 64 * 1024;
+pub const ZERO_TRUST_SNI: &str = "zt-masque.cloudflareclient.com";
+pub const ZERO_TRUST_PORT: u16 = 443;
 pub const REGISTRATION_API_HOST: &str = "api.cloudflareclient.com";
 pub const REGISTRATION_API_PORT: u16 = 443;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ZeroTrustRegistrationStage {
+    DeviceRegistration,
+    MasqueEnrollment,
+}
+
+impl ZeroTrustRegistrationStage {
+    pub const fn as_code(self) -> &'static str {
+        match self {
+            Self::DeviceRegistration => "device_registration",
+            Self::MasqueEnrollment => "masque_enrollment",
+        }
+    }
+}
+
+impl std::fmt::Display for ZeroTrustRegistrationStage {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_code())
+    }
+}
+
+/// A validated one-time Cloudflare Access callback. Its assertion is always
+/// redacted from `Debug` and zeroized on drop.
+pub struct ZeroTrustCallback {
+    organization: String,
+    assertion: Zeroizing<String>,
+}
+
+impl ZeroTrustCallback {
+    pub fn organization(&self) -> &str {
+        &self.organization
+    }
+
+    fn assertion(&self) -> &str {
+        &self.assertion
+    }
+}
+
+impl std::fmt::Debug for ZeroTrustCallback {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ZeroTrustCallback")
+            .field("organization", &self.organization)
+            .field("assertion", &"[REDACTED]")
+            .finish()
+    }
+}
+
+#[derive(Debug)]
+pub struct ZeroTrustRegistrationResult {
+    pub identity: WarpIdentity,
+    pub endpoint: EndpointSettings,
+}
+
+pub fn normalize_zero_trust_team(team: &str) -> Result<String, RegistrationError> {
+    let normalized = team.trim().to_ascii_lowercase();
+    IdentityProvider::zero_trust(normalized.clone())
+        .map(|_| normalized)
+        .map_err(|_| RegistrationError::InvalidZeroTrustTeam)
+}
+
+pub fn zero_trust_login_url(team: &str) -> Result<Url, RegistrationError> {
+    let team = normalize_zero_trust_team(team)?;
+    Url::parse(&format!("https://{team}.cloudflareaccess.com/warp"))
+        .map_err(|_| RegistrationError::InvalidZeroTrustTeam)
+}
+
+/// Returns true when a persisted profile still carries a Zero Trust ingress
+/// marker. This is intentionally broader than enrollment validation: any one
+/// marker is enough to prevent missing identity metadata from silently
+/// reclassifying an organization profile as Consumer WARP.
+pub fn is_zero_trust_endpoint(endpoint: &EndpointSettings) -> bool {
+    endpoint.sni.eq_ignore_ascii_case(ZERO_TRUST_SNI)
+        || endpoint.ipv4.octets()[..3] == [162, 159, 197]
+        || endpoint.ipv6.segments()[..3] == [0x2606, 0x4700, 0x0102]
+}
+
+pub fn parse_zero_trust_callback(
+    team: &str,
+    callback_uri: &str,
+) -> Result<ZeroTrustCallback, RegistrationError> {
+    let organization = normalize_zero_trust_team(team)?;
+    if callback_uri.len() > MAX_ZERO_TRUST_CALLBACK_BYTES {
+        return Err(RegistrationError::InvalidZeroTrustCallback);
+    }
+    let callback_uri = callback_uri.trim();
+    if callback_uri.is_empty() {
+        return Err(RegistrationError::InvalidZeroTrustCallback);
+    }
+    let callback =
+        Url::parse(callback_uri).map_err(|_| RegistrationError::InvalidZeroTrustCallback)?;
+    let expected_host = format!("{organization}.cloudflareaccess.com");
+    if callback.scheme() != "com.cloudflare.warp"
+        || callback.host_str() != Some(expected_host.as_str())
+        || callback.path() != "/auth"
+        || !callback.username().is_empty()
+        || callback.password().is_some()
+        || callback.port().is_some()
+        || callback.fragment().is_some()
+    {
+        return Err(RegistrationError::InvalidZeroTrustCallback);
+    }
+
+    let mut assertion = None;
+    for (key, value) in callback.query_pairs() {
+        if key != "token" || assertion.is_some() || value.is_empty() {
+            return Err(RegistrationError::InvalidZeroTrustCallback);
+        }
+        assertion = Some(value.into_owned());
+    }
+    let assertion = assertion.ok_or(RegistrationError::InvalidZeroTrustCallback)?;
+    HeaderValue::from_str(&assertion).map_err(|_| RegistrationError::InvalidZeroTrustCallback)?;
+    Ok(ZeroTrustCallback {
+        organization,
+        assertion: Zeroizing::new(assertion),
+    })
+}
 
 #[derive(Debug, Clone)]
 pub struct RegistrationOptions {
@@ -110,7 +233,7 @@ pub fn prepare_endpoint_pin_refresh(
     identity: &WarpIdentity,
     device_name: Option<&str>,
 ) -> Result<PreparedEndpointPinRefresh, RegistrationError> {
-    validate_device_id(identity.device_id())?;
+    let path_and_query = registration_path(identity.device_id())?;
     if identity.access_token().trim().is_empty() {
         return Err(RegistrationError::InvalidApiResponse);
     }
@@ -122,7 +245,7 @@ pub fn prepare_endpoint_pin_refresh(
     };
     let body = serde_json::to_vec(&body).map_err(|_| RegistrationError::RequestSerialization)?;
     Ok(PreparedEndpointPinRefresh {
-        path_and_query: format!("/{API_VERSION}/reg/{}", identity.device_id()),
+        path_and_query,
         bearer_token: Zeroizing::new(identity.access_token().to_owned()),
         body,
     })
@@ -172,7 +295,7 @@ impl ConsumerRegistrationClient {
     }
 
     /// Creates a Consumer WARP registration and immediately enrolls a fresh
-    /// P-256 MASQUE key. No Zero Trust assertion is accepted by this API.
+    /// P-256 MASQUE key.
     pub async fn register(
         &self,
         options: &RegistrationOptions,
@@ -182,7 +305,13 @@ impl ConsumerRegistrationClient {
         let request = RegistrationRequest::new(options);
         let registration_url = self.registration_url(None)?;
         let registered: AccountData = self
-            .send_json(Method::POST, registration_url, None, &request)
+            .send_json(
+                Method::POST,
+                registration_url,
+                RequestAuthentication::None,
+                ApiErrorContext::Consumer,
+                &request,
+            )
             .await?;
         if registered.id.trim().is_empty() || registered.token.trim().is_empty() {
             return Err(RegistrationError::InvalidApiResponse);
@@ -195,9 +324,67 @@ impl ConsumerRegistrationClient {
                 &registered.token,
                 &key_pair.public_spki_der()?,
                 options.device_name.as_deref(),
+                ApiErrorContext::Consumer,
             )
             .await?;
-        identity_from_enrollment(key_pair, registered.token, enrolled)
+        identity_from_enrollment(
+            key_pair,
+            registered.token,
+            IdentityProvider::Consumer,
+            enrolled,
+        )
+    }
+
+    /// Exchanges a one-time Cloudflare Access assertion for a persistent
+    /// organization device registration, then enrolls a fresh P-256 MASQUE
+    /// identity. The Access assertion is never returned or persisted.
+    pub async fn register_zero_trust(
+        &self,
+        options: &RegistrationOptions,
+        team: &str,
+        callback_uri: &str,
+    ) -> Result<ZeroTrustRegistrationResult, RegistrationError> {
+        validate_options(options)?;
+        let callback = parse_zero_trust_callback(team, callback_uri)?;
+        let request = RegistrationRequest::new(options);
+        let registered: AccountData = self
+            .send_json(
+                Method::POST,
+                self.registration_url(None)?,
+                RequestAuthentication::AccessAssertion(callback.assertion()),
+                ApiErrorContext::ZeroTrustLogin,
+                &request,
+            )
+            .await
+            .map_err(zero_trust_contract_error)?;
+        if registered.id.trim().is_empty() || registered.token.trim().is_empty() {
+            return Err(RegistrationError::ZeroTrustContractChanged);
+        }
+
+        let registration_id = registered.id;
+        let device_token = registered.token;
+        let key_pair = MasqueKeyPair::generate();
+        let enrolled = self
+            .enroll(
+                &registration_id,
+                &device_token,
+                &key_pair.public_spki_der()?,
+                options.device_name.as_deref(),
+                ApiErrorContext::ZeroTrustEnrollment,
+            )
+            .await
+            .map_err(zero_trust_contract_error)?;
+        let endpoint = zero_trust_endpoint(&enrolled)?;
+        let provider = IdentityProvider::zero_trust(callback.organization().to_owned())
+            .map_err(|_| RegistrationError::InvalidZeroTrustTeam)?;
+        let identity = identity_from_enrollment(key_pair, device_token, provider, enrolled)
+            .map_err(|error| match error {
+                RegistrationError::InvalidApiResponse | RegistrationError::Identity(_) => {
+                    RegistrationError::ZeroTrustContractChanged
+                }
+                other => other,
+            })?;
+        Ok(ZeroTrustRegistrationResult { identity, endpoint })
     }
 
     /// Creates a new Consumer device, binds it to an existing WARP License,
@@ -217,9 +404,15 @@ impl ConsumerRegistrationClient {
                 identity.access_token(),
                 &identity.key_pair.public_spki_der()?,
                 options.device_name.as_deref(),
+                ApiErrorContext::Consumer,
             )
             .await?;
-        identity_from_enrollment(identity.key_pair, access_token, enrolled)
+        identity_from_enrollment(
+            identity.key_pair,
+            access_token,
+            IdentityProvider::Consumer,
+            enrolled,
+        )
     }
 
     pub async fn account_status(
@@ -283,6 +476,11 @@ impl ConsumerRegistrationClient {
                 identity.access_token(),
                 &identity.key_pair.public_spki_der()?,
                 device_name,
+                if matches!(identity.provider(), IdentityProvider::ZeroTrust { .. }) {
+                    ApiErrorContext::ZeroTrustEnrollment
+                } else {
+                    ApiErrorContext::Consumer
+                },
             )
             .await?;
         enrollment_snapshot(&enrolled)
@@ -294,6 +492,7 @@ impl ConsumerRegistrationClient {
         access_token: &str,
         public_spki_der: &[u8],
         device_name: Option<&str>,
+        error_context: ApiErrorContext,
     ) -> Result<AccountData, RegistrationError> {
         validate_device_id(device_id)?;
         if access_token.trim().is_empty() {
@@ -308,7 +507,8 @@ impl ConsumerRegistrationClient {
         self.send_json(
             Method::PATCH,
             self.registration_url(Some(device_id))?,
-            Some(access_token),
+            RequestAuthentication::Bearer(access_token),
+            error_context,
             &body,
         )
         .await
@@ -318,7 +518,8 @@ impl ConsumerRegistrationClient {
         &self,
         method: Method,
         url: Url,
-        bearer_token: Option<&str>,
+        authentication: RequestAuthentication<'_>,
+        error_context: ApiErrorContext,
         body: &Request,
     ) -> Result<Response, RegistrationError>
     where
@@ -333,26 +534,32 @@ impl ConsumerRegistrationClient {
             .header("Content-Type", "application/json; charset=UTF-8")
             .header("Connection", "Keep-Alive")
             .json(body);
-        if let Some(token) = bearer_token {
-            request = request.bearer_auth(token);
+        match authentication {
+            RequestAuthentication::None => {}
+            RequestAuthentication::Bearer(token) => request = request.bearer_auth(token),
+            RequestAuthentication::AccessAssertion(assertion) => {
+                let assertion = HeaderValue::from_str(assertion)
+                    .map_err(|_| RegistrationError::InvalidZeroTrustCallback)?;
+                request = request.header("CF-Access-Jwt-Assertion", assertion);
+            }
         }
 
-        let response = request.send().await?;
-        let status = response.status();
-        if response
-            .content_length()
-            .is_some_and(|length| length > MAX_API_RESPONSE_BYTES as u64)
-        {
-            return Err(RegistrationError::ApiResponseTooLarge);
-        }
-        let bytes = response.bytes().await?;
-        if bytes.len() > MAX_API_RESPONSE_BYTES {
-            return Err(RegistrationError::ApiResponseTooLarge);
-        }
+        let response = request
+            .send()
+            .await
+            .map_err(|error| request_error_for_context(error_context, error))?;
+        let (status, bytes) = bounded_response(response)
+            .await
+            .map_err(|error| response_error_for_context(error_context, error))?;
         if status != StatusCode::OK {
-            return Err(api_error(status, &bytes));
+            return Err(api_error_for_context(error_context, status, &bytes));
         }
-        serde_json::from_slice(&bytes).map_err(|_| RegistrationError::InvalidApiResponse)
+        serde_json::from_slice(&bytes).map_err(|_| match error_context {
+            ApiErrorContext::Consumer => RegistrationError::InvalidApiResponse,
+            ApiErrorContext::ZeroTrustLogin | ApiErrorContext::ZeroTrustEnrollment => {
+                RegistrationError::ZeroTrustContractChanged
+            }
+        })
     }
 
     async fn send_without_body<Response>(
@@ -412,14 +619,7 @@ impl ConsumerRegistrationClient {
 
     fn registration_url(&self, device_id: Option<&str>) -> Result<Url, RegistrationError> {
         let mut url = self.api_root.clone();
-        let mut segments = url
-            .path_segments_mut()
-            .map_err(|_| RegistrationError::InvalidApiUrl)?;
-        segments.pop_if_empty().push(API_VERSION).push("reg");
-        if let Some(device_id) = device_id {
-            segments.push(device_id);
-        }
-        drop(segments);
+        append_registration_path(&mut url, device_id)?;
         Ok(url)
     }
 
@@ -434,7 +634,7 @@ impl ConsumerRegistrationClient {
 }
 
 async fn bounded_response(
-    response: reqwest::Response,
+    mut response: reqwest::Response,
 ) -> Result<(StatusCode, Vec<u8>), RegistrationError> {
     let status = response.status();
     if response
@@ -443,14 +643,21 @@ async fn bounded_response(
     {
         return Err(RegistrationError::ApiResponseTooLarge);
     }
-    let bytes = response.bytes().await?.to_vec();
-    if bytes.len() > MAX_API_RESPONSE_BYTES {
-        return Err(RegistrationError::ApiResponseTooLarge);
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await? {
+        let next_length = bytes
+            .len()
+            .checked_add(chunk.len())
+            .ok_or(RegistrationError::ApiResponseTooLarge)?;
+        if next_length > MAX_API_RESPONSE_BYTES {
+            return Err(RegistrationError::ApiResponseTooLarge);
+        }
+        bytes.extend_from_slice(&chunk);
     }
     Ok((status, bytes))
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct RegistrationRequest<'a> {
     key: String,
     install_id: &'static str,
@@ -483,7 +690,7 @@ impl<'a> RegistrationRequest<'a> {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct EnrollmentRequest<'a> {
     key: String,
     key_type: &'static str,
@@ -493,12 +700,12 @@ struct EnrollmentRequest<'a> {
     name: Option<&'a str>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct LicenseUpdate<'a> {
     license: &'a str,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 struct AccountData {
     id: String,
     #[serde(default)]
@@ -508,7 +715,7 @@ struct AccountData {
     config: AccountConfig,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize)]
 struct Account {
     #[serde(default)]
     account_type: String,
@@ -518,35 +725,49 @@ struct Account {
     license: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 struct AccountConfig {
     peers: Vec<Peer>,
     interface: Interface,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 struct Peer {
     public_key: String,
+    #[serde(default)]
+    endpoint: Option<PeerEndpoint>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize)]
+struct PeerEndpoint {
+    #[serde(default)]
+    v4: String,
+    #[serde(default)]
+    v6: String,
+    #[serde(default)]
+    host: String,
+    #[serde(default)]
+    ports: Vec<u16>,
+}
+
+#[derive(Serialize, Deserialize)]
 struct Interface {
     addresses: AssignedAddresses,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 struct AssignedAddresses {
     v4: String,
     v6: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct ApiErrorEnvelope {
     #[serde(default)]
     errors: Vec<ApiErrorItem>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct ApiErrorItem {
     #[serde(default)]
     message: String,
@@ -570,16 +791,46 @@ fn validate_options(options: &RegistrationOptions) -> Result<(), RegistrationErr
     Ok(())
 }
 
+/// Validates the opaque registration identifier returned by Cloudflare.
+///
+/// Consumer registrations currently look UUID-like, but Zero Trust
+/// registrations are not covered by that wire-format guarantee. Keep the
+/// value bounded and free of whitespace/control bytes, then always pass it to
+/// `Url::path_segments_mut().push()` so it cannot create additional API path
+/// segments.
 fn validate_device_id(device_id: &str) -> Result<(), RegistrationError> {
     if device_id.is_empty()
-        || device_id.len() > 128
-        || !device_id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        || device_id.len() > 256
+        || matches!(device_id, "." | "..")
+        || !device_id.bytes().all(|byte| byte.is_ascii_graphic())
     {
         return Err(RegistrationError::InvalidDeviceId);
     }
     Ok(())
+}
+
+fn append_registration_path(
+    url: &mut Url,
+    device_id: Option<&str>,
+) -> Result<(), RegistrationError> {
+    if let Some(device_id) = device_id {
+        validate_device_id(device_id)?;
+    }
+    let mut segments = url
+        .path_segments_mut()
+        .map_err(|_| RegistrationError::InvalidApiUrl)?;
+    segments.pop_if_empty().push(API_VERSION).push("reg");
+    if let Some(device_id) = device_id {
+        segments.push(device_id);
+    }
+    Ok(())
+}
+
+fn registration_path(device_id: &str) -> Result<String, RegistrationError> {
+    let mut url = Url::parse("https://registration.invalid/")
+        .map_err(|_| RegistrationError::InvalidApiUrl)?;
+    append_registration_path(&mut url, Some(device_id))?;
+    Ok(url.path().to_owned())
 }
 
 fn validate_license_key(license_key: &str) -> Result<(), RegistrationError> {
@@ -623,23 +874,161 @@ fn enrollment_snapshot(enrollment: &AccountData) -> Result<EndpointPinRefresh, R
     })
 }
 
+fn zero_trust_endpoint(enrollment: &AccountData) -> Result<EndpointSettings, RegistrationError> {
+    let endpoint = enrollment
+        .config
+        .peers
+        .first()
+        .and_then(|peer| peer.endpoint.as_ref())
+        .ok_or(RegistrationError::ZeroTrustContractChanged)?;
+    let ipv4 =
+        parse_endpoint_ipv4(&endpoint.v4).ok_or(RegistrationError::ZeroTrustContractChanged)?;
+    let ipv6 =
+        parse_endpoint_ipv6(&endpoint.v6).ok_or(RegistrationError::ZeroTrustContractChanged)?;
+    if ipv4.octets()[..3] != [162, 159, 197] || ipv6.segments()[..3] != [0x2606, 0x4700, 0x0102] {
+        return Err(RegistrationError::ZeroTrustContractChanged);
+    }
+    let settings = EndpointSettings {
+        ipv4,
+        ipv6,
+        port: ZERO_TRUST_PORT,
+        sni: ZERO_TRUST_SNI.to_owned(),
+    };
+    settings
+        .validate()
+        .map_err(|_| RegistrationError::ZeroTrustContractChanged)?;
+    Ok(settings)
+}
+
+fn parse_endpoint_ipv4(value: &str) -> Option<Ipv4Addr> {
+    value.parse::<Ipv4Addr>().ok().or_else(|| {
+        value
+            .parse::<SocketAddr>()
+            .ok()?
+            .ip()
+            .to_string()
+            .parse()
+            .ok()
+    })
+}
+
+fn parse_endpoint_ipv6(value: &str) -> Option<Ipv6Addr> {
+    value.parse::<Ipv6Addr>().ok().or_else(|| {
+        value
+            .parse::<SocketAddr>()
+            .ok()?
+            .ip()
+            .to_string()
+            .parse()
+            .ok()
+    })
+}
+
 fn identity_from_enrollment(
     key_pair: MasqueKeyPair,
     access_token: String,
+    provider: IdentityProvider,
     mut enrollment: AccountData,
 ) -> Result<WarpIdentity, RegistrationError> {
     validate_device_id(&enrollment.id)?;
     let snapshot = enrollment_snapshot(&enrollment)?;
+    let license = if matches!(provider, IdentityProvider::ZeroTrust { .. }) {
+        // Zero Trust does not use Consumer license binding. Some private API
+        // variants may still include the account field, so ignore it without
+        // weakening WarpIdentity's provider invariant.
+        None
+    } else {
+        enrollment.account.license.take()
+    };
     WarpIdentity::new(
         key_pair,
         snapshot.endpoint_pin,
         enrollment.id,
         access_token,
-        enrollment.account.license.take(),
+        license,
+        provider,
         snapshot.assigned_ipv4,
         snapshot.assigned_ipv6,
     )
     .map_err(Into::into)
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ApiErrorContext {
+    Consumer,
+    ZeroTrustLogin,
+    ZeroTrustEnrollment,
+}
+
+impl ApiErrorContext {
+    const fn zero_trust_stage(self) -> Option<ZeroTrustRegistrationStage> {
+        match self {
+            Self::Consumer => None,
+            Self::ZeroTrustLogin => Some(ZeroTrustRegistrationStage::DeviceRegistration),
+            Self::ZeroTrustEnrollment => Some(ZeroTrustRegistrationStage::MasqueEnrollment),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum RequestAuthentication<'a> {
+    None,
+    Bearer(&'a str),
+    AccessAssertion(&'a str),
+}
+
+fn zero_trust_contract_error(error: RegistrationError) -> RegistrationError {
+    match error {
+        RegistrationError::ApiResponseTooLarge
+        | RegistrationError::InvalidApiResponse
+        | RegistrationError::Identity(_) => RegistrationError::ZeroTrustContractChanged,
+        other => other,
+    }
+}
+
+fn request_error_for_context(context: ApiErrorContext, error: reqwest::Error) -> RegistrationError {
+    match context.zero_trust_stage() {
+        Some(stage) => RegistrationError::ZeroTrustNetwork { stage },
+        None => RegistrationError::Http(error),
+    }
+}
+
+fn response_error_for_context(
+    context: ApiErrorContext,
+    error: RegistrationError,
+) -> RegistrationError {
+    match (context.zero_trust_stage(), error) {
+        (Some(stage), RegistrationError::Http(_)) => RegistrationError::ZeroTrustNetwork { stage },
+        (_, error) => error,
+    }
+}
+
+fn api_error_for_context(
+    context: ApiErrorContext,
+    status: StatusCode,
+    bytes: &[u8],
+) -> RegistrationError {
+    match context {
+        ApiErrorContext::Consumer => api_error(status, bytes),
+        ApiErrorContext::ZeroTrustLogin | ApiErrorContext::ZeroTrustEnrollment
+            if status == StatusCode::UNAUTHORIZED =>
+        {
+            RegistrationError::ZeroTrustLoginExpired
+        }
+        ApiErrorContext::ZeroTrustLogin | ApiErrorContext::ZeroTrustEnrollment
+            if status == StatusCode::FORBIDDEN =>
+        {
+            RegistrationError::ZeroTrustLoginDenied
+        }
+        ApiErrorContext::ZeroTrustLogin | ApiErrorContext::ZeroTrustEnrollment => {
+            RegistrationError::ZeroTrustRegistrationFailed {
+                stage: context
+                    .zero_trust_stage()
+                    .expect("Zero Trust context has a stage"),
+                status,
+            }
+        }
+    }
 }
 
 fn api_error(status: StatusCode, bytes: &[u8]) -> RegistrationError {
@@ -662,7 +1051,7 @@ fn hex_lower(bytes: &[u8]) -> String {
 
 #[derive(Debug, Error)]
 pub enum RegistrationError {
-    #[error("Cloudflare terms must be accepted before Consumer WARP registration")]
+    #[error("Cloudflare terms must be accepted before device registration")]
     TermsNotAccepted,
     #[error("registration model, locale, or device name is invalid")]
     InvalidRegistrationOptions,
@@ -672,6 +1061,23 @@ pub enum RegistrationError {
     InvalidDeviceId,
     #[error("the WARP License Key format is invalid")]
     InvalidLicenseKey,
+    #[error("the Cloudflare Zero Trust team name is invalid")]
+    InvalidZeroTrustTeam,
+    #[error("the Cloudflare Zero Trust login callback is invalid")]
+    InvalidZeroTrustCallback,
+    #[error("the Cloudflare Zero Trust login expired; start the organization login again")]
+    ZeroTrustLoginExpired,
+    #[error("the Cloudflare Zero Trust organization denied this device login")]
+    ZeroTrustLoginDenied,
+    #[error("Cloudflare Zero Trust {stage} failed with HTTP {status}")]
+    ZeroTrustRegistrationFailed {
+        stage: ZeroTrustRegistrationStage,
+        status: StatusCode,
+    },
+    #[error("Cloudflare Zero Trust {stage} could not reach the registration service")]
+    ZeroTrustNetwork { stage: ZeroTrustRegistrationStage },
+    #[error("the experimental Cloudflare Zero Trust registration contract changed")]
+    ZeroTrustContractChanged,
     #[error("the registration API returned more than 1 MiB")]
     ApiResponseTooLarge,
     #[error("the registration API returned an invalid response")]
@@ -691,6 +1097,7 @@ mod tests {
     use super::*;
     use p256::PublicKey;
     use p256::pkcs8::{DecodePublicKey, EncodePublicKey, LineEnding};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     fn enrollment(key: &MasqueKeyPair) -> AccountData {
         let public = PublicKey::from_public_key_der(&key.public_spki_der().unwrap()).unwrap();
@@ -705,6 +1112,12 @@ mod tests {
             config: AccountConfig {
                 peers: vec![Peer {
                     public_key: public.to_public_key_pem(LineEnding::LF).unwrap(),
+                    endpoint: Some(PeerEndpoint {
+                        v4: "162.159.197.2:0".to_owned(),
+                        v6: "[2606:4700:102::2]:0".to_owned(),
+                        host: ZERO_TRUST_SNI.to_owned(),
+                        ports: vec![443],
+                    }),
                 }],
                 interface: Interface {
                     addresses: AssignedAddresses {
@@ -716,12 +1129,310 @@ mod tests {
         }
     }
 
+    async fn serve_registration_response(
+        listener: &tokio::net::TcpListener,
+        response: &[u8],
+    ) -> String {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut request = Vec::new();
+        let header_end = loop {
+            let mut chunk = [0_u8; 4096];
+            let read = stream.read(&mut chunk).await.unwrap();
+            assert!(read > 0);
+            request.extend_from_slice(&chunk[..read]);
+            if let Some(index) = request.windows(4).position(|value| value == b"\r\n\r\n") {
+                break index + 4;
+            }
+        };
+        let headers = String::from_utf8_lossy(&request[..header_end]).to_ascii_lowercase();
+        let content_length = headers
+            .lines()
+            .find_map(|line| line.strip_prefix("content-length:"))
+            .and_then(|value| value.trim().parse::<usize>().ok())
+            .unwrap_or_default();
+        while request.len() < header_end + content_length {
+            let mut chunk = [0_u8; 4096];
+            let read = stream.read(&mut chunk).await.unwrap();
+            assert!(read > 0);
+            request.extend_from_slice(&chunk[..read]);
+        }
+        let head = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            response.len()
+        );
+        stream.write_all(head.as_bytes()).await.unwrap();
+        stream.write_all(response).await.unwrap();
+        stream.shutdown().await.unwrap();
+        String::from_utf8_lossy(&request).into_owned()
+    }
+
     #[test]
     fn registration_requires_terms_acceptance() {
         assert!(matches!(
             validate_options(&RegistrationOptions::default()),
             Err(RegistrationError::TermsNotAccepted)
         ));
+    }
+
+    #[test]
+    fn zero_trust_team_and_callback_are_strict_and_redacted() {
+        assert_eq!(
+            normalize_zero_trust_team(" Example-Team ").unwrap(),
+            "example-team"
+        );
+        for invalid in ["", ".team", "team.example", "-team", "team-", "team_name"] {
+            assert!(matches!(
+                normalize_zero_trust_team(invalid),
+                Err(RegistrationError::InvalidZeroTrustTeam)
+            ));
+        }
+
+        let callback = parse_zero_trust_callback(
+            "example-team",
+            "com.cloudflare.warp://example-team.cloudflareaccess.com/auth?token=secret-assertion",
+        )
+        .unwrap();
+        assert_eq!(callback.organization(), "example-team");
+        assert!(!format!("{callback:?}").contains("secret-assertion"));
+
+        for invalid in [
+            "https://example-team.cloudflareaccess.com/auth?token=x",
+            "com.cloudflare.warp://other.cloudflareaccess.com/auth?token=x",
+            "com.cloudflare.warp://example-team.cloudflareaccess.com/warp?token=x",
+            "com.cloudflare.warp://user@example-team.cloudflareaccess.com/auth?token=x",
+            "com.cloudflare.warp://example-team.cloudflareaccess.com:443/auth?token=x",
+            "com.cloudflare.warp://example-team.cloudflareaccess.com/auth?token=x#fragment",
+            "com.cloudflare.warp://example-team.cloudflareaccess.com/auth",
+            "com.cloudflare.warp://example-team.cloudflareaccess.com/auth?token=",
+            "com.cloudflare.warp://example-team.cloudflareaccess.com/auth?token=x&token=y",
+            "com.cloudflare.warp://example-team.cloudflareaccess.com/auth?token=x&state=y",
+        ] {
+            assert!(matches!(
+                parse_zero_trust_callback("example-team", invalid),
+                Err(RegistrationError::InvalidZeroTrustCallback)
+            ));
+        }
+
+        let oversized = format!(
+            "com.cloudflare.warp://example-team.cloudflareaccess.com/auth?token={}",
+            "x".repeat(MAX_ZERO_TRUST_CALLBACK_BYTES)
+        );
+        assert!(matches!(
+            parse_zero_trust_callback("example-team", &oversized),
+            Err(RegistrationError::InvalidZeroTrustCallback)
+        ));
+
+        let oversized_outer_whitespace = format!(
+            "{}com.cloudflare.warp://example-team.cloudflareaccess.com/auth?token=x",
+            " ".repeat(MAX_ZERO_TRUST_CALLBACK_BYTES)
+        );
+        assert!(matches!(
+            parse_zero_trust_callback("example-team", &oversized_outer_whitespace),
+            Err(RegistrationError::InvalidZeroTrustCallback)
+        ));
+    }
+
+    #[test]
+    fn zero_trust_endpoint_requires_the_documented_dual_stack_ranges() {
+        let mut enrolled = enrollment(&MasqueKeyPair::generate());
+        let endpoint = zero_trust_endpoint(&enrolled).unwrap();
+        assert_eq!(endpoint.ipv4.to_string(), "162.159.197.2");
+        assert_eq!(endpoint.ipv6.to_string(), "2606:4700:102::2");
+        assert_eq!(endpoint.port, 443);
+        assert_eq!(endpoint.sni, ZERO_TRUST_SNI);
+
+        enrolled.config.peers[0].endpoint.as_mut().unwrap().v4 = "162.159.198.2:443".to_owned();
+        assert!(matches!(
+            zero_trust_endpoint(&enrolled),
+            Err(RegistrationError::ZeroTrustContractChanged)
+        ));
+
+        let mut enrolled = enrollment(&MasqueKeyPair::generate());
+        enrolled.config.peers[0].endpoint.as_mut().unwrap().v6 =
+            "[2606:4700:103::2]:443".to_owned();
+        assert!(matches!(
+            zero_trust_endpoint(&enrolled),
+            Err(RegistrationError::ZeroTrustContractChanged)
+        ));
+
+        // The private API has returned empty/legacy host and port metadata in
+        // the wild. The authenticated endpoint IPs remain authoritative while
+        // Usque deliberately fixes the Zero Trust SNI and primary port.
+        let mut enrolled = enrollment(&MasqueKeyPair::generate());
+        enrolled.config.peers[0]
+            .endpoint
+            .as_mut()
+            .unwrap()
+            .host
+            .clear();
+        enrolled.config.peers[0].endpoint.as_mut().unwrap().ports = vec![500];
+        let endpoint = zero_trust_endpoint(&enrolled).unwrap();
+        assert_eq!(endpoint.port, ZERO_TRUST_PORT);
+        assert_eq!(endpoint.sni, ZERO_TRUST_SNI);
+
+        let mut enrolled = enrollment(&MasqueKeyPair::generate());
+        enrolled.config.peers.clear();
+        assert!(matches!(
+            zero_trust_endpoint(&enrolled),
+            Err(RegistrationError::ZeroTrustContractChanged)
+        ));
+    }
+
+    #[test]
+    fn zero_trust_enrollment_rejects_invalid_pin_and_assigned_addresses() {
+        let mut enrolled = enrollment(&MasqueKeyPair::generate());
+        enrolled.config.peers[0].public_key = "not-a-public-key".to_owned();
+        assert!(matches!(
+            identity_from_enrollment(
+                MasqueKeyPair::generate(),
+                "device-token".to_owned(),
+                IdentityProvider::zero_trust("example-team").unwrap(),
+                enrolled,
+            ),
+            Err(RegistrationError::Identity(
+                IdentityError::InvalidEndpointPin
+            ))
+        ));
+
+        let mut enrolled = enrollment(&MasqueKeyPair::generate());
+        enrolled.config.interface.addresses.v4 = "not-an-ip".to_owned();
+        assert!(matches!(
+            identity_from_enrollment(
+                MasqueKeyPair::generate(),
+                "device-token".to_owned(),
+                IdentityProvider::zero_trust("example-team").unwrap(),
+                enrolled,
+            ),
+            Err(RegistrationError::InvalidApiResponse)
+        ));
+
+        let mut enrolled = enrollment(&MasqueKeyPair::generate());
+        enrolled.config.interface.addresses.v6 = "not-an-ip".to_owned();
+        assert!(matches!(
+            identity_from_enrollment(
+                MasqueKeyPair::generate(),
+                "device-token".to_owned(),
+                IdentityProvider::zero_trust("example-team").unwrap(),
+                enrolled,
+            ),
+            Err(RegistrationError::InvalidApiResponse)
+        ));
+    }
+
+    #[tokio::test]
+    async fn zero_trust_assertion_is_post_only_and_device_bearer_is_patch_only() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let socket = listener.local_addr().unwrap();
+        let endpoint_key = MasqueKeyPair::generate();
+        let mut registered = enrollment(&endpoint_key);
+        registered.token = "device-bearer".to_owned();
+        let registered = serde_json::to_vec(&registered).unwrap();
+        let mut enrolled = enrollment(&endpoint_key);
+        enrolled.id = "physical-device-456".to_owned();
+        let enrolled = serde_json::to_vec(&enrolled).unwrap();
+        let server = tokio::spawn(async move {
+            let post = serve_registration_response(&listener, &registered).await;
+            let patch = serve_registration_response(&listener, &enrolled).await;
+            (post.to_ascii_lowercase(), patch.to_ascii_lowercase())
+        });
+        let client = ConsumerRegistrationClient::with_api_root(
+            Url::parse(&format!("http://{socket}/")).unwrap(),
+        )
+        .unwrap();
+        let identity = client
+            .register_zero_trust(
+                &RegistrationOptions {
+                    terms_accepted: true,
+                    ..RegistrationOptions::default()
+                },
+                "example-team",
+                "com.cloudflare.warp://example-team.cloudflareaccess.com/auth?token=assertion-for-test",
+            )
+            .await
+            .unwrap()
+            .identity;
+        assert_eq!(identity.access_token(), "device-bearer");
+        assert_eq!(identity.device_id(), "physical-device-456");
+        assert!(identity.license().is_none());
+
+        let (post, patch) = server.await.unwrap();
+        assert!(post.starts_with("post /v0a4471/reg "));
+        assert!(post.contains("cf-access-jwt-assertion: assertion-for-test"));
+        assert!(!post.contains("authorization:"));
+        assert!(patch.starts_with("patch /v0a4471/reg/device-123 "));
+        assert!(patch.contains("authorization: bearer device-bearer"));
+        assert!(!patch.contains("cf-access-jwt-assertion:"));
+    }
+
+    #[tokio::test]
+    async fn bounded_response_stops_chunked_bodies_at_one_mebibyte() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let socket = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = [0_u8; 4096];
+            let _ = stream.read(&mut request).await.unwrap();
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
+                )
+                .await
+                .unwrap();
+            let body = vec![b'x'; MAX_API_RESPONSE_BYTES + 1];
+            let _ = stream
+                .write_all(format!("{:x}\r\n", body.len()).as_bytes())
+                .await;
+            let _ = stream.write_all(&body).await;
+            let _ = stream.write_all(b"\r\n0\r\n\r\n").await;
+        });
+        let response = reqwest::get(format!("http://{socket}/")).await.unwrap();
+        assert!(matches!(
+            bounded_response(response).await,
+            Err(RegistrationError::ApiResponseTooLarge)
+        ));
+        server.await.unwrap();
+    }
+
+    #[test]
+    fn zero_trust_http_errors_are_structured_without_response_text() {
+        let secret_body = br#"{"errors":[{"message":"assertion-for-test"}]}"#;
+        assert!(matches!(
+            api_error_for_context(
+                ApiErrorContext::ZeroTrustLogin,
+                StatusCode::UNAUTHORIZED,
+                secret_body,
+            ),
+            RegistrationError::ZeroTrustLoginExpired
+        ));
+        assert!(matches!(
+            api_error_for_context(
+                ApiErrorContext::ZeroTrustLogin,
+                StatusCode::FORBIDDEN,
+                secret_body,
+            ),
+            RegistrationError::ZeroTrustLoginDenied
+        ));
+        assert!(matches!(
+            api_error_for_context(
+                ApiErrorContext::ZeroTrustEnrollment,
+                StatusCode::UNAUTHORIZED,
+                secret_body,
+            ),
+            RegistrationError::ZeroTrustLoginExpired
+        ));
+        let error = api_error_for_context(
+            ApiErrorContext::ZeroTrustEnrollment,
+            StatusCode::BAD_GATEWAY,
+            secret_body,
+        );
+        match &error {
+            RegistrationError::ZeroTrustRegistrationFailed { stage, status } => {
+                assert_eq!(*stage, ZeroTrustRegistrationStage::MasqueEnrollment);
+                assert_eq!(*status, StatusCode::BAD_GATEWAY);
+            }
+            other => panic!("unexpected Zero Trust error: {other:?}"),
+        }
+        assert!(!format!("{error:?}").contains("assertion-for-test"));
     }
 
     #[test]
@@ -752,6 +1463,7 @@ mod tests {
         let identity = identity_from_enrollment(
             key_pair,
             "token".to_owned(),
+            IdentityProvider::Consumer,
             enrollment(&MasqueKeyPair::generate()),
         )
         .unwrap();
@@ -761,9 +1473,25 @@ mod tests {
     }
 
     #[test]
-    fn device_id_cannot_escape_the_api_path() {
+    fn opaque_registration_id_cannot_escape_the_api_path() {
+        let root = Url::parse("http://127.0.0.1:12345/base/").unwrap();
+        let client = ConsumerRegistrationClient::with_api_root(root).unwrap();
+        let url = client.registration_url(Some("../account:slot=1")).unwrap();
+        let segments = url.path_segments().unwrap().collect::<Vec<_>>();
+
+        assert_eq!(segments.len(), 4);
+        assert_eq!(&segments[..3], &["base", API_VERSION, "reg"]);
+        assert_eq!(segments[3], "..%2Faccount:slot=1");
+        assert_eq!(
+            registration_path("../account:slot=1").unwrap(),
+            url.path()[5..]
+        );
         assert!(matches!(
-            validate_device_id("../account"),
+            validate_device_id(".."),
+            Err(RegistrationError::InvalidDeviceId)
+        ));
+        assert!(matches!(
+            validate_device_id("registration id"),
             Err(RegistrationError::InvalidDeviceId)
         ));
     }
@@ -797,6 +1525,7 @@ mod tests {
         let identity = identity_from_enrollment(
             MasqueKeyPair::generate(),
             "super-secret-token".to_owned(),
+            IdentityProvider::Consumer,
             enrollment(&MasqueKeyPair::generate()),
         )
         .unwrap();

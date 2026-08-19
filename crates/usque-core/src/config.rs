@@ -1,12 +1,20 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
+use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
+use subtle::ConstantTimeEq;
 use thiserror::Error;
 use uuid::Uuid;
+use zeroize::Zeroizing;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 6;
+use crate::identity::IdentityProvider;
+
+pub const CURRENT_SCHEMA_VERSION: u32 = 7;
+pub const MAX_PROXY_AUTH_BYTES: usize = 255;
 pub const DEFAULT_ENDPOINT_V4: Ipv4Addr = Ipv4Addr::new(162, 159, 198, 2);
 pub const DEFAULT_ENDPOINT_V6: Ipv6Addr = Ipv6Addr::new(0x2606, 0x4700, 0x0103, 0, 0, 0, 0, 2);
 pub const DEFAULT_PORT: u16 = 443;
@@ -27,6 +35,10 @@ pub struct AppConfig {
     pub active_profile_id: Option<Uuid>,
     pub profiles: Vec<Profile>,
     pub preferences: AppPreferences,
+    /// Non-secret provider boundary used to classify a profile even if its
+    /// secure IdentityMetadata record is missing or corrupted.
+    #[serde(default)]
+    pub identity_bindings: BTreeMap<Uuid, IdentityProvider>,
     #[serde(default)]
     pub pending_identity_deletions: Vec<Uuid>,
     /// Profile identities durably staged before the non-secret profile is
@@ -43,6 +55,7 @@ impl Default for AppConfig {
             active_profile_id: Some(profile.id),
             profiles: vec![profile],
             preferences: AppPreferences::default(),
+            identity_bindings: BTreeMap::new(),
             pending_identity_deletions: Vec::new(),
             pending_identity_creations: Vec::new(),
         }
@@ -76,6 +89,22 @@ impl AppConfig {
                 return Err(ConfigError::DuplicateProfileId(profile.id));
             }
             profile.validate()?;
+        }
+
+        if self.identity_bindings.len() > MAX_PROFILES {
+            return Err(ConfigError::TooManyIdentityBindings(
+                self.identity_bindings.len(),
+            ));
+        }
+        for (profile_id, provider) in &self.identity_bindings {
+            if !ids.contains(profile_id) {
+                return Err(ConfigError::IdentityBindingWithoutProfile(*profile_id));
+            }
+            if let IdentityProvider::ZeroTrust { organization } = provider
+                && IdentityProvider::zero_trust(organization.clone()).is_err()
+            {
+                return Err(ConfigError::InvalidIdentityBinding(*profile_id));
+            }
         }
 
         if self.pending_identity_deletions.len() > MAX_PROFILES {
@@ -200,7 +229,7 @@ pub struct Profile {
 
 impl Default for Profile {
     fn default() -> Self {
-        Self {
+        let mut profile = Self {
             id: DEFAULT_PROFILE_ID,
             name: "Default".to_owned(),
             mode: OperatingMode::legacy_platform_default(),
@@ -210,17 +239,30 @@ impl Default for Profile {
             ip_policy: IpPolicy::Auto,
             mtu: DEFAULT_MTU,
             dns_mode: DnsMode::Tunnel,
-            dns_servers: vec![DEFAULT_DNS_V4.into(), DEFAULT_DNS_V6.into()],
+            dns_servers: default_dns_servers(),
             allow_lan: false,
             split_exclusions: Vec::new(),
             kill_switch: true,
             auto_connect: false,
             proxy: ProxySettings::default(),
-        }
+        };
+        profile.canonicalize_mode();
+        profile
     }
 }
 
 impl Profile {
+    /// `mode` is the persisted projection of `frontends`.
+    pub fn canonicalize_mode(&mut self) {
+        self.mode = if self.frontends.tunnel {
+            OperatingMode::Vpn
+        } else if self.frontends.http && !self.frontends.socks5 {
+            OperatingMode::HttpProxy
+        } else {
+            OperatingMode::Socks5
+        };
+    }
+
     pub fn validate(&self) -> Result<(), ConfigError> {
         let trimmed_name = self.name.trim();
         if trimmed_name.is_empty() || trimmed_name.chars().count() > 64 {
@@ -295,14 +337,14 @@ impl Profile {
     }
 
     pub fn reset_network_defaults(&mut self) {
-        self.mode = OperatingMode::legacy_platform_default();
         self.frontends = FrontendSettings::default();
+        self.canonicalize_mode();
         self.transport = TransportPolicy::Auto;
         self.endpoint = EndpointSettings::default();
         self.ip_policy = IpPolicy::Auto;
         self.mtu = DEFAULT_MTU;
         self.dns_mode = DnsMode::Tunnel;
-        self.dns_servers = vec![DEFAULT_DNS_V4.into(), DEFAULT_DNS_V6.into()];
+        self.dns_servers = default_dns_servers();
         self.allow_lan = false;
         self.split_exclusions.clear();
         self.proxy = ProxySettings::default();
@@ -476,7 +518,7 @@ impl EndpointSettings {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProxySettings {
     pub socks5_listeners: Vec<SocketAddr>,
     pub http_listeners: Vec<SocketAddr>,
@@ -484,6 +526,34 @@ pub struct ProxySettings {
     pub udp_idle_timeout_seconds: u32,
     #[serde(default)]
     pub dns_mode: ProxyDnsMode,
+    #[serde(default = "default_dns_servers")]
+    pub dns_servers: Vec<IpAddr>,
+    /// Optional SOCKS5/HTTP listener username. Empty or omitted means no auth.
+    /// The matching password is stored only in the secret vault.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth_username: Option<String>,
+    /// In-memory password loaded from the vault for a live listener. Never
+    /// written to profile JSON.
+    #[serde(skip)]
+    pub auth_password: Option<Zeroizing<Vec<u8>>>,
+}
+
+impl fmt::Debug for ProxySettings {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ProxySettings")
+            .field("socks5_listeners", &self.socks5_listeners)
+            .field("http_listeners", &self.http_listeners)
+            .field("system_proxy", &self.system_proxy)
+            .field("udp_idle_timeout_seconds", &self.udp_idle_timeout_seconds)
+            .field("dns_mode", &self.dns_mode)
+            .field("dns_servers", &self.dns_servers)
+            .field("auth_username", &self.auth_username)
+            .field(
+                "auth_password",
+                &self.auth_password.as_ref().map(|_| "[REDACTED]"),
+            )
+            .finish()
+    }
 }
 
 impl Default for ProxySettings {
@@ -500,6 +570,9 @@ impl Default for ProxySettings {
             system_proxy: false,
             udp_idle_timeout_seconds: 60,
             dns_mode: ProxyDnsMode::Remote,
+            dns_servers: default_dns_servers(),
+            auth_username: None,
+            auth_password: None,
         }
     }
 }
@@ -516,6 +589,15 @@ impl ProxySettings {
                 self.udp_idle_timeout_seconds,
             ));
         }
+        if self.dns_servers.is_empty() {
+            return Err(ConfigError::MissingDnsServer);
+        }
+        if self.dns_servers.len() > MAX_DNS_SERVERS {
+            return Err(ConfigError::TooManyDnsServers(self.dns_servers.len()));
+        }
+        if self.dns_servers.iter().collect::<HashSet<_>>().len() != self.dns_servers.len() {
+            return Err(ConfigError::DuplicateDnsServer);
+        }
 
         let mut listeners = HashSet::new();
         for listener in self
@@ -530,7 +612,39 @@ impl ProxySettings {
                 return Err(ConfigError::DuplicateProxyListener(*listener));
             }
         }
+        if let Some(username) = self.listener_auth_username() {
+            validate_proxy_username(username)?;
+        }
         Ok(())
+    }
+
+    pub fn listener_auth_username(&self) -> Option<&str> {
+        self.auth_username
+            .as_deref()
+            .filter(|value| !value.is_empty())
+    }
+
+    pub fn normalize_auth(&mut self) {
+        if self.auth_username.as_deref().is_some_and(str::is_empty) {
+            self.auth_username = None;
+        }
+        if self.auth_username.is_none() {
+            self.auth_password = None;
+        }
+    }
+
+    pub fn listener_credentials(&self) -> Result<Option<ProxyAuthCredentials>, ConfigError> {
+        match self.listener_auth_username() {
+            None => Ok(None),
+            Some(username) => {
+                let password = self
+                    .auth_password
+                    .as_deref()
+                    .filter(|value| !value.is_empty())
+                    .ok_or(ConfigError::ProxyAuthRequiresPassword)?;
+                Ok(Some(ProxyAuthCredentials::parse(username, password)?))
+            }
+        }
     }
 
     pub fn exposes_lan(&self, mode: OperatingMode) -> bool {
@@ -555,6 +669,10 @@ impl ProxySettings {
     }
 }
 
+fn default_dns_servers() -> Vec<IpAddr> {
+    vec![DEFAULT_DNS_V4.into(), DEFAULT_DNS_V6.into()]
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ProxyDnsMode {
@@ -562,6 +680,82 @@ pub enum ProxyDnsMode {
     Remote,
     LocalConfigured,
     System,
+}
+
+/// SOCKS5 RFC 1929 / HTTP Basic credentials for a local listener.
+#[derive(Clone, PartialEq, Eq)]
+pub struct ProxyAuthCredentials {
+    username: String,
+    password: Zeroizing<Vec<u8>>,
+}
+
+impl fmt::Debug for ProxyAuthCredentials {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ProxyAuthCredentials")
+            .field("username", &self.username)
+            .field("password", &"[REDACTED]")
+            .finish()
+    }
+}
+
+impl ProxyAuthCredentials {
+    pub fn parse(username: &str, password: &[u8]) -> Result<Self, ConfigError> {
+        validate_proxy_username(username)?;
+        validate_proxy_password(password)?;
+        Ok(Self {
+            username: username.to_owned(),
+            password: Zeroizing::new(password.to_vec()),
+        })
+    }
+
+    pub fn username(&self) -> &str {
+        &self.username
+    }
+
+    pub fn username_bytes(&self) -> &[u8] {
+        self.username.as_bytes()
+    }
+
+    pub fn password_bytes(&self) -> &[u8] {
+        &self.password
+    }
+
+    pub fn matches(&self, username: &[u8], password: &[u8]) -> bool {
+        bool::from(self.username_bytes().ct_eq(username) & self.password_bytes().ct_eq(password))
+    }
+
+    pub fn decode_http_basic(header: &str) -> Option<(Vec<u8>, Vec<u8>)> {
+        let mut parts = header.splitn(2, char::is_whitespace);
+        let scheme = parts.next()?;
+        let encoded = parts.next()?.trim();
+        if !scheme.eq_ignore_ascii_case("basic") || encoded.is_empty() {
+            return None;
+        }
+        let decoded = BASE64_STANDARD.decode(encoded).ok()?;
+        let separator = decoded.iter().position(|byte| *byte == b':')?;
+        let username = decoded[..separator].to_vec();
+        let password = decoded[separator + 1..].to_vec();
+        Some((username, password))
+    }
+}
+
+pub fn validate_proxy_username(username: &str) -> Result<(), ConfigError> {
+    let bytes = username.as_bytes();
+    if bytes.is_empty()
+        || bytes.len() > MAX_PROXY_AUTH_BYTES
+        || bytes.contains(&b':')
+        || bytes.contains(&0)
+    {
+        return Err(ConfigError::InvalidProxyAuthUsername);
+    }
+    Ok(())
+}
+
+pub fn validate_proxy_password(password: &[u8]) -> Result<(), ConfigError> {
+    if password.is_empty() || password.len() > MAX_PROXY_AUTH_BYTES {
+        return Err(ConfigError::InvalidProxyAuthPassword);
+    }
+    Ok(())
 }
 
 fn valid_dns_name(value: &str) -> bool {
@@ -625,6 +819,12 @@ pub enum ConfigError {
     SystemProxyRequiresHttpMode,
     #[error("Windows system proxy requires at least one Loopback HTTP listener")]
     SystemProxyRequiresLoopback,
+    #[error("proxy username must be 1 to 255 bytes and cannot contain ':' or NUL")]
+    InvalidProxyAuthUsername,
+    #[error("proxy password must be 1 to 255 bytes")]
+    InvalidProxyAuthPassword,
+    #[error("proxy username requires a password")]
+    ProxyAuthRequiresPassword,
     #[error("duplicate profile ID: {0}")]
     DuplicateProfileId(Uuid),
     #[error("at least one profile is required")]
@@ -635,6 +835,12 @@ pub enum ConfigError {
     NoActiveProfile,
     #[error("active profile does not exist: {0}")]
     MissingActiveProfile(Uuid),
+    #[error("no more than {MAX_PROFILES} identity bindings are allowed, got {0}")]
+    TooManyIdentityBindings(usize),
+    #[error("identity binding references a missing profile: {0}")]
+    IdentityBindingWithoutProfile(Uuid),
+    #[error("identity binding is invalid for profile: {0}")]
+    InvalidIdentityBinding(Uuid),
     #[error("no more than {MAX_PROFILES} pending identity deletions are allowed, got {0}")]
     TooManyPendingIdentityDeletions(usize),
     #[error("duplicate pending identity deletion: {0}")]
@@ -723,12 +929,26 @@ mod tests {
                 .map(|value| value.as_str().expect("HTTP listener").to_owned())
                 .collect::<Vec<_>>()
         );
-        assert_eq!(profile.mode, OperatingMode::legacy_platform_default());
+        assert_eq!(profile.mode, OperatingMode::Vpn);
         assert_eq!(profile.frontends, FrontendSettings::platform_default());
         assert_eq!(profile.transport, TransportPolicy::Auto);
         assert!(profile.kill_switch);
         assert!(!profile.proxy.system_proxy);
+        assert_eq!(profile.proxy.dns_servers, profile.dns_servers);
         assert!(!profile.proxy.exposes_lan(OperatingMode::Socks5));
+    }
+
+    #[test]
+    fn canonicalize_mode_follows_frontends() {
+        let mut profile = Profile::default();
+        assert_eq!(profile.mode, OperatingMode::Vpn);
+        assert!(profile.frontends.tunnel);
+        profile.frontends.tunnel = false;
+        profile.canonicalize_mode();
+        assert_eq!(profile.mode, OperatingMode::Socks5);
+        profile.frontends.socks5 = false;
+        profile.canonicalize_mode();
+        assert_eq!(profile.mode, OperatingMode::HttpProxy);
     }
 
     #[test]
@@ -759,6 +979,45 @@ mod tests {
         };
         assert!(proxy.exposes_lan(OperatingMode::Socks5));
         assert!(proxy.validate().is_ok());
+        assert!(proxy.listener_credentials().unwrap().is_none());
+    }
+
+    #[test]
+    fn proxy_username_is_validated_and_password_stays_off_the_struct_contract() {
+        let mut proxy = ProxySettings {
+            auth_username: Some("user:name".to_owned()),
+            ..ProxySettings::default()
+        };
+        assert_eq!(proxy.validate(), Err(ConfigError::InvalidProxyAuthUsername));
+        proxy.auth_username = Some("\0user".to_owned());
+        assert_eq!(proxy.validate(), Err(ConfigError::InvalidProxyAuthUsername));
+        proxy.auth_username = Some("a".repeat(256));
+        assert_eq!(proxy.validate(), Err(ConfigError::InvalidProxyAuthUsername));
+        proxy.auth_username = Some("lan-user".to_owned());
+        assert_eq!(proxy.validate(), Ok(()));
+        assert_eq!(
+            proxy.listener_credentials(),
+            Err(ConfigError::ProxyAuthRequiresPassword)
+        );
+
+        let credentials = ProxyAuthCredentials::parse("lan-user", b"s3cret").unwrap();
+        assert!(credentials.matches(b"lan-user", b"s3cret"));
+        assert!(!credentials.matches(b"lan-user", b"wrong"));
+        assert!(!credentials.matches(b"other", b"s3cret"));
+        assert!(format!("{credentials:?}").contains("[REDACTED]"));
+        assert!(!format!("{credentials:?}").contains("s3cret"));
+        assert_eq!(
+            ProxyAuthCredentials::parse("", b"s3cret"),
+            Err(ConfigError::InvalidProxyAuthUsername)
+        );
+        assert_eq!(
+            ProxyAuthCredentials::parse("lan-user", b""),
+            Err(ConfigError::InvalidProxyAuthPassword)
+        );
+        let (user, pass) =
+            ProxyAuthCredentials::decode_http_basic("Basic bGFuLXVzZXI6czNjcmV0").unwrap();
+        assert_eq!(user, b"lan-user");
+        assert_eq!(pass, b"s3cret");
     }
 
     #[test]
@@ -791,6 +1050,10 @@ mod tests {
     fn configuration_collections_are_bounded_and_unique() {
         let mut profile = Profile::default();
         profile.dns_servers.push(DEFAULT_DNS_V4.into());
+        assert_eq!(profile.validate(), Err(ConfigError::DuplicateDnsServer));
+
+        profile.dns_servers = default_dns_servers();
+        profile.proxy.dns_servers.push(DEFAULT_DNS_V4.into());
         assert_eq!(profile.validate(), Err(ConfigError::DuplicateDnsServer));
 
         let empty = AppConfig {
@@ -910,6 +1173,32 @@ mod tests {
         assert_eq!(
             config.validate(),
             Err(ConfigError::DuplicatePendingIdentityCreation(pending))
+        );
+    }
+
+    #[test]
+    fn identity_bindings_are_bounded_valid_and_reference_live_profiles() {
+        let mut config = AppConfig::default();
+        let missing = Uuid::new_v4();
+        config
+            .identity_bindings
+            .insert(missing, IdentityProvider::Consumer);
+        assert_eq!(
+            config.validate(),
+            Err(ConfigError::IdentityBindingWithoutProfile(missing))
+        );
+
+        let mut config = AppConfig::default();
+        let active = config.active_profile_id.unwrap();
+        config.identity_bindings.insert(
+            active,
+            IdentityProvider::ZeroTrust {
+                organization: "Invalid.Team".to_owned(),
+            },
+        );
+        assert_eq!(
+            config.validate(),
+            Err(ConfigError::InvalidIdentityBinding(active))
         );
     }
 }

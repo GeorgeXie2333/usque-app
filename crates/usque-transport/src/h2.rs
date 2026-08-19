@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -19,11 +20,15 @@ use p256::SecretKey;
 use p256::pkcs8::EncodePrivateKey;
 use thiserror::Error;
 use tokio::net::TcpSocket;
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
+use tokio_util::task::AbortOnDropHandle;
 use usque_core::EndpointPin;
+use usque_protocol::{ConnectIpCapsule, MAX_CAPSULE_PAYLOAD, PeerNetworkState};
 use zeroize::Zeroizing;
 
+use crate::connect_ip_control::ConnectIpControlPlane;
 use crate::socket::{SocketProtector, noop_socket_protector, socket_handle};
 
 const CONNECT_URI: &str = "https://cloudflareaccess.com/";
@@ -31,6 +36,7 @@ const H2_ALPN: &[u8] = b"\x02h2";
 const DATAGRAM_CAPSULE_TYPE: u64 = 0;
 const MAX_CAPSULE_BYTES: usize = 65_535;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
+const H2_OUTGOING_CAPACITY: usize = 1_024;
 
 /// Secret and enrolled identity material required by a MASQUE TLS session.
 ///
@@ -70,50 +76,73 @@ pub struct H2Tunnel {
     send: H2SendHalf,
     receive: H2ReceiveHalf,
     driver: H2Driver,
+    control: watch::Receiver<PeerNetworkState>,
 }
 
 impl H2Tunnel {
-    pub fn into_parts(self) -> (H2SendHalf, H2ReceiveHalf, H2Driver) {
-        (self.send, self.receive, self.driver)
+    pub fn into_parts(
+        self,
+    ) -> (
+        H2SendHalf,
+        H2ReceiveHalf,
+        H2Driver,
+        watch::Receiver<PeerNetworkState>,
+    ) {
+        (self.send, self.receive, self.driver, self.control)
+    }
+
+    pub fn control_state(&self) -> PeerNetworkState {
+        self.control.borrow().clone()
     }
 }
 
+struct H2Outgoing {
+    bytes: Bytes,
+    completion: oneshot::Sender<Result<(), TransportError>>,
+}
+
 pub struct H2SendHalf {
-    stream: SendStream<Bytes>,
+    sender: Option<mpsc::Sender<H2Outgoing>>,
+    _writer: AbortOnDropHandle<Result<(), TransportError>>,
 }
 
 impl H2SendHalf {
     /// Sends one raw IP packet as an HTTP Capsule DATAGRAM.
     pub async fn send_packet(&mut self, packet: &[u8]) -> Result<(), TransportError> {
         validate_ip_packet(packet)?;
-        let mut encoded = BytesMut::with_capacity(packet.len() + 16);
-        encode_varint(DATAGRAM_CAPSULE_TYPE, &mut encoded)?;
-        encode_varint(packet.len() as u64, &mut encoded)?;
-        encoded.extend_from_slice(packet);
-        let mut encoded = encoded.freeze();
+        self.send_capsule(encode_datagram_capsule(packet)?).await
+    }
 
-        while !encoded.is_empty() {
-            self.stream.reserve_capacity(encoded.len());
-            let capacity = std::future::poll_fn(|context| self.stream.poll_capacity(context))
-                .await
-                .ok_or(TransportError::TunnelClosed)??;
-            let length = capacity.min(encoded.len());
-            if length == 0 {
-                return Err(TransportError::TunnelClosed);
-            }
-            self.stream.send_data(encoded.split_to(length), false)?;
+    /// Writes one already-framed Capsule Protocol record on the CONNECT-IP
+    /// request stream. ADDRESS_REQUEST rejections use this path so the receive
+    /// half never touches `SendStream`.
+    pub async fn send_capsule(&mut self, capsule: Bytes) -> Result<(), TransportError> {
+        let (completion_tx, completion_rx) = oneshot::channel();
+        self.sender
+            .as_ref()
+            .ok_or(TransportError::TunnelClosed)?
+            .send(H2Outgoing {
+                bytes: capsule,
+                completion: completion_tx,
+            })
+            .await
+            .map_err(|_| TransportError::TunnelClosed)?;
+        match completion_rx.await {
+            Ok(result) => result,
+            Err(_) => Err(TransportError::TunnelClosed),
         }
-        Ok(())
     }
 
     pub fn close(&mut self) {
-        let _ = self.stream.send_data(Bytes::new(), true);
+        self.sender.take();
     }
 }
 
 pub struct H2ReceiveHalf {
     stream: RecvStream,
-    buffer: BytesMut,
+    control: ConnectIpControlPlane,
+    packets: VecDeque<Bytes>,
+    rejections: mpsc::UnboundedSender<Bytes>,
 }
 
 impl H2ReceiveHalf {
@@ -121,13 +150,9 @@ impl H2ReceiveHalf {
     /// across or coalesced within HTTP/2 DATA frames.
     pub async fn receive_packet(&mut self) -> Result<Bytes, TransportError> {
         loop {
-            if let Some((capsule_type, payload, consumed)) = decode_capsule(&self.buffer)? {
-                self.buffer.advance(consumed);
-                if capsule_type != DATAGRAM_CAPSULE_TYPE {
-                    continue;
-                }
-                validate_ip_packet(&payload)?;
-                return Ok(payload);
+            self.drain_ready_capsules()?;
+            if let Some(packet) = self.packets.pop_front() {
+                return Ok(packet);
             }
 
             let chunk = self
@@ -135,13 +160,45 @@ impl H2ReceiveHalf {
                 .data()
                 .await
                 .ok_or(TransportError::TunnelClosed)??;
-            if self.buffer.len().saturating_add(chunk.len()) > MAX_CAPSULE_BYTES + 16 {
+            if self.control.buffer.len().saturating_add(chunk.len()) > MAX_CAPSULE_PAYLOAD + 16 {
                 return Err(TransportError::CapsuleTooLarge);
             }
             let length = chunk.len();
-            self.buffer.extend_from_slice(&chunk);
+            self.control.buffer.extend_from_slice(&chunk);
             self.stream.flow_control().release_capacity(length)?;
         }
+    }
+
+    fn drain_ready_capsules(&mut self) -> Result<(), TransportError> {
+        loop {
+            let mut cursor = self.control.buffer.clone().freeze();
+            let Some(capsule) = ConnectIpCapsule::decode_if_complete(&mut cursor)? else {
+                return Ok(());
+            };
+            let consumed = self.control.buffer.len() - cursor.len();
+            self.control.buffer.advance(consumed);
+            if let ConnectIpCapsule::Unknown {
+                capsule_type: DATAGRAM_CAPSULE_TYPE,
+                payload,
+            } = &capsule
+            {
+                validate_ip_packet(payload)?;
+                self.packets.push_back(payload.clone());
+                continue;
+            }
+            self.control.apply(&capsule)?;
+            self.flush_pending_rejections()?;
+        }
+    }
+
+    fn flush_pending_rejections(&mut self) -> Result<(), TransportError> {
+        while let Some(pending) = self.control.pending.pop_front() {
+            let bytes = pending.bytes.slice(pending.offset..);
+            self.rejections
+                .send(bytes)
+                .map_err(|_| TransportError::TunnelClosed)?;
+        }
+        Ok(())
     }
 }
 
@@ -245,15 +302,92 @@ pub(crate) async fn connect_h2_with_protector(
         return Err(TransportError::ConnectRejected(response.status()));
     }
     let receive = response.into_body();
+    Ok(h2_tunnel_from_streams(stream, receive, task))
+}
 
-    Ok(H2Tunnel {
-        send: H2SendHalf { stream },
+fn h2_tunnel_from_streams(
+    send: SendStream<Bytes>,
+    receive: RecvStream,
+    connection: JoinHandle<Result<(), h2::Error>>,
+) -> H2Tunnel {
+    let (control_tx, control_rx) = watch::channel(PeerNetworkState::default());
+    let (outgoing_tx, outgoing_rx) = mpsc::channel(H2_OUTGOING_CAPACITY);
+    let (rejection_tx, rejection_rx) = mpsc::unbounded_channel();
+    let writer =
+        AbortOnDropHandle::new(tokio::spawn(run_h2_writer(send, outgoing_rx, rejection_rx)));
+    H2Tunnel {
+        send: H2SendHalf {
+            sender: Some(outgoing_tx),
+            _writer: writer,
+        },
         receive: H2ReceiveHalf {
             stream: receive,
-            buffer: BytesMut::with_capacity(4096),
+            control: ConnectIpControlPlane::new(control_tx),
+            packets: VecDeque::new(),
+            rejections: rejection_tx,
         },
-        driver: H2Driver { task: Some(task) },
-    })
+        driver: H2Driver {
+            task: Some(connection),
+        },
+        control: control_rx,
+    }
+}
+
+async fn run_h2_writer(
+    mut stream: SendStream<Bytes>,
+    mut outgoing: mpsc::Receiver<H2Outgoing>,
+    mut rejections: mpsc::UnboundedReceiver<Bytes>,
+) -> Result<(), TransportError> {
+    let mut rejections_open = true;
+    loop {
+        tokio::select! {
+            biased;
+            rejection = rejections.recv(), if rejections_open => {
+                match rejection {
+                    Some(bytes) => write_h2_data(&mut stream, bytes).await?,
+                    None => rejections_open = false,
+                }
+            }
+            item = outgoing.recv() => {
+                match item {
+                    Some(H2Outgoing { bytes, completion }) => {
+                        let result = write_h2_data(&mut stream, bytes).await;
+                        let _ = completion.send(result);
+                    }
+                    None => {
+                        let _ = stream.send_data(Bytes::new(), true);
+                        return Ok(());
+                    }
+                }
+            }
+        }
+    }
+}
+
+async fn write_h2_data(
+    stream: &mut SendStream<Bytes>,
+    mut encoded: Bytes,
+) -> Result<(), TransportError> {
+    while !encoded.is_empty() {
+        stream.reserve_capacity(encoded.len());
+        let capacity = std::future::poll_fn(|context| stream.poll_capacity(context))
+            .await
+            .ok_or(TransportError::TunnelClosed)??;
+        let length = capacity.min(encoded.len());
+        if length == 0 {
+            return Err(TransportError::TunnelClosed);
+        }
+        stream.send_data(encoded.split_to(length), false)?;
+    }
+    Ok(())
+}
+
+fn encode_datagram_capsule(packet: &[u8]) -> Result<Bytes, TransportError> {
+    let mut encoded = BytesMut::with_capacity(packet.len() + 16);
+    encode_varint(DATAGRAM_CAPSULE_TYPE, &mut encoded)?;
+    encode_varint(packet.len() as u64, &mut encoded)?;
+    encoded.extend_from_slice(packet);
+    Ok(encoded.freeze())
 }
 
 fn connect_request() -> Result<Request<()>, http::Error> {
@@ -349,6 +483,7 @@ fn self_signed_certificate(private_key: &PKey<Private>) -> Result<X509, ErrorSta
     Ok(certificate.build())
 }
 
+#[cfg(test)]
 fn decode_capsule(buffer: &[u8]) -> Result<Option<(u64, Bytes, usize)>, TransportError> {
     let Some((capsule_type, type_length)) = decode_varint(buffer)? else {
         return Ok(None);
@@ -375,6 +510,7 @@ fn decode_capsule(buffer: &[u8]) -> Result<Option<(u64, Bytes, usize)>, Transpor
     )))
 }
 
+#[cfg(test)]
 fn decode_varint(buffer: &[u8]) -> Result<Option<(u64, usize)>, TransportError> {
     let Some(first) = buffer.first().copied() else {
         return Ok(None);
@@ -680,5 +816,263 @@ mod tests {
         ipv6_icmp[6] = 58;
         ipv6_icmp[7] = 64;
         assert!(validate_ip_packet(&ipv6_icmp).is_ok());
+    }
+
+    fn ipv4_packet() -> [u8; 20] {
+        [
+            0x45, 0, 0, 20, 0, 0, 0, 0, 64, 17, 0, 0, 1, 1, 1, 1, 8, 8, 8, 8,
+        ]
+    }
+
+    fn ipv4_only_assignment() -> ConnectIpCapsule {
+        use usque_protocol::{AddressAssign, IpPrefix};
+
+        ConnectIpCapsule::AddressAssign(AddressAssign {
+            addresses: vec![IpPrefix {
+                request_id: 0,
+                address: "172.16.0.2".parse().unwrap(),
+                prefix_len: 32,
+            }],
+        })
+    }
+
+    struct H2Loopback {
+        send: H2SendHalf,
+        receive: H2ReceiveHalf,
+        control: watch::Receiver<PeerNetworkState>,
+        peer_send: SendStream<Bytes>,
+        peer_recv: RecvStream,
+        _client_driver: H2Driver,
+        _server: JoinHandle<Result<(), h2::Error>>,
+    }
+
+    async fn connect_h2_loopback() -> H2Loopback {
+        use http::Response;
+        use tokio::sync::oneshot;
+
+        let (client_io, server_io) = tokio::io::duplex(1024 * 1024);
+        let (streams_tx, streams_rx) = oneshot::channel();
+        let server = tokio::spawn(async move {
+            let mut connection = h2::server::handshake(server_io)
+                .await
+                .expect("server handshake");
+            let (request, mut respond) = connection
+                .accept()
+                .await
+                .expect("accept stream")
+                .expect("CONNECT request");
+            let response = Response::builder()
+                .status(StatusCode::OK)
+                .body(())
+                .expect("ok response");
+            let send = respond.send_response(response, false).expect("send 200");
+            let recv = request.into_body();
+            let _ = streams_tx.send((send, recv));
+            while connection.accept().await.is_some() {}
+            Ok(())
+        });
+
+        let (mut sender, connection) = h2::client::handshake(client_io)
+            .await
+            .expect("client handshake");
+        let driver = tokio::spawn(connection);
+        sender = sender.ready().await.expect("client ready");
+        let (response, send) = sender
+            .send_request(connect_request().expect("CONNECT"), false)
+            .expect("send CONNECT");
+        let response = response.await.expect("CONNECT response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let receive = response.into_body();
+        let (peer_send, peer_recv) = streams_rx.await.expect("server streams");
+        let tunnel = h2_tunnel_from_streams(send, receive, driver);
+        let (send, receive, driver, control) = tunnel.into_parts();
+        H2Loopback {
+            send,
+            receive,
+            control,
+            peer_send,
+            peer_recv,
+            _client_driver: driver,
+            _server: server,
+        }
+    }
+
+    async fn peer_send_all(stream: &mut SendStream<Bytes>, mut encoded: Bytes) {
+        while !encoded.is_empty() {
+            stream.reserve_capacity(encoded.len());
+            let capacity = std::future::poll_fn(|context| stream.poll_capacity(context))
+                .await
+                .expect("peer capacity")
+                .expect("peer window");
+            let length = capacity.min(encoded.len());
+            stream
+                .send_data(encoded.split_to(length), false)
+                .expect("peer send");
+        }
+    }
+
+    async fn peer_recv_capsule(stream: &mut RecvStream, buffer: &mut BytesMut) -> ConnectIpCapsule {
+        loop {
+            let mut cursor = buffer.clone().freeze();
+            if let Some(capsule) = ConnectIpCapsule::decode_if_complete(&mut cursor).unwrap() {
+                let consumed = buffer.len() - cursor.len();
+                buffer.advance(consumed);
+                return capsule;
+            }
+            let chunk = stream.data().await.expect("peer data").expect("peer frame");
+            let length = chunk.len();
+            buffer.extend_from_slice(&chunk);
+            stream.flow_control().release_capacity(length).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn h2_interleaved_datagram_and_address_assign_matches_h3_peer_state() {
+        use crate::netstack::apply_peer_network_state;
+        use usque_core::{AddressFamily, Transport};
+
+        let mut loopback = connect_h2_loopback().await;
+        let assignment = ipv4_only_assignment();
+        let encoded_assign = assignment.encode().unwrap();
+        let packet = ipv4_packet();
+        let mut wire = BytesMut::new();
+        wire.extend_from_slice(&encode_datagram_capsule(&packet).unwrap());
+        wire.extend_from_slice(&encoded_assign);
+        peer_send_all(&mut loopback.peer_send, wire.freeze()).await;
+
+        let received = timeout(Duration::from_secs(2), loopback.receive.receive_packet())
+            .await
+            .expect("datagram timed out")
+            .expect("datagram");
+        assert_eq!(received.as_ref(), packet);
+
+        let h2_state = loopback.control.borrow().clone();
+        let (state_tx, state_rx) = watch::channel(PeerNetworkState::default());
+        let mut plane = ConnectIpControlPlane::new(state_tx);
+        plane.buffer.extend_from_slice(&encoded_assign);
+        plane.drain().unwrap();
+        assert_eq!(h2_state, plane.state);
+        assert_eq!(h2_state, *state_rx.borrow());
+
+        let path = apply_peer_network_state(
+            crate::netstack::RuntimePath {
+                transport: Transport::Http2,
+                endpoint_family: AddressFamily::Ipv4,
+                ipv4_available: true,
+                ipv6_available: true,
+            },
+            &h2_state,
+            Ipv4Addr::new(172, 16, 0, 2),
+            "2606:4700:110::2".parse().unwrap(),
+        );
+        assert!(path.ipv4_available);
+        assert!(!path.ipv6_available);
+        let _ = loopback.send;
+    }
+
+    #[tokio::test]
+    async fn h2_address_request_writes_unspecified_assign_on_request_stream() {
+        use std::net::IpAddr;
+        use usque_protocol::{AddressRequest, IpPrefix};
+
+        let mut loopback = connect_h2_loopback().await;
+        let request = ConnectIpCapsule::AddressRequest(AddressRequest {
+            addresses: vec![
+                IpPrefix {
+                    request_id: 7,
+                    address: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+                    prefix_len: 32,
+                },
+                IpPrefix {
+                    request_id: 8,
+                    address: IpAddr::V6(Ipv6Addr::UNSPECIFIED),
+                    prefix_len: 128,
+                },
+            ],
+        })
+        .encode()
+        .unwrap();
+        peer_send_all(&mut loopback.peer_send, request).await;
+
+        let mut receive = loopback.receive;
+        let mut peer_buffer = BytesMut::new();
+        let rejection = {
+            let receive_packet = receive.receive_packet();
+            tokio::pin!(receive_packet);
+            timeout(Duration::from_secs(2), async {
+                tokio::select! {
+                    result = &mut receive_packet => {
+                        panic!("receive_packet should wait after ADDRESS_REQUEST, got {result:?}");
+                    }
+                    capsule = peer_recv_capsule(&mut loopback.peer_recv, &mut peer_buffer) => capsule,
+                }
+            })
+            .await
+            .expect("ADDRESS_ASSIGN rejection timed out")
+        };
+        let ConnectIpCapsule::AddressAssign(rejection) = rejection else {
+            panic!("expected unspecified ADDRESS_ASSIGN, got {rejection:?}");
+        };
+        assert_eq!(rejection.addresses[0].request_id, 7);
+        assert_eq!(
+            rejection.addresses[0].address,
+            IpAddr::V4(Ipv4Addr::UNSPECIFIED)
+        );
+        assert_eq!(rejection.addresses[0].prefix_len, 32);
+        assert_eq!(rejection.addresses[1].request_id, 8);
+        assert_eq!(
+            rejection.addresses[1].address,
+            IpAddr::V6(Ipv6Addr::UNSPECIFIED)
+        );
+        assert_eq!(rejection.addresses[1].prefix_len, 128);
+        assert!(!loopback.control.borrow().assignments_advertised);
+        drop((loopback.send, receive));
+    }
+
+    #[tokio::test]
+    async fn h2_unknown_capsule_does_not_desync_subsequent_datagram() {
+        let mut loopback = connect_h2_loopback().await;
+        let unknown = ConnectIpCapsule::Unknown {
+            capsule_type: 42,
+            payload: Bytes::from_static(b"future"),
+        }
+        .encode()
+        .unwrap();
+        let packet = ipv4_packet();
+        let datagram = encode_datagram_capsule(&packet).unwrap();
+
+        peer_send_all(&mut loopback.peer_send, unknown.slice(..3)).await;
+        peer_send_all(&mut loopback.peer_send, unknown.slice(3..)).await;
+        peer_send_all(&mut loopback.peer_send, datagram).await;
+
+        let received = timeout(Duration::from_secs(2), loopback.receive.receive_packet())
+            .await
+            .expect("datagram after unknown timed out")
+            .expect("datagram after unknown");
+        assert_eq!(received.as_ref(), packet);
+        assert_eq!(*loopback.control.borrow(), PeerNetworkState::default());
+        let _ = loopback.send;
+    }
+
+    #[tokio::test]
+    async fn h2_send_capsule_writes_framed_control_on_request_stream() {
+        let mut loopback = connect_h2_loopback().await;
+        let assignment = ipv4_only_assignment().encode().unwrap();
+        timeout(
+            Duration::from_secs(2),
+            loopback.send.send_capsule(assignment.clone()),
+        )
+        .await
+        .expect("send_capsule timed out")
+        .expect("send_capsule");
+
+        let mut peer_buffer = BytesMut::new();
+        let received = timeout(
+            Duration::from_secs(2),
+            peer_recv_capsule(&mut loopback.peer_recv, &mut peer_buffer),
+        )
+        .await
+        .expect("peer capsule timed out");
+        assert_eq!(received.encode().unwrap(), assignment);
     }
 }

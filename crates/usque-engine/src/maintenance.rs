@@ -220,6 +220,8 @@ fn write_diagnostic_bundle(
             "WARP Secret",
             "private key",
             "access token",
+            "Cloudflare Access assertion",
+            "Zero Trust callback URL",
             "device ID",
             "license",
             "endpoint pin",
@@ -299,7 +301,9 @@ fn configuration_summary(config: &AppConfig) -> serde_json::Value {
                     "http_listener_count": profile.proxy.http_listeners.len(),
                     "system_proxy": profile.proxy.system_proxy,
                     "dns_mode": profile.proxy.dns_mode,
+                    "dns_server_count": profile.proxy.dns_servers.len(),
                     "udp_idle_timeout_seconds": profile.proxy.udp_idle_timeout_seconds,
+                    "listener_auth": profile.proxy.listener_auth_username().is_some(),
                 }
             })
         })

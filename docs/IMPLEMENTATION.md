@@ -1,6 +1,8 @@
-# Usque GUI implementation roadmap
+# Usque implementation progress
 
-This document turns the Windows and Android/Android TV product contract into protected release gates. macOS source is retained for later work but is not built, packaged, tested, or used as a `v0.1.2` gate. A checked item means code exists and its current automated tests pass; it does not by itself authorize a public release.
+This is the Windows and Android / Android TV checklist. macOS source is kept for later work and is not built, packaged, or tested for `v0.1.3`.
+
+A checked item means the code is in the tree and its current automated tests pass. An unchecked item is unfinished, or only valid in an isolated environment that CI does not run.
 
 ## Architecture
 
@@ -12,7 +14,7 @@ flowchart LR
     Agent --> System["TUN · Routes · DNS<br>Firewall · System Proxy"]
     Android["Android Flutter host"] -->|"MethodChannel"| VPN["VpnService in :vpn"]
     VPN -->|"JNI"| Core
-    Oracle["Archived Go oracle"] -. "fixtures and interoperability" .-> Core
+    Oracle["Go oracle snapshot"] -. "fixtures and interoperability" .-> Core
 ```
 
 Desktop UI and engine remain unprivileged. The desktop agent accepts only versioned, authenticated operations for TUN, routes, DNS, firewall state, and system proxy state. Android hosts the Rust `cdylib` inside the dedicated `:vpn` process.
@@ -42,6 +44,7 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] Implement IP.SB dual-stack and geo-location probing interfaces.
 - [x] Add log redaction for secret fields and values.
 - [x] Implement Consumer WARP registration, WARP License Key registration, and manual Secret parsing with zeroized temporary buffers.
+- [x] Add experimental Zero Trust Access callback exchange, secure provider metadata plus a non-secret profile binding, registered endpoint discovery, and rollback-safe profile commits.
 - [x] Port the Abobo7 P-256 Endpoint Pin semantics and authenticated one-shot refresh.
 - [x] Implement bounded RFC 9484 ADDRESS_ASSIGN, ADDRESS_REQUEST, and ROUTE_ADVERTISEMENT codecs.
 - [x] Implement the engine-side protobuf control service and serialized, atomic Profile CRUD.
@@ -49,6 +52,7 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] Interoperate with the live service through forced-H3 and Auto SOCKS5 TCP smoke tests without TUN.
 - [ ] Harden H3 flow control, cancellation, reconnect, probe, and hostile-network behavior for release.
 - [x] Implement the pinned production HTTP/2 + TCP + TLS tunnel with `h2` and BoringSSL.
+- [x] Apply RFC 9484 ADDRESS_ASSIGN / ROUTE_ADVERTISEMENT on the HTTP/2 CONNECT-IP request stream with the same userspace peer-network state as HTTP/3; reject ADDRESS_REQUEST with unspecified ADDRESS_ASSIGN.
 - [x] Apply peer address/route replacements as fail-closed full-tunnel policy,
   degrade withdrawn families, and generate/process required ICMP errors.
 - [x] Implement tunnel DNS for the SOCKS5 TCP data path.
@@ -88,7 +92,8 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] Remove crash-surviving Usque Wintun devices by journaled name/GUID/LUID,
   distinguish true uninstall from major upgrade, and delete only proven-clean
   machine recovery state before MSI removes the Agent binary.
-- [ ] Signed x86-64-v2 and ARM64 MSI packaging plus isolated clean-install/upgrade/uninstall validation.
+- [x] Signed x64-v2 and ARM64 MSI packaging.
+- [ ] Isolated clean-install, upgrade, and uninstall validation.
 
 ### Android and Android TV
 
@@ -102,9 +107,12 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] Automatic Consumer registration through Rust before Android Keystore persistence.
 - [x] Export a saved Secret through Android SAF after explicit confirmation, without revealing it in the UI or diagnostics.
 - [x] Implement `VpnService.Builder` address/DNS setup, API 26–32 CIDR complements, API 33+ exclusions, a 256-route ceiling, retained TUN reconnects, `protect(fd)`, and underlying-network rebinding.
+- [x] Add device-scoped Android per-app proxy (include-only `addAllowedApplication`) stored in app settings, not the Profile.
+- [x] Fail-closed Android reconnect: retain the TUN fd when Kill Switch is armed and the address/DNS/MTU/route identity is unchanged; establish a replacement TUN before closing the old one when that identity changes.
+- [x] Expose Android start-on-boot, Quick Settings tile request, and a deep link to system Always-on VPN settings.
 - [ ] Sleep, network-switch, and TV lifecycle tests.
 
-### macOS (deferred; not a v0.1.2 gate)
+### macOS (deferred; not a v0.1.3 gate)
 
 - [x] Current-user Unix Socket permissions, peer-UID validation, and protobuf engine IPC.
 - [x] Connect the Flutter macOS host to the Unix Socket client and sidecar lifecycle.
@@ -122,17 +130,22 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] White/orange visual system, dark mode, and Lucide-only interface icons.
 - [x] Exact default endpoints, SNI, MTU, DNS, listener addresses, and reset action.
 - [x] Composable VPN/SOCKS5/HTTP outputs, Windows system-proxy dependency, and non-loopback listener warning.
-- [x] Remote/configured/system Proxy DNS selection with an explicit local-DNS leak warning.
+- [x] Remote/custom/system Proxy DNS selection with dedicated IPv4/IPv6 servers and an explicit local-DNS leak warning.
 - [x] Exit location, IPv4, IPv6, protocol, family, duration, and traffic UI.
 - [x] English and Simplified Chinese string catalogs.
 - [x] Adaptive desktop/mobile navigation and focusable Material controls.
 - [x] Retain a bounded, corruption-safe one-time reader for the legacy Flutter Profile draft.
 - [x] Make versioned Rust configuration the authoritative Profile store on Windows and Android, then remove the migrated Flutter draft.
 - [x] Connect desktop and Android identity provisioning to their platform vaults.
+- [x] Add Windows manual Zero Trust callback entry and an Android process-local, same-team, single-consumption protocol callback.
+- [x] Add Windows clipboard fill, live Access-callback validation, optional current-user HKCU protocol association, and single-instance URI forwarding.
 - [x] Keep identity plaintext hidden while supporting explicit, confirmed Secret export to a user-selected destination.
 - [x] Add per-Profile output toggles, frontend status chips, shared-session totals, WARP License Key management, and platform quick actions.
 - [x] Apply online output changes through a rollback-capable desktop reconnect or one controlled Android reconnect.
-- [ ] Replace controlled reconnects with true no-drop frontend hot mutation while retaining the same MASQUE channel.
+- [x] Keep the MASQUE session across SOCKS/HTTP listener changes, Windows system-proxy lease changes, and VPN attach/detach; advertise `hot_reconfigure`.
+- [x] Surface real Kill Switch / Always-on / Lockdown state on Home and wire Retry to the existing control retry path.
+- [x] Honor profile `auto_connect` once at process start (and Android boot when start-on-boot is also on).
+- [x] Replace controlled reconnects with true no-drop frontend hot mutation while retaining the same MASQUE channel.
 - [x] Fetch fixed-version `flag-icons` SVG through the active tunnel, validate it, cache it, and return SVG bytes to Flutter.
 - [x] Add diagnostics content review plus Windows and Android native save pickers; exported bundles contain bounded sanitized summaries and logs.
 - [x] Add manual and rate-limited automatic GitHub release checks without automatic installation.
@@ -144,18 +157,12 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 
 - [ ] Real-device H3/H2 interoperability and hostile-network matrix.
 - [ ] IPv4, IPv6, DNS, route, reconnect, crash, sleep/wake, and real-MSI uninstall leak tests.
-- [ ] Throughput >= 90% of Go oracle, p95 latency regression <= 10%, memory <= 125%.
-- [ ] Stable signing identities and published fingerprints.
-- [ ] All declared packages built from one protected SemVer tag.
-- [ ] SHA-256, SPDX/CycloneDX SBOM, provenance, commit, certificate fingerprint, and license inventory.
+- [ ] Throughput, latency, and memory versus the Go oracle (wish targets: throughput >= 90%, p95 latency regression <= 10%, memory <= 125%). These are not v0.1.3 release gates, and the pipeline does not measure them yet.
+- [x] Stable signing identities and published fingerprints.
+- [x] All declared packages built from the `v0.1.3` tag on `main`.
+- [x] SHA-256, SPDX/CycloneDX SBOM, provenance, commit, certificate fingerprint, and license inventory.
 - [ ] Clean-machine installation and removal validation for every artifact.
 
-The release workflow must remain disabled or fail closed while any Windows or
-Android artifact, signing input, architecture, required CI result, manifest,
-SBOM, or attestation is missing. A locally built binary cannot replace a failed
-GitHub Actions artifact. The real-device and hostile-network items above remain
-release-hardening work, but are not automated publication gates.
+The release workflow fails if a Windows or Android artifact, signing input, architecture check, required CI result, manifest, SBOM, or attestation is missing. A local binary cannot replace a failed GitHub Actions artifact. Real-device, leak, performance, and clean-machine items above are still open hardening work.
 
-The protected signing and supply-chain workflow is specified in
-[RELEASE.md](RELEASE.md). The approval-protected publish job re-verifies all six
-signed artifacts against the immutable manifest before creating the release.
+How `v0.1.3` is built and published is in [RELEASE.md](RELEASE.md).

@@ -27,9 +27,10 @@ use jni::{
 };
 use serde::{Deserialize, Serialize};
 use usque_core::{
-    AppConfig, ConsumerRegistrationClient, DnsMode, EndpointSettings, FrontendSettings, IpPolicy,
-    OperatingMode, Profile, ProxyDnsMode, ProxySettings, RegistrationOptions, TransportPolicy,
-    WarpIdentity, parse_manual_warp_secret, storage::ConfigStore, update::UpdateChecker,
+    AppConfig, ConsumerRegistrationClient, DnsMode, EndpointSettings, FrontendSettings,
+    IdentityProvider, IpPolicy, OperatingMode, Profile, ProxyDnsMode, ProxySettings,
+    RegistrationError, RegistrationOptions, TransportPolicy, WarpIdentity,
+    parse_manual_warp_secret, storage::ConfigStore, update::UpdateChecker,
 };
 #[cfg(target_os = "android")]
 use usque_transport::{
@@ -46,6 +47,10 @@ pub const START_INVALID_PROFILE: i32 = -5;
 pub const START_PLATFORM_FAILURE: i32 = -6;
 pub const START_TRANSPORT_FAILURE: i32 = -7;
 pub const START_TUN_FAILURE: i32 = -8;
+pub const RECONFIGURE_OK: i32 = 0;
+pub const RECONFIGURE_NEED_COLD: i32 = 1;
+pub const RECONFIGURE_NEED_ATTACH: i32 = 2;
+pub const RECONFIGURE_NOT_RUNNING: i32 = -10;
 
 #[derive(Debug)]
 struct JniCode(jint);
@@ -90,6 +95,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeSta
     tun_file_descriptor: jint,
     profile_json: JString<'local>,
     warp_secret: JByteArray<'local>,
+    proxy_password: JByteArray<'local>,
     vpn_service: JObject<'local>,
 ) -> jint {
     with_jni_code(&mut environment, |environment| {
@@ -98,6 +104,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeSta
             tun_file_descriptor,
             profile_json,
             warp_secret,
+            proxy_password,
             vpn_service,
         )
     })
@@ -108,6 +115,7 @@ fn native_start<'local>(
     tun_file_descriptor: jint,
     profile_json: JString<'local>,
     warp_secret: JByteArray<'local>,
+    proxy_password: JByteArray<'local>,
     vpn_service: JObject<'local>,
 ) -> jint {
     if tun_file_descriptor < 0 || !engine_ready() {
@@ -122,8 +130,16 @@ fn native_start<'local>(
         Err(_) => return INVALID_WARP_SECRET,
     };
     let profile = match parse_android_profile(&profile_json) {
-        Ok(profile) if profile.mode == OperatingMode::Vpn => profile,
+        Ok(profile) if profile.frontends.tunnel => profile,
         _ => return START_INVALID_PROFILE,
+    };
+    let proxy_password = match environment.convert_byte_array(&proxy_password) {
+        Ok(value) => Zeroizing::new(value),
+        Err(_) => return START_INVALID_PROFILE,
+    };
+    let profile = match attach_android_proxy_password(profile, proxy_password) {
+        Ok(profile) => profile,
+        Err(code) => return code,
     };
     let identity = match warp_identity_from_secret(&secret) {
         Ok(identity) => identity,
@@ -166,10 +182,17 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeSta
     _class: JClass<'local>,
     profile_json: JString<'local>,
     warp_secret: JByteArray<'local>,
+    proxy_password: JByteArray<'local>,
     vpn_service: JObject<'local>,
 ) -> jint {
     with_jni_code(&mut environment, |environment| {
-        native_start_proxy(environment, profile_json, warp_secret, vpn_service)
+        native_start_proxy(
+            environment,
+            profile_json,
+            warp_secret,
+            proxy_password,
+            vpn_service,
+        )
     })
 }
 
@@ -177,6 +200,7 @@ fn native_start_proxy<'local>(
     environment: &mut Env<'local>,
     profile_json: JString<'local>,
     warp_secret: JByteArray<'local>,
+    proxy_password: JByteArray<'local>,
     vpn_service: JObject<'local>,
 ) -> jint {
     if !engine_ready() {
@@ -191,15 +215,16 @@ fn native_start_proxy<'local>(
         Err(_) => return INVALID_WARP_SECRET,
     };
     let profile = match parse_android_profile(&profile_json) {
-        Ok(profile)
-            if matches!(
-                profile.mode,
-                OperatingMode::Socks5 | OperatingMode::HttpProxy
-            ) =>
-        {
-            profile
-        }
+        Ok(profile) if !profile.frontends.tunnel => profile,
         _ => return START_INVALID_PROFILE,
+    };
+    let proxy_password = match environment.convert_byte_array(&proxy_password) {
+        Ok(value) => Zeroizing::new(value),
+        Err(_) => return START_INVALID_PROFILE,
+    };
+    let profile = match attach_android_proxy_password(profile, proxy_password) {
+        Ok(profile) => profile,
+        Err(code) => return code,
     };
     let identity = match warp_identity_from_secret(&secret) {
         Ok(identity) => identity,
@@ -264,6 +289,56 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeNot
             notify_network_changed(generation as u64);
         }
     });
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeReconfigure<'local>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    profile_json: JString<'local>,
+) -> jint {
+    with_jni_code(&mut environment, |environment| {
+        let profile_json = match profile_json.try_to_string(environment) {
+            Ok(value) => value,
+            Err(_) => return START_INVALID_PROFILE,
+        };
+        let profile = match parse_android_profile(&profile_json) {
+            Ok(profile) => profile,
+            Err(_) => return START_INVALID_PROFILE,
+        };
+        reconfigure_engine(profile)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeAttachTun<'local>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    tun_file_descriptor: jint,
+    profile_json: JString<'local>,
+) -> jint {
+    with_jni_code(&mut environment, |environment| {
+        if tun_file_descriptor < 0 {
+            return START_TUN_FAILURE;
+        }
+        let profile_json = match profile_json.try_to_string(environment) {
+            Ok(value) => value,
+            Err(_) => return START_INVALID_PROFILE,
+        };
+        let profile = match parse_android_profile(&profile_json) {
+            Ok(profile) => profile,
+            Err(_) => return START_INVALID_PROFILE,
+        };
+        attach_tun_engine(tun_file_descriptor, profile)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeDetachTun<'local>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
+) -> jint {
+    with_jni_code(&mut environment, |_| detach_tun_engine())
 }
 
 #[unsafe(no_mangle)]
@@ -428,6 +503,64 @@ fn native_register_consumer_warp_with_license(
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeRegisterZeroTrustWarp<
+    'local,
+>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    locale: JString<'local>,
+    team: JString<'local>,
+    callback_uri: JString<'local>,
+) -> jbyteArray {
+    with_jni_env(&mut environment, |environment| {
+        native_register_zero_trust_warp(environment, locale, team, callback_uri)
+    })
+}
+
+fn native_register_zero_trust_warp(
+    environment: &mut Env<'_>,
+    locale: JString<'_>,
+    team: JString<'_>,
+    callback_uri: JString<'_>,
+) -> jbyteArray {
+    let locale = match locale.try_to_string(environment) {
+        Ok(value) => value,
+        Err(error) => {
+            throw_io_error(environment, &error.to_string());
+            return std::ptr::null_mut();
+        }
+    };
+    let team = match team.try_to_string(environment) {
+        Ok(value) => value,
+        Err(error) => {
+            throw_io_error(environment, &error.to_string());
+            return std::ptr::null_mut();
+        }
+    };
+    let callback_uri = match callback_uri.try_to_string(environment) {
+        Ok(value) => Zeroizing::new(value),
+        Err(error) => {
+            throw_io_error(environment, &error.to_string());
+            return std::ptr::null_mut();
+        }
+    };
+    let envelope = match register_zero_trust_warp(&locale, &team, &callback_uri) {
+        Ok(value) => value,
+        Err(error) => {
+            throw_io_error(environment, &error);
+            return std::ptr::null_mut();
+        }
+    };
+    match environment.byte_array_from_slice(envelope.as_bytes()) {
+        Ok(output) => output.into_raw(),
+        Err(error) => {
+            throw_io_error(environment, &error.to_string());
+            std::ptr::null_mut()
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeUnbindConsumerWarp<
     'local,
 >(
@@ -561,6 +694,8 @@ fn validate_warp_secret_bytes(secret: &[u8]) -> jint {
 struct IdentityMetadata {
     ipv4: String,
     ipv6: String,
+    provider: &'static str,
+    organization: Option<String>,
 }
 
 fn identity_metadata(secret: &[u8]) -> Result<IdentityMetadata, String> {
@@ -569,6 +704,11 @@ fn identity_metadata(secret: &[u8]) -> Result<IdentityMetadata, String> {
     Ok(IdentityMetadata {
         ipv4: identity.assigned_ipv4.to_string(),
         ipv6: identity.assigned_ipv6.to_string(),
+        provider: match identity.provider() {
+            IdentityProvider::Consumer => "consumer",
+            IdentityProvider::ZeroTrust { .. } => "zeroTrust",
+        },
+        organization: identity.provider().organization().map(ToOwned::to_owned),
     })
 }
 
@@ -613,6 +753,20 @@ struct AndroidProxy {
     http_ipv6: String,
     http_port: u16,
     dns_mode: String,
+    #[serde(default = "default_proxy_dns_v4")]
+    dns_v4: String,
+    #[serde(default = "default_proxy_dns_v6")]
+    dns_v6: String,
+    #[serde(default)]
+    auth_username: Option<String>,
+}
+
+fn default_proxy_dns_v4() -> String {
+    usque_core::config::DEFAULT_DNS_V4.to_string()
+}
+
+fn default_proxy_dns_v6() -> String {
+    usque_core::config::DEFAULT_DNS_V6.to_string()
 }
 
 fn parse_android_profile(json: &str) -> Result<Profile, String> {
@@ -664,13 +818,25 @@ fn android_profile_to_core(source: AndroidProfile) -> Result<Profile, String> {
             socks5: frontends.socks5,
             http: frontends.http,
         })
-        .unwrap_or_else(FrontendSettings::android_default);
+        .unwrap_or_else(|| match mode {
+            OperatingMode::Vpn => FrontendSettings::android_default(),
+            OperatingMode::Socks5 => FrontendSettings {
+                tunnel: false,
+                socks5: true,
+                http: true,
+            },
+            OperatingMode::HttpProxy => FrontendSettings {
+                tunnel: false,
+                socks5: false,
+                http: true,
+            },
+        });
 
     let socks_ipv4: IpAddr = parse_value(&source.proxy.socks_ipv4, "SOCKS5 IPv4 listener")?;
     let socks_ipv6: IpAddr = parse_value(&source.proxy.socks_ipv6, "SOCKS5 IPv6 listener")?;
     let http_ipv4: IpAddr = parse_value(&source.proxy.http_ipv4, "HTTP IPv4 listener")?;
     let http_ipv6: IpAddr = parse_value(&source.proxy.http_ipv6, "HTTP IPv6 listener")?;
-    let profile = Profile {
+    let mut profile = Profile {
         id: parse_value(&source.id, "profile ID")?,
         name: source.name,
         mode,
@@ -709,10 +875,40 @@ fn android_profile_to_core(source: AndroidProfile) -> Result<Profile, String> {
             system_proxy: false,
             udp_idle_timeout_seconds: 60,
             dns_mode: proxy_dns_mode,
+            dns_servers: vec![
+                parse_value(&source.proxy.dns_v4, "proxy DNS IPv4")?,
+                parse_value(&source.proxy.dns_v6, "proxy DNS IPv6")?,
+            ],
+            auth_username: source.proxy.auth_username.filter(|value| !value.is_empty()),
+            auth_password: None,
         },
     };
+    profile.canonicalize_mode();
     profile.validate().map_err(|error| error.to_string())?;
     Ok(profile)
+}
+
+fn attach_android_proxy_password(
+    mut profile: Profile,
+    password: Zeroizing<Vec<u8>>,
+) -> Result<Profile, i32> {
+    profile.proxy.normalize_auth();
+    match profile.proxy.listener_auth_username() {
+        None => {
+            profile.proxy.auth_password = None;
+            Ok(profile)
+        }
+        Some(_) => {
+            if password.is_empty() {
+                return Err(START_INVALID_PROFILE);
+            }
+            profile.proxy.auth_password = Some(password);
+            if profile.proxy.listener_credentials().is_err() {
+                return Err(START_INVALID_PROFILE);
+            }
+            Ok(profile)
+        }
+    }
 }
 
 fn parse_value<T>(value: &str, label: &str) -> Result<T, String>
@@ -731,6 +927,8 @@ enum AndroidConfigCommand {
     },
     UpsertProfile {
         profile: Box<AndroidProfile>,
+        identity_provider: Option<String>,
+        organization: Option<String>,
     },
     DeleteProfile {
         profile_id: String,
@@ -746,12 +944,17 @@ enum AndroidConfigCommand {
     },
     CommitProfileWithIdentity {
         profile: Box<AndroidProfile>,
+        identity_provider: Option<String>,
+        organization: Option<String>,
     },
     CompleteIdentityCreations {
         profile_ids: Vec<String>,
     },
     ClearAllData,
     ListProfiles,
+    ReconfigureActiveProfile {
+        profile: Box<AndroidProfile>,
+    },
 }
 
 fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String, String> {
@@ -807,15 +1010,40 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
                 changed = true;
             }
         }
-        AndroidConfigCommand::UpsertProfile { profile } => {
-            let profile = android_profile_to_core(*profile)?;
+        AndroidConfigCommand::UpsertProfile {
+            profile,
+            identity_provider,
+            organization,
+        } => {
+            let binding = parse_identity_binding(identity_provider, organization)?;
+            let mut profile = android_profile_to_core(*profile)?;
+            let profile_id = profile.id;
             match config
                 .profiles
                 .iter()
                 .position(|existing| existing.id == profile.id)
             {
-                Some(index) => config.profiles[index] = profile,
+                Some(index) => {
+                    if let (Some(existing), Some(incoming)) =
+                        (config.identity_bindings.get(&profile.id), binding.as_ref())
+                        && existing != incoming
+                    {
+                        return Err("profile identity provider cannot be changed".to_owned());
+                    }
+                    if binding.is_none()
+                        && matches!(
+                            config.identity_bindings.get(&profile.id),
+                            Some(IdentityProvider::ZeroTrust { .. })
+                        )
+                    {
+                        profile.endpoint = config.profiles[index].endpoint.clone();
+                    }
+                    config.profiles[index] = profile;
+                }
                 None => config.profiles.push(profile),
+            }
+            if let Some(binding) = binding {
+                config.identity_bindings.insert(profile_id, binding);
             }
             config.preferences.profiles_migrated_from_flutter = true;
             changed = true;
@@ -831,6 +1059,7 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
                 .position(|profile| profile.id == profile_id)
                 .ok_or_else(|| "profile does not exist".to_owned())?;
             config.profiles.remove(index);
+            config.identity_bindings.remove(&profile_id);
             if config.active_profile_id == Some(profile_id) {
                 config.active_profile_id = config.profiles.first().map(|profile| profile.id);
             }
@@ -878,7 +1107,12 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
             }
             changed = true;
         }
-        AndroidConfigCommand::CommitProfileWithIdentity { profile } => {
+        AndroidConfigCommand::CommitProfileWithIdentity {
+            profile,
+            identity_provider,
+            organization,
+        } => {
+            let binding = parse_identity_binding(identity_provider, organization)?;
             let profile = android_profile_to_core(*profile)?;
             if !config.pending_identity_creations.contains(&profile.id) {
                 return Err("profile identity creation was not prepared".to_owned());
@@ -893,6 +1127,9 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
             config
                 .pending_identity_creations
                 .retain(|profile_id| *profile_id != profile.id);
+            if let Some(binding) = binding {
+                config.identity_bindings.insert(profile.id, binding);
+            }
             config.profiles.push(profile);
             config.preferences.profiles_migrated_from_flutter = true;
             changed = true;
@@ -915,6 +1152,25 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
             changed = true;
         }
         AndroidConfigCommand::ListProfiles => {}
+        AndroidConfigCommand::ReconfigureActiveProfile { profile } => {
+            let next = android_profile_to_core(*profile)?;
+            if config.active_profile_id != Some(next.id) {
+                return Err("only the Active Profile can be reconfigured".to_owned());
+            }
+            let index = config
+                .profiles
+                .iter()
+                .position(|candidate| candidate.id == next.id)
+                .ok_or_else(|| "profile does not exist".to_owned())?;
+            if next.proxy.listener_auth_username().is_none() {
+                let mut stored = next;
+                stored.proxy.auth_username = config.profiles[index].proxy.auth_username.clone();
+                config.profiles[index] = stored;
+            } else {
+                config.profiles[index] = next;
+            }
+            changed = true;
+        }
     }
 
     config.validate().map_err(|error| error.to_string())?;
@@ -932,7 +1188,9 @@ fn android_profile_catalog(config: &AppConfig) -> serde_json::Value {
         "profiles": config
             .profiles
             .iter()
-            .map(android_profile_value)
+            .map(|profile| {
+                android_profile_value(profile, config.identity_bindings.get(&profile.id))
+            })
             .collect::<Vec<_>>(),
         "active_profile_id": config
             .active_profile_id
@@ -951,7 +1209,10 @@ fn android_profile_catalog(config: &AppConfig) -> serde_json::Value {
     })
 }
 
-fn android_profile_value(profile: &Profile) -> serde_json::Value {
+fn android_profile_value(
+    profile: &Profile,
+    binding: Option<&IdentityProvider>,
+) -> serde_json::Value {
     let dns_ipv4 = profile
         .dns_servers
         .iter()
@@ -997,6 +1258,14 @@ fn android_profile_value(profile: &Profile) -> serde_json::Value {
         "endpoint_v6": profile.endpoint.ipv6.to_string(),
         "endpoint_port": profile.endpoint.port,
         "sni": profile.endpoint.sni,
+        "identity_provider": match binding {
+            Some(IdentityProvider::Consumer) => "consumer",
+            Some(IdentityProvider::ZeroTrust { .. }) => "zero_trust",
+            None => "",
+        },
+        "identity_organization": binding
+            .and_then(IdentityProvider::organization)
+            .unwrap_or_default(),
         "mtu": profile.mtu,
         "dns_v4": dns_ipv4.to_string(),
         "dns_v6": dns_ipv6.to_string(),
@@ -1025,9 +1294,50 @@ fn android_profile_value(profile: &Profile) -> serde_json::Value {
                 ProxyDnsMode::LocalConfigured => "localConfigured",
                 ProxyDnsMode::System => "system",
             },
+            "dns_v4": profile
+                .proxy
+                .dns_servers
+                .iter()
+                .find(|server| server.is_ipv4())
+                .copied()
+                .unwrap_or_else(|| usque_core::config::DEFAULT_DNS_V4.into())
+                .to_string(),
+            "dns_v6": profile
+                .proxy
+                .dns_servers
+                .iter()
+                .find(|server| server.is_ipv6())
+                .copied()
+                .unwrap_or_else(|| usque_core::config::DEFAULT_DNS_V6.into())
+                .to_string(),
             "system_proxy": profile.proxy.system_proxy,
+            "auth_username": profile
+                .proxy
+                .listener_auth_username()
+                .unwrap_or_default(),
         }
     })
+}
+
+fn parse_identity_binding(
+    provider: Option<String>,
+    organization: Option<String>,
+) -> Result<Option<IdentityProvider>, String> {
+    match provider.as_deref() {
+        None | Some("") if organization.as_deref().unwrap_or_default().is_empty() => Ok(None),
+        Some("consumer") if organization.as_deref().unwrap_or_default().is_empty() => {
+            Ok(Some(IdentityProvider::Consumer))
+        }
+        Some("zero_trust") => {
+            let organization = organization.ok_or_else(|| {
+                "Zero Trust identity binding is missing its organization".to_owned()
+            })?;
+            IdentityProvider::zero_trust(organization)
+                .map(Some)
+                .map_err(|_| "Zero Trust identity binding is invalid".to_owned())
+        }
+        _ => Err("profile identity binding is invalid".to_owned()),
+    }
 }
 
 fn listener_for_family(listeners: &[SocketAddr], ipv4: bool) -> SocketAddr {
@@ -1349,690 +1659,7 @@ impl NativeSnapshot {
 }
 
 #[cfg(target_os = "android")]
-mod android_runtime {
-    use std::io;
-    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
-    use std::sync::{Arc, Mutex, OnceLock, atomic::Ordering};
-    use std::thread::JoinHandle;
-    use std::time::{Duration, Instant};
-
-    use tokio::io::unix::AsyncFd;
-    use tokio::time::{MissedTickBehavior, interval};
-    use tokio_util::sync::CancellationToken;
-    use usque_core::{AddressFamily, IpSbProbe, OperatingMode, Transport, WarpIdentity};
-    use usque_transport::{
-        EndpointPinRefresher, MasqueRuntime, ProxyRuntime, RuntimeHealth, TrafficSnapshot,
-        TransportError,
-    };
-
-    use super::{
-        AndroidEndpointPinRefresher, AndroidSocketProtector, MasqueTlsIdentity, NativeSnapshot,
-        Profile, START_ALREADY_RUNNING, START_OK, START_PLATFORM_FAILURE, START_TRANSPORT_FAILURE,
-        START_TUN_FAILURE, SocketProtector,
-    };
-
-    static ENGINE: OnceLock<Mutex<Option<EngineHandle>>> = OnceLock::new();
-    static LAST_START_ERROR: OnceLock<Mutex<Option<NativeSnapshot>>> = OnceLock::new();
-
-    struct EngineHandle {
-        cancellation: CancellationToken,
-        status: Arc<Mutex<NativeSnapshot>>,
-        protector: Arc<AndroidSocketProtector>,
-        thread: JoinHandle<()>,
-    }
-
-    pub(super) fn start(
-        tun_file_descriptor: i32,
-        profile: Profile,
-        identity: WarpIdentity,
-        protector: Arc<AndroidSocketProtector>,
-    ) -> i32 {
-        clear_last_start_error();
-        let engine = ENGINE.get_or_init(|| Mutex::new(None));
-        let mut slot = match engine.lock() {
-            Ok(slot) => slot,
-            Err(_) => return START_PLATFORM_FAILURE,
-        };
-        if slot.is_some() {
-            return START_ALREADY_RUNNING;
-        }
-
-        // SAFETY: tun_file_descriptor is the VpnService TUN FD passed from Java.
-        let duplicated = unsafe { libc::dup(tun_file_descriptor) };
-        if duplicated < 0 {
-            return START_TUN_FAILURE;
-        }
-        // SAFETY: duplicated is a freshly owned FD from dup; ownership transfers
-        // to OwnedFd.
-        let owned = unsafe { OwnedFd::from_raw_fd(duplicated) };
-        if let Err(error) = set_nonblocking(&owned) {
-            tracing::error!(%error, "could not make Android TUN nonblocking");
-            return START_TUN_FAILURE;
-        }
-        let tls_identity = match MasqueTlsIdentity::from_warp_identity(&identity) {
-            Ok(identity) => identity,
-            Err(_) => return START_TRANSPORT_FAILURE,
-        };
-        let pin_refresher: Arc<dyn EndpointPinRefresher> = Arc::new(AndroidEndpointPinRefresher {
-            profile_id: profile.id.to_string(),
-            identity: tokio::sync::Mutex::new(identity),
-            protector: Arc::clone(&protector),
-        });
-
-        let cancellation = CancellationToken::new();
-        let status = Arc::new(Mutex::new(NativeSnapshot::preparing()));
-        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
-        let thread_cancel = cancellation.clone();
-        let thread_status = Arc::clone(&status);
-        let handle_protector = Arc::clone(&protector);
-        let thread = std::thread::Builder::new()
-            .name("usque-vpn".to_owned())
-            .spawn(move || {
-                let runtime = match tokio::runtime::Builder::new_multi_thread()
-                    .worker_threads(2)
-                    .enable_all()
-                    .build()
-                {
-                    Ok(runtime) => runtime,
-                    Err(error) => {
-                        set_error_with_code(
-                            &thread_status,
-                            "ANDROID_RUNTIME_FAILED",
-                            format!("Tokio runtime failed: {error}"),
-                        );
-                        let _ = started_tx.send(START_PLATFORM_FAILURE);
-                        return;
-                    }
-                };
-                runtime.block_on(run(
-                    owned,
-                    profile,
-                    tls_identity,
-                    protector,
-                    pin_refresher,
-                    thread_cancel,
-                    thread_status,
-                    started_tx,
-                ));
-            });
-        let thread = match thread {
-            Ok(thread) => thread,
-            Err(_) => return START_PLATFORM_FAILURE,
-        };
-        *slot = Some(EngineHandle {
-            cancellation,
-            status: Arc::clone(&status),
-            protector: handle_protector,
-            thread,
-        });
-        drop(slot);
-
-        let result = match started_rx.recv_timeout(Duration::from_secs(30)) {
-            Ok(result) => result,
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                set_error_with_code(
-                    &status,
-                    "ANDROID_START_TIMEOUT",
-                    "The Android native data channel did not start within 30 seconds.".to_owned(),
-                );
-                START_TRANSPORT_FAILURE
-            }
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                set_error_with_code(
-                    &status,
-                    "ANDROID_RUNTIME_FAILED",
-                    "The Android native runtime exited before reporting startup status.".to_owned(),
-                );
-                START_PLATFORM_FAILURE
-            }
-        };
-        if result != START_OK {
-            let failure = snapshot();
-            stop();
-            remember_last_start_error(failure);
-        }
-        result
-    }
-
-    pub(super) fn start_proxy(
-        profile: Profile,
-        identity: WarpIdentity,
-        protector: Arc<AndroidSocketProtector>,
-    ) -> i32 {
-        clear_last_start_error();
-        let engine = ENGINE.get_or_init(|| Mutex::new(None));
-        let mut slot = match engine.lock() {
-            Ok(slot) => slot,
-            Err(_) => return START_PLATFORM_FAILURE,
-        };
-        if slot.is_some() {
-            return START_ALREADY_RUNNING;
-        }
-        let tls_identity = match MasqueTlsIdentity::from_warp_identity(&identity) {
-            Ok(identity) => identity,
-            Err(_) => return START_TRANSPORT_FAILURE,
-        };
-        let pin_refresher: Arc<dyn EndpointPinRefresher> = Arc::new(AndroidEndpointPinRefresher {
-            profile_id: profile.id.to_string(),
-            identity: tokio::sync::Mutex::new(identity),
-            protector: Arc::clone(&protector),
-        });
-
-        let cancellation = CancellationToken::new();
-        let status = Arc::new(Mutex::new(NativeSnapshot::preparing()));
-        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
-        let thread_cancel = cancellation.clone();
-        let thread_status = Arc::clone(&status);
-        let handle_protector = Arc::clone(&protector);
-        let thread = std::thread::Builder::new()
-            .name("usque-proxy".to_owned())
-            .spawn(move || {
-                let runtime = match tokio::runtime::Builder::new_multi_thread()
-                    .worker_threads(2)
-                    .enable_all()
-                    .build()
-                {
-                    Ok(runtime) => runtime,
-                    Err(error) => {
-                        set_error_with_code(
-                            &thread_status,
-                            "ANDROID_RUNTIME_FAILED",
-                            format!("Tokio runtime failed: {error}"),
-                        );
-                        let _ = started_tx.send(START_PLATFORM_FAILURE);
-                        return;
-                    }
-                };
-                runtime.block_on(run_proxy(
-                    profile,
-                    tls_identity,
-                    protector,
-                    pin_refresher,
-                    thread_cancel,
-                    thread_status,
-                    started_tx,
-                ));
-            });
-        let thread = match thread {
-            Ok(thread) => thread,
-            Err(_) => return START_PLATFORM_FAILURE,
-        };
-        *slot = Some(EngineHandle {
-            cancellation,
-            status: Arc::clone(&status),
-            protector: handle_protector,
-            thread,
-        });
-        drop(slot);
-
-        let result = match started_rx.recv_timeout(Duration::from_secs(30)) {
-            Ok(result) => result,
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                set_error_with_code(
-                    &status,
-                    "ANDROID_START_TIMEOUT",
-                    "The Android native proxy did not start within 30 seconds.".to_owned(),
-                );
-                START_TRANSPORT_FAILURE
-            }
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                set_error_with_code(
-                    &status,
-                    "ANDROID_RUNTIME_FAILED",
-                    "The Android native proxy exited before reporting startup status.".to_owned(),
-                );
-                START_PLATFORM_FAILURE
-            }
-        };
-        if result != START_OK {
-            let failure = snapshot();
-            stop();
-            remember_last_start_error(failure);
-        }
-        result
-    }
-
-    pub(super) fn stop() {
-        clear_last_start_error();
-        let Some(engine) = ENGINE.get() else {
-            return;
-        };
-        let handle = engine.lock().ok().and_then(|mut slot| slot.take());
-        if let Some(handle) = handle {
-            handle.cancellation.cancel();
-            let _ = handle.thread.join();
-        }
-    }
-
-    pub(super) fn cancel() {
-        let Some(engine) = ENGINE.get() else {
-            return;
-        };
-        let Ok(slot) = engine.lock() else {
-            return;
-        };
-        if let Some(handle) = slot.as_ref() {
-            handle.cancellation.cancel();
-        }
-    }
-
-    pub(super) fn notify_network_changed(generation: u64) {
-        let Some(engine) = ENGINE.get() else {
-            return;
-        };
-        let Ok(slot) = engine.lock() else {
-            return;
-        };
-        if let Some(handle) = slot.as_ref() {
-            handle
-                .protector
-                .network_generation
-                .store(generation, Ordering::Release);
-        }
-    }
-
-    pub(super) fn snapshot() -> NativeSnapshot {
-        ENGINE
-            .get()
-            .and_then(|engine| engine.lock().ok())
-            .and_then(|slot| {
-                slot.as_ref()
-                    .and_then(|handle| handle.status.lock().ok())
-                    .map(|status| status.clone())
-            })
-            .or_else(last_start_error)
-            .unwrap_or_else(NativeSnapshot::disconnected)
-    }
-
-    fn clear_last_start_error() {
-        if let Ok(mut error) = LAST_START_ERROR.get_or_init(|| Mutex::new(None)).lock() {
-            *error = None;
-        }
-    }
-
-    fn remember_last_start_error(snapshot: NativeSnapshot) {
-        if let Ok(mut error) = LAST_START_ERROR.get_or_init(|| Mutex::new(None)).lock() {
-            *error = Some(snapshot);
-        }
-    }
-
-    fn last_start_error() -> Option<NativeSnapshot> {
-        LAST_START_ERROR
-            .get()
-            .and_then(|error| error.lock().ok())
-            .and_then(|error| error.clone())
-    }
-
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "VPN runtime threads TUN, profile, identity, protector, pin refresh, cancellation, status, and start handshake as one unit"
-    )]
-    async fn run(
-        tun: OwnedFd,
-        profile: Profile,
-        identity: MasqueTlsIdentity,
-        protector: Arc<dyn SocketProtector>,
-        pin_refresher: Arc<dyn EndpointPinRefresher>,
-        cancellation: CancellationToken,
-        status: Arc<Mutex<NativeSnapshot>>,
-        started: std::sync::mpsc::SyncSender<i32>,
-    ) {
-        let tun = match AsyncFd::new(TunFd(tun)) {
-            Ok(tun) => tun,
-            Err(error) => {
-                set_error_with_code(
-                    &status,
-                    "ANDROID_RUNTIME_FAILED",
-                    format!("register TUN descriptor: {error}"),
-                );
-                let _ = started.send(START_TUN_FAILURE);
-                return;
-            }
-        };
-        let startup =
-            MasqueRuntime::start_with_refresh(&profile, identity, protector, Some(pin_refresher));
-        tokio::pin!(startup);
-        let started_tunnel = tokio::select! {
-            biased;
-            _ = cancellation.cancelled() => {
-                let _ = started.send(START_TRANSPORT_FAILURE);
-                return;
-            }
-            result = &mut startup => result,
-        };
-        let mut tunnel = match started_tunnel {
-            Ok(tunnel) => tunnel,
-            Err(error) => {
-                set_transport_error(&status, &error);
-                let _ = started.send(START_TRANSPORT_FAILURE);
-                return;
-            }
-        };
-        update_health(&status, tunnel.health());
-        if let Ok(mut snapshot) = status.lock() {
-            snapshot.active_listeners =
-                tunnel.listeners().iter().map(ToString::to_string).collect();
-        }
-        let _ = started.send(START_OK);
-        if let Ok(probe) = IpSbProbe::new() {
-            tokio::spawn(populate_exit(Arc::clone(&status), probe));
-        }
-
-        let mut packet = vec![0u8; 65_535];
-        let mut ticker = interval(Duration::from_secs(1));
-        ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
-        let mut last_sample = Instant::now();
-        let mut last_traffic = TrafficSnapshot::default();
-
-        loop {
-            tokio::select! {
-                _ = cancellation.cancelled() => break,
-                read = read_packet(&tun, &mut packet) => {
-                    let length = match read {
-                        Ok(0) => break,
-                        Ok(length) => length,
-                        Err(error) => {
-                            set_error(&status, format!("read Android TUN: {error}"));
-                            break;
-                        }
-                    };
-                    if let Err(error) = tunnel.send_packet(&packet[..length]).await {
-                        set_error(&status, error.to_string());
-                        break;
-                    }
-                }
-                received = tunnel.receive_packet() => {
-                    match received {
-                        Ok(packet) => {
-                            if let Err(error) = write_packet(&tun, &packet).await {
-                                set_error(&status, format!("write Android TUN: {error}"));
-                                break;
-                            }
-                        }
-                        Err(error) => {
-                            set_error(&status, error.to_string());
-                            break;
-                        }
-                    }
-                }
-                _ = ticker.tick() => {
-                    update_health(&status, tunnel.health());
-                    let now = Instant::now();
-                    let current = tunnel.statistics();
-                    let seconds = now.duration_since(last_sample).as_secs_f64().max(0.001);
-                    if let Ok(mut snapshot) = status.lock() {
-                        snapshot.upload_bytes_per_second =
-                            rate(current.bytes_sent, last_traffic.bytes_sent, seconds);
-                        snapshot.download_bytes_per_second =
-                            rate(current.bytes_received, last_traffic.bytes_received, seconds);
-                        snapshot.uploaded_bytes = current.bytes_sent;
-                        snapshot.downloaded_bytes = current.bytes_received;
-                    }
-                    last_sample = now;
-                    last_traffic = current;
-                }
-            }
-        }
-        tunnel.shutdown().await;
-    }
-
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "proxy runtime threads identity, protector, pin refresh, cancellation, status, and start handshake as one unit"
-    )]
-    async fn run_proxy(
-        profile: Profile,
-        identity: MasqueTlsIdentity,
-        protector: Arc<dyn SocketProtector>,
-        pin_refresher: Arc<dyn EndpointPinRefresher>,
-        cancellation: CancellationToken,
-        status: Arc<Mutex<NativeSnapshot>>,
-        started: std::sync::mpsc::SyncSender<i32>,
-    ) {
-        let startup =
-            ProxyRuntime::start_with_refresh(&profile, identity, protector, Some(pin_refresher));
-        tokio::pin!(startup);
-        let started_proxy = tokio::select! {
-            biased;
-            _ = cancellation.cancelled() => {
-                let _ = started.send(START_TRANSPORT_FAILURE);
-                return;
-            }
-            result = &mut startup => result,
-        };
-        let mut proxy = match started_proxy {
-            Ok(proxy) => proxy,
-            Err(error) => {
-                set_transport_error(&status, &error);
-                let _ = started.send(START_TRANSPORT_FAILURE);
-                return;
-            }
-        };
-        update_health(&status, proxy.health());
-        if let Ok(mut snapshot) = status.lock() {
-            snapshot.active_listeners = proxy.listeners().iter().map(ToString::to_string).collect();
-        }
-        let _ = started.send(START_OK);
-        let listener = proxy
-            .listeners()
-            .iter()
-            .copied()
-            .find(|address| address.ip().is_loopback());
-        let probe = match (profile.mode, listener) {
-            (OperatingMode::Socks5, Some(listener)) => IpSbProbe::through_socks(listener).ok(),
-            (OperatingMode::HttpProxy, Some(listener)) => IpSbProbe::through_http(listener).ok(),
-            _ => None,
-        };
-        if let Some(probe) = probe {
-            tokio::spawn(populate_exit(Arc::clone(&status), probe));
-        }
-
-        let mut ticker = interval(Duration::from_secs(1));
-        ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
-        let mut last_sample = Instant::now();
-        let mut last_traffic = TrafficSnapshot::default();
-        loop {
-            tokio::select! {
-                _ = cancellation.cancelled() => break,
-                _ = ticker.tick() => {
-                    update_health(&status, proxy.health());
-                    let now = Instant::now();
-                    let current = proxy.statistics();
-                    let seconds = now.duration_since(last_sample).as_secs_f64().max(0.001);
-                    if let Ok(mut snapshot) = status.lock() {
-                        snapshot.upload_bytes_per_second =
-                            rate(current.bytes_sent, last_traffic.bytes_sent, seconds);
-                        snapshot.download_bytes_per_second =
-                            rate(current.bytes_received, last_traffic.bytes_received, seconds);
-                        snapshot.uploaded_bytes = current.bytes_sent;
-                        snapshot.downloaded_bytes = current.bytes_received;
-                    }
-                    last_sample = now;
-                    last_traffic = current;
-                }
-            }
-        }
-        proxy.shutdown().await;
-    }
-
-    async fn populate_exit(status: Arc<Mutex<NativeSnapshot>>, probe: IpSbProbe) {
-        let Ok(exit) = probe.probe().await else {
-            return;
-        };
-        let location = exit.primary_location().cloned();
-        let flag_svg = location.as_ref().and_then(|value| value.flag_svg.clone());
-        if let Ok(mut snapshot) = status.lock() {
-            snapshot.exit_ipv4 = exit.ipv4.map(|address| address.to_string());
-            snapshot.exit_ipv6 = exit.ipv6.map(|address| address.to_string());
-            snapshot.exit_city = location.as_ref().and_then(|value| value.city.clone());
-            snapshot.exit_country = location.as_ref().and_then(|value| value.country.clone());
-            snapshot.exit_country_code = location
-                .as_ref()
-                .and_then(|value| value.country_code.clone());
-            snapshot.exit_flag_svg = flag_svg;
-        }
-    }
-
-    fn update_health(status: &Arc<Mutex<NativeSnapshot>>, health: RuntimeHealth) {
-        let Ok(mut snapshot) = status.lock() else {
-            return;
-        };
-        let path = health.path();
-        snapshot.transport = Some(
-            match path.transport {
-                Transport::Http3 => "h3",
-                Transport::Http2 => "h2",
-            }
-            .to_owned(),
-        );
-        snapshot.address_family = Some(
-            match path.endpoint_family {
-                AddressFamily::Ipv4 => "ipv4",
-                AddressFamily::Ipv6 => "ipv6",
-            }
-            .to_owned(),
-        );
-        snapshot.reconnect_count = health.reconnect_count();
-        match health {
-            RuntimeHealth::Connected { path, .. } => {
-                let dual_stack = path.ipv4_available && path.ipv6_available;
-                snapshot.phase = if dual_stack { "connected" } else { "degraded" }.to_owned();
-                snapshot.warning = (!dual_stack).then(|| {
-                    if path.ipv4_available {
-                        "The CONNECT-IP peer is not currently routing IPv6; IPv4 remains protected."
-                    } else {
-                        "The CONNECT-IP peer is not currently routing IPv4; IPv6 remains protected."
-                    }
-                    .to_owned()
-                });
-                snapshot.error_code = None;
-            }
-            RuntimeHealth::Reconnecting { reason, .. } => {
-                snapshot.phase = "reconnecting".to_owned();
-                snapshot.warning = Some(reason);
-                snapshot.error_code = None;
-            }
-            RuntimeHealth::Failed { message, .. } => {
-                snapshot.phase = "error".to_owned();
-                snapshot.warning = Some(message);
-                snapshot.error_code = Some("MASQUE_CONNECT_FAILED".to_owned());
-            }
-        }
-    }
-
-    fn set_error(status: &Arc<Mutex<NativeSnapshot>>, message: String) {
-        set_error_with_code(status, "ANDROID_RUNTIME_FAILED", message);
-    }
-
-    fn set_transport_error(status: &Arc<Mutex<NativeSnapshot>>, error: &TransportError) {
-        let message = error.to_string();
-        let code = match error {
-            TransportError::SocksListener { .. } | TransportError::HttpProxyListener { .. } => {
-                "PROXY_LISTEN_FAILED"
-            }
-            TransportError::SocketProtection(_) => "ANDROID_SOCKET_ROUTE_FAILED",
-            TransportError::EndpointFamilyUnavailable(_) => "ENDPOINT_FAMILY_UNAVAILABLE",
-            TransportError::EndpointTimeout(_) => "MASQUE_ENDPOINT_TIMEOUT",
-            TransportError::AllEndpointsFailed(_) => "MASQUE_ALL_ENDPOINTS_FAILED",
-            _ if message.contains("Android network")
-                || message.contains("endpoint socket")
-                || message.contains("VpnService.protect") =>
-            {
-                "ANDROID_SOCKET_ROUTE_FAILED"
-            }
-            _ => "MASQUE_CONNECT_FAILED",
-        };
-        set_error_with_code(status, code, message);
-    }
-
-    fn set_error_with_code(status: &Arc<Mutex<NativeSnapshot>>, code: &str, message: String) {
-        if let Ok(mut snapshot) = status.lock() {
-            snapshot.phase = "error".to_owned();
-            snapshot.warning = Some(message.chars().take(512).collect());
-            snapshot.error_code = Some(code.to_owned());
-        }
-    }
-
-    fn rate(current: u64, previous: u64, seconds: f64) -> u64 {
-        ((current.saturating_sub(previous) as f64) / seconds).clamp(0.0, u64::MAX as f64) as u64
-    }
-
-    struct TunFd(OwnedFd);
-
-    impl AsRawFd for TunFd {
-        fn as_raw_fd(&self) -> i32 {
-            self.0.as_raw_fd()
-        }
-    }
-
-    fn set_nonblocking(fd: &OwnedFd) -> io::Result<()> {
-        // SAFETY: fd is a live OwnedFd; F_GETFL takes no extra pointer args.
-        let flags = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETFL) };
-        if flags < 0 {
-            return Err(io::Error::last_os_error());
-        }
-        // SAFETY: fd is live; flags is the previous F_GETFL result.
-        if unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
-            return Err(io::Error::last_os_error());
-        }
-        Ok(())
-    }
-
-    async fn read_packet(tun: &AsyncFd<TunFd>, packet: &mut [u8]) -> io::Result<usize> {
-        loop {
-            let mut ready = tun.readable().await?;
-            match ready.try_io(|inner| {
-                // SAFETY: fd is readable (AsyncFd); packet buffer is writable for
-                // its full length and outlives the read call.
-                let read = unsafe {
-                    libc::read(
-                        inner.get_ref().as_raw_fd(),
-                        packet.as_mut_ptr().cast(),
-                        packet.len(),
-                    )
-                };
-                if read < 0 {
-                    Err(io::Error::last_os_error())
-                } else {
-                    Ok(read as usize)
-                }
-            }) {
-                Ok(result) => return result,
-                Err(_) => continue,
-            }
-        }
-    }
-
-    async fn write_packet(tun: &AsyncFd<TunFd>, packet: &[u8]) -> io::Result<()> {
-        loop {
-            let mut ready = tun.writable().await?;
-            match ready.try_io(|inner| {
-                // SAFETY: fd is writable (AsyncFd); packet is a valid readable
-                // buffer for its full length and outlives the write call.
-                let written = unsafe {
-                    libc::write(
-                        inner.get_ref().as_raw_fd(),
-                        packet.as_ptr().cast(),
-                        packet.len(),
-                    )
-                };
-                if written < 0 {
-                    Err(io::Error::last_os_error())
-                } else if written as usize != packet.len() {
-                    Err(io::Error::new(
-                        io::ErrorKind::WriteZero,
-                        "Android TUN accepted a partial packet",
-                    ))
-                } else {
-                    Ok(())
-                }
-            }) {
-                Ok(result) => return result,
-                Err(_) => continue,
-            }
-        }
-    }
-}
+mod android_runtime;
 
 fn start_engine(
     tun_file_descriptor: jint,
@@ -2095,15 +1722,51 @@ fn engine_snapshot() -> NativeSnapshot {
     }
 }
 
+fn reconfigure_engine(profile: Profile) -> jint {
+    #[cfg(target_os = "android")]
+    {
+        android_runtime::reconfigure(profile)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = profile;
+        RECONFIGURE_NOT_RUNNING
+    }
+}
+
+fn attach_tun_engine(tun_file_descriptor: jint, profile: Profile) -> jint {
+    #[cfg(target_os = "android")]
+    {
+        android_runtime::attach_tun(tun_file_descriptor, profile)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (tun_file_descriptor, profile);
+        RECONFIGURE_NOT_RUNNING
+    }
+}
+
+fn detach_tun_engine() -> jint {
+    #[cfg(target_os = "android")]
+    {
+        android_runtime::detach_tun()
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        RECONFIGURE_NOT_RUNNING
+    }
+}
+
 fn register_consumer_warp(locale: &str) -> Result<Zeroizing<String>, String> {
     if locale.trim().is_empty() || locale.chars().count() > 32 {
-        return Err("Android locale is invalid".to_owned());
+        return Err("USQUE_CONSUMER_INVALID_LOCALE".to_owned());
     }
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|error| format!("registration runtime failed: {error}"))?;
-    let client = ConsumerRegistrationClient::new().map_err(|error| error.to_string())?;
+        .map_err(|_| "USQUE_CONSUMER_RUNTIME_INITIALIZATION_FAILED".to_owned())?;
+    let client = ConsumerRegistrationClient::new()
+        .map_err(|_| "USQUE_CONSUMER_HTTP_CLIENT_INITIALIZATION_FAILED".to_owned())?;
     let identity = runtime
         .block_on(client.register(&RegistrationOptions {
             terms_accepted: true,
@@ -2111,10 +1774,10 @@ fn register_consumer_warp(locale: &str) -> Result<Zeroizing<String>, String> {
             device_name: None,
             locale: locale.to_owned(),
         }))
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| safe_consumer_registration_error(&error))?;
     identity
         .to_portable_secret_json()
-        .map_err(|error| error.to_string())
+        .map_err(|_| "USQUE_CONSUMER_IDENTITY_SERIALIZATION_FAILED".to_owned())
 }
 
 fn register_consumer_warp_with_license(
@@ -2122,13 +1785,14 @@ fn register_consumer_warp_with_license(
     license_key: &str,
 ) -> Result<Zeroizing<String>, String> {
     if locale.trim().is_empty() || locale.chars().count() > 32 {
-        return Err("Android locale is invalid".to_owned());
+        return Err("USQUE_CONSUMER_INVALID_LOCALE".to_owned());
     }
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|error| format!("registration runtime failed: {error}"))?;
-    let client = ConsumerRegistrationClient::new().map_err(|error| error.to_string())?;
+        .map_err(|_| "USQUE_CONSUMER_RUNTIME_INITIALIZATION_FAILED".to_owned())?;
+    let client = ConsumerRegistrationClient::new()
+        .map_err(|_| "USQUE_CONSUMER_HTTP_CLIENT_INITIALIZATION_FAILED".to_owned())?;
     let identity = runtime
         .block_on(client.register_with_license(
             &RegistrationOptions {
@@ -2139,10 +1803,125 @@ fn register_consumer_warp_with_license(
             },
             license_key,
         ))
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| safe_consumer_registration_error(&error))?;
     identity
         .to_portable_secret_json()
-        .map_err(|error| error.to_string())
+        .map_err(|_| "USQUE_CONSUMER_IDENTITY_SERIALIZATION_FAILED".to_owned())
+}
+
+fn safe_consumer_registration_error(error: &RegistrationError) -> String {
+    match error {
+        RegistrationError::InvalidLicenseKey => "USQUE_CONSUMER_INVALID_LICENSE_KEY".to_owned(),
+        RegistrationError::Http(_) => "USQUE_CONSUMER_NETWORK".to_owned(),
+        RegistrationError::Api { status, .. } => {
+            format!("USQUE_CONSUMER_HTTP:{}", status.as_u16())
+        }
+        _ => "USQUE_CONSUMER_REGISTRATION_FAILED".to_owned(),
+    }
+}
+
+#[derive(Serialize)]
+struct AndroidZeroTrustRegistration<'a> {
+    warp_secret: &'a str,
+    identity_metadata: &'a str,
+    endpoint_v4: String,
+    endpoint_v6: String,
+    endpoint_port: u16,
+    sni: &'a str,
+    organization: &'a str,
+}
+
+fn register_zero_trust_warp(
+    locale: &str,
+    team: &str,
+    callback_uri: &str,
+) -> Result<Zeroizing<String>, String> {
+    if locale.trim().is_empty() || locale.chars().count() > 32 {
+        return Err("Android locale is invalid".to_owned());
+    }
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| format!("registration runtime failed: {error}"))?;
+    let client = ConsumerRegistrationClient::new().map_err(|error| error.to_string())?;
+    let result = runtime
+        .block_on(client.register_zero_trust(
+            &RegistrationOptions {
+                terms_accepted: true,
+                model: "Android".to_owned(),
+                device_name: None,
+                locale: locale.to_owned(),
+            },
+            team,
+            callback_uri,
+        ))
+        .map_err(|error| safe_zero_trust_registration_error(&error))?;
+    let secret = result
+        .identity
+        .to_portable_secret_json()
+        .map_err(|_| "USQUE_ZT_LOCAL_COMMIT_FAILED".to_owned())?;
+    let metadata = result
+        .identity
+        .provider()
+        .to_metadata_json()
+        .map_err(|_| "USQUE_ZT_LOCAL_COMMIT_FAILED".to_owned())?;
+    let metadata =
+        std::str::from_utf8(&metadata).map_err(|_| "USQUE_ZT_LOCAL_COMMIT_FAILED".to_owned())?;
+    let organization = result
+        .identity
+        .provider()
+        .organization()
+        .ok_or_else(|| "USQUE_ZT_CONTRACT_CHANGED".to_owned())?;
+    serde_json::to_string(&AndroidZeroTrustRegistration {
+        warp_secret: &secret,
+        identity_metadata: metadata,
+        endpoint_v4: result.endpoint.ipv4.to_string(),
+        endpoint_v6: result.endpoint.ipv6.to_string(),
+        endpoint_port: result.endpoint.port,
+        sni: &result.endpoint.sni,
+        organization,
+    })
+    .map(Zeroizing::new)
+    .map_err(|_| "USQUE_ZT_LOCAL_COMMIT_FAILED".to_owned())
+}
+
+fn safe_zero_trust_registration_error(error: &RegistrationError) -> String {
+    match error {
+        RegistrationError::InvalidZeroTrustTeam => "USQUE_ZT_TEAM_INVALID".to_owned(),
+        RegistrationError::InvalidZeroTrustCallback => "USQUE_ZT_CALLBACK_INVALID".to_owned(),
+        RegistrationError::ZeroTrustLoginExpired => "USQUE_ZT_LOGIN_EXPIRED".to_owned(),
+        RegistrationError::ZeroTrustLoginDenied => "USQUE_ZT_LOGIN_DENIED".to_owned(),
+        RegistrationError::ZeroTrustRegistrationFailed { stage, status } => {
+            format!("USQUE_ZT_HTTP:{}:{}", stage.as_code(), status.as_u16())
+        }
+        RegistrationError::ZeroTrustNetwork { stage } => {
+            format!("USQUE_ZT_NETWORK:{}", stage.as_code())
+        }
+        RegistrationError::ZeroTrustContractChanged => "USQUE_ZT_CONTRACT_CHANGED".to_owned(),
+        RegistrationError::TermsNotAccepted => "USQUE_ZT_DIAGNOSTIC:terms_not_accepted".to_owned(),
+        RegistrationError::InvalidRegistrationOptions => {
+            "USQUE_ZT_DIAGNOSTIC:invalid_registration_options".to_owned()
+        }
+        RegistrationError::InvalidApiUrl => "USQUE_ZT_DIAGNOSTIC:invalid_api_url".to_owned(),
+        RegistrationError::InvalidDeviceId => "USQUE_ZT_DIAGNOSTIC:invalid_device_id".to_owned(),
+        RegistrationError::InvalidLicenseKey => {
+            "USQUE_ZT_DIAGNOSTIC:unexpected_license_error".to_owned()
+        }
+        RegistrationError::ApiResponseTooLarge => {
+            "USQUE_ZT_DIAGNOSTIC:response_too_large".to_owned()
+        }
+        RegistrationError::InvalidApiResponse => {
+            "USQUE_ZT_DIAGNOSTIC:invalid_api_response".to_owned()
+        }
+        RegistrationError::RequestSerialization => {
+            "USQUE_ZT_DIAGNOSTIC:request_serialization".to_owned()
+        }
+        RegistrationError::Api { status, .. } => {
+            format!("USQUE_ZT_HTTP:unknown:{}", status.as_u16())
+        }
+        RegistrationError::Http(_) => "USQUE_ZT_NETWORK:unknown".to_owned(),
+        RegistrationError::Identity(_) => "USQUE_ZT_DIAGNOSTIC:identity_contract".to_owned(),
+    }
 }
 
 fn unbind_consumer_warp(secret: &[u8]) -> Result<(), String> {
@@ -2190,6 +1969,25 @@ mod tests {
         assert!(!AndroidSocketRoutePolicy::Proxy.requires_vpn_protection());
     }
 
+    #[test]
+    fn zero_trust_native_errors_expose_only_safe_stage_and_status() {
+        let network = safe_zero_trust_registration_error(&RegistrationError::ZeroTrustNetwork {
+            stage: usque_core::ZeroTrustRegistrationStage::MasqueEnrollment,
+        });
+        assert_eq!(network, "USQUE_ZT_NETWORK:masque_enrollment");
+        assert!(!network.contains("token"));
+    }
+
+    #[test]
+    fn consumer_registration_errors_never_use_zero_trust_codes() {
+        for error in [
+            register_consumer_warp("").unwrap_err(),
+            register_consumer_warp_with_license("", "unused").unwrap_err(),
+        ] {
+            assert!(!error.contains("USQUE_ZT_"), "{error}");
+        }
+    }
+
     fn valid_profile_json() -> String {
         serde_json::json!({
             "id": "8c30b771-9ebd-457a-b67b-bbc74a1ddba6",
@@ -2217,6 +2015,8 @@ mod tests {
                 "http_ipv6": "::1",
                 "http_port": 8080,
                 "dns_mode": "remote",
+                "dns_v4": "1.1.1.1",
+                "dns_v6": "2606:4700:4700::1111",
                 "system_proxy": false
             }
         })
@@ -2229,6 +2029,22 @@ mod tests {
     }
 
     #[test]
+    fn android_profile_maps_optional_listener_username_without_password() {
+        let mut source: serde_json::Value = serde_json::from_str(&valid_profile_json()).unwrap();
+        source["proxy"]["auth_username"] = serde_json::json!("lan-user");
+        let profile = parse_android_profile(&source.to_string()).unwrap();
+        assert_eq!(profile.proxy.auth_username.as_deref(), Some("lan-user"));
+        assert!(profile.proxy.auth_password.is_none());
+        let exported = android_profile_value(&profile, None);
+        assert_eq!(exported["proxy"]["auth_username"], "lan-user");
+        assert!(exported["proxy"].get("password").is_none());
+        assert!(exported["proxy"].get("auth_password").is_none());
+        let attached =
+            attach_android_proxy_password(profile, Zeroizing::new(b"s3cret".to_vec())).unwrap();
+        assert!(attached.proxy.listener_credentials().unwrap().is_some());
+    }
+
+    #[test]
     fn android_profile_maps_to_the_shared_validated_contract() {
         let profile = parse_android_profile(&valid_profile_json()).unwrap();
         assert_eq!(profile.mode, OperatingMode::Vpn);
@@ -2237,6 +2053,13 @@ mod tests {
         assert_eq!(
             profile.proxy.socks5_listeners[0].to_string(),
             "127.0.0.1:1080"
+        );
+        assert_eq!(
+            profile.proxy.dns_servers,
+            vec![
+                "1.1.1.1".parse::<IpAddr>().unwrap(),
+                "2606:4700:4700::1111".parse::<IpAddr>().unwrap(),
+            ]
         );
     }
 
@@ -2296,6 +2119,62 @@ mod tests {
         let stored = ConfigStore::new(config_path).load().unwrap();
         assert!(stored.preferences.profiles_migrated_from_flutter);
         assert_eq!(stored.profiles[0].name, "Default");
+    }
+
+    #[test]
+    fn android_profile_store_persists_and_protects_zero_trust_binding() {
+        let directory = tempfile::tempdir().unwrap();
+        let config_path = directory.path().join("profiles-v2.json");
+        let mut registered: serde_json::Value =
+            serde_json::from_str(&valid_profile_json()).unwrap();
+        registered["endpoint_v4"] = serde_json::json!("162.159.197.2");
+        registered["endpoint_v6"] = serde_json::json!("2606:4700:102::2");
+        registered["sni"] = serde_json::json!("zt-masque.cloudflareclient.com");
+        let response = apply_profile_command(
+            config_path.to_str().unwrap(),
+            &serde_json::json!({
+                "command": "upsert_profile",
+                "profile": registered,
+                "identity_provider": "zero_trust",
+                "organization": "example-team",
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let response: serde_json::Value = serde_json::from_str(&response).unwrap();
+        assert_eq!(response["profiles"][0]["identity_provider"], "zero_trust");
+        assert_eq!(
+            response["profiles"][0]["identity_organization"],
+            "example-team"
+        );
+
+        let generic_edit: serde_json::Value = serde_json::from_str(&valid_profile_json()).unwrap();
+        let response = apply_profile_command(
+            config_path.to_str().unwrap(),
+            &serde_json::json!({
+                "command": "upsert_profile",
+                "profile": generic_edit,
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let response: serde_json::Value = serde_json::from_str(&response).unwrap();
+        assert_eq!(response["profiles"][0]["endpoint_v4"], "162.159.197.2");
+        assert_eq!(
+            response["profiles"][0]["sni"],
+            "zt-masque.cloudflareclient.com"
+        );
+
+        let conversion = apply_profile_command(
+            config_path.to_str().unwrap(),
+            &serde_json::json!({
+                "command": "upsert_profile",
+                "profile": serde_json::from_str::<serde_json::Value>(&valid_profile_json()).unwrap(),
+                "identity_provider": "consumer",
+            })
+            .to_string(),
+        );
+        assert!(conversion.is_err());
     }
 
     #[test]
@@ -2361,6 +2240,77 @@ mod tests {
             cleared["active_profile_id"],
             serde_json::json!("8c30b771-9ebd-457a-b67b-bbc74a1ddba6")
         );
+    }
+
+    #[test]
+    fn reconfigure_active_profile_command_classifies_without_restarting() {
+        let directory = tempfile::tempdir().unwrap();
+        let config_path = directory.path().join("profiles-v2.json");
+        let profile: serde_json::Value = serde_json::from_str(&valid_profile_json()).unwrap();
+        apply_profile_command(
+            config_path.to_str().unwrap(),
+            &serde_json::json!({
+                "command": "upsert_profile",
+                "profile": profile,
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let mut socks: serde_json::Value = serde_json::from_str(&valid_profile_json()).unwrap();
+        socks["proxy"]["socks_port"] = serde_json::json!(1081);
+        let hot = apply_profile_command(
+            config_path.to_str().unwrap(),
+            &serde_json::json!({
+                "command": "reconfigure_active_profile",
+                "profile": socks,
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let hot: serde_json::Value = serde_json::from_str(&hot).unwrap();
+        assert_eq!(hot["profiles"][0]["proxy"]["socks_port"], 1081);
+
+        let mut detached =
+            serde_json::from_str::<serde_json::Value>(&valid_profile_json()).unwrap();
+        detached["proxy"]["socks_port"] = serde_json::json!(1081);
+        detached["frontends"] = serde_json::json!({
+            "tunnel": false,
+            "socks5": true,
+            "http": true,
+        });
+        let attach = apply_profile_command(
+            config_path.to_str().unwrap(),
+            &serde_json::json!({
+                "command": "reconfigure_active_profile",
+                "profile": detached,
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let attach: serde_json::Value = serde_json::from_str(&attach).unwrap();
+        assert_eq!(attach["profiles"][0]["frontends"]["tunnel"], false);
+        assert_eq!(attach["profiles"][0]["mode"], "socks5");
+
+        let mut cold = serde_json::from_str::<serde_json::Value>(&valid_profile_json()).unwrap();
+        cold["proxy"]["socks_port"] = serde_json::json!(1081);
+        cold["frontends"] = serde_json::json!({
+            "tunnel": false,
+            "socks5": true,
+            "http": true,
+        });
+        cold["mtu"] = serde_json::json!(1400);
+        let cold = apply_profile_command(
+            config_path.to_str().unwrap(),
+            &serde_json::json!({
+                "command": "reconfigure_active_profile",
+                "profile": cold,
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let cold: serde_json::Value = serde_json::from_str(&cold).unwrap();
+        assert_eq!(cold["profiles"][0]["mtu"], 1400);
     }
 
     #[test]

@@ -9,6 +9,8 @@ use thiserror::Error;
 use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
 
+use crate::ProxyAuthCredentials;
+
 const IPV4_ENDPOINT: &str = "https://api-ipv4.ip.sb/ip";
 const IPV6_ENDPOINT: &str = "https://api-ipv6.ip.sb/ip";
 const GEO_ENDPOINT: &str = "https://api.ip.sb/geoip";
@@ -63,6 +65,20 @@ impl GeoLocation {
     }
 }
 
+fn authenticated_proxy(
+    scheme: &str,
+    proxy: SocketAddr,
+    auth: Option<&ProxyAuthCredentials>,
+) -> Result<reqwest::Proxy, ProbeError> {
+    let mut proxy = reqwest::Proxy::all(format!("{scheme}://{proxy}"))?;
+    if let Some(auth) = auth
+        && let Ok(password) = std::str::from_utf8(auth.password_bytes())
+    {
+        proxy = proxy.basic_auth(auth.username(), password);
+    }
+    Ok(proxy)
+}
+
 #[derive(Clone)]
 pub struct IpSbProbe {
     client: Client,
@@ -75,13 +91,25 @@ impl IpSbProbe {
     }
 
     pub fn through_socks(proxy: SocketAddr) -> Result<Self, ProbeError> {
-        let proxy = reqwest::Proxy::all(format!("socks5h://{proxy}"))?;
-        Self::from_builder(Client::builder().proxy(proxy))
+        Self::through_socks_with_auth(proxy, None)
     }
 
     pub fn through_http(proxy: SocketAddr) -> Result<Self, ProbeError> {
-        let proxy = reqwest::Proxy::all(format!("http://{proxy}"))?;
-        Self::from_builder(Client::builder().proxy(proxy))
+        Self::through_http_with_auth(proxy, None)
+    }
+
+    pub fn through_socks_with_auth(
+        proxy: SocketAddr,
+        auth: Option<&ProxyAuthCredentials>,
+    ) -> Result<Self, ProbeError> {
+        Self::from_builder(Client::builder().proxy(authenticated_proxy("socks5h", proxy, auth)?))
+    }
+
+    pub fn through_http_with_auth(
+        proxy: SocketAddr,
+        auth: Option<&ProxyAuthCredentials>,
+    ) -> Result<Self, ProbeError> {
+        Self::from_builder(Client::builder().proxy(authenticated_proxy("http", proxy, auth)?))
     }
 
     fn from_builder(builder: reqwest::ClientBuilder) -> Result<Self, ProbeError> {

@@ -134,6 +134,7 @@ impl TrafficCounters {
 
 pub(crate) struct PacketStack {
     pub(crate) channel: Channel,
+    pub(crate) protector: Arc<dyn SocketProtector>,
     pub(crate) cancellation: CancellationToken,
     pub(crate) failure: watch::Receiver<Option<String>>,
     pub(crate) counters: Arc<TrafficCounters>,
@@ -156,6 +157,7 @@ impl PacketStack {
         assigned_ipv6: std::net::Ipv6Addr,
         monitor: &ManagedTunnelMonitor,
         parent_cancellation: &CancellationToken,
+        protector: Arc<dyn SocketProtector>,
     ) -> Result<(Self, WakingPipe), TransportError> {
         let (config, tcp_buffer_metrics) = proxy_netstack_config(profile);
         let (stack, pipe) = bounded_piped(config);
@@ -169,6 +171,7 @@ impl PacketStack {
         Ok((
             Self {
                 channel,
+                protector,
                 cancellation: parent_cancellation.child_token(),
                 failure: monitor.failure.clone(),
                 counters: Arc::clone(&monitor.counters),
@@ -225,7 +228,7 @@ impl PacketStack {
             SupervisorContext {
                 profile: profile.clone(),
                 identity,
-                protector,
+                protector: Arc::clone(&protector),
                 pin_refresher,
                 pin_refresh_attempted,
                 cancellation: cancellation.clone(),
@@ -252,6 +255,7 @@ impl PacketStack {
 
         Ok(Self {
             channel,
+            protector,
             cancellation,
             failure,
             counters,
@@ -864,7 +868,7 @@ type ProbeFuture = Pin<
 >;
 
 enum ActiveOutcome {
-    Switch(MasqueTunnel, AddressFamily),
+    Switch(Box<MasqueTunnel>, AddressFamily),
     Reconnect(String),
     PinMismatch,
     Terminal(String),
@@ -1009,7 +1013,7 @@ async fn run_transport_supervisor(
                 return;
             }
             ActiveOutcome::Switch(tunnel, family) => {
-                active_tunnel = tunnel;
+                active_tunnel = *tunnel;
                 active_family = family;
                 continue;
             }
@@ -1380,7 +1384,7 @@ async fn pump_active_tunnel(
                             endpoint_family = ?family,
                             "switching the single active MASQUE channel after a successful H3 probe"
                         );
-                        break ActiveOutcome::Switch(tunnel, family);
+                        break ActiveOutcome::Switch(Box::new(tunnel), family);
                     }
                     Err(TransportError::EndpointPinMismatch) => {
                         break ActiveOutcome::PinMismatch;
@@ -1510,7 +1514,7 @@ async fn wait_for_network_change(protector: &Arc<dyn SocketProtector>, baseline:
 /// window. A withdrawn family is instead blocked in the shared data plane and
 /// reflected as degraded health; withdrawing both families terminates the
 /// tunnel so the platform can rebuild it safely.
-fn apply_peer_network_state(
+pub(crate) fn apply_peer_network_state(
     mut path: RuntimePath,
     state: &PeerNetworkState,
     assigned_ipv4: std::net::Ipv4Addr,

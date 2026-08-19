@@ -15,6 +15,7 @@
 #include "flutter/generated_plugin_registrant.h"
 #include "resource.h"
 #include "utils.h"
+#include "zero_trust_protocol.h"
 
 namespace {
 
@@ -276,7 +277,72 @@ bool FlutterWindow::OnCreate() {
               flutter::EncodableValue(IsStartOnLoginEnabled());
           preferences[flutter::EncodableValue("close_to_tray")] =
               flutter::EncodableValue(close_to_tray_);
+          preferences[flutter::EncodableValue("warp_protocol_association")] =
+              flutter::EncodableValue(IsCurrentUserWarpProtocolAssociated());
           result->Success(flutter::EncodableValue(preferences));
+          return;
+        }
+        if (call.method_name() == "beginZeroTrustLogin") {
+          const auto* arguments =
+              std::get_if<flutter::EncodableMap>(call.arguments());
+          const auto iterator =
+              arguments == nullptr
+                  ? flutter::EncodableMap::const_iterator{}
+                  : arguments->find(flutter::EncodableValue("team_name"));
+          const auto* team =
+              arguments != nullptr && iterator != arguments->end()
+                  ? std::get_if<std::string>(&iterator->second)
+                  : nullptr;
+          if (team == nullptr) {
+            result->Error("ZERO_TRUST_TEAM_INVALID",
+                          "The organization name is missing.");
+            return;
+          }
+          const auto login = zero_trust_session_.Begin(*team);
+          if (!login.has_value()) {
+            result->Error("ZERO_TRUST_TEAM_INVALID",
+                          "Enter one Cloudflare Zero Trust team name.");
+            return;
+          }
+          result->Success(flutter::EncodableValue(*login));
+          return;
+        }
+        if (call.method_name() == "consumeZeroTrustCallback") {
+          const auto pending = zero_trust_session_.Consume();
+          if (pending.has_value()) {
+            result->Success(flutter::EncodableValue(*pending));
+          } else {
+            result->Success(flutter::EncodableValue());
+          }
+          return;
+        }
+        if (call.method_name() == "cancelZeroTrustLogin") {
+          zero_trust_session_.Cancel();
+          result->Success();
+          return;
+        }
+        if (call.method_name() == "setWarpProtocolAssociation") {
+          const auto* arguments =
+              std::get_if<flutter::EncodableMap>(call.arguments());
+          const auto iterator =
+              arguments == nullptr
+                  ? flutter::EncodableMap::const_iterator{}
+                  : arguments->find(flutter::EncodableValue("enabled"));
+          const bool valid = arguments != nullptr &&
+                             iterator != arguments->end() &&
+                             std::holds_alternative<bool>(iterator->second);
+          if (!valid) {
+            result->Error("INVALID_ARGUMENT",
+                          "The Windows shell setting is malformed.");
+            return;
+          }
+          if (!SetCurrentUserWarpProtocolAssociation(
+                  std::get<bool>(iterator->second))) {
+            result->Error("WINDOWS_SHELL_SETTING_FAILED",
+                          "Windows could not save the shell integration setting.");
+            return;
+          }
+          result->Success();
           return;
         }
         if (call.method_name() == "setStartOnBoot" ||
@@ -485,6 +551,32 @@ void FlutterWindow::ShowAndActivate() {
   ::SetForegroundWindow(GetHandle());
 }
 
+void FlutterWindow::NotifyZeroTrustCallbackArrived() {
+  if (!engine_channel_) return;
+  engine_channel_->InvokeMethod("zeroTrustCallbackArrived", nullptr);
+}
+
+void FlutterWindow::OfferZeroTrustCallback(std::string_view callback_uri) {
+  if (!zero_trust_session_.Accept(callback_uri)) return;
+  NotifyZeroTrustCallbackArrived();
+}
+
+bool FlutterWindow::HandleZeroTrustCopyData(const COPYDATASTRUCT* data) {
+  if (data == nullptr || data->dwData != kZeroTrustCallbackCopyData ||
+      data->lpData == nullptr || data->cbData == 0 ||
+      data->cbData > static_cast<DWORD>(kMaxZeroTrustCallbackChars)) {
+    return false;
+  }
+  const auto* bytes = static_cast<const char*>(data->lpData);
+  std::string uri(bytes, data->cbData);
+  if (!uri.empty() && uri.back() == '\0') {
+    uri.pop_back();
+  }
+  ShowAndActivate();
+  OfferZeroTrustCallback(uri);
+  return true;
+}
+
 void FlutterWindow::ShowTrayMenu() {
   HMENU menu = ::CreatePopupMenu();
   if (menu == nullptr) return;
@@ -544,6 +636,13 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+  if (message == WM_COPYDATA) {
+    return HandleZeroTrustCopyData(
+               reinterpret_cast<const COPYDATASTRUCT*>(lparam))
+               ? TRUE
+               : FALSE;
+  }
+
   // Give Flutter, including plugins, an opportunity to handle window messages.
   if (flutter_controller_) {
     std::optional<LRESULT> result =

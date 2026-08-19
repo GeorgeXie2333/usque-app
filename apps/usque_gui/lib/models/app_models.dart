@@ -24,11 +24,13 @@ enum DnsMode { tunnel, localConfigured, system }
 
 enum ProxyDnsMode { remote, localConfigured, system }
 
-enum IdentityProvisioningMethod { register, registerWithLicense }
+enum IdentityProvisioningMethod { register, registerWithLicense, zeroTrust }
+
+enum IdentityProvider { consumer, zeroTrust }
 
 enum ProfileIdentityState { ready, missing, invalid }
 
-enum LicenseState { free, warpPlus, unknown, cleanupPending }
+enum LicenseState { free, warpPlus, unknown, cleanupPending, notApplicable }
 
 enum FrontendKind { tunnel, socks5, http, systemProxy }
 
@@ -70,19 +72,124 @@ class UpdateCheckResult {
   }
 }
 
+class PerAppProxySettings {
+  const PerAppProxySettings({
+    this.enabled = false,
+    this.packageNames = const <String>[],
+  });
+
+  static const int maxPackages = 1024;
+  static const int maxPackageLength = 256;
+  static final RegExp packageNamePattern = RegExp(
+    r'^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*$',
+  );
+
+  final bool enabled;
+  final List<String> packageNames;
+
+  PerAppProxySettings copyWith({bool? enabled, List<String>? packageNames}) {
+    return PerAppProxySettings(
+      enabled: enabled ?? this.enabled,
+      packageNames: packageNames ?? this.packageNames,
+    );
+  }
+
+  static List<String> sanitizePackages(
+    Iterable<String> names, {
+    String? selfPackage,
+  }) {
+    final sanitized = names
+        .map((name) => name.trim())
+        .where(
+          (name) =>
+              name.isNotEmpty &&
+              name != selfPackage &&
+              name.length <= maxPackageLength &&
+              packageNamePattern.hasMatch(name),
+        )
+        .toSet()
+        .toList();
+    sanitized.sort();
+    return List<String>.unmodifiable(sanitized);
+  }
+
+  String? validationError({String? selfPackage}) {
+    if (packageNames.length > maxPackages) {
+      return 'INVALID_ARGUMENT';
+    }
+    final invalid = packageNames.any((raw) {
+      final name = raw.trim();
+      return name.isNotEmpty &&
+          name != selfPackage &&
+          (name.length > maxPackageLength ||
+              !packageNamePattern.hasMatch(name));
+    });
+    if (invalid) {
+      return 'INVALID_ARGUMENT';
+    }
+    final sanitized = sanitizePackages(packageNames, selfPackage: selfPackage);
+    if (enabled && sanitized.isEmpty) {
+      return 'ANDROID_PER_APP_EMPTY';
+    }
+    return null;
+  }
+
+  factory PerAppProxySettings.fromMap(Map<Object?, Object?> map) {
+    final names = (map['package_names'] as List?)?.whereType<String>().toList(
+      growable: false,
+    );
+    return PerAppProxySettings(
+      enabled: map['enabled'] as bool? ?? false,
+      packageNames: List<String>.unmodifiable(names ?? const <String>[]),
+    );
+  }
+
+  Map<String, Object?> toMap() => <String, Object?>{
+    'enabled': enabled,
+    'package_names': packageNames,
+  };
+}
+
+class InstalledAppInfo {
+  const InstalledAppInfo({
+    required this.packageName,
+    required this.label,
+    required this.isSystem,
+    required this.hasInternet,
+  });
+
+  final String packageName;
+  final String label;
+  final bool isSystem;
+  final bool hasInternet;
+
+  factory InstalledAppInfo.fromMap(Map<Object?, Object?> map) {
+    return InstalledAppInfo(
+      packageName: map['package_name'] as String? ?? '',
+      label: map['label'] as String? ?? '',
+      isSystem: map['is_system'] as bool? ?? false,
+      hasInternet: map['has_internet'] as bool? ?? false,
+    );
+  }
+}
+
 class PlatformPreferences {
   const PlatformPreferences({
     this.startOnBoot = false,
     this.closeToTray = true,
+    this.warpProtocolAssociation = false,
   });
 
   final bool startOnBoot;
   final bool closeToTray;
+  final bool warpProtocolAssociation;
 
   factory PlatformPreferences.fromMap(Map<Object?, Object?> map) {
     return PlatformPreferences(
       startOnBoot: map['start_on_boot'] as bool? ?? false,
       closeToTray: map['close_to_tray'] as bool? ?? true,
+      warpProtocolAssociation:
+          map['warp_protocol_association'] as bool? ?? false,
     );
   }
 }
@@ -107,12 +214,16 @@ class ProfileIdentityStatus {
     this.licenseState = LicenseState.unknown,
     this.accountType = '',
     this.cleanupPending = false,
+    this.provider = IdentityProvider.consumer,
+    this.organization = '',
   });
 
   final ProfileIdentityState state;
   final LicenseState licenseState;
   final String accountType;
   final bool cleanupPending;
+  final IdentityProvider provider;
+  final String organization;
 }
 
 class FrontendSettings {
@@ -170,7 +281,10 @@ class ProxySettings {
     this.httpIpv6 = '::1',
     this.httpPort = 8080,
     this.dnsMode = ProxyDnsMode.remote,
+    this.dnsIpv4 = '1.1.1.1',
+    this.dnsIpv6 = '2606:4700:4700::1111',
     this.systemProxy = false,
+    this.authUsername = '',
   });
 
   final String socksIpv4;
@@ -180,9 +294,14 @@ class ProxySettings {
   final String httpIpv6;
   final int httpPort;
   final ProxyDnsMode dnsMode;
+  final String dnsIpv4;
+  final String dnsIpv6;
   final bool systemProxy;
+  final String authUsername;
 
   bool get remoteDns => dnsMode == ProxyDnsMode.remote;
+
+  bool get hasAuth => authUsername.isNotEmpty;
 
   bool get exposesLan {
     final addresses = <String>[socksIpv4, socksIpv6, httpIpv4, httpIpv6];
@@ -202,7 +321,10 @@ class ProxySettings {
     String? httpIpv6,
     int? httpPort,
     ProxyDnsMode? dnsMode,
+    String? dnsIpv4,
+    String? dnsIpv6,
     bool? systemProxy,
+    String? authUsername,
   }) {
     return ProxySettings(
       socksIpv4: socksIpv4 ?? this.socksIpv4,
@@ -212,7 +334,10 @@ class ProxySettings {
       httpIpv6: httpIpv6 ?? this.httpIpv6,
       httpPort: httpPort ?? this.httpPort,
       dnsMode: dnsMode ?? this.dnsMode,
+      dnsIpv4: dnsIpv4 ?? this.dnsIpv4,
+      dnsIpv6: dnsIpv6 ?? this.dnsIpv6,
       systemProxy: systemProxy ?? this.systemProxy,
+      authUsername: authUsername ?? this.authUsername,
     );
   }
 
@@ -225,7 +350,10 @@ class ProxySettings {
       httpIpv6: _string(map, 'http_ipv6'),
       httpPort: _boundedInt(map, 'http_port', 1, 65535),
       dnsMode: _enumByName(ProxyDnsMode.values, _string(map, 'dns_mode')),
+      dnsIpv4: _stringOr(map, 'dns_v4', '1.1.1.1'),
+      dnsIpv6: _stringOr(map, 'dns_v6', '2606:4700:4700::1111'),
       systemProxy: _bool(map, 'system_proxy'),
+      authUsername: _stringOr(map, 'auth_username', ''),
     );
   }
 
@@ -238,7 +366,10 @@ class ProxySettings {
       'http_ipv6': httpIpv6,
       'http_port': httpPort,
       'dns_mode': dnsMode.name,
+      'dns_v4': dnsIpv4,
+      'dns_v6': dnsIpv6,
       'system_proxy': systemProxy,
+      if (authUsername.isNotEmpty) 'auth_username': authUsername,
     };
   }
 }
@@ -454,6 +585,13 @@ String _string(Map<String, Object?> map, String key) {
     throw FormatException('Invalid $key');
   }
   return value;
+}
+
+String _stringOr(Map<String, Object?> map, String key, String fallback) {
+  if (!map.containsKey(key)) {
+    return fallback;
+  }
+  return _string(map, key);
 }
 
 bool _bool(Map<String, Object?> map, String key) {

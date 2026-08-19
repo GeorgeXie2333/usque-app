@@ -204,10 +204,13 @@ try {
         "Unofficial Consumer WARP client. Installed variant: $Variant." `
         "ARPCOMMENTS"
     Assert-Equal $propertyMap.WIXUI_INSTALLDIR "INSTALLFOLDER" "WixUI install directory"
-    Assert-Equal `
-        $propertyMap.USQUE_REMOVE_USER_DATA `
-        "0" `
-        "default uninstall user-data choice"
+    Assert-Equal $propertyMap.ARPSYSTEMCOMPONENT "1" "hidden MSI ARP entry"
+    if (
+        $propertyMap.ContainsKey("USQUE_REMOVE_USER_DATA") -and
+        -not [string]::IsNullOrEmpty([string]$propertyMap.USQUE_REMOVE_USER_DATA)
+    ) {
+        throw "USQUE_REMOVE_USER_DATA must not have a default Property table value."
+    }
 
     $secureProperties = @($propertyMap.SecureCustomProperties -split ";")
     foreach ($secureProperty in @("INSTALLFOLDER", "USQUE_REMOVE_USER_DATA")) {
@@ -228,7 +231,7 @@ try {
     $installLocationRegistry = Assert-OneRow `
     (Invoke-MsiQuery `
             -Database $database `
-            -Query "SELECT ``Root``,``Key``,``Name``,``Value``,``Component_`` FROM ``Registry`` WHERE ``Name``='InstallLocation'" `
+            -Query "SELECT ``Root``,``Key``,``Name``,``Value``,``Component_`` FROM ``Registry`` WHERE ``Key``='Software\Usque' AND ``Name``='InstallLocation'" `
             -Columns @("Root", "Key", "Name", "Value", "Component")) `
         "persisted install location"
     Assert-Equal $installLocationRegistry.Root "2" "InstallLocation registry root"
@@ -238,6 +241,64 @@ try {
         $installLocationRegistry.Component `
         "UsqueGuiComponent" `
         "InstallLocation registry component"
+
+    $productCodeRegistry = Assert-OneRow `
+    (Invoke-MsiQuery `
+            -Database $database `
+            -Query "SELECT ``Root``,``Key``,``Name``,``Value``,``Component_`` FROM ``Registry`` WHERE ``Key``='Software\Usque' AND ``Name``='ProductCode'" `
+            -Columns @("Root", "Key", "Name", "Value", "Component")) `
+        "persisted product code"
+    Assert-Equal $productCodeRegistry.Root "2" "ProductCode registry root"
+    Assert-Equal $productCodeRegistry.Value "[ProductCode]" "ProductCode registry value"
+    Assert-Equal `
+        $productCodeRegistry.Component `
+        "UsqueGuiComponent" `
+        "ProductCode registry component"
+
+    $arpUninstallString = Assert-OneRow `
+    (Invoke-MsiQuery `
+            -Database $database `
+            -Query "SELECT ``Root``,``Key``,``Name``,``Value``,``Component_`` FROM ``Registry`` WHERE ``Key``='Software\Microsoft\Windows\CurrentVersion\Uninstall\Usque' AND ``Name``='UninstallString'" `
+            -Columns @("Root", "Key", "Name", "Value", "Component")) `
+        "custom ARP uninstall string"
+    Assert-Equal $arpUninstallString.Root "2" "custom ARP uninstall root"
+    Assert-Equal `
+        $arpUninstallString.Value `
+        '"[INSTALLFOLDER]usque-uninstall.exe"' `
+        "custom ARP uninstall string"
+    Assert-Equal `
+        $arpUninstallString.Component `
+        "UsqueUninstallComponent" `
+        "custom ARP uninstall component"
+
+    $arpQuietUninstall = Assert-OneRow `
+    (Invoke-MsiQuery `
+            -Database $database `
+            -Query "SELECT ``Value`` FROM ``Registry`` WHERE ``Key``='Software\Microsoft\Windows\CurrentVersion\Uninstall\Usque' AND ``Name``='QuietUninstallString'" `
+            -Columns @("Value")) `
+        "custom ARP quiet uninstall string"
+    Assert-Equal `
+        $arpQuietUninstall.Value `
+        "msiexec /x [ProductCode] /qn" `
+        "custom ARP quiet uninstall string"
+    if ($arpQuietUninstall.Value -like "*USQUE_REMOVE_USER_DATA=1*") {
+        throw "QuietUninstallString must not request user-data deletion."
+    }
+
+    $arpNoModify = Assert-OneRow `
+    (Invoke-MsiQuery `
+            -Database $database `
+            -Query "SELECT ``Value`` FROM ``Registry`` WHERE ``Key``='Software\Microsoft\Windows\CurrentVersion\Uninstall\Usque' AND ``Name``='NoModify'" `
+            -Columns @("Value")) `
+        "custom ARP NoModify"
+    Assert-Equal $arpNoModify.Value "#1" "custom ARP NoModify"
+    $arpNoRepair = Assert-OneRow `
+    (Invoke-MsiQuery `
+            -Database $database `
+            -Query "SELECT ``Value`` FROM ``Registry`` WHERE ``Key``='Software\Microsoft\Windows\CurrentVersion\Uninstall\Usque' AND ``Name``='NoRepair'" `
+            -Columns @("Value")) `
+        "custom ARP NoRepair"
+    Assert-Equal $arpNoRepair.Value "#1" "custom ARP NoRepair"
 
     $installLocationSearch = Assert-OneRow `
     (Invoke-MsiQuery `
@@ -598,6 +659,7 @@ try {
             "usque.exe",
             "usque-engine.exe",
             "usque-agent.exe",
+            "usque-uninstall.exe",
             "wintun.dll"
         )) {
         if (@($longNames | Where-Object { $_ -ieq $requiredFile }).Count -ne 1) {

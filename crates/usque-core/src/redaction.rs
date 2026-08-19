@@ -7,7 +7,9 @@ const SENSITIVE_KEYS: &[&str] = &[
     "device_id",
     "endpoint_pin",
     "license",
+    "password",
     "private_key",
+    "proxy_password",
     "token",
     "warp_secret",
 ];

@@ -49,6 +49,9 @@ impl ConfigStore {
             migrate(&mut config)?;
             self.save(&config)?;
         }
+        for profile in &mut config.profiles {
+            profile.canonicalize_mode();
+        }
         config.validate()?;
         Ok(config)
     }
@@ -131,6 +134,12 @@ fn migrate(config: &mut AppConfig) -> Result<(), StoreError> {
                     }
                 }
                 config.schema_version = 6;
+            }
+            6 => {
+                for profile in &mut config.profiles {
+                    profile.proxy.normalize_auth();
+                }
+                config.schema_version = 7;
             }
             found => {
                 return Err(StoreError::UnsupportedMigration {
@@ -269,10 +278,7 @@ mod tests {
         let migrated = store.load().unwrap();
 
         assert_eq!(migrated.schema_version, CURRENT_SCHEMA_VERSION);
-        assert_eq!(
-            migrated.profiles[0].mode,
-            OperatingMode::legacy_platform_default()
-        );
+        assert_eq!(migrated.profiles[0].mode, OperatingMode::Vpn);
         assert_eq!(
             migrated.profiles[0].frontends,
             FrontendSettings::platform_default()
@@ -345,5 +351,45 @@ mod tests {
                     .contains(&"127.0.0.1:8080".parse().unwrap())
             );
         }
+    }
+
+    #[test]
+    fn schema_seven_keeps_username_and_never_writes_password_bytes() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ConfigStore::new(directory.path().join("config.json"));
+        let mut config = AppConfig {
+            schema_version: 6,
+            ..AppConfig::default()
+        };
+        config.profiles[0].proxy.auth_username = Some("lan-user".to_owned());
+        config.profiles[0].proxy.auth_password =
+            Some(zeroize::Zeroizing::new(b"super-secret-pass".to_vec()));
+        fs::write(store.path(), serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+
+        let migrated = store.load().unwrap();
+        assert_eq!(migrated.schema_version, CURRENT_SCHEMA_VERSION);
+        assert_eq!(
+            migrated.profiles[0].proxy.auth_username.as_deref(),
+            Some("lan-user")
+        );
+        assert!(migrated.profiles[0].proxy.auth_password.is_none());
+
+        store.save(&migrated).unwrap();
+        let json = fs::read_to_string(store.path()).unwrap();
+        assert!(json.contains("\"auth_username\": \"lan-user\""));
+        assert!(!json.to_ascii_lowercase().contains("password"));
+        assert!(!json.contains("super-secret-pass"));
+        let reloaded: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            reloaded["profiles"][0]["proxy"]["auth_username"],
+            "lan-user"
+        );
+        assert!(
+            reloaded["profiles"][0]["proxy"]
+                .as_object()
+                .unwrap()
+                .keys()
+                .all(|key| !key.to_ascii_lowercase().contains("password"))
+        );
     }
 }

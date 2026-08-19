@@ -32,6 +32,12 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   late bool _killSwitch;
   late bool _allowLan;
 
+  bool get _zeroTrustEndpointManaged =>
+      widget.controller
+          .identityStatus(widget.controller.activeProfile.id)
+          .provider ==
+      IdentityProvider.zeroTrust;
+
   @override
   void initState() {
     super.initState();
@@ -117,6 +123,13 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                             icon: LucideIcons.cable,
                             title: strings.get('transport'),
                           ),
+                          if (_zeroTrustEndpointManaged) ...<Widget>[
+                            const SizedBox(height: 8),
+                            Text(
+                              strings.get('zero_trust_endpoint_managed'),
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
                           const SizedBox(height: 20),
                           SegmentedButton<TransportPolicy>(
                             segments: <ButtonSegment<TransportPolicy>>[
@@ -143,6 +156,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                             children: <Widget>[
                               TextFormField(
                                 controller: _endpointV4,
+                                readOnly: _zeroTrustEndpointManaged,
                                 decoration: InputDecoration(
                                   labelText: strings.get('endpoint_ipv4'),
                                 ),
@@ -153,6 +167,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                               ),
                               TextFormField(
                                 controller: _endpointV6,
+                                readOnly: _zeroTrustEndpointManaged,
                                 decoration: InputDecoration(
                                   labelText: strings.get('endpoint_ipv6'),
                                 ),
@@ -163,6 +178,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                               ),
                               TextFormField(
                                 controller: _port,
+                                readOnly: _zeroTrustEndpointManaged,
                                 keyboardType: TextInputType.number,
                                 inputFormatters: <TextInputFormatter>[
                                   FilteringTextInputFormatter.digitsOnly,
@@ -174,6 +190,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                               ),
                               TextFormField(
                                 controller: _sni,
+                                readOnly: _zeroTrustEndpointManaged,
                                 keyboardType: TextInputType.url,
                                 decoration: InputDecoration(
                                   labelText: strings.get('sni'),
@@ -374,14 +391,21 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
       return;
     }
     final profile = widget.controller.activeProfile;
+    final endpointManaged = _zeroTrustEndpointManaged;
     widget.controller.updateProfile(
       profile.copyWith(
         transport: _transport,
         ipPolicy: _ipPolicy,
-        endpointIpv4: _endpointV4.text.trim(),
-        endpointIpv6: _endpointV6.text.trim(),
-        endpointPort: int.parse(_port.text),
-        sni: _sni.text.trim(),
+        endpointIpv4: endpointManaged
+            ? profile.endpointIpv4
+            : _endpointV4.text.trim(),
+        endpointIpv6: endpointManaged
+            ? profile.endpointIpv6
+            : _endpointV6.text.trim(),
+        endpointPort: endpointManaged
+            ? profile.endpointPort
+            : int.parse(_port.text),
+        sni: endpointManaged ? profile.sni : _sni.text.trim(),
         mtu: int.parse(_mtu.text),
         dnsIpv4: _dnsV4.text.trim(),
         dnsIpv6: _dnsV6.text.trim(),
@@ -422,7 +446,16 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     if (!(confirmed ?? false)) {
       return;
     }
-    final reset = widget.controller.activeProfile.resetAdvancedDefaults();
+    final current = widget.controller.activeProfile;
+    var reset = current.resetAdvancedDefaults();
+    if (_zeroTrustEndpointManaged) {
+      reset = reset.copyWith(
+        endpointIpv4: current.endpointIpv4,
+        endpointIpv6: current.endpointIpv6,
+        endpointPort: current.endpointPort,
+        sni: current.sni,
+      );
+    }
     widget.controller.updateProfile(reset);
     setState(() => _load(reset));
   }

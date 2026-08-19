@@ -33,8 +33,14 @@
     <Property Id="ARPCOMMENTS" Value="Unofficial Consumer WARP client. Installed variant: $(Variant)." />
     <Property Id="ARPNOMODIFY" Value="1" />
     <Property Id="ARPNOREPAIR" Value="1" />
+    <Property Id="ARPSYSTEMCOMPONENT" Value="1" />
     <Property Id="ARPPRODUCTICON" Value="UsqueProductIcon.ico" />
-    <Property Id="USQUE_REMOVE_USER_DATA" Value="0" Secure="yes" />
+    <!--
+      Leave this public property unset so the MSI checkbox stays off by default.
+      Settings uninstall uses usque-uninstall.exe, which sets the value only
+      after the user confirms.
+    -->
+    <Property Id="USQUE_REMOVE_USER_DATA" Secure="yes" />
     <Icon Id="UsqueProductIcon.ico" SourceFile="$(IconPath)" />
 
     <!-- Preserve a user-selected target directory across major upgrades. -->
@@ -108,6 +114,12 @@
         Name="InstallLocation"
         Type="string"
         Value="[INSTALLFOLDER]" />
+      <RegistryValue
+        Root="HKLM"
+        Key="Software\Usque"
+        Name="ProductCode"
+        Type="string"
+        Value="[ProductCode]" />
     </Component>
 
     <Component
@@ -156,6 +168,70 @@
         Id="OfficialWintunLibrary"
         Source="!(bindpath.app)\wintun.dll"
         KeyPath="yes" />
+    </Component>
+
+    <Component
+      Id="UsqueUninstallComponent"
+      Directory="INSTALLFOLDER"
+      Guid="B8E91F02-3C4A-45D7-9F6E-21A84C7B5D03">
+      <File
+        Id="UsqueUninstallExecutable"
+        Source="!(bindpath.app)\usque-uninstall.exe"
+        KeyPath="yes" />
+      <RegistryValue
+        Root="HKLM"
+        Key="Software\Microsoft\Windows\CurrentVersion\Uninstall\Usque"
+        Name="DisplayName"
+        Type="string"
+        Value="[ProductName]" />
+      <RegistryValue
+        Root="HKLM"
+        Key="Software\Microsoft\Windows\CurrentVersion\Uninstall\Usque"
+        Name="DisplayVersion"
+        Type="string"
+        Value="$(DisplayVersion)" />
+      <RegistryValue
+        Root="HKLM"
+        Key="Software\Microsoft\Windows\CurrentVersion\Uninstall\Usque"
+        Name="Publisher"
+        Type="string"
+        Value="Usque contributors" />
+      <RegistryValue
+        Root="HKLM"
+        Key="Software\Microsoft\Windows\CurrentVersion\Uninstall\Usque"
+        Name="DisplayIcon"
+        Type="string"
+        Value="[INSTALLFOLDER]usque.exe" />
+      <RegistryValue
+        Root="HKLM"
+        Key="Software\Microsoft\Windows\CurrentVersion\Uninstall\Usque"
+        Name="InstallLocation"
+        Type="string"
+        Value="[INSTALLFOLDER]" />
+      <RegistryValue
+        Root="HKLM"
+        Key="Software\Microsoft\Windows\CurrentVersion\Uninstall\Usque"
+        Name="UninstallString"
+        Type="string"
+        Value="&quot;[INSTALLFOLDER]usque-uninstall.exe&quot;" />
+      <RegistryValue
+        Root="HKLM"
+        Key="Software\Microsoft\Windows\CurrentVersion\Uninstall\Usque"
+        Name="QuietUninstallString"
+        Type="string"
+        Value="msiexec /x [ProductCode] /qn" />
+      <RegistryValue
+        Root="HKLM"
+        Key="Software\Microsoft\Windows\CurrentVersion\Uninstall\Usque"
+        Name="NoModify"
+        Type="integer"
+        Value="1" />
+      <RegistryValue
+        Root="HKLM"
+        Key="Software\Microsoft\Windows\CurrentVersion\Uninstall\Usque"
+        Name="NoRepair"
+        Type="integer"
+        Value="1" />
     </Component>
 
     <!--
@@ -252,12 +328,14 @@
       <ComponentRef Id="UsqueEngineComponent" />
       <ComponentRef Id="UsqueAgentComponent" />
       <ComponentRef Id="OfficialWintunComponent" />
+      <ComponentRef Id="UsqueUninstallComponent" />
 
       <!-- Flutter runtime, plug-ins, data, and assets not owned above. -->
       <Files Include="!(bindpath.app)\**" Directory="INSTALLFOLDER">
         <Exclude Files="!(bindpath.app)\usque.exe" />
         <Exclude Files="!(bindpath.app)\usque-engine.exe" />
         <Exclude Files="!(bindpath.app)\usque-agent.exe" />
+        <Exclude Files="!(bindpath.app)\usque-uninstall.exe" />
         <Exclude Files="!(bindpath.app)\wintun.dll" />
         <Exclude Files="!(bindpath.app)\**\*.pdb" />
       </Files>

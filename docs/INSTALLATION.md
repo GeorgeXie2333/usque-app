@@ -1,84 +1,82 @@
 # Installation and removal
 
-This document defines the verification, installation, upgrade, and removal behavior for the official `v0.1.2` release. It is not an invitation to install an arbitrary repository build.
+Install only packages from this repository's GitHub release for `v0.1.3`.
 
 ## Official packages
 
-Official packages are attached only to this repository's GitHub release for the exact version tag:
+- `usque-v0.1.3-windows-x64-v2.msi`
+- `usque-v0.1.3-windows-arm64.msi`
+- `usque-v0.1.3-android-arm64-v8a.apk`
+- `usque-v0.1.3-android-x86_64.apk`
+- `usque-v0.1.3-android-armeabi-v7a.apk`
+- `usque-v0.1.3-android-universal.apk`
 
-- `usque-v0.1.2-windows-x64-v2.msi`
-- `usque-v0.1.2-windows-arm64.msi`
-- `usque-v0.1.2-android-arm64-v8a.apk`
-- `usque-v0.1.2-android-x86_64.apk`
-- `usque-v0.1.2-android-armeabi-v7a.apk`
-- `usque-v0.1.2-android-universal.apk`
-
-Each release must also provide SHA-256 sidecars, signer fingerprints, SPDX and CycloneDX SBOMs, dependency license inventories, and GitHub build provenance. A local validation package, Actions development output, fork artifact, or file shared elsewhere is not an official release.
+Each release also has SHA-256 sidecars, signer fingerprints, SPDX and CycloneDX SBOMs, dependency license inventories, and GitHub build provenance. A local validation package, Actions development output, fork artifact, or a file from somewhere else is not an official release. Official identities and fingerprint rules are in [CODE_SIGNING.md](CODE_SIGNING.md).
 
 ## Verify before installing
 
 1. Download the package and its `.sha256` file from the same GitHub release.
-2. Calculate the package SHA-256 and compare the complete 64-character value.
-3. Compare the package signer with the fingerprint published in the release notes.
-4. Verify the GitHub artifact attestation when it is available.
+2. Calculate the package SHA-256 and compare the full 64-character value.
+3. Compare the package signer with the fingerprint in the release notes.
+4. Check the GitHub artifact attestation when it is available.
 5. Stop if the filename, hash, signature, architecture, or version differs.
 
-Never disable endpoint pinning, import signing certificates from an unofficial package, or run a package that asks you to disable antivirus or firewall protection.
+Never disable endpoint pinning, import signing certificates from an unofficial package, or run a package that asks you to turn off antivirus or the firewall.
 
 ## Windows
 
-The release targets Windows 10 22H2 build 19045 or later with separate x86-64-v2 and ARM64 MSIs. Install the package matching the native Windows architecture.
+The release needs Windows 10 22H2 build 19045 or later. Use the x64-v2 MSI on native x64 Windows and the ARM64 MSI on native ARM64 Windows.
 
-The pre-1.0 MSI uses a fixed self-signed Authenticode identity, so Windows may show an unknown-publisher warning. The installer does not add that certificate to the machine Root or Trusted Publisher stores. Confirm the exact certificate SHA-256 from the release notes before accepting the warning.
+The pre-1.0 MSI uses a fixed self-signed Authenticode identity, so Windows may show an unknown-publisher warning. The installer does not add that certificate to the machine Root or Trusted Publisher stores. Confirm the certificate SHA-256 from the release notes before accepting the warning.
 
 The interactive installer:
 
-- requires administrator approval to install the narrow `usque-agent` service;
-- lets the user select the installation directory;
+- asks for administrator approval to install the `usque-agent` service;
+- lets you choose the install directory;
 - installs the GUI, unprivileged engine, Agent, official Wintun DLL, and Start Menu shortcut;
-- preserves the selected directory during a major upgrade;
-- never starts a VPN connection as part of installation.
+- keeps that directory on a major upgrade;
+- does not start a VPN during install.
 
 ### Upgrade
 
-A major upgrade first stops the Agent and restores Usque-owned WFP, route, DNS, system-proxy, and Wintun state. It preserves user profiles, settings, logs, caches, Credential Manager identities, and the clean recovery journal required by the replacement version.
+A major upgrade first stops the Agent and restores Usque-owned WFP, route, DNS, system-proxy, and Wintun state. It keeps user profiles, settings, logs, caches, Credential Manager identities, and the recovery journal the new version needs.
 
-The upgrade must abort with a detailed error if privileged network state cannot be restored. It must not silently continue with stale routes, filters, DNS settings, proxies, or adapters.
+If privileged network state cannot be restored, the upgrade stops with an error. It must not continue with leftover routes, filters, DNS, proxies, or adapters.
 
 ### Uninstall
 
-Uninstall Usque from **Settings > Apps > Installed apps** or the classic Programs and Features panel. The MSI performs recovery before deleting the binaries:
+Uninstall from **Settings > Apps > Installed apps** or the classic Programs and Features panel. Settings launches `usque-uninstall.exe`, which asks for confirmation and offers an unchecked option to delete only the current user's Usque profiles, preferences, logs, caches, and Credential Manager entries. Cancel leaves the product installed.
 
-1. stop the Agent;
-2. remove Usque WFP Kill Switch objects;
-3. restore journaled routes, DNS, and system-proxy state;
-4. remove the exact Usque-owned Wintun adapter;
-5. remove the service, program files, shortcut, and clean machine journal.
+Confirming Uninstall starts Windows Installer, which then:
 
-The shared Wintun driver package is not removed because another application may use it. No Usque-owned adapter may remain after a successful uninstall.
+1. stops the Agent;
+2. removes Usque WFP Kill Switch objects;
+3. restores journaled routes, DNS, and system-proxy state;
+4. removes the Usque-owned Wintun adapter;
+5. removes the service, program files, shortcut, and clean machine journal.
 
-User data is preserved by default. The uninstall UI offers an unchecked option to delete only the uninstalling user's Usque profiles, preferences, logs, caches, and Credential Manager entries. This action is irreversible and does not affect other Windows users. Silent uninstall also preserves data unless an administrator explicitly supplies `USQUE_REMOVE_USER_DATA=1`; upgrades never purge user data.
+The shared Wintun driver package stays, because another application may use it. A successful uninstall must not leave an Usque Wintun adapter.
 
-If recovery fails, uninstall stops rather than concealing privileged network residue. Recovery and leak testing must take place only in a snapshot-enabled isolated VM with out-of-band access.
+The data-deletion option cannot be undone and does not affect other Windows users. Leave it unchecked to keep local data for a later reinstall. Silent uninstall (`msiexec /x {ProductCode} /qn`, or the registered `QuietUninstallString`) also keeps data unless an administrator sets `USQUE_REMOVE_USER_DATA=1`. Upgrades never show the confirmation dialog and never purge user data. Re-running the MSI while Usque is installed still offers the same default-off deletion checkbox on the maintenance remove path.
+
+If recovery fails, uninstall stops rather than leaving privileged network residue behind. Recovery and leak testing belong on a snapshot VM, not on a daily-driver machine. Development-machine limits are in [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## Android and Android TV
 
-The release targets Android 8.0 / API 26 or later, including compatible Android TV devices. Use the arm64-v8a package for ARMv8 devices, x86_64 for x64 devices, or armeabi-v7a for ARMv7 devices. The universal APK contains all three ABIs and is larger; use it only when the architecture-specific package cannot be determined.
+The release needs Android 8.0 / API 26 or later, including compatible Android TV devices. Use the arm64-v8a package on ARMv8, x86_64 on x64, or armeabi-v7a on ARMv7. The universal APK contains all three ABIs and is larger; use it only when the per-ABI package cannot be determined.
 
-The pre-1.0 APK is signed by a fixed, project-controlled self-signed release certificate but is not distributed through Google Play. Android may require an advanced sideload flow or ADB. Verify the APK signing certificate SHA-256 before installation or upgrade.
+The pre-1.0 APK is signed by a fixed, project-controlled certificate and is not on Google Play. Android may require a manual install or ADB. Check the APK signing-certificate SHA-256 before install or upgrade.
 
-Android requests VPN consent only when VPN output is first enabled. SOCKS5 and HTTP-only modes do not request `VpnService` permission. For process-level leak protection after the application is terminated, enable Android **Always-on VPN** and **Block connections without VPN** in system settings.
+Android asks for VPN consent only when VPN output is first enabled. SOCKS5 and HTTP-only modes do not request `VpnService`. The in-app Kill Switch keeps the VPN interface up while Usque is connecting, reconnecting, or recovering so other apps stay on the tunnel. That does not survive the app process being killed. Open **Settings → System integration → Open Always-on VPN settings** and enable both **Always-on VPN** and **Block connections without VPN**. Boot recovery needs both **Start Usque after reboot** in that panel and **Connect this Profile automatically** on the active profile.
 
-Uninstalling the application removes its Android Keystore entries and application-private data according to Android platform behavior. Export a WARP Secret explicitly before uninstalling only if you intend to retain that identity; Secrets never appear in diagnostics or ordinary settings backups.
+**Per-app proxy** is an Android app setting, not part of a Profile. When it is off, every app uses the VPN tunnel. When it is on, only the apps you check use the tunnel; newly installed apps stay off the tunnel until you select them. Select all checks the apps currently visible in the picker — it does not turn the filter off. Usque itself is never listed. If Always-on VPN and **Block connections without VPN** are enabled, apps you did not select are blocked instead of going around the tunnel. The filter applies only while VPN output is on.
+
+Uninstalling the app removes its Android Keystore entries and private data the way Android usually does. Export a WARP Secret before uninstalling if you want to keep that identity. Secrets never appear in diagnostics or ordinary settings backups.
 
 ## Updates
 
-Usque never downloads or installs an update automatically. At most once every 24 hours, the application can check this repository for a newer release, display a notification, and open the release page. Automatic checks can be disabled, and a manual check remains available.
+Usque never downloads or installs an update by itself. At most once every 24 hours it can check this repository for a newer release, show a notification, and open the release page. Automatic checks can be turned off; a manual check stays available.
 
-Treat each update as a new package: verify its filename, hash, signer, architecture, manifest, and attestations before installation.
+Treat each update as a new package: check the filename, hash, signer, architecture, manifest, and attestations before installing.
 
-## Development-host boundary
-
-Do not install a generated MSI, start Windows VPN mode, create a TUN/Wintun session, or apply WFP, route, DNS, or system-proxy mutations on an ordinary development host. Safe local operations are source checks, compile-only builds, MSI table/ICE validation, `usque-agent --validate-only`, and SOCKS5/HTTP loopback testing.
-
-The GitHub release workflow does not install packages on physical devices or run long-duration VPN tests. See [Release process](RELEASE.md) for the protected signing, build, and supply-chain contract.
+The GitHub release workflow does not install packages on physical devices or run long VPN tests. Signing and supply-chain steps are in [RELEASE.md](RELEASE.md).

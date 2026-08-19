@@ -2,7 +2,7 @@
 param(
     [ValidateSet("x64-v1", "x64-v2", "arm64")]
     [string]$Variant = "x64-v2",
-    [string]$Version = "0.1.2",
+    [string]$Version = "0.1.3",
     [string]$BuildLabel = "local-validation",
     [string]$FlutterReleaseDirectory = "",
     [string]$OutputDirectory = ""
@@ -98,6 +98,9 @@ try {
     ) -Destination $payload
     Copy-Item -LiteralPath (
         Join-Path $repositoryRoot "target/$($architecture.RustTarget)/release/usque-agent.exe"
+    ) -Destination $payload
+    Copy-Item -LiteralPath (
+        Join-Path $repositoryRoot "target/$($architecture.RustTarget)/release/usque-uninstall.exe"
     ) -Destination $payload
     Copy-Item -LiteralPath (
         Join-Path $repositoryRoot "third_party/wintun-0.14.1/wintun/bin/$($architecture.Wintun)/wintun.dll"

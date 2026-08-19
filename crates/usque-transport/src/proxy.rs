@@ -15,10 +15,18 @@ use crate::socket::{SocketProtector, noop_socket_protector};
 /// keeps startup atomic and prevents SOCKS5 and HTTP from accidentally opening
 /// separate MASQUE channels for the same active Profile.
 pub struct ProxyRuntime {
-    runtime: MasqueRuntime,
+    runtime: Option<MasqueRuntime>,
 }
 
 impl ProxyRuntime {
+    fn inner(&self) -> &MasqueRuntime {
+        self.runtime.as_ref().expect("proxy MASQUE runtime")
+    }
+
+    fn inner_mut(&mut self) -> &mut MasqueRuntime {
+        self.runtime.as_mut().expect("proxy MASQUE runtime")
+    }
+
     pub async fn start(
         profile: &Profile,
         identity: MasqueTlsIdentity,
@@ -41,49 +49,69 @@ impl ProxyRuntime {
         pin_refresher: Option<Arc<dyn EndpointPinRefresher>>,
     ) -> Result<Self, TransportError> {
         Ok(Self {
-            runtime: MasqueRuntime::start_with_refresh(profile, identity, protector, pin_refresher)
-                .await?,
+            runtime: Some(
+                MasqueRuntime::start_with_refresh(profile, identity, protector, pin_refresher)
+                    .await?,
+            ),
         })
     }
 
     pub fn path(&self) -> RuntimePath {
-        self.runtime.path()
+        self.inner().path()
     }
 
     pub fn listeners(&self) -> &[std::net::SocketAddr] {
-        self.runtime.listeners()
+        self.inner().listeners()
     }
 
     pub fn socks5_listeners(&self) -> &[std::net::SocketAddr] {
-        self.runtime.socks5_listeners()
+        self.inner().socks5_listeners()
     }
 
     pub fn http_listeners(&self) -> &[std::net::SocketAddr] {
-        self.runtime.http_listeners()
+        self.inner().http_listeners()
     }
 
     pub fn health(&self) -> RuntimeHealth {
-        self.runtime.health()
+        self.inner().health()
     }
 
     pub fn statistics(&self) -> TrafficSnapshot {
-        self.runtime.statistics()
+        self.inner().statistics()
     }
 
     pub fn performance(&self) -> ProxyPerformanceSnapshot {
-        self.runtime.performance()
+        self.inner().performance()
     }
 
     pub fn failure(&self) -> Option<String> {
-        self.runtime.failure()
+        self.inner().failure()
+    }
+
+    pub async fn reconfigure_frontends(&mut self, profile: &Profile) -> Result<(), TransportError> {
+        self.inner_mut().reconfigure_frontends(profile).await
+    }
+
+    pub fn into_masque(mut self) -> MasqueRuntime {
+        self.runtime.take().expect("proxy MASQUE runtime")
+    }
+
+    pub fn from_masque(runtime: MasqueRuntime) -> Self {
+        Self {
+            runtime: Some(runtime),
+        }
     }
 
     pub fn cancel_immediately(&mut self) {
-        self.runtime.cancel_immediately();
+        if let Some(runtime) = self.runtime.as_mut() {
+            runtime.cancel_immediately();
+        }
     }
 
     pub async fn shutdown(&mut self) {
-        self.runtime.shutdown().await;
+        if let Some(runtime) = self.runtime.as_mut() {
+            runtime.shutdown().await;
+        }
     }
 }
 
