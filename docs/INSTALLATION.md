@@ -1,6 +1,6 @@
 # Installation and removal
 
-Install only packages from this repository's GitHub release for `v0.1.3`.
+Install only packages from this repository's [GitHub Releases page](https://github.com/GeorgeXie2333/usque-app/releases) for `v0.1.3`.
 
 ## Official packages
 
@@ -11,12 +11,12 @@ Install only packages from this repository's GitHub release for `v0.1.3`.
 - `usque-v0.1.3-android-armeabi-v7a.apk`
 - `usque-v0.1.3-android-universal.apk`
 
-Each release also has SHA-256 sidecars, signer fingerprints, SPDX and CycloneDX SBOMs, dependency license inventories, and GitHub build provenance. A local validation package, Actions development output, fork artifact, or a file from somewhere else is not an official release. Official identities and fingerprint rules are in [CODE_SIGNING.md](CODE_SIGNING.md).
+The GitHub Release attaches only those six packages. GitHub shows a SHA-256 for each asset. Signer fingerprints, SBOMs, and build provenance stay in the release notes and GitHub attestations. A local validation package, Actions development output, fork artifact, or a file from somewhere else is not an official release. Official identities and fingerprint rules are in [CODE_SIGNING.md](CODE_SIGNING.md).
 
 ## Verify before installing
 
-1. Download the package and its `.sha256` file from the same GitHub release.
-2. Calculate the package SHA-256 and compare the full 64-character value.
+1. Download the package from the [GitHub Releases page](https://github.com/GeorgeXie2333/usque-app/releases).
+2. Calculate the package SHA-256 and compare it with the digest GitHub shows for that asset.
 3. Compare the package signer with the fingerprint in the release notes.
 4. Check the GitHub artifact attestation when it is available.
 5. Stop if the filename, hash, signature, architecture, or version differs.
@@ -77,6 +77,6 @@ Uninstalling the app removes its Android Keystore entries and private data the w
 
 Usque never downloads or installs an update by itself. At most once every 24 hours it can check this repository for a newer release, show a notification, and open the release page. Automatic checks can be turned off; a manual check stays available.
 
-Treat each update as a new package: check the filename, hash, signer, architecture, manifest, and attestations before installing.
+Treat each update as a new package: check the filename, GitHub SHA-256, signer, architecture, and attestations before installing.
 
 The GitHub release workflow does not install packages on physical devices or run long VPN tests. Signing and supply-chain steps are in [RELEASE.md](RELEASE.md).

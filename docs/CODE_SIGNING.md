@@ -39,8 +39,8 @@ Only the release maintainer may approve `release-signing` and `release-publish`.
 
 Before installing:
 
-1. Download the package and its `.sha256` file from the same GitHub Release.
-2. Compare the full package SHA-256.
+1. Download the package from the [GitHub Releases page](https://github.com/GeorgeXie2333/usque-app/releases).
+2. Compare the full package SHA-256 with the digest GitHub shows for that asset.
 3. Compare the signer fingerprint with the value in that release's notes.
 4. Check the GitHub artifact attestation when it is available.
 

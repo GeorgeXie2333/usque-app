@@ -561,7 +561,7 @@ jobs:
           fi
 
   stage-candidate:
-    name: Build checksums, SBOMs, and license inventories
+    name: Stage signed packages and attest SBOMs
     needs: [release-gate, windows, android]
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -592,7 +592,7 @@ jobs:
         with:
           syft-version: v1.44.0
 
-      - name: Generate per-artifact SPDX, CycloneDX, and license lists
+      - name: Generate per-artifact SPDX for GitHub attestations
         shell: bash
         env:
           SYFT: ${{ steps.syft.outputs.cmd }}
@@ -610,23 +610,8 @@ jobs:
             cp third_party/wintun-0.14.1/wintun/LICENSE.txt \
               "$context/WINTUN-LICENSE.txt"
             "$SYFT" scan "dir:$context" \
-              -o "spdx-json=$artifact.spdx.json" \
-              -o "cyclonedx-json=$artifact.cdx.json"
-            {
-              printf 'name\tversion\tlicense_declared\tlicense_concluded\n'
-              jq -r '
-                .packages[]? |
-                [
-                  (.name // "UNKNOWN"),
-                  (.versionInfo // "UNKNOWN"),
-                  (.licenseDeclared // "NOASSERTION"),
-                  (.licenseConcluded // "NOASSERTION")
-                ] | @tsv
-              ' "$artifact.spdx.json"
-            } > "$artifact.licenses.tsv"
+              -o "spdx-json=$artifact.spdx.json"
             test -s "$artifact.spdx.json"
-            test -s "$artifact.cdx.json"
-            test -s "$artifact.licenses.tsv"
             rm -rf -- "$context"
             count=$((count + 1))
           done < <(
@@ -637,7 +622,7 @@ jobs:
           )
           test "$count" -eq 6
 
-      - name: Create immutable release manifest and SHA-256 sidecars
+      - name: Create immutable release manifest
         run: |
           python tool/release_contract.py create-manifest \
             --directory "$RUNNER_TEMP/candidate" \
@@ -719,6 +704,17 @@ jobs:
           python tool/release_contract.py verify-artifacts \
             --directory "$RUNNER_TEMP/candidate" \
             --manifest "$RUNNER_TEMP/candidate/release-manifest.json"
+          publish="$RUNNER_TEMP/publish"
+          mkdir -p "$publish"
+          while IFS= read -r -d '' artifact; do
+            cp -- "$artifact" "$publish/"
+          done < <(
+            find "$RUNNER_TEMP/candidate" -maxdepth 1 -type f \
+              \( -name '*.msi' -o -name '*.apk' \) \
+              -print0 |
+              sort -z
+          )
+          test "$(find "$publish" -maxdepth 1 -type f | wc -l)" -eq 6
 
       - name: Publish GitHub release only after signing and supply-chain gates
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
@@ -727,4 +723,4 @@ jobs:
           draft: false
           fail_on_unmatched_files: true
           generate_release_notes: true
-          files: ${{ runner.temp }}/candidate/**
+          files: ${{ runner.temp }}/publish/*

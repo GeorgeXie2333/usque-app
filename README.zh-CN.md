@@ -22,7 +22,7 @@
 Usque 是面向 Cloudflare WARP 个人版（Consumer WARP）的非官方图形客户端。界面由 Flutter 实现；MASQUE、CONNECT-IP、DNS、代理与连接状态由 Rust 引擎处理。项目不使用 WebView。
 
 > [!IMPORTANT]
-> 当前发布版本为 **v0.1.3**。仅 [`v0.1.3` GitHub Release](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.1.3) 所附文件，且校验和与签名者指纹一致时，视为正式发布包。Pull Request 构建、本地构建以及未打标签的二进制均非正式发布。
+> 当前发布版本为 **v0.1.3**。请仅从 [GitHub Releases 页面](https://github.com/GeorgeXie2333/usque-app/releases) 下载正式安装包。Pull Request 构建、本地构建以及未打标签的二进制均非正式发布。
 
 Usque 为独立项目，与 Cloudflare 无隶属、赞助或背书关系。Cloudflare 与 WARP 是 Cloudflare, Inc. 的商标。使用个人版 WARP 仍须遵守 Cloudflare 的适用条款与隐私政策。
 
@@ -75,23 +75,12 @@ Usque 为独立项目，与 Cloudflare 无隶属、赞助或背书关系。Cloud
 
 ## 获取与安装
 
-请仅从[正式发布页面](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.1.3)下载 `v0.1.3`：
-
-| 目标 | 文件 |
-| --- | --- |
-| Windows x64 | [`usque-v0.1.3-windows-x64-v2.msi`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.3/usque-v0.1.3-windows-x64-v2.msi) |
-| Windows ARM64 | [`usque-v0.1.3-windows-arm64.msi`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.3/usque-v0.1.3-windows-arm64.msi) |
-| Android ARMv8 | [`usque-v0.1.3-android-arm64-v8a.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.3/usque-v0.1.3-android-arm64-v8a.apk) |
-| Android x64 | [`usque-v0.1.3-android-x86_64.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.3/usque-v0.1.3-android-x86_64.apk) |
-| Android ARMv7 | [`usque-v0.1.3-android-armeabi-v7a.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.3/usque-v0.1.3-android-armeabi-v7a.apk) |
-| Android 通用包 | [`usque-v0.1.3-android-universal.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.3/usque-v0.1.3-android-universal.apk) |
-
-请优先选择与设备 ABI 匹配的 APK。通用安装包同时包含 ARMv8、x64 与 ARMv7 原生库，体积更大，仅建议在无法确定设备架构时使用。发布页同时提供 `SHA256SUMS`、各安装包对应的 `.sha256` 文件、SPDX/CycloneDX SBOM、许可证清单与构建证明。
+请从 [GitHub Releases 页面](https://github.com/GeorgeXie2333/usque-app/releases) 下载 Usque。请优先选择与设备 ABI 匹配的 APK。通用安装包同时包含 ARMv8、x64 与 ARMv7 原生库，体积更大，仅建议在无法确定设备架构时使用。GitHub 会为每个资源显示 SHA-256；安装前请核对摘要与已公布的签名者指纹。
 
 - 1.0 之前的 Windows 安装包使用固定自签名身份。接受系统警告前，请核对已公布的 SHA-256 与证书指纹。
 - 1.0 之前的 Android 安装包使用项目自行管理的固定自签名证书，不通过 Google Play 分发，可能需要手动安装或使用 ADB。
 - v1.0.0 的签名变更将作为独立版本发布。
-- 发布流程会完成编译、签名，以及架构、校验和、SBOM 与构建来源检查，但不会在真机上安装软件包，也不会进行长时间 VPN 验证。
+- 发布流程会完成编译、签名，以及架构、校验和、SBOM 与构建来源检查，但不会把这些附属文件挂到 GitHub Release 上，也不会在真机上安装软件包，也不会进行长时间 VPN 验证。
 - Usque 不会自动安装更新；可选的更新检查仅打开发布页面。
 - Windows 卸载会在系统设置中要求确认，随后恢复 Usque 修改过的网络状态；用户可选择删除当前用户的本地数据。
 

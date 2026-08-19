@@ -22,7 +22,7 @@
 Usque is an unofficial GUI client for consumer Cloudflare WARP. Flutter draws the UI. A Rust engine handles MASQUE, CONNECT-IP, DNS, proxies, and connection state. There is no WebView.
 
 > [!IMPORTANT]
-> The current release is **v0.1.3**. Only files attached to the [`v0.1.3` GitHub Release](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.1.3), with matching checksums and signer fingerprints, are official. Pull Request artifacts, local builds, and untagged binaries are not.
+> The current release is **v0.1.3**. Download official packages only from the [GitHub Releases page](https://github.com/GeorgeXie2333/usque-app/releases). Pull Request artifacts, local builds, and untagged binaries are not official.
 
 Usque is an independent project. It is not affiliated with, sponsored by, or endorsed by Cloudflare. Cloudflare and WARP are trademarks of Cloudflare, Inc. Use of consumer WARP remains subject to Cloudflare's terms and privacy policy.
 
@@ -75,23 +75,12 @@ These values can be changed and reset. A non-loopback proxy listener has no pass
 
 ## Availability and installation
 
-Download `v0.1.3` only from the [official release page](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.1.3):
-
-| Target | File |
-| --- | --- |
-| Windows x64 | [`usque-v0.1.3-windows-x64-v2.msi`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.3/usque-v0.1.3-windows-x64-v2.msi) |
-| Windows ARM64 | [`usque-v0.1.3-windows-arm64.msi`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.3/usque-v0.1.3-windows-arm64.msi) |
-| Android ARMv8 | [`usque-v0.1.3-android-arm64-v8a.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.3/usque-v0.1.3-android-arm64-v8a.apk) |
-| Android x64 | [`usque-v0.1.3-android-x86_64.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.3/usque-v0.1.3-android-x86_64.apk) |
-| Android ARMv7 | [`usque-v0.1.3-android-armeabi-v7a.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.3/usque-v0.1.3-android-armeabi-v7a.apk) |
-| Android universal | [`usque-v0.1.3-android-universal.apk`](https://github.com/GeorgeXie2333/usque-app/releases/download/v0.1.3/usque-v0.1.3-android-universal.apk) |
-
-Prefer the APK that matches the device ABI. The universal APK includes ARMv8, x64, and ARMv7 libraries and is larger; use it when the architecture is unknown. The release also has `SHA256SUMS`, a `.sha256` file per package, SPDX/CycloneDX SBOMs, license inventories, and build attestations.
+Download Usque from the [GitHub Releases page](https://github.com/GeorgeXie2333/usque-app/releases). Prefer the APK that matches the device ABI. The universal APK includes ARMv8, x64, and ARMv7 libraries and is larger; use it when the architecture is unknown. GitHub shows a SHA-256 for each asset; compare that digest and the published signer fingerprint before installing.
 
 - Pre-1.0 Windows packages use a fixed self-signed identity. Check the published SHA-256 and certificate fingerprint before accepting the OS warning.
 - Pre-1.0 Android packages use a project-controlled self-signed certificate and are not on Google Play. You may need a manual install or ADB.
 - A later v1.0.0 signing change will be its own release.
-- The release workflow compiles, signs, and checks architecture, checksums, SBOMs, and provenance. It does not install packages on real devices or run long VPN tests.
+- The release workflow compiles, signs, and checks architecture, checksums, SBOMs, and provenance. It does not attach those extras to the GitHub Release, and it does not install packages on real devices or run long VPN tests.
 - Usque never installs updates by itself. Optional update checks only open the release page.
 - Windows uninstall asks for confirmation in Settings, restores Usque-owned network state, and can delete the current user's local data if you ask.
 
