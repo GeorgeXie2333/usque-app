@@ -107,6 +107,7 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] Automatic Consumer registration through Rust before Android Keystore persistence.
 - [x] Export a saved Secret through Android SAF after explicit confirmation, without revealing it in the UI or diagnostics.
 - [x] Implement `VpnService.Builder` address/DNS setup, API 26–32 CIDR complements, API 33+ exclusions, a 256-route ceiling, retained TUN reconnects, `protect(fd)`, and underlying-network rebinding.
+- [x] Add device-scoped Android per-app proxy (include-only `addAllowedApplication`) stored in app settings, not the Profile.
 - [x] Fail-closed Android reconnect: retain the TUN fd when Kill Switch is armed and the address/DNS/MTU/route identity is unchanged; establish a replacement TUN before closing the old one when that identity changes.
 - [x] Expose Android start-on-boot, Quick Settings tile request, and a deep link to system Always-on VPN settings.
 - [ ] Sleep, network-switch, and TV lifecycle tests.

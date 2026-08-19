@@ -19,11 +19,16 @@ internal data class TunIdentity(
     val dnsV6: String,
     val allowLan: Boolean,
     val bypassCidrs: List<String>,
+    val perAppEnabled: Boolean = false,
+    val perAppPackages: List<String> = emptyList(),
 ) {
     fun sameForReuse(other: TunIdentity): Boolean = this == other
 
     companion object {
-        fun from(profile: AndroidVpnProfile): TunIdentity =
+        fun from(
+            profile: AndroidVpnProfile,
+            perApp: PerAppProxySettings = PerAppProxySettings(),
+        ): TunIdentity =
             TunIdentity(
                 profileId = profile.id,
                 mtu = profile.mtu,
@@ -32,6 +37,8 @@ internal data class TunIdentity(
                 dnsV6 = profile.dnsIpv6.hostAddress ?: profile.dnsIpv6.toString(),
                 allowLan = profile.allowLan,
                 bypassCidrs = profile.bypassCidrs,
+                perAppEnabled = perApp.enabled,
+                perAppPackages = perApp.packageNames,
             )
     }
 }

@@ -2,7 +2,7 @@
 
 Usque can experimentally register a new profile with a Cloudflare Zero Trust organization on Windows and Android. This feature is intentionally narrower than the Cloudflare One Client: it uses the organization account to create a persistent device identity, then carries Internet traffic through Usque's existing MASQUE tunnel.
 
-It does not implement organization policy synchronization, device posture, managed DNS, Split Tunnels, private-network routing, WARP-to-WARP, service-token enrollment, or automatic client-session reauthentication. Gateway policy can still affect traffic on Cloudflare's side, but Usque does not claim full Cloudflare One Client compatibility.
+It does not implement organization policy synchronization, device posture, managed DNS, Split Tunnels, private-network routing, WARP-to-WARP, service-token enrollment, or automatic client-session reauthentication. The Android per-app proxy picker is a local UID filter on this device; it is not Cloudflare One Split Tunnel or organization policy sync. Gateway policy can still affect traffic on Cloudflare's side, but Usque does not claim full Cloudflare One Client compatibility.
 
 ## Enrollment flow
 

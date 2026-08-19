@@ -86,6 +86,43 @@ class AndroidEngineMethodHandlerTest {
     }
 
     @Test
+    fun setPerAppProxyPersistsAndNotifiesVpnService() {
+        val result = RecordingResult()
+        handler.handle(
+            MethodCall(
+                "setPerAppProxy",
+                mapOf(
+                    "enabled" to true,
+                    "package_names" to listOf("com.example.app"),
+                ),
+            ),
+            result,
+        )
+        assertEquals(listOf(UsqueVpnService.MSG_APPLY_PER_APP), endpoint.whats)
+        val saved = result.successValue as Map<*, *>
+        assertEquals(true, saved["enabled"])
+        assertEquals(listOf("com.example.app"), saved["package_names"])
+        assertNull(result.errorCode)
+    }
+
+    @Test
+    fun setPerAppProxyRejectsMalformedPackageList() {
+        val result = RecordingResult()
+        handler.handle(
+            MethodCall(
+                "setPerAppProxy",
+                mapOf(
+                    "enabled" to true,
+                    "package_names" to listOf(1),
+                ),
+            ),
+            result,
+        )
+        assertEquals("INVALID_ARGUMENT", result.errorCode)
+        assertTrue(endpoint.whats.isEmpty())
+    }
+
+    @Test
     fun reconfigureActiveProfilePersistsAndNotifiesTheVpnServiceWithoutConnect() {
         engineBridge.profileCatalogJson =
             """{"profiles":[{"id":"p1"}]}"""
@@ -335,7 +372,8 @@ class AndroidEngineMethodHandlerTest {
         assertNull(saved.errorCode)
         assertEquals(
             "s3cret",
-            identityStore.get("p1", SecureIdentityStore.Record.PROXY_PASSWORD)!!
+            identityStore
+                .get("p1", SecureIdentityStore.Record.PROXY_PASSWORD)!!
                 .toString(Charsets.UTF_8),
         )
 
@@ -932,6 +970,18 @@ class AndroidEngineMethodHandlerTest {
         }
 
         override fun openAlwaysOnVpnSettings() = Unit
+
+        override fun listInstalledApps(): List<Map<String, Any?>> = emptyList()
+
+        override fun getAppIcon(packageName: String): ByteArray? = null
+
+        override fun loadPerAppProxy(): Map<String, Any?> =
+            mapOf("enabled" to false, "package_names" to emptyList<String>())
+
+        override fun savePerAppProxy(
+            enabled: Boolean,
+            packageNames: List<String>,
+        ): Map<String, Any?> = mapOf("enabled" to enabled, "package_names" to packageNames)
     }
 
     private class FakeEngineBridge : AndroidEngineMethodHandler.EngineBridge {

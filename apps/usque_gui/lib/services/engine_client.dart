@@ -82,6 +82,14 @@ abstract interface class EngineClient {
 
   Future<void> requestAddQuickSettingsTile();
 
+  Future<PerAppProxySettings> perAppProxy();
+
+  Future<PerAppProxySettings> setPerAppProxy(PerAppProxySettings settings);
+
+  Future<List<InstalledAppInfo>> listInstalledApps();
+
+  Future<Uint8List?> getAppIcon(String packageName);
+
   Future<EngineSnapshot> connect(UsqueProfile profile);
 
   Future<EngineSnapshot> disconnect();
@@ -198,6 +206,37 @@ class MethodChannelEngineClient implements EngineClient {
   @override
   Future<void> requestAddQuickSettingsTile() =>
       _invoke<void>('requestAddQuickSettingsTile');
+
+  @override
+  Future<PerAppProxySettings> perAppProxy() async {
+    final value = await _invoke<Map<Object?, Object?>>('perAppProxy');
+    return PerAppProxySettings.fromMap(value ?? const <Object?, Object?>{});
+  }
+
+  @override
+  Future<PerAppProxySettings> setPerAppProxy(PerAppProxySettings settings) async {
+    final value = await _invoke<Map<Object?, Object?>>(
+      'setPerAppProxy',
+      settings.toMap(),
+    );
+    return PerAppProxySettings.fromMap(value ?? settings.toMap());
+  }
+
+  @override
+  Future<List<InstalledAppInfo>> listInstalledApps() async {
+    final value = await _invoke<List<Object?>>('listInstalledApps');
+    return (value ?? const <Object?>[])
+        .whereType<Map<Object?, Object?>>()
+        .map(InstalledAppInfo.fromMap)
+        .where((app) => app.packageName.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  @override
+  Future<Uint8List?> getAppIcon(String packageName) =>
+      _invoke<Uint8List>('getAppIcon', <String, Object>{
+        'package_name': packageName,
+      });
 
   @override
   Future<void> openAlwaysOnVpnSettings() =>

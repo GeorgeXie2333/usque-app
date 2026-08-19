@@ -185,6 +185,17 @@ class VpnControlClientTest {
     }
 
     @Test
+    fun notifyApplyPerAppSendsWhenBoundAndIsIgnoredWhenUnbound() {
+        client.notifyApplyPerApp()
+        assertEquals(0, binder.bindCount)
+
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        client.notifyApplyPerApp()
+        assertEquals(UsqueVpnService.MSG_APPLY_PER_APP, endpoint.messages.single().what)
+    }
+
+    @Test
     fun disconnectWaitsForReconnectThenSends() {
         val result = RecordingResult()
         client.requestDisconnect(result)

@@ -2,6 +2,7 @@ package io.github.georgexie2333.usque
 
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.IpPrefix
 import android.net.Network
@@ -49,6 +50,7 @@ class UsqueVpnService : VpnService() {
         const val MSG_TILE_TOGGLE = 8
         const val MSG_RETRY = 9
         const val MSG_RECONFIGURE = 10
+        const val MSG_APPLY_PER_APP = 11
 
         private const val NATIVE_STATUS_INTERVAL_MILLIS = 1_000L
         private const val PHYSICAL_NETWORK_WAIT_MILLIS = 8_000L
@@ -80,6 +82,7 @@ class UsqueVpnService : VpnService() {
     private val activeProfileJson = AtomicReference<String?>(null)
     private val activeMode = AtomicReference<String?>(null)
     private val lastTunIdentity = AtomicReference<TunIdentity?>(null)
+
     @Volatile private var pendingTunRestart: TunRestartDecision = TunRestartDecision.TEARDOWN
     private val eventClients = CopyOnWriteArrayList<Messenger>()
     private val recoveryPreferences by lazy {
@@ -155,6 +158,11 @@ class UsqueVpnService : VpnService() {
 
                     MSG_RECONFIGURE -> {
                         reconfigureConnection(message)
+                        true
+                    }
+
+                    MSG_APPLY_PER_APP -> {
+                        applyPerAppFilter(message)
                         true
                     }
 
@@ -333,7 +341,9 @@ class UsqueVpnService : VpnService() {
 
         val incomingIdentity =
             if (tunnelEnabled) {
-                runCatching { TunIdentity.from(AndroidVpnProfile.parse(profileJson)) }.getOrNull()
+                runCatching {
+                    tunIdentity(AndroidVpnProfile.parse(profileJson))
+                }.getOrNull()
             } else {
                 null
             }
@@ -428,13 +438,16 @@ class UsqueVpnService : VpnService() {
                         refreshNativeSnapshot()
                         replyWithSnapshot(request)
                     }
+
                     NativeEngine.RECONFIGURE_NEED_COLD -> {
                         beginConnection(profileJson)
                         replyWithSnapshot(request)
                     }
+
                     NativeEngine.RECONFIGURE_NEED_ATTACH -> {
                         attachTunWhileRunning(profileJson, request)
                     }
+
                     else -> {
                         val failure = nativeStartFailure(result)
                         fail(
@@ -504,6 +517,14 @@ class UsqueVpnService : VpnService() {
                 val descriptor =
                     try {
                         ensureTun(profile, assignment, routePlan, retainExisting = false)
+                    } catch (error: PerAppProxyEmptyException) {
+                        fail(
+                            generation,
+                            ANDROID_PER_APP_EMPTY,
+                            "No selected apps are still installed for per-app proxy.",
+                        )
+                        mainHandler.post { replyWithSnapshot(request) }
+                        return@execute
                     } catch (error: Exception) {
                         fail(generation, "Android refused the VPN configuration: ${safeMessage(error)}")
                         mainHandler.post { replyWithSnapshot(request) }
@@ -514,7 +535,7 @@ class UsqueVpnService : VpnService() {
                     mainHandler.post { replyWithSnapshot(request) }
                     return@execute
                 }
-                lastTunIdentity.set(TunIdentity.from(profile))
+                lastTunIdentity.set(tunIdentity(profile))
                 val attached = NativeEngine.attachTun(descriptor.fd, profileJson)
                 if (attached != NativeEngine.OK) {
                     tunnel.compareAndSet(descriptor, null)
@@ -758,6 +779,13 @@ class UsqueVpnService : VpnService() {
                         routePlan,
                         retainExisting = restart == TunRestartDecision.RETAIN,
                     )
+                } catch (error: PerAppProxyEmptyException) {
+                    fail(
+                        generation,
+                        ANDROID_PER_APP_EMPTY,
+                        "No selected apps are still installed for per-app proxy.",
+                    )
+                    return
                 } catch (error: Exception) {
                     fail(generation, "Android refused the VPN configuration: ${safeMessage(error)}")
                     return
@@ -773,7 +801,7 @@ class UsqueVpnService : VpnService() {
                 }
                 return
             }
-            lastTunIdentity.set(TunIdentity.from(profile))
+            lastTunIdentity.set(tunIdentity(profile))
             snapshotState.killSwitchEnabled = profile.killSwitch
             postPhase(generation, "connectingH3", null)
             val proxyPassword = loadProxyPassword(profile.id, profileJson)
@@ -949,7 +977,63 @@ class UsqueVpnService : VpnService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             builder.setMetered(false)
         }
+        when (val plan = currentPerAppPlan()) {
+            PerAppPlan.None -> {
+                Unit
+            }
+
+            PerAppPlan.Empty -> {
+                throw PerAppProxyEmptyException()
+            }
+
+            is PerAppPlan.Allow -> {
+                var added = 0
+                for (allowed in plan.packages) {
+                    try {
+                        builder.addAllowedApplication(allowed)
+                        added += 1
+                    } catch (_: PackageManager.NameNotFoundException) {
+                        // Uninstalled between planning and establish; skip.
+                    }
+                }
+                if (added == 0) {
+                    throw PerAppProxyEmptyException()
+                }
+            }
+        }
         return builder.establish()
+    }
+
+    private fun tunIdentity(profile: AndroidVpnProfile): TunIdentity =
+        TunIdentity.from(profile, PerAppProxyStore.load(this))
+
+    private fun currentPerAppPlan(): PerAppPlan =
+        PerAppProxyApplier.plan(
+            settings = PerAppProxyStore.load(this),
+            isInstalled = ::packageInstalled,
+            selfPackage = packageName,
+        )
+
+    private fun packageInstalled(packageName: String): Boolean =
+        try {
+            packageManager.getApplicationInfo(packageName, 0)
+            true
+        } catch (_: PackageManager.NameNotFoundException) {
+            false
+        }
+
+    private fun applyPerAppFilter(request: Message) {
+        val profileJson = activeProfileJson.get()
+        val tunnelOn =
+            profileJson != null &&
+                runCatching { VpnReconfigure.tunnelFrontendEnabled(profileJson) }
+                    .getOrDefault(false)
+        if (profileJson.isNullOrEmpty() || !nativeRuntimeActive.get() || !tunnelOn) {
+            request.let(::replyWithSnapshot)
+            return
+        }
+        beginConnection(profileJson)
+        request.let(::replyWithSnapshot)
     }
 
     // Remove recovery state before the service can be stopped.
@@ -1005,6 +1089,7 @@ class UsqueVpnService : VpnService() {
         }
         clearAllRequested.set(true)
         recoveryPreferences.edit().clear().commit()
+        PerAppProxyStore.clear(this)
         val generation = connectionGeneration.incrementAndGet()
         networkMonitor.bumpGeneration()
         activeProfileJson.set(null)

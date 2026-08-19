@@ -7,6 +7,7 @@ import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
 import 'advanced_settings_screen.dart';
+import 'per_app_proxy_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({required this.controller, super.key});
@@ -163,6 +164,27 @@ class SettingsScreen extends StatelessWidget {
                     title: Text(strings.get('always_on_vpn')),
                     subtitle: Text(strings.get('always_on_vpn_help')),
                     onTap: controller.openAlwaysOnVpnSettings,
+                  ),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(LucideIcons.layers3),
+                    title: Text(strings.get('per_app_proxy')),
+                    subtitle: Text(
+                      controller.perAppProxy.enabled
+                          ? strings
+                                .get('per_app_proxy_on')
+                                .replaceAll(
+                                  '{count}',
+                                  '${controller.perAppProxy.packageNames.length}',
+                                )
+                          : strings.get('per_app_proxy_off'),
+                    ),
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) =>
+                            PerAppProxyScreen(controller: controller),
+                      ),
+                    ),
                   ),
                 ],
               ],

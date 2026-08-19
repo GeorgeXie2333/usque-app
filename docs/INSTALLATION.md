@@ -69,6 +69,8 @@ The pre-1.0 APK is signed by a fixed, project-controlled certificate and is not 
 
 Android asks for VPN consent only when VPN output is first enabled. SOCKS5 and HTTP-only modes do not request `VpnService`. The in-app Kill Switch keeps the VPN interface up while Usque is connecting, reconnecting, or recovering so other apps stay on the tunnel. That does not survive the app process being killed. Open **Settings → System integration → Open Always-on VPN settings** and enable both **Always-on VPN** and **Block connections without VPN**. Boot recovery needs both **Start Usque after reboot** in that panel and **Connect this Profile automatically** on the active profile.
 
+**Per-app proxy** is an Android app setting, not part of a Profile. When it is off, every app uses the VPN tunnel. When it is on, only the apps you check use the tunnel; newly installed apps stay off the tunnel until you select them. Select all checks the apps currently visible in the picker — it does not turn the filter off. Usque itself is never listed. If Always-on VPN and **Block connections without VPN** are enabled, apps you did not select are blocked instead of going around the tunnel. The filter applies only while VPN output is on.
+
 Uninstalling the app removes its Android Keystore entries and private data the way Android usually does. Export a WARP Secret before uninstalling if you want to keep that identity. Secrets never appear in diagnostics or ordinary settings backups.
 
 ## Updates

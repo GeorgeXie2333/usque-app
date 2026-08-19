@@ -304,6 +304,14 @@ internal class VpnControlClient(
         return true
     }
 
+    fun notifyApplyPerApp() {
+        if (destroyed) return
+        val service = endpoint ?: return
+        if (!service.send(UsqueVpnService.MSG_APPLY_PER_APP)) {
+            endpoint = null
+        }
+    }
+
     fun requestDisconnect(result: MethodChannel.Result) {
         if (destroyed) {
             result.error(

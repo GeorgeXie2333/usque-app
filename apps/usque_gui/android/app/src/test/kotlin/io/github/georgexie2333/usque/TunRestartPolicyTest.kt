@@ -30,6 +30,21 @@ class TunRestartPolicyTest {
     }
 
     @Test
+    fun perAppChangeEstablishesNewBeforeClose() {
+        val changed = identity.copy(perAppEnabled = true, perAppPackages = listOf("com.example.app"))
+        assertEquals(
+            TunRestartDecision.REPLACE_NEW_FIRST,
+            TunRestartPolicy.decide(
+                killSwitch = true,
+                tunnelFrontend = true,
+                hasCurrentFd = true,
+                sameIdentity = identity.sameForReuse(changed),
+                userRequestedDisconnect = false,
+            ),
+        )
+    }
+
+    @Test
     fun routeChangeEstablishesNewBeforeClose() {
         val changed = identity.copy(bypassCidrs = listOf("10.0.0.0/8"))
         assertEquals(

@@ -11,7 +11,9 @@ import 'package:usque/core/app_strings.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/screens/advanced_settings_screen.dart';
 import 'package:usque/screens/home_screen.dart';
+import 'package:usque/screens/per_app_proxy_screen.dart';
 import 'package:usque/screens/proxy_screen.dart';
+import 'package:usque/screens/settings_screen.dart';
 import 'package:usque/services/desktop_engine_client.dart';
 import 'package:usque/services/engine_client.dart';
 import 'package:usque/state/app_controller.dart';
@@ -234,6 +236,51 @@ class FakeEngineClient implements EngineClient {
   @override
   Future<void> requestAddQuickSettingsTile() async {}
 
+  PerAppProxySettings storedPerAppProxy = const PerAppProxySettings();
+  List<InstalledAppInfo> installedApps = const <InstalledAppInfo>[
+    InstalledAppInfo(
+      packageName: 'com.example.browser',
+      label: 'Browser',
+      isSystem: false,
+      hasInternet: true,
+    ),
+    InstalledAppInfo(
+      packageName: 'com.example.mail',
+      label: 'Mail',
+      isSystem: false,
+      hasInternet: true,
+    ),
+    InstalledAppInfo(
+      packageName: 'com.android.settings',
+      label: 'Settings',
+      isSystem: true,
+      hasInternet: true,
+    ),
+  ];
+
+  @override
+  Future<PerAppProxySettings> perAppProxy() async => storedPerAppProxy;
+
+  @override
+  Future<PerAppProxySettings> setPerAppProxy(PerAppProxySettings settings) async {
+    calls.add('setPerAppProxy');
+    final error = settings.validationError();
+    if (error != null) {
+      throw EngineException(error, 'Invalid per-app proxy settings.');
+    }
+    storedPerAppProxy = PerAppProxySettings(
+      enabled: settings.enabled,
+      packageNames: PerAppProxySettings.sanitizePackages(settings.packageNames),
+    );
+    return storedPerAppProxy;
+  }
+
+  @override
+  Future<List<InstalledAppInfo>> listInstalledApps() async => installedApps;
+
+  @override
+  Future<Uint8List?> getAppIcon(String packageName) async => null;
+
   @override
   Future<void> openAlwaysOnVpnSettings() async {
     calls.add('openAlwaysOnVpnSettings');
@@ -288,6 +335,7 @@ class FakeEngineClient implements EngineClient {
     storedActiveProfileId = UsqueProfile.defaultProfileId;
     legacyProfilesImported = false;
     provisioned = false;
+    storedPerAppProxy = const PerAppProxySettings();
   }
 
   @override
@@ -1353,10 +1401,125 @@ void main() {
       expect(find.text('Start Usque when you sign in'), findsOneWidget);
       expect(find.text('Add Quick Settings Tile'), findsOneWidget);
       expect(find.text('Open Always-on VPN settings'), findsOneWidget);
+      expect(find.text('Per-app proxy'), findsOneWidget);
+      expect(find.text('All apps use the VPN'), findsOneWidget);
       expect(find.text('Updates'), findsOneWidget);
     } finally {
       debugDefaultTargetPlatformOverride = null;
     }
+  });
+
+  testWidgets('Windows settings hide the per-app proxy picker', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    try {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'onboarding_complete': true,
+      });
+      await tester.pumpWidget(UsqueBootstrap(engine: FakeEngineClient()));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Settings').last);
+      await tester.pumpAndSettle();
+      expect(find.byType(SettingsScreen), findsOneWidget);
+      expect(find.text('Per-app proxy'), findsNothing);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('Per-app picker can select visible apps and save', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    try {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'onboarding_complete': true,
+      });
+      final engine = FakeEngineClient();
+      final controller = AppController(engine);
+      await controller.initialize();
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(home: PerAppProxyScreen(controller: controller)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Browser'), findsOneWidget);
+      expect(find.text('Mail'), findsOneWidget);
+      expect(find.text('Settings'), findsNothing);
+      expect(find.text('io.github.georgexie2333.usque'), findsNothing);
+
+      await tester.tap(find.text('Proxy only selected apps'));
+      await tester.pump();
+      await tester.tap(find.text('Select visible'));
+      await tester.pump();
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(engine.calls, contains('setPerAppProxy'));
+      expect(engine.storedPerAppProxy.enabled, isTrue);
+      expect(
+        engine.storedPerAppProxy.packageNames,
+        <String>['com.example.browser', 'com.example.mail'],
+      );
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('Per-app picker list is D-pad traversable', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    try {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'onboarding_complete': true,
+      });
+      final controller = AppController(FakeEngineClient());
+      await controller.initialize();
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(home: PerAppProxyScreen(controller: controller)),
+      );
+      await tester.pumpAndSettle();
+
+      final browser = find.text('Browser');
+      expect(browser, findsOneWidget);
+      Focus.of(tester.element(browser)).requestFocus();
+      await tester.pump();
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.arrowDown);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(find.text('Mail'), findsOneWidget);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  test('per-app settings stay off UsqueProfile maps', () {
+    final profile = UsqueProfile.defaultProfile();
+    expect(profile.toMap().containsKey('per_app_proxy'), isFalse);
+    expect(
+      PerAppProxySettings(
+        enabled: true,
+        packageNames: const <String>['io.github.georgexie2333.usque'],
+      ).validationError(selfPackage: 'io.github.georgexie2333.usque'),
+      'ANDROID_PER_APP_EMPTY',
+    );
+  });
+
+  testWidgets('Home does not show a per-app status row', (tester) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+    });
+    final engine = FakeEngineClient()
+      ..storedPerAppProxy = const PerAppProxySettings(
+        enabled: true,
+        packageNames: <String>['com.example.browser'],
+      );
+    await tester.pumpWidget(UsqueBootstrap(engine: engine));
+    await tester.pumpAndSettle();
+    expect(find.byType(HomeScreen), findsOneWidget);
+    expect(find.textContaining('Per-app proxy'), findsNothing);
+    expect(find.textContaining('分应用代理'), findsNothing);
   });
 
   test('kill switch status key follows profile flag and live state', () {

@@ -286,6 +286,20 @@ class DesktopEngineClient implements EngineClient {
   Future<void> requestAddQuickSettingsTile() async {}
 
   @override
+  Future<PerAppProxySettings> perAppProxy() async => const PerAppProxySettings();
+
+  @override
+  Future<PerAppProxySettings> setPerAppProxy(PerAppProxySettings settings) async =>
+      const PerAppProxySettings();
+
+  @override
+  Future<List<InstalledAppInfo>> listInstalledApps() async =>
+      const <InstalledAppInfo>[];
+
+  @override
+  Future<Uint8List?> getAppIcon(String packageName) async => null;
+
+  @override
   Future<void> openAlwaysOnVpnSettings() async {}
 
   @override

@@ -70,6 +70,17 @@ internal class AndroidEngineMethodHandler(
         fun requestAddQuickSettingsTile(result: MethodChannel.Result)
 
         fun openAlwaysOnVpnSettings()
+
+        fun listInstalledApps(): List<Map<String, Any?>>
+
+        fun getAppIcon(packageName: String): ByteArray?
+
+        fun loadPerAppProxy(): Map<String, Any?>
+
+        fun savePerAppProxy(
+            enabled: Boolean,
+            packageNames: List<String>,
+        ): Map<String, Any?>
     }
 
     /**
@@ -326,6 +337,22 @@ internal class AndroidEngineMethodHandler(
                 activityCommands.requestAddQuickSettingsTile(result)
             }
 
+            "listInstalledApps" -> {
+                listInstalledApps(result)
+            }
+
+            "getAppIcon" -> {
+                getAppIcon(call, result)
+            }
+
+            "perAppProxy" -> {
+                result.success(activityCommands.loadPerAppProxy())
+            }
+
+            "setPerAppProxy" -> {
+                setPerAppProxy(call, result)
+            }
+
             "openAlwaysOnVpnSettings" -> {
                 activityCommands.openAlwaysOnVpnSettings()
                 result.success(null)
@@ -346,6 +373,78 @@ internal class AndroidEngineMethodHandler(
             else -> {
                 result.notImplemented()
             }
+        }
+    }
+
+    private fun listInstalledApps(result: MethodChannel.Result) {
+        identityExecutor.execute {
+            try {
+                val apps = activityCommands.listInstalledApps()
+                mainScheduler.post { result.success(apps) }
+            } catch (error: Exception) {
+                mainScheduler.post {
+                    result.error(
+                        "PER_APP_CATALOG_FAILED",
+                        "Android could not list installed apps.",
+                        error.javaClass.simpleName,
+                    )
+                }
+            }
+        }
+    }
+
+    private fun getAppIcon(
+        call: MethodCall,
+        result: MethodChannel.Result,
+    ) {
+        val packageName = call.argument<String>("package_name")
+        if (packageName.isNullOrBlank()) {
+            result.error("INVALID_ARGUMENT", "The package name is missing.", null)
+            return
+        }
+        identityExecutor.execute {
+            try {
+                val icon = activityCommands.getAppIcon(packageName)
+                mainScheduler.post { result.success(icon) }
+            } catch (_: Exception) {
+                mainScheduler.post { result.success(null) }
+            }
+        }
+    }
+
+    private fun setPerAppProxy(
+        call: MethodCall,
+        result: MethodChannel.Result,
+    ) {
+        val enabled = call.argument<Boolean>("enabled")
+        val rawNames = call.argument<List<*>>("package_names")
+        if (enabled == null || rawNames == null) {
+            result.error("INVALID_ARGUMENT", "The per-app proxy setting is malformed.", null)
+            return
+        }
+        val packageNames = rawNames.mapNotNull { item -> item as? String }
+        if (packageNames.size != rawNames.size) {
+            result.error("INVALID_ARGUMENT", "The per-app package list is malformed.", null)
+            return
+        }
+        try {
+            val saved = activityCommands.savePerAppProxy(enabled, packageNames)
+            controlClient.notifyApplyPerApp()
+            result.success(saved)
+        } catch (error: PerAppProxyStoreException) {
+            val message =
+                if (error.code == ANDROID_PER_APP_EMPTY) {
+                    "Select at least one installed app before enabling per-app proxy."
+                } else {
+                    "The per-app proxy setting is invalid."
+                }
+            result.error(error.code, message, null)
+        } catch (error: Exception) {
+            result.error(
+                "PER_APP_STORE_FAILED",
+                "Android could not save per-app proxy settings.",
+                error.javaClass.simpleName,
+            )
         }
     }
 
@@ -521,9 +620,18 @@ internal class AndroidEngineMethodHandler(
         val confirmed = call.argument<Boolean>("confirmed") ?: false
         val passwordBytes =
             when (val password = call.argument<Any>("password")) {
-                is ByteArray -> password
-                is String -> password.toByteArray(Charsets.UTF_8)
-                null -> ByteArray(0)
+                is ByteArray -> {
+                    password
+                }
+
+                is String -> {
+                    password.toByteArray(Charsets.UTF_8)
+                }
+
+                null -> {
+                    ByteArray(0)
+                }
+
                 else -> {
                     result.error("INVALID_ARGUMENT", "The proxy password is malformed.", null)
                     return

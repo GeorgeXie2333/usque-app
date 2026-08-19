@@ -72,6 +72,107 @@ class UpdateCheckResult {
   }
 }
 
+class PerAppProxySettings {
+  const PerAppProxySettings({
+    this.enabled = false,
+    this.packageNames = const <String>[],
+  });
+
+  static const int maxPackages = 1024;
+  static const int maxPackageLength = 256;
+  static final RegExp packageNamePattern = RegExp(
+    r'^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*$',
+  );
+
+  final bool enabled;
+  final List<String> packageNames;
+
+  PerAppProxySettings copyWith({bool? enabled, List<String>? packageNames}) {
+    return PerAppProxySettings(
+      enabled: enabled ?? this.enabled,
+      packageNames: packageNames ?? this.packageNames,
+    );
+  }
+
+  static List<String> sanitizePackages(
+    Iterable<String> names, {
+    String? selfPackage,
+  }) {
+    final sanitized =
+        names
+            .map((name) => name.trim())
+            .where(
+              (name) =>
+                  name.isNotEmpty &&
+                  name != selfPackage &&
+                  name.length <= maxPackageLength &&
+                  packageNamePattern.hasMatch(name),
+            )
+            .toSet()
+            .toList();
+    sanitized.sort();
+    return List<String>.unmodifiable(sanitized);
+  }
+
+  String? validationError({String? selfPackage}) {
+    if (packageNames.length > maxPackages) {
+      return 'INVALID_ARGUMENT';
+    }
+    final invalid = packageNames.any((raw) {
+      final name = raw.trim();
+      return name.isNotEmpty &&
+          name != selfPackage &&
+          (name.length > maxPackageLength || !packageNamePattern.hasMatch(name));
+    });
+    if (invalid) {
+      return 'INVALID_ARGUMENT';
+    }
+    final sanitized = sanitizePackages(packageNames, selfPackage: selfPackage);
+    if (enabled && sanitized.isEmpty) {
+      return 'ANDROID_PER_APP_EMPTY';
+    }
+    return null;
+  }
+
+  factory PerAppProxySettings.fromMap(Map<Object?, Object?> map) {
+    final names = (map['package_names'] as List?)?.whereType<String>().toList(
+      growable: false,
+    );
+    return PerAppProxySettings(
+      enabled: map['enabled'] as bool? ?? false,
+      packageNames: List<String>.unmodifiable(names ?? const <String>[]),
+    );
+  }
+
+  Map<String, Object?> toMap() => <String, Object?>{
+    'enabled': enabled,
+    'package_names': packageNames,
+  };
+}
+
+class InstalledAppInfo {
+  const InstalledAppInfo({
+    required this.packageName,
+    required this.label,
+    required this.isSystem,
+    required this.hasInternet,
+  });
+
+  final String packageName;
+  final String label;
+  final bool isSystem;
+  final bool hasInternet;
+
+  factory InstalledAppInfo.fromMap(Map<Object?, Object?> map) {
+    return InstalledAppInfo(
+      packageName: map['package_name'] as String? ?? '',
+      label: map['label'] as String? ?? '',
+      isSystem: map['is_system'] as bool? ?? false,
+      hasInternet: map['has_internet'] as bool? ?? false,
+    );
+  }
+}
+
 class PlatformPreferences {
   const PlatformPreferences({
     this.startOnBoot = false,

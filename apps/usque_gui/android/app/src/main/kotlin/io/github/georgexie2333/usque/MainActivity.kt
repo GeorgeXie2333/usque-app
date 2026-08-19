@@ -150,6 +150,23 @@ class MainActivity : FlutterFragmentActivity() {
                 )
             }
 
+            override fun listInstalledApps(): List<Map<String, Any?>> = InstalledAppCatalog.list(this@MainActivity)
+
+            override fun getAppIcon(packageName: String): ByteArray? =
+                InstalledAppCatalog.iconPng(this@MainActivity, packageName)
+
+            override fun loadPerAppProxy(): Map<String, Any?> = PerAppProxyStore.load(this@MainActivity).toMap()
+
+            override fun savePerAppProxy(
+                enabled: Boolean,
+                packageNames: List<String>,
+            ): Map<String, Any?> =
+                PerAppProxyStore
+                    .save(
+                        this@MainActivity,
+                        PerAppProxySettings(enabled = enabled, packageNames = packageNames),
+                    ).toMap()
+
             override fun requestAddQuickSettingsTile(result: MethodChannel.Result) {
                 if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
                     result.success(null)

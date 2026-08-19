@@ -42,6 +42,7 @@ class AppController extends ChangeNotifier {
   bool startOnBoot = false;
   bool closeToTray = true;
   bool warpProtocolAssociation = false;
+  PerAppProxySettings perAppProxy = const PerAppProxySettings();
   int zeroTrustCallbackTicket = 0;
   ThemePreference themePreference = ThemePreference.system;
   LocalePreference localePreference = LocalePreference.system;
@@ -102,6 +103,11 @@ class AppController extends ChangeNotifier {
       warpProtocolAssociation = platformPreferences.warpProtocolAssociation;
     } on Object {
       // Native shell preferences are optional in unsupported test hosts.
+    }
+    try {
+      perAppProxy = await _engine.perAppProxy();
+    } on Object {
+      perAppProxy = const PerAppProxySettings();
     }
     if (_engine.supportsSnapshotEvents) {
       _subscribeToSnapshotEvents();
@@ -445,6 +451,7 @@ class AppController extends ChangeNotifier {
       profileIdentityStates = <String, ProfileIdentityState>{};
       profileIdentityStatuses = <String, ProfileIdentityStatus>{};
       updateResult = null;
+      perAppProxy = const PerAppProxySettings();
     }, affectsConnection: false);
     if (success) {
       lastNotice = strings.get('clear_all_data_complete');
@@ -544,6 +551,28 @@ class AppController extends ChangeNotifier {
     _notifyListeners();
     await _preferences?.setBool('update_checks_enabled', value);
   }
+
+  Future<void> setPerAppProxy(PerAppProxySettings value) async {
+    final previous = perAppProxy;
+    perAppProxy = value;
+    _notifyListeners();
+    try {
+      perAppProxy = await _engine.setPerAppProxy(value);
+      if (snapshot.isConnected) {
+        await refreshSnapshot(silent: true);
+      }
+    } on Object catch (error) {
+      perAppProxy = previous;
+      lastError = error is EngineException ? error.message : error.toString();
+    }
+    _notifyListeners();
+  }
+
+  Future<List<InstalledAppInfo>> listInstalledApps() =>
+      _engine.listInstalledApps();
+
+  Future<Uint8List?> getAppIcon(String packageName) =>
+      _engine.getAppIcon(packageName);
 
   Future<void> setStartOnBoot(bool value) async {
     final previous = startOnBoot;
