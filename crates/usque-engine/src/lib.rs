@@ -3191,8 +3191,11 @@ mod tests {
     #[tokio::test]
     async fn reset_restores_network_defaults_without_removing_profile_identity() {
         let directory = tempfile::tempdir().expect("tempdir");
-        let service = ControlService::open(ConfigStore::new(directory.path().join("config.json")))
-            .expect("service");
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(MemoryVault::default()),
+        )
+        .expect("service");
         let mut profile = service.config_snapshot().await.profiles[0].clone();
         let id = profile.id;
         profile.name = "Keep this name".to_owned();
@@ -4298,7 +4301,11 @@ mod tests {
                 .error
                 .as_ref()
                 .map(|error| error.code.as_str()),
-            Some("MISSING_CREDENTIAL")
+            if cfg!(windows) {
+                Some("MISSING_CREDENTIAL")
+            } else {
+                Some("OPERATING_MODE_UNAVAILABLE")
+            }
         );
         assert!(service.test_harness_counts().await.is_none());
     }
