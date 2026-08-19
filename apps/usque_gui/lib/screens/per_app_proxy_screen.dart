@@ -70,13 +70,15 @@ class _PerAppProxyScreenState extends State<PerAppProxyScreen> {
 
   List<InstalledAppInfo> get _visible {
     final query = _search.text.trim().toLowerCase();
-    return _apps.where((app) {
-      if (!app.hasInternet) return false;
-      if (!_showSystem && app.isSystem) return false;
-      if (query.isEmpty) return true;
-      return app.label.toLowerCase().contains(query) ||
-          app.packageName.toLowerCase().contains(query);
-    }).toList(growable: false);
+    return _apps
+        .where((app) {
+          if (!app.hasInternet) return false;
+          if (!_showSystem && app.isSystem) return false;
+          if (query.isEmpty) return true;
+          return app.label.toLowerCase().contains(query) ||
+              app.packageName.toLowerCase().contains(query);
+        })
+        .toList(growable: false);
   }
 
   bool get _canSave {
@@ -123,9 +125,11 @@ class _PerAppProxyScreenState extends State<PerAppProxyScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
-                  if (!widget.controller.activeProfile.frontends.tunnel) ...<
-                    Widget
-                  >[
+                  if (!widget
+                      .controller
+                      .activeProfile
+                      .frontends
+                      .tunnel) ...<Widget>[
                     WarningBanner(
                       title: strings.get('per_app_proxy'),
                       message: strings.get('per_app_proxy_tunnel_hint'),
@@ -180,7 +184,9 @@ class _PerAppProxyScreenState extends State<PerAppProxyScreen> {
                                         visible.map((app) => app.packageName),
                                       );
                                     }),
-                              child: Text(strings.get('per_app_select_visible')),
+                              child: Text(
+                                strings.get('per_app_select_visible'),
+                              ),
                             ),
                             OutlinedButton(
                               onPressed: visible.isEmpty
@@ -279,7 +285,12 @@ class _PerAppProxyScreenState extends State<PerAppProxyScreen> {
           },
           secondary: icon == null
               ? const Icon(LucideIcons.layers3)
-              : Image.memory(icon, width: 36, height: 36, gaplessPlayback: true),
+              : Image.memory(
+                  icon,
+                  width: 36,
+                  height: 36,
+                  gaplessPlayback: true,
+                ),
           title: Text(app.label),
           subtitle: Text(app.packageName),
         );

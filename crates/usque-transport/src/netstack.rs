@@ -868,7 +868,7 @@ type ProbeFuture = Pin<
 >;
 
 enum ActiveOutcome {
-    Switch(MasqueTunnel, AddressFamily),
+    Switch(Box<MasqueTunnel>, AddressFamily),
     Reconnect(String),
     PinMismatch,
     Terminal(String),
@@ -1013,7 +1013,7 @@ async fn run_transport_supervisor(
                 return;
             }
             ActiveOutcome::Switch(tunnel, family) => {
-                active_tunnel = tunnel;
+                active_tunnel = *tunnel;
                 active_family = family;
                 continue;
             }
@@ -1384,7 +1384,7 @@ async fn pump_active_tunnel(
                             endpoint_family = ?family,
                             "switching the single active MASQUE channel after a successful H3 probe"
                         );
-                        break ActiveOutcome::Switch(tunnel, family);
+                        break ActiveOutcome::Switch(Box::new(tunnel), family);
                     }
                     Err(TransportError::EndpointPinMismatch) => {
                         break ActiveOutcome::PinMismatch;

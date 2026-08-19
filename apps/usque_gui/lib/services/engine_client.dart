@@ -214,7 +214,9 @@ class MethodChannelEngineClient implements EngineClient {
   }
 
   @override
-  Future<PerAppProxySettings> setPerAppProxy(PerAppProxySettings settings) async {
+  Future<PerAppProxySettings> setPerAppProxy(
+    PerAppProxySettings settings,
+  ) async {
     final value = await _invoke<Map<Object?, Object?>>(
       'setPerAppProxy',
       settings.toMap(),
@@ -233,10 +235,10 @@ class MethodChannelEngineClient implements EngineClient {
   }
 
   @override
-  Future<Uint8List?> getAppIcon(String packageName) =>
-      _invoke<Uint8List>('getAppIcon', <String, Object>{
-        'package_name': packageName,
-      });
+  Future<Uint8List?> getAppIcon(String packageName) => _invoke<Uint8List>(
+    'getAppIcon',
+    <String, Object>{'package_name': packageName},
+  );
 
   @override
   Future<void> openAlwaysOnVpnSettings() =>

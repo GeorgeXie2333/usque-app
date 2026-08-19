@@ -28,9 +28,9 @@ pub(crate) struct ActiveProxyRuntime {
 }
 
 pub(crate) enum ActiveRuntime {
-    Proxy(ActiveProxyRuntime),
+    Proxy(Box<ActiveProxyRuntime>),
     #[cfg(windows)]
-    Vpn(crate::windows_agent::WindowsVpnRuntime),
+    Vpn(Box<crate::windows_agent::WindowsVpnRuntime>),
     #[cfg(test)]
     Harness(HarnessRuntime),
 }
@@ -363,7 +363,7 @@ impl ActiveRuntime {
                     runtime.system_proxy = profile.frontends.http && profile.proxy.system_proxy;
                 }
             }
-            return Ok(());
+            Ok(())
         }
         #[cfg(not(windows))]
         {
@@ -436,30 +436,31 @@ async fn attach_vpn(
     runtime: ActiveRuntime,
     profile: &Profile,
 ) -> Result<ActiveRuntime, (ActiveRuntime, ControlServiceError)> {
-    let ActiveRuntime::Proxy(mut proxy) = runtime else {
+    let ActiveRuntime::Proxy(proxy) = runtime else {
         return Ok(runtime);
     };
+    let mut proxy = *proxy;
     #[cfg(windows)]
     if let Some(mut guard) = proxy.system_proxy.take()
         && let Err(error) = guard.shutdown().await
     {
         let masque = proxy.runtime.into_masque();
         return Err((
-            ActiveRuntime::Proxy(ActiveProxyRuntime {
+            ActiveRuntime::Proxy(Box::new(ActiveProxyRuntime {
                 runtime: ProxyRuntime::from_masque(masque),
                 system_proxy: None,
-            }),
+            })),
             map_windows_vpn_error(error),
         ));
     }
     let masque = proxy.runtime.into_masque();
     match crate::windows_agent::WindowsVpnRuntime::attach_existing(profile, masque).await {
-        Ok(vpn) => Ok(ActiveRuntime::Vpn(vpn)),
+        Ok(vpn) => Ok(ActiveRuntime::Vpn(Box::new(vpn))),
         Err((masque, error)) => Err((
-            ActiveRuntime::Proxy(ActiveProxyRuntime {
+            ActiveRuntime::Proxy(Box::new(ActiveProxyRuntime {
                 runtime: ProxyRuntime::from_masque(masque),
                 system_proxy: None,
-            }),
+            })),
             map_windows_vpn_error(error),
         )),
     }
@@ -485,10 +486,10 @@ async fn detach_vpn(
             crate::windows_agent::loopback_http_listener(proxy_runtime.http_listeners())
         else {
             return Err((
-                ActiveRuntime::Proxy(ActiveProxyRuntime {
+                ActiveRuntime::Proxy(Box::new(ActiveProxyRuntime {
                     runtime: proxy_runtime,
                     system_proxy: None,
-                }),
+                })),
                 ControlServiceError::InvalidRequest(
                     "system proxy requires a loopback HTTP listener".to_owned(),
                 ),
@@ -498,10 +499,10 @@ async fn detach_vpn(
             Ok(guard) => Some(guard),
             Err(error) => {
                 return Err((
-                    ActiveRuntime::Proxy(ActiveProxyRuntime {
+                    ActiveRuntime::Proxy(Box::new(ActiveProxyRuntime {
                         runtime: proxy_runtime,
                         system_proxy: None,
-                    }),
+                    })),
                     map_windows_vpn_error(error),
                 ));
             }
@@ -509,8 +510,8 @@ async fn detach_vpn(
     } else {
         None
     };
-    Ok(ActiveRuntime::Proxy(ActiveProxyRuntime {
+    Ok(ActiveRuntime::Proxy(Box::new(ActiveProxyRuntime {
         runtime: proxy_runtime,
         system_proxy,
-    }))
+    })))
 }

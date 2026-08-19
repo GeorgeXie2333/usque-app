@@ -257,10 +257,7 @@ impl MasqueRuntime {
             .ok_or(TransportError::TunnelClosed)?;
         let (incoming_tx, incoming) = mpsc::channel(PACKET_QUEUE_CAPACITY);
         self.tun_sink.send_replace(Some(incoming_tx));
-        Ok(MasqueTunIo {
-            outgoing,
-            incoming,
-        })
+        Ok(MasqueTunIo { outgoing, incoming })
     }
 
     /// Stop delivering TUN-origin packets. SOCKS/HTTP and MASQUE stay up.
@@ -431,10 +428,7 @@ async fn run_packet_mux(
 ///
 /// A closed or full TUN sink must not tear the MASQUE mux: SOCKS/HTTP still
 /// need the session.
-fn dispatch_tun_incoming(
-    tun_sink: &watch::Sender<Option<mpsc::Sender<Bytes>>>,
-    packet: Bytes,
-) {
+fn dispatch_tun_incoming(tun_sink: &watch::Sender<Option<mpsc::Sender<Bytes>>>, packet: Bytes) {
     let sink = tun_sink.borrow().clone();
     let Some(sink) = sink else {
         return;

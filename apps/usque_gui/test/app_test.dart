@@ -262,7 +262,9 @@ class FakeEngineClient implements EngineClient {
   Future<PerAppProxySettings> perAppProxy() async => storedPerAppProxy;
 
   @override
-  Future<PerAppProxySettings> setPerAppProxy(PerAppProxySettings settings) async {
+  Future<PerAppProxySettings> setPerAppProxy(
+    PerAppProxySettings settings,
+  ) async {
     calls.add('setPerAppProxy');
     final error = settings.validationError();
     if (error != null) {
@@ -1426,7 +1428,9 @@ void main() {
     }
   });
 
-  testWidgets('Per-app picker can select visible apps and save', (tester) async {
+  testWidgets('Per-app picker can select visible apps and save', (
+    tester,
+  ) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
     try {
       SharedPreferences.setMockInitialValues(<String, Object>{
@@ -1456,10 +1460,10 @@ void main() {
 
       expect(engine.calls, contains('setPerAppProxy'));
       expect(engine.storedPerAppProxy.enabled, isTrue);
-      expect(
-        engine.storedPerAppProxy.packageNames,
-        <String>['com.example.browser', 'com.example.mail'],
-      );
+      expect(engine.storedPerAppProxy.packageNames, <String>[
+        'com.example.browser',
+        'com.example.mail',
+      ]);
     } finally {
       debugDefaultTargetPlatformOverride = null;
     }

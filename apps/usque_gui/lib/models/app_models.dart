@@ -98,18 +98,17 @@ class PerAppProxySettings {
     Iterable<String> names, {
     String? selfPackage,
   }) {
-    final sanitized =
-        names
-            .map((name) => name.trim())
-            .where(
-              (name) =>
-                  name.isNotEmpty &&
-                  name != selfPackage &&
-                  name.length <= maxPackageLength &&
-                  packageNamePattern.hasMatch(name),
-            )
-            .toSet()
-            .toList();
+    final sanitized = names
+        .map((name) => name.trim())
+        .where(
+          (name) =>
+              name.isNotEmpty &&
+              name != selfPackage &&
+              name.length <= maxPackageLength &&
+              packageNamePattern.hasMatch(name),
+        )
+        .toSet()
+        .toList();
     sanitized.sort();
     return List<String>.unmodifiable(sanitized);
   }
@@ -122,7 +121,8 @@ class PerAppProxySettings {
       final name = raw.trim();
       return name.isNotEmpty &&
           name != selfPackage &&
-          (name.length > maxPackageLength || !packageNamePattern.hasMatch(name));
+          (name.length > maxPackageLength ||
+              !packageNamePattern.hasMatch(name));
     });
     if (invalid) {
       return 'INVALID_ARGUMENT';

@@ -512,12 +512,10 @@ class AppStrings {
     'per_app_proxy_off': '全部应用走 VPN',
     'per_app_proxy_on': '已代理 {count} 个应用',
     'per_app_proxy_enable': '仅代理选中的应用',
-    'per_app_proxy_help':
-        '只有勾选的应用走 VPN。之后新安装的应用不会自动进隧道，除非再次勾选。全选不会关闭分应用代理。',
+    'per_app_proxy_help': '只有勾选的应用走 VPN。之后新安装的应用不会自动进隧道，除非再次勾选。全选不会关闭分应用代理。',
     'per_app_proxy_lockdown_help':
         '若系统开启了始终开启 VPN 和“无 VPN 时拦截连接”，未选中的应用会被拦截，而不是直连。',
-    'per_app_proxy_tunnel_hint':
-        '在打开 VPN 输出后生效。仅 SOCKS5/HTTP 模式不会按应用过滤。',
+    'per_app_proxy_tunnel_hint': '在打开 VPN 输出后生效。仅 SOCKS5/HTTP 模式不会按应用过滤。',
     'per_app_search': '搜索应用',
     'per_app_show_system': '显示系统应用',
     'per_app_select_visible': '全选可见项',

@@ -744,7 +744,7 @@ impl ControlService {
                 )
                 .await
                 {
-                    Ok(runtime) => ActiveRuntime::Vpn(runtime),
+                    Ok(runtime) => ActiveRuntime::Vpn(Box::new(runtime)),
                     Err(error) => {
                         let error = map_windows_vpn_error(error);
                         self.mark_connection_error(&error).await;
@@ -792,11 +792,11 @@ impl ControlService {
                     } else {
                         None
                     };
-                    ActiveRuntime::Proxy(ActiveProxyRuntime {
+                    ActiveRuntime::Proxy(Box::new(ActiveProxyRuntime {
                         runtime,
                         #[cfg(windows)]
                         system_proxy,
-                    })
+                    }))
                 }
                 Err(error) => {
                     let error = ControlServiceError::Transport(error);
