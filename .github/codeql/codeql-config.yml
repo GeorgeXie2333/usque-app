@@ -1,0 +1,7 @@
+name: Usque CodeQL
+
+# Vendored BoringSSL/netstack and the frozen Go oracle are not first-party
+# product code. Alerts in those trees are library/test noise.
+paths-ignore:
+  - "third_party/**"
+  - "oracle/**"

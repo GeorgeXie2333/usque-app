@@ -303,6 +303,7 @@ fn configuration_summary(config: &AppConfig) -> serde_json::Value {
                     "dns_mode": profile.proxy.dns_mode,
                     "dns_server_count": profile.proxy.dns_servers.len(),
                     "udp_idle_timeout_seconds": profile.proxy.udp_idle_timeout_seconds,
+                    "listener_auth": profile.proxy.listener_auth_username().is_some(),
                 }
             })
         })

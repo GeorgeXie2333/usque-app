@@ -165,6 +165,28 @@ class DesktopEngineClient implements EngineClient {
   }
 
   @override
+  Future<void> updateProxyAuth(
+    String profileId, {
+    required String username,
+    required String password,
+    bool confirmed = true,
+  }) {
+    return _serialized(() async {
+      final secret = Uint8List.fromList(utf8.encode(password));
+      try {
+        final payload = ControlPayloadWriter()
+          ..string(1, profileId)
+          ..string(2, username)
+          ..bytes(3, secret)
+          ..boolean(4, confirmed);
+        await _request(32, payload.takeBytes());
+      } finally {
+        secret.fillRange(0, secret.length, 0);
+      }
+    });
+  }
+
+  @override
   Future<void> copyLicenseKey(String profileId) {
     return _serialized(() async {
       final payload = ControlPayloadWriter()..string(1, profileId);
@@ -211,13 +233,25 @@ class DesktopEngineClient implements EngineClient {
   Future<String?> consumeLaunchTarget() async => null;
 
   @override
-  Future<String?> beginZeroTrustLogin(String teamName) async => null;
+  Future<String?> beginZeroTrustLogin(String teamName) async {
+    if (!Platform.isWindows) return null;
+    return _transport.invokePlatformMethod<String>(
+      'beginZeroTrustLogin',
+      <String, Object>{'team_name': teamName},
+    );
+  }
 
   @override
-  Future<String?> consumeZeroTrustCallback() async => null;
+  Future<String?> consumeZeroTrustCallback() async {
+    if (!Platform.isWindows) return null;
+    return _transport.invokePlatformMethod<String>('consumeZeroTrustCallback');
+  }
 
   @override
-  Future<void> cancelZeroTrustLogin() async {}
+  Future<void> cancelZeroTrustLogin() async {
+    if (!Platform.isWindows) return;
+    await _transport.invokePlatformMethod<void>('cancelZeroTrustLogin');
+  }
 
   @override
   Future<PlatformPreferences> platformPreferences() async {
@@ -240,7 +274,19 @@ class DesktopEngineClient implements EngineClient {
       });
 
   @override
+  Future<void> setWarpProtocolAssociation(bool enabled) async {
+    if (!Platform.isWindows) return;
+    await _transport.invokePlatformMethod<void>(
+      'setWarpProtocolAssociation',
+      <String, Object?>{'enabled': enabled},
+    );
+  }
+
+  @override
   Future<void> requestAddQuickSettingsTile() async {}
+
+  @override
+  Future<void> openAlwaysOnVpnSettings() async {}
 
   @override
   Future<EngineSnapshot> connect(UsqueProfile profile) {
@@ -258,6 +304,14 @@ class DesktopEngineClient implements EngineClient {
     // profile persistence, status reads, or other non-critical requests.
     final response = await _request(13, Uint8List(0));
     return response.snapshot ?? const EngineSnapshot();
+  }
+
+  @override
+  Future<EngineSnapshot> retry() {
+    return _serialized(() async {
+      final response = await _request(14, Uint8List(0));
+      return response.snapshot ?? const EngineSnapshot();
+    });
   }
 
   @override
@@ -391,6 +445,7 @@ class DesktopEngineClient implements EngineClient {
 Duration requestTimeoutForPayload(int payloadField) {
   switch (payloadField) {
     case 12:
+    case 14:
       return const Duration(seconds: 55);
     case 23:
     case 26:

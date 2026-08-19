@@ -24,7 +24,7 @@ use usque_platform::packet_ring::{
     PACKET_RING_LAYOUT_VERSION, PacketDirection, PacketRingError, SharedPacketRing,
 };
 use usque_transport::{
-    EndpointPinRefresher, ManagedTunnelMonitor, MasqueRuntime, MasqueTlsIdentity,
+    EndpointPinRefresher, ManagedTunnelMonitor, MasqueRuntime, MasqueTlsIdentity, MasqueTunIo,
     NoopSocketProtector, RuntimeHealth, RuntimePath, SocketHandle, SocketProtector,
     TrafficSnapshot, TransportError,
 };
@@ -181,6 +181,7 @@ pub(crate) struct WindowsVpnRuntime {
     http_listeners: Vec<SocketAddr>,
     system_proxy: Option<WindowsSystemProxyGuard>,
     transaction_open: bool,
+    tunnel: Option<MasqueRuntime>,
 }
 
 #[derive(Clone)]
@@ -283,6 +284,14 @@ impl WindowsVpnRuntime {
             }
         };
         let tunnel_monitor = tunnel.monitor();
+        let tun_io = match tunnel.attach_tun() {
+            Ok(tun_io) => tun_io,
+            Err(error) => {
+                tunnel.shutdown().await;
+                abort_startup(&agent, operation_id, resuming, "TUN_ATTACH_FAILED").await?;
+                return Err(error.into());
+            }
+        };
 
         let handles_result = if resuming {
             agent.resume_tunnel(operation_id, profile.id).await
@@ -315,7 +324,7 @@ impl WindowsVpnRuntime {
         let socks5_listeners = tunnel.socks5_listeners().to_vec();
         let http_listeners = tunnel.http_listeners().to_vec();
         let mut tasks = start_packet_pumps(
-            tunnel,
+            tun_io,
             Arc::clone(&mapping),
             cancellation.clone(),
             pump_failure_tx.clone(),
@@ -410,6 +419,7 @@ impl WindowsVpnRuntime {
             http_listeners,
             system_proxy,
             transaction_open: true,
+            tunnel: Some(tunnel),
         })
     }
 
@@ -441,6 +451,243 @@ impl WindowsVpnRuntime {
         &self.http_listeners
     }
 
+    pub(crate) async fn reconfigure_frontends(
+        &mut self,
+        profile: &Profile,
+    ) -> Result<(), WindowsVpnError> {
+        let tunnel = self
+            .tunnel
+            .as_mut()
+            .ok_or(WindowsVpnError::MissingMasqueRuntime)?;
+        tunnel.reconfigure_frontends(profile).await?;
+        self.listeners = tunnel.listeners().to_vec();
+        self.socks5_listeners = tunnel.socks5_listeners().to_vec();
+        self.http_listeners = tunnel.http_listeners().to_vec();
+        if self.system_proxy.is_some() {
+            self.replace_system_proxy(profile).await?;
+        }
+        Ok(())
+    }
+
+    /// Wrap an already-running MASQUE session with Wintun/WFP. On failure the
+    /// caller receives the live MASQUE runtime back so SOCKS/HTTP survive.
+    pub(crate) async fn attach_existing(
+        profile: &Profile,
+        mut tunnel: MasqueRuntime,
+    ) -> Result<Self, (MasqueRuntime, WindowsVpnError)> {
+        let registration_api = match resolve_registration_api().await {
+            Ok(addresses) => addresses,
+            Err(error) => return Err((tunnel, error)),
+        };
+        let agent = WindowsAgentClient::production();
+        let capabilities = match agent.get_capabilities().await {
+            Ok(capabilities) => capabilities,
+            Err(error) => return Err((tunnel, error)),
+        };
+        if let Err(error) = validate_capabilities(&capabilities, profile.kill_switch) {
+            return Err((tunnel, error));
+        }
+        let state = match agent.get_state().await {
+            Ok(state) => state,
+            Err(error) => return Err((tunnel, error)),
+        };
+        if state.phase != agent_v1::AgentPhase::Clean as i32 {
+            return Err((
+                tunnel,
+                WindowsVpnError::RecoveryRequired {
+                    phase: state.phase,
+                    operation_id: state.operation_id,
+                },
+            ));
+        }
+        let operation_id = Uuid::new_v4();
+        let plan = tunnel_plan_from_assignment(
+            profile,
+            tunnel.assigned_ipv4(),
+            tunnel.assigned_ipv6(),
+            &registration_api,
+        );
+        if let Err(error) = agent.prepare(operation_id, plan).await {
+            return Err((tunnel, error));
+        }
+
+        let tun_io = match tunnel.attach_tun() {
+            Ok(tun_io) => tun_io,
+            Err(error) => {
+                let _ = abort_startup(&agent, operation_id, false, "TUN_ATTACH_FAILED").await;
+                return Err((tunnel, error.into()));
+            }
+        };
+        let handles = match agent
+            .open_packet_session(operation_id, DEFAULT_PACKET_RING_CAPACITY)
+            .await
+        {
+            Ok(handles) => handles,
+            Err(error) => {
+                tunnel.detach_tun();
+                let _ = abort_startup(&agent, operation_id, false, "PACKET_SESSION_FAILED").await;
+                return Err((tunnel, error));
+            }
+        };
+        let mapping = match PacketSessionMapping::attach(handles) {
+            Ok(mapping) => Arc::new(mapping),
+            Err(error) => {
+                tunnel.detach_tun();
+                let _ = abort_startup(&agent, operation_id, false, "PACKET_MAPPING_FAILED").await;
+                return Err((tunnel, error));
+            }
+        };
+
+        let cancellation = CancellationToken::new();
+        let (pump_failure_tx, pump_failure) = watch::channel(None);
+        let (agent_disconnected_tx, agent_disconnected) = watch::channel(false);
+        let listeners = tunnel.listeners().to_vec();
+        let socks5_listeners = tunnel.socks5_listeners().to_vec();
+        let http_listeners = tunnel.http_listeners().to_vec();
+        let tunnel_monitor = tunnel.monitor();
+        let mut tasks = start_packet_pumps(
+            tun_io,
+            Arc::clone(&mapping),
+            cancellation.clone(),
+            pump_failure_tx.clone(),
+        );
+
+        if let Err(error) = agent.commit(operation_id).await {
+            mapping.signal_shutdown();
+            cancellation.cancel();
+            stop_tasks(tasks).await;
+            tunnel.detach_tun();
+            let _ = rollback_startup(&agent, operation_id, "COMMIT_FAILED").await;
+            return Err((tunnel, error));
+        }
+
+        let lease = match agent.open_liveness_lease(operation_id).await {
+            Ok(lease) => lease,
+            Err(error) => {
+                mapping.signal_shutdown();
+                cancellation.cancel();
+                stop_tasks(tasks).await;
+                tunnel.detach_tun();
+                let _ = rollback_startup(&agent, operation_id, "LIVENESS_LEASE_FAILED").await;
+                return Err((tunnel, error));
+            }
+        };
+        tasks.push(start_agent_liveness_watch(
+            lease,
+            Arc::clone(&mapping),
+            cancellation.clone(),
+            pump_failure_tx,
+            agent_disconnected_tx,
+        ));
+
+        let system_proxy = if profile.frontends.http && profile.proxy.system_proxy {
+            let listener = http_listeners
+                .iter()
+                .copied()
+                .find(|listener| listener.ip().is_loopback() && listener.ip().is_ipv4())
+                .or_else(|| {
+                    http_listeners
+                        .iter()
+                        .copied()
+                        .find(|listener| listener.ip().is_loopback())
+                });
+            let Some(listener) = listener else {
+                mapping.signal_shutdown();
+                cancellation.cancel();
+                stop_tasks(tasks).await;
+                tunnel.detach_tun();
+                let _ = rollback_startup(&agent, operation_id, "SYSTEM_PROXY_LISTENER_MISSING")
+                    .await;
+                return Err((tunnel, WindowsVpnError::MissingSystemProxyListener));
+            };
+            match WindowsSystemProxyGuard::start_for_tunnel(listener, operation_id).await {
+                Ok(guard) => Some(guard),
+                Err(error) => {
+                    mapping.signal_shutdown();
+                    cancellation.cancel();
+                    stop_tasks(tasks).await;
+                    tunnel.detach_tun();
+                    let _ = rollback_startup(&agent, operation_id, "SYSTEM_PROXY_APPLY_FAILED")
+                        .await;
+                    return Err((tunnel, error));
+                }
+            }
+        } else {
+            None
+        };
+
+        Ok(Self {
+            agent,
+            operation_id,
+            monitor: WindowsVpnMonitor {
+                tunnel: tunnel_monitor,
+                pump_failure,
+                agent_disconnected,
+            },
+            cancellation,
+            mapping,
+            tasks,
+            listeners,
+            socks5_listeners,
+            http_listeners,
+            system_proxy,
+            transaction_open: true,
+            tunnel: Some(tunnel),
+        })
+    }
+
+    /// Tear down Wintun/WFP and return the live MASQUE session.
+    pub(crate) async fn detach_into_masque(&mut self) -> Result<MasqueRuntime, WindowsVpnError> {
+        self.stop_packet_pumps().await;
+        if let Some(tunnel) = self.tunnel.as_mut() {
+            tunnel.detach_tun();
+        }
+        let system_proxy_result = match self.system_proxy.as_mut() {
+            Some(system_proxy) => system_proxy.shutdown().await,
+            None => Ok(()),
+        };
+        self.system_proxy = None;
+        let rollback = if self.transaction_open {
+            self.agent
+                .rollback(self.operation_id, "HOT_TUNNEL_DETACH")
+                .await
+        } else {
+            Ok(AgentState::default())
+        };
+        if rollback.is_ok() {
+            self.transaction_open = false;
+        }
+        system_proxy_result?;
+        rollback.map(|_| ())?;
+        self.tunnel
+            .take()
+            .ok_or(WindowsVpnError::MissingMasqueRuntime)
+    }
+
+    pub(crate) async fn replace_system_proxy(
+        &mut self,
+        profile: &Profile,
+    ) -> Result<(), WindowsVpnError> {
+        self.system_proxy = if profile.frontends.http && profile.proxy.system_proxy {
+            let listener = self
+                .http_listeners
+                .iter()
+                .copied()
+                .find(|listener| listener.ip().is_loopback() && listener.ip().is_ipv4())
+                .or_else(|| {
+                    self.http_listeners
+                        .iter()
+                        .copied()
+                        .find(|listener| listener.ip().is_loopback())
+                })
+                .ok_or(WindowsVpnError::MissingSystemProxyListener)?;
+            Some(WindowsSystemProxyGuard::start_for_tunnel(listener, self.operation_id).await?)
+        } else {
+            None
+        };
+        Ok(())
+    }
+
     pub(crate) fn system_proxy_active(&self) -> bool {
         self.system_proxy.is_some()
     }
@@ -451,6 +698,9 @@ impl WindowsVpnRuntime {
 
     pub(crate) async fn detach_for_agent_reattach(&mut self) -> Result<(), WindowsVpnError> {
         self.stop_packet_pumps().await;
+        if let Some(tunnel) = self.tunnel.as_mut() {
+            tunnel.detach_tun();
+        }
         let state = self.agent.get_state().await?;
         if state.phase != agent_v1::AgentPhase::Active as i32
             || state.operation_id != self.operation_id.to_string()
@@ -462,6 +712,9 @@ impl WindowsVpnRuntime {
         }
         if state.packet_session_active {
             self.agent.close_packet_session(self.operation_id).await?;
+        }
+        if let Some(mut tunnel) = self.tunnel.take() {
+            tunnel.shutdown().await;
         }
         // The replacement runtime must adopt the same persistent transaction.
         // Drop must therefore not perform a rollback between detach and resume.
@@ -489,6 +742,9 @@ impl WindowsVpnRuntime {
             self.transaction_open = false;
         }
         self.stop_packet_pumps().await;
+        if let Some(mut tunnel) = self.tunnel.take() {
+            tunnel.shutdown().await;
+        }
         system_proxy_result?;
         rollback.map(|_| ())
     }
@@ -544,6 +800,20 @@ fn tunnel_plan(
     identity: &MasqueTlsIdentity,
     registration_api: &[SocketAddr],
 ) -> agent_v1::TunnelPlan {
+    tunnel_plan_from_assignment(
+        profile,
+        identity.assigned_ipv4,
+        identity.assigned_ipv6,
+        registration_api,
+    )
+}
+
+fn tunnel_plan_from_assignment(
+    profile: &Profile,
+    assigned_ipv4: std::net::Ipv4Addr,
+    assigned_ipv6: std::net::Ipv6Addr,
+    registration_api: &[SocketAddr],
+) -> agent_v1::TunnelPlan {
     let ipv4 = profile.endpoint.ipv4_socket();
     let ipv6 = profile.endpoint.ipv6_socket();
     let endpoint = match profile.ip_policy {
@@ -575,8 +845,8 @@ fn tunnel_plan(
             .collect(),
         allow_lan: profile.allow_lan,
         kill_switch: profile.kill_switch,
-        assigned_ipv4: format!("{}/32", identity.assigned_ipv4),
-        assigned_ipv6: format!("{}/128", identity.assigned_ipv6),
+        assigned_ipv4: format!("{assigned_ipv4}/32"),
+        assigned_ipv6: format!("{assigned_ipv6}/128"),
         endpoint_candidates,
         control_api_candidates: registration_api.iter().map(ToString::to_string).collect(),
     }
@@ -615,7 +885,7 @@ fn validate_capabilities(
 }
 
 fn start_packet_pumps(
-    mut tunnel: MasqueRuntime,
+    mut tun_io: MasqueTunIo,
     mapping: Arc<PacketSessionMapping>,
     cancellation: CancellationToken,
     failure: watch::Sender<Option<String>>,
@@ -665,7 +935,7 @@ fn start_packet_pumps(
                             .try_pop(PacketDirection::AgentToEngine)
                         {
                             Ok(Some(packet)) => {
-                                if let Err(error) = tunnel.send_packet(&packet).await {
+                                if let Err(error) = tun_io.send_packet(&packet).await {
                                     if !pump_cancel.is_cancelled() {
                                         report_pump_failure(
                                             &pump_failure,
@@ -688,7 +958,7 @@ fn start_packet_pumps(
                         }
                     }
                 }
-                packet = tunnel.receive_packet() => {
+                packet = tun_io.receive_packet() => {
                     match packet {
                         Ok(packet) => {
                             match pump_mapping
@@ -733,7 +1003,7 @@ fn start_packet_pumps(
                 }
             }
         }
-        tunnel.shutdown().await;
+        // Dropping tun_io detaches TUN. MASQUE stays owned by WindowsVpnRuntime.
     });
 
     vec![wait_task, pump_task]
@@ -1372,6 +1642,8 @@ pub(crate) enum WindowsVpnError {
     UnexpectedWait(u32),
     #[error("MASQUE transport failed: {0}")]
     Transport(#[from] TransportError),
+    #[error("the Windows VPN session has no live MASQUE runtime")]
+    MissingMasqueRuntime,
 }
 
 #[cfg(test)]

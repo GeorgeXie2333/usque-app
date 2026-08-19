@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -96,7 +97,11 @@ class _ProxyScreenState extends State<ProxyScreen> {
           if (currentProxy.exposesLan) ...<Widget>[
             WarningBanner(
               title: strings.get('lan_warning'),
-              message: strings.get('lan_warning_body'),
+              message: strings.get(
+                currentProxy.hasAuth
+                    ? 'lan_warning_body_authenticated'
+                    : 'lan_warning_body',
+              ),
             ),
             const SizedBox(height: 16),
           ],
@@ -110,6 +115,8 @@ class _ProxyScreenState extends State<ProxyScreen> {
           _listenerPanel(context, profile, socks5: true),
           const SizedBox(height: 16),
           _listenerPanel(context, profile, socks5: false),
+          const SizedBox(height: 16),
+          _AuthPanel(controller: widget.controller),
           const SizedBox(height: 16),
           Panel(
             child: Column(
@@ -365,5 +372,142 @@ class _AddressField extends StatelessWidget {
       decoration: InputDecoration(labelText: label),
       onChanged: onChanged,
     );
+  }
+}
+
+class _AuthPanel extends StatefulWidget {
+  const _AuthPanel({required this.controller});
+
+  final AppController controller;
+
+  @override
+  State<_AuthPanel> createState() => _AuthPanelState();
+}
+
+class _AuthPanelState extends State<_AuthPanel> {
+  late final TextEditingController _username;
+  late final TextEditingController _password;
+  String? _authError;
+  String? _loadedProfileId;
+
+  @override
+  void initState() {
+    super.initState();
+    _username = TextEditingController();
+    _password = TextEditingController();
+    _load(widget.controller.activeProfile);
+  }
+
+  @override
+  void didUpdateWidget(covariant _AuthPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_loadedProfileId != widget.controller.activeProfile.id) {
+      _load(widget.controller.activeProfile);
+    }
+  }
+
+  void _load(UsqueProfile profile) {
+    _loadedProfileId = profile.id;
+    _username.text = profile.proxy.authUsername;
+    _password.clear();
+    _authError = null;
+  }
+
+  @override
+  void dispose() {
+    _username.dispose();
+    _password.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = widget.controller.strings;
+    return Panel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          SectionTitle(
+            icon: LucideIcons.keyRound,
+            title: strings.get('proxy_auth'),
+            subtitle: strings.get('proxy_auth_help'),
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            key: const ValueKey<String>('proxy-auth-username'),
+            controller: _username,
+            autocorrect: false,
+            enableSuggestions: false,
+            decoration: InputDecoration(
+              labelText: strings.get('proxy_username'),
+              errorText: _authError,
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            key: const ValueKey<String>('proxy-auth-password'),
+            controller: _password,
+            obscureText: true,
+            autocorrect: false,
+            enableSuggestions: false,
+            decoration: InputDecoration(
+              labelText: strings.get('proxy_password'),
+              helperText: strings.get('proxy_password_hint'),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FilledButton(
+              key: const ValueKey<String>('proxy-auth-apply'),
+              onPressed: widget.controller.busy ? null : _commit,
+              child: Text(strings.get('proxy_auth_apply')),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _commit() async {
+    final username = _username.text;
+    final password = _password.text;
+    if (!_validAuth(username, password)) {
+      setState(
+        () => _authError = widget.controller.strings.get('proxy_auth_invalid'),
+      );
+      return;
+    }
+    if (_authError != null) {
+      setState(() => _authError = null);
+    }
+    final success = await widget.controller.updateProxyAuth(
+      username: username,
+      password: password,
+    );
+    if (!mounted) {
+      return;
+    }
+    if (success) {
+      _password.clear();
+    }
+  }
+
+  bool _validAuth(String username, String password) {
+    if (username.isEmpty && password.isEmpty) {
+      return true;
+    }
+    final usernameBytes = utf8.encode(username);
+    final passwordBytes = utf8.encode(password);
+    if (username.isEmpty ||
+        usernameBytes.length > 255 ||
+        username.contains(':') ||
+        username.contains('\u0000')) {
+      return false;
+    }
+    if (password.isEmpty || passwordBytes.length > 255) {
+      return false;
+    }
+    return true;
   }
 }

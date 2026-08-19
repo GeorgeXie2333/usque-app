@@ -4,6 +4,7 @@
 //! Desktop proxy modes can therefore be exercised without changing the host's
 //! network configuration.
 
+mod connect_ip_control;
 mod dns;
 mod h2;
 mod h3;
@@ -25,7 +26,7 @@ pub use h2::{
 };
 pub use h3::{H3Driver, H3ReceiveHalf, H3SendHalf, H3Tunnel, connect_h3};
 pub use http_proxy::HttpProxyRuntime;
-pub use masque_runtime::MasqueRuntime;
+pub use masque_runtime::{MasqueRuntime, MasqueTunIo};
 pub use netstack::{
     ManagedTunnelMonitor, ManagedTunnelRuntime, ManagedTunnelSender, ProxyPerformanceSnapshot,
     RuntimeHealth, RuntimePath, TrafficSnapshot,

@@ -8,7 +8,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
-use http::header::{CONNECTION, CONTENT_TYPE, HOST, RETRY_AFTER};
+use http::header::{
+    CONNECTION, CONTENT_TYPE, HOST, PROXY_AUTHENTICATE, PROXY_AUTHORIZATION, RETRY_AFTER,
+};
 use http::uri::Authority;
 use http::{
     HeaderMap, HeaderName, HeaderValue, Method, Request, Response, StatusCode, Uri, Version,
@@ -27,7 +29,7 @@ use tokio_util::sync::CancellationToken;
 use ts_netstack_smoltcp::CreateSocket;
 use ts_netstack_smoltcp::netcore::Channel;
 use ts_netstack_smoltcp::netsock::TcpStream as StackTcpStream;
-use usque_core::{OperatingMode, Profile};
+use usque_core::{OperatingMode, Profile, ProxyAuthCredentials};
 
 use crate::dns::Resolver;
 use crate::h2::{MasqueTlsIdentity, TransportError};
@@ -87,6 +89,9 @@ impl HttpProxyRuntime {
     ) -> Result<Self, TransportError> {
         if profile.mode != OperatingMode::HttpProxy {
             return Err(TransportError::UnsupportedOperatingMode);
+        }
+        if let Err(error) = profile.proxy.listener_credentials() {
+            return Err(TransportError::HttpProxy(error.to_string()));
         }
 
         let bound = HttpProxyFrontend::prebind(profile)?;
@@ -199,6 +204,11 @@ impl HttpProxyFrontend {
             failure: failure_tx,
             health: stack.subscribe_health(),
             performance: Arc::clone(&performance),
+            auth: profile
+                .proxy
+                .listener_credentials()
+                .expect("proxy listener credentials were validated before activate")
+                .map(Arc::new),
         });
         let listeners = bound
             .iter()
@@ -264,6 +274,7 @@ struct HttpContext {
     failure: watch::Sender<Option<String>>,
     health: watch::Receiver<RuntimeHealth>,
     performance: Arc<HttpPoolCounters>,
+    auth: Option<Arc<ProxyAuthCredentials>>,
 }
 
 #[derive(Default)]
@@ -361,6 +372,10 @@ async fn handle_request(
     context: Arc<HttpContext>,
     pool: Arc<SessionPool>,
 ) -> Result<Response<ProxyBody>, Infallible> {
+    if let Some(response) = authenticate_http_proxy(request.headers(), context.auth.as_deref()) {
+        return Ok(response);
+    }
+
     if !matches!(&*context.health.borrow(), RuntimeHealth::Connected { .. }) {
         return Ok(error_response(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -375,6 +390,40 @@ async fn handle_request(
         handle_forward(request, pool).await
     };
     Ok(response)
+}
+
+fn authenticate_http_proxy(
+    headers: &HeaderMap,
+    credentials: Option<&ProxyAuthCredentials>,
+) -> Option<Response<ProxyBody>> {
+    let expected = credentials?;
+    let Some(header) = headers.get(PROXY_AUTHORIZATION) else {
+        return Some(proxy_auth_required());
+    };
+    let Ok(value) = header.to_str() else {
+        return Some(proxy_auth_required());
+    };
+    let Some((username, password)) = ProxyAuthCredentials::decode_http_basic(value) else {
+        return Some(proxy_auth_required());
+    };
+    if expected.matches(&username, &password) {
+        None
+    } else {
+        Some(proxy_auth_required())
+    }
+}
+
+fn proxy_auth_required() -> Response<ProxyBody> {
+    let mut response = error_response(
+        StatusCode::PROXY_AUTHENTICATION_REQUIRED,
+        "proxy authentication required",
+        false,
+    );
+    response.headers_mut().insert(
+        PROXY_AUTHENTICATE,
+        HeaderValue::from_static(r#"Basic realm="Usque""#),
+    );
+    response
 }
 
 async fn handle_connect(
@@ -901,6 +950,36 @@ mod tests {
     }
 
     #[test]
+    fn missing_or_wrong_basic_auth_returns_407_without_contacting_upstream() {
+        let credentials = ProxyAuthCredentials::parse("lan-user", b"s3cret").unwrap();
+        let mut headers = HeaderMap::new();
+        let missing = authenticate_http_proxy(&headers, Some(&credentials)).unwrap();
+        assert_eq!(missing.status(), StatusCode::PROXY_AUTHENTICATION_REQUIRED);
+        assert_eq!(
+            missing.headers()[PROXY_AUTHENTICATE],
+            r#"Basic realm="Usque""#
+        );
+
+        headers.insert(
+            PROXY_AUTHORIZATION,
+            HeaderValue::from_static("Basic d3Jvbmc6Y3JlZHM="),
+        );
+        let wrong = authenticate_http_proxy(&headers, Some(&credentials)).unwrap();
+        assert_eq!(wrong.status(), StatusCode::PROXY_AUTHENTICATION_REQUIRED);
+        assert_eq!(
+            wrong.headers()[PROXY_AUTHENTICATE],
+            r#"Basic realm="Usque""#
+        );
+
+        headers.insert(
+            PROXY_AUTHORIZATION,
+            HeaderValue::from_static("Basic bGFuLXVzZXI6czNjcmV0"),
+        );
+        assert!(authenticate_http_proxy(&headers, Some(&credentials)).is_none());
+        assert!(authenticate_http_proxy(&HeaderMap::new(), None).is_none());
+    }
+
+    #[test]
     fn retry_policy_is_limited_to_safe_bodyless_methods() {
         assert!(is_safely_replayable(&Method::GET));
         assert!(is_safely_replayable(&Method::HEAD));
@@ -981,6 +1060,7 @@ mod tests {
             failure,
             health,
             performance: Arc::clone(&performance),
+            auth: None,
         });
         let pool = SessionPool::new(context);
 

@@ -271,8 +271,13 @@ fn is_sensitive_log_key(key: &str) -> bool {
         "listener",
         "jwt",
         "name",
+        "passwd",
+        "password",
         "peer",
         "private_key",
+        "proxy-authorization",
+        "proxy_authorization",
+        "proxy_password",
         "remote",
         "secret",
         "sni",
@@ -362,6 +367,18 @@ mod tests {
         assert!(!text.contains("2001:db8"));
         assert!(text.contains("[REDACTED]"));
         assert!(text.contains("[NETWORK_REDACTED]"));
+    }
+
+    #[test]
+    fn proxy_passwords_are_redacted_from_logs() {
+        let sanitized = sanitize_log_bytes(
+            br#"{"password":"listener-secret","proxy_password":"vault-secret","Proxy-Authorization":"Basic dXNlcjpwYXNz"}"#,
+        );
+        let text = String::from_utf8(sanitized).unwrap();
+        for secret in ["listener-secret", "vault-secret", "Basic dXNlcjpwYXNz"] {
+            assert!(!text.contains(secret), "log retained {secret}");
+        }
+        assert!(text.contains("[REDACTED]"));
     }
 
     #[test]

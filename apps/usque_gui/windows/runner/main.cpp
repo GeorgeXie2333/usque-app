@@ -9,6 +9,7 @@
 
 #include "flutter_window.h"
 #include "utils.h"
+#include "zero_trust_callback.h"
 
 namespace {
 
@@ -90,12 +91,18 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     ::CoUninitialize();
     return EXIT_FAILURE;
   }
-  if (::GetLastError() == ERROR_ALREADY_EXISTS) {
+  const DWORD mutex_status = ::GetLastError();
+  const auto forwarded_callback =
+      ExtractZeroTrustCallbackArgument(command_line_arguments);
+  if (mutex_status == ERROR_ALREADY_EXISTS) {
     HWND existing =
         ::FindWindowW(L"FLUTTER_RUNNER_WIN32_WINDOW", L"Usque");
     if (existing != nullptr) {
       ::ShowWindow(existing, SW_RESTORE);
       ::SetForegroundWindow(existing);
+      if (forwarded_callback.has_value()) {
+        ForwardZeroTrustCallback(existing, *forwarded_callback);
+      }
     }
     ::CloseHandle(instance_mutex);
     ::CoUninitialize();
@@ -115,6 +122,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     return EXIT_FAILURE;
   }
   window.SetQuitOnClose(true);
+  if (forwarded_callback.has_value()) {
+    window.OfferZeroTrustCallback(*forwarded_callback);
+  }
 
   ::MSG msg;
   while (::GetMessage(&msg, nullptr, 0, 0)) {

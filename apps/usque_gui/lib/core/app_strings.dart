@@ -44,6 +44,7 @@ class AppStrings {
     'status_stream_degraded_body':
         'Status polling is active; live updates will retry automatically.',
     'connect': 'Connect',
+    'retry': 'Retry',
     'disconnect': 'Disconnect',
     'connecting': 'Connecting…',
     'disconnected': 'Disconnected',
@@ -83,11 +84,20 @@ class AppStrings {
     'zero_trust_open_login': 'Open organization login',
     'zero_trust_browser_failed': 'The system browser could not be opened.',
     'zero_trust_manual_callback':
-        'After sign-in, return here automatically or paste the complete callback URL.',
+        'After sign-in, return here automatically, fill the callback from the clipboard, or paste the complete URL.',
     'zero_trust_callback_received': 'Organization callback received securely.',
     'zero_trust_callback': 'Complete callback URL',
     'zero_trust_callback_required':
         'Paste a fresh complete callback URL or sign in again.',
+    'zero_trust_callback_invalid':
+        'Use a com.cloudflare.warp Access callback for this organization.',
+    'zero_trust_paste_clipboard': 'Fill from clipboard',
+    'zero_trust_clipboard_empty':
+        'The clipboard does not contain a callback URL.',
+    'zero_trust_protocol_association':
+        'Open Access callbacks in Usque (this user only)',
+    'zero_trust_protocol_association_help':
+        'Optional. Registers com.cloudflare.warp for the signed-in Windows user. The official WARP client can stay installed. Leave this off to keep WARP as the handler; paste still works.',
     'zero_trust_scope_note':
         'Experimental: uses the organization device registration for Internet access; policy sync and device posture are not implemented.',
     'zero_trust_repair_same_team':
@@ -143,6 +153,25 @@ class AppStrings {
     'lan_warning': 'Proxy exposed to the local network',
     'lan_warning_body':
         'Usque does not add username/password authentication. Anyone who can reach this listener may use it.',
+    'lan_warning_body_authenticated':
+        'This listener accepts authenticated non-loopback clients that present the configured username and password.',
+    'proxy_auth': 'Listener authentication',
+    'proxy_auth_help':
+        'Optional username and password for SOCKS5 and HTTP listeners. The password is stored in the system vault, not in the profile file.',
+    'proxy_username': 'Username',
+    'proxy_password': 'Password',
+    'proxy_password_hint':
+        'Write-only. Re-enter the password to set or change credentials.',
+    'proxy_auth_apply': 'Save credentials',
+    'proxy_auth_invalid':
+        'Username must be 1–255 bytes without “:” or NUL. A password of 1–255 bytes is required with a username.',
+    'proxy_auth_saved': 'Listener credentials saved',
+    'proxy_auth_cleared': 'Listener authentication removed',
+    'lan_warning_authenticated': 'Authenticated LAN listener',
+    'lan_warning_authenticated_body':
+        'This listener is reachable on the local network and requires the username and password you set.',
+    'proxy_password_set': 'Password is set. Enter a new one to replace it.',
+    'proxy_auth_clear': 'Remove authentication',
     'general': 'General',
     'system_integration': 'System integration',
     'start_on_boot': 'Start Usque when you sign in',
@@ -195,10 +224,24 @@ class AppStrings {
     'ipv6_only': 'IPv6 endpoint only',
     'kill_switch': 'Kill Switch',
     'on': 'On',
+    'off': 'Off',
     'ready': 'Ready',
+    'ks_active': 'Active',
+    'ks_inactive': 'Inactive',
+    'ks_error': 'Error',
+    'ks_engaging': 'Engaging',
+    'always_on': 'Always-on VPN',
+    'lockdown': 'Block without VPN',
     'not_used_proxy': 'Not used in proxy mode',
     'kill_switch_help':
-        'Block traffic while connecting, reconnecting, or recovering from an engine failure.',
+        'Block traffic while connecting, reconnecting, or recovering from an engine failure. On Android this lasts while the VPN service is running; enable Always-on VPN and Block connections without VPN in system settings for protection after the app is killed.',
+    'start_on_boot_android':
+        'Start Usque after reboot. Also enable Auto-connect on the active profile.',
+    'add_quick_settings_tile_help':
+        'Pin the Usque tile on Android 13 or later. On older versions add it from Quick Settings.',
+    'always_on_vpn': 'Open Always-on VPN settings',
+    'always_on_vpn_help':
+        'Enable Always-on VPN and Block connections without VPN for leak protection after the app is killed.',
     'allow_lan': 'Allow local network',
     'bypass_cidrs': 'Additional bypass CIDRs',
     'bypass_hint': 'One CIDR per line',
@@ -269,6 +312,7 @@ class AppStrings {
     'status_stream_degraded': '实时状态更新已降级',
     'status_stream_degraded_body': '正在使用状态轮询；实时更新会自动重试。',
     'connect': '连接',
+    'retry': '重试',
     'disconnect': '断开',
     'connecting': '正在连接…',
     'disconnected': '未连接',
@@ -306,10 +350,16 @@ class AppStrings {
     'zero_trust_team_invalid': '请输入单个有效的 DNS 标签形式 Team Name。',
     'zero_trust_open_login': '打开组织登录页面',
     'zero_trust_browser_failed': '无法打开系统浏览器。',
-    'zero_trust_manual_callback': '登录后可自动返回，或在此粘贴完整回调 URL。',
+    'zero_trust_manual_callback': '登录后可自动返回，也可从剪贴板填入或粘贴完整回调 URL。',
     'zero_trust_callback_received': '已安全接收组织登录回调。',
     'zero_trust_callback': '完整回调 URL',
     'zero_trust_callback_required': '请粘贴新的完整回调 URL，或重新登录。',
+    'zero_trust_callback_invalid': '请使用此组织的 com.cloudflare.warp Access 回调 URL。',
+    'zero_trust_paste_clipboard': '从剪贴板填入',
+    'zero_trust_clipboard_empty': '剪贴板中没有回调 URL。',
+    'zero_trust_protocol_association': '在 Usque 中打开 Access 回调（仅当前用户）',
+    'zero_trust_protocol_association_help':
+        '可选。仅为当前 Windows 用户注册 com.cloudflare.warp 协议。官方 WARP 客户端可继续安装。关闭后由 WARP 处理该协议；手动粘贴始终可用。',
     'zero_trust_scope_note': '实验性功能：仅复用组织设备注册访问公网；暂不实现策略同步和设备姿态。',
     'zero_trust_repair_same_team': '重新登录同一组织，以刷新此设备注册。',
     'zero_trust_metadata_missing':
@@ -358,6 +408,21 @@ class AppStrings {
     'auto_connect': '自动连接此配置',
     'lan_warning': '代理已暴露到局域网',
     'lan_warning_body': 'Usque 不会添加用户名/密码认证。任何能访问此监听地址的人都可能使用它。',
+    'lan_warning_body_authenticated': '此监听地址接受已认证的非回环客户端；客户端必须提供已配置的用户名和密码。',
+    'proxy_auth': '监听认证',
+    'proxy_auth_help': '为 SOCKS5 和 HTTP 监听设置可选用户名和密码。密码保存在系统保险库中，不会写入配置文件。',
+    'proxy_username': '用户名',
+    'proxy_password': '密码',
+    'proxy_password_hint': '只写字段。设置或更改凭据时请重新输入密码。',
+    'proxy_auth_apply': '保存凭据',
+    'proxy_auth_invalid':
+        '用户名须为 1–255 字节，且不能包含 “:” 或 NUL。设置用户名时必须同时提供 1–255 字节的密码。',
+    'proxy_auth_saved': '已保存监听凭据',
+    'proxy_auth_cleared': '已移除监听认证',
+    'lan_warning_authenticated': '已认证的局域网监听',
+    'lan_warning_authenticated_body': '该监听可从局域网访问，并需要你设置的用户名和密码。',
+    'proxy_password_set': '已设置密码。输入新密码即可更换。',
+    'proxy_auth_clear': '清除认证',
     'general': '通用',
     'system_integration': '系统集成',
     'start_on_boot': '登录系统时启动 Usque',
@@ -409,9 +474,22 @@ class AppStrings {
     'ipv6_only': '仅使用 IPv6 入口',
     'kill_switch': 'Kill Switch',
     'on': '已开启',
+    'off': '已关闭',
     'ready': '就绪',
+    'ks_active': '已生效',
+    'ks_inactive': '未生效',
+    'ks_error': '错误',
+    'ks_engaging': '正在启用',
+    'always_on': '始终开启 VPN',
+    'lockdown': '无 VPN 时拦截',
     'not_used_proxy': '代理模式不适用',
-    'kill_switch_help': '连接、重连或 Engine 故障恢复期间阻止流量泄漏。',
+    'kill_switch_help':
+        '连接、重连或 Engine 故障恢复期间阻止流量泄漏。Android 上仅在 VPN 服务运行期间生效；进程被杀后的防护需在系统设置中开启始终开启 VPN 和“无 VPN 时拦截连接”。',
+    'start_on_boot_android': '开机后启动 Usque。还需要打开当前配置的自动连接。',
+    'add_quick_settings_tile_help':
+        '在 Android 13 或更高版本固定 Usque 磁贴。更低版本请在快捷设置中手动添加。',
+    'always_on_vpn': '打开始终开启 VPN 设置',
+    'always_on_vpn_help': '开启始终开启 VPN 和“无 VPN 时拦截连接”，才能在滑掉应用后防止泄漏。',
     'allow_lan': '允许访问局域网',
     'bypass_cidrs': '额外绕过 CIDR',
     'bypass_hint': '每行一个 CIDR',

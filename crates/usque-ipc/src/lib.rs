@@ -83,8 +83,8 @@ mod tests {
         EventEnvelope, ExportWarpSecretRequest, FrontendKind, FrontendPhase, FrontendSettings,
         FrontendStatus, GetStatusRequest, IdentityProvisioning, IdentityProvisioningMethod,
         Profile, ProvisionIdentityRequest, ReconfigureActiveProfileRequest,
-        UpdateLicenseKeyRequest, WarningRaised, ZeroTrustEnrollment, control_request,
-        event_envelope,
+        UpdateLicenseKeyRequest, UpdateProxyAuthRequest, WarningRaised, ZeroTrustEnrollment,
+        control_request, event_envelope,
     };
 
     // Checked-in v1 wire snapshots. Changing an established field number or
@@ -123,6 +123,10 @@ mod tests {
     ];
     const EXPORT_WARP_SECRET_V2_FRAME: &[u8] = &[
         0, 0, 0, 14, 0x0a, 1, b'x', 0xfa, 0x01, 8, 0x0a, 1, b'p', 0x12, 1, b'd', 0x18, 1,
+    ];
+    const UPDATE_PROXY_AUTH_V1_FRAME: &[u8] = &[
+        0, 0, 0, 17, 0x0a, 1, b'x', 0x82, 0x02, 0x0b, 0x0a, 1, b'p', 0x12, 1, b'u', 0x1a, 1, b'k',
+        0x20, 1,
     ];
     const AGENT_CAPABILITIES_V1_FRAME: &[u8] = &[0, 0, 0, 8, 0x0a, 2, b'a', b'1', 0x10, 1, 0x52, 0];
     const AGENT_RESUME_TUNNEL_V1_FRAME: &[u8] = &[
@@ -424,6 +428,22 @@ mod tests {
         assert_eq!(
             encode_frame(&export).unwrap().as_ref(),
             EXPORT_WARP_SECRET_V2_FRAME
+        );
+
+        let update_auth = ControlRequest {
+            request_id: "x".to_owned(),
+            payload: Some(control_request::Payload::UpdateProxyAuth(
+                UpdateProxyAuthRequest {
+                    profile_id: "p".to_owned(),
+                    username: "u".to_owned(),
+                    password: b"k".to_vec(),
+                    confirmed: true,
+                },
+            )),
+        };
+        assert_eq!(
+            encode_frame(&update_auth).unwrap().as_ref(),
+            UPDATE_PROXY_AUTH_V1_FRAME
         );
     }
 

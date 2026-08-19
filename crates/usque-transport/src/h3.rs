@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant as StdInstant};
 
 use boring::ssl::{SslContextBuilder, SslMethod};
-use bytes::{Buf, Bytes, BytesMut};
+use bytes::Bytes;
 use quiche::h3::NameValue;
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc::error::TrySendError;
@@ -13,11 +13,9 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, MissedTickBehavior, interval_at, sleep_until, timeout};
 use tokio_util::task::AbortOnDropHandle;
-use usque_protocol::{
-    AddressAssign, CapsuleEffect, ConnectIpCapsule, IpDatagram, IpPrefix, MAX_CAPSULE_PAYLOAD,
-    PeerNetworkState,
-};
+use usque_protocol::{IpDatagram, MAX_CAPSULE_PAYLOAD, PeerNetworkState};
 
+use crate::connect_ip_control::{ConnectIpControlPlane, PendingControlCapsule};
 use crate::h2::{
     MasqueTlsIdentity, PinState, TransportError, configure_client_identity_and_pin,
     validate_ip_packet,
@@ -386,7 +384,7 @@ async fn drive_h3_actor(
     let mut request_stream_id = None;
     let mut response_accepted = false;
     let mut ready = false;
-    let mut control = H3ControlPlane::new(control_tx);
+    let mut control = ConnectIpControlPlane::new(control_tx);
     let mut pending_packet: Option<OutgoingPacket> = None;
     let mut wire_datagrams = VecDeque::new();
     let mut receive_buffer = vec![0u8; 65_535];
@@ -545,7 +543,7 @@ fn process_http3_events(
     connection: &mut quiche::Connection,
     request_stream_id: Option<u64>,
     response_accepted: &mut bool,
-    control: &mut H3ControlPlane,
+    control: &mut ConnectIpControlPlane,
 ) -> Result<(), TransportError> {
     let mut body = [0u8; 4_096];
     loop {
@@ -580,12 +578,7 @@ fn process_http3_events(
                                 return Err(TransportError::CapsuleTooLarge);
                             }
                             control.buffer.extend_from_slice(&body[..length]);
-                            drain_control_capsules(
-                                &mut control.buffer,
-                                &mut control.state,
-                                &control.state_tx,
-                                &mut control.pending,
-                            )?;
+                            control.drain()?;
                         }
                     }
                     Err(quiche::h3::Error::Done) => break,
@@ -624,80 +617,6 @@ fn process_http3_events(
         }
     }
     Ok(())
-}
-
-struct PendingControlCapsule {
-    bytes: Bytes,
-    offset: usize,
-}
-
-struct H3ControlPlane {
-    buffer: BytesMut,
-    state: PeerNetworkState,
-    state_tx: watch::Sender<PeerNetworkState>,
-    pending: VecDeque<PendingControlCapsule>,
-}
-
-impl H3ControlPlane {
-    fn new(state_tx: watch::Sender<PeerNetworkState>) -> Self {
-        Self {
-            buffer: BytesMut::with_capacity(4_096),
-            state: PeerNetworkState::default(),
-            state_tx,
-            pending: VecDeque::new(),
-        }
-    }
-}
-
-fn drain_control_capsules(
-    buffer: &mut BytesMut,
-    state: &mut PeerNetworkState,
-    state_tx: &watch::Sender<PeerNetworkState>,
-    pending: &mut VecDeque<PendingControlCapsule>,
-) -> Result<(), TransportError> {
-    loop {
-        let mut cursor = buffer.clone().freeze();
-        let Some(capsule) = ConnectIpCapsule::decode_if_complete(&mut cursor)? else {
-            return Ok(());
-        };
-        let consumed = buffer.len() - cursor.len();
-        buffer.advance(consumed);
-
-        match state.apply(&capsule) {
-            CapsuleEffect::AssignmentsReplaced | CapsuleEffect::RoutesReplaced => {
-                state_tx.send_replace(state.clone());
-            }
-            CapsuleEffect::AddressRequested(request) => {
-                let addresses = request
-                    .addresses
-                    .into_iter()
-                    .map(|requested| IpPrefix {
-                        request_id: requested.request_id,
-                        address: match requested.address {
-                            IpAddr::V4(_) => IpAddr::V4(Ipv4Addr::UNSPECIFIED),
-                            IpAddr::V6(_) => IpAddr::V6(Ipv6Addr::UNSPECIFIED),
-                        },
-                        prefix_len: match requested.address {
-                            IpAddr::V4(_) => 32,
-                            IpAddr::V6(_) => 128,
-                        },
-                    })
-                    .collect();
-                let rejection =
-                    ConnectIpCapsule::AddressAssign(AddressAssign { addresses }).encode()?;
-                pending.push_back(PendingControlCapsule {
-                    bytes: rejection,
-                    offset: 0,
-                });
-            }
-            CapsuleEffect::UnknownIgnored(capsule_type) => {
-                tracing::debug!(
-                    capsule_type,
-                    "ignored an unknown CONNECT-IP control capsule"
-                );
-            }
-        }
-    }
 }
 
 fn flush_control_capsules(
@@ -923,7 +842,6 @@ fn connection_closed_error(connection: &quiche::Connection) -> TransportError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use usque_protocol::{AddressRequest, IpAddressRange, RouteAdvertisement};
 
     fn ipv4_packet() -> [u8; 20] {
         [
@@ -979,88 +897,5 @@ mod tests {
                 Some((value, encoded.len()))
             );
         }
-    }
-
-    #[test]
-    fn control_capsules_replace_peer_state_across_fragmented_reads() {
-        let assignment = ConnectIpCapsule::AddressAssign(AddressAssign {
-            addresses: vec![IpPrefix {
-                request_id: 0,
-                address: "172.16.0.2".parse().unwrap(),
-                prefix_len: 32,
-            }],
-        })
-        .encode()
-        .unwrap();
-        let routes = ConnectIpCapsule::RouteAdvertisement(RouteAdvertisement {
-            ranges: vec![IpAddressRange {
-                start: "0.0.0.0".parse().unwrap(),
-                end: "255.255.255.255".parse().unwrap(),
-                protocol: 0,
-            }],
-        })
-        .encode()
-        .unwrap();
-        let mut wire = BytesMut::new();
-        wire.extend_from_slice(&assignment);
-        wire.extend_from_slice(&routes);
-
-        let (state_tx, state_rx) = watch::channel(PeerNetworkState::default());
-        let mut state = PeerNetworkState::default();
-        let mut pending = VecDeque::new();
-        let mut buffer = BytesMut::new();
-        for byte in wire {
-            buffer.extend_from_slice(&[byte]);
-            drain_control_capsules(&mut buffer, &mut state, &state_tx, &mut pending).unwrap();
-        }
-
-        assert!(buffer.is_empty());
-        assert!(pending.is_empty());
-        assert_eq!(state_rx.borrow().assigned_addresses.len(), 1);
-        assert_eq!(state_rx.borrow().available_routes.len(), 1);
-    }
-
-    #[test]
-    fn address_requests_are_rejected_without_assigning_peer_addresses() {
-        let request = ConnectIpCapsule::AddressRequest(AddressRequest {
-            addresses: vec![
-                IpPrefix {
-                    request_id: 7,
-                    address: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
-                    prefix_len: 32,
-                },
-                IpPrefix {
-                    request_id: 8,
-                    address: IpAddr::V6(Ipv6Addr::UNSPECIFIED),
-                    prefix_len: 128,
-                },
-            ],
-        })
-        .encode()
-        .unwrap();
-        let (state_tx, _state_rx) = watch::channel(PeerNetworkState::default());
-        let mut state = PeerNetworkState::default();
-        let mut pending = VecDeque::new();
-        let mut buffer = BytesMut::from(request.as_ref());
-
-        drain_control_capsules(&mut buffer, &mut state, &state_tx, &mut pending).unwrap();
-        let mut rejection = pending.pop_front().unwrap().bytes;
-        let ConnectIpCapsule::AddressAssign(rejection) =
-            ConnectIpCapsule::decode(&mut rejection).unwrap()
-        else {
-            panic!("expected ADDRESS_ASSIGN rejection");
-        };
-        assert_eq!(rejection.addresses[0].request_id, 7);
-        assert_eq!(
-            rejection.addresses[0].address,
-            IpAddr::V4(Ipv4Addr::UNSPECIFIED)
-        );
-        assert_eq!(rejection.addresses[0].prefix_len, 32);
-        assert_eq!(rejection.addresses[1].request_id, 8);
-        assert_eq!(
-            rejection.addresses[1].address,
-            IpAddr::V6(Ipv6Addr::UNSPECIFIED)
-        );
-        assert_eq!(rejection.addresses[1].prefix_len, 128);
     }
 }

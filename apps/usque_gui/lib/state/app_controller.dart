@@ -41,6 +41,8 @@ class AppController extends ChangeNotifier {
   bool updateChecksEnabled = true;
   bool startOnBoot = false;
   bool closeToTray = true;
+  bool warpProtocolAssociation = false;
+  int zeroTrustCallbackTicket = 0;
   ThemePreference themePreference = ThemePreference.system;
   LocalePreference localePreference = LocalePreference.system;
   AppSection section = AppSection.home;
@@ -48,6 +50,7 @@ class AppController extends ChangeNotifier {
   String? lastError;
   String? lastNotice;
   bool snapshotStreamDegraded = false;
+  bool _userDisconnectedThisSession = false;
   UpdateCheckResult? updateResult;
   List<UsqueProfile> profiles = <UsqueProfile>[UsqueProfile.defaultProfile()];
   String activeProfileId = UsqueProfile.defaultProfileId;
@@ -96,6 +99,7 @@ class AppController extends ChangeNotifier {
       final platformPreferences = await _engine.platformPreferences();
       startOnBoot = platformPreferences.startOnBoot;
       closeToTray = platformPreferences.closeToTray;
+      warpProtocolAssociation = platformPreferences.warpProtocolAssociation;
     } on Object {
       // Native shell preferences are optional in unsupported test hosts.
     }
@@ -108,6 +112,18 @@ class AppController extends ChangeNotifier {
     if (updateChecksEnabled) {
       unawaited(_checkForUpdates(manual: false, silent: true));
     }
+    if (_shouldAutoConnectOnStart()) {
+      await connectOrDisconnect();
+    }
+  }
+
+  bool _shouldAutoConnectOnStart() {
+    return onboardingComplete &&
+        !_userDisconnectedThisSession &&
+        activeProfile.autoConnect &&
+        identityState(activeProfile.id) == ProfileIdentityState.ready &&
+        !snapshot.isConnected &&
+        !snapshot.isTransitional;
   }
 
   Future<void> _loadProfiles() async {
@@ -220,6 +236,7 @@ class AppController extends ChangeNotifier {
   Future<void> connectOrDisconnect() async {
     if (snapshot.isConnected || snapshot.isTransitional) {
       await _run(() async {
+        _userDisconnectedThisSession = true;
         snapshot = await _engine.disconnect();
         if (snapshot.phase == ConnectionPhase.disconnected &&
             !snapshotStreamDegraded) {
@@ -241,6 +258,17 @@ class AppController extends ChangeNotifier {
         );
       }
       snapshot = await _engine.connect(activeProfile);
+    });
+    if (success && (snapshot.isConnected || snapshot.isTransitional)) {
+      if (!_engine.supportsSnapshotEvents || snapshotStreamDegraded) {
+        _startPolling(force: snapshotStreamDegraded);
+      }
+    }
+  }
+
+  Future<void> retry() async {
+    final success = await _run(() async {
+      snapshot = await _engine.retry();
     });
     if (success && (snapshot.isConnected || snapshot.isTransitional)) {
       if (!_engine.supportsSnapshotEvents || snapshotStreamDegraded) {
@@ -300,6 +328,39 @@ class AppController extends ChangeNotifier {
       lastNotice = strings.get('license_copied');
       _notifyListeners();
     }
+  }
+
+  Future<bool> updateProxyAuth({
+    required String username,
+    required String password,
+  }) async {
+    final profile = activeProfile;
+    final success = await _run(() async {
+      await _engine.updateProxyAuth(
+        profile.id,
+        username: username,
+        password: password,
+        confirmed: true,
+      );
+      final next = profile.copyWith(
+        proxy: profile.proxy.copyWith(authUsername: username),
+      );
+      if (profile.id == activeProfileId && snapshot.isConnected) {
+        await _engine.reconfigureActiveProfile(next);
+      } else {
+        await _engine.upsertProfile(next);
+      }
+      profiles = profiles
+          .map((item) => item.id == next.id ? next : item)
+          .toList(growable: false);
+    });
+    if (success) {
+      lastNotice = username.isEmpty
+          ? strings.get('proxy_auth_cleared')
+          : strings.get('proxy_auth_saved');
+      _notifyListeners();
+    }
+    return success;
   }
 
   Future<bool> updateLicenseKey(String profileId, String licenseKey) async {
@@ -510,8 +571,29 @@ class AppController extends ChangeNotifier {
     }
   }
 
+  Future<void> setWarpProtocolAssociation(bool value) async {
+    final previous = warpProtocolAssociation;
+    warpProtocolAssociation = value;
+    _notifyListeners();
+    try {
+      await _engine.setWarpProtocolAssociation(value);
+    } on Object catch (error) {
+      warpProtocolAssociation = previous;
+      lastError = error is EngineException ? error.message : error.toString();
+      _notifyListeners();
+    }
+  }
+
+  void noteZeroTrustCallbackArrived() {
+    zeroTrustCallbackTicket += 1;
+    _notifyListeners();
+  }
+
   Future<void> requestAddQuickSettingsTile() =>
       _run(_engine.requestAddQuickSettingsTile, affectsConnection: false);
+
+  Future<void> openAlwaysOnVpnSettings() =>
+      _run(_engine.openAlwaysOnVpnSettings, affectsConnection: false);
 
   void addProfile(String name) {
     final normalized = name.trim();

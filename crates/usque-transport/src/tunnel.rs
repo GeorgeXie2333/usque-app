@@ -41,12 +41,12 @@ impl MasqueTunnel {
                 )
             }
             Self::Http2(tunnel) => {
-                let (send, receive, driver) = tunnel.into_parts();
+                let (send, receive, driver, control) = tunnel.into_parts();
                 (
                     MasqueSendHalf::Http2(send),
                     MasqueReceiveHalf::Http2(receive),
                     MasqueDriver::Http2(driver),
-                    None,
+                    Some(control),
                 )
             }
         }

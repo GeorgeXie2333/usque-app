@@ -134,6 +134,7 @@ message ProxySettings {
   uint32 udp_idle_timeout_seconds = 4;
   ProxyDnsMode dns_mode = 5;
   repeated string dns_servers = 6;
+  string auth_username = 7;
 }
 
 message FrontendSettings {
@@ -340,6 +341,13 @@ message ExportWarpSecretRequest {
   bool confirmed = 3;
 }
 
+message UpdateProxyAuthRequest {
+  string profile_id = 1;
+  string username = 2;
+  bytes password = 3;
+  bool confirmed = 4;
+}
+
 message ReconfigureResult {
   Profile profile = 1;
   ConnectionSnapshot snapshot = 2;
@@ -371,6 +379,7 @@ message ControlRequest {
     UpdateLicenseKeyRequest update_license_key = 29;
     UnbindLicenseKeyRequest unbind_license_key = 30;
     ExportWarpSecretRequest export_warp_secret = 31;
+    UpdateProxyAuthRequest update_proxy_auth = 32;
   }
 }
 

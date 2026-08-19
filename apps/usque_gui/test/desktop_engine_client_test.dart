@@ -550,6 +550,32 @@ void main() {
         client.dispose();
       },
     );
+
+    test('retry encodes control request payload field 14', () async {
+      Uint8List? seen;
+      final client = DesktopEngineClient.forTest(
+        transport: DesktopEngineTransport.forTest(
+          exchange: (Uint8List request) async {
+            seen = request;
+            return _statusResponse('1');
+          },
+          requestIdFactory: () => '1',
+        ),
+      );
+      await client.retry();
+      expect(seen, isNotNull);
+      // ControlRequest.retry is protobuf field 14, wire type 2 (tag 0x72).
+      expect(seen!.sublist(4), contains(0x72));
+      expect(
+        const ControlCodec().buildRequestFrame(
+          requestId: '1',
+          payloadField: 14,
+          payload: Uint8List(0),
+        ),
+        seen,
+      );
+      client.dispose();
+    });
   });
 }
 

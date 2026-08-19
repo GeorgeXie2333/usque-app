@@ -12,6 +12,8 @@ add_executable(${BINARY_NAME} WIN32
   "main.cpp"
   "utils.cpp"
   "win32_window.cpp"
+  "zero_trust_callback.cpp"
+  "zero_trust_protocol.cpp"
   "${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc"
   "Runner.rc"
   "runner.exe.manifest"
@@ -40,3 +42,13 @@ target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)
+
+add_executable(usque_zero_trust_test
+  "zero_trust_callback.cpp"
+  "zero_trust_protocol.cpp"
+  "zero_trust_windows_test.cpp"
+)
+apply_standard_settings(usque_zero_trust_test)
+target_compile_definitions(usque_zero_trust_test PRIVATE "NOMINMAX")
+target_link_libraries(usque_zero_trust_test PRIVATE "advapi32.lib" "user32.lib")
+target_include_directories(usque_zero_trust_test PRIVATE "${CMAKE_SOURCE_DIR}")

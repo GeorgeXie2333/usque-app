@@ -57,7 +57,8 @@ class ControlCodec {
       ..unsigned(4, 60)
       ..enumeration(5, profile.proxy.dnsMode.index + 1)
       ..string(6, profile.proxy.dnsIpv4)
-      ..string(6, profile.proxy.dnsIpv6);
+      ..string(6, profile.proxy.dnsIpv6)
+      ..string(7, profile.proxy.authUsername);
     final frontends = ControlPayloadWriter()
       ..boolean(1, profile.frontends.tunnel)
       ..boolean(2, profile.frontends.socks5)
@@ -522,6 +523,7 @@ ProxySettings _decodeProxySettings(
   final dnsServers = <String>[];
   var systemProxy = defaults.systemProxy;
   var dnsMode = defaults.dnsMode;
+  var authUsername = defaults.authUsername;
   while (!reader.isDone) {
     final field = reader.field();
     switch (field.number) {
@@ -539,6 +541,8 @@ ProxySettings _decodeProxySettings(
         );
       case 6:
         dnsServers.add(reader.string(field));
+      case 7:
+        authUsername = reader.string(field);
       default:
         reader.skip(field);
     }
@@ -570,6 +574,7 @@ ProxySettings _decodeProxySettings(
         dnsServers.where((value) => value.contains(':')).firstOrNull ??
         defaults.dnsIpv6,
     systemProxy: systemProxy,
+    authUsername: authUsername,
   );
 }
 
@@ -685,6 +690,8 @@ EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
   ExitInfo exit = const ExitInfo();
   String? warning;
   var reconnectCount = 0;
+  String? killSwitchState;
+  var platformLockdown = false;
   final activeListeners = <String>[];
   final frontends = <FrontendRuntimeStatus>[];
   while (!reader.isDone) {
@@ -719,6 +726,10 @@ EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
         exit = _decodeExit(reader.message(field));
       case 8:
         warning = _decodeError(reader.message(field)).message;
+      case 9:
+        killSwitchState = _decodeKillSwitchState(reader.varint(field));
+      case 10:
+        platformLockdown = reader.varint(field) == 3;
       case 11:
         reconnectCount = reader.varint(field);
       case 12:
@@ -744,9 +755,21 @@ EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
     exit: exit,
     warning: warning,
     reconnectCount: reconnectCount,
+    killSwitchState: killSwitchState,
+    platformLockdown: platformLockdown,
     activeListeners: List<String>.unmodifiable(activeListeners),
     frontends: List<FrontendRuntimeStatus>.unmodifiable(frontends),
   );
+}
+
+String? _decodeKillSwitchState(int value) {
+  return switch (value) {
+    1 => 'notApplicable',
+    2 => 'inactive',
+    3 => 'active',
+    5 => 'error',
+    _ => null,
+  };
 }
 
 FrontendRuntimeStatus _decodeFrontendStatus(_ProtoReader reader) {

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -9,6 +10,7 @@ import 'package:usque/app.dart';
 import 'package:usque/core/app_strings.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/screens/advanced_settings_screen.dart';
+import 'package:usque/screens/home_screen.dart';
 import 'package:usque/screens/proxy_screen.dart';
 import 'package:usque/services/desktop_engine_client.dart';
 import 'package:usque/services/engine_client.dart';
@@ -158,6 +160,43 @@ class FakeEngineClient implements EngineClient {
   @override
   Future<void> updateLicenseKey(String profileId, String licenseKey) async {}
 
+  String? lastProxyAuthUsername;
+  String? lastProxyAuthPassword;
+
+  @override
+  Future<void> updateProxyAuth(
+    String profileId, {
+    required String username,
+    required String password,
+    bool confirmed = true,
+  }) async {
+    calls.add('updateProxyAuth');
+    if (!confirmed) {
+      throw const EngineException(
+        'CONFIRMATION_REQUIRED',
+        'Saving listener credentials requires confirmation.',
+      );
+    }
+    if (username.isNotEmpty && password.isEmpty) {
+      throw const EngineException(
+        'CONFIGURATION_INVALID',
+        'proxy username requires a password',
+      );
+    }
+    lastProxyAuthUsername = username;
+    lastProxyAuthPassword = password;
+    final index = storedProfiles.indexWhere(
+      (profile) => profile.id == profileId,
+    );
+    if (index >= 0) {
+      final current = storedProfiles[index];
+      storedProfiles = <UsqueProfile>[...storedProfiles]
+        ..[index] = current.copyWith(
+          proxy: current.proxy.copyWith(authUsername: username),
+        );
+    }
+  }
+
   @override
   Future<void> unbindLicenseKey(String profileId) async {}
 
@@ -188,7 +227,17 @@ class FakeEngineClient implements EngineClient {
   Future<void> setCloseToTray(bool enabled) async {}
 
   @override
+  Future<void> setWarpProtocolAssociation(bool enabled) async {
+    calls.add('setWarpProtocolAssociation');
+  }
+
+  @override
   Future<void> requestAddQuickSettingsTile() async {}
+
+  @override
+  Future<void> openAlwaysOnVpnSettings() async {
+    calls.add('openAlwaysOnVpnSettings');
+  }
 
   @override
   Future<EngineSnapshot> connect(UsqueProfile profile) async {
@@ -208,6 +257,12 @@ class FakeEngineClient implements EngineClient {
     calls.add('disconnect');
     current = const EngineSnapshot();
     return current;
+  }
+
+  @override
+  Future<EngineSnapshot> retry() async {
+    calls.add('retry');
+    return connect(lastConnectedProfile ?? storedProfiles.first);
   }
 
   @override
@@ -667,6 +722,16 @@ void main() {
     },
   );
 
+  test('proxy profile JSON stores username and never password bytes', () {
+    final profile = UsqueProfile.defaultProfile().copyWith(
+      proxy: const ProxySettings(authUsername: 'lan-user'),
+    );
+    final encoded = jsonEncode(profile.toMap());
+    expect(profile.toMap()['proxy'], containsPair('auth_username', 'lan-user'));
+    expect(encoded.contains('lan-user'), isTrue);
+    expect(encoded.toLowerCase().contains('password'), isFalse);
+  });
+
   test('profile model survives its versioned map representation', () {
     const profile = UsqueProfile(
       id: '4cf46553-86ea-4bf7-a283-dc26fa58ed79',
@@ -696,6 +761,16 @@ void main() {
 
     final restored = UsqueProfile.fromMap(profile.toMap());
     expect(restored.toMap(), profile.toMap());
+  });
+
+  test('proxy settings persist username and never serialize a password', () {
+    const settings = ProxySettings(authUsername: 'lan-user');
+    final map = settings.toMap();
+    expect(map['auth_username'], 'lan-user');
+    expect(map.keys, isNot(contains('password')));
+    expect(map.keys, isNot(contains('auth_password')));
+    expect(ProxySettings.fromMap(map).authUsername, 'lan-user');
+    expect(settings.hasAuth, isTrue);
   });
 
   test('non-secret profiles persist across controller restarts', () async {
@@ -829,6 +904,53 @@ void main() {
     expect(engine.lastZeroTrustCallback, callback);
     expect(find.text('Complete callback URL'), findsNothing);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('invalid Zero Trust callback does not start registration', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1280, 900);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+    });
+    final engine = FakeEngineClient();
+
+    await tester.pumpWidget(UsqueBootstrap(engine: engine));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(NavigationRail),
+        matching: find.text('Profiles'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('New profile'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'Organization');
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cloudflare Zero Trust'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).at(0), 'example-team');
+    await tester.enterText(
+      find.byType(TextField).at(1),
+      'https://example-team.cloudflareaccess.com/auth?token=x',
+    );
+    await tester.tap(find.text('Create'));
+    await tester.pumpAndSettle();
+
+    expect(engine.lastProvisioningMethod, isNull);
+    expect(engine.lastZeroTrustCallback, isNull);
+    expect(
+      find.text(
+        'Use a com.cloudflare.warp Access callback for this organization.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Complete callback URL'), findsOneWidget);
   });
 
   test('connected Zero Trust repair disconnects and reconnects', () async {
@@ -1209,7 +1331,7 @@ void main() {
     expect(find.widgetWithText(FilledButton, 'New profile'), findsOneWidget);
   });
 
-  testWidgets('Android settings omits the in-app system integration panel', (
+  testWidgets('Android settings exposes boot, tile, and Always-on controls', (
     tester,
   ) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
@@ -1227,12 +1349,168 @@ void main() {
       await tester.tap(find.text('Settings').last);
       await tester.pumpAndSettle();
 
-      expect(find.text('System integration'), findsNothing);
-      expect(find.text('Start Usque when you sign in'), findsNothing);
-      expect(find.text('Add Quick Settings Tile'), findsNothing);
+      expect(find.text('System integration'), findsOneWidget);
+      expect(find.text('Start Usque when you sign in'), findsOneWidget);
+      expect(find.text('Add Quick Settings Tile'), findsOneWidget);
+      expect(find.text('Open Always-on VPN settings'), findsOneWidget);
       expect(find.text('Updates'), findsOneWidget);
     } finally {
       debugDefaultTargetPlatformOverride = null;
     }
   });
+
+  test('kill switch status key follows profile flag and live state', () {
+    final tunnelOn = UsqueProfile.defaultProfile();
+    final tunnelOff = tunnelOn.copyWith(
+      frontends: tunnelOn.frontends.copyWith(tunnel: false),
+    );
+    final ksOff = tunnelOn.copyWith(killSwitch: false);
+
+    expect(
+      killSwitchStatusKey(
+        profile: tunnelOff,
+        snapshot: const EngineSnapshot(phase: ConnectionPhase.connected),
+      ),
+      'not_used_proxy',
+    );
+    expect(
+      killSwitchStatusKey(
+        profile: ksOff,
+        snapshot: const EngineSnapshot(
+          phase: ConnectionPhase.connected,
+          killSwitchState: 'active',
+        ),
+      ),
+      'off',
+    );
+    expect(
+      killSwitchStatusKey(
+        profile: tunnelOn,
+        snapshot: const EngineSnapshot(
+          phase: ConnectionPhase.connected,
+          killSwitchState: 'active',
+        ),
+      ),
+      'ks_active',
+    );
+    expect(
+      killSwitchStatusKey(
+        profile: tunnelOn,
+        snapshot: const EngineSnapshot(
+          phase: ConnectionPhase.disconnected,
+          killSwitchState: 'inactive',
+        ),
+      ),
+      'ks_inactive',
+    );
+    expect(
+      killSwitchStatusKey(
+        profile: tunnelOn,
+        snapshot: const EngineSnapshot(
+          phase: ConnectionPhase.error,
+          killSwitchState: 'error',
+        ),
+      ),
+      'ks_error',
+    );
+    expect(
+      killSwitchStatusKey(
+        profile: tunnelOn,
+        snapshot: const EngineSnapshot(phase: ConnectionPhase.connectingH3),
+      ),
+      'ks_engaging',
+    );
+  });
+
+  testWidgets('home shows Off, Active, or proxy-not-used for kill switch', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+    });
+    final engine = FakeEngineClient();
+    final controller = AppController(engine);
+    await controller.initialize();
+    addTearDown(controller.dispose);
+
+    Future<void> pumpHome() async {
+      await tester.pumpWidget(
+        MaterialApp(home: HomeScreen(controller: controller)),
+      );
+      await tester.pump();
+    }
+
+    controller.updateProfile(
+      controller.activeProfile.copyWith(killSwitch: false),
+    );
+    await pumpHome();
+    expect(find.text('Off'), findsOneWidget);
+
+    controller.updateProfile(
+      controller.activeProfile.copyWith(killSwitch: true),
+    );
+    controller.snapshot = const EngineSnapshot(
+      phase: ConnectionPhase.connected,
+      killSwitchState: 'active',
+    );
+    await pumpHome();
+    expect(find.text('Active'), findsOneWidget);
+
+    controller.updateProfile(
+      controller.activeProfile.copyWith(
+        frontends: controller.activeProfile.frontends.copyWith(tunnel: false),
+      ),
+    );
+    await pumpHome();
+    expect(find.text('Not used in proxy mode'), findsOneWidget);
+  });
+
+  testWidgets('error and degraded home show Retry and invoke the engine', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+    });
+    final engine = EventEngineClient();
+    engine.current = const EngineSnapshot(phase: ConnectionPhase.error);
+    final controller = AppController(engine);
+    await controller.initialize();
+    addTearDown(controller.dispose);
+    controller.snapshot = const EngineSnapshot(phase: ConnectionPhase.error);
+
+    await tester.pumpWidget(
+      MaterialApp(home: HomeScreen(controller: controller)),
+    );
+    await tester.pump();
+    expect(find.text('Retry'), findsOneWidget);
+    await tester.tap(find.text('Retry'));
+    await tester.pump();
+    expect(engine.calls, contains('retry'));
+  });
+
+  test(
+    'initialize with auto_connect connects a ready disconnected profile once',
+    () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'onboarding_complete': true,
+      });
+      final engine = FakeEngineClient();
+      engine.legacyProfilesImported = true;
+      engine.storedProfiles = <UsqueProfile>[
+        UsqueProfile.defaultProfile().copyWith(autoConnect: true),
+      ];
+      final controller = AppController(engine);
+      await controller.initialize();
+      expect(engine.calls.where((call) => call == 'connect'), hasLength(1));
+
+      engine.calls.clear();
+      await controller.connectOrDisconnect();
+      expect(engine.calls, contains('disconnect'));
+
+      engine.calls.clear();
+      await controller.initialize();
+      expect(engine.calls, isNot(contains('connect')));
+      controller.dispose();
+    },
+  );
 }

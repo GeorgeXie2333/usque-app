@@ -1514,7 +1514,7 @@ async fn wait_for_network_change(protector: &Arc<dyn SocketProtector>, baseline:
 /// window. A withdrawn family is instead blocked in the shared data plane and
 /// reflected as degraded health; withdrawing both families terminates the
 /// tunnel so the platform can rebuild it safely.
-fn apply_peer_network_state(
+pub(crate) fn apply_peer_network_state(
     mut path: RuntimePath,
     state: &PeerNetworkState,
     assigned_ipv4: std::net::Ipv4Addr,

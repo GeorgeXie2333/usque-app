@@ -142,6 +142,14 @@ class MainActivity : FlutterFragmentActivity() {
                     .edit { putBoolean(UsqueVpnService.START_ON_BOOT, enabled) }
             }
 
+            override fun openAlwaysOnVpnSettings() {
+                startActivity(
+                    android.content.Intent(android.provider.Settings.ACTION_VPN_SETTINGS).addFlags(
+                        android.content.Intent.FLAG_ACTIVITY_NEW_TASK,
+                    ),
+                )
+            }
+
             override fun requestAddQuickSettingsTile(result: MethodChannel.Result) {
                 if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
                     result.success(null)

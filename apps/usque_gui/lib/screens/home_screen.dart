@@ -16,6 +16,13 @@ class HomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: controller,
+      builder: (context, _) => _buildPage(context),
+    );
+  }
+
+  Widget _buildPage(BuildContext context) {
     final strings = controller.strings;
     final snapshot = controller.snapshot;
     return PageFrame(
@@ -214,6 +221,18 @@ class _ConnectionHero extends StatelessWidget {
                     ),
                   ),
                 ),
+                if (snapshot.phase == ConnectionPhase.error ||
+                    snapshot.phase == ConnectionPhase.degraded) ...<Widget>[
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: controller.busy ? null : controller.retry,
+                      icon: const Icon(LucideIcons.refreshCw),
+                      label: Text(strings.get('retry')),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -284,14 +303,30 @@ class _ConnectionDetails extends StatelessWidget {
           ),
           const Divider(height: 28),
           _DetailRow(
-            icon: profile.frontends.tunnel
+            icon: profile.frontends.tunnel && profile.killSwitch
                 ? LucideIcons.shieldCheck
                 : LucideIcons.shieldOff,
             label: strings.get('kill_switch'),
-            value: profile.frontends.tunnel
-                ? strings.get(snapshot.isConnected ? 'on' : 'ready')
-                : strings.get('not_used_proxy'),
+            value: strings.get(
+              killSwitchStatusKey(profile: profile, snapshot: snapshot),
+            ),
           ),
+          if (snapshot.alwaysOn) ...<Widget>[
+            const Divider(height: 28),
+            _DetailRow(
+              icon: LucideIcons.shield,
+              label: strings.get('always_on'),
+              value: strings.get('on'),
+            ),
+          ],
+          if (snapshot.platformLockdown) ...<Widget>[
+            const Divider(height: 28),
+            _DetailRow(
+              icon: LucideIcons.shieldBan,
+              label: strings.get('lockdown'),
+              value: strings.get('on'),
+            ),
+          ],
         ],
       ),
     );
@@ -571,6 +606,32 @@ class _ExitRow extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+/// Catalog key for the Home Kill Switch value. Driven by the profile flag
+/// and live engine state, not "the tunnel frontend is enabled".
+String killSwitchStatusKey({
+  required UsqueProfile profile,
+  required EngineSnapshot snapshot,
+}) {
+  if (!profile.frontends.tunnel) {
+    return 'not_used_proxy';
+  }
+  if (!profile.killSwitch) {
+    return 'off';
+  }
+  switch (snapshot.killSwitchState) {
+    case 'active':
+      return 'ks_active';
+    case 'error':
+      return 'ks_error';
+    case 'inactive':
+    case 'notApplicable':
+    case 'not_applicable':
+      return snapshot.isTransitional ? 'ks_engaging' : 'ks_inactive';
+    default:
+      return snapshot.isTransitional ? 'ks_engaging' : 'ks_inactive';
   }
 }
 

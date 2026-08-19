@@ -29,8 +29,8 @@ use serde::{Deserialize, Serialize};
 use usque_core::{
     AppConfig, ConsumerRegistrationClient, DnsMode, EndpointSettings, FrontendSettings,
     IdentityProvider, IpPolicy, OperatingMode, Profile, ProxyDnsMode, ProxySettings,
-    RegistrationError, RegistrationOptions, TransportPolicy, WarpIdentity,
-    parse_manual_warp_secret, storage::ConfigStore, update::UpdateChecker,
+    ReconfigureClass, RegistrationError, RegistrationOptions, TransportPolicy, WarpIdentity,
+    classify_reconfigure, parse_manual_warp_secret, storage::ConfigStore, update::UpdateChecker,
 };
 #[cfg(target_os = "android")]
 use usque_transport::{
@@ -47,6 +47,10 @@ pub const START_INVALID_PROFILE: i32 = -5;
 pub const START_PLATFORM_FAILURE: i32 = -6;
 pub const START_TRANSPORT_FAILURE: i32 = -7;
 pub const START_TUN_FAILURE: i32 = -8;
+pub const RECONFIGURE_OK: i32 = 0;
+pub const RECONFIGURE_NEED_COLD: i32 = 1;
+pub const RECONFIGURE_NEED_ATTACH: i32 = 2;
+pub const RECONFIGURE_NOT_RUNNING: i32 = -10;
 
 #[derive(Debug)]
 struct JniCode(jint);
@@ -91,6 +95,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeSta
     tun_file_descriptor: jint,
     profile_json: JString<'local>,
     warp_secret: JByteArray<'local>,
+    proxy_password: JByteArray<'local>,
     vpn_service: JObject<'local>,
 ) -> jint {
     with_jni_code(&mut environment, |environment| {
@@ -99,6 +104,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeSta
             tun_file_descriptor,
             profile_json,
             warp_secret,
+            proxy_password,
             vpn_service,
         )
     })
@@ -109,6 +115,7 @@ fn native_start<'local>(
     tun_file_descriptor: jint,
     profile_json: JString<'local>,
     warp_secret: JByteArray<'local>,
+    proxy_password: JByteArray<'local>,
     vpn_service: JObject<'local>,
 ) -> jint {
     if tun_file_descriptor < 0 || !engine_ready() {
@@ -125,6 +132,14 @@ fn native_start<'local>(
     let profile = match parse_android_profile(&profile_json) {
         Ok(profile) if profile.mode == OperatingMode::Vpn => profile,
         _ => return START_INVALID_PROFILE,
+    };
+    let proxy_password = match environment.convert_byte_array(&proxy_password) {
+        Ok(value) => Zeroizing::new(value),
+        Err(_) => return START_INVALID_PROFILE,
+    };
+    let profile = match attach_android_proxy_password(profile, proxy_password) {
+        Ok(profile) => profile,
+        Err(code) => return code,
     };
     let identity = match warp_identity_from_secret(&secret) {
         Ok(identity) => identity,
@@ -167,10 +182,17 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeSta
     _class: JClass<'local>,
     profile_json: JString<'local>,
     warp_secret: JByteArray<'local>,
+    proxy_password: JByteArray<'local>,
     vpn_service: JObject<'local>,
 ) -> jint {
     with_jni_code(&mut environment, |environment| {
-        native_start_proxy(environment, profile_json, warp_secret, vpn_service)
+        native_start_proxy(
+            environment,
+            profile_json,
+            warp_secret,
+            proxy_password,
+            vpn_service,
+        )
     })
 }
 
@@ -178,6 +200,7 @@ fn native_start_proxy<'local>(
     environment: &mut Env<'local>,
     profile_json: JString<'local>,
     warp_secret: JByteArray<'local>,
+    proxy_password: JByteArray<'local>,
     vpn_service: JObject<'local>,
 ) -> jint {
     if !engine_ready() {
@@ -201,6 +224,14 @@ fn native_start_proxy<'local>(
             profile
         }
         _ => return START_INVALID_PROFILE,
+    };
+    let proxy_password = match environment.convert_byte_array(&proxy_password) {
+        Ok(value) => Zeroizing::new(value),
+        Err(_) => return START_INVALID_PROFILE,
+    };
+    let profile = match attach_android_proxy_password(profile, proxy_password) {
+        Ok(profile) => profile,
+        Err(code) => return code,
     };
     let identity = match warp_identity_from_secret(&secret) {
         Ok(identity) => identity,
@@ -265,6 +296,56 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeNot
             notify_network_changed(generation as u64);
         }
     });
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeReconfigure<'local>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    profile_json: JString<'local>,
+) -> jint {
+    with_jni_code(&mut environment, |environment| {
+        let profile_json = match profile_json.try_to_string(environment) {
+            Ok(value) => value,
+            Err(_) => return START_INVALID_PROFILE,
+        };
+        let profile = match parse_android_profile(&profile_json) {
+            Ok(profile) => profile,
+            Err(_) => return START_INVALID_PROFILE,
+        };
+        reconfigure_engine(profile)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeAttachTun<'local>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    tun_file_descriptor: jint,
+    profile_json: JString<'local>,
+) -> jint {
+    with_jni_code(&mut environment, |environment| {
+        if tun_file_descriptor < 0 {
+            return START_TUN_FAILURE;
+        }
+        let profile_json = match profile_json.try_to_string(environment) {
+            Ok(value) => value,
+            Err(_) => return START_INVALID_PROFILE,
+        };
+        let profile = match parse_android_profile(&profile_json) {
+            Ok(profile) => profile,
+            Err(_) => return START_INVALID_PROFILE,
+        };
+        attach_tun_engine(tun_file_descriptor, profile)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeDetachTun<'local>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
+) -> jint {
+    with_jni_code(&mut environment, |_| detach_tun_engine())
 }
 
 #[unsafe(no_mangle)]
@@ -683,6 +764,8 @@ struct AndroidProxy {
     dns_v4: String,
     #[serde(default = "default_proxy_dns_v6")]
     dns_v6: String,
+    #[serde(default)]
+    auth_username: Option<String>,
 }
 
 fn default_proxy_dns_v4() -> String {
@@ -791,10 +874,35 @@ fn android_profile_to_core(source: AndroidProfile) -> Result<Profile, String> {
                 parse_value(&source.proxy.dns_v4, "proxy DNS IPv4")?,
                 parse_value(&source.proxy.dns_v6, "proxy DNS IPv6")?,
             ],
+            auth_username: source.proxy.auth_username.filter(|value| !value.is_empty()),
+            auth_password: None,
         },
     };
     profile.validate().map_err(|error| error.to_string())?;
     Ok(profile)
+}
+
+fn attach_android_proxy_password(
+    mut profile: Profile,
+    password: Zeroizing<Vec<u8>>,
+) -> Result<Profile, i32> {
+    profile.proxy.normalize_auth();
+    match profile.proxy.listener_auth_username() {
+        None => {
+            profile.proxy.auth_password = None;
+            Ok(profile)
+        }
+        Some(_) => {
+            if password.is_empty() {
+                return Err(START_INVALID_PROFILE);
+            }
+            profile.proxy.auth_password = Some(password);
+            if profile.proxy.listener_credentials().is_err() {
+                return Err(START_INVALID_PROFILE);
+            }
+            Ok(profile)
+        }
+    }
 }
 
 fn parse_value<T>(value: &str, label: &str) -> Result<T, String>
@@ -838,6 +946,9 @@ enum AndroidConfigCommand {
     },
     ClearAllData,
     ListProfiles,
+    ReconfigureActiveProfile {
+        profile: Box<AndroidProfile>,
+    },
 }
 
 fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String, String> {
@@ -856,6 +967,7 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
     let store = ConfigStore::new(config_path);
     let mut config = store.load_or_default().map_err(|error| error.to_string())?;
     let mut changed = false;
+    let mut reconfigure_class: Option<ReconfigureClass> = None;
 
     match command {
         AndroidConfigCommand::ImportLegacyProfiles {
@@ -1035,6 +1147,38 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
             changed = true;
         }
         AndroidConfigCommand::ListProfiles => {}
+        AndroidConfigCommand::ReconfigureActiveProfile { profile } => {
+            let next = android_profile_to_core(*profile)?;
+            if config.active_profile_id != Some(next.id) {
+                return Err("only the Active Profile can be reconfigured".to_owned());
+            }
+            let previous = config
+                .profiles
+                .iter()
+                .find(|candidate| candidate.id == next.id)
+                .cloned()
+                .ok_or_else(|| "profile does not exist".to_owned())?;
+            let class = classify_reconfigure(&previous, &next);
+            if class == ReconfigureClass::Reject {
+                return Err(
+                    "the Active Profile cannot be replaced by a different profile".to_owned(),
+                );
+            }
+            let index = config
+                .profiles
+                .iter()
+                .position(|candidate| candidate.id == next.id)
+                .expect("profile looked up above");
+            if next.proxy.listener_auth_username().is_none() {
+                let mut stored = next;
+                stored.proxy.auth_username = config.profiles[index].proxy.auth_username.clone();
+                config.profiles[index] = stored;
+            } else {
+                config.profiles[index] = next;
+            }
+            reconfigure_class = Some(class);
+            changed = true;
+        }
     }
 
     config.validate().map_err(|error| error.to_string())?;
@@ -1044,7 +1188,17 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
             let _ = std::fs::remove_file(store.backup_path());
         }
     }
-    serde_json::to_string(&android_profile_catalog(&config)).map_err(|error| error.to_string())
+    let mut catalog = android_profile_catalog(&config);
+    if let Some(class) = reconfigure_class {
+        catalog["reconfigure_class"] = serde_json::json!(match class {
+            ReconfigureClass::Reject => "reject",
+            ReconfigureClass::ColdReconnect => "cold_reconnect",
+            ReconfigureClass::HotSystemProxy => "hot_system_proxy",
+            ReconfigureClass::HotFrontends => "hot_frontends",
+            ReconfigureClass::HotTunnelAttach => "hot_tunnel_attach",
+        });
+    }
+    serde_json::to_string(&catalog).map_err(|error| error.to_string())
 }
 
 fn android_profile_catalog(config: &AppConfig) -> serde_json::Value {
@@ -1175,6 +1329,10 @@ fn android_profile_value(
                 .unwrap_or_else(|| usque_core::config::DEFAULT_DNS_V6.into())
                 .to_string(),
             "system_proxy": profile.proxy.system_proxy,
+            "auth_username": profile
+                .proxy
+                .listener_auth_username()
+                .unwrap_or_default(),
         }
     })
 }
@@ -1530,24 +1688,42 @@ mod android_runtime {
     use tokio::time::{MissedTickBehavior, interval};
     use tokio_util::sync::CancellationToken;
     use usque_core::{AddressFamily, IpSbProbe, OperatingMode, Transport, WarpIdentity};
+    use usque_core::{ReconfigureClass, classify_reconfigure};
     use usque_transport::{
-        EndpointPinRefresher, MasqueRuntime, ProxyRuntime, RuntimeHealth, TrafficSnapshot,
+        EndpointPinRefresher, MasqueRuntime, MasqueTunIo, RuntimeHealth, TrafficSnapshot,
         TransportError,
     };
 
     use super::{
         AndroidEndpointPinRefresher, AndroidSocketProtector, MasqueTlsIdentity, NativeSnapshot,
-        Profile, START_ALREADY_RUNNING, START_OK, START_PLATFORM_FAILURE, START_TRANSPORT_FAILURE,
-        START_TUN_FAILURE, SocketProtector,
+        Profile, RECONFIGURE_NEED_ATTACH, RECONFIGURE_NEED_COLD, RECONFIGURE_NOT_RUNNING,
+        RECONFIGURE_OK, START_ALREADY_RUNNING, START_INVALID_PROFILE, START_OK,
+        START_PLATFORM_FAILURE, START_TRANSPORT_FAILURE, START_TUN_FAILURE, SocketProtector,
     };
 
     static ENGINE: OnceLock<Mutex<Option<EngineHandle>>> = OnceLock::new();
     static LAST_START_ERROR: OnceLock<Mutex<Option<NativeSnapshot>>> = OnceLock::new();
 
+    enum RuntimeCommand {
+        Reconfigure {
+            profile: Profile,
+            reply: std::sync::mpsc::SyncSender<i32>,
+        },
+        AttachTun {
+            tun: OwnedFd,
+            profile: Profile,
+            reply: std::sync::mpsc::SyncSender<i32>,
+        },
+        DetachTun {
+            reply: std::sync::mpsc::SyncSender<i32>,
+        },
+    }
+
     struct EngineHandle {
         cancellation: CancellationToken,
         status: Arc<Mutex<NativeSnapshot>>,
         protector: Arc<AndroidSocketProtector>,
+        commands: tokio::sync::mpsc::UnboundedSender<RuntimeCommand>,
         thread: JoinHandle<()>,
     }
 
@@ -1592,6 +1768,7 @@ mod android_runtime {
         let cancellation = CancellationToken::new();
         let status = Arc::new(Mutex::new(NativeSnapshot::preparing()));
         let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (command_tx, command_rx) = tokio::sync::mpsc::unbounded_channel();
         let thread_cancel = cancellation.clone();
         let thread_status = Arc::clone(&status);
         let handle_protector = Arc::clone(&protector);
@@ -1623,6 +1800,7 @@ mod android_runtime {
                     thread_cancel,
                     thread_status,
                     started_tx,
+                    command_rx,
                 ));
             });
         let thread = match thread {
@@ -1633,6 +1811,7 @@ mod android_runtime {
             cancellation,
             status: Arc::clone(&status),
             protector: handle_protector,
+            commands: command_tx,
             thread,
         });
         drop(slot);
@@ -1691,6 +1870,7 @@ mod android_runtime {
         let cancellation = CancellationToken::new();
         let status = Arc::new(Mutex::new(NativeSnapshot::preparing()));
         let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (command_tx, command_rx) = tokio::sync::mpsc::unbounded_channel();
         let thread_cancel = cancellation.clone();
         let thread_status = Arc::clone(&status);
         let handle_protector = Arc::clone(&protector);
@@ -1721,6 +1901,7 @@ mod android_runtime {
                     thread_cancel,
                     thread_status,
                     started_tx,
+                    command_rx,
                 ));
             });
         let thread = match thread {
@@ -1731,6 +1912,7 @@ mod android_runtime {
             cancellation,
             status: Arc::clone(&status),
             protector: handle_protector,
+            commands: command_tx,
             thread,
         });
         drop(slot);
@@ -1814,6 +1996,52 @@ mod android_runtime {
             .unwrap_or_else(NativeSnapshot::disconnected)
     }
 
+    pub(super) fn reconfigure(profile: Profile) -> i32 {
+        send_command(|reply| RuntimeCommand::Reconfigure { profile, reply })
+    }
+
+    pub(super) fn attach_tun(tun_file_descriptor: i32, profile: Profile) -> i32 {
+        if tun_file_descriptor < 0 {
+            return START_TUN_FAILURE;
+        }
+        // SAFETY: tun_file_descriptor is the VpnService TUN FD passed from Java.
+        let duplicated = unsafe { libc::dup(tun_file_descriptor) };
+        if duplicated < 0 {
+            return START_TUN_FAILURE;
+        }
+        // SAFETY: duplicated is a freshly owned FD from dup.
+        let tun = unsafe { OwnedFd::from_raw_fd(duplicated) };
+        send_command(|reply| RuntimeCommand::AttachTun {
+            tun,
+            profile,
+            reply,
+        })
+    }
+
+    pub(super) fn detach_tun() -> i32 {
+        send_command(|reply| RuntimeCommand::DetachTun { reply })
+    }
+
+    fn send_command(build: impl FnOnce(std::sync::mpsc::SyncSender<i32>) -> RuntimeCommand) -> i32 {
+        let Some(engine) = ENGINE.get() else {
+            return RECONFIGURE_NOT_RUNNING;
+        };
+        let Ok(slot) = engine.lock() else {
+            return START_PLATFORM_FAILURE;
+        };
+        let Some(handle) = slot.as_ref() else {
+            return RECONFIGURE_NOT_RUNNING;
+        };
+        let (reply_tx, reply_rx) = std::sync::mpsc::sync_channel(1);
+        if handle.commands.send(build(reply_tx)).is_err() {
+            return RECONFIGURE_NOT_RUNNING;
+        }
+        match reply_rx.recv_timeout(Duration::from_secs(30)) {
+            Ok(code) => code,
+            Err(_) => START_PLATFORM_FAILURE,
+        }
+    }
+
     fn clear_last_start_error() {
         if let Ok(mut error) = LAST_START_ERROR.get_or_init(|| Mutex::new(None)).lock() {
             *error = None;
@@ -1835,7 +2063,7 @@ mod android_runtime {
 
     #[expect(
         clippy::too_many_arguments,
-        reason = "VPN runtime threads TUN, profile, identity, protector, pin refresh, cancellation, status, and start handshake as one unit"
+        reason = "VPN runtime threads TUN, profile, identity, protector, pin refresh, cancellation, status, start handshake, and reconfigure commands as one unit"
     )]
     async fn run(
         tun: OwnedFd,
@@ -1846,6 +2074,7 @@ mod android_runtime {
         cancellation: CancellationToken,
         status: Arc<Mutex<NativeSnapshot>>,
         started: std::sync::mpsc::SyncSender<i32>,
+        commands: tokio::sync::mpsc::UnboundedReceiver<RuntimeCommand>,
     ) {
         let tun = match AsyncFd::new(TunFd(tun)) {
             Ok(tun) => tun,
@@ -1859,23 +2088,29 @@ mod android_runtime {
                 return;
             }
         };
-        let startup =
-            MasqueRuntime::start_with_refresh(&profile, identity, protector, Some(pin_refresher));
-        tokio::pin!(startup);
-        let started_tunnel = tokio::select! {
-            biased;
-            _ = cancellation.cancelled() => {
-                let _ = started.send(START_TRANSPORT_FAILURE);
-                return;
-            }
-            result = &mut startup => result,
-        };
-        let mut tunnel = match started_tunnel {
-            Ok(tunnel) => tunnel,
-            Err(error) => {
-                set_transport_error(&status, &error);
-                let _ = started.send(START_TRANSPORT_FAILURE);
-                return;
+        let mut tunnel = {
+            let startup = MasqueRuntime::start_with_refresh(
+                &profile,
+                identity,
+                protector,
+                Some(pin_refresher),
+            );
+            tokio::pin!(startup);
+            let started_tunnel = tokio::select! {
+                biased;
+                _ = cancellation.cancelled() => {
+                    let _ = started.send(START_TRANSPORT_FAILURE);
+                    return;
+                }
+                result = &mut startup => result,
+            };
+            match started_tunnel {
+                Ok(tunnel) => tunnel,
+                Err(error) => {
+                    set_transport_error(&status, &error);
+                    let _ = started.send(START_TRANSPORT_FAILURE);
+                    return;
+                }
             }
         };
         update_health(&status, tunnel.health());
@@ -1888,6 +2123,114 @@ mod android_runtime {
             tokio::spawn(populate_exit(Arc::clone(&status), probe));
         }
 
+        let tun_io = match tunnel.attach_tun() {
+            Ok(tun_io) => tun_io,
+            Err(error) => {
+                set_transport_error(&status, &error);
+                tunnel.shutdown().await;
+                return;
+            }
+        };
+        run_session(
+            Some(tun),
+            Some(tun_io),
+            tunnel,
+            profile,
+            cancellation,
+            status,
+            commands,
+        )
+        .await;
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "proxy runtime threads identity, protector, pin refresh, cancellation, status, start handshake, and reconfigure commands as one unit"
+    )]
+    async fn run_proxy(
+        profile: Profile,
+        identity: MasqueTlsIdentity,
+        protector: Arc<dyn SocketProtector>,
+        pin_refresher: Arc<dyn EndpointPinRefresher>,
+        cancellation: CancellationToken,
+        status: Arc<Mutex<NativeSnapshot>>,
+        started: std::sync::mpsc::SyncSender<i32>,
+        commands: tokio::sync::mpsc::UnboundedReceiver<RuntimeCommand>,
+    ) {
+        let tunnel = {
+            let startup = MasqueRuntime::start_with_refresh(
+                &profile,
+                identity,
+                protector,
+                Some(pin_refresher),
+            );
+            tokio::pin!(startup);
+            let started_proxy = tokio::select! {
+                biased;
+                _ = cancellation.cancelled() => {
+                    let _ = started.send(START_TRANSPORT_FAILURE);
+                    return;
+                }
+                result = &mut startup => result,
+            };
+            match started_proxy {
+                Ok(tunnel) => tunnel,
+                Err(error) => {
+                    set_transport_error(&status, &error);
+                    let _ = started.send(START_TRANSPORT_FAILURE);
+                    return;
+                }
+            }
+        };
+        update_health(&status, tunnel.health());
+        if let Ok(mut snapshot) = status.lock() {
+            snapshot.active_listeners = tunnel.listeners().iter().map(ToString::to_string).collect();
+        }
+        let _ = started.send(START_OK);
+        let listener = tunnel
+            .listeners()
+            .iter()
+            .copied()
+            .find(|address| address.ip().is_loopback());
+        let listener_auth = profile.proxy.listener_credentials().ok().flatten();
+        let probe = match (profile.mode, listener) {
+            (OperatingMode::Socks5, Some(listener)) => {
+                IpSbProbe::through_socks_with_auth(listener, listener_auth.as_ref()).ok()
+            }
+            (OperatingMode::HttpProxy, Some(listener)) => {
+                IpSbProbe::through_http_with_auth(listener, listener_auth.as_ref()).ok()
+            }
+            _ => None,
+        };
+        if let Some(probe) = probe {
+            tokio::spawn(populate_exit(Arc::clone(&status), probe));
+        }
+
+        run_session(
+            None,
+            None,
+            tunnel,
+            profile,
+            cancellation,
+            status,
+            commands,
+        )
+        .await;
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "session loop owns optional TUN I/O, MASQUE, profile, cancellation, status, and reconfigure commands"
+    )]
+    async fn run_session(
+        mut tun: Option<AsyncFd<TunFd>>,
+        mut tun_io: Option<MasqueTunIo>,
+        mut tunnel: MasqueRuntime,
+        mut profile: Profile,
+        cancellation: CancellationToken,
+        status: Arc<Mutex<NativeSnapshot>>,
+        mut commands: tokio::sync::mpsc::UnboundedReceiver<RuntimeCommand>,
+    ) {
         let mut packet = vec![0u8; 65_535];
         let mut ticker = interval(Duration::from_secs(1));
         ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -1896,8 +2239,31 @@ mod android_runtime {
 
         loop {
             tokio::select! {
+                biased;
                 _ = cancellation.cancelled() => break,
-                read = read_packet(&tun, &mut packet) => {
+                command = commands.recv() => {
+                    let Some(command) = command else { break; };
+                    handle_runtime_command(
+                        command,
+                        &mut tunnel,
+                        &mut profile,
+                        &mut tun,
+                        &mut tun_io,
+                        &status,
+                    )
+                    .await;
+                }
+                read = async {
+                    match tun.as_ref() {
+                        Some(tun) => Some(read_packet(tun, &mut packet).await),
+                        None => {
+                            std::future::pending::<()>().await;
+                            None
+                        }
+                    }
+                } => {
+                    let Some(read) = read else { continue; };
+                    let Some(io) = tun_io.as_ref() else { continue; };
                     let length = match read {
                         Ok(0) => break,
                         Ok(length) => length,
@@ -1906,15 +2272,25 @@ mod android_runtime {
                             break;
                         }
                     };
-                    if let Err(error) = tunnel.send_packet(&packet[..length]).await {
+                    if let Err(error) = io.send_packet(&packet[..length]).await {
                         set_error(&status, error.to_string());
                         break;
                     }
                 }
-                received = tunnel.receive_packet() => {
+                received = async {
+                    match tun_io.as_mut() {
+                        Some(io) => Some(io.receive_packet().await),
+                        None => {
+                            std::future::pending::<()>().await;
+                            None
+                        }
+                    }
+                } => {
+                    let Some(received) = received else { continue; };
+                    let Some(tun) = tun.as_ref() else { continue; };
                     match received {
                         Ok(packet) => {
-                            if let Err(error) = write_packet(&tun, &packet).await {
+                            if let Err(error) = write_packet(tun, &packet).await {
                                 set_error(&status, format!("write Android TUN: {error}"));
                                 break;
                             }
@@ -1927,6 +2303,10 @@ mod android_runtime {
                 }
                 _ = ticker.tick() => {
                     update_health(&status, tunnel.health());
+                    if let Ok(mut snapshot) = status.lock() {
+                        snapshot.active_listeners =
+                            tunnel.listeners().iter().map(ToString::to_string).collect();
+                    }
                     let now = Instant::now();
                     let current = tunnel.statistics();
                     let seconds = now.duration_since(last_sample).as_secs_f64().max(0.001);
@@ -1946,83 +2326,126 @@ mod android_runtime {
         tunnel.shutdown().await;
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "proxy runtime threads identity, protector, pin refresh, cancellation, status, and start handshake as one unit"
-    )]
-    async fn run_proxy(
-        profile: Profile,
-        identity: MasqueTlsIdentity,
-        protector: Arc<dyn SocketProtector>,
-        pin_refresher: Arc<dyn EndpointPinRefresher>,
-        cancellation: CancellationToken,
-        status: Arc<Mutex<NativeSnapshot>>,
-        started: std::sync::mpsc::SyncSender<i32>,
+    async fn handle_runtime_command(
+        command: RuntimeCommand,
+        tunnel: &mut MasqueRuntime,
+        profile: &mut Profile,
+        tun: &mut Option<AsyncFd<TunFd>>,
+        tun_io: &mut Option<MasqueTunIo>,
+        status: &Arc<Mutex<NativeSnapshot>>,
     ) {
-        let startup =
-            ProxyRuntime::start_with_refresh(&profile, identity, protector, Some(pin_refresher));
-        tokio::pin!(startup);
-        let started_proxy = tokio::select! {
-            biased;
-            _ = cancellation.cancelled() => {
-                let _ = started.send(START_TRANSPORT_FAILURE);
-                return;
-            }
-            result = &mut startup => result,
-        };
-        let mut proxy = match started_proxy {
-            Ok(proxy) => proxy,
-            Err(error) => {
-                set_transport_error(&status, &error);
-                let _ = started.send(START_TRANSPORT_FAILURE);
-                return;
-            }
-        };
-        update_health(&status, proxy.health());
-        if let Ok(mut snapshot) = status.lock() {
-            snapshot.active_listeners = proxy.listeners().iter().map(ToString::to_string).collect();
-        }
-        let _ = started.send(START_OK);
-        let listener = proxy
-            .listeners()
-            .iter()
-            .copied()
-            .find(|address| address.ip().is_loopback());
-        let probe = match (profile.mode, listener) {
-            (OperatingMode::Socks5, Some(listener)) => IpSbProbe::through_socks(listener).ok(),
-            (OperatingMode::HttpProxy, Some(listener)) => IpSbProbe::through_http(listener).ok(),
-            _ => None,
-        };
-        if let Some(probe) = probe {
-            tokio::spawn(populate_exit(Arc::clone(&status), probe));
-        }
-
-        let mut ticker = interval(Duration::from_secs(1));
-        ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
-        let mut last_sample = Instant::now();
-        let mut last_traffic = TrafficSnapshot::default();
-        loop {
-            tokio::select! {
-                _ = cancellation.cancelled() => break,
-                _ = ticker.tick() => {
-                    update_health(&status, proxy.health());
-                    let now = Instant::now();
-                    let current = proxy.statistics();
-                    let seconds = now.duration_since(last_sample).as_secs_f64().max(0.001);
-                    if let Ok(mut snapshot) = status.lock() {
-                        snapshot.upload_bytes_per_second =
-                            rate(current.bytes_sent, last_traffic.bytes_sent, seconds);
-                        snapshot.download_bytes_per_second =
-                            rate(current.bytes_received, last_traffic.bytes_received, seconds);
-                        snapshot.uploaded_bytes = current.bytes_sent;
-                        snapshot.downloaded_bytes = current.bytes_received;
-                    }
-                    last_sample = now;
-                    last_traffic = current;
+        match command {
+            RuntimeCommand::Reconfigure { profile: mut next, reply } => {
+                if next.proxy.listener_auth_username().is_some() && next.proxy.auth_password.is_none()
+                {
+                    next.proxy.auth_password = profile.proxy.auth_password.clone();
                 }
+                let code = match classify_reconfigure(profile, &next) {
+                    ReconfigureClass::Reject => START_INVALID_PROFILE,
+                    ReconfigureClass::ColdReconnect => RECONFIGURE_NEED_COLD,
+                    ReconfigureClass::HotSystemProxy => {
+                        *profile = next;
+                        RECONFIGURE_OK
+                    }
+                    ReconfigureClass::HotFrontends => {
+                        match tunnel.reconfigure_frontends(&next).await {
+                            Ok(()) => {
+                                *profile = next;
+                                if let Ok(mut snapshot) = status.lock() {
+                                    snapshot.active_listeners = tunnel
+                                        .listeners()
+                                        .iter()
+                                        .map(ToString::to_string)
+                                        .collect();
+                                }
+                                RECONFIGURE_OK
+                            }
+                            Err(error) => {
+                                set_transport_error(status, &error);
+                                START_TRANSPORT_FAILURE
+                            }
+                        }
+                    }
+                    ReconfigureClass::HotTunnelAttach => {
+                        if next.frontends.tunnel && tun.is_none() {
+                            RECONFIGURE_NEED_ATTACH
+                        } else if !next.frontends.tunnel && tun.is_some() {
+                            detach_tun_locked(tunnel, tun, tun_io);
+                            *profile = next;
+                            RECONFIGURE_OK
+                        } else {
+                            *profile = next;
+                            RECONFIGURE_OK
+                        }
+                    }
+                };
+                let _ = reply.send(code);
+            }
+            RuntimeCommand::AttachTun {
+                tun: owned,
+                profile: mut next,
+                reply,
+            } => {
+                if tun.is_some() {
+                    let _ = reply.send(START_ALREADY_RUNNING);
+                    return;
+                }
+                if let Err(error) = set_nonblocking(&owned) {
+                    set_error(status, format!("could not make Android TUN nonblocking: {error}"));
+                    let _ = reply.send(START_TUN_FAILURE);
+                    return;
+                }
+                let attached = match AsyncFd::new(TunFd(owned)) {
+                    Ok(attached) => attached,
+                    Err(error) => {
+                        set_error(status, format!("register TUN descriptor: {error}"));
+                        let _ = reply.send(START_TUN_FAILURE);
+                        return;
+                    }
+                };
+                let io = match tunnel.attach_tun() {
+                    Ok(io) => io,
+                    Err(error) => {
+                        set_transport_error(status, &error);
+                        let _ = reply.send(START_TRANSPORT_FAILURE);
+                        return;
+                    }
+                };
+                if next.proxy.listener_auth_username().is_some() && next.proxy.auth_password.is_none()
+                {
+                    next.proxy.auth_password = profile.proxy.auth_password.clone();
+                }
+                if let Err(error) = tunnel.reconfigure_frontends(&next).await {
+                    tunnel.detach_tun();
+                    set_transport_error(status, &error);
+                    let _ = reply.send(START_TRANSPORT_FAILURE);
+                    return;
+                }
+                *tun = Some(attached);
+                *tun_io = Some(io);
+                *profile = next;
+                if let Ok(mut snapshot) = status.lock() {
+                    snapshot.active_listeners =
+                        tunnel.listeners().iter().map(ToString::to_string).collect();
+                }
+                let _ = reply.send(RECONFIGURE_OK);
+            }
+            RuntimeCommand::DetachTun { reply } => {
+                detach_tun_locked(tunnel, tun, tun_io);
+                profile.frontends.tunnel = false;
+                let _ = reply.send(RECONFIGURE_OK);
             }
         }
-        proxy.shutdown().await;
+    }
+
+    fn detach_tun_locked(
+        tunnel: &mut MasqueRuntime,
+        tun: &mut Option<AsyncFd<TunFd>>,
+        tun_io: &mut Option<MasqueTunIo>,
+    ) {
+        *tun_io = None;
+        tunnel.detach_tun();
+        *tun = None;
     }
 
     async fn populate_exit(status: Arc<Mutex<NativeSnapshot>>, probe: IpSbProbe) {
@@ -2262,6 +2685,41 @@ fn engine_snapshot() -> NativeSnapshot {
     #[cfg(not(target_os = "android"))]
     {
         NativeSnapshot::disconnected()
+    }
+}
+
+fn reconfigure_engine(profile: Profile) -> jint {
+    #[cfg(target_os = "android")]
+    {
+        android_runtime::reconfigure(profile)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = profile;
+        RECONFIGURE_NOT_RUNNING
+    }
+}
+
+fn attach_tun_engine(tun_file_descriptor: jint, profile: Profile) -> jint {
+    #[cfg(target_os = "android")]
+    {
+        android_runtime::attach_tun(tun_file_descriptor, profile)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (tun_file_descriptor, profile);
+        RECONFIGURE_NOT_RUNNING
+    }
+}
+
+fn detach_tun_engine() -> jint {
+    #[cfg(target_os = "android")]
+    {
+        android_runtime::detach_tun()
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        RECONFIGURE_NOT_RUNNING
     }
 }
 
@@ -2537,6 +2995,22 @@ mod tests {
     }
 
     #[test]
+    fn android_profile_maps_optional_listener_username_without_password() {
+        let mut source: serde_json::Value = serde_json::from_str(&valid_profile_json()).unwrap();
+        source["proxy"]["auth_username"] = serde_json::json!("lan-user");
+        let profile = parse_android_profile(&source.to_string()).unwrap();
+        assert_eq!(profile.proxy.auth_username.as_deref(), Some("lan-user"));
+        assert!(profile.proxy.auth_password.is_none());
+        let exported = android_profile_value(&profile, None);
+        assert_eq!(exported["proxy"]["auth_username"], "lan-user");
+        assert!(exported["proxy"].get("password").is_none());
+        assert!(exported["proxy"].get("auth_password").is_none());
+        let attached =
+            attach_android_proxy_password(profile, Zeroizing::new(b"s3cret".to_vec())).unwrap();
+        assert!(attached.proxy.listener_credentials().unwrap().is_some());
+    }
+
+    #[test]
     fn android_profile_maps_to_the_shared_validated_contract() {
         let profile = parse_android_profile(&valid_profile_json()).unwrap();
         assert_eq!(profile.mode, OperatingMode::Vpn);
@@ -2732,6 +3206,77 @@ mod tests {
             cleared["active_profile_id"],
             serde_json::json!("8c30b771-9ebd-457a-b67b-bbc74a1ddba6")
         );
+    }
+
+    #[test]
+    fn reconfigure_active_profile_command_classifies_without_restarting() {
+        let directory = tempfile::tempdir().unwrap();
+        let config_path = directory.path().join("profiles-v2.json");
+        let profile: serde_json::Value = serde_json::from_str(&valid_profile_json()).unwrap();
+        apply_profile_command(
+            config_path.to_str().unwrap(),
+            &serde_json::json!({
+                "command": "upsert_profile",
+                "profile": profile,
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let mut socks: serde_json::Value = serde_json::from_str(&valid_profile_json()).unwrap();
+        socks["proxy"]["socks_port"] = serde_json::json!(1081);
+        let hot = apply_profile_command(
+            config_path.to_str().unwrap(),
+            &serde_json::json!({
+                "command": "reconfigure_active_profile",
+                "profile": socks,
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let hot: serde_json::Value = serde_json::from_str(&hot).unwrap();
+        assert_eq!(hot["reconfigure_class"], "hot_frontends");
+        assert_eq!(hot["profiles"][0]["proxy"]["socks_port"], 1081);
+
+        let mut detached = serde_json::from_str::<serde_json::Value>(&valid_profile_json()).unwrap();
+        detached["proxy"]["socks_port"] = serde_json::json!(1081);
+        detached["frontends"] = serde_json::json!({
+            "tunnel": false,
+            "socks5": true,
+            "http": true,
+        });
+        let attach = apply_profile_command(
+            config_path.to_str().unwrap(),
+            &serde_json::json!({
+                "command": "reconfigure_active_profile",
+                "profile": detached,
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let attach: serde_json::Value = serde_json::from_str(&attach).unwrap();
+        assert_eq!(attach["reconfigure_class"], "hot_tunnel_attach");
+
+        let mut cold = serde_json::from_str::<serde_json::Value>(&valid_profile_json()).unwrap();
+        cold["proxy"]["socks_port"] = serde_json::json!(1081);
+        cold["frontends"] = serde_json::json!({
+            "tunnel": false,
+            "socks5": true,
+            "http": true,
+        });
+        cold["mtu"] = serde_json::json!(1400);
+        let cold = apply_profile_command(
+            config_path.to_str().unwrap(),
+            &serde_json::json!({
+                "command": "reconfigure_active_profile",
+                "profile": cold,
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let cold: serde_json::Value = serde_json::from_str(&cold).unwrap();
+        assert_eq!(cold["reconfigure_class"], "cold_reconnect");
+        assert_eq!(cold["profiles"][0]["mtu"], 1400);
     }
 
     #[test]

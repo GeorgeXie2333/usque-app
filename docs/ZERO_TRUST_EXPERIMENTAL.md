@@ -10,7 +10,7 @@ It does not implement organization policy synchronization, device posture, manag
 2. Enter the organization's single-label team name.
 3. Accept the existing Cloudflare terms and open `https://<team>.cloudflareaccess.com/warp` in the system browser.
 4. Complete the organization's Access/IdP login.
-5. On Android, choose Usque if Android presents an app chooser. Windows users paste the complete `com.cloudflare.warp://.../auth?token=...` callback URL manually. Android also keeps the manual fallback.
+5. After Access login, return to Usque. Android may show an app chooser if the official WARP client is also installed. On Windows, paste the complete `com.cloudflare.warp://.../auth?token=...` callback or fill it from the clipboard. If you opted in to the current-user protocol association and Usque is already running, Windows can forward that callback to the open window. Manual paste remains available on both platforms.
 6. Usque exchanges the one-time assertion for a device ID/token and P-256 MASQUE enrollment, saves the returned Zero Trust endpoint, and commits the identity and profile atomically.
 
 The Access assertion is never written to the profile, vault, Android saved state, or logs. It is bounded to 64 KiB, accepted only for the expected team and exact callback shape, held in memory, consumed once, and discarded after submission. A restarted Android process has no active login and rejects the callback.
@@ -27,9 +27,9 @@ The Access assertion is never written to the profile, vault, Android saved state
 
 ## Platform behavior
 
-Windows does not register or take over the `com.cloudflare.warp` protocol and the MSI has no protocol association. The complete callback must be pasted into the setup dialog.
+Windows does not change the default MSI tables and does not register `com.cloudflare.warp` at install time. Paste and clipboard fill always work. An optional, default-off Settings toggle can create a current-user HKCU protocol association that points at this Usque executable. Turning the option off deletes that association only when the open command already points at this executable; it does not remove a handler owned by official WARP or another app. If official WARP is installed, leaving the option off keeps WARP as the user-visible handler. The first Usque window remains the single UI instance: a later launch with a callback URI restores that window, forwards the URI, and exits.
 
-Android declares a restricted browsable intent for `com.cloudflare.warp://*.cloudflareaccess.com/auth`. An in-memory login session additionally requires the exact expected team. `onCreate` and `onNewIntent` feed the same one-shot gate; callbacks without an active login, for another team, after cancellation, after process restart, or after the first accepted callback are discarded. Co-installation with the official WARP app is allowed to produce Android's normal app chooser.
+Android declares a restricted browsable intent for `com.cloudflare.warp://*.cloudflareaccess.com/auth`. An in-memory login session additionally requires the exact expected team. `onCreate` and `onNewIntent` feed the same one-shot gate; callbacks without an active login, for another team, after cancellation, after process restart, or after the first accepted callback are discarded. Co-installation with the official WARP app is allowed to produce Android's normal app chooser. Windows uses the same scheme, host, path, and single-token checks before any registration request is sent.
 
 Re-authenticating the connected profile disconnects the active tunnel before replacing credentials and reconnects only after the refreshed endpoint is loaded.
 

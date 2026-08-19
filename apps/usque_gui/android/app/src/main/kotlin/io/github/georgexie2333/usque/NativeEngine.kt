@@ -17,10 +17,11 @@ internal object NativeEngine {
         tunFileDescriptor: Int,
         profileJson: String,
         warpSecret: ByteArray,
+        proxyPassword: ByteArray,
         vpnService: UsqueVpnService,
     ): Int {
         if (!libraryLoaded) return ERROR_NOT_LINKED
-        return nativeStart(tunFileDescriptor, profileJson, warpSecret, vpnService)
+        return nativeStart(tunFileDescriptor, profileJson, warpSecret, proxyPassword, vpnService)
     }
 
     fun stop() {
@@ -38,10 +39,11 @@ internal object NativeEngine {
     fun startProxy(
         profileJson: String,
         warpSecret: ByteArray,
+        proxyPassword: ByteArray,
         vpnService: UsqueVpnService,
     ): Int {
         if (!libraryLoaded) return ERROR_NOT_LINKED
-        return nativeStartProxy(profileJson, warpSecret, vpnService)
+        return nativeStartProxy(profileJson, warpSecret, proxyPassword, vpnService)
     }
 
     fun validateWarpSecret(secret: ByteArray): Int {
@@ -99,12 +101,31 @@ internal object NativeEngine {
         return nativeApplyProfileCommand(configPath, requestJson)
     }
 
+    fun reconfigure(profileJson: String): Int {
+        if (!libraryLoaded) return ERROR_NOT_LINKED
+        return nativeReconfigure(profileJson)
+    }
+
+    fun attachTun(
+        tunFileDescriptor: Int,
+        profileJson: String,
+    ): Int {
+        if (!libraryLoaded) return ERROR_NOT_LINKED
+        return nativeAttachTun(tunFileDescriptor, profileJson)
+    }
+
+    fun detachTun(): Int {
+        if (!libraryLoaded) return ERROR_NOT_LINKED
+        return nativeDetachTun()
+    }
+
     private external fun nativeIsReady(): Boolean
 
     private external fun nativeStart(
         tunFileDescriptor: Int,
         profileJson: String,
         warpSecret: ByteArray,
+        proxyPassword: ByteArray,
         vpnService: UsqueVpnService,
     ): Int
 
@@ -117,6 +138,7 @@ internal object NativeEngine {
     private external fun nativeStartProxy(
         profileJson: String,
         warpSecret: ByteArray,
+        proxyPassword: ByteArray,
         vpnService: UsqueVpnService,
     ): Int
 
@@ -148,7 +170,18 @@ internal object NativeEngine {
         requestJson: String,
     ): String?
 
+    private external fun nativeReconfigure(profileJson: String): Int
+
+    private external fun nativeAttachTun(
+        tunFileDescriptor: Int,
+        profileJson: String,
+    ): Int
+
+    private external fun nativeDetachTun(): Int
+
     const val OK = 0
+    const val RECONFIGURE_NEED_COLD = 1
+    const val RECONFIGURE_NEED_ATTACH = 2
     const val ERROR_NOT_LINKED = -2
     const val ERROR_INVALID_WARP_SECRET = -3
     const val ERROR_ALREADY_RUNNING = -4
@@ -156,4 +189,5 @@ internal object NativeEngine {
     const val ERROR_PLATFORM_FAILURE = -6
     const val ERROR_TRANSPORT_FAILURE = -7
     const val ERROR_TUN_FAILURE = -8
+    const val RECONFIGURE_NOT_RUNNING = -10
 }

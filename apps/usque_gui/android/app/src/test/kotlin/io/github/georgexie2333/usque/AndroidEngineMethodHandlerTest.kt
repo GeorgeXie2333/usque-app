@@ -15,6 +15,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 class AndroidEngineMethodHandlerTest {
     private lateinit var scheduler: ImmediateScheduler
@@ -75,6 +76,70 @@ class AndroidEngineMethodHandlerTest {
         assertEquals(1, activityCommands.cancelCount)
         assertEquals("VPN_PERMISSION_CANCELLED", activityCommands.lastCancelCode)
         assertEquals(listOf(UsqueVpnService.MSG_DISCONNECT), endpoint.whats)
+    }
+
+    @Test
+    fun dispatchesRetryToControlClient() {
+        val result = RecordingResult()
+        handler.handle(MethodCall("retry", null), result)
+        assertEquals(listOf(UsqueVpnService.MSG_RETRY), endpoint.whats)
+        assertNull(result.errorCode)
+    }
+
+    @Test
+    fun reconfigureActiveProfilePersistsAndNotifiesTheVpnServiceWithoutConnect() {
+        engineBridge.profileCatalogJson =
+            """{"profiles":[{"id":"p1"}],"reconfigure_class":"hot_frontends"}"""
+        val result = RecordingResult()
+        val profile =
+            mapOf(
+                "id" to "p1",
+                "mode" to "vpn",
+                "frontends" to mapOf("tunnel" to true, "socks5" to true, "http" to true),
+            )
+        handler.handle(MethodCall("reconfigureActiveProfile", profile), result)
+        assertEquals(1, engineBridge.commands.size)
+        assertTrue(engineBridge.commands.single().contains("reconfigure_active_profile"))
+        assertEquals(listOf(UsqueVpnService.MSG_RECONFIGURE), endpoint.whats)
+        val extrasJson = endpoint.lastExtras?.get(UsqueVpnService.EXTRA_PROFILE_JSON) as String
+        assertTrue(extrasJson.contains("\"id\":\"p1\""))
+        assertEquals(0, activityCommands.connectCount)
+        assertNull(result.errorCode)
+    }
+
+    @Test
+    fun reconfigureActiveProfileSendsTunnelOffWithLegacyVpnMode() {
+        engineBridge.profileCatalogJson =
+            """{"profiles":[{"id":"p1"}],"reconfigure_class":"hot_tunnel_attach"}"""
+        val result = RecordingResult()
+        handler.handle(
+            MethodCall(
+                "reconfigureActiveProfile",
+                mapOf(
+                    "id" to "p1",
+                    "mode" to "vpn",
+                    "frontends" to mapOf("tunnel" to false, "socks5" to true, "http" to true),
+                ),
+            ),
+            result,
+        )
+        assertEquals(listOf(UsqueVpnService.MSG_RECONFIGURE), endpoint.whats)
+        val extras = endpoint.lastExtras ?: error("MSG_RECONFIGURE extras missing")
+        val extrasJson = extras[UsqueVpnService.EXTRA_PROFILE_JSON] as String
+        assertTrue(extrasJson.contains("\"mode\":\"vpn\""))
+        assertTrue(extrasJson.contains("\"tunnel\":false"))
+        val tunnel = AtomicReference<Any?>(Any())
+        val lastIdentity = AtomicReference<TunIdentity?>(null)
+        val closed = mutableListOf<Any?>()
+        UsqueVpnService.handleReconfigureNativeOk(
+            endpoint.whats.single(),
+            extras,
+            tunnel,
+            lastIdentity,
+        ) { fd -> closed.add(fd) }
+        assertNull(tunnel.get())
+        assertEquals(1, closed.size)
+        assertNull(result.errorCode)
     }
 
     @Test
@@ -245,6 +310,61 @@ class AndroidEngineMethodHandlerTest {
         handler.handle(MethodCall("upsertProfile", mapOf("id" to "p1", "name" to "Home")), unavailable)
         assertEquals("ENGINE_UNAVAILABLE", unavailable.errorCode)
         assertTrue(engineBridge.commands.isEmpty())
+    }
+
+    @Test
+    fun updateProxyAuthStoresPasswordInTheVaultAndRejectsUsernameWithoutPassword() {
+        val missing = RecordingResult()
+        handler.handle(
+            MethodCall(
+                "updateProxyAuth",
+                mapOf(
+                    "profile_id" to "p1",
+                    "username" to "lan-user",
+                    "password" to "",
+                    "confirmed" to true,
+                ),
+            ),
+            missing,
+        )
+        assertEquals("CONFIGURATION_INVALID", missing.errorCode)
+        assertNull(identityStore.get("p1", SecureIdentityStore.Record.PROXY_PASSWORD))
+
+        val saved = RecordingResult()
+        handler.handle(
+            MethodCall(
+                "updateProxyAuth",
+                mapOf(
+                    "profile_id" to "p1",
+                    "username" to "lan-user",
+                    "password" to "s3cret",
+                    "confirmed" to true,
+                ),
+            ),
+            saved,
+        )
+        assertNull(saved.errorCode)
+        assertEquals(
+            "s3cret",
+            identityStore.get("p1", SecureIdentityStore.Record.PROXY_PASSWORD)!!
+                .toString(Charsets.UTF_8),
+        )
+
+        val cleared = RecordingResult()
+        handler.handle(
+            MethodCall(
+                "updateProxyAuth",
+                mapOf(
+                    "profile_id" to "p1",
+                    "username" to "",
+                    "password" to "",
+                    "confirmed" to true,
+                ),
+            ),
+            cleared,
+        )
+        assertNull(cleared.errorCode)
+        assertNull(identityStore.get("p1", SecureIdentityStore.Record.PROXY_PASSWORD))
     }
 
     @Test
@@ -821,6 +941,8 @@ class AndroidEngineMethodHandlerTest {
         override fun requestAddQuickSettingsTile(result: MethodChannel.Result) {
             result.success(null)
         }
+
+        override fun openAlwaysOnVpnSettings() = Unit
     }
 
     private class FakeEngineBridge : AndroidEngineMethodHandler.EngineBridge {

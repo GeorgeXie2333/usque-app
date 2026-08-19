@@ -66,10 +66,11 @@ pub enum SecretRecord {
     AssignedIpv4,
     AssignedIpv6,
     IdentityMetadata,
+    ProxyPassword,
 }
 
 impl SecretRecord {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::WarpSecret,
         Self::MasquePrivateKey,
         Self::AccessToken,
@@ -79,6 +80,7 @@ impl SecretRecord {
         Self::AssignedIpv4,
         Self::AssignedIpv6,
         Self::IdentityMetadata,
+        Self::ProxyPassword,
     ];
 
     pub const fn key(self) -> &'static str {
@@ -92,6 +94,7 @@ impl SecretRecord {
             Self::AssignedIpv4 => "assigned-ipv4",
             Self::AssignedIpv6 => "assigned-ipv6",
             Self::IdentityMetadata => "identity-metadata",
+            Self::ProxyPassword => "proxy-password",
         }
     }
 }

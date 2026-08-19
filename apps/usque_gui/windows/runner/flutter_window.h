@@ -11,8 +11,10 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <string_view>
 
 #include "win32_window.h"
+#include "zero_trust_callback.h"
 
 // A window that does nothing but host a Flutter view.
 class FlutterWindow : public Win32Window {
@@ -21,6 +23,8 @@ class FlutterWindow : public Win32Window {
   explicit FlutterWindow(const flutter::DartProject& project,
                          bool start_hidden = false);
   virtual ~FlutterWindow();
+
+  void OfferZeroTrustCallback(std::string_view callback_uri);
 
  protected:
   // Win32Window:
@@ -37,6 +41,8 @@ class FlutterWindow : public Win32Window {
   void UpdateTrayState(const std::string& phase, bool connected);
   void InvokeTrayCommand(const std::string& command, bool exit_on_success);
   void ShowAndActivate();
+  void NotifyZeroTrustCallbackArrived();
+  bool HandleZeroTrustCopyData(const COPYDATASTRUCT* data);
 
   // The project to run.
   flutter::DartProject project_;
@@ -59,6 +65,7 @@ class FlutterWindow : public Win32Window {
   bool tray_connected_ = false;
   std::wstring tray_status_ = L"Disconnected";
   NOTIFYICONDATAW tray_icon_{};
+  ZeroTrustCallbackSession zero_trust_session_;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

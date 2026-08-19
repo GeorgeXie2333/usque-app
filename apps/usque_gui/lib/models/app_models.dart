@@ -76,15 +76,19 @@ class PlatformPreferences {
   const PlatformPreferences({
     this.startOnBoot = false,
     this.closeToTray = true,
+    this.warpProtocolAssociation = false,
   });
 
   final bool startOnBoot;
   final bool closeToTray;
+  final bool warpProtocolAssociation;
 
   factory PlatformPreferences.fromMap(Map<Object?, Object?> map) {
     return PlatformPreferences(
       startOnBoot: map['start_on_boot'] as bool? ?? false,
       closeToTray: map['close_to_tray'] as bool? ?? true,
+      warpProtocolAssociation:
+          map['warp_protocol_association'] as bool? ?? false,
     );
   }
 }
@@ -179,6 +183,7 @@ class ProxySettings {
     this.dnsIpv4 = '1.1.1.1',
     this.dnsIpv6 = '2606:4700:4700::1111',
     this.systemProxy = false,
+    this.authUsername = '',
   });
 
   final String socksIpv4;
@@ -191,8 +196,11 @@ class ProxySettings {
   final String dnsIpv4;
   final String dnsIpv6;
   final bool systemProxy;
+  final String authUsername;
 
   bool get remoteDns => dnsMode == ProxyDnsMode.remote;
+
+  bool get hasAuth => authUsername.isNotEmpty;
 
   bool get exposesLan {
     final addresses = <String>[socksIpv4, socksIpv6, httpIpv4, httpIpv6];
@@ -215,6 +223,7 @@ class ProxySettings {
     String? dnsIpv4,
     String? dnsIpv6,
     bool? systemProxy,
+    String? authUsername,
   }) {
     return ProxySettings(
       socksIpv4: socksIpv4 ?? this.socksIpv4,
@@ -227,6 +236,7 @@ class ProxySettings {
       dnsIpv4: dnsIpv4 ?? this.dnsIpv4,
       dnsIpv6: dnsIpv6 ?? this.dnsIpv6,
       systemProxy: systemProxy ?? this.systemProxy,
+      authUsername: authUsername ?? this.authUsername,
     );
   }
 
@@ -242,6 +252,7 @@ class ProxySettings {
       dnsIpv4: _stringOr(map, 'dns_v4', '1.1.1.1'),
       dnsIpv6: _stringOr(map, 'dns_v6', '2606:4700:4700::1111'),
       systemProxy: _bool(map, 'system_proxy'),
+      authUsername: _stringOr(map, 'auth_username', ''),
     );
   }
 
@@ -257,6 +268,7 @@ class ProxySettings {
       'dns_v4': dnsIpv4,
       'dns_v6': dnsIpv6,
       'system_proxy': systemProxy,
+      if (authUsername.isNotEmpty) 'auth_username': authUsername,
     };
   }
 }

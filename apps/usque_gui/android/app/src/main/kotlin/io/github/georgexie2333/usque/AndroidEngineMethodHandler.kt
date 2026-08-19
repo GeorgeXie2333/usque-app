@@ -68,6 +68,8 @@ internal class AndroidEngineMethodHandler(
         fun setStartOnBoot(enabled: Boolean)
 
         fun requestAddQuickSettingsTile(result: MethodChannel.Result)
+
+        fun openAlwaysOnVpnSettings()
     }
 
     /**
@@ -220,6 +222,10 @@ internal class AndroidEngineMethodHandler(
                 controlClient.requestDisconnect(result)
             }
 
+            "retry" -> {
+                controlClient.requestRetry(result)
+            }
+
             "connect" -> {
                 connect(call, result)
             }
@@ -258,6 +264,10 @@ internal class AndroidEngineMethodHandler(
 
             "updateLicenseKey" -> {
                 replaceLicenseIdentity(call, result, withLicense = true)
+            }
+
+            "updateProxyAuth" -> {
+                updateProxyAuth(call, result)
             }
 
             "unbindLicenseKey" -> {
@@ -314,6 +324,11 @@ internal class AndroidEngineMethodHandler(
 
             "requestAddQuickSettingsTile" -> {
                 activityCommands.requestAddQuickSettingsTile(result)
+            }
+
+            "openAlwaysOnVpnSettings" -> {
+                activityCommands.openAlwaysOnVpnSettings()
+                result.success(null)
             }
 
             "exportDiagnostics" -> {
@@ -467,15 +482,132 @@ internal class AndroidEngineMethodHandler(
             return
         }
         if (!requireProfileEngine(result)) return
-        runProfileCommand(
+        val commandJson =
             flutterValueToJson(
                 mapOf(
-                    "command" to "upsert_profile",
+                    "command" to "reconfigure_active_profile",
                     "profile" to profile,
                 ),
-            ),
-            result,
-        )
+            )
+        val profileJson = flutterValueToJson(profile)
+        identityExecutor.execute {
+            try {
+                val response =
+                    engineBridge.applyProfileCommand(profileConfigPath, commandJson)
+                        ?: throw IllegalStateException("Rust returned no profile catalog")
+                val className = JSONObject(response).optString("reconfigure_class")
+                if (className == "reject") {
+                    mainScheduler.post {
+                        result.error(
+                            "INVALID_ARGUMENT",
+                            "The connected Active Profile cannot be replaced by a different profile.",
+                            null,
+                        )
+                    }
+                    return@execute
+                }
+                mainScheduler.post {
+                    if (!controlClient.requestReconfigure(profileJson, result)) {
+                        result.success(null)
+                    }
+                }
+            } catch (error: Exception) {
+                mainScheduler.post {
+                    result.error(
+                        "PROFILE_STORE_FAILED",
+                        "The Rust profile store rejected this operation.",
+                        error.javaClass.simpleName,
+                    )
+                }
+            }
+        }
+    }
+
+    private fun updateProxyAuth(
+        call: MethodCall,
+        result: MethodChannel.Result,
+    ) {
+        val profileId = call.argument<String>("profile_id")
+        val username = call.argument<String>("username").orEmpty()
+        val confirmed = call.argument<Boolean>("confirmed") ?: false
+        val passwordBytes =
+            when (val password = call.argument<Any>("password")) {
+                is ByteArray -> password
+                is String -> password.toByteArray(Charsets.UTF_8)
+                null -> ByteArray(0)
+                else -> {
+                    result.error("INVALID_ARGUMENT", "The proxy password is malformed.", null)
+                    return
+                }
+            }
+        if (profileId.isNullOrBlank()) {
+            passwordBytes.fill(0)
+            result.error("INVALID_ARGUMENT", "The profile ID is missing.", null)
+            return
+        }
+        if (!confirmed) {
+            passwordBytes.fill(0)
+            result.error("CONFIRMATION_REQUIRED", "Saving listener credentials requires confirmation.", null)
+            return
+        }
+        if (username.isEmpty()) {
+            if (passwordBytes.isNotEmpty()) {
+                passwordBytes.fill(0)
+                result.error(
+                    "CONFIGURATION_INVALID",
+                    "proxy password requires a username",
+                    null,
+                )
+                return
+            }
+        } else {
+            if (!validProxyUsername(username)) {
+                passwordBytes.fill(0)
+                result.error(
+                    "CONFIGURATION_INVALID",
+                    "proxy username must be 1 to 255 bytes and cannot contain ':' or NUL",
+                    null,
+                )
+                return
+            }
+            if (passwordBytes.isEmpty() || passwordBytes.size > 255) {
+                passwordBytes.fill(0)
+                result.error(
+                    "CONFIGURATION_INVALID",
+                    "proxy username requires a password",
+                    null,
+                )
+                return
+            }
+        }
+        identityExecutor.execute {
+            try {
+                if (username.isEmpty()) {
+                    identityStore.delete(profileId, SecureIdentityStore.Record.PROXY_PASSWORD)
+                } else {
+                    identityStore.put(profileId, SecureIdentityStore.Record.PROXY_PASSWORD, passwordBytes)
+                }
+                mainScheduler.post { result.success(null) }
+            } catch (error: Exception) {
+                mainScheduler.post {
+                    result.error(
+                        "CONFIGURATION_INVALID",
+                        error.message ?: "Listener credentials could not be saved.",
+                        null,
+                    )
+                }
+            } finally {
+                passwordBytes.fill(0)
+            }
+        }
+    }
+
+    private fun validProxyUsername(username: String): Boolean {
+        val bytes = username.toByteArray(Charsets.UTF_8)
+        return bytes.isNotEmpty() &&
+            bytes.size <= 255 &&
+            !bytes.contains(0) &&
+            !username.contains(':')
     }
 
     private fun copyLicenseKey(

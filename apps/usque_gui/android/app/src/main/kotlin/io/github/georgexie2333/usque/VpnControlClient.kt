@@ -224,6 +224,86 @@ internal class VpnControlClient(
         }
     }
 
+    fun requestRetry(result: MethodChannel.Result) {
+        if (destroyed) {
+            result.error(
+                "ENGINE_IPC_CLOSED",
+                "The Android UI closed before the connection could be retried.",
+                null,
+            )
+            return
+        }
+        val service = endpoint
+        if (service == null) {
+            bind()
+            result.success(disconnectedSnapshot())
+            return
+        }
+        val requestId = allocateRequestId()
+        pendingSnapshots[requestId] = result
+        if (!service.send(UsqueVpnService.MSG_RETRY, requestId)) {
+            pendingSnapshots.remove(requestId)
+            endpoint = null
+            result.error(
+                "ENGINE_IPC_UNAVAILABLE",
+                "The Android VPN process could not receive the retry request.",
+                null,
+            )
+            return
+        }
+        scheduler.postDelayed(snapshotTimeoutMillis, snapshotTimeoutToken(requestId)) {
+            pendingSnapshots.remove(requestId)?.error(
+                "ENGINE_IPC_TIMEOUT",
+                "The Android VPN process did not retry in time.",
+                null,
+            )
+        }
+    }
+
+    fun requestReconfigure(
+        profileJson: String,
+        result: MethodChannel.Result,
+    ): Boolean {
+        if (destroyed) {
+            result.error(
+                "ENGINE_IPC_CLOSED",
+                "The Android UI closed before the session could be reconfigured.",
+                null,
+            )
+            return true
+        }
+        val service = endpoint
+        if (service == null) {
+            bind()
+            return false
+        }
+        val requestId = allocateRequestId()
+        pendingSnapshots[requestId] = result
+        if (!service.send(
+                UsqueVpnService.MSG_RECONFIGURE,
+                requestId,
+                mapOf(UsqueVpnService.EXTRA_PROFILE_JSON to profileJson),
+            )
+        ) {
+            pendingSnapshots.remove(requestId)
+            endpoint = null
+            result.error(
+                "ENGINE_IPC_UNAVAILABLE",
+                "The Android VPN process could not receive the reconfigure request.",
+                null,
+            )
+            return true
+        }
+        scheduler.postDelayed(snapshotTimeoutMillis, snapshotTimeoutToken(requestId)) {
+            pendingSnapshots.remove(requestId)?.error(
+                "ENGINE_IPC_TIMEOUT",
+                "The Android VPN process did not reconfigure in time.",
+                null,
+            )
+        }
+        return true
+    }
+
     fun requestDisconnect(result: MethodChannel.Result) {
         if (destroyed) {
             result.error(

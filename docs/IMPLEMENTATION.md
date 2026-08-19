@@ -52,6 +52,7 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] Interoperate with the live service through forced-H3 and Auto SOCKS5 TCP smoke tests without TUN.
 - [ ] Harden H3 flow control, cancellation, reconnect, probe, and hostile-network behavior for release.
 - [x] Implement the pinned production HTTP/2 + TCP + TLS tunnel with `h2` and BoringSSL.
+- [x] Apply RFC 9484 ADDRESS_ASSIGN / ROUTE_ADVERTISEMENT on the HTTP/2 CONNECT-IP request stream with the same userspace peer-network state as HTTP/3; reject ADDRESS_REQUEST with unspecified ADDRESS_ASSIGN.
 - [x] Apply peer address/route replacements as fail-closed full-tunnel policy,
   degrade withdrawn families, and generate/process required ICMP errors.
 - [x] Implement tunnel DNS for the SOCKS5 TCP data path.
@@ -106,6 +107,8 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] Automatic Consumer registration through Rust before Android Keystore persistence.
 - [x] Export a saved Secret through Android SAF after explicit confirmation, without revealing it in the UI or diagnostics.
 - [x] Implement `VpnService.Builder` address/DNS setup, API 26–32 CIDR complements, API 33+ exclusions, a 256-route ceiling, retained TUN reconnects, `protect(fd)`, and underlying-network rebinding.
+- [x] Fail-closed Android reconnect: retain the TUN fd when Kill Switch is armed and the address/DNS/MTU/route identity is unchanged; establish a replacement TUN before closing the old one when that identity changes.
+- [x] Expose Android start-on-boot, Quick Settings tile request, and a deep link to system Always-on VPN settings.
 - [ ] Sleep, network-switch, and TV lifecycle tests.
 
 ### macOS (deferred; not a v0.1.2 gate)
@@ -134,10 +137,14 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] Make versioned Rust configuration the authoritative Profile store on Windows and Android, then remove the migrated Flutter draft.
 - [x] Connect desktop and Android identity provisioning to their platform vaults.
 - [x] Add Windows manual Zero Trust callback entry and an Android process-local, same-team, single-consumption protocol callback.
+- [x] Add Windows clipboard fill, live Access-callback validation, optional current-user HKCU protocol association, and single-instance URI forwarding.
 - [x] Keep identity plaintext hidden while supporting explicit, confirmed Secret export to a user-selected destination.
 - [x] Add per-Profile output toggles, frontend status chips, shared-session totals, WARP License Key management, and platform quick actions.
 - [x] Apply online output changes through a rollback-capable desktop reconnect or one controlled Android reconnect.
-- [ ] Replace controlled reconnects with true no-drop frontend hot mutation while retaining the same MASQUE channel.
+- [x] Keep the MASQUE session across SOCKS/HTTP listener changes, Windows system-proxy lease changes, and VPN attach/detach; advertise `hot_reconfigure`.
+- [x] Surface real Kill Switch / Always-on / Lockdown state on Home and wire Retry to the existing control retry path.
+- [x] Honor profile `auto_connect` once at process start (and Android boot when start-on-boot is also on).
+- [x] Replace controlled reconnects with true no-drop frontend hot mutation while retaining the same MASQUE channel.
 - [x] Fetch fixed-version `flag-icons` SVG through the active tunnel, validate it, cache it, and return SVG bytes to Flutter.
 - [x] Add diagnostics content review plus Windows and Android native save pickers; exported bundles contain bounded sanitized summaries and logs.
 - [x] Add manual and rate-limited automatic GitHub release checks without automatic installation.

@@ -49,6 +49,13 @@ abstract interface class EngineClient {
 
   Future<void> reconfigureActiveProfile(UsqueProfile profile);
 
+  Future<void> updateProxyAuth(
+    String profileId, {
+    required String username,
+    required String password,
+    bool confirmed = true,
+  });
+
   Future<void> copyLicenseKey(String profileId);
 
   Future<void> updateLicenseKey(String profileId, String licenseKey);
@@ -71,13 +78,19 @@ abstract interface class EngineClient {
 
   Future<void> setCloseToTray(bool enabled);
 
+  Future<void> setWarpProtocolAssociation(bool enabled);
+
   Future<void> requestAddQuickSettingsTile();
 
   Future<EngineSnapshot> connect(UsqueProfile profile);
 
   Future<EngineSnapshot> disconnect();
 
+  Future<EngineSnapshot> retry();
+
   Future<EngineSnapshot> snapshot();
+
+  Future<void> openAlwaysOnVpnSettings();
 
   Future<String?> exportDiagnostics();
 
@@ -180,8 +193,15 @@ class MethodChannelEngineClient implements EngineClient {
   Future<void> setCloseToTray(bool enabled) async {}
 
   @override
+  Future<void> setWarpProtocolAssociation(bool enabled) async {}
+
+  @override
   Future<void> requestAddQuickSettingsTile() =>
       _invoke<void>('requestAddQuickSettingsTile');
+
+  @override
+  Future<void> openAlwaysOnVpnSettings() =>
+      _invoke<void>('openAlwaysOnVpnSettings');
 
   @override
   Future<void> upsertProfile(UsqueProfile profile) =>
@@ -261,14 +281,23 @@ class MethodChannelEngineClient implements EngineClient {
   }
 
   @override
-  Future<void> reconfigureActiveProfile(UsqueProfile profile) async {
-    // The Android service does not yet expose in-place listener mutation.
-    // Persist first, then perform one explicit stop/start transaction so an
-    // output toggle can never appear applied while the old runtime remains
-    // active. Desktop uses its separate protobuf client and rollback path.
-    await _invoke<void>('reconfigureActiveProfile', profile.toMap());
-    await disconnect();
-    await connect(profile);
+  Future<void> reconfigureActiveProfile(UsqueProfile profile) {
+    return _invoke<void>('reconfigureActiveProfile', profile.toMap());
+  }
+
+  @override
+  Future<void> updateProxyAuth(
+    String profileId, {
+    required String username,
+    required String password,
+    bool confirmed = true,
+  }) {
+    return _invoke<void>('updateProxyAuth', <String, Object>{
+      'profile_id': profileId,
+      'username': username,
+      'password': password,
+      'confirmed': confirmed,
+    });
   }
 
   @override
@@ -308,6 +337,12 @@ class MethodChannelEngineClient implements EngineClient {
   @override
   Future<EngineSnapshot> disconnect() async {
     final result = await _invoke<Map<Object?, Object?>>('disconnect');
+    return EngineSnapshot.fromMap(result ?? const <Object?, Object?>{});
+  }
+
+  @override
+  Future<EngineSnapshot> retry() async {
+    final result = await _invoke<Map<Object?, Object?>>('retry');
     return EngineSnapshot.fromMap(result ?? const <Object?, Object?>{});
   }
 

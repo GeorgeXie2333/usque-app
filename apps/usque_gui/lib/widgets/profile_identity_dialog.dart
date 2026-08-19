@@ -1,12 +1,14 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/app_strings.dart';
 import '../models/app_models.dart';
 import '../services/engine_client.dart';
+import '../services/zero_trust_callback.dart';
 import '../state/app_controller.dart';
 
 Future<bool> showProfileIdentityDialog(
@@ -54,6 +56,7 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog>
   bool _submitting = false;
   bool _startingLogin = false;
   bool _callbackReceived = false;
+  int _seenZeroTrustTicket = 0;
 
   AppStrings get _strings => widget.controller.strings;
   bool get _isRepair => widget.profile != null;
@@ -84,10 +87,16 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog>
     _licenseFocusNode = FocusNode();
     _teamFocusNode = FocusNode();
     _callbackFocusNode = FocusNode();
+    _seenZeroTrustTicket = widget.controller.zeroTrustCallbackTicket;
+    widget.controller.addListener(_onControllerChanged);
+    if (_isZeroTrustRepair) {
+      unawaited(_consumeAutomaticCallback());
+    }
   }
 
   @override
   void dispose() {
+    widget.controller.removeListener(_onControllerChanged);
     WidgetsBinding.instance.removeObserver(this);
     unawaited(widget.controller.cancelZeroTrustLogin());
     _licenseController.clear();
@@ -127,11 +136,53 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog>
     });
   }
 
-  String? _normalizedTeam() {
-    final team = _teamController.text.trim().toLowerCase();
-    final valid = RegExp(r'^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$');
-    if (!valid.hasMatch(team)) return null;
-    return team;
+  String? _normalizedTeam() =>
+      ZeroTrustCallbackSession.tryNormalizeTeam(_teamController.text);
+
+  void _onControllerChanged() {
+    if (_method != IdentityProvisioningMethod.zeroTrust) return;
+    final ticket = widget.controller.zeroTrustCallbackTicket;
+    if (ticket == _seenZeroTrustTicket) return;
+    _seenZeroTrustTicket = ticket;
+    unawaited(_consumeAutomaticCallback());
+  }
+
+  String? _callbackValidationError({required bool submitting}) {
+    final raw = _callbackController.text;
+    if (raw.length > ZeroTrustCallbackSession.maxCallbackChars) {
+      return _strings.get('zero_trust_callback_invalid');
+    }
+    final callback = raw.trim();
+    if (callback.isEmpty) {
+      return submitting ? _strings.get('zero_trust_callback_required') : null;
+    }
+    final team = _normalizedTeam();
+    if (team == null ||
+        !ZeroTrustCallbackSession.isValidCallback(team, callback)) {
+      return _strings.get('zero_trust_callback_invalid');
+    }
+    return null;
+  }
+
+  Future<void> _fillCallbackFromClipboard() async {
+    if (_startingLogin || _submitting) return;
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    var text = data?.text?.trim() ?? '';
+    if (text.length >= 2 && text.startsWith('"') && text.endsWith('"')) {
+      text = text.substring(1, text.length - 1).trim();
+    }
+    if (text.isEmpty) {
+      setState(() {
+        _callbackReceived = false;
+        _callbackError = _strings.get('zero_trust_clipboard_empty');
+      });
+      return;
+    }
+    _callbackController.text = text;
+    setState(() {
+      _callbackReceived = false;
+      _callbackError = _callbackValidationError(submitting: false);
+    });
   }
 
   Future<void> _beginZeroTrustLogin() async {
@@ -174,8 +225,13 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog>
   }
 
   Future<void> _consumeAutomaticCallback() async {
+    final team = _normalizedTeam();
+    if (team == null) return;
     final callback = await widget.controller.consumeZeroTrustCallback();
     if (!mounted || callback == null || callback.isEmpty) return;
+    if (!ZeroTrustCallbackSession.isValidCallback(team, callback)) {
+      return;
+    }
     _callbackController.text = callback;
     setState(() {
       _callbackReceived = true;
@@ -217,17 +273,17 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog>
     }
     if (_method == IdentityProvisioningMethod.zeroTrust) {
       teamName = _normalizedTeam();
-      callbackUri = _callbackController.text.trim();
+      final rawCallback = _callbackController.text;
+      callbackUri = rawCallback.trim();
       if (teamName == null) {
         setState(() => _teamError = _strings.get('zero_trust_team_invalid'));
         _teamFocusNode.requestFocus();
         return;
       }
-      if (callbackUri.isEmpty || callbackUri.length > 64 * 1024) {
+      final callbackError = _callbackValidationError(submitting: true);
+      if (callbackError != null) {
         callbackUri = null;
-        setState(
-          () => _callbackError = _strings.get('zero_trust_callback_required'),
-        );
+        setState(() => _callbackError = callbackError);
         _callbackFocusNode.requestFocus();
         return;
       }
@@ -394,6 +450,9 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog>
                 _callbackReceived = false;
                 _operationError = null;
               });
+              if (value == IdentityProvisioningMethod.zeroTrust) {
+                unawaited(_consumeAutomaticCallback());
+              }
             },
             child: Column(
               children: <Widget>[
@@ -512,8 +571,14 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog>
                     prefixIcon: const Icon(LucideIcons.building2),
                   ),
                   onChanged: (_) {
-                    if (_teamError != null) {
-                      setState(() => _teamError = null);
+                    setState(() {
+                      _teamError = null;
+                      _callbackError = _callbackValidationError(
+                        submitting: false,
+                      );
+                    });
+                    if (_callbackController.text.isEmpty) {
+                      unawaited(_consumeAutomaticCallback());
                     }
                   },
                 ),
@@ -549,13 +614,26 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog>
                     errorText: _callbackError,
                     prefixIcon: const Icon(LucideIcons.link),
                   ),
-                  onChanged: (value) {
+                  onChanged: (_) {
                     setState(() {
                       _callbackReceived = false;
-                      _callbackError = null;
+                      _callbackError = _callbackValidationError(
+                        submitting: false,
+                      );
                     });
                   },
                   onSubmitted: (_) => _submit(),
+                ),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: _startingLogin || _submitting
+                        ? null
+                        : _fillCallbackFromClipboard,
+                    icon: const Icon(LucideIcons.clipboardPaste),
+                    label: Text(_strings.get('zero_trust_paste_clipboard')),
+                  ),
                 ),
                 const SizedBox(height: 10),
                 Text(

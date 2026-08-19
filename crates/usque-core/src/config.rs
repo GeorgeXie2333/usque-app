@@ -1,14 +1,20 @@
 use std::collections::{BTreeMap, HashSet};
+use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
+use subtle::ConstantTimeEq;
 use thiserror::Error;
 use uuid::Uuid;
+use zeroize::Zeroizing;
 
 use crate::identity::IdentityProvider;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 6;
+pub const CURRENT_SCHEMA_VERSION: u32 = 7;
+pub const MAX_PROXY_AUTH_BYTES: usize = 255;
 pub const DEFAULT_ENDPOINT_V4: Ipv4Addr = Ipv4Addr::new(162, 159, 198, 2);
 pub const DEFAULT_ENDPOINT_V6: Ipv6Addr = Ipv6Addr::new(0x2606, 0x4700, 0x0103, 0, 0, 0, 0, 2);
 pub const DEFAULT_PORT: u16 = 443;
@@ -499,7 +505,7 @@ impl EndpointSettings {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProxySettings {
     pub socks5_listeners: Vec<SocketAddr>,
     pub http_listeners: Vec<SocketAddr>,
@@ -509,6 +515,32 @@ pub struct ProxySettings {
     pub dns_mode: ProxyDnsMode,
     #[serde(default = "default_dns_servers")]
     pub dns_servers: Vec<IpAddr>,
+    /// Optional SOCKS5/HTTP listener username. Empty or omitted means no auth.
+    /// The matching password is stored only in the secret vault.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth_username: Option<String>,
+    /// In-memory password loaded from the vault for a live listener. Never
+    /// written to profile JSON.
+    #[serde(skip)]
+    pub auth_password: Option<Zeroizing<Vec<u8>>>,
+}
+
+impl fmt::Debug for ProxySettings {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ProxySettings")
+            .field("socks5_listeners", &self.socks5_listeners)
+            .field("http_listeners", &self.http_listeners)
+            .field("system_proxy", &self.system_proxy)
+            .field("udp_idle_timeout_seconds", &self.udp_idle_timeout_seconds)
+            .field("dns_mode", &self.dns_mode)
+            .field("dns_servers", &self.dns_servers)
+            .field("auth_username", &self.auth_username)
+            .field(
+                "auth_password",
+                &self.auth_password.as_ref().map(|_| "[REDACTED]"),
+            )
+            .finish()
+    }
 }
 
 impl Default for ProxySettings {
@@ -526,6 +558,8 @@ impl Default for ProxySettings {
             udp_idle_timeout_seconds: 60,
             dns_mode: ProxyDnsMode::Remote,
             dns_servers: default_dns_servers(),
+            auth_username: None,
+            auth_password: None,
         }
     }
 }
@@ -565,7 +599,39 @@ impl ProxySettings {
                 return Err(ConfigError::DuplicateProxyListener(*listener));
             }
         }
+        if let Some(username) = self.listener_auth_username() {
+            validate_proxy_username(username)?;
+        }
         Ok(())
+    }
+
+    pub fn listener_auth_username(&self) -> Option<&str> {
+        self.auth_username
+            .as_deref()
+            .filter(|value| !value.is_empty())
+    }
+
+    pub fn normalize_auth(&mut self) {
+        if self.auth_username.as_deref().is_some_and(str::is_empty) {
+            self.auth_username = None;
+        }
+        if self.auth_username.is_none() {
+            self.auth_password = None;
+        }
+    }
+
+    pub fn listener_credentials(&self) -> Result<Option<ProxyAuthCredentials>, ConfigError> {
+        match self.listener_auth_username() {
+            None => Ok(None),
+            Some(username) => {
+                let password = self
+                    .auth_password
+                    .as_deref()
+                    .filter(|value| !value.is_empty())
+                    .ok_or(ConfigError::ProxyAuthRequiresPassword)?;
+                Ok(Some(ProxyAuthCredentials::parse(username, password)?))
+            }
+        }
     }
 
     pub fn exposes_lan(&self, mode: OperatingMode) -> bool {
@@ -601,6 +667,82 @@ pub enum ProxyDnsMode {
     Remote,
     LocalConfigured,
     System,
+}
+
+/// SOCKS5 RFC 1929 / HTTP Basic credentials for a local listener.
+#[derive(Clone, PartialEq, Eq)]
+pub struct ProxyAuthCredentials {
+    username: String,
+    password: Zeroizing<Vec<u8>>,
+}
+
+impl fmt::Debug for ProxyAuthCredentials {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ProxyAuthCredentials")
+            .field("username", &self.username)
+            .field("password", &"[REDACTED]")
+            .finish()
+    }
+}
+
+impl ProxyAuthCredentials {
+    pub fn parse(username: &str, password: &[u8]) -> Result<Self, ConfigError> {
+        validate_proxy_username(username)?;
+        validate_proxy_password(password)?;
+        Ok(Self {
+            username: username.to_owned(),
+            password: Zeroizing::new(password.to_vec()),
+        })
+    }
+
+    pub fn username(&self) -> &str {
+        &self.username
+    }
+
+    pub fn username_bytes(&self) -> &[u8] {
+        self.username.as_bytes()
+    }
+
+    pub fn password_bytes(&self) -> &[u8] {
+        &self.password
+    }
+
+    pub fn matches(&self, username: &[u8], password: &[u8]) -> bool {
+        bool::from(self.username_bytes().ct_eq(username) & self.password_bytes().ct_eq(password))
+    }
+
+    pub fn decode_http_basic(header: &str) -> Option<(Vec<u8>, Vec<u8>)> {
+        let mut parts = header.splitn(2, char::is_whitespace);
+        let scheme = parts.next()?;
+        let encoded = parts.next()?.trim();
+        if !scheme.eq_ignore_ascii_case("basic") || encoded.is_empty() {
+            return None;
+        }
+        let decoded = BASE64_STANDARD.decode(encoded).ok()?;
+        let separator = decoded.iter().position(|byte| *byte == b':')?;
+        let username = decoded[..separator].to_vec();
+        let password = decoded[separator + 1..].to_vec();
+        Some((username, password))
+    }
+}
+
+pub fn validate_proxy_username(username: &str) -> Result<(), ConfigError> {
+    let bytes = username.as_bytes();
+    if bytes.is_empty()
+        || bytes.len() > MAX_PROXY_AUTH_BYTES
+        || bytes.contains(&b':')
+        || bytes.contains(&0)
+    {
+        return Err(ConfigError::InvalidProxyAuthUsername);
+    }
+    Ok(())
+}
+
+pub fn validate_proxy_password(password: &[u8]) -> Result<(), ConfigError> {
+    if password.is_empty() || password.len() > MAX_PROXY_AUTH_BYTES {
+        return Err(ConfigError::InvalidProxyAuthPassword);
+    }
+    Ok(())
 }
 
 fn valid_dns_name(value: &str) -> bool {
@@ -664,6 +806,12 @@ pub enum ConfigError {
     SystemProxyRequiresHttpMode,
     #[error("Windows system proxy requires at least one Loopback HTTP listener")]
     SystemProxyRequiresLoopback,
+    #[error("proxy username must be 1 to 255 bytes and cannot contain ':' or NUL")]
+    InvalidProxyAuthUsername,
+    #[error("proxy password must be 1 to 255 bytes")]
+    InvalidProxyAuthPassword,
+    #[error("proxy username requires a password")]
+    ProxyAuthRequiresPassword,
     #[error("duplicate profile ID: {0}")]
     DuplicateProfileId(Uuid),
     #[error("at least one profile is required")]
@@ -805,6 +953,45 @@ mod tests {
         };
         assert!(proxy.exposes_lan(OperatingMode::Socks5));
         assert!(proxy.validate().is_ok());
+        assert!(proxy.listener_credentials().unwrap().is_none());
+    }
+
+    #[test]
+    fn proxy_username_is_validated_and_password_stays_off_the_struct_contract() {
+        let mut proxy = ProxySettings {
+            auth_username: Some("user:name".to_owned()),
+            ..ProxySettings::default()
+        };
+        assert_eq!(proxy.validate(), Err(ConfigError::InvalidProxyAuthUsername));
+        proxy.auth_username = Some("\0user".to_owned());
+        assert_eq!(proxy.validate(), Err(ConfigError::InvalidProxyAuthUsername));
+        proxy.auth_username = Some("a".repeat(256));
+        assert_eq!(proxy.validate(), Err(ConfigError::InvalidProxyAuthUsername));
+        proxy.auth_username = Some("lan-user".to_owned());
+        assert_eq!(proxy.validate(), Ok(()));
+        assert_eq!(
+            proxy.listener_credentials(),
+            Err(ConfigError::ProxyAuthRequiresPassword)
+        );
+
+        let credentials = ProxyAuthCredentials::parse("lan-user", b"s3cret").unwrap();
+        assert!(credentials.matches(b"lan-user", b"s3cret"));
+        assert!(!credentials.matches(b"lan-user", b"wrong"));
+        assert!(!credentials.matches(b"other", b"s3cret"));
+        assert!(format!("{credentials:?}").contains("[REDACTED]"));
+        assert!(!format!("{credentials:?}").contains("s3cret"));
+        assert_eq!(
+            ProxyAuthCredentials::parse("", b"s3cret"),
+            Err(ConfigError::InvalidProxyAuthUsername)
+        );
+        assert_eq!(
+            ProxyAuthCredentials::parse("lan-user", b""),
+            Err(ConfigError::InvalidProxyAuthPassword)
+        );
+        let (user, pass) =
+            ProxyAuthCredentials::decode_http_basic("Basic bGFuLXVzZXI6czNjcmV0").unwrap();
+        assert_eq!(user, b"lan-user");
+        assert_eq!(pass, b"s3cret");
     }
 
     #[test]

@@ -40,6 +40,7 @@ internal class SecureIdentityStore(
         PENDING_CLEANUP_SECRET("pending-cleanup-secret"),
         ENDPOINT_PIN("endpoint-pin"),
         IDENTITY_METADATA("identity-metadata"),
+        PROXY_PASSWORD("proxy-password"),
     }
 
     private val legacyPreferences =

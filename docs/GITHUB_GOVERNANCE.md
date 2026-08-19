@@ -1,6 +1,8 @@
 # GitHub repository rules
 
-Current rules for `GeorgeXie2333/usque-app`. The repository is public. Issues are on; Discussions are off. Blank issues are disabled in favor of the Bug and Feature forms. Private Vulnerability Reporting, the dependency graph, Dependabot, Secret Scanning, Push Protection, and CodeQL default setup are enabled.
+Current rules for `GeorgeXie2333/usque-app`. The repository is public. Issues are on; Discussions are off. Blank issues are disabled in favor of the Bug and Feature forms. Private Vulnerability Reporting, the dependency graph, Dependabot, Secret Scanning, Push Protection, and CodeQL are enabled.
+
+CodeQL uses the default query suite through [`.github/workflows/codeql.yml`](../.github/workflows/codeql.yml) and [`.github/codeql/codeql-config.yml`](../.github/codeql/codeql-config.yml). That configuration excludes `third_party/**` and `oracle/**`. A user-owned repository cannot set the `github-codeql-config-file` property that default setup needs to load a config file, so this repository uses the workflow instead of default setup. After the workflow is on `main`, turn default setup off so GitHub accepts the workflow's uploads.
 
 Do not weaken a required check or invent a passing status to satisfy a ruleset.
 
