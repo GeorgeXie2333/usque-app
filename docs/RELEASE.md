@@ -43,9 +43,9 @@ The MSI does not install the publisher certificate into the machine Root or Trus
 
 1. The tag job builds signed x64-v2 and ARM64 MSIs plus signed arm64-v8a, x86_64, armeabi-v7a, and universal APKs in the signing environment.
 2. Each platform job checks the certificate identity and creates GitHub build provenance.
-3. A staging job downloads those artifacts, rejects missing or extra MSI/APK files, and writes SHA-256 sidecars, SPDX and CycloneDX SBOMs, license inventories, and SBOM attestations.
+3. A staging job downloads those artifacts, rejects missing or extra MSI/APK files, writes an internal release manifest, generates SPDX SBOMs, and records SBOM attestations.
 4. The publish job downloads the staged candidate and checks every primary file against the immutable manifest.
-5. Only then does the workflow create the GitHub release.
+5. Only then does the workflow create the GitHub release, attaching the six install packages and nothing else.
 
 Primary files:
 

@@ -26,6 +26,9 @@ class ReleaseContractTests(unittest.TestCase):
         index = release_contract.artifact_index(manifest)
         self.assertEqual(6, len(index))
         release_contract.verify_artifacts(self.root, manifest)
+        self.assertFalse((self.root / "SHA256SUMS").exists())
+        for name in index:
+            self.assertFalse((self.root / f"{name}.sha256").exists())
 
     def test_manifest_rejects_an_unexpected_primary_artifact(self) -> None:
         (self.root / "unexpected.apk").write_bytes(b"no")

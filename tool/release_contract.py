@@ -105,7 +105,6 @@ def create_manifest(
         )
 
     artifacts = []
-    checksum_lines = []
     for name in sorted(expected):
         path = directory / name
         digest = sha256_file(path)
@@ -119,11 +118,6 @@ def create_manifest(
                 "size": path.stat().st_size,
             }
         )
-        checksum_line = f"{digest} *{name}\n"
-        (directory / f"{name}.sha256").write_text(checksum_line, encoding="utf-8")
-        checksum_lines.append(checksum_line)
-
-    (directory / "SHA256SUMS").write_text("".join(checksum_lines), encoding="utf-8")
     return {
         "schema_version": SCHEMA_VERSION,
         "tag": tag,

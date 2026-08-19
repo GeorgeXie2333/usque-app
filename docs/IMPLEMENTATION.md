@@ -160,7 +160,7 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [ ] Throughput, latency, and memory versus the Go oracle (wish targets: throughput >= 90%, p95 latency regression <= 10%, memory <= 125%). These are not v0.1.3 release gates, and the pipeline does not measure them yet.
 - [x] Stable signing identities and published fingerprints.
 - [x] All declared packages built from the `v0.1.3` tag on `main`.
-- [x] SHA-256, SPDX/CycloneDX SBOM, provenance, commit, certificate fingerprint, and license inventory.
+- [x] SHA-256, SPDX SBOM attestations, provenance, commit, and certificate fingerprint.
 - [ ] Clean-machine installation and removal validation for every artifact.
 
 The release workflow fails if a Windows or Android artifact, signing input, architecture check, required CI result, manifest, SBOM, or attestation is missing. A local binary cannot replace a failed GitHub Actions artifact. Real-device, leak, performance, and clean-machine items above are still open hardening work.
