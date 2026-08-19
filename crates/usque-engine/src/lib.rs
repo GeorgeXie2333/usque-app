@@ -23,9 +23,8 @@ use usque_core::{
     ErrorCode, FrontendKind, FrontendPhase, FrontendSettings, FrontendStatus, IdentityProvider,
     IpPolicy, IpSbProbe, KillSwitchState, LockdownState, MasqueKeyPair, OperatingMode, Profile,
     ProxyAuthCredentials, ProxyDnsMode, ProxySettings, RegistrationError, RegistrationOptions,
-    StateMachine, Statistics, Transport, TransportPolicy, WarpIdentity, classify_reconfigure,
-    is_zero_trust_endpoint, normalize_zero_trust_team,
-    reconfigure::ReconfigureClass,
+    StateMachine, Statistics, Transport, TransportPolicy, WarpIdentity, is_zero_trust_endpoint,
+    normalize_zero_trust_team,
     storage::{ConfigStore, StoreError},
     validate_proxy_password, validate_proxy_username,
 };
@@ -35,7 +34,7 @@ use usque_ipc::v1::{
 use usque_platform::{SecretRecord, SecretVault, VaultError};
 use usque_transport::{
     EndpointPinRefresher, MasqueTlsIdentity, NoopSocketProtector, ProxyPerformanceSnapshot,
-    ProxyRuntime, RuntimeHealth, RuntimePath, TrafficSnapshot, TransportError,
+    ProxyRuntime, RuntimeHealth, RuntimePath, TransportError,
     refresh_endpoint_pin_over_protected_socket,
 };
 use uuid::Uuid;
@@ -48,6 +47,11 @@ mod ipc_stream;
 pub mod logging;
 mod maintenance;
 mod sensitive_output;
+
+mod active_runtime;
+mod reconfigure;
+
+use active_runtime::{ActiveDataPlane, ActiveProxyRuntime, ActiveRuntime};
 
 #[cfg(windows)]
 mod windows_agent;
@@ -63,26 +67,15 @@ pub mod windows_purge;
 
 pub struct ControlService {
     store: ConfigStore,
-    config: RwLock<AppConfig>,
-    state: Mutex<StateMachine>,
-    mutation_lock: Mutex<()>,
+    pub(crate) config: RwLock<AppConfig>,
+    pub(crate) state: Mutex<StateMachine>,
+    pub(crate) mutation_lock: Mutex<()>,
     vault: Arc<dyn SecretVault>,
-    data_plane: Mutex<Option<ActiveDataPlane>>,
+    pub(crate) data_plane: Mutex<Option<ActiveDataPlane>>,
     disconnect_cleanup: Mutex<Option<tokio::task::JoinHandle<Result<(), ControlServiceError>>>>,
     maintenance: maintenance::Maintenance,
     #[cfg(any(windows, test))]
     event_sequence: AtomicU64,
-}
-
-struct ActiveDataPlane {
-    profile_id: Uuid,
-    frontends: FrontendSettings,
-    connected_at: Instant,
-    last_sample_at: Instant,
-    last_bytes_sent: u64,
-    last_bytes_received: u64,
-    last_proxy_performance: ProxyPerformanceSnapshot,
-    runtime: ActiveRuntime,
 }
 
 enum ProvisionedIdentity {
@@ -125,101 +118,6 @@ impl ProvisionedIdentity {
             Self::ZeroTrust { identity, endpoint } => (identity, Some(endpoint)),
         }
     }
-}
-
-enum ActiveRuntime {
-    Proxy(ActiveProxyRuntime),
-    #[cfg(windows)]
-    Vpn(windows_agent::WindowsVpnRuntime),
-    #[cfg(test)]
-    Harness(HarnessRuntime),
-}
-
-#[cfg(test)]
-struct HarnessRuntime {
-    reconnect_count: u32,
-    vpn: bool,
-    listeners: Vec<SocketAddr>,
-    socks5_listeners: Vec<SocketAddr>,
-    http_listeners: Vec<SocketAddr>,
-    reconfigure_count: u32,
-    attach_count: u32,
-    detach_count: u32,
-    system_proxy: bool,
-}
-
-#[cfg(test)]
-impl HarnessRuntime {
-    fn from_profile(profile: &Profile, vpn: bool, reconnect_count: u32) -> Self {
-        let socks5_listeners = if profile.frontends.socks5 {
-            profile.proxy.socks5_listeners.clone()
-        } else {
-            Vec::new()
-        };
-        let http_listeners = if profile.frontends.http {
-            profile.proxy.http_listeners.clone()
-        } else {
-            Vec::new()
-        };
-        let mut listeners = socks5_listeners.clone();
-        listeners.extend(http_listeners.iter().copied());
-        Self {
-            reconnect_count,
-            vpn,
-            listeners,
-            socks5_listeners,
-            http_listeners,
-            reconfigure_count: 0,
-            attach_count: 0,
-            detach_count: 0,
-            system_proxy: profile.frontends.http && profile.proxy.system_proxy,
-        }
-    }
-
-    fn health(&self) -> RuntimeHealth {
-        RuntimeHealth::Connected {
-            path: RuntimePath {
-                transport: Transport::Http3,
-                endpoint_family: AddressFamily::Ipv4,
-                ipv4_available: true,
-                ipv6_available: true,
-            },
-            reconnect_count: self.reconnect_count,
-        }
-    }
-
-    fn reconfigure_frontends(&mut self, profile: &Profile) {
-        self.reconfigure_count = self.reconfigure_count.saturating_add(1);
-        self.socks5_listeners = if profile.frontends.socks5 {
-            profile.proxy.socks5_listeners.clone()
-        } else {
-            Vec::new()
-        };
-        self.http_listeners = if profile.frontends.http {
-            profile.proxy.http_listeners.clone()
-        } else {
-            Vec::new()
-        };
-        self.listeners = self.socks5_listeners.clone();
-        self.listeners.extend(self.http_listeners.iter().copied());
-        self.system_proxy = profile.frontends.http && profile.proxy.system_proxy;
-    }
-
-    fn attach(&mut self) {
-        self.vpn = true;
-        self.attach_count = self.attach_count.saturating_add(1);
-    }
-
-    fn detach(&mut self) {
-        self.vpn = false;
-        self.detach_count = self.detach_count.saturating_add(1);
-    }
-}
-
-struct ActiveProxyRuntime {
-    runtime: ProxyRuntime,
-    #[cfg(windows)]
-    system_proxy: Option<windows_agent::WindowsSystemProxyGuard>,
 }
 
 struct VaultEndpointPinRefresher {
@@ -341,286 +239,6 @@ impl EndpointPinRefresher for VaultEndpointPinRefresher {
     }
 }
 
-impl ActiveRuntime {
-    fn cancel_immediately(&mut self) {
-        match self {
-            Self::Proxy(runtime) => runtime.runtime.cancel_immediately(),
-            #[cfg(windows)]
-            Self::Vpn(runtime) => runtime.cancel_immediately(),
-            #[cfg(test)]
-            Self::Harness(_) => {}
-        }
-    }
-
-    fn path(&self) -> RuntimePath {
-        match self {
-            Self::Proxy(runtime) => runtime.runtime.path(),
-            #[cfg(windows)]
-            Self::Vpn(runtime) => runtime.path(),
-            #[cfg(test)]
-            Self::Harness(runtime) => runtime.health().path(),
-        }
-    }
-
-    fn listeners(&self) -> &[SocketAddr] {
-        match self {
-            Self::Proxy(runtime) => runtime.runtime.listeners(),
-            #[cfg(windows)]
-            Self::Vpn(runtime) => runtime.listeners(),
-            #[cfg(test)]
-            Self::Harness(runtime) => &runtime.listeners,
-        }
-    }
-
-    fn health(&self) -> RuntimeHealth {
-        match self {
-            Self::Proxy(runtime) => runtime.runtime.health(),
-            #[cfg(windows)]
-            Self::Vpn(runtime) => runtime.health(),
-            #[cfg(test)]
-            Self::Harness(runtime) => runtime.health(),
-        }
-    }
-
-    fn statistics(&self) -> TrafficSnapshot {
-        match self {
-            Self::Proxy(runtime) => runtime.runtime.statistics(),
-            #[cfg(windows)]
-            Self::Vpn(runtime) => runtime.statistics(),
-            #[cfg(test)]
-            Self::Harness(_) => TrafficSnapshot::default(),
-        }
-    }
-
-    fn proxy_performance(&self) -> Option<ProxyPerformanceSnapshot> {
-        match self {
-            Self::Proxy(runtime) => Some(runtime.runtime.performance()),
-            #[cfg(windows)]
-            Self::Vpn(_) => None,
-            #[cfg(test)]
-            Self::Harness(_) => None,
-        }
-    }
-
-    fn failure(&self) -> Option<String> {
-        match self {
-            Self::Proxy(runtime) => runtime.runtime.failure(),
-            #[cfg(windows)]
-            Self::Vpn(runtime) => runtime.failure(),
-            #[cfg(test)]
-            Self::Harness(_) => None,
-        }
-    }
-
-    fn is_vpn(&self) -> bool {
-        match self {
-            Self::Proxy(_) => false,
-            #[cfg(windows)]
-            Self::Vpn(_) => true,
-            #[cfg(test)]
-            Self::Harness(runtime) => runtime.vpn,
-        }
-    }
-
-    fn frontend_statuses(&self, configured: FrontendSettings) -> Vec<FrontendStatus> {
-        let runtime_phase = match self.health() {
-            RuntimeHealth::Connected { .. } => FrontendPhase::Active,
-            RuntimeHealth::Reconnecting { .. } => FrontendPhase::Reconnecting,
-            RuntimeHealth::Failed { .. } => FrontendPhase::Error,
-        };
-        let mut statuses = Vec::with_capacity(4);
-        statuses.push(FrontendStatus {
-            kind: FrontendKind::Tunnel,
-            phase: if configured.tunnel && self.is_vpn() {
-                runtime_phase
-            } else {
-                FrontendPhase::Disabled
-            },
-            listeners: Vec::new(),
-            error: None,
-        });
-        match self {
-            Self::Proxy(runtime) => {
-                statuses.push(FrontendStatus {
-                    kind: FrontendKind::Socks5,
-                    phase: if configured.socks5 {
-                        runtime_phase
-                    } else {
-                        FrontendPhase::Disabled
-                    },
-                    listeners: runtime
-                        .runtime
-                        .socks5_listeners()
-                        .iter()
-                        .map(ToString::to_string)
-                        .collect(),
-                    error: None,
-                });
-                statuses.push(FrontendStatus {
-                    kind: FrontendKind::Http,
-                    phase: if configured.http {
-                        runtime_phase
-                    } else {
-                        FrontendPhase::Disabled
-                    },
-                    listeners: runtime
-                        .runtime
-                        .http_listeners()
-                        .iter()
-                        .map(ToString::to_string)
-                        .collect(),
-                    error: None,
-                });
-                #[cfg(windows)]
-                let system_proxy_active = runtime.system_proxy.is_some();
-                #[cfg(not(windows))]
-                let system_proxy_active = false;
-                statuses.push(FrontendStatus {
-                    kind: FrontendKind::SystemProxy,
-                    phase: if system_proxy_active {
-                        runtime_phase
-                    } else {
-                        FrontendPhase::Disabled
-                    },
-                    listeners: Vec::new(),
-                    error: None,
-                });
-            }
-            #[cfg(windows)]
-            Self::Vpn(runtime) => {
-                statuses.extend([
-                    FrontendStatus {
-                        kind: FrontendKind::Socks5,
-                        phase: if configured.socks5 {
-                            runtime_phase
-                        } else {
-                            FrontendPhase::Disabled
-                        },
-                        listeners: runtime
-                            .socks5_listeners()
-                            .iter()
-                            .map(ToString::to_string)
-                            .collect(),
-                        error: None,
-                    },
-                    FrontendStatus {
-                        kind: FrontendKind::Http,
-                        phase: if configured.http {
-                            runtime_phase
-                        } else {
-                            FrontendPhase::Disabled
-                        },
-                        listeners: runtime
-                            .http_listeners()
-                            .iter()
-                            .map(ToString::to_string)
-                            .collect(),
-                        error: None,
-                    },
-                    FrontendStatus {
-                        kind: FrontendKind::SystemProxy,
-                        phase: if runtime.system_proxy_active() {
-                            runtime_phase
-                        } else {
-                            FrontendPhase::Disabled
-                        },
-                        listeners: Vec::new(),
-                        error: None,
-                    },
-                ]);
-            }
-            #[cfg(test)]
-            Self::Harness(runtime) => {
-                statuses.extend([
-                    FrontendStatus {
-                        kind: FrontendKind::Socks5,
-                        phase: if configured.socks5 {
-                            runtime_phase
-                        } else {
-                            FrontendPhase::Disabled
-                        },
-                        listeners: runtime
-                            .socks5_listeners
-                            .iter()
-                            .map(ToString::to_string)
-                            .collect(),
-                        error: None,
-                    },
-                    FrontendStatus {
-                        kind: FrontendKind::Http,
-                        phase: if configured.http {
-                            runtime_phase
-                        } else {
-                            FrontendPhase::Disabled
-                        },
-                        listeners: runtime
-                            .http_listeners
-                            .iter()
-                            .map(ToString::to_string)
-                            .collect(),
-                        error: None,
-                    },
-                    FrontendStatus {
-                        kind: FrontendKind::SystemProxy,
-                        phase: if runtime.system_proxy {
-                            runtime_phase
-                        } else {
-                            FrontendPhase::Disabled
-                        },
-                        listeners: Vec::new(),
-                        error: None,
-                    },
-                ]);
-            }
-        }
-        statuses
-    }
-
-    #[cfg(windows)]
-    fn requires_agent_reattach(&self) -> bool {
-        matches!(self, Self::Vpn(runtime) if runtime.requires_agent_reattach())
-    }
-
-    #[cfg(windows)]
-    async fn detach_for_agent_reattach(&mut self) -> Result<(), ControlServiceError> {
-        match self {
-            Self::Vpn(runtime) => runtime
-                .detach_for_agent_reattach()
-                .await
-                .map_err(map_windows_vpn_error),
-            Self::Proxy(_) => Err(ControlServiceError::InvalidRequest(
-                "only an active Windows VPN can reattach to the Agent".to_owned(),
-            )),
-            #[cfg(test)]
-            Self::Harness(_) => Err(ControlServiceError::InvalidRequest(
-                "only an active Windows VPN can reattach to the Agent".to_owned(),
-            )),
-        }
-    }
-
-    async fn shutdown(&mut self) -> Result<(), ControlServiceError> {
-        match self {
-            Self::Proxy(runtime) => {
-                #[cfg(windows)]
-                let system_proxy_result = match runtime.system_proxy.as_mut() {
-                    Some(system_proxy) => {
-                        system_proxy.shutdown().await.map_err(map_windows_vpn_error)
-                    }
-                    None => Ok(()),
-                };
-                runtime.runtime.shutdown().await;
-                #[cfg(windows)]
-                system_proxy_result?;
-                Ok(())
-            }
-            #[cfg(windows)]
-            Self::Vpn(runtime) => runtime.shutdown().await.map_err(map_windows_vpn_error),
-            #[cfg(test)]
-            Self::Harness(_) => Ok(()),
-        }
-    }
-}
-
 fn runtime_path_changed(snapshot: &ConnectionSnapshot, path: RuntimePath) -> bool {
     snapshot.transport != Some(path.transport)
         || snapshot.address_family != Some(path.endpoint_family)
@@ -678,7 +296,7 @@ impl ControlService {
             state.mark_connected(Transport::Http3, AddressFamily::Ipv4, true, true)?;
             state.update_runtime_metadata(reconnect_count, Vec::new(), Vec::new());
         }
-        let runtime = HarnessRuntime::from_profile(&applied, vpn, reconnect_count);
+        let runtime = active_runtime::HarnessRuntime::from_profile(&applied, vpn, reconnect_count);
         let frontends = applied.frontends;
         *self.data_plane.lock().await = Some(ActiveDataPlane {
             profile_id: applied.id,
@@ -706,6 +324,16 @@ impl ControlService {
                 runtime.vpn,
             )),
             _ => None,
+        }
+    }
+
+    #[cfg(test)]
+    async fn test_fail_system_proxy_after_detach(&self) {
+        let mut data_plane = self.data_plane.lock().await;
+        if let Some(active) = data_plane.as_mut()
+            && let ActiveRuntime::Harness(runtime) = &mut active.runtime
+        {
+            runtime.fail_after_detach = true;
         }
     }
 
@@ -917,7 +545,7 @@ impl ControlService {
         }
     }
 
-    async fn status_snapshot(&self) -> ConnectionSnapshot {
+    pub(crate) async fn status_snapshot(&self) -> ConnectionSnapshot {
         let mut data_plane = self.data_plane.lock().await;
         let mut state = self.state.lock().await;
         if let Some(active) = data_plane.as_mut() {
@@ -1036,7 +664,7 @@ impl ControlService {
         self.connect_locked(profile_id).await
     }
 
-    async fn connect_locked(
+    pub(crate) async fn connect_locked(
         &self,
         profile_id: Uuid,
     ) -> Result<ConnectionSnapshot, ControlServiceError> {
@@ -1142,19 +770,9 @@ impl ControlService {
                     let mut runtime = runtime;
                     #[cfg(windows)]
                     let system_proxy = if profile.frontends.http && profile.proxy.system_proxy {
-                        let listener = runtime
-                            .http_listeners()
-                            .iter()
-                            .copied()
-                            .find(|listener| listener.ip().is_loopback() && listener.ip().is_ipv4())
-                            .or_else(|| {
-                                runtime
-                                    .http_listeners()
-                                    .iter()
-                                    .copied()
-                                    .find(|listener| listener.ip().is_loopback())
-                            });
-                        let Some(listener) = listener else {
+                        let Some(listener) =
+                            windows_agent::loopback_http_listener(runtime.http_listeners())
+                        else {
                             runtime.shutdown().await;
                             let error = ControlServiceError::PlatformVpn(
                                 "system proxy requires a Loopback HTTP listener".to_owned(),
@@ -1315,7 +933,9 @@ impl ControlService {
         self.disconnect_locked().await
     }
 
-    async fn disconnect_locked(&self) -> Result<ConnectionSnapshot, ControlServiceError> {
+    pub(crate) async fn disconnect_locked(
+        &self,
+    ) -> Result<ConnectionSnapshot, ControlServiceError> {
         let mut data_plane = self.data_plane.lock().await;
         let phase = self.state.lock().await.snapshot().phase;
         if phase == ConnectionPhase::Disconnected && data_plane.is_none() {
@@ -2289,10 +1909,11 @@ impl ControlService {
         self.upsert_profile_locked(profile).await
     }
 
-    async fn upsert_profile_locked(
+    pub(crate) async fn upsert_profile_locked(
         &self,
         mut profile: Profile,
     ) -> Result<Profile, ControlServiceError> {
+        profile.canonicalize_mode();
         profile.proxy.normalize_auth();
         let mut next = self.config.read().await.clone();
         match next
@@ -2319,369 +1940,6 @@ impl ControlService {
         }
         self.persist(next).await?;
         Ok(profile)
-    }
-
-    async fn reconfigure_active_profile(
-        &self,
-        profile: Profile,
-    ) -> Result<v1::ReconfigureResult, ControlServiceError> {
-        profile
-            .validate()
-            .map_err(ControlServiceError::configuration)?;
-        let _mutation = self.mutation_lock.lock().await;
-        let active_profile_id = self
-            .data_plane
-            .lock()
-            .await
-            .as_ref()
-            .map(|runtime| runtime.profile_id);
-        if active_profile_id != Some(profile.id) {
-            return Err(ControlServiceError::InvalidRequest(
-                "only the connected Active Profile can be reconfigured".to_owned(),
-            ));
-        }
-        let previous = self
-            .config
-            .read()
-            .await
-            .profiles
-            .iter()
-            .find(|candidate| candidate.id == profile.id)
-            .cloned()
-            .ok_or(ControlServiceError::ProfileNotFound(profile.id))?;
-
-        let class = classify_reconfigure(&previous, &profile);
-        match class {
-            ReconfigureClass::Reject => {
-                return Err(ControlServiceError::InvalidRequest(
-                    "the connected Active Profile cannot be replaced by a different profile"
-                        .to_owned(),
-                ));
-            }
-            ReconfigureClass::HotFrontends => {
-                let applied = self.upsert_profile_locked(profile).await?;
-                if let Err(error) = self.hot_reconfigure_frontends(&applied).await {
-                    let _ = self.upsert_profile_locked(previous).await;
-                    return Err(error);
-                }
-                self.apply_hot_profile_state(&applied).await;
-                let snapshot = self.status_snapshot().await;
-                return Ok(v1::ReconfigureResult {
-                    profile: Some(profile_to_proto(&applied)),
-                    snapshot: Some(snapshot_to_proto(&snapshot)),
-                });
-            }
-            ReconfigureClass::HotSystemProxy => {
-                let applied = self.upsert_profile_locked(profile).await?;
-                if let Err(error) = self.hot_apply_system_proxy(&applied).await {
-                    let _ = self.upsert_profile_locked(previous).await;
-                    return Err(error);
-                }
-                self.apply_hot_profile_state(&applied).await;
-                let snapshot = self.status_snapshot().await;
-                return Ok(v1::ReconfigureResult {
-                    profile: Some(profile_to_proto(&applied)),
-                    snapshot: Some(snapshot_to_proto(&snapshot)),
-                });
-            }
-            ReconfigureClass::HotTunnelAttach => {
-                let applied = self.upsert_profile_locked(profile).await?;
-                if let Err(error) = self.hot_tunnel_attach(&applied).await {
-                    let _ = self.upsert_profile_locked(previous).await;
-                    return Err(error);
-                }
-                self.apply_hot_profile_state(&applied).await;
-                let snapshot = self.status_snapshot().await;
-                return Ok(v1::ReconfigureResult {
-                    profile: Some(profile_to_proto(&applied)),
-                    snapshot: Some(snapshot_to_proto(&snapshot)),
-                });
-            }
-            ReconfigureClass::ColdReconnect => {}
-        }
-
-        self.disconnect_locked().await?;
-        let profile_id = profile.id;
-        let applied = match self.upsert_profile_locked(profile).await {
-            Ok(applied) => applied,
-            Err(error) => {
-                let _ = self.connect_locked(previous.id).await;
-                return Err(error);
-            }
-        };
-        let snapshot = match self.connect_locked(profile_id).await {
-            Ok(snapshot) => snapshot,
-            Err(error) => {
-                self.upsert_profile_locked(previous.clone()).await?;
-                if let Err(rollback_error) = self.connect_locked(previous.id).await {
-                    tracing::error!(%rollback_error, "failed to restore the previous active Profile");
-                }
-                return Err(error);
-            }
-        };
-        Ok(v1::ReconfigureResult {
-            profile: Some(profile_to_proto(&applied)),
-            snapshot: Some(snapshot_to_proto(&snapshot)),
-        })
-    }
-
-    async fn hot_reconfigure_frontends(
-        &self,
-        profile: &Profile,
-    ) -> Result<(), ControlServiceError> {
-        let mut data_plane = self.data_plane.lock().await;
-        let Some(active) = data_plane.as_mut() else {
-            return Err(ControlServiceError::InvalidRequest(
-                "a connected session is required".to_owned(),
-            ));
-        };
-        match &mut active.runtime {
-            ActiveRuntime::Proxy(runtime) => {
-                runtime
-                    .runtime
-                    .reconfigure_frontends(profile)
-                    .await
-                    .map_err(ControlServiceError::Transport)?;
-            }
-            #[cfg(windows)]
-            ActiveRuntime::Vpn(runtime) => {
-                runtime
-                    .reconfigure_frontends(profile)
-                    .await
-                    .map_err(map_windows_vpn_error)?;
-            }
-            #[cfg(test)]
-            ActiveRuntime::Harness(runtime) => runtime.reconfigure_frontends(profile),
-        }
-        active.frontends = profile.frontends;
-        Ok(())
-    }
-
-    async fn hot_tunnel_attach(&self, profile: &Profile) -> Result<(), ControlServiceError> {
-        let mut data_plane = self.data_plane.lock().await;
-        let Some(mut active) = data_plane.take() else {
-            return Err(ControlServiceError::InvalidRequest(
-                "a connected session is required".to_owned(),
-            ));
-        };
-
-        #[cfg(test)]
-        if let ActiveRuntime::Harness(ref mut harness) = active.runtime {
-            if profile.frontends.tunnel && !harness.vpn {
-                harness.attach();
-            } else if !profile.frontends.tunnel && harness.vpn {
-                harness.detach();
-            }
-            active.frontends = profile.frontends;
-            *data_plane = Some(active);
-            return Ok(());
-        }
-
-        #[cfg(windows)]
-        {
-            let next = match (active.runtime, profile.frontends.tunnel) {
-                (ActiveRuntime::Proxy(mut proxy), true) => {
-                    #[cfg(windows)]
-                    {
-                        if let Some(mut guard) = proxy.system_proxy.take() {
-                            if let Err(error) = guard.shutdown().await {
-                                let masque = proxy.runtime.into_masque();
-                                active.runtime = ActiveRuntime::Proxy(ActiveProxyRuntime {
-                                    runtime: ProxyRuntime::from_masque(masque),
-                                    system_proxy: None,
-                                });
-                                *data_plane = Some(active);
-                                return Err(map_windows_vpn_error(error));
-                            }
-                        }
-                    }
-                    let masque = proxy.runtime.into_masque();
-                    match windows_agent::WindowsVpnRuntime::attach_existing(profile, masque).await {
-                        Ok(vpn) => ActiveRuntime::Vpn(vpn),
-                        Err((masque, error)) => {
-                            active.runtime = ActiveRuntime::Proxy(ActiveProxyRuntime {
-                                runtime: ProxyRuntime::from_masque(masque),
-                                system_proxy: None,
-                            });
-                            *data_plane = Some(active);
-                            return Err(map_windows_vpn_error(error));
-                        }
-                    }
-                }
-                (ActiveRuntime::Vpn(mut vpn), false) => {
-                    match vpn.detach_into_masque().await {
-                        Ok(masque) => {
-                            let mut runtime = ProxyRuntime::from_masque(masque);
-                            let system_proxy =
-                                if profile.frontends.http && profile.proxy.system_proxy {
-                                    let listener = runtime
-                                        .http_listeners()
-                                        .iter()
-                                        .copied()
-                                        .find(|listener| {
-                                            listener.ip().is_loopback() && listener.ip().is_ipv4()
-                                        })
-                                        .or_else(|| {
-                                            runtime.http_listeners().iter().copied().find(
-                                                |listener| listener.ip().is_loopback(),
-                                            )
-                                        });
-                                    match listener {
-                                        Some(listener) => {
-                                            match windows_agent::WindowsSystemProxyGuard::start(
-                                                listener,
-                                            )
-                                            .await
-                                            {
-                                                Ok(guard) => Some(guard),
-                                                Err(error) => {
-                                                    runtime.shutdown().await;
-                                                    *data_plane = Some(ActiveDataPlane {
-                                                        runtime: ActiveRuntime::Proxy(
-                                                            ActiveProxyRuntime {
-                                                                runtime,
-                                                                system_proxy: None,
-                                                            },
-                                                        ),
-                                                        ..active
-                                                    });
-                                                    return Err(map_windows_vpn_error(error));
-                                                }
-                                            }
-                                        }
-                                        None if profile.proxy.system_proxy => {
-                                            runtime.shutdown().await;
-                                            *data_plane = Some(ActiveDataPlane {
-                                                runtime: ActiveRuntime::Proxy(ActiveProxyRuntime {
-                                                    runtime,
-                                                    system_proxy: None,
-                                                }),
-                                                ..active
-                                            });
-                                            return Err(ControlServiceError::InvalidRequest(
-                                                "system proxy requires a loopback HTTP listener"
-                                                    .to_owned(),
-                                            ));
-                                        }
-                                        None => None,
-                                    }
-                                } else {
-                                    None
-                                };
-                            ActiveRuntime::Proxy(ActiveProxyRuntime {
-                                runtime,
-                                system_proxy,
-                            })
-                        }
-                        Err(error) => {
-                            active.runtime = ActiveRuntime::Vpn(vpn);
-                            *data_plane = Some(active);
-                            return Err(map_windows_vpn_error(error));
-                        }
-                    }
-                }
-                (runtime, _) => runtime,
-            };
-            active.runtime = next;
-            active.frontends = profile.frontends;
-            *data_plane = Some(active);
-            return Ok(());
-        }
-
-        #[cfg(not(windows))]
-        {
-            *data_plane = Some(active);
-            let _ = profile;
-            Err(ControlServiceError::OperatingModeUnavailable(
-                OperatingMode::Vpn,
-            ))
-        }
-    }
-
-    async fn apply_hot_profile_state(&self, profile: &Profile) {
-        let data_plane = self.data_plane.lock().await;
-        let mut state = self.state.lock().await;
-        let Some(active) = data_plane.as_ref() else {
-            return;
-        };
-        let warnings = state.snapshot().warnings.clone();
-        state.update_runtime_metadata(
-            active.runtime.health().reconnect_count(),
-            active
-                .runtime
-                .listeners()
-                .iter()
-                .map(ToString::to_string)
-                .collect(),
-            warnings,
-        );
-        state.update_frontends(active.runtime.frontend_statuses(active.frontends));
-        state.update_safety_state(
-            if profile.frontends.tunnel && active.runtime.is_vpn() {
-                if profile.kill_switch {
-                    KillSwitchState::Active
-                } else {
-                    KillSwitchState::Inactive
-                }
-            } else {
-                KillSwitchState::NotApplicable
-            },
-            LockdownState::NotSupported,
-        );
-    }
-
-    async fn hot_apply_system_proxy(&self, profile: &Profile) -> Result<(), ControlServiceError> {
-        #[cfg(windows)]
-        {
-            let mut data_plane = self.data_plane.lock().await;
-            let Some(active) = data_plane.as_mut() else {
-                return Err(ControlServiceError::InvalidRequest(
-                    "a connected session is required".to_owned(),
-                ));
-            };
-            match &mut active.runtime {
-                ActiveRuntime::Proxy(runtime) => {
-                    runtime.system_proxy = if profile.frontends.http && profile.proxy.system_proxy {
-                        let listener = runtime
-                            .runtime
-                            .http_listeners()
-                            .iter()
-                            .copied()
-                            .find(|listener| listener.ip().is_loopback())
-                            .ok_or_else(|| {
-                                ControlServiceError::InvalidRequest(
-                                    "system proxy requires a loopback HTTP listener".to_owned(),
-                                )
-                            })?;
-                        Some(
-                            windows_agent::WindowsSystemProxyGuard::start(listener)
-                                .await
-                                .map_err(|error| {
-                                    ControlServiceError::PlatformVpn(error.to_string())
-                                })?,
-                        )
-                    } else {
-                        None
-                    };
-                }
-                ActiveRuntime::Vpn(runtime) => {
-                    runtime
-                        .replace_system_proxy(profile)
-                        .await
-                        .map_err(|error| ControlServiceError::PlatformVpn(error.to_string()))?;
-                }
-                #[cfg(test)]
-                ActiveRuntime::Harness(runtime) => {
-                    runtime.system_proxy = profile.frontends.http && profile.proxy.system_proxy;
-                }
-            }
-            return Ok(());
-        }
-        #[cfg(not(windows))]
-        {
-            let _ = profile;
-            Ok(())
-        }
     }
 
     async fn import_legacy_profiles(
@@ -2940,7 +2198,7 @@ pub enum ControlServiceError {
 }
 
 impl ControlServiceError {
-    fn configuration(error: impl std::fmt::Display) -> Self {
+    pub(crate) fn configuration(error: impl std::fmt::Display) -> Self {
         Self::InvalidConfiguration(error.to_string())
     }
 
@@ -3064,7 +2322,7 @@ fn connection_error_for(error: &ControlServiceError) -> ConnectionError {
 }
 
 #[cfg(windows)]
-fn map_windows_vpn_error(error: windows_agent::WindowsVpnError) -> ControlServiceError {
+pub(crate) fn map_windows_vpn_error(error: windows_agent::WindowsVpnError) -> ControlServiceError {
     match error {
         windows_agent::WindowsVpnError::Transport(error) => ControlServiceError::Transport(error),
         windows_agent::WindowsVpnError::Remote { code, .. }
@@ -3219,7 +2477,7 @@ fn profile_from_proto(source: v1::Profile) -> Result<Profile, ControlServiceErro
             },
         });
 
-    let profile = Profile {
+    let mut profile = Profile {
         id: parse_profile_id(&source.id)?,
         name: source.name,
         mode,
@@ -3335,6 +2593,7 @@ fn profile_from_proto(source: v1::Profile) -> Result<Profile, ControlServiceErro
             auth_password: None,
         },
     };
+    profile.canonicalize_mode();
     profile
         .validate()
         .map_err(ControlServiceError::configuration)?;
@@ -3352,7 +2611,7 @@ fn parse_listeners(values: &[String]) -> Result<Vec<SocketAddr>, ControlServiceE
         .collect()
 }
 
-fn profile_to_proto(profile: &Profile) -> v1::Profile {
+pub(crate) fn profile_to_proto(profile: &Profile) -> v1::Profile {
     v1::Profile {
         id: profile.id.to_string(),
         name: profile.name.clone(),
@@ -3466,7 +2725,7 @@ fn current_capabilities() -> v1::Capabilities {
     }
 }
 
-fn snapshot_to_proto(snapshot: &ConnectionSnapshot) -> v1::ConnectionSnapshot {
+pub(crate) fn snapshot_to_proto(snapshot: &ConnectionSnapshot) -> v1::ConnectionSnapshot {
     v1::ConnectionSnapshot {
         phase: match snapshot.phase {
             ConnectionPhase::Disconnected => v1::ConnectionPhase::Disconnected as i32,
@@ -4907,15 +4166,15 @@ mod tests {
         );
     }
 
-    fn reconfigure_snapshot(
-        response: &ControlResponse,
-    ) -> &usque_ipc::v1::ConnectionSnapshot {
+    fn reconfigure_snapshot(response: &ControlResponse) -> &usque_ipc::v1::ConnectionSnapshot {
         match response.payload.as_ref() {
-            Some(control_response::Payload::Reconfigure(result)) => result
-                .snapshot
-                .as_ref()
-                .expect("reconfigure snapshot"),
-            other => panic!("unexpected reconfigure payload: {other:?} {:?}", response.error),
+            Some(control_response::Payload::Reconfigure(result)) => {
+                result.snapshot.as_ref().expect("reconfigure snapshot")
+            }
+            other => panic!(
+                "unexpected reconfigure payload: {other:?} {:?}",
+                response.error
+            ),
         }
     }
 
@@ -4988,7 +4247,11 @@ mod tests {
                 )),
             ))
             .await;
-        assert!(detach_response.error.is_none(), "{:?}", detach_response.error);
+        assert!(
+            detach_response.error.is_none(),
+            "{:?}",
+            detach_response.error
+        );
         assert_eq!(reconfigure_snapshot(&detach_response).reconnect_count, 5);
         assert_eq!(
             service.test_harness_counts().await,
@@ -5007,7 +4270,11 @@ mod tests {
                 )),
             ))
             .await;
-        assert!(attach_response.error.is_none(), "{:?}", attach_response.error);
+        assert!(
+            attach_response.error.is_none(),
+            "{:?}",
+            attach_response.error
+        );
         assert_eq!(reconfigure_snapshot(&attach_response).reconnect_count, 5);
         assert_eq!(
             service.test_harness_counts().await,
@@ -5027,10 +4294,62 @@ mod tests {
             ))
             .await;
         assert_eq!(
-            cold_response.error.as_ref().map(|error| error.code.as_str()),
+            cold_response
+                .error
+                .as_ref()
+                .map(|error| error.code.as_str()),
             Some("MISSING_CREDENTIAL")
         );
         assert!(service.test_harness_counts().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn detach_keeps_proxy_profile_if_system_proxy_reapply_fails() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ConfigStore::new(directory.path().join("config.json"));
+        let service =
+            ControlService::open_with_vault(store.clone(), Arc::new(MemoryVault::default()))
+                .unwrap();
+        let mut profile = service.config_snapshot().await.profiles[0].clone();
+        profile.frontends = FrontendSettings {
+            tunnel: true,
+            socks5: true,
+            http: true,
+        };
+        profile.proxy.system_proxy = true;
+        service
+            .install_test_session(profile.clone(), true, 5)
+            .await
+            .expect("install harness");
+        service.test_fail_system_proxy_after_detach().await;
+
+        let mut detached = profile.clone();
+        detached.frontends.tunnel = false;
+        let response = service
+            .handle(request(
+                "hot-detach-proxy-fail",
+                control_request::Payload::ReconfigureActiveProfile(Box::new(
+                    v1::ReconfigureActiveProfileRequest {
+                        profile: Some(profile_to_proto(&detached)),
+                    },
+                )),
+            ))
+            .await;
+        assert!(
+            response.error.is_some(),
+            "system-proxy failure must surface"
+        );
+        assert_eq!(
+            service.test_harness_counts().await,
+            Some((5, 0, 0, 1, false))
+        );
+        let persisted = ControlService::open(store)
+            .expect("reopen")
+            .config_snapshot()
+            .await
+            .profiles[0]
+            .clone();
+        assert!(!persisted.frontends.tunnel);
     }
 
     fn request(id: &str, payload: control_request::Payload) -> ControlRequest {

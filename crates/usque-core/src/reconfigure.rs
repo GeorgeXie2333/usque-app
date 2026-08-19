@@ -36,11 +36,7 @@ pub fn classify_reconfigure(previous: &Profile, next: &Profile) -> ReconfigureCl
         return ReconfigureClass::ColdReconnect;
     }
 
-    let mut previous_proxy = previous.proxy.clone();
-    let mut next_proxy = next.proxy.clone();
-    previous_proxy.system_proxy = false;
-    next_proxy.system_proxy = false;
-    let proxy_except_system = previous_proxy == next_proxy;
+    let proxy_except_system = proxy_equal_except_system(&previous.proxy, &next.proxy);
 
     let socks_http_frontends = previous.frontends.socks5 == next.frontends.socks5
         && previous.frontends.http == next.frontends.http;
@@ -64,6 +60,19 @@ pub fn classify_reconfigure(previous: &Profile, next: &Profile) -> ReconfigureCl
     }
 
     ReconfigureClass::ColdReconnect
+}
+
+fn proxy_equal_except_system(
+    previous: &crate::config::ProxySettings,
+    next: &crate::config::ProxySettings,
+) -> bool {
+    previous.socks5_listeners == next.socks5_listeners
+        && previous.http_listeners == next.http_listeners
+        && previous.udp_idle_timeout_seconds == next.udp_idle_timeout_seconds
+        && previous.dns_mode == next.dns_mode
+        && previous.dns_servers == next.dns_servers
+        && previous.auth_username == next.auth_username
+        && previous.auth_password == next.auth_password
 }
 
 #[cfg(test)]

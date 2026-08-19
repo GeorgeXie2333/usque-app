@@ -482,30 +482,19 @@ internal class AndroidEngineMethodHandler(
             return
         }
         if (!requireProfileEngine(result)) return
+        val normalized = VpnReconfigure.canonicalizeProfileArguments(profile)
         val commandJson =
             flutterValueToJson(
                 mapOf(
                     "command" to "reconfigure_active_profile",
-                    "profile" to profile,
+                    "profile" to normalized,
                 ),
             )
-        val profileJson = flutterValueToJson(profile)
+        val profileJson = flutterValueToJson(normalized)
         identityExecutor.execute {
             try {
-                val response =
-                    engineBridge.applyProfileCommand(profileConfigPath, commandJson)
-                        ?: throw IllegalStateException("Rust returned no profile catalog")
-                val className = JSONObject(response).optString("reconfigure_class")
-                if (className == "reject") {
-                    mainScheduler.post {
-                        result.error(
-                            "INVALID_ARGUMENT",
-                            "The connected Active Profile cannot be replaced by a different profile.",
-                            null,
-                        )
-                    }
-                    return@execute
-                }
+                engineBridge.applyProfileCommand(profileConfigPath, commandJson)
+                    ?: throw IllegalStateException("Rust returned no profile catalog")
                 mainScheduler.post {
                     if (!controlClient.requestReconfigure(profileJson, result)) {
                         result.success(null)
@@ -1844,11 +1833,8 @@ internal class AndroidEngineMethodHandler(
             )
             return
         }
-        val frontends = arguments["frontends"] as? Map<*, *>
-        val tunnelEnabled = frontends?.get("tunnel") as? Boolean ?: (legacyMode == "vpn")
-        val mode = if (tunnelEnabled) "vpn" else "socks5"
-        val normalized = arguments.entries.associate { entry -> entry.key to entry.value }.toMutableMap()
-        normalized["mode"] = mode
+        val normalized = VpnReconfigure.canonicalizeProfileArguments(arguments)
+        val mode = normalized["mode"] as String
         val profileJson = flutterValueToJson(normalized)
         activityCommands.connectAfterValidation(profileJson, mode, result)
     }

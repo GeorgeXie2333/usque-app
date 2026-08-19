@@ -15,7 +15,6 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicReference
 
 class AndroidEngineMethodHandlerTest {
     private lateinit var scheduler: ImmediateScheduler
@@ -89,7 +88,7 @@ class AndroidEngineMethodHandlerTest {
     @Test
     fun reconfigureActiveProfilePersistsAndNotifiesTheVpnServiceWithoutConnect() {
         engineBridge.profileCatalogJson =
-            """{"profiles":[{"id":"p1"}],"reconfigure_class":"hot_frontends"}"""
+            """{"profiles":[{"id":"p1"}]}"""
         val result = RecordingResult()
         val profile =
             mapOf(
@@ -110,7 +109,7 @@ class AndroidEngineMethodHandlerTest {
     @Test
     fun reconfigureActiveProfileSendsTunnelOffWithLegacyVpnMode() {
         engineBridge.profileCatalogJson =
-            """{"profiles":[{"id":"p1"}],"reconfigure_class":"hot_tunnel_attach"}"""
+            """{"profiles":[{"id":"p1"}]}"""
         val result = RecordingResult()
         handler.handle(
             MethodCall(
@@ -126,19 +125,9 @@ class AndroidEngineMethodHandlerTest {
         assertEquals(listOf(UsqueVpnService.MSG_RECONFIGURE), endpoint.whats)
         val extras = endpoint.lastExtras ?: error("MSG_RECONFIGURE extras missing")
         val extrasJson = extras[UsqueVpnService.EXTRA_PROFILE_JSON] as String
-        assertTrue(extrasJson.contains("\"mode\":\"vpn\""))
+        assertTrue(extrasJson.contains("\"mode\":\"socks5\""))
         assertTrue(extrasJson.contains("\"tunnel\":false"))
-        val tunnel = AtomicReference<Any?>(Any())
-        val lastIdentity = AtomicReference<TunIdentity?>(null)
-        val closed = mutableListOf<Any?>()
-        UsqueVpnService.handleReconfigureNativeOk(
-            endpoint.whats.single(),
-            extras,
-            tunnel,
-            lastIdentity,
-        ) { fd -> closed.add(fd) }
-        assertNull(tunnel.get())
-        assertEquals(1, closed.size)
+        assertTrue(VpnReconfigure.shouldTearDownTun(endpoint.whats.single(), extrasJson))
         assertNull(result.errorCode)
     }
 

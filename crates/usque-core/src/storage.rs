@@ -49,6 +49,9 @@ impl ConfigStore {
             migrate(&mut config)?;
             self.save(&config)?;
         }
+        for profile in &mut config.profiles {
+            profile.canonicalize_mode();
+        }
         config.validate()?;
         Ok(config)
     }
@@ -275,10 +278,7 @@ mod tests {
         let migrated = store.load().unwrap();
 
         assert_eq!(migrated.schema_version, CURRENT_SCHEMA_VERSION);
-        assert_eq!(
-            migrated.profiles[0].mode,
-            OperatingMode::legacy_platform_default()
-        );
+        assert_eq!(migrated.profiles[0].mode, OperatingMode::Vpn);
         assert_eq!(
             migrated.profiles[0].frontends,
             FrontendSettings::platform_default()

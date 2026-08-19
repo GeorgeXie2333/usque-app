@@ -50,42 +50,6 @@ class UsqueVpnService : VpnService() {
         const val MSG_RETRY = 9
         const val MSG_RECONFIGURE = 10
 
-        /**
-         * Whether the reconfigure payload still wants the VpnService TUN.
-         * Composable profiles keep legacy `mode=vpn` after turning only
-         * `frontends.tunnel` off; the TUN must follow the frontend flag.
-         */
-        internal fun tunnelFrontendEnabled(profileJson: String): Boolean {
-            val source = JSONObject(profileJson)
-            val frontends = source.optJSONObject("frontends")
-            if (frontends != null && frontends.has("tunnel")) {
-                return frontends.getBoolean("tunnel")
-            }
-            return source.optString("mode") == "vpn"
-        }
-
-        /**
-         * [MSG_RECONFIGURE] follow-up after [NativeEngine.reconfigure] returns
-         * OK. Closes the VpnService TUN when `frontends.tunnel` is false, even
-         * if legacy `mode` remains `vpn`.
-         */
-        internal fun <Fd> handleReconfigureNativeOk(
-            what: Int,
-            extras: Map<String, Any?>,
-            tunnel: AtomicReference<Fd?>,
-            lastTunIdentity: AtomicReference<TunIdentity?>,
-            closeQuietly: (Fd?) -> Unit,
-        ) {
-            if (what != MSG_RECONFIGURE) {
-                return
-            }
-            val profileJson = extras[EXTRA_PROFILE_JSON] as? String ?: return
-            if (!tunnelFrontendEnabled(profileJson)) {
-                lastTunIdentity.set(null)
-                closeQuietly(tunnel.getAndSet(null))
-            }
-        }
-
         private const val NATIVE_STATUS_INTERVAL_MILLIS = 1_000L
         private const val PHYSICAL_NETWORK_WAIT_MILLIS = 8_000L
         internal const val RECOVERY_PREFERENCES = "usque_vpn_recovery_v1"
@@ -248,15 +212,13 @@ class UsqueVpnService : VpnService() {
 
             null -> {
                 val recoveryProfile = recoveryPreferences.getString(RECOVERY_PROFILE, null)
-                val recoveryMode =
-                    try {
-                        recoveryProfile?.let(::JSONObject)?.optString("mode")
-                    } catch (_: Exception) {
-                        null
-                    }
+                val recoveryNeedsVpn =
+                    recoveryProfile != null &&
+                        runCatching { VpnReconfigure.tunnelFrontendEnabled(recoveryProfile) }
+                            .getOrDefault(false)
                 if (
                     recoveryProfile != null &&
-                    (recoveryMode != "vpn" || VpnService.prepare(this) == null) &&
+                    (!recoveryNeedsVpn || VpnService.prepare(this) == null) &&
                     recoveryProfile.toByteArray(Charsets.UTF_8).size <= MAX_PROFILE_BYTES
                 ) {
                     beginConnection(recoveryProfile)
@@ -315,12 +277,17 @@ class UsqueVpnService : VpnService() {
             broadcastSnapshot()
             return
         }
-        val mode =
+        val (mode, tunnelEnabled) =
             try {
-                JSONObject(profileJson).getString("mode").also { parsedMode ->
-                    require(parsedMode in setOf("vpn", "socks5", "httpProxy"))
-                    if (parsedMode == "vpn") AndroidVpnProfile.parse(profileJson)
+                val source = JSONObject(profileJson)
+                val tunnelEnabled = VpnReconfigure.tunnelFrontendEnabled(source)
+                if (tunnelEnabled) {
+                    AndroidVpnProfile.parse(profileJson)
+                } else {
+                    val parsedMode = source.optString("mode")
+                    require(parsedMode.isEmpty() || parsedMode in setOf("vpn", "socks5", "httpProxy"))
                 }
+                VpnReconfigure.canonicalMode(tunnelEnabled) to tunnelEnabled
             } catch (error: Exception) {
                 startForeground(
                     VpnNotificationController.NOTIFICATION_ID,
@@ -365,11 +332,15 @@ class UsqueVpnService : VpnService() {
         broadcastSnapshot()
 
         val incomingIdentity =
-            runCatching { TunIdentity.from(AndroidVpnProfile.parse(profileJson)) }.getOrNull()
+            if (tunnelEnabled) {
+                runCatching { TunIdentity.from(AndroidVpnProfile.parse(profileJson)) }.getOrNull()
+            } else {
+                null
+            }
         val decision =
             TunRestartPolicy.decide(
                 killSwitch = incomingIdentity != null && JSONObject(profileJson).optBoolean("kill_switch", false),
-                tunnelFrontend = mode == "vpn",
+                tunnelFrontend = tunnelEnabled,
                 hasCurrentFd = tunnel.get() != null,
                 sameIdentity =
                     incomingIdentity != null &&
@@ -427,14 +398,14 @@ class UsqueVpnService : VpnService() {
             .putString(LAST_PROFILE, profileJson)
             .commit()
         activeProfileJson.set(profileJson)
-        val mode =
+        val tunnelEnabled =
             try {
-                JSONObject(profileJson).getString("mode")
+                VpnReconfigure.tunnelFrontendEnabled(profileJson)
             } catch (_: Exception) {
                 replyControlError(request, "INVALID_PROFILE", "The reconfigure profile is invalid.")
                 return
             }
-        activeMode.set(mode)
+        activeMode.set(if (tunnelEnabled) "vpn" else "socks5")
 
         if (!nativeRuntimeActive.get()) {
             beginConnection(profileJson)
@@ -447,16 +418,13 @@ class UsqueVpnService : VpnService() {
             mainHandler.post {
                 when (result) {
                     NativeEngine.OK -> {
-                        handleReconfigureNativeOk(
+                        VpnReconfigure.applyNativeOk(
                             MSG_RECONFIGURE,
-                            mapOf(EXTRA_PROFILE_JSON to profileJson),
+                            profileJson,
                             tunnel,
                             lastTunIdentity,
                             ::closeQuietly,
                         )
-                        if (!tunnelFrontendEnabled(profileJson) && mode == "vpn") {
-                            activeMode.set("socks5")
-                        }
                         refreshNativeSnapshot()
                         replyWithSnapshot(request)
                     }
@@ -497,7 +465,7 @@ class UsqueVpnService : VpnService() {
                 }
             val secret =
                 try {
-                    SecureIdentityStore(this).get(profile.id, SecureIdentityStore.Record.WARP_SECRET)
+                    loadWarpSecret(profile.id)
                 } catch (error: Exception) {
                     fail(
                         generation,
@@ -515,10 +483,7 @@ class UsqueVpnService : VpnService() {
             try {
                 val assignment =
                     try {
-                        val metadata =
-                            NativeEngine.inspectWarpSecret(secret)
-                                ?: throw IllegalArgumentException("identity metadata is unavailable")
-                        WarpAddressAssignment.parse(metadata)
+                        inspectAssignment(secret)
                     } catch (error: Exception) {
                         fail(
                             generation,
@@ -530,13 +495,7 @@ class UsqueVpnService : VpnService() {
                     }
                 val routePlan =
                     try {
-                        VpnRoutePlanner.plan(
-                            includeIpv4 = profile.includeIpv4,
-                            includeIpv6 = profile.includeIpv6,
-                            allowLan = profile.allowLan,
-                            bypassCidrs = profile.bypassCidrs,
-                            supportsRouteExclusion = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU,
-                        )
+                        planRoutes(profile)
                     } catch (error: Exception) {
                         fail(generation, "The bypass route configuration is unsafe: ${safeMessage(error)}")
                         mainHandler.post { replyWithSnapshot(request) }
@@ -544,7 +503,7 @@ class UsqueVpnService : VpnService() {
                     }
                 val descriptor =
                     try {
-                        establishVpn(profile, assignment, routePlan)
+                        ensureTun(profile, assignment, routePlan, retainExisting = false)
                     } catch (error: Exception) {
                         fail(generation, "Android refused the VPN configuration: ${safeMessage(error)}")
                         mainHandler.post { replyWithSnapshot(request) }
@@ -554,10 +513,6 @@ class UsqueVpnService : VpnService() {
                     fail(generation, "Android refused to create the VPN interface.")
                     mainHandler.post { replyWithSnapshot(request) }
                     return@execute
-                }
-                val existing = tunnel.getAndSet(descriptor)
-                if (existing != null && existing !== descriptor) {
-                    closeQuietly(existing)
                 }
                 lastTunIdentity.set(TunIdentity.from(profile))
                 val attached = NativeEngine.attachTun(descriptor.fd, profileJson)
@@ -600,7 +555,10 @@ class UsqueVpnService : VpnService() {
 
         val profile = runCatching { JSONObject(profileJson) }.getOrNull()
         val profileId = profile?.optString("id").orEmpty()
-        if (profile == null || profile.optString("mode") != "vpn" || profileId.isBlank()) {
+        val tunnelEnabled =
+            profile != null &&
+                runCatching { VpnReconfigure.tunnelFrontendEnabled(profile) }.getOrDefault(false)
+        if (profile == null || !tunnelEnabled || profileId.isBlank()) {
             request?.let {
                 replyControlError(
                     it,
@@ -712,20 +670,16 @@ class UsqueVpnService : VpnService() {
             fail(generation, "The Rust data channel is unavailable; no VPN interface was created.")
             return
         }
-        val mode =
+        val tunnelEnabled =
             try {
-                JSONObject(profileJson).getString("mode")
+                VpnReconfigure.tunnelFrontendEnabled(profileJson)
             } catch (error: Exception) {
                 fail(generation, "The VPN profile is invalid: ${safeMessage(error)}")
                 return
             }
-        activeMode.set(mode)
-        if (mode == "socks5" || mode == "httpProxy") {
+        activeMode.set(if (tunnelEnabled) "vpn" else "socks5")
+        if (!tunnelEnabled) {
             startProxyConnection(generation, profileJson)
-            return
-        }
-        if (mode != "vpn") {
-            fail(generation, "The Android operating mode is invalid.")
             return
         }
         val permissionRequired =
@@ -749,10 +703,7 @@ class UsqueVpnService : VpnService() {
             }
         val secret =
             try {
-                SecureIdentityStore(this).get(
-                    profile.id,
-                    SecureIdentityStore.Record.WARP_SECRET,
-                )
+                loadWarpSecret(profile.id)
             } catch (error: Exception) {
                 fail(
                     generation,
@@ -773,10 +724,7 @@ class UsqueVpnService : VpnService() {
         try {
             val assignment =
                 try {
-                    val metadata =
-                        NativeEngine.inspectWarpSecret(secret)
-                            ?: throw IllegalArgumentException("identity metadata is unavailable")
-                    WarpAddressAssignment.parse(metadata)
+                    inspectAssignment(secret)
                 } catch (error: Exception) {
                     fail(
                         generation,
@@ -787,13 +735,7 @@ class UsqueVpnService : VpnService() {
                 }
             val routePlan =
                 try {
-                    VpnRoutePlanner.plan(
-                        includeIpv4 = profile.includeIpv4,
-                        includeIpv6 = profile.includeIpv6,
-                        allowLan = profile.allowLan,
-                        bypassCidrs = profile.bypassCidrs,
-                        supportsRouteExclusion = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU,
-                    )
+                    planRoutes(profile)
                 } catch (error: Exception) {
                     fail(generation, "The bypass route configuration is unsafe: ${safeMessage(error)}")
                     return
@@ -807,32 +749,23 @@ class UsqueVpnService : VpnService() {
                 return
             }
             if (!isCurrent(generation)) return
-            val existing = tunnel.get()
             val restart = pendingTunRestart
             val descriptor =
-                when {
-                    restart == TunRestartDecision.RETAIN && existing != null -> existing
-                    else -> {
-                        val created =
-                            try {
-                                establishVpn(profile, assignment, routePlan)
-                            } catch (error: Exception) {
-                                fail(generation, "Android refused the VPN configuration: ${safeMessage(error)}")
-                                return
-                            }
-                        if (created == null) {
-                            fail(generation, "Android refused to create the VPN interface.")
-                            return
-                        }
-                        if (restart == TunRestartDecision.REPLACE_NEW_FIRST && existing != null) {
-                            tunnel.compareAndSet(existing, created)
-                            closeQuietly(existing)
-                        } else {
-                            tunnel.set(created)
-                        }
-                        created
-                    }
+                try {
+                    ensureTun(
+                        profile,
+                        assignment,
+                        routePlan,
+                        retainExisting = restart == TunRestartDecision.RETAIN,
+                    )
+                } catch (error: Exception) {
+                    fail(generation, "Android refused the VPN configuration: ${safeMessage(error)}")
+                    return
                 }
+            if (descriptor == null) {
+                fail(generation, "Android refused to create the VPN interface.")
+                return
+            }
             if (!isCurrent(generation)) {
                 if (restart != TunRestartDecision.RETAIN) {
                     tunnel.compareAndSet(descriptor, null)
@@ -901,10 +834,7 @@ class UsqueVpnService : VpnService() {
             }
         val secret =
             try {
-                SecureIdentityStore(this).get(
-                    profileId,
-                    SecureIdentityStore.Record.WARP_SECRET,
-                )
+                loadWarpSecret(profileId)
             } catch (_: Exception) {
                 null
             }
@@ -953,6 +883,43 @@ class UsqueVpnService : VpnService() {
         } finally {
             secret.fill(0)
         }
+    }
+
+    private fun loadWarpSecret(profileId: String): ByteArray? =
+        SecureIdentityStore(this).get(profileId, SecureIdentityStore.Record.WARP_SECRET)
+
+    private fun inspectAssignment(secret: ByteArray): WarpAddressAssignment {
+        val metadata =
+            NativeEngine.inspectWarpSecret(secret)
+                ?: throw IllegalArgumentException("identity metadata is unavailable")
+        return WarpAddressAssignment.parse(metadata)
+    }
+
+    private fun planRoutes(profile: AndroidVpnProfile): RoutePlan =
+        VpnRoutePlanner.plan(
+            includeIpv4 = profile.includeIpv4,
+            includeIpv6 = profile.includeIpv6,
+            allowLan = profile.allowLan,
+            bypassCidrs = profile.bypassCidrs,
+            supportsRouteExclusion = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU,
+        )
+
+    private fun ensureTun(
+        profile: AndroidVpnProfile,
+        assignment: WarpAddressAssignment,
+        routePlan: RoutePlan,
+        retainExisting: Boolean,
+    ): ParcelFileDescriptor? {
+        val existing = tunnel.get()
+        if (retainExisting && existing != null) {
+            return existing
+        }
+        val created = establishVpn(profile, assignment, routePlan) ?: return null
+        val previous = tunnel.getAndSet(created)
+        if (previous != null && previous !== created) {
+            closeQuietly(previous)
+        }
+        return created
     }
 
     private fun establishVpn(

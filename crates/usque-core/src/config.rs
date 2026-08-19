@@ -229,7 +229,7 @@ pub struct Profile {
 
 impl Default for Profile {
     fn default() -> Self {
-        Self {
+        let mut profile = Self {
             id: DEFAULT_PROFILE_ID,
             name: "Default".to_owned(),
             mode: OperatingMode::legacy_platform_default(),
@@ -245,11 +245,24 @@ impl Default for Profile {
             kill_switch: true,
             auto_connect: false,
             proxy: ProxySettings::default(),
-        }
+        };
+        profile.canonicalize_mode();
+        profile
     }
 }
 
 impl Profile {
+    /// `mode` is the persisted projection of `frontends`.
+    pub fn canonicalize_mode(&mut self) {
+        self.mode = if self.frontends.tunnel {
+            OperatingMode::Vpn
+        } else if self.frontends.http && !self.frontends.socks5 {
+            OperatingMode::HttpProxy
+        } else {
+            OperatingMode::Socks5
+        };
+    }
+
     pub fn validate(&self) -> Result<(), ConfigError> {
         let trimmed_name = self.name.trim();
         if trimmed_name.is_empty() || trimmed_name.chars().count() > 64 {
@@ -324,8 +337,8 @@ impl Profile {
     }
 
     pub fn reset_network_defaults(&mut self) {
-        self.mode = OperatingMode::legacy_platform_default();
         self.frontends = FrontendSettings::default();
+        self.canonicalize_mode();
         self.transport = TransportPolicy::Auto;
         self.endpoint = EndpointSettings::default();
         self.ip_policy = IpPolicy::Auto;
@@ -916,13 +929,26 @@ mod tests {
                 .map(|value| value.as_str().expect("HTTP listener").to_owned())
                 .collect::<Vec<_>>()
         );
-        assert_eq!(profile.mode, OperatingMode::legacy_platform_default());
+        assert_eq!(profile.mode, OperatingMode::Vpn);
         assert_eq!(profile.frontends, FrontendSettings::platform_default());
         assert_eq!(profile.transport, TransportPolicy::Auto);
         assert!(profile.kill_switch);
         assert!(!profile.proxy.system_proxy);
         assert_eq!(profile.proxy.dns_servers, profile.dns_servers);
         assert!(!profile.proxy.exposes_lan(OperatingMode::Socks5));
+    }
+
+    #[test]
+    fn canonicalize_mode_follows_frontends() {
+        let mut profile = Profile::default();
+        assert_eq!(profile.mode, OperatingMode::Vpn);
+        assert!(profile.frontends.tunnel);
+        profile.frontends.tunnel = false;
+        profile.canonicalize_mode();
+        assert_eq!(profile.mode, OperatingMode::Socks5);
+        profile.frontends.socks5 = false;
+        profile.canonicalize_mode();
+        assert_eq!(profile.mode, OperatingMode::HttpProxy);
     }
 
     #[test]

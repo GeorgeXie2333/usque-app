@@ -49,7 +49,7 @@ internal data class AndroidVpnProfile(
             require(profileIdPattern.matches(id)) { "Invalid profile ID" }
             val name = source.requiredString("name", 64)
             require(name.isNotBlank()) { "Invalid profile name" }
-            require(source.requiredString("mode", 32) == "vpn") {
+            require(VpnReconfigure.tunnelFrontendEnabled(source)) {
                 "VpnService only accepts VPN profiles"
             }
             val ipPolicy = source.requiredString("ip_policy", 32)
