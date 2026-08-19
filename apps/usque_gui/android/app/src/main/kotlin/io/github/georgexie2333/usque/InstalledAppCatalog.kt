@@ -8,6 +8,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
+import androidx.core.graphics.createBitmap
 import java.io.ByteArrayOutputStream
 
 internal data class InstalledAppInfo(
@@ -87,7 +88,7 @@ internal object InstalledAppCatalog {
                 }
 
                 else -> {
-                    val created = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
+                    val created = createBitmap(sizePx, sizePx)
                     val canvas = Canvas(created)
                     drawable.setBounds(0, 0, sizePx, sizePx)
                     drawable.draw(canvas)
