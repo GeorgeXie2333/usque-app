@@ -32,8 +32,6 @@ jobs:
         language:
           - actions
           - c-cpp
-          - go
-          - javascript-typescript
           - python
           - rust
     steps:
