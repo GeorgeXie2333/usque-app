@@ -978,9 +978,7 @@ class UsqueVpnService : VpnService() {
             builder.setMetered(false)
         }
         when (val plan = currentPerAppPlan()) {
-            PerAppPlan.None -> {
-                Unit
-            }
+            PerAppPlan.None -> {}
 
             PerAppPlan.Empty -> {
                 throw PerAppProxyEmptyException()
