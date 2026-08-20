@@ -22,9 +22,9 @@ use usque_core::{
     ConnectionWarning, ConsumerEntitlement, ConsumerRegistrationClient, DnsMode, EndpointPin,
     EndpointSettings, ErrorCode, ExitInfo, FrontendKind, FrontendPhase, FrontendSettings,
     FrontendStatus, IdentityMetadata, IdentityProvider, IpPolicy, IpSbProbe, KillSwitchState,
-    LockdownState, MasqueKeyPair,
-    OperatingMode, Profile, ProxyAuthCredentials, ProxyDnsMode, ProxySettings, RegistrationError,
-    RegistrationOptions, StateMachine, Statistics, Transport, TransportPolicy, WarpIdentity,
+    LockdownState, MasqueKeyPair, OperatingMode, Profile, ProxyAuthCredentials, ProxyDnsMode,
+    ProxySettings, RegistrationError, RegistrationOptions, SHARED_NETWORK_SECRET_ID,
+    SharedNetworkSettings, StateMachine, Statistics, Transport, TransportPolicy, WarpIdentity,
     is_zero_trust_endpoint, normalize_zero_trust_team,
     storage::{ConfigStore, StoreError},
     validate_proxy_password, validate_proxy_username,
@@ -289,6 +289,73 @@ impl ControlService {
 
     pub async fn config_snapshot(&self) -> AppConfig {
         self.config.read().await.clone()
+    }
+
+    /// Move schema-8 per-account proxy passwords into the single shared vault
+    /// slot. Idempotent: a populated shared slot is kept, leftover account
+    /// slots are deleted. Must succeed before JSON schema 9 is considered
+    /// fully migrated.
+    pub async fn migrate_shared_proxy_password(&self) -> Result<(), ControlServiceError> {
+        let account_ids: Vec<Uuid> = {
+            let config = self.config.read().await;
+            config
+                .profiles
+                .iter()
+                .map(|account| account.id)
+                .chain(config.pending_identity_deletions.iter().copied())
+                .collect()
+        };
+        let shared = self
+            .vault
+            .get(SHARED_NETWORK_SECRET_ID, SecretRecord::ProxyPassword)
+            .await?;
+        let missing_shared = match shared.as_ref() {
+            None => true,
+            Some(value) => value.is_empty(),
+        };
+        if missing_shared {
+            for profile_id in &account_ids {
+                let password = self
+                    .vault
+                    .get(*profile_id, SecretRecord::ProxyPassword)
+                    .await?;
+                if let Some(password) = password.filter(|value| !value.is_empty()) {
+                    self.vault
+                        .put(
+                            SHARED_NETWORK_SECRET_ID,
+                            SecretRecord::ProxyPassword,
+                            &password,
+                        )
+                        .await?;
+                    break;
+                }
+            }
+        }
+        let mut first_error = None;
+        for profile_id in account_ids {
+            if let Err(error) = self
+                .vault
+                .delete(profile_id, SecretRecord::ProxyPassword)
+                .await
+                && first_error.is_none()
+            {
+                first_error = Some(error);
+            }
+        }
+        if let Some(error) = first_error {
+            let shared = self
+                .vault
+                .get(SHARED_NETWORK_SECRET_ID, SecretRecord::ProxyPassword)
+                .await?;
+            if shared.as_ref().is_none_or(|value| value.is_empty()) {
+                return Err(error.into());
+            }
+            tracing::warn!(
+                %error,
+                "old per-profile proxy passwords could not be removed after copying the shared slot"
+            );
+        }
+        Ok(())
     }
 
     #[cfg(test)]
@@ -695,10 +762,7 @@ impl ControlService {
             .config
             .read()
             .await
-            .profiles
-            .iter()
-            .find(|profile| profile.id == profile_id)
-            .cloned()
+            .runtime_profile(profile_id)
             .ok_or(ControlServiceError::ProfileNotFound(profile_id))?;
         self.attach_proxy_auth(&mut profile).await?;
         if profile.frontends.tunnel && !cfg!(windows) {
@@ -1044,6 +1108,9 @@ impl ControlService {
         for profile_id in profile_ids {
             self.vault.delete_identity(profile_id).await?;
         }
+        self.vault
+            .delete(SHARED_NETWORK_SECRET_ID, SecretRecord::ProxyPassword)
+            .await?;
         self.persist(AppConfig::default()).await?;
         self.maintenance.clear_local_state().await?;
         Ok(())
@@ -1120,10 +1187,8 @@ impl ControlService {
     ) -> Result<IdentityMetadata, ControlServiceError> {
         let config = self.config.read().await;
         let endpoint = config
-            .profiles
-            .iter()
-            .find(|profile| profile.id == profile_id)
-            .map(|profile| profile.endpoint.clone());
+            .runtime_profile(profile_id)
+            .map(|profile| profile.endpoint);
         let binding = config.identity_bindings.get(&profile_id).cloned();
         drop(config);
         self.load_identity_metadata_for_profile(profile_id, endpoint.as_ref(), binding.as_ref())
@@ -1428,7 +1493,8 @@ impl ControlService {
 
         let is_zero_trust = provisioned.is_zero_trust();
         let identity_provider = provisioned.identity().provider().clone();
-        if let Some(endpoint) = provisioned.endpoint() {
+        let managed_endpoint = provisioned.endpoint().cloned();
+        if let Some(endpoint) = &managed_endpoint {
             profile.endpoint = endpoint.clone();
             if let Err(error) = profile
                 .validate()
@@ -1474,7 +1540,12 @@ impl ControlService {
         committed
             .identity_bindings
             .insert(profile.id, identity_provider);
-        committed.profiles.push(profile);
+        if let Err(error) = committed.insert_account(profile.id, profile.name, managed_endpoint) {
+            return Err(Self::after_zero_trust_registration(
+                ControlServiceError::configuration(error),
+                is_zero_trust,
+            ));
+        }
         if let Err(error) = self.persist(committed).await {
             let _ = self.vault.delete_identity(profile_id).await;
             self.abort_pending_identity_creation(profile_id).await;
@@ -1495,19 +1566,18 @@ impl ControlService {
         let config = self.config.read().await.clone();
         let mut catalog = profile_list_to_proto(&config);
         let cleanup_pending = !config.pending_identity_deletions.is_empty();
-        for profile in &config.profiles {
-            let binding = config.identity_bindings.get(&profile.id).cloned();
+        for account in &config.profiles {
+            let binding = config.identity_bindings.get(&account.id).cloned();
+            let endpoint = config
+                .runtime_profile(account.id)
+                .map(|profile| profile.endpoint);
             let stored_provider = self
-                .load_identity_provider_for_profile(
-                    profile.id,
-                    Some(&profile.endpoint),
-                    binding.as_ref(),
-                )
+                .load_identity_provider_for_profile(account.id, endpoint.as_ref(), binding.as_ref())
                 .await
                 .ok();
             let boundary_provider = stored_provider.clone().or(binding);
             let (mut state, mut license_state, mut account_type, provider) =
-                match self.load_warp_identity(profile.id).await {
+                match self.load_warp_identity(account.id).await {
                     Ok(identity)
                         if matches!(identity.provider(), IdentityProvider::ZeroTrust { .. }) =>
                     {
@@ -1522,7 +1592,7 @@ impl ControlService {
                         let entitlement = match identity.entitlement() {
                             Some(value) => value,
                             None => self
-                                .repair_consumer_entitlement(profile.id, &identity)
+                                .repair_consumer_entitlement(account.id, &identity)
                                 .await
                                 .unwrap_or(ConsumerEntitlement::Free),
                         };
@@ -1548,8 +1618,8 @@ impl ControlService {
                         boundary_provider.clone().unwrap_or_default(),
                     ),
                 };
-            let inferred_zero_trust =
-                boundary_provider.is_none() && is_zero_trust_endpoint(&profile.endpoint);
+            let inferred_zero_trust = boundary_provider.is_none()
+                && endpoint.as_ref().is_some_and(is_zero_trust_endpoint);
             if inferred_zero_trust {
                 state = v1::ProfileIdentityState::Invalid;
             }
@@ -1568,7 +1638,7 @@ impl ControlService {
                 v1::IdentityProvider::Consumer
             };
             catalog.identity_statuses.push(v1::ProfileIdentityStatus {
-                profile_id: profile.id.to_string(),
+                profile_id: account.id.to_string(),
                 state: state as i32,
                 license_state: license_state as i32,
                 account_type,
@@ -1620,10 +1690,7 @@ impl ControlService {
             SecretRecord::AssignedIpv6,
             Zeroizing::new(identity.assigned_ipv6.to_string().into_bytes()),
         ));
-        records.push((
-            SecretRecord::IdentityMetadata,
-            identity.provider().to_metadata_json()?,
-        ));
+        records.push((SecretRecord::IdentityMetadata, identity.to_metadata_json()?));
 
         for (record, value) in records {
             if let Err(error) = self.vault.put(profile_id, record, &value).await {
@@ -1764,29 +1831,32 @@ impl ControlService {
         }
 
         let _mutation = self.mutation_lock.lock().await;
+        self.migrate_shared_proxy_password().await?;
         let mut next = self.config.read().await.clone();
-        let profile = next
-            .profiles
-            .iter_mut()
-            .find(|profile| profile.id == profile_id)
-            .ok_or(ControlServiceError::ProfileNotFound(profile_id))?;
+        if !next.profiles.iter().any(|profile| profile.id == profile_id) {
+            return Err(ControlServiceError::ProfileNotFound(profile_id));
+        }
         if username.is_empty() {
-            profile.proxy.auth_username = None;
-            profile.proxy.auth_password = None;
+            next.network.proxy.auth_username = None;
+            next.network.proxy.auth_password = None;
             self.vault
-                .delete(profile_id, SecretRecord::ProxyPassword)
+                .delete(SHARED_NETWORK_SECRET_ID, SecretRecord::ProxyPassword)
                 .await?;
         } else {
-            profile.proxy.auth_username = Some(username);
+            next.network.proxy.auth_username = Some(username);
             self.vault
-                .put(profile_id, SecretRecord::ProxyPassword, &password)
+                .put(
+                    SHARED_NETWORK_SECRET_ID,
+                    SecretRecord::ProxyPassword,
+                    &password,
+                )
                 .await?;
         }
-        profile.proxy.normalize_auth();
         self.persist(next).await
     }
 
     async fn attach_proxy_auth(&self, profile: &mut Profile) -> Result<(), ControlServiceError> {
+        self.migrate_shared_proxy_password().await?;
         profile.proxy.normalize_auth();
         match profile.proxy.listener_auth_username() {
             None => {
@@ -1796,7 +1866,7 @@ impl ControlService {
             Some(_) => {
                 let password = self
                     .vault
-                    .get(profile.id, SecretRecord::ProxyPassword)
+                    .get(SHARED_NETWORK_SECRET_ID, SecretRecord::ProxyPassword)
                     .await?;
                 let Some(password) = password.filter(|value| !value.is_empty()) else {
                     return Err(ControlServiceError::InvalidProxyAuth(
@@ -1864,13 +1934,11 @@ impl ControlService {
     ) -> Result<(), ControlServiceError> {
         let new_provider = new_identity.provider().clone();
         let mut next = self.config.read().await.clone();
-        let profile = next
-            .profiles
-            .iter_mut()
-            .find(|profile| profile.id == profile_id)
+        let account = next
+            .account_mut(profile_id)
             .ok_or(ControlServiceError::ProfileNotFound(profile_id))?;
         if let Some(endpoint) = new_endpoint {
-            profile.endpoint = endpoint;
+            account.managed_endpoint = Some(endpoint);
         }
         next.identity_bindings.insert(profile_id, new_provider);
 
@@ -1940,35 +2008,17 @@ impl ControlService {
 
     pub(crate) async fn upsert_profile_locked(
         &self,
-        mut profile: Profile,
+        profile: Profile,
     ) -> Result<Profile, ControlServiceError> {
-        profile.canonicalize_mode();
-        profile.proxy.normalize_auth();
         let mut next = self.config.read().await.clone();
-        match next
-            .profiles
-            .iter()
-            .position(|existing| existing.id == profile.id)
-        {
-            Some(index) => {
-                if matches!(
-                    next.identity_bindings.get(&profile.id),
-                    Some(IdentityProvider::ZeroTrust { .. })
-                ) {
-                    profile.endpoint = next.profiles[index].endpoint.clone();
-                }
-                if profile.proxy.listener_auth_username().is_none() {
-                    profile.proxy.auth_username = next.profiles[index].proxy.auth_username.clone();
-                }
-                next.profiles[index] = profile.clone();
-            }
-            None => next.profiles.push(profile.clone()),
-        }
+        let stored = next
+            .upsert_runtime_profile(profile)
+            .map_err(ControlServiceError::configuration)?;
         if next.active_profile_id.is_none() {
-            next.active_profile_id = Some(profile.id);
+            next.active_profile_id = Some(stored.id);
         }
         self.persist(next).await?;
-        Ok(profile)
+        Ok(stored)
     }
 
     async fn import_legacy_profiles(
@@ -1989,32 +2039,40 @@ impl ControlService {
         let mut next = self.config.read().await.clone();
         if !next.preferences.profiles_migrated_from_flutter {
             let mut incoming_ids = std::collections::HashSet::new();
-            for profile in profiles {
+            for profile in &profiles {
                 if !incoming_ids.insert(profile.id) {
                     return Err(ControlServiceError::InvalidRequest(
                         "legacy profile IDs must be unique".to_owned(),
                     ));
                 }
-                match next
-                    .profiles
-                    .iter()
-                    .position(|existing| existing.id == profile.id)
-                {
-                    Some(index) => next.profiles[index] = profile,
-                    None => next.profiles.push(profile),
-                }
             }
             if let Some(active_profile_id) = active_profile_id {
-                if !next
-                    .profiles
-                    .iter()
-                    .any(|profile| profile.id == active_profile_id)
+                if !incoming_ids.contains(&active_profile_id)
+                    && next.account(active_profile_id).is_none()
                 {
                     return Err(ControlServiceError::InvalidRequest(
                         "legacy active profile does not exist".to_owned(),
                     ));
                 }
                 next.active_profile_id = Some(active_profile_id);
+            }
+            if let Some(active) = profiles
+                .iter()
+                .find(|profile| Some(profile.id) == next.active_profile_id)
+            {
+                next.network = SharedNetworkSettings::from_profile(active);
+            }
+            next.profiles.clear();
+            for profile in profiles {
+                let managed_endpoint = profile
+                    .endpoint
+                    .is_zero_trust_managed()
+                    .then_some(profile.endpoint.clone());
+                next.insert_account(profile.id, profile.name, managed_endpoint)
+                    .map_err(ControlServiceError::configuration)?;
+            }
+            if next.active_profile().is_none() {
+                next.active_profile_id = next.profiles.first().map(|account| account.id);
             }
             next.preferences.profiles_migrated_from_flutter = true;
             self.persist(next).await?;
@@ -2056,23 +2114,18 @@ impl ControlService {
 
     async fn reset_profile(&self, id: Uuid) -> Result<Profile, ControlServiceError> {
         let _mutation = self.mutation_lock.lock().await;
+        self.migrate_shared_proxy_password().await?;
         let mut next = self.config.read().await.clone();
-        let preserve_endpoint = matches!(
-            next.identity_bindings.get(&id),
-            Some(IdentityProvider::ZeroTrust { .. })
-        );
-        let profile = next
-            .profiles
-            .iter_mut()
-            .find(|profile| profile.id == id)
-            .ok_or(ControlServiceError::ProfileNotFound(id))?;
-        let endpoint = profile.endpoint.clone();
-        profile.reset_network_defaults();
-        if preserve_endpoint {
-            profile.endpoint = endpoint;
+        if next.account(id).is_none() {
+            return Err(ControlServiceError::ProfileNotFound(id));
         }
-        let profile = profile.clone();
-        self.vault.delete(id, SecretRecord::ProxyPassword).await?;
+        next.network.reset_user_defaults();
+        self.vault
+            .delete(SHARED_NETWORK_SECRET_ID, SecretRecord::ProxyPassword)
+            .await?;
+        let profile = next
+            .runtime_profile(id)
+            .ok_or(ControlServiceError::ProfileNotFound(id))?;
         self.persist(next).await?;
         Ok(profile)
     }
@@ -2724,7 +2777,11 @@ pub(crate) fn profile_to_proto(profile: &Profile) -> v1::Profile {
 
 fn profile_list_to_proto(config: &AppConfig) -> v1::ProfileList {
     v1::ProfileList {
-        profiles: config.profiles.iter().map(profile_to_proto).collect(),
+        profiles: config
+            .runtime_profiles()
+            .iter()
+            .map(profile_to_proto)
+            .collect(),
         active_profile_id: config
             .active_profile_id
             .map(|id| id.to_string())
@@ -3007,7 +3064,7 @@ mod tests {
             Arc::new(MemoryVault::default()),
         )
         .unwrap();
-        let profile = service.config_snapshot().await.profiles[0].clone();
+        let profile = service.config_snapshot().await.active_profile().unwrap();
         service
             .install_test_session(profile.clone(), false, 0)
             .await
@@ -3221,10 +3278,6 @@ mod tests {
         let added = Profile {
             id: Uuid::parse_str("887f91ff-3977-4ac8-8947-e02c1f7c8181").expect("uuid"),
             name: "Hotel Wi-Fi".to_owned(),
-            endpoint: EndpointSettings {
-                sni: "example.com".to_owned(),
-                ..EndpointSettings::default()
-            },
             ..Profile::default()
         };
         let added_id = added.id;
@@ -3260,7 +3313,7 @@ mod tests {
 
         let reopened = ControlService::open(store).expect("reopen");
         let persisted = reopened.config_snapshot().await;
-        assert_eq!(persisted.profiles, vec![added]);
+        assert_eq!(persisted.runtime_profiles(), vec![added]);
         assert_eq!(persisted.active_profile_id, Some(added_id));
         assert!(persisted.pending_identity_deletions.is_empty());
         assert!(
@@ -3382,7 +3435,6 @@ mod tests {
             .config_snapshot()
             .await
             .active_profile()
-            .cloned()
             .expect("active profile");
         retry_profile.mode = OperatingMode::Socks5;
         retry_profile.frontends = FrontendSettings {
@@ -3456,7 +3508,7 @@ mod tests {
             Arc::new(MemoryVault::default()),
         )
         .expect("service");
-        let mut profile = service.config_snapshot().await.profiles[0].clone();
+        let mut profile = service.config_snapshot().await.active_profile().unwrap();
         let id = profile.id;
         profile.name = "Keep this name".to_owned();
         profile.endpoint.sni = "example.com".to_owned();
@@ -3473,11 +3525,45 @@ mod tests {
             .await;
         assert!(response.error.is_none(), "{:?}", response.error);
 
-        let reset = service.config_snapshot().await.profiles[0].clone();
+        let reset = service.config_snapshot().await.active_profile().unwrap();
         assert_eq!(reset.id, id);
         assert_eq!(reset.name, "Keep this name");
         assert_eq!(reset.endpoint, EndpointSettings::default());
         assert_eq!(reset.mtu, 1280);
+        assert_eq!(service.config_snapshot().await.network.mtu, 1280);
+    }
+
+    #[tokio::test]
+    async fn upsert_applies_network_settings_to_every_account() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(MemoryVault::default()),
+        )
+        .expect("service");
+        let mut extra = service.config_snapshot().await.active_profile().unwrap();
+        extra.id = Uuid::new_v4();
+        extra.name = "Work".to_owned();
+        extra.mtu = 1500;
+        extra.endpoint.sni = "ignored.example.com".to_owned();
+        let stored = service.upsert_profile(extra).await.expect("insert");
+        assert_eq!(stored.mtu, 1280);
+        assert_eq!(stored.endpoint.sni, EndpointSettings::default().sni);
+
+        let mut home = service.config_snapshot().await.active_profile().unwrap();
+        home.mtu = 1400;
+        home.auto_connect = true;
+        service.upsert_profile(home).await.expect("update");
+
+        let config = service.config_snapshot().await;
+        assert_eq!(config.network.mtu, 1400);
+        assert!(config.network.auto_connect);
+        assert!(
+            config
+                .runtime_profiles()
+                .iter()
+                .all(|profile| profile.mtu == 1400 && profile.auto_connect)
+        );
     }
 
     #[cfg(not(windows))]
@@ -3486,7 +3572,7 @@ mod tests {
         let directory = tempfile::tempdir().expect("tempdir");
         let service = ControlService::open(ConfigStore::new(directory.path().join("config.json")))
             .expect("service");
-        let mut profile = service.config_snapshot().await.profiles[0].clone();
+        let mut profile = service.config_snapshot().await.active_profile().unwrap();
         profile.frontends = FrontendSettings {
             tunnel: true,
             socks5: false,
@@ -3549,7 +3635,7 @@ mod tests {
         let directory = tempfile::tempdir().expect("tempdir");
         let service = ControlService::open(ConfigStore::new(directory.path().join("config.json")))
             .expect("service");
-        let profile = service.config_snapshot().await.profiles[0].clone();
+        let profile = service.config_snapshot().await.active_profile().unwrap();
 
         let delete = service
             .handle(request(
@@ -3705,13 +3791,7 @@ mod tests {
         let store = ConfigStore::new(&config_path);
         let mut config = store.load().expect("load staged live config");
         if let Ok(transport) = std::env::var("USQUE_LIVE_TRANSPORT") {
-            let active_id = config.active_profile_id.expect("active profile ID");
-            let active = config
-                .profiles
-                .iter_mut()
-                .find(|profile| profile.id == active_id)
-                .expect("active profile");
-            active.transport = match transport.as_str() {
+            config.network.transport = match transport.as_str() {
                 "auto" => TransportPolicy::Auto,
                 "h3" => TransportPolicy::Http3,
                 "h2" => TransportPolicy::Http2,
@@ -3724,7 +3804,6 @@ mod tests {
             .config_snapshot()
             .await
             .active_profile()
-            .cloned()
             .expect("active profile");
         assert_eq!(profile.mode, OperatingMode::Socks5);
 
@@ -3911,16 +3990,12 @@ mod tests {
 
         let store = ConfigStore::new(&config_path);
         let mut config = store.load().expect("load staged live config");
-        let active_id = config.active_profile_id.expect("active profile ID");
-        let active = config
-            .profiles
-            .iter_mut()
-            .find(|profile| profile.id == active_id)
-            .expect("active profile");
-        active.mode = OperatingMode::HttpProxy;
-        active.proxy.http_listeners = vec![listener];
+        config.network.frontends.tunnel = false;
+        config.network.frontends.socks5 = false;
+        config.network.frontends.http = true;
+        config.network.proxy.http_listeners = vec![listener];
         if let Ok(transport) = std::env::var("USQUE_LIVE_TRANSPORT") {
-            active.transport = match transport.as_str() {
+            config.network.transport = match transport.as_str() {
                 "auto" => TransportPolicy::Auto,
                 "h3" => TransportPolicy::Http3,
                 "h2" => TransportPolicy::Http2,
@@ -3934,7 +4009,6 @@ mod tests {
             .config_snapshot()
             .await
             .active_profile()
-            .cloned()
             .expect("active profile");
         let connected = service
             .handle(request(
@@ -4181,12 +4255,12 @@ mod tests {
             .await
             .unwrap();
         let mut config = service.config_snapshot().await;
-        config.profiles[0].endpoint = EndpointSettings {
+        config.profiles[0].managed_endpoint = Some(EndpointSettings {
             ipv4: "162.159.197.8".parse().unwrap(),
             ipv6: "2606:4700:102::8".parse().unwrap(),
             port: 443,
             sni: usque_core::ZERO_TRUST_SNI.to_owned(),
-        };
+        });
         config
             .identity_bindings
             .insert(profile_id, provider.clone());
@@ -4229,7 +4303,7 @@ mod tests {
             provider
         );
 
-        let mut edited = service.config_snapshot().await.profiles[0].clone();
+        let mut edited = service.config_snapshot().await.active_profile().unwrap();
         let registered_endpoint = edited.endpoint.clone();
         edited.endpoint = EndpointSettings::default();
         let stored = service.upsert_profile(edited).await.unwrap();
@@ -4270,7 +4344,12 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(
-            service.config_snapshot().await.profiles[0].endpoint,
+            service
+                .config_snapshot()
+                .await
+                .active_profile()
+                .unwrap()
+                .endpoint,
             endpoint
         );
 
@@ -4295,7 +4374,12 @@ mod tests {
             .await
             .expect("missing credentials should be repairable");
         assert_eq!(
-            service.config_snapshot().await.profiles[0].endpoint,
+            service
+                .config_snapshot()
+                .await
+                .active_profile()
+                .unwrap()
+                .endpoint,
             repaired_endpoint
         );
 
@@ -4386,14 +4470,17 @@ mod tests {
             .await;
         assert!(stored.error.is_none(), "{stored:?}");
         assert_eq!(
-            service.config_snapshot().await.profiles[0]
+            service
+                .config_snapshot()
+                .await
+                .network
                 .proxy
                 .auth_username
                 .as_deref(),
             Some("lan-user")
         );
         let password = vault
-            .get(profile_id, SecretRecord::ProxyPassword)
+            .get(SHARED_NETWORK_SECRET_ID, SecretRecord::ProxyPassword)
             .await
             .unwrap()
             .expect("vault password");
@@ -4416,16 +4503,152 @@ mod tests {
             .await;
         assert!(
             vault
-                .get(profile_id, SecretRecord::ProxyPassword)
+                .get(SHARED_NETWORK_SECRET_ID, SecretRecord::ProxyPassword)
                 .await
                 .unwrap()
                 .is_none()
         );
         assert!(
-            service.config_snapshot().await.profiles[0]
+            service
+                .config_snapshot()
+                .await
+                .network
                 .proxy
                 .auth_username
                 .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn legacy_per_profile_proxy_password_moves_to_the_shared_slot() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let vault = Arc::new(MemoryVault::default());
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::clone(&vault) as Arc<dyn SecretVault>,
+        )
+        .expect("service");
+        let profile_id = service.config_snapshot().await.profiles[0].id;
+        vault
+            .put(profile_id, SecretRecord::ProxyPassword, b"legacy-secret")
+            .await
+            .unwrap();
+
+        service
+            .migrate_shared_proxy_password()
+            .await
+            .expect("migrate");
+
+        assert_eq!(
+            vault
+                .get(SHARED_NETWORK_SECRET_ID, SecretRecord::ProxyPassword)
+                .await
+                .unwrap()
+                .expect("shared password")
+                .as_slice(),
+            b"legacy-secret"
+        );
+        assert!(
+            vault
+                .get(profile_id, SecretRecord::ProxyPassword)
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn deleting_an_account_keeps_the_shared_proxy_password() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let vault = Arc::new(MemoryVault::default());
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::clone(&vault) as Arc<dyn SecretVault>,
+        )
+        .expect("service");
+        let original = service.config_snapshot().await.profiles[0].id;
+        service
+            .handle(request(
+                "auth-set",
+                control_request::Payload::UpdateProxyAuth(v1::UpdateProxyAuthRequest {
+                    profile_id: original.to_string(),
+                    username: "lan-user".to_owned(),
+                    password: b"s3cret".to_vec(),
+                    confirmed: true,
+                }),
+            ))
+            .await;
+        let extra = Profile {
+            id: Uuid::new_v4(),
+            name: "Work".to_owned(),
+            ..Profile::default()
+        };
+        service.upsert_profile(extra.clone()).await.unwrap();
+        service.delete_profile(original).await.unwrap();
+
+        assert_eq!(
+            vault
+                .get(SHARED_NETWORK_SECRET_ID, SecretRecord::ProxyPassword)
+                .await
+                .unwrap()
+                .expect("shared password")
+                .as_slice(),
+            b"s3cret"
+        );
+        assert_eq!(
+            service
+                .config_snapshot()
+                .await
+                .network
+                .proxy
+                .auth_username
+                .as_deref(),
+            Some("lan-user")
+        );
+        assert!(
+            vault
+                .get(original, SecretRecord::ProxyPassword)
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn reset_keeps_zero_trust_managed_endpoint() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(MemoryVault::default()),
+        )
+        .expect("service");
+        let profile_id = service.config_snapshot().await.profiles[0].id;
+        let managed = EndpointSettings {
+            ipv4: "162.159.197.8".parse().unwrap(),
+            ipv6: "2606:4700:102::8".parse().unwrap(),
+            port: 443,
+            sni: usque_core::ZERO_TRUST_SNI.to_owned(),
+        };
+        let mut config = service.config_snapshot().await;
+        config.profiles[0].managed_endpoint = Some(managed.clone());
+        config.network.mtu = 1400;
+        config.identity_bindings.insert(
+            profile_id,
+            IdentityProvider::zero_trust("example-team").unwrap(),
+        );
+        service.persist(config).await.unwrap();
+
+        let reset = service.reset_profile(profile_id).await.unwrap();
+        assert_eq!(reset.endpoint, managed);
+        assert_eq!(reset.mtu, 1280);
+        assert_eq!(service.config_snapshot().await.network.mtu, 1280);
+        assert!(
+            !service
+                .config_snapshot()
+                .await
+                .network
+                .endpoint
+                .is_zero_trust_managed()
         );
     }
 
@@ -4449,7 +4672,7 @@ mod tests {
             Arc::new(MemoryVault::default()),
         )
         .unwrap();
-        let mut profile = service.config_snapshot().await.profiles[0].clone();
+        let mut profile = service.config_snapshot().await.active_profile().unwrap();
         profile.frontends = FrontendSettings {
             tunnel: true,
             socks5: true,
@@ -4577,7 +4800,7 @@ mod tests {
         let service =
             ControlService::open_with_vault(store.clone(), Arc::new(MemoryVault::default()))
                 .unwrap();
-        let mut profile = service.config_snapshot().await.profiles[0].clone();
+        let mut profile = service.config_snapshot().await.active_profile().unwrap();
         profile.frontends = FrontendSettings {
             tunnel: true,
             socks5: true,
@@ -4614,8 +4837,8 @@ mod tests {
             .expect("reopen")
             .config_snapshot()
             .await
-            .profiles[0]
-            .clone();
+            .active_profile()
+            .unwrap();
         assert!(!persisted.frontends.tunnel);
     }
 

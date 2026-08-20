@@ -14,6 +14,16 @@ import 'profiles_screen.dart';
 import 'proxy_screen.dart';
 import 'settings_screen.dart';
 
+const double _railMinWidth = 78;
+const double _railMinExtendedWidth = 232;
+
+/// Matches [NavigationRailDestination.padding] so the brand sits on the
+/// same vertical axis as the destination icons.
+const EdgeInsets _destinationPadding = EdgeInsets.symmetric(
+  vertical: 3,
+  horizontal: 8,
+);
+
 class ShellScreen extends StatelessWidget {
   const ShellScreen({required this.controller, super.key});
 
@@ -82,7 +92,12 @@ class ShellScreen extends StatelessWidget {
             controller: controller,
           ),
           ControllerSelector<
-            ({List<UsqueProfile> profiles, String activeProfileId})
+            ({
+              List<UsqueProfile> profiles,
+              String activeProfileId,
+              Map<String, ProfileIdentityState> identityStates,
+              Map<String, ProfileIdentityStatus> identityStatuses,
+            })
           >(
             key: const ValueKey<String>('profiles-controller-selector'),
             controller: controller,
@@ -90,6 +105,8 @@ class ShellScreen extends StatelessWidget {
             selector: (controller) => (
               profiles: controller.profiles,
               activeProfileId: controller.activeProfileId,
+              identityStates: controller.profileIdentityStates,
+              identityStatuses: controller.profileIdentityStatuses,
             ),
             builder: (context, _) => ProfilesScreen(controller: controller),
           ),
@@ -168,16 +185,15 @@ class ShellScreen extends StatelessWidget {
                             _handleNavigationKey(event, vertical: true),
                         child: NavigationRail(
                           extended: extended,
-                          minWidth: 78,
-                          minExtendedWidth: 232,
+                          minWidth: _railMinWidth,
+                          minExtendedWidth: _railMinExtendedWidth,
                           selectedIndex: selected,
                           onDestinationSelected: (index) => controller
                               .selectSection(AppSection.values[index]),
                           labelType: extended
                               ? NavigationRailLabelType.none
                               : NavigationRailLabelType.all,
-                          leading: _RailBrand(extended: extended),
-                          trailing: _RailFooter(
+                          leading: _RailLeading(
                             controller: controller,
                             extended: extended,
                           ),
@@ -188,10 +204,7 @@ class ShellScreen extends StatelessWidget {
                                   icon: Icon(_icons[index]),
                                   selectedIcon: Icon(_icons[index]),
                                   label: Text(labels[index]),
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 3,
-                                    horizontal: 8,
-                                  ),
+                                  padding: _destinationPadding,
                                 ),
                               ),
                         ),
@@ -252,83 +265,110 @@ class ShellScreen extends StatelessWidget {
   }
 }
 
-class _RailBrand extends StatelessWidget {
-  const _RailBrand({required this.extended});
-
-  final bool extended;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.fromLTRB(extended ? 20 : 0, 14, 0, 26),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          Image.asset(
-            'assets/branding/usque-ui-icon.png',
-            width: 30,
-            height: 30,
-            filterQuality: FilterQuality.medium,
-          ),
-          if (extended) ...<Widget>[
-            const SizedBox(width: 11),
-            Text('Usque', style: Theme.of(context).textTheme.titleLarge),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-/// Bottom of the rail: a one-tap theme cycle.
-class _RailFooter extends StatelessWidget {
-  const _RailFooter({required this.controller, required this.extended});
+/// Top of the rail: brand aligned with destination icons; theme at the
+/// trailing edge when the rail is extended, or centred alone when compact.
+class _RailLeading extends StatelessWidget {
+  const _RailLeading({required this.controller, required this.extended});
 
   final AppController controller;
   final bool extended;
 
   @override
   Widget build(BuildContext context) {
-    final strings = controller.strings;
+    final Widget theme = _ThemeCycleButton(controller: controller);
+    if (!extended) {
+      return SizedBox(
+        width: _railMinWidth,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(0, 10, 0, 18),
+          child: Center(child: theme),
+        ),
+      );
+    }
+
     return Padding(
       padding: EdgeInsets.fromLTRB(
-        extended ? 14 : 0,
+        _destinationPadding.left,
+        10,
+        _destinationPadding.right,
         18,
-        extended ? 14 : 0,
-        14,
       ),
-      child: ControllerSelector<ThemePreference>(
-        controller: controller,
-        selector: (controller) => controller.themePreference,
-        builder: (context, preference) {
-          final IconData icon = switch (preference) {
-            ThemePreference.system => LucideIcons.sunMoon,
-            ThemePreference.light => LucideIcons.sun,
-            ThemePreference.dark => LucideIcons.moon,
-          };
-          final String label = strings.get(switch (preference) {
-            ThemePreference.system => 'theme_system',
-            ThemePreference.light => 'theme_light',
-            ThemePreference.dark => 'theme_dark',
-          });
-          return IconButton(
-            tooltip: '${strings.get('theme')} · $label',
-            iconSize: 19,
-            onPressed: () => controller.setTheme(
-              ThemePreference.values[(preference.index + 1) %
-                  ThemePreference.values.length],
-            ),
-            icon: AnimatedSwitcher(
-              duration: UsqueMotion.of(context, UsqueMotion.base),
-              transitionBuilder: (child, animation) => FadeTransition(
-                opacity: animation,
-                child: ScaleTransition(scale: animation, child: child),
+      child: SizedBox(
+        width: _railMinExtendedWidth,
+        child: Row(
+          children: <Widget>[
+            SizedBox(
+              width: _railMinWidth,
+              child: Center(
+                child: Image.asset(
+                  'assets/branding/usque-ui-icon.png',
+                  width: 30,
+                  height: 30,
+                  filterQuality: FilterQuality.medium,
+                ),
               ),
-              child: Icon(icon, key: ValueKey<ThemePreference>(preference)),
             ),
-          );
-        },
+            Expanded(
+              child: Text(
+                'Usque',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+            ),
+            theme,
+          ],
+        ),
       ),
+    );
+  }
+}
+
+class _ThemeCycleButton extends StatelessWidget {
+  const _ThemeCycleButton({required this.controller});
+
+  final AppController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = controller.strings;
+    return ControllerSelector<ThemePreference>(
+      controller: controller,
+      selector: (controller) => controller.themePreference,
+      builder: (context, preference) {
+        final IconData icon = switch (preference) {
+          ThemePreference.system => LucideIcons.sunMoon,
+          ThemePreference.light => LucideIcons.sun,
+          ThemePreference.dark => LucideIcons.moon,
+        };
+        final String label = strings.get(switch (preference) {
+          ThemePreference.system => 'theme_system',
+          ThemePreference.light => 'theme_light',
+          ThemePreference.dark => 'theme_dark',
+        });
+        return IconButton(
+          tooltip: '${strings.get('theme')} · $label',
+          iconSize: 19,
+          visualDensity: VisualDensity.compact,
+          style: IconButton.styleFrom(
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            padding: const EdgeInsets.all(8),
+            minimumSize: const Size(36, 36),
+          ),
+          onPressed: () => controller.setTheme(
+            ThemePreference.values[(preference.index + 1) %
+                ThemePreference.values.length],
+          ),
+          icon: AnimatedSwitcher(
+            duration: UsqueMotion.of(context, UsqueMotion.base),
+            transitionBuilder: (child, animation) => FadeTransition(
+              opacity: animation,
+              child: ScaleTransition(scale: animation, child: child),
+            ),
+            child: Icon(icon, key: ValueKey<ThemePreference>(preference)),
+          ),
+        );
+      },
     );
   }
 }

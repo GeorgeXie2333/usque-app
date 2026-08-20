@@ -119,6 +119,9 @@ pub trait SecretVault: Send + Sync {
     async fn delete_identity(&self, profile_id: Uuid) -> Result<(), VaultError> {
         let mut first_error = None;
         for record in SecretRecord::ALL {
+            if record == SecretRecord::ProxyPassword {
+                continue;
+            }
             if let Err(error) = self.delete(profile_id, record).await
                 && first_error.is_none()
             {

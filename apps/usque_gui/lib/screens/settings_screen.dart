@@ -83,6 +83,7 @@ class SettingsScreen extends StatelessWidget {
                   ),
                 ],
               ),
+              _NetworkOutputsPanel(controller: controller),
               SectionPanel(
                 icon: LucideIcons.monitorCog,
                 title: strings.get('system_integration'),
@@ -220,6 +221,83 @@ class _UpdateActions extends StatelessWidget {
             icon: const Icon(LucideIcons.externalLink),
             label: Text(strings.get('open_release')),
           ),
+      ],
+    );
+  }
+}
+
+class _NetworkOutputsPanel extends StatelessWidget {
+  const _NetworkOutputsPanel({required this.controller});
+
+  final AppController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = controller.strings;
+    final profile = controller.activeProfile;
+    final frontends = profile.frontends;
+    final bool windows = defaultTargetPlatform == TargetPlatform.windows;
+    return SectionPanel(
+      icon: LucideIcons.share2,
+      title: strings.get('outputs'),
+      gap: 10,
+      children: <Widget>[
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          secondary: const Icon(LucideIcons.shield),
+          title: Text(strings.get('tunnel_output')),
+          value: frontends.tunnel,
+          onChanged: (value) => controller.updateNetwork(
+            profile.copyWith(frontends: frontends.copyWith(tunnel: value)),
+          ),
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          secondary: const Icon(LucideIcons.network),
+          title: const Text('SOCKS5'),
+          value: frontends.socks5,
+          onChanged: (value) => controller.updateNetwork(
+            profile.copyWith(frontends: frontends.copyWith(socks5: value)),
+          ),
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          secondary: const Icon(LucideIcons.globe2),
+          title: const Text('HTTP'),
+          value: frontends.http,
+          onChanged: (value) => controller.updateNetwork(
+            profile.copyWith(frontends: frontends.copyWith(http: value)),
+          ),
+        ),
+        if (windows)
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            secondary: const Icon(LucideIcons.link),
+            title: Text(strings.get('system_proxy')),
+            value: profile.proxy.systemProxy,
+            onChanged: frontends.http
+                ? (value) => controller.updateNetwork(
+                    profile.copyWith(
+                      proxy: profile.proxy.copyWith(systemProxy: value),
+                    ),
+                  )
+                : null,
+          ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          secondary: const Icon(LucideIcons.zap),
+          title: Text(strings.get('auto_connect')),
+          value: profile.autoConnect,
+          onChanged: (value) =>
+              controller.updateNetwork(profile.copyWith(autoConnect: value)),
+        ),
+        if (!frontends.any) ...<Widget>[
+          const SizedBox(height: 8),
+          WarningBanner(
+            title: strings.get('channel_only'),
+            message: strings.get('channel_only_warning'),
+          ),
+        ],
       ],
     );
   }

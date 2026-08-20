@@ -438,6 +438,16 @@ class UsqueProfile {
     );
   }
 
+  static OperatingMode modeFromFrontends(FrontendSettings frontends) {
+    if (frontends.tunnel) {
+      return OperatingMode.vpn;
+    }
+    if (frontends.http && !frontends.socks5) {
+      return OperatingMode.httpProxy;
+    }
+    return OperatingMode.socks5;
+  }
+
   UsqueProfile resetAdvancedDefaults() {
     return copyWith(
       transport: TransportPolicy.automatic,
@@ -477,10 +487,14 @@ class UsqueProfile {
     ProxySettings? proxy,
     FrontendSettings? frontends,
   }) {
+    final nextFrontends = frontends ?? this.frontends;
+    final nextMode = frontends != null
+        ? modeFromFrontends(nextFrontends)
+        : (mode ?? this.mode);
     return UsqueProfile(
       id: id ?? this.id,
       name: name ?? this.name,
-      mode: mode ?? this.mode,
+      mode: nextMode,
       transport: transport ?? this.transport,
       ipPolicy: ipPolicy ?? this.ipPolicy,
       endpointIpv4: endpointIpv4 ?? this.endpointIpv4,
@@ -496,7 +510,7 @@ class UsqueProfile {
       autoConnect: autoConnect ?? this.autoConnect,
       bypassCidrs: bypassCidrs ?? this.bypassCidrs,
       proxy: proxy ?? this.proxy,
-      frontends: frontends ?? this.frontends,
+      frontends: nextFrontends,
     );
   }
 
@@ -504,7 +518,7 @@ class UsqueProfile {
     return <String, Object?>{
       'id': id,
       'name': name,
-      'mode': mode.name,
+      'mode': modeFromFrontends(frontends).name,
       'transport': transport.name,
       'ip_policy': ipPolicy.name,
       'endpoint_v4': endpointIpv4,
@@ -558,7 +572,7 @@ class UsqueProfile {
     return UsqueProfile(
       id: id,
       name: name,
-      mode: legacyMode,
+      mode: modeFromFrontends(migratedFrontends),
       transport: _enumByName(TransportPolicy.values, _string(map, 'transport')),
       ipPolicy: _enumByName(IpPolicy.values, _string(map, 'ip_policy')),
       endpointIpv4: _string(map, 'endpoint_v4'),

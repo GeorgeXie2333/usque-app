@@ -73,7 +73,7 @@ class ProfilesScreen extends StatelessWidget {
           _ProfileEditDialog(strings: strings, profile: profile),
     );
     if (updated != null) {
-      controller.updateProfile(updated);
+      controller.renameProfile(updated.id, updated.name);
     }
   }
 
@@ -158,9 +158,6 @@ class _ProfileEditDialog extends StatefulWidget {
 class _ProfileEditDialogState extends State<_ProfileEditDialog> {
   late final TextEditingController _controller;
   late final FocusNode _focusNode;
-  late FrontendSettings _frontends;
-  late bool _systemProxy;
-  late bool _autoConnect;
   String? _errorText;
   bool _closing = false;
 
@@ -169,9 +166,6 @@ class _ProfileEditDialogState extends State<_ProfileEditDialog> {
     super.initState();
     _controller = TextEditingController(text: widget.profile.name);
     _focusNode = FocusNode();
-    _frontends = widget.profile.frontends;
-    _systemProxy = widget.profile.proxy.systemProxy;
-    _autoConnect = widget.profile.autoConnect;
   }
 
   void _submit() {
@@ -184,16 +178,7 @@ class _ProfileEditDialogState extends State<_ProfileEditDialog> {
       return;
     }
     _closing = true;
-    Navigator.of(context).pop(
-      widget.profile.copyWith(
-        name: value,
-        frontends: _frontends,
-        autoConnect: _autoConnect,
-        proxy: widget.profile.proxy.copyWith(
-          systemProxy: _frontends.http && _systemProxy,
-        ),
-      ),
-    );
+    Navigator.of(context).pop(widget.profile.copyWith(name: value));
   }
 
   @override
@@ -228,56 +213,6 @@ class _ProfileEditDialogState extends State<_ProfileEditDialog> {
             },
             onSubmitted: (_) => _submit(),
           ),
-          const SizedBox(height: 6),
-          DialogGroup(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Column(
-              children: <Widget>[
-                SwitchListTile(
-                  value: _frontends.tunnel,
-                  title: Text(widget.strings.get('tunnel_output')),
-                  onChanged: (value) => setState(
-                    () => _frontends = _frontends.copyWith(tunnel: value),
-                  ),
-                ),
-                SwitchListTile(
-                  value: _frontends.socks5,
-                  title: const Text('SOCKS5'),
-                  onChanged: (value) => setState(
-                    () => _frontends = _frontends.copyWith(socks5: value),
-                  ),
-                ),
-                SwitchListTile(
-                  value: _frontends.http,
-                  title: const Text('HTTP'),
-                  onChanged: (value) => setState(() {
-                    _frontends = _frontends.copyWith(http: value);
-                    if (!value) _systemProxy = false;
-                  }),
-                ),
-                if (Theme.of(context).platform == TargetPlatform.windows)
-                  SwitchListTile(
-                    value: _systemProxy,
-                    title: Text(widget.strings.get('system_proxy')),
-                    onChanged: _frontends.http
-                        ? (value) => setState(() => _systemProxy = value)
-                        : null,
-                  ),
-                SwitchListTile(
-                  value: _autoConnect,
-                  title: Text(widget.strings.get('auto_connect')),
-                  onChanged: (value) => setState(() => _autoConnect = value),
-                ),
-              ],
-            ),
-          ),
-          if (!_frontends.any) ...<Widget>[
-            const SizedBox(height: 12),
-            WarningBanner(
-              title: widget.strings.get('channel_only'),
-              message: widget.strings.get('channel_only_warning'),
-            ),
-          ],
         ],
       ),
       actions: <Widget>[
@@ -398,15 +333,7 @@ class _IdentityManagementDialogState extends State<_IdentityManagementDialog> {
                     ? LucideIcons.badgeCheck
                     : LucideIcons.user,
               ),
-              title: Text(
-                widget.status.accountType.isEmpty
-                    ? (zeroTrust
-                          ? 'Zero Trust'
-                          : plus
-                          ? 'WARP+'
-                          : 'Free')
-                    : widget.status.accountType,
-              ),
+              title: Text(_accountIdentityLabel(widget.status, widget.strings)),
               subtitle: zeroTrust
                   ? Text(
                       '${widget.status.organization}\n${widget.strings.get('license_not_applicable')}',
@@ -525,57 +452,16 @@ class _ProfileCard extends StatelessWidget {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final compact = constraints.maxWidth < 620;
-          final details = Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: <Widget>[
-              if (profile.frontends.tunnel)
-                _ProfileTag(
-                  icon: LucideIcons.shield,
-                  label: strings.get('tunnel_output'),
-                ),
-              if (profile.frontends.socks5)
-                const _ProfileTag(icon: LucideIcons.network, label: 'SOCKS5'),
-              if (profile.frontends.http)
-                const _ProfileTag(icon: LucideIcons.globe2, label: 'HTTP'),
-              if (!profile.frontends.any)
-                _ProfileTag(
-                  icon: LucideIcons.cable,
-                  label: strings.get('channel_only'),
-                ),
-              _ProfileTag(
-                icon: LucideIcons.cable,
-                label: _transportLabel(strings, profile.transport),
-              ),
-              _ProfileTag(
-                icon: LucideIcons.server,
-                label: '${profile.endpointIpv4}:${profile.endpointPort}',
-                mono: true,
-              ),
-              _ProfileTag(
-                icon: identityReady
-                    ? LucideIcons.keyRound
-                    : LucideIcons.triangleAlert,
-                tone: identityReady ? null : tokens.caution,
-                label: strings.get(switch (identityState) {
-                  ProfileIdentityState.ready => 'identity_ready',
-                  ProfileIdentityState.missing => 'identity_missing',
-                  ProfileIdentityState.invalid => 'identity_invalid',
-                }),
-              ),
-              if (identityStatus.provider == IdentityProvider.zeroTrust)
-                _ProfileTag(
-                  icon: LucideIcons.building2,
-                  label: identityStatus.organization.isEmpty
-                      ? 'Zero Trust · ${strings.get('experimental')}'
-                      : '${identityStatus.organization} · ${strings.get('experimental')}',
-                ),
-              if (profile.killSwitch)
-                _ProfileTag(
-                  icon: LucideIcons.shieldCheck,
-                  label: strings.get('kill_switch'),
-                ),
-            ],
+          final identityTag = _ProfileTag(
+            icon: identityStatus.provider == IdentityProvider.zeroTrust
+                ? LucideIcons.building2
+                : identityStatus.licenseState == LicenseState.warpPlus
+                ? LucideIcons.badgeCheck
+                : identityReady
+                ? LucideIcons.user
+                : LucideIcons.triangleAlert,
+            tone: identityReady ? null : tokens.caution,
+            label: _accountIdentityLabel(identityStatus, strings),
           );
           final actions = Wrap(
             spacing: 6,
@@ -650,16 +536,18 @@ class _ProfileCard extends StatelessWidget {
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                   ),
-                  if (active)
+                  const SizedBox(width: 10),
+                  identityTag,
+                  if (active) ...<Widget>[
+                    const SizedBox(width: 8),
                     StatusPill(
                       label: strings.get('active'),
                       tone: StatusTone.success,
                     ),
+                  ],
                   if (!compact) ...<Widget>[const SizedBox(width: 10), actions],
                 ],
               ),
-              const SizedBox(height: 18),
-              details,
               if (compact) ...<Widget>[
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 14),
@@ -675,22 +563,33 @@ class _ProfileCard extends StatelessWidget {
   }
 }
 
+String _accountIdentityLabel(ProfileIdentityStatus status, AppStrings strings) {
+  if (status.provider == IdentityProvider.zeroTrust) {
+    return 'Zero Trust';
+  }
+  if (status.licenseState == LicenseState.warpPlus) {
+    return 'WARP+';
+  }
+  if (status.state != ProfileIdentityState.ready) {
+    return strings.get(switch (status.state) {
+      ProfileIdentityState.missing => 'identity_missing',
+      ProfileIdentityState.invalid => 'identity_invalid',
+      ProfileIdentityState.ready => 'warp_free',
+    });
+  }
+  return strings.get('warp_free');
+}
+
 /// One fact about a profile. Outlined rather than filled, so a card full of
 /// them still reads as a single object.
 class _ProfileTag extends StatelessWidget {
-  const _ProfileTag({
-    required this.icon,
-    required this.label,
-    this.tone,
-    this.mono = false,
-  });
+  const _ProfileTag({required this.icon, required this.label, this.tone});
 
   final IconData icon;
   final String label;
 
   /// Overrides the neutral colour when the fact needs attention.
   final Color? tone;
-  final bool mono;
 
   @override
   Widget build(BuildContext context) {
@@ -714,21 +613,11 @@ class _ProfileTag extends StatelessWidget {
             const SizedBox(width: 7),
             Text(
               label,
-              style: mono
-                  ? UsqueTheme.mono(context, size: 12, color: foreground)
-                  : theme.textTheme.labelMedium?.copyWith(color: foreground),
+              style: theme.textTheme.labelMedium?.copyWith(color: foreground),
             ),
           ],
         ),
       ),
     );
   }
-}
-
-String _transportLabel(AppStrings strings, TransportPolicy transport) {
-  return strings.get(switch (transport) {
-    TransportPolicy.automatic => 'automatic',
-    TransportPolicy.http3 => 'http3',
-    TransportPolicy.http2 => 'http2',
-  });
 }

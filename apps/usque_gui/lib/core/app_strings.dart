@@ -43,7 +43,7 @@ class AppStrings {
     'outputs': 'Network outputs',
     'home': 'Home',
     'profiles': 'Profiles',
-    'profiles_subtitle': 'Each profile carries its own identity and outputs.',
+    'profiles_subtitle': 'Switch and manage WARP accounts.',
     'proxy': 'Proxy',
     'proxy_subtitle': 'Local listeners for the active profile.',
     'settings': 'Settings',
@@ -160,8 +160,8 @@ class AppStrings {
     'dns_leak_warning_body':
         'Custom or system DNS is resolved outside the remote proxy path. Use remote DNS unless you explicitly accept this exposure.',
     'system_proxy': 'Configure system proxy',
-    'output_disabled_in_profile': 'Disabled in this Profile',
-    'auto_connect': 'Connect this Profile automatically',
+    'output_disabled_in_profile': 'Disabled in Settings',
+    'auto_connect': 'Connect the current account automatically on start',
     'lan_warning': 'Proxy exposed to the local network',
     'lan_warning_body':
         'Usque does not add username/password authentication. Anyone who can reach this listener may use it.',
@@ -248,7 +248,7 @@ class AppStrings {
     'kill_switch_help':
         'Block traffic while connecting, reconnecting, or recovering from an engine failure. On Android this lasts while the VPN service is running; enable Always-on VPN and Block connections without VPN in system settings for protection after the app is killed.',
     'start_on_boot_android':
-        'Start Usque after reboot. Also enable Auto-connect on the active profile.',
+        'Start Usque after reboot. Also enable automatic connect on start.',
     'add_quick_settings_tile_help':
         'Pin the Usque tile on Android 13 or later. On older versions add it from Quick Settings.',
     'always_on_vpn': 'Open Always-on VPN settings',
@@ -344,7 +344,7 @@ class AppStrings {
     'outputs': '网络输出',
     'home': '首页',
     'profiles': '配置',
-    'profiles_subtitle': '每个配置都有各自的身份与输出方式。',
+    'profiles_subtitle': '切换和管理 WARP 账号。',
     'proxy': '代理',
     'proxy_subtitle': '当前配置的本地监听端口。',
     'settings': '设置',
@@ -448,8 +448,8 @@ class AppStrings {
     'dns_leak_warning': '本地 DNS 可能暴露访问的域名',
     'dns_leak_warning_body': '自定义 DNS 或系统 DNS 不经过远端代理解析；除非明确接受该风险，否则请使用远程 DNS。',
     'system_proxy': '配置系统代理',
-    'output_disabled_in_profile': '已在此配置中关闭',
-    'auto_connect': '自动连接此配置',
+    'output_disabled_in_profile': '已在设置中关闭',
+    'auto_connect': '启动时自动连接当前账号',
     'lan_warning': '代理已暴露到局域网',
     'lan_warning_body': 'Usque 不会添加用户名/密码认证。任何能访问此监听地址的人都可能使用它。',
     'lan_warning_body_authenticated': '此监听地址接受已认证的非回环客户端；客户端必须提供已配置的用户名和密码。',
@@ -529,7 +529,7 @@ class AppStrings {
     'not_used_proxy': '代理模式不适用',
     'kill_switch_help':
         '连接、重连或 Engine 故障恢复期间阻止流量泄漏。Android 上仅在 VPN 服务运行期间生效；进程被杀后的防护需在系统设置中开启始终开启 VPN 和“无 VPN 时拦截连接”。',
-    'start_on_boot_android': '开机后启动 Usque。还需要打开当前配置的自动连接。',
+    'start_on_boot_android': '开机后启动 Usque。还需要打开启动时自动连接。',
     'add_quick_settings_tile_help':
         '在 Android 13 或更高版本固定 Usque 磁贴。更低版本请在快捷设置中手动添加。',
     'always_on_vpn': '打开始终开启 VPN 设置',

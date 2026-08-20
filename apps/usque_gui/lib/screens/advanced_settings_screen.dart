@@ -353,7 +353,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     }
     final profile = widget.controller.activeProfile;
     final endpointManaged = _zeroTrustEndpointManaged;
-    widget.controller.updateProfile(
+    widget.controller.updateNetwork(
       profile.copyWith(
         transport: _transport,
         ipPolicy: _ipPolicy,
@@ -418,7 +418,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
         sni: current.sni,
       );
     }
-    widget.controller.updateProfile(reset);
+    widget.controller.updateNetwork(reset);
     setState(() => _load(reset));
   }
 }

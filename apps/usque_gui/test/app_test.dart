@@ -14,6 +14,7 @@ import 'package:usque/models/app_models.dart';
 import 'package:usque/screens/advanced_settings_screen.dart';
 import 'package:usque/screens/home_screen.dart';
 import 'package:usque/screens/per_app_proxy_screen.dart';
+import 'package:usque/screens/profiles_screen.dart';
 import 'package:usque/screens/proxy_screen.dart';
 import 'package:usque/screens/settings_screen.dart';
 import 'package:usque/services/desktop_engine_client.dart';
@@ -71,16 +72,69 @@ class FakeEngineClient implements EngineClient {
     );
   }
 
+  bool _preservesEndpoint(String id) =>
+      storedIdentityStatuses[id]?.provider == IdentityProvider.zeroTrust;
+
+  UsqueProfile _hydrate(UsqueProfile account, UsqueProfile network) {
+    final keepEndpoint = _preservesEndpoint(account.id);
+    return network.copyWith(
+      id: account.id,
+      name: account.name,
+      endpointIpv4: keepEndpoint ? account.endpointIpv4 : network.endpointIpv4,
+      endpointIpv6: keepEndpoint ? account.endpointIpv6 : network.endpointIpv6,
+      endpointPort: keepEndpoint ? account.endpointPort : network.endpointPort,
+      sni: keepEndpoint ? account.sni : network.sni,
+    );
+  }
+
+  UsqueProfile _currentNetwork(UsqueProfile fallback) {
+    if (storedProfiles.isEmpty) {
+      return fallback;
+    }
+    final source = storedProfiles.firstWhere(
+      (stored) => !_preservesEndpoint(stored.id),
+      orElse: () => storedProfiles.first,
+    );
+    if (_preservesEndpoint(source.id)) {
+      return source.copyWith(
+        endpointIpv4: UsqueProfile.defaultEndpointIpv4,
+        endpointIpv6: UsqueProfile.defaultEndpointIpv6,
+        endpointPort: UsqueProfile.defaultEndpointPort,
+        sni: UsqueProfile.defaultSni,
+      );
+    }
+    return source;
+  }
+
   @override
   Future<void> upsertProfile(UsqueProfile profile) async {
     final index = storedProfiles.indexWhere(
       (stored) => stored.id == profile.id,
     );
     if (index < 0) {
-      storedProfiles = <UsqueProfile>[...storedProfiles, profile];
-    } else {
-      storedProfiles = <UsqueProfile>[...storedProfiles]..[index] = profile;
+      storedProfiles = <UsqueProfile>[
+        ...storedProfiles,
+        _hydrate(profile, _currentNetwork(profile)),
+      ];
+      return;
     }
+    final current = _currentNetwork(profile);
+    final network = _preservesEndpoint(profile.id)
+        ? profile.copyWith(
+            endpointIpv4: current.endpointIpv4,
+            endpointIpv6: current.endpointIpv6,
+            endpointPort: current.endpointPort,
+            sni: current.sni,
+          )
+        : profile;
+    storedProfiles = storedProfiles
+        .map((stored) {
+          final account = stored.id == profile.id
+              ? stored.copyWith(name: profile.name)
+              : stored;
+          return _hydrate(account, network);
+        })
+        .toList(growable: false);
   }
 
   @override
@@ -117,6 +171,29 @@ class FakeEngineClient implements EngineClient {
     lastProvisioningMethod = method;
     lastZeroTrustTeam = teamName;
     lastZeroTrustCallback = callbackUri;
+    storedIdentityStatuses = <String, ProfileIdentityStatus>{
+      ...storedIdentityStatuses,
+      profile.id: switch (method) {
+        IdentityProvisioningMethod.zeroTrust => ProfileIdentityStatus(
+          state: ProfileIdentityState.ready,
+          licenseState: LicenseState.notApplicable,
+          accountType: 'Zero Trust',
+          provider: IdentityProvider.zeroTrust,
+          organization: teamName ?? '',
+        ),
+        IdentityProvisioningMethod.registerWithLicense =>
+          const ProfileIdentityStatus(
+            state: ProfileIdentityState.ready,
+            licenseState: LicenseState.warpPlus,
+            accountType: 'WARP+',
+          ),
+        _ => const ProfileIdentityStatus(
+          state: ProfileIdentityState.ready,
+          licenseState: LicenseState.free,
+          accountType: 'Free',
+        ),
+      },
+    };
   }
 
   @override
@@ -191,16 +268,13 @@ class FakeEngineClient implements EngineClient {
     }
     lastProxyAuthUsername = username;
     lastProxyAuthPassword = password;
-    final index = storedProfiles.indexWhere(
-      (profile) => profile.id == profileId,
-    );
-    if (index >= 0) {
-      final current = storedProfiles[index];
-      storedProfiles = <UsqueProfile>[...storedProfiles]
-        ..[index] = current.copyWith(
-          proxy: current.proxy.copyWith(authUsername: username),
-        );
-    }
+    storedProfiles = storedProfiles
+        .map(
+          (profile) => profile.copyWith(
+            proxy: profile.proxy.copyWith(authUsername: username),
+          ),
+        )
+        .toList(growable: false);
   }
 
   @override
@@ -838,7 +912,11 @@ void main() {
     final persistent = first.profiles.last;
     first.updateProfile(
       persistent.copyWith(
-        mode: OperatingMode.httpProxy,
+        frontends: const FrontendSettings(
+          tunnel: false,
+          socks5: false,
+          http: true,
+        ),
         proxy: persistent.proxy.copyWith(dnsMode: ProxyDnsMode.system),
       ),
     );
@@ -852,7 +930,30 @@ void main() {
     expect(second.activeProfileId, persistent.id);
     expect(second.activeProfile.mode, OperatingMode.httpProxy);
     expect(second.activeProfile.proxy.dnsMode, ProxyDnsMode.system);
+    expect(second.profiles.first.proxy.dnsMode, ProxyDnsMode.system);
     second.dispose();
+  });
+
+  test('network settings stay shared when switching accounts', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final engine = FakeEngineClient();
+    final controller = AppController(engine);
+    await controller.initialize();
+    controller.addProfile('Work');
+    final work = controller.profiles.last;
+    controller.updateProfile(
+      controller.activeProfile.copyWith(
+        mtu: 1400,
+        autoConnect: true,
+        frontends: controller.activeProfile.frontends.copyWith(tunnel: false),
+      ),
+    );
+    controller.setActiveProfile(work.id);
+    expect(controller.activeProfile.mtu, 1400);
+    expect(controller.activeProfile.autoConnect, isTrue);
+    expect(controller.activeProfile.frontends.tunnel, isFalse);
+    expect(controller.activeProfile.mtu, 1400);
+    controller.dispose();
   });
 
   test(
@@ -1391,6 +1492,110 @@ void main() {
     expect(find.widgetWithText(FilledButton, 'New profile'), findsOneWidget);
   });
 
+  testWidgets(
+    'extended rail aligns the brand with destinations and docks theme at the end',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1280, 900);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'onboarding_complete': true,
+      });
+
+      await tester.pumpWidget(UsqueBootstrap(engine: FakeEngineClient()));
+      await tester.pumpAndSettle();
+
+      final Finder rail = find.byType(NavigationRail);
+      final Finder brand = find.descendant(
+        of: rail,
+        matching: find.text('Usque'),
+      );
+      final Finder brandIcon = find.byWidgetPredicate(
+        (widget) =>
+            widget is Image &&
+            widget.image is AssetImage &&
+            (widget.image as AssetImage).assetName ==
+                'assets/branding/usque-ui-icon.png' &&
+            widget.width == 30,
+      );
+      final Finder homeIcon = find.descendant(
+        of: rail,
+        matching: find.byIcon(LucideIcons.house),
+      );
+      final Finder themeButton = find.descendant(
+        of: rail,
+        matching: find.byTooltip('Theme · System'),
+      );
+      expect(brand, findsOneWidget);
+      expect(brandIcon, findsOneWidget);
+      expect(themeButton, findsOneWidget);
+      expect(
+        tester.getCenter(brandIcon).dx,
+        closeTo(tester.getCenter(homeIcon).dx, 1),
+      );
+      expect(
+        tester.getCenter(themeButton).dx,
+        greaterThan(tester.getRect(rail).center.dx),
+      );
+      expect(
+        tester.getCenter(themeButton).dx,
+        greaterThan(tester.getCenter(brand).dx),
+      );
+      expect(
+        (tester.getCenter(themeButton).dy - tester.getCenter(brand).dy).abs(),
+        lessThan(12),
+      );
+
+      await tester.tap(themeButton);
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(of: rail, matching: find.byTooltip('Theme · Light')),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets('compact rail hides the brand and centres the theme cycle', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(900, 800);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+    });
+
+    await tester.pumpWidget(UsqueBootstrap(engine: FakeEngineClient()));
+    await tester.pumpAndSettle();
+
+    final Finder rail = find.byType(NavigationRail);
+    final Finder brandIcon = find.byWidgetPredicate(
+      (widget) =>
+          widget is Image &&
+          widget.image is AssetImage &&
+          (widget.image as AssetImage).assetName ==
+              'assets/branding/usque-ui-icon.png' &&
+          widget.width == 30,
+    );
+    final Finder themeButton = find.descendant(
+      of: rail,
+      matching: find.byTooltip('Theme · System'),
+    );
+    expect(
+      find.descendant(of: rail, matching: find.text('Usque')),
+      findsNothing,
+    );
+    expect(brandIcon, findsNothing);
+    expect(themeButton, findsOneWidget);
+    expect(
+      tester.getCenter(themeButton).dx,
+      closeTo(tester.getRect(rail).center.dx, 2),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('Android settings exposes boot, tile, and Always-on controls', (
     tester,
   ) async {
@@ -1772,4 +1977,245 @@ void main() {
       controller.dispose();
     },
   );
+
+  testWidgets('Settings network outputs edit the active profile immediately', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    try {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1280, 900);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'onboarding_complete': true,
+      });
+
+      await tester.pumpWidget(UsqueBootstrap(engine: FakeEngineClient()));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: find.byType(NavigationRail),
+          matching: find.text('Settings'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      Future<void> toggle(String title) async {
+        final tile = find.widgetWithText(SwitchListTile, title);
+        await tester.ensureVisible(tile);
+        await tester.tap(tile);
+        await tester.pumpAndSettle();
+      }
+
+      SettingsScreen settings() =>
+          tester.widget<SettingsScreen>(find.byType(SettingsScreen));
+
+      expect(find.text('Network outputs'), findsOneWidget);
+      expect(settings().controller.activeProfile.frontends.tunnel, isTrue);
+      expect(settings().controller.activeProfile.frontends.socks5, isTrue);
+      expect(settings().controller.activeProfile.frontends.http, isTrue);
+      expect(settings().controller.activeProfile.proxy.systemProxy, isFalse);
+      expect(settings().controller.activeProfile.autoConnect, isFalse);
+
+      await toggle('VPN / virtual adapter');
+      expect(settings().controller.activeProfile.frontends.tunnel, isFalse);
+
+      await toggle('SOCKS5');
+      expect(settings().controller.activeProfile.frontends.socks5, isFalse);
+
+      await toggle('Connect the current account automatically on start');
+      expect(settings().controller.activeProfile.autoConnect, isTrue);
+
+      await toggle('Configure system proxy');
+      expect(settings().controller.activeProfile.proxy.systemProxy, isTrue);
+
+      await toggle('HTTP');
+      expect(settings().controller.activeProfile.frontends.http, isFalse);
+      expect(settings().controller.activeProfile.proxy.systemProxy, isFalse);
+      expect(settings().controller.activeProfile.frontends.any, isFalse);
+      expect(find.text('No network output is enabled.'), findsOneWidget);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('Android settings hide the system proxy switch', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    try {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1280, 900);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'onboarding_complete': true,
+      });
+
+      await tester.pumpWidget(UsqueBootstrap(engine: FakeEngineClient()));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: find.byType(NavigationRail),
+          matching: find.text('Settings'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Network outputs'), findsOneWidget);
+      expect(find.text('VPN / virtual adapter'), findsOneWidget);
+      expect(find.text('Configure system proxy'), findsNothing);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('profile cards show account identity instead of output tags', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1280, 900);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+    });
+
+    await tester.pumpWidget(UsqueBootstrap(engine: FakeEngineClient()));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(NavigationRail),
+        matching: find.text('Profiles'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final profiles = find.byType(ProfilesScreen);
+    expect(
+      find.descendant(of: profiles, matching: find.text('WARP Free')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: profiles, matching: find.text('SOCKS5')),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: profiles, matching: find.text('HTTP')),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: profiles, matching: find.text('Identity ready')),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: profiles, matching: find.text('Kill Switch')),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: profiles, matching: find.text('162.159.198.2:443')),
+      findsNothing,
+    );
+
+    await tester.tap(find.byTooltip('Edit').first);
+    await tester.pumpAndSettle();
+    expect(find.text('Edit profile'), findsOneWidget);
+    expect(find.text('Profile name'), findsOneWidget);
+    expect(find.widgetWithText(SwitchListTile, 'SOCKS5'), findsNothing);
+    expect(
+      find.widgetWithText(SwitchListTile, 'VPN / virtual adapter'),
+      findsNothing,
+    );
+    expect(
+      find.widgetWithText(SwitchListTile, 'Connect this Profile automatically'),
+      findsNothing,
+    );
+    await tester.enterText(find.byType(TextField), 'Personal');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    expect(find.text('Personal'), findsOneWidget);
+  });
+
+  testWidgets('profile cards show WARP+ and Zero Trust identity tags', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1280, 900);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+    });
+    final plus = UsqueProfile.defaultProfile();
+    final zeroTrust = plus.copyWith(
+      id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      name: 'Work',
+    );
+    final engine = FakeEngineClient()
+      ..legacyProfilesImported = true
+      ..storedProfiles = <UsqueProfile>[plus, zeroTrust]
+      ..storedActiveProfileId = plus.id
+      ..storedIdentityStatuses = <String, ProfileIdentityStatus>{
+        plus.id: const ProfileIdentityStatus(
+          state: ProfileIdentityState.ready,
+          licenseState: LicenseState.warpPlus,
+          accountType: 'WARP+',
+        ),
+        zeroTrust.id: const ProfileIdentityStatus(
+          state: ProfileIdentityState.ready,
+          licenseState: LicenseState.notApplicable,
+          accountType: 'Zero Trust',
+          provider: IdentityProvider.zeroTrust,
+          organization: 'example-team',
+        ),
+      };
+
+    await tester.pumpWidget(UsqueBootstrap(engine: engine));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(NavigationRail),
+        matching: find.text('Profiles'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('WARP+'), findsOneWidget);
+    expect(find.text('Zero Trust'), findsOneWidget);
+    expect(find.text('WARP Free'), findsNothing);
+    expect(find.text('example-team · Experimental'), findsNothing);
+  });
+
+  testWidgets('profile cards show WARP Free from license state', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1280, 900);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+    });
+    final engine = FakeEngineClient()
+      ..legacyProfilesImported = true
+      ..storedIdentityStatuses = <String, ProfileIdentityStatus>{
+        UsqueProfile.defaultProfileId: const ProfileIdentityStatus(
+          state: ProfileIdentityState.ready,
+          licenseState: LicenseState.free,
+          accountType: 'Free',
+        ),
+      };
+
+    await tester.pumpWidget(UsqueBootstrap(engine: engine));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(NavigationRail),
+        matching: find.text('Profiles'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('WARP Free'), findsOneWidget);
+    expect(find.text('WARP+'), findsNothing);
+  });
 }

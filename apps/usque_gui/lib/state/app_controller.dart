@@ -62,11 +62,55 @@ class AppController extends ChangeNotifier {
 
   AppStrings get strings => AppStrings(localePreference);
 
+  UsqueProfile sharedNetwork = UsqueProfile.defaultProfile();
+
   UsqueProfile get activeProfile {
-    return profiles.firstWhere(
+    final account = profiles.firstWhere(
       (profile) => profile.id == activeProfileId,
       orElse: UsqueProfile.defaultProfile,
     );
+    return _hydrateAccount(account);
+  }
+
+  UsqueProfile _hydrateAccount(UsqueProfile account) {
+    final zeroTrust =
+        identityStatus(account.id).provider == IdentityProvider.zeroTrust;
+    return sharedNetwork.copyWith(
+      id: account.id,
+      name: account.name,
+      endpointIpv4: zeroTrust
+          ? account.endpointIpv4
+          : sharedNetwork.endpointIpv4,
+      endpointIpv6: zeroTrust
+          ? account.endpointIpv6
+          : sharedNetwork.endpointIpv6,
+      endpointPort: zeroTrust
+          ? account.endpointPort
+          : sharedNetwork.endpointPort,
+      sni: zeroTrust ? account.sni : sharedNetwork.sni,
+    );
+  }
+
+  void _captureSharedNetwork() {
+    if (profiles.isEmpty) {
+      sharedNetwork = UsqueProfile.defaultProfile();
+      return;
+    }
+    final source = profiles.firstWhere(
+      (profile) =>
+          identityStatus(profile.id).provider != IdentityProvider.zeroTrust,
+      orElse: () => profiles.first,
+    );
+    final zeroTrust =
+        identityStatus(source.id).provider == IdentityProvider.zeroTrust;
+    sharedNetwork = zeroTrust
+        ? source.copyWith(
+            endpointIpv4: UsqueProfile.defaultEndpointIpv4,
+            endpointIpv6: UsqueProfile.defaultEndpointIpv6,
+            endpointPort: UsqueProfile.defaultEndpointPort,
+            sni: UsqueProfile.defaultSni,
+          )
+        : source;
   }
 
   Future<void> initialize() async {
@@ -188,6 +232,7 @@ class AppController extends ChangeNotifier {
       activeProfileId = catalog.activeProfileId;
       profileIdentityStates = catalog.identityStates;
       profileIdentityStatuses = catalog.identityStatuses;
+      _captureSharedNetwork();
       await preferences?.remove(_profilesKey);
     } on EngineException catch (error) {
       lastError ??= error.message;
@@ -414,6 +459,7 @@ class AppController extends ChangeNotifier {
     activeProfileId = catalog.activeProfileId;
     profileIdentityStates = catalog.identityStates;
     profileIdentityStatuses = catalog.identityStatuses;
+    _captureSharedNetwork();
   }
 
   Future<void> checkForUpdates() async {
@@ -615,10 +661,7 @@ class AppController extends ChangeNotifier {
       return;
     }
     final id = _newUuidV4();
-    final added = UsqueProfile.defaultProfile().copyWith(
-      id: id,
-      name: normalized,
-    );
+    final added = sharedNetwork.copyWith(id: id, name: normalized);
     profiles = <UsqueProfile>[...profiles, added];
     profileIdentityStates = <String, ProfileIdentityState>{
       ...profileIdentityStates,
@@ -650,10 +693,7 @@ class AppController extends ChangeNotifier {
   }) async {
     final normalized = name.trim();
     if (normalized.isEmpty || normalized.runes.length > 64) return false;
-    final profile = UsqueProfile.defaultProfile().copyWith(
-      id: _newUuidV4(),
-      name: normalized,
-    );
+    final profile = sharedNetwork.copyWith(id: _newUuidV4(), name: normalized);
     ProfileCatalog? catalog;
     final success = await _run(() async {
       catalog = await _engine.createProfileWithIdentity(
@@ -667,6 +707,7 @@ class AppController extends ChangeNotifier {
       activeProfileId = catalog!.activeProfileId;
       profileIdentityStates = catalog!.identityStates;
       profileIdentityStatuses = catalog!.identityStatuses;
+      _captureSharedNetwork();
     }, affectsConnection: false);
     return success;
   }
@@ -720,21 +761,67 @@ class AppController extends ChangeNotifier {
   Future<void> cancelZeroTrustLogin() => _engine.cancelZeroTrustLogin();
 
   void updateProfile(UsqueProfile updated) {
-    if (!profiles.any((profile) => profile.id == updated.id)) {
+    updateNetwork(updated);
+  }
+
+  void renameProfile(String id, String name) {
+    if (!profiles.any((profile) => profile.id == id)) {
+      return;
+    }
+    profiles = profiles
+        .map(
+          (profile) =>
+              profile.id == id ? profile.copyWith(name: name) : profile,
+        )
+        .toList(growable: false);
+    _notifyListeners();
+    final outgoing = _hydrateAccount(
+      profiles.firstWhere((profile) => profile.id == id),
+    );
+    _queueProfileMutation(() => _engine.upsertProfile(outgoing));
+  }
+
+  void updateNetwork(UsqueProfile updated) {
+    if (!profiles.any((profile) => profile.id == updated.id) &&
+        updated.id != activeProfileId) {
       return;
     }
     final normalized = updated.frontends.http
         ? updated
         : updated.copyWith(proxy: updated.proxy.copyWith(systemProxy: false));
-    profiles = profiles
-        .map((profile) => profile.id == normalized.id ? normalized : profile)
-        .toList(growable: false);
+    final zeroTrust =
+        identityStatus(activeProfileId).provider == IdentityProvider.zeroTrust;
+    sharedNetwork = sharedNetwork.copyWith(
+      frontends: normalized.frontends,
+      transport: normalized.transport,
+      ipPolicy: normalized.ipPolicy,
+      endpointIpv4: zeroTrust
+          ? sharedNetwork.endpointIpv4
+          : normalized.endpointIpv4,
+      endpointIpv6: zeroTrust
+          ? sharedNetwork.endpointIpv6
+          : normalized.endpointIpv6,
+      endpointPort: zeroTrust
+          ? sharedNetwork.endpointPort
+          : normalized.endpointPort,
+      sni: zeroTrust ? sharedNetwork.sni : normalized.sni,
+      mtu: normalized.mtu,
+      dnsIpv4: normalized.dnsIpv4,
+      dnsIpv6: normalized.dnsIpv6,
+      dnsMode: normalized.dnsMode,
+      killSwitch: normalized.killSwitch,
+      allowLan: normalized.allowLan,
+      autoConnect: normalized.autoConnect,
+      bypassCidrs: normalized.bypassCidrs,
+      proxy: normalized.proxy,
+    );
     _notifyListeners();
+    final outgoing = activeProfile;
     _queueProfileMutation(() {
-      if (normalized.id == activeProfileId && snapshot.isConnected) {
-        return _engine.reconfigureActiveProfile(normalized);
+      if (outgoing.id == activeProfileId && snapshot.isConnected) {
+        return _engine.reconfigureActiveProfile(outgoing);
       }
-      return _engine.upsertProfile(normalized);
+      return _engine.upsertProfile(outgoing);
     });
   }
 

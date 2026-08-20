@@ -10,9 +10,10 @@ pub mod storage;
 pub mod update;
 
 pub use config::{
-    AppConfig, AppPreferences, ConfigError, DEFAULT_PROFILE_ID, DnsMode, EndpointSettings,
+    Account, AppConfig, AppPreferences, ConfigError, DEFAULT_PROFILE_ID, DnsMode, EndpointSettings,
     FrontendSettings, IpPolicy, LogLevel, OperatingMode, Profile, ProxyAuthCredentials,
-    ProxyDnsMode, ProxySettings, TransportPolicy, validate_proxy_password, validate_proxy_username,
+    ProxyDnsMode, ProxySettings, SHARED_NETWORK_SECRET_ID, SharedNetworkSettings, TransportPolicy,
+    validate_proxy_password, validate_proxy_username,
 };
 pub use connector::{
     ConnectedPath, ConnectionAttempt, ConnectionOrchestrator, ConnectorError, TransportConnector,

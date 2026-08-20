@@ -82,6 +82,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let service = ControlService::open(store)?;
+    if let Err(error) = service.migrate_shared_proxy_password().await {
+        warn!(%error, "shared proxy-password migration will be retried later");
+    }
     if let Err(error) = service.reap_pending_identity_deletions().await {
         warn!(%error, "deferred secure identity cleanup will be retried later");
     }

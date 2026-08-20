@@ -29,8 +29,8 @@ use serde::{Deserialize, Serialize};
 use usque_core::{
     AppConfig, ConsumerEntitlement, ConsumerRegistrationClient, DnsMode, EndpointSettings,
     FrontendSettings, IdentityProvider, IpPolicy, OperatingMode, Profile, ProxyDnsMode,
-    ProxySettings, RegistrationError, RegistrationOptions, TransportPolicy, WarpIdentity,
-    parse_manual_warp_secret, storage::ConfigStore, update::UpdateChecker,
+    ProxySettings, RegistrationError, RegistrationOptions, SharedNetworkSettings, TransportPolicy,
+    WarpIdentity, parse_manual_warp_secret, storage::ConfigStore, update::UpdateChecker,
 };
 #[cfg(target_os = "android")]
 use usque_transport::{
@@ -983,31 +983,39 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
             active_profile_id,
         } => {
             if !config.preferences.profiles_migrated_from_flutter {
+                let mut incoming = Vec::new();
                 let mut incoming_ids = std::collections::HashSet::new();
                 for source in profiles {
                     let profile = android_profile_to_core(source)?;
                     if !incoming_ids.insert(profile.id) {
                         return Err("legacy profile IDs must be unique".to_owned());
                     }
-                    match config
-                        .profiles
-                        .iter()
-                        .position(|existing| existing.id == profile.id)
-                    {
-                        Some(index) => config.profiles[index] = profile,
-                        None => config.profiles.push(profile),
-                    }
+                    incoming.push(profile);
                 }
                 if !active_profile_id.trim().is_empty() {
                     let active_profile_id = parse_value(&active_profile_id, "active profile ID")?;
-                    if !config
-                        .profiles
-                        .iter()
-                        .any(|profile| profile.id == active_profile_id)
+                    if !incoming_ids.contains(&active_profile_id)
+                        && config.account(active_profile_id).is_none()
                     {
                         return Err("legacy active profile does not exist".to_owned());
                     }
                     config.active_profile_id = Some(active_profile_id);
+                }
+                if let Some(active) = incoming
+                    .iter()
+                    .find(|profile| Some(profile.id) == config.active_profile_id)
+                {
+                    config.network = SharedNetworkSettings::from_profile(active);
+                }
+                config.profiles.clear();
+                for profile in incoming {
+                    let managed_endpoint = profile
+                        .endpoint
+                        .is_zero_trust_managed()
+                        .then_some(profile.endpoint.clone());
+                    config
+                        .insert_account(profile.id, profile.name, managed_endpoint)
+                        .map_err(|error| error.to_string())?;
                 }
                 config.preferences.profiles_migrated_from_flutter = true;
                 changed = true;
@@ -1019,35 +1027,20 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
             organization,
         } => {
             let binding = parse_identity_binding(identity_provider, organization)?;
-            let mut profile = android_profile_to_core(*profile)?;
+            let profile = android_profile_to_core(*profile)?;
             let profile_id = profile.id;
-            match config
-                .profiles
-                .iter()
-                .position(|existing| existing.id == profile.id)
+            if let (Some(existing), Some(incoming)) =
+                (config.identity_bindings.get(&profile.id), binding.as_ref())
+                && existing != incoming
             {
-                Some(index) => {
-                    if let (Some(existing), Some(incoming)) =
-                        (config.identity_bindings.get(&profile.id), binding.as_ref())
-                        && existing != incoming
-                    {
-                        return Err("profile identity provider cannot be changed".to_owned());
-                    }
-                    if binding.is_none()
-                        && matches!(
-                            config.identity_bindings.get(&profile.id),
-                            Some(IdentityProvider::ZeroTrust { .. })
-                        )
-                    {
-                        profile.endpoint = config.profiles[index].endpoint.clone();
-                    }
-                    config.profiles[index] = profile;
-                }
-                None => config.profiles.push(profile),
+                return Err("profile identity provider cannot be changed".to_owned());
             }
             if let Some(binding) = binding {
                 config.identity_bindings.insert(profile_id, binding);
             }
+            config
+                .upsert_runtime_profile(profile)
+                .map_err(|error| error.to_string())?;
             config.preferences.profiles_migrated_from_flutter = true;
             changed = true;
         }
@@ -1133,7 +1126,13 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
             if let Some(binding) = binding {
                 config.identity_bindings.insert(profile.id, binding);
             }
-            config.profiles.push(profile);
+            let managed_endpoint = profile
+                .endpoint
+                .is_zero_trust_managed()
+                .then_some(profile.endpoint.clone());
+            config
+                .insert_account(profile.id, profile.name, managed_endpoint)
+                .map_err(|error| error.to_string())?;
             config.preferences.profiles_migrated_from_flutter = true;
             changed = true;
         }
@@ -1160,18 +1159,16 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
             if config.active_profile_id != Some(next.id) {
                 return Err("only the Active Profile can be reconfigured".to_owned());
             }
-            let index = config
+            if !config
                 .profiles
                 .iter()
-                .position(|candidate| candidate.id == next.id)
-                .ok_or_else(|| "profile does not exist".to_owned())?;
-            if next.proxy.listener_auth_username().is_none() {
-                let mut stored = next;
-                stored.proxy.auth_username = config.profiles[index].proxy.auth_username.clone();
-                config.profiles[index] = stored;
-            } else {
-                config.profiles[index] = next;
+                .any(|candidate| candidate.id == next.id)
+            {
+                return Err("profile does not exist".to_owned());
             }
+            config
+                .upsert_runtime_profile(next)
+                .map_err(|error| error.to_string())?;
             changed = true;
         }
     }
@@ -1189,7 +1186,7 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
 fn android_profile_catalog(config: &AppConfig) -> serde_json::Value {
     serde_json::json!({
         "profiles": config
-            .profiles
+            .runtime_profiles()
             .iter()
             .map(|profile| {
                 android_profile_value(profile, config.identity_bindings.get(&profile.id))
