@@ -73,6 +73,7 @@ class AppStrings {
     'ipv4': 'IPv4',
     'ipv6': 'IPv6',
     'not_available': 'Not available',
+    'location_disconnected': 'Waiting to connect',
     'engine_unavailable':
         'The native Usque Engine is not available in this build yet.',
     'dismiss': 'Dismiss',
@@ -371,6 +372,7 @@ class AppStrings {
     'ipv4': 'IPv4',
     'ipv6': 'IPv6',
     'not_available': '不可用',
+    'location_disconnected': '等待连接',
     'engine_unavailable': '此构建尚未提供原生 Usque Engine。',
     'dismiss': '关闭',
     'new_profile': '新建配置',

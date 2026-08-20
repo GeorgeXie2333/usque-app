@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:usque/app.dart';
 import 'package:usque/core/app_strings.dart';
@@ -18,6 +19,8 @@ import 'package:usque/screens/settings_screen.dart';
 import 'package:usque/services/desktop_engine_client.dart';
 import 'package:usque/services/engine_client.dart';
 import 'package:usque/state/app_controller.dart';
+import 'package:usque/widgets/common.dart';
+import 'package:usque/widgets/connection_ring.dart';
 import 'package:usque/widgets/controller_selector.dart';
 import 'package:usque/widgets/profile_identity_dialog.dart';
 
@@ -1647,6 +1650,76 @@ void main() {
     await pumpHome();
     expect(find.text('Not used in proxy mode'), findsOneWidget);
   });
+
+  testWidgets(
+    'home location sits under engine status and waits until connected',
+    (tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'onboarding_complete': true,
+      });
+      final engine = FakeEngineClient();
+      final controller = AppController(engine);
+      await controller.initialize();
+      await controller.setLocale(LocalePreference.english);
+      addTearDown(controller.dispose);
+
+      await tester.binding.setSurfaceSize(const Size(1200, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      Future<void> pumpHome() async {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: UsqueTheme.light(),
+            home: HomeScreen(controller: controller),
+          ),
+        );
+        await tester.pump();
+      }
+
+      await pumpHome();
+      expect(find.text('Waiting to connect'), findsOneWidget);
+      expect(find.text('Not currently connected'), findsNothing);
+      expect(find.byIcon(LucideIcons.mapPinOff), findsOneWidget);
+      expect(find.text('IPv4'), findsNothing);
+      expect(find.text('IPv6'), findsNothing);
+      expect(find.text('Not available'), findsNothing);
+
+      final Offset engineOrigin = tester.getTopLeft(find.text('Engine status'));
+      final Offset locationOrigin = tester.getTopLeft(find.text('Location'));
+      final Offset downloadOrigin = tester.getTopLeft(find.text('Download'));
+      expect(locationOrigin.dx, closeTo(engineOrigin.dx, 1));
+      expect(locationOrigin.dy, greaterThan(engineOrigin.dy));
+      expect(downloadOrigin.dy, greaterThan(locationOrigin.dy));
+
+      final Rect heroRect = tester.getRect(
+        find.ancestor(
+          of: find.byType(ConnectionRing),
+          matching: find.byType(Panel),
+        ),
+      );
+      final Rect locationRect = tester.getRect(
+        find.ancestor(of: find.text('Location'), matching: find.byType(Panel)),
+      );
+      expect(locationRect.bottom, closeTo(heroRect.bottom, 2));
+
+      controller.snapshot = const EngineSnapshot(
+        phase: ConnectionPhase.connected,
+        exit: ExitInfo(
+          city: 'Singapore',
+          country: 'Singapore',
+          ipv4: '1.2.3.4',
+          ipv6: '2001:db8::1',
+        ),
+      );
+      await pumpHome();
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(find.text('Waiting to connect'), findsNothing);
+      expect(find.byIcon(LucideIcons.mapPinOff), findsNothing);
+      expect(find.text('Singapore, Singapore'), findsOneWidget);
+      expect(find.text('1.2.3.4'), findsOneWidget);
+      expect(find.text('2001:db8::1'), findsOneWidget);
+    },
+  );
 
   testWidgets('error and degraded home show Retry and invoke the engine', (
     tester,

@@ -1,4 +1,7 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -50,28 +53,158 @@ class HomeScreen extends StatelessWidget {
                 controller: controller,
                 strings: strings,
               );
-              if (constraints.maxWidth >= _splitWidth) {
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Expanded(flex: 5, child: hero),
-                    const SizedBox(width: 16),
-                    Expanded(flex: 4, child: readout),
-                  ],
+              final bool split = constraints.maxWidth >= _splitWidth;
+              final Widget location = _ExitPanel(
+                controller: controller,
+                strings: strings,
+                fillRemaining: split,
+              );
+              if (split) {
+                return _WideHomeSplit(
+                  leading: hero,
+                  trailing: location,
+                  readout: readout,
                 );
               }
-              return Column(
-                children: <Widget>[hero, const SizedBox(height: 16), readout],
-              );
+              return PanelStack(children: <Widget>[hero, readout, location]);
             },
           ),
           const SizedBox(height: 16),
           _TrafficGrid(controller: controller, strings: strings),
-          const SizedBox(height: 16),
-          _ExitPanel(controller: controller, strings: strings),
         ],
       ),
     );
+  }
+}
+
+/// Wide home: the connection hero sets the row height, and the location panel
+/// fills whatever remains under engine status so the right column does not
+/// leave a gap of page canvas. If the location readout is taller than that
+/// remainder, the row grows instead of overflowing.
+class _WideHomeSplit extends MultiChildRenderObjectWidget {
+  _WideHomeSplit({
+    required Widget leading,
+    required Widget readout,
+    required Widget trailing,
+  }) : super(children: <Widget>[leading, readout, trailing]);
+
+  @override
+  RenderObject createRenderObject(BuildContext context) {
+    return _RenderWideHomeSplit(textDirection: Directionality.of(context));
+  }
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    covariant _RenderWideHomeSplit renderObject,
+  ) {
+    renderObject.textDirection = Directionality.of(context);
+  }
+}
+
+class _WideHomeSplitParentData extends ContainerBoxParentData<RenderBox> {}
+
+class _RenderWideHomeSplit extends RenderBox
+    with
+        ContainerRenderObjectMixin<RenderBox, _WideHomeSplitParentData>,
+        RenderBoxContainerDefaultsMixin<RenderBox, _WideHomeSplitParentData> {
+  _RenderWideHomeSplit({required this._textDirection});
+
+  static const double _gap = 16;
+  static const double _leadingShare = 5 / 9;
+
+  TextDirection _textDirection;
+  TextDirection get textDirection => _textDirection;
+  set textDirection(TextDirection value) {
+    if (_textDirection == value) {
+      return;
+    }
+    _textDirection = value;
+    markNeedsLayout();
+  }
+
+  @override
+  void setupParentData(RenderBox child) {
+    if (child.parentData is! _WideHomeSplitParentData) {
+      child.parentData = _WideHomeSplitParentData();
+    }
+  }
+
+  @override
+  void performLayout() {
+    final RenderBox leading = firstChild!;
+    final RenderBox readout = childAfter(leading)!;
+    final RenderBox trailing = childAfter(readout)!;
+
+    final double maxWidth = constraints.maxWidth;
+    final double inner = math.max(0, maxWidth - _gap);
+    final double leadingWidth = inner * _leadingShare;
+    final double trailingWidth = inner - leadingWidth;
+    final double maxHeight = constraints.maxHeight;
+
+    leading.layout(
+      BoxConstraints(maxWidth: leadingWidth, maxHeight: maxHeight),
+      parentUsesSize: true,
+    );
+    readout.layout(
+      BoxConstraints(maxWidth: trailingWidth, maxHeight: maxHeight),
+      parentUsesSize: true,
+    );
+
+    final double remaining = math.max(
+      0,
+      leading.size.height - readout.size.height - _gap,
+    );
+    trailing.layout(
+      BoxConstraints(
+        minWidth: trailingWidth,
+        maxWidth: trailingWidth,
+        maxHeight: maxHeight,
+      ),
+      parentUsesSize: true,
+    );
+    if (trailing.size.height < remaining) {
+      trailing.layout(
+        BoxConstraints.tightFor(width: trailingWidth, height: remaining),
+        parentUsesSize: true,
+      );
+    }
+
+    size = constraints.constrain(
+      Size(
+        maxWidth,
+        math.max(
+          leading.size.height,
+          readout.size.height + _gap + trailing.size.height,
+        ),
+      ),
+    );
+
+    final bool ltr = _textDirection == TextDirection.ltr;
+    final double leadingX = ltr ? 0 : trailingWidth + _gap;
+    final double trailingX = ltr ? leadingWidth + _gap : 0;
+    (leading.parentData! as _WideHomeSplitParentData).offset = Offset(
+      leadingX,
+      0,
+    );
+    (readout.parentData! as _WideHomeSplitParentData).offset = Offset(
+      trailingX,
+      0,
+    );
+    (trailing.parentData! as _WideHomeSplitParentData).offset = Offset(
+      trailingX,
+      readout.size.height + _gap,
+    );
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    defaultPaint(context, offset);
+  }
+
+  @override
+  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) {
+    return defaultHitTestChildren(result, position: position);
   }
 }
 
@@ -603,10 +736,18 @@ class _MetricCardState extends State<_MetricCard> {
 }
 
 class _ExitPanel extends StatelessWidget {
-  const _ExitPanel({required this.controller, required this.strings});
+  const _ExitPanel({
+    required this.controller,
+    required this.strings,
+    this.fillRemaining = false,
+  });
 
   final AppController controller;
   final AppStrings strings;
+
+  /// True when the panel sits in the wide right column and should stretch to
+  /// the connection hero's height.
+  final bool fillRemaining;
 
   @override
   Widget build(BuildContext context) {
@@ -623,6 +764,66 @@ class _ExitPanel extends StatelessWidget {
   }
 
   Widget _buildExit(BuildContext context, ExitInfo exit, bool connected) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final bool expandBody = fillRemaining && constraints.hasBoundedHeight;
+        final Widget body = FadeThroughSwitcher(
+          alignment: connected ? Alignment.topLeft : Alignment.center,
+          child: connected
+              ? KeyedSubtree(
+                  key: const ValueKey<String>('exit'),
+                  child: expandBody
+                      ? Align(
+                          alignment: Alignment.topCenter,
+                          child: _exitReadout(context, exit),
+                        )
+                      : _exitReadout(context, exit),
+                )
+              : KeyedSubtree(
+                  key: const ValueKey<String>('idle'),
+                  child: expandBody
+                      ? Center(child: _waitingToConnect(context))
+                      : Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 28),
+                          child: Center(child: _waitingToConnect(context)),
+                        ),
+                ),
+        );
+        return Panel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              SectionTitle(
+                icon: LucideIcons.globe2,
+                title: strings.get('location'),
+                subtitle: connected ? 'ip.sb' : null,
+              ),
+              const SizedBox(height: 20),
+              if (expandBody) Expanded(child: body) else body,
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _waitingToConnect(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final Color muted = theme.colorScheme.onSurfaceVariant;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Icon(LucideIcons.mapPinOff, size: 32, color: muted),
+        const SizedBox(height: 10),
+        Text(
+          strings.get('location_disconnected'),
+          style: theme.textTheme.bodySmall?.copyWith(color: muted),
+        ),
+      ],
+    );
+  }
+
+  Widget _exitReadout(BuildContext context, ExitInfo exit) {
     final Color hairline = UsqueTokens.of(context).hairline;
     final String missing = strings.get('not_available');
     final Widget divider = Padding(
@@ -644,45 +845,37 @@ class _ExitPanel extends StatelessWidget {
       );
     }
 
-    return Panel(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          SectionTitle(
-            icon: LucideIcons.globe2,
-            title: strings.get('location'),
-            subtitle: connected ? 'ip.sb' : missing,
-          ),
-          const SizedBox(height: 20),
-          ReadoutRow(
-            leading: flag,
-            label: strings.get('location'),
-            value: exit.hasLocation
-                ? Text(
-                    exit.location,
-                    textAlign: TextAlign.end,
-                    style: Theme.of(context).textTheme.titleSmall,
-                  )
-                : EmptyValue(label: missing),
-          ),
-          divider,
-          ReadoutRow(
-            icon: LucideIcons.network,
-            label: strings.get('ipv4'),
-            value: exit.ipv4 == null
-                ? EmptyValue(label: missing)
-                : MonoValue(value: exit.ipv4!),
-          ),
-          divider,
-          ReadoutRow(
-            icon: LucideIcons.network,
-            label: strings.get('ipv6'),
-            value: exit.ipv6 == null
-                ? EmptyValue(label: missing)
-                : MonoValue(value: exit.ipv6!),
-          ),
-        ],
-      ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        ReadoutRow(
+          leading: flag,
+          label: strings.get('location'),
+          value: exit.hasLocation
+              ? Text(
+                  exit.location,
+                  textAlign: TextAlign.end,
+                  style: Theme.of(context).textTheme.titleSmall,
+                )
+              : EmptyValue(label: missing),
+        ),
+        divider,
+        ReadoutRow(
+          icon: LucideIcons.network,
+          label: strings.get('ipv4'),
+          value: exit.ipv4 == null
+              ? EmptyValue(label: missing)
+              : MonoValue(value: exit.ipv4!),
+        ),
+        divider,
+        ReadoutRow(
+          icon: LucideIcons.network,
+          label: strings.get('ipv6'),
+          value: exit.ipv6 == null
+              ? EmptyValue(label: missing)
+              : MonoValue(value: exit.ipv6!),
+        ),
+      ],
     );
   }
 }

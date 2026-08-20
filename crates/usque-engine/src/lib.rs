@@ -20,11 +20,11 @@ use tokio::sync::{Mutex, RwLock};
 use usque_core::{
     AddressFamily, AppConfig, ConfigError, ConnectionError, ConnectionPhase, ConnectionSnapshot,
     ConnectionWarning, ConsumerRegistrationClient, DnsMode, EndpointPin, EndpointSettings,
-    ErrorCode, FrontendKind, FrontendPhase, FrontendSettings, FrontendStatus, IdentityProvider,
-    IpPolicy, IpSbProbe, KillSwitchState, LockdownState, MasqueKeyPair, OperatingMode, Profile,
-    ProxyAuthCredentials, ProxyDnsMode, ProxySettings, RegistrationError, RegistrationOptions,
-    StateMachine, Statistics, Transport, TransportPolicy, WarpIdentity, is_zero_trust_endpoint,
-    normalize_zero_trust_team,
+    ErrorCode, ExitInfo, FrontendKind, FrontendPhase, FrontendSettings, FrontendStatus,
+    IdentityProvider, IpPolicy, IpSbProbe, KillSwitchState, LockdownState, MasqueKeyPair,
+    OperatingMode, Profile, ProxyAuthCredentials, ProxyDnsMode, ProxySettings, RegistrationError,
+    RegistrationOptions, StateMachine, Statistics, Transport, TransportPolicy, WarpIdentity,
+    is_zero_trust_endpoint, normalize_zero_trust_team,
     storage::{ConfigStore, StoreError},
     validate_proxy_password, validate_proxy_username,
 };
@@ -68,11 +68,12 @@ pub mod windows_purge;
 pub struct ControlService {
     store: ConfigStore,
     pub(crate) config: RwLock<AppConfig>,
-    pub(crate) state: Mutex<StateMachine>,
+    pub(crate) state: Arc<Mutex<StateMachine>>,
     pub(crate) mutation_lock: Mutex<()>,
     vault: Arc<dyn SecretVault>,
-    pub(crate) data_plane: Mutex<Option<ActiveDataPlane>>,
+    pub(crate) data_plane: Arc<Mutex<Option<ActiveDataPlane>>>,
     disconnect_cleanup: Mutex<Option<tokio::task::JoinHandle<Result<(), ControlServiceError>>>>,
+    exit_probe_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     maintenance: maintenance::Maintenance,
     #[cfg(any(windows, test))]
     event_sequence: AtomicU64,
@@ -266,11 +267,12 @@ impl ControlService {
             maintenance: maintenance::Maintenance::new(store.path()),
             store,
             config: RwLock::new(config),
-            state: Mutex::new(StateMachine::default()),
+            state: Arc::new(Mutex::new(StateMachine::default())),
             mutation_lock: Mutex::new(()),
             vault,
-            data_plane: Mutex::new(None),
+            data_plane: Arc::new(Mutex::new(None)),
             disconnect_cleanup: Mutex::new(None),
+            exit_probe_task: Mutex::new(None),
             #[cfg(any(windows, test))]
             event_sequence: AtomicU64::new(0),
         })
@@ -806,46 +808,13 @@ impl ControlService {
             }
         };
         let path = runtime.path();
-        let exit_listener = runtime
-            .listeners()
-            .iter()
-            .copied()
-            .find(|address| address.ip().is_loopback());
-        let flag_cache = self
-            .store
-            .path()
-            .parent()
-            .unwrap_or_else(|| std::path::Path::new("."))
-            .join("cache")
-            .join("flag-icons-7.5.0");
         let listener_auth = profile.proxy.listener_credentials().ok().flatten();
-        let exit_probe = if profile.frontends.socks5 {
-            runtime
-                .listeners()
-                .iter()
-                .copied()
-                .find(|address| address.ip().is_loopback())
-                .and_then(|listener| {
-                    IpSbProbe::through_socks_with_auth(listener, listener_auth.as_ref()).ok()
-                })
-                .map(|probe| probe.with_flag_cache(&flag_cache))
-        } else if profile.frontends.http {
-            exit_listener
-                .and_then(|listener| {
-                    IpSbProbe::through_http_with_auth(listener, listener_auth.as_ref()).ok()
-                })
-                .map(|probe| probe.with_flag_cache(&flag_cache))
-        } else if profile.frontends.tunnel {
-            IpSbProbe::new()
-                .ok()
-                .map(|probe| probe.with_flag_cache(&flag_cache))
-        } else {
-            None
-        };
-        let exit = match exit_probe {
-            Some(probe) => probe.probe().await.ok(),
-            None => None,
-        };
+        let exit_probe = exit_probe_for_session(
+            &profile,
+            &runtime,
+            self.store.path(),
+            listener_auth.as_ref(),
+        );
         let snapshot = {
             let mut state = self.state.lock().await;
             if profile.transport == TransportPolicy::Auto && path.transport == Transport::Http2 {
@@ -857,9 +826,6 @@ impl ControlService {
                 path.ipv4_available,
                 path.ipv6_available,
             )?;
-            if let Some(exit) = exit {
-                state.set_exit_info(exit);
-            }
             let mut warnings = Vec::new();
             if (profile.frontends.socks5 && profile.proxy.socks5_exposes_lan())
                 || (profile.frontends.http && profile.proxy.http_exposes_lan())
@@ -925,7 +891,32 @@ impl ControlService {
             last_proxy_performance: ProxyPerformanceSnapshot::default(),
             runtime,
         });
+        // Location is diagnostic: report Connected immediately and fill ip.sb
+        // later, matching the Android runtime. Probe failure must not delay or
+        // tear down a healthy session.
+        self.spawn_exit_probe(exit_probe, profile_id).await;
         Ok(snapshot)
+    }
+
+    async fn spawn_exit_probe(&self, probe: Option<IpSbProbe>, profile_id: Uuid) {
+        self.abort_exit_probe().await;
+        let Some(probe) = probe else {
+            return;
+        };
+        let state = Arc::clone(&self.state);
+        let data_plane = Arc::clone(&self.data_plane);
+        *self.exit_probe_task.lock().await = Some(tokio::spawn(async move {
+            let Ok(exit) = probe.probe().await else {
+                return;
+            };
+            apply_exit_info(&state, &data_plane, profile_id, exit).await;
+        }));
+    }
+
+    async fn abort_exit_probe(&self) {
+        if let Some(task) = self.exit_probe_task.lock().await.take() {
+            task.abort();
+        }
     }
 
     async fn disconnect(&self) -> Result<ConnectionSnapshot, ControlServiceError> {
@@ -936,6 +927,7 @@ impl ControlService {
     pub(crate) async fn disconnect_locked(
         &self,
     ) -> Result<ConnectionSnapshot, ControlServiceError> {
+        self.abort_exit_probe().await;
         let mut data_plane = self.data_plane.lock().await;
         let phase = self.state.lock().await.snapshot().phase;
         if phase == ConnectionPhase::Disconnected && data_plane.is_none() {
@@ -2824,7 +2816,63 @@ fn frontend_status_to_proto(status: &FrontendStatus) -> v1::FrontendStatus {
     }
 }
 
-fn exit_to_proto(exit: &usque_core::ExitInfo) -> v1::ExitInfo {
+fn exit_probe_for_session(
+    profile: &Profile,
+    runtime: &ActiveRuntime,
+    store_path: &std::path::Path,
+    listener_auth: Option<&ProxyAuthCredentials>,
+) -> Option<IpSbProbe> {
+    let flag_cache = store_path
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .join("cache")
+        .join("flag-icons-7.5.0");
+    let loopback = runtime
+        .listeners()
+        .iter()
+        .copied()
+        .find(|address| address.ip().is_loopback());
+    if profile.frontends.socks5 {
+        loopback
+            .and_then(|listener| IpSbProbe::through_socks_with_auth(listener, listener_auth).ok())
+            .map(|probe| probe.with_flag_cache(&flag_cache))
+    } else if profile.frontends.http {
+        loopback
+            .and_then(|listener| IpSbProbe::through_http_with_auth(listener, listener_auth).ok())
+            .map(|probe| probe.with_flag_cache(&flag_cache))
+    } else if profile.frontends.tunnel {
+        IpSbProbe::new()
+            .ok()
+            .map(|probe| probe.with_flag_cache(&flag_cache))
+    } else {
+        None
+    }
+}
+
+async fn apply_exit_info(
+    state: &Mutex<StateMachine>,
+    data_plane: &Mutex<Option<ActiveDataPlane>>,
+    profile_id: Uuid,
+    exit: ExitInfo,
+) {
+    let data_plane = data_plane.lock().await;
+    let Some(active) = data_plane.as_ref() else {
+        return;
+    };
+    if active.profile_id != profile_id {
+        return;
+    }
+    let mut state = state.lock().await;
+    if !matches!(
+        state.snapshot().phase,
+        ConnectionPhase::Connected | ConnectionPhase::Degraded | ConnectionPhase::Reconnecting
+    ) {
+        return;
+    }
+    state.set_exit_info(exit);
+}
+
+fn exit_to_proto(exit: &ExitInfo) -> v1::ExitInfo {
     v1::ExitInfo {
         ipv4: exit.ipv4.map(|ip| ip.to_string()).unwrap_or_default(),
         ipv6: exit.ipv6.map(|ip| ip.to_string()).unwrap_or_default(),
@@ -2885,6 +2933,44 @@ mod tests {
             ..unchanged
         };
         assert!(runtime_path_changed(state.snapshot(), peer_withdrew_ipv6));
+    }
+
+    #[tokio::test]
+    async fn late_exit_probe_applies_only_while_the_same_session_is_up() {
+        let directory = tempfile::tempdir().unwrap();
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(MemoryVault::default()),
+        )
+        .unwrap();
+        let profile = service.config_snapshot().await.profiles[0].clone();
+        service
+            .install_test_session(profile.clone(), false, 0)
+            .await
+            .expect("install harness");
+
+        let exit = ExitInfo {
+            ipv4: Some(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4))),
+            ipv6: None,
+            ipv4_location: None,
+            ipv6_location: None,
+            checked_at: chrono::Utc::now(),
+        };
+        apply_exit_info(
+            &service.state,
+            &service.data_plane,
+            profile.id,
+            exit.clone(),
+        )
+        .await;
+        assert_eq!(
+            service.state.lock().await.snapshot().exit.as_ref(),
+            Some(&exit)
+        );
+
+        service.disconnect_locked().await.expect("disconnect");
+        apply_exit_info(&service.state, &service.data_plane, profile.id, exit).await;
+        assert!(service.state.lock().await.snapshot().exit.is_none());
     }
 
     #[derive(Default)]
