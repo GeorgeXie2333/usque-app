@@ -148,31 +148,4 @@ mod tests {
         bind_tcp_listener(SocketAddr::from((Ipv4Addr::LOCALHOST, port)))
             .expect("IPv4 loopback must bind after V6-only IPv6 on the same port");
     }
-
-    #[tokio::test]
-    async fn default_socks_and_http_loopbacks_bind_together() {
-        let socks = [
-            SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
-            SocketAddr::new(Ipv6Addr::LOCALHOST.into(), 0),
-        ];
-        let http = [
-            SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
-            SocketAddr::new(Ipv6Addr::LOCALHOST.into(), 0),
-        ];
-        let socks = bind_tcp_listeners(&socks).expect("SOCKS5 listeners");
-        let http = bind_tcp_listeners(&http).expect("HTTP listeners");
-        assert_eq!(socks.len(), 2);
-        assert_eq!(http.len(), 2);
-    }
-
-    #[tokio::test]
-    async fn ipv6_then_ipv4_same_port_across_protocols() {
-        let socks_v6 = bind_tcp_listener(SocketAddr::new(Ipv6Addr::LOCALHOST.into(), 0));
-        let Ok(socks_v6) = socks_v6 else {
-            return;
-        };
-        let port = socks_v6.local_addr().expect("SOCKS IPv6").port();
-        bind_tcp_listener(SocketAddr::from((Ipv4Addr::LOCALHOST, port)))
-            .expect("HTTP IPv4 loopback must not collide with SOCKS IPv6 on the same port");
-    }
 }

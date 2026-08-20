@@ -97,9 +97,16 @@ impl MasqueRuntime {
 
         // Reserve every requested local resource before opening the remote
         // session, so listener conflicts cannot leave a partial runtime.
-        // Bind IPv4 for both protocols before any IPv6 socket: Windows
-        // dual-stack IPv6 listeners otherwise occupy the matching IPv4 port.
-        let (socks5_bound, http_bound) = prebind_frontends(profile)?;
+        let socks5_bound = if profile.frontends.socks5 {
+            Some(Socks5Frontend::prebind(profile)?)
+        } else {
+            None
+        };
+        let http_bound = if profile.frontends.http {
+            Some(HttpProxyFrontend::prebind(profile)?)
+        } else {
+            None
+        };
 
         let assigned_ipv4 = identity.assigned_ipv4;
         let assigned_ipv6 = identity.assigned_ipv6;
@@ -439,57 +446,6 @@ fn dispatch_tun_incoming(tun_sink: &watch::Sender<Option<mpsc::Sender<Bytes>>>, 
             tun_sink.send_replace(None);
         }
     }
-}
-
-type BoundFrontends = (
-    Option<Vec<tokio::net::TcpListener>>,
-    Option<Vec<tokio::net::TcpListener>>,
-);
-
-fn prebind_frontends(profile: &Profile) -> Result<BoundFrontends, TransportError> {
-    let mut jobs = Vec::new();
-    if profile.frontends.socks5 {
-        jobs.extend(
-            profile
-                .proxy
-                .socks5_listeners
-                .iter()
-                .copied()
-                .map(|address| (false, address)),
-        );
-    }
-    if profile.frontends.http {
-        jobs.extend(
-            profile
-                .proxy
-                .http_listeners
-                .iter()
-                .copied()
-                .map(|address| (true, address)),
-        );
-    }
-    jobs.sort_by_key(|(_, address)| address.is_ipv6());
-
-    let mut socks5 = Vec::new();
-    let mut http = Vec::new();
-    for (is_http, address) in jobs {
-        let listener = crate::socket::bind_tcp_listener(address).map_err(|source| {
-            if is_http {
-                TransportError::HttpProxyListener { address, source }
-            } else {
-                TransportError::SocksListener { address, source }
-            }
-        })?;
-        if is_http {
-            http.push(listener);
-        } else {
-            socks5.push(listener);
-        }
-    }
-    Ok((
-        profile.frontends.socks5.then_some(socks5),
-        profile.frontends.http.then_some(http),
-    ))
 }
 
 fn same_listeners(active: &[SocketAddr], wanted: &[SocketAddr]) -> bool {
