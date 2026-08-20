@@ -3,67 +3,10 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../core/connection_presentation.dart';
 import '../core/usque_motion.dart';
 import '../core/usque_theme.dart';
 import '../models/app_models.dart';
-
-/// How the bezel behaves for a given engine phase.
-enum RingMode {
-  /// Nothing is running: an unlit bezel.
-  idle,
-
-  /// Work in progress: a lit arc travels around the bezel.
-  scan,
-
-  /// The tunnel carries traffic: the bezel closes once and then holds.
-  steady,
-
-  /// The tunnel is broken: a closed ring with a gap, held still.
-  fault,
-}
-
-/// Visual state of the ring, derived from an engine phase.
-@immutable
-class RingState {
-  const RingState(this.mode, this.tone);
-
-  final RingMode mode;
-  final RingTone tone;
-
-  static RingState of(ConnectionPhase phase) {
-    return switch (phase) {
-      ConnectionPhase.disconnected => const RingState(
-        RingMode.idle,
-        RingTone.neutral,
-      ),
-      ConnectionPhase.preparing ||
-      ConnectionPhase.connectingH3 ||
-      ConnectionPhase.connectingH2 => const RingState(
-        RingMode.scan,
-        RingTone.brand,
-      ),
-      ConnectionPhase.connected => const RingState(
-        RingMode.steady,
-        RingTone.live,
-      ),
-      ConnectionPhase.degraded => const RingState(
-        RingMode.steady,
-        RingTone.caution,
-      ),
-      ConnectionPhase.reconnecting => const RingState(
-        RingMode.scan,
-        RingTone.caution,
-      ),
-      ConnectionPhase.disconnecting => const RingState(
-        RingMode.scan,
-        RingTone.neutral,
-      ),
-      ConnectionPhase.error => const RingState(RingMode.fault, RingTone.fault),
-    };
-  }
-}
-
-enum RingTone { neutral, brand, live, caution, fault }
 
 /// The connection instrument.
 ///
@@ -102,13 +45,18 @@ class _ConnectionRingState extends State<ConnectionRing>
   );
 
   RingMode? _applied;
+  bool _reduced = false;
 
-  RingState get _state => RingState.of(widget.phase);
+  ConnectionPresentation get _presentation =>
+      ConnectionPresentation.of(widget.phase);
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _syncMotion();
+    final bool reduced = UsqueMotion.reduced(context);
+    if (_applied == null || reduced != _reduced) {
+      _syncMotion();
+    }
   }
 
   @override
@@ -120,13 +68,21 @@ class _ConnectionRingState extends State<ConnectionRing>
   }
 
   void _syncMotion() {
-    final RingMode mode = _state.mode;
+    final RingMode mode = _presentation.mode;
     final RingMode? previous = _applied;
+    final bool reduced = UsqueMotion.reduced(context);
     _applied = mode;
-    if (mode == previous && !_controller.isAnimating) {
+    _reduced = reduced;
+    if (mode == previous) {
+      // Resume a scan after reduced-motion lifts; never restart one that
+      // is already travelling.
+      if (mode == RingMode.scan && !reduced && !_controller.isAnimating) {
+        _controller.duration = UsqueMotion.scan;
+        _controller.repeat();
+      }
       return;
     }
-    if (mode == RingMode.scan && !UsqueMotion.reduced(context)) {
+    if (mode == RingMode.scan && !reduced) {
       _controller.duration = UsqueMotion.scan;
       _controller.repeat();
       return;
@@ -137,7 +93,7 @@ class _ConnectionRingState extends State<ConnectionRing>
     if (mode == RingMode.steady &&
         previous != null &&
         previous != RingMode.steady &&
-        !UsqueMotion.reduced(context)) {
+        !reduced) {
       _controller.duration = UsqueMotion.lock;
       _controller.forward(from: 0);
     } else {
@@ -152,14 +108,10 @@ class _ConnectionRingState extends State<ConnectionRing>
   }
 
   Color _accent(BuildContext context) {
-    final UsqueTokens tokens = UsqueTokens.of(context);
-    return switch (_state.tone) {
-      RingTone.neutral => Theme.of(context).colorScheme.onSurfaceVariant,
-      RingTone.brand => tokens.brand,
-      RingTone.live => tokens.success,
-      RingTone.caution => tokens.caution,
-      RingTone.fault => tokens.danger,
-    };
+    return _presentation.indicatorColor(
+      UsqueTokens.of(context),
+      Theme.of(context).colorScheme,
+    );
   }
 
   @override
@@ -182,7 +134,7 @@ class _ConnectionRingState extends State<ConnectionRing>
                   size: Size.square(widget.size),
                   painter: _RingPainter(
                     t: _controller.value,
-                    mode: _state.mode,
+                    mode: _presentation.mode,
                     accent: accent,
                     track: tokens.ringTrack,
                   ),
@@ -193,7 +145,7 @@ class _ConnectionRingState extends State<ConnectionRing>
               diameter: widget.size * 0.47,
               label: widget.actionLabel,
               busy: widget.busy,
-              engaged: _state.mode == RingMode.steady,
+              engaged: _presentation.engaged,
               onPressed: widget.onPressed,
             ),
           ],

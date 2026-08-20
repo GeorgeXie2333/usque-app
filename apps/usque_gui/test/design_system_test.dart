@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:usque/core/connection_presentation.dart';
 import 'package:usque/core/usque_theme.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/widgets/animated_index_stack.dart';
 import 'package:usque/widgets/common.dart';
 import 'package:usque/widgets/connection_ring.dart';
+import 'package:usque/widgets/live_duration.dart';
 
 /// Counts its own builds and holds a value, so a test can tell "still mounted"
 /// apart from "rebuilt from scratch".
@@ -39,6 +41,27 @@ class _TickerProbe extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text('$label:${TickerMode.valuesOf(context).enabled}');
   }
+}
+
+double _ringProgress(WidgetTester tester) {
+  final Iterable<CustomPaint> paints = tester.widgetList<CustomPaint>(
+    find.descendant(
+      of: find.byType(ConnectionRing),
+      matching: find.byType(CustomPaint),
+    ),
+  );
+  for (final CustomPaint paint in paints) {
+    final Object? painter = paint.painter;
+    if (painter == null) {
+      continue;
+    }
+    try {
+      return (painter as dynamic).t as double;
+    } on Object {
+      continue;
+    }
+  }
+  fail('ConnectionRing has no progress painter');
 }
 
 Widget _host(Widget child) {
@@ -165,6 +188,35 @@ void main() {
       expect(tester.hasRunningAnimations, isFalse);
     });
 
+    testWidgets('a theme change does not restart a scanning ring', (
+      tester,
+    ) async {
+      Widget ring(ThemeData theme) {
+        return MaterialApp(
+          theme: theme,
+          home: const Scaffold(
+            body: ConnectionRing(
+              phase: ConnectionPhase.connectingH3,
+              busy: false,
+              actionLabel: 'Connect',
+              onPressed: null,
+            ),
+          ),
+        );
+      }
+
+      await tester.pumpWidget(ring(UsqueTheme.light()));
+      await tester.pump(const Duration(milliseconds: 400));
+      final double before = _ringProgress(tester);
+      expect(before, greaterThan(0.1));
+
+      await tester.pumpWidget(ring(UsqueTheme.dark()));
+      await tester.pump();
+      final double after = _ringProgress(tester);
+      expect(tester.hasRunningAnimations, isTrue);
+      expect(after, greaterThan(before - 0.02));
+    });
+
     testWidgets('skips the sweep under reduced motion', (tester) async {
       await tester.pumpWidget(
         MaterialApp(
@@ -186,12 +238,90 @@ void main() {
       expect(tester.hasRunningAnimations, isFalse);
     });
 
-    test('maps every phase to a ring mode', () {
-      expect(RingState.of(ConnectionPhase.disconnected).mode, RingMode.idle);
-      expect(RingState.of(ConnectionPhase.connectingH2).mode, RingMode.scan);
-      expect(RingState.of(ConnectionPhase.connected).mode, RingMode.steady);
-      expect(RingState.of(ConnectionPhase.degraded).tone, RingTone.caution);
-      expect(RingState.of(ConnectionPhase.error).mode, RingMode.fault);
+    test('maps every phase through ConnectionPresentation', () {
+      for (final ConnectionPhase phase in ConnectionPhase.values) {
+        expect(ConnectionPresentation.of(phase).labelKey, isNotEmpty);
+      }
+      expect(
+        ConnectionPresentation.of(ConnectionPhase.disconnected).mode,
+        RingMode.idle,
+      );
+      expect(
+        ConnectionPresentation.of(ConnectionPhase.disconnected).actionKey,
+        'connect',
+      );
+      expect(
+        ConnectionPresentation.of(ConnectionPhase.connected).engaged,
+        isTrue,
+      );
+      expect(
+        ConnectionPresentation.of(ConnectionPhase.connected).actionKey,
+        'disconnect',
+      );
+      expect(
+        ConnectionPresentation.of(ConnectionPhase.degraded).engaged,
+        isTrue,
+      );
+      expect(
+        ConnectionPresentation.of(ConnectionPhase.degraded).recoverable,
+        isTrue,
+      );
+      expect(
+        ConnectionPresentation.of(ConnectionPhase.degraded).tone,
+        StatusTone.warning,
+      );
+      expect(
+        ConnectionPresentation.of(ConnectionPhase.error).recoverable,
+        isTrue,
+      );
+      expect(
+        ConnectionPresentation.of(ConnectionPhase.connectingH3).scanning,
+        isTrue,
+      );
+      expect(
+        ConnectionPresentation.of(ConnectionPhase.reconnecting).scanning,
+        isTrue,
+      );
+      expect(
+        ConnectionPresentation.of(ConnectionPhase.disconnecting).scanning,
+        isTrue,
+      );
+    });
+  });
+
+  group('LiveDuration', () {
+    testWidgets('ticks once a second and stops when since is cleared', (
+      tester,
+    ) async {
+      final DateTime start = DateTime(2026, 1, 1);
+      DateTime now = start.add(const Duration(seconds: 2));
+      DateTime? since = start;
+      await tester.pumpWidget(
+        _host(
+          StatefulBuilder(
+            builder: (context, setState) => Column(
+              children: <Widget>[
+                LiveDuration(since: since, now: () => now),
+                TextButton(
+                  onPressed: () => setState(() => since = null),
+                  child: const Text('clear'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('00:00:02'), findsOneWidget);
+      now = now.add(const Duration(seconds: 1));
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.text('00:00:03'), findsOneWidget);
+
+      await tester.tap(find.text('clear'));
+      await tester.pump();
+      expect(find.text('—'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 2));
+      expect(find.text('—'), findsOneWidget);
     });
   });
 

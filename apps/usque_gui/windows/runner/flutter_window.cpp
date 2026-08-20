@@ -200,6 +200,8 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  usque::BindWindowFrameChannel(flutter_controller_->engine()->messenger(),
+                                GetHandle());
   close_to_tray_ = ReadCloseToTray();
   AddTrayIcon();
   engine_channel_ =
@@ -410,9 +412,6 @@ bool FlutterWindow::OnCreate() {
           ::PostMessageW(GetHandle(), WM_CLOSE, 0, 0);
           return;
         }
-        if (HandleWindowFrameMethod(call, result)) {
-          return;
-        }
         result->NotImplemented();
       });
   engine_event_channel_ =
@@ -585,74 +584,6 @@ bool FlutterWindow::HandleZeroTrustCopyData(const COPYDATASTRUCT* data) {
   return true;
 }
 
-void FlutterWindow::PublishWindowFrameState(bool force) {
-  const bool maximized = usque::IsWindowMaximized(GetHandle());
-  const bool active = ::GetActiveWindow() == GetHandle();
-  if (!force && frame_published_ && maximized == frame_maximized_ &&
-      active == frame_active_) {
-    return;
-  }
-  frame_maximized_ = maximized;
-  frame_active_ = active;
-  frame_published_ = true;
-  if (!engine_channel_) return;
-  flutter::EncodableMap state;
-  state[flutter::EncodableValue("maximized")] =
-      flutter::EncodableValue(maximized);
-  state[flutter::EncodableValue("active")] = flutter::EncodableValue(active);
-  engine_channel_->InvokeMethod(
-      "windowFrameChanged",
-      std::make_unique<flutter::EncodableValue>(std::move(state)));
-}
-
-bool FlutterWindow::HandleWindowFrameMethod(
-    const flutter::MethodCall<flutter::EncodableValue>& call,
-    const std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>&
-        result) {
-  const std::string& method = call.method_name();
-  if (method == "windowFrameState") {
-    flutter::EncodableMap state;
-    state[flutter::EncodableValue("maximized")] =
-        flutter::EncodableValue(usque::IsWindowMaximized(GetHandle()));
-    state[flutter::EncodableValue("active")] =
-        flutter::EncodableValue(::GetActiveWindow() == GetHandle());
-    result->Success(flutter::EncodableValue(state));
-    return true;
-  }
-  if (method == "windowMinimize") {
-    result->Success();
-    usque::MinimizeWindow(GetHandle());
-    return true;
-  }
-  if (method == "windowToggleMaximize") {
-    result->Success();
-    usque::ToggleWindowMaximize(GetHandle());
-    return true;
-  }
-  if (method == "windowClose") {
-    result->Success();
-    ::PostMessageW(GetHandle(), WM_CLOSE, 0, 0);
-    return true;
-  }
-  if (method == "windowStartDrag") {
-    result->Success();
-    usque::BeginWindowDrag(GetHandle());
-    return true;
-  }
-  if (method == "windowStartResize") {
-    const auto* edge = std::get_if<std::string>(call.arguments());
-    if (edge == nullptr) {
-      result->Error("INVALID_ARGUMENT", "The resize edge is missing.");
-      return true;
-    }
-    const std::string requested = *edge;
-    result->Success();
-    usque::BeginWindowResize(GetHandle(), requested);
-    return true;
-  }
-  return false;
-}
-
 void FlutterWindow::ShowTrayMenu() {
   HMENU menu = ::CreatePopupMenu();
   if (menu == nullptr) return;
@@ -789,7 +720,7 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     }
     case WM_SIZE:
     case WM_ACTIVATE:
-      PublishWindowFrameState(false);
+      usque::PublishWindowFrameState(hwnd, false);
       break;
     case WM_CLOSE:
       if (force_exit_) {

@@ -27,32 +27,30 @@ class ProfilesScreen extends StatelessWidget {
           label: Text(strings.get('new_profile')),
         ),
       ],
-      child: Column(
+      child: PanelStack(
+        spacing: 14,
         children: controller.profiles
             .map(
-              (profile) => Padding(
-                padding: const EdgeInsets.only(bottom: 14),
-                child: _ProfileCard(
+              (profile) => _ProfileCard(
+                profile: profile,
+                active: profile.id == controller.activeProfileId,
+                identityState: controller.identityState(profile.id),
+                identityStatus: controller.identityStatus(profile.id),
+                strings: strings,
+                onActivate: () => controller.setActiveProfile(profile.id),
+                onConfigureIdentity: () => showProfileIdentityDialog(
+                  context,
+                  controller: controller,
                   profile: profile,
-                  active: profile.id == controller.activeProfileId,
-                  identityState: controller.identityState(profile.id),
-                  identityStatus: controller.identityStatus(profile.id),
-                  strings: strings,
-                  onActivate: () => controller.setActiveProfile(profile.id),
-                  onConfigureIdentity: () => showProfileIdentityDialog(
-                    context,
-                    controller: controller,
-                    profile: profile,
-                  ),
-                  onEdit: () => _editProfile(context, profile, strings),
-                  onManageIdentity: () => _showIdentityManagement(
-                    context,
-                    profile,
-                    controller.identityStatus(profile.id),
-                    strings,
-                  ),
-                  onDelete: () => _deleteProfile(context, profile, strings),
                 ),
+                onEdit: () => _editProfile(context, profile, strings),
+                onManageIdentity: () => _showIdentityManagement(
+                  context,
+                  profile,
+                  controller.identityStatus(profile.id),
+                  strings,
+                ),
+                onDelete: () => _deleteProfile(context, profile, strings),
               ),
             )
             .toList(growable: false),

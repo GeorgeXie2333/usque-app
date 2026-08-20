@@ -81,3 +81,31 @@ class FadeThroughSwitcher extends StatelessWidget {
     );
   }
 }
+
+/// One page transition for every platform: a short lift and fade so pushed
+/// screens feel like the same instrument changing panels.
+class UsquePageTransitionsBuilder extends PageTransitionsBuilder {
+  const UsquePageTransitionsBuilder();
+
+  static final Animatable<double> _fade = CurveTween(
+    curve: UsqueMotion.emphasized,
+  );
+  static final Animatable<Offset> _slide = Tween<Offset>(
+    begin: const Offset(0, 0.02),
+    end: Offset.zero,
+  ).chain(CurveTween(curve: UsqueMotion.emphasized));
+
+  @override
+  Widget buildTransitions<T>(
+    PageRoute<T> route,
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    return FadeTransition(
+      opacity: animation.drive(_fade),
+      child: SlideTransition(position: animation.drive(_slide), child: child),
+    );
+  }
+}

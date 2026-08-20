@@ -1,6 +1,15 @@
 #include "window_frame.h"
 
+#include <dwmapi.h>
+#include <flutter/binary_messenger.h>
+#include <flutter/encodable_value.h>
+#include <flutter/method_channel.h>
+#include <flutter/standard_method_codec.h>
 #include <shellapi.h>
+#include <windowsx.h>
+
+#include <memory>
+#include <string>
 
 namespace usque {
 
@@ -63,6 +72,114 @@ int AutoHideTaskbarEdge() {
   return -1;
 }
 
+const char* HoverName(LRESULT hit) {
+  switch (hit) {
+    case HTMINBUTTON:
+      return "min";
+    case HTMAXBUTTON:
+      return "max";
+    case HTCLOSE:
+      return "close";
+    default:
+      return "none";
+  }
+}
+
+flutter::EncodableMap EncodeWindowFrameState(HWND window, const char* hover) {
+  flutter::EncodableMap state;
+  state[flutter::EncodableValue("maximized")] =
+      flutter::EncodableValue(IsWindowMaximized(window));
+  state[flutter::EncodableValue("active")] =
+      flutter::EncodableValue(::GetActiveWindow() == window);
+  state[flutter::EncodableValue("captionHover")] =
+      flutter::EncodableValue(std::string(hover));
+  return state;
+}
+
+std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> g_channel;
+bool g_published = false;
+bool g_maximized = false;
+bool g_active = true;
+std::string g_hover = "none";
+bool g_tracking_leave = false;
+
+void TrackPointerLeave(HWND window) {
+  if (g_tracking_leave) {
+    return;
+  }
+  TRACKMOUSEEVENT track{};
+  track.cbSize = sizeof(track);
+  track.dwFlags = TME_LEAVE | TME_NONCLIENT;
+  track.hwndTrack = window;
+  if (::TrackMouseEvent(&track)) {
+    g_tracking_leave = true;
+  }
+}
+
+LRESULT HitTest(HWND window, LPARAM lparam) {
+  POINT point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+  ::ScreenToClient(window, &point);
+
+  RECT client{};
+  ::GetClientRect(window, &client);
+  const int width = client.right - client.left;
+  const int height = client.bottom - client.top;
+  const UINT dpi = WindowDpi(window);
+  const int band = ScaleForDpi(kResizeBandLogical, dpi);
+  const int corner = ScaleForDpi(static_cast<int>(kResizeBandLogical * 2.4), dpi);
+  const int caption = ScaleForDpi(kCaptionHeightLogical, dpi);
+  const int button = ScaleForDpi(kCaptionButtonWidthLogical, dpi);
+
+  if (!IsWindowMaximized(window)) {
+    const bool left = point.x < band;
+    const bool right = point.x >= width - band;
+    const bool top = point.y < band;
+    const bool bottom = point.y >= height - band;
+    const bool left_corner = point.x < corner;
+    const bool right_corner = point.x >= width - corner;
+    const bool top_corner = point.y < corner;
+    const bool bottom_corner = point.y >= height - corner;
+    if (left_corner && top_corner) {
+      return HTTOPLEFT;
+    }
+    if (right_corner && top_corner) {
+      return HTTOPRIGHT;
+    }
+    if (left_corner && bottom_corner) {
+      return HTBOTTOMLEFT;
+    }
+    if (right_corner && bottom_corner) {
+      return HTBOTTOMRIGHT;
+    }
+    if (left) {
+      return HTLEFT;
+    }
+    if (right) {
+      return HTRIGHT;
+    }
+    if (top) {
+      return HTTOP;
+    }
+    if (bottom) {
+      return HTBOTTOM;
+    }
+  }
+
+  if (point.y >= 0 && point.y < caption && point.x >= 0 && point.x < width) {
+    if (point.x >= width - button) {
+      return HTCLOSE;
+    }
+    if (point.x >= width - 2 * button) {
+      return HTMAXBUTTON;
+    }
+    if (point.x >= width - 3 * button) {
+      return HTMINBUTTON;
+    }
+    return HTCAPTION;
+  }
+  return HTCLIENT;
+}
+
 }  // namespace
 
 bool IsWindowMaximized(HWND window) {
@@ -74,6 +191,36 @@ bool IsWindowMaximized(HWND window) {
   return placement.showCmd == SW_SHOWMAXIMIZED;
 }
 
+void PublishWindowFrameState(HWND window, bool force) {
+  if (window == nullptr) {
+    return;
+  }
+  const bool maximized = IsWindowMaximized(window);
+  const bool active = ::GetActiveWindow() == window;
+  if (!force && g_published && maximized == g_maximized && active == g_active) {
+    return;
+  }
+  g_maximized = maximized;
+  g_active = active;
+  g_published = true;
+  if (!g_channel) {
+    return;
+  }
+  g_channel->InvokeMethod(
+      "windowFrameChanged",
+      std::make_unique<flutter::EncodableValue>(
+          EncodeWindowFrameState(window, g_hover.c_str())));
+}
+
+void PublishHover(HWND window, const char* hover) {
+  if (g_hover == hover && g_published) {
+    return;
+  }
+  g_hover = hover;
+  g_published = false;
+  PublishWindowFrameState(window, true);
+}
+
 std::optional<LRESULT> HandleCustomFrameMessage(HWND window, UINT message,
                                                 WPARAM wparam, LPARAM lparam) {
   switch (message) {
@@ -81,14 +228,13 @@ std::optional<LRESULT> HandleCustomFrameMessage(HWND window, UINT message,
       if (wparam != TRUE) {
         return std::nullopt;
       }
-      // Give the whole window to the client area so Flutter paints the title
-      // bar. The resize borders live outside the visible bounds and stay
-      // functional because the window keeps WS_THICKFRAME.
+      // Non-maximized: the client area is the whole window. Resize comes from
+      // WM_NCHITTEST edge hits, not from a leftover non-client frame.
+      // Maximized: inset by the invisible frame plus one pixel on an
+      // auto-hide taskbar edge so the bar can still be revealed.
       auto* params = reinterpret_cast<NCCALCSIZE_PARAMS*>(lparam);
       RECT& client = params->rgrc[0];
       if (IsWindowMaximized(window)) {
-        // A maximized window is sized to the work area plus the invisible
-        // frame; without this inset the top and sides would be clipped.
         const UINT dpi = WindowDpi(window);
         const int padding = MetricForDpi(SM_CXPADDEDBORDER, dpi);
         const int frame_x = MetricForDpi(SM_CXFRAME, dpi) + padding;
@@ -123,57 +269,53 @@ std::optional<LRESULT> HandleCustomFrameMessage(HWND window, UINT message,
       info->ptMinTrackSize.y = ScaleForDpi(kMinimumWindowHeight, dpi);
       return 0;
     }
+    case WM_NCHITTEST: {
+      const LRESULT hit = HitTest(window, lparam);
+      PublishHover(window, HoverName(hit));
+      if (hit == HTMINBUTTON || hit == HTMAXBUTTON || hit == HTCLOSE ||
+          hit == HTCAPTION) {
+        TrackPointerLeave(window);
+      }
+      if (hit == HTCLIENT) {
+        return std::nullopt;
+      }
+      return hit;
+    }
+    case WM_MOUSELEAVE:
+    case WM_NCMOUSELEAVE:
+      g_tracking_leave = false;
+      PublishHover(window, "none");
+      return std::nullopt;
     default:
       return std::nullopt;
   }
 }
 
 void ApplyCustomFrame(HWND window) {
+  const MARGINS margins{0, 0, 0, 1};
+  ::DwmExtendFrameIntoClientArea(window, &margins);
   ::SetWindowPos(window, nullptr, 0, 0, 0, 0,
                  SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
                      SWP_NOACTIVATE | SWP_NOOWNERZORDER);
 }
 
-void BeginWindowDrag(HWND window) {
-  ::ReleaseCapture();
-  ::SendMessageW(window, WM_NCLBUTTONDOWN, HTCAPTION, 0);
-}
-
-bool BeginWindowResize(HWND window, const std::string& edge) {
-  WPARAM hit = 0;
-  if (edge == "left") {
-    hit = HTLEFT;
-  } else if (edge == "top") {
-    hit = HTTOP;
-  } else if (edge == "right") {
-    hit = HTRIGHT;
-  } else if (edge == "bottom") {
-    hit = HTBOTTOM;
-  } else if (edge == "topLeft") {
-    hit = HTTOPLEFT;
-  } else if (edge == "topRight") {
-    hit = HTTOPRIGHT;
-  } else if (edge == "bottomLeft") {
-    hit = HTBOTTOMLEFT;
-  } else if (edge == "bottomRight") {
-    hit = HTBOTTOMRIGHT;
-  } else {
-    return false;
-  }
-  if (IsWindowMaximized(window)) {
-    return true;
-  }
-  ::ReleaseCapture();
-  ::SendMessageW(window, WM_NCLBUTTONDOWN, hit, 0);
-  return true;
-}
-
-void MinimizeWindow(HWND window) {
-  ::ShowWindow(window, SW_MINIMIZE);
-}
-
-void ToggleWindowMaximize(HWND window) {
-  ::ShowWindow(window, IsWindowMaximized(window) ? SW_RESTORE : SW_MAXIMIZE);
+void BindWindowFrameChannel(flutter::BinaryMessenger* messenger, HWND window) {
+  g_channel =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          messenger, "io.github.georgexie2333.usque/window_frame",
+          &flutter::StandardMethodCodec::GetInstance());
+  g_channel->SetMethodCallHandler(
+      [window](const flutter::MethodCall<flutter::EncodableValue>& call,
+               std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+                   result) {
+        if (call.method_name() == "windowFrameState") {
+          result->Success(flutter::EncodableValue(
+              EncodeWindowFrameState(window, g_hover.c_str())));
+          return;
+        }
+        result->NotImplemented();
+      });
+  PublishWindowFrameState(window, true);
 }
 
 }  // namespace usque

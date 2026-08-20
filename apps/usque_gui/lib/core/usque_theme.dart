@@ -126,8 +126,14 @@ class UsqueTokens extends ThemeExtension<UsqueTokens> {
   /// Alpha used for soft status fills, so tints stay consistent app-wide.
   final double tint;
 
-  static UsqueTokens of(BuildContext context) =>
-      Theme.of(context).extension<UsqueTokens>() ?? _light;
+  static UsqueTokens of(BuildContext context) {
+    final UsqueTokens? tokens = Theme.of(context).extension<UsqueTokens>();
+    assert(
+      tokens != null,
+      'UsqueTokens missing from Theme; use UsqueTheme.light/dark',
+    );
+    return tokens ?? _light;
+  }
 
   @override
   UsqueTokens copyWith({
@@ -700,37 +706,6 @@ class UsqueTheme {
     return OutlineInputBorder(
       borderRadius: BorderRadius.circular(UsqueRadii.control),
       borderSide: BorderSide(color: color, width: width),
-    );
-  }
-}
-
-/// One page transition for every platform: a short lift and fade so pushed
-/// screens feel like the same instrument changing panels.
-class UsquePageTransitionsBuilder extends PageTransitionsBuilder {
-  const UsquePageTransitionsBuilder();
-
-  @override
-  Widget buildTransitions<T>(
-    PageRoute<T> route,
-    BuildContext context,
-    Animation<double> animation,
-    Animation<double> secondaryAnimation,
-    Widget child,
-  ) {
-    final CurvedAnimation curved = CurvedAnimation(
-      parent: animation,
-      curve: UsqueMotion.emphasized,
-      reverseCurve: UsqueMotion.exit,
-    );
-    return FadeTransition(
-      opacity: curved,
-      child: SlideTransition(
-        position: Tween<Offset>(
-          begin: const Offset(0, 0.02),
-          end: Offset.zero,
-        ).animate(curved),
-        child: child,
-      ),
     );
   }
 }

@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
-import '../state/window_frame.dart';
 
 class PlatformShellBridge {
   PlatformShellBridge(this._controller) {
@@ -25,16 +24,6 @@ class PlatformShellBridge {
   Future<Object?> _handleMethod(MethodCall call) async {
     if (call.method == 'zeroTrustCallbackArrived') {
       _controller.noteZeroTrustCallbackArrived();
-      return null;
-    }
-    if (call.method == 'windowFrameChanged') {
-      final arguments = call.arguments;
-      if (arguments is Map) {
-        WindowFrame.instance.apply(
-          maximized: arguments['maximized'] == true,
-          active: arguments['active'] != false,
-        );
-      }
       return null;
     }
     if (call.method != 'trayCommand') return null;

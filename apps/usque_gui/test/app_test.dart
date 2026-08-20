@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:usque/app.dart';
 import 'package:usque/core/app_strings.dart';
+import 'package:usque/core/usque_theme.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/screens/advanced_settings_screen.dart';
 import 'package:usque/screens/home_screen.dart';
@@ -441,6 +442,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        theme: UsqueTheme.light(),
         home: ControllerSelector<ThemePreference>(
           controller: controller,
           selector: (controller) => controller.themePreference,
@@ -726,6 +728,7 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
+          theme: UsqueTheme.light(),
           home: ListenableBuilder(
             listenable: controller,
             builder: (context, _) => ProxyScreen(controller: controller),
@@ -1050,7 +1053,10 @@ void main() {
     addTearDown(controller.dispose);
 
     await tester.pumpWidget(
-      MaterialApp(home: AdvancedSettingsScreen(controller: controller)),
+      MaterialApp(
+        theme: UsqueTheme.light(),
+        home: AdvancedSettingsScreen(controller: controller),
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -1082,6 +1088,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        theme: UsqueTheme.light(),
         home: Scaffold(
           body: Builder(
             builder: (context) => TextButton(
@@ -1442,7 +1449,10 @@ void main() {
       addTearDown(controller.dispose);
 
       await tester.pumpWidget(
-        MaterialApp(home: PerAppProxyScreen(controller: controller)),
+        MaterialApp(
+          theme: UsqueTheme.light(),
+          home: PerAppProxyScreen(controller: controller),
+        ),
       );
       await tester.pumpAndSettle();
 
@@ -1480,7 +1490,10 @@ void main() {
       addTearDown(controller.dispose);
 
       await tester.pumpWidget(
-        MaterialApp(home: PerAppProxyScreen(controller: controller)),
+        MaterialApp(
+          theme: UsqueTheme.light(),
+          home: PerAppProxyScreen(controller: controller),
+        ),
       );
       await tester.pumpAndSettle();
 
@@ -1602,7 +1615,10 @@ void main() {
 
     Future<void> pumpHome() async {
       await tester.pumpWidget(
-        MaterialApp(home: HomeScreen(controller: controller)),
+        MaterialApp(
+          theme: UsqueTheme.light(),
+          home: HomeScreen(controller: controller),
+        ),
       );
       await tester.pump();
     }
@@ -1646,7 +1662,10 @@ void main() {
     controller.snapshot = const EngineSnapshot(phase: ConnectionPhase.error);
 
     await tester.pumpWidget(
-      MaterialApp(home: HomeScreen(controller: controller)),
+      MaterialApp(
+        theme: UsqueTheme.light(),
+        home: HomeScreen(controller: controller),
+      ),
     );
     await tester.pump();
     expect(find.text('Retry'), findsOneWidget);

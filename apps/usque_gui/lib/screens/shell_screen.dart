@@ -280,7 +280,7 @@ class _RailBrand extends StatelessWidget {
   }
 }
 
-/// Bottom of the rail: a live connection lamp and a one-tap theme cycle.
+/// Bottom of the rail: a one-tap theme cycle.
 class _RailFooter extends StatelessWidget {
   const _RailFooter({required this.controller, required this.extended});
 
@@ -297,45 +297,37 @@ class _RailFooter extends StatelessWidget {
         extended ? 14 : 0,
         14,
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: extended
-            ? CrossAxisAlignment.start
-            : CrossAxisAlignment.center,
-        children: <Widget>[
-          ControllerSelector<ThemePreference>(
-            controller: controller,
-            selector: (controller) => controller.themePreference,
-            builder: (context, preference) {
-              final IconData icon = switch (preference) {
-                ThemePreference.system => LucideIcons.sunMoon,
-                ThemePreference.light => LucideIcons.sun,
-                ThemePreference.dark => LucideIcons.moon,
-              };
-              final String label = strings.get(switch (preference) {
-                ThemePreference.system => 'theme_system',
-                ThemePreference.light => 'theme_light',
-                ThemePreference.dark => 'theme_dark',
-              });
-              return IconButton(
-                tooltip: '${strings.get('theme')} · $label',
-                iconSize: 19,
-                onPressed: () => controller.setTheme(
-                  ThemePreference.values[(preference.index + 1) %
-                      ThemePreference.values.length],
-                ),
-                icon: AnimatedSwitcher(
-                  duration: UsqueMotion.of(context, UsqueMotion.base),
-                  transitionBuilder: (child, animation) => FadeTransition(
-                    opacity: animation,
-                    child: ScaleTransition(scale: animation, child: child),
-                  ),
-                  child: Icon(icon, key: ValueKey<ThemePreference>(preference)),
-                ),
-              );
-            },
-          ),
-        ],
+      child: ControllerSelector<ThemePreference>(
+        controller: controller,
+        selector: (controller) => controller.themePreference,
+        builder: (context, preference) {
+          final IconData icon = switch (preference) {
+            ThemePreference.system => LucideIcons.sunMoon,
+            ThemePreference.light => LucideIcons.sun,
+            ThemePreference.dark => LucideIcons.moon,
+          };
+          final String label = strings.get(switch (preference) {
+            ThemePreference.system => 'theme_system',
+            ThemePreference.light => 'theme_light',
+            ThemePreference.dark => 'theme_dark',
+          });
+          return IconButton(
+            tooltip: '${strings.get('theme')} · $label',
+            iconSize: 19,
+            onPressed: () => controller.setTheme(
+              ThemePreference.values[(preference.index + 1) %
+                  ThemePreference.values.length],
+            ),
+            icon: AnimatedSwitcher(
+              duration: UsqueMotion.of(context, UsqueMotion.base),
+              transitionBuilder: (child, animation) => FadeTransition(
+                opacity: animation,
+                child: ScaleTransition(scale: animation, child: child),
+              ),
+              child: Icon(icon, key: ValueKey<ThemePreference>(preference)),
+            ),
+          );
+        },
       ),
     );
   }

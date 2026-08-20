@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../core/connection_presentation.dart';
 import '../core/usque_theme.dart';
-import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
 import '../widgets/usque_dialog.dart';
@@ -16,6 +16,9 @@ class DiagnosticsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final strings = controller.strings;
+    final ConnectionPresentation presentation = ConnectionPresentation.of(
+      controller.snapshot.phase,
+    );
     return PageFrame(
       title: strings.get('diagnostics_title'),
       subtitle: strings.get('diagnostics_subtitle'),
@@ -55,12 +58,8 @@ class DiagnosticsScreen extends StatelessWidget {
                 icon: LucideIcons.activity,
                 title: strings.get('engine_status'),
                 trailing: StatusPill(
-                  label: strings.get(
-                    _connectionPhaseKey(controller.snapshot.phase),
-                  ),
-                  tone: controller.snapshot.isConnected
-                      ? StatusTone.success
-                      : StatusTone.neutral,
+                  label: strings.get(presentation.labelKey),
+                  tone: presentation.tone,
                   icon: controller.snapshot.isConnected
                       ? LucideIcons.circleCheck
                       : LucideIcons.circle,
@@ -265,18 +264,4 @@ class _DangerPanel extends StatelessWidget {
       ),
     );
   }
-}
-
-String _connectionPhaseKey(ConnectionPhase phase) {
-  return switch (phase) {
-    ConnectionPhase.disconnected => 'disconnected',
-    ConnectionPhase.preparing => 'preparing',
-    ConnectionPhase.connectingH3 ||
-    ConnectionPhase.connectingH2 => 'connecting',
-    ConnectionPhase.connected => 'connected',
-    ConnectionPhase.degraded => 'degraded',
-    ConnectionPhase.reconnecting => 'reconnecting',
-    ConnectionPhase.disconnecting => 'disconnecting',
-    ConnectionPhase.error => 'error',
-  };
 }

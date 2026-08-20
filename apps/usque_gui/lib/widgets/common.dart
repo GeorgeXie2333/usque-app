@@ -387,7 +387,7 @@ class SectionPanel extends StatelessWidget {
   }
 }
 
-enum StatusTone { success, warning, danger, neutral }
+enum StatusTone { success, warning, danger, brand, neutral }
 
 /// Foreground colour for a tone, resolved against the current theme.
 Color statusToneColor(BuildContext context, StatusTone tone) {
@@ -396,6 +396,7 @@ Color statusToneColor(BuildContext context, StatusTone tone) {
     StatusTone.success => tokens.success,
     StatusTone.warning => tokens.caution,
     StatusTone.danger => tokens.danger,
+    StatusTone.brand => tokens.brand,
     StatusTone.neutral => Theme.of(context).colorScheme.onSurfaceVariant,
   };
 }

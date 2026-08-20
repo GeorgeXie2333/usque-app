@@ -3,6 +3,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/app_strings.dart';
+import '../core/connection_presentation.dart';
 import '../core/usque_motion.dart';
 import '../core/usque_theme.dart';
 import '../models/app_models.dart';
@@ -10,6 +11,7 @@ import '../state/app_controller.dart';
 import '../widgets/common.dart';
 import '../widgets/connection_ring.dart';
 import '../widgets/controller_selector.dart';
+import '../widgets/live_duration.dart';
 import '../widgets/profile_identity_dialog.dart';
 import '../widgets/sparkline.dart';
 
@@ -184,28 +186,11 @@ class _ConnectionHero extends StatelessWidget {
 
   Widget _buildHero(BuildContext context, _HeroView view) {
     final ThemeData theme = Theme.of(context);
-    final bool connected =
-        view.phase == ConnectionPhase.connected ||
-        view.phase == ConnectionPhase.degraded;
-    final bool transitional = switch (view.phase) {
-      ConnectionPhase.preparing ||
-      ConnectionPhase.connectingH3 ||
-      ConnectionPhase.connectingH2 ||
-      ConnectionPhase.reconnecting ||
-      ConnectionPhase.disconnecting => true,
-      _ => false,
-    };
-    final String status = phaseLabel(strings, view.phase);
-    final String action = strings.get(
-      connected
-          ? 'disconnect'
-          : transitional
-          ? 'connecting'
-          : 'connect',
+    final ConnectionPresentation presentation = ConnectionPresentation.of(
+      view.phase,
     );
-    final bool recoverable =
-        view.phase == ConnectionPhase.error ||
-        view.phase == ConnectionPhase.degraded;
+    final String status = strings.get(presentation.labelKey);
+    final String action = strings.get(presentation.actionKey);
 
     return Panel(
       padding: const EdgeInsets.fromLTRB(24, 22, 24, 24),
@@ -252,7 +237,7 @@ class _ConnectionHero extends StatelessWidget {
               ),
             ),
           ),
-          if (recoverable) ...<Widget>[
+          if (presentation.recoverable) ...<Widget>[
             const SizedBox(height: 16),
             OutlinedButton.icon(
               onPressed: view.busy ? null : controller.retry,
@@ -391,9 +376,6 @@ class _EngineReadout extends StatelessWidget {
 
   Widget _buildReadout(BuildContext context, _ReadoutView view) {
     final Color hairline = UsqueTokens.of(context).hairline;
-    final Duration? uptime = view.connectedAt == null
-        ? null
-        : DateTime.now().difference(view.connectedAt!);
     final Widget divider = Padding(
       padding: const EdgeInsets.symmetric(vertical: 14),
       child: Divider(height: 1, color: hairline),
@@ -427,9 +409,7 @@ class _EngineReadout extends StatelessWidget {
           ReadoutRow(
             icon: LucideIcons.clock3,
             label: strings.get('duration'),
-            value: uptime == null
-                ? const EmptyValue(label: '—')
-                : MonoValue(value: formatDuration(uptime)),
+            value: LiveDuration(since: view.connectedAt),
           ),
           divider,
           ReadoutRow.text(
@@ -731,18 +711,4 @@ String killSwitchStatusKey({
     default:
       return snapshot.isTransitional ? 'ks_engaging' : 'ks_inactive';
   }
-}
-
-String phaseLabel(AppStrings strings, ConnectionPhase phase) {
-  return strings.get(switch (phase) {
-    ConnectionPhase.disconnected => 'disconnected',
-    ConnectionPhase.preparing => 'preparing',
-    ConnectionPhase.connectingH3 ||
-    ConnectionPhase.connectingH2 => 'connecting',
-    ConnectionPhase.connected => 'connected',
-    ConnectionPhase.degraded => 'degraded',
-    ConnectionPhase.reconnecting => 'reconnecting',
-    ConnectionPhase.disconnecting => 'disconnecting',
-    ConnectionPhase.error => 'error',
-  });
 }
