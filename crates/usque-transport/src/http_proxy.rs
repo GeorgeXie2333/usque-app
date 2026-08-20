@@ -163,9 +163,8 @@ impl Drop for HttpProxyRuntime {
 
 impl HttpProxyFrontend {
     pub(crate) fn prebind(profile: &Profile) -> Result<Vec<TcpListener>, TransportError> {
-        crate::socket::bind_tcp_listeners(&profile.proxy.http_listeners).map_err(
-            |(address, source)| TransportError::HttpProxyListener { address, source },
-        )
+        crate::socket::bind_tcp_listeners(&profile.proxy.http_listeners)
+            .map_err(|(address, source)| TransportError::HttpProxyListener { address, source })
     }
 
     pub(crate) fn activate(

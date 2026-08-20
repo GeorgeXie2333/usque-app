@@ -100,9 +100,7 @@ pub(crate) fn bind_tcp_listeners(
     Ok(bound)
 }
 
-pub(crate) fn bind_tcp_listener(
-    address: SocketAddr,
-) -> std::io::Result<tokio::net::TcpListener> {
+pub(crate) fn bind_tcp_listener(address: SocketAddr) -> std::io::Result<tokio::net::TcpListener> {
     use socket2::{Domain, Protocol, Socket, Type};
 
     let domain = if address.is_ipv4() {

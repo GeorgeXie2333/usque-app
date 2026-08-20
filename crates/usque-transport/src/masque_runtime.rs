@@ -203,14 +203,10 @@ impl MasqueRuntime {
                 same_listeners(frontend.listeners(), &profile.proxy.http_listeners)
             });
 
-        if !keep_socks5
-            && let Some(mut frontend) = self.socks5.take()
-        {
+        if !keep_socks5 && let Some(mut frontend) = self.socks5.take() {
             frontend.shutdown().await;
         }
-        if !keep_http
-            && let Some(mut frontend) = self.http.take()
-        {
+        if !keep_http && let Some(mut frontend) = self.http.take() {
             frontend.shutdown().await;
         }
 
@@ -469,10 +465,7 @@ mod tests {
             "127.0.0.1:8080".parse().unwrap(),
         ];
         assert!(same_listeners(&left, &right));
-        assert!(!same_listeners(
-            &left,
-            &["127.0.0.1:8080".parse().unwrap()]
-        ));
+        assert!(!same_listeners(&left, &["127.0.0.1:8080".parse().unwrap()]));
     }
 
     #[tokio::test]

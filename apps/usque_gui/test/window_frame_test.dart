@@ -52,7 +52,9 @@ void main() {
     expect(WindowFrame.instance.captionHover, CaptionHover.none);
   });
 
-  testWidgets('close hover paints the Windows red caption fill', (tester) async {
+  testWidgets('close hover paints the Windows red caption fill', (
+    tester,
+  ) async {
     WindowFrame.instance.debugEnable(captionHover: CaptionHover.close);
     await tester.pumpWidget(
       MaterialApp(
@@ -71,9 +73,6 @@ void main() {
         matching: find.byType(Container),
       ),
     );
-    expect(
-      (close.decoration! as BoxDecoration).color,
-      const Color(0xFFC42B1C),
-    );
+    expect((close.decoration! as BoxDecoration).color, const Color(0xFFC42B1C));
   });
 }
