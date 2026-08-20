@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 
@@ -189,45 +190,50 @@ impl MasqueRuntime {
 
     /// Replace SOCKS5/HTTP listeners without tearing the MASQUE mux.
     ///
-    /// New sockets are bound first. If prebind fails, the existing frontends
-    /// stay serving.
+    /// Unchanged listeners are kept. A protocol that actually changes is
+    /// shut down before its replacement is bound, because Windows will not
+    /// let a second socket claim the same address.
     pub async fn reconfigure_frontends(&mut self, profile: &Profile) -> Result<(), TransportError> {
-        let socks5_bound = if profile.frontends.socks5 {
-            Some(Socks5Frontend::prebind(profile)?)
-        } else {
-            None
-        };
-        let http_bound = if profile.frontends.http {
-            Some(HttpProxyFrontend::prebind(profile)?)
-        } else {
-            None
-        };
+        let keep_socks5 = profile.frontends.socks5
+            && self.socks5.as_ref().is_some_and(|frontend| {
+                same_listeners(frontend.listeners(), &profile.proxy.socks5_listeners)
+            });
+        let keep_http = profile.frontends.http
+            && self.http.as_ref().is_some_and(|frontend| {
+                same_listeners(frontend.listeners(), &profile.proxy.http_listeners)
+            });
 
-        if let Some(mut frontend) = self.socks5.take() {
-            frontend.shutdown().await;
+        if !keep_socks5 {
+            if let Some(mut frontend) = self.socks5.take() {
+                frontend.shutdown().await;
+            }
         }
-        if let Some(mut frontend) = self.http.take() {
-            frontend.shutdown().await;
+        if !keep_http {
+            if let Some(mut frontend) = self.http.take() {
+                frontend.shutdown().await;
+            }
         }
 
-        self.socks5 = socks5_bound.map(|bound| {
-            Socks5Frontend::activate(
+        if profile.frontends.socks5 && !keep_socks5 {
+            let bound = Socks5Frontend::prebind(profile)?;
+            self.socks5 = Some(Socks5Frontend::activate(
                 profile,
                 self.assigned_ipv4,
                 self.assigned_ipv6,
                 &self.stack,
                 bound,
-            )
-        });
-        self.http = http_bound.map(|bound| {
-            HttpProxyFrontend::activate(
+            ));
+        }
+        if profile.frontends.http && !keep_http {
+            let bound = HttpProxyFrontend::prebind(profile)?;
+            self.http = Some(HttpProxyFrontend::activate(
                 profile,
                 self.assigned_ipv4,
                 self.assigned_ipv6,
                 &self.stack,
                 bound,
-            )
-        });
+            ));
+        }
         self.listeners = self
             .socks5
             .iter()
@@ -442,9 +448,32 @@ fn dispatch_tun_incoming(tun_sink: &watch::Sender<Option<mpsc::Sender<Bytes>>>, 
     }
 }
 
+fn same_listeners(active: &[SocketAddr], wanted: &[SocketAddr]) -> bool {
+    let active: HashSet<SocketAddr> = active.iter().copied().collect();
+    let wanted: HashSet<SocketAddr> = wanted.iter().copied().collect();
+    active == wanted
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn same_listeners_compares_as_a_set() {
+        let left = vec![
+            "127.0.0.1:8080".parse().unwrap(),
+            "[::1]:8080".parse().unwrap(),
+        ];
+        let right = vec![
+            "[::1]:8080".parse().unwrap(),
+            "127.0.0.1:8080".parse().unwrap(),
+        ];
+        assert!(same_listeners(&left, &right));
+        assert!(!same_listeners(
+            &left,
+            &["127.0.0.1:8080".parse().unwrap()]
+        ));
+    }
 
     #[tokio::test]
     async fn detached_tun_sink_drops_packets_without_closing_the_channel() {

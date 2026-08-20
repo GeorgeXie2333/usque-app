@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpSocket, TcpStream, UdpSocket as TokioUdpSocket};
+use tokio::net::{TcpListener, TcpStream, UdpSocket as TokioUdpSocket};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, timeout};
@@ -272,17 +272,7 @@ struct SocksContext {
 }
 
 fn bind_listener(address: SocketAddr) -> Result<TcpListener, TransportError> {
-    let socket = if address.is_ipv4() {
-        TcpSocket::new_v4()
-    } else {
-        TcpSocket::new_v6()
-    }
-    .map_err(|source| TransportError::SocksListener { address, source })?;
-    socket
-        .bind(address)
-        .map_err(|source| TransportError::SocksListener { address, source })?;
-    socket
-        .listen(256)
+    crate::socket::bind_tcp_listener(address)
         .map_err(|source| TransportError::SocksListener { address, source })
 }
 

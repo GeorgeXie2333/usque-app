@@ -21,7 +21,7 @@ use hyper::body::{Body, Incoming};
 use hyper::client::conn::http1::SendRequest;
 use hyper::service::service_fn;
 use hyper_util::rt::{TokioIo, TokioTimer};
-use tokio::net::{TcpListener, TcpSocket, TcpStream};
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore, watch};
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
@@ -295,17 +295,7 @@ impl HttpPoolCounters {
 }
 
 fn bind_listener(address: SocketAddr) -> Result<TcpListener, TransportError> {
-    let socket = if address.is_ipv4() {
-        TcpSocket::new_v4()
-    } else {
-        TcpSocket::new_v6()
-    }
-    .map_err(|source| TransportError::HttpProxyListener { address, source })?;
-    socket
-        .bind(address)
-        .map_err(|source| TransportError::HttpProxyListener { address, source })?;
-    socket
-        .listen(256)
+    crate::socket::bind_tcp_listener(address)
         .map_err(|source| TransportError::HttpProxyListener { address, source })
 }
 

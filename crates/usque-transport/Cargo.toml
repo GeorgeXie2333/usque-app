@@ -31,6 +31,9 @@ usque-protocol = { path = "../usque-protocol" }
 webpki-roots.workspace = true
 zeroize.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
+
 [dev-dependencies]
 serde_json.workspace = true
 

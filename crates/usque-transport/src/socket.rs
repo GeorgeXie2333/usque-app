@@ -79,3 +79,74 @@ pub(crate) fn socket_handle<T: std::os::fd::AsRawFd>(socket: &T) -> SocketHandle
 pub(crate) fn socket_handle<T: std::os::windows::io::AsRawSocket>(socket: &T) -> SocketHandle {
     SocketHandle(socket.as_raw_socket())
 }
+
+/// Bind a local proxy listener.
+///
+/// IPv6 sockets are forced to V6-only before bind. Windows dual-stack sockets
+/// otherwise occupy the matching IPv4 port, so `127.0.0.1:8080` fails with
+/// WSAEADDRINUSE when `[::1]:8080` is already bound.
+pub(crate) fn bind_tcp_listener(
+    address: SocketAddr,
+) -> std::io::Result<tokio::net::TcpListener> {
+    use tokio::net::TcpSocket;
+
+    let socket = if address.is_ipv4() {
+        TcpSocket::new_v4()?
+    } else {
+        let socket = TcpSocket::new_v6()?;
+        force_ipv6_only(&socket)?;
+        socket
+    };
+    socket.bind(address)?;
+    socket.listen(256)
+}
+
+#[cfg(windows)]
+fn force_ipv6_only(socket: &tokio::net::TcpSocket) -> std::io::Result<()> {
+    use std::os::windows::io::AsRawSocket;
+    use windows_sys::Win32::Networking::WinSock::{
+        setsockopt, IPPROTO_IPV6, IPV6_V6ONLY, SOCKET_ERROR,
+    };
+
+    let enabled: i32 = 1;
+    // SAFETY: `socket` is an open IPv6 TCP socket and `enabled` lives for
+    // the duration of this setsockopt call.
+    let result = unsafe {
+        setsockopt(
+            socket.as_raw_socket() as _,
+            IPPROTO_IPV6 as i32,
+            IPV6_V6ONLY,
+            (&raw const enabled).cast(),
+            i32::try_from(size_of_val(&enabled)).expect("IPV6_V6ONLY fits in i32"),
+        )
+    };
+    if result == SOCKET_ERROR {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(windows))]
+fn force_ipv6_only(_socket: &tokio::net::TcpSocket) -> std::io::Result<()> {
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
+
+    #[tokio::test]
+    async fn ipv4_and_ipv6_loopback_can_share_a_port() {
+        let v4 = bind_tcp_listener(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
+            .expect("bind IPv4 loopback");
+        let port = v4.local_addr().expect("IPv4 local addr").port();
+        let v6 = bind_tcp_listener(SocketAddr::new(Ipv6Addr::LOCALHOST.into(), port));
+        let Ok(v6) = v6 else {
+            // Some CI images have IPv6 loopback disabled.
+            return;
+        };
+        assert_eq!(v6.local_addr().expect("IPv6 local addr").port(), port);
+    }
+}
