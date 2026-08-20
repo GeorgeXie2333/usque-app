@@ -2889,6 +2889,7 @@ dependencies = [
  "quiche",
  "rustls",
  "serde_json",
+ "socket2",
  "thiserror",
  "tokio",
  "tokio-boring",
@@ -2899,7 +2900,6 @@ dependencies = [
  "usque-core",
  "usque-protocol",
  "webpki-roots",
- "windows-sys 0.61.2",
  "zeroize",
 ]
 

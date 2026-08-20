@@ -19,6 +19,7 @@ hyper-util.workspace = true
 p256.workspace = true
 quiche.workspace = true
 rustls.workspace = true
+socket2.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-boring.workspace = true
@@ -30,9 +31,6 @@ usque-core = { path = "../usque-core" }
 usque-protocol = { path = "../usque-protocol" }
 webpki-roots.workspace = true
 zeroize.workspace = true
-
-[target.'cfg(windows)'.dependencies]
-windows-sys.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true

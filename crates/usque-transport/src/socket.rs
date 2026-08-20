@@ -80,56 +80,44 @@ pub(crate) fn socket_handle<T: std::os::windows::io::AsRawSocket>(socket: &T) ->
     SocketHandle(socket.as_raw_socket())
 }
 
-/// Bind a local proxy listener.
+/// Bind local proxy listeners. IPv4 addresses are bound first.
 ///
 /// IPv6 sockets are forced to V6-only before bind. Windows dual-stack sockets
 /// otherwise occupy the matching IPv4 port, so `127.0.0.1:8080` fails with
 /// WSAEADDRINUSE when `[::1]:8080` is already bound.
+pub(crate) fn bind_tcp_listeners(
+    addresses: &[SocketAddr],
+) -> Result<Vec<tokio::net::TcpListener>, (SocketAddr, std::io::Error)> {
+    let mut ordered = addresses.to_vec();
+    ordered.sort_by_key(SocketAddr::is_ipv6);
+    let mut bound = Vec::with_capacity(ordered.len());
+    for address in ordered {
+        match bind_tcp_listener(address) {
+            Ok(listener) => bound.push(listener),
+            Err(source) => return Err((address, source)),
+        }
+    }
+    Ok(bound)
+}
+
 pub(crate) fn bind_tcp_listener(
     address: SocketAddr,
 ) -> std::io::Result<tokio::net::TcpListener> {
-    use tokio::net::TcpSocket;
+    use socket2::{Domain, Protocol, Socket, Type};
 
-    let socket = if address.is_ipv4() {
-        TcpSocket::new_v4()?
+    let domain = if address.is_ipv4() {
+        Domain::IPV4
     } else {
-        let socket = TcpSocket::new_v6()?;
-        force_ipv6_only(&socket)?;
-        socket
+        Domain::IPV6
     };
-    socket.bind(address)?;
-    socket.listen(256)
-}
-
-#[cfg(windows)]
-fn force_ipv6_only(socket: &tokio::net::TcpSocket) -> std::io::Result<()> {
-    use std::os::windows::io::AsRawSocket;
-    use windows_sys::Win32::Networking::WinSock::{
-        setsockopt, IPPROTO_IPV6, IPV6_V6ONLY, SOCKET_ERROR,
-    };
-
-    let enabled: i32 = 1;
-    // SAFETY: `socket` is an open IPv6 TCP socket and `enabled` lives for
-    // the duration of this setsockopt call.
-    let result = unsafe {
-        setsockopt(
-            socket.as_raw_socket() as _,
-            IPPROTO_IPV6,
-            IPV6_V6ONLY,
-            (&raw const enabled).cast(),
-            i32::try_from(size_of_val(&enabled)).expect("IPV6_V6ONLY fits in i32"),
-        )
-    };
-    if result == SOCKET_ERROR {
-        Err(std::io::Error::last_os_error())
-    } else {
-        Ok(())
+    let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))?;
+    if address.is_ipv6() {
+        socket.set_only_v6(true)?;
     }
-}
-
-#[cfg(not(windows))]
-fn force_ipv6_only(_socket: &tokio::net::TcpSocket) -> std::io::Result<()> {
-    Ok(())
+    socket.set_nonblocking(true)?;
+    socket.bind(&address.into())?;
+    socket.listen(256)?;
+    tokio::net::TcpListener::from_std(socket.into())
 }
 
 #[cfg(test)]
@@ -148,5 +136,43 @@ mod tests {
             return;
         };
         assert_eq!(v6.local_addr().expect("IPv6 local addr").port(), port);
+    }
+
+    #[tokio::test]
+    async fn ipv6_loopback_first_does_not_steal_ipv4_loopback() {
+        let v6 = bind_tcp_listener(SocketAddr::new(Ipv6Addr::LOCALHOST.into(), 0));
+        let Ok(v6) = v6 else {
+            return;
+        };
+        let port = v6.local_addr().expect("IPv6 local addr").port();
+        bind_tcp_listener(SocketAddr::from((Ipv4Addr::LOCALHOST, port)))
+            .expect("IPv4 loopback must bind after V6-only IPv6 on the same port");
+    }
+
+    #[tokio::test]
+    async fn default_socks_and_http_loopbacks_bind_together() {
+        let socks = [
+            SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
+            SocketAddr::new(Ipv6Addr::LOCALHOST.into(), 0),
+        ];
+        let http = [
+            SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
+            SocketAddr::new(Ipv6Addr::LOCALHOST.into(), 0),
+        ];
+        let socks = bind_tcp_listeners(&socks).expect("SOCKS5 listeners");
+        let http = bind_tcp_listeners(&http).expect("HTTP listeners");
+        assert_eq!(socks.len(), 2);
+        assert_eq!(http.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn ipv6_then_ipv4_same_port_across_protocols() {
+        let socks_v6 = bind_tcp_listener(SocketAddr::new(Ipv6Addr::LOCALHOST.into(), 0));
+        let Ok(socks_v6) = socks_v6 else {
+            return;
+        };
+        let port = socks_v6.local_addr().expect("SOCKS IPv6").port();
+        bind_tcp_listener(SocketAddr::from((Ipv4Addr::LOCALHOST, port)))
+            .expect("HTTP IPv4 loopback must not collide with SOCKS IPv6 on the same port");
     }
 }

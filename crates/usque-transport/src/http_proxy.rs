@@ -163,13 +163,9 @@ impl Drop for HttpProxyRuntime {
 
 impl HttpProxyFrontend {
     pub(crate) fn prebind(profile: &Profile) -> Result<Vec<TcpListener>, TransportError> {
-        profile
-            .proxy
-            .http_listeners
-            .iter()
-            .copied()
-            .map(bind_listener)
-            .collect()
+        crate::socket::bind_tcp_listeners(&profile.proxy.http_listeners).map_err(
+            |(address, source)| TransportError::HttpProxyListener { address, source },
+        )
     }
 
     pub(crate) fn activate(
@@ -292,11 +288,6 @@ impl HttpPoolCounters {
         snapshot.http_stale_retries = self.stale_retries.load(Ordering::Relaxed);
         snapshot.http_busy_rejections = self.busy_rejections.load(Ordering::Relaxed);
     }
-}
-
-fn bind_listener(address: SocketAddr) -> Result<TcpListener, TransportError> {
-    crate::socket::bind_tcp_listener(address)
-        .map_err(|source| TransportError::HttpProxyListener { address, source })
 }
 
 async fn run_listener(listener: TcpListener, context: Arc<HttpContext>) {

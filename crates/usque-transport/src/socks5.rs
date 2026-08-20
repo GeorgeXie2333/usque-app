@@ -161,13 +161,8 @@ impl Drop for Socks5Runtime {
 
 impl Socks5Frontend {
     pub(crate) fn prebind(profile: &Profile) -> Result<Vec<TcpListener>, TransportError> {
-        profile
-            .proxy
-            .socks5_listeners
-            .iter()
-            .copied()
-            .map(bind_listener)
-            .collect()
+        crate::socket::bind_tcp_listeners(&profile.proxy.socks5_listeners)
+            .map_err(|(address, source)| TransportError::SocksListener { address, source })
     }
 
     pub(crate) fn activate(
@@ -269,11 +264,6 @@ struct SocksContext {
     failure: watch::Sender<Option<String>>,
     health: watch::Receiver<RuntimeHealth>,
     auth: Option<Arc<ProxyAuthCredentials>>,
-}
-
-fn bind_listener(address: SocketAddr) -> Result<TcpListener, TransportError> {
-    crate::socket::bind_tcp_listener(address)
-        .map_err(|source| TransportError::SocksListener { address, source })
 }
 
 async fn run_listener(listener: TcpListener, context: Arc<SocksContext>) {
