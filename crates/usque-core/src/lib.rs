@@ -19,8 +19,8 @@ pub use connector::{
 };
 pub use exit_probe::{ExitInfo, GeoLocation, IpSbProbe, ProbeError};
 pub use identity::{
-    EndpointPin, IdentityError, IdentityProvider, MasqueKeyPair, WarpIdentity,
-    parse_manual_warp_secret,
+    ConsumerEntitlement, EndpointPin, IdentityError, IdentityMetadata, IdentityProvider,
+    MasqueKeyPair, WarpIdentity, parse_manual_warp_secret,
 };
 pub use reconfigure::{ReconfigureClass, classify_reconfigure};
 pub use registration::{

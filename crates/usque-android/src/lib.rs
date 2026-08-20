@@ -27,9 +27,9 @@ use jni::{
 };
 use serde::{Deserialize, Serialize};
 use usque_core::{
-    AppConfig, ConsumerRegistrationClient, DnsMode, EndpointSettings, FrontendSettings,
-    IdentityProvider, IpPolicy, OperatingMode, Profile, ProxyDnsMode, ProxySettings,
-    RegistrationError, RegistrationOptions, TransportPolicy, WarpIdentity,
+    AppConfig, ConsumerEntitlement, ConsumerRegistrationClient, DnsMode, EndpointSettings,
+    FrontendSettings, IdentityProvider, IpPolicy, OperatingMode, Profile, ProxyDnsMode,
+    ProxySettings, RegistrationError, RegistrationOptions, TransportPolicy, WarpIdentity,
     parse_manual_warp_secret, storage::ConfigStore, update::UpdateChecker,
 };
 #[cfg(target_os = "android")]
@@ -696,6 +696,8 @@ struct IdentityMetadata {
     ipv6: String,
     provider: &'static str,
     organization: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    entitlement: Option<ConsumerEntitlement>,
 }
 
 fn identity_metadata(secret: &[u8]) -> Result<IdentityMetadata, String> {
@@ -709,6 +711,7 @@ fn identity_metadata(secret: &[u8]) -> Result<IdentityMetadata, String> {
             IdentityProvider::ZeroTrust { .. } => "zeroTrust",
         },
         organization: identity.provider().organization().map(ToOwned::to_owned),
+        entitlement: identity.entitlement(),
     })
 }
 

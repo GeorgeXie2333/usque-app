@@ -218,22 +218,7 @@ class AppController extends ChangeNotifier {
         method: method,
         licenseKey: licenseKey,
       );
-      profileIdentityStates = <String, ProfileIdentityState>{
-        ...profileIdentityStates,
-        activeProfile.id: ProfileIdentityState.ready,
-      };
-      profileIdentityStatuses = <String, ProfileIdentityStatus>{
-        ...profileIdentityStatuses,
-        activeProfile.id: ProfileIdentityStatus(
-          state: ProfileIdentityState.ready,
-          licenseState: method == IdentityProvisioningMethod.registerWithLicense
-              ? LicenseState.warpPlus
-              : LicenseState.free,
-          accountType: method == IdentityProvisioningMethod.registerWithLicense
-              ? 'WARP+'
-              : 'Free',
-        ),
-      };
+      await _refreshProfileCatalog();
       onboardingComplete = true;
       await _preferences?.setBool('onboarding_complete', true);
     });
@@ -696,7 +681,7 @@ class AppController extends ChangeNotifier {
     final success = await _run(() async {
       final reconnect = profile.id == activeProfileId && snapshot.isConnected;
       var mutationCommitted = false;
-      var refreshedZeroTrustProfile = false;
+      var refreshedCatalog = false;
       if (reconnect) {
         snapshot = await _engine.disconnect();
         _notifyListeners();
@@ -710,35 +695,10 @@ class AppController extends ChangeNotifier {
           callbackUri: callbackUri,
         );
         mutationCommitted = true;
-        if (method == IdentityProvisioningMethod.zeroTrust) {
-          await _refreshProfileCatalog();
-          refreshedZeroTrustProfile = true;
-          return;
-        }
-        profileIdentityStates = <String, ProfileIdentityState>{
-          ...profileIdentityStates,
-          profile.id: ProfileIdentityState.ready,
-        };
-        profileIdentityStatuses = <String, ProfileIdentityStatus>{
-          ...profileIdentityStatuses,
-          profile.id: ProfileIdentityStatus(
-            state: ProfileIdentityState.ready,
-            licenseState:
-                method == IdentityProvisioningMethod.registerWithLicense
-                ? LicenseState.warpPlus
-                : LicenseState.free,
-            accountType:
-                method == IdentityProvisioningMethod.registerWithLicense
-                ? 'WARP+'
-                : 'Free',
-            provider: IdentityProvider.consumer,
-          ),
-        };
+        await _refreshProfileCatalog();
+        refreshedCatalog = true;
       } finally {
-        final safeToReconnect =
-            !mutationCommitted ||
-            method != IdentityProvisioningMethod.zeroTrust ||
-            refreshedZeroTrustProfile;
+        final safeToReconnect = !mutationCommitted || refreshedCatalog;
         if (reconnect && safeToReconnect) {
           snapshot = await _engine.connect(activeProfile);
           _notifyListeners();

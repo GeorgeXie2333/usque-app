@@ -19,9 +19,10 @@ use thiserror::Error;
 use tokio::sync::{Mutex, RwLock};
 use usque_core::{
     AddressFamily, AppConfig, ConfigError, ConnectionError, ConnectionPhase, ConnectionSnapshot,
-    ConnectionWarning, ConsumerRegistrationClient, DnsMode, EndpointPin, EndpointSettings,
-    ErrorCode, ExitInfo, FrontendKind, FrontendPhase, FrontendSettings, FrontendStatus,
-    IdentityProvider, IpPolicy, IpSbProbe, KillSwitchState, LockdownState, MasqueKeyPair,
+    ConnectionWarning, ConsumerEntitlement, ConsumerRegistrationClient, DnsMode, EndpointPin,
+    EndpointSettings, ErrorCode, ExitInfo, FrontendKind, FrontendPhase, FrontendSettings,
+    FrontendStatus, IdentityMetadata, IdentityProvider, IpPolicy, IpSbProbe, KillSwitchState,
+    LockdownState, MasqueKeyPair,
     OperatingMode, Profile, ProxyAuthCredentials, ProxyDnsMode, ProxySettings, RegistrationError,
     RegistrationOptions, StateMachine, Statistics, Transport, TransportPolicy, WarpIdentity,
     is_zero_trust_endpoint, normalize_zero_trust_team,
@@ -77,6 +78,14 @@ pub struct ControlService {
     maintenance: maintenance::Maintenance,
     #[cfg(any(windows, test))]
     event_sequence: AtomicU64,
+}
+
+fn consumer_license_presentation(entitlement: ConsumerEntitlement) -> (v1::LicenseState, String) {
+    if entitlement.is_warp_plus() {
+        (v1::LicenseState::WarpPlus, "WARP+".to_owned())
+    } else {
+        (v1::LicenseState::Free, "Free".to_owned())
+    }
 }
 
 enum ProvisionedIdentity {
@@ -1063,7 +1072,7 @@ impl ControlService {
             .required_secret(profile_id, SecretRecord::DeviceId)
             .await?;
         let license = self.vault.get(profile_id, SecretRecord::License).await?;
-        let provider = self.load_identity_provider(profile_id).await?;
+        let metadata = self.load_identity_metadata(profile_id).await?;
         let key_pair = MasqueKeyPair::from_sec1_der(&private_key)?;
         let endpoint_pin = EndpointPin::from_spki_der(&endpoint_pin)?;
         let assigned_ipv4 = std::str::from_utf8(&assigned_ipv4)
@@ -1090,7 +1099,8 @@ impl ControlService {
             device_id,
             access_token,
             license,
-            provider,
+            metadata.provider,
+            metadata.entitlement,
             assigned_ipv4,
             assigned_ipv6,
         )
@@ -1101,6 +1111,13 @@ impl ControlService {
         &self,
         profile_id: Uuid,
     ) -> Result<IdentityProvider, ControlServiceError> {
+        Ok(self.load_identity_metadata(profile_id).await?.provider)
+    }
+
+    async fn load_identity_metadata(
+        &self,
+        profile_id: Uuid,
+    ) -> Result<IdentityMetadata, ControlServiceError> {
         let config = self.config.read().await;
         let endpoint = config
             .profiles
@@ -1109,7 +1126,7 @@ impl ControlService {
             .map(|profile| profile.endpoint.clone());
         let binding = config.identity_bindings.get(&profile_id).cloned();
         drop(config);
-        self.load_identity_provider_for_profile(profile_id, endpoint.as_ref(), binding.as_ref())
+        self.load_identity_metadata_for_profile(profile_id, endpoint.as_ref(), binding.as_ref())
             .await
     }
 
@@ -1119,23 +1136,38 @@ impl ControlService {
         endpoint: Option<&EndpointSettings>,
         binding: Option<&IdentityProvider>,
     ) -> Result<IdentityProvider, ControlServiceError> {
+        Ok(self
+            .load_identity_metadata_for_profile(profile_id, endpoint, binding)
+            .await?
+            .provider)
+    }
+
+    async fn load_identity_metadata_for_profile(
+        &self,
+        profile_id: Uuid,
+        endpoint: Option<&EndpointSettings>,
+        binding: Option<&IdentityProvider>,
+    ) -> Result<IdentityMetadata, ControlServiceError> {
         let metadata = self
             .vault
             .get(profile_id, SecretRecord::IdentityMetadata)
             .await?;
         match metadata {
             Some(metadata) => {
-                let provider = IdentityProvider::from_metadata_json(&metadata)
+                let metadata = IdentityMetadata::from_json(&metadata)
                     .map_err(|_| ControlServiceError::InvalidStoredIdentity)?;
-                if binding.is_some_and(|binding| binding != &provider) {
+                if binding.is_some_and(|binding| binding != &metadata.provider) {
                     return Err(ControlServiceError::InvalidStoredIdentity);
                 }
-                Ok(provider)
+                Ok(metadata)
             }
             None if binding.is_some() || endpoint.is_some_and(is_zero_trust_endpoint) => {
                 Err(ControlServiceError::InvalidStoredIdentity)
             }
-            None => Ok(IdentityProvider::Consumer),
+            None => Ok(IdentityMetadata {
+                provider: IdentityProvider::Consumer,
+                entitlement: None,
+            }),
         }
     }
 
@@ -1486,18 +1518,23 @@ impl ControlService {
                             identity.provider().clone(),
                         )
                     }
-                    Ok(identity) if identity.license().is_some() => (
-                        v1::ProfileIdentityState::Ready,
-                        v1::LicenseState::WarpPlus,
-                        "WARP+".to_owned(),
-                        IdentityProvider::Consumer,
-                    ),
-                    Ok(_) => (
-                        v1::ProfileIdentityState::Ready,
-                        v1::LicenseState::Free,
-                        "Free".to_owned(),
-                        IdentityProvider::Consumer,
-                    ),
+                    Ok(identity) => {
+                        let entitlement = match identity.entitlement() {
+                            Some(value) => value,
+                            None => self
+                                .repair_consumer_entitlement(profile.id, &identity)
+                                .await
+                                .unwrap_or(ConsumerEntitlement::Free),
+                        };
+                        let (license_state, account_type) =
+                            consumer_license_presentation(entitlement);
+                        (
+                            v1::ProfileIdentityState::Ready,
+                            license_state,
+                            account_type,
+                            IdentityProvider::Consumer,
+                        )
+                    }
                     Err(ControlServiceError::MissingCredential(_)) => (
                         v1::ProfileIdentityState::Missing,
                         v1::LicenseState::Unknown,
@@ -2092,11 +2129,38 @@ impl ControlService {
         first_error.map_or(Ok(()), Err)
     }
 
+    async fn repair_consumer_entitlement(
+        &self,
+        profile_id: Uuid,
+        identity: &WarpIdentity,
+    ) -> Option<ConsumerEntitlement> {
+        let status = ConsumerRegistrationClient::new()
+            .ok()?
+            .account_status(identity)
+            .await
+            .ok()?;
+        let metadata = IdentityMetadata {
+            provider: identity.provider().clone(),
+            entitlement: Some(status.entitlement),
+        }
+        .to_json()
+        .ok()?;
+        self.vault
+            .put(profile_id, SecretRecord::IdentityMetadata, &metadata)
+            .await
+            .ok()?;
+        if !status.entitlement.is_warp_plus() {
+            let _ = self.vault.delete(profile_id, SecretRecord::License).await;
+        }
+        Some(status.entitlement)
+    }
+
     async fn cleanup_remote_license(&self, profile_id: Uuid) -> Result<(), ControlServiceError> {
         match self.load_warp_identity(profile_id).await {
             Ok(identity)
                 if matches!(identity.provider(), IdentityProvider::Consumer)
-                    && identity.license().is_some() =>
+                    && identity.license().is_some()
+                    && identity.entitlement() == Some(ConsumerEntitlement::WarpPlus) =>
             {
                 ConsumerRegistrationClient::new()?
                     .unbind_license(&identity)
@@ -3014,6 +3078,19 @@ mod tests {
     }
 
     fn test_identity(provider: IdentityProvider, license: Option<&str>) -> WarpIdentity {
+        let entitlement = match provider {
+            IdentityProvider::ZeroTrust { .. } => None,
+            IdentityProvider::Consumer if license.is_some() => Some(ConsumerEntitlement::WarpPlus),
+            IdentityProvider::Consumer => Some(ConsumerEntitlement::Free),
+        };
+        test_identity_with_entitlement(provider, license, entitlement)
+    }
+
+    fn test_identity_with_entitlement(
+        provider: IdentityProvider,
+        license: Option<&str>,
+        entitlement: Option<ConsumerEntitlement>,
+    ) -> WarpIdentity {
         let endpoint_key = MasqueKeyPair::generate();
         WarpIdentity::from_secure_records(
             MasqueKeyPair::generate(),
@@ -3022,10 +3099,107 @@ mod tests {
             format!("token-{}", Uuid::new_v4()),
             license.map(ToOwned::to_owned),
             provider,
+            entitlement,
             "172.16.0.2".parse().unwrap(),
             "2606:4700:110:8f13::2".parse().unwrap(),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn consumer_entitlement_never_treats_a_missing_flag_as_plus() {
+        assert_eq!(
+            consumer_license_presentation(ConsumerEntitlement::WarpPlus),
+            (v1::LicenseState::WarpPlus, "WARP+".to_owned())
+        );
+        assert_eq!(
+            consumer_license_presentation(ConsumerEntitlement::Free),
+            (v1::LicenseState::Free, "Free".to_owned())
+        );
+    }
+
+    #[tokio::test]
+    async fn profile_catalog_uses_derived_entitlement_not_a_stored_sharing_license() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let vault = Arc::new(MemoryVault::default());
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::clone(&vault) as Arc<dyn SecretVault>,
+        )
+        .expect("service");
+        let profile_id = service.config_snapshot().await.profiles[0].id;
+
+        let free = test_identity_with_entitlement(
+            IdentityProvider::Consumer,
+            None,
+            Some(ConsumerEntitlement::Free),
+        );
+        service
+            .persist_identity(profile_id, &free, None)
+            .await
+            .unwrap();
+        let catalog = service.profile_catalog().await;
+        let status = catalog.identity_statuses.first().unwrap();
+        assert_eq!(status.license_state, v1::LicenseState::Free as i32);
+        assert_eq!(status.account_type, "Free");
+        assert!(
+            vault
+                .get(profile_id, SecretRecord::License)
+                .await
+                .unwrap()
+                .is_none()
+        );
+
+        let plus = test_identity(IdentityProvider::Consumer, Some("bound-license"));
+        service
+            .persist_identity(profile_id, &plus, None)
+            .await
+            .unwrap();
+        let catalog = service.profile_catalog().await;
+        let status = catalog.identity_statuses.first().unwrap();
+        assert_eq!(status.license_state, v1::LicenseState::WarpPlus as i32);
+        assert_eq!(status.account_type, "WARP+");
+
+        let free_with_key = test_identity_with_entitlement(
+            IdentityProvider::Consumer,
+            Some("free-sharing-key"),
+            Some(ConsumerEntitlement::Free),
+        );
+        service
+            .persist_identity(profile_id, &free_with_key, None)
+            .await
+            .unwrap();
+        let catalog = service.profile_catalog().await;
+        let status = catalog.identity_statuses.first().unwrap();
+        assert_eq!(status.license_state, v1::LicenseState::Free as i32);
+        assert_eq!(status.account_type, "Free");
+
+        let legacy = test_identity_with_entitlement(
+            IdentityProvider::Consumer,
+            Some("legacy-api-license"),
+            None,
+        );
+        service
+            .persist_identity(profile_id, &legacy, None)
+            .await
+            .unwrap();
+        vault
+            .put(
+                profile_id,
+                SecretRecord::IdentityMetadata,
+                br#"{"version":1,"provider":"consumer","warp_plus":true}"#,
+            )
+            .await
+            .unwrap();
+        let loaded = service.load_warp_identity(profile_id).await.unwrap();
+        assert_eq!(loaded.entitlement(), None);
+        assert!(loaded.license().is_some());
+        assert_eq!(
+            consumer_license_presentation(
+                loaded.entitlement().unwrap_or(ConsumerEntitlement::Free)
+            ),
+            (v1::LicenseState::Free, "Free".to_owned())
+        );
     }
 
     #[tokio::test]

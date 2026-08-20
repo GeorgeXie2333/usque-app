@@ -12,7 +12,9 @@ use thiserror::Error;
 use zeroize::Zeroizing;
 
 use crate::config::EndpointSettings;
-use crate::identity::{EndpointPin, IdentityError, IdentityProvider, MasqueKeyPair, WarpIdentity};
+use crate::identity::{
+    ConsumerEntitlement, EndpointPin, IdentityError, IdentityProvider, MasqueKeyPair, WarpIdentity,
+};
 
 const API_ROOT: &str = "https://api.cloudflareclient.com/";
 const API_VERSION: &str = "v0a4471";
@@ -96,9 +98,7 @@ pub fn zero_trust_login_url(team: &str) -> Result<Url, RegistrationError> {
 /// marker is enough to prevent missing identity metadata from silently
 /// reclassifying an organization profile as Consumer WARP.
 pub fn is_zero_trust_endpoint(endpoint: &EndpointSettings) -> bool {
-    endpoint.sni.eq_ignore_ascii_case(ZERO_TRUST_SNI)
-        || endpoint.ipv4.octets()[..3] == [162, 159, 197]
-        || endpoint.ipv6.segments()[..3] == [0x2606, 0x4700, 0x0102]
+    endpoint.is_zero_trust_managed()
 }
 
 pub fn parse_zero_trust_callback(
@@ -176,8 +176,7 @@ pub struct EndpointPinRefresh {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WarpAccountStatus {
     pub account_type: String,
-    pub warp_plus: bool,
-    pub has_license: bool,
+    pub entitlement: ConsumerEntitlement,
 }
 
 /// A bounded, authenticated endpoint-pin refresh request for a platform
@@ -332,6 +331,7 @@ impl ConsumerRegistrationClient {
             registered.token,
             IdentityProvider::Consumer,
             enrolled,
+            false,
         )
     }
 
@@ -377,7 +377,7 @@ impl ConsumerRegistrationClient {
         let endpoint = zero_trust_endpoint(&enrolled)?;
         let provider = IdentityProvider::zero_trust(callback.organization().to_owned())
             .map_err(|_| RegistrationError::InvalidZeroTrustTeam)?;
-        let identity = identity_from_enrollment(key_pair, device_token, provider, enrolled)
+        let identity = identity_from_enrollment(key_pair, device_token, provider, enrolled, false)
             .map_err(|error| match error {
                 RegistrationError::InvalidApiResponse | RegistrationError::Identity(_) => {
                     RegistrationError::ZeroTrustContractChanged
@@ -412,6 +412,7 @@ impl ConsumerRegistrationClient {
             access_token,
             IdentityProvider::Consumer,
             enrolled,
+            true,
         )
     }
 
@@ -427,12 +428,8 @@ impl ConsumerRegistrationClient {
             )
             .await?;
         Ok(WarpAccountStatus {
-            account_type: account.account_type,
-            warp_plus: account.warp_plus,
-            has_license: account
-                .license
-                .as_deref()
-                .is_some_and(|license| !license.trim().is_empty()),
+            account_type: account.account_type.clone(),
+            entitlement: consumer_entitlement(&account),
         })
     }
 
@@ -722,7 +719,24 @@ struct Account {
     #[serde(default)]
     warp_plus: bool,
     #[serde(default)]
+    premium_data: u64,
+    #[serde(default)]
+    quota: u64,
+    #[serde(default)]
     license: Option<String>,
+}
+
+/// Cloudflare's `warp_plus` boolean is true for brand-new Free accounts.
+/// Entitlement comes from remaining Plus data or an unlimited account type.
+fn consumer_entitlement(account: &Account) -> ConsumerEntitlement {
+    let kind = account.account_type.trim().to_ascii_lowercase();
+    if matches!(kind.as_str(), "unlimited" | "plus" | "premium") {
+        return ConsumerEntitlement::WarpPlus;
+    }
+    if account.premium_data > 0 || account.quota > 0 {
+        return ConsumerEntitlement::WarpPlus;
+    }
+    ConsumerEntitlement::Free
 }
 
 #[derive(Serialize, Deserialize)]
@@ -929,16 +943,23 @@ fn identity_from_enrollment(
     access_token: String,
     provider: IdentityProvider,
     mut enrollment: AccountData,
+    retain_consumer_license: bool,
 ) -> Result<WarpIdentity, RegistrationError> {
     validate_device_id(&enrollment.id)?;
     let snapshot = enrollment_snapshot(&enrollment)?;
-    let license = if matches!(provider, IdentityProvider::ZeroTrust { .. }) {
+    let (license, entitlement) = if matches!(provider, IdentityProvider::ZeroTrust { .. }) {
         // Zero Trust does not use Consumer license binding. Some private API
         // variants may still include the account field, so ignore it without
         // weakening WarpIdentity's provider invariant.
-        None
+        (None, None)
     } else {
-        enrollment.account.license.take()
+        let entitlement = consumer_entitlement(&enrollment.account);
+        let license = if retain_consumer_license {
+            enrollment.account.license.take()
+        } else {
+            None
+        };
+        (license, Some(entitlement))
     };
     WarpIdentity::new(
         key_pair,
@@ -947,6 +968,7 @@ fn identity_from_enrollment(
         access_token,
         license,
         provider,
+        entitlement,
         snapshot.assigned_ipv4,
         snapshot.assigned_ipv6,
     )
@@ -1105,8 +1127,10 @@ mod tests {
             id: "device-123".to_owned(),
             token: String::new(),
             account: Account {
-                account_type: "plus".to_owned(),
+                account_type: String::new(),
                 warp_plus: true,
+                premium_data: 0,
+                quota: 0,
                 license: Some("license".to_owned()),
             },
             config: AccountConfig {
@@ -1288,6 +1312,7 @@ mod tests {
                 "device-token".to_owned(),
                 IdentityProvider::zero_trust("example-team").unwrap(),
                 enrolled,
+                false,
             ),
             Err(RegistrationError::Identity(
                 IdentityError::InvalidEndpointPin
@@ -1302,6 +1327,7 @@ mod tests {
                 "device-token".to_owned(),
                 IdentityProvider::zero_trust("example-team").unwrap(),
                 enrolled,
+                false,
             ),
             Err(RegistrationError::InvalidApiResponse)
         ));
@@ -1314,6 +1340,7 @@ mod tests {
                 "device-token".to_owned(),
                 IdentityProvider::zero_trust("example-team").unwrap(),
                 enrolled,
+                false,
             ),
             Err(RegistrationError::InvalidApiResponse)
         ));
@@ -1465,11 +1492,104 @@ mod tests {
             "token".to_owned(),
             IdentityProvider::Consumer,
             enrollment(&MasqueKeyPair::generate()),
+            false,
         )
         .unwrap();
         assert_eq!(identity.device_id(), "device-123");
         assert_eq!(identity.access_token(), "token");
         assert_eq!(identity.assigned_ipv4.to_string(), "172.16.0.2");
+        assert!(identity.license().is_none());
+        assert_eq!(identity.entitlement(), Some(ConsumerEntitlement::Free));
+    }
+
+    #[test]
+    fn consumer_entitlement_ignores_the_api_warp_plus_boolean() {
+        let free = Account {
+            warp_plus: true,
+            ..Account::default()
+        };
+        assert_eq!(consumer_entitlement(&free), ConsumerEntitlement::Free);
+
+        let plus_data = Account {
+            warp_plus: true,
+            premium_data: 1_000_000_000,
+            ..Account::default()
+        };
+        assert_eq!(
+            consumer_entitlement(&plus_data),
+            ConsumerEntitlement::WarpPlus
+        );
+
+        let plus_quota = Account {
+            quota: 1,
+            ..Account::default()
+        };
+        assert_eq!(
+            consumer_entitlement(&plus_quota),
+            ConsumerEntitlement::WarpPlus
+        );
+
+        for account_type in ["unlimited", "plus", "premium", " Unlimited "] {
+            let unlimited = Account {
+                account_type: account_type.to_owned(),
+                ..Account::default()
+            };
+            assert_eq!(
+                consumer_entitlement(&unlimited),
+                ConsumerEntitlement::WarpPlus,
+                "{account_type}"
+            );
+        }
+    }
+
+    #[test]
+    fn free_enrollment_does_not_keep_the_api_sharing_license() {
+        let mut enrolled = enrollment(&MasqueKeyPair::generate());
+        enrolled.account.license = Some("api-sharing-key".to_owned());
+        let identity = identity_from_enrollment(
+            MasqueKeyPair::generate(),
+            "token".to_owned(),
+            IdentityProvider::Consumer,
+            enrolled,
+            false,
+        )
+        .unwrap();
+        assert!(identity.license().is_none());
+        assert_eq!(identity.entitlement(), Some(ConsumerEntitlement::Free));
+    }
+
+    #[test]
+    fn licensed_enrollment_keeps_the_bound_key_when_account_is_plus() {
+        let mut enrolled = enrollment(&MasqueKeyPair::generate());
+        enrolled.account.premium_data = 1_000_000_000;
+        enrolled.account.license = Some("bound-license".to_owned());
+        let identity = identity_from_enrollment(
+            MasqueKeyPair::generate(),
+            "token".to_owned(),
+            IdentityProvider::Consumer,
+            enrolled,
+            true,
+        )
+        .unwrap();
+        assert_eq!(identity.license(), Some("bound-license"));
+        assert_eq!(identity.entitlement(), Some(ConsumerEntitlement::WarpPlus));
+    }
+
+    #[test]
+    fn binding_a_free_sharing_license_is_not_warp_plus() {
+        let mut enrolled = enrollment(&MasqueKeyPair::generate());
+        enrolled.account.warp_plus = true;
+        enrolled.account.license = Some("free-sharing-key".to_owned());
+        let identity = identity_from_enrollment(
+            MasqueKeyPair::generate(),
+            "token".to_owned(),
+            IdentityProvider::Consumer,
+            enrolled,
+            true,
+        )
+        .unwrap();
+        assert_eq!(identity.license(), Some("free-sharing-key"));
+        assert_eq!(identity.entitlement(), Some(ConsumerEntitlement::Free));
     }
 
     #[test]
@@ -1510,6 +1630,48 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn account_status_treats_zero_quota_as_free_even_when_api_warp_plus_is_true() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let socket = listener.local_addr().unwrap();
+        let body = serde_json::to_vec(&Account {
+            account_type: "free".to_owned(),
+            warp_plus: true,
+            premium_data: 0,
+            quota: 0,
+            license: Some("sharing-key".to_owned()),
+        })
+        .unwrap();
+        let server =
+            tokio::spawn(async move { serve_registration_response(&listener, &body).await });
+        let identity = identity_from_enrollment(
+            MasqueKeyPair::generate(),
+            "device-bearer".to_owned(),
+            IdentityProvider::Consumer,
+            enrollment(&MasqueKeyPair::generate()),
+            false,
+        )
+        .unwrap();
+        let client = ConsumerRegistrationClient::with_api_root(
+            Url::parse(&format!("http://{socket}/")).unwrap(),
+        )
+        .unwrap();
+        let status = client.account_status(&identity).await.unwrap();
+        assert_eq!(status.entitlement, ConsumerEntitlement::Free);
+        assert_eq!(status.account_type, "free");
+        let request = server.await.unwrap();
+        assert!(
+            request
+                .to_ascii_lowercase()
+                .starts_with("get /v0a4471/reg/device-123/account ")
+        );
+        assert!(
+            request
+                .to_ascii_lowercase()
+                .contains("authorization: bearer device-bearer")
+        );
+    }
+
     #[test]
     fn license_key_validation_is_strict_and_never_logs_the_value() {
         assert!(validate_license_key("12345678-abcdefgh-ABCDEFGH").is_ok());
@@ -1527,6 +1689,7 @@ mod tests {
             "super-secret-token".to_owned(),
             IdentityProvider::Consumer,
             enrollment(&MasqueKeyPair::generate()),
+            false,
         )
         .unwrap();
         let request = prepare_endpoint_pin_refresh(&identity, Some("Usque")).unwrap();

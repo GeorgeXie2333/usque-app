@@ -676,6 +676,105 @@ class AndroidEngineMethodHandlerTest {
     }
 
     @Test
+    fun catalogUsesWarpPlusMetadataInsteadOfAStoredLicense() {
+        identityStore.put(
+            "p1",
+            SecureIdentityStore.Record.WARP_SECRET,
+            "stored-secret".toByteArray(),
+        )
+        identityStore.put(
+            "p1",
+            SecureIdentityStore.Record.LICENSE,
+            "free-sharing-key".toByteArray(),
+        )
+        identityStore.put(
+            "p1",
+            SecureIdentityStore.Record.IDENTITY_METADATA,
+            """{"version":1,"provider":"consumer","entitlement":"free"}""".toByteArray(),
+        )
+        engineBridge.profileCatalogJson = """{"profiles":[{"id":"p1"}]}"""
+
+        val statuses = catalogIdentityStatuses()
+        assertEquals("ready", statuses.single()["state"])
+        assertEquals("free", statuses.single()["license_state"])
+        assertEquals("Free", statuses.single()["account_type"])
+    }
+
+    @Test
+    fun catalogMarksWarpPlusFromEntitlementEvenWithoutALicenseRecord() {
+        identityStore.put(
+            "p1",
+            SecureIdentityStore.Record.WARP_SECRET,
+            "stored-secret".toByteArray(),
+        )
+        identityStore.put(
+            "p1",
+            SecureIdentityStore.Record.IDENTITY_METADATA,
+            """{"version":1,"provider":"consumer","entitlement":"warp_plus"}""".toByteArray(),
+        )
+        engineBridge.profileCatalogJson = """{"profiles":[{"id":"p1"}]}"""
+
+        val statuses = catalogIdentityStatuses()
+        assertEquals("warpPlus", statuses.single()["license_state"])
+        assertEquals("WARP+", statuses.single()["account_type"])
+    }
+
+    @Test
+    fun catalogIgnoresLegacyApiWarpPlusBoolean() {
+        identityStore.put(
+            "p1",
+            SecureIdentityStore.Record.WARP_SECRET,
+            "stored-secret".toByteArray(),
+        )
+        identityStore.put(
+            "p1",
+            SecureIdentityStore.Record.LICENSE,
+            "api-sharing-key".toByteArray(),
+        )
+        identityStore.put(
+            "p1",
+            SecureIdentityStore.Record.IDENTITY_METADATA,
+            """{"version":1,"provider":"consumer","warp_plus":true}""".toByteArray(),
+        )
+        engineBridge.profileCatalogJson = """{"profiles":[{"id":"p1"}]}"""
+
+        val statuses = catalogIdentityStatuses()
+        assertEquals("free", statuses.single()["license_state"])
+        assertEquals("Free", statuses.single()["account_type"])
+    }
+
+    @Test
+    fun catalogWithoutMetadataOrLicenseIsFree() {
+        identityStore.put(
+            "p1",
+            SecureIdentityStore.Record.WARP_SECRET,
+            "stored-secret".toByteArray(),
+        )
+        engineBridge.profileCatalogJson = """{"profiles":[{"id":"p1"}]}"""
+
+        val statuses = catalogIdentityStatuses()
+        assertEquals("free", statuses.single()["license_state"])
+        assertEquals("Free", statuses.single()["account_type"])
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun catalogIdentityStatuses(): List<Map<String, Any?>> {
+        val catalogResult = RecordingResult()
+        handler.handle(
+            MethodCall(
+                "importLegacyProfiles",
+                mapOf(
+                    "profiles" to emptyList<Any>(),
+                    "active_profile_id" to "",
+                ),
+            ),
+            catalogResult,
+        )
+        val catalog = catalogResult.successValue as Map<String, Any?>
+        return catalog["identity_statuses"] as List<Map<String, Any?>>
+    }
+
+    @Test
     fun missingMetadataWithBoundTeamAllowsOnlySameTeamRepair() {
         identityStore.put(
             "p1",
