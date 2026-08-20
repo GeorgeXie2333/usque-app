@@ -15,6 +15,7 @@
 #include "flutter/generated_plugin_registrant.h"
 #include "resource.h"
 #include "utils.h"
+#include "window_frame.h"
 #include "zero_trust_protocol.h"
 
 namespace {
@@ -183,6 +184,10 @@ bool FlutterWindow::OnCreate() {
   if (!Win32Window::OnCreate()) {
     return false;
   }
+
+  // Before the client area is measured: the view is created at that size, and
+  // the caption inset would otherwise stay until the first user resize.
+  usque::ApplyCustomFrame(GetHandle());
 
   RECT frame = GetClientArea();
 
@@ -405,6 +410,9 @@ bool FlutterWindow::OnCreate() {
           ::PostMessageW(GetHandle(), WM_CLOSE, 0, 0);
           return;
         }
+        if (HandleWindowFrameMethod(call, result)) {
+          return;
+        }
         result->NotImplemented();
       });
   engine_event_channel_ =
@@ -577,6 +585,74 @@ bool FlutterWindow::HandleZeroTrustCopyData(const COPYDATASTRUCT* data) {
   return true;
 }
 
+void FlutterWindow::PublishWindowFrameState(bool force) {
+  const bool maximized = usque::IsWindowMaximized(GetHandle());
+  const bool active = ::GetActiveWindow() == GetHandle();
+  if (!force && frame_published_ && maximized == frame_maximized_ &&
+      active == frame_active_) {
+    return;
+  }
+  frame_maximized_ = maximized;
+  frame_active_ = active;
+  frame_published_ = true;
+  if (!engine_channel_) return;
+  flutter::EncodableMap state;
+  state[flutter::EncodableValue("maximized")] =
+      flutter::EncodableValue(maximized);
+  state[flutter::EncodableValue("active")] = flutter::EncodableValue(active);
+  engine_channel_->InvokeMethod(
+      "windowFrameChanged",
+      std::make_unique<flutter::EncodableValue>(std::move(state)));
+}
+
+bool FlutterWindow::HandleWindowFrameMethod(
+    const flutter::MethodCall<flutter::EncodableValue>& call,
+    const std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>&
+        result) {
+  const std::string& method = call.method_name();
+  if (method == "windowFrameState") {
+    flutter::EncodableMap state;
+    state[flutter::EncodableValue("maximized")] =
+        flutter::EncodableValue(usque::IsWindowMaximized(GetHandle()));
+    state[flutter::EncodableValue("active")] =
+        flutter::EncodableValue(::GetActiveWindow() == GetHandle());
+    result->Success(flutter::EncodableValue(state));
+    return true;
+  }
+  if (method == "windowMinimize") {
+    result->Success();
+    usque::MinimizeWindow(GetHandle());
+    return true;
+  }
+  if (method == "windowToggleMaximize") {
+    result->Success();
+    usque::ToggleWindowMaximize(GetHandle());
+    return true;
+  }
+  if (method == "windowClose") {
+    result->Success();
+    ::PostMessageW(GetHandle(), WM_CLOSE, 0, 0);
+    return true;
+  }
+  if (method == "windowStartDrag") {
+    result->Success();
+    usque::BeginWindowDrag(GetHandle());
+    return true;
+  }
+  if (method == "windowStartResize") {
+    const auto* edge = std::get_if<std::string>(call.arguments());
+    if (edge == nullptr) {
+      result->Error("INVALID_ARGUMENT", "The resize edge is missing.");
+      return true;
+    }
+    const std::string requested = *edge;
+    result->Success();
+    usque::BeginWindowResize(GetHandle(), requested);
+    return true;
+  }
+  return false;
+}
+
 void FlutterWindow::ShowTrayMenu() {
   HMENU menu = ::CreatePopupMenu();
   if (menu == nullptr) return;
@@ -643,6 +719,14 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                : FALSE;
   }
 
+  // The caption is drawn by Flutter, so the frame messages are answered before
+  // anything else; WM_NCCALCSIZE in particular arrives while the window is
+  // still being created and no engine exists yet.
+  if (const std::optional<LRESULT> framed =
+          usque::HandleCustomFrameMessage(hwnd, message, wparam, lparam)) {
+    return *framed;
+  }
+
   // Give Flutter, including plugins, an opportunity to handle window messages.
   if (flutter_controller_) {
     std::optional<LRESULT> result =
@@ -703,6 +787,10 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
       }
       return 0;
     }
+    case WM_SIZE:
+    case WM_ACTIVATE:
+      PublishWindowFrameState(false);
+      break;
     case WM_CLOSE:
       if (force_exit_) {
         break;

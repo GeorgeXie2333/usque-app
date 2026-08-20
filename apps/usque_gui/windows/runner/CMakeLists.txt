@@ -12,6 +12,7 @@ add_executable(${BINARY_NAME} WIN32
   "main.cpp"
   "utils.cpp"
   "win32_window.cpp"
+  "window_frame.cpp"
   "zero_trust_callback.cpp"
   "zero_trust_protocol.cpp"
   "${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc"

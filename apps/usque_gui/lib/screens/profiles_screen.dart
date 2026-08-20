@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/app_strings.dart';
+import '../core/usque_theme.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
 import '../widgets/profile_identity_dialog.dart';
+import '../widgets/usque_dialog.dart';
 
 class ProfilesScreen extends StatelessWidget {
   const ProfilesScreen({required this.controller, super.key});
@@ -17,6 +19,7 @@ class ProfilesScreen extends StatelessWidget {
     final strings = controller.strings;
     return PageFrame(
       title: strings.get('profiles'),
+      subtitle: strings.get('profiles_subtitle'),
       actions: <Widget>[
         FilledButton.icon(
           onPressed: () => _createProfile(context),
@@ -109,9 +112,12 @@ class ProfilesScreen extends StatelessWidget {
         IdentityProvider.zeroTrust;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        icon: const Icon(LucideIcons.trash2),
-        title: Text(strings.get('delete_profile')),
+      builder: (context) => UsqueDialog(
+        icon: LucideIcons.trash2,
+        title: strings.get('delete_profile'),
+        subtitle: profile.name,
+        danger: true,
+        width: 420,
         content: Text(
           strings.get(
             zeroTrust
@@ -125,6 +131,10 @@ class ProfilesScreen extends StatelessWidget {
             child: Text(strings.get('cancel')),
           ),
           FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: UsqueTokens.of(context).danger,
+              foregroundColor: Theme.of(context).colorScheme.onError,
+            ),
             onPressed: () => Navigator.pop(context, true),
             child: Text(strings.get('delete')),
           ),
@@ -197,73 +207,80 @@ class _ProfileEditDialogState extends State<_ProfileEditDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(widget.strings.get('edit_profile')),
-      content: SizedBox(
-        width: 480,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              TextField(
-                controller: _controller,
-                focusNode: _focusNode,
-                autofocus: true,
-                maxLength: 64,
-                textInputAction: TextInputAction.done,
-                decoration: InputDecoration(
-                  labelText: widget.strings.get('profile_name'),
-                  errorText: _errorText,
-                ),
-                onChanged: (_) {
-                  if (_errorText != null) setState(() => _errorText = null);
-                },
-                onSubmitted: (_) => _submit(),
-              ),
-              const Divider(),
-              SwitchListTile(
-                value: _frontends.tunnel,
-                title: Text(widget.strings.get('tunnel_output')),
-                onChanged: (value) => setState(
-                  () => _frontends = _frontends.copyWith(tunnel: value),
-                ),
-              ),
-              SwitchListTile(
-                value: _frontends.socks5,
-                title: const Text('SOCKS5'),
-                onChanged: (value) => setState(
-                  () => _frontends = _frontends.copyWith(socks5: value),
-                ),
-              ),
-              SwitchListTile(
-                value: _frontends.http,
-                title: const Text('HTTP'),
-                onChanged: (value) => setState(() {
-                  _frontends = _frontends.copyWith(http: value);
-                  if (!value) _systemProxy = false;
-                }),
-              ),
-              if (Theme.of(context).platform == TargetPlatform.windows)
-                SwitchListTile(
-                  value: _systemProxy,
-                  title: Text(widget.strings.get('system_proxy')),
-                  onChanged: _frontends.http
-                      ? (value) => setState(() => _systemProxy = value)
-                      : null,
-                ),
-              SwitchListTile(
-                value: _autoConnect,
-                title: Text(widget.strings.get('auto_connect')),
-                onChanged: (value) => setState(() => _autoConnect = value),
-              ),
-              if (!_frontends.any)
-                ListTile(
-                  leading: const Icon(LucideIcons.info),
-                  title: Text(widget.strings.get('channel_only_warning')),
-                ),
-            ],
+    return UsqueDialog(
+      icon: LucideIcons.pencil,
+      title: widget.strings.get('edit_profile'),
+      subtitle: widget.profile.name,
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          TextField(
+            controller: _controller,
+            focusNode: _focusNode,
+            autofocus: true,
+            maxLength: 64,
+            textInputAction: TextInputAction.done,
+            decoration: InputDecoration(
+              labelText: widget.strings.get('profile_name'),
+              errorText: _errorText,
+            ),
+            onChanged: (_) {
+              if (_errorText != null) setState(() => _errorText = null);
+            },
+            onSubmitted: (_) => _submit(),
           ),
-        ),
+          const SizedBox(height: 6),
+          DialogGroup(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Column(
+              children: <Widget>[
+                SwitchListTile(
+                  value: _frontends.tunnel,
+                  title: Text(widget.strings.get('tunnel_output')),
+                  onChanged: (value) => setState(
+                    () => _frontends = _frontends.copyWith(tunnel: value),
+                  ),
+                ),
+                SwitchListTile(
+                  value: _frontends.socks5,
+                  title: const Text('SOCKS5'),
+                  onChanged: (value) => setState(
+                    () => _frontends = _frontends.copyWith(socks5: value),
+                  ),
+                ),
+                SwitchListTile(
+                  value: _frontends.http,
+                  title: const Text('HTTP'),
+                  onChanged: (value) => setState(() {
+                    _frontends = _frontends.copyWith(http: value);
+                    if (!value) _systemProxy = false;
+                  }),
+                ),
+                if (Theme.of(context).platform == TargetPlatform.windows)
+                  SwitchListTile(
+                    value: _systemProxy,
+                    title: Text(widget.strings.get('system_proxy')),
+                    onChanged: _frontends.http
+                        ? (value) => setState(() => _systemProxy = value)
+                        : null,
+                  ),
+                SwitchListTile(
+                  value: _autoConnect,
+                  title: Text(widget.strings.get('auto_connect')),
+                  onChanged: (value) => setState(() => _autoConnect = value),
+                ),
+              ],
+            ),
+          ),
+          if (!_frontends.any) ...<Widget>[
+            const SizedBox(height: 12),
+            WarningBanner(
+              title: widget.strings.get('channel_only'),
+              message: widget.strings.get('channel_only_warning'),
+            ),
+          ],
+        ],
       ),
       actions: <Widget>[
         TextButton(
@@ -364,16 +381,17 @@ class _IdentityManagementDialogState extends State<_IdentityManagementDialog> {
   Widget build(BuildContext context) {
     final plus = widget.status.licenseState == LicenseState.warpPlus;
     final zeroTrust = widget.status.provider == IdentityProvider.zeroTrust;
-    return AlertDialog(
-      icon: Icon(zeroTrust ? LucideIcons.building2 : LucideIcons.keyRound),
-      title: Text(widget.strings.get('identity_and_license')),
-      content: SizedBox(
-        width: 480,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            ListTile(
+    return UsqueDialog(
+      icon: zeroTrust ? LucideIcons.building2 : LucideIcons.keyRound,
+      title: widget.strings.get('identity_and_license'),
+      subtitle: widget.profile.name,
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          DialogGroup(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+            child: ListTile(
               contentPadding: EdgeInsets.zero,
               leading: Icon(
                 zeroTrust
@@ -411,61 +429,59 @@ class _IdentityManagementDialogState extends State<_IdentityManagementDialog> {
                     )
                   : null,
             ),
-            if (zeroTrust) ...<Widget>[
-              const SizedBox(height: 12),
-              FilledButton.tonalIcon(
-                onPressed: _busy ? null : _reauthenticateZeroTrust,
-                icon: const Icon(LucideIcons.logIn),
-                label: Text(widget.strings.get('zero_trust_reauthenticate')),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                widget.strings.get('zero_trust_admin_cleanup_note'),
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ] else ...<Widget>[
-              const SizedBox(height: 12),
-              TextField(
-                controller: _licenseController,
-                obscureText: !_showLicense,
-                enableSuggestions: false,
-                autocorrect: false,
-                decoration: InputDecoration(
-                  labelText: widget.strings.get('warp_license_key'),
-                  errorText: _error,
-                  suffixIcon: IconButton(
-                    onPressed: () =>
-                        setState(() => _showLicense = !_showLicense),
-                    icon: Icon(
-                      _showLicense ? LucideIcons.eyeOff : LucideIcons.eye,
-                    ),
+          ),
+          if (zeroTrust) ...<Widget>[
+            const SizedBox(height: 12),
+            FilledButton.tonalIcon(
+              onPressed: _busy ? null : _reauthenticateZeroTrust,
+              icon: const Icon(LucideIcons.logIn),
+              label: Text(widget.strings.get('zero_trust_reauthenticate')),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              widget.strings.get('zero_trust_admin_cleanup_note'),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ] else ...<Widget>[
+            const SizedBox(height: 12),
+            TextField(
+              controller: _licenseController,
+              obscureText: !_showLicense,
+              enableSuggestions: false,
+              autocorrect: false,
+              decoration: InputDecoration(
+                labelText: widget.strings.get('warp_license_key'),
+                errorText: _error,
+                suffixIcon: IconButton(
+                  onPressed: () => setState(() => _showLicense = !_showLicense),
+                  icon: Icon(
+                    _showLicense ? LucideIcons.eyeOff : LucideIcons.eye,
                   ),
                 ),
-                onSubmitted: (_) => _updateLicense(),
               ),
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                onPressed: _busy ? null : _updateLicense,
-                icon: const Icon(LucideIcons.refreshCw),
-                label: Text(widget.strings.get('change_license')),
-              ),
-              if (plus)
-                TextButton.icon(
-                  onPressed: _busy ? null : _unbind,
-                  icon: const Icon(LucideIcons.unlink),
-                  label: Text(widget.strings.get('unbind_license')),
-                ),
+              onSubmitted: (_) => _updateLicense(),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: _busy ? null : _updateLicense,
+              icon: const Icon(LucideIcons.refreshCw),
+              label: Text(widget.strings.get('change_license')),
+            ),
+            if (plus)
               TextButton.icon(
-                onPressed: _busy
-                    ? null
-                    : () =>
-                          widget.controller.exportWarpSecret(widget.profile.id),
-                icon: const Icon(LucideIcons.download),
-                label: Text(widget.strings.get('export_warp_secret')),
+                onPressed: _busy ? null : _unbind,
+                icon: const Icon(LucideIcons.unlink),
+                label: Text(widget.strings.get('unbind_license')),
               ),
-            ],
+            TextButton.icon(
+              onPressed: _busy
+                  ? null
+                  : () => widget.controller.exportWarpSecret(widget.profile.id),
+              icon: const Icon(LucideIcons.download),
+              label: Text(widget.strings.get('export_warp_secret')),
+            ),
           ],
-        ),
+        ],
       ),
       actions: <Widget>[
         TextButton(
@@ -504,12 +520,15 @@ class _ProfileCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final UsqueTokens tokens = UsqueTokens.of(context);
+    final bool identityReady = identityState == ProfileIdentityState.ready;
     return Panel(
+      accent: active ? tokens.brand : null,
       child: LayoutBuilder(
         builder: (context, constraints) {
           final compact = constraints.maxWidth < 620;
           final details = Wrap(
-            spacing: 10,
+            spacing: 8,
             runSpacing: 8,
             children: <Widget>[
               if (profile.frontends.tunnel)
@@ -533,11 +552,13 @@ class _ProfileCard extends StatelessWidget {
               _ProfileTag(
                 icon: LucideIcons.server,
                 label: '${profile.endpointIpv4}:${profile.endpointPort}',
+                mono: true,
               ),
               _ProfileTag(
-                icon: identityState == ProfileIdentityState.ready
+                icon: identityReady
                     ? LucideIcons.keyRound
                     : LucideIcons.triangleAlert,
+                tone: identityReady ? null : tokens.caution,
                 label: strings.get(switch (identityState) {
                   ProfileIdentityState.ready => 'identity_ready',
                   ProfileIdentityState.missing => 'identity_missing',
@@ -600,20 +621,34 @@ class _ProfileCard extends StatelessWidget {
             children: <Widget>[
               Row(
                 children: <Widget>[
-                  DecoratedBox(
+                  Container(
+                    width: 40,
+                    height: 40,
+                    alignment: Alignment.center,
                     decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.secondaryContainer,
-                      borderRadius: BorderRadius.circular(14),
+                      color:
+                          (active
+                                  ? tokens.brand
+                                  : Theme.of(
+                                      context,
+                                    ).colorScheme.onSurfaceVariant)
+                              .withValues(alpha: tokens.tint),
+                      borderRadius: BorderRadius.circular(UsqueRadii.control),
                     ),
-                    child: const Padding(
-                      padding: EdgeInsets.all(12),
-                      child: Icon(LucideIcons.layers3, size: 22),
+                    child: Icon(
+                      LucideIcons.layers3,
+                      size: 19,
+                      color: active
+                          ? tokens.brand
+                          : Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
                   ),
-                  const SizedBox(width: 14),
+                  const SizedBox(width: 13),
                   Expanded(
                     child: Text(
                       profile.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                   ),
@@ -628,7 +663,10 @@ class _ProfileCard extends StatelessWidget {
               const SizedBox(height: 18),
               details,
               if (compact) ...<Widget>[
-                const Divider(height: 28),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  child: Divider(height: 1, color: tokens.hairline),
+                ),
                 Align(alignment: Alignment.centerRight, child: actions),
               ],
             ],
@@ -639,28 +677,49 @@ class _ProfileCard extends StatelessWidget {
   }
 }
 
+/// One fact about a profile. Outlined rather than filled, so a card full of
+/// them still reads as a single object.
 class _ProfileTag extends StatelessWidget {
-  const _ProfileTag({required this.icon, required this.label});
+  const _ProfileTag({
+    required this.icon,
+    required this.label,
+    this.tone,
+    this.mono = false,
+  });
 
   final IconData icon;
   final String label;
 
+  /// Overrides the neutral colour when the fact needs attention.
+  final Color? tone;
+  final bool mono;
+
   @override
   Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final Color foreground = tone ?? theme.colorScheme.onSurfaceVariant;
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Theme.of(context).dividerColor),
+        borderRadius: BorderRadius.circular(UsqueRadii.pill),
+        border: Border.all(
+          color: tone == null
+              ? UsqueTokens.of(context).hairline
+              : tone!.withValues(alpha: 0.4),
+        ),
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            Icon(icon, size: 15),
-            const SizedBox(width: 6),
-            Text(label, style: Theme.of(context).textTheme.labelMedium),
+            Icon(icon, size: 14, color: foreground),
+            const SizedBox(width: 7),
+            Text(
+              label,
+              style: mono
+                  ? UsqueTheme.mono(context, size: 12, color: foreground)
+                  : theme.textTheme.labelMedium?.copyWith(color: foreground),
+            ),
           ],
         ),
       ),

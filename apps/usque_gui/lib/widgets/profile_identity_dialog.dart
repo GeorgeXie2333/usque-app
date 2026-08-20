@@ -6,10 +6,13 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/app_strings.dart';
+import '../core/usque_motion.dart';
 import '../models/app_models.dart';
 import '../services/engine_client.dart';
 import '../services/zero_trust_callback.dart';
 import '../state/app_controller.dart';
+import 'common.dart';
+import 'usque_dialog.dart';
 
 Future<bool> showProfileIdentityDialog(
   BuildContext context, {
@@ -331,24 +334,25 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog>
     final title = _isRepair
         ? _strings.get('configure_identity')
         : _strings.get('new_profile');
-    return AlertDialog(
-      icon: Icon(
-        _step == 0
-            ? LucideIcons.layers3
-            : _method == IdentityProvisioningMethod.zeroTrust
-            ? LucideIcons.building2
-            : LucideIcons.keyRound,
+    return UsqueDialog(
+      icon: _step == 0
+          ? LucideIcons.layers3
+          : _method == IdentityProvisioningMethod.zeroTrust
+          ? LucideIcons.building2
+          : LucideIcons.keyRound,
+      title: title,
+      subtitle: _strings.get(
+        _step == 0 ? 'profile_name' : 'identity_and_license',
       ),
-      title: Text(title),
-      content: SizedBox(
-        width: 480,
-        child: SingleChildScrollView(
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 180),
-            child: _step == 0
-                ? _buildNameStep(key: const ValueKey<String>('name'))
-                : _buildIdentityStep(key: const ValueKey<String>('identity')),
-          ),
+      content: AnimatedSize(
+        duration: UsqueMotion.of(context, UsqueMotion.base),
+        curve: UsqueMotion.emphasized,
+        alignment: Alignment.topCenter,
+        child: FadeThroughSwitcher(
+          duration: UsqueMotion.base,
+          child: _step == 0
+              ? _buildNameStep(key: const ValueKey<String>('name'))
+              : _buildIdentityStep(key: const ValueKey<String>('identity')),
         ),
       ),
       actions: <Widget>[
@@ -542,19 +546,7 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog>
         if (_method == IdentityProvisioningMethod.zeroTrust &&
             !_zeroTrustRepairUnavailable) ...<Widget>[
           const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: Theme.of(
-                context,
-              ).colorScheme.tertiaryContainer.withValues(alpha: 0.42),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: Theme.of(
-                  context,
-                ).colorScheme.tertiary.withValues(alpha: 0.35),
-              ),
-            ),
+          DialogGroup(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
@@ -646,13 +638,19 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog>
             ),
           ),
         ],
-        if (_operationError != null) ...<Widget>[
-          const SizedBox(height: 12),
-          Text(
-            _operationError!,
-            style: TextStyle(color: Theme.of(context).colorScheme.error),
-          ),
-        ],
+        BannerSlot(
+          spacing: 0,
+          child: _operationError == null
+              ? null
+              : Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: WarningBanner(
+                    title: _strings.get('identity_setup_failed'),
+                    message: _operationError!,
+                    danger: true,
+                  ),
+                ),
+        ),
       ],
     );
   }
@@ -665,19 +663,11 @@ class _ExperimentalBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.tertiaryContainer,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        strings.get('experimental'),
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-          color: Theme.of(context).colorScheme.onTertiaryContainer,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
+    return StatusPill(
+      label: strings.get('experimental'),
+      tone: StatusTone.warning,
+      dim: true,
+      showIndicator: false,
     );
   }
 }

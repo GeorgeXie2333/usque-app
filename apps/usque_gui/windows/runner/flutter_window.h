@@ -43,6 +43,12 @@ class FlutterWindow : public Win32Window {
   void ShowAndActivate();
   void NotifyZeroTrustCallbackArrived();
   bool HandleZeroTrustCopyData(const COPYDATASTRUCT* data);
+  // Pushes maximized and activation state to the Dart title bar.
+  void PublishWindowFrameState(bool force);
+  bool HandleWindowFrameMethod(
+      const flutter::MethodCall<flutter::EncodableValue>& call,
+      const std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>&
+          result);
 
   // The project to run.
   flutter::DartProject project_;
@@ -63,6 +69,9 @@ class FlutterWindow : public Win32Window {
   bool exit_pending_ = false;
   bool tray_icon_added_ = false;
   bool tray_connected_ = false;
+  bool frame_maximized_ = false;
+  bool frame_active_ = true;
+  bool frame_published_ = false;
   std::wstring tray_status_ = L"Disconnected";
   NOTIFYICONDATAW tray_icon_{};
   ZeroTrustCallbackSession zero_trust_session_;

@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../core/usque_motion.dart';
+import '../core/usque_theme.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
+import '../widgets/animated_index_stack.dart';
 import '../widgets/controller_selector.dart';
 import 'diagnostics_screen.dart';
 import 'home_screen.dart';
@@ -23,6 +26,12 @@ class ShellScreen extends StatelessWidget {
     LucideIcons.settings,
     LucideIcons.activity,
   ];
+
+  /// Width at which the bottom bar gives way to the side rail.
+  static const double _railBreakpoint = 760;
+
+  /// Width at which the rail can afford to show labels beside the icons.
+  static const double _extendedBreakpoint = 1050;
 
   KeyEventResult _handleNavigationKey(
     KeyEvent event, {
@@ -67,24 +76,10 @@ class ShellScreen extends StatelessWidget {
           strings.get('diagnostics'),
         ];
         final pages = <Widget>[
-          ControllerSelector<
-            ({
-              EngineSnapshot snapshot,
-              String? error,
-              bool busy,
-              UsqueProfile profile,
-            })
-          >(
-            key: const ValueKey<String>('home-controller-selector'),
+          // Home subscribes per block, so it takes the controller directly.
+          HomeScreen(
+            key: const ValueKey<String>('home-page'),
             controller: controller,
-            active: (controller) => controller.section == AppSection.home,
-            selector: (controller) => (
-              snapshot: controller.snapshot,
-              error: controller.lastError,
-              busy: controller.busy,
-              profile: controller.activeProfile,
-            ),
-            builder: (context, _) => HomeScreen(controller: controller),
           ),
           ControllerSelector<
             ({List<UsqueProfile> profiles, String activeProfileId})
@@ -159,8 +154,8 @@ class ShellScreen extends StatelessWidget {
 
         return LayoutBuilder(
           builder: (context, constraints) {
-            final useRail = constraints.maxWidth >= 760;
-            final extended = constraints.maxWidth >= 1050;
+            final useRail = constraints.maxWidth >= _railBreakpoint;
+            final extended = constraints.maxWidth >= _extendedBreakpoint;
             return Scaffold(
               body: SafeArea(
                 bottom: false,
@@ -173,34 +168,18 @@ class ShellScreen extends StatelessWidget {
                             _handleNavigationKey(event, vertical: true),
                         child: NavigationRail(
                           extended: extended,
-                          minExtendedWidth: 230,
+                          minWidth: 78,
+                          minExtendedWidth: 232,
                           selectedIndex: selected,
                           onDestinationSelected: (index) => controller
                               .selectSection(AppSection.values[index]),
                           labelType: extended
                               ? NavigationRailLabelType.none
                               : NavigationRailLabelType.all,
-                          leading: Padding(
-                            padding: const EdgeInsets.fromLTRB(12, 12, 12, 28),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: <Widget>[
-                                Image.asset(
-                                  'assets/branding/usque-ui-icon.png',
-                                  width: 44,
-                                  height: 44,
-                                ),
-                                if (extended) ...<Widget>[
-                                  const SizedBox(width: 12),
-                                  Text(
-                                    'Usque',
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.titleLarge,
-                                  ),
-                                ],
-                              ],
-                            ),
+                          leading: _RailBrand(extended: extended),
+                          trailing: _RailFooter(
+                            controller: controller,
+                            extended: extended,
                           ),
                           destinations:
                               List<NavigationRailDestination>.generate(
@@ -210,7 +189,8 @@ class ShellScreen extends StatelessWidget {
                                   selectedIcon: Icon(_icons[index]),
                                   label: Text(labels[index]),
                                   padding: const EdgeInsets.symmetric(
-                                    vertical: 5,
+                                    vertical: 3,
+                                    horizontal: 8,
                                   ),
                                 ),
                               ),
@@ -219,34 +199,46 @@ class ShellScreen extends StatelessWidget {
                       VerticalDivider(
                         width: 1,
                         thickness: 1,
-                        color: Theme.of(context).dividerColor,
+                        color: UsqueTokens.of(context).hairline,
                       ),
                     ],
                     Expanded(
-                      child: IndexedStack(index: selected, children: pages),
+                      child: AnimatedIndexStack(
+                        index: selected,
+                        children: pages,
+                      ),
                     ),
                   ],
                 ),
               ),
               bottomNavigationBar: useRail
                   ? null
-                  : SafeArea(
-                      top: false,
-                      child: Focus(
-                        canRequestFocus: false,
-                        onKeyEvent: (_, event) =>
-                            _handleNavigationKey(event, vertical: false),
-                        child: NavigationBar(
-                          selectedIndex: selected,
-                          onDestinationSelected: (index) => controller
-                              .selectSection(AppSection.values[index]),
-                          destinations: List<NavigationDestination>.generate(
-                            labels.length,
-                            (index) => NavigationDestination(
-                              icon: Icon(_icons[index]),
-                              selectedIcon: Icon(_icons[index]),
-                              label: labels[index],
-                              tooltip: labels[index],
+                  : DecoratedBox(
+                      decoration: BoxDecoration(
+                        border: Border(
+                          top: BorderSide(
+                            color: UsqueTokens.of(context).hairline,
+                          ),
+                        ),
+                      ),
+                      child: SafeArea(
+                        top: false,
+                        child: Focus(
+                          canRequestFocus: false,
+                          onKeyEvent: (_, event) =>
+                              _handleNavigationKey(event, vertical: false),
+                          child: NavigationBar(
+                            selectedIndex: selected,
+                            onDestinationSelected: (index) => controller
+                                .selectSection(AppSection.values[index]),
+                            destinations: List<NavigationDestination>.generate(
+                              labels.length,
+                              (index) => NavigationDestination(
+                                icon: Icon(_icons[index]),
+                                selectedIcon: Icon(_icons[index]),
+                                label: labels[index],
+                                tooltip: labels[index],
+                              ),
                             ),
                           ),
                         ),
@@ -256,6 +248,95 @@ class ShellScreen extends StatelessWidget {
           },
         );
       },
+    );
+  }
+}
+
+class _RailBrand extends StatelessWidget {
+  const _RailBrand({required this.extended});
+
+  final bool extended;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(extended ? 20 : 0, 14, 0, 26),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Image.asset(
+            'assets/branding/usque-ui-icon.png',
+            width: 30,
+            height: 30,
+            filterQuality: FilterQuality.medium,
+          ),
+          if (extended) ...<Widget>[
+            const SizedBox(width: 11),
+            Text('Usque', style: Theme.of(context).textTheme.titleLarge),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Bottom of the rail: a live connection lamp and a one-tap theme cycle.
+class _RailFooter extends StatelessWidget {
+  const _RailFooter({required this.controller, required this.extended});
+
+  final AppController controller;
+  final bool extended;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = controller.strings;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        extended ? 14 : 0,
+        18,
+        extended ? 14 : 0,
+        14,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: extended
+            ? CrossAxisAlignment.start
+            : CrossAxisAlignment.center,
+        children: <Widget>[
+          ControllerSelector<ThemePreference>(
+            controller: controller,
+            selector: (controller) => controller.themePreference,
+            builder: (context, preference) {
+              final IconData icon = switch (preference) {
+                ThemePreference.system => LucideIcons.sunMoon,
+                ThemePreference.light => LucideIcons.sun,
+                ThemePreference.dark => LucideIcons.moon,
+              };
+              final String label = strings.get(switch (preference) {
+                ThemePreference.system => 'theme_system',
+                ThemePreference.light => 'theme_light',
+                ThemePreference.dark => 'theme_dark',
+              });
+              return IconButton(
+                tooltip: '${strings.get('theme')} · $label',
+                iconSize: 19,
+                onPressed: () => controller.setTheme(
+                  ThemePreference.values[(preference.index + 1) %
+                      ThemePreference.values.length],
+                ),
+                icon: AnimatedSwitcher(
+                  duration: UsqueMotion.of(context, UsqueMotion.base),
+                  transitionBuilder: (child, animation) => FadeTransition(
+                    opacity: animation,
+                    child: ScaleTransition(scale: animation, child: child),
+                  ),
+                  child: Icon(icon, key: ValueKey<ThemePreference>(preference)),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
     );
   }
 }
