@@ -114,7 +114,7 @@ fn force_ipv6_only(socket: &tokio::net::TcpSocket) -> std::io::Result<()> {
     let result = unsafe {
         setsockopt(
             socket.as_raw_socket() as _,
-            IPPROTO_IPV6 as i32,
+            IPPROTO_IPV6,
             IPV6_V6ONLY,
             (&raw const enabled).cast(),
             i32::try_from(size_of_val(&enabled)).expect("IPV6_V6ONLY fits in i32"),

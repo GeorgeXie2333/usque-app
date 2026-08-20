@@ -203,15 +203,15 @@ impl MasqueRuntime {
                 same_listeners(frontend.listeners(), &profile.proxy.http_listeners)
             });
 
-        if !keep_socks5 {
-            if let Some(mut frontend) = self.socks5.take() {
-                frontend.shutdown().await;
-            }
+        if !keep_socks5
+            && let Some(mut frontend) = self.socks5.take()
+        {
+            frontend.shutdown().await;
         }
-        if !keep_http {
-            if let Some(mut frontend) = self.http.take() {
-                frontend.shutdown().await;
-            }
+        if !keep_http
+            && let Some(mut frontend) = self.http.take()
+        {
+            frontend.shutdown().await;
         }
 
         if profile.frontends.socks5 && !keep_socks5 {
