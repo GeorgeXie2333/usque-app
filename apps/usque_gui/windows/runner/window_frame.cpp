@@ -103,6 +103,7 @@ bool g_maximized = false;
 bool g_active = true;
 std::string g_hover = "none";
 bool g_tracking_leave = false;
+bool g_tracking_client_leave = false;
 HWND g_top_level = nullptr;
 HWND g_flutter_view = nullptr;
 
@@ -150,6 +151,21 @@ LPARAM ScreenPointToLParam(POINT point) {
   return MAKELPARAM(static_cast<WORD>(point.x), static_cast<WORD>(point.y));
 }
 
+void TrackClientPointerLeave(HWND window);
+
+void PublishHover(HWND window, const char* hover) {
+  if (g_hover == hover && g_published) {
+    return;
+  }
+  g_hover = hover;
+  g_published = false;
+  PublishWindowFrameState(window, true);
+}
+
+bool IsCaptionButtonHit(LRESULT hit) {
+  return hit == HTMINBUTTON || hit == HTMAXBUTTON || hit == HTCLOSE;
+}
+
 LRESULT CALLBACK FlutterViewSubclassProc(HWND hwnd, UINT message, WPARAM wparam,
                                          LPARAM lparam, UINT_PTR subclass_id,
                                          DWORD_PTR) {
@@ -158,9 +174,29 @@ LRESULT CALLBACK FlutterViewSubclassProc(HWND hwnd, UINT message, WPARAM wparam,
     // buttons stay HTCLIENT here so this child still gets WM_LBUTTONDOWN;
     // DefWindowProc will not turn HTMINBUTTON/HTMAXBUTTON into syscommands
     // once NCCALCSIZE has removed the real caption.
+    //
+    // Hover has to be published from this child: Windows never sends
+    // WM_NCHITTEST to the parent while the child returns HTCLIENT.
     const LRESULT hit = HitTest(g_top_level, lparam);
     if (hit == HTCAPTION || IsResizeHit(hit)) {
       return HTTRANSPARENT;
+    }
+    if (IsCaptionButtonHit(hit)) {
+      PublishHover(g_top_level, HoverName(hit));
+      TrackClientPointerLeave(hwnd);
+    } else if (g_hover != "none") {
+      PublishHover(g_top_level, "none");
+    }
+  }
+  if (g_top_level != nullptr && message == WM_MOUSEMOVE) {
+    POINT point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+    ::ClientToScreen(hwnd, &point);
+    const LRESULT hit = HitTest(g_top_level, ScreenPointToLParam(point));
+    if (IsCaptionButtonHit(hit)) {
+      PublishHover(g_top_level, HoverName(hit));
+      TrackClientPointerLeave(hwnd);
+    } else if (g_hover != "none") {
+      PublishHover(g_top_level, "none");
     }
   }
   if (g_top_level != nullptr &&
@@ -172,10 +208,17 @@ LRESULT CALLBACK FlutterViewSubclassProc(HWND hwnd, UINT message, WPARAM wparam,
       return 0;
     }
   }
+  if (message == WM_MOUSELEAVE) {
+    g_tracking_client_leave = false;
+    if (g_top_level != nullptr) {
+      PublishHover(g_top_level, "none");
+    }
+  }
   if (message == WM_NCDESTROY) {
     ::RemoveWindowSubclass(hwnd, FlutterViewSubclassProc, subclass_id);
     g_flutter_view = nullptr;
     g_top_level = nullptr;
+    g_tracking_client_leave = false;
   }
   return ::DefSubclassProc(hwnd, message, wparam, lparam);
 }
@@ -190,6 +233,19 @@ void TrackPointerLeave(HWND window) {
   track.hwndTrack = window;
   if (::TrackMouseEvent(&track)) {
     g_tracking_leave = true;
+  }
+}
+
+void TrackClientPointerLeave(HWND window) {
+  if (g_tracking_client_leave) {
+    return;
+  }
+  TRACKMOUSEEVENT track{};
+  track.cbSize = sizeof(track);
+  track.dwFlags = TME_LEAVE;
+  track.hwndTrack = window;
+  if (::TrackMouseEvent(&track)) {
+    g_tracking_client_leave = true;
   }
 }
 
@@ -287,15 +343,6 @@ void PublishWindowFrameState(HWND window, bool force) {
       "windowFrameChanged",
       std::make_unique<flutter::EncodableValue>(
           EncodeWindowFrameState(window, g_hover.c_str())));
-}
-
-void PublishHover(HWND window, const char* hover) {
-  if (g_hover == hover && g_published) {
-    return;
-  }
-  g_hover = hover;
-  g_published = false;
-  PublishWindowFrameState(window, true);
 }
 
 std::optional<LRESULT> HandleCustomFrameMessage(HWND window, UINT message,
@@ -422,6 +469,7 @@ void DetachFlutterView() {
   }
   g_flutter_view = nullptr;
   g_top_level = nullptr;
+  g_tracking_client_leave = false;
 }
 
 }  // namespace usque

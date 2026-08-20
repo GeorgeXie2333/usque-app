@@ -1,5 +1,10 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:usque/core/app_strings.dart';
+import 'package:usque/core/usque_theme.dart';
+import 'package:usque/models/app_models.dart';
 import 'package:usque/state/window_frame.dart';
+import 'package:usque/widgets/window_titlebar.dart';
 
 void main() {
   tearDown(WindowFrame.instance.debugReset);
@@ -45,5 +50,30 @@ void main() {
     expect(WindowFrame.instance.maximized, isFalse);
     expect(WindowFrame.instance.active, isTrue);
     expect(WindowFrame.instance.captionHover, CaptionHover.none);
+  });
+
+  testWidgets('close hover paints the Windows red caption fill', (tester) async {
+    WindowFrame.instance.debugEnable(captionHover: CaptionHover.close);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: UsqueTheme.light(),
+        home: WindowTitleBar(
+          strings: AppStrings(LocalePreference.english),
+          phase: ConnectionPhase.disconnected,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final Container close = tester.widget<Container>(
+      find.descendant(
+        of: find.bySemanticsLabel('Close'),
+        matching: find.byType(Container),
+      ),
+    );
+    expect(
+      (close.decoration! as BoxDecoration).color,
+      const Color(0xFFC42B1C),
+    );
   });
 }

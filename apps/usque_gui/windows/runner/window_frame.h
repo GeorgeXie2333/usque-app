@@ -47,7 +47,8 @@ void PublishWindowFrameState(HWND window, bool force);
 // The Flutter view is a child HWND that covers the whole client. Windows
 // sends WM_NCHITTEST to that child, not the top-level frame, so caption and
 // resize hits never reach HandleCustomFrameMessage unless the child returns
-// HTTRANSPARENT for those regions.
+// HTTRANSPARENT for those regions. Caption-button hover is published from
+// the child because those hits stay HTCLIENT so clicks still arrive.
 void AttachFlutterView(HWND top_level, HWND flutter_view);
 void DetachFlutterView();
 
