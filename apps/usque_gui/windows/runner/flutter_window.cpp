@@ -485,7 +485,9 @@ bool FlutterWindow::OnCreate() {
             StopEngineEventStream();
             return nullptr;
           }));
-  SetChildContent(flutter_controller_->view()->GetNativeWindow());
+  HWND flutter_view = flutter_controller_->view()->GetNativeWindow();
+  SetChildContent(flutter_view);
+  usque::AttachFlutterView(GetHandle(), flutter_view);
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     if (!start_hidden_) this->Show();
@@ -500,6 +502,7 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  usque::DetachFlutterView();
   StopEngineEventStream();
   RemoveTrayIcon();
   if (flutter_controller_) {

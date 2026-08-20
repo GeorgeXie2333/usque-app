@@ -44,6 +44,13 @@ void BindWindowFrameChannel(flutter::BinaryMessenger* messenger, HWND window);
 // Pushes maximized / active / caption-hover state to Dart when it changes.
 void PublishWindowFrameState(HWND window, bool force);
 
+// The Flutter view is a child HWND that covers the whole client. Windows
+// sends WM_NCHITTEST to that child, not the top-level frame, so caption and
+// resize hits never reach HandleCustomFrameMessage unless the child returns
+// HTTRANSPARENT for those regions.
+void AttachFlutterView(HWND top_level, HWND flutter_view);
+void DetachFlutterView();
+
 }  // namespace usque
 
 #endif  // RUNNER_WINDOW_FRAME_H_

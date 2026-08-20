@@ -1,5 +1,6 @@
 #include "window_frame.h"
 
+#include <commctrl.h>
 #include <dwmapi.h>
 #include <flutter/binary_messenger.h>
 #include <flutter/encodable_value.h>
@@ -102,6 +103,82 @@ bool g_maximized = false;
 bool g_active = true;
 std::string g_hover = "none";
 bool g_tracking_leave = false;
+HWND g_top_level = nullptr;
+HWND g_flutter_view = nullptr;
+
+constexpr UINT_PTR kFlutterViewSubclassId = 1;
+
+LRESULT HitTest(HWND window, LPARAM lparam);
+
+bool IsResizeHit(LRESULT hit) {
+  switch (hit) {
+    case HTLEFT:
+    case HTRIGHT:
+    case HTTOP:
+    case HTBOTTOM:
+    case HTTOPLEFT:
+    case HTTOPRIGHT:
+    case HTBOTTOMLEFT:
+    case HTBOTTOMRIGHT:
+      return true;
+    default:
+      return false;
+  }
+}
+
+bool ApplyCaptionButton(HWND window, LRESULT hit, bool double_click) {
+  switch (hit) {
+    case HTMINBUTTON:
+      if (!double_click) {
+        ::ShowWindow(window, SW_MINIMIZE);
+      }
+      return true;
+    case HTMAXBUTTON:
+      ::ShowWindow(window, IsWindowMaximized(window) ? SW_RESTORE : SW_MAXIMIZE);
+      return true;
+    case HTCLOSE:
+      if (!double_click) {
+        ::PostMessageW(window, WM_CLOSE, 0, 0);
+      }
+      return true;
+    default:
+      return false;
+  }
+}
+
+LPARAM ScreenPointToLParam(POINT point) {
+  return MAKELPARAM(static_cast<WORD>(point.x), static_cast<WORD>(point.y));
+}
+
+LRESULT CALLBACK FlutterViewSubclassProc(HWND hwnd, UINT message, WPARAM wparam,
+                                         LPARAM lparam, UINT_PTR subclass_id,
+                                         DWORD_PTR) {
+  if (g_top_level != nullptr && message == WM_NCHITTEST) {
+    // Caption and resize must reach the top-level window. The three caption
+    // buttons stay HTCLIENT here so this child still gets WM_LBUTTONDOWN;
+    // DefWindowProc will not turn HTMINBUTTON/HTMAXBUTTON into syscommands
+    // once NCCALCSIZE has removed the real caption.
+    const LRESULT hit = HitTest(g_top_level, lparam);
+    if (hit == HTCAPTION || IsResizeHit(hit)) {
+      return HTTRANSPARENT;
+    }
+  }
+  if (g_top_level != nullptr &&
+      (message == WM_LBUTTONDOWN || message == WM_LBUTTONDBLCLK)) {
+    POINT point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+    ::ClientToScreen(hwnd, &point);
+    const LRESULT hit = HitTest(g_top_level, ScreenPointToLParam(point));
+    if (ApplyCaptionButton(g_top_level, hit, message == WM_LBUTTONDBLCLK)) {
+      return 0;
+    }
+  }
+  if (message == WM_NCDESTROY) {
+    ::RemoveWindowSubclass(hwnd, FlutterViewSubclassProc, subclass_id);
+    g_flutter_view = nullptr;
+    g_top_level = nullptr;
+  }
+  return ::DefSubclassProc(hwnd, message, wparam, lparam);
+}
 
 void TrackPointerLeave(HWND window) {
   if (g_tracking_leave) {
@@ -281,6 +358,15 @@ std::optional<LRESULT> HandleCustomFrameMessage(HWND window, UINT message,
       }
       return hit;
     }
+    case WM_NCLBUTTONDOWN:
+    case WM_NCLBUTTONDBLCLK:
+      // Backup path if a caption-button hit is delivered as a non-client
+      // click instead of a child client click.
+      if (ApplyCaptionButton(window, static_cast<LRESULT>(wparam),
+                             message == WM_NCLBUTTONDBLCLK)) {
+        return 0;
+      }
+      return std::nullopt;
     case WM_MOUSELEAVE:
     case WM_NCMOUSELEAVE:
       g_tracking_leave = false;
@@ -316,6 +402,26 @@ void BindWindowFrameChannel(flutter::BinaryMessenger* messenger, HWND window) {
         result->NotImplemented();
       });
   PublishWindowFrameState(window, true);
+}
+
+void AttachFlutterView(HWND top_level, HWND flutter_view) {
+  DetachFlutterView();
+  if (top_level == nullptr || flutter_view == nullptr) {
+    return;
+  }
+  g_top_level = top_level;
+  g_flutter_view = flutter_view;
+  ::SetWindowSubclass(flutter_view, FlutterViewSubclassProc,
+                      kFlutterViewSubclassId, 0);
+}
+
+void DetachFlutterView() {
+  if (g_flutter_view != nullptr) {
+    ::RemoveWindowSubclass(g_flutter_view, FlutterViewSubclassProc,
+                           kFlutterViewSubclassId);
+  }
+  g_flutter_view = nullptr;
+  g_top_level = nullptr;
 }
 
 }  // namespace usque
