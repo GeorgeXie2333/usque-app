@@ -103,7 +103,6 @@ bool g_maximized = false;
 bool g_active = true;
 std::string g_hover = "none";
 bool g_tracking_leave = false;
-bool g_tracking_client_leave = false;
 HWND g_top_level = nullptr;
 HWND g_flutter_view = nullptr;
 
@@ -147,12 +146,6 @@ bool ApplyCaptionButton(HWND window, LRESULT hit, bool double_click) {
   }
 }
 
-LPARAM ScreenPointToLParam(POINT point) {
-  return MAKELPARAM(static_cast<WORD>(point.x), static_cast<WORD>(point.y));
-}
-
-void TrackClientPointerLeave(HWND window);
-
 void PublishHover(HWND window, const char* hover) {
   if (g_hover == hover && g_published) {
     return;
@@ -170,55 +163,18 @@ LRESULT CALLBACK FlutterViewSubclassProc(HWND hwnd, UINT message, WPARAM wparam,
                                          LPARAM lparam, UINT_PTR subclass_id,
                                          DWORD_PTR) {
   if (g_top_level != nullptr && message == WM_NCHITTEST) {
-    // Caption and resize must reach the top-level window. The three caption
-    // buttons stay HTCLIENT here so this child still gets WM_LBUTTONDOWN;
-    // DefWindowProc will not turn HTMINBUTTON/HTMAXBUTTON into syscommands
-    // once NCCALCSIZE has removed the real caption.
-    //
-    // Hover has to be published from this child: Windows never sends
-    // WM_NCHITTEST to the parent while the child returns HTCLIENT.
+    // Caption, caption buttons, and resize must reach the top-level window
+    // so HandleCustomFrameMessage owns hit-test, hover, and clicks.
+    // HTMAXBUTTON has to land on the parent for the Win11 snap flyout.
     const LRESULT hit = HitTest(g_top_level, lparam);
-    if (hit == HTCAPTION || IsResizeHit(hit)) {
+    if (hit == HTCAPTION || IsResizeHit(hit) || IsCaptionButtonHit(hit)) {
       return HTTRANSPARENT;
-    }
-    if (IsCaptionButtonHit(hit)) {
-      PublishHover(g_top_level, HoverName(hit));
-      TrackClientPointerLeave(hwnd);
-    } else if (g_hover != "none") {
-      PublishHover(g_top_level, "none");
-    }
-  }
-  if (g_top_level != nullptr && message == WM_MOUSEMOVE) {
-    POINT point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
-    ::ClientToScreen(hwnd, &point);
-    const LRESULT hit = HitTest(g_top_level, ScreenPointToLParam(point));
-    if (IsCaptionButtonHit(hit)) {
-      PublishHover(g_top_level, HoverName(hit));
-      TrackClientPointerLeave(hwnd);
-    } else if (g_hover != "none") {
-      PublishHover(g_top_level, "none");
-    }
-  }
-  if (g_top_level != nullptr &&
-      (message == WM_LBUTTONDOWN || message == WM_LBUTTONDBLCLK)) {
-    POINT point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
-    ::ClientToScreen(hwnd, &point);
-    const LRESULT hit = HitTest(g_top_level, ScreenPointToLParam(point));
-    if (ApplyCaptionButton(g_top_level, hit, message == WM_LBUTTONDBLCLK)) {
-      return 0;
-    }
-  }
-  if (message == WM_MOUSELEAVE) {
-    g_tracking_client_leave = false;
-    if (g_top_level != nullptr) {
-      PublishHover(g_top_level, "none");
     }
   }
   if (message == WM_NCDESTROY) {
     ::RemoveWindowSubclass(hwnd, FlutterViewSubclassProc, subclass_id);
     g_flutter_view = nullptr;
     g_top_level = nullptr;
-    g_tracking_client_leave = false;
   }
   return ::DefSubclassProc(hwnd, message, wparam, lparam);
 }
@@ -233,19 +189,6 @@ void TrackPointerLeave(HWND window) {
   track.hwndTrack = window;
   if (::TrackMouseEvent(&track)) {
     g_tracking_leave = true;
-  }
-}
-
-void TrackClientPointerLeave(HWND window) {
-  if (g_tracking_client_leave) {
-    return;
-  }
-  TRACKMOUSEEVENT track{};
-  track.cbSize = sizeof(track);
-  track.dwFlags = TME_LEAVE;
-  track.hwndTrack = window;
-  if (::TrackMouseEvent(&track)) {
-    g_tracking_client_leave = true;
   }
 }
 
@@ -407,8 +350,8 @@ std::optional<LRESULT> HandleCustomFrameMessage(HWND window, UINT message,
     }
     case WM_NCLBUTTONDOWN:
     case WM_NCLBUTTONDBLCLK:
-      // Backup path if a caption-button hit is delivered as a non-client
-      // click instead of a child client click.
+      // The Flutter child returns HTTRANSPARENT for caption buttons, so
+      // clicks arrive here as non-client messages.
       if (ApplyCaptionButton(window, static_cast<LRESULT>(wparam),
                              message == WM_NCLBUTTONDBLCLK)) {
         return 0;
@@ -456,10 +399,12 @@ void AttachFlutterView(HWND top_level, HWND flutter_view) {
   if (top_level == nullptr || flutter_view == nullptr) {
     return;
   }
+  if (!::SetWindowSubclass(flutter_view, FlutterViewSubclassProc,
+                           kFlutterViewSubclassId, 0)) {
+    return;
+  }
   g_top_level = top_level;
   g_flutter_view = flutter_view;
-  ::SetWindowSubclass(flutter_view, FlutterViewSubclassProc,
-                      kFlutterViewSubclassId, 0);
 }
 
 void DetachFlutterView() {
@@ -469,7 +414,6 @@ void DetachFlutterView() {
   }
   g_flutter_view = nullptr;
   g_top_level = nullptr;
-  g_tracking_client_leave = false;
 }
 
 }  // namespace usque

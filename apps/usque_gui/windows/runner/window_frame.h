@@ -45,10 +45,10 @@ void BindWindowFrameChannel(flutter::BinaryMessenger* messenger, HWND window);
 void PublishWindowFrameState(HWND window, bool force);
 
 // The Flutter view is a child HWND that covers the whole client. Windows
-// sends WM_NCHITTEST to that child, not the top-level frame, so caption and
-// resize hits never reach HandleCustomFrameMessage unless the child returns
-// HTTRANSPARENT for those regions. Caption-button hover is published from
-// the child because those hits stay HTCLIENT so clicks still arrive.
+// sends WM_NCHITTEST to that child, not the top-level frame, so caption,
+// caption-button, and resize hits never reach HandleCustomFrameMessage
+// unless the child returns HTTRANSPARENT for those regions. HTMAXBUTTON
+// must land on the top-level window for the Win11 maximize/snap flyout.
 void AttachFlutterView(HWND top_level, HWND flutter_view);
 void DetachFlutterView();
 
