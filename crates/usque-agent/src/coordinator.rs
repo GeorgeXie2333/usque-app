@@ -277,6 +277,9 @@ where
                 actual: journal.phase,
             });
         }
+        journal.steps.retain(|step| {
+            !(step.kind == MutationKind::PacketSession && step.state == MutationState::Restored)
+        });
         if journal
             .steps
             .iter()
@@ -361,10 +364,8 @@ where
             self.store.save(&mut journal)?;
             return Ok(journal.clone());
         }
-        journal.steps[index].state = MutationState::Restored;
-        self.packet_session_attached.store(false, Ordering::Release);
-        self.store.save(&mut journal)?;
         journal.steps.remove(index);
+        self.packet_session_attached.store(false, Ordering::Release);
         self.store.save(&mut journal)?;
         Ok(journal.clone())
     }
@@ -2240,6 +2241,97 @@ mod tests {
                 .steps
                 .iter()
                 .any(|step| step.kind == MutationKind::SystemProxy)
+        );
+    }
+
+    #[tokio::test]
+    async fn closing_a_prepared_packet_session_is_one_journal_mutation() {
+        let backend = Arc::new(MockBackend::default());
+        let (_directory, coordinator) = coordinator(Arc::clone(&backend));
+        let operation = Uuid::new_v4();
+        let owner = caller();
+        coordinator
+            .prepare(operation, plan(), owner.clone())
+            .await
+            .expect("prepare");
+        coordinator
+            .open_packet_session(operation, 1024 * 1024, &owner)
+            .await
+            .expect("packet");
+        let generation = coordinator.state().await.generation;
+
+        let closed = coordinator
+            .close_packet_session(operation, &owner)
+            .await
+            .expect("close");
+        assert_eq!(closed.phase, RecoveryPhase::Prepared);
+        assert_eq!(closed.generation, generation + 1);
+        assert!(
+            closed
+                .steps
+                .iter()
+                .all(|step| step.kind != MutationKind::PacketSession)
+        );
+        coordinator
+            .open_packet_session(operation, 1024 * 1024, &owner)
+            .await
+            .expect("reopen");
+        coordinator.commit(operation, &owner).await.expect("commit");
+    }
+
+    #[tokio::test]
+    async fn restored_packet_session_is_absent_for_open_and_commit() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let journal_path = directory.path().join("recovery.json");
+        let backend = Arc::new(MockBackend::default());
+        let coordinator =
+            AgentCoordinator::open(JournalStore::new(&journal_path), Arc::clone(&backend))
+                .expect("coordinator");
+        let operation = Uuid::new_v4();
+        let owner = caller();
+        coordinator
+            .prepare(operation, plan(), owner.clone())
+            .await
+            .expect("prepare");
+        coordinator
+            .open_packet_session(operation, 1024 * 1024, &owner)
+            .await
+            .expect("packet");
+        let mut journal = coordinator.state().await;
+        journal
+            .steps
+            .iter_mut()
+            .find(|step| step.kind == MutationKind::PacketSession)
+            .expect("packet step")
+            .state = MutationState::Restored;
+        drop(coordinator);
+        JournalStore::new(&journal_path)
+            .save(&mut journal)
+            .expect("seed restored packet step");
+
+        let coordinator =
+            AgentCoordinator::open(JournalStore::new(&journal_path), Arc::clone(&backend))
+                .expect("reload");
+        coordinator
+            .open_packet_session(operation, 1024 * 1024, &owner)
+            .await
+            .expect("restored packet steps are absent");
+        let committed = coordinator.commit(operation, &owner).await.expect("commit");
+        assert_eq!(
+            committed
+                .steps
+                .iter()
+                .filter(|step| step.kind == MutationKind::PacketSession)
+                .count(),
+            1
+        );
+        assert_eq!(
+            committed
+                .steps
+                .iter()
+                .find(|step| step.kind == MutationKind::PacketSession)
+                .map(|step| step.state),
+            Some(MutationState::Applied)
         );
     }
 
