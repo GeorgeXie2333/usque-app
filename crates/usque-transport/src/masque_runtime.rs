@@ -205,9 +205,10 @@ impl MasqueRuntime {
     ///
     /// A frontend is kept only when its bound addresses and hot-reconfigure
     /// identity (credentials, proxy DNS, and SOCKS UDP idle) still match.
-    /// A protocol that actually changes is shut down before its replacement
-    /// is bound, because Windows will not let a second socket claim the same
-    /// address.
+    /// New sockets are bound before any removed frontend is shut down so a
+    /// later bind failure can restore from the still-held listeners. Identity
+    /// changes on the same addresses still release that protocol first,
+    /// because Windows will not let a second socket claim the same address.
     pub async fn reconfigure_frontends(&mut self, profile: &Profile) -> Result<(), TransportError> {
         let keep_socks5 = profile.frontends.socks5
             && self.socks5.is_some()
@@ -215,6 +216,38 @@ impl MasqueRuntime {
         let keep_http = profile.frontends.http
             && self.http.is_some()
             && self.http_spec.as_ref() == FrontendSpec::from_http_profile(profile).as_ref();
+
+        let add_socks5 = profile.frontends.socks5 && !keep_socks5;
+        let add_http = profile.frontends.http && !keep_http;
+        let socks5_rebind_same = add_socks5
+            && self.socks5.as_ref().is_some_and(|frontend| {
+                listeners_overlap(frontend.listeners(), &profile.proxy.socks5_listeners)
+            });
+        let http_rebind_same = add_http
+            && self.http.as_ref().is_some_and(|frontend| {
+                listeners_overlap(frontend.listeners(), &profile.proxy.http_listeners)
+            });
+
+        let mut socks5_bound = None;
+        if add_socks5 && !socks5_rebind_same {
+            match Socks5Frontend::prebind(profile) {
+                Ok(bound) => socks5_bound = Some(bound),
+                Err(error) => {
+                    self.refresh_listeners();
+                    return Err(error);
+                }
+            }
+        }
+        let mut http_bound = None;
+        if add_http && !http_rebind_same {
+            match HttpProxyFrontend::prebind(profile) {
+                Ok(bound) => http_bound = Some(bound),
+                Err(error) => {
+                    self.refresh_listeners();
+                    return Err(error);
+                }
+            }
+        }
 
         if !keep_socks5 && let Some(mut frontend) = self.socks5.take() {
             self.socks5_spec.take();
@@ -225,8 +258,26 @@ impl MasqueRuntime {
             frontend.shutdown().await;
         }
 
-        if profile.frontends.socks5 && !keep_socks5 {
-            let bound = Socks5Frontend::prebind(profile)?;
+        if add_socks5 && socks5_rebind_same {
+            match Socks5Frontend::prebind(profile) {
+                Ok(bound) => socks5_bound = Some(bound),
+                Err(error) => {
+                    self.refresh_listeners();
+                    return Err(error);
+                }
+            }
+        }
+        if add_http && http_rebind_same {
+            match HttpProxyFrontend::prebind(profile) {
+                Ok(bound) => http_bound = Some(bound),
+                Err(error) => {
+                    self.refresh_listeners();
+                    return Err(error);
+                }
+            }
+        }
+
+        if let Some(bound) = socks5_bound {
             let frontend = Socks5Frontend::activate(
                 profile,
                 self.assigned_ipv4,
@@ -237,8 +288,7 @@ impl MasqueRuntime {
             self.socks5_spec = FrontendSpec::from_socks5_frontend(&frontend, profile);
             self.socks5 = Some(frontend);
         }
-        if profile.frontends.http && !keep_http {
-            let bound = HttpProxyFrontend::prebind(profile)?;
+        if let Some(bound) = http_bound {
             let frontend = HttpProxyFrontend::activate(
                 profile,
                 self.assigned_ipv4,
@@ -249,6 +299,19 @@ impl MasqueRuntime {
             self.http_spec = FrontendSpec::from_http_frontend(&frontend, profile);
             self.http = Some(frontend);
         }
+
+        self.refresh_listeners();
+        tokio::task::yield_now().await;
+        if let Some(message) = self.socks5.as_ref().and_then(Socks5Frontend::failure) {
+            return Err(TransportError::Socks5(message));
+        }
+        if let Some(message) = self.http.as_ref().and_then(HttpProxyFrontend::failure) {
+            return Err(TransportError::HttpProxy(message));
+        }
+        Ok(())
+    }
+
+    fn refresh_listeners(&mut self) {
         self.listeners = self
             .socks5
             .iter()
@@ -259,15 +322,6 @@ impl MasqueRuntime {
                     .flat_map(|frontend| frontend.listeners().iter().copied()),
             )
             .collect();
-
-        tokio::task::yield_now().await;
-        if let Some(message) = self.socks5.as_ref().and_then(Socks5Frontend::failure) {
-            return Err(TransportError::Socks5(message));
-        }
-        if let Some(message) = self.http.as_ref().and_then(HttpProxyFrontend::failure) {
-            return Err(TransportError::HttpProxy(message));
-        }
-        Ok(())
     }
 
     /// Attach TUN I/O. Replaces any previous attach; the old receiver closes.
@@ -469,6 +523,11 @@ fn same_listeners(active: &[SocketAddr], wanted: &[SocketAddr]) -> bool {
     active == wanted
 }
 
+fn listeners_overlap(active: &[SocketAddr], wanted: &[SocketAddr]) -> bool {
+    let active: HashSet<SocketAddr> = active.iter().copied().collect();
+    wanted.iter().any(|address| active.contains(address))
+}
+
 /// Identity that must match for a hot-reconfigure to keep a live frontend.
 ///
 /// Listener addresses alone are not enough: auth, proxy DNS, and SOCKS UDP
@@ -626,6 +685,45 @@ mod tests {
             407
         );
 
+        runtime.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn reconfigure_bind_failure_leaves_previous_listeners() {
+        let socks_addr = free_loopback();
+        let http_addr = free_loopback();
+        let profile = proxy_profile(socks_addr, http_addr);
+        let mut runtime = start_local(&profile).await;
+        let previous = runtime.listeners().to_vec();
+        let previous_socks = runtime.socks5_listeners().to_vec();
+        let previous_http = runtime.http_listeners().to_vec();
+
+        let occupied = std::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
+            .expect("hold HTTP port");
+        let occupied_addr = occupied.local_addr().expect("occupied addr");
+        let next_socks = free_loopback();
+        let mut next = profile.clone();
+        next.proxy.socks5_listeners = vec![next_socks];
+        next.proxy.http_listeners = vec![occupied_addr];
+
+        let error = runtime
+            .reconfigure_frontends(&next)
+            .await
+            .expect_err("HTTP bind must fail");
+        assert!(matches!(
+            error,
+            TransportError::HttpProxyListener { address, .. } if address == occupied_addr
+        ));
+        assert_eq!(runtime.listeners(), previous.as_slice());
+        assert_eq!(runtime.socks5_listeners(), previous_socks.as_slice());
+        assert_eq!(runtime.http_listeners(), previous_http.as_slice());
+        assert_eq!(socks_no_auth_method(socks_addr).await, 0);
+        tokio::net::TcpStream::connect(http_addr)
+            .await
+            .expect("previous HTTP still accepts");
+        std::net::TcpListener::bind(next_socks).expect("failed SOCKS bind must not keep the port");
+
+        drop(occupied);
         runtime.shutdown().await;
     }
 
