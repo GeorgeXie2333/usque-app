@@ -366,9 +366,15 @@ class FakeEngineClient implements EngineClient {
     calls.add('openAlwaysOnVpnSettings');
   }
 
+  Object? connectError;
+  Object? retryError;
+
   @override
   Future<EngineSnapshot> connect(UsqueProfile profile) async {
     calls.add('connect');
+    if (connectError != null) {
+      throw connectError!;
+    }
     lastConnectedProfile = profile;
     current = EngineSnapshot(
       phase: ConnectionPhase.connected,
@@ -389,6 +395,9 @@ class FakeEngineClient implements EngineClient {
   @override
   Future<EngineSnapshot> retry() async {
     calls.add('retry');
+    if (retryError != null) {
+      throw retryError!;
+    }
     return connect(lastConnectedProfile ?? storedProfiles.first);
   }
 
@@ -1322,6 +1331,43 @@ void main() {
     expect(finishButton().onPressed, isNotNull);
   });
 
+  test('connect maps generic failures off the preparing phase', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+      'update_checks_enabled': false,
+    });
+    final engine = FakeEngineClient();
+    engine.connectError = const FormatException('Invalid listener port');
+    final controller = AppController(engine);
+    await controller.initialize();
+    await Future<void>.delayed(Duration.zero);
+    await controller.connectOrDisconnect();
+    expect(controller.snapshot.phase, ConnectionPhase.error);
+    expect(controller.lastError, contains('Invalid listener port'));
+    expect(controller.busy, isFalse);
+    controller.dispose();
+  });
+
+  test('retry maps generic failures off a transitional phase', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+      'update_checks_enabled': false,
+    });
+    final engine = FakeEngineClient();
+    engine.retryError = const FormatException('Invalid protobuf field');
+    final controller = AppController(engine);
+    await controller.initialize();
+    await Future<void>.delayed(Duration.zero);
+    controller.snapshot = const EngineSnapshot(
+      phase: ConnectionPhase.preparing,
+    );
+    await controller.retry();
+    expect(controller.snapshot.phase, ConnectionPhase.error);
+    expect(controller.lastError, contains('Invalid protobuf field'));
+    expect(controller.busy, isFalse);
+    controller.dispose();
+  });
+
   testWidgets('connect button reflects a real engine snapshot', (tester) async {
     SharedPreferences.setMockInitialValues(<String, Object>{
       'onboarding_complete': true,
@@ -1337,6 +1383,25 @@ void main() {
     expect(find.text('HTTP/3'), findsOneWidget);
     expect(find.text('IPv6'), findsWidgets);
     expect(find.text('Disconnect'), findsOneWidget);
+  });
+
+  testWidgets('generic connect failure leaves home on error, not preparing', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+    });
+    final engine = FakeEngineClient();
+    engine.connectError = const FormatException('Invalid listener port');
+    await tester.pumpWidget(UsqueBootstrap(engine: engine));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Connect'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Preparing secure tunnel…'), findsNothing);
+    expect(find.text('Connection error'), findsWidgets);
+    expect(find.text('Retry'), findsOneWidget);
   });
 
   testWidgets('home renders without layout errors in a wide desktop window', (

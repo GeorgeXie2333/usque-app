@@ -537,17 +537,14 @@ class AppController extends ChangeNotifier {
     try {
       await operation();
       return true;
-    } on EngineException catch (error) {
-      lastError = error.message;
+    } catch (error) {
+      lastError = error is EngineException ? error.message : error.toString();
       if (affectsConnection && snapshot.phase != ConnectionPhase.disconnected) {
         snapshot = EngineSnapshot(
           phase: ConnectionPhase.error,
-          warning: error.message,
+          warning: lastError,
         );
       }
-      return false;
-    } catch (error) {
-      lastError = error.toString();
       return false;
     } finally {
       busy = false;
