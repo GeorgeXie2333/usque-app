@@ -158,6 +158,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         onMethodChanged: (value) => setState(() => _useLicense = value),
         onVisibilityChanged: () =>
             setState(() => _licenseVisible = !_licenseVisible),
+        onLicenseChanged: (_) => setState(() {}),
       ),
     };
   }
@@ -577,6 +578,7 @@ class _IdentityStep extends StatelessWidget {
     required this.licenseController,
     required this.onMethodChanged,
     required this.onVisibilityChanged,
+    required this.onLicenseChanged,
   });
 
   final AppStrings strings;
@@ -585,6 +587,7 @@ class _IdentityStep extends StatelessWidget {
   final TextEditingController licenseController;
   final ValueChanged<bool> onMethodChanged;
   final VoidCallback onVisibilityChanged;
+  final ValueChanged<String> onLicenseChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -626,7 +629,7 @@ class _IdentityStep extends StatelessWidget {
                     obscureText: !licenseVisible,
                     enableSuggestions: false,
                     autocorrect: false,
-                    onChanged: (_) => (context as Element).markNeedsBuild(),
+                    onChanged: onLicenseChanged,
                     decoration: InputDecoration(
                       labelText: strings.get('warp_license_key'),
                       suffixIcon: IconButton(

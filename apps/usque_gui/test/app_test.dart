@@ -1291,6 +1291,37 @@ void main() {
     expect(find.text('Default'), findsOneWidget);
   });
 
+  testWidgets('typing a WARP license key enables Finish setup', (tester) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    await tester.pumpWidget(UsqueBootstrap(engine: FakeEngineClient()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(CheckboxListTile));
+    await tester.pump();
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Use a WARP License Key'));
+    await tester.pumpAndSettle();
+
+    FilledButton finishButton() {
+      return tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, 'Finish setup'),
+      );
+    }
+
+    expect(finishButton().onPressed, isNull);
+
+    await tester.enterText(find.byType(TextField), 'test-license-key');
+    await tester.pump();
+
+    expect(finishButton().onPressed, isNotNull);
+  });
+
   testWidgets('connect button reflects a real engine snapshot', (tester) async {
     SharedPreferences.setMockInitialValues(<String, Object>{
       'onboarding_complete': true,
