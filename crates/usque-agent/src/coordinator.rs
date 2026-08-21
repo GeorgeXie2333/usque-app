@@ -834,20 +834,33 @@ where
         self.store.save(journal)?;
 
         let index = journal.steps.len() - 1;
-        let (receipt, output) = self
+        match self
             .backend
             .apply_step(journal.steps[index].receipt.clone(), plan, caller)
-            .await?;
-        if receipt.kind() != kind {
-            return Err(CoordinatorError::BackendReceiptMismatch {
-                expected: kind,
-                actual: receipt.kind(),
-            });
+            .await
+        {
+            Ok((receipt, output)) => {
+                if receipt.kind() != kind {
+                    return Err(CoordinatorError::BackendReceiptMismatch {
+                        expected: kind,
+                        actual: receipt.kind(),
+                    });
+                }
+                journal.steps[index].receipt = receipt;
+                journal.steps[index].state = MutationState::Applied;
+                self.store.save(journal)?;
+                Ok(output)
+            }
+            Err(error) => {
+                if let BackendError::PartialApply { receipt, .. } = &error
+                    && receipt.kind() == kind
+                {
+                    journal.steps[index].receipt = receipt.clone();
+                    self.store.save(journal)?;
+                }
+                Err(error.into())
+            }
         }
-        journal.steps[index].receipt = receipt;
-        journal.steps[index].state = MutationState::Applied;
-        self.store.save(journal)?;
-        Ok(output)
     }
 
     async fn recover_locked(&self, journal: &mut RecoveryJournal) -> Result<(), CoordinatorError> {
@@ -1024,6 +1037,11 @@ fn validate_caller(caller: &AuthenticatedCaller) -> Result<(), CoordinatorError>
 pub enum BackendError {
     #[error("privileged backend operation failed: {0}")]
     Operation(String),
+    #[error("privileged backend operation failed: {message}")]
+    PartialApply {
+        message: String,
+        receipt: MutationReceipt,
+    },
     #[error("privileged backend capability is unavailable: {0}")]
     Unavailable(String),
     #[error("no physical route to a configured WARP endpoint is available")]
@@ -1110,6 +1128,8 @@ mod tests {
         restored: Mutex<Vec<MutationKind>>,
         fail_apply: Mutex<HashSet<MutationKind>>,
         fail_restore: Mutex<HashSet<MutationKind>>,
+        unown_first_created_on_apply: Mutex<HashSet<MutationKind>>,
+        deleted_owned_routes: Mutex<Vec<String>>,
     }
 
     #[async_trait]
@@ -1178,14 +1198,24 @@ mod tests {
                     }
                 }
                 MutationKind::DefaultRoutes => MutationReceipt::DefaultRoutes {
-                    created: vec![RouteReceipt {
-                        destination: "0.0.0.0/0".to_owned(),
-                        next_hop: None,
-                        next_hop_scope_id: 0,
-                        interface_luid: 7,
-                        metric: 0,
-                        owned: true,
-                    }],
+                    created: vec![
+                        RouteReceipt {
+                            destination: "192.168.0.0/16".to_owned(),
+                            next_hop: Some(Ipv4Addr::new(192, 0, 2, 1).into()),
+                            next_hop_scope_id: 0,
+                            interface_luid: 9,
+                            metric: 1,
+                            owned: true,
+                        },
+                        RouteReceipt {
+                            destination: "0.0.0.0/0".to_owned(),
+                            next_hop: None,
+                            next_hop_scope_id: 0,
+                            interface_luid: 7,
+                            metric: 0,
+                            owned: true,
+                        },
+                    ],
                     replaced: Vec::new(),
                 },
                 MutationKind::SystemProxy => MutationReceipt::SystemProxy {
@@ -1204,13 +1234,24 @@ mod tests {
 
         async fn apply_step(
             &self,
-            receipt: MutationReceipt,
+            mut receipt: MutationReceipt,
             _plan: &ValidatedTunnelPlan,
             _caller: &AuthenticatedCaller,
         ) -> Result<(MutationReceipt, StepOutput), BackendError> {
             let kind = receipt.kind();
+            if self
+                .unown_first_created_on_apply
+                .lock()
+                .await
+                .contains(&kind)
+            {
+                unown_first_created(&mut receipt);
+            }
             if self.fail_apply.lock().await.contains(&kind) {
-                return Err(BackendError::Operation(format!("forced {kind:?} failure")));
+                return Err(BackendError::PartialApply {
+                    message: format!("forced {kind:?} failure"),
+                    receipt,
+                });
             }
             self.applied.lock().await.push(kind);
             let output = if let MutationReceipt::PacketSession { ring_capacity, .. } = &receipt {
@@ -1233,6 +1274,18 @@ mod tests {
         async fn restore_step(&self, receipt: &MutationReceipt) -> Result<(), BackendError> {
             let kind = receipt.kind();
             self.restored.lock().await.push(kind);
+            match receipt {
+                MutationReceipt::EndpointBypass { created }
+                | MutationReceipt::DefaultRoutes { created, .. } => {
+                    self.deleted_owned_routes.lock().await.extend(
+                        created
+                            .iter()
+                            .filter(|route| route.owned)
+                            .map(|route| route.destination.clone()),
+                    );
+                }
+                _ => {}
+            }
             if self.fail_restore.lock().await.contains(&kind) {
                 return Err(BackendError::Operation(format!(
                     "forced {kind:?} recovery failure"
@@ -1294,6 +1347,25 @@ mod tests {
         ) -> Result<MutationReceipt, BackendError> {
             self.applied.lock().await.push(MutationKind::SystemProxy);
             Ok(receipt)
+        }
+    }
+
+    fn unown_first_created(receipt: &mut MutationReceipt) {
+        match receipt {
+            MutationReceipt::EndpointBypass { created }
+            | MutationReceipt::DefaultRoutes { created, .. } => {
+                if let Some(route) = created.first_mut() {
+                    route.owned = false;
+                }
+            }
+            MutationReceipt::InterfaceConfiguration {
+                created_addresses, ..
+            } => {
+                if let Some(address) = created_addresses.first_mut() {
+                    address.owned = false;
+                }
+            }
+            _ => {}
         }
     }
 
@@ -1404,6 +1476,46 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(restored[1..], expected_tail);
         assert_eq!(coordinator.state().await.phase, RecoveryPhase::Clean);
+    }
+
+    #[tokio::test]
+    async fn already_existing_route_is_not_deleted_on_recovery() {
+        let backend = Arc::new(MockBackend::default());
+        backend
+            .unown_first_created_on_apply
+            .lock()
+            .await
+            .insert(MutationKind::DefaultRoutes);
+        backend
+            .fail_apply
+            .lock()
+            .await
+            .insert(MutationKind::DefaultRoutes);
+        let (_directory, coordinator) = coordinator(Arc::clone(&backend));
+        let operation = Uuid::new_v4();
+        let owner = caller();
+        coordinator
+            .prepare(operation, plan(), owner.clone())
+            .await
+            .expect("prepare");
+        coordinator
+            .open_packet_session(operation, 1024 * 1024, &owner)
+            .await
+            .expect("packet");
+
+        assert!(matches!(
+            coordinator.commit(operation, &owner).await,
+            Err(CoordinatorError::Backend(_))
+        ));
+        assert_eq!(coordinator.state().await.phase, RecoveryPhase::Clean);
+        let deleted = backend.deleted_owned_routes.lock().await.clone();
+        assert!(
+            !deleted
+                .iter()
+                .any(|destination| destination == "192.168.0.0/16"),
+            "recovery must not delete a pre-existing route this generation did not create: {deleted:?}"
+        );
+        assert!(deleted.contains(&"0.0.0.0/0".to_owned()));
     }
 
     #[tokio::test]

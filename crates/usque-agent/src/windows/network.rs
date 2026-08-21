@@ -119,16 +119,14 @@ fn plan_candidate_route(
     }
 }
 
-pub fn apply_endpoint_bypass(
-    mut receipt: MutationReceipt,
-) -> Result<MutationReceipt, NetworkError> {
-    let MutationReceipt::EndpointBypass { created } = &mut receipt else {
+pub fn apply_endpoint_bypass(receipt: &mut MutationReceipt) -> Result<(), NetworkError> {
+    let MutationReceipt::EndpointBypass { created } = receipt else {
         return Err(NetworkError::ReceiptKind("endpoint bypass"));
     };
     for route in created {
         apply_route(route)?;
     }
-    Ok(receipt)
+    Ok(())
 }
 
 pub fn restore_endpoint_bypass(receipt: &MutationReceipt) -> Result<(), NetworkError> {
@@ -178,37 +176,29 @@ pub fn plan_interface_configuration(
 }
 
 pub fn apply_interface_configuration(
-    mut receipt: MutationReceipt,
+    receipt: &mut MutationReceipt,
     plan: &ValidatedTunnelPlan,
-) -> Result<MutationReceipt, NetworkError> {
+) -> Result<(), NetworkError> {
     let MutationReceipt::InterfaceConfiguration {
         interface_luid,
         previous_ipv4_mtu: _,
         previous_ipv6_mtu: _,
         created_addresses,
-    } = &mut receipt
+    } = receipt
     else {
         return Err(NetworkError::ReceiptKind("interface configuration"));
     };
     require_luid(*interface_luid)?;
     // Create addresses before changing per-family MTU, matching the ordering
-    // used by the audited Wintun/WireGuard implementations. The write-ahead
-    // receipt is conservative, and recovery queries each address before an
-    // idempotent delete if any later operation fails.
+    // used by the audited Wintun/WireGuard implementations. Ownership is
+    // updated in place so a later failure still journals which addresses this
+    // generation created.
     for address in created_addresses {
         if !address.owned {
             continue;
         }
         let network = parse_network(&address.address)?;
-        match create_address(*interface_luid, network) {
-            Ok(()) => {}
-            Err(NetworkError::Windows { code, .. })
-                if code == ERROR_OBJECT_ALREADY_EXISTS || code == ERROR_ALREADY_EXISTS =>
-            {
-                address.owned = false;
-            }
-            Err(error) => return Err(error),
-        }
+        record_create_ownership(&mut address.owned, create_address(*interface_luid, network))?;
     }
     if plan.assigned_ipv4.is_some() {
         set_interface_mtu(*interface_luid, AF_INET, u32::from(plan.mtu))?;
@@ -216,7 +206,7 @@ pub fn apply_interface_configuration(
     if plan.assigned_ipv6.is_some() {
         set_interface_mtu(*interface_luid, AF_INET6, u32::from(plan.mtu))?;
     }
-    Ok(receipt)
+    Ok(())
 }
 
 pub fn restore_interface_configuration(receipt: &MutationReceipt) -> Result<(), NetworkError> {
@@ -329,14 +319,14 @@ pub fn plan_default_routes(
     })
 }
 
-pub fn apply_default_routes(mut receipt: MutationReceipt) -> Result<MutationReceipt, NetworkError> {
-    let MutationReceipt::DefaultRoutes { created, .. } = &mut receipt else {
+pub fn apply_default_routes(receipt: &mut MutationReceipt) -> Result<(), NetworkError> {
+    let MutationReceipt::DefaultRoutes { created, .. } = receipt else {
         return Err(NetworkError::ReceiptKind("default routes"));
     };
     for route in created {
         apply_route(route)?;
     }
-    Ok(receipt)
+    Ok(())
 }
 
 pub fn restore_default_routes(receipt: &MutationReceipt) -> Result<(), NetworkError> {
@@ -405,12 +395,22 @@ fn apply_route(receipt: &mut RouteReceipt) -> Result<(), NetworkError> {
     if !receipt.owned {
         return Ok(());
     }
-    match create_route(receipt) {
+    let result = create_route(receipt);
+    record_create_ownership(&mut receipt.owned, result)
+}
+
+/// ALREADY_EXISTS means this generation did not create the object. Recovery
+/// must not delete it, so `owned` is cleared before the caller continues.
+fn record_create_ownership(
+    owned: &mut bool,
+    result: Result<(), NetworkError>,
+) -> Result<(), NetworkError> {
+    match result {
         Ok(()) => Ok(()),
         Err(NetworkError::Windows { code, .. })
             if code == ERROR_OBJECT_ALREADY_EXISTS || code == ERROR_ALREADY_EXISTS =>
         {
-            receipt.owned = false;
+            *owned = false;
             Ok(())
         }
         Err(error) => Err(error),
@@ -1053,6 +1053,49 @@ mod tests {
         prepare_mtu_update(&mut ipv6, AF_INET6, 1280);
         assert_eq!(ipv6.NlMtu, 1280);
         assert_eq!(ipv6.SitePrefixLength, 64);
+    }
+
+    #[test]
+    fn already_exists_clears_ownership_without_failing_apply() {
+        let mut owned = true;
+        record_create_ownership(
+            &mut owned,
+            Err(NetworkError::windows(
+                "CreateIpForwardEntry2",
+                ERROR_OBJECT_ALREADY_EXISTS,
+            )),
+        )
+        .expect("already exists is a no-op");
+        assert!(!owned);
+
+        let mut owned = true;
+        record_create_ownership(
+            &mut owned,
+            Err(NetworkError::windows(
+                "CreateUnicastIpAddressEntry",
+                ERROR_ALREADY_EXISTS,
+            )),
+        )
+        .expect("already exists is a no-op");
+        assert!(!owned);
+
+        let mut owned = true;
+        let error = record_create_ownership(
+            &mut owned,
+            Err(NetworkError::windows(
+                "CreateIpForwardEntry2",
+                ERROR_NOT_FOUND,
+            )),
+        )
+        .expect_err("other Windows errors stay fatal");
+        assert!(owned);
+        assert!(matches!(
+            error,
+            NetworkError::Windows {
+                code: ERROR_NOT_FOUND,
+                ..
+            }
+        ));
     }
 
     #[test]
