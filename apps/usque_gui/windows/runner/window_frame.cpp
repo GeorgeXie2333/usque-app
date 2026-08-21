@@ -396,6 +396,14 @@ void BindWindowFrameChannel(flutter::BinaryMessenger* messenger, HWND window) {
   PublishWindowFrameState(window, true);
 }
 
+void UnbindWindowFrameChannel() {
+  g_channel.reset();
+  g_published = false;
+  g_maximized = false;
+  g_active = true;
+  g_hover = "none";
+}
+
 void AttachFlutterView(HWND top_level, HWND flutter_view) {
   DetachFlutterView();
   if (top_level == nullptr || flutter_view == nullptr) {

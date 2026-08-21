@@ -41,6 +41,11 @@ bool IsWindowMaximized(HWND window);
 // exists. Incoming Dart calls are read-only; clicks never come from Flutter.
 void BindWindowFrameChannel(flutter::BinaryMessenger* messenger, HWND window);
 
+// Drops the method channel and cached frame state. Call before the Flutter
+// engine is destroyed so later WM_SIZE / WM_NCHITTEST cannot InvokeMethod
+// on a dead messenger.
+void UnbindWindowFrameChannel();
+
 // Pushes maximized / active / caption-hover state to Dart when it changes.
 void PublishWindowFrameState(HWND window, bool force);
 

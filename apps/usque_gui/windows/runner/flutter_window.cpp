@@ -502,6 +502,7 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  usque::UnbindWindowFrameChannel();
   usque::DetachFlutterView();
   StopEngineEventStream();
   RemoveTrayIcon();
