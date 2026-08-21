@@ -78,6 +78,8 @@ pub struct ControlService {
     maintenance: maintenance::Maintenance,
     #[cfg(any(windows, test))]
     event_sequence: AtomicU64,
+    #[cfg(test)]
+    remote_license_unbinds: Mutex<Vec<Uuid>>,
 }
 
 fn consumer_license_presentation(entitlement: ConsumerEntitlement) -> (v1::LicenseState, String) {
@@ -86,6 +88,12 @@ fn consumer_license_presentation(entitlement: ConsumerEntitlement) -> (v1::Licen
     } else {
         (v1::LicenseState::Free, "Free".to_owned())
     }
+}
+
+fn should_unbind_remote_license(identity: &WarpIdentity) -> bool {
+    matches!(identity.provider(), IdentityProvider::Consumer)
+        && identity.license().is_some()
+        && identity.entitlement() != Some(ConsumerEntitlement::Free)
 }
 
 enum ProvisionedIdentity {
@@ -284,6 +292,8 @@ impl ControlService {
             exit_probe_task: Mutex::new(None),
             #[cfg(any(windows, test))]
             event_sequence: AtomicU64::new(0),
+            #[cfg(test)]
+            remote_license_unbinds: Mutex::new(Vec::new()),
         })
     }
 
@@ -2210,18 +2220,33 @@ impl ControlService {
 
     async fn cleanup_remote_license(&self, profile_id: Uuid) -> Result<(), ControlServiceError> {
         match self.load_warp_identity(profile_id).await {
-            Ok(identity)
-                if matches!(identity.provider(), IdentityProvider::Consumer)
-                    && identity.license().is_some()
-                    && identity.entitlement() == Some(ConsumerEntitlement::WarpPlus) =>
-            {
-                ConsumerRegistrationClient::new()?
-                    .unbind_license(&identity)
-                    .await?;
-                Ok(())
+            Ok(identity) if should_unbind_remote_license(&identity) => {
+                self.unbind_remote_consumer_license(profile_id, &identity)
+                    .await
             }
             Ok(_) | Err(ControlServiceError::MissingCredential(_)) => Ok(()),
             Err(error) => Err(error),
+        }
+    }
+
+    async fn unbind_remote_consumer_license(
+        &self,
+        profile_id: Uuid,
+        identity: &WarpIdentity,
+    ) -> Result<(), ControlServiceError> {
+        #[cfg(test)]
+        {
+            let _ = identity;
+            self.remote_license_unbinds.lock().await.push(profile_id);
+            Ok(())
+        }
+        #[cfg(not(test))]
+        {
+            let _ = profile_id;
+            ConsumerRegistrationClient::new()?
+                .unbind_license(identity)
+                .await?;
+            Ok(())
         }
     }
 
@@ -3257,6 +3282,102 @@ mod tests {
             ),
             (v1::LicenseState::Free, "Free".to_owned())
         );
+    }
+
+    #[test]
+    fn legacy_license_unbinds_unless_entitlement_is_explicitly_free() {
+        assert!(should_unbind_remote_license(
+            &test_identity_with_entitlement(
+                IdentityProvider::Consumer,
+                Some("legacy-api-license"),
+                None,
+            )
+        ));
+        assert!(should_unbind_remote_license(&test_identity(
+            IdentityProvider::Consumer,
+            Some("bound-license"),
+        )));
+        assert!(!should_unbind_remote_license(
+            &test_identity_with_entitlement(
+                IdentityProvider::Consumer,
+                Some("free-sharing-key"),
+                Some(ConsumerEntitlement::Free),
+            )
+        ));
+        assert!(!should_unbind_remote_license(
+            &test_identity_with_entitlement(IdentityProvider::Consumer, None, None,)
+        ));
+        assert!(!should_unbind_remote_license(&test_identity(
+            IdentityProvider::zero_trust("example-team").unwrap(),
+            None,
+        )));
+    }
+
+    #[tokio::test]
+    async fn delete_unbinds_legacy_consumer_license_without_persisted_entitlement() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let vault = Arc::new(MemoryVault::default());
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::clone(&vault) as Arc<dyn SecretVault>,
+        )
+        .expect("service");
+        let original = service.config_snapshot().await.profiles[0].id;
+        let extra = Profile {
+            id: Uuid::new_v4(),
+            name: "Keep".to_owned(),
+            ..Profile::default()
+        };
+        service.upsert_profile(extra.clone()).await.unwrap();
+
+        let legacy = test_identity_with_entitlement(
+            IdentityProvider::Consumer,
+            Some("legacy-api-license"),
+            None,
+        );
+        service
+            .persist_identity(original, &legacy, None)
+            .await
+            .unwrap();
+        let loaded = service.load_warp_identity(original).await.unwrap();
+        assert_eq!(loaded.entitlement(), None);
+        assert!(loaded.license().is_some());
+        assert!(should_unbind_remote_license(&loaded));
+
+        service.delete_profile(original).await.unwrap();
+        assert_eq!(*service.remote_license_unbinds.lock().await, vec![original]);
+        assert!(
+            vault
+                .get(original, SecretRecord::License)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            !service
+                .config_snapshot()
+                .await
+                .pending_identity_deletions
+                .contains(&original)
+        );
+
+        let free_with_key = test_identity_with_entitlement(
+            IdentityProvider::Consumer,
+            Some("free-sharing-key"),
+            Some(ConsumerEntitlement::Free),
+        );
+        service
+            .persist_identity(extra.id, &free_with_key, None)
+            .await
+            .unwrap();
+        let spare = Profile {
+            id: Uuid::new_v4(),
+            name: "Spare".to_owned(),
+            ..Profile::default()
+        };
+        service.upsert_profile(spare).await.unwrap();
+        service.delete_profile(extra.id).await.unwrap();
+        assert_eq!(*service.remote_license_unbinds.lock().await, vec![original]);
     }
 
     #[tokio::test]
