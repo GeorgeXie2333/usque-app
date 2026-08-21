@@ -134,12 +134,16 @@ impl MasqueRuntime {
         )
         .await?;
 
-        let socks5 = socks5_bound.map(|bound| {
-            Socks5Frontend::activate(profile, assigned_ipv4, assigned_ipv6, &stack, bound)
-        });
-        let http = http_bound.map(|bound| {
-            HttpProxyFrontend::activate(profile, assigned_ipv4, assigned_ipv6, &stack, bound)
-        });
+        let socks5 = socks5_bound
+            .map(|bound| {
+                Socks5Frontend::activate(profile, assigned_ipv4, assigned_ipv6, &stack, bound)
+            })
+            .transpose()?;
+        let http = http_bound
+            .map(|bound| {
+                HttpProxyFrontend::activate(profile, assigned_ipv4, assigned_ipv6, &stack, bound)
+            })
+            .transpose()?;
         let socks5_spec = socks5.as_ref().map(|frontend| {
             FrontendSpec::socks5(frontend.listeners(), profile, credentials.clone())
         });
@@ -210,6 +214,17 @@ impl MasqueRuntime {
     /// changes on the same addresses still release that protocol first,
     /// because Windows will not let a second socket claim the same address.
     pub async fn reconfigure_frontends(&mut self, profile: &Profile) -> Result<(), TransportError> {
+        if (profile.frontends.socks5 || profile.frontends.http)
+            && let Err(error) = profile.proxy.listener_credentials()
+        {
+            self.refresh_listeners();
+            return Err(if profile.frontends.socks5 {
+                TransportError::Socks5(error.to_string())
+            } else {
+                TransportError::HttpProxy(error.to_string())
+            });
+        }
+
         let keep_socks5 = profile.frontends.socks5
             && self.socks5.is_some()
             && self.socks5_spec.as_ref() == FrontendSpec::from_socks5_profile(profile).as_ref();
@@ -278,26 +293,40 @@ impl MasqueRuntime {
         }
 
         if let Some(bound) = socks5_bound {
-            let frontend = Socks5Frontend::activate(
+            match Socks5Frontend::activate(
                 profile,
                 self.assigned_ipv4,
                 self.assigned_ipv6,
                 &self.stack,
                 bound,
-            );
-            self.socks5_spec = FrontendSpec::from_socks5_frontend(&frontend, profile);
-            self.socks5 = Some(frontend);
+            ) {
+                Ok(frontend) => {
+                    self.socks5_spec = FrontendSpec::from_socks5_frontend(&frontend, profile);
+                    self.socks5 = Some(frontend);
+                }
+                Err(error) => {
+                    self.refresh_listeners();
+                    return Err(error);
+                }
+            }
         }
         if let Some(bound) = http_bound {
-            let frontend = HttpProxyFrontend::activate(
+            match HttpProxyFrontend::activate(
                 profile,
                 self.assigned_ipv4,
                 self.assigned_ipv6,
                 &self.stack,
                 bound,
-            );
-            self.http_spec = FrontendSpec::from_http_frontend(&frontend, profile);
-            self.http = Some(frontend);
+            ) {
+                Ok(frontend) => {
+                    self.http_spec = FrontendSpec::from_http_frontend(&frontend, profile);
+                    self.http = Some(frontend);
+                }
+                Err(error) => {
+                    self.refresh_listeners();
+                    return Err(error);
+                }
+            }
         }
 
         self.refresh_listeners();
@@ -728,6 +757,62 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn reconfigure_rejects_missing_password_without_dropping_listeners() {
+        let socks_addr = free_loopback();
+        let http_addr = free_loopback();
+        let profile = proxy_profile(socks_addr, http_addr);
+        let mut runtime = start_local(&profile).await;
+        let previous = runtime.listeners().to_vec();
+
+        let mut missing = profile.clone();
+        missing.proxy.auth_username = Some("lan-user".to_owned());
+        let error = runtime
+            .reconfigure_frontends(&missing)
+            .await
+            .expect_err("missing password must fail");
+        assert!(matches!(error, TransportError::Socks5(_)));
+        assert_eq!(runtime.listeners(), previous.as_slice());
+        assert_eq!(socks_no_auth_method(socks_addr).await, 0);
+
+        runtime.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn activate_rejects_missing_listener_password() {
+        let profile = proxy_profile(free_loopback(), free_loopback());
+        let mut runtime = start_local(&profile).await;
+
+        let mut missing = profile.clone();
+        missing.proxy.auth_username = Some("lan-user".to_owned());
+        missing.proxy.socks5_listeners = vec![free_loopback()];
+        missing.proxy.http_listeners = vec![free_loopback()];
+        let socks_bound = Socks5Frontend::prebind(&missing).expect("bind SOCKS5");
+        let http_bound = HttpProxyFrontend::prebind(&missing).expect("bind HTTP");
+        assert!(matches!(
+            Socks5Frontend::activate(
+                &missing,
+                runtime.assigned_ipv4,
+                runtime.assigned_ipv6,
+                &runtime.stack,
+                socks_bound,
+            ),
+            Err(TransportError::Socks5(_))
+        ));
+        assert!(matches!(
+            HttpProxyFrontend::activate(
+                &missing,
+                runtime.assigned_ipv4,
+                runtime.assigned_ipv6,
+                &runtime.stack,
+                http_bound,
+            ),
+            Err(TransportError::HttpProxy(_))
+        ));
+
+        runtime.shutdown().await;
+    }
+
+    #[tokio::test]
     async fn detached_tun_sink_drops_packets_without_closing_the_channel() {
         let (tun_sink, _rx) = watch::channel(None);
         let (tx, mut rx) = mpsc::channel(4);
@@ -793,9 +878,11 @@ mod tests {
         .expect("local packet stack");
         let socks5 = socks5_bound.map(|bound| {
             Socks5Frontend::activate(profile, assigned_ipv4, assigned_ipv6, &stack, bound)
+                .expect("test listener credentials")
         });
         let http = http_bound.map(|bound| {
             HttpProxyFrontend::activate(profile, assigned_ipv4, assigned_ipv6, &stack, bound)
+                .expect("test listener credentials")
         });
         let socks5_spec = socks5.as_ref().map(|frontend| {
             FrontendSpec::socks5(frontend.listeners(), profile, credentials.clone())

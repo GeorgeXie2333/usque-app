@@ -101,7 +101,7 @@ impl HttpProxyRuntime {
             PacketStack::start_with_refresh(profile, Arc::new(identity), protector, pin_refresher)
                 .await?;
         let frontend =
-            HttpProxyFrontend::activate(profile, assigned_ipv4, assigned_ipv6, &stack, bound);
+            HttpProxyFrontend::activate(profile, assigned_ipv4, assigned_ipv6, &stack, bound)?;
 
         tokio::task::yield_now().await;
         let startup_failure = stack.failure.borrow().clone();
@@ -173,7 +173,11 @@ impl HttpProxyFrontend {
         assigned_ipv6: Ipv6Addr,
         stack: &PacketStack,
         bound: Vec<TcpListener>,
-    ) -> Self {
+    ) -> Result<Self, TransportError> {
+        let auth = match profile.proxy.listener_credentials() {
+            Ok(credentials) => credentials.map(Arc::new),
+            Err(error) => return Err(TransportError::HttpProxy(error.to_string())),
+        };
         let cancellation = stack.cancellation.child_token();
         let (failure_tx, failure) = watch::channel(None);
         let performance = Arc::new(HttpPoolCounters::default());
@@ -199,11 +203,7 @@ impl HttpProxyFrontend {
             failure: failure_tx,
             health: stack.subscribe_health(),
             performance: Arc::clone(&performance),
-            auth: profile
-                .proxy
-                .listener_credentials()
-                .expect("proxy listener credentials were validated before activate")
-                .map(Arc::new),
+            auth,
         });
         let listeners = bound
             .iter()
@@ -218,13 +218,13 @@ impl HttpProxyFrontend {
                 })
             })
             .collect();
-        Self {
+        Ok(Self {
             listener_tasks,
             listeners,
             cancellation,
             failure,
             performance,
-        }
+        })
     }
 
     pub(crate) fn listeners(&self) -> &[SocketAddr] {

@@ -99,7 +99,7 @@ impl Socks5Runtime {
             PacketStack::start_with_refresh(profile, Arc::new(identity), protector, pin_refresher)
                 .await?;
         let frontend =
-            Socks5Frontend::activate(profile, assigned_ipv4, assigned_ipv6, &stack, bound);
+            Socks5Frontend::activate(profile, assigned_ipv4, assigned_ipv6, &stack, bound)?;
 
         // Yield once so immediately-failed accept loops cannot be presented as
         // successfully started.
@@ -171,7 +171,11 @@ impl Socks5Frontend {
         assigned_ipv6: Ipv6Addr,
         stack: &PacketStack,
         bound: Vec<TcpListener>,
-    ) -> Self {
+    ) -> Result<Self, TransportError> {
+        let auth = match profile.proxy.listener_credentials() {
+            Ok(credentials) => credentials.map(Arc::new),
+            Err(error) => return Err(TransportError::Socks5(error.to_string())),
+        };
         let cancellation = stack.cancellation.child_token();
         let (failure_tx, failure) = watch::channel(None);
         let dns_servers = if profile.proxy.dns_mode == usque_core::ProxyDnsMode::LocalConfigured {
@@ -198,11 +202,7 @@ impl Socks5Frontend {
             cancellation: cancellation.clone(),
             failure: failure_tx,
             health: stack.subscribe_health(),
-            auth: profile
-                .proxy
-                .listener_credentials()
-                .expect("proxy listener credentials were validated before activate")
-                .map(Arc::new),
+            auth,
         });
         let listeners = bound
             .iter()
@@ -217,12 +217,12 @@ impl Socks5Frontend {
                 })
             })
             .collect();
-        Self {
+        Ok(Self {
             listener_tasks,
             listeners,
             cancellation,
             failure,
-        }
+        })
     }
 
     pub(crate) fn listeners(&self) -> &[SocketAddr] {
