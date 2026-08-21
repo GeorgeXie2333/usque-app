@@ -166,6 +166,13 @@ impl WindowsSystemProxyGuard {
             Err(WindowsVpnError::UnexpectedAgentPhase(state.phase))
         }
     }
+
+    pub(crate) async fn shutdown_slot(slot: &mut Option<Self>) -> Result<(), WindowsVpnError> {
+        match slot.take() {
+            Some(mut previous) => previous.shutdown().await,
+            None => Ok(()),
+        }
+    }
 }
 
 impl Drop for WindowsSystemProxyGuard {
@@ -339,9 +346,6 @@ impl WindowsVpnRuntime {
         self.listeners = tunnel.listeners().to_vec();
         self.socks5_listeners = tunnel.socks5_listeners().to_vec();
         self.http_listeners = tunnel.http_listeners().to_vec();
-        if self.system_proxy.is_some() {
-            self.replace_system_proxy(profile).await?;
-        }
         Ok(())
     }
 
@@ -421,6 +425,7 @@ impl WindowsVpnRuntime {
         &mut self,
         profile: &Profile,
     ) -> Result<(), WindowsVpnError> {
+        WindowsSystemProxyGuard::shutdown_slot(&mut self.system_proxy).await?;
         self.system_proxy = if profile.frontends.http && profile.proxy.system_proxy {
             let listener = loopback_http_listener(&self.http_listeners)
                 .ok_or(WindowsVpnError::MissingSystemProxyListener)?;
@@ -1749,6 +1754,58 @@ mod tests {
             tunnel_lease: true,
         };
         guard.shutdown().await.expect("restore Active tunnel lease");
+        server_task.await.expect("server task");
+    }
+
+    #[tokio::test]
+    async fn shutdown_slot_restores_before_dropping_a_standalone_lease() {
+        let pipe_name = format!("{AGENT_PIPE_NAME}.test-{}", Uuid::new_v4());
+        let server = ServerOptions::new()
+            .first_pipe_instance(true)
+            .create(&pipe_name)
+            .expect("server");
+        let operation_id = Uuid::new_v4();
+        let response_operation_id = operation_id.to_string();
+        let server_task = tokio::spawn(async move {
+            server.connect().await.expect("connect");
+            let mut server = server;
+            let mut header = [0_u8; 4];
+            server.read_exact(&mut header).await.expect("header");
+            let mut payload = vec![0_u8; u32::from_be_bytes(header) as usize];
+            server.read_exact(&mut payload).await.expect("payload");
+            let mut frame = BytesMut::from(header.as_slice());
+            frame.extend_from_slice(&payload);
+            let request: AgentRequest = decode_frame(frame.freeze()).expect("decode");
+            assert!(matches!(
+                request.payload,
+                Some(agent_request::Payload::RestoreSystemProxy(_))
+            ));
+            let response = AgentResponse {
+                request_id: request.request_id,
+                error: None,
+                payload: Some(agent_response::Payload::State(AgentState {
+                    phase: agent_v1::AgentPhase::Clean as i32,
+                    operation_id: response_operation_id,
+                    ..AgentState::default()
+                })),
+            };
+            server
+                .write_all(&encode_frame(&response).expect("encode"))
+                .await
+                .expect("write");
+        });
+        let client = WindowsAgentClient::for_test(pipe_name);
+        let pipe = client.open_pipe().await.expect("open");
+        let mut slot = Some(WindowsSystemProxyGuard {
+            client,
+            operation_id,
+            pipe: Some(pipe),
+            tunnel_lease: false,
+        });
+        WindowsSystemProxyGuard::shutdown_slot(&mut slot)
+            .await
+            .expect("restore standalone lease");
+        assert!(slot.is_none());
         server_task.await.expect("server task");
     }
 }

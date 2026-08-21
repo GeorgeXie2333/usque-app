@@ -47,6 +47,7 @@ pub(crate) struct HarnessRuntime {
     pub(crate) attach_count: u32,
     pub(crate) detach_count: u32,
     system_proxy: bool,
+    pub(crate) system_proxy_apply_count: u32,
     pub(crate) fail_after_detach: bool,
 }
 
@@ -75,6 +76,7 @@ impl HarnessRuntime {
             attach_count: 0,
             detach_count: 0,
             system_proxy: profile.frontends.http && profile.proxy.system_proxy,
+            system_proxy_apply_count: 0,
             fail_after_detach: false,
         }
     }
@@ -324,6 +326,7 @@ impl ActiveRuntime {
             #[cfg(test)]
             Self::Harness(runtime) => runtime.reconfigure_frontends(profile),
         }
+        self.apply_system_proxy(profile).await?;
         Ok(())
     }
 
@@ -331,10 +334,15 @@ impl ActiveRuntime {
         &mut self,
         profile: &Profile,
     ) -> Result<(), ControlServiceError> {
-        #[cfg(windows)]
-        {
-            match self {
-                Self::Proxy(runtime) => {
+        match self {
+            Self::Proxy(runtime) => {
+                #[cfg(windows)]
+                {
+                    crate::windows_agent::WindowsSystemProxyGuard::shutdown_slot(
+                        &mut runtime.system_proxy,
+                    )
+                    .await
+                    .map_err(map_windows_vpn_error)?;
                     runtime.system_proxy = if profile.frontends.http && profile.proxy.system_proxy {
                         let listener = crate::windows_agent::loopback_http_listener(
                             runtime.runtime.http_listeners(),
@@ -352,24 +360,26 @@ impl ActiveRuntime {
                     } else {
                         None
                     };
+                    Ok(())
                 }
-                Self::Vpn(runtime) => {
-                    runtime
-                        .replace_system_proxy(profile)
-                        .await
-                        .map_err(map_windows_vpn_error)?;
-                }
-                #[cfg(test)]
-                Self::Harness(runtime) => {
-                    runtime.system_proxy = profile.frontends.http && profile.proxy.system_proxy;
+                #[cfg(not(windows))]
+                {
+                    let _ = (runtime, profile);
+                    Ok(())
                 }
             }
-            Ok(())
-        }
-        #[cfg(not(windows))]
-        {
-            let _ = profile;
-            Ok(())
+            #[cfg(windows)]
+            Self::Vpn(runtime) => runtime
+                .replace_system_proxy(profile)
+                .await
+                .map_err(map_windows_vpn_error),
+            #[cfg(test)]
+            Self::Harness(runtime) => {
+                runtime.system_proxy = profile.frontends.http && profile.proxy.system_proxy;
+                runtime.system_proxy_apply_count =
+                    runtime.system_proxy_apply_count.saturating_add(1);
+                Ok(())
+            }
         }
     }
 
@@ -515,4 +525,33 @@ async fn detach_vpn(
         runtime: proxy_runtime,
         system_proxy,
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn frontend_reconfigure_applies_system_proxy() {
+        let mut profile = Profile::default();
+        profile.frontends = FrontendSettings {
+            tunnel: false,
+            socks5: true,
+            http: true,
+        };
+        profile.proxy.system_proxy = true;
+        let mut runtime = ActiveRuntime::Harness(HarnessRuntime::from_profile(&profile, false, 0));
+        profile.proxy.http_listeners[0].set_port(18081);
+        runtime
+            .reconfigure_frontends(&profile)
+            .await
+            .expect("reconfigure");
+        let ActiveRuntime::Harness(harness) = runtime else {
+            panic!("expected harness");
+        };
+        assert_eq!(harness.reconfigure_count, 1);
+        assert_eq!(harness.system_proxy_apply_count, 1);
+        assert_eq!(harness.http_listeners[0].port(), 18081);
+        assert!(harness.system_proxy);
+    }
 }
