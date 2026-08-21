@@ -32,11 +32,17 @@ impl Default for SharedNetworkSettings {
 }
 
 impl SharedNetworkSettings {
+    /// Copy device-wide settings from a runtime profile. Zero Trust ingress is
+    /// never stored as the shared endpoint.
     pub fn from_profile(profile: &Profile) -> Self {
         Self {
             frontends: profile.frontends,
             transport: profile.transport,
-            endpoint: profile.endpoint.clone(),
+            endpoint: if profile.endpoint.is_zero_trust_managed() {
+                EndpointSettings::default()
+            } else {
+                profile.endpoint.clone()
+            },
             ip_policy: profile.ip_policy,
             mtu: profile.mtu,
             dns_mode: profile.dns_mode,
