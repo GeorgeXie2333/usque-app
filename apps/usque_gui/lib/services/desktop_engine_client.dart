@@ -422,7 +422,14 @@ class DesktopEngineClient implements EngineClient {
       // A valid response is authoritative. In particular, structured engine
       // errors must reach the UI unchanged instead of being retried and later
       // mislabeled as an IPC outage.
-      return _codec.decodeResponse(responseFrame, requestId);
+      try {
+        return _codec.decodeResponse(responseFrame, requestId);
+      } on FormatException catch (error) {
+        throw EngineException(
+          'ENGINE_IPC_INVALID_RESPONSE',
+          'The local Engine response could not be decoded: ${error.message}',
+        );
+      }
     }
     throw EngineException(
       'ENGINE_IPC_UNAVAILABLE',

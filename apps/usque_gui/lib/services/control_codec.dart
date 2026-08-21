@@ -87,91 +87,99 @@ class ControlCodec {
   }
 
   ControlResponse decodeResponse(Uint8List frame, String expectedRequestId) {
-    if (frame.length < 4) {
-      throw const EngineException(
-        'ENGINE_IPC_TRUNCATED',
-        'The local Engine response header was truncated.',
-      );
-    }
-    final length = ByteData.sublistView(frame).getUint32(0, Endian.big);
-    if (length > kMaximumFrameBytes || length != frame.length - 4) {
-      throw const EngineException(
-        'ENGINE_IPC_INVALID_RESPONSE',
-        'The local Engine response length was invalid.',
-      );
-    }
-    final reader = _ProtoReader(Uint8List.sublistView(frame, 4));
-    String? requestId;
-    _StructuredEngineError? error;
-    EngineSnapshot? snapshot;
-    UpdateCheckResult? update;
-    ProfileCatalog? profileCatalog;
-    while (!reader.isDone) {
-      final field = reader.field();
-      switch (field.number) {
-        case 1:
-          requestId = reader.string(field);
-        case 2:
-          error = _decodeError(reader.message(field));
-        case 11:
-          snapshot = _decodeSnapshot(reader.message(field));
-        case 14:
-          update = _decodeUpdate(reader.message(field));
-        case 12:
-          profileCatalog = _decodeProfileCatalog(reader.message(field));
-        default:
-          reader.skip(field);
+    try {
+      if (frame.length < 4) {
+        throw const EngineException(
+          'ENGINE_IPC_TRUNCATED',
+          'The local Engine response header was truncated.',
+        );
       }
+      final length = ByteData.sublistView(frame).getUint32(0, Endian.big);
+      if (length > kMaximumFrameBytes || length != frame.length - 4) {
+        throw const EngineException(
+          'ENGINE_IPC_INVALID_RESPONSE',
+          'The local Engine response length was invalid.',
+        );
+      }
+      final reader = _ProtoReader(Uint8List.sublistView(frame, 4));
+      String? requestId;
+      _StructuredEngineError? error;
+      EngineSnapshot? snapshot;
+      UpdateCheckResult? update;
+      ProfileCatalog? profileCatalog;
+      while (!reader.isDone) {
+        final field = reader.field();
+        switch (field.number) {
+          case 1:
+            requestId = reader.string(field);
+          case 2:
+            error = _decodeError(reader.message(field));
+          case 11:
+            snapshot = _decodeSnapshot(reader.message(field));
+          case 14:
+            update = _decodeUpdate(reader.message(field));
+          case 12:
+            profileCatalog = _decodeProfileCatalog(reader.message(field));
+          default:
+            reader.skip(field);
+        }
+      }
+      if (requestId != expectedRequestId) {
+        throw const EngineException(
+          'ENGINE_IPC_REQUEST_MISMATCH',
+          'The local Engine response did not match its request.',
+        );
+      }
+      if (error != null) {
+        throw EngineException(error.code, error.message);
+      }
+      return ControlResponse(snapshot, update, profileCatalog);
+    } on FormatException catch (error) {
+      throw _invalidIpcResponse(error);
     }
-    if (requestId != expectedRequestId) {
-      throw const EngineException(
-        'ENGINE_IPC_REQUEST_MISMATCH',
-        'The local Engine response did not match its request.',
-      );
-    }
-    if (error != null) {
-      throw EngineException(error.code, error.message);
-    }
-    return ControlResponse(snapshot, update, profileCatalog);
   }
 
   EngineSnapshot? decodeEventSnapshot(Uint8List frame) {
-    if (frame.length < 4) {
-      throw const EngineException(
-        'ENGINE_EVENT_TRUNCATED',
-        'The local Engine event header was truncated.',
-      );
-    }
-    final length = ByteData.sublistView(frame).getUint32(0, Endian.big);
-    if (length > kMaximumFrameBytes || length != frame.length - 4) {
-      throw const EngineException(
-        'ENGINE_EVENT_INVALID',
-        'The local Engine event length was invalid.',
-      );
-    }
-
-    final envelope = _ProtoReader(Uint8List.sublistView(frame, 4));
-    EngineSnapshot? snapshot;
-    while (!envelope.isDone) {
-      final field = envelope.field();
-      switch (field.number) {
-        case 1:
-          envelope.varint(field);
-        case 10:
-          final stateChanged = envelope.message(field);
-          while (!stateChanged.isDone) {
-            final stateField = stateChanged.field();
-            if (stateField.number == 1) {
-              snapshot = _decodeSnapshot(stateChanged.message(stateField));
-            } else {
-              stateChanged.skip(stateField);
-            }
-          }
-        default:
-          envelope.skip(field);
+    try {
+      if (frame.length < 4) {
+        throw const EngineException(
+          'ENGINE_EVENT_TRUNCATED',
+          'The local Engine event header was truncated.',
+        );
       }
+      final length = ByteData.sublistView(frame).getUint32(0, Endian.big);
+      if (length > kMaximumFrameBytes || length != frame.length - 4) {
+        throw const EngineException(
+          'ENGINE_EVENT_INVALID',
+          'The local Engine event length was invalid.',
+        );
+      }
+
+      final envelope = _ProtoReader(Uint8List.sublistView(frame, 4));
+      EngineSnapshot? snapshot;
+      while (!envelope.isDone) {
+        final field = envelope.field();
+        switch (field.number) {
+          case 1:
+            envelope.varint(field);
+          case 10:
+            final stateChanged = envelope.message(field);
+            while (!stateChanged.isDone) {
+              final stateField = stateChanged.field();
+              if (stateField.number == 1) {
+                snapshot = _decodeSnapshot(stateChanged.message(stateField));
+              } else {
+                stateChanged.skip(stateField);
+              }
+            }
+          default:
+            envelope.skip(field);
+        }
+      }
+      return snapshot;
+    } on FormatException catch (error) {
+      throw _invalidIpcResponse(error);
     }
-    return snapshot;
   }
 
   ProfileCatalog requireProfileCatalog(ControlResponse response) {
@@ -610,7 +618,7 @@ ProxySettings _decodeProxySettings(
     }
     return (
       host: value.substring(1, closing),
-      port: int.parse(value.substring(closing + 2)),
+      port: _parseListenerPort(value.substring(closing + 2)),
     );
   }
   final separator = value.lastIndexOf(':');
@@ -622,7 +630,25 @@ ProxySettings _decodeProxySettings(
   }
   return (
     host: value.substring(0, separator),
-    port: int.parse(value.substring(separator + 1)),
+    port: _parseListenerPort(value.substring(separator + 1)),
+  );
+}
+
+int _parseListenerPort(String value) {
+  final port = int.tryParse(value);
+  if (port == null) {
+    throw const EngineException(
+      'ENGINE_IPC_INVALID_RESPONSE',
+      'The local Engine returned an invalid listener port.',
+    );
+  }
+  return port;
+}
+
+EngineException _invalidIpcResponse(FormatException error) {
+  return EngineException(
+    'ENGINE_IPC_INVALID_RESPONSE',
+    'The local Engine response could not be decoded: ${error.message}',
   );
 }
 

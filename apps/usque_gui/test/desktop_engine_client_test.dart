@@ -194,6 +194,61 @@ void main() {
       );
     });
 
+    test('malformed protobuf payload throws ENGINE_IPC_INVALID_RESPONSE', () {
+      // Request id "r1" followed by wire type 3 (start-group), which the reader
+      // rejects as an invalid protobuf field.
+      expect(
+        () => codec.decodeResponse(
+          _framed(<int>[0x0a, 2, 0x72, 0x31, 0x1b]),
+          'r1',
+        ),
+        throwsA(
+          isA<EngineException>().having(
+            (e) => e.code,
+            'code',
+            'ENGINE_IPC_INVALID_RESPONSE',
+          ),
+        ),
+      );
+    });
+
+    test('non-numeric listener port throws ENGINE_IPC_INVALID_RESPONSE', () {
+      final proxy = ControlPayloadWriter()..string(1, '127.0.0.1:notaport');
+      final profile = ControlPayloadWriter()
+        ..string(1, 'p')
+        ..string(2, 'X')
+        ..message(13, proxy.takeBytes());
+      final catalog = ControlPayloadWriter()
+        ..message(1, profile.takeBytes())
+        ..string(2, 'p');
+      final response = ControlPayloadWriter()
+        ..string(1, 'r1')
+        ..message(12, catalog.takeBytes());
+      expect(
+        () => codec.decodeResponse(codec.frame(response.takeBytes()), 'r1'),
+        throwsA(
+          isA<EngineException>().having(
+            (e) => e.code,
+            'code',
+            'ENGINE_IPC_INVALID_RESPONSE',
+          ),
+        ),
+      );
+    });
+
+    test('malformed event payload throws ENGINE_IPC_INVALID_RESPONSE', () {
+      expect(
+        () => codec.decodeEventSnapshot(_framed(<int>[0x1b])),
+        throwsA(
+          isA<EngineException>().having(
+            (e) => e.code,
+            'code',
+            'ENGINE_IPC_INVALID_RESPONSE',
+          ),
+        ),
+      );
+    });
+
     test('request frame larger than 4 MiB is rejected', () {
       final huge = Uint8List(kMaximumFrameBytes + 1);
       expect(
@@ -453,6 +508,25 @@ void main() {
       client.dispose();
     });
 
+    test('malformed poll frame maps to ENGINE_IPC_INVALID_RESPONSE', () async {
+      final transport = DesktopEngineTransport.forTest(
+        exchange: (_) async => _framed(<int>[0x0a, 2, 0x72, 0x31, 0x1b]),
+        requestIdFactory: () => 'r1',
+      );
+      final client = DesktopEngineClient.forTest(transport: transport);
+      await expectLater(
+        client.snapshot(),
+        throwsA(
+          isA<EngineException>().having(
+            (e) => e.code,
+            'code',
+            'ENGINE_IPC_INVALID_RESPONSE',
+          ),
+        ),
+      );
+      client.dispose();
+    });
+
     test('request id mismatch is mapped by the codec', () async {
       final transport = DesktopEngineTransport.forTest(
         exchange: (_) async => _statusResponse('other'),
@@ -577,6 +651,13 @@ void main() {
       client.dispose();
     });
   });
+}
+
+Uint8List _framed(List<int> payload) {
+  final frame = Uint8List(payload.length + 4);
+  ByteData.sublistView(frame).setUint32(0, payload.length);
+  frame.setRange(4, frame.length, payload);
+  return frame;
 }
 
 /// Minimal GetStatus-style success response for [requestId].
