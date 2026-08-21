@@ -79,6 +79,7 @@ pub(crate) struct WindowsSystemProxyGuard {
     client: WindowsAgentClient,
     operation_id: Uuid,
     pipe: Option<NamedPipeClient>,
+    tunnel_lease: bool,
 }
 
 impl WindowsSystemProxyGuard {
@@ -141,6 +142,7 @@ impl WindowsSystemProxyGuard {
             client,
             operation_id,
             pipe: Some(pipe),
+            tunnel_lease: tunnel_operation_id.is_some(),
         })
     }
 
@@ -157,7 +159,12 @@ impl WindowsSystemProxyGuard {
         .map_err(|_| WindowsVpnError::RpcTimeout)
         .and_then(|result| result);
         let _ = pipe.shutdown().await;
-        result.map(|_| ())
+        let state = result?;
+        if system_proxy_restore_succeeded(self.tunnel_lease, self.operation_id, &state) {
+            Ok(())
+        } else {
+            Err(WindowsVpnError::UnexpectedAgentPhase(state.phase))
+        }
     }
 }
 
@@ -1222,14 +1229,7 @@ impl WindowsAgentClient {
             )
             .await?
         {
-            agent_response::Payload::State(state)
-                if state.phase == agent_v1::AgentPhase::Clean as i32 =>
-            {
-                Ok(state)
-            }
-            agent_response::Payload::State(state) => {
-                Err(WindowsVpnError::UnexpectedAgentPhase(state.phase))
-            }
+            agent_response::Payload::State(state) => Ok(state),
             payload => Err(WindowsVpnError::UnexpectedResponse(payload_name(&payload))),
         }
     }
@@ -1474,6 +1474,19 @@ fn last_error(operation: &'static str) -> io::Error {
     io::Error::other(format!("{operation}: {}", io::Error::last_os_error()))
 }
 
+fn system_proxy_restore_succeeded(
+    tunnel_lease: bool,
+    operation_id: Uuid,
+    state: &AgentState,
+) -> bool {
+    if tunnel_lease {
+        state.phase == agent_v1::AgentPhase::Active as i32
+            && state.operation_id == operation_id.to_string()
+    } else {
+        state.phase == agent_v1::AgentPhase::Clean as i32
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum WindowsVpnError {
     #[error("Windows Agent I/O failed: {0}")]
@@ -1644,6 +1657,98 @@ mod tests {
             client.get_capabilities().await,
             Err(WindowsVpnError::ResponseIdMismatch)
         ));
+        server_task.await.expect("server task");
+    }
+
+    fn restore_state(phase: agent_v1::AgentPhase, operation_id: Uuid) -> AgentState {
+        AgentState {
+            phase: phase as i32,
+            operation_id: operation_id.to_string(),
+            ..AgentState::default()
+        }
+    }
+
+    #[test]
+    fn standalone_proxy_restore_accepts_clean() {
+        let operation_id = Uuid::new_v4();
+        assert!(system_proxy_restore_succeeded(
+            false,
+            operation_id,
+            &restore_state(agent_v1::AgentPhase::Clean, operation_id)
+        ));
+        assert!(!system_proxy_restore_succeeded(
+            false,
+            operation_id,
+            &restore_state(agent_v1::AgentPhase::Active, operation_id)
+        ));
+    }
+
+    #[test]
+    fn tunnel_proxy_restore_accepts_active_for_the_same_operation() {
+        let operation_id = Uuid::new_v4();
+        assert!(system_proxy_restore_succeeded(
+            true,
+            operation_id,
+            &restore_state(agent_v1::AgentPhase::Active, operation_id)
+        ));
+        assert!(!system_proxy_restore_succeeded(
+            true,
+            operation_id,
+            &restore_state(agent_v1::AgentPhase::Clean, operation_id)
+        ));
+        assert!(!system_proxy_restore_succeeded(
+            true,
+            operation_id,
+            &restore_state(agent_v1::AgentPhase::Active, Uuid::new_v4())
+        ));
+    }
+
+    #[tokio::test]
+    async fn tunnel_proxy_shutdown_accepts_agent_active() {
+        let pipe_name = format!("{AGENT_PIPE_NAME}.test-{}", Uuid::new_v4());
+        let server = ServerOptions::new()
+            .first_pipe_instance(true)
+            .create(&pipe_name)
+            .expect("server");
+        let operation_id = Uuid::new_v4();
+        let response_operation_id = operation_id.to_string();
+        let server_task = tokio::spawn(async move {
+            server.connect().await.expect("connect");
+            let mut server = server;
+            let mut header = [0_u8; 4];
+            server.read_exact(&mut header).await.expect("header");
+            let mut payload = vec![0_u8; u32::from_be_bytes(header) as usize];
+            server.read_exact(&mut payload).await.expect("payload");
+            let mut frame = BytesMut::from(header.as_slice());
+            frame.extend_from_slice(&payload);
+            let request: AgentRequest = decode_frame(frame.freeze()).expect("decode");
+            assert!(matches!(
+                request.payload,
+                Some(agent_request::Payload::RestoreSystemProxy(_))
+            ));
+            let response = AgentResponse {
+                request_id: request.request_id,
+                error: None,
+                payload: Some(agent_response::Payload::State(AgentState {
+                    phase: agent_v1::AgentPhase::Active as i32,
+                    operation_id: response_operation_id,
+                    ..AgentState::default()
+                })),
+            };
+            server
+                .write_all(&encode_frame(&response).expect("encode"))
+                .await
+                .expect("write");
+        });
+        let client = WindowsAgentClient::for_test(pipe_name);
+        let pipe = client.open_pipe().await.expect("open");
+        let mut guard = WindowsSystemProxyGuard {
+            client,
+            operation_id,
+            pipe: Some(pipe),
+            tunnel_lease: true,
+        };
+        guard.shutdown().await.expect("restore Active tunnel lease");
         server_task.await.expect("server task");
     }
 }
