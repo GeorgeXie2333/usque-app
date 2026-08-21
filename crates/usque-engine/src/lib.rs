@@ -2130,6 +2130,7 @@ impl ControlService {
             return Err(ControlServiceError::ProfileNotFound(id));
         }
         next.network.reset_user_defaults();
+        next.network.proxy.auth_username = None;
         self.vault
             .delete(SHARED_NETWORK_SECRET_ID, SecretRecord::ProxyPassword)
             .await?;
@@ -3619,6 +3620,85 @@ mod tests {
                 .is_none()
         );
         assert_eq!(service.config_snapshot().await, AppConfig::default());
+    }
+
+    #[tokio::test]
+    async fn reset_clears_proxy_username_and_vault_password_together() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let vault = Arc::new(MemoryVault::default());
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::clone(&vault) as Arc<dyn SecretVault>,
+        )
+        .expect("service");
+        let profile_id = service.config_snapshot().await.profiles[0].id;
+
+        let stored = service
+            .handle(request(
+                "auth-set",
+                control_request::Payload::UpdateProxyAuth(v1::UpdateProxyAuthRequest {
+                    profile_id: profile_id.to_string(),
+                    username: "lan-user".to_owned(),
+                    password: b"s3cret".to_vec(),
+                    confirmed: true,
+                }),
+            ))
+            .await;
+        assert!(stored.error.is_none(), "{stored:?}");
+        assert_eq!(
+            service
+                .config_snapshot()
+                .await
+                .network
+                .proxy
+                .auth_username
+                .as_deref(),
+            Some("lan-user")
+        );
+
+        service.reset_profile(profile_id).await.unwrap();
+        assert!(
+            service
+                .config_snapshot()
+                .await
+                .network
+                .proxy
+                .auth_username
+                .is_none()
+        );
+        assert!(
+            vault
+                .get(SHARED_NETWORK_SECRET_ID, SecretRecord::ProxyPassword)
+                .await
+                .unwrap()
+                .is_none()
+        );
+
+        let connected = service
+            .handle(request(
+                "connect",
+                control_request::Payload::Connect(v1::ConnectRequest {
+                    profile_id: profile_id.to_string(),
+                }),
+            ))
+            .await;
+        assert_ne!(
+            connected.error.as_ref().map(|error| error.code.as_str()),
+            Some("CONFIGURATION_INVALID"),
+            "{connected:?}"
+        );
+        assert!(
+            !connected.error.as_ref().is_some_and(|error| {
+                error
+                    .message
+                    .contains(&ConfigError::ProxyAuthRequiresPassword.to_string())
+            }),
+            "{connected:?}"
+        );
+        assert_eq!(
+            connected.error.as_ref().map(|error| error.code.as_str()),
+            Some("MISSING_CREDENTIAL")
+        );
     }
 
     #[tokio::test]

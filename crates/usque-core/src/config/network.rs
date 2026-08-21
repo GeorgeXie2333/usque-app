@@ -90,10 +90,8 @@ impl SharedNetworkSettings {
     pub fn reset_user_defaults(&mut self) {
         let kill_switch = self.kill_switch;
         let auto_connect = self.auto_connect;
-        let auth_username = self.proxy.auth_username.clone();
         *self = Self::default();
         self.kill_switch = kill_switch;
         self.auto_connect = auto_connect;
-        self.proxy.auth_username = auth_username;
     }
 }
