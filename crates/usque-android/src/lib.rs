@@ -1017,6 +1017,9 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
                         .insert_account(profile.id, profile.name, managed_endpoint)
                         .map_err(|error| error.to_string())?;
                 }
+                if config.active_profile().is_none() {
+                    config.active_profile_id = config.profiles.first().map(|account| account.id);
+                }
                 config.preferences.profiles_migrated_from_flutter = true;
                 changed = true;
             }
@@ -2119,6 +2122,33 @@ mod tests {
         let stored = ConfigStore::new(config_path).load().unwrap();
         assert!(stored.preferences.profiles_migrated_from_flutter);
         assert_eq!(stored.profiles[0].name, "Default");
+    }
+
+    #[test]
+    fn rust_profile_store_imports_non_default_catalog_when_active_id_is_empty() {
+        let directory = tempfile::tempdir().unwrap();
+        let config_path = directory.path().join("profiles-v2.json");
+        let imported_id = "7b60ea7c-03a5-455d-9914-2cdf0e268ac2";
+        let mut profile: serde_json::Value = serde_json::from_str(&valid_profile_json()).unwrap();
+        profile["id"] = serde_json::json!(imported_id);
+        profile["name"] = serde_json::json!("Imported");
+        let import = serde_json::json!({
+            "command": "import_legacy_profiles",
+            "profiles": [profile],
+            "active_profile_id": "",
+        });
+        let response =
+            apply_profile_command(config_path.to_str().unwrap(), &import.to_string()).unwrap();
+        let response: serde_json::Value = serde_json::from_str(&response).unwrap();
+        assert_eq!(response["active_profile_id"], imported_id);
+        assert_eq!(response["profiles"].as_array().unwrap().len(), 1);
+        assert_eq!(response["profiles"][0]["id"], imported_id);
+
+        let stored = ConfigStore::new(config_path).load().unwrap();
+        assert!(stored.preferences.profiles_migrated_from_flutter);
+        assert_eq!(stored.profiles.len(), 1);
+        assert_eq!(stored.profiles[0].id.to_string(), imported_id);
+        assert_eq!(stored.active_profile().unwrap().id.to_string(), imported_id);
     }
 
     #[test]
