@@ -7,10 +7,14 @@
 //! VPN mode additionally calls `VpnService.protect(fd)` before binding it;
 //! proxy modes deliberately do not require VPN preparation permission.
 
+#[cfg(any(test, target_os = "android"))]
+use std::sync::atomic::AtomicBool;
 use std::sync::{
     Arc,
     atomic::{AtomicU64, Ordering},
 };
+#[cfg(any(test, target_os = "android"))]
+use std::time::Duration;
 use std::{
     net::{IpAddr, SocketAddr},
     path::PathBuf,
@@ -1957,6 +1961,26 @@ fn throw_io_error(environment: &mut Env<'_>, message: &str) {
     let _ = environment.throw_new(jni_str!("java/io/IOException"), &message);
 }
 
+#[cfg(any(test, target_os = "android"))]
+fn wait_jni_command_reply(
+    reply_rx: std::sync::mpsc::Receiver<i32>,
+    cancelled: &AtomicBool,
+    timeout: Duration,
+) -> i32 {
+    match reply_rx.recv_timeout(timeout) {
+        Ok(code) => code,
+        Err(_) => {
+            cancelled.store(true, Ordering::Release);
+            START_PLATFORM_FAILURE
+        }
+    }
+}
+
+#[cfg(any(test, target_os = "android"))]
+fn jni_command_abandoned(cancelled: &AtomicBool) -> bool {
+    cancelled.load(Ordering::Acquire)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1964,6 +1988,41 @@ mod tests {
     #[test]
     fn jni_boundary_failure_default_never_reports_success() {
         assert_eq!(JniCode::default().0, START_PLATFORM_FAILURE);
+    }
+
+    #[test]
+    fn jni_command_timeout_cancels_in_flight_command() {
+        let (_tx, rx) = std::sync::mpsc::sync_channel::<i32>(1);
+        let cancelled = AtomicBool::new(false);
+        let code = wait_jni_command_reply(rx, &cancelled, Duration::from_millis(1));
+        assert_eq!(code, START_PLATFORM_FAILURE);
+        assert!(jni_command_abandoned(&cancelled));
+    }
+
+    #[test]
+    fn jni_command_reply_success_leaves_command_active() {
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        let cancelled = AtomicBool::new(false);
+        tx.send(RECONFIGURE_OK).unwrap();
+        let code = wait_jni_command_reply(rx, &cancelled, Duration::from_secs(1));
+        assert_eq!(code, RECONFIGURE_OK);
+        assert!(!jni_command_abandoned(&cancelled));
+    }
+
+    #[test]
+    fn jni_command_wait_does_not_hold_the_engine_slot() {
+        let slot = std::sync::Mutex::new(Some(1u8));
+        let (_reply_tx, reply_rx) = std::sync::mpsc::sync_channel::<i32>(1);
+        let cancelled = AtomicBool::new(false);
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                let code = wait_jni_command_reply(reply_rx, &cancelled, Duration::from_millis(50));
+                assert_eq!(code, START_PLATFORM_FAILURE);
+            });
+            let taken = slot.lock().unwrap().take();
+            assert_eq!(taken, Some(1));
+        });
+        assert!(jni_command_abandoned(&cancelled));
     }
 
     #[test]

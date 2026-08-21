@@ -1,6 +1,9 @@
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
-use std::sync::{Arc, Mutex, OnceLock, atomic::Ordering};
+use std::sync::{
+    Arc, Mutex, OnceLock,
+    atomic::{AtomicBool, Ordering},
+};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -28,14 +31,17 @@ enum RuntimeCommand {
     Reconfigure {
         profile: Profile,
         reply: std::sync::mpsc::SyncSender<i32>,
+        cancelled: Arc<AtomicBool>,
     },
     AttachTun {
         tun: OwnedFd,
         profile: Profile,
         reply: std::sync::mpsc::SyncSender<i32>,
+        cancelled: Arc<AtomicBool>,
     },
     DetachTun {
         reply: std::sync::mpsc::SyncSender<i32>,
+        cancelled: Arc<AtomicBool>,
     },
 }
 
@@ -253,7 +259,11 @@ pub(super) fn snapshot() -> NativeSnapshot {
 }
 
 pub(super) fn reconfigure(profile: Profile) -> i32 {
-    send_command(|reply| RuntimeCommand::Reconfigure { profile, reply })
+    send_command(|reply, cancelled| RuntimeCommand::Reconfigure {
+        profile,
+        reply,
+        cancelled,
+    })
 }
 
 pub(super) fn attach_tun(tun_file_descriptor: i32, profile: Profile) -> i32 {
@@ -267,35 +277,42 @@ pub(super) fn attach_tun(tun_file_descriptor: i32, profile: Profile) -> i32 {
     }
     // SAFETY: duplicated is a freshly owned FD from dup.
     let tun = unsafe { OwnedFd::from_raw_fd(duplicated) };
-    send_command(|reply| RuntimeCommand::AttachTun {
+    send_command(|reply, cancelled| RuntimeCommand::AttachTun {
         tun,
         profile,
         reply,
+        cancelled,
     })
 }
 
 pub(super) fn detach_tun() -> i32 {
-    send_command(|reply| RuntimeCommand::DetachTun { reply })
+    send_command(|reply, cancelled| RuntimeCommand::DetachTun { reply, cancelled })
 }
 
-fn send_command(build: impl FnOnce(std::sync::mpsc::SyncSender<i32>) -> RuntimeCommand) -> i32 {
+fn send_command(
+    build: impl FnOnce(std::sync::mpsc::SyncSender<i32>, Arc<AtomicBool>) -> RuntimeCommand,
+) -> i32 {
     let Some(engine) = ENGINE.get() else {
         return RECONFIGURE_NOT_RUNNING;
     };
-    let Ok(slot) = engine.lock() else {
-        return START_PLATFORM_FAILURE;
-    };
-    let Some(handle) = slot.as_ref() else {
-        return RECONFIGURE_NOT_RUNNING;
+    let commands = {
+        let Ok(slot) = engine.lock() else {
+            return START_PLATFORM_FAILURE;
+        };
+        let Some(handle) = slot.as_ref() else {
+            return RECONFIGURE_NOT_RUNNING;
+        };
+        handle.commands.clone()
     };
     let (reply_tx, reply_rx) = std::sync::mpsc::sync_channel(1);
-    if handle.commands.send(build(reply_tx)).is_err() {
+    let cancelled = Arc::new(AtomicBool::new(false));
+    if commands
+        .send(build(reply_tx, Arc::clone(&cancelled)))
+        .is_err()
+    {
         return RECONFIGURE_NOT_RUNNING;
     }
-    match reply_rx.recv_timeout(Duration::from_secs(30)) {
-        Ok(code) => code,
-        Err(_) => START_PLATFORM_FAILURE,
-    }
+    super::wait_jni_command_reply(reply_rx, &cancelled, Duration::from_secs(30))
 }
 
 fn clear_last_start_error() {
@@ -540,7 +557,12 @@ async fn handle_runtime_command(
         RuntimeCommand::Reconfigure {
             profile: mut next,
             reply,
+            cancelled,
         } => {
+            if super::jni_command_abandoned(&cancelled) {
+                let _ = reply.send(START_PLATFORM_FAILURE);
+                return;
+            }
             if next.proxy.listener_auth_username().is_some() && next.proxy.auth_password.is_none() {
                 next.proxy.auth_password = profile.proxy.auth_password.clone();
             }
@@ -584,7 +606,12 @@ async fn handle_runtime_command(
             tun: owned,
             profile: mut next,
             reply,
+            cancelled,
         } => {
+            if super::jni_command_abandoned(&cancelled) {
+                let _ = reply.send(START_PLATFORM_FAILURE);
+                return;
+            }
             if tun.is_some() {
                 let _ = reply.send(START_ALREADY_RUNNING);
                 return;
@@ -622,16 +649,28 @@ async fn handle_runtime_command(
                 let _ = reply.send(START_TRANSPORT_FAILURE);
                 return;
             }
+            if super::jni_command_abandoned(&cancelled) {
+                tunnel.detach_tun();
+                let _ = reply.send(START_PLATFORM_FAILURE);
+                return;
+            }
             *tun = Some(attached);
             *tun_io = Some(io);
+            if super::jni_command_abandoned(&cancelled) || reply.send(RECONFIGURE_OK).is_err() {
+                detach_tun_locked(tunnel, tun, tun_io);
+                return;
+            }
             *profile = next;
             if let Ok(mut snapshot) = status.lock() {
                 snapshot.active_listeners =
                     tunnel.listeners().iter().map(ToString::to_string).collect();
             }
-            let _ = reply.send(RECONFIGURE_OK);
         }
-        RuntimeCommand::DetachTun { reply } => {
+        RuntimeCommand::DetachTun { reply, cancelled } => {
+            if super::jni_command_abandoned(&cancelled) {
+                let _ = reply.send(START_PLATFORM_FAILURE);
+                return;
+            }
             detach_tun_locked(tunnel, tun, tun_io);
             profile.frontends.tunnel = false;
             let _ = reply.send(RECONFIGURE_OK);
