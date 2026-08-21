@@ -144,6 +144,35 @@ class AndroidEngineMethodHandlerTest {
     }
 
     @Test
+    fun reconfigureActiveProfileQueuesWhenUnboundInsteadOfReportingSuccess() {
+        engineBridge.profileCatalogJson =
+            """{"profiles":[{"id":"p1"}]}"""
+        controlClient.detachEndpointForTest()
+        val result = RecordingResult()
+        val profile =
+            mapOf(
+                "id" to "p1",
+                "mode" to "vpn",
+                "frontends" to mapOf("tunnel" to true, "socks5" to true, "http" to true),
+            )
+
+        handler.handle(MethodCall("reconfigureActiveProfile", profile), result)
+
+        assertEquals(1, engineBridge.commands.size)
+        assertEquals(0, result.completionCount)
+        assertNull(result.errorCode)
+        assertSame(result, controlClient.pendingReconfigureForTest())
+        assertTrue(endpoint.whats.isEmpty())
+
+        controlClient.attachEndpointForTest(endpoint)
+
+        assertEquals(listOf(UsqueVpnService.MSG_RECONFIGURE), endpoint.whats)
+        assertNull(controlClient.pendingReconfigureForTest())
+        assertEquals(0, result.completionCount)
+        assertEquals(0, activityCommands.connectCount)
+    }
+
+    @Test
     fun reconfigureActiveProfileSendsTunnelOffWithLegacyVpnMode() {
         engineBridge.profileCatalogJson =
             """{"profiles":[{"id":"p1"}]}"""

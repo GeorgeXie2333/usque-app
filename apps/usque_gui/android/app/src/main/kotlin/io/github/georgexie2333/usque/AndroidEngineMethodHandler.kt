@@ -596,7 +596,11 @@ internal class AndroidEngineMethodHandler(
                     ?: throw IllegalStateException("Rust returned no profile catalog")
                 mainScheduler.post {
                     if (!controlClient.requestReconfigure(profileJson, result)) {
-                        result.success(null)
+                        result.error(
+                            "ENGINE_IPC_UNAVAILABLE",
+                            "The Android VPN process could not receive the reconfigure request.",
+                            null,
+                        )
                     }
                 }
             } catch (error: Exception) {
