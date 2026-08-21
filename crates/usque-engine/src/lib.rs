@@ -7,12 +7,12 @@
 
 use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     time::Instant,
 };
-
-#[cfg(any(windows, test))]
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use ipnet::IpNet;
 use thiserror::Error;
@@ -76,6 +76,7 @@ pub struct ControlService {
     disconnect_cleanup: Mutex<Option<tokio::task::JoinHandle<Result<(), ControlServiceError>>>>,
     exit_probe_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     maintenance: maintenance::Maintenance,
+    session_generation: AtomicU64,
     #[cfg(any(windows, test))]
     event_sequence: AtomicU64,
     #[cfg(test)]
@@ -290,6 +291,7 @@ impl ControlService {
             data_plane: Arc::new(Mutex::new(None)),
             disconnect_cleanup: Mutex::new(None),
             exit_probe_task: Mutex::new(None),
+            session_generation: AtomicU64::new(0),
             #[cfg(any(windows, test))]
             event_sequence: AtomicU64::new(0),
             #[cfg(test)]
@@ -388,6 +390,7 @@ impl ControlService {
         let frontends = applied.frontends;
         *self.data_plane.lock().await = Some(ActiveDataPlane {
             profile_id: applied.id,
+            session_generation: self.next_session_generation(),
             frontends,
             connected_at: Instant::now(),
             last_sample_at: Instant::now(),
@@ -747,6 +750,10 @@ impl ControlService {
         self.event_sequence.fetch_add(1, Ordering::Relaxed) + 1
     }
 
+    fn next_session_generation(&self) -> u64 {
+        self.session_generation.fetch_add(1, Ordering::Relaxed) + 1
+    }
+
     async fn connect(&self, profile_id: Uuid) -> Result<ConnectionSnapshot, ControlServiceError> {
         let _mutation = self.mutation_lock.lock().await;
         self.connect_locked(profile_id).await
@@ -964,8 +971,10 @@ impl ControlService {
             );
             state.snapshot().clone()
         };
+        let session_generation = self.next_session_generation();
         *self.data_plane.lock().await = Some(ActiveDataPlane {
             profile_id,
+            session_generation,
             frontends: profile.frontends,
             connected_at: Instant::now(),
             last_sample_at: Instant::now(),
@@ -977,11 +986,17 @@ impl ControlService {
         // Location is diagnostic: report Connected immediately and fill ip.sb
         // later, matching the Android runtime. Probe failure must not delay or
         // tear down a healthy session.
-        self.spawn_exit_probe(exit_probe, profile_id).await;
+        self.spawn_exit_probe(exit_probe, profile_id, session_generation)
+            .await;
         Ok(snapshot)
     }
 
-    async fn spawn_exit_probe(&self, probe: Option<IpSbProbe>, profile_id: Uuid) {
+    async fn spawn_exit_probe(
+        &self,
+        probe: Option<IpSbProbe>,
+        profile_id: Uuid,
+        session_generation: u64,
+    ) {
         self.abort_exit_probe().await;
         let Some(probe) = probe else {
             return;
@@ -992,7 +1007,7 @@ impl ControlService {
             let Ok(exit) = probe.probe().await else {
                 return;
             };
-            apply_exit_info(&state, &data_plane, profile_id, exit).await;
+            apply_exit_info(&state, &data_plane, profile_id, session_generation, exit).await;
         }));
     }
 
@@ -2969,13 +2984,14 @@ async fn apply_exit_info(
     state: &Mutex<StateMachine>,
     data_plane: &Mutex<Option<ActiveDataPlane>>,
     profile_id: Uuid,
+    session_generation: u64,
     exit: ExitInfo,
 ) {
     let data_plane = data_plane.lock().await;
     let Some(active) = data_plane.as_ref() else {
         return;
     };
-    if active.profile_id != profile_id {
+    if active.profile_id != profile_id || active.session_generation != session_generation {
         return;
     }
     let mut state = state.lock().await;
@@ -3064,6 +3080,13 @@ mod tests {
             .install_test_session(profile.clone(), false, 0)
             .await
             .expect("install harness");
+        let generation = service
+            .data_plane
+            .lock()
+            .await
+            .as_ref()
+            .unwrap()
+            .session_generation;
 
         let exit = ExitInfo {
             ipv4: Some(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4))),
@@ -3076,6 +3099,7 @@ mod tests {
             &service.state,
             &service.data_plane,
             profile.id,
+            generation,
             exit.clone(),
         )
         .await;
@@ -3085,8 +3109,93 @@ mod tests {
         );
 
         service.disconnect_locked().await.expect("disconnect");
-        apply_exit_info(&service.state, &service.data_plane, profile.id, exit).await;
+        apply_exit_info(
+            &service.state,
+            &service.data_plane,
+            profile.id,
+            generation,
+            exit,
+        )
+        .await;
         assert!(service.state.lock().await.snapshot().exit.is_none());
+    }
+
+    #[tokio::test]
+    async fn late_exit_probe_from_a_prior_session_does_not_apply_after_reconnect() {
+        let directory = tempfile::tempdir().unwrap();
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(MemoryVault::default()),
+        )
+        .unwrap();
+        let profile = service.config_snapshot().await.active_profile().unwrap();
+        service
+            .install_test_session(profile.clone(), false, 0)
+            .await
+            .expect("session A");
+        let generation_a = service
+            .data_plane
+            .lock()
+            .await
+            .as_ref()
+            .unwrap()
+            .session_generation;
+
+        service.disconnect_locked().await.expect("disconnect");
+        service
+            .install_test_session(profile.clone(), false, 0)
+            .await
+            .expect("session B");
+        let generation_b = service
+            .data_plane
+            .lock()
+            .await
+            .as_ref()
+            .unwrap()
+            .session_generation;
+        assert_ne!(generation_a, generation_b);
+        assert_eq!(
+            service.data_plane.lock().await.as_ref().unwrap().profile_id,
+            profile.id
+        );
+        assert!(service.state.lock().await.snapshot().exit.is_none());
+
+        let stale = ExitInfo {
+            ipv4: Some(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4))),
+            ipv6: None,
+            ipv4_location: None,
+            ipv6_location: None,
+            checked_at: chrono::Utc::now(),
+        };
+        apply_exit_info(
+            &service.state,
+            &service.data_plane,
+            profile.id,
+            generation_a,
+            stale,
+        )
+        .await;
+        assert!(service.state.lock().await.snapshot().exit.is_none());
+
+        let current = ExitInfo {
+            ipv4: Some(IpAddr::V4(Ipv4Addr::new(5, 6, 7, 8))),
+            ipv6: None,
+            ipv4_location: None,
+            ipv6_location: None,
+            checked_at: chrono::Utc::now(),
+        };
+        apply_exit_info(
+            &service.state,
+            &service.data_plane,
+            profile.id,
+            generation_b,
+            current.clone(),
+        )
+        .await;
+        assert_eq!(
+            service.state.lock().await.snapshot().exit.as_ref(),
+            Some(&current)
+        );
     }
 
     #[derive(Default)]
