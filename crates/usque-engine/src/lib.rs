@@ -1599,15 +1599,10 @@ impl ControlService {
                         )
                     }
                     Ok(identity) => {
-                        let entitlement = match identity.entitlement() {
-                            Some(value) => value,
-                            None => self
-                                .repair_consumer_entitlement(account.id, &identity)
-                                .await
-                                .unwrap_or(ConsumerEntitlement::Free),
+                        let (license_state, account_type) = match identity.entitlement() {
+                            Some(entitlement) => consumer_license_presentation(entitlement),
+                            None => (v1::LicenseState::Unknown, String::new()),
                         };
-                        let (license_state, account_type) =
-                            consumer_license_presentation(entitlement);
                         (
                             v1::ProfileIdentityState::Ready,
                             license_state,
@@ -2191,32 +2186,6 @@ impl ControlService {
             self.persist(next).await?;
         }
         first_error.map_or(Ok(()), Err)
-    }
-
-    async fn repair_consumer_entitlement(
-        &self,
-        profile_id: Uuid,
-        identity: &WarpIdentity,
-    ) -> Option<ConsumerEntitlement> {
-        let status = ConsumerRegistrationClient::new()
-            .ok()?
-            .account_status(identity)
-            .await
-            .ok()?;
-        let metadata = IdentityMetadata {
-            provider: identity.provider().clone(),
-            entitlement: Some(status.entitlement),
-        }
-        .to_json()
-        .ok()?;
-        self.vault
-            .put(profile_id, SecretRecord::IdentityMetadata, &metadata)
-            .await
-            .ok()?;
-        if !status.entitlement.is_warp_plus() {
-            let _ = self.vault.delete(profile_id, SecretRecord::License).await;
-        }
-        Some(status.entitlement)
     }
 
     async fn cleanup_remote_license(&self, profile_id: Uuid) -> Result<(), ControlServiceError> {
@@ -3282,6 +3251,64 @@ mod tests {
                 loaded.entitlement().unwrap_or(ConsumerEntitlement::Free)
             ),
             (v1::LicenseState::Free, "Free".to_owned())
+        );
+    }
+
+    #[tokio::test]
+    async fn profile_catalog_reports_unknown_without_writing_missing_entitlement() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let vault = Arc::new(MemoryVault::default());
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::clone(&vault) as Arc<dyn SecretVault>,
+        )
+        .expect("service");
+        let profile_id = service.config_snapshot().await.profiles[0].id;
+        let legacy = test_identity_with_entitlement(
+            IdentityProvider::Consumer,
+            Some("legacy-api-license"),
+            None,
+        );
+        service
+            .persist_identity(profile_id, &legacy, None)
+            .await
+            .unwrap();
+        let metadata_before = vault
+            .get(profile_id, SecretRecord::IdentityMetadata)
+            .await
+            .unwrap()
+            .expect("metadata");
+        let license_before = vault
+            .get(profile_id, SecretRecord::License)
+            .await
+            .unwrap()
+            .expect("license");
+
+        let catalog = service.profile_catalog().await;
+        let status = catalog.identity_statuses.first().unwrap();
+        assert_eq!(status.state, v1::ProfileIdentityState::Ready as i32);
+        assert_eq!(status.license_state, v1::LicenseState::Unknown as i32);
+        assert!(status.account_type.is_empty());
+
+        let metadata_after = vault
+            .get(profile_id, SecretRecord::IdentityMetadata)
+            .await
+            .unwrap()
+            .expect("metadata");
+        let license_after = vault
+            .get(profile_id, SecretRecord::License)
+            .await
+            .unwrap()
+            .expect("license");
+        assert_eq!(metadata_before.as_slice(), metadata_after.as_slice());
+        assert_eq!(license_before.as_slice(), license_after.as_slice());
+        assert_eq!(
+            service
+                .load_warp_identity(profile_id)
+                .await
+                .unwrap()
+                .entitlement(),
+            None
         );
     }
 
