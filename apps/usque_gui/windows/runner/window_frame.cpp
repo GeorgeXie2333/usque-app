@@ -134,7 +134,9 @@ bool ApplyCaptionButton(HWND window, LRESULT hit, bool double_click) {
       }
       return true;
     case HTMAXBUTTON:
-      ::ShowWindow(window, IsWindowMaximized(window) ? SW_RESTORE : SW_MAXIMIZE);
+      if (!double_click) {
+        ::ShowWindow(window, IsWindowMaximized(window) ? SW_RESTORE : SW_MAXIMIZE);
+      }
       return true;
     case HTCLOSE:
       if (!double_click) {
