@@ -494,7 +494,7 @@ fn apply_enriched(
         Ok(()) => Ok((receipt, StepOutput::default())),
         Err(error) => Err(BackendError::PartialApply {
             message: error.to_string(),
-            receipt,
+            receipt: Box::new(receipt),
         }),
     }
 }

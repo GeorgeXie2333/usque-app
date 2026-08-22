@@ -884,7 +884,7 @@ where
                 if let BackendError::PartialApply { receipt, .. } = &error
                     && receipt.kind() == kind
                 {
-                    journal.steps[index].receipt = receipt.clone();
+                    journal.steps[index].receipt = receipt.as_ref().clone();
                     self.store.save(journal)?;
                 }
                 Err(error.into())
@@ -1069,7 +1069,7 @@ pub enum BackendError {
     #[error("privileged backend operation failed: {message}")]
     PartialApply {
         message: String,
-        receipt: MutationReceipt,
+        receipt: Box<MutationReceipt>,
     },
     #[error("privileged backend capability is unavailable: {0}")]
     Unavailable(String),
@@ -1279,7 +1279,7 @@ mod tests {
             if self.fail_apply.lock().await.contains(&kind) {
                 return Err(BackendError::PartialApply {
                     message: format!("forced {kind:?} failure"),
-                    receipt,
+                    receipt: Box::new(receipt),
                 });
             }
             self.applied.lock().await.push(kind);
