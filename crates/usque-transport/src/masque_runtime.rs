@@ -562,12 +562,6 @@ fn dispatch_tun_incoming(tun_sink: &watch::Sender<Option<mpsc::Sender<Bytes>>>, 
     }
 }
 
-fn same_listeners(active: &[SocketAddr], wanted: &[SocketAddr]) -> bool {
-    let active: HashSet<SocketAddr> = active.iter().copied().collect();
-    let wanted: HashSet<SocketAddr> = wanted.iter().copied().collect();
-    active == wanted
-}
-
 fn listeners_overlap(active: &[SocketAddr], wanted: &[SocketAddr]) -> bool {
     let active: HashSet<SocketAddr> = active.iter().copied().collect();
     wanted.iter().any(|address| active.contains(address))
@@ -656,20 +650,6 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use usque_core::FrontendSettings;
     use zeroize::Zeroizing;
-
-    #[test]
-    fn same_listeners_compares_as_a_set() {
-        let left = vec![
-            "127.0.0.1:8080".parse().unwrap(),
-            "[::1]:8080".parse().unwrap(),
-        ];
-        let right = vec![
-            "[::1]:8080".parse().unwrap(),
-            "127.0.0.1:8080".parse().unwrap(),
-        ];
-        assert!(same_listeners(&left, &right));
-        assert!(!same_listeners(&left, &["127.0.0.1:8080".parse().unwrap()]));
-    }
 
     #[test]
     fn frontend_spec_includes_auth_dns_and_idle() {
