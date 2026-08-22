@@ -53,7 +53,7 @@ class WindowTitleBar extends StatelessWidget {
                 children: <Widget>[
                   Expanded(
                     child: Padding(
-                      padding: const EdgeInsets.only(left: 12),
+                      padding: const EdgeInsetsDirectional.only(start: 12),
                       child: Row(
                         children: <Widget>[
                           Image.asset(

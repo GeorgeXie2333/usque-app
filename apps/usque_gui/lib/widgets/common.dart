@@ -655,7 +655,7 @@ class ReadoutRow extends StatelessWidget {
         ),
         const SizedBox(width: 14),
         Flexible(
-          child: Align(alignment: Alignment.centerRight, child: value),
+          child: Align(alignment: AlignmentDirectional.centerEnd, child: value),
         ),
       ],
     );

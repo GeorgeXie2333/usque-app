@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -635,8 +636,123 @@ void main() {
     },
   );
 
-  test('English and Simplified Chinese catalogs contain identical keys', () {
-    expect(AppStrings.debugCatalogsAreComplete, isTrue);
+  test(
+    'every registered catalog has the English key set and non-empty values',
+    () {
+      expect(AppStrings.debugCatalogsAreComplete, isTrue);
+    },
+  );
+
+  test('interpolated catalogs keep {count}, {current}, and {total}', () {
+    expect(AppStrings.debugPlaceholdersArePreserved, isTrue);
+  });
+
+  test(
+    'language picker lists System then English-name A–Z with Chinese grouped',
+    () {
+      expect(LocalePreference.pickerOrder, <LocalePreference>[
+        LocalePreference.system,
+        LocalePreference.simplifiedChinese,
+        LocalePreference.traditionalChineseHongKong,
+        LocalePreference.traditionalChineseTaiwan,
+        LocalePreference.dutch,
+        LocalePreference.english,
+        LocalePreference.french,
+        LocalePreference.japanese,
+        LocalePreference.korean,
+        LocalePreference.persian,
+        LocalePreference.portuguese,
+        LocalePreference.russian,
+        LocalePreference.spanish,
+        LocalePreference.turkish,
+      ]);
+      expect(
+        LocalePreference.pickerOrder.toSet(),
+        LocalePreference.values.toSet(),
+      );
+    },
+  );
+
+  test('system locale maps CJK variants and falls back to English', () {
+    expect(
+      AppStrings.resolveCatalogId(
+        LocalePreference.system,
+        const Locale('zh', 'HK'),
+      ),
+      'zh_HK',
+    );
+    expect(
+      AppStrings.resolveCatalogId(
+        LocalePreference.system,
+        const Locale.fromSubtags(
+          languageCode: 'zh',
+          scriptCode: 'Hant',
+          countryCode: 'MO',
+        ),
+      ),
+      'zh_HK',
+    );
+    expect(
+      AppStrings.resolveCatalogId(
+        LocalePreference.system,
+        const Locale('zh', 'TW'),
+      ),
+      'zh_TW',
+    );
+    expect(
+      AppStrings.resolveCatalogId(
+        LocalePreference.system,
+        const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'),
+      ),
+      'zh_TW',
+    );
+    expect(
+      AppStrings.resolveCatalogId(
+        LocalePreference.system,
+        const Locale('zh', 'CN'),
+      ),
+      'zh_CN',
+    );
+    expect(
+      AppStrings.resolveCatalogId(LocalePreference.system, const Locale('ja')),
+      'ja',
+    );
+    expect(
+      AppStrings.resolveCatalogId(LocalePreference.system, const Locale('de')),
+      'en',
+    );
+    expect(
+      AppStrings.resolveCatalogId(LocalePreference.persian, const Locale('en')),
+      'fa',
+    );
+  });
+
+  test('Hong Kong and Taiwan catalogs keep distinct regional wording', () {
+    final hk = AppStrings(LocalePreference.traditionalChineseHongKong);
+    final tw = AppStrings(LocalePreference.traditionalChineseTaiwan);
+    expect(hk.get('upload'), '上載');
+    expect(tw.get('upload'), '上傳');
+    expect(hk.get('close_to_tray'), contains('系統列'));
+    expect(tw.get('close_to_tray'), contains('系統匣'));
+  });
+
+  testWidgets('Persian locale selects RTL directionality', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        locale: Locale('fa'),
+        supportedLocales: <Locale>[Locale('en'), Locale('fa')],
+        localizationsDelegates: <LocalizationsDelegate<dynamic>>[
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        home: Scaffold(body: SizedBox.shrink()),
+      ),
+    );
+    expect(
+      Directionality.of(tester.element(find.byType(Scaffold))),
+      TextDirection.rtl,
+    );
   });
 
   test(

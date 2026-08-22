@@ -91,7 +91,7 @@ class DiagnosticsScreen extends StatelessWidget {
                 subtitle: strings.get('export_help'),
                 children: <Widget>[
                   Align(
-                    alignment: Alignment.centerRight,
+                    alignment: AlignmentDirectional.centerEnd,
                     child: FilledButton.tonalIcon(
                       onPressed: controller.busy
                           ? null
@@ -108,7 +108,7 @@ class DiagnosticsScreen extends StatelessWidget {
                 subtitle: strings.get('unofficial'),
                 children: <Widget>[
                   Align(
-                    alignment: Alignment.centerRight,
+                    alignment: AlignmentDirectional.centerEnd,
                     child: OutlinedButton.icon(
                       onPressed: () => launchUrl(
                         Uri.parse('https://github.com/GeorgeXie2333/usque-app'),
@@ -249,7 +249,7 @@ class _DangerPanel extends StatelessWidget {
           ),
           const SizedBox(height: 18),
           Align(
-            alignment: Alignment.centerRight,
+            alignment: AlignmentDirectional.centerEnd,
             child: OutlinedButton.icon(
               style: OutlinedButton.styleFrom(
                 foregroundColor: danger,

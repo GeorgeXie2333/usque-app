@@ -6,7 +6,8 @@ import 'usque_motion.dart';
 ///
 /// Space Grotesk carries display copy and readouts, Manrope carries the
 /// interface, IBM Plex Mono carries machine values such as addresses, ports,
-/// and keys. CJK glyphs fall through to the platform families.
+/// and keys. CJK, Hangul, and Arabic-script glyphs fall through to platform
+/// families.
 class UsqueFonts {
   const UsqueFonts._();
 
@@ -17,10 +18,27 @@ class UsqueFonts {
   static const List<String> fallback = <String>[
     'Microsoft YaHei UI',
     'Microsoft YaHei',
+    'Microsoft JhengHei UI',
+    'Microsoft JhengHei',
+    'Yu Gothic UI',
+    'Malgun Gothic',
+    'Segoe UI',
+    'Tahoma',
     'Noto Sans CJK SC',
     'Noto Sans SC',
+    'Noto Sans CJK TC',
+    'Noto Sans TC',
+    'Noto Sans JP',
+    'Noto Sans KR',
+    'Noto Naskh Arabic',
+    'Noto Sans Arabic',
     'Source Han Sans SC',
     'PingFang SC',
+    'PingFang TC',
+    'PingFang HK',
+    'Hiragino Sans',
+    'Apple SD Gothic Neo',
+    'Geeza Pro',
   ];
 
   static const List<String> monoFallback = <String>[

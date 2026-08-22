@@ -428,7 +428,9 @@ class _StepIndicator extends StatelessWidget {
                   duration: UsqueMotion.of(context, UsqueMotion.base),
                   curve: UsqueMotion.emphasized,
                   height: 3,
-                  margin: EdgeInsets.only(right: index == total - 1 ? 0 : 6),
+                  margin: EdgeInsetsDirectional.only(
+                    end: index == total - 1 ? 0 : 6,
+                  ),
                   decoration: BoxDecoration(
                     color: reached ? tokens.brand : tokens.hairlineStrong,
                     borderRadius: BorderRadius.circular(3),

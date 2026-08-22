@@ -618,7 +618,7 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog>
                 ),
                 const SizedBox(height: 8),
                 Align(
-                  alignment: Alignment.centerRight,
+                  alignment: AlignmentDirectional.centerEnd,
                   child: TextButton.icon(
                     onPressed: _startingLogin || _submitting
                         ? null

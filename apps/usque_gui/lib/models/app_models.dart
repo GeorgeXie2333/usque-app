@@ -45,7 +45,58 @@ enum FrontendPhase {
 
 enum ThemePreference { system, light, dark }
 
-enum LocalePreference { system, english, simplifiedChinese }
+enum LocalePreference {
+  system,
+  english,
+  simplifiedChinese,
+  traditionalChineseHongKong,
+  traditionalChineseTaiwan,
+  japanese,
+  korean,
+  spanish,
+  portuguese,
+  french,
+  dutch,
+  turkish,
+  russian,
+  persian;
+
+  /// Language picker order: System first, then English names A–Z with Chinese
+  /// variants grouped under Chinese.
+  static const List<LocalePreference> pickerOrder = <LocalePreference>[
+    system,
+    simplifiedChinese,
+    traditionalChineseHongKong,
+    traditionalChineseTaiwan,
+    dutch,
+    english,
+    french,
+    japanese,
+    korean,
+    persian,
+    portuguese,
+    russian,
+    spanish,
+    turkish,
+  ];
+
+  String get languageLabelKey => switch (this) {
+    system => 'language_system',
+    english => 'language_en',
+    simplifiedChinese => 'language_zh',
+    traditionalChineseHongKong => 'language_zh_hk',
+    traditionalChineseTaiwan => 'language_zh_tw',
+    japanese => 'language_ja',
+    korean => 'language_ko',
+    spanish => 'language_es',
+    portuguese => 'language_pt',
+    french => 'language_fr',
+    dutch => 'language_nl',
+    turkish => 'language_tr',
+    russian => 'language_ru',
+    persian => 'language_fa',
+  };
+}
 
 class UpdateCheckResult {
   const UpdateCheckResult({

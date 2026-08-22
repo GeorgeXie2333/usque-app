@@ -553,7 +553,10 @@ class _ProfileCard extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   child: Divider(height: 1, color: tokens.hairline),
                 ),
-                Align(alignment: Alignment.centerRight, child: actions),
+                Align(
+                  alignment: AlignmentDirectional.centerEnd,
+                  child: actions,
+                ),
               ],
             ],
           );

@@ -473,7 +473,7 @@ class _AuthPanelState extends State<_AuthPanel> {
         ),
         const SizedBox(height: 14),
         Align(
-          alignment: Alignment.centerRight,
+          alignment: AlignmentDirectional.centerEnd,
           child: FilledButton(
             key: const ValueKey<String>('proxy-auth-apply'),
             onPressed: widget.controller.busy ? null : _commit,

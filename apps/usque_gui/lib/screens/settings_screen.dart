@@ -72,13 +72,9 @@ class SettingsScreen extends StatelessWidget {
                     title: strings.get('language'),
                     control: _Picker<LocalePreference>(
                       value: controller.localePreference,
-                      values: LocalePreference.values,
+                      values: LocalePreference.pickerOrder,
                       onChanged: controller.setLocale,
-                      labelOf: (value) => strings.get(switch (value) {
-                        LocalePreference.system => 'language_system',
-                        LocalePreference.english => 'language_en',
-                        LocalePreference.simplifiedChinese => 'language_zh',
-                      }),
+                      labelOf: (value) => strings.get(value.languageLabelKey),
                     ),
                   ),
                 ],
