@@ -868,11 +868,13 @@ mod tests {
     }
 
     fn proxy_profile(socks5: SocketAddr, http: SocketAddr) -> Profile {
-        let mut profile = Profile::default();
-        profile.frontends = FrontendSettings {
-            tunnel: false,
-            socks5: true,
-            http: true,
+        let mut profile = Profile {
+            frontends: FrontendSettings {
+                tunnel: false,
+                socks5: true,
+                http: true,
+            },
+            ..Profile::default()
         };
         profile.proxy.socks5_listeners = vec![socks5];
         profile.proxy.http_listeners = vec![http];

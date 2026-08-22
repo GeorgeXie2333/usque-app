@@ -533,11 +533,13 @@ mod tests {
 
     #[tokio::test]
     async fn frontend_reconfigure_applies_system_proxy() {
-        let mut profile = Profile::default();
-        profile.frontends = FrontendSettings {
-            tunnel: false,
-            socks5: true,
-            http: true,
+        let mut profile = Profile {
+            frontends: FrontendSettings {
+                tunnel: false,
+                socks5: true,
+                http: true,
+            },
+            ..Profile::default()
         };
         profile.proxy.system_proxy = true;
         let mut runtime = ActiveRuntime::Harness(HarnessRuntime::from_profile(&profile, false, 0));
