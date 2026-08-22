@@ -211,8 +211,9 @@ impl MasqueRuntime {
     /// identity (credentials, proxy DNS, and SOCKS UDP idle) still match.
     /// New sockets are bound before any removed frontend is shut down so a
     /// later bind failure can restore from the still-held listeners. Identity
-    /// changes on the same addresses still release that protocol first,
-    /// because Windows will not let a second socket claim the same address.
+    /// changes on the same addresses still release **that** protocol first,
+    /// because Windows will not let a second socket claim the same address;
+    /// the other protocol stays live until every bind succeeds.
     pub async fn reconfigure_frontends(&mut self, profile: &Profile) -> Result<(), TransportError> {
         if (profile.frontends.socks5 || profile.frontends.http)
             && let Err(error) = profile.proxy.listener_credentials()
@@ -264,11 +265,11 @@ impl MasqueRuntime {
             }
         }
 
-        if !keep_socks5 && let Some(mut frontend) = self.socks5.take() {
+        if socks5_rebind_same && let Some(mut frontend) = self.socks5.take() {
             self.socks5_spec.take();
             frontend.shutdown().await;
         }
-        if !keep_http && let Some(mut frontend) = self.http.take() {
+        if http_rebind_same && let Some(mut frontend) = self.http.take() {
             self.http_spec.take();
             frontend.shutdown().await;
         }
@@ -290,6 +291,21 @@ impl MasqueRuntime {
                     return Err(error);
                 }
             }
+        }
+
+        if !keep_socks5
+            && !socks5_rebind_same
+            && let Some(mut frontend) = self.socks5.take()
+        {
+            self.socks5_spec.take();
+            frontend.shutdown().await;
+        }
+        if !keep_http
+            && !http_rebind_same
+            && let Some(mut frontend) = self.http.take()
+        {
+            self.http_spec.take();
+            frontend.shutdown().await;
         }
 
         if let Some(bound) = socks5_bound {
@@ -751,6 +767,40 @@ mod tests {
             .await
             .expect("previous HTTP still accepts");
         std::net::TcpListener::bind(next_socks).expect("failed SOCKS bind must not keep the port");
+
+        drop(occupied);
+        runtime.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn reconfigure_mixed_overlap_bind_failure_keeps_disjoint_listeners() {
+        let socks_addr = free_loopback();
+        let http_addr = free_loopback();
+        let profile = proxy_profile(socks_addr, http_addr);
+        let mut runtime = start_local(&profile).await;
+        let previous_socks = runtime.socks5_listeners().to_vec();
+
+        let occupied = std::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
+            .expect("hold extra HTTP port");
+        let occupied_addr = occupied.local_addr().expect("occupied addr");
+        let next_socks = free_loopback();
+        let mut next = profile.clone();
+        next.proxy.socks5_listeners = vec![next_socks];
+        next.proxy.http_listeners = vec![http_addr, occupied_addr];
+
+        let error = runtime
+            .reconfigure_frontends(&next)
+            .await
+            .expect_err("HTTP overlap bind must fail");
+        assert!(matches!(
+            error,
+            TransportError::HttpProxyListener { address, .. } if address == occupied_addr
+        ));
+        assert_eq!(runtime.socks5_listeners(), previous_socks.as_slice());
+        assert_eq!(runtime.listeners(), previous_socks.as_slice());
+        assert_eq!(socks_no_auth_method(socks_addr).await, 0);
+        std::net::TcpListener::bind(next_socks).expect("failed SOCKS bind must not keep the port");
+        // Same-port HTTP expansion had to release that protocol; SOCKS must stay.
 
         drop(occupied);
         runtime.shutdown().await;
