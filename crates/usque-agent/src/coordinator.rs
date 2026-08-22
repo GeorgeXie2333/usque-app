@@ -599,9 +599,16 @@ where
             && journal.operation_kind == Some(OperationKind::Tunnel)
         {
             ensure_owner(&journal, operation_id, &caller)?;
-            if journal.steps.iter().any(|step| {
-                step.kind == MutationKind::SystemProxy && step.state != MutationState::Restored
-            }) {
+            // Older two-save restores could leave a durable Restored step.
+            // Treat those leftovers as absent, matching open_packet_session.
+            journal.steps.retain(|step| {
+                !(step.kind == MutationKind::SystemProxy && step.state == MutationState::Restored)
+            });
+            if journal
+                .steps
+                .iter()
+                .any(|step| step.kind == MutationKind::SystemProxy)
+            {
                 return Err(CoordinatorError::DuplicateStep(MutationKind::SystemProxy));
             }
             let receipt = self
@@ -753,19 +760,20 @@ where
                     actual: journal.phase,
                 });
             }
-            let Some(index) = journal.steps.iter().position(|step| {
-                step.kind == MutationKind::SystemProxy && step.state != MutationState::Restored
-            }) else {
+            let Some(index) = journal
+                .steps
+                .iter()
+                .position(|step| step.kind == MutationKind::SystemProxy)
+            else {
                 return Ok(journal.clone());
             };
-            if let Err(error) = self
-                .restore_system_proxy_step(&journal.steps[index].receipt)
-                .await
+            if journal.steps[index].state != MutationState::Restored
+                && let Err(error) = self
+                    .restore_system_proxy_step(&journal.steps[index].receipt)
+                    .await
             {
                 return Err(error.into());
             }
-            journal.steps[index].state = MutationState::Restored;
-            self.store.save(&mut journal)?;
             journal.steps.remove(index);
             self.store.save(&mut journal)?;
         } else {
@@ -2133,6 +2141,123 @@ mod tests {
         assert!(without_proxy.steps.iter().any(|step| {
             step.kind == MutationKind::KillSwitch && step.state == MutationState::Applied
         }));
+    }
+
+    #[tokio::test]
+    async fn restoring_sidecar_system_proxy_is_one_journal_mutation() {
+        let backend = Arc::new(MockBackend::default());
+        let (_directory, coordinator, operation, owner) = active_tunnel(Arc::clone(&backend)).await;
+        coordinator
+            .apply_system_proxy(
+                operation,
+                SystemProxySettings {
+                    proxy_uri: "127.0.0.1:8080".to_owned(),
+                    bypass_hosts: vec!["<local>".to_owned()],
+                },
+                owner.clone(),
+            )
+            .await
+            .expect("apply system proxy");
+        let generation = coordinator.state().await.generation;
+
+        let restored = coordinator
+            .restore_system_proxy(operation, &owner)
+            .await
+            .expect("restore");
+        assert_eq!(restored.phase, RecoveryPhase::Active);
+        assert_eq!(restored.generation, generation + 1);
+        assert!(
+            restored
+                .steps
+                .iter()
+                .all(|step| step.kind != MutationKind::SystemProxy)
+        );
+        coordinator
+            .apply_system_proxy(
+                operation,
+                SystemProxySettings {
+                    proxy_uri: "127.0.0.1:8080".to_owned(),
+                    bypass_hosts: vec!["<local>".to_owned()],
+                },
+                owner.clone(),
+            )
+            .await
+            .expect("re-apply after one-save restore");
+    }
+
+    #[tokio::test]
+    async fn restored_sidecar_system_proxy_is_absent_for_reapply() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let journal_path = directory.path().join("recovery.json");
+        let backend = Arc::new(MockBackend::default());
+        let coordinator =
+            AgentCoordinator::open(JournalStore::new(&journal_path), Arc::clone(&backend))
+                .expect("coordinator");
+        let operation = Uuid::new_v4();
+        let owner = caller();
+        coordinator
+            .prepare(operation, plan(), owner.clone())
+            .await
+            .expect("prepare");
+        coordinator
+            .open_packet_session(operation, 1024 * 1024, &owner)
+            .await
+            .expect("packet");
+        coordinator.commit(operation, &owner).await.expect("commit");
+        coordinator
+            .apply_system_proxy(
+                operation,
+                SystemProxySettings {
+                    proxy_uri: "127.0.0.1:8080".to_owned(),
+                    bypass_hosts: vec!["<local>".to_owned()],
+                },
+                owner.clone(),
+            )
+            .await
+            .expect("apply system proxy");
+        let mut journal = coordinator.state().await;
+        journal
+            .steps
+            .iter_mut()
+            .find(|step| step.kind == MutationKind::SystemProxy)
+            .expect("proxy step")
+            .state = MutationState::Restored;
+        drop(coordinator);
+        JournalStore::new(&journal_path)
+            .save(&mut journal)
+            .expect("seed restored system-proxy step");
+
+        let coordinator =
+            AgentCoordinator::open(JournalStore::new(&journal_path), Arc::clone(&backend))
+                .expect("reload");
+        let reapplied = coordinator
+            .apply_system_proxy(
+                operation,
+                SystemProxySettings {
+                    proxy_uri: "127.0.0.1:8080".to_owned(),
+                    bypass_hosts: vec!["<local>".to_owned()],
+                },
+                owner.clone(),
+            )
+            .await
+            .expect("restored sidecar steps are absent");
+        assert_eq!(reapplied.phase, RecoveryPhase::Active);
+        assert_eq!(
+            reapplied
+                .steps
+                .iter()
+                .filter(|step| step.kind == MutationKind::SystemProxy)
+                .count(),
+            1
+        );
+        assert_eq!(
+            reapplied
+                .steps
+                .iter()
+                .find(|step| step.kind == MutationKind::SystemProxy)
+                .map(|step| step.state),
+            Some(MutationState::Applied)
+        );
     }
 
     async fn active_tunnel(
