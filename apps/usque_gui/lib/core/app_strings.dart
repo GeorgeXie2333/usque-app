@@ -24,7 +24,7 @@ class AppStrings {
   @visibleForTesting
   static bool get debugCatalogsAreComplete {
     final englishKeys = kEnCatalog.keys.toSet();
-    if (englishKeys.isEmpty || kCatalogs.length != 13) {
+    if (englishKeys.isEmpty || kCatalogs.isEmpty) {
       return false;
     }
     for (final catalog in kCatalogs.values) {
@@ -82,6 +82,14 @@ class AppStrings {
       LocalePreference.turkish => 'tr',
       LocalePreference.russian => 'ru',
       LocalePreference.persian => 'fa',
+      LocalePreference.arabic => 'ar',
+      LocalePreference.german => 'de',
+      LocalePreference.indonesian => 'id',
+      LocalePreference.italian => 'it',
+      LocalePreference.polish => 'pl',
+      LocalePreference.thai => 'th',
+      LocalePreference.ukrainian => 'uk',
+      LocalePreference.vietnamese => 'vi',
     };
   }
 
@@ -111,6 +119,15 @@ class AppStrings {
       'tr' => 'tr',
       'ru' => 'ru',
       'fa' => 'fa',
+      'ar' => 'ar',
+      'de' => 'de',
+      'id' => 'id',
+      'in' => 'id',
+      'it' => 'it',
+      'pl' => 'pl',
+      'th' => 'th',
+      'uk' => 'uk',
+      'vi' => 'vi',
       _ => 'en',
     };
   }

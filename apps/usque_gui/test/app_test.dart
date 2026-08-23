@@ -652,19 +652,27 @@ void main() {
     () {
       expect(LocalePreference.pickerOrder, <LocalePreference>[
         LocalePreference.system,
+        LocalePreference.arabic,
         LocalePreference.simplifiedChinese,
         LocalePreference.traditionalChineseHongKong,
         LocalePreference.traditionalChineseTaiwan,
         LocalePreference.dutch,
         LocalePreference.english,
         LocalePreference.french,
+        LocalePreference.german,
+        LocalePreference.indonesian,
+        LocalePreference.italian,
         LocalePreference.japanese,
         LocalePreference.korean,
         LocalePreference.persian,
+        LocalePreference.polish,
         LocalePreference.portuguese,
         LocalePreference.russian,
         LocalePreference.spanish,
+        LocalePreference.thai,
         LocalePreference.turkish,
+        LocalePreference.ukrainian,
+        LocalePreference.vietnamese,
       ]);
       expect(
         LocalePreference.pickerOrder.toSet(),
@@ -719,7 +727,23 @@ void main() {
     );
     expect(
       AppStrings.resolveCatalogId(LocalePreference.system, const Locale('de')),
-      'en',
+      'de',
+    );
+    expect(
+      AppStrings.resolveCatalogId(LocalePreference.system, const Locale('ar')),
+      'ar',
+    );
+    expect(
+      AppStrings.resolveCatalogId(LocalePreference.system, const Locale('id')),
+      'id',
+    );
+    expect(
+      AppStrings.resolveCatalogId(LocalePreference.system, const Locale('vi')),
+      'vi',
+    );
+    expect(
+      AppStrings.resolveCatalogId(LocalePreference.system, const Locale('uk')),
+      'uk',
     );
     expect(
       AppStrings.resolveCatalogId(LocalePreference.persian, const Locale('en')),
@@ -736,23 +760,32 @@ void main() {
     expect(tw.get('close_to_tray'), contains('系統匣'));
   });
 
-  testWidgets('Persian locale selects RTL directionality', (tester) async {
-    await tester.pumpWidget(
-      const MaterialApp(
-        locale: Locale('fa'),
-        supportedLocales: <Locale>[Locale('en'), Locale('fa')],
-        localizationsDelegates: <LocalizationsDelegate<dynamic>>[
-          GlobalMaterialLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-        ],
-        home: Scaffold(body: SizedBox.shrink()),
-      ),
-    );
-    expect(
-      Directionality.of(tester.element(find.byType(Scaffold))),
-      TextDirection.rtl,
-    );
+  testWidgets('Persian and Arabic locales select RTL directionality', (
+    tester,
+  ) async {
+    for (final locale in const <Locale>[Locale('fa'), Locale('ar')]) {
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: locale,
+          supportedLocales: const <Locale>[
+            Locale('en'),
+            Locale('fa'),
+            Locale('ar'),
+          ],
+          localizationsDelegates: const <LocalizationsDelegate<dynamic>>[
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          home: const Scaffold(body: SizedBox.shrink()),
+        ),
+      );
+      expect(
+        Directionality.of(tester.element(find.byType(Scaffold))),
+        TextDirection.rtl,
+        reason: '$locale should be RTL',
+      );
+    }
   });
 
   test(
@@ -2430,4 +2463,46 @@ void main() {
     expect(find.text('WARP Free'), findsOneWidget);
     expect(find.text('WARP+'), findsNothing);
   });
+
+  testWidgets(
+    'narrow profile cards give the name its own row above identity tags',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(430, 900);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'onboarding_complete': true,
+      });
+      const nameLabel = 'Work laptop';
+      final engine = FakeEngineClient()
+        ..legacyProfilesImported = true
+        ..storedProfiles = <UsqueProfile>[
+          UsqueProfile.defaultProfile().copyWith(name: nameLabel),
+        ]
+        ..storedIdentityStatuses = <String, ProfileIdentityStatus>{
+          UsqueProfile.defaultProfileId: const ProfileIdentityStatus(
+            state: ProfileIdentityState.ready,
+            licenseState: LicenseState.free,
+            accountType: 'Free',
+          ),
+        };
+
+      await tester.pumpWidget(UsqueBootstrap(engine: engine));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Profiles').last);
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      final name = find.text(nameLabel);
+      final identity = find.text('WARP Free');
+      expect(name, findsOneWidget);
+      expect(identity, findsOneWidget);
+      expect(tester.getSize(name).width, greaterThan(160));
+      expect(
+        tester.getRect(identity).top,
+        greaterThan(tester.getRect(name).bottom - 1),
+      );
+    },
+  );
 }

@@ -463,6 +463,12 @@ class _ProfileCard extends StatelessWidget {
             tone: identityReady ? null : tokens.caution,
             label: _accountIdentityLabel(identityStatus, strings),
           );
+          final activePill = active
+              ? StatusPill(
+                  label: strings.get('active'),
+                  tone: StatusTone.success,
+                )
+              : null;
           final actions = Wrap(
             spacing: 6,
             children: <Widget>[
@@ -500,10 +506,19 @@ class _ProfileCard extends StatelessWidget {
               ),
             ],
           );
+          final name = Text(
+            profile.name,
+            maxLines: compact ? 2 : 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.titleLarge,
+          );
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
               Row(
+                crossAxisAlignment: compact
+                    ? CrossAxisAlignment.start
+                    : CrossAxisAlignment.center,
                 children: <Widget>[
                   Container(
                     width: 40,
@@ -529,23 +544,29 @@ class _ProfileCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 13),
                   Expanded(
-                    child: Text(
-                      profile.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
+                    child: compact
+                        ? Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              name,
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 6,
+                                children: <Widget>[identityTag, ?activePill],
+                              ),
+                            ],
+                          )
+                        : name,
                   ),
-                  const SizedBox(width: 10),
-                  identityTag,
-                  if (active) ...<Widget>[
-                    const SizedBox(width: 8),
-                    StatusPill(
-                      label: strings.get('active'),
-                      tone: StatusTone.success,
-                    ),
+                  if (!compact) ...<Widget>[
+                    const SizedBox(width: 10),
+                    identityTag,
+                    if (activePill != null) const SizedBox(width: 8),
+                    ?activePill,
+                    const SizedBox(width: 10),
+                    actions,
                   ],
-                  if (!compact) ...<Widget>[const SizedBox(width: 10), actions],
                 ],
               ),
               if (compact) ...<Widget>[

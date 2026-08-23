@@ -59,25 +59,41 @@ enum LocalePreference {
   dutch,
   turkish,
   russian,
-  persian;
+  persian,
+  arabic,
+  german,
+  indonesian,
+  italian,
+  polish,
+  thai,
+  ukrainian,
+  vietnamese;
 
   /// Language picker order: System first, then English names A–Z with Chinese
   /// variants grouped under Chinese.
   static const List<LocalePreference> pickerOrder = <LocalePreference>[
     system,
+    arabic,
     simplifiedChinese,
     traditionalChineseHongKong,
     traditionalChineseTaiwan,
     dutch,
     english,
     french,
+    german,
+    indonesian,
+    italian,
     japanese,
     korean,
     persian,
+    polish,
     portuguese,
     russian,
     spanish,
+    thai,
     turkish,
+    ukrainian,
+    vietnamese,
   ];
 
   String get languageLabelKey => switch (this) {
@@ -95,6 +111,14 @@ enum LocalePreference {
     turkish => 'language_tr',
     russian => 'language_ru',
     persian => 'language_fa',
+    arabic => 'language_ar',
+    german => 'language_de',
+    indonesian => 'language_id',
+    italian => 'language_it',
+    polish => 'language_pl',
+    thai => 'language_th',
+    ukrainian => 'language_uk',
+    vietnamese => 'language_vi',
   };
 }
 
