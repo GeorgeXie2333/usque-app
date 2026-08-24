@@ -2416,7 +2416,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
@@ -2666,9 +2666,9 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
 name = "ts_netstack_smoltcp"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f8a0e5c0148612f790ba13ef5978437233a435e6738c44bcc129de804c39d7f"
+checksum = "5b484bf448c728ae2c3d7f5b4e1b0b1a8c88a458659ca43dc4778e58efe86d3d"
 dependencies = [
  "bytes",
  "futures-util",
@@ -2680,7 +2680,9 @@ dependencies = [
 
 [[package]]
 name = "ts_netstack_smoltcp_core"
-version = "0.4.0"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9eccc25ea3f18e5ed247529afa6794ec4203e4dd0783dfa54f580fbc87587ab4"
 dependencies = [
  "bytes",
  "flume",
@@ -2692,9 +2694,9 @@ dependencies = [
 
 [[package]]
 name = "ts_netstack_smoltcp_socket"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fbb07daadb7824a12ae2a383fa7ad5fde4cbcd93940fafe63ee611a5937cd305"
+checksum = "afaa4deb85447ca431bbd6dd7443ec4526fb3c8c6a92461bac5d22cc5b840161"
 dependencies = [
  "bytes",
  "tokio",
@@ -3406,3 +3408,7 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
+
+[[patch.unused]]
+name = "ts_netstack_smoltcp_core"
+version = "0.4.0"
