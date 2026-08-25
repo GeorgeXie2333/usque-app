@@ -42,13 +42,20 @@ class DesktopEngineClient implements EngineClient {
   bool get supportsSnapshotEvents => _transport.supportsSnapshotEvents;
 
   @override
-  Stream<EngineSnapshot> get snapshotEvents {
-    return _transport.rawEventFrames
-        .map<EngineSnapshot?>((Uint8List value) {
-          return _codec.decodeEventSnapshot(value);
-        })
-        .where((EngineSnapshot? snapshot) => snapshot != null)
-        .cast<EngineSnapshot>();
+  Stream<EngineSnapshotEvent> get snapshotEvents {
+    return _transport.rawEventFrames.transform(
+      StreamTransformer<Uint8List, EngineSnapshotEvent>.fromHandlers(
+        handleData: (Uint8List value, EventSink<EngineSnapshotEvent> sink) {
+          try {
+            sink.add(
+              EngineSnapshotEvent(snapshot: _codec.decodeEventSnapshot(value)),
+            );
+          } on Object catch (error) {
+            debugPrint('Usque: ignored invalid engine event frame ($error).');
+          }
+        },
+      ),
+    );
   }
 
   @override

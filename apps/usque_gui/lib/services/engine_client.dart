@@ -15,10 +15,18 @@ class EngineException implements Exception {
   String toString() => message;
 }
 
+/// A live engine event. [snapshot] is null for heartbeat-only frames such as
+/// CapabilitiesChanged.
+class EngineSnapshotEvent {
+  const EngineSnapshotEvent({this.snapshot});
+
+  final EngineSnapshot? snapshot;
+}
+
 abstract interface class EngineClient {
   bool get supportsSnapshotEvents;
 
-  Stream<EngineSnapshot> get snapshotEvents;
+  Stream<EngineSnapshotEvent> get snapshotEvents;
 
   Future<ProfileCatalog> importLegacyProfiles(
     List<UsqueProfile> profiles,
@@ -121,7 +129,7 @@ class MethodChannelEngineClient implements EngineClient {
   bool get supportsSnapshotEvents => true;
 
   @override
-  Stream<EngineSnapshot> get snapshotEvents {
+  Stream<EngineSnapshotEvent> get snapshotEvents {
     return _events.receiveBroadcastStream().map((Object? value) {
       if (value is! Map) {
         throw const EngineException(
@@ -129,7 +137,9 @@ class MethodChannelEngineClient implements EngineClient {
           'The Android VPN process sent an invalid status event.',
         );
       }
-      return EngineSnapshot.fromMap(Map<Object?, Object?>.from(value));
+      return EngineSnapshotEvent(
+        snapshot: EngineSnapshot.fromMap(Map<Object?, Object?>.from(value)),
+      );
     });
   }
 

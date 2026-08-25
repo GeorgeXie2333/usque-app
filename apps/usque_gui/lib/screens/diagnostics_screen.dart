@@ -45,7 +45,10 @@ class DiagnosticsScreen extends StatelessWidget {
                   ),
           ),
           BannerSlot(
-            child: controller.snapshotStreamDegraded
+            child:
+                controller.snapshotStreamDegraded &&
+                    (controller.snapshot.isConnected ||
+                        controller.snapshot.isTransitional)
                 ? WarningBanner(
                     title: strings.get('status_stream_degraded'),
                     message: strings.get('status_stream_degraded_body'),

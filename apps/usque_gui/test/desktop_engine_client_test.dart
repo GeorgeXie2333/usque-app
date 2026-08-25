@@ -625,6 +625,73 @@ void main() {
       },
     );
 
+    test(
+      'capabilities frames are heartbeats and invalid frames stay open',
+      () async {
+        final events = StreamController<Uint8List>.broadcast();
+        final client = DesktopEngineClient.forTest(
+          transport: DesktopEngineTransport.forTest(
+            exchange: (_) async => throw StateError('unused'),
+            rawEventFrames: events.stream,
+            supportsSnapshotEvents: true,
+          ),
+        );
+        final received = <EngineSnapshotEvent>[];
+        final errors = <Object>[];
+        final sub = client.snapshotEvents.listen(
+          received.add,
+          onError: errors.add,
+        );
+
+        events.add(Uint8List.fromList(<int>[0, 0, 0, 4, 0x08, 1, 0x72, 0]));
+        await Future<void>.delayed(Duration.zero);
+        expect(received, hasLength(1));
+        expect(received.single.snapshot, isNull);
+
+        events.add(_framed(<int>[0x1b]));
+        await Future<void>.delayed(Duration.zero);
+        expect(errors, isEmpty);
+        expect(received, hasLength(1));
+
+        events.add(
+          Uint8List.fromList(<int>[
+            0,
+            0,
+            0,
+            18,
+            0x08,
+            7,
+            0x52,
+            14,
+            0x0a,
+            12,
+            0x08,
+            5,
+            0x12,
+            2,
+            0x68,
+            0x33,
+            0x1a,
+            4,
+            0x69,
+            0x70,
+            0x76,
+            0x36,
+          ]),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(errors, isEmpty);
+        expect(received, hasLength(2));
+        expect(received.last.snapshot, isNotNull);
+        expect(received.last.snapshot!.phase, ConnectionPhase.connected);
+        expect(received.last.snapshot!.transport, 'h3');
+
+        await sub.cancel();
+        await events.close();
+        client.dispose();
+      },
+    );
+
     test('retry encodes control request payload field 14', () async {
       Uint8List? seen;
       final client = DesktopEngineClient.forTest(

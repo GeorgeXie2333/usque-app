@@ -108,6 +108,9 @@ class DesktopEngineTransport {
   int _requestSequence = 0;
   int _startCount = 0;
   bool _disposed = false;
+  StreamController<Uint8List>? _rawEventController;
+  StreamSubscription<dynamic>? _rawEventSubscription;
+  Stream<Uint8List>? _rawEventFrames;
 
   /// Number of times the engine process start path has completed successfully.
   @visibleForTesting
@@ -122,26 +125,49 @@ class DesktopEngineTransport {
       _testSupportsSnapshotEvents ?? Platform.isWindows;
 
   /// Raw length-prefixed event frames from the native event bridge.
+  ///
+  /// The Windows EventChannel is opened once for the UI lifetime. Invalid
+  /// frame types are skipped so they cannot EndOfStream the channel.
   Stream<Uint8List> get rawEventFrames {
     if (_isTestTransport) {
       return _testRawEvents ?? const Stream<Uint8List>.empty();
     }
-    if (!Platform.isWindows) {
+    if (_disposed || !Platform.isWindows) {
       return const Stream<Uint8List>.empty();
     }
-    return _nativeEvents
+    return _rawEventFrames ??= _listenNativeEventFrames();
+  }
+
+  Stream<Uint8List> _listenNativeEventFrames() {
+    final controller = StreamController<Uint8List>.broadcast();
+    _rawEventController = controller;
+    _rawEventSubscription = _nativeEvents
         .receiveBroadcastStream(<String, Object>{
           'pipe_name': '$_endpoint.events',
         })
-        .map<Uint8List>((Object? value) {
-          if (value is! Uint8List) {
-            throw const EngineException(
-              'ENGINE_EVENT_INVALID',
-              'The local Engine returned an invalid event frame.',
-            );
-          }
-          return value;
-        });
+        .listen(
+          (Object? value) {
+            if (value is! Uint8List) {
+              debugPrint('Usque: ignored invalid engine event frame type.');
+              return;
+            }
+            if (!controller.isClosed) {
+              controller.add(value);
+            }
+          },
+          onError: (Object error, StackTrace stackTrace) {
+            if (!controller.isClosed) {
+              controller.addError(error, stackTrace);
+            }
+          },
+          onDone: () {
+            if (!controller.isClosed) {
+              unawaited(controller.close());
+            }
+          },
+          cancelOnError: false,
+        );
+    return controller.stream;
   }
 
   String allocateRequestId() {
@@ -283,6 +309,14 @@ class DesktopEngineTransport {
 
   void dispose() {
     _disposed = true;
+    unawaited(_rawEventSubscription?.cancel());
+    _rawEventSubscription = null;
+    final events = _rawEventController;
+    _rawEventController = null;
+    _rawEventFrames = null;
+    if (events != null && !events.isClosed) {
+      unawaited(events.close());
+    }
     final process = _process;
     _process = null;
     process?.kill();

@@ -13,6 +13,7 @@ import 'package:usque/core/app_strings.dart';
 import 'package:usque/core/usque_theme.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/screens/advanced_settings_screen.dart';
+import 'package:usque/screens/diagnostics_screen.dart';
 import 'package:usque/screens/home_screen.dart';
 import 'package:usque/screens/per_app_proxy_screen.dart';
 import 'package:usque/screens/profiles_screen.dart';
@@ -31,8 +32,8 @@ class FakeEngineClient implements EngineClient {
   bool get supportsSnapshotEvents => false;
 
   @override
-  Stream<EngineSnapshot> get snapshotEvents =>
-      const Stream<EngineSnapshot>.empty();
+  Stream<EngineSnapshotEvent> get snapshotEvents =>
+      const Stream<EngineSnapshotEvent>.empty();
 
   bool provisioned = false;
   IdentityProvisioningMethod? lastProvisioningMethod;
@@ -433,19 +434,35 @@ class FakeEngineClient implements EngineClient {
 }
 
 class EventEngineClient extends FakeEngineClient {
-  final List<StreamController<EngineSnapshot>> eventControllers =
-      <StreamController<EngineSnapshot>>[];
+  final List<StreamController<EngineSnapshotEvent>> eventControllers =
+      <StreamController<EngineSnapshotEvent>>[];
   bool subscribedAfterProfileImport = false;
+  Completer<void>? delayCancel;
 
   @override
   bool get supportsSnapshotEvents => true;
 
   @override
-  Stream<EngineSnapshot> get snapshotEvents {
+  Stream<EngineSnapshotEvent> get snapshotEvents {
     subscribedAfterProfileImport = legacyProfilesImported;
-    final controller = StreamController<EngineSnapshot>.broadcast();
+    final controller = StreamController<EngineSnapshotEvent>(
+      onCancel: () async {
+        final hold = delayCancel;
+        if (hold != null && !hold.isCompleted) {
+          await hold.future;
+        }
+      },
+    );
     eventControllers.add(controller);
     return controller.stream;
+  }
+
+  void emitSnapshot(EngineSnapshot snapshot) {
+    eventControllers.last.add(EngineSnapshotEvent(snapshot: snapshot));
+  }
+
+  void emitHeartbeat() {
+    eventControllers.last.add(const EngineSnapshotEvent());
   }
 
   @override
@@ -542,7 +559,7 @@ void main() {
     );
     expect(builds, 1);
 
-    engine.eventControllers.last.add(
+    engine.emitSnapshot(
       const EngineSnapshot(
         phase: ConnectionPhase.connected,
         downloadBytesPerSecond: 42,
@@ -572,7 +589,7 @@ void main() {
       errorCode: 'PROXY_LISTEN_FAILED',
     );
 
-    engine.eventControllers.last.add(failure);
+    engine.emitSnapshot(failure);
     await tester.pump();
     expect(
       controller.lastError,
@@ -580,7 +597,7 @@ void main() {
     );
     final notificationsAfterFirstError = notifications;
 
-    engine.eventControllers.last.add(failure);
+    engine.emitSnapshot(failure);
     await tester.pump();
     expect(notifications, notificationsAfterFirstError);
     controller.dispose();
@@ -598,9 +615,18 @@ void main() {
       expect(engine.eventControllers, hasLength(1));
       expect(controller.lastError, isNull);
 
-      engine.current = const EngineSnapshot(
+      const live = EngineSnapshot(
         phase: ConnectionPhase.connected,
         transport: 'HTTP/3',
+        addressFamily: 'IPv4',
+      );
+      engine.emitSnapshot(live);
+      await tester.pump();
+      expect(controller.snapshotStreamDegraded, isFalse);
+
+      engine.current = const EngineSnapshot(
+        phase: ConnectionPhase.connected,
+        transport: 'HTTP/2',
         addressFamily: 'IPv4',
       );
       engine.eventControllers.single.addError(
@@ -613,13 +639,15 @@ void main() {
 
       expect(controller.snapshotStreamDegraded, isTrue);
       expect(controller.lastError, isNull);
+      expect(controller.snapshot.transport, 'HTTP/3');
 
       await tester.pump(const Duration(seconds: 1));
       await tester.pump();
       expect(controller.snapshot.phase, ConnectionPhase.connected);
-      expect(engine.eventControllers.length, greaterThanOrEqualTo(2));
+      expect(controller.snapshot.transport, 'HTTP/2');
+      expect(engine.eventControllers, hasLength(2));
 
-      engine.eventControllers.last.add(
+      engine.emitSnapshot(
         const EngineSnapshot(
           phase: ConnectionPhase.connected,
           transport: 'HTTP/2',
@@ -631,6 +659,173 @@ void main() {
       expect(controller.snapshotStreamDegraded, isFalse);
       expect(controller.snapshot.transport, 'HTTP/2');
       expect(controller.lastError, isNull);
+      controller.dispose();
+      await tester.pump();
+    },
+  );
+
+  testWidgets(
+    'cold start disconnected without events is not degraded',
+    (tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final engine = EventEngineClient();
+      final controller = AppController(engine);
+      await controller.initialize();
+
+      expect(controller.snapshotStreamDegraded, isFalse);
+      expect(controller.snapshot.phase, ConnectionPhase.disconnected);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: UsqueTheme.light(),
+          home: DiagnosticsScreen(controller: controller),
+        ),
+      );
+      expect(find.text('Live status updates are degraded'), findsNothing);
+      controller.dispose();
+    },
+  );
+
+  testWidgets(
+    'diagnostics hides the degraded banner while disconnected',
+    (tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final engine = EventEngineClient();
+      final controller = AppController(engine);
+      await controller.initialize();
+
+      engine.emitSnapshot(
+        const EngineSnapshot(phase: ConnectionPhase.connected),
+      );
+      await tester.pump();
+      engine.eventControllers.single.addError(
+        PlatformException(
+          code: 'ENGINE_EVENT_UNAVAILABLE',
+          message: 'test stream failure',
+        ),
+      );
+      await tester.pump();
+      expect(controller.snapshotStreamDegraded, isTrue);
+      expect(controller.snapshot.isConnected, isTrue);
+
+      engine.current = const EngineSnapshot();
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      expect(controller.snapshot.phase, ConnectionPhase.disconnected);
+      expect(controller.snapshotStreamDegraded, isTrue);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: UsqueTheme.light(),
+          home: DiagnosticsScreen(controller: controller),
+        ),
+      );
+      expect(find.text('Live status updates are degraded'), findsNothing);
+      controller.dispose();
+    },
+  );
+
+  testWidgets('error before any live event is not degraded', (tester) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final engine = EventEngineClient();
+    final controller = AppController(engine);
+    await controller.initialize();
+    expect(engine.eventControllers, hasLength(1));
+
+    engine.eventControllers.single.addError(
+      PlatformException(
+        code: 'ENGINE_EVENT_UNAVAILABLE',
+        message: 'test stream failure',
+      ),
+    );
+    await tester.pump();
+
+    expect(controller.snapshotStreamDegraded, isFalse);
+    expect(controller.lastError, isNull);
+
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(engine.eventControllers.length, greaterThanOrEqualTo(2));
+    controller.dispose();
+    await tester.pump();
+  });
+
+  testWidgets(
+    'heartbeat recovers degraded stream without resetting snapshot',
+    (tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final engine = EventEngineClient();
+      final controller = AppController(engine);
+      await controller.initialize();
+
+      const live = EngineSnapshot(
+        phase: ConnectionPhase.connected,
+        transport: 'HTTP/3',
+        addressFamily: 'IPv4',
+      );
+      engine.emitSnapshot(live);
+      await tester.pump();
+      expect(controller.snapshot, live);
+
+      engine.eventControllers.single.addError(
+        PlatformException(
+          code: 'ENGINE_EVENT_UNAVAILABLE',
+          message: 'test stream failure',
+        ),
+      );
+      await tester.pump();
+      expect(controller.snapshotStreamDegraded, isTrue);
+
+      engine.emitHeartbeat();
+      await tester.pump();
+
+      expect(controller.snapshotStreamDegraded, isFalse);
+      expect(controller.snapshot, live);
+      expect(controller.snapshot.transport, 'HTTP/3');
+      controller.dispose();
+    },
+  );
+
+  testWidgets(
+    'reconnect waits for the previous subscription to cancel',
+    (tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final engine = EventEngineClient();
+      final controller = AppController(engine);
+      await controller.initialize();
+      expect(engine.eventControllers, hasLength(1));
+
+      engine.emitSnapshot(
+        const EngineSnapshot(phase: ConnectionPhase.connected),
+      );
+      await tester.pump();
+
+      engine.eventControllers.single.addError(
+        PlatformException(
+          code: 'ENGINE_EVENT_UNAVAILABLE',
+          message: 'first failure',
+        ),
+      );
+      await tester.pump();
+      engine.eventControllers.single.addError(
+        PlatformException(
+          code: 'ENGINE_EVENT_UNAVAILABLE',
+          message: 'second failure',
+        ),
+      );
+      await tester.pump();
+      expect(engine.eventControllers, hasLength(1));
+      expect(controller.snapshotStreamDegraded, isTrue);
+
+      final hold = Completer<void>();
+      engine.delayCancel = hold;
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      expect(engine.eventControllers, hasLength(1));
+
+      hold.complete();
+      await tester.pump();
+      expect(engine.eventControllers, hasLength(2));
       controller.dispose();
       await tester.pump();
     },
@@ -1626,7 +1821,7 @@ void main() {
       await tester.pumpAndSettle();
 
       Future<void> injectStatus(int index) async {
-        engine.eventControllers.last.add(
+        engine.emitSnapshot(
           EngineSnapshot(
             phase: ConnectionPhase.connected,
             downloadBytesPerSecond: index + 1,

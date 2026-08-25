@@ -26,8 +26,9 @@ EngineIpcResult ExchangeEngineFrame(const std::string& pipe_name,
 using EngineEventCallback = std::function<void(EngineIpcResult)>;
 
 // Reconnects to the read-only event pipe until |active| becomes false. The
-// callback is invoked for each complete length-prefixed protobuf frame, or once
-// with a non-recoverable validation/access error.
+// callback is invoked only for complete length-prefixed protobuf frames.
+// Recoverable pipe failures reconnect internally; fatal validation errors wait
+// while |active| remains true and do not end the Dart EventChannel.
 void StreamEngineEvents(const std::string& pipe_name,
                         const std::shared_ptr<std::atomic_bool>& active,
                         EngineEventCallback callback);

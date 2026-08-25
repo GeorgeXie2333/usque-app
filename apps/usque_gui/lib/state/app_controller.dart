@@ -29,10 +29,11 @@ class AppController extends ChangeNotifier {
   SharedPreferences? _preferences;
   Timer? _snapshotTimer;
   Timer? _snapshotReconnectTimer;
-  StreamSubscription<EngineSnapshot>? _snapshotSubscription;
+  StreamSubscription<EngineSnapshotEvent>? _snapshotSubscription;
   Future<void> _profileWriteTail = Future<void>.value();
   int _snapshotReconnectAttempt = 0;
   int _snapshotSubscriptionGeneration = 0;
+  bool _snapshotStreamEstablished = false;
   bool _disposed = false;
 
   bool initialized = false;
@@ -154,7 +155,7 @@ class AppController extends ChangeNotifier {
       perAppProxy = const PerAppProxySettings();
     }
     if (_engine.supportsSnapshotEvents) {
-      _subscribeToSnapshotEvents();
+      unawaited(_subscribeToSnapshotEvents());
     }
     initialized = true;
     _notifyListeners();
@@ -901,7 +902,7 @@ class AppController extends ChangeNotifier {
     _snapshotTimer = null;
   }
 
-  void _subscribeToSnapshotEvents() {
+  Future<void> _subscribeToSnapshotEvents() async {
     if (_disposed || !_engine.supportsSnapshotEvents) {
       return;
     }
@@ -909,29 +910,40 @@ class AppController extends ChangeNotifier {
     _snapshotReconnectTimer = null;
     final previous = _snapshotSubscription;
     _snapshotSubscription = null;
-    if (previous != null) {
-      unawaited(previous.cancel());
-    }
     final generation = ++_snapshotSubscriptionGeneration;
-    _snapshotSubscription = _engine.snapshotEvents.listen(
-      (EngineSnapshot next) => _handleSnapshotEvent(next, generation),
-      onError: (Object error, StackTrace stackTrace) =>
-          _handleSnapshotEventError(error, stackTrace, generation),
-      onDone: () => _handleSnapshotEventDone(generation),
-      cancelOnError: true,
-    );
-  }
-
-  void _handleSnapshotEvent(EngineSnapshot next, int generation) {
+    if (previous != null) {
+      await previous.cancel();
+    }
     if (_disposed || generation != _snapshotSubscriptionGeneration) {
       return;
     }
+    _snapshotSubscription = _engine.snapshotEvents.listen(
+      (EngineSnapshotEvent event) => _handleSnapshotEvent(event, generation),
+      onError: (Object error, StackTrace stackTrace) =>
+          _handleSnapshotEventError(error, stackTrace, generation),
+      onDone: () => _handleSnapshotEventDone(generation),
+      cancelOnError: false,
+    );
+  }
+
+  void _handleSnapshotEvent(EngineSnapshotEvent event, int generation) {
+    if (_disposed || generation != _snapshotSubscriptionGeneration) {
+      return;
+    }
+    _snapshotStreamEstablished = true;
     final wasDegraded = snapshotStreamDegraded;
     _snapshotReconnectAttempt = 0;
     _snapshotReconnectTimer?.cancel();
     _snapshotReconnectTimer = null;
     snapshotStreamDegraded = false;
     _stopPolling();
+    final next = event.snapshot;
+    if (next == null) {
+      if (wasDegraded) {
+        _notifyListeners();
+      }
+      return;
+    }
     final nextError =
         next.phase == ConnectionPhase.error &&
             (next.warning?.trim().isNotEmpty ?? false)
@@ -968,8 +980,10 @@ class AppController extends ChangeNotifier {
     if (_disposed || generation != _snapshotSubscriptionGeneration) {
       return;
     }
-    _snapshotSubscription = null;
-    snapshotStreamDegraded = true;
+    final established = _snapshotStreamEstablished;
+    if (established) {
+      snapshotStreamDegraded = true;
+    }
     _startPolling(force: true);
     if (_snapshotReconnectTimer == null) {
       final delay =
@@ -982,10 +996,12 @@ class AppController extends ChangeNotifier {
       }
       _snapshotReconnectTimer = Timer(delay, () {
         _snapshotReconnectTimer = null;
-        _subscribeToSnapshotEvents();
+        unawaited(_subscribeToSnapshotEvents());
       });
     }
-    _notifyListeners();
+    if (established) {
+      _notifyListeners();
+    }
   }
 
   @override

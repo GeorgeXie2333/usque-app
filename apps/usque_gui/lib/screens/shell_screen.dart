@@ -147,6 +147,7 @@ class ShellScreen extends StatelessWidget {
           ControllerSelector<
             ({
               EngineSnapshot snapshot,
+              ConnectionPhase phase,
               bool streamDegraded,
               bool busy,
               String? error,
@@ -159,6 +160,7 @@ class ShellScreen extends StatelessWidget {
                 controller.section == AppSection.diagnostics,
             selector: (controller) => (
               snapshot: controller.snapshot,
+              phase: controller.snapshot.phase,
               streamDegraded: controller.snapshotStreamDegraded,
               busy: controller.busy,
               error: controller.lastError,
