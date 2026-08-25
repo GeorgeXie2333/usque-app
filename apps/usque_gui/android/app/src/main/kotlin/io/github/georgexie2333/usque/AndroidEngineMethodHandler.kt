@@ -1568,9 +1568,11 @@ internal class AndroidEngineMethodHandler(
             "warp_plus" -> {
                 """{"version":1,"provider":"consumer","entitlement":"warp_plus"}"""
             }
+
             "free" -> {
                 """{"version":1,"provider":"consumer","entitlement":"free"}"""
             }
+
             else -> {
                 """{"version":1,"provider":"consumer"}"""
             }

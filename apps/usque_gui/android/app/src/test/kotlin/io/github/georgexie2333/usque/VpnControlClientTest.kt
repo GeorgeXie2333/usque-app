@@ -248,7 +248,10 @@ class VpnControlClientTest {
         assertEquals(UsqueVpnService.MSG_RECONFIGURE, endpoint.messages.single().what)
         assertEquals(
             profileJson,
-            endpoint.messages.single().extras?.get(UsqueVpnService.EXTRA_PROFILE_JSON),
+            endpoint.messages
+                .single()
+                .extras
+                ?.get(UsqueVpnService.EXTRA_PROFILE_JSON),
         )
         assertEquals(0, result.completionCount)
         assertEquals(1, client.pendingSnapshotCountForTest())
