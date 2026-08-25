@@ -119,6 +119,7 @@ pub struct AgentCoordinator<Backend> {
     store: JournalStore,
     journal: Mutex<RecoveryJournal>,
     packet_session_attached: AtomicBool,
+    tunnel_lease_attached: AtomicBool,
     tunnel_lease_epoch: AtomicU64,
 }
 
@@ -135,6 +136,7 @@ where
             // Packet mappings, events, and Wintun sessions are process-local.
             // A journal loaded by a fresh Agent can never imply a live session.
             packet_session_attached: AtomicBool::new(false),
+            tunnel_lease_attached: AtomicBool::new(false),
             tunnel_lease_epoch: AtomicU64::new(0),
         })
     }
@@ -454,15 +456,44 @@ where
         if !self.packet_session_attached.load(Ordering::Acquire) {
             return Err(CoordinatorError::PacketSessionNotAttached);
         }
+        if self.tunnel_lease_attached.swap(true, Ordering::AcqRel) {
+            return Err(CoordinatorError::TunnelLeaseAlreadyAttached);
+        }
         self.tunnel_lease_epoch.fetch_add(1, Ordering::AcqRel);
         Ok(journal.clone())
+    }
+
+    /// Releases the connection that owns tunnel setup before it is promoted
+    /// to the active liveness lease. A later active lease changes the epoch and
+    /// invalidates the corresponding startup watchdog.
+    pub async fn release_startup_tunnel_lease(
+        &self,
+        operation_id: Uuid,
+        caller: &AuthenticatedCaller,
+    ) -> Result<Option<u64>, CoordinatorError> {
+        validate_caller(caller)?;
+        let journal = self.journal.lock().await;
+        if !matches!(
+            journal.phase,
+            RecoveryPhase::Prepared | RecoveryPhase::Active
+        ) || journal.operation_kind != Some(OperationKind::Tunnel)
+            || journal.operation_id != Some(operation_id)
+            || journal.owner_sid.as_deref() != Some(caller.user_sid.as_str())
+            || journal.owner_process_id != Some(caller.process_id)
+            || self.tunnel_lease_attached.load(Ordering::Acquire)
+        {
+            return Ok(None);
+        }
+        Ok(Some(
+            self.tunnel_lease_epoch.fetch_add(1, Ordering::AcqRel) + 1,
+        ))
     }
 
     pub async fn release_tunnel_lease(
         &self,
         operation_id: Uuid,
         caller: &AuthenticatedCaller,
-    ) -> Result<u64, CoordinatorError> {
+    ) -> Result<Option<u64>, CoordinatorError> {
         validate_caller(caller)?;
         let mut journal = self.journal.lock().await;
         if journal.phase != RecoveryPhase::Active
@@ -471,10 +502,11 @@ where
             || journal.owner_sid.as_deref() != Some(caller.user_sid.as_str())
             || journal.owner_process_id != Some(caller.process_id)
             || !self.packet_session_attached.load(Ordering::Acquire)
+            || !self.tunnel_lease_attached.load(Ordering::Acquire)
         {
             // A normal rollback may win the race with lease EOF. Never let a
             // stale lease mutate a newer transaction.
-            return Ok(self.tunnel_lease_epoch.load(Ordering::Acquire));
+            return Ok(None);
         }
         let index = journal
             .steps
@@ -497,8 +529,33 @@ where
             return Err(error.into());
         }
         self.packet_session_attached.store(false, Ordering::Release);
+        self.tunnel_lease_attached.store(false, Ordering::Release);
         self.store.save(&mut journal)?;
-        Ok(self.tunnel_lease_epoch.fetch_add(1, Ordering::AcqRel) + 1)
+        Ok(Some(
+            self.tunnel_lease_epoch.fetch_add(1, Ordering::AcqRel) + 1,
+        ))
+    }
+
+    /// Recovers Prepared, or the narrow post-Commit/pre-lease Active window,
+    /// when the Engine connection that owned startup disappears.
+    pub async fn recover_orphaned_startup_tunnel(
+        &self,
+        operation_id: Uuid,
+        lease_epoch: u64,
+    ) -> Result<bool, CoordinatorError> {
+        let mut journal = self.journal.lock().await;
+        if !matches!(
+            journal.phase,
+            RecoveryPhase::Prepared | RecoveryPhase::Active
+        ) || journal.operation_kind != Some(OperationKind::Tunnel)
+            || journal.operation_id != Some(operation_id)
+            || self.tunnel_lease_attached.load(Ordering::Acquire)
+            || self.tunnel_lease_epoch.load(Ordering::Acquire) != lease_epoch
+        {
+            return Ok(false);
+        }
+        self.recover_locked(&mut journal).await?;
+        Ok(true)
     }
 
     /// Recovers an active tunnel whose Engine lease disappeared and was not
@@ -514,6 +571,7 @@ where
             || journal.operation_kind != Some(OperationKind::Tunnel)
             || journal.operation_id != Some(operation_id)
             || self.packet_session_attached.load(Ordering::Acquire)
+            || self.tunnel_lease_attached.load(Ordering::Acquire)
             || self.tunnel_lease_epoch.load(Ordering::Acquire) != lease_epoch
         {
             return Ok(false);
@@ -893,6 +951,8 @@ where
     }
 
     async fn recover_locked(&self, journal: &mut RecoveryJournal) -> Result<(), CoordinatorError> {
+        self.tunnel_lease_attached.store(false, Ordering::Release);
+        self.tunnel_lease_epoch.fetch_add(1, Ordering::AcqRel);
         journal.phase = RecoveryPhase::Recovering;
         journal.pause_deadline_unix_seconds = None;
         // Persistence failure must never prevent the actual cleanup. A final
@@ -1113,6 +1173,8 @@ pub enum CoordinatorError {
     PacketSessionAlreadyAttached,
     #[error("the active packet session is not attached to an Engine")]
     PacketSessionNotAttached,
+    #[error("the active tunnel already has an Engine liveness lease")]
+    TunnelLeaseAlreadyAttached,
     #[error("a packet session must be open before default routes are committed")]
     PacketSessionRequired,
     #[error("privileged backend returned no duplicated packet handles")]
@@ -1922,6 +1984,99 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn startup_lease_eof_recovers_a_prepared_tunnel() {
+        let backend = Arc::new(MockBackend::default());
+        let (_directory, coordinator) = coordinator(Arc::clone(&backend));
+        let operation = Uuid::new_v4();
+        let owner = caller();
+        coordinator
+            .prepare(operation, plan(), owner.clone())
+            .await
+            .expect("prepare");
+
+        let epoch = coordinator
+            .release_startup_tunnel_lease(operation, &owner)
+            .await
+            .expect("startup lease EOF")
+            .expect("startup watchdog armed");
+        assert!(
+            coordinator
+                .recover_orphaned_startup_tunnel(operation, epoch)
+                .await
+                .expect("startup watchdog")
+        );
+        assert_eq!(coordinator.state().await.phase, RecoveryPhase::Clean);
+    }
+
+    #[tokio::test]
+    async fn active_lease_promotion_invalidates_the_startup_watchdog() {
+        let backend = Arc::new(MockBackend::default());
+        let (_directory, coordinator) = coordinator(Arc::clone(&backend));
+        let operation = Uuid::new_v4();
+        let owner = caller();
+        coordinator
+            .prepare(operation, plan(), owner.clone())
+            .await
+            .expect("prepare");
+        coordinator
+            .open_packet_session(operation, 1024 * 1024, &owner)
+            .await
+            .expect("packet");
+        coordinator.commit(operation, &owner).await.expect("commit");
+        coordinator
+            .acquire_tunnel_lease(operation, &owner)
+            .await
+            .expect("promote lease");
+
+        let epoch = coordinator
+            .release_startup_tunnel_lease(operation, &owner)
+            .await
+            .expect("stale startup EOF");
+        assert!(epoch.is_none());
+        assert_eq!(coordinator.state().await.phase, RecoveryPhase::Active);
+    }
+
+    #[tokio::test]
+    async fn completed_rollback_does_not_arm_a_lease_watchdog() {
+        let backend = Arc::new(MockBackend::default());
+        let (_directory, coordinator) = coordinator(Arc::clone(&backend));
+        let operation = Uuid::new_v4();
+        let owner = caller();
+        coordinator
+            .prepare(operation, plan(), owner.clone())
+            .await
+            .expect("prepare");
+        coordinator
+            .open_packet_session(operation, 1024 * 1024, &owner)
+            .await
+            .expect("packet");
+        coordinator.commit(operation, &owner).await.expect("commit");
+        coordinator
+            .acquire_tunnel_lease(operation, &owner)
+            .await
+            .expect("lease");
+        coordinator
+            .rollback(operation, &owner)
+            .await
+            .expect("rollback");
+
+        assert!(
+            coordinator
+                .release_tunnel_lease(operation, &owner)
+                .await
+                .expect("lease EOF")
+                .is_none()
+        );
+        assert!(
+            coordinator
+                .release_startup_tunnel_lease(operation, &owner)
+                .await
+                .expect("startup EOF")
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
     async fn orphaned_tunnel_watchdog_recovers_only_its_lease_epoch() {
         let backend = Arc::new(MockBackend::default());
         let (_directory, coordinator) = coordinator(Arc::clone(&backend));
@@ -1945,7 +2100,8 @@ mod tests {
         let stale_epoch = coordinator
             .release_tunnel_lease(operation, &owner)
             .await
-            .expect("first lease EOF");
+            .expect("first lease EOF")
+            .expect("first watchdog armed");
 
         coordinator
             .resume_tunnel(operation, profile_id, &owner)
@@ -1958,7 +2114,8 @@ mod tests {
         let current_epoch = coordinator
             .release_tunnel_lease(operation, &owner)
             .await
-            .expect("replacement lease EOF");
+            .expect("replacement lease EOF")
+            .expect("replacement watchdog armed");
         assert_ne!(stale_epoch, current_epoch);
         assert!(
             !coordinator

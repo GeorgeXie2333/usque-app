@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -10,6 +11,40 @@ import 'engine_client.dart';
 
 const String _pipePrefix =
     r'\\.\pipe\io.github.georgexie2333.usque.engine.v1-ui-';
+const Duration _windowsEngineReadyTimeout = Duration(seconds: 30);
+const int _maximumStartupStderrBytes = 4096;
+
+class _EngineStartupOutcome {
+  const _EngineStartupOutcome.ready() : exitCode = null;
+  const _EngineStartupOutcome.exited(this.exitCode);
+
+  final int? exitCode;
+}
+
+class _BoundedStderrCapture {
+  final BytesBuilder _bytes = BytesBuilder(copy: false);
+  bool _truncated = false;
+
+  void add(List<int> chunk) {
+    final remaining = _maximumStartupStderrBytes - _bytes.length;
+    if (remaining <= 0) {
+      _truncated = true;
+      return;
+    }
+    if (chunk.length <= remaining) {
+      _bytes.add(chunk);
+      return;
+    }
+    _bytes.add(chunk.sublist(0, remaining));
+    _truncated = true;
+  }
+
+  String text() {
+    final value = utf8.decode(_bytes.takeBytes(), allowMalformed: true).trim();
+    if (value.isEmpty) return '';
+    return _truncated ? '$value…' : value;
+  }
+}
 
 /// Process lifecycle, IPC endpoint, framed exchange, and request sequence
 /// numbers for the desktop engine sidecar.
@@ -158,13 +193,13 @@ class DesktopEngineTransport {
       _throwIfDisposed();
       return;
     }
-    if (_process != null) {
-      _throwIfDisposed();
-      return;
-    }
     final existing = _starting;
     if (existing != null) {
       await existing;
+      _throwIfDisposed();
+      return;
+    }
+    if (_process != null) {
       _throwIfDisposed();
       return;
     }
@@ -291,26 +326,83 @@ class DesktopEngineTransport {
       arguments,
       mode: ProcessStartMode.normal,
     );
+    final stderrCapture = _BoundedStderrCapture();
+    final stderrDone = Completer<void>();
+    unawaited(process.stdout.drain<void>());
+    process.stderr.listen(
+      stderrCapture.add,
+      onError: (Object _, StackTrace _) {
+        if (!stderrDone.isCompleted) stderrDone.complete();
+      },
+      onDone: () {
+        if (!stderrDone.isCompleted) stderrDone.complete();
+      },
+      cancelOnError: true,
+    );
+    final exitCode = process.exitCode;
     // Dispose may race Process.start. Never publish an orphaned sidecar.
     if (_disposed) {
       process.kill();
-      unawaited(process.stdout.drain<void>());
-      unawaited(process.stderr.drain<void>());
       throw const EngineException(
         'ENGINE_CLOSED',
         'The Usque Engine client has already closed.',
       );
     }
     _process = process;
-    unawaited(process.stdout.drain<void>());
-    unawaited(process.stderr.drain<void>());
     unawaited(
-      process.exitCode.then((_) {
+      exitCode.then((_) {
         if (identical(_process, process)) {
           _process = null;
         }
       }),
     );
+
+    if (Platform.isWindows) {
+      _EngineStartupOutcome outcome;
+      try {
+        outcome = await Future.any<_EngineStartupOutcome>(
+          <Future<_EngineStartupOutcome>>[
+            _waitForWindowsEnginePipe().then(
+              (_) => const _EngineStartupOutcome.ready(),
+            ),
+            exitCode.then(_EngineStartupOutcome.exited),
+          ],
+        );
+      } on Object {
+        if (identical(_process, process)) _process = null;
+        process.kill();
+        _throwIfDisposed();
+        rethrow;
+      }
+      _throwIfDisposed();
+      final code = outcome.exitCode;
+      if (code != null) {
+        if (identical(_process, process)) _process = null;
+        await stderrDone.future;
+        final stderr = stderrCapture.text();
+        throw EngineException(
+          'ENGINE_START_FAILED',
+          'The local Usque Engine exited during startup with code $code'
+              '${stderr.isEmpty ? '.' : ': $stderr'}',
+        );
+      }
+    }
+  }
+
+  Future<void> _waitForWindowsEnginePipe() async {
+    try {
+      await _nativeTransport
+          .invokeMethod<void>('waitForEnginePipe', <String, Object>{
+            'pipe_name': _endpoint,
+            'timeout_ms': _windowsEngineReadyTimeout.inMilliseconds,
+          });
+    } on PlatformException catch (error) {
+      throw EngineException(
+        error.code,
+        error.message ??
+            'The local Usque Engine did not create its Named Pipe in time.',
+      );
+    }
   }
 }
 

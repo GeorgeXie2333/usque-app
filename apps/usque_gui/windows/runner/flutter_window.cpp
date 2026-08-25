@@ -7,6 +7,7 @@
 #include <shobjidl.h>
 
 #include <atomic>
+#include <limits>
 #include <optional>
 #include <thread>
 #include <variant>
@@ -23,6 +24,7 @@ namespace {
 constexpr UINT kEngineIpcComplete = WM_APP + 17;
 constexpr UINT kEngineEventAvailable = WM_APP + 18;
 constexpr UINT kTrayCallback = WM_APP + 19;
+constexpr UINT kEngineReadyComplete = WM_APP + 20;
 constexpr UINT kTrayOpen = 41001;
 constexpr UINT kTrayToggle = 41002;
 constexpr UINT kTrayDisconnectExit = 41003;
@@ -98,6 +100,11 @@ bool SetStartOnLogin(bool enabled) {
 struct PendingEngineReply {
   std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result;
   EngineIpcResult ipc;
+};
+
+struct PendingEngineReadyReply {
+  std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result;
+  std::string error;
 };
 
 struct PendingEngineEvent {
@@ -246,6 +253,54 @@ bool FlutterWindow::OnCreate() {
             auto* pending = new PendingEngineReply{
                 std::move(result), ExchangeEngineFrame(pipe_name, request)};
             if (!::PostMessageW(window, kEngineIpcComplete, 0,
+                                reinterpret_cast<LPARAM>(pending))) {
+              delete pending;
+            }
+          }).detach();
+          return;
+        }
+        if (call.method_name() == "waitForEnginePipe") {
+          const auto* arguments =
+              std::get_if<flutter::EncodableMap>(call.arguments());
+          if (arguments == nullptr) {
+            result->Error("ENGINE_IPC_INVALID_ARGUMENT",
+                          "Named Pipe readiness arguments are missing.");
+            return;
+          }
+          const auto pipe_iterator =
+              arguments->find(flutter::EncodableValue("pipe_name"));
+          const auto timeout_iterator =
+              arguments->find(flutter::EncodableValue("timeout_ms"));
+          if (pipe_iterator == arguments->end() ||
+              timeout_iterator == arguments->end()) {
+            result->Error(
+                "ENGINE_IPC_INVALID_ARGUMENT",
+                "Named Pipe readiness name or timeout is missing.");
+            return;
+          }
+          const auto* pipe_name =
+              std::get_if<std::string>(&pipe_iterator->second);
+          int64_t timeout_ms = 0;
+          if (const auto* timeout_32 =
+                  std::get_if<int32_t>(&timeout_iterator->second)) {
+            timeout_ms = *timeout_32;
+          } else if (const auto* timeout_64 =
+                         std::get_if<int64_t>(&timeout_iterator->second)) {
+            timeout_ms = *timeout_64;
+          }
+          if (pipe_name == nullptr || timeout_ms <= 0 ||
+              timeout_ms > std::numeric_limits<uint32_t>::max()) {
+            result->Error("ENGINE_IPC_INVALID_ARGUMENT",
+                          "Named Pipe readiness arguments are invalid.");
+            return;
+          }
+          const HWND window = GetHandle();
+          std::thread([window, pipe_name = *pipe_name,
+                       timeout_ms = static_cast<uint32_t>(timeout_ms),
+                       result = std::move(result)]() mutable {
+            auto* pending = new PendingEngineReadyReply{
+                std::move(result), WaitForEnginePipe(pipe_name, timeout_ms)};
+            if (!::PostMessageW(window, kEngineReadyComplete, 0,
                                 reinterpret_cast<LPARAM>(pending))) {
               delete pending;
             }
@@ -692,6 +747,16 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
             flutter::EncodableValue(pending->ipc.response));
       } else {
         pending->result->Error("ENGINE_IPC_UNAVAILABLE", pending->ipc.error);
+      }
+      return 0;
+    }
+    case kEngineReadyComplete: {
+      std::unique_ptr<PendingEngineReadyReply> pending(
+          reinterpret_cast<PendingEngineReadyReply*>(lparam));
+      if (pending->error.empty()) {
+        pending->result->Success();
+      } else {
+        pending->result->Error("ENGINE_START_UNAVAILABLE", pending->error);
       }
       return 0;
     }

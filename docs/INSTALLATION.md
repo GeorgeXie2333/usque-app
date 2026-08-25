@@ -35,7 +35,23 @@ The interactive installer:
 - lets you choose the install directory;
 - installs the GUI, unprivileged engine, Agent, official Wintun DLL, and Start Menu shortcut;
 - keeps that directory on a major upgrade;
+- installs the Agent as a demand-start service and does not leave it running;
 - does not start a VPN during install.
+
+After installation, an interactive Windows user can start the Agent through
+Usque without another UAC prompt. The service ACL grants that user only start
+and status-query access; stopping, deleting, or reconfiguring the service still
+requires an administrator. The Agent starts when the Engine first needs a
+privileged operation and exits after the recovery journal has been clean, with
+no clients or recovery jobs, for 10 seconds.
+
+The service temporarily changes itself to automatic start before Usque records
+or applies privileged network state. This lets the next boot recover an
+interrupted VPN or system-proxy transaction. A lost Engine tunnel lease gets a
+30-second reattachment window; if no Engine returns, the Agent restores Usque
+network state, changes back to demand start, and exits. `RecoveryRequired` is
+the safety exception: the Agent remains available and automatic until an
+explicit recovery succeeds, rather than abandoning privileged network residue.
 
 ### Upgrade
 
@@ -58,6 +74,14 @@ Confirming Uninstall starts Windows Installer, which then:
 The shared Wintun driver package stays, because another application may use it. A successful uninstall must not leave an Usque Wintun adapter.
 
 The data-deletion option cannot be undone and does not affect other Windows users. Leave it unchecked to keep local data for a later reinstall. Silent uninstall (`msiexec /x {ProductCode} /qn`, or the registered `QuietUninstallString`) also keeps data unless an administrator sets `USQUE_REMOVE_USER_DATA=1`. Upgrades never show the confirmation dialog and never purge user data. Re-running the MSI while Usque is installed still offers the same default-off deletion checkbox on the maintenance remove path.
+
+MSI Repair, Modify, and Patch are not supported, and the Start Menu shortcut is
+non-advertised so launching it cannot trigger MSI self-repair. Repair could stop
+the Agent or overwrite the crash-recovery start mode while privileged network
+state is active. The installer explains this if Repair is selected, and
+command-line maintenance is rejected before `StopServices`. Use the supported
+major-upgrade path, or uninstall and reinstall while leaving the data-deletion
+checkbox off.
 
 If recovery fails, uninstall stops rather than leaving privileged network residue behind. Recovery and leak testing belong on a snapshot VM, not on a daily-driver machine. Development-machine limits are in [CONTRIBUTING.md](../CONTRIBUTING.md).
 

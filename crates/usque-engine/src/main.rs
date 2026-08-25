@@ -80,6 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_writer(log_writer)
         .json()
         .init();
+    install_panic_logging();
 
     let service = ControlService::open(store)?;
     if let Err(error) = service.migrate_shared_proxy_password().await {
@@ -152,6 +153,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     info!("shutdown requested");
     Ok(())
+}
+
+/// Preserve the source of release-profile aborts in the same bounded,
+/// privacy-filtered log as the rest of the Engine diagnostics. The default
+/// hook is retained so an attached debugger or stderr collector still sees
+/// Rust's normal panic report.
+fn install_panic_logging() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let location = info.location();
+        let message = info
+            .payload()
+            .downcast_ref::<&str>()
+            .copied()
+            .or_else(|| info.payload().downcast_ref::<String>().map(String::as_str))
+            .unwrap_or("non-string panic payload");
+        tracing::error!(
+            panic_message = message,
+            panic_file = location.map(|location| location.file()),
+            panic_line = location.map(|location| location.line()),
+            panic_column = location.map(|location| location.column()),
+            "unhandled Engine panic"
+        );
+        default_hook(info);
+    }));
 }
 
 #[cfg(windows)]

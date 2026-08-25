@@ -69,7 +69,22 @@ stable ordinal = 99
 
 Stable `v0.1.3` is therefore MSI ProductVersion `0.1.399`. The real SemVer stays in ProductName and the filenames. Equal-version major upgrades are enabled so a validation build can replace the same product instead of installing a second copy under `Program Files\Usque`. WiX validation suppresses only ICE61, which assumes upgrades must raise the version; every other standard ICE check stays on.
 
-The build rejects unsigned project EXE/DLL files, a signer mismatch, PDBs, reparse points, a modified Wintun DLL, a wrong service command, a wrong uninstall action/condition sequence, a 32-bit component, or an ICE failure. True uninstall runs emergency WFP cleanup, journal recovery, optional current-user data cleanup, and clean-state finalization after the service stops and before its binary is removed. A major upgrade runs the first two actions but skips user-data cleanup and clean-state finalization so the replacement service keeps user state and the machine-state directory. The installer UI exposes `INSTALLFOLDER` and stores the chosen path in the 64-bit machine registry for the next major upgrade.
+The Agent is installed as demand-start and is not started by the MSI. Its
+`MsiLockPermissionsEx` descriptor gives `SYSTEM` and Administrators full service
+control and gives the well-known `INTERACTIVE` SID only
+`SERVICE_QUERY_STATUS | SERVICE_START`. The package must contain no legacy
+`LockPermissions` table. At runtime every non-clean recovery phase maps to Auto
+start, and only a durably Clean journal maps back to Demand start. Engine cold
+start waits up to 30 seconds for the named pipe; Clean idle exit is 10 seconds
+and tunnel reattachment grace is 30 seconds.
+
+The Start Menu shortcut is deliberately non-advertised and lives in its own
+HKCU-KeyPath component. Repair, Modify, and Patch are unsupported: the UI shows
+an explanation, and an execute-sequence error action rejects command-line
+maintenance before `StopServices`. Normal uninstall and major upgrade remain
+allowed.
+
+The build rejects unsigned project EXE/DLL files, a signer mismatch, PDBs, reparse points, a modified Wintun DLL, a wrong service command/start type/DACL, an advertised shortcut, a missing maintenance guard, a wrong uninstall action/condition sequence, a 32-bit component, or an ICE failure. True uninstall runs emergency WFP cleanup, journal recovery, optional current-user data cleanup, and clean-state finalization after the service stops and before its binary is removed. A major upgrade runs the first two actions but skips user-data cleanup and clean-state finalization so the replacement service keeps user state and the machine-state directory. The installer UI exposes `INSTALLFOLDER` and stores the chosen path in the 64-bit machine registry for the next major upgrade.
 
 Uninstall keeps the current user's profiles, preferences, logs, caches, and Credential Manager records by default. Settings does not host the MSI wizard, so the package hides the Windows Installer ARP entry (`ARPSYSTEMCOMPONENT`) and registers `usque-uninstall.exe` as the visible uninstall command. That helper asks for confirmation and, only if requested, passes `USQUE_REMOVE_USER_DATA=1` into `msiexec`. Deletion covers only that user's Usque directories and credential namespace. Silent uninstall (`QuietUninstallString` / `msiexec /x /qn`) keeps data unless `USQUE_REMOVE_USER_DATA=1` is set. The shared Wintun driver package is not removed.
 

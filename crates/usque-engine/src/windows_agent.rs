@@ -1,5 +1,12 @@
-use std::{io, net::SocketAddr, ptr::NonNull, sync::Arc, time::Duration};
+use std::{
+    io, mem,
+    net::SocketAddr,
+    ptr::{self, NonNull},
+    sync::Arc,
+    time::Duration,
+};
 
+use async_trait::async_trait;
 use bytes::BytesMut;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -31,10 +38,19 @@ use usque_transport::{
 use uuid::Uuid;
 use windows_sys::Win32::{
     Foundation::{
-        CloseHandle, ERROR_FILE_NOT_FOUND, ERROR_PIPE_BUSY, HANDLE, WAIT_FAILED, WAIT_OBJECT_0,
+        CloseHandle, ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND, ERROR_PIPE_BUSY,
+        ERROR_SERVICE_ALREADY_RUNNING, ERROR_SERVICE_DISABLED, ERROR_SERVICE_DOES_NOT_EXIST,
+        ERROR_SERVICE_MARKED_FOR_DELETE, ERROR_SERVICE_REQUEST_TIMEOUT, HANDLE, WAIT_FAILED,
+        WAIT_OBJECT_0,
     },
     System::{
         Memory::{FILE_MAP_ALL_ACCESS, MEMORY_MAPPED_VIEW_ADDRESS, MapViewOfFile, UnmapViewOfFile},
+        Services::{
+            CloseServiceHandle, OpenSCManagerW, OpenServiceW, QueryServiceStatusEx, SC_HANDLE,
+            SC_MANAGER_CONNECT, SC_STATUS_PROCESS_INFO, SERVICE_PAUSED, SERVICE_QUERY_STATUS,
+            SERVICE_RUNNING, SERVICE_START, SERVICE_START_PENDING, SERVICE_STATUS_PROCESS,
+            SERVICE_STOP_PENDING, SERVICE_STOPPED, StartServiceW,
+        },
         Threading::{INFINITE, SetEvent, WaitForMultipleObjects},
     },
 };
@@ -42,8 +58,10 @@ use windows_sys::Win32::{
 const AGENT_PIPE_NAME: &str = r"\\.\pipe\io.github.georgexie2333.usque.agent.v1";
 const AGENT_PROTOCOL_VERSION: u32 = 2;
 const MAX_AGENT_FRAME_BYTES: usize = 64 * 1024;
-const AGENT_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+const AGENT_START_TIMEOUT: Duration = Duration::from_secs(30);
 const AGENT_RPC_TIMEOUT: Duration = Duration::from_secs(30);
+const AGENT_START_POLL_INTERVAL: Duration = Duration::from_millis(50);
+const AGENT_START_RECHECK_INTERVAL: Duration = Duration::from_millis(250);
 const PUMP_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 const DEFAULT_PACKET_RING_CAPACITY: u32 = 4 * 1024 * 1024;
 
@@ -257,31 +275,32 @@ impl WindowsVpnRuntime {
         let capabilities = agent.get_capabilities().await?;
         validate_capabilities(&capabilities, profile.kill_switch)?;
         let state = agent.get_state().await?;
-        let (operation_id, resuming) = match agent_v1::AgentPhase::try_from(state.phase) {
-            Ok(agent_v1::AgentPhase::Clean) => {
-                let operation_id = Uuid::new_v4();
-                let plan = tunnel_plan(profile, &identity, &registration_api);
-                agent.prepare(operation_id, plan).await?;
-                (operation_id, false)
-            }
-            Ok(agent_v1::AgentPhase::Active) if state.profile_id == profile.id.to_string() => {
-                let operation_id = Uuid::parse_str(&state.operation_id)
-                    .map_err(|_| WindowsVpnError::InvalidAgentOperationId)?;
-                (operation_id, true)
-            }
-            Ok(agent_v1::AgentPhase::Active) => {
-                return Err(WindowsVpnError::ActiveProfileMismatch {
-                    active: state.profile_id,
-                    requested: profile.id,
-                });
-            }
-            _ => {
-                return Err(WindowsVpnError::RecoveryRequired {
-                    phase: state.phase,
-                    operation_id: state.operation_id,
-                });
-            }
-        };
+        let (operation_id, resuming, startup_lease) =
+            match agent_v1::AgentPhase::try_from(state.phase) {
+                Ok(agent_v1::AgentPhase::Clean) => {
+                    let operation_id = Uuid::new_v4();
+                    let plan = tunnel_plan(profile, &identity, &registration_api);
+                    let lease = agent.prepare(operation_id, plan).await?;
+                    (operation_id, false, Some(lease))
+                }
+                Ok(agent_v1::AgentPhase::Active) if state.profile_id == profile.id.to_string() => {
+                    let operation_id = Uuid::parse_str(&state.operation_id)
+                        .map_err(|_| WindowsVpnError::InvalidAgentOperationId)?;
+                    (operation_id, true, None)
+                }
+                Ok(agent_v1::AgentPhase::Active) => {
+                    return Err(WindowsVpnError::ActiveProfileMismatch {
+                        active: state.profile_id,
+                        requested: profile.id,
+                    });
+                }
+                _ => {
+                    return Err(WindowsVpnError::RecoveryRequired {
+                        phase: state.phase,
+                        operation_id: state.operation_id,
+                    });
+                }
+            };
 
         let tunnel = match MasqueRuntime::start_with_refresh(
             profile,
@@ -297,7 +316,16 @@ impl WindowsVpnRuntime {
                 return Err(error.into());
             }
         };
-        match bind_agent_session(profile, tunnel, agent, operation_id, resuming).await {
+        match bind_agent_session(
+            profile,
+            tunnel,
+            agent,
+            operation_id,
+            resuming,
+            startup_lease,
+        )
+        .await
+        {
             Ok(runtime) => Ok(runtime),
             Err((mut tunnel, error)) => {
                 tunnel.shutdown().await;
@@ -387,10 +415,19 @@ impl WindowsVpnRuntime {
             tunnel.assigned_ipv6(),
             &registration_api,
         );
-        if let Err(error) = agent.prepare(operation_id, plan).await {
-            return Err((tunnel, error));
-        }
-        bind_agent_session(profile, tunnel, agent, operation_id, false).await
+        let startup_lease = match agent.prepare(operation_id, plan).await {
+            Ok(lease) => lease,
+            Err(error) => return Err((tunnel, error)),
+        };
+        bind_agent_session(
+            profile,
+            tunnel,
+            agent,
+            operation_id,
+            false,
+            Some(startup_lease),
+        )
+        .await
     }
 
     /// Tear down Wintun/WFP and return the live MASQUE session.
@@ -562,6 +599,7 @@ async fn bind_agent_session(
     agent: WindowsAgentClient,
     operation_id: Uuid,
     resuming: bool,
+    startup_lease: Option<NamedPipeClient>,
 ) -> Result<WindowsVpnRuntime, (MasqueRuntime, WindowsVpnError)> {
     let tun_io = match tunnel.attach_tun() {
         Ok(tun_io) => tun_io,
@@ -617,7 +655,11 @@ async fn bind_agent_session(
         return Err((tunnel, error));
     }
 
-    let lease = match agent.open_liveness_lease(operation_id).await {
+    let lease_result = match startup_lease {
+        Some(lease) => agent.promote_liveness_lease(operation_id, lease).await,
+        None => agent.open_liveness_lease(operation_id).await,
+    };
+    let lease = match lease_result {
         Ok(lease) => lease,
         Err(error) => {
             mapping.signal_shutdown();
@@ -982,15 +1024,259 @@ async fn stop_tasks(tasks: Vec<JoinHandle<()>>) {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct AgentServiceStatus {
+    state: u32,
+    win32_exit_code: u32,
+    service_exit_code: u32,
+}
+
+#[async_trait]
+trait AgentServiceController: Send + Sync {
+    async fn ensure_started(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<(), AgentServiceControlError>;
+
+    async fn status(&self) -> Result<AgentServiceStatus, AgentServiceControlError>;
+}
+
+struct ScmAgentServiceController {
+    service_name: Arc<str>,
+}
+
+impl ScmAgentServiceController {
+    fn production() -> Self {
+        Self {
+            service_name: Arc::from("UsqueAgent"),
+        }
+    }
+}
+
+#[async_trait]
+impl AgentServiceController for ScmAgentServiceController {
+    async fn ensure_started(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<(), AgentServiceControlError> {
+        let service_name = Arc::clone(&self.service_name);
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        tokio::task::spawn_blocking(move || {
+            ensure_service_started_sync(&service_name, std::time::Instant::now() + remaining)
+        })
+        .await
+        .map_err(|error| AgentServiceControlError::Task(error.to_string()))?
+    }
+
+    async fn status(&self) -> Result<AgentServiceStatus, AgentServiceControlError> {
+        let service_name = Arc::clone(&self.service_name);
+        tokio::task::spawn_blocking(move || query_named_service_status(&service_name))
+            .await
+            .map_err(|error| AgentServiceControlError::Task(error.to_string()))?
+    }
+}
+
+#[cfg(test)]
+struct NoopAgentServiceController;
+
+#[cfg(test)]
+#[async_trait]
+impl AgentServiceController for NoopAgentServiceController {
+    async fn ensure_started(
+        &self,
+        _deadline: tokio::time::Instant,
+    ) -> Result<(), AgentServiceControlError> {
+        Ok(())
+    }
+
+    async fn status(&self) -> Result<AgentServiceStatus, AgentServiceControlError> {
+        Ok(AgentServiceStatus {
+            state: SERVICE_STOPPED,
+            win32_exit_code: 0,
+            service_exit_code: 0,
+        })
+    }
+}
+
+fn ensure_service_started_sync(
+    service_name: &str,
+    deadline: std::time::Instant,
+) -> Result<(), AgentServiceControlError> {
+    let (_manager, service) =
+        open_agent_service(service_name, SERVICE_START | SERVICE_QUERY_STATUS)?;
+    loop {
+        let status = query_service_status(service.0)?;
+        match status.state {
+            SERVICE_RUNNING | SERVICE_START_PENDING => return Ok(()),
+            SERVICE_STOPPED => {
+                if std::time::Instant::now() >= deadline {
+                    return Err(AgentServiceControlError::Timeout {
+                        state: status.state,
+                    });
+                }
+                // SAFETY: the handle carries SERVICE_START and the Agent does
+                // not accept runtime service arguments.
+                if unsafe { StartServiceW(service.0, 0, ptr::null()) } != 0 {
+                    return Ok(());
+                }
+                let error = io::Error::last_os_error();
+                if error.raw_os_error().map(|value| value as u32)
+                    == Some(ERROR_SERVICE_ALREADY_RUNNING)
+                {
+                    return Ok(());
+                }
+                return Err(classify_service_error("start UsqueAgent", error));
+            }
+            SERVICE_STOP_PENDING => {
+                if std::time::Instant::now() >= deadline {
+                    return Err(AgentServiceControlError::Timeout {
+                        state: status.state,
+                    });
+                }
+                std::thread::sleep(AGENT_START_POLL_INTERVAL);
+            }
+            SERVICE_PAUSED => {
+                return Err(AgentServiceControlError::UnexpectedState(status.state));
+            }
+            state => return Err(AgentServiceControlError::UnexpectedState(state)),
+        }
+    }
+}
+
+fn query_named_service_status(
+    service_name: &str,
+) -> Result<AgentServiceStatus, AgentServiceControlError> {
+    let (_manager, service) = open_agent_service(service_name, SERVICE_QUERY_STATUS)?;
+    query_service_status(service.0)
+}
+
+fn open_agent_service(
+    service_name: &str,
+    access: u32,
+) -> Result<(OwnedScHandle, OwnedScHandle), AgentServiceControlError> {
+    // SAFETY: null machine/database names select the local active SCM database.
+    let manager =
+        OwnedScHandle::new(unsafe { OpenSCManagerW(ptr::null(), ptr::null(), SC_MANAGER_CONNECT) })
+            .map_err(|error| classify_service_error("open the Service Control Manager", error))?;
+    let name = wide(service_name);
+    // SAFETY: name is null-terminated and manager is a live SCM handle.
+    let service = OwnedScHandle::new(unsafe { OpenServiceW(manager.0, name.as_ptr(), access) })
+        .map_err(|error| classify_service_error("open UsqueAgent", error))?;
+    Ok((manager, service))
+}
+
+fn query_service_status(
+    service: SC_HANDLE,
+) -> Result<AgentServiceStatus, AgentServiceControlError> {
+    let mut status = mem::MaybeUninit::<SERVICE_STATUS_PROCESS>::zeroed();
+    let mut required = 0_u32;
+    // SAFETY: status points to writable storage of the exact required type.
+    if unsafe {
+        QueryServiceStatusEx(
+            service,
+            SC_STATUS_PROCESS_INFO,
+            status.as_mut_ptr().cast(),
+            mem::size_of::<SERVICE_STATUS_PROCESS>() as u32,
+            &mut required,
+        )
+    } == 0
+    {
+        return Err(classify_service_error(
+            "query UsqueAgent status",
+            io::Error::last_os_error(),
+        ));
+    }
+    // SAFETY: the successful API call initialized the structure.
+    let status = unsafe { status.assume_init() };
+    Ok(AgentServiceStatus {
+        state: status.dwCurrentState,
+        win32_exit_code: status.dwWin32ExitCode,
+        service_exit_code: status.dwServiceSpecificExitCode,
+    })
+}
+
+fn classify_service_error(operation: &'static str, error: io::Error) -> AgentServiceControlError {
+    match error.raw_os_error().map(|value| value as u32) {
+        Some(ERROR_ACCESS_DENIED) => AgentServiceControlError::AccessDenied,
+        Some(ERROR_SERVICE_DISABLED) => AgentServiceControlError::Disabled,
+        Some(ERROR_SERVICE_DOES_NOT_EXIST) => AgentServiceControlError::Missing,
+        Some(ERROR_SERVICE_MARKED_FOR_DELETE) => AgentServiceControlError::MarkedForDelete,
+        Some(ERROR_SERVICE_REQUEST_TIMEOUT) => AgentServiceControlError::RequestTimeout,
+        _ => AgentServiceControlError::Io { operation, error },
+    }
+}
+
+struct OwnedScHandle(SC_HANDLE);
+
+impl OwnedScHandle {
+    fn new(handle: SC_HANDLE) -> io::Result<Self> {
+        if handle.is_null() {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(Self(handle))
+        }
+    }
+}
+
+impl Drop for OwnedScHandle {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            // SAFETY: this wrapper uniquely owns the SCM handle.
+            unsafe {
+                CloseServiceHandle(self.0);
+            }
+        }
+    }
+}
+
+fn wide(value: &str) -> Vec<u16> {
+    value.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum AgentServiceControlError {
+    #[error("Windows denied permission to start the Usque Agent service")]
+    AccessDenied,
+    #[error("the Usque Agent service is disabled")]
+    Disabled,
+    #[error("the Usque Agent service is not installed")]
+    Missing,
+    #[error("the Usque Agent service is marked for deletion")]
+    MarkedForDelete,
+    #[error("the Service Control Manager timed out while starting Usque Agent")]
+    RequestTimeout,
+    #[error("the Usque Agent service entered unsupported state {0}")]
+    UnexpectedState(u32),
+    #[error("the Usque Agent service did not become ready before timeout (state {state})")]
+    Timeout { state: u32 },
+    #[error(
+        "the Usque Agent service stopped before its pipe became ready (Win32 {win32_exit_code}, service {service_exit_code})"
+    )]
+    Stopped {
+        win32_exit_code: u32,
+        service_exit_code: u32,
+    },
+    #[error("could not {operation}: {error}")]
+    Io {
+        operation: &'static str,
+        #[source]
+        error: io::Error,
+    },
+    #[error("Agent service-control task failed: {0}")]
+    Task(String),
+}
+
 #[derive(Clone)]
 struct WindowsAgentClient {
     pipe_name: Arc<str>,
+    service_controller: Arc<dyn AgentServiceController>,
 }
 
 impl WindowsAgentClient {
     fn production() -> Self {
         Self {
             pipe_name: Arc::from(AGENT_PIPE_NAME),
+            service_controller: Arc::new(ScmAgentServiceController::production()),
         }
     }
 
@@ -998,6 +1284,18 @@ impl WindowsAgentClient {
     fn for_test(pipe_name: String) -> Self {
         Self {
             pipe_name: Arc::from(pipe_name),
+            service_controller: Arc::new(NoopAgentServiceController),
+        }
+    }
+
+    #[cfg(test)]
+    fn for_test_with_controller(
+        pipe_name: String,
+        service_controller: Arc<dyn AgentServiceController>,
+    ) -> Self {
+        Self {
+            pipe_name: Arc::from(pipe_name),
+            service_controller,
         }
     }
 
@@ -1027,20 +1325,25 @@ impl WindowsAgentClient {
         &self,
         operation_id: Uuid,
         plan: agent_v1::TunnelPlan,
-    ) -> Result<AgentState, WindowsVpnError> {
-        match self
-            .call(agent_request::Payload::PrepareTunnel(
-                PrepareTunnelRequest {
+    ) -> Result<NamedPipeClient, WindowsVpnError> {
+        let mut pipe = self.open_pipe().await?;
+        let response = timeout(
+            AGENT_RPC_TIMEOUT,
+            self.exchange(
+                &mut pipe,
+                agent_request::Payload::PrepareTunnel(PrepareTunnelRequest {
                     operation_id: operation_id.to_string(),
                     plan: Some(plan),
-                },
-            ))
-            .await?
-        {
+                }),
+            ),
+        )
+        .await
+        .map_err(|_| WindowsVpnError::RpcTimeout)??;
+        match response {
             agent_response::Payload::State(state)
                 if state.phase == agent_v1::AgentPhase::Prepared as i32 =>
             {
-                Ok(state)
+                Ok(pipe)
             }
             agent_response::Payload::State(state) => {
                 Err(WindowsVpnError::UnexpectedAgentPhase(state.phase))
@@ -1113,32 +1416,39 @@ impl WindowsAgentClient {
         &self,
         operation_id: Uuid,
     ) -> Result<NamedPipeClient, WindowsVpnError> {
-        timeout(AGENT_RPC_TIMEOUT, async {
-            let mut pipe = self.open_pipe().await?;
-            match self
-                .exchange(
-                    &mut pipe,
-                    agent_request::Payload::AcquireTunnelLease(AcquireTunnelLeaseRequest {
-                        operation_id: operation_id.to_string(),
-                    }),
-                )
-                .await?
-            {
-                agent_response::Payload::State(state)
-                    if state.phase == agent_v1::AgentPhase::Active as i32
-                        && state.operation_id == operation_id.to_string()
-                        && state.packet_session_active =>
-                {
-                    Ok(pipe)
-                }
-                agent_response::Payload::State(state) => {
-                    Err(WindowsVpnError::UnexpectedAgentPhase(state.phase))
-                }
-                payload => Err(WindowsVpnError::UnexpectedResponse(payload_name(&payload))),
-            }
-        })
+        let pipe = self.open_pipe().await?;
+        self.promote_liveness_lease(operation_id, pipe).await
+    }
+
+    async fn promote_liveness_lease(
+        &self,
+        operation_id: Uuid,
+        mut pipe: NamedPipeClient,
+    ) -> Result<NamedPipeClient, WindowsVpnError> {
+        let response = timeout(
+            AGENT_RPC_TIMEOUT,
+            self.exchange(
+                &mut pipe,
+                agent_request::Payload::AcquireTunnelLease(AcquireTunnelLeaseRequest {
+                    operation_id: operation_id.to_string(),
+                }),
+            ),
+        )
         .await
-        .map_err(|_| WindowsVpnError::RpcTimeout)?
+        .map_err(|_| WindowsVpnError::RpcTimeout)??;
+        match response {
+            agent_response::Payload::State(state)
+                if state.phase == agent_v1::AgentPhase::Active as i32
+                    && state.operation_id == operation_id.to_string()
+                    && state.packet_session_active =>
+            {
+                Ok(pipe)
+            }
+            agent_response::Payload::State(state) => {
+                Err(WindowsVpnError::UnexpectedAgentPhase(state.phase))
+            }
+            payload => Err(WindowsVpnError::UnexpectedResponse(payload_name(&payload))),
+        }
     }
 
     async fn commit(&self, operation_id: Uuid) -> Result<AgentState, WindowsVpnError> {
@@ -1192,32 +1502,31 @@ impl WindowsAgentClient {
         proxy_uri: String,
         bypass_hosts: Vec<String>,
     ) -> Result<NamedPipeClient, WindowsVpnError> {
-        timeout(AGENT_RPC_TIMEOUT, async {
-            let mut pipe = self.open_pipe().await?;
-            match self
-                .exchange(
-                    &mut pipe,
-                    agent_request::Payload::ApplySystemProxy(ApplySystemProxyRequest {
-                        operation_id: operation_id.to_string(),
-                        proxy_uri,
-                        bypass_hosts,
-                    }),
-                )
-                .await?
-            {
-                agent_response::Payload::State(state)
-                    if state.phase == agent_v1::AgentPhase::Active as i32 =>
-                {
-                    Ok(pipe)
-                }
-                agent_response::Payload::State(state) => {
-                    Err(WindowsVpnError::UnexpectedAgentPhase(state.phase))
-                }
-                payload => Err(WindowsVpnError::UnexpectedResponse(payload_name(&payload))),
-            }
-        })
+        let mut pipe = self.open_pipe().await?;
+        let response = timeout(
+            AGENT_RPC_TIMEOUT,
+            self.exchange(
+                &mut pipe,
+                agent_request::Payload::ApplySystemProxy(ApplySystemProxyRequest {
+                    operation_id: operation_id.to_string(),
+                    proxy_uri,
+                    bypass_hosts,
+                }),
+            ),
+        )
         .await
-        .map_err(|_| WindowsVpnError::RpcTimeout)?
+        .map_err(|_| WindowsVpnError::RpcTimeout)??;
+        match response {
+            agent_response::Payload::State(state)
+                if state.phase == agent_v1::AgentPhase::Active as i32 =>
+            {
+                Ok(pipe)
+            }
+            agent_response::Payload::State(state) => {
+                Err(WindowsVpnError::UnexpectedAgentPhase(state.phase))
+            }
+            payload => Err(WindowsVpnError::UnexpectedResponse(payload_name(&payload))),
+        }
     }
 
     async fn restore_system_proxy(
@@ -1243,17 +1552,10 @@ impl WindowsAgentClient {
         &self,
         payload: agent_request::Payload,
     ) -> Result<agent_response::Payload, WindowsVpnError> {
-        timeout(AGENT_RPC_TIMEOUT, self.call_inner(payload))
+        let mut pipe = self.open_pipe().await?;
+        timeout(AGENT_RPC_TIMEOUT, self.exchange(&mut pipe, payload))
             .await
             .map_err(|_| WindowsVpnError::RpcTimeout)?
-    }
-
-    async fn call_inner(
-        &self,
-        payload: agent_request::Payload,
-    ) -> Result<agent_response::Payload, WindowsVpnError> {
-        let mut pipe = self.open_pipe().await?;
-        self.exchange(&mut pipe, payload).await
     }
 
     async fn exchange(
@@ -1298,19 +1600,39 @@ impl WindowsAgentClient {
     }
 
     async fn open_pipe(&self) -> Result<NamedPipeClient, WindowsVpnError> {
-        let deadline = tokio::time::Instant::now() + AGENT_CONNECT_TIMEOUT;
+        let deadline = tokio::time::Instant::now() + AGENT_START_TIMEOUT;
+        let mut next_start_check = tokio::time::Instant::now();
         loop {
             match ClientOptions::new().open(self.pipe_name.as_ref()) {
                 Ok(pipe) => return Ok(pipe),
-                Err(error)
-                    if matches!(
-                        error.raw_os_error().map(|value| value as u32),
-                        Some(ERROR_FILE_NOT_FOUND | ERROR_PIPE_BUSY)
-                    ) && tokio::time::Instant::now() < deadline =>
-                {
-                    tokio::time::sleep(Duration::from_millis(50)).await;
+                Err(error) => {
+                    let code = error.raw_os_error().map(|value| value as u32);
+                    if code == Some(ERROR_FILE_NOT_FOUND)
+                        && tokio::time::Instant::now() >= next_start_check
+                    {
+                        self.service_controller.ensure_started(deadline).await?;
+                        next_start_check =
+                            tokio::time::Instant::now() + AGENT_START_RECHECK_INTERVAL;
+                    } else if !matches!(code, Some(ERROR_FILE_NOT_FOUND | ERROR_PIPE_BUSY)) {
+                        return Err(error.into());
+                    }
+                    if tokio::time::Instant::now() >= deadline {
+                        let status = self.service_controller.status().await?;
+                        return Err(if status.state == SERVICE_STOPPED {
+                            AgentServiceControlError::Stopped {
+                                win32_exit_code: status.win32_exit_code,
+                                service_exit_code: status.service_exit_code,
+                            }
+                            .into()
+                        } else {
+                            AgentServiceControlError::Timeout {
+                                state: status.state,
+                            }
+                            .into()
+                        });
+                    }
+                    tokio::time::sleep(AGENT_START_POLL_INTERVAL).await;
                 }
-                Err(error) => return Err(error.into()),
             }
         }
     }
@@ -1496,6 +1818,8 @@ fn system_proxy_restore_succeeded(
 pub(crate) enum WindowsVpnError {
     #[error("Windows Agent I/O failed: {0}")]
     Io(#[from] io::Error),
+    #[error("Windows Agent service startup failed: {0}")]
+    AgentService(#[from] AgentServiceControlError),
     #[error("Windows Agent protobuf frame failed: {0}")]
     Frame(#[from] usque_ipc::FrameError),
     #[error("Windows Agent RPC timed out")]
@@ -1554,12 +1878,59 @@ pub(crate) enum WindowsVpnError {
 
 #[cfg(test)]
 mod tests {
-    use std::net::{Ipv4Addr, Ipv6Addr};
+    use std::{
+        net::{Ipv4Addr, Ipv6Addr},
+        sync::{
+            Mutex as StdMutex,
+            atomic::{AtomicUsize, Ordering},
+        },
+    };
 
     use tokio::net::windows::named_pipe::ServerOptions;
     use usque_core::{MasqueKeyPair, OperatingMode};
 
     use super::*;
+
+    struct StartingTestController {
+        pipe_name: String,
+        starts: AtomicUsize,
+        create_on_call: usize,
+        server: StdMutex<Option<tokio::net::windows::named_pipe::NamedPipeServer>>,
+    }
+
+    #[async_trait]
+    impl AgentServiceController for StartingTestController {
+        async fn ensure_started(
+            &self,
+            _deadline: tokio::time::Instant,
+        ) -> Result<(), AgentServiceControlError> {
+            let call = self.starts.fetch_add(1, Ordering::AcqRel) + 1;
+            if call < self.create_on_call {
+                return Ok(());
+            }
+            let mut server_slot = self.server.lock().expect("server slot");
+            if server_slot.is_some() {
+                return Ok(());
+            }
+            let server = ServerOptions::new()
+                .first_pipe_instance(true)
+                .create(&self.pipe_name)
+                .map_err(|error| AgentServiceControlError::Io {
+                    operation: "create test Agent pipe",
+                    error,
+                })?;
+            *server_slot = Some(server);
+            Ok(())
+        }
+
+        async fn status(&self) -> Result<AgentServiceStatus, AgentServiceControlError> {
+            Ok(AgentServiceStatus {
+                state: SERVICE_RUNNING,
+                win32_exit_code: 0,
+                service_exit_code: 0,
+            })
+        }
+    }
 
     fn identity() -> MasqueTlsIdentity {
         let identity_key = MasqueKeyPair::generate();
@@ -1662,6 +2033,94 @@ mod tests {
             client.get_capabilities().await,
             Err(WindowsVpnError::ResponseIdMismatch)
         ));
+        server_task.await.expect("server task");
+    }
+
+    #[tokio::test]
+    async fn missing_pipe_starts_the_service_controller_only_once() {
+        let pipe_name = format!("{AGENT_PIPE_NAME}.test-{}", Uuid::new_v4());
+        let controller = Arc::new(StartingTestController {
+            pipe_name: pipe_name.clone(),
+            starts: AtomicUsize::new(0),
+            create_on_call: 1,
+            server: StdMutex::new(None),
+        });
+        let client = WindowsAgentClient::for_test_with_controller(
+            pipe_name,
+            Arc::clone(&controller) as Arc<dyn AgentServiceController>,
+        );
+        let pipe = client.open_pipe().await.expect("on-demand pipe");
+        assert_eq!(controller.starts.load(Ordering::Acquire), 1);
+        drop(pipe);
+    }
+
+    #[tokio::test]
+    async fn missing_pipe_rechecks_service_after_clean_idle_exit_race() {
+        let pipe_name = format!("{AGENT_PIPE_NAME}.test-{}", Uuid::new_v4());
+        let controller = Arc::new(StartingTestController {
+            pipe_name: pipe_name.clone(),
+            starts: AtomicUsize::new(0),
+            // The first check models SCM still reporting Running while the
+            // clean Agent has already dropped its final pipe. The next check
+            // observes Stopped and makes the demand-start pipe available.
+            create_on_call: 2,
+            server: StdMutex::new(None),
+        });
+        let client = WindowsAgentClient::for_test_with_controller(
+            pipe_name,
+            Arc::clone(&controller) as Arc<dyn AgentServiceController>,
+        );
+        let pipe = client.open_pipe().await.expect("restarted Agent pipe");
+        assert_eq!(controller.starts.load(Ordering::Acquire), 2);
+        drop(pipe);
+    }
+
+    #[tokio::test]
+    async fn prepare_pipe_is_promoted_to_liveness_without_reconnecting() {
+        let pipe_name = format!("{AGENT_PIPE_NAME}.test-{}", Uuid::new_v4());
+        let server = ServerOptions::new()
+            .first_pipe_instance(true)
+            .create(&pipe_name)
+            .expect("server");
+        let operation_id = Uuid::new_v4();
+        let expected_operation = operation_id.to_string();
+        let server_task = tokio::spawn(async move {
+            server.connect().await.expect("connect");
+            let mut server = server;
+            for phase in [agent_v1::AgentPhase::Prepared, agent_v1::AgentPhase::Active] {
+                let mut header = [0_u8; 4];
+                server.read_exact(&mut header).await.expect("header");
+                let mut payload = vec![0_u8; u32::from_be_bytes(header) as usize];
+                server.read_exact(&mut payload).await.expect("payload");
+                let mut frame = BytesMut::from(header.as_slice());
+                frame.extend_from_slice(&payload);
+                let request: AgentRequest = decode_frame(frame.freeze()).expect("request");
+                let response = AgentResponse {
+                    request_id: request.request_id,
+                    error: None,
+                    payload: Some(agent_response::Payload::State(AgentState {
+                        phase: phase as i32,
+                        operation_id: expected_operation.clone(),
+                        packet_session_active: phase == agent_v1::AgentPhase::Active,
+                        ..AgentState::default()
+                    })),
+                };
+                server
+                    .write_all(&encode_frame(&response).expect("response"))
+                    .await
+                    .expect("write");
+            }
+        });
+        let client = WindowsAgentClient::for_test(pipe_name);
+        let startup = client
+            .prepare(operation_id, agent_v1::TunnelPlan::default())
+            .await
+            .expect("prepare lease");
+        let active = client
+            .promote_liveness_lease(operation_id, startup)
+            .await
+            .expect("active lease");
+        drop(active);
         server_task.await.expect("server task");
     }
 

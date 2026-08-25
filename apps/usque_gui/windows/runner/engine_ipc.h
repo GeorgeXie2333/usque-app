@@ -13,8 +13,15 @@ struct EngineIpcResult {
   std::string error;
 };
 
+// Waits until the Engine has created a connectable control-pipe instance. The
+// timeout is an overall deadline: ERROR_FILE_NOT_FOUND is retried explicitly
+// because WaitNamedPipeW otherwise returns immediately when no instance exists.
+// Returns an empty string on success or a user-facing diagnostic on failure.
+std::string WaitForEnginePipe(const std::string& pipe_name,
+                              uint32_t timeout_ms);
+
 EngineIpcResult ExchangeEngineFrame(const std::string& pipe_name,
-                                    const std::vector<uint8_t>& request);
+                                     const std::vector<uint8_t>& request);
 
 using EngineEventCallback = std::function<void(EngineIpcResult)>;
 

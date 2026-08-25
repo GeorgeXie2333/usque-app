@@ -4,16 +4,20 @@ use std::{
     io, mem,
     os::windows::io::AsRawHandle,
     ptr,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, AtomicUsize, Ordering},
+    },
+    time::Duration,
 };
 
 use bytes::BytesMut;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::windows::named_pipe::{NamedPipeServer, ServerOptions},
-    sync::Mutex,
+    sync::{Mutex, Notify},
 };
-use tracing::warn;
+use tracing::{info, warn};
 use usque_ipc::{
     agent_v1::{
         self, AgentCapabilities, AgentRequest, AgentResponse, AgentState, agent_request,
@@ -38,7 +42,13 @@ use crate::{
     },
     journal::{RecoveryJournal, RecoveryPhase},
     plan::ValidatedTunnelPlan,
-    windows::auth::{AuthenticationError, CallerPolicy, authenticate_named_pipe},
+    windows::{
+        auth::{AuthenticationError, CallerPolicy, authenticate_named_pipe},
+        service_config::{
+            NoopServiceStartModeController, ServiceConfigError, ServiceStartMode,
+            ServiceStartModeController, desired_start_mode,
+        },
+    },
 };
 
 pub const AGENT_PIPE_NAME: &str = r"\\.\pipe\io.github.georgexie2333.usque.agent.v1";
@@ -46,11 +56,87 @@ const MAX_AGENT_FRAME_BYTES: usize = 64 * 1024;
 const READ_CHUNK_BYTES: usize = 16 * 1024;
 const MAX_REQUEST_ID_BYTES: usize = 128;
 const MAX_REPLAY_ENTRIES: usize = 256;
+pub const AGENT_IDLE_TIMEOUT: Duration = Duration::from_secs(10);
+const DEMAND_RETRY_DELAYS: [Duration; 3] = [
+    Duration::from_millis(100),
+    Duration::from_millis(500),
+    Duration::from_secs(2),
+];
 
 pub struct AgentService<Backend> {
     coordinator: Arc<AgentCoordinator<Backend>>,
     capabilities: AgentCapabilities,
     replay: Mutex<ReplayCache>,
+    start_mode: Arc<dyn ServiceStartModeController>,
+    mutation_gate: Mutex<()>,
+    activity: Arc<ActivityTracker>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum MutationPolicy {
+    Forward,
+    Cleanup,
+}
+
+#[derive(Default)]
+struct ActivityTracker {
+    connections: AtomicUsize,
+    background: AtomicUsize,
+    generation: AtomicU64,
+    notify: Notify,
+}
+
+impl ActivityTracker {
+    fn begin(self: &Arc<Self>, kind: ActivityKind) -> ActivityGuard {
+        match kind {
+            ActivityKind::Connection => self.connections.fetch_add(1, Ordering::AcqRel),
+            ActivityKind::Background => self.background.fetch_add(1, Ordering::AcqRel),
+        };
+        self.changed();
+        ActivityGuard {
+            tracker: Arc::clone(self),
+            kind,
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.connections.load(Ordering::Acquire) == 0
+            && self.background.load(Ordering::Acquire) == 0
+    }
+
+    fn changed(&self) {
+        self.generation.fetch_add(1, Ordering::AcqRel);
+        self.notify.notify_waiters();
+    }
+}
+
+#[derive(Clone, Copy)]
+enum ActivityKind {
+    Connection,
+    Background,
+}
+
+struct ActivityGuard {
+    tracker: Arc<ActivityTracker>,
+    kind: ActivityKind,
+}
+
+impl Drop for ActivityGuard {
+    fn drop(&mut self) {
+        match self.kind {
+            ActivityKind::Connection => self.tracker.connections.fetch_sub(1, Ordering::AcqRel),
+            ActivityKind::Background => self.tracker.background.fetch_sub(1, Ordering::AcqRel),
+        };
+        self.tracker.changed();
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum AgentLifecycleError {
+    #[error("{0}")]
+    Coordinator(#[from] CoordinatorError),
+    #[error("the Agent could not arm crash recovery before changing Windows state: {0}")]
+    StartMode(#[from] ServiceConfigError),
 }
 
 impl<Backend> AgentService<Backend>
@@ -61,11 +147,132 @@ where
         coordinator: Arc<AgentCoordinator<Backend>>,
         capabilities: AgentCapabilities,
     ) -> Self {
+        Self::with_start_mode_controller(
+            coordinator,
+            capabilities,
+            Arc::new(NoopServiceStartModeController),
+        )
+    }
+
+    pub fn with_start_mode_controller(
+        coordinator: Arc<AgentCoordinator<Backend>>,
+        capabilities: AgentCapabilities,
+        start_mode: Arc<dyn ServiceStartModeController>,
+    ) -> Self {
         Self {
             coordinator,
             capabilities,
             replay: Mutex::new(ReplayCache::default()),
+            start_mode,
+            mutation_gate: Mutex::new(()),
+            activity: Arc::new(ActivityTracker::default()),
         }
+    }
+
+    pub async fn state(&self) -> RecoveryJournal {
+        self.coordinator.state().await
+    }
+
+    pub async fn reconcile_removed_adapter_dependencies(
+        &self,
+    ) -> Result<bool, AgentLifecycleError> {
+        self.mutate(MutationPolicy::Cleanup, |coordinator| async move {
+            coordinator.reconcile_removed_adapter_dependencies().await
+        })
+        .await
+    }
+
+    pub async fn recover_stale(&self) -> Result<(), AgentLifecycleError> {
+        self.mutate(MutationPolicy::Cleanup, |coordinator| async move {
+            coordinator.recover_stale().await
+        })
+        .await
+    }
+
+    pub async fn recover_orphaned_tunnel(
+        &self,
+        operation_id: Uuid,
+        lease_epoch: u64,
+    ) -> Result<bool, AgentLifecycleError> {
+        let _activity = self.activity.begin(ActivityKind::Background);
+        self.mutate(MutationPolicy::Cleanup, move |coordinator| async move {
+            coordinator
+                .recover_orphaned_tunnel(operation_id, lease_epoch)
+                .await
+        })
+        .await
+    }
+
+    pub async fn synchronize_start_mode(&self) {
+        let _gate = self.mutation_gate.lock().await;
+        self.reconcile_start_mode_locked().await;
+    }
+
+    async fn mutate<T, Action, ActionFuture>(
+        &self,
+        policy: MutationPolicy,
+        action: Action,
+    ) -> Result<T, AgentLifecycleError>
+    where
+        T: Send,
+        Action: FnOnce(Arc<AgentCoordinator<Backend>>) -> ActionFuture + Send,
+        ActionFuture: Future<Output = Result<T, CoordinatorError>> + Send,
+    {
+        let _gate = self.mutation_gate.lock().await;
+        match policy {
+            MutationPolicy::Forward => {
+                if let Err(error) = self
+                    .start_mode
+                    .ensure_start_mode(ServiceStartMode::Auto)
+                    .await
+                {
+                    self.reconcile_start_mode_locked().await;
+                    return Err(AgentLifecycleError::StartMode(error));
+                }
+            }
+            MutationPolicy::Cleanup => {
+                let state = self.coordinator.state().await;
+                if state.phase != RecoveryPhase::Clean
+                    && let Err(error) = self
+                        .start_mode
+                        .ensure_start_mode(ServiceStartMode::Auto)
+                        .await
+                {
+                    warn!(%error, phase = ?state.phase, "could not arm automatic startup before cleanup; continuing safety recovery");
+                }
+            }
+        }
+        let result = action(Arc::clone(&self.coordinator))
+            .await
+            .map_err(AgentLifecycleError::Coordinator);
+        self.reconcile_start_mode_locked().await;
+        result
+    }
+
+    async fn reconcile_start_mode_locked(&self) {
+        let state = self.coordinator.state().await;
+        let desired = desired_start_mode(state.phase);
+        let mut error = match self.start_mode.ensure_start_mode(desired).await {
+            Ok(()) => return,
+            Err(error) => error,
+        };
+        if desired == ServiceStartMode::Demand {
+            for delay in DEMAND_RETRY_DELAYS {
+                tokio::time::sleep(delay).await;
+                match self.start_mode.ensure_start_mode(desired).await {
+                    Ok(()) => {
+                        info!(phase = ?state.phase, "restored demand-start Agent configuration after retry");
+                        return;
+                    }
+                    Err(next) => error = next,
+                }
+            }
+        }
+        warn!(%error, phase = ?state.phase, ?desired, "could not reconcile Agent service start type with the recovery journal");
+    }
+
+    fn connection_started(&self) -> ActivityGuard {
+        self.activity.begin(ActivityKind::Connection)
     }
 
     async fn handle(&self, request: AgentRequest, caller: &AuthenticatedCaller) -> AgentResponse {
@@ -117,7 +324,7 @@ where
                 agent_response::Payload::Capabilities(self.capabilities.clone())
             }
             agent_request::Payload::GetState(_) => agent_response::Payload::State(state_to_proto(
-                &self.coordinator.state().await,
+                &self.state().await,
                 self.coordinator.packet_session_attached(),
             )),
             agent_request::Payload::PrepareTunnel(request) => {
@@ -128,11 +335,13 @@ where
                     .ok_or_else(|| (request_id.clone(), ServiceError::MissingTunnelPlan))?;
                 let plan = ValidatedTunnelPlan::try_from(plan)
                     .map_err(|error| (request_id.clone(), ServiceError::Plan(error.to_string())))?;
+                let caller = caller.clone();
                 let state = self
-                    .coordinator
-                    .prepare(operation_id, plan, caller.clone())
+                    .mutate(MutationPolicy::Forward, move |coordinator| async move {
+                        coordinator.prepare(operation_id, plan, caller).await
+                    })
                     .await
-                    .map_err(|error| (request_id.clone(), ServiceError::Coordinator(error)))?;
+                    .map_err(|error| (request_id.clone(), ServiceError::Lifecycle(error)))?;
                 agent_response::Payload::State(state_to_proto(
                     &state,
                     self.coordinator.packet_session_attached(),
@@ -141,11 +350,13 @@ where
             agent_request::Payload::CommitTunnel(request) => {
                 let operation_id = parse_operation_id(&request.operation_id)
                     .map_err(|error| (request_id.clone(), error))?;
+                let caller = caller.clone();
                 let state = self
-                    .coordinator
-                    .commit(operation_id, caller)
+                    .mutate(MutationPolicy::Forward, move |coordinator| async move {
+                        coordinator.commit(operation_id, &caller).await
+                    })
                     .await
-                    .map_err(|error| (request_id.clone(), ServiceError::Coordinator(error)))?;
+                    .map_err(|error| (request_id.clone(), ServiceError::Lifecycle(error)))?;
                 agent_response::Payload::State(state_to_proto(
                     &state,
                     self.coordinator.packet_session_attached(),
@@ -156,34 +367,40 @@ where
                     .map_err(|error| (request_id.clone(), error))?;
                 let operation_id = parse_operation_id(&request.operation_id)
                     .map_err(|error| (request_id.clone(), error))?;
+                let caller = caller.clone();
                 let state = self
-                    .coordinator
-                    .rollback(operation_id, caller)
+                    .mutate(MutationPolicy::Cleanup, move |coordinator| async move {
+                        coordinator.rollback(operation_id, &caller).await
+                    })
                     .await
-                    .map_err(|error| (request_id.clone(), ServiceError::Coordinator(error)))?;
+                    .map_err(|error| (request_id.clone(), ServiceError::Lifecycle(error)))?;
                 agent_response::Payload::State(state_to_proto(
                     &state,
                     self.coordinator.packet_session_attached(),
                 ))
             }
             agent_request::Payload::Recover(_) => {
-                self.coordinator
-                    .recover_stale()
+                self.recover_stale()
                     .await
-                    .map_err(|error| (request_id.clone(), ServiceError::Coordinator(error)))?;
+                    .map_err(|error| (request_id.clone(), ServiceError::Lifecycle(error)))?;
                 agent_response::Payload::State(state_to_proto(
-                    &self.coordinator.state().await,
+                    &self.state().await,
                     self.coordinator.packet_session_attached(),
                 ))
             }
             agent_request::Payload::OpenPacketSession(request) => {
                 let operation_id = parse_operation_id(&request.operation_id)
                     .map_err(|error| (request_id.clone(), error))?;
+                let capacity = request.ring_capacity;
+                let caller = caller.clone();
                 let handles = self
-                    .coordinator
-                    .open_packet_session(operation_id, request.ring_capacity, caller)
+                    .mutate(MutationPolicy::Forward, move |coordinator| async move {
+                        coordinator
+                            .open_packet_session(operation_id, capacity, &caller)
+                            .await
+                    })
                     .await
-                    .map_err(|error| (request_id.clone(), ServiceError::Coordinator(error)))?;
+                    .map_err(|error| (request_id.clone(), ServiceError::Lifecycle(error)))?;
                 agent_response::Payload::PacketSession(agent_v1::PacketSessionHandles {
                     mapping_handle: handles.mapping_handle,
                     engine_to_agent_event_handle: handles.engine_to_agent_event_handle,
@@ -196,11 +413,15 @@ where
             agent_request::Payload::ClosePacketSession(request) => {
                 let operation_id = parse_operation_id(&request.operation_id)
                     .map_err(|error| (request_id.clone(), error))?;
+                let caller = caller.clone();
                 let state = self
-                    .coordinator
-                    .close_packet_session(operation_id, caller)
+                    .mutate(MutationPolicy::Cleanup, move |coordinator| async move {
+                        coordinator
+                            .close_packet_session(operation_id, &caller)
+                            .await
+                    })
                     .await
-                    .map_err(|error| (request_id.clone(), ServiceError::Coordinator(error)))?;
+                    .map_err(|error| (request_id.clone(), ServiceError::Lifecycle(error)))?;
                 agent_response::Payload::State(state_to_proto(
                     &state,
                     self.coordinator.packet_session_attached(),
@@ -211,11 +432,15 @@ where
                     .map_err(|error| (request_id.clone(), error))?;
                 let profile_id = parse_profile_id(&request.profile_id)
                     .map_err(|error| (request_id.clone(), error))?;
+                let caller = caller.clone();
                 let handles = self
-                    .coordinator
-                    .resume_tunnel(operation_id, profile_id, caller)
+                    .mutate(MutationPolicy::Forward, move |coordinator| async move {
+                        coordinator
+                            .resume_tunnel(operation_id, profile_id, &caller)
+                            .await
+                    })
                     .await
-                    .map_err(|error| (request_id.clone(), ServiceError::Coordinator(error)))?;
+                    .map_err(|error| (request_id.clone(), ServiceError::Lifecycle(error)))?;
                 agent_response::Payload::PacketSession(agent_v1::PacketSessionHandles {
                     mapping_handle: handles.mapping_handle,
                     engine_to_agent_event_handle: handles.engine_to_agent_event_handle,
@@ -228,11 +453,15 @@ where
             agent_request::Payload::AcquireTunnelLease(request) => {
                 let operation_id = parse_operation_id(&request.operation_id)
                     .map_err(|error| (request_id.clone(), error))?;
+                let caller = caller.clone();
                 let state = self
-                    .coordinator
-                    .acquire_tunnel_lease(operation_id, caller)
+                    .mutate(MutationPolicy::Forward, move |coordinator| async move {
+                        coordinator
+                            .acquire_tunnel_lease(operation_id, &caller)
+                            .await
+                    })
                     .await
-                    .map_err(|error| (request_id.clone(), ServiceError::Coordinator(error)))?;
+                    .map_err(|error| (request_id.clone(), ServiceError::Lifecycle(error)))?;
                 agent_response::Payload::State(state_to_proto(
                     &state,
                     self.coordinator.packet_session_attached(),
@@ -241,18 +470,19 @@ where
             agent_request::Payload::ApplySystemProxy(request) => {
                 let operation_id = parse_operation_id(&request.operation_id)
                     .map_err(|error| (request_id.clone(), error))?;
+                let settings = SystemProxySettings {
+                    proxy_uri: request.proxy_uri,
+                    bypass_hosts: request.bypass_hosts,
+                };
+                let caller = caller.clone();
                 let state = self
-                    .coordinator
-                    .apply_system_proxy(
-                        operation_id,
-                        SystemProxySettings {
-                            proxy_uri: request.proxy_uri,
-                            bypass_hosts: request.bypass_hosts,
-                        },
-                        caller.clone(),
-                    )
+                    .mutate(MutationPolicy::Forward, move |coordinator| async move {
+                        coordinator
+                            .apply_system_proxy(operation_id, settings, caller)
+                            .await
+                    })
                     .await
-                    .map_err(|error| (request_id.clone(), ServiceError::Coordinator(error)))?;
+                    .map_err(|error| (request_id.clone(), ServiceError::Lifecycle(error)))?;
                 agent_response::Payload::State(state_to_proto(
                     &state,
                     self.coordinator.packet_session_attached(),
@@ -261,11 +491,15 @@ where
             agent_request::Payload::RestoreSystemProxy(request) => {
                 let operation_id = parse_operation_id(&request.operation_id)
                     .map_err(|error| (request_id.clone(), error))?;
+                let caller = caller.clone();
                 let state = self
-                    .coordinator
-                    .restore_system_proxy(operation_id, caller)
+                    .mutate(MutationPolicy::Cleanup, move |coordinator| async move {
+                        coordinator
+                            .restore_system_proxy(operation_id, &caller)
+                            .await
+                    })
                     .await
-                    .map_err(|error| (request_id.clone(), ServiceError::Coordinator(error)))?;
+                    .map_err(|error| (request_id.clone(), ServiceError::Lifecycle(error)))?;
                 agent_response::Payload::State(state_to_proto(
                     &state,
                     self.coordinator.packet_session_attached(),
@@ -280,9 +514,13 @@ where
     }
 
     async fn release_system_proxy_lease(&self, operation_id: Uuid, caller: &AuthenticatedCaller) {
+        let caller = caller.clone();
         if let Err(error) = self
-            .coordinator
-            .restore_system_proxy(operation_id, caller)
+            .mutate(MutationPolicy::Cleanup, move |coordinator| async move {
+                coordinator
+                    .restore_system_proxy(operation_id, &caller)
+                    .await
+            })
             .await
         {
             warn!(
@@ -293,20 +531,75 @@ where
         }
     }
 
-    async fn release_tunnel_lease(&self, operation_id: Uuid, caller: &AuthenticatedCaller) {
+    async fn release_startup_tunnel_lease(&self, operation_id: Uuid, caller: &AuthenticatedCaller) {
+        let caller = caller.clone();
         let lease_epoch = match self
-            .coordinator
-            .release_tunnel_lease(operation_id, caller)
+            .mutate(MutationPolicy::Cleanup, move |coordinator| async move {
+                coordinator
+                    .release_startup_tunnel_lease(operation_id, &caller)
+                    .await
+            })
             .await
         {
-            Ok(lease_epoch) => lease_epoch,
+            Ok(Some(lease_epoch)) => lease_epoch,
+            Ok(None) => return,
+            Err(error) => {
+                warn!(%operation_id, %error, "failed to release the Engine startup lease");
+                return;
+            }
+        };
+        tokio::time::sleep(ORPHANED_TUNNEL_RECOVERY_GRACE).await;
+        match self
+            .recover_orphaned_startup_tunnel(operation_id, lease_epoch)
+            .await
+        {
+            Ok(true) => warn!(
+                %operation_id,
+                grace_seconds = ORPHANED_TUNNEL_RECOVERY_GRACE.as_secs(),
+                "recovered an incomplete tunnel whose Engine startup lease disappeared"
+            ),
+            Ok(false) => {}
+            Err(error) => warn!(
+                %operation_id,
+                %error,
+                "failed to recover an incomplete tunnel after its startup lease disappeared"
+            ),
+        }
+    }
+
+    async fn recover_orphaned_startup_tunnel(
+        &self,
+        operation_id: Uuid,
+        lease_epoch: u64,
+    ) -> Result<bool, AgentLifecycleError> {
+        let _activity = self.activity.begin(ActivityKind::Background);
+        self.mutate(MutationPolicy::Cleanup, move |coordinator| async move {
+            coordinator
+                .recover_orphaned_startup_tunnel(operation_id, lease_epoch)
+                .await
+        })
+        .await
+    }
+
+    async fn release_tunnel_lease(&self, operation_id: Uuid, caller: &AuthenticatedCaller) {
+        let caller = caller.clone();
+        let lease_epoch = match self
+            .mutate(MutationPolicy::Cleanup, move |coordinator| async move {
+                coordinator
+                    .release_tunnel_lease(operation_id, &caller)
+                    .await
+            })
+            .await
+        {
+            Ok(Some(lease_epoch)) => lease_epoch,
+            Ok(None) => return,
             Err(error) => {
                 warn!(
                     %operation_id,
                     %error,
                     "failed to detach packet session after Engine tunnel lease disconnected"
                 );
-                if let Err(recovery_error) = self.coordinator.recover_stale().await {
+                if let Err(recovery_error) = self.recover_stale().await {
                     warn!(
                         %operation_id,
                         %recovery_error,
@@ -318,7 +611,6 @@ where
         };
         tokio::time::sleep(ORPHANED_TUNNEL_RECOVERY_GRACE).await;
         match self
-            .coordinator
             .recover_orphaned_tunnel(operation_id, lease_epoch)
             .await
         {
@@ -341,11 +633,17 @@ pub async fn serve<Backend>(
     service: Arc<AgentService<Backend>>,
     policy: Arc<CallerPolicy>,
     pipe_name: String,
-) -> Result<(), ServerError>
+) -> Result<ServeExit, ServerError>
 where
     Backend: PrivilegedBackend + 'static,
 {
     serve_until(service, policy, pipe_name, std::future::pending()).await
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServeExit {
+    Shutdown,
+    Idle,
 }
 
 /// Verifies that the fixed Agent pipe name, security descriptor, and first
@@ -363,35 +661,117 @@ pub async fn serve_until<Backend, Shutdown>(
     policy: Arc<CallerPolicy>,
     pipe_name: String,
     shutdown: Shutdown,
-) -> Result<(), ServerError>
+) -> Result<ServeExit, ServerError>
 where
     Backend: PrivilegedBackend + 'static,
     Shutdown: Future<Output = ()>,
 {
+    serve_until_ready(service, policy, pipe_name, shutdown, || Ok(())).await
+}
+
+pub async fn serve_until_ready<Backend, Shutdown, Ready>(
+    service: Arc<AgentService<Backend>>,
+    policy: Arc<CallerPolicy>,
+    pipe_name: String,
+    shutdown: Shutdown,
+    ready: Ready,
+) -> Result<ServeExit, ServerError>
+where
+    Backend: PrivilegedBackend + 'static,
+    Shutdown: Future<Output = ()>,
+    Ready: FnOnce() -> io::Result<()>,
+{
     validate_pipe_name(&pipe_name)?;
     tokio::pin!(shutdown);
     let mut next = create_agent_pipe(&pipe_name, true)?;
+    ready()?;
+    let idle = wait_for_idle_exit(Arc::clone(&service));
+    tokio::pin!(idle);
     loop {
         tokio::select! {
+            biased;
             result = next.connect() => result?,
-            () = &mut shutdown => return Ok(()),
+            () = &mut shutdown => return Ok(ServeExit::Shutdown),
+            () = &mut idle => return Ok(ServeExit::Idle),
         }
         let connected = next;
         next = create_agent_pipe(&pipe_name, false)?;
+        let activity = service.connection_started();
         let service = Arc::clone(&service);
         let policy = Arc::clone(&policy);
         tokio::spawn(async move {
-            if let Err(error) = handle_connected_pipe(connected, service, policy).await {
+            if let Err(error) =
+                handle_connected_pipe_with_activity(connected, service, policy, activity).await
+            {
                 warn!(%error, "authenticated Agent client disconnected");
             }
         });
     }
 }
 
+async fn wait_for_idle_exit<Backend>(service: Arc<AgentService<Backend>>)
+where
+    Backend: PrivilegedBackend + 'static,
+{
+    wait_for_idle_exit_after(service, AGENT_IDLE_TIMEOUT).await;
+}
+
+async fn wait_for_idle_exit_after<Backend>(
+    service: Arc<AgentService<Backend>>,
+    idle_timeout: Duration,
+) where
+    Backend: PrivilegedBackend + 'static,
+{
+    loop {
+        let notified = service.activity.notify.notified();
+        tokio::pin!(notified);
+        // Register before sampling the counters so a connection that finishes
+        // between the sample and the await cannot leave this waiter asleep.
+        let _ = notified.as_mut().enable();
+        let generation = service.activity.generation.load(Ordering::Acquire);
+        if !service.activity.is_empty() || service.state().await.phase != RecoveryPhase::Clean {
+            notified.await;
+            continue;
+        }
+
+        tokio::select! {
+            () = tokio::time::sleep(idle_timeout) => {
+                if service.activity.generation.load(Ordering::Acquire) == generation
+                    && service.activity.is_empty()
+                    && service.state().await.phase == RecoveryPhase::Clean
+                {
+                    return;
+                }
+            }
+            () = &mut notified => {}
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum TunnelConnectionLease {
+    Startup(Uuid),
+    Active(Uuid),
+}
+
+#[cfg(test)]
 async fn handle_connected_pipe<Backend>(
+    pipe: NamedPipeServer,
+    service: Arc<AgentService<Backend>>,
+    policy: Arc<CallerPolicy>,
+) -> Result<(), ServerError>
+where
+    Backend: PrivilegedBackend + 'static,
+{
+    let activity = service.connection_started();
+    handle_connected_pipe_with_activity(pipe, service, policy, activity).await
+}
+
+async fn handle_connected_pipe_with_activity<Backend>(
     mut pipe: NamedPipeServer,
     service: Arc<AgentService<Backend>>,
     policy: Arc<CallerPolicy>,
+    _activity: ActivityGuard,
 ) -> Result<(), ServerError>
 where
     Backend: PrivilegedBackend + 'static,
@@ -441,8 +821,15 @@ where
                     _ => None,
                 };
                 let tunnel_lease_action = match request.payload.as_ref() {
+                    Some(agent_request::Payload::PrepareTunnel(request)) => {
+                        Uuid::parse_str(request.operation_id.trim())
+                            .ok()
+                            .map(TunnelConnectionLease::Startup)
+                    }
                     Some(agent_request::Payload::AcquireTunnelLease(request)) => {
-                        Uuid::parse_str(request.operation_id.trim()).ok()
+                        Uuid::parse_str(request.operation_id.trim())
+                            .ok()
+                            .map(TunnelConnectionLease::Active)
                     }
                     _ => None,
                 };
@@ -453,9 +840,9 @@ where
                     system_proxy_lease = next_lease;
                 }
                 if response.error.is_none()
-                    && let Some(operation_id) = tunnel_lease_action
+                    && let Some(next_lease) = tunnel_lease_action
                 {
-                    tunnel_lease = Some(operation_id);
+                    tunnel_lease = Some(next_lease);
                 }
                 let encoded = encode_frame(&response)?;
                 if encoded.len() > MAX_AGENT_FRAME_BYTES + 4 {
@@ -471,8 +858,16 @@ where
             .release_system_proxy_lease(operation_id, &caller)
             .await;
     }
-    if let Some(operation_id) = tunnel_lease {
-        service.release_tunnel_lease(operation_id, &caller).await;
+    match tunnel_lease {
+        Some(TunnelConnectionLease::Startup(operation_id)) => {
+            service
+                .release_startup_tunnel_lease(operation_id, &caller)
+                .await;
+        }
+        Some(TunnelConnectionLease::Active(operation_id)) => {
+            service.release_tunnel_lease(operation_id, &caller).await;
+        }
+        None => {}
     }
     result
 }
@@ -708,7 +1103,7 @@ enum ServiceError {
     #[error("tunnel plan is invalid: {0}")]
     Plan(String),
     #[error("{0}")]
-    Coordinator(CoordinatorError),
+    Lifecycle(AgentLifecycleError),
 }
 
 impl ServiceError {
@@ -722,18 +1117,24 @@ impl ServiceError {
             | Self::ReasonCode => ("AGENT_INVALID_REQUEST", false),
             Self::RequestIdReused => ("AGENT_REQUEST_ID_REUSED", false),
             Self::MissingTunnelPlan | Self::Plan(_) => ("AGENT_INVALID_PLAN", false),
-            Self::Coordinator(CoordinatorError::OwnerMismatch) => ("AGENT_OWNER_MISMATCH", false),
-            Self::Coordinator(CoordinatorError::Backend(BackendError::EndpointUnreachable)) => {
-                ("AGENT_ENDPOINT_UNREACHABLE", true)
+            Self::Lifecycle(AgentLifecycleError::StartMode(_)) => {
+                ("SERVICE_START_MODE_UNAVAILABLE", false)
             }
-            Self::Coordinator(CoordinatorError::Backend(BackendError::ControlApiUnreachable)) => {
-                ("AGENT_CONTROL_API_UNREACHABLE", true)
+            Self::Lifecycle(AgentLifecycleError::Coordinator(CoordinatorError::OwnerMismatch)) => {
+                ("AGENT_OWNER_MISMATCH", false)
             }
-            Self::Coordinator(CoordinatorError::RecoveryRequired(_))
-            | Self::Coordinator(CoordinatorError::ApplyAndRecovery { .. }) => {
-                ("AGENT_RECOVERY_REQUIRED", false)
+            Self::Lifecycle(AgentLifecycleError::Coordinator(CoordinatorError::Backend(
+                BackendError::EndpointUnreachable,
+            ))) => ("AGENT_ENDPOINT_UNREACHABLE", true),
+            Self::Lifecycle(AgentLifecycleError::Coordinator(CoordinatorError::Backend(
+                BackendError::ControlApiUnreachable,
+            ))) => ("AGENT_CONTROL_API_UNREACHABLE", true),
+            Self::Lifecycle(AgentLifecycleError::Coordinator(
+                CoordinatorError::RecoveryRequired(_) | CoordinatorError::ApplyAndRecovery { .. },
+            )) => ("AGENT_RECOVERY_REQUIRED", false),
+            Self::Lifecycle(AgentLifecycleError::Coordinator(_)) => {
+                ("AGENT_OPERATION_FAILED", true)
             }
-            Self::Coordinator(_) => ("AGENT_OPERATION_FAILED", true),
         }
     }
 }
@@ -758,7 +1159,11 @@ pub enum ServerError {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{
+        io,
+        sync::atomic::{AtomicBool, Ordering},
+        time::Duration,
+    };
 
     use async_trait::async_trait;
     use tokio::{
@@ -787,6 +1192,21 @@ mod tests {
     struct RejectingBackend;
 
     struct ProxyBackend;
+
+    struct FailingStartModeController;
+
+    #[async_trait]
+    impl ServiceStartModeController for FailingStartModeController {
+        async fn ensure_start_mode(
+            &self,
+            _mode: ServiceStartMode,
+        ) -> Result<(), ServiceConfigError> {
+            Err(ServiceConfigError::Change(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "test start-mode denial",
+            )))
+        }
+    }
 
     #[async_trait]
     impl PrivilegedBackend for RejectingBackend {
@@ -959,6 +1379,91 @@ mod tests {
             .await
             .expect("server shutdown timeout")
             .expect("join");
+    }
+
+    #[tokio::test]
+    async fn forward_mutation_never_runs_when_auto_start_cannot_be_armed() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let coordinator = Arc::new(
+            AgentCoordinator::open(
+                JournalStore::new(directory.path().join("recovery.json")),
+                Arc::new(RejectingBackend),
+            )
+            .expect("coordinator"),
+        );
+        let service = AgentService::with_start_mode_controller(
+            Arc::clone(&coordinator),
+            AgentCapabilities::default(),
+            Arc::new(FailingStartModeController),
+        );
+        let reached = Arc::new(AtomicBool::new(false));
+        let action_reached = Arc::clone(&reached);
+        let result = service
+            .mutate(MutationPolicy::Forward, move |_coordinator| async move {
+                action_reached.store(true, Ordering::Release);
+                Ok(())
+            })
+            .await;
+
+        assert!(matches!(result, Err(AgentLifecycleError::StartMode(_))));
+        assert!(!reached.load(Ordering::Acquire));
+        assert_eq!(coordinator.state().await.phase, RecoveryPhase::Clean);
+    }
+
+    #[tokio::test]
+    async fn demand_start_failure_does_not_turn_successful_cleanup_into_an_error() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let coordinator = Arc::new(
+            AgentCoordinator::open(
+                JournalStore::new(directory.path().join("recovery.json")),
+                Arc::new(RejectingBackend),
+            )
+            .expect("coordinator"),
+        );
+        let service = AgentService::with_start_mode_controller(
+            coordinator,
+            AgentCapabilities::default(),
+            Arc::new(FailingStartModeController),
+        );
+        let reached = Arc::new(AtomicBool::new(false));
+        let action_reached = Arc::clone(&reached);
+        service
+            .mutate(MutationPolicy::Cleanup, move |_coordinator| async move {
+                action_reached.store(true, Ordering::Release);
+                Ok(())
+            })
+            .await
+            .expect("cleanup result");
+        assert!(reached.load(Ordering::Acquire));
+    }
+
+    #[tokio::test]
+    async fn clean_service_waits_for_connections_before_idle_exit() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let coordinator = Arc::new(
+            AgentCoordinator::open(
+                JournalStore::new(directory.path().join("recovery.json")),
+                Arc::new(RejectingBackend),
+            )
+            .expect("coordinator"),
+        );
+        let service = Arc::new(AgentService::new(coordinator, AgentCapabilities::default()));
+        let connection = service.connection_started();
+        assert!(
+            tokio::time::timeout(
+                Duration::from_millis(40),
+                wait_for_idle_exit_after(Arc::clone(&service), Duration::from_millis(20)),
+            )
+            .await
+            .is_err()
+        );
+        drop(connection);
+        tokio::time::timeout(
+            Duration::from_millis(100),
+            wait_for_idle_exit_after(service, Duration::from_millis(20)),
+        )
+        .await
+        .expect("idle exit");
     }
 
     #[tokio::test]

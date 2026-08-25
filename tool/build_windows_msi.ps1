@@ -174,6 +174,16 @@ if ($null -ne $pdb) {
     throw "Release payload must not contain PDB files: $($pdb.FullName)"
 }
 
+$testExecutable = Get-ChildItem `
+    -LiteralPath $appRoot `
+    -File `
+    -Recurse `
+    -Filter "usque_zero_trust_test.exe" |
+    Select-Object -First 1
+if ($null -ne $testExecutable) {
+    throw "Release payload must not contain the native test executable: $($testExecutable.FullName)"
+}
+
 Assert-NoReparsePoint -Root $appRoot
 Assert-OfficialWintun -Root $appRoot -BuildVariant $Variant
 $normalizedSigner = $SignerSha256.ToUpperInvariant()

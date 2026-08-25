@@ -45,9 +45,13 @@ target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 add_dependencies(${BINARY_NAME} flutter_assemble)
 
 add_executable(usque_zero_trust_test
+  "engine_ipc.cpp"
   "zero_trust_callback.cpp"
   "zero_trust_protocol.cpp"
   "zero_trust_windows_test.cpp"
+)
+set_target_properties(usque_zero_trust_test PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests"
 )
 apply_standard_settings(usque_zero_trust_test)
 target_compile_definitions(usque_zero_trust_test PRIVATE "NOMINMAX")

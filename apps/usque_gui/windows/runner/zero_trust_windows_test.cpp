@@ -1,7 +1,12 @@
+#include <windows.h>
+
+#include <chrono>
 #include <cstdio>
 #include <cwchar>
 #include <string>
+#include <thread>
 
+#include "engine_ipc.h"
 #include "zero_trust_callback.h"
 #include "zero_trust_protocol.h"
 
@@ -127,6 +132,72 @@ void unregisterDeletesOnlyAssociationPointingAtThisExe() {
   ::RegDeleteTreeW(HKEY_CURRENT_USER, key);
 }
 
+std::string TestPipeName(const char* suffix) {
+  return R"(\\.\pipe\io.github.georgexie2333.usque.engine.v1-ui-test-)" +
+         std::to_string(::GetCurrentProcessId()) + "-" + suffix;
+}
+
+std::wstring Wide(const std::string& value) {
+  return std::wstring(value.begin(), value.end());
+}
+
+void enginePipeReadinessRetriesAInitiallyMissingPipe() {
+  const std::string pipe_name = TestPipeName("delayed");
+  const std::wstring pipe_name_wide = Wide(pipe_name);
+  HANDLE server = INVALID_HANDLE_VALUE;
+  std::thread creator([&]() {
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    server = ::CreateNamedPipeW(
+        pipe_name_wide.c_str(), PIPE_ACCESS_DUPLEX,
+        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1, 4096, 4096, 0,
+        nullptr);
+    if (server != INVALID_HANDLE_VALUE) {
+      const BOOL connected = ::ConnectNamedPipe(server, nullptr);
+      if (!connected && ::GetLastError() != ERROR_PIPE_CONNECTED) {
+        ::CloseHandle(server);
+        server = INVALID_HANDLE_VALUE;
+      }
+    }
+  });
+
+  const auto started = std::chrono::steady_clock::now();
+  const std::string error = WaitForEnginePipe(pipe_name, 2000);
+  const auto elapsed = std::chrono::steady_clock::now() - started;
+  Expect(error.empty(),
+         "enginePipeReadinessRetriesAInitiallyMissingPipe.ready");
+  Expect(elapsed >= std::chrono::milliseconds(100),
+         "enginePipeReadinessRetriesAInitiallyMissingPipe.waited");
+
+  HANDLE client = INVALID_HANDLE_VALUE;
+  const auto connect_deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  do {
+    client = ::CreateFileW(pipe_name_wide.c_str(),
+                           GENERIC_READ | GENERIC_WRITE, 0, nullptr,
+                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (client != INVALID_HANDLE_VALUE) break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(25));
+  } while (std::chrono::steady_clock::now() < connect_deadline);
+  Expect(client != INVALID_HANDLE_VALUE,
+         "enginePipeReadinessRetriesAInitiallyMissingPipe.connect");
+  if (client != INVALID_HANDLE_VALUE) ::CloseHandle(client);
+  creator.join();
+  if (server != INVALID_HANDLE_VALUE) ::CloseHandle(server);
+}
+
+void enginePipeReadinessUsesAnOverallDeadline() {
+  const std::string pipe_name = TestPipeName("absent");
+  const auto started = std::chrono::steady_clock::now();
+  const std::string error = WaitForEnginePipe(pipe_name, 150);
+  const auto elapsed = std::chrono::steady_clock::now() - started;
+  Expect(error.find("before timeout") != std::string::npos,
+         "enginePipeReadinessUsesAnOverallDeadline.error");
+  Expect(elapsed >= std::chrono::milliseconds(100),
+         "enginePipeReadinessUsesAnOverallDeadline.waited");
+  Expect(elapsed < std::chrono::seconds(2),
+         "enginePipeReadinessUsesAnOverallDeadline.bounded");
+}
+
 }  // namespace
 
 int main() {
@@ -135,6 +206,8 @@ int main() {
   cancellationAndProcessReplacementDiscardState();
   malformedCallbacksAndTeamsAreRejected();
   unregisterDeletesOnlyAssociationPointingAtThisExe();
+  enginePipeReadinessRetriesAInitiallyMissingPipe();
+  enginePipeReadinessUsesAnOverallDeadline();
   if (g_failures != 0) {
     std::fprintf(stderr, "%d Zero Trust Windows tests failed\n", g_failures);
     return 1;

@@ -24,7 +24,13 @@ mod windows_main {
         windows::{
             auth::{CallerPolicy, SignerFingerprint},
             backend::WindowsBackend,
-            server::{AGENT_PIPE_NAME, AgentService, serve_until, validate_pipe_creation},
+            server::{
+                AGENT_PIPE_NAME, AgentService, ServeExit, serve_until_ready, validate_pipe_creation,
+            },
+            service_config::{
+                NoopServiceStartModeController, ServiceStartModeController,
+                WindowsServiceStartModeController,
+            },
             state_security::{finalize_uninstall_state, secure_agent_state_path},
             wfp,
         },
@@ -156,11 +162,15 @@ mod windows_main {
                 .enable_all()
                 .thread_name("usque-agent")
                 .build()?;
-            runtime.block_on(run_agent(arguments, async {
-                if let Err(error) = tokio::signal::ctrl_c().await {
-                    error!(%error, "failed to install Ctrl+C handler");
-                }
-            }))
+            runtime.block_on(run_agent(
+                arguments,
+                async {
+                    if let Err(error) = tokio::signal::ctrl_c().await {
+                        error!(%error, "failed to install Ctrl+C handler");
+                    }
+                },
+                || Ok(()),
+            ))
         }
     }
 
@@ -190,10 +200,14 @@ mod windows_main {
         Ok(arguments)
     }
 
-    async fn run_agent(
+    async fn run_agent<Ready>(
         arguments: Arguments,
         shutdown: impl Future<Output = ()>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+        ready: Ready,
+    ) -> Result<(), Box<dyn std::error::Error>>
+    where
+        Ready: FnOnce() -> io::Result<()>,
+    {
         let wintun_path = arguments.wintun.as_deref().expect("normalized Wintun path");
         let journal_path = arguments
             .journal
@@ -234,25 +248,8 @@ mod windows_main {
                 return Err(error.into());
             }
         };
-        if !arguments.recover_state && !arguments.validate_only {
-            match coordinator.reconcile_removed_adapter_dependencies().await {
-                Ok(true) => {
-                    let reconciled = coordinator.state().await;
-                    info!(
-                        phase = ?reconciled.phase,
-                        generation = reconciled.generation,
-                        "reconciled adapter-dependent recovery receipts after the exact Wintun adapter was already removed"
-                    );
-                }
-                Ok(false) => {}
-                Err(error) => error!(
-                    %error,
-                    "could not persist journal-only startup reconciliation; retaining recovery-required state"
-                ),
-            }
-        }
-        let state = coordinator.state().await;
         if arguments.recover_state {
+            let state = coordinator.state().await;
             if state.phase != RecoveryPhase::Clean {
                 coordinator.recover_stale().await?;
                 info!(
@@ -265,6 +262,7 @@ mod windows_main {
             return Ok(());
         }
 
+        let manages_service_mode = arguments.service;
         let pipe_name = arguments
             .pipe
             .clone()
@@ -279,6 +277,7 @@ mod windows_main {
             signer,
             arguments.allow_unsigned_debug_client,
         )?);
+        let state = coordinator.state().await;
         if arguments.validate_only {
             validate_pipe_creation(&pipe_name)?;
             info!(
@@ -288,6 +287,33 @@ mod windows_main {
             );
             return Ok(());
         }
+
+        let start_mode: Arc<dyn ServiceStartModeController> = if manages_service_mode {
+            Arc::new(WindowsServiceStartModeController::new(SERVICE_NAME))
+        } else {
+            Arc::new(NoopServiceStartModeController)
+        };
+        let service = Arc::new(AgentService::with_start_mode_controller(
+            Arc::clone(&coordinator),
+            capabilities,
+            start_mode,
+        ));
+        match service.reconcile_removed_adapter_dependencies().await {
+            Ok(true) => {
+                let reconciled = service.state().await;
+                info!(
+                    phase = ?reconciled.phase,
+                    generation = reconciled.generation,
+                    "reconciled adapter-dependent recovery receipts after the exact Wintun adapter was already removed"
+                );
+            }
+            Ok(false) => {}
+            Err(error) => error!(
+                %error,
+                "could not persist journal-only startup reconciliation; retaining recovery-required state"
+            ),
+        }
+        let state = service.state().await;
         match startup_recovery_action(state.phase, state.operation_kind) {
             StartupRecoveryAction::None => {}
             StartupRecoveryAction::RecoverOnce => {
@@ -297,7 +323,7 @@ mod windows_main {
                 // the authenticated Engine must still be able to inspect state
                 // and request an explicit retry, and MSI must not loop on SCM
                 // startup while the journal remains RecoveryRequired.
-                match coordinator.recover_stale().await {
+                match service.recover_stale().await {
                     Ok(()) => info!(
                         phase = ?state.phase,
                         generation = state.generation,
@@ -336,12 +362,17 @@ mod windows_main {
             }
         }
 
+        // Repair any stale service configuration left by an interrupted mode
+        // transition or an upgrade. In particular, a clean journal must not
+        // leave the Agent configured to start again at the next boot.
+        service.synchronize_start_mode().await;
+
         let startup_orphan = (state.phase == RecoveryPhase::Active
             && state.operation_kind == Some(OperationKind::Tunnel))
         .then_some(state.operation_id)
         .flatten();
         if let Some(operation_id) = startup_orphan {
-            let watchdog = Arc::clone(&coordinator);
+            let watchdog = Arc::clone(&service);
             tokio::spawn(async move {
                 tokio::time::sleep(ORPHANED_TUNNEL_RECOVERY_GRACE).await;
                 match watchdog.recover_orphaned_tunnel(operation_id, 0).await {
@@ -360,10 +391,13 @@ mod windows_main {
             });
         }
 
-        let service = Arc::new(AgentService::new(Arc::clone(&coordinator), capabilities));
         info!(%pipe_name, "starting privileged Agent Named Pipe");
-        serve_until(service, policy, pipe_name, shutdown).await?;
-        info!("Agent stop requested; persistent recovery state was retained");
+        match serve_until_ready(service, policy, pipe_name, shutdown, ready).await? {
+            ServeExit::Shutdown => {
+                info!("Agent stop requested; persistent recovery state was retained")
+            }
+            ServeExit::Idle => info!("Agent exited after the clean idle grace period"),
+        }
         Ok(())
     }
 
@@ -443,14 +477,35 @@ mod windows_main {
             .enable_all()
             .thread_name("usque-agent")
             .build()?;
-        report_service_status(SERVICE_RUNNING, 0, 0, 0)?;
-        let result = runtime.block_on(run_agent(arguments, async move {
-            while !*shutdown_receiver.borrow() {
-                if shutdown_receiver.changed().await.is_err() {
-                    break;
+        let result = runtime.block_on(async move {
+            let heartbeat = tokio::spawn(async {
+                let mut checkpoint = 1_u32;
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(2));
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                loop {
+                    interval.tick().await;
+                    checkpoint = checkpoint.saturating_add(1);
+                    if let Err(error) = advance_start_pending_checkpoint(checkpoint, 15_000) {
+                        error!(%error, "could not refresh the Agent service startup checkpoint");
+                    }
                 }
-            }
-        }));
+            });
+            let result = run_agent(
+                arguments,
+                async move {
+                    while !*shutdown_receiver.borrow() {
+                        if shutdown_receiver.changed().await.is_err() {
+                            break;
+                        }
+                    }
+                },
+                report_service_running_if_starting,
+            )
+            .await;
+            heartbeat.abort();
+            let _ = heartbeat.await;
+            result
+        });
         report_service_status(
             SERVICE_STOPPED,
             if result.is_ok() { 0 } else { ERROR_GEN_FAILURE },
@@ -505,6 +560,42 @@ mod windows_main {
         state.status.dwWin32ExitCode = exit_code;
         state.status.dwCheckPoint = checkpoint;
         state.status.dwWaitHint = wait_hint;
+        set_status(state.status_handle, &state.status)
+    }
+
+    fn advance_start_pending_checkpoint(checkpoint: u32, wait_hint: u32) -> io::Result<()> {
+        let runtime = SERVICE_RUNTIME
+            .get()
+            .ok_or_else(|| io::Error::other("service runtime is unavailable"))?;
+        let mut state = runtime
+            .lock()
+            .map_err(|_| io::Error::other("service status lock was poisoned"))?;
+        if state.status.dwCurrentState != SERVICE_START_PENDING {
+            return Ok(());
+        }
+        state.status.dwCheckPoint = checkpoint;
+        state.status.dwWaitHint = wait_hint;
+        set_status(state.status_handle, &state.status)
+    }
+
+    fn report_service_running_if_starting() -> io::Result<()> {
+        let runtime = SERVICE_RUNTIME
+            .get()
+            .ok_or_else(|| io::Error::other("service runtime is unavailable"))?;
+        let mut state = runtime
+            .lock()
+            .map_err(|_| io::Error::other("service status lock was poisoned"))?;
+        if state.status.dwCurrentState == SERVICE_STOP_PENDING {
+            return Ok(());
+        }
+        if state.status.dwCurrentState != SERVICE_START_PENDING {
+            return Err(io::Error::other("service left start-pending unexpectedly"));
+        }
+        state.status.dwCurrentState = SERVICE_RUNNING;
+        state.status.dwControlsAccepted = SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN;
+        state.status.dwWin32ExitCode = 0;
+        state.status.dwCheckPoint = 0;
+        state.status.dwWaitHint = 0;
         set_status(state.status_handle, &state.status)
     }
 
