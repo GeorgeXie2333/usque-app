@@ -21,6 +21,7 @@ use hyper::body::{Body, Incoming};
 use hyper::client::conn::http1::SendRequest;
 use hyper::service::service_fn;
 use hyper_util::rt::{TokioIo, TokioTimer};
+use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore, watch};
 use tokio::task::JoinHandle;
@@ -40,7 +41,10 @@ use crate::pin_refresh::EndpointPinRefresher;
 use crate::port_allocator::next_tcp_port;
 use crate::socket::{SocketProtector, noop_socket_protector};
 
-const MAX_HEADER_BYTES: usize = 64 * 1024;
+/// Hyper HTTP/1 `max_buf_size` is both the connection I/O window and the
+/// unparsed-header cap. Independent of the CONNECT/SOCKS5 relay buffer so
+/// relay sizing cannot silently raise the header budget.
+const HTTP_IO_BUFFER_SIZE: usize = 128 * 1024;
 const MAX_HEADERS: usize = 128;
 const HEADER_TIMEOUT: Duration = Duration::from_secs(15);
 const REMOTE_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -337,7 +341,7 @@ async fn serve_client(client: TcpStream, context: Arc<HttpContext>) -> Result<()
         .timer(TokioTimer::new())
         .header_read_timeout(HEADER_TIMEOUT)
         .max_headers(MAX_HEADERS)
-        .max_buf_size(MAX_HEADER_BYTES)
+        .max_buf_size(HTTP_IO_BUFFER_SIZE)
         .keep_alive(true)
         .serve_connection(TokioIo::new(client), service)
         .with_upgrades();
@@ -439,11 +443,9 @@ async fn handle_connect(
         let Ok(upgraded) = upgrade.await else {
             return;
         };
-        let mut client = TokioIo::new(upgraded);
-        let mut remote = remote;
         tokio::select! {
             _ = cancellation.cancelled() => {}
-            result = crate::relay::copy_bidirectional(&mut client, &mut remote) => {
+            result = relay_connect_upgrade(upgraded, remote) => {
                 if let Err(error) = result {
                     tracing::debug!(%error, "HTTP CONNECT relay ended");
                 }
@@ -454,6 +456,22 @@ async fn handle_connect(
     let mut response = Response::new(empty_body());
     *response.status_mut() = StatusCode::OK;
     response
+}
+
+async fn relay_connect_upgrade(
+    upgraded: hyper::upgrade::Upgraded,
+    mut remote: StackTcpStream,
+) -> std::io::Result<()> {
+    let parts = upgraded.downcast::<TokioIo<TcpStream>>().map_err(|_| {
+        std::io::Error::other("HTTP CONNECT upgrade did not wrap TokioIo<TcpStream>")
+    })?;
+    let mut client = parts.io.into_inner();
+    if !parts.read_buf.is_empty() {
+        remote.write_all(&parts.read_buf).await?;
+        remote.flush().await?;
+    }
+    crate::relay::copy_bidirectional(&mut client, &mut remote).await?;
+    Ok(())
 }
 
 async fn handle_forward(
@@ -644,7 +662,7 @@ impl SessionPool {
                 RemoteConnectError::Failed(message) => PoolError::Upstream(message),
             })?;
         let (sender, connection) = hyper::client::conn::http1::Builder::new()
-            .max_buf_size(MAX_HEADER_BYTES)
+            .max_buf_size(HTTP_IO_BUFFER_SIZE)
             .handshake::<_, ProxyBody>(TokioIo::new(remote))
             .await
             .map_err(|error| PoolError::Upstream(error.to_string()))?;
@@ -897,6 +915,7 @@ fn full_body(bytes: Bytes) -> ProxyBody {
 mod tests {
     use super::*;
     use std::sync::atomic::AtomicUsize;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use ts_netstack_smoltcp::netcore::{Config, HasChannel, NetstackControl};
 
     #[test]
@@ -976,25 +995,89 @@ mod tests {
         assert!(parse_destination("user@example.com", 80).is_err());
     }
 
+    struct StackTasks {
+        client: JoinHandle<()>,
+        server: JoinHandle<()>,
+    }
+
+    impl Drop for StackTasks {
+        fn drop(&mut self) {
+            self.client.abort();
+            self.server.abort();
+        }
+    }
+
+    struct StackedProxy {
+        context: Arc<HttpContext>,
+        origin: ts_netstack_smoltcp::netsock::TcpListener,
+        _tasks: StackTasks,
+    }
+
+    impl StackedProxy {
+        async fn new() -> Self {
+            let (client_stack, server_stack) = ts_netstack_smoltcp::piped_pair(Config::default());
+            let client_channel = client_stack.command_channel();
+            let server_channel = server_stack.command_channel();
+            let tasks = StackTasks {
+                client: client_stack.spawn_tokio(),
+                server: server_stack.spawn_tokio(),
+            };
+            let client_ip = Ipv4Addr::new(10, 0, 0, 1);
+            let server_ip = Ipv4Addr::new(10, 0, 0, 2);
+            client_channel
+                .set_ips([IpAddr::V4(client_ip)])
+                .await
+                .unwrap();
+            server_channel
+                .set_ips([IpAddr::V4(server_ip)])
+                .await
+                .unwrap();
+            let origin = server_channel
+                .tcp_listen(SocketAddr::new(IpAddr::V4(server_ip), 8080))
+                .await
+                .unwrap();
+            let (failure, _) = watch::channel(None);
+            let (_, health) = watch::channel(RuntimeHealth::Connected {
+                path: RuntimePath {
+                    transport: usque_core::Transport::Http3,
+                    endpoint_family: usque_core::AddressFamily::Ipv4,
+                    ipv4_available: true,
+                    ipv6_available: true,
+                },
+                reconnect_count: 0,
+            });
+            Self {
+                context: Arc::new(HttpContext {
+                    resolver: Resolver::new(
+                        client_channel.clone(),
+                        client_ip,
+                        Ipv6Addr::LOCALHOST,
+                        Vec::new(),
+                        usque_core::ProxyDnsMode::Remote,
+                        crate::socket::noop_socket_protector(),
+                    ),
+                    channel: client_channel,
+                    assigned_ipv4: client_ip,
+                    assigned_ipv6: Ipv6Addr::LOCALHOST,
+                    cancellation: CancellationToken::new(),
+                    failure,
+                    health,
+                    performance: Arc::new(HttpPoolCounters::default()),
+                    auth: None,
+                }),
+                origin,
+                _tasks: tasks,
+            }
+        }
+    }
+
     #[tokio::test]
     async fn session_pool_reuses_one_upstream_connection_for_two_requests() {
-        let (client_stack, server_stack) = ts_netstack_smoltcp::piped_pair(Config::default());
-        let client_channel = client_stack.command_channel();
-        let server_channel = server_stack.command_channel();
-        let client_task = client_stack.spawn_tokio();
-        let server_task = server_stack.spawn_tokio();
-        let client_ip = Ipv4Addr::new(10, 0, 0, 1);
-        let server_ip = Ipv4Addr::new(10, 0, 0, 2);
-        client_channel
-            .set_ips([IpAddr::V4(client_ip)])
-            .await
-            .unwrap();
-        server_channel
-            .set_ips([IpAddr::V4(server_ip)])
-            .await
-            .unwrap();
-        let endpoint = SocketAddr::new(IpAddr::V4(server_ip), 8080);
-        let listener = server_channel.tcp_listen(endpoint).await.unwrap();
+        let StackedProxy {
+            context,
+            origin: listener,
+            _tasks,
+        } = StackedProxy::new().await;
         let accepts = Arc::new(AtomicUsize::new(0));
         let requests = Arc::new(AtomicUsize::new(0));
         let server_accepts = Arc::clone(&accepts);
@@ -1012,37 +1095,7 @@ mod tests {
                 .await
                 .unwrap();
         });
-
-        let (failure, _) = watch::channel(None);
-        let (_, health) = watch::channel(RuntimeHealth::Connected {
-            path: RuntimePath {
-                transport: usque_core::Transport::Http3,
-                endpoint_family: usque_core::AddressFamily::Ipv4,
-                ipv4_available: true,
-                ipv6_available: true,
-            },
-            reconnect_count: 0,
-        });
-        let performance = Arc::new(HttpPoolCounters::default());
-        let context = Arc::new(HttpContext {
-            resolver: Resolver::new(
-                client_channel.clone(),
-                client_ip,
-                Ipv6Addr::LOCALHOST,
-                Vec::new(),
-                usque_core::ProxyDnsMode::Remote,
-                crate::socket::noop_socket_protector(),
-            ),
-            channel: client_channel,
-            assigned_ipv4: client_ip,
-            assigned_ipv6: Ipv6Addr::LOCALHOST,
-            cancellation: CancellationToken::new(),
-            failure,
-            health,
-            performance: Arc::clone(&performance),
-            auth: None,
-        });
-        let pool = SessionPool::new(context);
+        let pool = SessionPool::new(Arc::clone(&context));
 
         for path in ["/one", "/two"] {
             let mut request = Request::new(empty_body());
@@ -1058,12 +1111,126 @@ mod tests {
 
         assert_eq!(accepts.load(Ordering::Relaxed), 1);
         assert_eq!(requests.load(Ordering::Relaxed), 2);
-        assert_eq!(performance.hits.load(Ordering::Relaxed), 1);
-        assert_eq!(performance.misses.load(Ordering::Relaxed), 1);
+        assert_eq!(context.performance.hits.load(Ordering::Relaxed), 1);
+        assert_eq!(context.performance.misses.load(Ordering::Relaxed), 1);
 
         drop(pool);
         http_server.abort();
-        client_task.abort();
-        server_task.abort();
+    }
+
+    #[tokio::test]
+    async fn connect_relays_pipelined_bytes_on_the_raw_socket() {
+        let StackedProxy {
+            context,
+            origin: listener,
+            _tasks,
+        } = StackedProxy::new().await;
+        let origin = tokio::spawn(async move {
+            let mut stream = listener.accept().await.unwrap();
+            let mut buf = [0u8; 5];
+            stream.read_exact(&mut buf).await.unwrap();
+            assert_eq!(&buf, b"HELLO");
+            stream.write_all(b"WORLD").await.unwrap();
+            stream
+        });
+        let frontend = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let proxy_addr = frontend.local_addr().unwrap();
+        let proxy_task = tokio::spawn(run_listener(frontend, context));
+
+        let mut client = TcpStream::connect(proxy_addr).await.unwrap();
+        client
+            .write_all(b"CONNECT 10.0.0.2:8080 HTTP/1.1\r\nHost: 10.0.0.2:8080\r\n\r\nHELLO")
+            .await
+            .unwrap();
+        let mut head = Vec::new();
+        while !head.ends_with(b"\r\n\r\n") {
+            assert!(head.len() < 4096);
+            let mut byte = [0u8; 1];
+            client.read_exact(&mut byte).await.unwrap();
+            head.push(byte[0]);
+        }
+        assert!(
+            head.starts_with(b"HTTP/1.1 200 "),
+            "CONNECT response: {}",
+            String::from_utf8_lossy(&head)
+        );
+        let mut payload = [0u8; 5];
+        tokio::time::timeout(Duration::from_secs(2), client.read_exact(&mut payload))
+            .await
+            .expect("CONNECT tunnel payload deadline")
+            .unwrap();
+        assert_eq!(&payload, b"WORLD");
+
+        drop(client);
+        tokio::time::timeout(Duration::from_secs(2), origin)
+            .await
+            .expect("origin task deadline")
+            .unwrap();
+        proxy_task.abort();
+    }
+
+    #[tokio::test]
+    async fn forward_relays_a_body_larger_than_the_old_64kib_window() {
+        const BODY_LEN: usize = 64 * 1024 + 1;
+        let payload = Bytes::from(vec![0x5A; BODY_LEN]);
+        let StackedProxy {
+            context,
+            origin: listener,
+            _tasks,
+        } = StackedProxy::new().await;
+        let origin_body = payload.clone();
+        let origin = tokio::spawn(async move {
+            let stream = listener.accept().await.unwrap();
+            let service = service_fn(move |_request| {
+                let body = origin_body.clone();
+                async move { Ok::<_, Infallible>(Response::new(Full::new(body))) }
+            });
+            hyper::server::conn::http1::Builder::new()
+                .keep_alive(false)
+                .serve_connection(TokioIo::new(stream), service)
+                .await
+                .unwrap();
+        });
+        let frontend = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let proxy_addr = frontend.local_addr().unwrap();
+        let proxy_task = tokio::spawn(run_listener(frontend, context));
+
+        let mut client = TcpStream::connect(proxy_addr).await.unwrap();
+        client
+            .write_all(
+                b"GET http://10.0.0.2:8080/large HTTP/1.1\r\nHost: 10.0.0.2:8080\r\nConnection: close\r\n\r\n",
+            )
+            .await
+            .unwrap();
+        let mut buf = Vec::new();
+        loop {
+            let mut chunk = [0u8; 8192];
+            let n = tokio::time::timeout(Duration::from_secs(5), client.read(&mut chunk))
+                .await
+                .expect("forward body deadline")
+                .unwrap();
+            if n == 0 {
+                break;
+            }
+            buf.extend_from_slice(&chunk[..n]);
+        }
+        let header_end = buf
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .unwrap()
+            + 4;
+        assert!(
+            buf.starts_with(b"HTTP/1.1 200"),
+            "forward response: {}",
+            String::from_utf8_lossy(&buf[..header_end.min(buf.len())])
+        );
+        assert_eq!(&buf[header_end..], payload.as_ref());
+
+        drop(client);
+        tokio::time::timeout(Duration::from_secs(2), origin)
+            .await
+            .expect("origin task deadline")
+            .unwrap();
+        proxy_task.abort();
     }
 }
