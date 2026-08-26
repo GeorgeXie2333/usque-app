@@ -24,6 +24,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 uuid.workspace = true
+usque-geo = { path = "../usque-geo" }
 usque-protocol = { path = "../usque-protocol" }
 zeroize.workspace = true
 
@@ -31,6 +32,7 @@ zeroize.workspace = true
 windows-sys.workspace = true
 
 [dev-dependencies]
+bytes.workspace = true
 proptest.workspace = true
 
 [lints]

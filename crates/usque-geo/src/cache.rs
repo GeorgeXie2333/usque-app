@@ -286,7 +286,7 @@ mod tests {
                 geosite: true,
             }]
         );
-        let classifier = GeoClassifier::load(directory.path(), &[cn.clone()]).unwrap();
+        let classifier = GeoClassifier::load(directory.path(), std::slice::from_ref(&cn)).unwrap();
         assert!(classifier.ip_matches("1.2.3.4".parse().unwrap(), &cn));
         assert!(classifier.host_matches("foo.example.cn", &cn));
         assert!(GeoIpSet::from_v2ray_dat(fixture_dat(), &cn).is_ok());

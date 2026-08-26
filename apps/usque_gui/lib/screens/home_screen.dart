@@ -264,6 +264,7 @@ typedef _HeroView = ({
   String profileName,
   FrontendSettings frontends,
   bool systemProxy,
+  String geoDirect,
   _OutputPhases runtime,
 });
 
@@ -311,6 +312,7 @@ class _ConnectionHero extends StatelessWidget {
         profileName: controller.activeProfile.name,
         frontends: controller.activeProfile.frontends,
         systemProxy: controller.activeProfile.proxy.systemProxy,
+        geoDirect: controller.activeProfile.geoDirectCountries.join(','),
         runtime: _outputPhases(controller.snapshot),
       ),
       builder: (context, view) => _buildHero(context, view),
@@ -436,34 +438,42 @@ class _FrontendChips extends StatelessWidget {
         ),
       );
     }
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: enabled
-          .map((entry) {
-            final FrontendPhase? phase = entry.value;
-            final bool active = phase == FrontendPhase.active;
-            final bool degraded =
-                phase == FrontendPhase.degraded ||
-                phase == FrontendPhase.reconnecting ||
-                phase == FrontendPhase.error;
-            return StatusPill(
-              label: switch (entry.key) {
-                FrontendKind.tunnel => strings.get('tunnel_output'),
-                FrontendKind.socks5 => 'SOCKS5',
-                FrontendKind.http => 'HTTP',
-                FrontendKind.systemProxy => strings.get('system_proxy'),
-              },
-              tone: degraded
-                  ? StatusTone.warning
-                  : active
-                  ? StatusTone.success
-                  : StatusTone.neutral,
-              dim: !active && !degraded,
-            );
-          })
-          .toList(growable: false),
-    );
+    final chips = enabled
+        .map((entry) {
+          final FrontendPhase? phase = entry.value;
+          final bool active = phase == FrontendPhase.active;
+          final bool degraded =
+              phase == FrontendPhase.degraded ||
+              phase == FrontendPhase.reconnecting ||
+              phase == FrontendPhase.error;
+          return StatusPill(
+            label: switch (entry.key) {
+              FrontendKind.tunnel => strings.get('tunnel_output'),
+              FrontendKind.socks5 => 'SOCKS5',
+              FrontendKind.http => 'HTTP',
+              FrontendKind.systemProxy => strings.get('system_proxy'),
+            },
+            tone: degraded
+                ? StatusTone.warning
+                : active
+                ? StatusTone.success
+                : StatusTone.neutral,
+            dim: !active && !degraded,
+          );
+        })
+        .toList();
+    if (view.geoDirect.isNotEmpty) {
+      final codes = view.geoDirect.split(',');
+      final label = codes.contains('CN') ? 'CN' : codes.first;
+      chips.add(
+        StatusPill(
+          icon: LucideIcons.globe,
+          label: strings.get('geo_chip').replaceAll('{current}', label),
+          tone: StatusTone.neutral,
+        ),
+      );
+    }
+    return Wrap(spacing: 8, runSpacing: 8, children: chips);
   }
 }
 

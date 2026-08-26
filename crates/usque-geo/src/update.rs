@@ -106,7 +106,7 @@ impl<F: HttpFetch> GeoDownloader<F> {
         }
     }
 
-    async fn update_geoip(&self, country: &CountryCode) -> ArtifactResult {
+    pub async fn update_geoip(&self, country: &CountryCode) -> ArtifactResult {
         match self.update_geoip_inner(country).await {
             Ok(status) => ArtifactResult {
                 country: country.clone(),
@@ -123,7 +123,7 @@ impl<F: HttpFetch> GeoDownloader<F> {
         }
     }
 
-    async fn update_geosite(&self, country: &CountryCode) -> ArtifactResult {
+    pub async fn update_geosite(&self, country: &CountryCode) -> ArtifactResult {
         match self.update_geosite_inner(country).await {
             Ok(status) => ArtifactResult {
                 country: country.clone(),

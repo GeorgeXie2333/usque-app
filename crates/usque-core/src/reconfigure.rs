@@ -31,7 +31,8 @@ pub fn classify_reconfigure(previous: &Profile, next: &Profile) -> ReconfigureCl
         || previous.dns_servers != next.dns_servers
         || previous.allow_lan != next.allow_lan
         || previous.split_exclusions != next.split_exclusions
-        || previous.kill_switch != next.kill_switch;
+        || previous.kill_switch != next.kill_switch
+        || previous.geo_direct_countries != next.geo_direct_countries;
     if cold {
         return ReconfigureClass::ColdReconnect;
     }
@@ -146,6 +147,36 @@ mod tests {
         assert_eq!(
             classify_reconfigure(&previous, &next),
             ReconfigureClass::Reject
+        );
+    }
+
+    #[test]
+    fn geo_direct_country_list_change_is_cold_reconnect() {
+        let previous = base();
+        let mut next = previous.clone();
+        next.geo_direct_countries = vec!["CN".to_owned()];
+        assert_eq!(
+            classify_reconfigure(&previous, &next),
+            ReconfigureClass::ColdReconnect
+        );
+        next.proxy.socks5_listeners[0].set_port(1081);
+        assert_eq!(
+            classify_reconfigure(&previous, &next),
+            ReconfigureClass::ColdReconnect
+        );
+        let unchanged = previous.clone();
+        assert_ne!(
+            classify_reconfigure(&previous, &unchanged),
+            ReconfigureClass::Reject
+        );
+        let socks_only = {
+            let mut profile = previous.clone();
+            profile.proxy.socks5_listeners[0].set_port(1081);
+            profile
+        };
+        assert_eq!(
+            classify_reconfigure(&previous, &socks_only),
+            ReconfigureClass::HotFrontends
         );
     }
 }

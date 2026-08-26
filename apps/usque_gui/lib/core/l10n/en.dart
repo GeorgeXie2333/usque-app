@@ -262,7 +262,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'bypass_hint': 'One CIDR per line',
   'reset_defaults': 'Reset network defaults',
   'reset_defaults_body':
-      'Restore endpoints, SNI, DNS, MTU, listeners, transport, and endpoint preference?',
+      'Restore endpoints, SNI, DNS, MTU, listeners, transport, endpoint preference, and direct countries?',
   'reset': 'Reset',
   'save': 'Save',
   'saved': 'Saved',
@@ -317,4 +317,19 @@ const Map<String, String> kEnCatalog = <String, String>{
   'profile_required': 'Keep at least one profile.',
   'socks_capabilities': 'TCP and UDP',
   'http_capabilities': 'CONNECT and ordinary forwarding',
+  'geo_direct': 'Direct countries',
+  'geo_direct_help':
+      'Rules come from v2fly via jsDelivr and are not in the installer. Download or update while connected. Kill Switch still blocks CN when disconnected. System proxy domain bypass comes later.',
+  'geo_update_all': 'Update geo data',
+  'geo_last_updated': 'Last successful update: {current}',
+  'geo_never_updated': 'Not updated yet',
+  'geo_updating': 'Updating {current} of {total}',
+  'geo_download': 'Download',
+  'geo_update': 'Update',
+  'geo_enable': 'Direct',
+  'geo_search': 'Search countries',
+  'geo_not_downloaded': 'Not downloaded',
+  'geo_downloaded': 'Downloaded',
+  'geo_chip': '{current} direct',
+  'geo_download_first': 'Download geo data for this country before enabling it.',
 };

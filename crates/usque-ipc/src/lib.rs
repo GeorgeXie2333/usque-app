@@ -368,6 +368,17 @@ mod tests {
             [0x0a, 1, b'p', 0x7a, 4, 0x08, 1, 0x10, 1]
         );
 
+        let legacy = Profile::decode(&*profile.encode_to_vec()).expect("decode without field 16");
+        assert!(legacy.geo_direct_countries.is_empty());
+
+        let with_geo = Profile {
+            id: "p".to_owned(),
+            geo_direct_countries: vec!["CN".to_owned()],
+            ..Profile::default()
+        };
+        let decoded = Profile::decode(&*with_geo.encode_to_vec()).expect("decode field 16");
+        assert_eq!(decoded.geo_direct_countries, ["CN"]);
+
         let snapshot = crate::v1::ConnectionSnapshot {
             frontends: vec![FrontendStatus {
                 kind: FrontendKind::Socks5 as i32,

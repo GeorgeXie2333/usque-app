@@ -148,6 +148,42 @@ void main() {
       expect(catalog.profiles.single.proxy.httpPort, 1);
       expect(catalog.profiles.single.proxy.dnsIpv4, 'j.j');
       expect(catalog.profiles.single.proxy.dnsIpv6, 'k:k');
+      expect(catalog.profiles.single.geoDirectCountries, isEmpty);
+    });
+
+    test('legacy profile bytes without field 16 decode empty geo countries', () {
+      final catalogBody = ControlPayloadWriter()
+        ..message(1, Uint8List.fromList(_goldenProfileBytes))
+        ..string(2, 'p');
+      final responseBody = ControlPayloadWriter()
+        ..string(1, 'r2')
+        ..message(12, catalogBody.takeBytes());
+      final catalog = debugDecodeProfileCatalogFrame(
+        codec.frame(responseBody.takeBytes()),
+        'r2',
+      );
+      expect(catalog.profiles.single.geoDirectCountries, isEmpty);
+    });
+
+    test('geo_direct_countries field 16 round-trips', () {
+      const profile = UsqueProfile(
+        id: 'p',
+        name: 'X',
+        geoDirectCountries: <String>['CN'],
+      );
+      final encoded = codec.encodeProfile(profile);
+      expect(encoded, containsAllInOrder(<int>[0x82, 0x01, 0x02, 0x43, 0x4e]));
+      final catalogBody = ControlPayloadWriter()
+        ..message(1, encoded)
+        ..string(2, 'p');
+      final responseBody = ControlPayloadWriter()
+        ..string(1, 'r3')
+        ..message(12, catalogBody.takeBytes());
+      final catalog = debugDecodeProfileCatalogFrame(
+        codec.frame(responseBody.takeBytes()),
+        'r3',
+      );
+      expect(catalog.profiles.single.geoDirectCountries, <String>['CN']);
     });
   });
 
@@ -628,6 +664,8 @@ void main() {
       expect(requestTimeoutForPayload(20), const Duration(seconds: 20));
       expect(requestTimeoutForPayload(21), const Duration(seconds: 15));
       expect(requestTimeoutForPayload(22), const Duration(seconds: 30));
+      expect(requestTimeoutForPayload(34), const Duration(seconds: 90));
+      expect(requestTimeoutForPayload(35), const Duration(seconds: 180));
       expect(requestTimeoutForPayload(10), const Duration(seconds: 5));
     });
 

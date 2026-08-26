@@ -38,25 +38,45 @@ where
 
     let mut ticker = interval(SNAPSHOT_INTERVAL);
     ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    let mut geo_progress = service.subscribe_geo_progress();
 
     loop {
-        ticker.tick().await;
-        let snapshot = service.event_snapshot().await;
-        // A snapshot is intentionally emitted every second even when the
-        // state is unchanged. Besides keeping UI rates current, the write is
-        // the liveness check for this strictly one-way pipe.
-        write_event(
-            &mut stream,
-            EventEnvelope {
-                sequence: service.next_event_sequence(),
-                payload: Some(event_envelope::Payload::StateChanged(Box::new(
-                    v1::StateChanged {
-                        snapshot: Some(snapshot),
+        tokio::select! {
+            _ = ticker.tick() => {
+                let snapshot = service.event_snapshot().await;
+                // A snapshot is intentionally emitted every second even when the
+                // state is unchanged. Besides keeping UI rates current, the write is
+                // the liveness check for this strictly one-way pipe.
+                write_event(
+                    &mut stream,
+                    EventEnvelope {
+                        sequence: service.next_event_sequence(),
+                        payload: Some(event_envelope::Payload::StateChanged(Box::new(
+                            v1::StateChanged {
+                                snapshot: Some(snapshot),
+                            },
+                        ))),
                     },
-                ))),
-            },
-        )
-        .await?;
+                )
+                .await?;
+            }
+            progress = geo_progress.recv() => {
+                match progress {
+                    Ok(progress) => {
+                        write_event(
+                            &mut stream,
+                            EventEnvelope {
+                                sequence: service.next_event_sequence(),
+                                payload: Some(event_envelope::Payload::GeoRulesProgress(progress)),
+                            },
+                        )
+                        .await?;
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => return Ok(()),
+                }
+            }
+        }
     }
 }
 

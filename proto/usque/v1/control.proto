@@ -159,6 +159,7 @@ message Profile {
   ProxySettings proxy = 13;
   DnsMode dns_mode = 14;
   FrontendSettings frontends = 15;
+  repeated string geo_direct_countries = 16;
 }
 
 message Statistics {
@@ -348,6 +349,50 @@ message UpdateProxyAuthRequest {
   bool confirmed = 4;
 }
 
+message ListGeoRulesRequest {}
+
+message DownloadGeoRulesRequest {
+  string country_code = 1;
+}
+
+message UpdateAllGeoRulesRequest {}
+
+message GeoRulesEntry {
+  string country_code = 1;
+  bool has_geoip = 2;
+  bool has_geosite = 3;
+  int64 last_updated_unix_milliseconds = 4;
+}
+
+message GeoRulesList {
+  repeated GeoRulesEntry entries = 1;
+  int64 last_successful_update_unix_milliseconds = 2;
+}
+
+enum GeoRulesUpdateStatus {
+  GEO_RULES_UPDATE_STATUS_UNSPECIFIED = 0;
+  GEO_RULES_UPDATE_STATUS_UP_TO_DATE = 1;
+  GEO_RULES_UPDATE_STATUS_UPDATED = 2;
+  GEO_RULES_UPDATE_STATUS_FAILED = 3;
+}
+
+message GeoRulesUpdateResult {
+  string country_code = 1;
+  GeoRulesUpdateStatus status = 2;
+  string reason = 3;
+  string artifact_kind = 4;
+}
+
+message GeoRulesUpdateResults {
+  repeated GeoRulesUpdateResult results = 1;
+}
+
+message GeoRulesProgress {
+  string current_file = 1;
+  uint32 completed = 2;
+  uint32 total = 3;
+}
+
 message ReconfigureResult {
   Profile profile = 1;
   ConnectionSnapshot snapshot = 2;
@@ -380,6 +425,9 @@ message ControlRequest {
     UnbindLicenseKeyRequest unbind_license_key = 30;
     ExportWarpSecretRequest export_warp_secret = 31;
     UpdateProxyAuthRequest update_proxy_auth = 32;
+    ListGeoRulesRequest list_geo_rules = 33;
+    DownloadGeoRulesRequest download_geo_rules = 34;
+    UpdateAllGeoRulesRequest update_all_geo_rules = 35;
   }
 }
 
@@ -406,6 +454,8 @@ message ControlResponse {
     UpdateInfo update = 14;
     Capabilities capabilities = 15;
     ReconfigureResult reconfigure = 16;
+    GeoRulesList geo_rules_list = 17;
+    GeoRulesUpdateResults geo_rules_update = 18;
   }
 }
 
@@ -445,5 +495,6 @@ message EventEnvelope {
     CapabilitiesChanged capabilities_changed = 14;
     NetworkChanged network_changed = 15;
     DiagnosticsProgress diagnostics_progress = 16;
+    GeoRulesProgress geo_rules_progress = 17;
   }
 }

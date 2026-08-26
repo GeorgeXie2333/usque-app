@@ -62,6 +62,12 @@ impl ConfigStore {
             let config = AppConfig::from_legacy(legacy);
             self.save(&config)?;
             config
+        } else if schema < CURRENT_SCHEMA_VERSION {
+            self.back_up_existing()?;
+            let mut config: AppConfig = serde_json::from_value(value)?;
+            migrate_app_config(&mut config);
+            self.save(&config)?;
+            config
         } else {
             serde_json::from_value(value)?
         };
@@ -75,6 +81,9 @@ impl ConfigStore {
             .path
             .parent()
             .ok_or_else(|| StoreError::MissingParent(self.path.clone()))?;
+        if let Some(profile) = config.active_profile() {
+            profile.validate_geo_cache(parent)?;
+        }
         fs::create_dir_all(parent)?;
 
         let mut temporary = NamedTempFile::new_in(parent)?;
@@ -234,6 +243,13 @@ fn migrate_legacy(config: &mut LegacyStoredConfig) -> Result<(), StoreError> {
         }
     }
     Ok(())
+}
+
+fn migrate_app_config(config: &mut AppConfig) {
+    if config.schema_version < 10 {
+        config.network.geo_direct_countries.clear();
+        config.schema_version = 10;
+    }
 }
 
 #[cfg(not(windows))]
@@ -523,5 +539,44 @@ mod tests {
         assert!(saved["profiles"][0].get("mtu").is_none());
         assert!(saved["profiles"][0].get("frontends").is_none());
         assert!(saved["profiles"][1].get("managed_endpoint").is_some());
+    }
+
+    #[test]
+    fn schema_nine_migrates_to_empty_geo_direct_countries() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ConfigStore::new(directory.path().join("config.json"));
+        let config = AppConfig {
+            schema_version: 9,
+            ..AppConfig::default()
+        };
+        let mut value = serde_json::to_value(&config).unwrap();
+        value.as_object_mut().unwrap().remove("schema_version");
+        value["schema_version"] = serde_json::json!(9);
+        value["network"]
+            .as_object_mut()
+            .unwrap()
+            .remove("geo_direct_countries");
+        fs::write(store.path(), serde_json::to_vec_pretty(&value).unwrap()).unwrap();
+
+        let migrated = store.load().unwrap();
+        assert_eq!(migrated.schema_version, CURRENT_SCHEMA_VERSION);
+        assert!(migrated.network.geo_direct_countries.is_empty());
+        let backup: serde_json::Value =
+            serde_json::from_slice(&fs::read(store.backup_path()).unwrap()).unwrap();
+        assert_eq!(backup["schema_version"], 9);
+        assert!(backup["network"].get("geo_direct_countries").is_none());
+    }
+
+    #[test]
+    fn saving_enabled_country_without_cache_is_rejected() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ConfigStore::new(directory.path().join("config.json"));
+        let mut config = AppConfig::default();
+        config.network.geo_direct_countries = vec!["CN".to_owned()];
+        let error = store.save(&config).unwrap_err();
+        assert!(matches!(
+            error,
+            StoreError::Config(ConfigError::GeoDirectCountryNotDownloaded(_))
+        ));
     }
 }

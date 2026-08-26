@@ -83,6 +83,9 @@ class ControlCodec {
       ..message(13, proxy.takeBytes())
       ..enumeration(14, profile.dnsMode.index + 1)
       ..message(15, frontends.takeBytes());
+    for (final country in profile.geoDirectCountries) {
+      writer.string(16, country);
+    }
     return writer.takeBytes();
   }
 
@@ -107,6 +110,8 @@ class ControlCodec {
       EngineSnapshot? snapshot;
       UpdateCheckResult? update;
       ProfileCatalog? profileCatalog;
+      GeoRulesList? geoRulesList;
+      List<GeoRulesUpdateResult>? geoRulesUpdate;
       while (!reader.isDone) {
         final field = reader.field();
         switch (field.number) {
@@ -120,6 +125,10 @@ class ControlCodec {
             update = _decodeUpdate(reader.message(field));
           case 12:
             profileCatalog = _decodeProfileCatalog(reader.message(field));
+          case 17:
+            geoRulesList = _decodeGeoRulesList(reader.message(field));
+          case 18:
+            geoRulesUpdate = _decodeGeoRulesUpdate(reader.message(field));
           default:
             reader.skip(field);
         }
@@ -133,13 +142,23 @@ class ControlCodec {
       if (error != null) {
         throw EngineException(error.code, error.message);
       }
-      return ControlResponse(snapshot, update, profileCatalog);
+      return ControlResponse(
+        snapshot,
+        update,
+        profileCatalog,
+        geoRulesList: geoRulesList,
+        geoRulesUpdate: geoRulesUpdate,
+      );
     } on FormatException catch (error) {
       throw _invalidIpcResponse(error);
     }
   }
 
   EngineSnapshot? decodeEventSnapshot(Uint8List frame) {
+    return decodeEvent(frame).snapshot;
+  }
+
+  EngineSnapshotEvent decodeEvent(Uint8List frame) {
     try {
       if (frame.length < 4) {
         throw const EngineException(
@@ -157,6 +176,7 @@ class ControlCodec {
 
       final envelope = _ProtoReader(Uint8List.sublistView(frame, 4));
       EngineSnapshot? snapshot;
+      GeoRulesProgress? geoProgress;
       while (!envelope.isDone) {
         final field = envelope.field();
         switch (field.number) {
@@ -172,11 +192,13 @@ class ControlCodec {
                 stateChanged.skip(stateField);
               }
             }
+          case 17:
+            geoProgress = _decodeGeoProgress(envelope.message(field));
           default:
             envelope.skip(field);
         }
       }
-      return snapshot;
+      return EngineSnapshotEvent(snapshot: snapshot, geoProgress: geoProgress);
     } on FormatException catch (error) {
       throw _invalidIpcResponse(error);
     }
@@ -196,11 +218,19 @@ class ControlCodec {
 
 /// Decoded control response payload (after structured error handling).
 class ControlResponse {
-  const ControlResponse(this.snapshot, this.update, this.profileCatalog);
+  const ControlResponse(
+    this.snapshot,
+    this.update,
+    this.profileCatalog, {
+    this.geoRulesList,
+    this.geoRulesUpdate,
+  });
 
   final EngineSnapshot? snapshot;
   final UpdateCheckResult? update;
   final ProfileCatalog? profileCatalog;
+  final GeoRulesList? geoRulesList;
+  final List<GeoRulesUpdateResult>? geoRulesUpdate;
 }
 
 /// Minimal protobuf field writer for control request payloads.
@@ -397,6 +427,7 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
   var proxy = defaults.proxy;
   var frontends = defaults.frontends;
   var frontendsSeen = false;
+  final geoDirectCountries = <String>[];
 
   while (!reader.isDone) {
     final field = reader.field();
@@ -484,6 +515,8 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
           http: http,
         );
         frontendsSeen = true;
+      case 16:
+        geoDirectCountries.add(reader.string(field));
       default:
         reader.skip(field);
     }
@@ -517,8 +550,125 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
     allowLan: allowLan,
     autoConnect: autoConnect,
     bypassCidrs: List<String>.unmodifiable(bypassCidrs),
+    geoDirectCountries: List<String>.unmodifiable(geoDirectCountries),
     proxy: proxy,
     frontends: frontends,
+  );
+}
+
+GeoRulesList _decodeGeoRulesList(_ProtoReader reader) {
+  final entries = <GeoRulesEntry>[];
+  var lastSuccessfulUpdateUnixMilliseconds = 0;
+  while (!reader.isDone) {
+    final field = reader.field();
+    switch (field.number) {
+      case 1:
+        entries.add(_decodeGeoRulesEntry(reader.message(field)));
+      case 2:
+        lastSuccessfulUpdateUnixMilliseconds = reader.varint(field);
+      default:
+        reader.skip(field);
+    }
+  }
+  return GeoRulesList(
+    entries: List<GeoRulesEntry>.unmodifiable(entries),
+    lastSuccessfulUpdateUnixMilliseconds: lastSuccessfulUpdateUnixMilliseconds,
+  );
+}
+
+GeoRulesEntry _decodeGeoRulesEntry(_ProtoReader reader) {
+  var countryCode = '';
+  var hasGeoip = false;
+  var hasGeosite = false;
+  var lastUpdatedUnixMilliseconds = 0;
+  while (!reader.isDone) {
+    final field = reader.field();
+    switch (field.number) {
+      case 1:
+        countryCode = reader.string(field);
+      case 2:
+        hasGeoip = reader.varint(field) != 0;
+      case 3:
+        hasGeosite = reader.varint(field) != 0;
+      case 4:
+        lastUpdatedUnixMilliseconds = reader.varint(field);
+      default:
+        reader.skip(field);
+    }
+  }
+  return GeoRulesEntry(
+    countryCode: countryCode,
+    hasGeoip: hasGeoip,
+    hasGeosite: hasGeosite,
+    lastUpdatedUnixMilliseconds: lastUpdatedUnixMilliseconds,
+  );
+}
+
+List<GeoRulesUpdateResult> _decodeGeoRulesUpdate(_ProtoReader reader) {
+  final results = <GeoRulesUpdateResult>[];
+  while (!reader.isDone) {
+    final field = reader.field();
+    if (field.number != 1) {
+      reader.skip(field);
+      continue;
+    }
+    final item = reader.message(field);
+    var countryCode = '';
+    var status = GeoRulesUpdateStatus.updated;
+    var reason = '';
+    var artifactKind = '';
+    while (!item.isDone) {
+      final itemField = item.field();
+      switch (itemField.number) {
+        case 1:
+          countryCode = item.string(itemField);
+        case 2:
+          status = switch (item.varint(itemField)) {
+            1 => GeoRulesUpdateStatus.upToDate,
+            3 => GeoRulesUpdateStatus.failed,
+            _ => GeoRulesUpdateStatus.updated,
+          };
+        case 3:
+          reason = item.string(itemField);
+        case 4:
+          artifactKind = item.string(itemField);
+        default:
+          item.skip(itemField);
+      }
+    }
+    results.add(
+      GeoRulesUpdateResult(
+        countryCode: countryCode,
+        status: status,
+        reason: reason,
+        artifactKind: artifactKind,
+      ),
+    );
+  }
+  return results;
+}
+
+GeoRulesProgress _decodeGeoProgress(_ProtoReader reader) {
+  var currentFile = '';
+  var completed = 0;
+  var total = 0;
+  while (!reader.isDone) {
+    final field = reader.field();
+    switch (field.number) {
+      case 1:
+        currentFile = reader.string(field);
+      case 2:
+        completed = reader.varint(field);
+      case 3:
+        total = reader.varint(field);
+      default:
+        reader.skip(field);
+    }
+  }
+  return GeoRulesProgress(
+    currentFile: currentFile,
+    completed: completed,
+    total: total,
   );
 }
 

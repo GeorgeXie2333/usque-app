@@ -414,6 +414,17 @@ class FakeEngineClient implements EngineClient {
       const UpdateCheckResult.current();
 
   @override
+  Future<GeoRulesList> listGeoRules() async => const GeoRulesList();
+
+  @override
+  Future<List<GeoRulesUpdateResult>> downloadGeoRules(String countryCode) async =>
+      const <GeoRulesUpdateResult>[];
+
+  @override
+  Future<List<GeoRulesUpdateResult>> updateAllGeoRules() async =>
+      const <GeoRulesUpdateResult>[];
+
+  @override
   Future<void> clearAllData({required bool confirmed}) async {
     if (!confirmed) {
       throw const EngineException(

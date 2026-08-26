@@ -47,9 +47,7 @@ class DesktopEngineClient implements EngineClient {
       StreamTransformer<Uint8List, EngineSnapshotEvent>.fromHandlers(
         handleData: (Uint8List value, EventSink<EngineSnapshotEvent> sink) {
           try {
-            sink.add(
-              EngineSnapshotEvent(snapshot: _codec.decodeEventSnapshot(value)),
-            );
+            sink.add(_codec.decodeEvent(value));
           } on Object catch (error) {
             debugPrint('Usque: ignored invalid engine event frame ($error).');
           }
@@ -366,6 +364,31 @@ class DesktopEngineClient implements EngineClient {
   }
 
   @override
+  Future<GeoRulesList> listGeoRules() {
+    return _serialized(() async {
+      final response = await _request(33, Uint8List(0));
+      return response.geoRulesList ?? const GeoRulesList();
+    });
+  }
+
+  @override
+  Future<List<GeoRulesUpdateResult>> downloadGeoRules(String countryCode) {
+    return _serialized(() async {
+      final payload = ControlPayloadWriter()..string(1, countryCode);
+      final response = await _request(34, payload.takeBytes());
+      return response.geoRulesUpdate ?? const <GeoRulesUpdateResult>[];
+    });
+  }
+
+  @override
+  Future<List<GeoRulesUpdateResult>> updateAllGeoRules() {
+    return _serialized(() async {
+      final response = await _request(35, Uint8List(0));
+      return response.geoRulesUpdate ?? const <GeoRulesUpdateResult>[];
+    });
+  }
+
+  @override
   Future<void> clearAllData({required bool confirmed}) {
     return _serialized(() async {
       final payload = ControlPayloadWriter()..boolean(1, confirmed);
@@ -488,6 +511,10 @@ Duration requestTimeoutForPayload(int payloadField) {
       return const Duration(seconds: 15);
     case 22:
       return const Duration(seconds: 30);
+    case 34:
+      return const Duration(seconds: 90);
+    case 35:
+      return const Duration(seconds: 180);
     default:
       return const Duration(seconds: 5);
   }

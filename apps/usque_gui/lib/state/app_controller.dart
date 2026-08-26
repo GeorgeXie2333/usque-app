@@ -54,6 +54,8 @@ class AppController extends ChangeNotifier {
   bool snapshotStreamDegraded = false;
   bool _userDisconnectedThisSession = false;
   UpdateCheckResult? updateResult;
+  GeoRulesList geoRules = const GeoRulesList();
+  GeoRulesProgress? geoProgress;
   List<UsqueProfile> profiles = <UsqueProfile>[UsqueProfile.defaultProfile()];
   String activeProfileId = UsqueProfile.defaultProfileId;
   Map<String, ProfileIdentityState> profileIdentityStates =
@@ -467,6 +469,42 @@ class AppController extends ChangeNotifier {
     await _checkForUpdates(manual: true, silent: false);
   }
 
+  Future<void> refreshGeoRules() async {
+    try {
+      geoRules = await _engine.listGeoRules();
+      _notifyListeners();
+    } on EngineException catch (error) {
+      lastError = error.message;
+      _notifyListeners();
+    }
+  }
+
+  Future<void> downloadGeoRules(String countryCode) async {
+    await _run(() async {
+      geoProgress = const GeoRulesProgress(currentFile: countryCode, total: 1);
+      _notifyListeners();
+      try {
+        await _engine.downloadGeoRules(countryCode);
+        geoRules = await _engine.listGeoRules();
+      } finally {
+        geoProgress = null;
+      }
+    }, affectsConnection: false);
+  }
+
+  Future<void> updateAllGeoRules() async {
+    await _run(() async {
+      geoProgress = const GeoRulesProgress(total: 1);
+      _notifyListeners();
+      try {
+        await _engine.updateAllGeoRules();
+        geoRules = await _engine.listGeoRules();
+      } finally {
+        geoProgress = null;
+      }
+    }, affectsConnection: false);
+  }
+
   Future<void> clearAllData() async {
     await flushProfileWrites();
     final success = await _run(() async {
@@ -811,6 +849,7 @@ class AppController extends ChangeNotifier {
       allowLan: normalized.allowLan,
       autoConnect: normalized.autoConnect,
       bypassCidrs: normalized.bypassCidrs,
+      geoDirectCountries: normalized.geoDirectCountries,
       proxy: normalized.proxy,
     );
     _notifyListeners();
@@ -937,9 +976,13 @@ class AppController extends ChangeNotifier {
     _snapshotReconnectTimer = null;
     snapshotStreamDegraded = false;
     _stopPolling();
+    if (event.geoProgress != null) {
+      geoProgress = event.geoProgress;
+      _notifyListeners();
+    }
     final next = event.snapshot;
     if (next == null) {
-      if (wasDegraded) {
+      if (wasDegraded || event.geoProgress != null) {
         _notifyListeners();
       }
       return;

@@ -18,9 +18,10 @@ class EngineException implements Exception {
 /// A live engine event. [snapshot] is null for heartbeat-only frames such as
 /// CapabilitiesChanged.
 class EngineSnapshotEvent {
-  const EngineSnapshotEvent({this.snapshot});
+  const EngineSnapshotEvent({this.snapshot, this.geoProgress});
 
   final EngineSnapshot? snapshot;
+  final GeoRulesProgress? geoProgress;
 }
 
 abstract interface class EngineClient {
@@ -112,6 +113,12 @@ abstract interface class EngineClient {
 
   Future<UpdateCheckResult> checkForUpdates({bool manual = true});
 
+  Future<GeoRulesList> listGeoRules();
+
+  Future<List<GeoRulesUpdateResult>> downloadGeoRules(String countryCode);
+
+  Future<List<GeoRulesUpdateResult>> updateAllGeoRules();
+
   Future<void> clearAllData({required bool confirmed});
 
   void dispose();
@@ -137,8 +144,13 @@ class MethodChannelEngineClient implements EngineClient {
           'The Android VPN process sent an invalid status event.',
         );
       }
+      final map = Map<Object?, Object?>.from(value);
+      final progress = map['geo_progress'];
       return EngineSnapshotEvent(
-        snapshot: EngineSnapshot.fromMap(Map<Object?, Object?>.from(value)),
+        snapshot: map.containsKey('phase') ? EngineSnapshot.fromMap(map) : null,
+        geoProgress: progress is Map
+            ? geoRulesProgressFromMap(Map<Object?, Object?>.from(progress))
+            : null,
       );
     });
   }
@@ -416,6 +428,27 @@ class MethodChannelEngineClient implements EngineClient {
   }
 
   @override
+  Future<GeoRulesList> listGeoRules() async {
+    final result = await _invoke<Map<Object?, Object?>>('listGeoRules');
+    return _geoRulesListFromMap(result ?? const <Object?, Object?>{});
+  }
+
+  @override
+  Future<List<GeoRulesUpdateResult>> downloadGeoRules(String countryCode) async {
+    final result = await _invoke<Map<Object?, Object?>>(
+      'downloadGeoRules',
+      <String, Object>{'country_code': countryCode},
+    );
+    return _geoRulesUpdateFromMap(result ?? const <Object?, Object?>{});
+  }
+
+  @override
+  Future<List<GeoRulesUpdateResult>> updateAllGeoRules() async {
+    final result = await _invoke<Map<Object?, Object?>>('updateAllGeoRules');
+    return _geoRulesUpdateFromMap(result ?? const <Object?, Object?>{});
+  }
+
+  @override
   Future<void> clearAllData({required bool confirmed}) =>
       _invoke<void>('clearAllData', <String, Object>{'confirmed': confirmed});
 
@@ -437,6 +470,54 @@ class MethodChannelEngineClient implements EngineClient {
       );
     }
   }
+}
+
+GeoRulesList _geoRulesListFromMap(Map<Object?, Object?> map) {
+  final entries = (map['entries'] as List?)
+      ?.whereType<Map<Object?, Object?>>()
+      .map(
+        (entry) => GeoRulesEntry(
+          countryCode: entry['country_code'] as String? ?? '',
+          hasGeoip: entry['has_geoip'] as bool? ?? false,
+          hasGeosite: entry['has_geosite'] as bool? ?? false,
+          lastUpdatedUnixMilliseconds:
+              (entry['last_updated_unix_milliseconds'] as num?)?.toInt() ?? 0,
+        ),
+      )
+      .where((entry) => entry.countryCode.isNotEmpty)
+      .toList(growable: false);
+  return GeoRulesList(
+    entries: entries ?? const <GeoRulesEntry>[],
+    lastSuccessfulUpdateUnixMilliseconds:
+        (map['last_successful_update_unix_milliseconds'] as num?)?.toInt() ?? 0,
+  );
+}
+
+List<GeoRulesUpdateResult> _geoRulesUpdateFromMap(Map<Object?, Object?> map) {
+  return (map['results'] as List?)
+          ?.whereType<Map<Object?, Object?>>()
+          .map(
+            (result) => GeoRulesUpdateResult(
+              countryCode: result['country_code'] as String? ?? '',
+              status: switch (result['status'] as String? ?? '') {
+                'up_to_date' => GeoRulesUpdateStatus.upToDate,
+                'failed' => GeoRulesUpdateStatus.failed,
+                _ => GeoRulesUpdateStatus.updated,
+              },
+              reason: result['reason'] as String? ?? '',
+              artifactKind: result['artifact_kind'] as String? ?? '',
+            ),
+          )
+          .toList(growable: false) ??
+      const <GeoRulesUpdateResult>[];
+}
+
+GeoRulesProgress geoRulesProgressFromMap(Map<Object?, Object?> map) {
+  return GeoRulesProgress(
+    currentFile: map['current_file'] as String? ?? '',
+    completed: (map['completed'] as num?)?.toInt() ?? 0,
+    total: (map['total'] as num?)?.toInt() ?? 0,
+  );
 }
 
 Map<String, ProfileIdentityState> _identityStatesFromMap(

@@ -7,6 +7,7 @@
 
 use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
+    path::PathBuf,
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -21,14 +22,15 @@ use usque_core::{
     AddressFamily, AppConfig, ConfigError, ConnectionError, ConnectionPhase, ConnectionSnapshot,
     ConnectionWarning, ConsumerEntitlement, ConsumerRegistrationClient, DnsMode, EndpointPin,
     EndpointSettings, ErrorCode, ExitInfo, FrontendKind, FrontendPhase, FrontendSettings,
-    FrontendStatus, IdentityMetadata, IdentityProvider, IpPolicy, IpSbProbe, KillSwitchState,
-    LockdownState, MasqueKeyPair, OperatingMode, Profile, ProxyAuthCredentials, ProxyDnsMode,
-    ProxySettings, RegistrationError, RegistrationOptions, SHARED_NETWORK_SECRET_ID,
+    FrontendStatus, GeoProgress, IdentityMetadata, IdentityProvider, IpPolicy, IpSbProbe,
+    KillSwitchState, LockdownState, MasqueKeyPair, OperatingMode, Profile, ProxyAuthCredentials,
+    ProxyDnsMode, ProxySettings, RegistrationError, RegistrationOptions, SHARED_NETWORK_SECRET_ID,
     SharedNetworkSettings, StateMachine, Statistics, Transport, TransportPolicy, WarpIdentity,
-    is_zero_trust_endpoint, normalize_zero_trust_team,
+    download_geo_rules, is_zero_trust_endpoint, list_geo_rules, normalize_zero_trust_team,
     storage::{ConfigStore, StoreError},
-    validate_proxy_password, validate_proxy_username,
+    update_all_geo_rules, validate_proxy_password, validate_proxy_username,
 };
+use usque_geo::{GeoDownloader, ReqwestFetch, UpdateStatus};
 use usque_ipc::v1::{
     self, ControlRequest, ControlResponse, StructuredError, control_request, control_response,
 };
@@ -76,6 +78,8 @@ pub struct ControlService {
     disconnect_cleanup: Mutex<Option<tokio::task::JoinHandle<Result<(), ControlServiceError>>>>,
     exit_probe_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     maintenance: maintenance::Maintenance,
+    cache_dir: PathBuf,
+    geo_progress_tx: tokio::sync::broadcast::Sender<v1::GeoRulesProgress>,
     session_generation: AtomicU64,
     #[cfg(any(windows, test))]
     event_sequence: AtomicU64,
@@ -281,6 +285,12 @@ impl ControlService {
         if !store.path().exists() {
             store.save(&config)?;
         }
+        let cache_dir = store
+            .path()
+            .parent()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."));
+        let (geo_progress_tx, _) = tokio::sync::broadcast::channel(16);
         Ok(Self {
             maintenance: maintenance::Maintenance::new(store.path()),
             store,
@@ -291,6 +301,8 @@ impl ControlService {
             data_plane: Arc::new(Mutex::new(None)),
             disconnect_cleanup: Mutex::new(None),
             exit_probe_task: Mutex::new(None),
+            cache_dir,
+            geo_progress_tx,
             session_generation: AtomicU64::new(0),
             #[cfg(any(windows, test))]
             event_sequence: AtomicU64::new(0),
@@ -633,6 +645,19 @@ impl ControlService {
                     .await?;
                 Ok(control_response::Payload::Empty(v1::Empty {}))
             }
+            control_request::Payload::ListGeoRules(_) => Ok(
+                control_response::Payload::GeoRulesList(self.list_geo_rules_locked()?),
+            ),
+            control_request::Payload::DownloadGeoRules(request) => {
+                self.ensure_geo_download_allowed().await?;
+                let results = self.download_geo_rules(&request.country_code).await?;
+                Ok(control_response::Payload::GeoRulesUpdate(results))
+            }
+            control_request::Payload::UpdateAllGeoRules(_) => {
+                self.ensure_geo_download_allowed().await?;
+                let results = self.update_all_geo_rules().await?;
+                Ok(control_response::Payload::GeoRulesUpdate(results))
+            }
         }
     }
 
@@ -748,6 +773,77 @@ impl ControlService {
     #[cfg(any(windows, test))]
     pub(crate) fn next_event_sequence(&self) -> u64 {
         self.event_sequence.fetch_add(1, Ordering::Relaxed) + 1
+    }
+
+    pub(crate) fn subscribe_geo_progress(
+        &self,
+    ) -> tokio::sync::broadcast::Receiver<v1::GeoRulesProgress> {
+        self.geo_progress_tx.subscribe()
+    }
+
+    fn emit_geo_progress(&self, progress: GeoProgress) {
+        let _ = self.geo_progress_tx.send(v1::GeoRulesProgress {
+            current_file: progress.current_file,
+            completed: progress.completed,
+            total: progress.total,
+        });
+    }
+
+    fn list_geo_rules_locked(&self) -> Result<v1::GeoRulesList, ControlServiceError> {
+        let (entries, last_successful_update_unix_milliseconds) =
+            list_geo_rules(&self.cache_dir).map_err(ControlServiceError::geo_rules)?;
+        Ok(v1::GeoRulesList {
+            entries: entries
+                .into_iter()
+                .map(|entry| v1::GeoRulesEntry {
+                    country_code: entry.country_code,
+                    has_geoip: entry.has_geoip,
+                    has_geosite: entry.has_geosite,
+                    last_updated_unix_milliseconds: entry.last_updated_unix_milliseconds,
+                })
+                .collect(),
+            last_successful_update_unix_milliseconds,
+        })
+    }
+
+    async fn ensure_geo_download_allowed(&self) -> Result<(), ControlServiceError> {
+        let snapshot = self.status_snapshot().await;
+        let disconnected = matches!(
+            snapshot.phase,
+            ConnectionPhase::Disconnected | ConnectionPhase::Error | ConnectionPhase::Disconnecting
+        );
+        if snapshot.kill_switch_state == KillSwitchState::Active && disconnected {
+            return Err(ControlServiceError::GeoDownloadBlocked);
+        }
+        Ok(())
+    }
+
+    fn geo_downloader(&self) -> Result<GeoDownloader<ReqwestFetch>, ControlServiceError> {
+        let fetch = ReqwestFetch::new().map_err(ControlServiceError::geo_rules)?;
+        Ok(GeoDownloader::new(fetch, self.cache_dir.clone()))
+    }
+
+    async fn download_geo_rules(
+        &self,
+        country_code: &str,
+    ) -> Result<v1::GeoRulesUpdateResults, ControlServiceError> {
+        let downloader = self.geo_downloader()?;
+        let results = download_geo_rules(&downloader, country_code, |progress| {
+            self.emit_geo_progress(progress);
+        })
+        .await
+        .map_err(ControlServiceError::geo_rules)?;
+        Ok(geo_results_to_proto(results))
+    }
+
+    async fn update_all_geo_rules(&self) -> Result<v1::GeoRulesUpdateResults, ControlServiceError> {
+        let downloader = self.geo_downloader()?;
+        let results = update_all_geo_rules(&downloader, |progress| {
+            self.emit_geo_progress(progress);
+        })
+        .await
+        .map_err(ControlServiceError::geo_rules)?;
+        Ok(geo_results_to_proto(results))
     }
 
     fn next_session_generation(&self) -> u64 {
@@ -2314,11 +2410,19 @@ pub enum ControlServiceError {
     DisconnectCleanup(String),
     #[error("proxy listener authentication is invalid: {0}")]
     InvalidProxyAuth(String),
+    #[error("Kill Switch is blocking geo downloads while disconnected")]
+    GeoDownloadBlocked,
+    #[error("geo rules operation failed: {0}")]
+    GeoRules(String),
 }
 
 impl ControlServiceError {
     pub(crate) fn configuration(error: impl std::fmt::Display) -> Self {
         Self::InvalidConfiguration(error.to_string())
+    }
+
+    fn geo_rules(error: impl std::fmt::Display) -> Self {
+        Self::GeoRules(error.to_string())
     }
 
     fn invalid_proxy_auth(error: impl std::fmt::Display) -> Self {
@@ -2399,6 +2503,8 @@ impl ControlServiceError {
                 ("SENSITIVE_OUTPUT_FAILED", false)
             }
             Self::DisconnectCleanup(_) => ("DISCONNECT_CLEANUP_FAILED", true),
+            Self::GeoDownloadBlocked => ("GEO_DOWNLOAD_BLOCKED", false),
+            Self::GeoRules(_) => ("GEO_RULES_FAILED", true),
         };
         StructuredError {
             code: code.to_owned(),
@@ -2711,8 +2817,12 @@ fn profile_from_proto(source: v1::Profile) -> Result<Profile, ControlServiceErro
             },
             auth_password: None,
         },
+        geo_direct_countries: source.geo_direct_countries,
     };
     profile.canonicalize_mode();
+    profile
+        .canonicalize_geo_direct()
+        .map_err(ControlServiceError::configuration)?;
     profile
         .validate()
         .map_err(ControlServiceError::configuration)?;
@@ -2782,6 +2892,28 @@ pub(crate) fn profile_to_proto(profile: &Profile) -> v1::Profile {
             socks5: profile.frontends.socks5,
             http: profile.frontends.http,
         }),
+        geo_direct_countries: profile.geo_direct_countries.clone(),
+    }
+}
+
+fn geo_results_to_proto(results: Vec<usque_core::GeoRulesUpdate>) -> v1::GeoRulesUpdateResults {
+    v1::GeoRulesUpdateResults {
+        results: results
+            .into_iter()
+            .map(|result| {
+                let (status, reason) = match result.status {
+                    UpdateStatus::UpToDate => (v1::GeoRulesUpdateStatus::UpToDate, String::new()),
+                    UpdateStatus::Updated => (v1::GeoRulesUpdateStatus::Updated, String::new()),
+                    UpdateStatus::Failed { reason } => (v1::GeoRulesUpdateStatus::Failed, reason),
+                };
+                v1::GeoRulesUpdateResult {
+                    country_code: result.country_code,
+                    status: status as i32,
+                    reason,
+                    artifact_kind: result.artifact_kind,
+                }
+            })
+            .collect(),
     }
 }
 
