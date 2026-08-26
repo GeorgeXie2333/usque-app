@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use usque_core::Profile;
 
+use crate::geo_direct::GeoDirectPolicy;
 use crate::h2::{MasqueTlsIdentity, TransportError};
 use crate::masque_runtime::MasqueRuntime;
 use crate::netstack::{ProxyPerformanceSnapshot, RuntimeHealth, RuntimePath, TrafficSnapshot};
@@ -48,10 +49,36 @@ impl ProxyRuntime {
         protector: Arc<dyn SocketProtector>,
         pin_refresher: Option<Arc<dyn EndpointPinRefresher>>,
     ) -> Result<Self, TransportError> {
+        Self::start_with_geo_policy(
+            profile,
+            identity,
+            protector,
+            pin_refresher,
+            GeoDirectPolicy::disabled(),
+        )
+        .await
+    }
+
+    /// Starts proxy frontends with an immutable GEO direct-routing policy.
+    ///
+    /// A disabled or incomplete policy always falls back to the MASQUE path.
+    pub async fn start_with_geo_policy(
+        profile: &Profile,
+        identity: MasqueTlsIdentity,
+        protector: Arc<dyn SocketProtector>,
+        pin_refresher: Option<Arc<dyn EndpointPinRefresher>>,
+        geo_policy: GeoDirectPolicy,
+    ) -> Result<Self, TransportError> {
         Ok(Self {
             runtime: Some(
-                MasqueRuntime::start_with_refresh(profile, identity, protector, pin_refresher)
-                    .await?,
+                MasqueRuntime::start_with_geo_policy(
+                    profile,
+                    identity,
+                    protector,
+                    pin_refresher,
+                    Arc::new(geo_policy),
+                )
+                .await?,
             ),
         })
     }

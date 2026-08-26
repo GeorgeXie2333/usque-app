@@ -487,13 +487,15 @@ class _GeoDirectPanelState extends State<_GeoDirectPanel> {
     final byCode = <String, GeoRulesEntry>{
       for (final entry in controller.geoRules.entries) entry.countryCode: entry,
     };
-    final countries = kIsoCountries.where((country) {
-      if (query.isEmpty) {
-        return true;
-      }
-      return country.code.toLowerCase().contains(query) ||
-          country.name.toLowerCase().contains(query);
-    }).toList(growable: false);
+    final countries = kIsoCountries
+        .where((country) {
+          if (query.isEmpty) {
+            return true;
+          }
+          return country.code.toLowerCase().contains(query) ||
+              country.name.toLowerCase().contains(query);
+        })
+        .toList(growable: false);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -524,10 +526,7 @@ class _GeoDirectPanelState extends State<_GeoDirectPanel> {
                 updating
                     ? strings
                           .get('geo_updating')
-                          .replaceAll(
-                            '{current}',
-                            '${progress.completed}',
-                          )
+                          .replaceAll('{current}', '${progress.completed}')
                           .replaceAll('{total}', '${progress.total}')
                     : strings.get('geo_update_all'),
               ),
@@ -561,24 +560,19 @@ class _GeoDirectPanelState extends State<_GeoDirectPanel> {
               return ListTile(
                 contentPadding: EdgeInsets.zero,
                 dense: true,
-                title: Text('${country.code}  ${country.name}'),
+                title: Text(
+                  '${country.code}  ${country.name}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
                 subtitle: Text(
                   hasGeoip
-                      ? (date == null
-                            ? strings.get('geo_downloaded')
-                            : date)
+                      ? (date ?? strings.get('geo_downloaded'))
                       : strings.get('geo_not_downloaded'),
                 ),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
-                    IconButton(
-                      tooltip: strings.get('geo_download'),
-                      onPressed: updating || controller.busy
-                          ? null
-                          : () => controller.downloadGeoRules(country.code),
-                      icon: const Icon(LucideIcons.download),
-                    ),
                     if (hasGeoip)
                       IconButton(
                         tooltip: strings.get('geo_update'),
@@ -586,20 +580,32 @@ class _GeoDirectPanelState extends State<_GeoDirectPanel> {
                             ? null
                             : () => controller.downloadGeoRules(country.code),
                         icon: const Icon(LucideIcons.refreshCw),
+                      )
+                    else
+                      IconButton(
+                        tooltip: strings.get('geo_download'),
+                        onPressed: updating || controller.busy
+                            ? null
+                            : () => controller.downloadGeoRules(country.code),
+                        icon: const Icon(LucideIcons.download),
                       ),
-                    Switch(
-                      value: enabled.contains(country.code),
-                      onChanged: hasGeoip
-                          ? (value) {
-                              final next = {...enabled};
-                              if (value) {
-                                next.add(country.code);
-                              } else {
-                                next.remove(country.code);
+                    const SizedBox(width: 8),
+                    Semantics(
+                      label: '${strings.get('geo_enable')} ${country.code}',
+                      child: Switch(
+                        value: enabled.contains(country.code),
+                        onChanged: hasGeoip
+                            ? (value) {
+                                final next = {...enabled};
+                                if (value) {
+                                  next.add(country.code);
+                                } else {
+                                  next.remove(country.code);
+                                }
+                                widget.onEnabledChanged(next);
                               }
-                              widget.onEnabledChanged(next);
-                            }
-                          : null,
+                            : null,
+                      ),
                     ),
                   ],
                 ),
@@ -618,10 +624,9 @@ class _GeoDirectPanelState extends State<_GeoDirectPanel> {
     final time = DateTime.fromMillisecondsSinceEpoch(
       rules.lastSuccessfulUpdateUnixMilliseconds,
     );
-    return strings.get('geo_last_updated').replaceAll(
-      '{current}',
-      time.toLocal().toString().split('.').first,
-    );
+    return strings
+        .get('geo_last_updated')
+        .replaceAll('{current}', time.toLocal().toString().split('.').first);
   }
 
   String? _entryDate(GeoRulesEntry? entry) {

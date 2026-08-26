@@ -1,8 +1,8 @@
 //! GeoIP and GeoSite classifiers plus a jsDelivr-only rule downloader.
 //!
 //! Unknown, truncated, or unverified data is never a DIRECT hit.
-//! CN GeoSite text downloads skip `include:` lines and are not a complete
-//! `geosite:cn` set until a later PR resolves includes or uses `dlc.dat`.
+//! CN GeoSite downloads use v2fly's flattened release list, while any unknown
+//! rule type remains fail-closed.
 
 mod cache;
 mod country;

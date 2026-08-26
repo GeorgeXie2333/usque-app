@@ -90,6 +90,24 @@ impl Default for PacketMuxTable {
 }
 
 impl PacketMuxTable {
+    /// Returns whether this origin already owns the outgoing flow.
+    ///
+    /// The raw TUN mux uses this before offering a packet to an optional
+    /// direct gateway so a flow that fell back to MASQUE cannot switch paths
+    /// on a later retransmission.
+    pub(crate) fn owns_outgoing(&mut self, origin: PacketOrigin, packet: &[u8]) -> bool {
+        self.sweep_if_needed();
+        match ParsedPacket::parse(packet, Direction::Outgoing) {
+            Some(ParsedPacket::Flow { tuple, .. }) => {
+                self.forward.contains_key(&flow_key(origin, tuple))
+            }
+            Some(ParsedPacket::Fragment(fragment)) => self
+                .outgoing_fragments
+                .contains_key(&OriginFragmentKey { origin, fragment }),
+            None => false,
+        }
+    }
+
     pub(crate) fn route_outgoing(&mut self, origin: PacketOrigin, packet: &mut [u8]) -> bool {
         self.sweep_if_needed();
         let Some(parsed) = ParsedPacket::parse(packet, Direction::Outgoing) else {
@@ -101,14 +119,7 @@ impl PacketMuxTable {
                 return self.route_outgoing_fragment(origin, packet, fragment);
             }
         };
-        let flow = FlowKey {
-            origin,
-            protocol: tuple.protocol,
-            local_address: tuple.local_address,
-            local_id: tuple.local_id,
-            remote_address: tuple.remote_address,
-            remote_id: tuple.remote_id,
-        };
+        let flow = flow_key(origin, tuple);
         let now = Instant::now();
         if let Some(mapping) = self.forward.get_mut(&flow) {
             mapping.last_seen = now;
@@ -352,6 +363,17 @@ impl PacketMuxTable {
         });
         self.incoming_fragments
             .retain(|_, (_, last_seen)| *last_seen >= cutoff);
+    }
+}
+
+fn flow_key(origin: PacketOrigin, tuple: PacketTuple) -> FlowKey {
+    FlowKey {
+        origin,
+        protocol: tuple.protocol,
+        local_address: tuple.local_address,
+        local_id: tuple.local_id,
+        remote_address: tuple.remote_address,
+        remote_id: tuple.remote_id,
     }
 }
 
@@ -800,6 +822,20 @@ mod tests {
             Some(PacketOrigin::Proxy)
         );
         assert_eq!(read_u16(&proxy_reply, 22), Some(50_000));
+    }
+
+    #[test]
+    fn outgoing_flow_ownership_is_sticky_per_origin() {
+        let mut table = PacketMuxTable::default();
+        let mut packet = udp_packet(50_000, 443, false);
+
+        assert!(!table.owns_outgoing(PacketOrigin::Tunnel, &packet));
+        assert!(table.route_outgoing(PacketOrigin::Tunnel, &mut packet));
+        assert!(table.owns_outgoing(PacketOrigin::Tunnel, &packet));
+        assert!(!table.owns_outgoing(PacketOrigin::Proxy, &packet));
+
+        let retransmission = udp_packet(50_000, 443, false);
+        assert!(table.owns_outgoing(PacketOrigin::Tunnel, &retransmission));
     }
 
     #[test]

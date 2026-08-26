@@ -30,14 +30,14 @@ use usque_core::{
     storage::{ConfigStore, StoreError},
     update_all_geo_rules, validate_proxy_password, validate_proxy_username,
 };
-use usque_geo::{GeoDownloader, ReqwestFetch, UpdateStatus};
+use usque_geo::{CountryCode, GeoDownloader, ReqwestFetch, UpdateStatus};
 use usque_ipc::v1::{
     self, ControlRequest, ControlResponse, StructuredError, control_request, control_response,
 };
 use usque_platform::{SecretRecord, SecretVault, VaultError};
 use usque_transport::{
-    EndpointPinRefresher, MasqueTlsIdentity, NoopSocketProtector, ProxyPerformanceSnapshot,
-    ProxyRuntime, RuntimeHealth, RuntimePath, TransportError,
+    EndpointPinRefresher, GeoDirectPolicy, MasqueTlsIdentity, NoopSocketProtector,
+    ProxyPerformanceSnapshot, ProxyRuntime, RuntimeHealth, RuntimePath, TransportError,
     refresh_endpoint_pin_over_protected_socket,
 };
 use uuid::Uuid;
@@ -812,7 +812,13 @@ impl ControlService {
             snapshot.phase,
             ConnectionPhase::Disconnected | ConnectionPhase::Error | ConnectionPhase::Disconnecting
         );
-        if snapshot.kill_switch_state == KillSwitchState::Active && disconnected {
+        let kill_switch_configured = self
+            .config
+            .read()
+            .await
+            .active_profile()
+            .is_some_and(|profile| profile.frontends.tunnel && profile.kill_switch);
+        if kill_switch_configured && disconnected {
             return Err(ControlServiceError::GeoDownloadBlocked);
         }
         Ok(())
@@ -945,11 +951,13 @@ impl ControlService {
                 unreachable!("non-Windows VPN mode was rejected before identity loading")
             }
         } else {
-            match ProxyRuntime::start_with_refresh(
+            let geo_policy = load_geo_direct_policy(&profile, &self.cache_dir);
+            match ProxyRuntime::start_with_geo_policy(
                 &profile,
                 identity,
                 Arc::new(NoopSocketProtector),
                 Some(pin_refresher),
+                geo_policy,
             )
             .await
             {
@@ -2896,6 +2904,31 @@ pub(crate) fn profile_to_proto(profile: &Profile) -> v1::Profile {
     }
 }
 
+fn load_geo_direct_policy(profile: &Profile, cache_dir: &std::path::Path) -> GeoDirectPolicy {
+    if profile.geo_direct_countries.is_empty() {
+        return GeoDirectPolicy::disabled();
+    }
+    let countries = match profile
+        .geo_direct_countries
+        .iter()
+        .map(|country| CountryCode::parse(country))
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(countries) => countries,
+        Err(error) => {
+            tracing::warn!(%error, "invalid GEO direct policy; using tunnel-only routing");
+            return GeoDirectPolicy::disabled();
+        }
+    };
+    match GeoDirectPolicy::load(cache_dir, countries) {
+        Ok(policy) => policy,
+        Err(error) => {
+            tracing::warn!(%error, "GEO rule cache could not be loaded; using tunnel-only routing");
+            GeoDirectPolicy::disabled()
+        }
+    }
+}
+
 fn geo_results_to_proto(results: Vec<usque_core::GeoRulesUpdate>) -> v1::GeoRulesUpdateResults {
     v1::GeoRulesUpdateResults {
         results: results
@@ -3197,6 +3230,28 @@ mod tests {
             ..unchanged
         };
         assert!(runtime_path_changed(state.snapshot(), peer_withdrew_ipv6));
+    }
+
+    #[tokio::test]
+    async fn disconnected_kill_switch_blocks_geo_downloads_from_config() {
+        let directory = tempfile::tempdir().unwrap();
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(MemoryVault::default()),
+        )
+        .unwrap();
+
+        assert_eq!(
+            service.state.lock().await.snapshot().kill_switch_state,
+            KillSwitchState::NotApplicable
+        );
+        assert!(matches!(
+            service.ensure_geo_download_allowed().await,
+            Err(ControlServiceError::GeoDownloadBlocked)
+        ));
+
+        service.config.write().await.network.kill_switch = false;
+        assert!(service.ensure_geo_download_allowed().await.is_ok());
     }
 
     #[tokio::test]

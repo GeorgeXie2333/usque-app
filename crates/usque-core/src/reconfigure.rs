@@ -13,7 +13,8 @@ pub enum ReconfigureClass {
     HotSystemProxy,
     /// SOCKS/HTTP listeners or those frontend toggles (and proxy DNS/auth).
     HotFrontends,
-    /// Only the VPN/TUN frontend flag flipped.
+    /// Only the VPN/TUN frontend flag flipped and no mode-dependent GEO policy
+    /// needs to be rebuilt.
     HotTunnelAttach,
 }
 
@@ -32,7 +33,9 @@ pub fn classify_reconfigure(previous: &Profile, next: &Profile) -> ReconfigureCl
         || previous.allow_lan != next.allow_lan
         || previous.split_exclusions != next.split_exclusions
         || previous.kill_switch != next.kill_switch
-        || previous.geo_direct_countries != next.geo_direct_countries;
+        || previous.geo_direct_countries != next.geo_direct_countries
+        || previous.frontends.tunnel != next.frontends.tunnel
+            && (!previous.geo_direct_countries.is_empty() || !next.geo_direct_countries.is_empty());
     if cold {
         return ReconfigureClass::ColdReconnect;
     }
@@ -177,6 +180,24 @@ mod tests {
         assert_eq!(
             classify_reconfigure(&previous, &socks_only),
             ReconfigureClass::HotFrontends
+        );
+    }
+
+    #[test]
+    fn geo_direct_tunnel_toggle_is_cold_reconnect() {
+        let mut proxy_only = base();
+        proxy_only.frontends.tunnel = false;
+        proxy_only.geo_direct_countries = vec!["CN".to_owned()];
+        let mut vpn = proxy_only.clone();
+        vpn.frontends.tunnel = true;
+
+        assert_eq!(
+            classify_reconfigure(&proxy_only, &vpn),
+            ReconfigureClass::ColdReconnect
+        );
+        assert_eq!(
+            classify_reconfigure(&vpn, &proxy_only),
+            ReconfigureClass::ColdReconnect
         );
     }
 }

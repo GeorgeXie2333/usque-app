@@ -156,14 +156,7 @@ pub(crate) fn geoip_sha256_url(host: &str, country: &CountryCode) -> Result<Stri
 pub(crate) fn geosite_cn_url(host: &str) -> Result<String, GeoError> {
     allowlisted_host(host)?;
     Ok(format!(
-        "https://{host}/gh/v2fly/domain-list-community@master/data/cn"
-    ))
-}
-
-pub(crate) fn geosite_geolocation_cn_url(host: &str) -> Result<String, GeoError> {
-    allowlisted_host(host)?;
-    Ok(format!(
-        "https://{host}/gh/v2fly/domain-list-community@master/data/geolocation-cn"
+        "https://{host}/gh/v2fly/domain-list-community@release/cn.txt"
     ))
 }
 
@@ -242,7 +235,7 @@ mod tests {
         );
         assert!(
             parse_allowed_url(
-                "https://cdn.jsdelivr.net/gh/v2fly/domain-list-community@master/data/cn"
+                "https://cdn.jsdelivr.net/gh/v2fly/domain-list-community@release/cn.txt"
             )
             .is_ok()
         );

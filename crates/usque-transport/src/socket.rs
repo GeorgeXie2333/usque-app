@@ -21,6 +21,12 @@ impl SocketHandle {
 pub trait SocketProtector: Send + Sync {
     fn protect(&self, socket: SocketHandle) -> Result<(), String>;
 
+    /// Whether protected sockets may intentionally carry TUN-selected direct
+    /// flows without re-entering the VPN or weakening a platform kill switch.
+    fn tun_direct_available(&self) -> bool {
+        false
+    }
+
     /// Returns whether the platform's selected physical path can currently
     /// carry this endpoint address family. `None` means the platform has not
     /// supplied authoritative link properties yet.

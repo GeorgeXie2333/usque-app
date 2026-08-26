@@ -1,5 +1,7 @@
 package io.github.georgexie2333.usque
 
+import java.io.File
+
 internal object NativeEngine {
     private val libraryLoaded: Boolean =
         try {
@@ -21,7 +23,14 @@ internal object NativeEngine {
         vpnService: UsqueVpnService,
     ): Int {
         if (!libraryLoaded) return ERROR_NOT_LINKED
-        return nativeStart(tunFileDescriptor, profileJson, warpSecret, proxyPassword, vpnService)
+        return nativeStart(
+            tunFileDescriptor,
+            profileJson,
+            warpSecret,
+            proxyPassword,
+            geoCacheDirectory(vpnService),
+            vpnService,
+        )
     }
 
     fun stop() {
@@ -43,8 +52,17 @@ internal object NativeEngine {
         vpnService: UsqueVpnService,
     ): Int {
         if (!libraryLoaded) return ERROR_NOT_LINKED
-        return nativeStartProxy(profileJson, warpSecret, proxyPassword, vpnService)
+        return nativeStartProxy(
+            profileJson,
+            warpSecret,
+            proxyPassword,
+            geoCacheDirectory(vpnService),
+            vpnService,
+        )
     }
+
+    private fun geoCacheDirectory(vpnService: UsqueVpnService): String =
+        File(vpnService.noBackupFilesDir, "usque_config").absolutePath
 
     fun validateWarpSecret(secret: ByteArray): Int {
         if (!libraryLoaded) return ERROR_NOT_LINKED
@@ -126,6 +144,7 @@ internal object NativeEngine {
         profileJson: String,
         warpSecret: ByteArray,
         proxyPassword: ByteArray,
+        geoCacheDirectory: String,
         vpnService: UsqueVpnService,
     ): Int
 
@@ -139,6 +158,7 @@ internal object NativeEngine {
         profileJson: String,
         warpSecret: ByteArray,
         proxyPassword: ByteArray,
+        geoCacheDirectory: String,
         vpnService: UsqueVpnService,
     ): Int
 

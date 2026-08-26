@@ -33,9 +33,11 @@ use ts_netstack_smoltcp::netsock::TcpStream as StackTcpStream;
 use usque_core::{OperatingMode, Profile, ProxyAuthCredentials};
 
 use crate::dns::Resolver;
+use crate::geo_direct::{GeoDirectPolicy, GeoTarget, RoutedTcpStream, connect_routed};
 use crate::h2::{MasqueTlsIdentity, TransportError};
 use crate::netstack::{
-    PacketStack, ProxyPerformanceSnapshot, RuntimeHealth, RuntimePath, TrafficSnapshot,
+    PacketStack, ProxyPerformanceSnapshot, RuntimeHealth, RuntimePath, TrafficCounters,
+    TrafficSnapshot,
 };
 use crate::pin_refresh::EndpointPinRefresher;
 use crate::port_allocator::next_tcp_port;
@@ -201,6 +203,9 @@ impl HttpProxyFrontend {
         let context = Arc::new(HttpContext {
             channel: stack.channel.clone(),
             resolver,
+            protector: Arc::clone(&stack.protector),
+            geo_policy: Arc::clone(&stack.geo_policy),
+            counters: Arc::clone(&stack.counters),
             assigned_ipv4,
             assigned_ipv6,
             cancellation: cancellation.clone(),
@@ -267,6 +272,9 @@ impl Drop for HttpProxyFrontend {
 struct HttpContext {
     channel: Channel,
     resolver: Resolver,
+    protector: Arc<dyn SocketProtector>,
+    geo_policy: Arc<GeoDirectPolicy>,
+    counters: Arc<TrafficCounters>,
     assigned_ipv4: Ipv4Addr,
     assigned_ipv6: Ipv6Addr,
     cancellation: CancellationToken,
@@ -418,13 +426,7 @@ async fn handle_connect(
         Ok(destination) => destination,
         Err(message) => return error_response(StatusCode::BAD_REQUEST, &message, false),
     };
-    let addresses = match context.resolver.resolve(&destination.host).await {
-        Ok(addresses) => addresses,
-        Err(error) => {
-            return error_response(StatusCode::BAD_GATEWAY, &error.to_string(), false);
-        }
-    };
-    let remote = match connect_remote(&context, &addresses, destination.port).await {
+    let remote = match connect_remote(&context, &destination.host, destination.port).await {
         Ok(remote) => remote,
         Err(RemoteConnectError::BudgetExhausted) => {
             return error_response(
@@ -460,7 +462,7 @@ async fn handle_connect(
 
 async fn relay_connect_upgrade(
     upgraded: hyper::upgrade::Upgraded,
-    mut remote: StackTcpStream,
+    mut remote: RoutedTcpStream,
 ) -> std::io::Result<()> {
     let parts = upgraded.downcast::<TokioIo<TcpStream>>().map_err(|_| {
         std::io::Error::other("HTTP CONNECT upgrade did not wrap TokioIo<TcpStream>")
@@ -649,13 +651,7 @@ impl SessionPool {
             PoolError::Busy
         })?;
         let destination = parse_destination(authority, 80).map_err(PoolError::Upstream)?;
-        let addresses = self
-            .context
-            .resolver
-            .resolve(&destination.host)
-            .await
-            .map_err(|error| PoolError::Upstream(error.to_string()))?;
-        let remote = connect_remote(&self.context, &addresses, destination.port)
+        let remote = connect_remote(&self.context, &destination.host, destination.port)
             .await
             .map_err(|error| match error {
                 RemoteConnectError::BudgetExhausted => PoolError::Busy,
@@ -846,6 +842,32 @@ enum RemoteConnectError {
 }
 
 async fn connect_remote(
+    context: &HttpContext,
+    host: &str,
+    port: u16,
+) -> Result<RoutedTcpStream, RemoteConnectError> {
+    connect_routed(
+        &context.geo_policy,
+        context.protector.as_ref(),
+        Arc::clone(&context.counters),
+        GeoTarget::from_host(host),
+        port,
+        || async {
+            let addresses = match host.parse::<IpAddr>() {
+                Ok(address) => vec![address],
+                Err(_) => context
+                    .resolver
+                    .resolve(host)
+                    .await
+                    .map_err(|error| RemoteConnectError::Failed(error.to_string()))?,
+            };
+            connect_tunnel_remote(context, &addresses, port).await
+        },
+    )
+    .await
+}
+
+async fn connect_tunnel_remote(
     context: &HttpContext,
     addresses: &[IpAddr],
     port: u16,
@@ -1046,6 +1068,7 @@ mod tests {
                 },
                 reconnect_count: 0,
             });
+            let protector = crate::socket::noop_socket_protector();
             Self {
                 context: Arc::new(HttpContext {
                     resolver: Resolver::new(
@@ -1054,9 +1077,12 @@ mod tests {
                         Ipv6Addr::LOCALHOST,
                         Vec::new(),
                         usque_core::ProxyDnsMode::Remote,
-                        crate::socket::noop_socket_protector(),
+                        Arc::clone(&protector),
                     ),
                     channel: client_channel,
+                    protector,
+                    geo_policy: Arc::new(GeoDirectPolicy::disabled()),
+                    counters: Arc::new(TrafficCounters::default()),
                     assigned_ipv4: client_ip,
                     assigned_ipv6: Ipv6Addr::LOCALHOST,
                     cancellation: CancellationToken::new(),

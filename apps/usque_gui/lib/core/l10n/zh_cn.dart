@@ -289,7 +289,7 @@ const Map<String, String> kZhCnCatalog = <String, String>{
   'http_capabilities': 'CONNECT 与普通转发',
   'geo_direct': '直连国家',
   'geo_direct_help':
-      '规则来自 v2fly，通过 jsDelivr 分发，不包含在安装包中。建议在已连接时下载或更新。断开且 Kill Switch 生效时仍会拦截 CN。系统代理域名直连将在后续提供。',
+      '规则来自 v2fly，经 jsDelivr 分发且不随安装包提供。请在已连接时下载或更新。SOCKS5/HTTP 域名使用 GeoSite、IP 使用 GeoIP；Android VPN 使用 GeoIP。Windows 仅在关闭 VPN/TUN 输出时支持直连。未知目标仍走隧道，Kill Switch 在断开时仍会拦截流量。',
   'geo_update_all': '更新地理数据',
   'geo_last_updated': '上次成功更新：{current}',
   'geo_never_updated': '尚未更新',
@@ -302,4 +302,6 @@ const Map<String, String> kZhCnCatalog = <String, String>{
   'geo_downloaded': '已下载',
   'geo_chip': '{current} 直连',
   'geo_download_first': '请先下载该国家/地区的 GeoIP 数据再启用。',
+  'geo_update_complete': '地理数据：已更新 {updated} 项，{current} 项已是最新。',
+  'geo_update_failed': '地理数据更新失败：{current}',
 };

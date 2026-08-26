@@ -100,28 +100,42 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeSta
     profile_json: JString<'local>,
     warp_secret: JByteArray<'local>,
     proxy_password: JByteArray<'local>,
+    geo_cache_dir: JString<'local>,
     vpn_service: JObject<'local>,
 ) -> jint {
     with_jni_code(&mut environment, |environment| {
         native_start(
             environment,
-            tun_file_descriptor,
-            profile_json,
-            warp_secret,
-            proxy_password,
-            vpn_service,
+            NativeVpnStart {
+                tun_file_descriptor,
+                profile_json,
+                warp_secret,
+                proxy_password,
+                geo_cache_dir,
+                vpn_service,
+            },
         )
     })
 }
 
-fn native_start<'local>(
-    environment: &mut Env<'local>,
+struct NativeVpnStart<'local> {
     tun_file_descriptor: jint,
     profile_json: JString<'local>,
     warp_secret: JByteArray<'local>,
     proxy_password: JByteArray<'local>,
+    geo_cache_dir: JString<'local>,
     vpn_service: JObject<'local>,
-) -> jint {
+}
+
+fn native_start<'local>(environment: &mut Env<'local>, request: NativeVpnStart<'local>) -> jint {
+    let NativeVpnStart {
+        tun_file_descriptor,
+        profile_json,
+        warp_secret,
+        proxy_password,
+        geo_cache_dir,
+        vpn_service,
+    } = request;
     if tun_file_descriptor < 0 || !engine_ready() {
         return START_NOT_READY;
     }
@@ -144,6 +158,10 @@ fn native_start<'local>(
     let profile = match attach_android_proxy_password(profile, proxy_password) {
         Ok(profile) => profile,
         Err(code) => return code,
+    };
+    let geo_cache_dir = match geo_cache_dir.try_to_string(environment) {
+        Ok(path) if PathBuf::from(&path).is_absolute() => PathBuf::from(path),
+        _ => return START_INVALID_PROFILE,
     };
     let identity = match warp_identity_from_secret(&secret) {
         Ok(identity) => identity,
@@ -171,6 +189,7 @@ fn native_start<'local>(
         tun_file_descriptor,
         profile,
         identity,
+        geo_cache_dir,
         Arc::new(AndroidSocketProtector {
             java_vm,
             service,
@@ -187,6 +206,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeSta
     profile_json: JString<'local>,
     warp_secret: JByteArray<'local>,
     proxy_password: JByteArray<'local>,
+    geo_cache_dir: JString<'local>,
     vpn_service: JObject<'local>,
 ) -> jint {
     with_jni_code(&mut environment, |environment| {
@@ -195,6 +215,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeSta
             profile_json,
             warp_secret,
             proxy_password,
+            geo_cache_dir,
             vpn_service,
         )
     })
@@ -205,6 +226,7 @@ fn native_start_proxy<'local>(
     profile_json: JString<'local>,
     warp_secret: JByteArray<'local>,
     proxy_password: JByteArray<'local>,
+    geo_cache_dir: JString<'local>,
     vpn_service: JObject<'local>,
 ) -> jint {
     if !engine_ready() {
@@ -229,6 +251,10 @@ fn native_start_proxy<'local>(
     let profile = match attach_android_proxy_password(profile, proxy_password) {
         Ok(profile) => profile,
         Err(code) => return code,
+    };
+    let geo_cache_dir = match geo_cache_dir.try_to_string(environment) {
+        Ok(path) if PathBuf::from(&path).is_absolute() => PathBuf::from(path),
+        _ => return START_INVALID_PROFILE,
     };
     let identity = match warp_identity_from_secret(&secret) {
         Ok(identity) => identity,
@@ -255,6 +281,7 @@ fn native_start_proxy<'local>(
     start_proxy_engine(
         profile,
         identity,
+        geo_cache_dir,
         Arc::new(AndroidSocketProtector {
             java_vm,
             service,
@@ -1529,6 +1556,10 @@ impl SocketProtector for AndroidSocketProtector {
         Ok(())
     }
 
+    fn tun_direct_available(&self) -> bool {
+        self.policy.requires_vpn_protection()
+    }
+
     fn endpoint_family_available(&self, endpoint: SocketAddr) -> Option<bool> {
         let mask = self
             .java_vm
@@ -1755,15 +1786,28 @@ fn start_engine(
     tun_file_descriptor: jint,
     profile: Profile,
     identity: WarpIdentity,
+    geo_cache_dir: PathBuf,
     protector: Arc<AndroidSocketProtector>,
 ) -> jint {
     #[cfg(target_os = "android")]
     {
-        android_runtime::start(tun_file_descriptor, profile, identity, protector)
+        android_runtime::start(
+            tun_file_descriptor,
+            profile,
+            identity,
+            geo_cache_dir,
+            protector,
+        )
     }
     #[cfg(not(target_os = "android"))]
     {
-        let _ = (tun_file_descriptor, profile, identity, protector);
+        let _ = (
+            tun_file_descriptor,
+            profile,
+            identity,
+            geo_cache_dir,
+            protector,
+        );
         START_NOT_READY
     }
 }
@@ -1771,15 +1815,16 @@ fn start_engine(
 fn start_proxy_engine(
     profile: Profile,
     identity: WarpIdentity,
+    geo_cache_dir: PathBuf,
     protector: Arc<AndroidSocketProtector>,
 ) -> jint {
     #[cfg(target_os = "android")]
     {
-        android_runtime::start_proxy(profile, identity, protector)
+        android_runtime::start_proxy(profile, identity, geo_cache_dir, protector)
     }
     #[cfg(not(target_os = "android"))]
     {
-        let _ = (profile, identity, protector);
+        let _ = (profile, identity, geo_cache_dir, protector);
         START_NOT_READY
     }
 }

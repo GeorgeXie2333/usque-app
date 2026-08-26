@@ -2869,6 +2869,7 @@ dependencies = [
  "tracing",
  "ts_netstack_smoltcp",
  "usque-core",
+ "usque-geo",
  "usque-protocol",
  "webpki-roots",
  "zeroize",

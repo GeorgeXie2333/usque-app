@@ -10,7 +10,7 @@ use crate::country::CountryCode;
 use crate::error::{ArtifactKind, GeoError};
 use crate::fetch::{
     ALLOWED_HOSTS, HttpFetch, MAX_CHECKSUM_BYTES, MAX_GEOIP_BYTES, MAX_GEOSITE_BYTES,
-    fetch_first_ok, geoip_dat_url, geoip_sha256_url, geosite_cn_url, geosite_geolocation_cn_url,
+    fetch_first_ok, geoip_dat_url, geoip_sha256_url, geosite_cn_url,
 };
 use crate::geoip::GeoIpSet;
 use crate::geosite::GeoSiteSet;
@@ -51,10 +51,7 @@ impl<F: HttpFetch> GeoDownloader<F> {
         atomic_write(&geoip_cache_path(&self.cache_dir, country), &bytes)
     }
 
-    /// Fetches v2fly `data/cn` and `data/geolocation-cn` text lists.
-    ///
-    /// Nested `include:` lines are skipped, so this is not a complete
-    /// `geosite:cn` dataset. A later PR should flatten includes or use `dlc.dat`.
+    /// Fetches v2fly's flattened `cn.txt` release artifact.
     pub async fn download_geosite(&self, country: &CountryCode) -> Result<(), GeoError> {
         let text = self.fetch_validated_geosite(country).await?;
         atomic_write(
@@ -201,23 +198,13 @@ impl<F: HttpFetch> GeoDownloader<F> {
         if country.as_str() != "CN" {
             return Err(GeoError::UnsupportedGeoSite(country.clone()));
         }
-        let cn = fetch_first_ok(
+        let body = fetch_first_ok(
             &self.fetch,
             url_fallbacks(geosite_cn_url)?,
             MAX_GEOSITE_BYTES,
         )
         .await?;
-        let geo = fetch_first_ok(
-            &self.fetch,
-            url_fallbacks(geosite_geolocation_cn_url)?,
-            MAX_GEOSITE_BYTES,
-        )
-        .await?;
-        let mut combined = Vec::new();
-        crate::fetch::extend_capped(&mut combined, &cn, MAX_GEOSITE_BYTES)?;
-        crate::fetch::extend_capped(&mut combined, b"\n", MAX_GEOSITE_BYTES)?;
-        crate::fetch::extend_capped(&mut combined, &geo, MAX_GEOSITE_BYTES)?;
-        let text = String::from_utf8(combined).map_err(|_| GeoError::InvalidGeoSite)?;
+        let text = String::from_utf8(body.to_vec()).map_err(|_| GeoError::InvalidGeoSite)?;
         GeoSiteSet::from_text(&text, country)?;
         Ok(text)
     }

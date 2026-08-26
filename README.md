@@ -63,6 +63,7 @@ macOS source is in the tree but is not built or released. This release does not 
 - VPN, SOCKS5, HTTP proxy, and Windows system proxy can run together on one MASQUE channel.
 - HTTP/3 over QUIC, falling back to HTTP/2 over TLS, with IPv4/IPv6 Happy Eyeballs for the physical path.
 - Full-tunnel VPN, tunneled DNS, Kill Switch, LAN access, and custom CIDR bypass rules.
+- Optional country-based direct routing with separately downloaded v2fly rules: SOCKS5/HTTP can use GeoSite/GeoIP, and Android VPN uses a protected userspace GeoIP gateway. Windows requires VPN/TUN output to be off for direct routing; unknown destinations stay on MASQUE.
 - SOCKS5 TCP/UDP and HTTP CONNECT/forward; listeners default to loopback.
 - Several profiles, one active at a time, with identity stored per profile.
 - Android per-app proxy (include-only): when off, every app uses the VPN; when on, only selected apps do. Newly installed apps stay off the tunnel until selected.

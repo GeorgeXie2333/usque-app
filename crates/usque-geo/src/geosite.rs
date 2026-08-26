@@ -10,8 +10,6 @@ use crate::proto::{DOMAIN_DOMAIN, DOMAIN_FULL, DOMAIN_PLAIN, DOMAIN_REGEX, GeoSi
 ///
 /// `include:` and `regexp:` are skipped (not DIRECT hits). A list with no
 /// remaining domain/full/keyword rules is an error, not an empty allow-list.
-/// Downloading v2fly `data/cn` + `data/geolocation-cn` does not flatten nested
-/// includes; a complete CN site list needs resolved includes or `dlc.dat`.
 #[derive(Clone, Debug)]
 pub struct GeoSiteSet {
     country: CountryCode,
@@ -102,6 +100,7 @@ impl GeoSiteSet {
             .unwrap_or("")
             .trim()
             .to_ascii_lowercase();
+        let token = token.split(":@").next().unwrap_or("").trim();
         if token.is_empty() || token.starts_with("include:") || token.starts_with("regexp:") {
             return;
         }
@@ -112,7 +111,7 @@ impl GeoSiteSet {
         } else if let Some(value) = token.strip_prefix("domain:") {
             self.push_suffix(value);
         } else {
-            self.push_suffix(&token);
+            self.push_suffix(token);
         }
     }
 
@@ -155,7 +154,7 @@ fn entry_matches_country(entry: &str, country: &CountryCode) -> bool {
 
 fn normalize_host(host: &str) -> Option<String> {
     let host = host.trim().trim_end_matches('.').to_ascii_lowercase();
-    if host.is_empty() || host.contains('/') || host.contains(char::is_whitespace) {
+    if host.is_empty() || host.contains(['/', ':']) || host.contains(char::is_whitespace) {
         return None;
     }
     Some(host)
@@ -194,7 +193,10 @@ mod tests {
         let set = GeoSiteSet::from_text(
             "# comment\n\
              domain:example.cn\n\
+             domain:tagged.example.cn:@cn\n\
+             domain:multi-tag.example.cn:@cn:@ads\n\
              full:baidu.com\n\
+             full:tagged-full.test:@cn\n\
              keyword:weixin\n\
              regexp:.*\\.evil\\\\\n\
              include:alibaba\n\
@@ -205,8 +207,12 @@ mod tests {
         assert!(set.contains("example.cn"));
         assert!(set.contains("foo.example.cn"));
         assert!(!set.contains("example.cn.tld"));
+        assert!(set.contains("tagged.example.cn"));
+        assert!(set.contains("multi-tag.example.cn"));
         assert!(set.contains("baidu.com"));
         assert!(!set.contains("www.baidu.com"));
+        assert!(set.contains("tagged-full.test"));
+        assert!(!set.contains("www.tagged-full.test"));
         assert!(set.contains("service.weixin.qq.com"));
         assert!(set.contains("plain-as-domain.com"));
         assert!(set.contains("a.plain-as-domain.com"));

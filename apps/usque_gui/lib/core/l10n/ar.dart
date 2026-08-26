@@ -317,7 +317,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'http_capabilities': 'CONNECT وإعادة التوجيه العادية',
   'geo_direct': 'Direct countries',
   'geo_direct_help':
-      'Rules come from v2fly via jsDelivr and are not in the installer. Download or update while connected. Kill Switch still blocks CN when disconnected. System proxy domain bypass comes later.',
+      'Rules come from v2fly via jsDelivr and are not bundled. Download or update while connected. SOCKS5/HTTP use GeoSite for hosts and GeoIP for IPs; Android VPN uses GeoIP. On Windows, direct routing requires VPN/TUN output to be off. Unknowns stay tunneled, and Kill Switch blocks disconnected traffic.',
   'geo_update_all': 'Update geo data',
   'geo_last_updated': 'Last successful update: {current}',
   'geo_never_updated': 'Not updated yet',
@@ -329,5 +329,9 @@ const Map<String, String> kArCatalog = <String, String>{
   'geo_not_downloaded': 'Not downloaded',
   'geo_downloaded': 'Downloaded',
   'geo_chip': '{current} direct',
-  'geo_download_first': 'Download geo data for this country before enabling it.',
+  'geo_download_first':
+      'Download geo data for this country before enabling it.',
+  'geo_update_complete':
+      'Geo data: {updated} updated, {current} already current.',
+  'geo_update_failed': 'Geo data update failed: {current}',
 };

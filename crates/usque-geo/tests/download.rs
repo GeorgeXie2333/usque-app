@@ -41,11 +41,7 @@ fn geoip_sum(host: &str, country: &str) -> String {
 }
 
 fn geosite_cn(host: &str) -> String {
-    format!("https://{host}/gh/v2fly/domain-list-community@master/data/cn")
-}
-
-fn geosite_geo_cn(host: &str) -> String {
-    format!("https://{host}/gh/v2fly/domain-list-community@master/data/geolocation-cn")
+    format!("https://{host}/gh/v2fly/domain-list-community@release/cn.txt")
 }
 
 enum MockRoute {
@@ -83,11 +79,7 @@ impl MockFetch {
         for host in ALLOWED_HOSTS {
             self.routes.insert(
                 geosite_cn(host),
-                MockRoute::Ok(b"domain:example.cn\n".to_vec()),
-            );
-            self.routes.insert(
-                geosite_geo_cn(host),
-                MockRoute::Ok(b"full:baidu.com\n".to_vec()),
+                MockRoute::Ok(b"domain:example.cn\nfull:baidu.com\n".to_vec()),
             );
         }
         self

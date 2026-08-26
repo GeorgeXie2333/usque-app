@@ -5,7 +5,9 @@
 //! network configuration.
 
 mod connect_ip_control;
+mod direct_gateway;
 mod dns;
+mod geo_direct;
 mod h2;
 mod h3;
 mod http_proxy;
@@ -21,6 +23,7 @@ mod socket;
 mod socks5;
 mod tunnel;
 
+pub use geo_direct::{GeoDirectClassifier, GeoDirectPolicy, GeoRoute};
 pub use h2::{
     H2Driver, H2ReceiveHalf, H2SendHalf, H2Tunnel, MasqueTlsIdentity, TransportError, connect_h2,
 };

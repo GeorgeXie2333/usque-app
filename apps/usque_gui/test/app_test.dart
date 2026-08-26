@@ -50,6 +50,10 @@ class FakeEngineClient implements EngineClient {
   bool legacyProfilesImported = false;
   Map<String, ProfileIdentityStatus> storedIdentityStatuses =
       <String, ProfileIdentityStatus>{};
+  GeoRulesList storedGeoRules = const GeoRulesList();
+  List<GeoRulesUpdateResult> geoDownloadResults =
+      const <GeoRulesUpdateResult>[];
+  List<GeoRulesUpdateResult> geoUpdateResults = const <GeoRulesUpdateResult>[];
 
   @override
   Future<ProfileCatalog> importLegacyProfiles(
@@ -414,15 +418,16 @@ class FakeEngineClient implements EngineClient {
       const UpdateCheckResult.current();
 
   @override
-  Future<GeoRulesList> listGeoRules() async => const GeoRulesList();
+  Future<GeoRulesList> listGeoRules() async => storedGeoRules;
 
   @override
-  Future<List<GeoRulesUpdateResult>> downloadGeoRules(String countryCode) async =>
-      const <GeoRulesUpdateResult>[];
+  Future<List<GeoRulesUpdateResult>> downloadGeoRules(
+    String countryCode,
+  ) async => geoDownloadResults;
 
   @override
   Future<List<GeoRulesUpdateResult>> updateAllGeoRules() async =>
-      const <GeoRulesUpdateResult>[];
+      geoUpdateResults;
 
   @override
   Future<void> clearAllData({required bool confirmed}) async {
@@ -545,6 +550,34 @@ void main() {
     expect(first.hashCode, second.hashCode);
     expect(first.errorCode, 'PROXY_LISTEN_FAILED');
   });
+
+  test(
+    'geo updates report successful artifacts and partial failures',
+    () async {
+      final engine = FakeEngineClient()
+        ..geoDownloadResults = const <GeoRulesUpdateResult>[
+          GeoRulesUpdateResult(
+            countryCode: 'CN',
+            artifactKind: 'geoip',
+            status: GeoRulesUpdateStatus.updated,
+          ),
+          GeoRulesUpdateResult(
+            countryCode: 'CN',
+            artifactKind: 'geosite',
+            status: GeoRulesUpdateStatus.failed,
+            reason: 'checksum mismatch',
+          ),
+        ];
+      final controller = AppController(engine);
+
+      await controller.downloadGeoRules('CN');
+
+      expect(controller.lastNotice, contains('1 updated'));
+      expect(controller.lastError, contains('CN geosite: checksum mismatch'));
+      expect(controller.geoProgress, isNull);
+      controller.dispose();
+    },
+  );
 
   testWidgets('controller selectors ignore unrelated engine statistics', (
     tester,

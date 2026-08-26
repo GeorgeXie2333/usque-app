@@ -1,5 +1,6 @@
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::path::{Path, PathBuf};
 use std::sync::{
     Arc, Mutex, OnceLock,
     atomic::{AtomicBool, Ordering},
@@ -12,9 +13,10 @@ use tokio::time::{MissedTickBehavior, interval};
 use tokio_util::sync::CancellationToken;
 use usque_core::{AddressFamily, IpSbProbe, Transport, WarpIdentity};
 use usque_core::{ReconfigureClass, classify_reconfigure};
+use usque_geo::CountryCode;
 use usque_transport::{
-    EndpointPinRefresher, MasqueRuntime, MasqueTunIo, RuntimeHealth, TrafficSnapshot,
-    TransportError,
+    EndpointPinRefresher, GeoDirectPolicy, MasqueRuntime, MasqueTunIo, RuntimeHealth,
+    TrafficSnapshot, TransportError,
 };
 
 use super::{
@@ -57,6 +59,7 @@ pub(super) fn start(
     tun_file_descriptor: i32,
     profile: Profile,
     identity: WarpIdentity,
+    geo_cache_dir: PathBuf,
     protector: Arc<AndroidSocketProtector>,
 ) -> i32 {
     spawn_runtime(
@@ -64,6 +67,7 @@ pub(super) fn start(
         Some(tun_file_descriptor),
         profile,
         identity,
+        geo_cache_dir,
         protector,
     )
 }
@@ -71,9 +75,17 @@ pub(super) fn start(
 pub(super) fn start_proxy(
     profile: Profile,
     identity: WarpIdentity,
+    geo_cache_dir: PathBuf,
     protector: Arc<AndroidSocketProtector>,
 ) -> i32 {
-    spawn_runtime("usque-proxy", None, profile, identity, protector)
+    spawn_runtime(
+        "usque-proxy",
+        None,
+        profile,
+        identity,
+        geo_cache_dir,
+        protector,
+    )
 }
 
 fn spawn_runtime(
@@ -81,6 +93,7 @@ fn spawn_runtime(
     tun_file_descriptor: Option<i32>,
     profile: Profile,
     identity: WarpIdentity,
+    geo_cache_dir: PathBuf,
     protector: Arc<AndroidSocketProtector>,
 ) -> i32 {
     clear_last_start_error();
@@ -108,6 +121,7 @@ fn spawn_runtime(
         identity: tokio::sync::Mutex::new(identity),
         protector: Arc::clone(&protector),
     });
+    let geo_policy = Arc::new(load_geo_direct_policy(&profile, &geo_cache_dir));
 
     let cancellation = CancellationToken::new();
     let status = Arc::new(Mutex::new(NativeSnapshot::preparing()));
@@ -140,6 +154,7 @@ fn spawn_runtime(
                 profile,
                 tls_identity,
                 protector,
+                geo_policy,
                 pin_refresher,
                 thread_cancel,
                 thread_status,
@@ -185,6 +200,31 @@ fn spawn_runtime(
         remember_last_start_error(failure);
     }
     result
+}
+
+fn load_geo_direct_policy(profile: &Profile, cache_dir: &Path) -> GeoDirectPolicy {
+    if profile.geo_direct_countries.is_empty() {
+        return GeoDirectPolicy::disabled();
+    }
+    let countries = match profile
+        .geo_direct_countries
+        .iter()
+        .map(|country| CountryCode::parse(country))
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(countries) => countries,
+        Err(error) => {
+            tracing::warn!(%error, "invalid Android GEO direct policy; using tunnel-only routing");
+            return GeoDirectPolicy::disabled();
+        }
+    };
+    match GeoDirectPolicy::load(cache_dir, countries) {
+        Ok(policy) => policy,
+        Err(error) => {
+            tracing::warn!(%error, "Android GEO cache could not be loaded; using tunnel-only routing");
+            GeoDirectPolicy::disabled()
+        }
+    }
 }
 
 fn duplicate_tun(tun_file_descriptor: i32) -> Result<OwnedFd, i32> {
@@ -343,6 +383,7 @@ async fn run(
     profile: Profile,
     identity: MasqueTlsIdentity,
     protector: Arc<dyn SocketProtector>,
+    geo_policy: Arc<GeoDirectPolicy>,
     pin_refresher: Arc<dyn EndpointPinRefresher>,
     cancellation: CancellationToken,
     status: Arc<Mutex<NativeSnapshot>>,
@@ -365,8 +406,13 @@ async fn run(
         None => None,
     };
     let mut tunnel = {
-        let startup =
-            MasqueRuntime::start_with_refresh(&profile, identity, protector, Some(pin_refresher));
+        let startup = MasqueRuntime::start_with_geo_policy(
+            &profile,
+            identity,
+            protector,
+            Some(pin_refresher),
+            geo_policy,
+        );
         tokio::pin!(startup);
         let started_tunnel = tokio::select! {
             biased;
