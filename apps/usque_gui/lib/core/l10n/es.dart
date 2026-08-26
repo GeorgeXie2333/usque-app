@@ -282,7 +282,7 @@ const Map<String, String> kEsCatalog = <String, String>{
       'Estado del motor, exportación de registros y datos locales.',
   'engine_status': 'Estado del motor',
   'version': 'Versión',
-  'app_version': 'Usque 0.1.4-beta.3',
+  'app_version': 'Usque 0.2.0',
   'logs': 'Registros locales',
   'export_diagnostics': 'Exportar paquete de diagnóstico',
   'diagnostics_saved': 'Paquete de diagnóstico guardado en',

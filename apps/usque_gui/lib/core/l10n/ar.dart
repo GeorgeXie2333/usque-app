@@ -273,7 +273,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'diagnostics_subtitle': 'حالة المحرك وتصدير السجلات والبيانات المحلية.',
   'engine_status': 'حالة المحرك',
   'version': 'الإصدار',
-  'app_version': 'Usque 0.1.4-beta.3',
+  'app_version': 'Usque 0.2.0',
   'logs': 'السجلات المحلية',
   'export_diagnostics': 'تصدير حزمة التشخيص',
   'diagnostics_saved': 'تم حفظ حزمة التشخيص في',

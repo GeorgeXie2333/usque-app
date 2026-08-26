@@ -276,7 +276,7 @@ const Map<String, String> kRuCatalog = <String, String>{
       'Состояние движка, экспорт журналов и локальные данные.',
   'engine_status': 'Состояние движка',
   'version': 'Версия',
-  'app_version': 'Usque 0.1.4-beta.3',
+  'app_version': 'Usque 0.2.0',
   'logs': 'Локальные журналы',
   'export_diagnostics': 'Экспортировать диагностический пакет',
   'diagnostics_saved': 'Диагностический пакет сохранён в',

@@ -3810,6 +3810,18 @@ mod tests {
                 .is_none()
         );
 
+        let mut proxy_only = service.config_snapshot().await.active_profile().unwrap();
+        proxy_only.mode = OperatingMode::Socks5;
+        proxy_only.frontends = FrontendSettings {
+            tunnel: false,
+            socks5: true,
+            http: true,
+        };
+        service
+            .upsert_profile(proxy_only)
+            .await
+            .expect("save proxy-only profile after reset");
+
         let connected = service
             .handle(request(
                 "connect",
@@ -3907,8 +3919,11 @@ mod tests {
     #[tokio::test]
     async fn connect_fails_closed_for_unavailable_vpn_mode() {
         let directory = tempfile::tempdir().expect("tempdir");
-        let service = ControlService::open(ConfigStore::new(directory.path().join("config.json")))
-            .expect("service");
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(MemoryVault::default()),
+        )
+        .expect("service");
         let mut profile = service.config_snapshot().await.active_profile().unwrap();
         profile.frontends = FrontendSettings {
             tunnel: true,

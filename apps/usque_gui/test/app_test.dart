@@ -664,66 +664,62 @@ void main() {
     },
   );
 
-  testWidgets(
-    'cold start disconnected without events is not degraded',
-    (tester) async {
-      SharedPreferences.setMockInitialValues(<String, Object>{});
-      final engine = EventEngineClient();
-      final controller = AppController(engine);
-      await controller.initialize();
+  testWidgets('cold start disconnected without events is not degraded', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final engine = EventEngineClient();
+    final controller = AppController(engine);
+    await controller.initialize();
 
-      expect(controller.snapshotStreamDegraded, isFalse);
-      expect(controller.snapshot.phase, ConnectionPhase.disconnected);
+    expect(controller.snapshotStreamDegraded, isFalse);
+    expect(controller.snapshot.phase, ConnectionPhase.disconnected);
 
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: UsqueTheme.light(),
-          home: DiagnosticsScreen(controller: controller),
-        ),
-      );
-      expect(find.text('Live status updates are degraded'), findsNothing);
-      controller.dispose();
-    },
-  );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: UsqueTheme.light(),
+        home: DiagnosticsScreen(controller: controller),
+      ),
+    );
+    expect(find.text('Live status updates are degraded'), findsNothing);
+    controller.dispose();
+  });
 
-  testWidgets(
-    'diagnostics hides the degraded banner while disconnected',
-    (tester) async {
-      SharedPreferences.setMockInitialValues(<String, Object>{});
-      final engine = EventEngineClient();
-      final controller = AppController(engine);
-      await controller.initialize();
+  testWidgets('diagnostics hides the degraded banner while disconnected', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final engine = EventEngineClient();
+    final controller = AppController(engine);
+    await controller.initialize();
 
-      engine.emitSnapshot(
-        const EngineSnapshot(phase: ConnectionPhase.connected),
-      );
-      await tester.pump();
-      engine.eventControllers.single.addError(
-        PlatformException(
-          code: 'ENGINE_EVENT_UNAVAILABLE',
-          message: 'test stream failure',
-        ),
-      );
-      await tester.pump();
-      expect(controller.snapshotStreamDegraded, isTrue);
-      expect(controller.snapshot.isConnected, isTrue);
+    engine.emitSnapshot(const EngineSnapshot(phase: ConnectionPhase.connected));
+    await tester.pump();
+    engine.eventControllers.single.addError(
+      PlatformException(
+        code: 'ENGINE_EVENT_UNAVAILABLE',
+        message: 'test stream failure',
+      ),
+    );
+    await tester.pump();
+    expect(controller.snapshotStreamDegraded, isTrue);
+    expect(controller.snapshot.isConnected, isTrue);
 
-      engine.current = const EngineSnapshot();
-      await tester.pump(const Duration(seconds: 1));
-      await tester.pump();
-      expect(controller.snapshot.phase, ConnectionPhase.disconnected);
-      expect(controller.snapshotStreamDegraded, isTrue);
+    engine.current = const EngineSnapshot();
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(controller.snapshot.phase, ConnectionPhase.disconnected);
+    expect(controller.snapshotStreamDegraded, isTrue);
 
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: UsqueTheme.light(),
-          home: DiagnosticsScreen(controller: controller),
-        ),
-      );
-      expect(find.text('Live status updates are degraded'), findsNothing);
-      controller.dispose();
-    },
-  );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: UsqueTheme.light(),
+        home: DiagnosticsScreen(controller: controller),
+      ),
+    );
+    expect(find.text('Live status updates are degraded'), findsNothing);
+    controller.dispose();
+  });
 
   testWidgets('error before any live event is not degraded', (tester) async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
@@ -750,86 +746,82 @@ void main() {
     await tester.pump();
   });
 
-  testWidgets(
-    'heartbeat recovers degraded stream without resetting snapshot',
-    (tester) async {
-      SharedPreferences.setMockInitialValues(<String, Object>{});
-      final engine = EventEngineClient();
-      final controller = AppController(engine);
-      await controller.initialize();
+  testWidgets('heartbeat recovers degraded stream without resetting snapshot', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final engine = EventEngineClient();
+    final controller = AppController(engine);
+    await controller.initialize();
 
-      const live = EngineSnapshot(
-        phase: ConnectionPhase.connected,
-        transport: 'HTTP/3',
-        addressFamily: 'IPv4',
-      );
-      engine.emitSnapshot(live);
-      await tester.pump();
-      expect(controller.snapshot, live);
+    const live = EngineSnapshot(
+      phase: ConnectionPhase.connected,
+      transport: 'HTTP/3',
+      addressFamily: 'IPv4',
+    );
+    engine.emitSnapshot(live);
+    await tester.pump();
+    expect(controller.snapshot, live);
 
-      engine.eventControllers.single.addError(
-        PlatformException(
-          code: 'ENGINE_EVENT_UNAVAILABLE',
-          message: 'test stream failure',
-        ),
-      );
-      await tester.pump();
-      expect(controller.snapshotStreamDegraded, isTrue);
+    engine.eventControllers.single.addError(
+      PlatformException(
+        code: 'ENGINE_EVENT_UNAVAILABLE',
+        message: 'test stream failure',
+      ),
+    );
+    await tester.pump();
+    expect(controller.snapshotStreamDegraded, isTrue);
 
-      engine.emitHeartbeat();
-      await tester.pump();
+    engine.emitHeartbeat();
+    await tester.pump();
 
-      expect(controller.snapshotStreamDegraded, isFalse);
-      expect(controller.snapshot, live);
-      expect(controller.snapshot.transport, 'HTTP/3');
-      controller.dispose();
-    },
-  );
+    expect(controller.snapshotStreamDegraded, isFalse);
+    expect(controller.snapshot, live);
+    expect(controller.snapshot.transport, 'HTTP/3');
+    controller.dispose();
+  });
 
-  testWidgets(
-    'reconnect waits for the previous subscription to cancel',
-    (tester) async {
-      SharedPreferences.setMockInitialValues(<String, Object>{});
-      final engine = EventEngineClient();
-      final controller = AppController(engine);
-      await controller.initialize();
-      expect(engine.eventControllers, hasLength(1));
+  testWidgets('reconnect waits for the previous subscription to cancel', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final engine = EventEngineClient();
+    final controller = AppController(engine);
+    await controller.initialize();
+    expect(engine.eventControllers, hasLength(1));
 
-      engine.emitSnapshot(
-        const EngineSnapshot(phase: ConnectionPhase.connected),
-      );
-      await tester.pump();
+    engine.emitSnapshot(const EngineSnapshot(phase: ConnectionPhase.connected));
+    await tester.pump();
 
-      engine.eventControllers.single.addError(
-        PlatformException(
-          code: 'ENGINE_EVENT_UNAVAILABLE',
-          message: 'first failure',
-        ),
-      );
-      await tester.pump();
-      engine.eventControllers.single.addError(
-        PlatformException(
-          code: 'ENGINE_EVENT_UNAVAILABLE',
-          message: 'second failure',
-        ),
-      );
-      await tester.pump();
-      expect(engine.eventControllers, hasLength(1));
-      expect(controller.snapshotStreamDegraded, isTrue);
+    engine.eventControllers.single.addError(
+      PlatformException(
+        code: 'ENGINE_EVENT_UNAVAILABLE',
+        message: 'first failure',
+      ),
+    );
+    await tester.pump();
+    engine.eventControllers.single.addError(
+      PlatformException(
+        code: 'ENGINE_EVENT_UNAVAILABLE',
+        message: 'second failure',
+      ),
+    );
+    await tester.pump();
+    expect(engine.eventControllers, hasLength(1));
+    expect(controller.snapshotStreamDegraded, isTrue);
 
-      final hold = Completer<void>();
-      engine.delayCancel = hold;
-      await tester.pump(const Duration(seconds: 1));
-      await tester.pump();
-      expect(engine.eventControllers, hasLength(1));
+    final hold = Completer<void>();
+    engine.delayCancel = hold;
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(engine.eventControllers, hasLength(1));
 
-      hold.complete();
-      await tester.pump();
-      expect(engine.eventControllers, hasLength(2));
-      controller.dispose();
-      await tester.pump();
-    },
-  );
+    hold.complete();
+    await tester.pump();
+    expect(engine.eventControllers, hasLength(2));
+    controller.dispose();
+    await tester.pump();
+  });
 
   test(
     'every registered catalog has the English key set and non-empty values',

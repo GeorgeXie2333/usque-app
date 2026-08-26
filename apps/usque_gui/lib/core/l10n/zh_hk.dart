@@ -251,7 +251,7 @@ const Map<String, String> kZhHkCatalog = <String, String>{
   'diagnostics_subtitle': '引擎狀態、日誌匯出及本機資料。',
   'engine_status': '引擎狀態',
   'version': '版本',
-  'app_version': 'Usque 0.1.4-beta.3',
+  'app_version': 'Usque 0.2.0',
   'logs': '本機日誌',
   'export_diagnostics': '匯出診斷套件',
   'diagnostics_saved': '診斷套件已儲存至',

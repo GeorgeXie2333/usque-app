@@ -1,12 +1,12 @@
-# How v0.1.3 is published
+# How v0.2.0 is published
 
-`v0.1.3` is built by the tag workflow on the current `main` commit. The `v0.1.3` tag is maintainer-only. Signing and publish jobs run in GitHub Environments that need approval. If a required file, signature input, or CI result is missing, the workflow fails. A local MSI or APK cannot replace a failed Actions build.
+`v0.2.0` is built by the tag workflow on the current `main` commit. The `v0.2.0` tag is maintainer-only. Signing and publish jobs run in GitHub Environments that need approval. If a required file, signature input, or CI result is missing, the workflow fails. A local MSI or APK cannot replace a failed Actions build.
 
 Which signatures count as official, how fingerprints are published, and what happens if a key is lost or leaked are in [CODE_SIGNING.md](CODE_SIGNING.md). Repository rules around this workflow are in [GITHUB_GOVERNANCE.md](GITHUB_GOVERNANCE.md).
 
 ## Before signing starts
 
-- The tag must be `v0.1.3` and must point at the current `main` commit.
+- The tag must be `v0.2.0` and must point at the current `main` commit.
 - That commit must already have a successful `ci.yml` push run, including `CI / gate`.
 - `release-signing` and `release-publish` both require approval.
 - Signing material stays in environment secrets. Do not put it in repository variables, files, artifacts, logs, or caches.
@@ -45,16 +45,16 @@ The MSI does not install the publisher certificate into the machine Root or Trus
 2. Each platform job checks the certificate identity and creates GitHub build provenance.
 3. A staging job downloads those artifacts, rejects missing or extra MSI/APK files, writes an internal release manifest, generates SPDX SBOMs, and records SBOM attestations.
 4. The publish job downloads the staged candidate and checks every primary file against the immutable manifest.
-5. Only then does the workflow create the GitHub release, attaching the six install packages and nothing else.
+5. Only then does the workflow create the GitHub release, prepending the two signer fingerprints to the generated notes and attaching the six install packages and nothing else.
 
 Primary files:
 
-- `usque-v0.1.3-windows-x64-v2.msi`
-- `usque-v0.1.3-windows-arm64.msi`
-- `usque-v0.1.3-android-arm64-v8a.apk`
-- `usque-v0.1.3-android-x86_64.apk`
-- `usque-v0.1.3-android-armeabi-v7a.apk`
-- `usque-v0.1.3-android-universal.apk`
+- `usque-v0.2.0-windows-x64-v2.msi`
+- `usque-v0.2.0-windows-arm64.msi`
+- `usque-v0.2.0-android-arm64-v8a.apk`
+- `usque-v0.2.0-android-x86_64.apk`
+- `usque-v0.2.0-android-armeabi-v7a.apk`
+- `usque-v0.2.0-android-universal.apk`
 
 A public release also needs the usual CI result plus architecture, signature, package, checksum, SBOM, and provenance checks. Endpoint-pin, credential, reconnect, crash, sleep/wake, upgrade, and uninstall leak tests on real hardware are still hardening work, not jobs in this workflow.
 
@@ -67,7 +67,7 @@ MSI build = SemVer patch * 100 + beta ordinal
 stable ordinal = 99
 ```
 
-Stable `v0.1.3` is therefore MSI ProductVersion `0.1.399`. The real SemVer stays in ProductName and the filenames. Equal-version major upgrades are enabled so a validation build can replace the same product instead of installing a second copy under `Program Files\Usque`. WiX validation suppresses only ICE61, which assumes upgrades must raise the version; every other standard ICE check stays on.
+Stable `v0.2.0` is therefore MSI ProductVersion `0.2.99`. The real SemVer stays in ProductName and the filenames. Equal-version major upgrades are enabled so a validation build can replace the same product instead of installing a second copy under `Program Files\Usque`. WiX validation suppresses only ICE61, which assumes upgrades must raise the version; every other standard ICE check stays on.
 
 The Agent is installed as demand-start and is not started by the MSI. Its
 `MsiLockPermissionsEx` descriptor gives `SYSTEM` and Administrators full service

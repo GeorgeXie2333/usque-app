@@ -409,9 +409,9 @@ try {
         "UsqueRepairUnsupportedDlg" `
         "Repair explanation dialog"
     $repairExecutionRoutes = @(Invoke-MsiQuery `
-        -Database $database `
-        -Query "SELECT ``Argument`` FROM ``ControlEvent`` WHERE ``Dialog_``='MaintenanceTypeDlg' AND ``Control_``='RepairButton' AND ``Event``='NewDialog'" `
-        -Columns @("Argument"))
+            -Database $database `
+            -Query "SELECT ``Argument`` FROM ``ControlEvent`` WHERE ``Dialog_``='MaintenanceTypeDlg' AND ``Control_``='RepairButton' AND ``Event``='NewDialog'" `
+            -Columns @("Argument"))
     if ($repairExecutionRoutes.Count -ne 0) {
         throw "RepairButton must not navigate to an executable maintenance path."
     }

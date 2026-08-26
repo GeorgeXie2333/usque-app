@@ -276,7 +276,7 @@ const Map<String, String> kUkCatalog = <String, String>{
   'diagnostics_subtitle': 'Стан рушія, експорт журналів і локальні дані.',
   'engine_status': 'Стан рушія',
   'version': 'Версія',
-  'app_version': 'Usque 0.1.4-beta.3',
+  'app_version': 'Usque 0.2.0',
   'logs': 'Локальні журнали',
   'export_diagnostics': 'Експортувати діагностичний пакет',
   'diagnostics_saved': 'Діагностичний пакет збережено до',

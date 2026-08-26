@@ -283,7 +283,7 @@ const Map<String, String> kFrCatalog = <String, String>{
       'État du moteur, export des journaux et données locales.',
   'engine_status': 'État du moteur',
   'version': 'Version',
-  'app_version': 'Usque 0.1.4-beta.3',
+  'app_version': 'Usque 0.2.0',
   'logs': 'Journaux locaux',
   'export_diagnostics': 'Exporter l’archive de diagnostics',
   'diagnostics_saved': 'Archive de diagnostics enregistrée dans',
