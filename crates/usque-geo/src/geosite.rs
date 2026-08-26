@@ -7,6 +7,11 @@ use crate::error::GeoError;
 use crate::proto::{DOMAIN_DOMAIN, DOMAIN_FULL, DOMAIN_PLAIN, DOMAIN_REGEX, GeoSiteList};
 
 /// Suffix, exact, and keyword matcher for one country.
+///
+/// `include:` and `regexp:` are skipped (not DIRECT hits). A list with no
+/// remaining domain/full/keyword rules is an error, not an empty allow-list.
+/// Downloading v2fly `data/cn` + `data/geolocation-cn` does not flatten nested
+/// includes; a complete CN site list needs resolved includes or `dlc.dat`.
 #[derive(Clone, Debug)]
 pub struct GeoSiteSet {
     country: CountryCode,
@@ -30,7 +35,7 @@ impl GeoSiteSet {
         for line in text.lines() {
             set.push_text_line(line);
         }
-        Ok(set)
+        set.finish(country)
     }
 
     pub fn from_text_bytes(bytes: &[u8], country: &CountryCode) -> Result<Self, GeoError> {
@@ -54,7 +59,19 @@ impl GeoSiteSet {
         if !found {
             return Err(GeoError::InvalidGeoSite);
         }
-        Ok(set)
+        set.finish(country)
+    }
+
+    fn finish(self, country: &CountryCode) -> Result<Self, GeoError> {
+        if self.has_rules() {
+            Ok(self)
+        } else {
+            Err(GeoError::EmptyGeoSite(country.clone()))
+        }
+    }
+
+    fn has_rules(&self) -> bool {
+        !self.full.is_empty() || !self.suffixes.is_empty() || !self.keywords.is_empty()
     }
 
     pub fn country(&self) -> &CountryCode {
@@ -245,5 +262,18 @@ mod tests {
     #[test]
     fn invalid_utf8_fails_closed() {
         assert!(GeoSiteSet::from_text_bytes(&[0xff, 0xfe], &cn()).is_err());
+    }
+
+    #[test]
+    fn include_only_or_empty_text_is_not_a_valid_list() {
+        assert!(matches!(
+            GeoSiteSet::from_text("include:tld-cn\ninclude:geolocation-cn\n# comment\n", &cn()),
+            Err(crate::error::GeoError::EmptyGeoSite(_))
+        ));
+        assert!(matches!(
+            GeoSiteSet::from_text("regexp:.*\n", &cn()),
+            Err(crate::error::GeoError::EmptyGeoSite(_))
+        ));
+        assert!(GeoSiteSet::from_text("", &cn()).is_err());
     }
 }

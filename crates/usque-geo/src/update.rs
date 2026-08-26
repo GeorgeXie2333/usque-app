@@ -51,6 +51,10 @@ impl<F: HttpFetch> GeoDownloader<F> {
         atomic_write(&geoip_cache_path(&self.cache_dir, country), &bytes)
     }
 
+    /// Fetches v2fly `data/cn` and `data/geolocation-cn` text lists.
+    ///
+    /// Nested `include:` lines are skipped, so this is not a complete
+    /// `geosite:cn` dataset. A later PR should flatten includes or use `dlc.dat`.
     pub async fn download_geosite(&self, country: &CountryCode) -> Result<(), GeoError> {
         let text = self.fetch_validated_geosite(country).await?;
         atomic_write(
@@ -178,14 +182,18 @@ impl<F: HttpFetch> GeoDownloader<F> {
 
     async fn fetch_geoip_digest(&self, country: &CountryCode) -> Result<[u8; 32], GeoError> {
         let urls = url_fallbacks(|host| geoip_sha256_url(host, country))?;
-        let body = fetch_first_ok(&self.fetch, urls, MAX_CHECKSUM_BYTES).await?;
+        let body = fetch_first_ok(&self.fetch, urls, MAX_CHECKSUM_BYTES)
+            .await
+            .map_err(|error| map_geoip_404(country, error))?;
         let text = std::str::from_utf8(&body).map_err(|_| GeoError::InvalidChecksum)?;
         parse_sha256sum(text)
     }
 
     async fn fetch_geoip_dat(&self, country: &CountryCode) -> Result<Vec<u8>, GeoError> {
         let urls = url_fallbacks(|host| geoip_dat_url(host, country))?;
-        let body = fetch_first_ok(&self.fetch, urls, MAX_GEOIP_BYTES).await?;
+        let body = fetch_first_ok(&self.fetch, urls, MAX_GEOIP_BYTES)
+            .await
+            .map_err(|error| map_geoip_404(country, error))?;
         Ok(body.to_vec())
     }
 
@@ -219,6 +227,13 @@ fn url_fallbacks(
     build: impl Fn(&str) -> Result<String, GeoError>,
 ) -> Result<Vec<String>, GeoError> {
     ALLOWED_HOSTS.iter().copied().map(build).collect()
+}
+
+fn map_geoip_404(country: &CountryCode, error: GeoError) -> GeoError {
+    match error {
+        GeoError::HttpStatus(404) => GeoError::GeoIpNotFound(country.clone()),
+        other => other,
+    }
 }
 
 fn sha256_digest(bytes: &[u8]) -> [u8; 32] {

@@ -134,7 +134,6 @@ impl GeoIpSet {
             _ => return Err(GeoError::InvalidGeoIp),
         };
         let prefix = u8::try_from(prefix).map_err(|_| GeoError::InvalidGeoIp)?;
-        // Reject prefixes that are invalid for the address family.
         IpNet::new(addr, prefix).map_err(|_| GeoError::InvalidGeoIp)?;
         match addr {
             IpAddr::V4(_) => self.v4.insert(ip, prefix),

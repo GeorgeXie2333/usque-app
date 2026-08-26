@@ -1,4 +1,5 @@
 use std::future::Future;
+use std::time::Duration;
 
 use bytes::Bytes;
 use futures::StreamExt;
@@ -13,6 +14,9 @@ pub const ALLOWED_HOSTS: [&str; 3] = [
     "testingcf.jsdelivr.net",
     "fastly.jsdelivr.net",
 ];
+
+const GEOIP_PATH_PREFIX: &str = "/gh/v2fly/geoip@";
+const GEOSITE_PATH_PREFIX: &str = "/gh/v2fly/domain-list-community@";
 
 pub const MAX_GEOIP_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_GEOSITE_BYTES: usize = 2 * 1024 * 1024;
@@ -39,8 +43,12 @@ pub struct ReqwestFetch {
 }
 
 impl ReqwestFetch {
-    pub fn new(client: Client) -> Self {
-        Self { client }
+    pub fn new() -> Result<Self, GeoError> {
+        Self::from_builder(
+            Client::builder()
+                .connect_timeout(Duration::from_secs(8))
+                .timeout(Duration::from_secs(30)),
+        )
     }
 
     pub fn from_builder(builder: reqwest::ClientBuilder) -> Result<Self, GeoError> {
@@ -110,22 +118,38 @@ pub(crate) fn parse_allowed_url(url: &str) -> Result<reqwest::Url, GeoError> {
     {
         return Err(GeoError::DisallowedUrl(url.to_owned()));
     }
+    if !jsdelivr_path_allowed(parsed.path()) {
+        return Err(GeoError::DisallowedUrl(url.to_owned()));
+    }
     Ok(parsed)
+}
+
+fn jsdelivr_path_allowed(path: &str) -> bool {
+    path.starts_with(GEOIP_PATH_PREFIX) || path.starts_with(GEOSITE_PATH_PREFIX)
+}
+
+pub(crate) fn geoip_release_object(country: &CountryCode) -> String {
+    let cc = country.as_lower();
+    if cc == "cn" {
+        format!("{cc}.dat")
+    } else {
+        format!("dat/{cc}.dat")
+    }
 }
 
 pub(crate) fn geoip_dat_url(host: &str, country: &CountryCode) -> Result<String, GeoError> {
     allowlisted_host(host)?;
     Ok(format!(
-        "https://{host}/gh/v2fly/geoip@release/{}.dat",
-        country.as_lower()
+        "https://{host}/gh/v2fly/geoip@release/{}",
+        geoip_release_object(country)
     ))
 }
 
 pub(crate) fn geoip_sha256_url(host: &str, country: &CountryCode) -> Result<String, GeoError> {
     allowlisted_host(host)?;
     Ok(format!(
-        "https://{host}/gh/v2fly/geoip@release/{}.dat.sha256sum",
-        country.as_lower()
+        "https://{host}/gh/v2fly/geoip@release/{}.sha256sum",
+        geoip_release_object(country)
     ))
 }
 
@@ -216,14 +240,33 @@ mod tests {
         assert!(
             parse_allowed_url("https://cdn.jsdelivr.net/gh/v2fly/geoip@release/cn.dat").is_ok()
         );
+        assert!(
+            parse_allowed_url(
+                "https://cdn.jsdelivr.net/gh/v2fly/domain-list-community@master/data/cn"
+            )
+            .is_ok()
+        );
+        assert!(matches!(
+            parse_allowed_url("https://cdn.jsdelivr.net/gh/other/repo@release/cn.dat"),
+            Err(GeoError::DisallowedUrl(_))
+        ));
+        assert!(matches!(
+            parse_allowed_url("https://cdn.jsdelivr.net/gh/v2fly/other@release/cn.dat"),
+            Err(GeoError::DisallowedUrl(_))
+        ));
     }
 
     #[test]
     fn builds_geoip_urls_from_country_code_only() {
         let cn = CountryCode::parse("CN").unwrap();
+        let us = CountryCode::parse("US").unwrap();
         assert_eq!(
             geoip_dat_url(ALLOWED_HOSTS[0], &cn).unwrap(),
             "https://cdn.jsdelivr.net/gh/v2fly/geoip@release/cn.dat"
+        );
+        assert_eq!(
+            geoip_dat_url(ALLOWED_HOSTS[0], &us).unwrap(),
+            "https://cdn.jsdelivr.net/gh/v2fly/geoip@release/dat/us.dat"
         );
         assert!(geoip_dat_url("evil.example", &cn).is_err());
     }
@@ -262,5 +305,32 @@ mod tests {
         .await
         .unwrap_err();
         assert!(matches!(error, GeoError::DisallowedHost(_)));
+    }
+
+    struct SameHostWrongRepoFetch;
+
+    impl HttpFetch for SameHostWrongRepoFetch {
+        async fn get_capped(&self, _url: &str, _max_bytes: usize) -> Result<FetchedBody, GeoError> {
+            Ok(FetchedBody {
+                status: 200,
+                url: format!("https://{}/gh/other/repo@main/cn.dat", ALLOWED_HOSTS[0]),
+                body: Bytes::from_static(b"nope"),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn rejects_same_host_redirects_off_v2fly_path() {
+        let error = fetch_first_ok(
+            &SameHostWrongRepoFetch,
+            [format!(
+                "https://{}/gh/v2fly/geoip@release/cn.dat",
+                ALLOWED_HOSTS[0]
+            )],
+            16,
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(error, GeoError::DisallowedUrl(_)));
     }
 }

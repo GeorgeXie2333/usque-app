@@ -18,12 +18,26 @@ fn us() -> CountryCode {
     CountryCode::parse("US").unwrap()
 }
 
+fn geoip_object(country: &str) -> String {
+    if country.eq_ignore_ascii_case("cn") {
+        format!("{country}.dat")
+    } else {
+        format!("dat/{country}.dat")
+    }
+}
+
 fn geoip_dat(host: &str, country: &str) -> String {
-    format!("https://{host}/gh/v2fly/geoip@release/{country}.dat")
+    format!(
+        "https://{host}/gh/v2fly/geoip@release/{}",
+        geoip_object(country)
+    )
 }
 
 fn geoip_sum(host: &str, country: &str) -> String {
-    format!("https://{host}/gh/v2fly/geoip@release/{country}.dat.sha256sum")
+    format!(
+        "https://{host}/gh/v2fly/geoip@release/{}.sha256sum",
+        geoip_object(country)
+    )
 }
 
 fn geosite_cn(host: &str) -> String {
@@ -185,7 +199,16 @@ async fn http_404_tries_fallbacks_then_fails() {
     let directory = tempfile::tempdir().unwrap();
     let downloader = GeoDownloader::new(MockFetch::new(), directory.path());
     let error = downloader.download_geoip(&cn()).await.unwrap_err();
-    assert!(matches!(error, GeoError::HttpStatus(404)));
+    assert!(matches!(error, GeoError::GeoIpNotFound(_)));
+}
+
+#[tokio::test]
+async fn missing_non_cn_geoip_is_a_clear_404() {
+    let directory = tempfile::tempdir().unwrap();
+    let downloader = GeoDownloader::new(MockFetch::new(), directory.path());
+    let error = downloader.download_geoip(&us()).await.unwrap_err();
+    assert!(matches!(error, GeoError::GeoIpNotFound(_)));
+    assert!(error.to_string().contains("US"));
 }
 
 #[tokio::test]

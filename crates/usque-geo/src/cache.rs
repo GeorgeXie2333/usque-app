@@ -115,16 +115,46 @@ pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), GeoError> {
     temporary.write_all(bytes)?;
     temporary.flush()?;
     temporary.as_file().sync_all()?;
-    match temporary.persist(path) {
-        Ok(_) => Ok(()),
-        Err(error) => {
-            let temporary = error.file;
-            if path.exists() {
-                fs::remove_file(path)?;
-            }
-            temporary.persist(path).map_err(|error| error.error)?;
-            Ok(())
-        }
+    replace_file(temporary.path(), path)?;
+    let _ = temporary.keep();
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn replace_file(source: &Path, destination: &Path) -> io::Result<()> {
+    fs::rename(source, destination)
+}
+
+#[cfg(windows)]
+fn replace_file(source: &Path, destination: &Path) -> io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
+    };
+
+    let source: Vec<u16> = source
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let destination: Vec<u16> = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    // SAFETY: source and destination are null-terminated wide paths that outlive
+    // the synchronous MoveFileExW call.
+    let result = unsafe {
+        MoveFileExW(
+            source.as_ptr(),
+            destination.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if result == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
     }
 }
 
@@ -260,5 +290,15 @@ mod tests {
         assert!(classifier.ip_matches("1.2.3.4".parse().unwrap(), &cn));
         assert!(classifier.host_matches("foo.example.cn", &cn));
         assert!(GeoIpSet::from_v2ray_dat(fixture_dat(), &cn).is_ok());
+    }
+
+    #[test]
+    fn atomic_write_replaces_without_unlinking_first() {
+        let directory = tempfile::tempdir().unwrap();
+        let cn = CountryCode::parse("CN").unwrap();
+        let path = geoip_cache_path(directory.path(), &cn);
+        atomic_write(&path, b"stale").unwrap();
+        atomic_write(&path, fixture_dat()).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), fixture_dat());
     }
 }

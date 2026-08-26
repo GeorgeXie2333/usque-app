@@ -13,6 +13,10 @@ pub enum GeoError {
     InvalidGeoIp,
     #[error("truncated or invalid GeoSite data")]
     InvalidGeoSite,
+    #[error("GeoSite list for {0} has no usable domain, full, or keyword rules")]
+    EmptyGeoSite(CountryCode),
+    #[error("no jsDelivr GeoIP file for {0} (HTTP 404)")]
+    GeoIpNotFound(CountryCode),
     #[error("payload exceeds the {0} byte safety limit")]
     PayloadTooLarge(usize),
     #[error("host is not an allowed jsDelivr CDN: {0}")]
