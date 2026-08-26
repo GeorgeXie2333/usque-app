@@ -2788,6 +2788,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "usque-geo"
+version = "0.2.0"
+dependencies = [
+ "bytes",
+ "futures",
+ "ipnet",
+ "prost",
+ "reqwest",
+ "sha2",
+ "tempfile",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "usque-ipc"
 version = "0.2.0"
 dependencies = [

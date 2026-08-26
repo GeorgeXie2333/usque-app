@@ -1,0 +1,27 @@
+[package]
+name = "usque-geo"
+description = "GeoIP/GeoSite classifiers and jsDelivr-backed rule cache for Usque"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+bytes.workspace = true
+futures.workspace = true
+ipnet.workspace = true
+prost.workspace = true
+reqwest.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+bytes.workspace = true
+tempfile.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true
