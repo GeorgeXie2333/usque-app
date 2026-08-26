@@ -27,8 +27,8 @@ using EngineEventCallback = std::function<void(EngineIpcResult)>;
 
 // Reconnects to the read-only event pipe until |active| becomes false. The
 // callback is invoked only for complete length-prefixed protobuf frames.
-// Recoverable pipe failures reconnect internally; fatal validation errors wait
-// while |active| remains true and do not end the Dart EventChannel.
+// Recoverable pipe failures reconnect internally; fatal validation or Win32
+// errors are returned through the callback so Dart can fall back to polling.
 void StreamEngineEvents(const std::string& pipe_name,
                         const std::shared_ptr<std::atomic_bool>& active,
                         EngineEventCallback callback);

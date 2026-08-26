@@ -126,8 +126,9 @@ class DesktopEngineTransport {
 
   /// Raw length-prefixed event frames from the native event bridge.
   ///
-  /// The Windows EventChannel is opened once for the UI lifetime. Invalid
-  /// frame types are skipped so they cannot EndOfStream the channel.
+  /// Recoverable Windows pipe disconnects are handled by the native bridge.
+  /// A fatal native EndOfStream clears this cache so a later subscription can
+  /// open a fresh EventChannel while snapshot polling remains available.
   Stream<Uint8List> get rawEventFrames {
     if (_isTestTransport) {
       return _testRawEvents ?? const Stream<Uint8List>.empty();
@@ -135,13 +136,15 @@ class DesktopEngineTransport {
     if (_disposed || !Platform.isWindows) {
       return const Stream<Uint8List>.empty();
     }
-    return _rawEventFrames ??= _listenNativeEventFrames();
+    return _rawEventFrames ?? _listenNativeEventFrames();
   }
 
   Stream<Uint8List> _listenNativeEventFrames() {
     final controller = StreamController<Uint8List>.broadcast();
+    final stream = controller.stream;
     _rawEventController = controller;
-    _rawEventSubscription = _nativeEvents
+    _rawEventFrames = stream;
+    final subscription = _nativeEvents
         .receiveBroadcastStream(<String, Object>{
           'pipe_name': '$_endpoint.events',
         })
@@ -161,13 +164,25 @@ class DesktopEngineTransport {
             }
           },
           onDone: () {
+            if (identical(_rawEventController, controller)) {
+              _rawEventController = null;
+              _rawEventSubscription = null;
+              _rawEventFrames = null;
+            }
             if (!controller.isClosed) {
               unawaited(controller.close());
             }
           },
           cancelOnError: false,
         );
-    return controller.stream;
+    if (identical(_rawEventController, controller)) {
+      _rawEventSubscription = subscription;
+    } else {
+      // A synchronously completed platform stream must not leave a stale
+      // subscription cached after onDone cleared this generation.
+      unawaited(subscription.cancel());
+    }
+    return stream;
   }
 
   String allocateRequestId() {

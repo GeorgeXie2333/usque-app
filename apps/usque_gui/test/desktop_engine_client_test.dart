@@ -1,6 +1,7 @@
 import 'dart:async';
-import 'dart:typed_data';
+import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/services/control_codec.dart';
@@ -70,6 +71,8 @@ const List<int> _goldenProfileBytes = <int>[
 ];
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('ControlCodec protobuf golden bytes', () {
     const codec = ControlCodec();
 
@@ -308,6 +311,47 @@ void main() {
   });
 
   group('DesktopEngineClient coordination', () {
+    test('native event channel reopens after end of stream', () async {
+      if (!Platform.isWindows) return;
+
+      const events = EventChannel(
+        'io.github.georgexie2333.usque/engine_events',
+      );
+      var listens = 0;
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      void installHandler({required bool endImmediately}) {
+        messenger.setMockStreamHandler(
+          events,
+          MockStreamHandler.inline(
+            onListen: (_, MockStreamHandlerEventSink sink) {
+              listens += 1;
+              scheduleMicrotask(
+                endImmediately
+                    ? sink.endOfStream
+                    : () => sink.success(Uint8List.fromList(<int>[0, 0, 0, 0])),
+              );
+            },
+          ),
+        );
+      }
+
+      installHandler(endImmediately: true);
+      addTearDown(() {
+        messenger.setMockStreamHandler(events, null);
+      });
+
+      final transport = DesktopEngineTransport();
+      addTearDown(transport.dispose);
+      await transport.rawEventFrames.drain<void>();
+      messenger.setMockStreamHandler(events, null);
+      installHandler(endImmediately: false);
+      final frame = await transport.rawEventFrames.first;
+
+      expect(frame, <int>[0, 0, 0, 0]);
+      expect(listens, 2);
+    });
+
     test(
       'start-once: concurrent ensureStarted runs the start path once',
       () async {
