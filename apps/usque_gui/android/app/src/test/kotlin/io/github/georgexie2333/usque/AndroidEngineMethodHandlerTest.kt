@@ -144,6 +144,35 @@ class AndroidEngineMethodHandlerTest {
     }
 
     @Test
+    fun reconfigureActiveProfileQueuesWhenUnboundInsteadOfReportingSuccess() {
+        engineBridge.profileCatalogJson =
+            """{"profiles":[{"id":"p1"}]}"""
+        controlClient.detachEndpointForTest()
+        val result = RecordingResult()
+        val profile =
+            mapOf(
+                "id" to "p1",
+                "mode" to "vpn",
+                "frontends" to mapOf("tunnel" to true, "socks5" to true, "http" to true),
+            )
+
+        handler.handle(MethodCall("reconfigureActiveProfile", profile), result)
+
+        assertEquals(1, engineBridge.commands.size)
+        assertEquals(0, result.completionCount)
+        assertNull(result.errorCode)
+        assertSame(result, controlClient.pendingReconfigureForTest())
+        assertTrue(endpoint.whats.isEmpty())
+
+        controlClient.attachEndpointForTest(endpoint)
+
+        assertEquals(listOf(UsqueVpnService.MSG_RECONFIGURE), endpoint.whats)
+        assertNull(controlClient.pendingReconfigureForTest())
+        assertEquals(0, result.completionCount)
+        assertEquals(0, activityCommands.connectCount)
+    }
+
+    @Test
     fun reconfigureActiveProfileSendsTunnelOffWithLegacyVpnMode() {
         engineBridge.profileCatalogJson =
             """{"profiles":[{"id":"p1"}]}"""
@@ -673,6 +702,105 @@ class AndroidEngineMethodHandlerTest {
             exportResult,
         )
         assertEquals("IDENTITY_OPERATION_UNSUPPORTED", exportResult.errorCode)
+    }
+
+    @Test
+    fun catalogUsesWarpPlusMetadataInsteadOfAStoredLicense() {
+        identityStore.put(
+            "p1",
+            SecureIdentityStore.Record.WARP_SECRET,
+            "stored-secret".toByteArray(),
+        )
+        identityStore.put(
+            "p1",
+            SecureIdentityStore.Record.LICENSE,
+            "free-sharing-key".toByteArray(),
+        )
+        identityStore.put(
+            "p1",
+            SecureIdentityStore.Record.IDENTITY_METADATA,
+            """{"version":1,"provider":"consumer","entitlement":"free"}""".toByteArray(),
+        )
+        engineBridge.profileCatalogJson = """{"profiles":[{"id":"p1"}]}"""
+
+        val statuses = catalogIdentityStatuses()
+        assertEquals("ready", statuses.single()["state"])
+        assertEquals("free", statuses.single()["license_state"])
+        assertEquals("Free", statuses.single()["account_type"])
+    }
+
+    @Test
+    fun catalogMarksWarpPlusFromEntitlementEvenWithoutALicenseRecord() {
+        identityStore.put(
+            "p1",
+            SecureIdentityStore.Record.WARP_SECRET,
+            "stored-secret".toByteArray(),
+        )
+        identityStore.put(
+            "p1",
+            SecureIdentityStore.Record.IDENTITY_METADATA,
+            """{"version":1,"provider":"consumer","entitlement":"warp_plus"}""".toByteArray(),
+        )
+        engineBridge.profileCatalogJson = """{"profiles":[{"id":"p1"}]}"""
+
+        val statuses = catalogIdentityStatuses()
+        assertEquals("warpPlus", statuses.single()["license_state"])
+        assertEquals("WARP+", statuses.single()["account_type"])
+    }
+
+    @Test
+    fun catalogIgnoresLegacyApiWarpPlusBoolean() {
+        identityStore.put(
+            "p1",
+            SecureIdentityStore.Record.WARP_SECRET,
+            "stored-secret".toByteArray(),
+        )
+        identityStore.put(
+            "p1",
+            SecureIdentityStore.Record.LICENSE,
+            "api-sharing-key".toByteArray(),
+        )
+        identityStore.put(
+            "p1",
+            SecureIdentityStore.Record.IDENTITY_METADATA,
+            """{"version":1,"provider":"consumer","warp_plus":true}""".toByteArray(),
+        )
+        engineBridge.profileCatalogJson = """{"profiles":[{"id":"p1"}]}"""
+
+        val statuses = catalogIdentityStatuses()
+        assertEquals("free", statuses.single()["license_state"])
+        assertEquals("Free", statuses.single()["account_type"])
+    }
+
+    @Test
+    fun catalogWithoutMetadataOrLicenseIsFree() {
+        identityStore.put(
+            "p1",
+            SecureIdentityStore.Record.WARP_SECRET,
+            "stored-secret".toByteArray(),
+        )
+        engineBridge.profileCatalogJson = """{"profiles":[{"id":"p1"}]}"""
+
+        val statuses = catalogIdentityStatuses()
+        assertEquals("free", statuses.single()["license_state"])
+        assertEquals("Free", statuses.single()["account_type"])
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun catalogIdentityStatuses(): List<Map<String, Any?>> {
+        val catalogResult = RecordingResult()
+        handler.handle(
+            MethodCall(
+                "importLegacyProfiles",
+                mapOf(
+                    "profiles" to emptyList<Any>(),
+                    "active_profile_id" to "",
+                ),
+            ),
+            catalogResult,
+        )
+        val catalog = catalogResult.successValue as Map<String, Any?>
+        return catalog["identity_statuses"] as List<Map<String, Any?>>
     }
 
     @Test

@@ -23,4 +23,35 @@ void main() {
     await client.reconfigureActiveProfile(UsqueProfile.defaultProfile());
     expect(calls, <String>['reconfigureActiveProfile']);
   });
+
+  test(
+    'snapshotEvents wraps Android maps as non-null snapshot events',
+    () async {
+      const events = EventChannel(
+        'io.github.georgexie2333.usque/engine_events',
+      );
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockStreamHandler(
+            events,
+            MockStreamHandler.inline(
+              onListen: (dynamic arguments, MockStreamHandlerEventSink sink) {
+                sink.success(<Object?, Object?>{
+                  'phase': 'connected',
+                  'transport': 'HTTP/3',
+                });
+              },
+            ),
+          );
+      addTearDown(() {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockStreamHandler(events, null);
+      });
+
+      final client = MethodChannelEngineClient();
+      final event = await client.snapshotEvents.first;
+      expect(event.snapshot, isNotNull);
+      expect(event.snapshot!.phase, ConnectionPhase.connected);
+      expect(event.snapshot!.transport, 'HTTP/3');
+    },
+  );
 }

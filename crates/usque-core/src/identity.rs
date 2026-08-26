@@ -48,15 +48,68 @@ impl IdentityProvider {
     }
 
     pub fn to_metadata_json(&self) -> Result<Zeroizing<Vec<u8>>, IdentityError> {
+        IdentityMetadata {
+            provider: self.clone(),
+            entitlement: None,
+        }
+        .to_json()
+    }
+
+    pub fn from_metadata_json(bytes: &[u8]) -> Result<Self, IdentityError> {
+        IdentityMetadata::from_json(bytes).map(|metadata| metadata.provider)
+    }
+}
+
+/// Derived Consumer WARP entitlement. This is not the Cloudflare `warp_plus`
+/// boolean: that field is true for brand-new Free accounts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConsumerEntitlement {
+    Free,
+    WarpPlus,
+}
+
+impl ConsumerEntitlement {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "free" => Some(Self::Free),
+            "warp_plus" => Some(Self::WarpPlus),
+            _ => None,
+        }
+    }
+
+    pub const fn is_warp_plus(self) -> bool {
+        matches!(self, Self::WarpPlus)
+    }
+}
+
+/// Non-secret identity classification stored next to the vault credentials.
+///
+/// `entitlement` is omitted on Zero Trust identities and on Consumer records
+/// written before entitlement was persisted. A legacy `warp_plus` boolean is
+/// ignored: that API field is not a Plus subscription.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IdentityMetadata {
+    pub provider: IdentityProvider,
+    pub entitlement: Option<ConsumerEntitlement>,
+}
+
+impl IdentityMetadata {
+    pub fn to_json(&self) -> Result<Zeroizing<Vec<u8>>, IdentityError> {
+        let entitlement = match self.provider {
+            IdentityProvider::ZeroTrust { .. } => None,
+            IdentityProvider::Consumer => self.entitlement,
+        };
         serde_json::to_vec(&IdentityMetadataEnvelope {
             version: IDENTITY_METADATA_VERSION,
-            identity: self,
+            entitlement,
+            identity: &self.provider,
         })
         .map(Zeroizing::new)
         .map_err(|_| IdentityError::IdentitySerialization)
     }
 
-    pub fn from_metadata_json(bytes: &[u8]) -> Result<Self, IdentityError> {
+    pub fn from_json(bytes: &[u8]) -> Result<Self, IdentityError> {
         let envelope: OwnedIdentityMetadataEnvelope =
             serde_json::from_slice(bytes).map_err(|_| IdentityError::InvalidIdentityMetadata)?;
         if envelope.version != IDENTITY_METADATA_VERSION
@@ -67,13 +120,25 @@ impl IdentityProvider {
         {
             return Err(IdentityError::InvalidIdentityMetadata);
         }
-        Ok(envelope.identity)
+        let entitlement = match envelope.identity {
+            IdentityProvider::ZeroTrust { .. } => None,
+            IdentityProvider::Consumer => envelope
+                .entitlement
+                .as_deref()
+                .and_then(ConsumerEntitlement::parse),
+        };
+        Ok(Self {
+            provider: envelope.identity,
+            entitlement,
+        })
     }
 }
 
 #[derive(Serialize)]
 struct IdentityMetadataEnvelope<'a> {
     version: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    entitlement: Option<ConsumerEntitlement>,
     #[serde(flatten)]
     identity: &'a IdentityProvider,
 }
@@ -81,6 +146,8 @@ struct IdentityMetadataEnvelope<'a> {
 #[derive(Deserialize)]
 struct OwnedIdentityMetadataEnvelope {
     version: u8,
+    #[serde(default)]
+    entitlement: Option<String>,
     #[serde(flatten)]
     identity: IdentityProvider,
 }
@@ -231,6 +298,7 @@ pub struct WarpIdentity {
     access_token: Zeroizing<String>,
     license: Option<Zeroizing<String>>,
     provider: IdentityProvider,
+    entitlement: Option<ConsumerEntitlement>,
     pub assigned_ipv4: Ipv4Addr,
     pub assigned_ipv6: Ipv6Addr,
 }
@@ -252,6 +320,7 @@ impl WarpIdentity {
         access_token: String,
         license: Option<String>,
         provider: IdentityProvider,
+        entitlement: Option<ConsumerEntitlement>,
         assigned_ipv4: Ipv4Addr,
         assigned_ipv6: Ipv6Addr,
     ) -> Result<Self, IdentityError> {
@@ -264,6 +333,10 @@ impl WarpIdentity {
         if matches!(provider, IdentityProvider::ZeroTrust { .. }) && license.is_some() {
             return Err(IdentityError::InvalidIdentityMetadata);
         }
+        let entitlement = match provider {
+            IdentityProvider::ZeroTrust { .. } => None,
+            IdentityProvider::Consumer => entitlement,
+        };
         Ok(Self {
             key_pair,
             endpoint_pin,
@@ -271,6 +344,7 @@ impl WarpIdentity {
             access_token,
             license,
             provider,
+            entitlement,
             assigned_ipv4,
             assigned_ipv6,
         })
@@ -287,6 +361,7 @@ impl WarpIdentity {
         access_token: String,
         license: Option<String>,
         provider: IdentityProvider,
+        entitlement: Option<ConsumerEntitlement>,
         assigned_ipv4: Ipv4Addr,
         assigned_ipv6: Ipv6Addr,
     ) -> Result<Self, IdentityError> {
@@ -297,6 +372,7 @@ impl WarpIdentity {
             access_token,
             license,
             provider,
+            entitlement,
             assigned_ipv4,
             assigned_ipv6,
         )
@@ -316,6 +392,19 @@ impl WarpIdentity {
 
     pub fn provider(&self) -> &IdentityProvider {
         &self.provider
+    }
+
+    /// Last known derived Consumer entitlement. `None` means it was never stored.
+    pub fn entitlement(&self) -> Option<ConsumerEntitlement> {
+        self.entitlement
+    }
+
+    pub fn to_metadata_json(&self) -> Result<Zeroizing<Vec<u8>>, IdentityError> {
+        IdentityMetadata {
+            provider: self.provider.clone(),
+            entitlement: self.entitlement,
+        }
+        .to_json()
     }
 
     /// Serializes an oracle-compatible identity for immediate transfer into a
@@ -342,6 +431,7 @@ impl WarpIdentity {
                 IdentityProvider::ZeroTrust { .. } => "zero_trust",
             },
             zero_trust_team: self.provider().organization(),
+            entitlement: self.entitlement,
             ipv4: self.assigned_ipv4.to_string(),
             ipv6: self.assigned_ipv6.to_string(),
         };
@@ -362,6 +452,8 @@ struct PortableIdentityEnvelope<'a> {
     identity_provider: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     zero_trust_team: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    entitlement: Option<ConsumerEntitlement>,
     ipv4: String,
     ipv6: String,
 }
@@ -376,6 +468,7 @@ impl fmt::Debug for WarpIdentity {
             .field("access_token", &"[REDACTED]")
             .field("license", &self.license.as_ref().map(|_| "[REDACTED]"))
             .field("provider", &self.provider)
+            .field("entitlement", &self.entitlement)
             .field("assigned_ipv4", &self.assigned_ipv4)
             .field("assigned_ipv6", &self.assigned_ipv6)
             .finish()
@@ -429,6 +522,8 @@ struct OracleIdentityEnvelope {
     identity_provider: String,
     #[serde(default)]
     zero_trust_team: Option<String>,
+    #[serde(default)]
+    entitlement: Option<String>,
     ipv4: String,
     ipv6: String,
 }
@@ -492,6 +587,10 @@ impl TryFrom<OracleIdentityEnvelope> for WarpIdentity {
             }
         };
 
+        let entitlement = value
+            .entitlement
+            .as_deref()
+            .and_then(ConsumerEntitlement::parse);
         let identity = Self::new(
             key_pair,
             endpoint_pin,
@@ -499,6 +598,7 @@ impl TryFrom<OracleIdentityEnvelope> for WarpIdentity {
             std::mem::take(&mut value.access_token),
             value.license.take(),
             provider,
+            entitlement,
             assigned_ipv4,
             assigned_ipv6,
         )?;
@@ -620,6 +720,7 @@ mod tests {
         assert_eq!(reparsed.device_id(), identity.device_id());
         assert_eq!(reparsed.access_token(), identity.access_token());
         assert_eq!(reparsed.license(), identity.license());
+        assert_eq!(reparsed.entitlement(), identity.entitlement());
         assert_eq!(reparsed.assigned_ipv4, identity.assigned_ipv4);
         assert_eq!(reparsed.assigned_ipv6, identity.assigned_ipv6);
         assert_eq!(
@@ -634,6 +735,7 @@ mod tests {
         let (legacy, _, _) = sample_secret();
         let legacy = parse_manual_warp_secret(&legacy).unwrap();
         assert_eq!(legacy.provider(), &IdentityProvider::Consumer);
+        assert_eq!(legacy.entitlement(), None);
 
         let provider = IdentityProvider::zero_trust("example-team").unwrap();
         let metadata = provider.to_metadata_json().unwrap();
@@ -641,12 +743,50 @@ mod tests {
             IdentityProvider::from_metadata_json(&metadata).unwrap(),
             provider
         );
+        assert_eq!(
+            IdentityMetadata::from_json(&metadata).unwrap(),
+            IdentityMetadata {
+                provider: provider.clone(),
+                entitlement: None,
+            }
+        );
         assert!(matches!(
             IdentityProvider::from_metadata_json(
                 br#"{"version":2,"provider":"zero_trust","organization":"example-team"}"#
             ),
             Err(IdentityError::InvalidIdentityMetadata)
         ));
+
+        let stored = IdentityMetadata {
+            provider: IdentityProvider::Consumer,
+            entitlement: Some(ConsumerEntitlement::Free),
+        }
+        .to_json()
+        .unwrap();
+        let parsed = IdentityMetadata::from_json(&stored).unwrap();
+        assert_eq!(parsed.provider, IdentityProvider::Consumer);
+        assert_eq!(parsed.entitlement, Some(ConsumerEntitlement::Free));
+        assert_eq!(
+            IdentityMetadata::from_json(br#"{"version":1,"provider":"consumer"}"#)
+                .unwrap()
+                .entitlement,
+            None
+        );
+        assert_eq!(
+            IdentityMetadata::from_json(br#"{"version":1,"provider":"consumer","warp_plus":true}"#)
+                .unwrap()
+                .entitlement,
+            None,
+            "legacy API warp_plus boolean is not a Plus subscription"
+        );
+        assert_eq!(
+            IdentityMetadata::from_json(
+                br#"{"version":1,"provider":"consumer","entitlement":"warp_plus"}"#
+            )
+            .unwrap()
+            .entitlement,
+            Some(ConsumerEntitlement::WarpPlus)
+        );
     }
 
     #[test]
@@ -668,7 +808,27 @@ mod tests {
         let portable = identity.to_portable_secret_json().unwrap();
         let reparsed = parse_manual_warp_secret(&portable).unwrap();
         assert_eq!(reparsed.provider(), identity.provider());
+        assert_eq!(reparsed.entitlement(), None);
         assert!(!format!("{reparsed:?}").contains("access-token"));
+    }
+
+    #[test]
+    fn portable_secret_round_trips_derived_entitlement_not_api_warp_plus() {
+        let (json, _, _) = sample_secret();
+        let mut value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        value["warp_plus"] = json!(true);
+        let identity = parse_manual_warp_secret(&value.to_string()).unwrap();
+        assert_eq!(identity.entitlement(), None);
+
+        value.as_object_mut().unwrap().remove("warp_plus");
+        value["entitlement"] = json!("free");
+        let identity = parse_manual_warp_secret(&value.to_string()).unwrap();
+        assert_eq!(identity.entitlement(), Some(ConsumerEntitlement::Free));
+        let portable = identity.to_portable_secret_json().unwrap();
+        let reparsed = parse_manual_warp_secret(&portable).unwrap();
+        assert_eq!(reparsed.entitlement(), Some(ConsumerEntitlement::Free));
+        assert!(portable.contains("\"entitlement\":\"free\""));
+        assert!(!portable.contains("\"warp_plus\""));
     }
 
     #[test]

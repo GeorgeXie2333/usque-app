@@ -4,19 +4,26 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:usque/app.dart';
 import 'package:usque/core/app_strings.dart';
+import 'package:usque/core/usque_theme.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/screens/advanced_settings_screen.dart';
+import 'package:usque/screens/diagnostics_screen.dart';
 import 'package:usque/screens/home_screen.dart';
 import 'package:usque/screens/per_app_proxy_screen.dart';
+import 'package:usque/screens/profiles_screen.dart';
 import 'package:usque/screens/proxy_screen.dart';
 import 'package:usque/screens/settings_screen.dart';
 import 'package:usque/services/desktop_engine_client.dart';
 import 'package:usque/services/engine_client.dart';
 import 'package:usque/state/app_controller.dart';
+import 'package:usque/widgets/common.dart';
+import 'package:usque/widgets/connection_ring.dart';
 import 'package:usque/widgets/controller_selector.dart';
 import 'package:usque/widgets/profile_identity_dialog.dart';
 
@@ -25,8 +32,8 @@ class FakeEngineClient implements EngineClient {
   bool get supportsSnapshotEvents => false;
 
   @override
-  Stream<EngineSnapshot> get snapshotEvents =>
-      const Stream<EngineSnapshot>.empty();
+  Stream<EngineSnapshotEvent> get snapshotEvents =>
+      const Stream<EngineSnapshotEvent>.empty();
 
   bool provisioned = false;
   IdentityProvisioningMethod? lastProvisioningMethod;
@@ -67,16 +74,69 @@ class FakeEngineClient implements EngineClient {
     );
   }
 
+  bool _preservesEndpoint(String id) =>
+      storedIdentityStatuses[id]?.provider == IdentityProvider.zeroTrust;
+
+  UsqueProfile _hydrate(UsqueProfile account, UsqueProfile network) {
+    final keepEndpoint = _preservesEndpoint(account.id);
+    return network.copyWith(
+      id: account.id,
+      name: account.name,
+      endpointIpv4: keepEndpoint ? account.endpointIpv4 : network.endpointIpv4,
+      endpointIpv6: keepEndpoint ? account.endpointIpv6 : network.endpointIpv6,
+      endpointPort: keepEndpoint ? account.endpointPort : network.endpointPort,
+      sni: keepEndpoint ? account.sni : network.sni,
+    );
+  }
+
+  UsqueProfile _currentNetwork(UsqueProfile fallback) {
+    if (storedProfiles.isEmpty) {
+      return fallback;
+    }
+    final source = storedProfiles.firstWhere(
+      (stored) => !_preservesEndpoint(stored.id),
+      orElse: () => storedProfiles.first,
+    );
+    if (_preservesEndpoint(source.id)) {
+      return source.copyWith(
+        endpointIpv4: UsqueProfile.defaultEndpointIpv4,
+        endpointIpv6: UsqueProfile.defaultEndpointIpv6,
+        endpointPort: UsqueProfile.defaultEndpointPort,
+        sni: UsqueProfile.defaultSni,
+      );
+    }
+    return source;
+  }
+
   @override
   Future<void> upsertProfile(UsqueProfile profile) async {
     final index = storedProfiles.indexWhere(
       (stored) => stored.id == profile.id,
     );
     if (index < 0) {
-      storedProfiles = <UsqueProfile>[...storedProfiles, profile];
-    } else {
-      storedProfiles = <UsqueProfile>[...storedProfiles]..[index] = profile;
+      storedProfiles = <UsqueProfile>[
+        ...storedProfiles,
+        _hydrate(profile, _currentNetwork(profile)),
+      ];
+      return;
     }
+    final current = _currentNetwork(profile);
+    final network = _preservesEndpoint(profile.id)
+        ? profile.copyWith(
+            endpointIpv4: current.endpointIpv4,
+            endpointIpv6: current.endpointIpv6,
+            endpointPort: current.endpointPort,
+            sni: current.sni,
+          )
+        : profile;
+    storedProfiles = storedProfiles
+        .map((stored) {
+          final account = stored.id == profile.id
+              ? stored.copyWith(name: profile.name)
+              : stored;
+          return _hydrate(account, network);
+        })
+        .toList(growable: false);
   }
 
   @override
@@ -113,6 +173,29 @@ class FakeEngineClient implements EngineClient {
     lastProvisioningMethod = method;
     lastZeroTrustTeam = teamName;
     lastZeroTrustCallback = callbackUri;
+    storedIdentityStatuses = <String, ProfileIdentityStatus>{
+      ...storedIdentityStatuses,
+      profile.id: switch (method) {
+        IdentityProvisioningMethod.zeroTrust => ProfileIdentityStatus(
+          state: ProfileIdentityState.ready,
+          licenseState: LicenseState.notApplicable,
+          accountType: 'Zero Trust',
+          provider: IdentityProvider.zeroTrust,
+          organization: teamName ?? '',
+        ),
+        IdentityProvisioningMethod.registerWithLicense =>
+          const ProfileIdentityStatus(
+            state: ProfileIdentityState.ready,
+            licenseState: LicenseState.warpPlus,
+            accountType: 'WARP+',
+          ),
+        _ => const ProfileIdentityStatus(
+          state: ProfileIdentityState.ready,
+          licenseState: LicenseState.free,
+          accountType: 'Free',
+        ),
+      },
+    };
   }
 
   @override
@@ -187,16 +270,13 @@ class FakeEngineClient implements EngineClient {
     }
     lastProxyAuthUsername = username;
     lastProxyAuthPassword = password;
-    final index = storedProfiles.indexWhere(
-      (profile) => profile.id == profileId,
-    );
-    if (index >= 0) {
-      final current = storedProfiles[index];
-      storedProfiles = <UsqueProfile>[...storedProfiles]
-        ..[index] = current.copyWith(
-          proxy: current.proxy.copyWith(authUsername: username),
-        );
-    }
+    storedProfiles = storedProfiles
+        .map(
+          (profile) => profile.copyWith(
+            proxy: profile.proxy.copyWith(authUsername: username),
+          ),
+        )
+        .toList(growable: false);
   }
 
   @override
@@ -288,9 +368,15 @@ class FakeEngineClient implements EngineClient {
     calls.add('openAlwaysOnVpnSettings');
   }
 
+  Object? connectError;
+  Object? retryError;
+
   @override
   Future<EngineSnapshot> connect(UsqueProfile profile) async {
     calls.add('connect');
+    if (connectError != null) {
+      throw connectError!;
+    }
     lastConnectedProfile = profile;
     current = EngineSnapshot(
       phase: ConnectionPhase.connected,
@@ -311,6 +397,9 @@ class FakeEngineClient implements EngineClient {
   @override
   Future<EngineSnapshot> retry() async {
     calls.add('retry');
+    if (retryError != null) {
+      throw retryError!;
+    }
     return connect(lastConnectedProfile ?? storedProfiles.first);
   }
 
@@ -345,19 +434,35 @@ class FakeEngineClient implements EngineClient {
 }
 
 class EventEngineClient extends FakeEngineClient {
-  final List<StreamController<EngineSnapshot>> eventControllers =
-      <StreamController<EngineSnapshot>>[];
+  final List<StreamController<EngineSnapshotEvent>> eventControllers =
+      <StreamController<EngineSnapshotEvent>>[];
   bool subscribedAfterProfileImport = false;
+  Completer<void>? delayCancel;
 
   @override
   bool get supportsSnapshotEvents => true;
 
   @override
-  Stream<EngineSnapshot> get snapshotEvents {
+  Stream<EngineSnapshotEvent> get snapshotEvents {
     subscribedAfterProfileImport = legacyProfilesImported;
-    final controller = StreamController<EngineSnapshot>.broadcast();
+    final controller = StreamController<EngineSnapshotEvent>(
+      onCancel: () async {
+        final hold = delayCancel;
+        if (hold != null && !hold.isCompleted) {
+          await hold.future;
+        }
+      },
+    );
     eventControllers.add(controller);
     return controller.stream;
+  }
+
+  void emitSnapshot(EngineSnapshot snapshot) {
+    eventControllers.last.add(EngineSnapshotEvent(snapshot: snapshot));
+  }
+
+  void emitHeartbeat() {
+    eventControllers.last.add(const EngineSnapshotEvent());
   }
 
   @override
@@ -441,6 +546,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        theme: UsqueTheme.light(),
         home: ControllerSelector<ThemePreference>(
           controller: controller,
           selector: (controller) => controller.themePreference,
@@ -453,7 +559,7 @@ void main() {
     );
     expect(builds, 1);
 
-    engine.eventControllers.last.add(
+    engine.emitSnapshot(
       const EngineSnapshot(
         phase: ConnectionPhase.connected,
         downloadBytesPerSecond: 42,
@@ -483,7 +589,7 @@ void main() {
       errorCode: 'PROXY_LISTEN_FAILED',
     );
 
-    engine.eventControllers.last.add(failure);
+    engine.emitSnapshot(failure);
     await tester.pump();
     expect(
       controller.lastError,
@@ -491,7 +597,7 @@ void main() {
     );
     final notificationsAfterFirstError = notifications;
 
-    engine.eventControllers.last.add(failure);
+    engine.emitSnapshot(failure);
     await tester.pump();
     expect(notifications, notificationsAfterFirstError);
     controller.dispose();
@@ -509,9 +615,18 @@ void main() {
       expect(engine.eventControllers, hasLength(1));
       expect(controller.lastError, isNull);
 
-      engine.current = const EngineSnapshot(
+      const live = EngineSnapshot(
         phase: ConnectionPhase.connected,
         transport: 'HTTP/3',
+        addressFamily: 'IPv4',
+      );
+      engine.emitSnapshot(live);
+      await tester.pump();
+      expect(controller.snapshotStreamDegraded, isFalse);
+
+      engine.current = const EngineSnapshot(
+        phase: ConnectionPhase.connected,
+        transport: 'HTTP/2',
         addressFamily: 'IPv4',
       );
       engine.eventControllers.single.addError(
@@ -524,13 +639,15 @@ void main() {
 
       expect(controller.snapshotStreamDegraded, isTrue);
       expect(controller.lastError, isNull);
+      expect(controller.snapshot.transport, 'HTTP/3');
 
       await tester.pump(const Duration(seconds: 1));
       await tester.pump();
       expect(controller.snapshot.phase, ConnectionPhase.connected);
-      expect(engine.eventControllers.length, greaterThanOrEqualTo(2));
+      expect(controller.snapshot.transport, 'HTTP/2');
+      expect(engine.eventControllers, hasLength(2));
 
-      engine.eventControllers.last.add(
+      engine.emitSnapshot(
         const EngineSnapshot(
           phase: ConnectionPhase.connected,
           transport: 'HTTP/2',
@@ -547,8 +664,315 @@ void main() {
     },
   );
 
-  test('English and Simplified Chinese catalogs contain identical keys', () {
-    expect(AppStrings.debugCatalogsAreComplete, isTrue);
+  testWidgets('cold start disconnected without events is not degraded', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final engine = EventEngineClient();
+    final controller = AppController(engine);
+    await controller.initialize();
+
+    expect(controller.snapshotStreamDegraded, isFalse);
+    expect(controller.snapshot.phase, ConnectionPhase.disconnected);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: UsqueTheme.light(),
+        home: DiagnosticsScreen(controller: controller),
+      ),
+    );
+    expect(find.text('Live status updates are degraded'), findsNothing);
+    controller.dispose();
+  });
+
+  testWidgets('diagnostics hides the degraded banner while disconnected', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final engine = EventEngineClient();
+    final controller = AppController(engine);
+    await controller.initialize();
+
+    engine.emitSnapshot(const EngineSnapshot(phase: ConnectionPhase.connected));
+    await tester.pump();
+    engine.eventControllers.single.addError(
+      PlatformException(
+        code: 'ENGINE_EVENT_UNAVAILABLE',
+        message: 'test stream failure',
+      ),
+    );
+    await tester.pump();
+    expect(controller.snapshotStreamDegraded, isTrue);
+    expect(controller.snapshot.isConnected, isTrue);
+
+    engine.current = const EngineSnapshot();
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(controller.snapshot.phase, ConnectionPhase.disconnected);
+    expect(controller.snapshotStreamDegraded, isTrue);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: UsqueTheme.light(),
+        home: DiagnosticsScreen(controller: controller),
+      ),
+    );
+    expect(find.text('Live status updates are degraded'), findsNothing);
+    controller.dispose();
+  });
+
+  testWidgets('error before any live event is not degraded', (tester) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final engine = EventEngineClient();
+    final controller = AppController(engine);
+    await controller.initialize();
+    expect(engine.eventControllers, hasLength(1));
+
+    engine.eventControllers.single.addError(
+      PlatformException(
+        code: 'ENGINE_EVENT_UNAVAILABLE',
+        message: 'test stream failure',
+      ),
+    );
+    await tester.pump();
+
+    expect(controller.snapshotStreamDegraded, isFalse);
+    expect(controller.lastError, isNull);
+
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(engine.eventControllers.length, greaterThanOrEqualTo(2));
+    controller.dispose();
+    await tester.pump();
+  });
+
+  testWidgets('heartbeat recovers degraded stream without resetting snapshot', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final engine = EventEngineClient();
+    final controller = AppController(engine);
+    await controller.initialize();
+
+    const live = EngineSnapshot(
+      phase: ConnectionPhase.connected,
+      transport: 'HTTP/3',
+      addressFamily: 'IPv4',
+    );
+    engine.emitSnapshot(live);
+    await tester.pump();
+    expect(controller.snapshot, live);
+
+    engine.eventControllers.single.addError(
+      PlatformException(
+        code: 'ENGINE_EVENT_UNAVAILABLE',
+        message: 'test stream failure',
+      ),
+    );
+    await tester.pump();
+    expect(controller.snapshotStreamDegraded, isTrue);
+
+    engine.emitHeartbeat();
+    await tester.pump();
+
+    expect(controller.snapshotStreamDegraded, isFalse);
+    expect(controller.snapshot, live);
+    expect(controller.snapshot.transport, 'HTTP/3');
+    controller.dispose();
+  });
+
+  testWidgets('reconnect waits for the previous subscription to cancel', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final engine = EventEngineClient();
+    final controller = AppController(engine);
+    await controller.initialize();
+    expect(engine.eventControllers, hasLength(1));
+
+    engine.emitSnapshot(const EngineSnapshot(phase: ConnectionPhase.connected));
+    await tester.pump();
+
+    engine.eventControllers.single.addError(
+      PlatformException(
+        code: 'ENGINE_EVENT_UNAVAILABLE',
+        message: 'first failure',
+      ),
+    );
+    await tester.pump();
+    engine.eventControllers.single.addError(
+      PlatformException(
+        code: 'ENGINE_EVENT_UNAVAILABLE',
+        message: 'second failure',
+      ),
+    );
+    await tester.pump();
+    expect(engine.eventControllers, hasLength(1));
+    expect(controller.snapshotStreamDegraded, isTrue);
+
+    final hold = Completer<void>();
+    engine.delayCancel = hold;
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(engine.eventControllers, hasLength(1));
+
+    hold.complete();
+    await tester.pump();
+    expect(engine.eventControllers, hasLength(2));
+    controller.dispose();
+    await tester.pump();
+  });
+
+  test(
+    'every registered catalog has the English key set and non-empty values',
+    () {
+      expect(AppStrings.debugCatalogsAreComplete, isTrue);
+    },
+  );
+
+  test('interpolated catalogs keep {count}, {current}, and {total}', () {
+    expect(AppStrings.debugPlaceholdersArePreserved, isTrue);
+  });
+
+  test(
+    'language picker lists System then English-name A–Z with Chinese grouped',
+    () {
+      expect(LocalePreference.pickerOrder, <LocalePreference>[
+        LocalePreference.system,
+        LocalePreference.arabic,
+        LocalePreference.simplifiedChinese,
+        LocalePreference.traditionalChineseHongKong,
+        LocalePreference.traditionalChineseTaiwan,
+        LocalePreference.dutch,
+        LocalePreference.english,
+        LocalePreference.french,
+        LocalePreference.german,
+        LocalePreference.indonesian,
+        LocalePreference.italian,
+        LocalePreference.japanese,
+        LocalePreference.korean,
+        LocalePreference.persian,
+        LocalePreference.polish,
+        LocalePreference.portuguese,
+        LocalePreference.russian,
+        LocalePreference.spanish,
+        LocalePreference.thai,
+        LocalePreference.turkish,
+        LocalePreference.ukrainian,
+        LocalePreference.vietnamese,
+      ]);
+      expect(
+        LocalePreference.pickerOrder.toSet(),
+        LocalePreference.values.toSet(),
+      );
+    },
+  );
+
+  test('system locale maps CJK variants and falls back to English', () {
+    expect(
+      AppStrings.resolveCatalogId(
+        LocalePreference.system,
+        const Locale('zh', 'HK'),
+      ),
+      'zh_HK',
+    );
+    expect(
+      AppStrings.resolveCatalogId(
+        LocalePreference.system,
+        const Locale.fromSubtags(
+          languageCode: 'zh',
+          scriptCode: 'Hant',
+          countryCode: 'MO',
+        ),
+      ),
+      'zh_HK',
+    );
+    expect(
+      AppStrings.resolveCatalogId(
+        LocalePreference.system,
+        const Locale('zh', 'TW'),
+      ),
+      'zh_TW',
+    );
+    expect(
+      AppStrings.resolveCatalogId(
+        LocalePreference.system,
+        const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'),
+      ),
+      'zh_TW',
+    );
+    expect(
+      AppStrings.resolveCatalogId(
+        LocalePreference.system,
+        const Locale('zh', 'CN'),
+      ),
+      'zh_CN',
+    );
+    expect(
+      AppStrings.resolveCatalogId(LocalePreference.system, const Locale('ja')),
+      'ja',
+    );
+    expect(
+      AppStrings.resolveCatalogId(LocalePreference.system, const Locale('de')),
+      'de',
+    );
+    expect(
+      AppStrings.resolveCatalogId(LocalePreference.system, const Locale('ar')),
+      'ar',
+    );
+    expect(
+      AppStrings.resolveCatalogId(LocalePreference.system, const Locale('id')),
+      'id',
+    );
+    expect(
+      AppStrings.resolveCatalogId(LocalePreference.system, const Locale('vi')),
+      'vi',
+    );
+    expect(
+      AppStrings.resolveCatalogId(LocalePreference.system, const Locale('uk')),
+      'uk',
+    );
+    expect(
+      AppStrings.resolveCatalogId(LocalePreference.persian, const Locale('en')),
+      'fa',
+    );
+  });
+
+  test('Hong Kong and Taiwan catalogs keep distinct regional wording', () {
+    final hk = AppStrings(LocalePreference.traditionalChineseHongKong);
+    final tw = AppStrings(LocalePreference.traditionalChineseTaiwan);
+    expect(hk.get('upload'), '上載');
+    expect(tw.get('upload'), '上傳');
+    expect(hk.get('close_to_tray'), contains('系統列'));
+    expect(tw.get('close_to_tray'), contains('系統匣'));
+  });
+
+  testWidgets('Persian and Arabic locales select RTL directionality', (
+    tester,
+  ) async {
+    for (final locale in const <Locale>[Locale('fa'), Locale('ar')]) {
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: locale,
+          supportedLocales: const <Locale>[
+            Locale('en'),
+            Locale('fa'),
+            Locale('ar'),
+          ],
+          localizationsDelegates: const <LocalizationsDelegate<dynamic>>[
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          home: const Scaffold(body: SizedBox.shrink()),
+        ),
+      );
+      expect(
+        Directionality.of(tester.element(find.byType(Scaffold))),
+        TextDirection.rtl,
+        reason: '$locale should be RTL',
+      );
+    }
   });
 
   test(
@@ -726,6 +1150,7 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
+          theme: UsqueTheme.light(),
           home: ListenableBuilder(
             listenable: controller,
             builder: (context, _) => ProxyScreen(controller: controller),
@@ -832,7 +1257,11 @@ void main() {
     final persistent = first.profiles.last;
     first.updateProfile(
       persistent.copyWith(
-        mode: OperatingMode.httpProxy,
+        frontends: const FrontendSettings(
+          tunnel: false,
+          socks5: false,
+          http: true,
+        ),
         proxy: persistent.proxy.copyWith(dnsMode: ProxyDnsMode.system),
       ),
     );
@@ -846,7 +1275,30 @@ void main() {
     expect(second.activeProfileId, persistent.id);
     expect(second.activeProfile.mode, OperatingMode.httpProxy);
     expect(second.activeProfile.proxy.dnsMode, ProxyDnsMode.system);
+    expect(second.profiles.first.proxy.dnsMode, ProxyDnsMode.system);
     second.dispose();
+  });
+
+  test('network settings stay shared when switching accounts', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final engine = FakeEngineClient();
+    final controller = AppController(engine);
+    await controller.initialize();
+    controller.addProfile('Work');
+    final work = controller.profiles.last;
+    controller.updateProfile(
+      controller.activeProfile.copyWith(
+        mtu: 1400,
+        autoConnect: true,
+        frontends: controller.activeProfile.frontends.copyWith(tunnel: false),
+      ),
+    );
+    controller.setActiveProfile(work.id);
+    expect(controller.activeProfile.mtu, 1400);
+    expect(controller.activeProfile.autoConnect, isTrue);
+    expect(controller.activeProfile.frontends.tunnel, isFalse);
+    expect(controller.activeProfile.mtu, 1400);
+    controller.dispose();
   });
 
   test(
@@ -1050,7 +1502,10 @@ void main() {
     addTearDown(controller.dispose);
 
     await tester.pumpWidget(
-      MaterialApp(home: AdvancedSettingsScreen(controller: controller)),
+      MaterialApp(
+        theme: UsqueTheme.light(),
+        home: AdvancedSettingsScreen(controller: controller),
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -1082,6 +1537,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        theme: UsqueTheme.light(),
         home: Scaffold(
           body: Builder(
             builder: (context) => TextButton(
@@ -1180,6 +1636,74 @@ void main() {
     expect(find.text('Default'), findsOneWidget);
   });
 
+  testWidgets('typing a WARP license key enables Finish setup', (tester) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    await tester.pumpWidget(UsqueBootstrap(engine: FakeEngineClient()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(CheckboxListTile));
+    await tester.pump();
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Use a WARP License Key'));
+    await tester.pumpAndSettle();
+
+    FilledButton finishButton() {
+      return tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, 'Finish setup'),
+      );
+    }
+
+    expect(finishButton().onPressed, isNull);
+
+    await tester.enterText(find.byType(TextField), 'test-license-key');
+    await tester.pump();
+
+    expect(finishButton().onPressed, isNotNull);
+  });
+
+  test('connect maps generic failures off the preparing phase', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+      'update_checks_enabled': false,
+    });
+    final engine = FakeEngineClient();
+    engine.connectError = const FormatException('Invalid listener port');
+    final controller = AppController(engine);
+    await controller.initialize();
+    await Future<void>.delayed(Duration.zero);
+    await controller.connectOrDisconnect();
+    expect(controller.snapshot.phase, ConnectionPhase.error);
+    expect(controller.lastError, contains('Invalid listener port'));
+    expect(controller.busy, isFalse);
+    controller.dispose();
+  });
+
+  test('retry maps generic failures off a transitional phase', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+      'update_checks_enabled': false,
+    });
+    final engine = FakeEngineClient();
+    engine.retryError = const FormatException('Invalid protobuf field');
+    final controller = AppController(engine);
+    await controller.initialize();
+    await Future<void>.delayed(Duration.zero);
+    controller.snapshot = const EngineSnapshot(
+      phase: ConnectionPhase.preparing,
+    );
+    await controller.retry();
+    expect(controller.snapshot.phase, ConnectionPhase.error);
+    expect(controller.lastError, contains('Invalid protobuf field'));
+    expect(controller.busy, isFalse);
+    controller.dispose();
+  });
+
   testWidgets('connect button reflects a real engine snapshot', (tester) async {
     SharedPreferences.setMockInitialValues(<String, Object>{
       'onboarding_complete': true,
@@ -1195,6 +1719,25 @@ void main() {
     expect(find.text('HTTP/3'), findsOneWidget);
     expect(find.text('IPv6'), findsWidgets);
     expect(find.text('Disconnect'), findsOneWidget);
+  });
+
+  testWidgets('generic connect failure leaves home on error, not preparing', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+    });
+    final engine = FakeEngineClient();
+    engine.connectError = const FormatException('Invalid listener port');
+    await tester.pumpWidget(UsqueBootstrap(engine: engine));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Connect'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Preparing secure tunnel…'), findsNothing);
+    expect(find.text('Connection error'), findsWidgets);
+    expect(find.text('Retry'), findsOneWidget);
   });
 
   testWidgets('home renders without layout errors in a wide desktop window', (
@@ -1270,7 +1813,7 @@ void main() {
       await tester.pumpAndSettle();
 
       Future<void> injectStatus(int index) async {
-        engine.eventControllers.last.add(
+        engine.emitSnapshot(
           EngineSnapshot(
             phase: ConnectionPhase.connected,
             downloadBytesPerSecond: index + 1,
@@ -1381,6 +1924,110 @@ void main() {
     expect(find.widgetWithText(FilledButton, 'New profile'), findsOneWidget);
   });
 
+  testWidgets(
+    'extended rail aligns the brand with destinations and docks theme at the end',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1280, 900);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'onboarding_complete': true,
+      });
+
+      await tester.pumpWidget(UsqueBootstrap(engine: FakeEngineClient()));
+      await tester.pumpAndSettle();
+
+      final Finder rail = find.byType(NavigationRail);
+      final Finder brand = find.descendant(
+        of: rail,
+        matching: find.text('Usque'),
+      );
+      final Finder brandIcon = find.byWidgetPredicate(
+        (widget) =>
+            widget is Image &&
+            widget.image is AssetImage &&
+            (widget.image as AssetImage).assetName ==
+                'assets/branding/usque-ui-icon.png' &&
+            widget.width == 30,
+      );
+      final Finder homeIcon = find.descendant(
+        of: rail,
+        matching: find.byIcon(LucideIcons.house),
+      );
+      final Finder themeButton = find.descendant(
+        of: rail,
+        matching: find.byTooltip('Theme · System'),
+      );
+      expect(brand, findsOneWidget);
+      expect(brandIcon, findsOneWidget);
+      expect(themeButton, findsOneWidget);
+      expect(
+        tester.getCenter(brandIcon).dx,
+        closeTo(tester.getCenter(homeIcon).dx, 1),
+      );
+      expect(
+        tester.getCenter(themeButton).dx,
+        greaterThan(tester.getRect(rail).center.dx),
+      );
+      expect(
+        tester.getCenter(themeButton).dx,
+        greaterThan(tester.getCenter(brand).dx),
+      );
+      expect(
+        (tester.getCenter(themeButton).dy - tester.getCenter(brand).dy).abs(),
+        lessThan(12),
+      );
+
+      await tester.tap(themeButton);
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(of: rail, matching: find.byTooltip('Theme · Light')),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets('compact rail hides the brand and centres the theme cycle', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(900, 800);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+    });
+
+    await tester.pumpWidget(UsqueBootstrap(engine: FakeEngineClient()));
+    await tester.pumpAndSettle();
+
+    final Finder rail = find.byType(NavigationRail);
+    final Finder brandIcon = find.byWidgetPredicate(
+      (widget) =>
+          widget is Image &&
+          widget.image is AssetImage &&
+          (widget.image as AssetImage).assetName ==
+              'assets/branding/usque-ui-icon.png' &&
+          widget.width == 30,
+    );
+    final Finder themeButton = find.descendant(
+      of: rail,
+      matching: find.byTooltip('Theme · System'),
+    );
+    expect(
+      find.descendant(of: rail, matching: find.text('Usque')),
+      findsNothing,
+    );
+    expect(brandIcon, findsNothing);
+    expect(themeButton, findsOneWidget);
+    expect(
+      tester.getCenter(themeButton).dx,
+      closeTo(tester.getRect(rail).center.dx, 2),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('Android settings exposes boot, tile, and Always-on controls', (
     tester,
   ) async {
@@ -1442,7 +2089,10 @@ void main() {
       addTearDown(controller.dispose);
 
       await tester.pumpWidget(
-        MaterialApp(home: PerAppProxyScreen(controller: controller)),
+        MaterialApp(
+          theme: UsqueTheme.light(),
+          home: PerAppProxyScreen(controller: controller),
+        ),
       );
       await tester.pumpAndSettle();
 
@@ -1480,7 +2130,10 @@ void main() {
       addTearDown(controller.dispose);
 
       await tester.pumpWidget(
-        MaterialApp(home: PerAppProxyScreen(controller: controller)),
+        MaterialApp(
+          theme: UsqueTheme.light(),
+          home: PerAppProxyScreen(controller: controller),
+        ),
       );
       await tester.pumpAndSettle();
 
@@ -1602,7 +2255,10 @@ void main() {
 
     Future<void> pumpHome() async {
       await tester.pumpWidget(
-        MaterialApp(home: HomeScreen(controller: controller)),
+        MaterialApp(
+          theme: UsqueTheme.light(),
+          home: HomeScreen(controller: controller),
+        ),
       );
       await tester.pump();
     }
@@ -1632,6 +2288,76 @@ void main() {
     expect(find.text('Not used in proxy mode'), findsOneWidget);
   });
 
+  testWidgets(
+    'home location sits under engine status and waits until connected',
+    (tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'onboarding_complete': true,
+      });
+      final engine = FakeEngineClient();
+      final controller = AppController(engine);
+      await controller.initialize();
+      await controller.setLocale(LocalePreference.english);
+      addTearDown(controller.dispose);
+
+      await tester.binding.setSurfaceSize(const Size(1200, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      Future<void> pumpHome() async {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: UsqueTheme.light(),
+            home: HomeScreen(controller: controller),
+          ),
+        );
+        await tester.pump();
+      }
+
+      await pumpHome();
+      expect(find.text('Waiting to connect'), findsOneWidget);
+      expect(find.text('Not currently connected'), findsNothing);
+      expect(find.byIcon(LucideIcons.mapPinOff), findsOneWidget);
+      expect(find.text('IPv4'), findsNothing);
+      expect(find.text('IPv6'), findsNothing);
+      expect(find.text('Not available'), findsNothing);
+
+      final Offset engineOrigin = tester.getTopLeft(find.text('Engine status'));
+      final Offset locationOrigin = tester.getTopLeft(find.text('Location'));
+      final Offset downloadOrigin = tester.getTopLeft(find.text('Download'));
+      expect(locationOrigin.dx, closeTo(engineOrigin.dx, 1));
+      expect(locationOrigin.dy, greaterThan(engineOrigin.dy));
+      expect(downloadOrigin.dy, greaterThan(locationOrigin.dy));
+
+      final Rect heroRect = tester.getRect(
+        find.ancestor(
+          of: find.byType(ConnectionRing),
+          matching: find.byType(Panel),
+        ),
+      );
+      final Rect locationRect = tester.getRect(
+        find.ancestor(of: find.text('Location'), matching: find.byType(Panel)),
+      );
+      expect(locationRect.bottom, closeTo(heroRect.bottom, 2));
+
+      controller.snapshot = const EngineSnapshot(
+        phase: ConnectionPhase.connected,
+        exit: ExitInfo(
+          city: 'Singapore',
+          country: 'Singapore',
+          ipv4: '1.2.3.4',
+          ipv6: '2001:db8::1',
+        ),
+      );
+      await pumpHome();
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(find.text('Waiting to connect'), findsNothing);
+      expect(find.byIcon(LucideIcons.mapPinOff), findsNothing);
+      expect(find.text('Singapore, Singapore'), findsOneWidget);
+      expect(find.text('1.2.3.4'), findsOneWidget);
+      expect(find.text('2001:db8::1'), findsOneWidget);
+    },
+  );
+
   testWidgets('error and degraded home show Retry and invoke the engine', (
     tester,
   ) async {
@@ -1646,7 +2372,10 @@ void main() {
     controller.snapshot = const EngineSnapshot(phase: ConnectionPhase.error);
 
     await tester.pumpWidget(
-      MaterialApp(home: HomeScreen(controller: controller)),
+      MaterialApp(
+        theme: UsqueTheme.light(),
+        home: HomeScreen(controller: controller),
+      ),
     );
     await tester.pump();
     expect(find.text('Retry'), findsOneWidget);
@@ -1678,6 +2407,289 @@ void main() {
       await controller.initialize();
       expect(engine.calls, isNot(contains('connect')));
       controller.dispose();
+    },
+  );
+
+  testWidgets('Settings network outputs edit the active profile immediately', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    try {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1280, 900);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'onboarding_complete': true,
+      });
+
+      await tester.pumpWidget(UsqueBootstrap(engine: FakeEngineClient()));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: find.byType(NavigationRail),
+          matching: find.text('Settings'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      Future<void> toggle(String title) async {
+        final tile = find.widgetWithText(SwitchListTile, title);
+        await tester.ensureVisible(tile);
+        await tester.tap(tile);
+        await tester.pumpAndSettle();
+      }
+
+      SettingsScreen settings() =>
+          tester.widget<SettingsScreen>(find.byType(SettingsScreen));
+
+      expect(find.text('Network outputs'), findsOneWidget);
+      expect(settings().controller.activeProfile.frontends.tunnel, isTrue);
+      expect(settings().controller.activeProfile.frontends.socks5, isTrue);
+      expect(settings().controller.activeProfile.frontends.http, isTrue);
+      expect(settings().controller.activeProfile.proxy.systemProxy, isFalse);
+      expect(settings().controller.activeProfile.autoConnect, isFalse);
+
+      await toggle('VPN / virtual adapter');
+      expect(settings().controller.activeProfile.frontends.tunnel, isFalse);
+
+      await toggle('SOCKS5');
+      expect(settings().controller.activeProfile.frontends.socks5, isFalse);
+
+      await toggle('Connect the current account automatically on start');
+      expect(settings().controller.activeProfile.autoConnect, isTrue);
+
+      await toggle('Configure system proxy');
+      expect(settings().controller.activeProfile.proxy.systemProxy, isTrue);
+
+      await toggle('HTTP');
+      expect(settings().controller.activeProfile.frontends.http, isFalse);
+      expect(settings().controller.activeProfile.proxy.systemProxy, isFalse);
+      expect(settings().controller.activeProfile.frontends.any, isFalse);
+      expect(find.text('No network output is enabled.'), findsOneWidget);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('Android settings hide the system proxy switch', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    try {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1280, 900);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'onboarding_complete': true,
+      });
+
+      await tester.pumpWidget(UsqueBootstrap(engine: FakeEngineClient()));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: find.byType(NavigationRail),
+          matching: find.text('Settings'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Network outputs'), findsOneWidget);
+      expect(find.text('VPN / virtual adapter'), findsOneWidget);
+      expect(find.text('Configure system proxy'), findsNothing);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('profile cards show account identity instead of output tags', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1280, 900);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+    });
+
+    await tester.pumpWidget(UsqueBootstrap(engine: FakeEngineClient()));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(NavigationRail),
+        matching: find.text('Profiles'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final profiles = find.byType(ProfilesScreen);
+    expect(
+      find.descendant(of: profiles, matching: find.text('WARP Free')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: profiles, matching: find.text('SOCKS5')),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: profiles, matching: find.text('HTTP')),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: profiles, matching: find.text('Identity ready')),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: profiles, matching: find.text('Kill Switch')),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: profiles, matching: find.text('162.159.198.2:443')),
+      findsNothing,
+    );
+
+    await tester.tap(find.byTooltip('Edit').first);
+    await tester.pumpAndSettle();
+    expect(find.text('Edit profile'), findsOneWidget);
+    expect(find.text('Profile name'), findsOneWidget);
+    expect(find.widgetWithText(SwitchListTile, 'SOCKS5'), findsNothing);
+    expect(
+      find.widgetWithText(SwitchListTile, 'VPN / virtual adapter'),
+      findsNothing,
+    );
+    expect(
+      find.widgetWithText(SwitchListTile, 'Connect this Profile automatically'),
+      findsNothing,
+    );
+    await tester.enterText(find.byType(TextField), 'Personal');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    expect(find.text('Personal'), findsOneWidget);
+  });
+
+  testWidgets('profile cards show WARP+ and Zero Trust identity tags', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1280, 900);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+    });
+    final plus = UsqueProfile.defaultProfile();
+    final zeroTrust = plus.copyWith(
+      id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      name: 'Work',
+    );
+    final engine = FakeEngineClient()
+      ..legacyProfilesImported = true
+      ..storedProfiles = <UsqueProfile>[plus, zeroTrust]
+      ..storedActiveProfileId = plus.id
+      ..storedIdentityStatuses = <String, ProfileIdentityStatus>{
+        plus.id: const ProfileIdentityStatus(
+          state: ProfileIdentityState.ready,
+          licenseState: LicenseState.warpPlus,
+          accountType: 'WARP+',
+        ),
+        zeroTrust.id: const ProfileIdentityStatus(
+          state: ProfileIdentityState.ready,
+          licenseState: LicenseState.notApplicable,
+          accountType: 'Zero Trust',
+          provider: IdentityProvider.zeroTrust,
+          organization: 'example-team',
+        ),
+      };
+
+    await tester.pumpWidget(UsqueBootstrap(engine: engine));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(NavigationRail),
+        matching: find.text('Profiles'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('WARP+'), findsOneWidget);
+    expect(find.text('Zero Trust'), findsOneWidget);
+    expect(find.text('WARP Free'), findsNothing);
+    expect(find.text('example-team · Experimental'), findsNothing);
+  });
+
+  testWidgets('profile cards show WARP Free from license state', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1280, 900);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+    });
+    final engine = FakeEngineClient()
+      ..legacyProfilesImported = true
+      ..storedIdentityStatuses = <String, ProfileIdentityStatus>{
+        UsqueProfile.defaultProfileId: const ProfileIdentityStatus(
+          state: ProfileIdentityState.ready,
+          licenseState: LicenseState.free,
+          accountType: 'Free',
+        ),
+      };
+
+    await tester.pumpWidget(UsqueBootstrap(engine: engine));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(NavigationRail),
+        matching: find.text('Profiles'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('WARP Free'), findsOneWidget);
+    expect(find.text('WARP+'), findsNothing);
+  });
+
+  testWidgets(
+    'narrow profile cards give the name its own row above identity tags',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(430, 900);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'onboarding_complete': true,
+      });
+      const nameLabel = 'Work laptop';
+      final engine = FakeEngineClient()
+        ..legacyProfilesImported = true
+        ..storedProfiles = <UsqueProfile>[
+          UsqueProfile.defaultProfile().copyWith(name: nameLabel),
+        ]
+        ..storedIdentityStatuses = <String, ProfileIdentityStatus>{
+          UsqueProfile.defaultProfileId: const ProfileIdentityStatus(
+            state: ProfileIdentityState.ready,
+            licenseState: LicenseState.free,
+            accountType: 'Free',
+          ),
+        };
+
+      await tester.pumpWidget(UsqueBootstrap(engine: engine));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Profiles').last);
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      final name = find.text(nameLabel);
+      final identity = find.text('WARP Free');
+      expect(name, findsOneWidget);
+      expect(identity, findsOneWidget);
+      expect(tester.getSize(name).width, greaterThan(160));
+      expect(
+        tester.getRect(identity).top,
+        greaterThan(tester.getRect(name).bottom - 1),
+      );
     },
   );
 }

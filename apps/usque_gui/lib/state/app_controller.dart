@@ -29,10 +29,11 @@ class AppController extends ChangeNotifier {
   SharedPreferences? _preferences;
   Timer? _snapshotTimer;
   Timer? _snapshotReconnectTimer;
-  StreamSubscription<EngineSnapshot>? _snapshotSubscription;
+  StreamSubscription<EngineSnapshotEvent>? _snapshotSubscription;
   Future<void> _profileWriteTail = Future<void>.value();
   int _snapshotReconnectAttempt = 0;
   int _snapshotSubscriptionGeneration = 0;
+  bool _snapshotStreamEstablished = false;
   bool _disposed = false;
 
   bool initialized = false;
@@ -62,11 +63,55 @@ class AppController extends ChangeNotifier {
 
   AppStrings get strings => AppStrings(localePreference);
 
+  UsqueProfile sharedNetwork = UsqueProfile.defaultProfile();
+
   UsqueProfile get activeProfile {
-    return profiles.firstWhere(
+    final account = profiles.firstWhere(
       (profile) => profile.id == activeProfileId,
       orElse: UsqueProfile.defaultProfile,
     );
+    return _hydrateAccount(account);
+  }
+
+  UsqueProfile _hydrateAccount(UsqueProfile account) {
+    final zeroTrust =
+        identityStatus(account.id).provider == IdentityProvider.zeroTrust;
+    return sharedNetwork.copyWith(
+      id: account.id,
+      name: account.name,
+      endpointIpv4: zeroTrust
+          ? account.endpointIpv4
+          : sharedNetwork.endpointIpv4,
+      endpointIpv6: zeroTrust
+          ? account.endpointIpv6
+          : sharedNetwork.endpointIpv6,
+      endpointPort: zeroTrust
+          ? account.endpointPort
+          : sharedNetwork.endpointPort,
+      sni: zeroTrust ? account.sni : sharedNetwork.sni,
+    );
+  }
+
+  void _captureSharedNetwork() {
+    if (profiles.isEmpty) {
+      sharedNetwork = UsqueProfile.defaultProfile();
+      return;
+    }
+    final source = profiles.firstWhere(
+      (profile) =>
+          identityStatus(profile.id).provider != IdentityProvider.zeroTrust,
+      orElse: () => profiles.first,
+    );
+    final zeroTrust =
+        identityStatus(source.id).provider == IdentityProvider.zeroTrust;
+    sharedNetwork = zeroTrust
+        ? source.copyWith(
+            endpointIpv4: UsqueProfile.defaultEndpointIpv4,
+            endpointIpv6: UsqueProfile.defaultEndpointIpv6,
+            endpointPort: UsqueProfile.defaultEndpointPort,
+            sni: UsqueProfile.defaultSni,
+          )
+        : source;
   }
 
   Future<void> initialize() async {
@@ -110,7 +155,7 @@ class AppController extends ChangeNotifier {
       perAppProxy = const PerAppProxySettings();
     }
     if (_engine.supportsSnapshotEvents) {
-      _subscribeToSnapshotEvents();
+      unawaited(_subscribeToSnapshotEvents());
     }
     initialized = true;
     _notifyListeners();
@@ -188,6 +233,7 @@ class AppController extends ChangeNotifier {
       activeProfileId = catalog.activeProfileId;
       profileIdentityStates = catalog.identityStates;
       profileIdentityStatuses = catalog.identityStatuses;
+      _captureSharedNetwork();
       await preferences?.remove(_profilesKey);
     } on EngineException catch (error) {
       lastError ??= error.message;
@@ -218,22 +264,7 @@ class AppController extends ChangeNotifier {
         method: method,
         licenseKey: licenseKey,
       );
-      profileIdentityStates = <String, ProfileIdentityState>{
-        ...profileIdentityStates,
-        activeProfile.id: ProfileIdentityState.ready,
-      };
-      profileIdentityStatuses = <String, ProfileIdentityStatus>{
-        ...profileIdentityStatuses,
-        activeProfile.id: ProfileIdentityStatus(
-          state: ProfileIdentityState.ready,
-          licenseState: method == IdentityProvisioningMethod.registerWithLicense
-              ? LicenseState.warpPlus
-              : LicenseState.free,
-          accountType: method == IdentityProvisioningMethod.registerWithLicense
-              ? 'WARP+'
-              : 'Free',
-        ),
-      };
+      await _refreshProfileCatalog();
       onboardingComplete = true;
       await _preferences?.setBool('onboarding_complete', true);
     });
@@ -429,6 +460,7 @@ class AppController extends ChangeNotifier {
     activeProfileId = catalog.activeProfileId;
     profileIdentityStates = catalog.identityStates;
     profileIdentityStatuses = catalog.identityStatuses;
+    _captureSharedNetwork();
   }
 
   Future<void> checkForUpdates() async {
@@ -506,17 +538,14 @@ class AppController extends ChangeNotifier {
     try {
       await operation();
       return true;
-    } on EngineException catch (error) {
-      lastError = error.message;
+    } catch (error) {
+      lastError = error is EngineException ? error.message : error.toString();
       if (affectsConnection && snapshot.phase != ConnectionPhase.disconnected) {
         snapshot = EngineSnapshot(
           phase: ConnectionPhase.error,
-          warning: error.message,
+          warning: lastError,
         );
       }
-      return false;
-    } catch (error) {
-      lastError = error.toString();
       return false;
     } finally {
       busy = false;
@@ -630,10 +659,7 @@ class AppController extends ChangeNotifier {
       return;
     }
     final id = _newUuidV4();
-    final added = UsqueProfile.defaultProfile().copyWith(
-      id: id,
-      name: normalized,
-    );
+    final added = sharedNetwork.copyWith(id: id, name: normalized);
     profiles = <UsqueProfile>[...profiles, added];
     profileIdentityStates = <String, ProfileIdentityState>{
       ...profileIdentityStates,
@@ -665,10 +691,7 @@ class AppController extends ChangeNotifier {
   }) async {
     final normalized = name.trim();
     if (normalized.isEmpty || normalized.runes.length > 64) return false;
-    final profile = UsqueProfile.defaultProfile().copyWith(
-      id: _newUuidV4(),
-      name: normalized,
-    );
+    final profile = sharedNetwork.copyWith(id: _newUuidV4(), name: normalized);
     ProfileCatalog? catalog;
     final success = await _run(() async {
       catalog = await _engine.createProfileWithIdentity(
@@ -682,6 +705,7 @@ class AppController extends ChangeNotifier {
       activeProfileId = catalog!.activeProfileId;
       profileIdentityStates = catalog!.identityStates;
       profileIdentityStatuses = catalog!.identityStatuses;
+      _captureSharedNetwork();
     }, affectsConnection: false);
     return success;
   }
@@ -696,7 +720,7 @@ class AppController extends ChangeNotifier {
     final success = await _run(() async {
       final reconnect = profile.id == activeProfileId && snapshot.isConnected;
       var mutationCommitted = false;
-      var refreshedZeroTrustProfile = false;
+      var refreshedCatalog = false;
       if (reconnect) {
         snapshot = await _engine.disconnect();
         _notifyListeners();
@@ -710,35 +734,10 @@ class AppController extends ChangeNotifier {
           callbackUri: callbackUri,
         );
         mutationCommitted = true;
-        if (method == IdentityProvisioningMethod.zeroTrust) {
-          await _refreshProfileCatalog();
-          refreshedZeroTrustProfile = true;
-          return;
-        }
-        profileIdentityStates = <String, ProfileIdentityState>{
-          ...profileIdentityStates,
-          profile.id: ProfileIdentityState.ready,
-        };
-        profileIdentityStatuses = <String, ProfileIdentityStatus>{
-          ...profileIdentityStatuses,
-          profile.id: ProfileIdentityStatus(
-            state: ProfileIdentityState.ready,
-            licenseState:
-                method == IdentityProvisioningMethod.registerWithLicense
-                ? LicenseState.warpPlus
-                : LicenseState.free,
-            accountType:
-                method == IdentityProvisioningMethod.registerWithLicense
-                ? 'WARP+'
-                : 'Free',
-            provider: IdentityProvider.consumer,
-          ),
-        };
+        await _refreshProfileCatalog();
+        refreshedCatalog = true;
       } finally {
-        final safeToReconnect =
-            !mutationCommitted ||
-            method != IdentityProvisioningMethod.zeroTrust ||
-            refreshedZeroTrustProfile;
+        final safeToReconnect = !mutationCommitted || refreshedCatalog;
         if (reconnect && safeToReconnect) {
           snapshot = await _engine.connect(activeProfile);
           _notifyListeners();
@@ -760,21 +759,67 @@ class AppController extends ChangeNotifier {
   Future<void> cancelZeroTrustLogin() => _engine.cancelZeroTrustLogin();
 
   void updateProfile(UsqueProfile updated) {
-    if (!profiles.any((profile) => profile.id == updated.id)) {
+    updateNetwork(updated);
+  }
+
+  void renameProfile(String id, String name) {
+    if (!profiles.any((profile) => profile.id == id)) {
+      return;
+    }
+    profiles = profiles
+        .map(
+          (profile) =>
+              profile.id == id ? profile.copyWith(name: name) : profile,
+        )
+        .toList(growable: false);
+    _notifyListeners();
+    final outgoing = _hydrateAccount(
+      profiles.firstWhere((profile) => profile.id == id),
+    );
+    _queueProfileMutation(() => _engine.upsertProfile(outgoing));
+  }
+
+  void updateNetwork(UsqueProfile updated) {
+    if (!profiles.any((profile) => profile.id == updated.id) &&
+        updated.id != activeProfileId) {
       return;
     }
     final normalized = updated.frontends.http
         ? updated
         : updated.copyWith(proxy: updated.proxy.copyWith(systemProxy: false));
-    profiles = profiles
-        .map((profile) => profile.id == normalized.id ? normalized : profile)
-        .toList(growable: false);
+    final zeroTrust =
+        identityStatus(activeProfileId).provider == IdentityProvider.zeroTrust;
+    sharedNetwork = sharedNetwork.copyWith(
+      frontends: normalized.frontends,
+      transport: normalized.transport,
+      ipPolicy: normalized.ipPolicy,
+      endpointIpv4: zeroTrust
+          ? sharedNetwork.endpointIpv4
+          : normalized.endpointIpv4,
+      endpointIpv6: zeroTrust
+          ? sharedNetwork.endpointIpv6
+          : normalized.endpointIpv6,
+      endpointPort: zeroTrust
+          ? sharedNetwork.endpointPort
+          : normalized.endpointPort,
+      sni: zeroTrust ? sharedNetwork.sni : normalized.sni,
+      mtu: normalized.mtu,
+      dnsIpv4: normalized.dnsIpv4,
+      dnsIpv6: normalized.dnsIpv6,
+      dnsMode: normalized.dnsMode,
+      killSwitch: normalized.killSwitch,
+      allowLan: normalized.allowLan,
+      autoConnect: normalized.autoConnect,
+      bypassCidrs: normalized.bypassCidrs,
+      proxy: normalized.proxy,
+    );
     _notifyListeners();
+    final outgoing = activeProfile;
     _queueProfileMutation(() {
-      if (normalized.id == activeProfileId && snapshot.isConnected) {
-        return _engine.reconfigureActiveProfile(normalized);
+      if (outgoing.id == activeProfileId && snapshot.isConnected) {
+        return _engine.reconfigureActiveProfile(outgoing);
       }
-      return _engine.upsertProfile(normalized);
+      return _engine.upsertProfile(outgoing);
     });
   }
 
@@ -857,7 +902,7 @@ class AppController extends ChangeNotifier {
     _snapshotTimer = null;
   }
 
-  void _subscribeToSnapshotEvents() {
+  Future<void> _subscribeToSnapshotEvents() async {
     if (_disposed || !_engine.supportsSnapshotEvents) {
       return;
     }
@@ -865,29 +910,40 @@ class AppController extends ChangeNotifier {
     _snapshotReconnectTimer = null;
     final previous = _snapshotSubscription;
     _snapshotSubscription = null;
-    if (previous != null) {
-      unawaited(previous.cancel());
-    }
     final generation = ++_snapshotSubscriptionGeneration;
-    _snapshotSubscription = _engine.snapshotEvents.listen(
-      (EngineSnapshot next) => _handleSnapshotEvent(next, generation),
-      onError: (Object error, StackTrace stackTrace) =>
-          _handleSnapshotEventError(error, stackTrace, generation),
-      onDone: () => _handleSnapshotEventDone(generation),
-      cancelOnError: true,
-    );
-  }
-
-  void _handleSnapshotEvent(EngineSnapshot next, int generation) {
+    if (previous != null) {
+      await previous.cancel();
+    }
     if (_disposed || generation != _snapshotSubscriptionGeneration) {
       return;
     }
+    _snapshotSubscription = _engine.snapshotEvents.listen(
+      (EngineSnapshotEvent event) => _handleSnapshotEvent(event, generation),
+      onError: (Object error, StackTrace stackTrace) =>
+          _handleSnapshotEventError(error, stackTrace, generation),
+      onDone: () => _handleSnapshotEventDone(generation),
+      cancelOnError: false,
+    );
+  }
+
+  void _handleSnapshotEvent(EngineSnapshotEvent event, int generation) {
+    if (_disposed || generation != _snapshotSubscriptionGeneration) {
+      return;
+    }
+    _snapshotStreamEstablished = true;
     final wasDegraded = snapshotStreamDegraded;
     _snapshotReconnectAttempt = 0;
     _snapshotReconnectTimer?.cancel();
     _snapshotReconnectTimer = null;
     snapshotStreamDegraded = false;
     _stopPolling();
+    final next = event.snapshot;
+    if (next == null) {
+      if (wasDegraded) {
+        _notifyListeners();
+      }
+      return;
+    }
     final nextError =
         next.phase == ConnectionPhase.error &&
             (next.warning?.trim().isNotEmpty ?? false)
@@ -924,8 +980,10 @@ class AppController extends ChangeNotifier {
     if (_disposed || generation != _snapshotSubscriptionGeneration) {
       return;
     }
-    _snapshotSubscription = null;
-    snapshotStreamDegraded = true;
+    final established = _snapshotStreamEstablished;
+    if (established) {
+      snapshotStreamDegraded = true;
+    }
     _startPolling(force: true);
     if (_snapshotReconnectTimer == null) {
       final delay =
@@ -938,10 +996,12 @@ class AppController extends ChangeNotifier {
       }
       _snapshotReconnectTimer = Timer(delay, () {
         _snapshotReconnectTimer = null;
-        _subscribeToSnapshotEvents();
+        unawaited(_subscribeToSnapshotEvents());
       });
     }
-    _notifyListeners();
+    if (established) {
+      _notifyListeners();
+    }
   }
 
   @override

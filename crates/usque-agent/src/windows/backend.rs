@@ -240,14 +240,12 @@ fn apply_sync(
             ring_capacity,
         } => apply_packet_session(inner, session_id, ring_capacity, caller),
         other @ MutationReceipt::EndpointBypass { .. } => {
-            let receipt = network::apply_endpoint_bypass(other)
-                .map_err(|error| backend_error(error.to_string()))?;
-            Ok((receipt, StepOutput::default()))
+            apply_enriched(other, network::apply_endpoint_bypass)
         }
         other @ MutationReceipt::InterfaceConfiguration { .. } => {
-            let receipt = network::apply_interface_configuration(other, plan)
-                .map_err(|error| backend_error(error.to_string()))?;
-            Ok((receipt, StepOutput::default()))
+            apply_enriched(other, |receipt| {
+                network::apply_interface_configuration(receipt, plan)
+            })
         }
         other @ MutationReceipt::Dns { .. } => {
             let receipt = network::apply_dns(other, plan)
@@ -255,9 +253,7 @@ fn apply_sync(
             Ok((receipt, StepOutput::default()))
         }
         other @ MutationReceipt::DefaultRoutes { .. } => {
-            let receipt = network::apply_default_routes(other)
-                .map_err(|error| backend_error(error.to_string()))?;
-            Ok((receipt, StepOutput::default()))
+            apply_enriched(other, network::apply_default_routes)
         }
         other @ MutationReceipt::KillSwitch { .. } => {
             let interface_luid = current_adapter_luid(inner)?;
@@ -487,6 +483,19 @@ fn current_adapter_luid(inner: &BackendInner) -> Result<u64, BackendError> {
         Err(backend_error("Wintun returned an empty interface LUID"))
     } else {
         Ok(interface_luid)
+    }
+}
+
+fn apply_enriched(
+    mut receipt: MutationReceipt,
+    apply: impl FnOnce(&mut MutationReceipt) -> Result<(), network::NetworkError>,
+) -> Result<(MutationReceipt, StepOutput), BackendError> {
+    match apply(&mut receipt) {
+        Ok(()) => Ok((receipt, StepOutput::default())),
+        Err(error) => Err(BackendError::PartialApply {
+            message: error.to_string(),
+            receipt: Box::new(receipt),
+        }),
     }
 }
 

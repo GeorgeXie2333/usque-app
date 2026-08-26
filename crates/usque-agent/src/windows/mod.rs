@@ -8,6 +8,7 @@ pub mod backend;
 pub mod network;
 pub mod packet_session;
 pub mod server;
+pub mod service_config;
 pub mod state_security;
 pub mod system_proxy;
 pub mod wfp;

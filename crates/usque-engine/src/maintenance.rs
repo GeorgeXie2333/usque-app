@@ -270,8 +270,8 @@ fn write_diagnostic_bundle(
 
 fn configuration_summary(config: &AppConfig) -> serde_json::Value {
     let profiles = config
-        .profiles
-        .iter()
+        .runtime_profiles()
+        .into_iter()
         .enumerate()
         .map(|(index, profile)| {
             serde_json::json!({
@@ -582,7 +582,7 @@ mod tests {
         let destination = directory.path().join("diagnostics.zip");
         let mut config = AppConfig::default();
         config.profiles[0].name = "private hotel name".to_owned();
-        config.profiles[0].endpoint.sni = "private.example".to_owned();
+        config.network.endpoint.sni = "private.example".to_owned();
         let log_directory = directory.path().join("logs");
         fs::create_dir_all(&log_directory).unwrap();
         fs::write(

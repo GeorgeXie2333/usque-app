@@ -7,10 +7,14 @@
 //! VPN mode additionally calls `VpnService.protect(fd)` before binding it;
 //! proxy modes deliberately do not require VPN preparation permission.
 
+#[cfg(any(test, target_os = "android"))]
+use std::sync::atomic::AtomicBool;
 use std::sync::{
     Arc,
     atomic::{AtomicU64, Ordering},
 };
+#[cfg(any(test, target_os = "android"))]
+use std::time::Duration;
 use std::{
     net::{IpAddr, SocketAddr},
     path::PathBuf,
@@ -27,10 +31,10 @@ use jni::{
 };
 use serde::{Deserialize, Serialize};
 use usque_core::{
-    AppConfig, ConsumerRegistrationClient, DnsMode, EndpointSettings, FrontendSettings,
-    IdentityProvider, IpPolicy, OperatingMode, Profile, ProxyDnsMode, ProxySettings,
-    RegistrationError, RegistrationOptions, TransportPolicy, WarpIdentity,
-    parse_manual_warp_secret, storage::ConfigStore, update::UpdateChecker,
+    AppConfig, ConsumerEntitlement, ConsumerRegistrationClient, DnsMode, EndpointSettings,
+    FrontendSettings, IdentityProvider, IpPolicy, OperatingMode, Profile, ProxyDnsMode,
+    ProxySettings, RegistrationError, RegistrationOptions, SharedNetworkSettings, TransportPolicy,
+    WarpIdentity, parse_manual_warp_secret, storage::ConfigStore, update::UpdateChecker,
 };
 #[cfg(target_os = "android")]
 use usque_transport::{
@@ -696,6 +700,8 @@ struct IdentityMetadata {
     ipv6: String,
     provider: &'static str,
     organization: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    entitlement: Option<ConsumerEntitlement>,
 }
 
 fn identity_metadata(secret: &[u8]) -> Result<IdentityMetadata, String> {
@@ -709,6 +715,7 @@ fn identity_metadata(secret: &[u8]) -> Result<IdentityMetadata, String> {
             IdentityProvider::ZeroTrust { .. } => "zeroTrust",
         },
         organization: identity.provider().organization().map(ToOwned::to_owned),
+        entitlement: identity.entitlement(),
     })
 }
 
@@ -980,31 +987,42 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
             active_profile_id,
         } => {
             if !config.preferences.profiles_migrated_from_flutter {
+                let mut incoming = Vec::new();
                 let mut incoming_ids = std::collections::HashSet::new();
                 for source in profiles {
                     let profile = android_profile_to_core(source)?;
                     if !incoming_ids.insert(profile.id) {
                         return Err("legacy profile IDs must be unique".to_owned());
                     }
-                    match config
-                        .profiles
-                        .iter()
-                        .position(|existing| existing.id == profile.id)
-                    {
-                        Some(index) => config.profiles[index] = profile,
-                        None => config.profiles.push(profile),
-                    }
+                    incoming.push(profile);
                 }
                 if !active_profile_id.trim().is_empty() {
                     let active_profile_id = parse_value(&active_profile_id, "active profile ID")?;
-                    if !config
-                        .profiles
-                        .iter()
-                        .any(|profile| profile.id == active_profile_id)
+                    if !incoming_ids.contains(&active_profile_id)
+                        && config.account(active_profile_id).is_none()
                     {
                         return Err("legacy active profile does not exist".to_owned());
                     }
                     config.active_profile_id = Some(active_profile_id);
+                }
+                if let Some(active) = incoming
+                    .iter()
+                    .find(|profile| Some(profile.id) == config.active_profile_id)
+                {
+                    config.network = SharedNetworkSettings::from_profile(active);
+                }
+                config.profiles.clear();
+                for profile in incoming {
+                    let managed_endpoint = profile
+                        .endpoint
+                        .is_zero_trust_managed()
+                        .then_some(profile.endpoint.clone());
+                    config
+                        .insert_account(profile.id, profile.name, managed_endpoint)
+                        .map_err(|error| error.to_string())?;
+                }
+                if config.active_profile().is_none() {
+                    config.active_profile_id = config.profiles.first().map(|account| account.id);
                 }
                 config.preferences.profiles_migrated_from_flutter = true;
                 changed = true;
@@ -1016,35 +1034,20 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
             organization,
         } => {
             let binding = parse_identity_binding(identity_provider, organization)?;
-            let mut profile = android_profile_to_core(*profile)?;
+            let profile = android_profile_to_core(*profile)?;
             let profile_id = profile.id;
-            match config
-                .profiles
-                .iter()
-                .position(|existing| existing.id == profile.id)
+            if let (Some(existing), Some(incoming)) =
+                (config.identity_bindings.get(&profile.id), binding.as_ref())
+                && existing != incoming
             {
-                Some(index) => {
-                    if let (Some(existing), Some(incoming)) =
-                        (config.identity_bindings.get(&profile.id), binding.as_ref())
-                        && existing != incoming
-                    {
-                        return Err("profile identity provider cannot be changed".to_owned());
-                    }
-                    if binding.is_none()
-                        && matches!(
-                            config.identity_bindings.get(&profile.id),
-                            Some(IdentityProvider::ZeroTrust { .. })
-                        )
-                    {
-                        profile.endpoint = config.profiles[index].endpoint.clone();
-                    }
-                    config.profiles[index] = profile;
-                }
-                None => config.profiles.push(profile),
+                return Err("profile identity provider cannot be changed".to_owned());
             }
             if let Some(binding) = binding {
                 config.identity_bindings.insert(profile_id, binding);
             }
+            config
+                .upsert_runtime_profile(profile)
+                .map_err(|error| error.to_string())?;
             config.preferences.profiles_migrated_from_flutter = true;
             changed = true;
         }
@@ -1130,7 +1133,13 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
             if let Some(binding) = binding {
                 config.identity_bindings.insert(profile.id, binding);
             }
-            config.profiles.push(profile);
+            let managed_endpoint = profile
+                .endpoint
+                .is_zero_trust_managed()
+                .then_some(profile.endpoint.clone());
+            config
+                .insert_account(profile.id, profile.name, managed_endpoint)
+                .map_err(|error| error.to_string())?;
             config.preferences.profiles_migrated_from_flutter = true;
             changed = true;
         }
@@ -1157,18 +1166,16 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
             if config.active_profile_id != Some(next.id) {
                 return Err("only the Active Profile can be reconfigured".to_owned());
             }
-            let index = config
+            if !config
                 .profiles
                 .iter()
-                .position(|candidate| candidate.id == next.id)
-                .ok_or_else(|| "profile does not exist".to_owned())?;
-            if next.proxy.listener_auth_username().is_none() {
-                let mut stored = next;
-                stored.proxy.auth_username = config.profiles[index].proxy.auth_username.clone();
-                config.profiles[index] = stored;
-            } else {
-                config.profiles[index] = next;
+                .any(|candidate| candidate.id == next.id)
+            {
+                return Err("profile does not exist".to_owned());
             }
+            config
+                .upsert_runtime_profile(next)
+                .map_err(|error| error.to_string())?;
             changed = true;
         }
     }
@@ -1186,7 +1193,7 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
 fn android_profile_catalog(config: &AppConfig) -> serde_json::Value {
     serde_json::json!({
         "profiles": config
-            .profiles
+            .runtime_profiles()
             .iter()
             .map(|profile| {
                 android_profile_value(profile, config.identity_bindings.get(&profile.id))
@@ -1954,6 +1961,26 @@ fn throw_io_error(environment: &mut Env<'_>, message: &str) {
     let _ = environment.throw_new(jni_str!("java/io/IOException"), &message);
 }
 
+#[cfg(any(test, target_os = "android"))]
+fn wait_jni_command_reply(
+    reply_rx: std::sync::mpsc::Receiver<i32>,
+    cancelled: &AtomicBool,
+    timeout: Duration,
+) -> i32 {
+    match reply_rx.recv_timeout(timeout) {
+        Ok(code) => code,
+        Err(_) => {
+            cancelled.store(true, Ordering::Release);
+            START_PLATFORM_FAILURE
+        }
+    }
+}
+
+#[cfg(any(test, target_os = "android"))]
+fn jni_command_abandoned(cancelled: &AtomicBool) -> bool {
+    cancelled.load(Ordering::Acquire)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1961,6 +1988,41 @@ mod tests {
     #[test]
     fn jni_boundary_failure_default_never_reports_success() {
         assert_eq!(JniCode::default().0, START_PLATFORM_FAILURE);
+    }
+
+    #[test]
+    fn jni_command_timeout_cancels_in_flight_command() {
+        let (_tx, rx) = std::sync::mpsc::sync_channel::<i32>(1);
+        let cancelled = AtomicBool::new(false);
+        let code = wait_jni_command_reply(rx, &cancelled, Duration::from_millis(1));
+        assert_eq!(code, START_PLATFORM_FAILURE);
+        assert!(jni_command_abandoned(&cancelled));
+    }
+
+    #[test]
+    fn jni_command_reply_success_leaves_command_active() {
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        let cancelled = AtomicBool::new(false);
+        tx.send(RECONFIGURE_OK).unwrap();
+        let code = wait_jni_command_reply(rx, &cancelled, Duration::from_secs(1));
+        assert_eq!(code, RECONFIGURE_OK);
+        assert!(!jni_command_abandoned(&cancelled));
+    }
+
+    #[test]
+    fn jni_command_wait_does_not_hold_the_engine_slot() {
+        let slot = std::sync::Mutex::new(Some(1u8));
+        let (_reply_tx, reply_rx) = std::sync::mpsc::sync_channel::<i32>(1);
+        let cancelled = AtomicBool::new(false);
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                let code = wait_jni_command_reply(reply_rx, &cancelled, Duration::from_millis(50));
+                assert_eq!(code, START_PLATFORM_FAILURE);
+            });
+            let taken = slot.lock().unwrap().take();
+            assert_eq!(taken, Some(1));
+        });
+        assert!(jni_command_abandoned(&cancelled));
     }
 
     #[test]
@@ -2119,6 +2181,33 @@ mod tests {
         let stored = ConfigStore::new(config_path).load().unwrap();
         assert!(stored.preferences.profiles_migrated_from_flutter);
         assert_eq!(stored.profiles[0].name, "Default");
+    }
+
+    #[test]
+    fn rust_profile_store_imports_non_default_catalog_when_active_id_is_empty() {
+        let directory = tempfile::tempdir().unwrap();
+        let config_path = directory.path().join("profiles-v2.json");
+        let imported_id = "7b60ea7c-03a5-455d-9914-2cdf0e268ac2";
+        let mut profile: serde_json::Value = serde_json::from_str(&valid_profile_json()).unwrap();
+        profile["id"] = serde_json::json!(imported_id);
+        profile["name"] = serde_json::json!("Imported");
+        let import = serde_json::json!({
+            "command": "import_legacy_profiles",
+            "profiles": [profile],
+            "active_profile_id": "",
+        });
+        let response =
+            apply_profile_command(config_path.to_str().unwrap(), &import.to_string()).unwrap();
+        let response: serde_json::Value = serde_json::from_str(&response).unwrap();
+        assert_eq!(response["active_profile_id"], imported_id);
+        assert_eq!(response["profiles"].as_array().unwrap().len(), 1);
+        assert_eq!(response["profiles"][0]["id"], imported_id);
+
+        let stored = ConfigStore::new(config_path).load().unwrap();
+        assert!(stored.preferences.profiles_migrated_from_flutter);
+        assert_eq!(stored.profiles.len(), 1);
+        assert_eq!(stored.profiles[0].id.to_string(), imported_id);
+        assert_eq!(stored.active_profile().unwrap().id.to_string(), imported_id);
     }
 
     #[test]

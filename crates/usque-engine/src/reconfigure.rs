@@ -29,10 +29,7 @@ impl ControlService {
             .config
             .read()
             .await
-            .profiles
-            .iter()
-            .find(|candidate| candidate.id == profile.id)
-            .cloned()
+            .runtime_profile(profile.id)
             .ok_or(ControlServiceError::ProfileNotFound(profile.id))?;
 
         let class = classify_reconfigure(&previous, &profile);

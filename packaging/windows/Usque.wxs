@@ -81,21 +81,7 @@
       <File
         Id="UsqueGuiExecutable"
         Source="!(bindpath.app)\usque.exe"
-        KeyPath="yes">
-        <Shortcut
-          Id="UsqueStartMenuShortcut"
-          Directory="UsqueProgramMenuFolder"
-          Name="Usque"
-          Description="Usque"
-          WorkingDirectory="INSTALLFOLDER"
-          Icon="UsqueProductIcon.ico"
-          IconIndex="0"
-          Advertise="yes" />
-      </File>
-      <RemoveFolder
-        Id="RemoveUsqueProgramMenuFolder"
-        Directory="UsqueProgramMenuFolder"
-        On="uninstall" />
+        KeyPath="yes" />
       <RegistryValue
         Root="HKLM"
         Key="Software\Usque"
@@ -120,6 +106,38 @@
         Name="ProductCode"
         Type="string"
         Value="[ProductCode]" />
+    </Component>
+
+    <!--
+      Non-advertised shortcuts require their own current-user registry KeyPath
+      under Windows Installer component rules. Keeping this separate prevents
+      shortcut activation from invoking MSI self-repair.
+    -->
+    <Component
+      Id="UsqueShortcutComponent"
+      Directory="UsqueProgramMenuFolder"
+      Guid="6A2E04E2-7E76-48B4-A7E3-3B219F986872">
+      <Shortcut
+        Id="UsqueStartMenuShortcut"
+        Name="Usque"
+        Description="Usque"
+        Target="[INSTALLFOLDER]usque.exe"
+        WorkingDirectory="INSTALLFOLDER"
+        Icon="UsqueProductIcon.ico"
+        IconIndex="0"
+        Advertise="no" />
+      <RemoveFolder
+        Id="RemoveUsqueProgramMenuFolder"
+        Directory="UsqueProgramMenuFolder"
+        On="uninstall" />
+      <RegistryValue
+        Id="UsqueShortcutKeyPath"
+        Root="HKCU"
+        Key="Software\Usque"
+        Name="StartMenuShortcut"
+        Type="integer"
+        Value="1"
+        KeyPath="yes" />
     </Component>
 
     <Component
@@ -147,13 +165,21 @@
         Description="Least-privilege service for Usque network state."
         Arguments="--service --signer-sha256 $(SignerSha256)"
         Type="ownProcess"
-        Start="auto"
+        Start="demand"
         ErrorControl="normal"
-        Vital="yes" />
+        Vital="yes">
+        <!--
+          SYSTEM and Administrators retain full service control. Only a local
+          interactive logon may query status and start the demand-start Agent;
+          stop, delete, and configuration rights remain privileged.
+        -->
+        <PermissionEx
+          Id="UsqueAgentServicePermission"
+          Sddl="D:P(A;;0xF01FF;;;SY)(A;;0xF01FF;;;BA)(A;;0x14;;;IU)" />
+      </ServiceInstall>
       <ServiceControl
         Id="UsqueAgentServiceControl"
         Name="UsqueAgent"
-        Start="install"
         Stop="both"
         Remove="uninstall"
         Wait="yes" />
@@ -296,7 +322,14 @@
       Execute="deferred"
       Impersonate="no"
       Return="check" />
+    <CustomAction
+      Id="RejectUnsupportedMaintenance"
+      Error="Repair, modify, and patch operations are not supported because Usque may own crash-recovery network state. Uninstall and reinstall Usque, or install a newer release instead." />
     <InstallExecuteSequence>
+      <Custom
+        Action="RejectUnsupportedMaintenance"
+        Before="StopServices"
+        Condition='Installed AND NOT REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE' />
       <Custom
         Action="ValidateAgentStartup"
         After="InstallServices"
@@ -325,6 +358,7 @@
 
     <Feature Id="Complete" Title="Usque" Level="1">
       <ComponentRef Id="UsqueGuiComponent" />
+      <ComponentRef Id="UsqueShortcutComponent" />
       <ComponentRef Id="UsqueEngineComponent" />
       <ComponentRef Id="UsqueAgentComponent" />
       <ComponentRef Id="OfficialWintunComponent" />

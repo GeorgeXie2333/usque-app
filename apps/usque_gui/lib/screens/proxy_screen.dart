@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../core/usque_motion.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
@@ -91,76 +92,86 @@ class _ProxyScreenState extends State<ProxyScreen> {
     final currentProxy = profile.proxy;
     return PageFrame(
       title: strings.get('proxy'),
+      subtitle: strings.get('proxy_subtitle'),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          if (currentProxy.exposesLan) ...<Widget>[
-            WarningBanner(
-              title: strings.get('lan_warning'),
-              message: strings.get(
-                currentProxy.hasAuth
-                    ? 'lan_warning_body_authenticated'
-                    : 'lan_warning_body',
-              ),
-            ),
-            const SizedBox(height: 16),
-          ],
-          if (currentProxy.dnsMode != ProxyDnsMode.remote) ...<Widget>[
-            WarningBanner(
-              title: strings.get('dns_leak_warning'),
-              message: strings.get('dns_leak_warning_body'),
-            ),
-            const SizedBox(height: 16),
-          ],
-          _listenerPanel(context, profile, socks5: true),
-          const SizedBox(height: 16),
-          _listenerPanel(context, profile, socks5: false),
-          const SizedBox(height: 16),
-          _AuthPanel(controller: widget.controller),
-          const SizedBox(height: 16),
-          Panel(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                DropdownButtonFormField<ProxyDnsMode>(
-                  key: const ValueKey<String>('proxy-dns-mode'),
-                  initialValue: currentProxy.dnsMode,
-                  decoration: InputDecoration(
-                    prefixIcon: const Icon(LucideIcons.server),
-                    labelText: strings.get('proxy_dns_mode'),
-                  ),
-                  items: ProxyDnsMode.values
-                      .map(
-                        (mode) => DropdownMenuItem<ProxyDnsMode>(
-                          value: mode,
-                          child: Text(
-                            strings.get(switch (mode) {
-                              ProxyDnsMode.remote => 'proxy_dns_remote',
-                              ProxyDnsMode.localConfigured =>
-                                'proxy_dns_configured',
-                              ProxyDnsMode.system => 'proxy_dns_system',
-                            }),
+          BannerSlot(
+            child: currentProxy.exposesLan
+                ? WarningBanner(
+                    title: strings.get('lan_warning'),
+                    message: strings.get(
+                      currentProxy.hasAuth
+                          ? 'lan_warning_body_authenticated'
+                          : 'lan_warning_body',
+                    ),
+                  )
+                : null,
+          ),
+          BannerSlot(
+            child: currentProxy.dnsMode != ProxyDnsMode.remote
+                ? WarningBanner(
+                    title: strings.get('dns_leak_warning'),
+                    message: strings.get('dns_leak_warning_body'),
+                  )
+                : null,
+          ),
+          PanelStack(
+            children: <Widget>[
+              _listenerPanel(context, profile, socks5: true),
+              _listenerPanel(context, profile, socks5: false),
+              _AuthPanel(controller: widget.controller),
+              SectionPanel(
+                icon: LucideIcons.server,
+                title: strings.get('proxy_dns_mode'),
+                subtitle: strings.get('proxy_dns_subtitle'),
+                gap: 20,
+                children: <Widget>[
+                  DropdownButtonFormField<ProxyDnsMode>(
+                    key: const ValueKey<String>('proxy-dns-mode'),
+                    initialValue: currentProxy.dnsMode,
+                    decoration: InputDecoration(
+                      labelText: strings.get('proxy_dns_mode'),
+                    ),
+                    items: ProxyDnsMode.values
+                        .map(
+                          (mode) => DropdownMenuItem<ProxyDnsMode>(
+                            value: mode,
+                            child: Text(
+                              strings.get(switch (mode) {
+                                ProxyDnsMode.remote => 'proxy_dns_remote',
+                                ProxyDnsMode.localConfigured =>
+                                  'proxy_dns_configured',
+                                ProxyDnsMode.system => 'proxy_dns_system',
+                              }),
+                            ),
                           ),
-                        ),
-                      )
-                      .toList(growable: false),
-                  onChanged: (value) {
-                    if (value != null) {
-                      widget.controller.updateProfile(
-                        profile.copyWith(
-                          proxy: currentProxy.copyWith(dnsMode: value),
-                        ),
-                      );
-                    }
-                  },
-                ),
-                if (currentProxy.dnsMode ==
-                    ProxyDnsMode.localConfigured) ...<Widget>[
-                  const SizedBox(height: 14),
-                  _dnsFields(profile),
+                        )
+                        .toList(growable: false),
+                    onChanged: (value) {
+                      if (value != null) {
+                        widget.controller.updateProfile(
+                          profile.copyWith(
+                            proxy: currentProxy.copyWith(dnsMode: value),
+                          ),
+                        );
+                      }
+                    },
+                  ),
+                  AnimatedSize(
+                    duration: UsqueMotion.of(context, UsqueMotion.gentle),
+                    curve: UsqueMotion.emphasized,
+                    alignment: Alignment.topCenter,
+                    child: currentProxy.dnsMode == ProxyDnsMode.localConfigured
+                        ? Padding(
+                            padding: const EdgeInsets.only(top: 14),
+                            child: _dnsFields(profile),
+                          )
+                        : const SizedBox(width: double.infinity),
+                  ),
                 ],
-              ],
-            ),
+              ),
+            ],
           ),
         ],
       ),
@@ -258,78 +269,67 @@ class _ProxyScreenState extends State<ProxyScreen> {
     final v4Controller = socks5 ? _socksV4 : _httpV4;
     final v6Controller = socks5 ? _socksV6 : _httpV6;
     final portController = socks5 ? _socksPort : _httpPort;
-    return Panel(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          SectionTitle(
-            icon: socks5 ? LucideIcons.route : LucideIcons.globe2,
-            title: strings.get(socks5 ? 'socks_listener' : 'http_listener'),
-            subtitle: strings.get(
-              enabled
-                  ? (socks5 ? 'socks_capabilities' : 'http_capabilities')
-                  : 'output_disabled_in_profile',
-            ),
-          ),
-          const SizedBox(height: 22),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final narrow = constraints.maxWidth < 640;
-              final fields = <Widget>[
-                Expanded(
-                  child: _AddressField(
-                    label: strings.get('listen_ipv4'),
-                    controller: v4Controller,
-                    onChanged: (_) => _saveListeners(profile),
-                  ),
-                ),
-                Expanded(
-                  child: _AddressField(
-                    label: strings.get('listen_ipv6'),
-                    controller: v6Controller,
-                    onChanged: (_) => _saveListeners(profile),
-                  ),
-                ),
-                SizedBox(
-                  width: narrow ? double.infinity : 150,
-                  child: TextField(
-                    controller: portController,
-                    keyboardType: TextInputType.number,
-                    inputFormatters: <TextInputFormatter>[
-                      FilteringTextInputFormatter.digitsOnly,
-                    ],
-                    decoration: InputDecoration(labelText: strings.get('port')),
-                    onChanged: (_) => _saveListeners(profile),
-                  ),
-                ),
-              ];
-              if (narrow) {
-                return Column(
-                  children: <Widget>[
-                    for (var index = 0; index < fields.length; index++) ...[
-                      if (fields[index] is Expanded)
-                        (fields[index] as Expanded).child
-                      else
-                        fields[index],
-                      if (index != fields.length - 1)
-                        const SizedBox(height: 12),
-                    ],
-                  ],
-                );
-              }
-              return Row(
+    return SectionPanel(
+      icon: socks5 ? LucideIcons.route : LucideIcons.globe2,
+      title: strings.get(socks5 ? 'socks_listener' : 'http_listener'),
+      subtitle: strings.get(
+        enabled
+            ? (socks5 ? 'socks_capabilities' : 'http_capabilities')
+            : 'output_disabled_in_profile',
+      ),
+      trailing: StatusPill(
+        label: strings.get(enabled ? 'on' : 'off'),
+        tone: enabled ? StatusTone.success : StatusTone.neutral,
+      ),
+      gap: 22,
+      children: <Widget>[
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final narrow = constraints.maxWidth < 640;
+            final address = <Widget>[
+              _AddressField(
+                label: strings.get('listen_ipv4'),
+                controller: v4Controller,
+                onChanged: (_) => _saveListeners(profile),
+              ),
+              _AddressField(
+                label: strings.get('listen_ipv6'),
+                controller: v6Controller,
+                onChanged: (_) => _saveListeners(profile),
+              ),
+            ];
+            final port = TextField(
+              controller: portController,
+              keyboardType: TextInputType.number,
+              inputFormatters: <TextInputFormatter>[
+                FilteringTextInputFormatter.digitsOnly,
+              ],
+              decoration: InputDecoration(labelText: strings.get('port')),
+              onChanged: (_) => _saveListeners(profile),
+            );
+            if (narrow) {
+              return Column(
                 children: <Widget>[
-                  fields[0],
-                  const SizedBox(width: 12),
-                  fields[1],
-                  const SizedBox(width: 12),
-                  fields[2],
+                  address[0],
+                  const SizedBox(height: 12),
+                  address[1],
+                  const SizedBox(height: 12),
+                  port,
                 ],
               );
-            },
-          ),
-        ],
-      ),
+            }
+            return Row(
+              children: <Widget>[
+                Expanded(child: address[0]),
+                const SizedBox(width: 12),
+                Expanded(child: address[1]),
+                const SizedBox(width: 12),
+                SizedBox(width: 150, child: port),
+              ],
+            );
+          },
+        ),
+      ],
     );
   }
 
@@ -423,49 +423,64 @@ class _AuthPanelState extends State<_AuthPanel> {
   @override
   Widget build(BuildContext context) {
     final strings = widget.controller.strings;
-    return Panel(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          SectionTitle(
-            icon: LucideIcons.keyRound,
-            title: strings.get('proxy_auth'),
-            subtitle: strings.get('proxy_auth_help'),
+    return SectionPanel(
+      icon: LucideIcons.keyRound,
+      title: strings.get('proxy_auth'),
+      subtitle: strings.get('proxy_auth_help'),
+      gap: 20,
+      children: <Widget>[
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final username = TextField(
+              key: const ValueKey<String>('proxy-auth-username'),
+              controller: _username,
+              autocorrect: false,
+              enableSuggestions: false,
+              decoration: InputDecoration(
+                labelText: strings.get('proxy_username'),
+                errorText: _authError,
+              ),
+            );
+            final password = TextField(
+              key: const ValueKey<String>('proxy-auth-password'),
+              controller: _password,
+              obscureText: true,
+              autocorrect: false,
+              enableSuggestions: false,
+              decoration: InputDecoration(
+                labelText: strings.get('proxy_password'),
+                helperText: strings.get('proxy_password_hint'),
+              ),
+            );
+            if (constraints.maxWidth < 640) {
+              return Column(
+                children: <Widget>[
+                  username,
+                  const SizedBox(height: 12),
+                  password,
+                ],
+              );
+            }
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Expanded(child: username),
+                const SizedBox(width: 12),
+                Expanded(child: password),
+              ],
+            );
+          },
+        ),
+        const SizedBox(height: 14),
+        Align(
+          alignment: AlignmentDirectional.centerEnd,
+          child: FilledButton(
+            key: const ValueKey<String>('proxy-auth-apply'),
+            onPressed: widget.controller.busy ? null : _commit,
+            child: Text(strings.get('proxy_auth_apply')),
           ),
-          const SizedBox(height: 14),
-          TextField(
-            key: const ValueKey<String>('proxy-auth-username'),
-            controller: _username,
-            autocorrect: false,
-            enableSuggestions: false,
-            decoration: InputDecoration(
-              labelText: strings.get('proxy_username'),
-              errorText: _authError,
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            key: const ValueKey<String>('proxy-auth-password'),
-            controller: _password,
-            obscureText: true,
-            autocorrect: false,
-            enableSuggestions: false,
-            decoration: InputDecoration(
-              labelText: strings.get('proxy_password'),
-              helperText: strings.get('proxy_password_hint'),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: FilledButton(
-              key: const ValueKey<String>('proxy-auth-apply'),
-              onPressed: widget.controller.busy ? null : _commit,
-              child: Text(strings.get('proxy_auth_apply')),
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 

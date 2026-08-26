@@ -211,6 +211,86 @@ class VpnControlClientTest {
     }
 
     @Test
+    fun requestReconfigureUsesNativeAlignedTimeout() {
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        val result = RecordingResult()
+
+        assertTrue(client.requestReconfigure("""{"id":"p1"}""", result))
+
+        assertEquals(UsqueVpnService.MSG_RECONFIGURE, endpoint.messages.single().what)
+        assertEquals(listOf(VpnControlClient.RECONFIGURE_TIMEOUT_MILLIS), scheduler.pendingDelays())
+        assertEquals(1, client.pendingSnapshotCountForTest())
+
+        scheduler.fireAllDelayed()
+
+        assertEquals("ENGINE_IPC_TIMEOUT", result.errorCode)
+        assertEquals(1, result.completionCount)
+        assertEquals(0, client.pendingSnapshotCountForTest())
+    }
+
+    @Test
+    fun reconfigureWaitsForReconnectThenSends() {
+        val result = RecordingResult()
+        val profileJson = """{"id":"p1","mode":"vpn"}"""
+
+        assertTrue(client.requestReconfigure(profileJson, result))
+        assertSame(result, client.pendingReconfigureForTest())
+        assertEquals(profileJson, client.pendingReconfigureProfileForTest())
+        assertEquals(1, binder.bindCount)
+        assertEquals(listOf(VpnControlClient.RECONFIGURE_TIMEOUT_MILLIS), scheduler.pendingDelays())
+        assertEquals(0, result.completionCount)
+
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+
+        assertNull(client.pendingReconfigureForTest())
+        assertEquals(UsqueVpnService.MSG_RECONFIGURE, endpoint.messages.single().what)
+        assertEquals(
+            profileJson,
+            endpoint.messages
+                .single()
+                .extras
+                ?.get(UsqueVpnService.EXTRA_PROFILE_JSON),
+        )
+        assertEquals(0, result.completionCount)
+        assertEquals(1, client.pendingSnapshotCountForTest())
+    }
+
+    @Test
+    fun reconfigureRejectsConcurrentUnboundRequest() {
+        val first = RecordingResult()
+        val second = RecordingResult()
+
+        assertTrue(client.requestReconfigure("""{"id":"p1"}""", first))
+        assertTrue(client.requestReconfigure("""{"id":"p2"}""", second))
+
+        assertEquals("RECONFIGURE_IN_PROGRESS", second.errorCode)
+        assertEquals(1, second.completionCount)
+        assertEquals(0, first.completionCount)
+        assertSame(first, client.pendingReconfigureForTest())
+        assertEquals("""{"id":"p1"}""", client.pendingReconfigureProfileForTest())
+    }
+
+    @Test
+    fun destroyCompletesPendingReconfigureOnlyOnce() {
+        val result = RecordingResult()
+        assertTrue(client.requestReconfigure("""{"id":"p1"}""", result))
+        assertEquals(1, scheduler.pendingTimeoutCount())
+
+        client.destroy()
+
+        assertEquals("ENGINE_IPC_CLOSED", result.errorCode)
+        assertEquals(1, result.completionCount)
+        assertNull(client.pendingReconfigureForTest())
+        assertEquals(0, scheduler.pendingTimeoutCount())
+
+        client.destroy()
+        scheduler.fireAllDelayed()
+        assertEquals(1, result.completionCount)
+    }
+
+    @Test
     fun clearAllAcknowledgementDelegatesToListener() {
         val endpoint = RecordingEndpoint()
         client.attachEndpointForTest(endpoint)
@@ -421,6 +501,8 @@ class VpnControlClientTest {
         }
 
         fun pendingTimeoutCount(): Int = delayed.size
+
+        fun pendingDelays(): List<Long> = delayed.map { it.delayMillis }
     }
 
     private class RecordingResult : MethodChannel.Result {

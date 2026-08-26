@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
 use http::{Method, Request, Version};
 use rustls::pki_types::ServerName;
-use rustls::{ClientConfig, RootCertStore};
+use rustls::{ClientConfig, RootCertStore, crypto::CryptoProvider};
 use tokio::net::TcpSocket;
 use tokio::time::timeout;
 use usque_core::{
@@ -102,11 +102,7 @@ async fn refresh_at_endpoint(
         .map_err(refresh_error)?;
     tcp.set_nodelay(true).map_err(refresh_error)?;
 
-    let mut roots = RootCertStore::empty();
-    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-    let mut configuration = ClientConfig::builder()
-        .with_root_certificates(roots)
-        .with_no_client_auth();
+    let mut configuration = endpoint_pin_tls_config()?;
     configuration.alpn_protocols = vec![b"h2".to_vec()];
     let connector = tokio_rustls::TlsConnector::from(Arc::new(configuration));
     let server_name = ServerName::try_from(REGISTRATION_API_HOST.to_owned())
@@ -179,6 +175,24 @@ async fn refresh_at_endpoint(
     result?
 }
 
+fn endpoint_pin_tls_config() -> Result<ClientConfig, TransportError> {
+    // Keep this path independent of Rustls' process-global provider inference:
+    // dependency feature unification must never turn pin refresh into a panic.
+    endpoint_pin_tls_config_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+}
+
+fn endpoint_pin_tls_config_with_provider(
+    provider: Arc<CryptoProvider>,
+) -> Result<ClientConfig, TransportError> {
+    let mut roots = RootCertStore::empty();
+    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    Ok(ClientConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .map_err(refresh_error)?
+        .with_root_certificates(roots)
+        .with_no_client_auth())
+}
+
 fn prefer_ipv6_then_ipv4(mut addresses: Vec<SocketAddr>) -> Vec<SocketAddr> {
     addresses.sort_by_key(|address| if address.is_ipv6() { 0 } else { 1 });
     addresses.dedup();
@@ -192,6 +206,15 @@ fn refresh_error(error: impl std::fmt::Display) -> TransportError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn endpoint_pin_tls_config_uses_the_explicit_crypto_provider() {
+        let provider = Arc::new(rustls::crypto::ring::default_provider());
+        let configuration = endpoint_pin_tls_config_with_provider(Arc::clone(&provider))
+            .expect("ring supports the safe default TLS versions");
+
+        assert!(Arc::ptr_eq(configuration.crypto_provider(), &provider));
+    }
 
     #[test]
     fn registration_candidates_are_deduplicated_and_prefer_ipv6() {

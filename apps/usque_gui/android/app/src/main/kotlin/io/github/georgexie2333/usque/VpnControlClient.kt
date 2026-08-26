@@ -27,10 +27,14 @@ internal class VpnControlClient(
     ) -> ControlEndpoint?,
     private val snapshotTimeoutMillis: Long = SNAPSHOT_TIMEOUT_MILLIS,
     private val clearAllTimeoutMillis: Long = CLEAR_ALL_TIMEOUT_MILLIS,
+    private val reconfigureTimeoutMillis: Long = RECONFIGURE_TIMEOUT_MILLIS,
 ) {
     companion object {
         const val SNAPSHOT_TIMEOUT_MILLIS = 2_000L
         const val CLEAR_ALL_TIMEOUT_MILLIS = 45_000L
+
+        // Native reconfigure and attach_tun each wait up to 30s; NEED_ATTACH runs both.
+        const val RECONFIGURE_TIMEOUT_MILLIS = 65_000L
 
         fun create(
             context: Context,
@@ -101,6 +105,7 @@ internal class VpnControlClient(
     private var controlBound = false
     private var eventsWanted = false
     private var pendingDisconnectResult: MethodChannel.Result? = null
+    private var pendingReconfigure: PendingReconfigure? = null
 
     /** Guards the acknowledgement-to-local-wipe ownership transition across threads. */
     private val clearAllStateLock = Any()
@@ -142,6 +147,7 @@ internal class VpnControlClient(
                     scheduler.cancel(disconnectPendingToken(result))
                     requestDisconnect(result)
                 }
+                flushPendingReconfigure()
             }
 
             override fun onServiceDisconnected(name: ComponentName?) {
@@ -274,8 +280,28 @@ internal class VpnControlClient(
         }
         val service = endpoint
         if (service == null) {
+            if (pendingReconfigure != null) {
+                result.error(
+                    "RECONFIGURE_IN_PROGRESS",
+                    "A reconfigure request is already in progress.",
+                    null,
+                )
+                return true
+            }
+            pendingReconfigure = PendingReconfigure(profileJson, result)
             bind()
-            return false
+            val token = reconfigurePendingToken(result)
+            scheduler.postDelayed(reconfigureTimeoutMillis, token) {
+                if (pendingReconfigure?.result === result) {
+                    pendingReconfigure = null
+                    result.error(
+                        "ENGINE_IPC_TIMEOUT",
+                        "The Android VPN process did not accept the reconfigure request in time.",
+                        null,
+                    )
+                }
+            }
+            return true
         }
         val requestId = allocateRequestId()
         pendingSnapshots[requestId] = result
@@ -294,7 +320,7 @@ internal class VpnControlClient(
             )
             return true
         }
-        scheduler.postDelayed(snapshotTimeoutMillis, snapshotTimeoutToken(requestId)) {
+        scheduler.postDelayed(reconfigureTimeoutMillis, snapshotTimeoutToken(requestId)) {
             pendingSnapshots.remove(requestId)?.error(
                 "ENGINE_IPC_TIMEOUT",
                 "The Android VPN process did not reconfigure in time.",
@@ -478,6 +504,16 @@ internal class VpnControlClient(
         }
         pendingDisconnectResult = null
 
+        pendingReconfigure?.let { pending ->
+            scheduler.cancel(reconfigurePendingToken(pending.result))
+            pending.result.error(
+                "ENGINE_IPC_CLOSED",
+                "The Android UI closed before the session could be reconfigured.",
+                null,
+            )
+        }
+        pendingReconfigure = null
+
         eventsWanted = false
         unregisterForEvents()
         unbind()
@@ -575,6 +611,7 @@ internal class VpnControlClient(
             scheduler.cancel(disconnectPendingToken(result))
             requestDisconnect(result)
         }
+        flushPendingReconfigure()
     }
 
     fun detachEndpointForTest() {
@@ -590,6 +627,10 @@ internal class VpnControlClient(
     fun pendingClearAllCountForTest(): Int = pendingClearAll.size
 
     fun pendingDisconnectForTest(): MethodChannel.Result? = pendingDisconnectResult
+
+    fun pendingReconfigureForTest(): MethodChannel.Result? = pendingReconfigure?.result
+
+    fun pendingReconfigureProfileForTest(): String? = pendingReconfigure?.profileJson
 
     fun inFlightClearAllForTest(): MethodChannel.Result? = synchronized(clearAllStateLock) { inFlightClearAll }
 
@@ -653,6 +694,22 @@ internal class VpnControlClient(
 
     private fun disconnectPendingToken(result: MethodChannel.Result): Any =
         "disconnect-pending-${System.identityHashCode(result)}"
+
+    private fun reconfigurePendingToken(result: MethodChannel.Result): Any =
+        "reconfigure-pending-${System.identityHashCode(result)}"
+
+    private fun flushPendingReconfigure() {
+        pendingReconfigure?.let { pending ->
+            pendingReconfigure = null
+            scheduler.cancel(reconfigurePendingToken(pending.result))
+            requestReconfigure(pending.profileJson, pending.result)
+        }
+    }
+
+    private data class PendingReconfigure(
+        val profileJson: String,
+        val result: MethodChannel.Result,
+    )
 
     private fun snapshotFromBundle(bundle: Bundle): Map<String, Any?> {
         val snapshot =

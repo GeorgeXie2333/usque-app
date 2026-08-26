@@ -3,7 +3,7 @@
 use std::{ffi::c_void, io, mem, ptr, sync::Arc};
 
 use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 use windows_sys::{
     Win32::{
         Foundation::{CloseHandle, HANDLE, LocalFree},
@@ -49,6 +49,7 @@ pub fn event_pipe_name(control_pipe_name: &str) -> io::Result<String> {
 /// full access only to the current user and Local System.
 pub async fn serve(service: Arc<ControlService>, pipe_name: String) -> io::Result<()> {
     let mut next = create_user_pipe(&pipe_name, true)?;
+    info!(%pipe_name, "current-user Named Pipe control service ready");
     loop {
         next.connect().await?;
         let connected = next;
@@ -67,6 +68,7 @@ pub async fn serve(service: Arc<ControlService>, pipe_name: String) -> io::Resul
 /// backpressure cannot block control requests.
 pub async fn serve_events(service: Arc<ControlService>, pipe_name: String) -> io::Result<()> {
     let mut next = create_user_event_pipe(&pipe_name, true)?;
+    info!(%pipe_name, "current-user Named Pipe event service ready");
     loop {
         next.connect().await?;
         let connected = next;

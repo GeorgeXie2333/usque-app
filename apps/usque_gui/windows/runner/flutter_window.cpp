@@ -7,6 +7,7 @@
 #include <shobjidl.h>
 
 #include <atomic>
+#include <limits>
 #include <optional>
 #include <thread>
 #include <variant>
@@ -15,6 +16,7 @@
 #include "flutter/generated_plugin_registrant.h"
 #include "resource.h"
 #include "utils.h"
+#include "window_frame.h"
 #include "zero_trust_protocol.h"
 
 namespace {
@@ -22,6 +24,7 @@ namespace {
 constexpr UINT kEngineIpcComplete = WM_APP + 17;
 constexpr UINT kEngineEventAvailable = WM_APP + 18;
 constexpr UINT kTrayCallback = WM_APP + 19;
+constexpr UINT kEngineReadyComplete = WM_APP + 20;
 constexpr UINT kTrayOpen = 41001;
 constexpr UINT kTrayToggle = 41002;
 constexpr UINT kTrayDisconnectExit = 41003;
@@ -97,6 +100,11 @@ bool SetStartOnLogin(bool enabled) {
 struct PendingEngineReply {
   std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result;
   EngineIpcResult ipc;
+};
+
+struct PendingEngineReadyReply {
+  std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result;
+  std::string error;
 };
 
 struct PendingEngineEvent {
@@ -184,6 +192,10 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
 
+  // Before the client area is measured: the view is created at that size, and
+  // the caption inset would otherwise stay until the first user resize.
+  usque::ApplyCustomFrame(GetHandle());
+
   RECT frame = GetClientArea();
 
   // The size here must match the window dimensions to avoid unnecessary surface
@@ -195,6 +207,8 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  usque::BindWindowFrameChannel(flutter_controller_->engine()->messenger(),
+                                GetHandle());
   close_to_tray_ = ReadCloseToTray();
   AddTrayIcon();
   engine_channel_ =
@@ -239,6 +253,54 @@ bool FlutterWindow::OnCreate() {
             auto* pending = new PendingEngineReply{
                 std::move(result), ExchangeEngineFrame(pipe_name, request)};
             if (!::PostMessageW(window, kEngineIpcComplete, 0,
+                                reinterpret_cast<LPARAM>(pending))) {
+              delete pending;
+            }
+          }).detach();
+          return;
+        }
+        if (call.method_name() == "waitForEnginePipe") {
+          const auto* arguments =
+              std::get_if<flutter::EncodableMap>(call.arguments());
+          if (arguments == nullptr) {
+            result->Error("ENGINE_IPC_INVALID_ARGUMENT",
+                          "Named Pipe readiness arguments are missing.");
+            return;
+          }
+          const auto pipe_iterator =
+              arguments->find(flutter::EncodableValue("pipe_name"));
+          const auto timeout_iterator =
+              arguments->find(flutter::EncodableValue("timeout_ms"));
+          if (pipe_iterator == arguments->end() ||
+              timeout_iterator == arguments->end()) {
+            result->Error(
+                "ENGINE_IPC_INVALID_ARGUMENT",
+                "Named Pipe readiness name or timeout is missing.");
+            return;
+          }
+          const auto* pipe_name =
+              std::get_if<std::string>(&pipe_iterator->second);
+          int64_t timeout_ms = 0;
+          if (const auto* timeout_32 =
+                  std::get_if<int32_t>(&timeout_iterator->second)) {
+            timeout_ms = *timeout_32;
+          } else if (const auto* timeout_64 =
+                         std::get_if<int64_t>(&timeout_iterator->second)) {
+            timeout_ms = *timeout_64;
+          }
+          if (pipe_name == nullptr || timeout_ms <= 0 ||
+              timeout_ms > std::numeric_limits<uint32_t>::max()) {
+            result->Error("ENGINE_IPC_INVALID_ARGUMENT",
+                          "Named Pipe readiness arguments are invalid.");
+            return;
+          }
+          const HWND window = GetHandle();
+          std::thread([window, pipe_name = *pipe_name,
+                       timeout_ms = static_cast<uint32_t>(timeout_ms),
+                       result = std::move(result)]() mutable {
+            auto* pending = new PendingEngineReadyReply{
+                std::move(result), WaitForEnginePipe(pipe_name, timeout_ms)};
+            if (!::PostMessageW(window, kEngineReadyComplete, 0,
                                 reinterpret_cast<LPARAM>(pending))) {
               delete pending;
             }
@@ -478,7 +540,9 @@ bool FlutterWindow::OnCreate() {
             StopEngineEventStream();
             return nullptr;
           }));
-  SetChildContent(flutter_controller_->view()->GetNativeWindow());
+  HWND flutter_view = flutter_controller_->view()->GetNativeWindow();
+  SetChildContent(flutter_view);
+  usque::AttachFlutterView(GetHandle(), flutter_view);
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     if (!start_hidden_) this->Show();
@@ -493,6 +557,8 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  usque::UnbindWindowFrameChannel();
+  usque::DetachFlutterView();
   StopEngineEventStream();
   RemoveTrayIcon();
   if (flutter_controller_) {
@@ -643,6 +709,14 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                : FALSE;
   }
 
+  // The caption is drawn by Flutter, so the frame messages are answered before
+  // anything else; WM_NCCALCSIZE in particular arrives while the window is
+  // still being created and no engine exists yet.
+  if (const std::optional<LRESULT> framed =
+          usque::HandleCustomFrameMessage(hwnd, message, wparam, lparam)) {
+    return *framed;
+  }
+
   // Give Flutter, including plugins, an opportunity to handle window messages.
   if (flutter_controller_) {
     std::optional<LRESULT> result =
@@ -676,6 +750,16 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
       }
       return 0;
     }
+    case kEngineReadyComplete: {
+      std::unique_ptr<PendingEngineReadyReply> pending(
+          reinterpret_cast<PendingEngineReadyReply*>(lparam));
+      if (pending->error.empty()) {
+        pending->result->Success();
+      } else {
+        pending->result->Error("ENGINE_START_UNAVAILABLE", pending->error);
+      }
+      return 0;
+    }
     case kEngineEventAvailable: {
       std::unique_ptr<PendingEngineEvent> pending(
           reinterpret_cast<PendingEngineEvent*>(lparam));
@@ -686,12 +770,9 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
       if (pending->ipc.error.empty()) {
         engine_event_sink_->Success(
             flutter::EncodableValue(pending->ipc.response));
-      } else {
-        engine_event_sink_->Error("ENGINE_EVENT_UNAVAILABLE",
-                                  pending->ipc.error);
-        engine_event_sink_->EndOfStream();
-        StopEngineEventStream();
       }
+      // Pipe and validation failures reconnect in C++. EndOfStream only on
+      // window destroy or Dart onCancel via StopEngineEventStream.
       return 0;
     }
     case kTrayCallback: {
@@ -703,6 +784,10 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
       }
       return 0;
     }
+    case WM_SIZE:
+    case WM_ACTIVATE:
+      usque::PublishWindowFrameState(hwnd, false);
+      break;
     case WM_CLOSE:
       if (force_exit_) {
         break;

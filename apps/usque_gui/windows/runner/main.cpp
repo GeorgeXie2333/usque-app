@@ -116,7 +116,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   FlutterWindow window(project, start_hidden);
   Win32Window::Point origin(10, 10);
-  Win32Window::Size size(1280, 720);
+  // The caption is drawn by Flutter, so this is the usable client size.
+  Win32Window::Size size(1200, 760);
   if (!window.Create(L"Usque", origin, size)) {
     ::CloseHandle(instance_mutex);
     return EXIT_FAILURE;

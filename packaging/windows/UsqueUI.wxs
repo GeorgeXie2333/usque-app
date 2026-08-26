@@ -139,6 +139,45 @@
         </Control>
       </Dialog>
 
+      <Dialog
+        Id="UsqueRepairUnsupportedDlg"
+        Width="370"
+        Height="190"
+        Title="[ProductName] Setup">
+        <Control
+          Id="Title"
+          Type="Text"
+          X="15"
+          Y="6"
+          Width="300"
+          Height="15"
+          Transparent="yes"
+          NoPrefix="yes"
+          Text="{\WixUI_Font_Title}Repair is not supported" />
+        <Control
+          Id="Description"
+          Type="Text"
+          X="25"
+          Y="45"
+          Width="320"
+          Height="65"
+          NoPrefix="yes"
+          Text="Repair could interrupt privileged network recovery state. Choose Remove to uninstall Usque, then reinstall it; user data is kept unless you explicitly select deletion. Installing a newer release is also supported." />
+        <Control Id="BottomLine" Type="Line" X="0" Y="154" Width="370" Height="0" />
+        <Control
+          Id="OK"
+          Type="PushButton"
+          X="304"
+          Y="163"
+          Width="56"
+          Height="17"
+          Default="yes"
+          Cancel="yes"
+          Text="OK">
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+      </Dialog>
+
       <Publish
         Dialog="BrowseDlg"
         Control="OK"
@@ -251,8 +290,8 @@
       <Publish
         Dialog="MaintenanceTypeDlg"
         Control="RepairButton"
-        Event="NewDialog"
-        Value="VerifyReadyDlg" />
+        Event="SpawnDialog"
+        Value="UsqueRepairUnsupportedDlg" />
       <Publish
         Dialog="MaintenanceTypeDlg"
         Control="RemoveButton"

@@ -15,6 +15,7 @@ use std::{
 };
 
 use thiserror::Error;
+use tracing::error;
 use windows_sys::Win32::Security::WinTrust::{
     WINTRUST_ACTION_GENERIC_VERIFY_V2, WINTRUST_DATA, WINTRUST_FILE_INFO,
     WTD_CACHE_ONLY_URL_RETRIEVAL, WTD_CHOICE_FILE, WTD_REVOCATION_CHECK_NONE,
@@ -492,10 +493,25 @@ struct RevertGuard;
 impl Drop for RevertGuard {
     fn drop(&mut self) {
         // SAFETY: the current thread is impersonating only for this guard.
-        unsafe {
-            RevertToSelf();
-        }
+        let reverted = unsafe { RevertToSelf() };
+        abort_if_impersonation_revert_failed(reverted);
     }
+}
+
+fn revert_status_requires_abort(reverted: i32) -> bool {
+    reverted == 0
+}
+
+fn abort_if_impersonation_revert_failed(reverted: i32) {
+    if !revert_status_requires_abort(reverted) {
+        return;
+    }
+    let error = io::Error::last_os_error();
+    error!(
+        error = %error,
+        "RevertToSelf failed after named-pipe impersonation; aborting so this worker is not reused for privileged work"
+    );
+    std::process::abort();
 }
 
 struct OwnedHandle(HANDLE);
@@ -601,6 +617,18 @@ pub enum AuthenticationError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn impersonation_revert_failure_is_process_fatal() {
+        // RevertGuard::drop logs the Win32 error and calls abort() when
+        // RevertToSelf fails. This test does not invoke RevertToSelf or abort:
+        // abort cannot be caught, and authentication runs on the blocking
+        // thread pool. Returning a still-impersonating worker would reuse the
+        // Engine user's token for WFP, route, DNS, and system-proxy work.
+        assert!(std::mem::needs_drop::<RevertGuard>());
+        assert!(revert_status_requires_abort(0));
+        assert!(!revert_status_requires_abort(1));
+    }
 
     #[test]
     fn signer_fingerprint_accepts_common_display_formats() {

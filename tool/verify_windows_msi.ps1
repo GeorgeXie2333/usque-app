@@ -185,6 +185,18 @@ try {
         @($resolvedMsi, 0)
     )
 
+    $tableRows = Invoke-MsiQuery `
+        -Database $database `
+        -Query "SELECT ``Name`` FROM ``_Tables``" `
+        -Columns @("Name")
+    $tableNames = @($tableRows | ForEach-Object { $_.Name })
+    if ($tableNames -notcontains "MsiLockPermissionsEx") {
+        throw "MSI is missing the MsiLockPermissionsEx table."
+    }
+    if ($tableNames -contains "LockPermissions") {
+        throw "MSI must not combine LockPermissions with MsiLockPermissionsEx."
+    }
+
     $properties = Invoke-MsiQuery `
         -Database $database `
         -Query "SELECT ``Property``,``Value`` FROM ``Property``" `
@@ -385,6 +397,25 @@ try {
         "maintenance uninstall-mode selection"
     Assert-Equal $removeMode.Argument "Remove" "maintenance uninstall mode"
 
+    $repairRoute = Assert-OneRow `
+    (Invoke-MsiQuery `
+            -Database $database `
+            -Query "SELECT ``Event``,``Argument`` FROM ``ControlEvent`` WHERE ``Dialog_``='MaintenanceTypeDlg' AND ``Control_``='RepairButton' AND ``Event``='SpawnDialog'" `
+            -Columns @("Event", "Argument")) `
+        "unsupported Repair dialog route"
+    Assert-Equal $repairRoute.Event "SpawnDialog" "Repair control event"
+    Assert-Equal `
+        $repairRoute.Argument `
+        "UsqueRepairUnsupportedDlg" `
+        "Repair explanation dialog"
+    $repairExecutionRoutes = @(Invoke-MsiQuery `
+            -Database $database `
+            -Query "SELECT ``Argument`` FROM ``ControlEvent`` WHERE ``Dialog_``='MaintenanceTypeDlg' AND ``Control_``='RepairButton' AND ``Event``='NewDialog'" `
+            -Columns @("Argument"))
+    if ($repairExecutionRoutes.Count -ne 0) {
+        throw "RepairButton must not navigate to an executable maintenance path."
+    }
+
     $removeBackRoute = Assert-OneRow `
     (Invoke-MsiQuery `
             -Database $database `
@@ -399,12 +430,13 @@ try {
     $shortcut = Assert-OneRow `
     (Invoke-MsiQuery `
             -Database $database `
-            -Query "SELECT ``Shortcut``,``Directory_``,``Name``,``Component_``,``Icon_``,``IconIndex``,``WkDir`` FROM ``Shortcut`` WHERE ``Shortcut``='UsqueStartMenuShortcut'" `
+            -Query "SELECT ``Shortcut``,``Directory_``,``Name``,``Component_``,``Target``,``Icon_``,``IconIndex``,``WkDir`` FROM ``Shortcut`` WHERE ``Shortcut``='UsqueStartMenuShortcut'" `
             -Columns @(
             "Shortcut",
             "Directory",
             "Name",
             "Component",
+            "Target",
             "Icon",
             "IconIndex",
             "WorkingDirectory"
@@ -412,10 +444,31 @@ try {
         "Usque Start Menu shortcut"
     Assert-Equal $shortcut.Directory "UsqueProgramMenuFolder" "shortcut directory"
     Assert-Equal $shortcut.Name "Usque" "shortcut name"
-    Assert-Equal $shortcut.Component "UsqueGuiComponent" "shortcut component"
+    Assert-Equal $shortcut.Component "UsqueShortcutComponent" "shortcut component"
+    Assert-Equal $shortcut.Target "[INSTALLFOLDER]usque.exe" "non-advertised shortcut target"
     Assert-Equal $shortcut.Icon "UsqueProductIcon.ico" "shortcut icon"
     Assert-Equal $shortcut.IconIndex "0" "shortcut icon index"
     Assert-Equal $shortcut.WorkingDirectory "INSTALLFOLDER" "shortcut working directory"
+
+    $shortcutComponent = Assert-OneRow `
+    (Invoke-MsiQuery `
+            -Database $database `
+            -Query "SELECT ``Component``,``KeyPath`` FROM ``Component`` WHERE ``Component``='UsqueShortcutComponent'" `
+            -Columns @("Component", "KeyPath")) `
+        "non-advertised shortcut component"
+    Assert-Equal `
+        $shortcutComponent.KeyPath `
+        "UsqueShortcutKeyPath" `
+        "shortcut HKCU registry KeyPath"
+    $shortcutKeyPath = Assert-OneRow `
+    (Invoke-MsiQuery `
+            -Database $database `
+            -Query "SELECT ``Root``,``Key``,``Name``,``Component_`` FROM ``Registry`` WHERE ``Registry``='UsqueShortcutKeyPath'" `
+            -Columns @("Root", "Key", "Name", "Component")) `
+        "shortcut registry KeyPath"
+    Assert-Equal $shortcutKeyPath.Root "1" "shortcut registry root"
+    Assert-Equal $shortcutKeyPath.Key "Software\Usque" "shortcut registry key"
+    Assert-Equal $shortcutKeyPath.Component "UsqueShortcutComponent" "shortcut registry component"
 
     $icon = Assert-OneRow `
     (Invoke-MsiQuery `
@@ -447,7 +500,7 @@ try {
         "Agent ServiceInstall"
     Assert-Equal $serviceInstall.Name "UsqueAgent" "Agent service name"
     Assert-Equal $serviceInstall.ServiceType "16" "Agent service type"
-    Assert-Equal $serviceInstall.StartType "2" "Agent service start type"
+    Assert-Equal $serviceInstall.StartType "3" "Agent service start type"
     Assert-Equal $serviceInstall.ErrorControl "32769" "Agent service vital error control"
     Assert-Equal $serviceInstall.Component "UsqueAgentComponent" "Agent service component"
     Assert-Equal `
@@ -462,9 +515,26 @@ try {
             -Columns @("ServiceControl", "Name", "Event", "Wait", "Component")) `
         "Agent ServiceControl"
     Assert-Equal $serviceControl.Name "UsqueAgent" "controlled service"
-    Assert-Equal $serviceControl.Event "163" "service start/stop/remove events"
+    Assert-Equal $serviceControl.Event "162" "service stop/remove events"
     Assert-Equal $serviceControl.Wait "1" "service wait policy"
     Assert-Equal $serviceControl.Component "UsqueAgentComponent" "service control component"
+
+    $servicePermission = Assert-OneRow `
+    (Invoke-MsiQuery `
+            -Database $database `
+            -Query "SELECT ``LockObject``,``Table``,``SDDLText``,``Condition`` FROM ``MsiLockPermissionsEx``" `
+            -Columns @("LockObject", "Table", "Sddl", "Condition")) `
+        "Agent MsiLockPermissionsEx"
+    Assert-Equal `
+        $servicePermission.LockObject `
+        "UsqueAgentServiceInstall" `
+        "Agent permission lock object"
+    Assert-Equal $servicePermission.Table "ServiceInstall" "Agent permission table"
+    Assert-Equal `
+        $servicePermission.Sddl `
+        "D:P(A;;0xF01FF;;;SY)(A;;0xF01FF;;;BA)(A;;0x14;;;IU)" `
+        "Agent service SDDL"
+    Assert-Equal $servicePermission.Condition "" "Agent service SDDL condition"
 
     $preflightAction = Assert-OneRow `
     (Invoke-MsiQuery `
@@ -538,9 +608,20 @@ try {
         "--finalize-uninstall" `
         "uninstall finalization command"
 
+    $maintenanceGuard = Assert-OneRow `
+    (Invoke-MsiQuery `
+            -Database $database `
+            -Query "SELECT ``Action``,``Type``,``Target`` FROM ``CustomAction`` WHERE ``Action``='RejectUnsupportedMaintenance'" `
+            -Columns @("Action", "Type", "Target")) `
+        "RejectUnsupportedMaintenance CustomAction"
+    Assert-Equal $maintenanceGuard.Type "19" "maintenance rejection custom action type"
+    if ([string]::IsNullOrWhiteSpace($maintenanceGuard.Target)) {
+        throw "Maintenance rejection must include a user-facing explanation."
+    }
+
     $sequenceRows = Invoke-MsiQuery `
         -Database $database `
-        -Query "SELECT ``Action``,``Condition``,``Sequence`` FROM ``InstallExecuteSequence`` WHERE ``Action``='RemoveExistingProducts' OR ``Action``='StopServices' OR ``Action``='EmergencyRemoveKillSwitch' OR ``Action``='RecoverAgentState' OR ``Action``='PurgeUserData' OR ``Action``='RemoveUserStartupRegistration' OR ``Action``='FinalizeAgentUninstall' OR ``Action``='DeleteServices' OR ``Action``='RemoveFiles' OR ``Action``='InstallServices' OR ``Action``='ValidateAgentStartup' OR ``Action``='StartServices'" `
+        -Query "SELECT ``Action``,``Condition``,``Sequence`` FROM ``InstallExecuteSequence`` WHERE ``Action``='RemoveExistingProducts' OR ``Action``='RejectUnsupportedMaintenance' OR ``Action``='StopServices' OR ``Action``='EmergencyRemoveKillSwitch' OR ``Action``='RecoverAgentState' OR ``Action``='PurgeUserData' OR ``Action``='RemoveUserStartupRegistration' OR ``Action``='FinalizeAgentUninstall' OR ``Action``='DeleteServices' OR ``Action``='RemoveFiles' OR ``Action``='InstallServices' OR ``Action``='ValidateAgentStartup' OR ``Action``='StartServices'" `
         -Columns @("Action", "Condition", "Sequence")
     $sequences = @{}
     foreach ($row in $sequenceRows) {
@@ -548,6 +629,7 @@ try {
     }
     foreach ($requiredAction in @(
             "RemoveExistingProducts",
+            "RejectUnsupportedMaintenance",
             "StopServices",
             "EmergencyRemoveKillSwitch",
             "RecoverAgentState",
@@ -565,6 +647,16 @@ try {
         }
     }
     Assert-Equal $sequences.RemoveExistingProducts.Sequence "1501" "major-upgrade removal sequence"
+    Assert-Equal `
+        $sequences.RejectUnsupportedMaintenance.Condition `
+        'Installed AND NOT REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE' `
+        "unsupported maintenance condition"
+    if (
+        [int]$sequences.RejectUnsupportedMaintenance.Sequence -ge
+        [int]$sequences.StopServices.Sequence
+    ) {
+        throw "Unsupported maintenance must be rejected before StopServices."
+    }
     Assert-Equal `
         $sequences.ValidateAgentStartup.Condition `
         'NOT Installed AND NOT REMOVE~="ALL"' `
@@ -668,6 +760,9 @@ try {
     }
     if (@($longNames | Where-Object { $_ -like "*.pdb" }).Count -ne 0) {
         throw "MSI contains a forbidden PDB file."
+    }
+    if (@($longNames | Where-Object { $_ -ieq "usque_zero_trust_test.exe" }).Count -ne 0) {
+        throw "MSI contains the native test executable."
     }
 
     $components = Invoke-MsiQuery `

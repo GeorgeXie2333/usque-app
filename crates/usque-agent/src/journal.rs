@@ -336,10 +336,11 @@ fn validate_receipt(
                 .iter()
                 .map(|endpoint| host_network(endpoint.ip()).to_string())
                 .collect::<HashSet<_>>();
+            let missing_control = !control_hosts.is_empty() && actual.is_disjoint(&control_hosts);
             if actual.len() != created.len()
                 || !actual.is_subset(&expected)
                 || actual.is_disjoint(&endpoint_hosts)
-                || actual.is_disjoint(&control_hosts)
+                || missing_control
             {
                 return Err(unsafe_receipt(
                     "endpoint receipt is not a safe reachable subset of data/control host routes",
@@ -937,5 +938,52 @@ mod tests {
         journal
             .validate()
             .expect("one reachable family from each candidate group is safe");
+    }
+
+    #[test]
+    fn legacy_endpoint_receipt_without_control_candidates_is_loadable() {
+        let mut tunnel_plan = plan();
+        tunnel_plan.control_api_candidates.clear();
+        let route = |destination: &str| RouteReceipt {
+            destination: destination.to_owned(),
+            next_hop: Some(Ipv4Addr::new(192, 0, 2, 1).into()),
+            next_hop_scope_id: 0,
+            interface_luid: 9,
+            metric: 0,
+            owned: true,
+        };
+        let journal = RecoveryJournal {
+            schema_version: JOURNAL_SCHEMA_VERSION,
+            generation: 1,
+            phase: RecoveryPhase::Preparing,
+            operation_kind: Some(OperationKind::Tunnel),
+            operation_id: Some(Uuid::new_v4()),
+            owner_sid: Some("S-1-5-21-1000".to_owned()),
+            owner_process_id: Some(42),
+            plan: Some(tunnel_plan),
+            pause_deadline_unix_seconds: None,
+            steps: vec![
+                MutationRecord {
+                    kind: MutationKind::WintunAdapter,
+                    state: MutationState::Applied,
+                    receipt: MutationReceipt::WintunAdapter {
+                        adapter_name: "Usque-0123456789ab".to_owned(),
+                        adapter_guid: Uuid::new_v4(),
+                        interface_luid: 7,
+                    },
+                },
+                MutationRecord {
+                    kind: MutationKind::EndpointBypass,
+                    state: MutationState::Intended,
+                    receipt: MutationReceipt::EndpointBypass {
+                        created: vec![route("162.159.198.2/32")],
+                    },
+                },
+            ],
+        };
+
+        journal
+            .validate()
+            .expect("empty control candidates skip the control-host intersection");
     }
 }

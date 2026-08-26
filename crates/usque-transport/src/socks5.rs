@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpSocket, TcpStream, UdpSocket as TokioUdpSocket};
+use tokio::net::{TcpListener, TcpStream, UdpSocket as TokioUdpSocket};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, timeout};
@@ -99,7 +99,7 @@ impl Socks5Runtime {
             PacketStack::start_with_refresh(profile, Arc::new(identity), protector, pin_refresher)
                 .await?;
         let frontend =
-            Socks5Frontend::activate(profile, assigned_ipv4, assigned_ipv6, &stack, bound);
+            Socks5Frontend::activate(profile, assigned_ipv4, assigned_ipv6, &stack, bound)?;
 
         // Yield once so immediately-failed accept loops cannot be presented as
         // successfully started.
@@ -161,13 +161,8 @@ impl Drop for Socks5Runtime {
 
 impl Socks5Frontend {
     pub(crate) fn prebind(profile: &Profile) -> Result<Vec<TcpListener>, TransportError> {
-        profile
-            .proxy
-            .socks5_listeners
-            .iter()
-            .copied()
-            .map(bind_listener)
-            .collect()
+        crate::socket::bind_tcp_listeners(&profile.proxy.socks5_listeners)
+            .map_err(|(address, source)| TransportError::SocksListener { address, source })
     }
 
     pub(crate) fn activate(
@@ -176,7 +171,11 @@ impl Socks5Frontend {
         assigned_ipv6: Ipv6Addr,
         stack: &PacketStack,
         bound: Vec<TcpListener>,
-    ) -> Self {
+    ) -> Result<Self, TransportError> {
+        let auth = match profile.proxy.listener_credentials() {
+            Ok(credentials) => credentials.map(Arc::new),
+            Err(error) => return Err(TransportError::Socks5(error.to_string())),
+        };
         let cancellation = stack.cancellation.child_token();
         let (failure_tx, failure) = watch::channel(None);
         let dns_servers = if profile.proxy.dns_mode == usque_core::ProxyDnsMode::LocalConfigured {
@@ -203,11 +202,7 @@ impl Socks5Frontend {
             cancellation: cancellation.clone(),
             failure: failure_tx,
             health: stack.subscribe_health(),
-            auth: profile
-                .proxy
-                .listener_credentials()
-                .expect("proxy listener credentials were validated before activate")
-                .map(Arc::new),
+            auth,
         });
         let listeners = bound
             .iter()
@@ -222,12 +217,12 @@ impl Socks5Frontend {
                 })
             })
             .collect();
-        Self {
+        Ok(Self {
             listener_tasks,
             listeners,
             cancellation,
             failure,
-        }
+        })
     }
 
     pub(crate) fn listeners(&self) -> &[SocketAddr] {
@@ -269,21 +264,6 @@ struct SocksContext {
     failure: watch::Sender<Option<String>>,
     health: watch::Receiver<RuntimeHealth>,
     auth: Option<Arc<ProxyAuthCredentials>>,
-}
-
-fn bind_listener(address: SocketAddr) -> Result<TcpListener, TransportError> {
-    let socket = if address.is_ipv4() {
-        TcpSocket::new_v4()
-    } else {
-        TcpSocket::new_v6()
-    }
-    .map_err(|source| TransportError::SocksListener { address, source })?;
-    socket
-        .bind(address)
-        .map_err(|source| TransportError::SocksListener { address, source })?;
-    socket
-        .listen(256)
-        .map_err(|source| TransportError::SocksListener { address, source })
 }
 
 async fn run_listener(listener: TcpListener, context: Arc<SocksContext>) {

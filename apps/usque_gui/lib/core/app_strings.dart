@@ -1,580 +1,134 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 
 import '../models/app_models.dart';
+import 'l10n/catalogs.dart';
 
 class AppStrings {
-  AppStrings(LocalePreference preference)
-    : languageCode = _resolveLanguageCode(preference);
+  AppStrings(LocalePreference preference, {Locale? systemLocale})
+    : catalogId = resolveCatalogId(
+        preference,
+        systemLocale ?? PlatformDispatcher.instance.locale,
+      );
 
-  final String languageCode;
+  final String catalogId;
 
-  bool get isChinese => languageCode == 'zh';
-
-  static String _resolveLanguageCode(LocalePreference preference) {
-    return switch (preference) {
-      LocalePreference.english => 'en',
-      LocalePreference.simplifiedChinese => 'zh',
-      LocalePreference.system =>
-        PlatformDispatcher.instance.locale.languageCode == 'zh' ? 'zh' : 'en',
-    };
-  }
+  String get languageCode =>
+      catalogId.startsWith('zh') ? 'zh' : catalogId.split('_').first;
 
   String get(String key) {
-    final values = isChinese ? _zh : _en;
-    return values[key] ?? _en[key] ?? key;
+    final values = kCatalogs[catalogId] ?? kEnCatalog;
+    return values[key] ?? kEnCatalog[key] ?? key;
   }
 
   @visibleForTesting
   static bool get debugCatalogsAreComplete {
-    final englishKeys = _en.keys.toSet();
-    final chineseKeys = _zh.keys.toSet();
-    return setEquals(englishKeys, chineseKeys) &&
-        _en.values.every((value) => value.trim().isNotEmpty) &&
-        _zh.values.every((value) => value.trim().isNotEmpty);
+    final englishKeys = kEnCatalog.keys.toSet();
+    if (englishKeys.isEmpty || kCatalogs.isEmpty) {
+      return false;
+    }
+    for (final catalog in kCatalogs.values) {
+      if (!setEquals(catalog.keys.toSet(), englishKeys)) {
+        return false;
+      }
+      if (catalog.values.any((value) => value.trim().isEmpty)) {
+        return false;
+      }
+    }
+    return true;
   }
 
-  static const Map<String, String> _en = <String, String>{
-    'app_name': 'Usque',
-    'home': 'Home',
-    'profiles': 'Profiles',
-    'proxy': 'Proxy',
-    'settings': 'Settings',
-    'diagnostics': 'Diagnostics',
-    'status_stream_degraded': 'Live status updates are degraded',
-    'status_stream_degraded_body':
-        'Status polling is active; live updates will retry automatically.',
-    'connect': 'Connect',
-    'retry': 'Retry',
-    'disconnect': 'Disconnect',
-    'connecting': 'Connecting…',
-    'disconnected': 'Disconnected',
-    'connected': 'Connected',
-    'degraded': 'Connected with limited connectivity',
-    'reconnecting': 'Reconnecting…',
-    'preparing': 'Preparing secure tunnel…',
-    'disconnecting': 'Disconnecting…',
-    'error': 'Connection error',
-    'active_profile': 'Active profile',
-    'protocol': 'Protocol',
-    'address_family': 'Address family',
-    'duration': 'Duration',
-    'download': 'Download',
-    'upload': 'Upload',
-    'location': 'Location',
-    'ipv4': 'IPv4',
-    'ipv6': 'IPv6',
-    'not_available': 'Not available',
-    'engine_unavailable':
-        'The native Usque Engine is not available in this build yet.',
-    'dismiss': 'Dismiss',
-    'new_profile': 'New profile',
-    'profile_name': 'Profile name',
-    'profile_name_too_long': 'Use no more than 64 characters.',
-    'configure_identity': 'Configure WARP identity',
-    'identity_ready': 'Identity ready',
-    'identity_missing': 'Identity required',
-    'identity_invalid': 'Identity needs repair',
-    'identity_setup_failed': 'The WARP identity could not be configured.',
-    'use_license_key': 'Use a WARP License Key',
-    'warp_license_key': 'WARP License Key',
-    'zero_trust_title': 'Cloudflare Zero Trust',
-    'zero_trust_subtitle': 'Sign in with an organization account',
-    'zero_trust_team': 'Organization team name',
-    'zero_trust_team_invalid': 'Enter one DNS-label team name.',
-    'zero_trust_open_login': 'Open organization login',
-    'zero_trust_browser_failed': 'The system browser could not be opened.',
-    'zero_trust_manual_callback':
-        'After sign-in, return here automatically, fill the callback from the clipboard, or paste the complete URL.',
-    'zero_trust_callback_received': 'Organization callback received securely.',
-    'zero_trust_callback': 'Complete callback URL',
-    'zero_trust_callback_required':
-        'Paste a fresh complete callback URL or sign in again.',
-    'zero_trust_callback_invalid':
-        'Use a com.cloudflare.warp Access callback for this organization.',
-    'zero_trust_paste_clipboard': 'Fill from clipboard',
-    'zero_trust_clipboard_empty':
-        'The clipboard does not contain a callback URL.',
-    'zero_trust_protocol_association':
-        'Open Access callbacks in Usque (this user only)',
-    'zero_trust_protocol_association_help':
-        'Optional. Registers com.cloudflare.warp for the signed-in Windows user. The official WARP client can stay installed. Leave this off to keep WARP as the handler; paste still works.',
-    'zero_trust_scope_note':
-        'Experimental: uses the organization device registration for Internet access; policy sync and device posture are not implemented.',
-    'zero_trust_repair_same_team':
-        'Sign in again to the same organization to refresh this device registration.',
-    'zero_trust_metadata_missing':
-        'The saved organization binding is missing. For safety, this profile cannot be repaired in place; create a new Zero Trust profile.',
-    'zero_trust_endpoint_managed':
-        'This endpoint is managed by the Zero Trust device registration and cannot be edited here.',
-    'experimental': 'Experimental',
-    'show_license': 'Show License Key',
-    'hide_license': 'Hide License Key',
-    'license_copied': 'License Key copied',
-    'warp_secret_saved': 'WARP Secret saved',
-    'create': 'Create',
-    'cancel': 'Cancel',
-    'active': 'Active',
-    'set_active': 'Set active',
-    'edit': 'Edit',
-    'delete': 'Delete',
-    'delete_profile': 'Delete profile?',
-    'delete_profile_body':
-        'This removes the non-secret settings for this profile. Stored identity data is not deleted.',
-    'delete_zero_trust_profile_body':
-        'This deletes only the local profile and credentials. Ask an organization administrator to remove the residual device registration in Zero Trust.',
-    'license_not_applicable': 'License not applicable · Experimental',
-    'zero_trust_reauthenticate': 'Sign in again to this organization',
-    'zero_trust_admin_cleanup_note':
-        'Removing this profile does not revoke the device in the Zero Trust dashboard.',
-    'mode': 'Connection mode',
-    'vpn_mode': 'VPN',
-    'socks_mode': 'SOCKS5',
-    'http_mode': 'HTTP',
-    'edit_profile': 'Edit profile',
-    'tunnel_output': 'VPN / virtual adapter',
-    'channel_only': 'MASQUE channel only',
-    'channel_only_warning': 'No network output is enabled.',
-    'socks_listener': 'SOCKS5 listener',
-    'http_listener': 'HTTP listener',
-    'listen_ipv4': 'Listen IPv4',
-    'listen_ipv6': 'Listen IPv6',
-    'port': 'Port',
-    'remote_dns': 'Resolve names remotely',
-    'proxy_dns_mode': 'Proxy DNS resolution',
-    'proxy_dns_remote': 'Remote through tunnel',
-    'proxy_dns_configured': 'Custom DNS servers',
-    'proxy_dns_system': 'System DNS',
-    'dns_leak_warning': 'Local DNS may reveal requested names',
-    'dns_leak_warning_body':
-        'Custom or system DNS is resolved outside the remote proxy path. Use remote DNS unless you explicitly accept this exposure.',
-    'system_proxy': 'Configure system proxy',
-    'output_disabled_in_profile': 'Disabled in this Profile',
-    'auto_connect': 'Connect this Profile automatically',
-    'lan_warning': 'Proxy exposed to the local network',
-    'lan_warning_body':
-        'Usque does not add username/password authentication. Anyone who can reach this listener may use it.',
-    'lan_warning_body_authenticated':
-        'This listener accepts authenticated non-loopback clients that present the configured username and password.',
-    'proxy_auth': 'Listener authentication',
-    'proxy_auth_help':
-        'Optional username and password for SOCKS5 and HTTP listeners. The password is stored in the system vault, not in the profile file.',
-    'proxy_username': 'Username',
-    'proxy_password': 'Password',
-    'proxy_password_hint':
-        'Write-only. Re-enter the password to set or change credentials.',
-    'proxy_auth_apply': 'Save credentials',
-    'proxy_auth_invalid':
-        'Username must be 1–255 bytes without “:” or NUL. A password of 1–255 bytes is required with a username.',
-    'proxy_auth_saved': 'Listener credentials saved',
-    'proxy_auth_cleared': 'Listener authentication removed',
-    'lan_warning_authenticated': 'Authenticated LAN listener',
-    'lan_warning_authenticated_body':
-        'This listener is reachable on the local network and requires the username and password you set.',
-    'proxy_password_set': 'Password is set. Enter a new one to replace it.',
-    'proxy_auth_clear': 'Remove authentication',
-    'general': 'General',
-    'system_integration': 'System integration',
-    'start_on_boot': 'Start Usque when you sign in',
-    'close_to_tray': 'Close the window to the system tray',
-    'add_quick_settings_tile': 'Add Quick Settings Tile',
-    'appearance': 'Appearance',
-    'theme': 'Theme',
-    'theme_system': 'System',
-    'theme_light': 'Light',
-    'theme_dark': 'Dark',
-    'language': 'Language',
-    'language_system': 'System',
-    'language_en': 'English',
-    'language_zh': '简体中文',
-    'updates': 'Updates',
-    'check_updates': 'Check for updates',
-    'check_now': 'Check now',
-    'update_available': 'A newer release is available:',
-    'already_latest': 'This installation is already up to date.',
-    'open_release': 'Open release page',
-    'notice': 'Completed',
-    'identity': 'WARP identity',
-    'identity_and_license': 'Identity & License',
-    'license_cleanup_pending': 'An old device slot is awaiting cleanup.',
-    'copy_license': 'Copy License Key',
-    'change_license': 'Change License Key',
-    'unbind_license': 'Return to free WARP',
-    'export_warp_secret': 'Export WARP Secret',
-    'close': 'Close',
-    'advanced': 'Advanced network settings',
-    'advanced_warning':
-        'Incorrect endpoints, SNI, DNS, or MTU can prevent the tunnel from connecting.',
-    'ip_dns': 'IP & DNS',
-    'routing_protection': 'Routing & protection',
-    'open_advanced': 'Open advanced settings',
-    'transport': 'Transport',
-    'automatic': 'Auto',
-    'http3': 'HTTP/3',
-    'http2': 'HTTP/2',
-    'endpoint_ipv4': 'Endpoint IPv4',
-    'endpoint_ipv6': 'Endpoint IPv6',
-    'sni': 'SNI',
-    'mtu': 'MTU',
-    'dns_ipv4': 'DNS IPv4',
-    'dns_ipv6': 'DNS IPv6',
-    'ip_policy': 'Endpoint family',
-    'prefer_ipv4': 'Prefer IPv4 endpoint',
-    'prefer_ipv6': 'Prefer IPv6 endpoint',
-    'ipv4_only': 'IPv4 endpoint only',
-    'ipv6_only': 'IPv6 endpoint only',
-    'kill_switch': 'Kill Switch',
-    'on': 'On',
-    'off': 'Off',
-    'ready': 'Ready',
-    'ks_active': 'Active',
-    'ks_inactive': 'Inactive',
-    'ks_error': 'Error',
-    'ks_engaging': 'Engaging',
-    'always_on': 'Always-on VPN',
-    'lockdown': 'Block without VPN',
-    'not_used_proxy': 'Not used in proxy mode',
-    'kill_switch_help':
-        'Block traffic while connecting, reconnecting, or recovering from an engine failure. On Android this lasts while the VPN service is running; enable Always-on VPN and Block connections without VPN in system settings for protection after the app is killed.',
-    'start_on_boot_android':
-        'Start Usque after reboot. Also enable Auto-connect on the active profile.',
-    'add_quick_settings_tile_help':
-        'Pin the Usque tile on Android 13 or later. On older versions add it from Quick Settings.',
-    'always_on_vpn': 'Open Always-on VPN settings',
-    'always_on_vpn_help':
-        'Enable Always-on VPN and Block connections without VPN for leak protection after the app is killed.',
-    'per_app_proxy': 'Per-app proxy',
-    'per_app_proxy_off': 'All apps use the VPN',
-    'per_app_proxy_on': 'Proxying {count} apps',
-    'per_app_proxy_enable': 'Proxy only selected apps',
-    'per_app_proxy_help':
-        'Only checked apps use the VPN. Newly installed apps stay off the tunnel until you select them. Select all does not turn this off.',
-    'per_app_proxy_lockdown_help':
-        'If Always-on VPN and Block connections without VPN are on, apps you do not select are blocked, not sent outside the tunnel.',
-    'per_app_proxy_tunnel_hint':
-        'This applies the next time VPN output is on. SOCKS5/HTTP-only mode does not filter apps.',
-    'per_app_search': 'Search apps',
-    'per_app_show_system': 'Show system apps',
-    'per_app_select_visible': 'Select visible',
-    'per_app_clear_visible': 'Clear visible',
-    'per_app_selected_count': '{count} selected',
-    'per_app_need_one': 'Select at least one app before enabling.',
-    'per_app_loading': 'Loading installed apps…',
-    'per_app_empty': 'No apps match this filter.',
-    'allow_lan': 'Allow local network',
-    'bypass_cidrs': 'Additional bypass CIDRs',
-    'bypass_hint': 'One CIDR per line',
-    'reset_defaults': 'Reset network defaults',
-    'reset_defaults_body':
-        'Restore endpoints, SNI, DNS, MTU, listeners, transport, and endpoint preference?',
-    'reset': 'Reset',
-    'save': 'Save',
-    'saved': 'Saved',
-    'invalid_fields': 'Check the highlighted fields.',
-    'required': 'Required',
-    'invalid_address': 'Invalid address',
-    'invalid_dns_name': 'Invalid DNS name',
-    'invalid_cidr': 'Invalid CIDR',
-    'diagnostics_title': 'Diagnostics & About',
-    'engine_status': 'Engine status',
-    'version': 'Version',
-    'app_version': 'Usque 0.1.3',
-    'logs': 'Local logs',
-    'export_diagnostics': 'Export diagnostic bundle',
-    'diagnostics_saved': 'Diagnostic bundle saved to',
-    'export_help':
-        'You will review its contents before saving. Secrets, tokens, private keys, and full sensitive addresses are excluded.',
-    'source_code': 'Source code',
-    'license': 'License',
-    'clear_all_data': 'Clear all data',
-    'clear_all_data_help':
-        'Disconnect and permanently remove every Profile, Consumer WARP identity, preference, cache, and local diagnostic record from this device.',
-    'clear_all_data_confirm':
-        'This cannot be undone. Usque will disconnect first, erase all saved identities and Profiles, and return to initial setup.',
-    'clear_all_data_complete': 'All local Usque data was cleared.',
-    'unofficial':
-        'Unofficial client compatible with Cloudflare WARP. Not affiliated with or endorsed by Cloudflare.',
-    'welcome_title': 'Welcome to Usque',
-    'setup_progress': 'Setup step {current} of {total}',
-    'get_started': 'Get started',
-    'permissions_title': 'System permissions',
-    'permissions_body':
-        'Usque needs permission to create a VPN interface and manage routes, DNS, firewall rules, and the system proxy.',
-    'terms_title': 'Cloudflare terms',
-    'terms_body':
-        'Usque is an independent client. Your use of Consumer WARP remains subject to Cloudflare’s applicable terms and privacy policy.',
-    'terms_accept': 'I understand and accept these conditions.',
-    'identity_title': 'Set up Consumer WARP',
-    'register_new': 'Register a new identity',
-    'manual_secret': 'Enter WARP Secret',
-    'warp_secret': 'WARP Secret',
-    'show_secret': 'Show secret',
-    'hide_secret': 'Hide secret',
-    'finish_setup': 'Finish setup',
-    'back': 'Back',
-    'continue': 'Continue',
-    'permission_note':
-        'The operating system may show an additional confirmation when you first connect.',
-    'setup_failed': 'Setup could not be completed',
-    'profile_required': 'Keep at least one profile.',
-    'socks_capabilities': 'TCP and UDP',
-    'http_capabilities': 'CONNECT and ordinary forwarding',
-  };
+  @visibleForTesting
+  static bool get debugPlaceholdersArePreserved {
+    for (final key in kEnCatalog.keys) {
+      final english = kEnCatalog[key]!;
+      final required = kPlaceholderTokens
+          .where(english.contains)
+          .toList(growable: false);
+      if (required.isEmpty) {
+        continue;
+      }
+      for (final catalog in kCatalogs.values) {
+        final value = catalog[key] ?? '';
+        if (required.any((token) => !value.contains(token))) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
 
-  static const Map<String, String> _zh = <String, String>{
-    'app_name': 'Usque',
-    'home': '首页',
-    'profiles': '配置',
-    'proxy': '代理',
-    'settings': '设置',
-    'diagnostics': '诊断',
-    'status_stream_degraded': '实时状态更新已降级',
-    'status_stream_degraded_body': '正在使用状态轮询；实时更新会自动重试。',
-    'connect': '连接',
-    'retry': '重试',
-    'disconnect': '断开',
-    'connecting': '正在连接…',
-    'disconnected': '未连接',
-    'connected': '已连接',
-    'degraded': '已连接，部分网络受限',
-    'reconnecting': '正在重新连接…',
-    'preparing': '正在准备安全隧道…',
-    'disconnecting': '正在断开…',
-    'error': '连接错误',
-    'active_profile': '当前配置',
-    'protocol': '协议',
-    'address_family': '地址族',
-    'duration': '持续时间',
-    'download': '下载',
-    'upload': '上传',
-    'location': '位置',
-    'ipv4': 'IPv4',
-    'ipv6': 'IPv6',
-    'not_available': '不可用',
-    'engine_unavailable': '此构建尚未提供原生 Usque Engine。',
-    'dismiss': '关闭',
-    'new_profile': '新建配置',
-    'profile_name': '配置名称',
-    'profile_name_too_long': '名称不能超过 64 个字符。',
-    'configure_identity': '配置 WARP 身份',
-    'identity_ready': '身份已就绪',
-    'identity_missing': '需要配置身份',
-    'identity_invalid': '身份需要修复',
-    'identity_setup_failed': '无法配置 WARP 身份。',
-    'use_license_key': '使用 WARP License Key',
-    'warp_license_key': 'WARP License Key',
-    'zero_trust_title': 'Cloudflare Zero Trust',
-    'zero_trust_subtitle': '使用组织账号登录',
-    'zero_trust_team': '组织 Team Name',
-    'zero_trust_team_invalid': '请输入单个有效的 DNS 标签形式 Team Name。',
-    'zero_trust_open_login': '打开组织登录页面',
-    'zero_trust_browser_failed': '无法打开系统浏览器。',
-    'zero_trust_manual_callback': '登录后可自动返回，也可从剪贴板填入或粘贴完整回调 URL。',
-    'zero_trust_callback_received': '已安全接收组织登录回调。',
-    'zero_trust_callback': '完整回调 URL',
-    'zero_trust_callback_required': '请粘贴新的完整回调 URL，或重新登录。',
-    'zero_trust_callback_invalid': '请使用此组织的 com.cloudflare.warp Access 回调 URL。',
-    'zero_trust_paste_clipboard': '从剪贴板填入',
-    'zero_trust_clipboard_empty': '剪贴板中没有回调 URL。',
-    'zero_trust_protocol_association': '在 Usque 中打开 Access 回调（仅当前用户）',
-    'zero_trust_protocol_association_help':
-        '可选。仅为当前 Windows 用户注册 com.cloudflare.warp 协议。官方 WARP 客户端可继续安装。关闭后由 WARP 处理该协议；手动粘贴始终可用。',
-    'zero_trust_scope_note': '实验性功能：仅复用组织设备注册访问公网；暂不实现策略同步和设备姿态。',
-    'zero_trust_repair_same_team': '重新登录同一组织，以刷新此设备注册。',
-    'zero_trust_metadata_missing':
-        '保存的组织绑定信息缺失。为避免跨身份回退，无法原地修复此配置；请新建 Zero Trust 配置。',
-    'zero_trust_endpoint_managed': '此端点由 Zero Trust 设备注册管理，不能在此修改。',
-    'experimental': '实验性',
-    'show_license': '显示 License Key',
-    'hide_license': '隐藏 License Key',
-    'license_copied': 'License Key 已复制',
-    'warp_secret_saved': 'WARP Secret 已保存',
-    'create': '创建',
-    'cancel': '取消',
-    'active': '使用中',
-    'set_active': '设为当前',
-    'edit': '编辑',
-    'delete': '删除',
-    'delete_profile': '删除配置？',
-    'delete_profile_body': '这会删除此配置的非秘密设置，不会删除系统中保存的身份数据。',
-    'delete_zero_trust_profile_body':
-        '此操作仅删除本地配置和凭据。请联系组织管理员在 Zero Trust 后台删除残留设备注册。',
-    'license_not_applicable': '许可证不适用 · 实验性',
-    'zero_trust_reauthenticate': '重新登录此组织',
-    'zero_trust_admin_cleanup_note': '删除此配置不会撤销 Zero Trust 后台中的设备注册。',
-    'mode': '连接模式',
-    'vpn_mode': 'VPN',
-    'socks_mode': 'SOCKS5',
-    'http_mode': 'HTTP',
-    'edit_profile': '编辑配置',
-    'tunnel_output': 'VPN / 虚拟网卡',
-    'channel_only': '仅 MASQUE 通道',
-    'channel_only_warning': '未启用网络输出。',
-    'socks_listener': 'SOCKS5 监听',
-    'http_listener': 'HTTP 监听',
-    'listen_ipv4': '监听 IPv4',
-    'listen_ipv6': '监听 IPv6',
-    'port': '端口',
-    'remote_dns': '远程解析域名',
-    'proxy_dns_mode': '代理 DNS 解析',
-    'proxy_dns_remote': '通过隧道远程解析',
-    'proxy_dns_configured': '自定义 DNS 服务器',
-    'proxy_dns_system': '使用系统 DNS',
-    'dns_leak_warning': '本地 DNS 可能暴露访问的域名',
-    'dns_leak_warning_body': '自定义 DNS 或系统 DNS 不经过远端代理解析；除非明确接受该风险，否则请使用远程 DNS。',
-    'system_proxy': '配置系统代理',
-    'output_disabled_in_profile': '已在此配置中关闭',
-    'auto_connect': '自动连接此配置',
-    'lan_warning': '代理已暴露到局域网',
-    'lan_warning_body': 'Usque 不会添加用户名/密码认证。任何能访问此监听地址的人都可能使用它。',
-    'lan_warning_body_authenticated': '此监听地址接受已认证的非回环客户端；客户端必须提供已配置的用户名和密码。',
-    'proxy_auth': '监听认证',
-    'proxy_auth_help': '为 SOCKS5 和 HTTP 监听设置可选用户名和密码。密码保存在系统保险库中，不会写入配置文件。',
-    'proxy_username': '用户名',
-    'proxy_password': '密码',
-    'proxy_password_hint': '只写字段。设置或更改凭据时请重新输入密码。',
-    'proxy_auth_apply': '保存凭据',
-    'proxy_auth_invalid':
-        '用户名须为 1–255 字节，且不能包含 “:” 或 NUL。设置用户名时必须同时提供 1–255 字节的密码。',
-    'proxy_auth_saved': '已保存监听凭据',
-    'proxy_auth_cleared': '已移除监听认证',
-    'lan_warning_authenticated': '已认证的局域网监听',
-    'lan_warning_authenticated_body': '该监听可从局域网访问，并需要你设置的用户名和密码。',
-    'proxy_password_set': '已设置密码。输入新密码即可更换。',
-    'proxy_auth_clear': '清除认证',
-    'general': '通用',
-    'system_integration': '系统集成',
-    'start_on_boot': '登录系统时启动 Usque',
-    'close_to_tray': '关闭窗口时隐藏到系统托盘',
-    'add_quick_settings_tile': '添加快捷设置磁贴',
-    'appearance': '外观',
-    'theme': '主题',
-    'theme_system': '跟随系统',
-    'theme_light': '浅色',
-    'theme_dark': '深色',
-    'language': '语言',
-    'language_system': '跟随系统',
-    'language_en': 'English',
-    'language_zh': '简体中文',
-    'updates': '更新',
-    'check_updates': '检查更新',
-    'check_now': '立即检查',
-    'update_available': '发现新版本：',
-    'already_latest': '当前版本已是最新版本。',
-    'open_release': '打开发布页面',
-    'notice': '已完成',
-    'identity': 'WARP 身份',
-    'identity_and_license': '身份与 License',
-    'license_cleanup_pending': '旧设备槽位正等待后台清理。',
-    'copy_license': '复制 License Key',
-    'change_license': '更换 License Key',
-    'unbind_license': '恢复免费 WARP',
-    'export_warp_secret': '导出 WARP Secret',
-    'close': '关闭',
-    'advanced': '高级网络设置',
-    'advanced_warning': '错误的端点、SNI、DNS 或 MTU 可能导致隧道无法连接。',
-    'ip_dns': 'IP 与 DNS',
-    'routing_protection': '路由与保护',
-    'open_advanced': '打开高级设置',
-    'transport': '传输协议',
-    'automatic': '自动',
-    'http3': 'HTTP/3',
-    'http2': 'HTTP/2',
-    'endpoint_ipv4': '端点 IPv4',
-    'endpoint_ipv6': '端点 IPv6',
-    'sni': 'SNI',
-    'mtu': 'MTU',
-    'dns_ipv4': 'DNS IPv4',
-    'dns_ipv6': 'DNS IPv6',
-    'ip_policy': '入口地址族',
-    'prefer_ipv4': '优先 IPv4 入口',
-    'prefer_ipv6': '优先 IPv6 入口',
-    'ipv4_only': '仅使用 IPv4 入口',
-    'ipv6_only': '仅使用 IPv6 入口',
-    'kill_switch': 'Kill Switch',
-    'on': '已开启',
-    'off': '已关闭',
-    'ready': '就绪',
-    'ks_active': '已生效',
-    'ks_inactive': '未生效',
-    'ks_error': '错误',
-    'ks_engaging': '正在启用',
-    'always_on': '始终开启 VPN',
-    'lockdown': '无 VPN 时拦截',
-    'not_used_proxy': '代理模式不适用',
-    'kill_switch_help':
-        '连接、重连或 Engine 故障恢复期间阻止流量泄漏。Android 上仅在 VPN 服务运行期间生效；进程被杀后的防护需在系统设置中开启始终开启 VPN 和“无 VPN 时拦截连接”。',
-    'start_on_boot_android': '开机后启动 Usque。还需要打开当前配置的自动连接。',
-    'add_quick_settings_tile_help':
-        '在 Android 13 或更高版本固定 Usque 磁贴。更低版本请在快捷设置中手动添加。',
-    'always_on_vpn': '打开始终开启 VPN 设置',
-    'always_on_vpn_help': '开启始终开启 VPN 和“无 VPN 时拦截连接”，才能在滑掉应用后防止泄漏。',
-    'per_app_proxy': '分应用代理',
-    'per_app_proxy_off': '全部应用走 VPN',
-    'per_app_proxy_on': '已代理 {count} 个应用',
-    'per_app_proxy_enable': '仅代理选中的应用',
-    'per_app_proxy_help': '只有勾选的应用走 VPN。之后新安装的应用不会自动进隧道，除非再次勾选。全选不会关闭分应用代理。',
-    'per_app_proxy_lockdown_help':
-        '若系统开启了始终开启 VPN 和“无 VPN 时拦截连接”，未选中的应用会被拦截，而不是直连。',
-    'per_app_proxy_tunnel_hint': '在打开 VPN 输出后生效。仅 SOCKS5/HTTP 模式不会按应用过滤。',
-    'per_app_search': '搜索应用',
-    'per_app_show_system': '显示系统应用',
-    'per_app_select_visible': '全选可见项',
-    'per_app_clear_visible': '取消全选',
-    'per_app_selected_count': '已选 {count} 个',
-    'per_app_need_one': '启用前请至少选择一个应用。',
-    'per_app_loading': '正在加载已安装应用…',
-    'per_app_empty': '没有符合条件的应用。',
-    'allow_lan': '允许访问局域网',
-    'bypass_cidrs': '额外绕过 CIDR',
-    'bypass_hint': '每行一个 CIDR',
-    'reset_defaults': '恢复网络默认值',
-    'reset_defaults_body': '恢复端点、SNI、DNS、MTU、监听地址、传输协议和入口偏好？',
-    'reset': '恢复',
-    'save': '保存',
-    'saved': '已保存',
-    'invalid_fields': '请检查标出的字段。',
-    'required': '必填',
-    'invalid_address': '地址无效',
-    'invalid_dns_name': 'DNS 名称无效',
-    'invalid_cidr': 'CIDR 无效',
-    'diagnostics_title': '诊断与关于',
-    'engine_status': 'Engine 状态',
-    'version': '版本',
-    'app_version': 'Usque 0.1.3',
-    'logs': '本地日志',
-    'export_diagnostics': '导出诊断包',
-    'diagnostics_saved': '诊断包已保存至',
-    'export_help': '保存前可检查内容；不包含 Secret、Token、私钥和完整敏感地址。',
-    'source_code': '源代码',
-    'license': '许可证',
-    'clear_all_data': '清除全部数据',
-    'clear_all_data_help':
-        '断开连接，并从此设备永久删除所有 Profile、Consumer WARP 身份、偏好设置、缓存和本地诊断记录。',
-    'clear_all_data_confirm':
-        '此操作无法撤销。Usque 会先断开连接，清除所有已保存身份和 Profile，然后返回首次设置。',
-    'clear_all_data_complete': '已清除全部本地 Usque 数据。',
-    'unofficial': '兼容 Cloudflare WARP 的非官方客户端，与 Cloudflare 无隶属或背书关系。',
-    'welcome_title': '欢迎使用 Usque',
-    'setup_progress': '设置步骤 {current}/{total}',
-    'get_started': '开始',
-    'permissions_title': '系统权限',
-    'permissions_body': 'Usque 需要创建 VPN 接口，以及管理路由、DNS、防火墙规则和系统代理。',
-    'terms_title': 'Cloudflare 条款',
-    'terms_body': 'Usque 是独立客户端。使用 Consumer WARP 仍须遵守 Cloudflare 适用条款和隐私政策。',
-    'terms_accept': '我理解并接受这些条件。',
-    'identity_title': '设置 Consumer WARP',
-    'register_new': '注册新身份',
-    'manual_secret': '输入 WARP Secret',
-    'warp_secret': 'WARP Secret',
-    'show_secret': '显示 Secret',
-    'hide_secret': '隐藏 Secret',
-    'finish_setup': '完成设置',
-    'back': '返回',
-    'continue': '继续',
-    'permission_note': '首次连接时，操作系统可能还会显示一次确认。',
-    'setup_failed': '设置未能完成',
-    'profile_required': '至少保留一个配置。',
-    'socks_capabilities': 'TCP 与 UDP',
-    'http_capabilities': 'CONNECT 与普通转发',
-  };
+  @visibleForTesting
+  static String resolveCatalogId(LocalePreference preference, Locale locale) {
+    if (preference != LocalePreference.system) {
+      return _catalogIdForPreference(preference);
+    }
+    return _catalogIdForSystemLocale(locale);
+  }
+
+  static String _catalogIdForPreference(LocalePreference preference) {
+    return switch (preference) {
+      LocalePreference.system => 'en',
+      LocalePreference.english => 'en',
+      LocalePreference.simplifiedChinese => 'zh_CN',
+      LocalePreference.traditionalChineseHongKong => 'zh_HK',
+      LocalePreference.traditionalChineseTaiwan => 'zh_TW',
+      LocalePreference.japanese => 'ja',
+      LocalePreference.korean => 'ko',
+      LocalePreference.spanish => 'es',
+      LocalePreference.portuguese => 'pt',
+      LocalePreference.french => 'fr',
+      LocalePreference.dutch => 'nl',
+      LocalePreference.turkish => 'tr',
+      LocalePreference.russian => 'ru',
+      LocalePreference.persian => 'fa',
+      LocalePreference.arabic => 'ar',
+      LocalePreference.german => 'de',
+      LocalePreference.indonesian => 'id',
+      LocalePreference.italian => 'it',
+      LocalePreference.polish => 'pl',
+      LocalePreference.thai => 'th',
+      LocalePreference.ukrainian => 'uk',
+      LocalePreference.vietnamese => 'vi',
+    };
+  }
+
+  static String _catalogIdForSystemLocale(Locale locale) {
+    final language = locale.languageCode.toLowerCase();
+    final country = (locale.countryCode ?? '').toUpperCase();
+    final script = (locale.scriptCode ?? '').toLowerCase();
+    if (language == 'zh') {
+      if (country == 'HK' || country == 'MO') {
+        return 'zh_HK';
+      }
+      if (country == 'TW') {
+        return 'zh_TW';
+      }
+      if (script == 'hant') {
+        return 'zh_TW';
+      }
+      return 'zh_CN';
+    }
+    return switch (language) {
+      'ja' => 'ja',
+      'ko' => 'ko',
+      'es' => 'es',
+      'pt' => 'pt',
+      'fr' => 'fr',
+      'nl' => 'nl',
+      'tr' => 'tr',
+      'ru' => 'ru',
+      'fa' => 'fa',
+      'ar' => 'ar',
+      'de' => 'de',
+      'id' => 'id',
+      'in' => 'id',
+      'it' => 'it',
+      'pl' => 'pl',
+      'th' => 'th',
+      'uk' => 'uk',
+      'vi' => 'vi',
+      _ => 'en',
+    };
+  }
 }

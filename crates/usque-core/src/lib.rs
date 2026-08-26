@@ -10,17 +10,18 @@ pub mod storage;
 pub mod update;
 
 pub use config::{
-    AppConfig, AppPreferences, ConfigError, DEFAULT_PROFILE_ID, DnsMode, EndpointSettings,
+    Account, AppConfig, AppPreferences, ConfigError, DEFAULT_PROFILE_ID, DnsMode, EndpointSettings,
     FrontendSettings, IpPolicy, LogLevel, OperatingMode, Profile, ProxyAuthCredentials,
-    ProxyDnsMode, ProxySettings, TransportPolicy, validate_proxy_password, validate_proxy_username,
+    ProxyDnsMode, ProxySettings, SHARED_NETWORK_SECRET_ID, SharedNetworkSettings, TransportPolicy,
+    validate_proxy_password, validate_proxy_username,
 };
 pub use connector::{
     ConnectedPath, ConnectionAttempt, ConnectionOrchestrator, ConnectorError, TransportConnector,
 };
 pub use exit_probe::{ExitInfo, GeoLocation, IpSbProbe, ProbeError};
 pub use identity::{
-    EndpointPin, IdentityError, IdentityProvider, MasqueKeyPair, WarpIdentity,
-    parse_manual_warp_secret,
+    ConsumerEntitlement, EndpointPin, IdentityError, IdentityMetadata, IdentityProvider,
+    MasqueKeyPair, WarpIdentity, parse_manual_warp_secret,
 };
 pub use reconfigure::{ReconfigureClass, classify_reconfigure};
 pub use registration::{

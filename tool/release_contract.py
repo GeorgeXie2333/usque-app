@@ -16,6 +16,19 @@ SCHEMA_VERSION = 1
 TAG_PATTERN = re.compile(r"^v\d+\.\d+\.\d+(?:-beta\.\d+)?$")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+CARGO_WORKSPACE_PACKAGE_PATTERN = re.compile(
+    r"^\[workspace\.package\]\s*$\n(.*?)(?=^\[|\Z)", re.MULTILINE | re.DOTALL
+)
+CARGO_VERSION_PATTERN = re.compile(r"^version\s*=\s*[\"']([^\"']+)[\"']\s*$", re.MULTILINE)
+FLUTTER_VERSION_PATTERN = re.compile(r"^version:\s*([^\s+]+)\+([0-9]+)\s*$", re.MULTILINE)
+APP_VERSION_PATTERN = re.compile(r"^\s*'app_version':\s*'Usque ([^']+)',\s*$", re.MULTILINE)
+RELEASE_TAG_ENV_PATTERN = re.compile(r"^  RELEASE_TAG:\s*[\"']?([^\"'\s]+)[\"']?\s*$", re.MULTILINE)
+ANDROID_VERSION_CODE_ENV_PATTERN = re.compile(
+    r"^  ANDROID_VERSION_CODE:\s*[\"']?([0-9]+)[\"']?\s*$", re.MULTILINE
+)
+RELEASE_TAG_TRIGGER_PATTERN = re.compile(
+    r"^    tags:\s*\n      -\s*[\"']?([^\"'\s]+)[\"']?\s*$", re.MULTILINE
+)
 
 WINDOWS_VARIANTS = ("x64-v2", "arm64")
 ANDROID_VARIANTS = ("arm64-v8a", "x86_64", "armeabi-v7a", "universal")
@@ -77,6 +90,95 @@ def normalize_commit(value: Any) -> str:
     if not COMMIT_PATTERN.fullmatch(normalized):
         raise ContractError("commit must be one full 40-character Git SHA")
     return normalized
+
+
+def _read_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise ContractError(f"cannot read {path}: {error}") from error
+
+
+def _single_match(pattern: re.Pattern[str], text: str, label: str) -> str:
+    matches = pattern.findall(text)
+    if len(matches) != 1:
+        raise ContractError(f"{label} must appear exactly once")
+    match = matches[0]
+    if isinstance(match, tuple):
+        raise AssertionError(f"{label} unexpectedly has multiple capture groups")
+    return match
+
+
+def verify_release_version(root: Path, tag: str, android_version_code: int) -> None:
+    """Require every shipping version surface to agree before a tag is pushed."""
+
+    if not TAG_PATTERN.fullmatch(tag):
+        raise ContractError(f"unsupported release tag: {tag}")
+    if android_version_code < 1:
+        raise ContractError("Android versionCode must be positive")
+    root = root.resolve(strict=True)
+    expected_version = tag.removeprefix("v")
+
+    cargo_path = root / "Cargo.toml"
+    cargo_sections = CARGO_WORKSPACE_PACKAGE_PATTERN.findall(_read_text(cargo_path))
+    if len(cargo_sections) != 1:
+        raise ContractError(f"{cargo_path} must contain one [workspace.package] section")
+    cargo_version = _single_match(
+        CARGO_VERSION_PATTERN, cargo_sections[0], "Cargo workspace package version"
+    )
+    if cargo_version != expected_version:
+        raise ContractError(f"Cargo workspace version {cargo_version!r} does not match {tag!r}")
+
+    pubspec_path = root / "apps" / "usque_gui" / "pubspec.yaml"
+    pubspec_matches = FLUTTER_VERSION_PATTERN.findall(_read_text(pubspec_path))
+    if len(pubspec_matches) != 1:
+        raise ContractError(f"{pubspec_path} must contain one version name and build number")
+    flutter_version, flutter_build = pubspec_matches[0]
+    if flutter_version != expected_version:
+        raise ContractError(f"Flutter version {flutter_version!r} does not match {tag!r}")
+    if int(flutter_build) != android_version_code:
+        raise ContractError(
+            f"Android versionCode {flutter_build} does not match {android_version_code}"
+        )
+
+    locale_directory = root / "apps" / "usque_gui" / "lib" / "core" / "l10n"
+    locale_paths = sorted(
+        path for path in locale_directory.glob("*.dart") if path.name != "catalogs.dart"
+    )
+    if not locale_paths:
+        raise ContractError(f"no locale catalogs found in {locale_directory}")
+    invalid_locales = []
+    for path in locale_paths:
+        versions = APP_VERSION_PATTERN.findall(_read_text(path))
+        if versions != [expected_version]:
+            invalid_locales.append(path.name)
+    if invalid_locales:
+        raise ContractError(
+            "locale app_version values do not match the release: " + ", ".join(invalid_locales)
+        )
+
+    workflow_path = root / ".github" / "workflows" / "release.yml"
+    workflow = _read_text(workflow_path)
+    workflow_tag = _single_match(RELEASE_TAG_ENV_PATTERN, workflow, "release workflow RELEASE_TAG")
+    trigger_tag = _single_match(
+        RELEASE_TAG_TRIGGER_PATTERN, workflow, "release workflow tag trigger"
+    )
+    workflow_build = int(
+        _single_match(
+            ANDROID_VERSION_CODE_ENV_PATTERN,
+            workflow,
+            "release workflow ANDROID_VERSION_CODE",
+        )
+    )
+    if workflow_tag != tag or trigger_tag != tag:
+        raise ContractError(
+            f"release workflow tags {workflow_tag!r}/{trigger_tag!r} do not match {tag!r}"
+        )
+    if workflow_build != android_version_code:
+        raise ContractError(
+            "release workflow ANDROID_VERSION_CODE "
+            f"{workflow_build} does not match {android_version_code}"
+        )
 
 
 def create_manifest(
@@ -195,6 +297,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     verify.add_argument("--directory", type=Path, required=True)
     verify.add_argument("--manifest", type=Path, required=True)
 
+    version = subparsers.add_parser("verify-version")
+    version.add_argument("--root", type=Path, required=True)
+    version.add_argument("--tag", required=True)
+    version.add_argument("--android-version-code", type=int, required=True)
+
     return parser.parse_args(argv)
 
 
@@ -212,6 +319,8 @@ def main(argv: list[str] | None = None) -> int:
             write_json(args.output, manifest)
         elif args.command == "verify-artifacts":
             verify_artifacts(args.directory, load_json(args.manifest))
+        elif args.command == "verify-version":
+            verify_release_version(args.root, args.tag, args.android_version_code)
         else:  # pragma: no cover - argparse guarantees the command
             raise AssertionError(args.command)
     except ContractError as error:

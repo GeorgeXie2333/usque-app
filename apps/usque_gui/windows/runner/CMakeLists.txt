@@ -12,6 +12,7 @@ add_executable(${BINARY_NAME} WIN32
   "main.cpp"
   "utils.cpp"
   "win32_window.cpp"
+  "window_frame.cpp"
   "zero_trust_callback.cpp"
   "zero_trust_protocol.cpp"
   "${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc"
@@ -37,16 +38,20 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 # dependencies here.
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
-target_link_libraries(${BINARY_NAME} PRIVATE "advapi32.lib" "shell32.lib")
+target_link_libraries(${BINARY_NAME} PRIVATE "advapi32.lib" "comctl32.lib" "shell32.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)
 
 add_executable(usque_zero_trust_test
+  "engine_ipc.cpp"
   "zero_trust_callback.cpp"
   "zero_trust_protocol.cpp"
   "zero_trust_windows_test.cpp"
+)
+set_target_properties(usque_zero_trust_test PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests"
 )
 apply_standard_settings(usque_zero_trust_test)
 target_compile_definitions(usque_zero_trust_test PRIVATE "NOMINMAX")

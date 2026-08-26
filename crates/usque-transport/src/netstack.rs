@@ -419,6 +419,28 @@ impl ManagedTunnelSender {
 }
 
 impl ManagedTunnelMonitor {
+    #[cfg(test)]
+    pub(crate) fn stub() -> Self {
+        let path = RuntimePath {
+            transport: Transport::Http2,
+            endpoint_family: AddressFamily::Ipv4,
+            ipv4_available: true,
+            ipv6_available: true,
+        };
+        let (_failure_tx, failure) = watch::channel(None);
+        let (_health_tx, health) = watch::channel(RuntimeHealth::Connected {
+            path,
+            reconnect_count: 0,
+        });
+        let (_control_tx, control) = watch::channel(PeerNetworkState::default());
+        Self {
+            failure,
+            health,
+            control,
+            counters: Arc::new(TrafficCounters::default()),
+        }
+    }
+
     pub fn path(&self) -> RuntimePath {
         self.health.borrow().path()
     }

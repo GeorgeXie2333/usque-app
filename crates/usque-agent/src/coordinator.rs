@@ -9,6 +9,7 @@ use std::{
 use async_trait::async_trait;
 use thiserror::Error;
 use tokio::sync::Mutex;
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::{
@@ -24,6 +25,7 @@ pub const MIN_PACKET_RING_CAPACITY: u32 = 128 * 1024;
 pub const MAX_PACKET_RING_CAPACITY: u32 = 64 * 1024 * 1024;
 pub const PACKET_RING_LAYOUT_VERSION: u32 = 1;
 pub const ORPHANED_TUNNEL_RECOVERY_GRACE: Duration = Duration::from_secs(30);
+const SYSTEM_PROXY_RESTORE_ATTEMPTS: u32 = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PacketSessionHandles {
@@ -117,6 +119,7 @@ pub struct AgentCoordinator<Backend> {
     store: JournalStore,
     journal: Mutex<RecoveryJournal>,
     packet_session_attached: AtomicBool,
+    tunnel_lease_attached: AtomicBool,
     tunnel_lease_epoch: AtomicU64,
 }
 
@@ -133,6 +136,7 @@ where
             // Packet mappings, events, and Wintun sessions are process-local.
             // A journal loaded by a fresh Agent can never imply a live session.
             packet_session_attached: AtomicBool::new(false),
+            tunnel_lease_attached: AtomicBool::new(false),
             tunnel_lease_epoch: AtomicU64::new(0),
         })
     }
@@ -275,6 +279,9 @@ where
                 actual: journal.phase,
             });
         }
+        journal.steps.retain(|step| {
+            !(step.kind == MutationKind::PacketSession && step.state == MutationState::Restored)
+        });
         if journal
             .steps
             .iter()
@@ -344,8 +351,10 @@ where
                 .restore_step(&journal.steps[index].receipt)
                 .await
         {
-            journal.phase = RecoveryPhase::RecoveryRequired;
-            let _ = self.store.save(&mut journal);
+            warn!(
+                error = %error,
+                "packet-session restore failed; keeping the tunnel phase unchanged"
+            );
             return Err(error.into());
         }
         if active {
@@ -357,10 +366,8 @@ where
             self.store.save(&mut journal)?;
             return Ok(journal.clone());
         }
-        journal.steps[index].state = MutationState::Restored;
-        self.packet_session_attached.store(false, Ordering::Release);
-        self.store.save(&mut journal)?;
         journal.steps.remove(index);
+        self.packet_session_attached.store(false, Ordering::Release);
         self.store.save(&mut journal)?;
         Ok(journal.clone())
     }
@@ -449,15 +456,44 @@ where
         if !self.packet_session_attached.load(Ordering::Acquire) {
             return Err(CoordinatorError::PacketSessionNotAttached);
         }
+        if self.tunnel_lease_attached.swap(true, Ordering::AcqRel) {
+            return Err(CoordinatorError::TunnelLeaseAlreadyAttached);
+        }
         self.tunnel_lease_epoch.fetch_add(1, Ordering::AcqRel);
         Ok(journal.clone())
+    }
+
+    /// Releases the connection that owns tunnel setup before it is promoted
+    /// to the active liveness lease. A later active lease changes the epoch and
+    /// invalidates the corresponding startup watchdog.
+    pub async fn release_startup_tunnel_lease(
+        &self,
+        operation_id: Uuid,
+        caller: &AuthenticatedCaller,
+    ) -> Result<Option<u64>, CoordinatorError> {
+        validate_caller(caller)?;
+        let journal = self.journal.lock().await;
+        if !matches!(
+            journal.phase,
+            RecoveryPhase::Prepared | RecoveryPhase::Active
+        ) || journal.operation_kind != Some(OperationKind::Tunnel)
+            || journal.operation_id != Some(operation_id)
+            || journal.owner_sid.as_deref() != Some(caller.user_sid.as_str())
+            || journal.owner_process_id != Some(caller.process_id)
+            || self.tunnel_lease_attached.load(Ordering::Acquire)
+        {
+            return Ok(None);
+        }
+        Ok(Some(
+            self.tunnel_lease_epoch.fetch_add(1, Ordering::AcqRel) + 1,
+        ))
     }
 
     pub async fn release_tunnel_lease(
         &self,
         operation_id: Uuid,
         caller: &AuthenticatedCaller,
-    ) -> Result<u64, CoordinatorError> {
+    ) -> Result<Option<u64>, CoordinatorError> {
         validate_caller(caller)?;
         let mut journal = self.journal.lock().await;
         if journal.phase != RecoveryPhase::Active
@@ -466,10 +502,11 @@ where
             || journal.owner_sid.as_deref() != Some(caller.user_sid.as_str())
             || journal.owner_process_id != Some(caller.process_id)
             || !self.packet_session_attached.load(Ordering::Acquire)
+            || !self.tunnel_lease_attached.load(Ordering::Acquire)
         {
             // A normal rollback may win the race with lease EOF. Never let a
             // stale lease mutate a newer transaction.
-            return Ok(self.tunnel_lease_epoch.load(Ordering::Acquire));
+            return Ok(None);
         }
         let index = journal
             .steps
@@ -485,13 +522,40 @@ where
             .restore_step(&journal.steps[index].receipt)
             .await
         {
-            journal.phase = RecoveryPhase::RecoveryRequired;
-            let _ = self.store.save(&mut journal);
+            warn!(
+                error = %error,
+                "packet-session restore failed; keeping the tunnel phase unchanged"
+            );
             return Err(error.into());
         }
         self.packet_session_attached.store(false, Ordering::Release);
+        self.tunnel_lease_attached.store(false, Ordering::Release);
         self.store.save(&mut journal)?;
-        Ok(self.tunnel_lease_epoch.fetch_add(1, Ordering::AcqRel) + 1)
+        Ok(Some(
+            self.tunnel_lease_epoch.fetch_add(1, Ordering::AcqRel) + 1,
+        ))
+    }
+
+    /// Recovers Prepared, or the narrow post-Commit/pre-lease Active window,
+    /// when the Engine connection that owned startup disappears.
+    pub async fn recover_orphaned_startup_tunnel(
+        &self,
+        operation_id: Uuid,
+        lease_epoch: u64,
+    ) -> Result<bool, CoordinatorError> {
+        let mut journal = self.journal.lock().await;
+        if !matches!(
+            journal.phase,
+            RecoveryPhase::Prepared | RecoveryPhase::Active
+        ) || journal.operation_kind != Some(OperationKind::Tunnel)
+            || journal.operation_id != Some(operation_id)
+            || self.tunnel_lease_attached.load(Ordering::Acquire)
+            || self.tunnel_lease_epoch.load(Ordering::Acquire) != lease_epoch
+        {
+            return Ok(false);
+        }
+        self.recover_locked(&mut journal).await?;
+        Ok(true)
     }
 
     /// Recovers an active tunnel whose Engine lease disappeared and was not
@@ -507,6 +571,7 @@ where
             || journal.operation_kind != Some(OperationKind::Tunnel)
             || journal.operation_id != Some(operation_id)
             || self.packet_session_attached.load(Ordering::Acquire)
+            || self.tunnel_lease_attached.load(Ordering::Acquire)
             || self.tunnel_lease_epoch.load(Ordering::Acquire) != lease_epoch
         {
             return Ok(false);
@@ -592,9 +657,16 @@ where
             && journal.operation_kind == Some(OperationKind::Tunnel)
         {
             ensure_owner(&journal, operation_id, &caller)?;
-            if journal.steps.iter().any(|step| {
-                step.kind == MutationKind::SystemProxy && step.state != MutationState::Restored
-            }) {
+            // Older two-save restores could leave a durable Restored step.
+            // Treat those leftovers as absent, matching open_packet_session.
+            journal.steps.retain(|step| {
+                !(step.kind == MutationKind::SystemProxy && step.state == MutationState::Restored)
+            });
+            if journal
+                .steps
+                .iter()
+                .any(|step| step.kind == MutationKind::SystemProxy)
+            {
                 return Err(CoordinatorError::DuplicateStep(MutationKind::SystemProxy));
             }
             let receipt = self
@@ -746,22 +818,20 @@ where
                     actual: journal.phase,
                 });
             }
-            let Some(index) = journal.steps.iter().position(|step| {
-                step.kind == MutationKind::SystemProxy && step.state != MutationState::Restored
-            }) else {
+            let Some(index) = journal
+                .steps
+                .iter()
+                .position(|step| step.kind == MutationKind::SystemProxy)
+            else {
                 return Ok(journal.clone());
             };
-            if let Err(error) = self
-                .backend
-                .restore_step(&journal.steps[index].receipt)
-                .await
+            if journal.steps[index].state != MutationState::Restored
+                && let Err(error) = self
+                    .restore_system_proxy_step(&journal.steps[index].receipt)
+                    .await
             {
-                journal.phase = RecoveryPhase::RecoveryRequired;
-                let _ = self.store.save(&mut journal);
                 return Err(error.into());
             }
-            journal.steps[index].state = MutationState::Restored;
-            self.store.save(&mut journal)?;
             journal.steps.remove(index);
             self.store.save(&mut journal)?;
         } else {
@@ -778,8 +848,7 @@ where
         apply: String,
     ) -> CoordinatorError {
         let recovery = self
-            .backend
-            .restore_step(&journal.steps[index].receipt)
+            .restore_system_proxy_step(&journal.steps[index].receipt)
             .await;
         match recovery {
             Ok(()) => {
@@ -794,15 +863,33 @@ where
                     },
                 }
             }
-            Err(recovery) => {
-                journal.phase = RecoveryPhase::RecoveryRequired;
-                let _ = self.store.save(journal);
-                CoordinatorError::ApplyAndRecovery {
-                    apply,
-                    recovery: recovery.to_string(),
+            Err(recovery) => CoordinatorError::ApplyAndRecovery {
+                apply,
+                recovery: recovery.to_string(),
+            },
+        }
+    }
+
+    async fn restore_system_proxy_step(
+        &self,
+        receipt: &MutationReceipt,
+    ) -> Result<(), BackendError> {
+        let mut last_error = None;
+        for attempt in 1..=SYSTEM_PROXY_RESTORE_ATTEMPTS {
+            match self.backend.restore_step(receipt).await {
+                Ok(()) => return Ok(()),
+                Err(error) => {
+                    warn!(
+                        attempt,
+                        attempts = SYSTEM_PROXY_RESTORE_ATTEMPTS,
+                        error = %error,
+                        "system-proxy restore failed on an active tunnel; retrying without fail-open recovery"
+                    );
+                    last_error = Some(error);
                 }
             }
         }
+        Err(last_error.expect("system-proxy restore attempted"))
     }
 
     async fn apply_new_step(
@@ -834,23 +921,38 @@ where
         self.store.save(journal)?;
 
         let index = journal.steps.len() - 1;
-        let (receipt, output) = self
+        match self
             .backend
             .apply_step(journal.steps[index].receipt.clone(), plan, caller)
-            .await?;
-        if receipt.kind() != kind {
-            return Err(CoordinatorError::BackendReceiptMismatch {
-                expected: kind,
-                actual: receipt.kind(),
-            });
+            .await
+        {
+            Ok((receipt, output)) => {
+                if receipt.kind() != kind {
+                    return Err(CoordinatorError::BackendReceiptMismatch {
+                        expected: kind,
+                        actual: receipt.kind(),
+                    });
+                }
+                journal.steps[index].receipt = receipt;
+                journal.steps[index].state = MutationState::Applied;
+                self.store.save(journal)?;
+                Ok(output)
+            }
+            Err(error) => {
+                if let BackendError::PartialApply { receipt, .. } = &error
+                    && receipt.kind() == kind
+                {
+                    journal.steps[index].receipt = receipt.as_ref().clone();
+                    self.store.save(journal)?;
+                }
+                Err(error.into())
+            }
         }
-        journal.steps[index].receipt = receipt;
-        journal.steps[index].state = MutationState::Applied;
-        self.store.save(journal)?;
-        Ok(output)
     }
 
     async fn recover_locked(&self, journal: &mut RecoveryJournal) -> Result<(), CoordinatorError> {
+        self.tunnel_lease_attached.store(false, Ordering::Release);
+        self.tunnel_lease_epoch.fetch_add(1, Ordering::AcqRel);
         journal.phase = RecoveryPhase::Recovering;
         journal.pause_deadline_unix_seconds = None;
         // Persistence failure must never prevent the actual cleanup. A final
@@ -1024,6 +1126,11 @@ fn validate_caller(caller: &AuthenticatedCaller) -> Result<(), CoordinatorError>
 pub enum BackendError {
     #[error("privileged backend operation failed: {0}")]
     Operation(String),
+    #[error("privileged backend operation failed: {message}")]
+    PartialApply {
+        message: String,
+        receipt: Box<MutationReceipt>,
+    },
     #[error("privileged backend capability is unavailable: {0}")]
     Unavailable(String),
     #[error("no physical route to a configured WARP endpoint is available")]
@@ -1066,6 +1173,8 @@ pub enum CoordinatorError {
     PacketSessionAlreadyAttached,
     #[error("the active packet session is not attached to an Engine")]
     PacketSessionNotAttached,
+    #[error("the active tunnel already has an Engine liveness lease")]
+    TunnelLeaseAlreadyAttached,
     #[error("a packet session must be open before default routes are committed")]
     PacketSessionRequired,
     #[error("privileged backend returned no duplicated packet handles")]
@@ -1110,6 +1219,8 @@ mod tests {
         restored: Mutex<Vec<MutationKind>>,
         fail_apply: Mutex<HashSet<MutationKind>>,
         fail_restore: Mutex<HashSet<MutationKind>>,
+        unown_first_created_on_apply: Mutex<HashSet<MutationKind>>,
+        deleted_owned_routes: Mutex<Vec<String>>,
     }
 
     #[async_trait]
@@ -1178,14 +1289,24 @@ mod tests {
                     }
                 }
                 MutationKind::DefaultRoutes => MutationReceipt::DefaultRoutes {
-                    created: vec![RouteReceipt {
-                        destination: "0.0.0.0/0".to_owned(),
-                        next_hop: None,
-                        next_hop_scope_id: 0,
-                        interface_luid: 7,
-                        metric: 0,
-                        owned: true,
-                    }],
+                    created: vec![
+                        RouteReceipt {
+                            destination: "192.168.0.0/16".to_owned(),
+                            next_hop: Some(Ipv4Addr::new(192, 0, 2, 1).into()),
+                            next_hop_scope_id: 0,
+                            interface_luid: 9,
+                            metric: 1,
+                            owned: true,
+                        },
+                        RouteReceipt {
+                            destination: "0.0.0.0/0".to_owned(),
+                            next_hop: None,
+                            next_hop_scope_id: 0,
+                            interface_luid: 7,
+                            metric: 0,
+                            owned: true,
+                        },
+                    ],
                     replaced: Vec::new(),
                 },
                 MutationKind::SystemProxy => MutationReceipt::SystemProxy {
@@ -1204,13 +1325,24 @@ mod tests {
 
         async fn apply_step(
             &self,
-            receipt: MutationReceipt,
+            mut receipt: MutationReceipt,
             _plan: &ValidatedTunnelPlan,
             _caller: &AuthenticatedCaller,
         ) -> Result<(MutationReceipt, StepOutput), BackendError> {
             let kind = receipt.kind();
+            if self
+                .unown_first_created_on_apply
+                .lock()
+                .await
+                .contains(&kind)
+            {
+                unown_first_created(&mut receipt);
+            }
             if self.fail_apply.lock().await.contains(&kind) {
-                return Err(BackendError::Operation(format!("forced {kind:?} failure")));
+                return Err(BackendError::PartialApply {
+                    message: format!("forced {kind:?} failure"),
+                    receipt: Box::new(receipt),
+                });
             }
             self.applied.lock().await.push(kind);
             let output = if let MutationReceipt::PacketSession { ring_capacity, .. } = &receipt {
@@ -1233,6 +1365,18 @@ mod tests {
         async fn restore_step(&self, receipt: &MutationReceipt) -> Result<(), BackendError> {
             let kind = receipt.kind();
             self.restored.lock().await.push(kind);
+            match receipt {
+                MutationReceipt::EndpointBypass { created }
+                | MutationReceipt::DefaultRoutes { created, .. } => {
+                    self.deleted_owned_routes.lock().await.extend(
+                        created
+                            .iter()
+                            .filter(|route| route.owned)
+                            .map(|route| route.destination.clone()),
+                    );
+                }
+                _ => {}
+            }
             if self.fail_restore.lock().await.contains(&kind) {
                 return Err(BackendError::Operation(format!(
                     "forced {kind:?} recovery failure"
@@ -1292,8 +1436,37 @@ mod tests {
             &self,
             receipt: MutationReceipt,
         ) -> Result<MutationReceipt, BackendError> {
+            if self
+                .fail_apply
+                .lock()
+                .await
+                .contains(&MutationKind::SystemProxy)
+            {
+                return Err(BackendError::Operation(
+                    "forced SystemProxy failure".to_owned(),
+                ));
+            }
             self.applied.lock().await.push(MutationKind::SystemProxy);
             Ok(receipt)
+        }
+    }
+
+    fn unown_first_created(receipt: &mut MutationReceipt) {
+        match receipt {
+            MutationReceipt::EndpointBypass { created }
+            | MutationReceipt::DefaultRoutes { created, .. } => {
+                if let Some(route) = created.first_mut() {
+                    route.owned = false;
+                }
+            }
+            MutationReceipt::InterfaceConfiguration {
+                created_addresses, ..
+            } => {
+                if let Some(address) = created_addresses.first_mut() {
+                    address.owned = false;
+                }
+            }
+            _ => {}
         }
     }
 
@@ -1404,6 +1577,46 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(restored[1..], expected_tail);
         assert_eq!(coordinator.state().await.phase, RecoveryPhase::Clean);
+    }
+
+    #[tokio::test]
+    async fn already_existing_route_is_not_deleted_on_recovery() {
+        let backend = Arc::new(MockBackend::default());
+        backend
+            .unown_first_created_on_apply
+            .lock()
+            .await
+            .insert(MutationKind::DefaultRoutes);
+        backend
+            .fail_apply
+            .lock()
+            .await
+            .insert(MutationKind::DefaultRoutes);
+        let (_directory, coordinator) = coordinator(Arc::clone(&backend));
+        let operation = Uuid::new_v4();
+        let owner = caller();
+        coordinator
+            .prepare(operation, plan(), owner.clone())
+            .await
+            .expect("prepare");
+        coordinator
+            .open_packet_session(operation, 1024 * 1024, &owner)
+            .await
+            .expect("packet");
+
+        assert!(matches!(
+            coordinator.commit(operation, &owner).await,
+            Err(CoordinatorError::Backend(_))
+        ));
+        assert_eq!(coordinator.state().await.phase, RecoveryPhase::Clean);
+        let deleted = backend.deleted_owned_routes.lock().await.clone();
+        assert!(
+            !deleted
+                .iter()
+                .any(|destination| destination == "192.168.0.0/16"),
+            "recovery must not delete a pre-existing route this generation did not create: {deleted:?}"
+        );
+        assert!(deleted.contains(&"0.0.0.0/0".to_owned()));
     }
 
     #[tokio::test]
@@ -1771,6 +1984,99 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn startup_lease_eof_recovers_a_prepared_tunnel() {
+        let backend = Arc::new(MockBackend::default());
+        let (_directory, coordinator) = coordinator(Arc::clone(&backend));
+        let operation = Uuid::new_v4();
+        let owner = caller();
+        coordinator
+            .prepare(operation, plan(), owner.clone())
+            .await
+            .expect("prepare");
+
+        let epoch = coordinator
+            .release_startup_tunnel_lease(operation, &owner)
+            .await
+            .expect("startup lease EOF")
+            .expect("startup watchdog armed");
+        assert!(
+            coordinator
+                .recover_orphaned_startup_tunnel(operation, epoch)
+                .await
+                .expect("startup watchdog")
+        );
+        assert_eq!(coordinator.state().await.phase, RecoveryPhase::Clean);
+    }
+
+    #[tokio::test]
+    async fn active_lease_promotion_invalidates_the_startup_watchdog() {
+        let backend = Arc::new(MockBackend::default());
+        let (_directory, coordinator) = coordinator(Arc::clone(&backend));
+        let operation = Uuid::new_v4();
+        let owner = caller();
+        coordinator
+            .prepare(operation, plan(), owner.clone())
+            .await
+            .expect("prepare");
+        coordinator
+            .open_packet_session(operation, 1024 * 1024, &owner)
+            .await
+            .expect("packet");
+        coordinator.commit(operation, &owner).await.expect("commit");
+        coordinator
+            .acquire_tunnel_lease(operation, &owner)
+            .await
+            .expect("promote lease");
+
+        let epoch = coordinator
+            .release_startup_tunnel_lease(operation, &owner)
+            .await
+            .expect("stale startup EOF");
+        assert!(epoch.is_none());
+        assert_eq!(coordinator.state().await.phase, RecoveryPhase::Active);
+    }
+
+    #[tokio::test]
+    async fn completed_rollback_does_not_arm_a_lease_watchdog() {
+        let backend = Arc::new(MockBackend::default());
+        let (_directory, coordinator) = coordinator(Arc::clone(&backend));
+        let operation = Uuid::new_v4();
+        let owner = caller();
+        coordinator
+            .prepare(operation, plan(), owner.clone())
+            .await
+            .expect("prepare");
+        coordinator
+            .open_packet_session(operation, 1024 * 1024, &owner)
+            .await
+            .expect("packet");
+        coordinator.commit(operation, &owner).await.expect("commit");
+        coordinator
+            .acquire_tunnel_lease(operation, &owner)
+            .await
+            .expect("lease");
+        coordinator
+            .rollback(operation, &owner)
+            .await
+            .expect("rollback");
+
+        assert!(
+            coordinator
+                .release_tunnel_lease(operation, &owner)
+                .await
+                .expect("lease EOF")
+                .is_none()
+        );
+        assert!(
+            coordinator
+                .release_startup_tunnel_lease(operation, &owner)
+                .await
+                .expect("startup EOF")
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
     async fn orphaned_tunnel_watchdog_recovers_only_its_lease_epoch() {
         let backend = Arc::new(MockBackend::default());
         let (_directory, coordinator) = coordinator(Arc::clone(&backend));
@@ -1794,7 +2100,8 @@ mod tests {
         let stale_epoch = coordinator
             .release_tunnel_lease(operation, &owner)
             .await
-            .expect("first lease EOF");
+            .expect("first lease EOF")
+            .expect("first watchdog armed");
 
         coordinator
             .resume_tunnel(operation, profile_id, &owner)
@@ -1807,7 +2114,8 @@ mod tests {
         let current_epoch = coordinator
             .release_tunnel_lease(operation, &owner)
             .await
-            .expect("replacement lease EOF");
+            .expect("replacement lease EOF")
+            .expect("replacement watchdog armed");
         assert_ne!(stale_epoch, current_epoch);
         assert!(
             !coordinator
@@ -1990,5 +2298,344 @@ mod tests {
         assert!(without_proxy.steps.iter().any(|step| {
             step.kind == MutationKind::KillSwitch && step.state == MutationState::Applied
         }));
+    }
+
+    #[tokio::test]
+    async fn restoring_sidecar_system_proxy_is_one_journal_mutation() {
+        let backend = Arc::new(MockBackend::default());
+        let (_directory, coordinator, operation, owner) = active_tunnel(Arc::clone(&backend)).await;
+        coordinator
+            .apply_system_proxy(
+                operation,
+                SystemProxySettings {
+                    proxy_uri: "127.0.0.1:8080".to_owned(),
+                    bypass_hosts: vec!["<local>".to_owned()],
+                },
+                owner.clone(),
+            )
+            .await
+            .expect("apply system proxy");
+        let generation = coordinator.state().await.generation;
+
+        let restored = coordinator
+            .restore_system_proxy(operation, &owner)
+            .await
+            .expect("restore");
+        assert_eq!(restored.phase, RecoveryPhase::Active);
+        assert_eq!(restored.generation, generation + 1);
+        assert!(
+            restored
+                .steps
+                .iter()
+                .all(|step| step.kind != MutationKind::SystemProxy)
+        );
+        coordinator
+            .apply_system_proxy(
+                operation,
+                SystemProxySettings {
+                    proxy_uri: "127.0.0.1:8080".to_owned(),
+                    bypass_hosts: vec!["<local>".to_owned()],
+                },
+                owner.clone(),
+            )
+            .await
+            .expect("re-apply after one-save restore");
+    }
+
+    #[tokio::test]
+    async fn restored_sidecar_system_proxy_is_absent_for_reapply() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let journal_path = directory.path().join("recovery.json");
+        let backend = Arc::new(MockBackend::default());
+        let coordinator =
+            AgentCoordinator::open(JournalStore::new(&journal_path), Arc::clone(&backend))
+                .expect("coordinator");
+        let operation = Uuid::new_v4();
+        let owner = caller();
+        coordinator
+            .prepare(operation, plan(), owner.clone())
+            .await
+            .expect("prepare");
+        coordinator
+            .open_packet_session(operation, 1024 * 1024, &owner)
+            .await
+            .expect("packet");
+        coordinator.commit(operation, &owner).await.expect("commit");
+        coordinator
+            .apply_system_proxy(
+                operation,
+                SystemProxySettings {
+                    proxy_uri: "127.0.0.1:8080".to_owned(),
+                    bypass_hosts: vec!["<local>".to_owned()],
+                },
+                owner.clone(),
+            )
+            .await
+            .expect("apply system proxy");
+        let mut journal = coordinator.state().await;
+        journal
+            .steps
+            .iter_mut()
+            .find(|step| step.kind == MutationKind::SystemProxy)
+            .expect("proxy step")
+            .state = MutationState::Restored;
+        drop(coordinator);
+        JournalStore::new(&journal_path)
+            .save(&mut journal)
+            .expect("seed restored system-proxy step");
+
+        let coordinator =
+            AgentCoordinator::open(JournalStore::new(&journal_path), Arc::clone(&backend))
+                .expect("reload");
+        let reapplied = coordinator
+            .apply_system_proxy(
+                operation,
+                SystemProxySettings {
+                    proxy_uri: "127.0.0.1:8080".to_owned(),
+                    bypass_hosts: vec!["<local>".to_owned()],
+                },
+                owner.clone(),
+            )
+            .await
+            .expect("restored sidecar steps are absent");
+        assert_eq!(reapplied.phase, RecoveryPhase::Active);
+        assert_eq!(
+            reapplied
+                .steps
+                .iter()
+                .filter(|step| step.kind == MutationKind::SystemProxy)
+                .count(),
+            1
+        );
+        assert_eq!(
+            reapplied
+                .steps
+                .iter()
+                .find(|step| step.kind == MutationKind::SystemProxy)
+                .map(|step| step.state),
+            Some(MutationState::Applied)
+        );
+    }
+
+    async fn active_tunnel(
+        backend: Arc<MockBackend>,
+    ) -> (
+        tempfile::TempDir,
+        AgentCoordinator<MockBackend>,
+        Uuid,
+        AuthenticatedCaller,
+    ) {
+        let (directory, coordinator) = coordinator(backend);
+        let operation = Uuid::new_v4();
+        let owner = caller();
+        coordinator
+            .prepare(operation, plan(), owner.clone())
+            .await
+            .expect("prepare");
+        coordinator
+            .open_packet_session(operation, 1024 * 1024, &owner)
+            .await
+            .expect("packet");
+        coordinator.commit(operation, &owner).await.expect("commit");
+        (directory, coordinator, operation, owner)
+    }
+
+    #[tokio::test]
+    async fn sidecar_system_proxy_restore_failure_keeps_the_tunnel_active() {
+        let backend = Arc::new(MockBackend::default());
+        let (_directory, coordinator, operation, owner) = active_tunnel(Arc::clone(&backend)).await;
+        coordinator
+            .apply_system_proxy(
+                operation,
+                SystemProxySettings {
+                    proxy_uri: "127.0.0.1:8080".to_owned(),
+                    bypass_hosts: vec!["<local>".to_owned()],
+                },
+                owner.clone(),
+            )
+            .await
+            .expect("apply system proxy");
+        backend
+            .fail_restore
+            .lock()
+            .await
+            .insert(MutationKind::SystemProxy);
+
+        assert!(matches!(
+            coordinator.restore_system_proxy(operation, &owner).await,
+            Err(CoordinatorError::Backend(_))
+        ));
+        let state = coordinator.state().await;
+        assert_eq!(state.phase, RecoveryPhase::Active);
+        assert!(state.steps.iter().any(|step| {
+            step.kind == MutationKind::KillSwitch && step.state == MutationState::Applied
+        }));
+        assert!(state.steps.iter().any(|step| {
+            step.kind == MutationKind::SystemProxy && step.state == MutationState::Applied
+        }));
+        assert_eq!(
+            backend
+                .restored
+                .lock()
+                .await
+                .iter()
+                .filter(|kind| **kind == MutationKind::SystemProxy)
+                .count(),
+            SYSTEM_PROXY_RESTORE_ATTEMPTS as usize
+        );
+    }
+
+    #[tokio::test]
+    async fn sidecar_system_proxy_apply_rollback_failure_keeps_the_tunnel_active() {
+        let backend = Arc::new(MockBackend::default());
+        let (_directory, coordinator, operation, owner) = active_tunnel(Arc::clone(&backend)).await;
+        backend
+            .fail_apply
+            .lock()
+            .await
+            .insert(MutationKind::SystemProxy);
+        backend
+            .fail_restore
+            .lock()
+            .await
+            .insert(MutationKind::SystemProxy);
+
+        assert!(matches!(
+            coordinator
+                .apply_system_proxy(
+                    operation,
+                    SystemProxySettings {
+                        proxy_uri: "127.0.0.1:8080".to_owned(),
+                        bypass_hosts: vec!["<local>".to_owned()],
+                    },
+                    owner.clone(),
+                )
+                .await,
+            Err(CoordinatorError::ApplyAndRecovery { .. })
+        ));
+        let state = coordinator.state().await;
+        assert_eq!(state.phase, RecoveryPhase::Active);
+        assert!(state.steps.iter().any(|step| {
+            step.kind == MutationKind::KillSwitch && step.state == MutationState::Applied
+        }));
+        assert!(
+            state
+                .steps
+                .iter()
+                .any(|step| step.kind == MutationKind::SystemProxy)
+        );
+    }
+
+    #[tokio::test]
+    async fn closing_a_prepared_packet_session_is_one_journal_mutation() {
+        let backend = Arc::new(MockBackend::default());
+        let (_directory, coordinator) = coordinator(Arc::clone(&backend));
+        let operation = Uuid::new_v4();
+        let owner = caller();
+        coordinator
+            .prepare(operation, plan(), owner.clone())
+            .await
+            .expect("prepare");
+        coordinator
+            .open_packet_session(operation, 1024 * 1024, &owner)
+            .await
+            .expect("packet");
+        let generation = coordinator.state().await.generation;
+
+        let closed = coordinator
+            .close_packet_session(operation, &owner)
+            .await
+            .expect("close");
+        assert_eq!(closed.phase, RecoveryPhase::Prepared);
+        assert_eq!(closed.generation, generation + 1);
+        assert!(
+            closed
+                .steps
+                .iter()
+                .all(|step| step.kind != MutationKind::PacketSession)
+        );
+        coordinator
+            .open_packet_session(operation, 1024 * 1024, &owner)
+            .await
+            .expect("reopen");
+        coordinator.commit(operation, &owner).await.expect("commit");
+    }
+
+    #[tokio::test]
+    async fn restored_packet_session_is_absent_for_open_and_commit() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let journal_path = directory.path().join("recovery.json");
+        let backend = Arc::new(MockBackend::default());
+        let coordinator =
+            AgentCoordinator::open(JournalStore::new(&journal_path), Arc::clone(&backend))
+                .expect("coordinator");
+        let operation = Uuid::new_v4();
+        let owner = caller();
+        coordinator
+            .prepare(operation, plan(), owner.clone())
+            .await
+            .expect("prepare");
+        coordinator
+            .open_packet_session(operation, 1024 * 1024, &owner)
+            .await
+            .expect("packet");
+        let mut journal = coordinator.state().await;
+        journal
+            .steps
+            .iter_mut()
+            .find(|step| step.kind == MutationKind::PacketSession)
+            .expect("packet step")
+            .state = MutationState::Restored;
+        drop(coordinator);
+        JournalStore::new(&journal_path)
+            .save(&mut journal)
+            .expect("seed restored packet step");
+
+        let coordinator =
+            AgentCoordinator::open(JournalStore::new(&journal_path), Arc::clone(&backend))
+                .expect("reload");
+        coordinator
+            .open_packet_session(operation, 1024 * 1024, &owner)
+            .await
+            .expect("restored packet steps are absent");
+        let committed = coordinator.commit(operation, &owner).await.expect("commit");
+        assert_eq!(
+            committed
+                .steps
+                .iter()
+                .filter(|step| step.kind == MutationKind::PacketSession)
+                .count(),
+            1
+        );
+        assert_eq!(
+            committed
+                .steps
+                .iter()
+                .find(|step| step.kind == MutationKind::PacketSession)
+                .map(|step| step.state),
+            Some(MutationState::Applied)
+        );
+    }
+
+    #[tokio::test]
+    async fn packet_session_restore_failure_keeps_the_tunnel_active() {
+        let backend = Arc::new(MockBackend::default());
+        let (_directory, coordinator, operation, owner) = active_tunnel(Arc::clone(&backend)).await;
+        backend
+            .fail_restore
+            .lock()
+            .await
+            .insert(MutationKind::PacketSession);
+
+        assert!(matches!(
+            coordinator.close_packet_session(operation, &owner).await,
+            Err(CoordinatorError::Backend(_))
+        ));
+        let state = coordinator.state().await;
+        assert_eq!(state.phase, RecoveryPhase::Active);
+        assert!(state.steps.iter().any(|step| {
+            step.kind == MutationKind::KillSwitch && step.state == MutationState::Applied
+        }));
+        assert!(coordinator.packet_session_attached());
     }
 }

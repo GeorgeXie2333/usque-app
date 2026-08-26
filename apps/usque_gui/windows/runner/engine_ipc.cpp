@@ -11,6 +11,9 @@
 namespace {
 
 constexpr size_t kMaximumFrameBytes = 4 * 1024 * 1024;
+constexpr uint32_t kMaximumReadyTimeoutMs = 60 * 1000;
+constexpr auto kMissingPipeRetryDelay = std::chrono::milliseconds(50);
+constexpr auto kPipeWaitSlice = std::chrono::milliseconds(250);
 constexpr std::string_view kPipePrefix =
     R"(\\.\pipe\io.github.georgexie2333.usque.engine.v1-ui-)";
 
@@ -125,13 +128,77 @@ bool IsRecoverablePipeError(DWORD error) {
          error == ERROR_PIPE_NOT_CONNECTED || error == ERROR_NO_DATA;
 }
 
+bool IsControlPipeName(const std::string& pipe_name) {
+  return pipe_name.size() >= kPipePrefix.size() &&
+         pipe_name.compare(0, kPipePrefix.size(), kPipePrefix) == 0;
+}
+
+void ParkUntilInactive(const std::shared_ptr<std::atomic_bool>& active,
+                       const char* message) {
+  OutputDebugStringA(message);
+  while (active->load()) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+  }
+}
+
 }  // namespace
+
+std::string WaitForEnginePipe(const std::string& pipe_name,
+                              uint32_t timeout_ms) {
+  if (!IsControlPipeName(pipe_name)) {
+    return "Named Pipe name is outside the Usque namespace";
+  }
+  if (timeout_ms == 0 || timeout_ms > kMaximumReadyTimeoutMs) {
+    return "Named Pipe readiness timeout is invalid";
+  }
+  const std::wstring pipe_name_wide = Utf16FromUtf8(pipe_name);
+  if (pipe_name_wide.empty()) {
+    return "Named Pipe name is not valid UTF-8";
+  }
+
+  const auto deadline = std::chrono::steady_clock::now() +
+                        std::chrono::milliseconds(timeout_ms);
+  DWORD last_error = ERROR_FILE_NOT_FOUND;
+  while (true) {
+    const auto now = std::chrono::steady_clock::now();
+    if (now >= deadline) {
+      return "Usque Engine Named Pipe did not become ready before timeout "
+             "(last Win32 error " +
+             std::to_string(last_error) + ")";
+    }
+    const auto remaining =
+        std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
+    const auto wait_slice = std::min(remaining, kPipeWaitSlice);
+    const DWORD wait_ms = static_cast<DWORD>(
+        std::max<int64_t>(1, static_cast<int64_t>(wait_slice.count())));
+    if (::WaitNamedPipeW(pipe_name_wide.c_str(), wait_ms)) {
+      return {};
+    }
+
+    last_error = ::GetLastError();
+    if (!IsRecoverablePipeError(last_error)) {
+      return "WaitNamedPipeW failed with Win32 error " +
+             std::to_string(last_error);
+    }
+    // WaitNamedPipeW does not consume its timeout when no pipe instance exists.
+    // Keep this bounded sleep to avoid a CPU spin during Engine cold start.
+    if (last_error != ERROR_SEM_TIMEOUT) {
+      const auto after_wait = std::chrono::steady_clock::now();
+      if (after_wait < deadline) {
+        const auto remaining_sleep =
+            std::chrono::duration_cast<std::chrono::milliseconds>(deadline -
+                                                                  after_wait);
+        std::this_thread::sleep_for(
+            std::min(kMissingPipeRetryDelay, remaining_sleep));
+      }
+    }
+  }
+}
 
 EngineIpcResult ExchangeEngineFrame(const std::string& pipe_name,
                                     const std::vector<uint8_t>& request) {
   EngineIpcResult result;
-  if (pipe_name.size() < kPipePrefix.size() ||
-      pipe_name.compare(0, kPipePrefix.size(), kPipePrefix) != 0) {
+  if (!IsControlPipeName(pipe_name)) {
     result.error = "Named Pipe name is outside the Usque namespace";
     return result;
   }
@@ -146,8 +213,8 @@ EngineIpcResult ExchangeEngineFrame(const std::string& pipe_name,
     result.error = "Named Pipe name is not valid UTF-8";
     return result;
   }
-  if (!::WaitNamedPipeW(pipe_name_wide.c_str(), 750)) {
-    result.error = WindowsError("WaitNamedPipeW");
+  result.error = WaitForEnginePipe(pipe_name, 750);
+  if (!result.error.empty()) {
     return result;
   }
   OwnedHandle pipe(::CreateFileW(pipe_name_wide.c_str(),
@@ -191,14 +258,15 @@ void StreamEngineEvents(const std::string& pipe_name,
   if (pipe_name.size() < kPipePrefix.size() + 8 ||
       pipe_name.compare(0, kPipePrefix.size(), kPipePrefix) != 0 ||
       pipe_name.compare(pipe_name.size() - 7, 7, ".events") != 0) {
-    callback(EngineIpcResult{
-        {}, "Named Pipe event name is outside the Usque namespace"});
+    ParkUntilInactive(active,
+                      "Usque: engine event pipe name is outside the Usque "
+                      "namespace\n");
     return;
   }
   const std::wstring pipe_name_wide = Utf16FromUtf8(pipe_name);
   if (pipe_name_wide.empty()) {
-    callback(
-        EngineIpcResult{{}, "Named Pipe event name is not valid UTF-8"});
+    ParkUntilInactive(active,
+                      "Usque: engine event pipe name is not valid UTF-8\n");
     return;
   }
 
@@ -206,9 +274,10 @@ void StreamEngineEvents(const std::string& pipe_name,
     if (!::WaitNamedPipeW(pipe_name_wide.c_str(), 250)) {
       const DWORD error = ::GetLastError();
       if (!IsRecoverablePipeError(error)) {
-        callback(EngineIpcResult{
-            {}, "WaitNamedPipeW failed with Win32 error " +
-                    std::to_string(error)});
+        const std::string message =
+            "Usque: WaitNamedPipeW failed with Win32 error " +
+            std::to_string(error) + "\n";
+        ParkUntilInactive(active, message.c_str());
         return;
       }
       std::this_thread::sleep_for(std::chrono::milliseconds(75));
@@ -221,9 +290,10 @@ void StreamEngineEvents(const std::string& pipe_name,
     if (pipe.get() == INVALID_HANDLE_VALUE) {
       const DWORD error = ::GetLastError();
       if (!IsRecoverablePipeError(error)) {
-        callback(EngineIpcResult{
-            {}, "CreateFileW failed with Win32 error " +
-                    std::to_string(error)});
+        const std::string message =
+            "Usque: CreateFileW failed with Win32 error " +
+            std::to_string(error) + "\n";
+        ParkUntilInactive(active, message.c_str());
         return;
       }
       continue;
@@ -232,9 +302,10 @@ void StreamEngineEvents(const std::string& pipe_name,
     if (!::SetNamedPipeHandleState(pipe.get(), &mode, nullptr, nullptr)) {
       const DWORD error = ::GetLastError();
       if (!IsRecoverablePipeError(error)) {
-        callback(EngineIpcResult{
-            {}, "SetNamedPipeHandleState failed with Win32 error " +
-                    std::to_string(error)});
+        const std::string message =
+            "Usque: SetNamedPipeHandleState failed with Win32 error " +
+            std::to_string(error) + "\n";
+        ParkUntilInactive(active, message.c_str());
         return;
       }
       continue;
@@ -249,7 +320,7 @@ void StreamEngineEvents(const std::string& pipe_name,
       }
       const uint32_t payload_length = BigEndianLength(event.response.data());
       if (payload_length > kMaximumFrameBytes) {
-        callback(EngineIpcResult{{}, "event frame exceeds 4 MiB"});
+        ParkUntilInactive(active, "Usque: engine event frame exceeds 4 MiB\n");
         return;
       }
       event.response.resize(static_cast<size_t>(payload_length) + 4);

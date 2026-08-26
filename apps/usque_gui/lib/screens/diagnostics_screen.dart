@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../models/app_models.dart';
+import '../core/connection_presentation.dart';
+import '../core/usque_theme.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
+import '../widgets/usque_dialog.dart';
 
 class DiagnosticsScreen extends StatelessWidget {
   const DiagnosticsScreen({required this.controller, super.key});
@@ -14,149 +16,118 @@ class DiagnosticsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final strings = controller.strings;
+    final ConnectionPresentation presentation = ConnectionPresentation.of(
+      controller.snapshot.phase,
+    );
     return PageFrame(
       title: strings.get('diagnostics_title'),
+      subtitle: strings.get('diagnostics_subtitle'),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          if (controller.lastError != null) ...<Widget>[
-            WarningBanner(
-              title: strings.get('error'),
-              message: controller.lastError!,
-              danger: true,
-              onDismiss: controller.clearError,
-            ),
-            const SizedBox(height: 16),
-          ],
-          if (controller.lastNotice != null) ...<Widget>[
-            WarningBanner(
-              title: strings.get('notice'),
-              message: controller.lastNotice!,
-              onDismiss: controller.clearNotice,
-            ),
-            const SizedBox(height: 16),
-          ],
-          if (controller.snapshotStreamDegraded) ...<Widget>[
-            WarningBanner(
-              title: strings.get('status_stream_degraded'),
-              message: strings.get('status_stream_degraded_body'),
-            ),
-            const SizedBox(height: 16),
-          ],
-          Panel(
-            child: Column(
-              children: <Widget>[
-                SectionTitle(
-                  icon: LucideIcons.activity,
-                  title: strings.get('engine_status'),
-                  trailing: StatusPill(
-                    label: strings.get(
-                      _connectionPhaseKey(controller.snapshot.phase),
-                    ),
-                    tone: controller.snapshot.isConnected
-                        ? StatusTone.success
-                        : StatusTone.neutral,
-                    icon: controller.snapshot.isConnected
-                        ? LucideIcons.circleCheck
-                        : LucideIcons.circle,
+          BannerSlot(
+            child: controller.lastError == null
+                ? null
+                : WarningBanner(
+                    title: strings.get('error'),
+                    message: controller.lastError!,
+                    danger: true,
+                    onDismiss: controller.clearError,
                   ),
-                ),
-                const Divider(height: 30),
-                _InfoRow(
-                  icon: LucideIcons.tag,
-                  title: strings.get('version'),
-                  value: strings.get('app_version'),
-                ),
-                const Divider(height: 30),
-                _InfoRow(
-                  icon: LucideIcons.monitor,
-                  title: 'IPC API',
-                  value: 'usque.v1',
-                ),
-              ],
-            ),
           ),
-          const SizedBox(height: 16),
-          Panel(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                SectionTitle(
-                  icon: LucideIcons.trash2,
-                  title: strings.get('clear_all_data'),
-                  subtitle: strings.get('clear_all_data_help'),
-                ),
-                const SizedBox(height: 18),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: FilledButton.icon(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: Theme.of(context).colorScheme.error,
-                      foregroundColor: Theme.of(context).colorScheme.onError,
-                    ),
-                    onPressed: controller.busy
-                        ? null
-                        : () => _confirmClearAllData(context),
-                    icon: const Icon(LucideIcons.trash2),
-                    label: Text(strings.get('clear_all_data')),
+          BannerSlot(
+            child: controller.lastNotice == null
+                ? null
+                : WarningBanner(
+                    title: strings.get('notice'),
+                    message: controller.lastNotice!,
+                    onDismiss: controller.clearNotice,
                   ),
-                ),
-              ],
-            ),
           ),
-          const SizedBox(height: 16),
-          Panel(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                SectionTitle(
-                  icon: LucideIcons.logs,
-                  title: strings.get('logs'),
-                ),
-                const SizedBox(height: 18),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: FilledButton.tonalIcon(
-                    onPressed: controller.busy
-                        ? null
-                        : () => _confirmAndExport(context),
-                    icon: const Icon(LucideIcons.fileArchive),
-                    label: Text(strings.get('export_diagnostics')),
-                  ),
-                ),
-              ],
-            ),
+          BannerSlot(
+            child:
+                controller.snapshotStreamDegraded &&
+                    (controller.snapshot.isConnected ||
+                        controller.snapshot.isTransitional)
+                ? WarningBanner(
+                    title: strings.get('status_stream_degraded'),
+                    message: strings.get('status_stream_degraded_body'),
+                  )
+                : null,
           ),
-          const SizedBox(height: 16),
-          Panel(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                SectionTitle(
-                  icon: LucideIcons.info,
-                  title: 'Usque',
-                  subtitle: strings.get('unofficial'),
+          PanelStack(
+            children: <Widget>[
+              SectionPanel(
+                icon: LucideIcons.activity,
+                title: strings.get('engine_status'),
+                trailing: StatusPill(
+                  label: strings.get(presentation.labelKey),
+                  tone: presentation.tone,
+                  icon: controller.snapshot.isConnected
+                      ? LucideIcons.circleCheck
+                      : LucideIcons.circle,
                 ),
-                const SizedBox(height: 20),
-                _InfoRow(
-                  icon: LucideIcons.scale,
-                  title: strings.get('license'),
-                  value: 'MIT',
-                ),
-                const SizedBox(height: 22),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: OutlinedButton.icon(
-                    onPressed: () => launchUrl(
-                      Uri.parse('https://github.com/GeorgeXie2333/usque-app'),
-                      mode: LaunchMode.externalApplication,
-                    ),
-                    icon: const Icon(LucideIcons.code2),
-                    label: Text(strings.get('source_code')),
+                gap: 20,
+                children: <Widget>[
+                  ReadoutRow(
+                    icon: LucideIcons.tag,
+                    label: strings.get('version'),
+                    value: MonoValue(value: strings.get('app_version')),
                   ),
-                ),
-              ],
-            ),
+                  const SizedBox(height: 12),
+                  const ReadoutRow(
+                    icon: LucideIcons.monitor,
+                    label: 'IPC API',
+                    value: MonoValue(value: 'usque.v1'),
+                  ),
+                  const SizedBox(height: 12),
+                  ReadoutRow(
+                    icon: LucideIcons.scale,
+                    label: strings.get('license'),
+                    value: const MonoValue(value: 'MIT'),
+                  ),
+                ],
+              ),
+              SectionPanel(
+                icon: LucideIcons.logs,
+                title: strings.get('logs'),
+                subtitle: strings.get('export_help'),
+                children: <Widget>[
+                  Align(
+                    alignment: AlignmentDirectional.centerEnd,
+                    child: FilledButton.tonalIcon(
+                      onPressed: controller.busy
+                          ? null
+                          : () => _confirmAndExport(context),
+                      icon: const Icon(LucideIcons.fileArchive),
+                      label: Text(strings.get('export_diagnostics')),
+                    ),
+                  ),
+                ],
+              ),
+              SectionPanel(
+                icon: LucideIcons.info,
+                title: 'Usque',
+                subtitle: strings.get('unofficial'),
+                children: <Widget>[
+                  Align(
+                    alignment: AlignmentDirectional.centerEnd,
+                    child: OutlinedButton.icon(
+                      onPressed: () => launchUrl(
+                        Uri.parse('https://github.com/GeorgeXie2333/usque-app'),
+                        mode: LaunchMode.externalApplication,
+                      ),
+                      icon: const Icon(LucideIcons.code2),
+                      label: Text(strings.get('source_code')),
+                    ),
+                  ),
+                ],
+              ),
+              _DangerPanel(
+                controller: controller,
+                onClear: () => _confirmClearAllData(context),
+              ),
+            ],
           ),
         ],
       ),
@@ -167,9 +138,10 @@ class DiagnosticsScreen extends StatelessWidget {
     final strings = controller.strings;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        icon: const Icon(LucideIcons.shieldCheck),
-        title: Text(strings.get('export_diagnostics')),
+      builder: (context) => UsqueDialog(
+        icon: LucideIcons.fileArchive,
+        title: strings.get('export_diagnostics'),
+        width: 420,
         content: Text(strings.get('export_help')),
         actions: <Widget>[
           TextButton(
@@ -193,12 +165,12 @@ class DiagnosticsScreen extends StatelessWidget {
     final strings = controller.strings;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        icon: Icon(
-          LucideIcons.triangleAlert,
-          color: Theme.of(context).colorScheme.error,
-        ),
-        title: Text(strings.get('clear_all_data')),
+      builder: (context) => UsqueDialog(
+        icon: LucideIcons.triangleAlert,
+        title: strings.get('clear_all_data'),
+        subtitle: strings.get('clear_all_data_help'),
+        danger: true,
+        width: 420,
         content: Text(strings.get('clear_all_data_confirm')),
         actions: <Widget>[
           TextButton(
@@ -207,7 +179,7 @@ class DiagnosticsScreen extends StatelessWidget {
           ),
           FilledButton.icon(
             style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.error,
+              backgroundColor: UsqueTokens.of(context).danger,
               foregroundColor: Theme.of(context).colorScheme.onError,
             ),
             onPressed: () => Navigator.of(context).pop(true),
@@ -223,53 +195,76 @@ class DiagnosticsScreen extends StatelessWidget {
   }
 }
 
-String _connectionPhaseKey(ConnectionPhase phase) {
-  return switch (phase) {
-    ConnectionPhase.disconnected => 'disconnected',
-    ConnectionPhase.preparing => 'preparing',
-    ConnectionPhase.connectingH3 ||
-    ConnectionPhase.connectingH2 => 'connecting',
-    ConnectionPhase.connected => 'connected',
-    ConnectionPhase.degraded => 'degraded',
-    ConnectionPhase.reconnecting => 'reconnecting',
-    ConnectionPhase.disconnecting => 'disconnecting',
-    ConnectionPhase.error => 'error',
-  };
-}
+/// Destructive work lives in its own plate, ruled in the danger colour so it
+/// never reads as one more setting.
+class _DangerPanel extends StatelessWidget {
+  const _DangerPanel({required this.controller, required this.onClear});
 
-class _InfoRow extends StatelessWidget {
-  const _InfoRow({
-    required this.icon,
-    required this.title,
-    required this.value,
-  });
-
-  final IconData icon;
-  final String title;
-  final String value;
+  final AppController controller;
+  final VoidCallback onClear;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Icon(
-          icon,
-          size: 20,
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-        ),
-        const SizedBox(width: 13),
-        SizedBox(width: 120, child: Text(title)),
-        const SizedBox(width: 12),
-        Expanded(
-          child: SelectableText(
-            value,
-            style: Theme.of(
-              context,
-            ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+    final strings = controller.strings;
+    final Color danger = UsqueTokens.of(context).danger;
+    return Panel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Container(
+                width: 34,
+                height: 34,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: danger.withValues(alpha: UsqueTokens.of(context).tint),
+                  borderRadius: BorderRadius.circular(UsqueRadii.chip),
+                ),
+                child: Icon(LucideIcons.trash2, size: 17, color: danger),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        strings.get('clear_all_data'),
+                        style: Theme.of(
+                          context,
+                        ).textTheme.titleMedium?.copyWith(color: danger),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      strings.get('clear_all_data_help'),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-        ),
-      ],
+          const SizedBox(height: 18),
+          Align(
+            alignment: AlignmentDirectional.centerEnd,
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: danger,
+                side: BorderSide(color: danger.withValues(alpha: 0.45)),
+              ),
+              onPressed: controller.busy ? null : onClear,
+              icon: const Icon(LucideIcons.trash2),
+              label: Text(strings.get('clear_all_data')),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

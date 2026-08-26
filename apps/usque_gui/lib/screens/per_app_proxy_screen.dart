@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../core/usque_theme.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
@@ -105,78 +106,86 @@ class _PerAppProxyScreenState extends State<PerAppProxyScreen> {
   Widget build(BuildContext context) {
     final strings = widget.controller.strings;
     final visible = _visible;
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(strings.get('per_app_proxy')),
-        actions: <Widget>[
-          TextButton(
-            onPressed: _canSave ? _save : null,
-            child: Text(strings.get('save')),
-          ),
-          const SizedBox(width: 8),
-        ],
-      ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(24, 18, 24, 40),
+    return SubPage(
+      title: strings.get('per_app_proxy'),
+      subtitle: strings.get('per_app_proxy_help'),
+      backLabel: strings.get('back'),
+      actions: <Widget>[
+        FilledButton.icon(
+          onPressed: _canSave ? _save : null,
+          icon: const Icon(LucideIcons.save),
+          label: Text(strings.get('save')),
+        ),
+      ],
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 880),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  if (!widget
-                      .controller
-                      .activeProfile
-                      .frontends
-                      .tunnel) ...<Widget>[
-                    WarningBanner(
-                      title: strings.get('per_app_proxy'),
-                      message: strings.get('per_app_proxy_tunnel_hint'),
+          BannerSlot(
+            child: widget.controller.activeProfile.frontends.tunnel
+                ? null
+                : WarningBanner(
+                    title: strings.get('per_app_proxy'),
+                    message: strings.get('per_app_proxy_tunnel_hint'),
+                  ),
+          ),
+          BannerSlot(
+            child: _enabled
+                ? WarningBanner(
+                    title: strings.get('lockdown'),
+                    message: strings.get('per_app_proxy_lockdown_help'),
+                  )
+                : null,
+          ),
+          PanelStack(
+            children: <Widget>[
+              Panel(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      secondary: const Icon(LucideIcons.layers3),
+                      title: Text(strings.get('per_app_proxy_enable')),
+                      subtitle: Text(strings.get('per_app_proxy_help')),
+                      value: _enabled,
+                      onChanged: (value) => setState(() => _enabled = value),
                     ),
                     const SizedBox(height: 16),
-                  ],
-                  if (_enabled) ...<Widget>[
-                    WarningBanner(
-                      title: strings.get('lockdown'),
-                      message: strings.get('per_app_proxy_lockdown_help'),
+                    TextField(
+                      controller: _search,
+                      decoration: InputDecoration(
+                        labelText: strings.get('per_app_search'),
+                        prefixIcon: const Icon(LucideIcons.search),
+                      ),
+                      onChanged: (_) => setState(() {}),
                     ),
-                    const SizedBox(height: 16),
-                  ],
-                  Panel(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(strings.get('per_app_show_system')),
+                      value: _showSystem,
+                      onChanged: (value) => setState(() => _showSystem = value),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
                       children: <Widget>[
-                        SwitchListTile(
-                          contentPadding: EdgeInsets.zero,
-                          secondary: const Icon(LucideIcons.layers3),
-                          title: Text(strings.get('per_app_proxy_enable')),
-                          subtitle: Text(strings.get('per_app_proxy_help')),
-                          value: _enabled,
-                          onChanged: (value) =>
-                              setState(() => _enabled = value),
-                        ),
-                        const Divider(height: 28),
-                        TextField(
-                          controller: _search,
-                          decoration: InputDecoration(
-                            labelText: strings.get('per_app_search'),
-                            prefixIcon: const Icon(LucideIcons.search),
+                        Expanded(
+                          child: Text(
+                            strings
+                                .get('per_app_selected_count')
+                                .replaceAll('{count}', '${_selected.length}'),
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurfaceVariant,
+                                ),
                           ),
-                          onChanged: (_) => setState(() {}),
                         ),
-                        SwitchListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(strings.get('per_app_show_system')),
-                          value: _showSystem,
-                          onChanged: (value) =>
-                              setState(() => _showSystem = value),
-                        ),
+                        const SizedBox(width: 12),
                         Wrap(
                           spacing: 8,
-                          runSpacing: 8,
                           children: <Widget>[
-                            OutlinedButton(
+                            TextButton(
                               onPressed: visible.isEmpty
                                   ? null
                                   : () => setState(() {
@@ -188,7 +197,7 @@ class _PerAppProxyScreenState extends State<PerAppProxyScreen> {
                                 strings.get('per_app_select_visible'),
                               ),
                             ),
-                            OutlinedButton(
+                            TextButton(
                               onPressed: visible.isEmpty
                                   ? null
                                   : () => setState(() {
@@ -200,34 +209,29 @@ class _PerAppProxyScreenState extends State<PerAppProxyScreen> {
                             ),
                           ],
                         ),
-                        const SizedBox(height: 12),
-                        Text(
-                          strings
-                              .get('per_app_selected_count')
-                              .replaceAll('{count}', '${_selected.length}'),
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                        if (_enabled && !_canSave) ...<Widget>[
-                          const SizedBox(height: 8),
-                          Text(
-                            strings.get('per_app_need_one'),
-                            style: Theme.of(context).textTheme.bodyMedium
-                                ?.copyWith(
-                                  color: Theme.of(context).colorScheme.error,
-                                ),
-                          ),
-                        ],
                       ],
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Panel(
-                    padding: EdgeInsets.zero,
-                    child: _buildAppList(context, visible),
-                  ),
-                ],
+                    BannerSlot(
+                      spacing: 0,
+                      child: _enabled && !_canSave
+                          ? Padding(
+                              padding: const EdgeInsets.only(top: 12),
+                              child: WarningBanner(
+                                title: strings.get('per_app_proxy'),
+                                message: strings.get('per_app_need_one'),
+                                danger: true,
+                              ),
+                            )
+                          : null,
+                    ),
+                  ],
+                ),
               ),
-            ),
+              Panel(
+                padding: EdgeInsets.zero,
+                child: _buildAppList(context, visible),
+              ),
+            ],
           ),
         ],
       ),
@@ -268,11 +272,14 @@ class _PerAppProxyScreenState extends State<PerAppProxyScreen> {
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       itemCount: visible.length,
-      separatorBuilder: (_, _) => const Divider(height: 1),
+      separatorBuilder: (_, _) =>
+          Divider(height: 1, color: UsqueTokens.of(context).hairline),
       itemBuilder: (context, index) {
         final app = visible[index];
         final icon = _icons[app.packageName];
         return CheckboxListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+          shape: const RoundedRectangleBorder(),
           value: _selected.contains(app.packageName),
           onChanged: (checked) {
             setState(() {
@@ -283,16 +290,31 @@ class _PerAppProxyScreenState extends State<PerAppProxyScreen> {
               }
             });
           },
-          secondary: icon == null
-              ? const Icon(LucideIcons.layers3)
-              : Image.memory(
-                  icon,
-                  width: 36,
-                  height: 36,
-                  gaplessPlayback: true,
-                ),
+          secondary: SizedBox(
+            width: 36,
+            height: 36,
+            child: icon == null
+                ? DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surfaceContainerHigh,
+                      borderRadius: BorderRadius.circular(UsqueRadii.chip),
+                    ),
+                    child: const Icon(LucideIcons.layers3, size: 18),
+                  )
+                : ClipRRect(
+                    borderRadius: BorderRadius.circular(UsqueRadii.chip),
+                    child: Image.memory(icon, gaplessPlayback: true),
+                  ),
+          ),
           title: Text(app.label),
-          subtitle: Text(app.packageName),
+          subtitle: Text(
+            app.packageName,
+            style: UsqueTheme.mono(
+              context,
+              size: 11.5,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
         );
       },
     );

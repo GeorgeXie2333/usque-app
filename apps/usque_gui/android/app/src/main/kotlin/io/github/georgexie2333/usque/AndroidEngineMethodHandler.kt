@@ -596,7 +596,11 @@ internal class AndroidEngineMethodHandler(
                     ?: throw IllegalStateException("Rust returned no profile catalog")
                 mainScheduler.post {
                     if (!controlClient.requestReconfigure(profileJson, result)) {
-                        result.success(null)
+                        result.error(
+                            "ENGINE_IPC_UNAVAILABLE",
+                            "The Android VPN process could not receive the reconfigure request.",
+                            null,
+                        )
                     }
                 }
             } catch (error: Exception) {
@@ -815,7 +819,7 @@ internal class AndroidEngineMethodHandler(
                         engineBridge.registerConsumerWarp(locale)
                     } ?: throw IllegalStateException("Rust registration returned no identity")
                 newLicense = licenseKey?.toByteArray(Charsets.UTF_8)
-                newMetadata = consumerIdentityMetadata()
+                newMetadata = consumerIdentityMetadata(newIdentity)
 
                 identityStore.put(
                     profileId,
@@ -1122,7 +1126,7 @@ internal class AndroidEngineMethodHandler(
                                     ?: throw IllegalStateException(
                                         "Rust licensed registration returned no identity",
                                     )
-                            newMetadata = consumerIdentityMetadata()
+                            newMetadata = consumerIdentityMetadata(newIdentity)
                             null
                         }
 
@@ -1156,7 +1160,7 @@ internal class AndroidEngineMethodHandler(
                             newIdentity =
                                 engineBridge.registerConsumerWarp(locale)
                                     ?: throw IllegalStateException("Rust registration returned no identity")
-                            newMetadata = consumerIdentityMetadata()
+                            newMetadata = consumerIdentityMetadata(newIdentity)
                             null
                         }
                     }
@@ -1325,7 +1329,7 @@ internal class AndroidEngineMethodHandler(
                                 ?: throw IllegalStateException(
                                     "Rust licensed registration returned no identity",
                                 )
-                        metadata = consumerIdentityMetadata()
+                        metadata = consumerIdentityMetadata(bytes)
                     }
 
                     "zeroTrust" -> {
@@ -1358,7 +1362,7 @@ internal class AndroidEngineMethodHandler(
                         bytes =
                             engineBridge.registerConsumerWarp(locale)
                                 ?: throw IllegalStateException("Rust registration returned no identity")
-                        metadata = consumerIdentityMetadata()
+                        metadata = consumerIdentityMetadata(bytes)
                     }
                 }
                 remoteRegistered = true
@@ -1475,7 +1479,6 @@ internal class AndroidEngineMethodHandler(
         for (index in 0 until profiles.length()) {
             val profile = profiles.getJSONObject(index)
             val profileId = profile.optString("id")
-            var license: ByteArray? = null
             var pendingCleanup: ByteArray? = null
             val provider = storedIdentityProvider(profileId, profile)
             val state =
@@ -1501,7 +1504,6 @@ internal class AndroidEngineMethodHandler(
                 }
             try {
                 if (profileId.isNotBlank()) {
-                    license = identityStore.get(profileId, SecureIdentityStore.Record.LICENSE)
                     pendingCleanup =
                         identityStore.get(
                             profileId,
@@ -1511,33 +1513,22 @@ internal class AndroidEngineMethodHandler(
             } catch (_: Exception) {
                 // Identity state remains authoritative; optional account metadata degrades safely.
             }
+            val (licenseState, accountType) =
+                when {
+                    provider.provider == "zeroTrust" -> "notApplicable" to "Zero Trust"
+                    provider.entitlement == "warp_plus" -> "warpPlus" to "WARP+"
+                    else -> "free" to "Free"
+                }
             statuses.put(
                 JSONObject()
                     .put("profile_id", profileId)
                     .put("state", state)
-                    .put(
-                        "license_state",
-                        if (provider.provider == "zeroTrust") {
-                            "notApplicable"
-                        } else if (license == null) {
-                            "free"
-                        } else {
-                            "warpPlus"
-                        },
-                    ).put(
-                        "account_type",
-                        if (provider.provider == "zeroTrust") {
-                            "Zero Trust"
-                        } else if (license == null) {
-                            "Free"
-                        } else {
-                            "WARP+"
-                        },
-                    ).put("provider", provider.provider)
+                    .put("license_state", licenseState)
+                    .put("account_type", accountType)
+                    .put("provider", provider.provider)
                     .put("organization", provider.organization ?: "")
                     .put("cleanup_pending", pendingCleanup != null),
             )
-            license?.fill(0)
             pendingCleanup?.fill(0)
         }
         catalog.put("identity_statuses", statuses)
@@ -1548,6 +1539,7 @@ internal class AndroidEngineMethodHandler(
         val organization: String? = null,
         val valid: Boolean = true,
         val repairable: Boolean = valid,
+        val entitlement: String? = null,
     )
 
     private data class ZeroTrustEndpoint(
@@ -1565,8 +1557,27 @@ internal class AndroidEngineMethodHandler(
         }
     }
 
-    private fun consumerIdentityMetadata(): ByteArray =
-        """{"version":1,"provider":"consumer"}""".toByteArray(Charsets.UTF_8)
+    private fun consumerIdentityMetadata(identityJson: ByteArray?): ByteArray {
+        val entitlement =
+            runCatching {
+                identityJson
+                    ?.let { JSONObject(it.toString(Charsets.UTF_8)) }
+                    ?.optString("entitlement")
+            }.getOrNull()
+        return when (entitlement) {
+            "warp_plus" -> {
+                """{"version":1,"provider":"consumer","entitlement":"warp_plus"}"""
+            }
+
+            "free" -> {
+                """{"version":1,"provider":"consumer","entitlement":"free"}"""
+            }
+
+            else -> {
+                """{"version":1,"provider":"consumer"}"""
+            }
+        }.toByteArray(Charsets.UTF_8)
+    }
 
     private fun restoreIdentityRecord(
         profileId: String,
@@ -1825,7 +1836,13 @@ internal class AndroidEngineMethodHandler(
                 } else {
                     when (metadata.optString("provider")) {
                         "consumer" -> {
-                            StoredIdentityProvider("consumer")
+                            StoredIdentityProvider(
+                                "consumer",
+                                entitlement =
+                                    metadata.optString("entitlement").takeIf { value ->
+                                        value == "free" || value == "warp_plus"
+                                    },
+                            )
                         }
 
                         "zero_trust" -> {

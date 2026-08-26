@@ -1,7 +1,10 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/app_strings.dart';
+import '../core/usque_motion.dart';
 import '../core/usque_theme.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
@@ -17,8 +20,14 @@ class OnboardingScreen extends StatefulWidget {
 }
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
+  static const int _stepCount = 4;
+
   final TextEditingController _licenseController = TextEditingController();
   int _step = 0;
+
+  /// Direction of the last step change, so a step slides in from the side the
+  /// user came from.
+  bool _forward = true;
   bool _termsAccepted = false;
   bool _useLicense = false;
   bool _licenseVisible = false;
@@ -33,16 +42,25 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     super.dispose();
   }
 
+  void _goTo(int step) {
+    setState(() {
+      _forward = step > _step;
+      _step = step;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: UsqueTokens.of(context).canvas,
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
             final wide = constraints.maxWidth >= 820;
             return Row(
               children: <Widget>[
-                if (wide) const Expanded(flex: 4, child: _BrandPane()),
+                if (wide)
+                  Expanded(flex: 4, child: _BrandPane(strings: strings)),
                 Expanded(
                   flex: 6,
                   child: Center(
@@ -61,8 +79,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                 children: <Widget>[
                                   Image.asset(
                                     'assets/branding/usque-ui-icon.png',
-                                    width: 46,
-                                    height: 46,
+                                    width: 42,
+                                    height: 42,
+                                    filterQuality: FilterQuality.medium,
                                   ),
                                   const SizedBox(width: 12),
                                   Text(
@@ -73,27 +92,39 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                   ),
                                 ],
                               ),
-                              const SizedBox(height: 36),
+                              const SizedBox(height: 34),
                             ],
-                            _StepIndicator(step: _step, strings: strings),
-                            const SizedBox(height: 32),
-                            AnimatedSwitcher(
-                              duration: const Duration(milliseconds: 220),
-                              child: KeyedSubtree(
-                                key: ValueKey<int>(_step),
+                            _StepIndicator(
+                              step: _step,
+                              total: _stepCount,
+                              strings: strings,
+                            ),
+                            const SizedBox(height: 30),
+                            AnimatedSize(
+                              duration: UsqueMotion.of(
+                                context,
+                                UsqueMotion.gentle,
+                              ),
+                              curve: UsqueMotion.emphasized,
+                              alignment: Alignment.topCenter,
+                              child: _StepTransition(
+                                step: _step,
+                                forward: _forward,
                                 child: _buildStep(context),
                               ),
                             ),
-                            if (widget.controller.lastError !=
-                                null) ...<Widget>[
-                              const SizedBox(height: 20),
-                              WarningBanner(
-                                title: strings.get('setup_failed'),
-                                message: widget.controller.lastError!,
-                                danger: true,
-                                onDismiss: widget.controller.clearError,
-                              ),
-                            ],
+                            const SizedBox(height: 20),
+                            BannerSlot(
+                              spacing: 0,
+                              child: widget.controller.lastError == null
+                                  ? null
+                                  : WarningBanner(
+                                      title: strings.get('setup_failed'),
+                                      message: widget.controller.lastError!,
+                                      danger: true,
+                                      onDismiss: widget.controller.clearError,
+                                    ),
+                            ),
                             const SizedBox(height: 28),
                             _buildActions(context),
                           ],
@@ -127,12 +158,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         onMethodChanged: (value) => setState(() => _useLicense = value),
         onVisibilityChanged: () =>
             setState(() => _licenseVisible = !_licenseVisible),
+        onLicenseChanged: (_) => setState(() {}),
       ),
     };
   }
 
   Widget _buildActions(BuildContext context) {
-    final isLast = _step == 3;
+    final isLast = _step == _stepCount - 1;
     final canContinue = switch (_step) {
       2 => _termsAccepted,
       3 => !_useLicense || _licenseController.text.trim().isNotEmpty,
@@ -142,9 +174,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       children: <Widget>[
         if (_step > 0)
           OutlinedButton.icon(
-            onPressed: widget.controller.busy
-                ? null
-                : () => setState(() => _step--),
+            onPressed: widget.controller.busy ? null : () => _goTo(_step - 1),
             icon: const Icon(LucideIcons.arrowLeft),
             label: Text(strings.get('back')),
           ),
@@ -154,7 +184,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               ? null
               : () async {
                   if (!isLast) {
-                    setState(() => _step++);
+                    _goTo(_step + 1);
                     return;
                   }
                   final value = _useLicense
@@ -169,12 +199,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   _licenseController.clear();
                 },
           icon: widget.controller.busy
-              ? const SizedBox(
+              ? SizedBox(
                   width: 18,
                   height: 18,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
-                    color: Colors.white,
+                    color: Theme.of(context).colorScheme.onPrimary,
                   ),
                 )
               : Icon(isLast ? LucideIcons.shieldCheck : LucideIcons.arrowRight),
@@ -185,58 +215,116 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 }
 
-class _BrandPane extends StatelessWidget {
-  const _BrandPane();
+/// Slides one step out and the next one in, in the direction of travel.
+class _StepTransition extends StatelessWidget {
+  const _StepTransition({
+    required this.step,
+    required this.forward,
+    required this.child,
+  });
+
+  final int step;
+  final bool forward;
+  final Widget child;
 
   @override
   Widget build(BuildContext context) {
-    return ColoredBox(
-      color: Theme.of(context).brightness == Brightness.dark
-          ? const Color(0xFF23160E)
-          : const Color(0xFFFFF0E3),
+    final Key key = ValueKey<int>(step);
+    final double travel = forward ? 0.05 : -0.05;
+    return AnimatedSwitcher(
+      duration: UsqueMotion.of(context, UsqueMotion.gentle),
+      switchInCurve: UsqueMotion.emphasized,
+      switchOutCurve: UsqueMotion.exit,
+      layoutBuilder: (currentChild, previousChildren) => Stack(
+        alignment: Alignment.topLeft,
+        children: <Widget>[...previousChildren, ?currentChild],
+      ),
+      transitionBuilder: (child, animation) {
+        final bool incoming = child.key == key;
+        return FadeTransition(
+          opacity: animation,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: Offset(incoming ? travel : -travel, 0),
+              end: Offset.zero,
+            ).animate(animation),
+            child: child,
+          ),
+        );
+      },
+      child: KeyedSubtree(key: key, child: child),
+    );
+  }
+}
+
+/// Left half of the setup window: the mark, a quiet instrument motif, and the
+/// one disclaimer every user should read before they connect.
+class _BrandPane extends StatelessWidget {
+  const _BrandPane({required this.strings});
+
+  final AppStrings strings;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final UsqueTokens tokens = UsqueTokens.of(context);
+    final bool dark = theme.brightness == Brightness.dark;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: dark
+              ? const <Color>[Color(0xFF1C120A), Color(0xFF121214)]
+              : const <Color>[Color(0xFFFFF3E8), Color(0xFFF7F5F0)],
+        ),
+        border: Border(right: BorderSide(color: tokens.hairline)),
+      ),
       child: Stack(
         fit: StackFit.expand,
         children: <Widget>[
           Positioned(
-            top: -140,
-            left: -110,
-            child: Container(
-              width: 420,
-              height: 420,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: UsqueColors.orange.withValues(alpha: 0.13),
-              ),
-            ),
-          ),
-          Positioned(
-            right: -100,
-            bottom: -180,
-            child: Container(
-              width: 460,
-              height: 460,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: UsqueColors.orange.withValues(alpha: 0.09),
+            right: -170,
+            top: 90,
+            width: 460,
+            height: 460,
+            child: RepaintBoundary(
+              child: CustomPaint(
+                painter: _BrandMotifPainter(
+                  accent: tokens.brand,
+                  track: tokens.hairlineStrong,
+                ),
               ),
             ),
           ),
           Padding(
-            padding: const EdgeInsets.all(56),
+            padding: const EdgeInsets.all(48),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Image.asset(
                   'assets/branding/usque-ui-icon.png',
-                  width: 84,
-                  height: 84,
+                  width: 72,
+                  height: 72,
+                  filterQuality: FilterQuality.medium,
                 ),
                 const Spacer(),
                 Text(
                   'Usque',
-                  style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                    fontSize: 48,
-                    color: Theme.of(context).colorScheme.onSurface,
+                  style: theme.textTheme.displayMedium?.copyWith(
+                    color: theme.colorScheme.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 320),
+                  child: Text(
+                    strings.get('unofficial'),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                      height: 1.5,
+                    ),
                   ),
                 ),
               ],
@@ -248,36 +336,119 @@ class _BrandPane extends StatelessWidget {
   }
 }
 
+/// Concentric bezels, echoing the connection ring the user is about to meet.
+class _BrandMotifPainter extends CustomPainter {
+  const _BrandMotifPainter({required this.accent, required this.track});
+
+  final Color accent;
+  final Color track;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final Offset center = size.center(Offset.zero);
+    final double outer = size.shortestSide / 2;
+
+    canvas.drawCircle(
+      center,
+      outer,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1
+        ..color = track.withValues(alpha: 0.5),
+    );
+    canvas.drawCircle(
+      center,
+      outer * 0.72,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.4
+        ..color = accent.withValues(alpha: 0.28),
+    );
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: outer * 0.54),
+      -math.pi / 2,
+      math.pi * 0.75,
+      false,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.4
+        ..strokeCap = StrokeCap.round
+        ..color = accent.withValues(alpha: 0.5),
+    );
+
+    final Paint tick = Paint()
+      ..strokeWidth = 1.2
+      ..strokeCap = StrokeCap.round
+      ..color = track.withValues(alpha: 0.65);
+    for (int i = 0; i < 48; i += 1) {
+      final double angle = -math.pi / 2 + (i / 48) * 2 * math.pi;
+      final Offset direction = Offset(math.cos(angle), math.sin(angle));
+      final double length = i % 4 == 0 ? 11 : 6;
+      canvas.drawLine(
+        center + direction * (outer * 0.88 - length),
+        center + direction * (outer * 0.88),
+        tick,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _BrandMotifPainter oldDelegate) =>
+      oldDelegate.accent != accent || oldDelegate.track != track;
+}
+
 class _StepIndicator extends StatelessWidget {
-  const _StepIndicator({required this.step, required this.strings});
+  const _StepIndicator({
+    required this.step,
+    required this.total,
+    required this.strings,
+  });
 
   final int step;
+  final int total;
   final AppStrings strings;
 
   @override
   Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final UsqueTokens tokens = UsqueTokens.of(context);
     return Semantics(
       label: strings
           .get('setup_progress')
           .replaceAll('{current}', '${step + 1}')
-          .replaceAll('{total}', '4'),
-      child: Row(
-        children: List<Widget>.generate(4, (index) {
-          final active = index <= step;
-          return Expanded(
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              height: 4,
-              margin: EdgeInsets.only(right: index == 3 ? 0 : 8),
-              decoration: BoxDecoration(
-                color: active
-                    ? Theme.of(context).colorScheme.secondary
-                    : Theme.of(context).colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(4),
-              ),
+          .replaceAll('{total}', '$total'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: List<Widget>.generate(total, (index) {
+              final bool reached = index <= step;
+              return Expanded(
+                child: AnimatedContainer(
+                  duration: UsqueMotion.of(context, UsqueMotion.base),
+                  curve: UsqueMotion.emphasized,
+                  height: 3,
+                  margin: EdgeInsetsDirectional.only(
+                    end: index == total - 1 ? 0 : 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: reached ? tokens.brand : tokens.hairlineStrong,
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                ),
+              );
+            }),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            '${step + 1} / $total',
+            style: UsqueTheme.mono(
+              context,
+              size: 12,
+              color: theme.colorScheme.onSurfaceVariant,
             ),
-          );
-        }),
+          ),
+        ],
       ),
     );
   }
@@ -292,31 +463,30 @@ class _StepHeading extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        DecoratedBox(
+        Container(
+          width: 46,
+          height: 46,
+          alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.secondaryContainer,
-            borderRadius: BorderRadius.circular(18),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(15),
-            child: Icon(
-              icon,
-              color: Theme.of(context).colorScheme.onSecondaryContainer,
-              size: 28,
+            color: theme.colorScheme.primary.withValues(
+              alpha: UsqueTokens.of(context).tint,
             ),
+            borderRadius: BorderRadius.circular(UsqueRadii.control),
           ),
+          child: Icon(icon, color: theme.colorScheme.primary, size: 22),
         ),
-        const SizedBox(height: 24),
-        Text(title, style: Theme.of(context).textTheme.headlineMedium),
+        const SizedBox(height: 22),
+        Text(title, style: theme.textTheme.headlineMedium),
         if (body case final body?) ...<Widget>[
           const SizedBox(height: 12),
           Text(
             body,
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            style: theme.textTheme.bodyLarge?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
         ],
@@ -335,6 +505,7 @@ class _IntroStep extends StatelessWidget {
     return _StepHeading(
       icon: LucideIcons.sparkles,
       title: strings.get('welcome_title'),
+      body: strings.get('unofficial'),
     );
   }
 }
@@ -356,7 +527,7 @@ class _PermissionsStep extends StatelessWidget {
         ),
         const SizedBox(height: 22),
         WarningBanner(
-          title: strings.get('permissions_title'),
+          title: strings.get('heads_up'),
           message: strings.get('permission_note'),
         ),
       ],
@@ -385,13 +556,16 @@ class _TermsStep extends StatelessWidget {
           title: strings.get('terms_title'),
           body: strings.get('terms_body'),
         ),
-        const SizedBox(height: 24),
-        CheckboxListTile(
-          contentPadding: EdgeInsets.zero,
-          controlAffinity: ListTileControlAffinity.leading,
-          value: accepted,
-          onChanged: (value) => onChanged(value ?? false),
-          title: Text(strings.get('terms_accept')),
+        const SizedBox(height: 18),
+        Panel(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          child: CheckboxListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+            controlAffinity: ListTileControlAffinity.leading,
+            value: accepted,
+            onChanged: (value) => onChanged(value ?? false),
+            title: Text(strings.get('terms_accept')),
+          ),
         ),
       ],
     );
@@ -406,6 +580,7 @@ class _IdentityStep extends StatelessWidget {
     required this.licenseController,
     required this.onMethodChanged,
     required this.onVisibilityChanged,
+    required this.onLicenseChanged,
   });
 
   final AppStrings strings;
@@ -414,6 +589,7 @@ class _IdentityStep extends StatelessWidget {
   final TextEditingController licenseController;
   final ValueChanged<bool> onMethodChanged;
   final VoidCallback onVisibilityChanged;
+  final ValueChanged<String> onLicenseChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -424,7 +600,7 @@ class _IdentityStep extends StatelessWidget {
           icon: LucideIcons.keyRound,
           title: strings.get('identity_title'),
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 22),
         SegmentedButton<bool>(
           segments: <ButtonSegment<bool>>[
             ButtonSegment<bool>(
@@ -442,28 +618,35 @@ class _IdentityStep extends StatelessWidget {
           onSelectionChanged: (selection) => onMethodChanged(selection.first),
           showSelectedIcon: false,
         ),
-        if (useLicense) ...<Widget>[
-          const SizedBox(height: 20),
-          TextField(
-            controller: licenseController,
-            obscureText: !licenseVisible,
-            enableSuggestions: false,
-            autocorrect: false,
-            onChanged: (_) => (context as Element).markNeedsBuild(),
-            decoration: InputDecoration(
-              labelText: strings.get('warp_license_key'),
-              suffixIcon: IconButton(
-                tooltip: strings.get(
-                  licenseVisible ? 'hide_license' : 'show_license',
+        AnimatedSize(
+          duration: UsqueMotion.of(context, UsqueMotion.gentle),
+          curve: UsqueMotion.emphasized,
+          alignment: Alignment.topCenter,
+          child: !useLicense
+              ? const SizedBox(width: double.infinity)
+              : Padding(
+                  padding: const EdgeInsets.only(top: 20),
+                  child: TextField(
+                    controller: licenseController,
+                    obscureText: !licenseVisible,
+                    enableSuggestions: false,
+                    autocorrect: false,
+                    onChanged: onLicenseChanged,
+                    decoration: InputDecoration(
+                      labelText: strings.get('warp_license_key'),
+                      suffixIcon: IconButton(
+                        tooltip: strings.get(
+                          licenseVisible ? 'hide_license' : 'show_license',
+                        ),
+                        onPressed: onVisibilityChanged,
+                        icon: Icon(
+                          licenseVisible ? LucideIcons.eyeOff : LucideIcons.eye,
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
-                onPressed: onVisibilityChanged,
-                icon: Icon(
-                  licenseVisible ? LucideIcons.eyeOff : LucideIcons.eye,
-                ),
-              ),
-            ),
-          ),
-        ],
+        ),
       ],
     );
   }
