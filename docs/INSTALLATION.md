@@ -1,15 +1,15 @@
 # Installation and removal
 
-Install only packages from this repository's [GitHub Releases page](https://github.com/GeorgeXie2333/usque-app/releases) for `v0.2.0`.
+Install only packages from this repository's [GitHub Releases page](https://github.com/GeorgeXie2333/usque-app/releases) for `v0.2.1`.
 
 ## Official packages
 
-- `usque-v0.2.0-windows-x64-v2.msi`
-- `usque-v0.2.0-windows-arm64.msi`
-- `usque-v0.2.0-android-arm64-v8a.apk`
-- `usque-v0.2.0-android-x86_64.apk`
-- `usque-v0.2.0-android-armeabi-v7a.apk`
-- `usque-v0.2.0-android-universal.apk`
+- `usque-v0.2.1-windows-x64-v2.msi`
+- `usque-v0.2.1-windows-arm64.msi`
+- `usque-v0.2.1-android-arm64-v8a.apk`
+- `usque-v0.2.1-android-x86_64.apk`
+- `usque-v0.2.1-android-armeabi-v7a.apk`
+- `usque-v0.2.1-android-universal.apk`
 
 The GitHub Release attaches only those six packages. GitHub shows a SHA-256 for each asset. Signer fingerprints, SBOMs, and build provenance stay in the release notes and GitHub attestations. A local validation package, Actions development output, fork artifact, or a file from somewhere else is not an official release. Official identities and fingerprint rules are in [CODE_SIGNING.md](CODE_SIGNING.md).
 

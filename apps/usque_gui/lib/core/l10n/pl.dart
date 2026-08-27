@@ -277,7 +277,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'diagnostics_subtitle': 'Stan silnika, eksport dzienników i dane lokalne.',
   'engine_status': 'Stan silnika',
   'version': 'Wersja',
-  'app_version': 'Usque 0.2.0',
+  'app_version': 'Usque 0.2.1',
   'logs': 'Dzienniki lokalne',
   'export_diagnostics': 'Eksportuj pakiet diagnostyczny',
   'diagnostics_saved': 'Pakiet diagnostyczny zapisano w',

@@ -274,7 +274,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'diagnostics_subtitle': 'وضعیت موتور، صادر کردن گزارش و داده‌های محلی.',
   'engine_status': 'وضعیت موتور',
   'version': 'نسخه',
-  'app_version': 'Usque 0.2.0',
+  'app_version': 'Usque 0.2.1',
   'logs': 'گزارش‌های محلی',
   'export_diagnostics': 'صادر کردن بستهٔ عیب‌یابی',
   'diagnostics_saved': 'بستهٔ عیب‌یابی ذخیره شد در',

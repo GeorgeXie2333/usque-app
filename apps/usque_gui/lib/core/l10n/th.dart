@@ -273,7 +273,7 @@ const Map<String, String> kThCatalog = <String, String>{
   'diagnostics_subtitle': 'สถานะเอนจิน การส่งออกบันทึก และข้อมูลในเครื่อง',
   'engine_status': 'สถานะเอนจิน',
   'version': 'เวอร์ชัน',
-  'app_version': 'Usque 0.2.0',
+  'app_version': 'Usque 0.2.1',
   'logs': 'บันทึกในเครื่อง',
   'export_diagnostics': 'ส่งออกชุดการวินิจฉัย',
   'diagnostics_saved': 'บันทึกชุดการวินิจฉัยไปที่',

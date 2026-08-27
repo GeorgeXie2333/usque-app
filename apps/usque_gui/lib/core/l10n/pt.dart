@@ -279,7 +279,7 @@ const Map<String, String> kPtCatalog = <String, String>{
       'Estado do Engine, exportação de logs e dados locais.',
   'engine_status': 'Status do Engine',
   'version': 'Versão',
-  'app_version': 'Usque 0.2.0',
+  'app_version': 'Usque 0.2.1',
   'logs': 'Logs locais',
   'export_diagnostics': 'Exportar pacote de diagnóstico',
   'diagnostics_saved': 'Pacote de diagnóstico salvo em',

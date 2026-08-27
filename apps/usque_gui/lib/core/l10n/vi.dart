@@ -273,7 +273,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'diagnostics_subtitle': 'Trạng thái engine, xuất nhật ký và dữ liệu cục bộ.',
   'engine_status': 'Trạng thái engine',
   'version': 'Phiên bản',
-  'app_version': 'Usque 0.2.0',
+  'app_version': 'Usque 0.2.1',
   'logs': 'Nhật ký cục bộ',
   'export_diagnostics': 'Xuất gói chẩn đoán',
   'diagnostics_saved': 'Đã lưu gói chẩn đoán vào',

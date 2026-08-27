@@ -57,7 +57,7 @@ Package the local validation MSI only after Rust tests/Clippy and Flutter checks
 ```powershell
 & .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction test
 & .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction clippy
-& .\tool\build_windows_local_validation.ps1 -Variant x64-v2 -Version "0.2.0"
+& .\tool\build_windows_local_validation.ps1 -Variant x64-v2 -Version "0.2.1"
 ```
 
 The packaging script creates one temporary self-signed identity, signs the copied payload and MSI, validates the MSI tables, then removes the private key and temporary trust entries. Certificate-store access may need an approved elevated run. Never install the produced MSI automatically.

@@ -265,7 +265,7 @@ const Map<String, String> kKoCatalog = <String, String>{
   'diagnostics_subtitle': '엔진 상태, 로그 내보내기, 로컬 데이터입니다.',
   'engine_status': '엔진 상태',
   'version': '버전',
-  'app_version': 'Usque 0.2.0',
+  'app_version': 'Usque 0.2.1',
   'logs': '로컬 로그',
   'export_diagnostics': '진단 번들 내보내기',
   'diagnostics_saved': '진단 번들을 저장한 위치',

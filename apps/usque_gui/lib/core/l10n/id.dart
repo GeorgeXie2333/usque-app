@@ -274,7 +274,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'diagnostics_subtitle': 'Status Engine, ekspor log, dan data lokal.',
   'engine_status': 'Status Engine',
   'version': 'Versi',
-  'app_version': 'Usque 0.2.0',
+  'app_version': 'Usque 0.2.1',
   'logs': 'Log lokal',
   'export_diagnostics': 'Ekspor bundel diagnostik',
   'diagnostics_saved': 'Bundel diagnostik disimpan ke',
