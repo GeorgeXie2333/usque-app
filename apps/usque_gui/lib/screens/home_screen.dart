@@ -438,30 +438,28 @@ class _FrontendChips extends StatelessWidget {
         ),
       );
     }
-    final chips = enabled
-        .map((entry) {
-          final FrontendPhase? phase = entry.value;
-          final bool active = phase == FrontendPhase.active;
-          final bool degraded =
-              phase == FrontendPhase.degraded ||
-              phase == FrontendPhase.reconnecting ||
-              phase == FrontendPhase.error;
-          return StatusPill(
-            label: switch (entry.key) {
-              FrontendKind.tunnel => strings.get('tunnel_output'),
-              FrontendKind.socks5 => 'SOCKS5',
-              FrontendKind.http => 'HTTP',
-              FrontendKind.systemProxy => strings.get('system_proxy'),
-            },
-            tone: degraded
-                ? StatusTone.warning
-                : active
-                ? StatusTone.success
-                : StatusTone.neutral,
-            dim: !active && !degraded,
-          );
-        })
-        .toList();
+    final chips = enabled.map((entry) {
+      final FrontendPhase? phase = entry.value;
+      final bool active = phase == FrontendPhase.active;
+      final bool degraded =
+          phase == FrontendPhase.degraded ||
+          phase == FrontendPhase.reconnecting ||
+          phase == FrontendPhase.error;
+      return StatusPill(
+        label: switch (entry.key) {
+          FrontendKind.tunnel => strings.get('tunnel_output'),
+          FrontendKind.socks5 => 'SOCKS5',
+          FrontendKind.http => 'HTTP',
+          FrontendKind.systemProxy => strings.get('system_proxy'),
+        },
+        tone: degraded
+            ? StatusTone.warning
+            : active
+            ? StatusTone.success
+            : StatusTone.neutral,
+        dim: !active && !degraded,
+      );
+    }).toList();
     if (view.geoDirect.isNotEmpty) {
       final codes = view.geoDirect.split(',');
       final label = codes.contains('CN') ? 'CN' : codes.first;

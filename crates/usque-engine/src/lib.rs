@@ -773,6 +773,7 @@ impl ControlService {
         self.event_sequence.fetch_add(1, Ordering::Relaxed) + 1
     }
 
+    #[cfg(any(windows, test))]
     pub(crate) fn subscribe_geo_progress(
         &self,
     ) -> tokio::sync::broadcast::Receiver<v1::GeoRulesProgress> {

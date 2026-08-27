@@ -434,7 +434,9 @@ class MethodChannelEngineClient implements EngineClient {
   }
 
   @override
-  Future<List<GeoRulesUpdateResult>> downloadGeoRules(String countryCode) async {
+  Future<List<GeoRulesUpdateResult>> downloadGeoRules(
+    String countryCode,
+  ) async {
     final result = await _invoke<Map<Object?, Object?>>(
       'downloadGeoRules',
       <String, Object>{'country_code': countryCode},

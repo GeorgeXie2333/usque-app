@@ -151,19 +151,22 @@ void main() {
       expect(catalog.profiles.single.geoDirectCountries, isEmpty);
     });
 
-    test('legacy profile bytes without field 16 decode empty geo countries', () {
-      final catalogBody = ControlPayloadWriter()
-        ..message(1, Uint8List.fromList(_goldenProfileBytes))
-        ..string(2, 'p');
-      final responseBody = ControlPayloadWriter()
-        ..string(1, 'r2')
-        ..message(12, catalogBody.takeBytes());
-      final catalog = debugDecodeProfileCatalogFrame(
-        codec.frame(responseBody.takeBytes()),
-        'r2',
-      );
-      expect(catalog.profiles.single.geoDirectCountries, isEmpty);
-    });
+    test(
+      'legacy profile bytes without field 16 decode empty geo countries',
+      () {
+        final catalogBody = ControlPayloadWriter()
+          ..message(1, Uint8List.fromList(_goldenProfileBytes))
+          ..string(2, 'p');
+        final responseBody = ControlPayloadWriter()
+          ..string(1, 'r2')
+          ..message(12, catalogBody.takeBytes());
+        final catalog = debugDecodeProfileCatalogFrame(
+          codec.frame(responseBody.takeBytes()),
+          'r2',
+        );
+        expect(catalog.profiles.single.geoDirectCountries, isEmpty);
+      },
+    );
 
     test('geo_direct_countries field 16 round-trips', () {
       const profile = UsqueProfile(
