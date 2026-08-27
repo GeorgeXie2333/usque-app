@@ -63,6 +63,8 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] Interoperate SOCKS5 TCP and UDP over forced H3 and forced H2 live paths without TUN.
 - [x] Implement HTTP CONNECT and ordinary Forward with bounded parsing and strict body framing.
 - [x] Interoperate HTTP CONNECT and Forward over forced H3 and forced H2 live paths without TUN.
+- [x] Download bounded GEO rule data from allowlisted jsDelivr paths, verify per-country GeoIP and the global V2Fly `dlc.dat` checksum/content, atomically retain the last valid cache, and load immutable fail-closed classifiers.
+- [x] Route selected SOCKS5 TCP/UDP and HTTP destinations over protected direct sockets, using GeoSite for hostnames and GeoIP for literals, with MASQUE fallback on direct setup failure.
 - [x] Replace fixed 64 KiB proxy TCP windows with bounded preferred/fallback tiers,
   CUBIC, disabled Nagle, 128 KiB bidirectional relays, and a 1024-packet pipe.
 - [x] Reuse up to two idle HTTP/1.1 upstream connections per authority within each
@@ -82,6 +84,8 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] Narrow Windows service/agent IPC with SID, executable-path, and Authenticode signer checks.
 - [x] Implement Wintun session ownership, shared-memory packet rings, endpoint bypass, dual-stack route/DNS plans, and a write-ahead cleanup journal.
 - [x] Implement a persistent Windows Filtering Platform Kill Switch and fail-closed Agent/Engine reattachment after either process restarts.
+- [x] Add Agent protocol v3 physical-DNS snapshots and reference-counted, pipe-leased exact WFP permits so Windows TUN can route GeoSite/GeoIP hits directly without a broad Engine egress rule.
+- [x] Run bounded UDP/TCP Split DNS at `198.18.0.1` / `fd00::1`, classify QNAME before upstream selection, retry truncated UDP over TCP, and cache only question-reachable A/AAAA hints.
 - [x] Credential Manager vault backend for all identity record types.
 - [x] Export a saved Secret only after explicit confirmation to a user-selected destination, without revealing it in the UI or diagnostics.
 - [x] Implement transactional system-proxy snapshot, apply, and crash/uninstall recovery.
@@ -107,6 +111,8 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] Automatic Consumer registration through Rust before Android Keystore persistence.
 - [x] Export a saved Secret through Android SAF after explicit confirmation, without revealing it in the UI or diagnostics.
 - [x] Implement `VpnService.Builder` address/DNS setup, API 26–32 CIDR complements, API 33+ exclusions, a 256-route ceiling, retained TUN reconnects, `protect(fd)`, and underlying-network rebinding.
+- [x] Terminate GeoIP- or GeoSite-hint-selected Android TUN TCP/UDP flows in a bounded userspace gateway and relay them through protected sockets bound to the selected physical network.
+- [x] Snapshot Android `LinkProperties.dnsServers`, publish internal Split DNS routes, and fail VPN startup if a valid physical DNS path is unavailable.
 - [x] Add device-scoped Android per-app proxy (include-only `addAllowedApplication`) stored in app settings, not the Profile.
 - [x] Fail-closed Android reconnect: retain the TUN fd when Kill Switch is armed and the address/DNS/MTU/route identity is unchanged; establish a replacement TUN before closing the old one when that identity changes.
 - [x] Expose Android start-on-boot, Quick Settings tile request, and a deep link to system Always-on VPN settings.
@@ -142,13 +148,14 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] Keep identity plaintext hidden while supporting explicit, confirmed Secret export to a user-selected destination.
 - [x] Add per-Profile output toggles, frontend status chips, shared-session totals, WARP License Key management, and platform quick actions.
 - [x] Apply online output changes through a rollback-capable desktop reconnect or one controlled Android reconnect.
-- [x] Keep the MASQUE session across SOCKS/HTTP listener changes, Windows system-proxy lease changes, and VPN attach/detach; advertise `hot_reconfigure`.
+- [x] Keep the MASQUE session across SOCKS/HTTP listener changes, Windows system-proxy lease changes, and VPN attach/detach when GEO routing is disabled; reconnect when a mode-dependent GEO gateway must be rebuilt; advertise `hot_reconfigure`.
 - [x] Surface real Kill Switch / Always-on / Lockdown state on Home and wire Retry to the existing control retry path.
 - [x] Honor profile `auto_connect` once at process start (and Android boot when start-on-boot is also on).
 - [x] Replace controlled reconnects with true no-drop frontend hot mutation while retaining the same MASQUE channel.
 - [x] Fetch fixed-version `flag-icons` SVG through the active tunnel, validate it, cache it, and return SVG bytes to Flutter.
 - [x] Add diagnostics content review plus Windows and Android native save pickers; exported bundles contain bounded sanitized summaries and logs.
 - [x] Add manual and rate-limited automatic GitHub release checks without automatic installation.
+- [x] Add the direct-country rule download/update/search panel, cached-state gating, partial-result feedback, and accessible enable controls.
 - [x] Add privacy-filtered 7-day/20-MiB JSON log rotation on Windows and Android.
 - [x] Add widget tests for Simplified Chinese dark mode at 200% scaling and Android TV D-pad navigation.
 - [ ] Add deterministic pixel-golden coverage for every declared theme, locale, and viewport matrix.

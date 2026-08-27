@@ -8,7 +8,12 @@
 //! are persistent, so Engine/UI/Agent crashes remain fail-closed.
 
 use std::{
-    collections::BTreeSet, ffi::c_void, net::IpAddr, os::windows::ffi::OsStrExt, path::Path, ptr,
+    collections::BTreeSet,
+    ffi::c_void,
+    net::{IpAddr, SocketAddr},
+    os::windows::ffi::OsStrExt,
+    path::Path,
+    ptr,
 };
 
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
@@ -31,9 +36,10 @@ use windows_sys::{
             FWPM_CONDITION_IP_REMOTE_PORT, FWPM_DISPLAY_DATA0, FWPM_FILTER_CONDITION0,
             FWPM_FILTER_FLAG_PERSISTENT, FWPM_FILTER0, FWPM_LAYER_ALE_AUTH_CONNECT_V4,
             FWPM_LAYER_ALE_AUTH_CONNECT_V6, FWPM_PROVIDER_FLAG_PERSISTENT, FWPM_PROVIDER0,
-            FWPM_SUBLAYER_FLAG_PERSISTENT, FWPM_SUBLAYER0, FwpmEngineClose0, FwpmEngineOpen0,
-            FwpmFilterAdd0, FwpmFilterDeleteByKey0, FwpmFreeMemory0, FwpmGetAppIdFromFileName0,
-            FwpmProviderAdd0, FwpmProviderDeleteByKey0, FwpmSubLayerAdd0, FwpmSubLayerDeleteByKey0,
+            FWPM_SESSION_FLAG_DYNAMIC, FWPM_SESSION0, FWPM_SUBLAYER_FLAG_PERSISTENT,
+            FWPM_SUBLAYER0, FwpmEngineClose0, FwpmEngineOpen0, FwpmFilterAdd0,
+            FwpmFilterDeleteByKey0, FwpmFreeMemory0, FwpmGetAppIdFromFileName0, FwpmProviderAdd0,
+            FwpmProviderDeleteByKey0, FwpmSubLayerAdd0, FwpmSubLayerDeleteByKey0,
             FwpmTransactionAbort0, FwpmTransactionBegin0, FwpmTransactionCommit0,
         },
         Networking::WinSock::{IPPROTO_ICMPV6, IPPROTO_TCP, IPPROTO_UDP},
@@ -115,6 +121,7 @@ pub fn apply_kill_switch(
             index,
             rule,
             application_id.as_ptr(),
+            FWPM_FILTER_FLAG_PERSISTENT,
         )?);
     }
     transaction.commit()?;
@@ -455,6 +462,7 @@ fn add_filter(
     index: usize,
     rule: &FilterRule,
     application_id: *mut FWP_BYTE_BLOB,
+    flags: u32,
 ) -> Result<u64, WfpError> {
     let mut compiled = CompiledConditions::new(application_id);
     for condition in &rule.conditions {
@@ -469,7 +477,7 @@ fn add_filter(
             name: name.as_mut_ptr(),
             description: description.as_mut_ptr(),
         },
-        flags: FWPM_FILTER_FLAG_PERSISTENT,
+        flags,
         providerKey: &mut provider_guid,
         layerKey: match rule.family {
             AddressFamily::V4 => FWPM_LAYER_ALE_AUTH_CONNECT_V4,
@@ -501,6 +509,93 @@ fn add_filter(
         return Err(WfpError::EmptyFilterId);
     }
     Ok(filter_id)
+}
+
+/// A non-persistent, exact WFP permit. Closing the dynamic WFP session removes
+/// the filter even when the Engine pipe disappears or the Agent is terminated.
+pub struct DynamicPermit {
+    engine: WfpEngine,
+    filter_key: Uuid,
+}
+
+// SAFETY: the session handle is owned exclusively by this value and no method
+// invokes it through a shared reference, so transferring ownership is safe.
+unsafe impl Send for DynamicPermit {}
+// SAFETY: immutable sharing cannot access the session handle; Drop requires an
+// exclusive reference and therefore runs only after all shared borrows end.
+unsafe impl Sync for DynamicPermit {}
+
+impl Drop for DynamicPermit {
+    fn drop(&mut self) {
+        // Best-effort eager cleanup. Dynamic-session close below is the
+        // authoritative crash-safe cleanup path.
+        // SAFETY: the engine session remains open for this synchronous call,
+        // and the temporary GUID is valid for the duration of the call.
+        unsafe {
+            FwpmFilterDeleteByKey0(self.engine.0, &guid_from_uuid(self.filter_key));
+        }
+    }
+}
+
+pub fn acquire_dynamic_permit(
+    remote: SocketAddr,
+    protocol: u8,
+    interface_luid: u64,
+    engine_path: &Path,
+) -> Result<DynamicPermit, WfpError> {
+    if interface_luid == 0 {
+        return Err(WfpError::EmptyLuid);
+    }
+    if !engine_path.is_absolute() {
+        return Err(WfpError::EnginePath);
+    }
+    let rule = dynamic_direct_rule(remote, protocol, interface_luid)?;
+    let engine = WfpEngine::open_dynamic()?;
+    let application_id = ApplicationId::from_path(engine_path)?;
+    let filter_key = Uuid::new_v4();
+    add_filter(
+        &engine,
+        PROVIDER_KEY,
+        SUBLAYER_KEY,
+        filter_key,
+        0,
+        &rule,
+        application_id.as_ptr(),
+        0,
+    )?;
+    Ok(DynamicPermit { engine, filter_key })
+}
+
+fn dynamic_direct_rule(
+    remote: SocketAddr,
+    protocol: u8,
+    interface_luid: u64,
+) -> Result<FilterRule, WfpError> {
+    if remote.port() == 0
+        || remote.ip().is_unspecified()
+        || remote.ip().is_multicast()
+        || !matches!(protocol, value if value == IPPROTO_TCP as u8 || value == IPPROTO_UDP as u8)
+    {
+        return Err(WfpError::UnsafeDynamicTarget);
+    }
+    if interface_luid == 0 {
+        return Err(WfpError::EmptyLuid);
+    }
+    Ok(permit(
+        if remote.is_ipv4() {
+            AddressFamily::V4
+        } else {
+            AddressFamily::V6
+        },
+        &format!("Dynamic direct {remote}/{protocol}"),
+        vec![
+            ConditionSpec::ApplicationId,
+            ConditionSpec::InterfaceLuid(interface_luid),
+            ConditionSpec::RemoteNetwork(host_network(remote.ip())),
+            ConditionSpec::RemotePort(remote.port()),
+            ConditionSpec::Protocol(protocol),
+        ],
+    ))
 }
 
 // Each box gives WFP condition unions a stable pointee while their owning
@@ -702,6 +797,29 @@ impl WfpEngine {
             Ok(Self(handle))
         }
     }
+
+    fn open_dynamic() -> Result<Self, WfpError> {
+        let mut handle: HANDLE = ptr::null_mut();
+        let session = FWPM_SESSION0 {
+            flags: FWPM_SESSION_FLAG_DYNAMIC,
+            ..Default::default()
+        };
+        // SAFETY: session is fully initialized and handle is writable.
+        check("FwpmEngineOpen0 (dynamic)", unsafe {
+            FwpmEngineOpen0(
+                ptr::null(),
+                RPC_C_AUTHN_WINNT,
+                ptr::null(),
+                &session,
+                &mut handle,
+            )
+        })?;
+        if handle.is_null() {
+            Err(WfpError::EmptyEngineHandle)
+        } else {
+            Ok(Self(handle))
+        }
+    }
 }
 
 impl Drop for WfpEngine {
@@ -853,6 +971,8 @@ pub enum WfpError {
     EmptyEngineHandle,
     #[error("WFP did not return a persistent filter ID")]
     EmptyFilterId,
+    #[error("dynamic direct target must be a usable numeric TCP/UDP endpoint")]
+    UnsafeDynamicTarget,
     #[error("invalid built-in network prefix: {0}")]
     StaticNetwork(&'static str),
 }
@@ -881,6 +1001,7 @@ mod tests {
             split_exclusions: vec![IpNet::from_str("198.51.100.0/24").expect("CIDR")],
             allow_lan,
             kill_switch: true,
+            split_dns: false,
             assigned_ipv4: Some(IpNet::from_str("172.16.0.2/32").expect("CIDR")),
             assigned_ipv6: Some(IpNet::from_str("2606:4700:110::2/128").expect("CIDR")),
         }
@@ -950,6 +1071,26 @@ mod tests {
                     Ipv4Addr::new(198, 51, 100, 10).into()
                 )))
         );
+    }
+
+    #[test]
+    fn dynamic_direct_permit_is_exact_and_application_scoped() {
+        let remote = SocketAddr::from((Ipv4Addr::new(203, 0, 113, 9), 53));
+        let rule = dynamic_direct_rule(remote, IPPROTO_UDP as u8, 42).expect("rule");
+        assert_eq!(rule.action, RuleAction::Permit);
+        assert_eq!(rule.family, AddressFamily::V4);
+        assert_eq!(
+            rule.conditions,
+            vec![
+                ConditionSpec::ApplicationId,
+                ConditionSpec::InterfaceLuid(42),
+                ConditionSpec::RemoteNetwork(host_network(remote.ip())),
+                ConditionSpec::RemotePort(53),
+                ConditionSpec::Protocol(IPPROTO_UDP as u8),
+            ]
+        );
+        assert!(dynamic_direct_rule(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)), 17, 42).is_err());
+        assert!(dynamic_direct_rule(remote, 1, 42).is_err());
     }
 
     #[test]

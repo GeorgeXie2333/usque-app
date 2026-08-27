@@ -1,10 +1,13 @@
 #include <windows.h>
 
 #include <chrono>
+#include <condition_variable>
 #include <cstdio>
 #include <cwchar>
+#include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "engine_ipc.h"
 #include "zero_trust_callback.h"
@@ -198,6 +201,98 @@ void enginePipeReadinessUsesAnOverallDeadline() {
          "enginePipeReadinessUsesAnOverallDeadline.bounded");
 }
 
+void engineEventPipeReadsFramesWithReadOnlyClientAccess() {
+  const std::string pipe_name = TestPipeName("stream.events");
+  const std::wstring pipe_name_wide = Wide(pipe_name);
+  HANDLE server = ::CreateNamedPipeW(
+      pipe_name_wide.c_str(), PIPE_ACCESS_OUTBOUND,
+      PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1, 4096, 4096, 0,
+      nullptr);
+  Expect(server != INVALID_HANDLE_VALUE,
+         "engineEventPipeReadsFramesWithReadOnlyClientAccess.create");
+  if (server == INVALID_HANDLE_VALUE) return;
+
+  auto active = std::make_shared<std::atomic_bool>(true);
+  std::mutex mutex;
+  std::condition_variable delivered;
+  bool callback_called = false;
+  EngineIpcResult received;
+  std::thread reader([&]() {
+    StreamEngineEvents(pipe_name, active, [&](EngineIpcResult event) {
+      {
+        std::lock_guard<std::mutex> lock(mutex);
+        received = std::move(event);
+        callback_called = true;
+      }
+      active->store(false);
+      delivered.notify_one();
+    });
+  });
+
+  const BOOL connected = ::ConnectNamedPipe(server, nullptr);
+  const bool connection_ready =
+      connected || ::GetLastError() == ERROR_PIPE_CONNECTED;
+  Expect(connection_ready,
+         "engineEventPipeReadsFramesWithReadOnlyClientAccess.connect");
+  const std::vector<uint8_t> frame{0, 0, 0, 3, 1, 2, 3};
+  DWORD written = 0;
+  const bool wrote =
+      connection_ready &&
+      ::WriteFile(server, frame.data(), static_cast<DWORD>(frame.size()),
+                  &written, nullptr) &&
+      written == static_cast<DWORD>(frame.size());
+  Expect(wrote, "engineEventPipeReadsFramesWithReadOnlyClientAccess.write");
+
+  {
+    std::unique_lock<std::mutex> lock(mutex);
+    delivered.wait_for(lock, std::chrono::seconds(2),
+                       [&]() { return callback_called; });
+  }
+  active->store(false);
+  reader.join();
+  Expect(callback_called,
+         "engineEventPipeReadsFramesWithReadOnlyClientAccess.callback");
+  if (callback_called) {
+    Expect(received.error.empty(),
+           "engineEventPipeReadsFramesWithReadOnlyClientAccess.error");
+    Expect(received.response == frame,
+           "engineEventPipeReadsFramesWithReadOnlyClientAccess.frame");
+  }
+  ::DisconnectNamedPipe(server);
+  ::CloseHandle(server);
+}
+
+void engineEventPipeReportsFatalValidationErrors() {
+  auto active = std::make_shared<std::atomic_bool>(true);
+  std::mutex mutex;
+  std::condition_variable delivered;
+  bool callback_called = false;
+  EngineIpcResult received;
+  std::thread reader([&]() {
+    StreamEngineEvents("invalid-event-pipe", active,
+                       [&](EngineIpcResult event) {
+                         {
+                           std::lock_guard<std::mutex> lock(mutex);
+                           received = std::move(event);
+                           callback_called = true;
+                         }
+                         delivered.notify_one();
+                       });
+  });
+  {
+    std::unique_lock<std::mutex> lock(mutex);
+    delivered.wait_for(lock, std::chrono::seconds(1),
+                       [&]() { return callback_called; });
+  }
+  active->store(false);
+  reader.join();
+  Expect(callback_called,
+         "engineEventPipeReportsFatalValidationErrors.callback");
+  Expect(received.error.find("outside the Usque namespace") !=
+             std::string::npos,
+         "engineEventPipeReportsFatalValidationErrors.error");
+}
+
 }  // namespace
 
 int main() {
@@ -208,6 +303,8 @@ int main() {
   unregisterDeletesOnlyAssociationPointingAtThisExe();
   enginePipeReadinessRetriesAInitiallyMissingPipe();
   enginePipeReadinessUsesAnOverallDeadline();
+  engineEventPipeReadsFramesWithReadOnlyClientAccess();
+  engineEventPipeReportsFatalValidationErrors();
   if (g_failures != 0) {
     std::fprintf(stderr, "%d Zero Trust Windows tests failed\n", g_failures);
     return 1;

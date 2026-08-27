@@ -5,7 +5,9 @@
 //! network configuration.
 
 mod connect_ip_control;
+mod direct_gateway;
 mod dns;
+mod geo_direct;
 mod h2;
 mod h3;
 mod http_proxy;
@@ -19,8 +21,10 @@ mod proxy;
 mod relay;
 mod socket;
 mod socks5;
+mod split_dns;
 mod tunnel;
 
+pub use geo_direct::{GeoDirectClassifier, GeoDirectPolicy, GeoRoute};
 pub use h2::{
     H2Driver, H2ReceiveHalf, H2SendHalf, H2Tunnel, MasqueTlsIdentity, TransportError, connect_h2,
 };
@@ -33,6 +37,10 @@ pub use netstack::{
 };
 pub use pin_refresh::{EndpointPinRefresher, refresh_endpoint_pin_over_protected_socket};
 pub use proxy::ProxyRuntime;
-pub use socket::{NoopSocketProtector, SocketHandle, SocketProtector};
+pub use socket::{
+    DirectEgressLease, DirectProtocol, NoopSocketProtector, SocketHandle, SocketProtector,
+};
 pub use socks5::Socks5Runtime;
+pub use split_dns::resolve_physical_host;
+pub use split_dns::{SPLIT_DNS_IPV4, SPLIT_DNS_IPV6};
 pub use usque_protocol::PeerNetworkState;

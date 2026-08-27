@@ -770,9 +770,12 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
       if (pending->ipc.error.empty()) {
         engine_event_sink_->Success(
             flutter::EncodableValue(pending->ipc.response));
+      } else {
+        engine_event_sink_->Error("ENGINE_EVENT_UNAVAILABLE",
+                                  pending->ipc.error);
+        engine_event_sink_->EndOfStream();
+        StopEngineEventStream();
       }
-      // Pipe and validation failures reconnect in C++. EndOfStream only on
-      // window destroy or Dart onCancel via StopEngineEventStream.
       return 0;
     }
     case kTrayCallback: {

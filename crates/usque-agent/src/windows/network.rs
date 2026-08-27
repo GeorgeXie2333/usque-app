@@ -51,6 +51,37 @@ use crate::{
 const MAX_DNS_TEXT_UNITS: usize = 16 * 1024;
 const DEFAULT_ROUTE_METRIC: u32 = 0;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PhysicalInterfaceInfo {
+    pub interface_luid: u64,
+    pub interface_index: u32,
+    pub dns_servers: Vec<IpAddr>,
+}
+
+/// Reads only numeric link metadata for a physical interface already selected
+/// by the endpoint-bypass planner. It never inspects DNS queries or names.
+pub fn physical_interface_info(interface_luid: u64) -> Result<PhysicalInterfaceInfo, NetworkError> {
+    require_luid(interface_luid)?;
+    let mut interface_index = 0_u32;
+    // SAFETY: both pointers reference initialized stack values that remain
+    // valid and exclusively borrowed for the synchronous Windows call.
+    check("ConvertInterfaceLuidToIndex", unsafe {
+        windows_sys::Win32::NetworkManagement::IpHelper::ConvertInterfaceLuidToIndex(
+            &luid(interface_luid),
+            &mut interface_index,
+        )
+    })?;
+    let interface_guid = interface_guid(interface_luid)?;
+    let mut dns_servers = get_dns_servers(interface_guid)?;
+    dns_servers.sort();
+    dns_servers.dedup();
+    Ok(PhysicalInterfaceInfo {
+        interface_luid,
+        interface_index,
+        dns_servers,
+    })
+}
+
 pub fn plan_endpoint_bypass(
     endpoint_candidates: &[SocketAddr],
     control_api_candidates: &[SocketAddr],
@@ -303,6 +334,24 @@ pub fn plan_default_routes(
             0,
             interface_luid,
             DEFAULT_ROUTE_METRIC,
+        )?);
+    }
+    if plan.split_dns && plan.assigned_ipv4.is_some() {
+        routes.push(plan_route(
+            "198.18.0.1/32".parse().expect("static Split DNS IPv4 host"),
+            None,
+            0,
+            interface_luid,
+            0,
+        )?);
+    }
+    if plan.split_dns && plan.assigned_ipv6.is_some() {
+        routes.push(plan_route(
+            "fd00::1/128".parse().expect("static Split DNS IPv6 host"),
+            None,
+            0,
+            interface_luid,
+            0,
         )?);
     }
 
@@ -647,8 +696,20 @@ fn interface_guid(interface_luid: u64) -> Result<Uuid, NetworkError> {
 }
 
 fn get_dns_servers(interface_guid: Uuid) -> Result<Vec<IpAddr>, NetworkError> {
+    let mut servers = get_dns_servers_for_family(interface_guid, false)?;
+    servers.extend(get_dns_servers_for_family(interface_guid, true)?);
+    servers.sort();
+    servers.dedup();
+    Ok(servers)
+}
+
+fn get_dns_servers_for_family(
+    interface_guid: Uuid,
+    ipv6: bool,
+) -> Result<Vec<IpAddr>, NetworkError> {
     let mut settings = DNS_INTERFACE_SETTINGS {
         Version: DNS_INTERFACE_SETTINGS_VERSION1,
+        Flags: if ipv6 { u64::from(DNS_SETTING_IPV6) } else { 0 },
         ..Default::default()
     };
     // SAFETY: settings has the required version and writable output storage.

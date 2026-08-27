@@ -23,6 +23,8 @@ pub struct SharedNetworkSettings {
     pub kill_switch: bool,
     pub auto_connect: bool,
     pub proxy: ProxySettings,
+    #[serde(default)]
+    pub geo_direct_countries: Vec<String>,
 }
 
 impl Default for SharedNetworkSettings {
@@ -52,6 +54,7 @@ impl SharedNetworkSettings {
             kill_switch: profile.kill_switch,
             auto_connect: profile.auto_connect,
             proxy: profile.proxy.clone(),
+            geo_direct_countries: profile.geo_direct_countries.clone(),
         }
     }
 
@@ -81,9 +84,11 @@ impl SharedNetworkSettings {
             kill_switch: self.kill_switch,
             auto_connect: self.auto_connect,
             proxy: self.proxy.clone(),
+            geo_direct_countries: self.geo_direct_countries.clone(),
         };
         profile.canonicalize_mode();
         profile.proxy.normalize_auth();
+        let _ = profile.canonicalize_geo_direct();
         profile
     }
 

@@ -1,6 +1,7 @@
 import 'dart:async';
-import 'dart:typed_data';
+import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/services/control_codec.dart';
@@ -70,6 +71,8 @@ const List<int> _goldenProfileBytes = <int>[
 ];
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('ControlCodec protobuf golden bytes', () {
     const codec = ControlCodec();
 
@@ -145,6 +148,45 @@ void main() {
       expect(catalog.profiles.single.proxy.httpPort, 1);
       expect(catalog.profiles.single.proxy.dnsIpv4, 'j.j');
       expect(catalog.profiles.single.proxy.dnsIpv6, 'k:k');
+      expect(catalog.profiles.single.geoDirectCountries, isEmpty);
+    });
+
+    test(
+      'legacy profile bytes without field 16 decode empty geo countries',
+      () {
+        final catalogBody = ControlPayloadWriter()
+          ..message(1, Uint8List.fromList(_goldenProfileBytes))
+          ..string(2, 'p');
+        final responseBody = ControlPayloadWriter()
+          ..string(1, 'r2')
+          ..message(12, catalogBody.takeBytes());
+        final catalog = debugDecodeProfileCatalogFrame(
+          codec.frame(responseBody.takeBytes()),
+          'r2',
+        );
+        expect(catalog.profiles.single.geoDirectCountries, isEmpty);
+      },
+    );
+
+    test('geo_direct_countries field 16 round-trips', () {
+      const profile = UsqueProfile(
+        id: 'p',
+        name: 'X',
+        geoDirectCountries: <String>['CN'],
+      );
+      final encoded = codec.encodeProfile(profile);
+      expect(encoded, containsAllInOrder(<int>[0x82, 0x01, 0x02, 0x43, 0x4e]));
+      final catalogBody = ControlPayloadWriter()
+        ..message(1, encoded)
+        ..string(2, 'p');
+      final responseBody = ControlPayloadWriter()
+        ..string(1, 'r3')
+        ..message(12, catalogBody.takeBytes());
+      final catalog = debugDecodeProfileCatalogFrame(
+        codec.frame(responseBody.takeBytes()),
+        'r3',
+      );
+      expect(catalog.profiles.single.geoDirectCountries, <String>['CN']);
     });
   });
 
@@ -308,6 +350,47 @@ void main() {
   });
 
   group('DesktopEngineClient coordination', () {
+    test('native event channel reopens after end of stream', () async {
+      if (!Platform.isWindows) return;
+
+      const events = EventChannel(
+        'io.github.georgexie2333.usque/engine_events',
+      );
+      var listens = 0;
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      void installHandler({required bool endImmediately}) {
+        messenger.setMockStreamHandler(
+          events,
+          MockStreamHandler.inline(
+            onListen: (_, MockStreamHandlerEventSink sink) {
+              listens += 1;
+              scheduleMicrotask(
+                endImmediately
+                    ? sink.endOfStream
+                    : () => sink.success(Uint8List.fromList(<int>[0, 0, 0, 0])),
+              );
+            },
+          ),
+        );
+      }
+
+      installHandler(endImmediately: true);
+      addTearDown(() {
+        messenger.setMockStreamHandler(events, null);
+      });
+
+      final transport = DesktopEngineTransport();
+      addTearDown(transport.dispose);
+      await transport.rawEventFrames.drain<void>();
+      messenger.setMockStreamHandler(events, null);
+      installHandler(endImmediately: false);
+      final frame = await transport.rawEventFrames.first;
+
+      expect(frame, <int>[0, 0, 0, 0]);
+      expect(listens, 2);
+    });
+
     test(
       'start-once: concurrent ensureStarted runs the start path once',
       () async {
@@ -584,6 +667,8 @@ void main() {
       expect(requestTimeoutForPayload(20), const Duration(seconds: 20));
       expect(requestTimeoutForPayload(21), const Duration(seconds: 15));
       expect(requestTimeoutForPayload(22), const Duration(seconds: 30));
+      expect(requestTimeoutForPayload(34), const Duration(seconds: 90));
+      expect(requestTimeoutForPayload(35), const Duration(seconds: 180));
       expect(requestTimeoutForPayload(10), const Duration(seconds: 5));
     });
 

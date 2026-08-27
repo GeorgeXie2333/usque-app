@@ -19,6 +19,7 @@ use ts_netstack_smoltcp::{
 use usque_core::{AddressFamily, IpPolicy, Profile, Transport, TransportPolicy};
 use usque_protocol::{IpAddressRange, IpPrefix, PeerNetworkState};
 
+use crate::geo_direct::GeoDirectPolicy;
 use crate::h2::{MasqueTlsIdentity, TransportError, connect_h2_with_protector};
 use crate::h3::connect_h3_with_protector;
 use crate::pin_refresh::EndpointPinRefresher;
@@ -130,11 +131,20 @@ impl TrafficCounters {
             bytes_received: self.received.load(Ordering::Relaxed),
         }
     }
+
+    pub(crate) fn record_sent(&self, bytes: usize) {
+        self.sent.fetch_add(bytes as u64, Ordering::Relaxed);
+    }
+
+    pub(crate) fn record_received(&self, bytes: usize) {
+        self.received.fetch_add(bytes as u64, Ordering::Relaxed);
+    }
 }
 
 pub(crate) struct PacketStack {
     pub(crate) channel: Channel,
     pub(crate) protector: Arc<dyn SocketProtector>,
+    pub(crate) geo_policy: Arc<GeoDirectPolicy>,
     pub(crate) cancellation: CancellationToken,
     pub(crate) failure: watch::Receiver<Option<String>>,
     pub(crate) counters: Arc<TrafficCounters>,
@@ -153,12 +163,13 @@ impl PacketStack {
     /// this stack deliberately does not create a second remote tunnel.
     pub(crate) async fn start_detached(
         profile: &Profile,
-        assigned_ipv4: std::net::Ipv4Addr,
-        assigned_ipv6: std::net::Ipv6Addr,
+        assigned_addresses: (std::net::Ipv4Addr, std::net::Ipv6Addr),
         monitor: &ManagedTunnelMonitor,
         parent_cancellation: &CancellationToken,
         protector: Arc<dyn SocketProtector>,
+        geo_policy: Arc<GeoDirectPolicy>,
     ) -> Result<(Self, WakingPipe), TransportError> {
+        let (assigned_ipv4, assigned_ipv6) = assigned_addresses;
         let (config, tcp_buffer_metrics) = proxy_netstack_config(profile);
         let (stack, pipe) = bounded_piped(config);
         let channel = stack.command_channel();
@@ -172,6 +183,7 @@ impl PacketStack {
             Self {
                 channel,
                 protector,
+                geo_policy,
                 cancellation: parent_cancellation.child_token(),
                 failure: monitor.failure.clone(),
                 counters: Arc::clone(&monitor.counters),
@@ -256,6 +268,7 @@ impl PacketStack {
         Ok(Self {
             channel,
             protector,
+            geo_policy: Arc::new(GeoDirectPolicy::disabled()),
             cancellation,
             failure,
             counters,
@@ -308,7 +321,7 @@ impl PacketStack {
     }
 }
 
-fn proxy_netstack_config(profile: &Profile) -> (Config, TcpBufferMetrics) {
+pub(crate) fn proxy_netstack_config(profile: &Profile) -> (Config, TcpBufferMetrics) {
     let (preferred_budget, total_budget) = tcp_buffer_budgets();
     let metrics = TcpBufferMetrics::default();
     let config = Config {
@@ -338,7 +351,7 @@ fn proxy_netstack_config(profile: &Profile) -> (Config, TcpBufferMetrics) {
     (config, metrics)
 }
 
-fn bounded_piped(config: Config) -> (Netstack<WakingPipeDev>, WakingPipe) {
+pub(crate) fn bounded_piped(config: Config) -> (Netstack<WakingPipeDev>, WakingPipe) {
     let (stack_pipe, remote_pipe) = WakingPipe::bounded(PROXY_PACKET_PIPE_CAPACITY);
     let device = WakingPipeDev {
         pipe: stack_pipe,

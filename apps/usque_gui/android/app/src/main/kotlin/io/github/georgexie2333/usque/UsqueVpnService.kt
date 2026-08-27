@@ -20,6 +20,8 @@ import android.service.quicksettings.TileService
 import androidx.annotation.Keep
 import androidx.core.content.ContextCompat
 import org.json.JSONObject
+import java.net.Inet6Address
+import java.net.InetAddress
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
@@ -54,6 +56,8 @@ class UsqueVpnService : VpnService() {
 
         private const val NATIVE_STATUS_INTERVAL_MILLIS = 1_000L
         private const val PHYSICAL_NETWORK_WAIT_MILLIS = 8_000L
+        private const val SPLIT_DNS_IPV4 = "198.18.0.1"
+        private const val SPLIT_DNS_IPV6 = "fd00::1"
         internal const val RECOVERY_PREFERENCES = "usque_vpn_recovery_v1"
         internal const val RECOVERY_PROFILE = "active_profile_json"
         internal const val LAST_PROFILE = "last_profile_json"
@@ -800,7 +804,7 @@ class UsqueVpnService : VpnService() {
                     fail(generation, "The bypass route configuration is unsafe: ${safeMessage(error)}")
                     return
                 }
-            if (!awaitPhysicalNetwork(generation)) {
+            if (!awaitPhysicalNetwork(generation, requireDns = profile.splitDnsEnabled)) {
                 fail(
                     generation,
                     "ANDROID_WAITING_FOR_PHYSICAL_NETWORK",
@@ -857,12 +861,15 @@ class UsqueVpnService : VpnService() {
                     proxyPassword.fill(0)
                 }
             if (startResult != NativeEngine.OK) {
-                if (!profile.killSwitch) {
+                val failure = nativeStartFailure(startResult)
+                val splitDnsStartupFailed =
+                    failure.code == "ANDROID_SPLIT_DNS_FAILED" ||
+                        failure.code == "ANDROID_GEO_RULES_UNAVAILABLE"
+                if (!profile.killSwitch || splitDnsStartupFailed) {
                     tunnel.compareAndSet(descriptor, null)
                     closeQuietly(descriptor)
                     lastTunIdentity.set(null)
                 }
-                val failure = nativeStartFailure(startResult)
                 fail(generation, failure.code, failure.message)
                 return
             }
@@ -1004,7 +1011,16 @@ class UsqueVpnService : VpnService() {
         }
         if (profile.includeIpv4) builder.addAddress(assignment.ipv4, 32)
         if (profile.includeIpv6) builder.addAddress(assignment.ipv6, 128)
-        profile.dnsServers.forEach(builder::addDnsServer)
+        val advertisedDns =
+            if (profile.splitDnsEnabled) {
+                listOf(
+                    InetAddress.getByName(SPLIT_DNS_IPV4),
+                    InetAddress.getByName(SPLIT_DNS_IPV6),
+                )
+            } else {
+                profile.dnsServers
+            }
+        advertisedDns.forEach(builder::addDnsServer)
         routePlan.included.forEach { route ->
             builder.addRoute(route.address, route.prefixLength)
         }
@@ -1012,6 +1028,12 @@ class UsqueVpnService : VpnService() {
             routePlan.excluded.forEach { route ->
                 builder.excludeRoute(IpPrefix(route.address, route.prefixLength))
             }
+        }
+        if (profile.splitDnsEnabled) {
+            // Exact routes keep the in-process DNS listener inside the TUN even
+            // when fd00::/8 is otherwise excluded by Allow LAN.
+            builder.addRoute(InetAddress.getByName(SPLIT_DNS_IPV4), 32)
+            builder.addRoute(InetAddress.getByName(SPLIT_DNS_IPV6), 128)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             builder.setMetered(false)
@@ -1192,10 +1214,14 @@ class UsqueVpnService : VpnService() {
         }
     }
 
-    private fun awaitPhysicalNetwork(connectionToken: Long): Boolean =
+    private fun awaitPhysicalNetwork(
+        connectionToken: Long,
+        requireDns: Boolean = false,
+    ): Boolean =
         networkMonitor.awaitPhysicalNetwork(
             isCurrent = { isCurrent(connectionToken) },
             waitMillis = PHYSICAL_NETWORK_WAIT_MILLIS,
+            requireDns = requireDns,
         )
 
     private fun ensureStatusTask() {
@@ -1414,6 +1440,18 @@ class UsqueVpnService : VpnService() {
 
     @Keep
     fun getUnderlyingNetworkGeneration(): Long = networkMonitor.generation()
+
+    @Keep
+    fun getUnderlyingDnsServers(): Array<String> =
+        networkMonitor
+            .underlyingDnsServers()
+            .mapNotNull { address ->
+                val host = address.hostAddress?.substringBefore('%') ?: return@mapNotNull null
+                val scope = if (address is Inet6Address) address.scopeId else 0
+                "$host|$scope"
+            }.distinct()
+            .take(8)
+            .toTypedArray()
 
     @Keep
     fun resolveUnderlyingHost(host: String): Array<String> {

@@ -366,6 +366,18 @@ internal class AndroidEngineMethodHandler(
                 checkForUpdates(call, result)
             }
 
+            "listGeoRules" -> {
+                listGeoRules(result)
+            }
+
+            "downloadGeoRules" -> {
+                downloadGeoRules(call, result)
+            }
+
+            "updateAllGeoRules" -> {
+                updateAllGeoRules(result)
+            }
+
             "clearAllData" -> {
                 clearAllData(call, result)
             }
@@ -985,6 +997,46 @@ internal class AndroidEngineMethodHandler(
                 }
             }
         }
+    }
+
+    private fun listGeoRules(result: MethodChannel.Result) {
+        if (!requireProfileEngine(result)) return
+        runProfileCommand(
+            flutterValueToJson(mapOf("command" to "list_geo_rules")),
+            result,
+            returnCatalog = true,
+        )
+    }
+
+    private fun downloadGeoRules(
+        call: MethodCall,
+        result: MethodChannel.Result,
+    ) {
+        val country = call.argument<String>("country_code")
+        if (country.isNullOrBlank()) {
+            result.error("INVALID_ARGUMENT", "The country code is missing.", null)
+            return
+        }
+        if (!requireProfileEngine(result)) return
+        runProfileCommand(
+            flutterValueToJson(
+                mapOf(
+                    "command" to "download_geo_rules",
+                    "country_code" to country,
+                ),
+            ),
+            result,
+            returnCatalog = true,
+        )
+    }
+
+    private fun updateAllGeoRules(result: MethodChannel.Result) {
+        if (!requireProfileEngine(result)) return
+        runProfileCommand(
+            flutterValueToJson(mapOf("command" to "update_all_geo_rules")),
+            result,
+            returnCatalog = true,
+        )
     }
 
     private fun checkForUpdates(

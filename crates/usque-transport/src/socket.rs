@@ -1,6 +1,8 @@
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
 
+use async_trait::async_trait;
+
 /// Platform-neutral representation of a socket before it connects to a
 /// MASQUE endpoint.
 ///
@@ -16,10 +18,74 @@ impl SocketHandle {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DirectProtocol {
+    Tcp,
+    Udp,
+}
+
+impl DirectProtocol {
+    pub const fn iana_number(self) -> u8 {
+        match self {
+            Self::Tcp => 6,
+            Self::Udp => 17,
+        }
+    }
+}
+
+/// Keeps a platform-specific exact-egress authorization alive for the socket
+/// or flow. Dropping it releases the authorization.
+#[derive(Default)]
+pub struct DirectEgressLease {
+    _resource: Option<Box<dyn Send + Sync>>,
+}
+
+impl DirectEgressLease {
+    pub fn hold(resource: impl Send + Sync + 'static) -> Self {
+        Self {
+            _resource: Some(Box::new(resource)),
+        }
+    }
+}
+
+impl std::fmt::Debug for DirectEgressLease {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("DirectEgressLease")
+            .field("active", &self._resource.is_some())
+            .finish()
+    }
+}
+
 /// Called immediately after a socket is created and before any endpoint
 /// connection or packet is attempted.
+#[async_trait]
 pub trait SocketProtector: Send + Sync {
     fn protect(&self, socket: SocketHandle) -> Result<(), String>;
+
+    /// Protects and, where required, binds a socket for one exact physical
+    /// destination. The returned lease must outlive all socket I/O.
+    async fn protect_for_target(
+        &self,
+        socket: SocketHandle,
+        _remote: SocketAddr,
+        _protocol: DirectProtocol,
+    ) -> Result<DirectEgressLease, String> {
+        self.protect(socket)?;
+        Ok(DirectEgressLease::default())
+    }
+
+    /// Resolves a GeoSite-selected host using the platform's selected physical
+    /// DNS path. Implementations must not fall back to the tunnel resolver.
+    async fn resolve_direct(&self, host: &str, port: u16) -> Result<Vec<SocketAddr>, String> {
+        self.resolve(host, port)
+    }
+
+    /// Whether protected sockets may intentionally carry TUN-selected direct
+    /// flows without re-entering the VPN or weakening a platform kill switch.
+    fn tun_direct_available(&self) -> bool {
+        false
+    }
 
     /// Returns whether the platform's selected physical path can currently
     /// carry this endpoint address family. `None` means the platform has not
@@ -33,6 +99,13 @@ pub trait SocketProtector: Send + Sync {
     /// create fresh endpoint sockets without tearing down local proxy listeners.
     fn network_generation(&self) -> Option<u64> {
         None
+    }
+
+    /// Numeric DNS servers reported by the selected non-VPN physical network.
+    /// Implementations must not return the DNS addresses configured on the TUN
+    /// interface itself.
+    fn physical_dns_servers(&self) -> Vec<SocketAddr> {
+        Vec::new()
     }
 
     /// Resolves a control-plane host on the same physical network used by

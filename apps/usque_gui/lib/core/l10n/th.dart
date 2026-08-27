@@ -273,7 +273,7 @@ const Map<String, String> kThCatalog = <String, String>{
   'diagnostics_subtitle': 'สถานะเอนจิน การส่งออกบันทึก และข้อมูลในเครื่อง',
   'engine_status': 'สถานะเอนจิน',
   'version': 'เวอร์ชัน',
-  'app_version': 'Usque 0.2.0',
+  'app_version': 'Usque 0.2.1',
   'logs': 'บันทึกในเครื่อง',
   'export_diagnostics': 'ส่งออกชุดการวินิจฉัย',
   'diagnostics_saved': 'บันทึกชุดการวินิจฉัยไปที่',
@@ -315,4 +315,23 @@ const Map<String, String> kThCatalog = <String, String>{
   'profile_required': 'คงโปรไฟล์ไว้อย่างน้อยหนึ่งรายการ',
   'socks_capabilities': 'TCP และ UDP',
   'http_capabilities': 'CONNECT และการส่งต่อทั่วไป',
+  'geo_direct': 'Direct countries',
+  'geo_direct_help':
+      'Matched domains are visible to your current network\'s DNS; apps using encrypted DNS are routed by IP only.',
+  'geo_update_all': 'Update geo data',
+  'geo_last_updated': 'Last successful update: {current}',
+  'geo_never_updated': 'Not updated yet',
+  'geo_updating': 'Updating {current} of {total}',
+  'geo_download': 'Download',
+  'geo_update': 'Update',
+  'geo_enable': 'Direct',
+  'geo_search': 'Search countries',
+  'geo_not_downloaded': 'Not downloaded',
+  'geo_downloaded': 'Downloaded',
+  'geo_chip': '{current} direct',
+  'geo_download_first':
+      'Download geo data for this country before enabling it.',
+  'geo_update_complete':
+      'Geo data: {updated} updated, {current} already current.',
+  'geo_update_failed': 'Geo data update failed: {current}',
 };

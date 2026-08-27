@@ -11,7 +11,7 @@ class ReleaseContractTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
-        self.tag = "v0.2.0"
+        self.tag = "v0.2.1"
         self.commit = "a" * 40
         for name in release_contract.expected_artifact_names(self.tag):
             (self.root / name).write_bytes(name.encode())
@@ -66,15 +66,15 @@ class ReleaseVersionContractTests(unittest.TestCase):
         (self.root / ".github" / "workflows").mkdir(parents=True)
         (self.root / "apps" / "usque_gui" / "lib" / "core" / "l10n").mkdir(parents=True)
         (self.root / "Cargo.toml").write_text(
-            '[workspace]\n[workspace.package]\nversion = "0.2.0"\n',
+            '[workspace]\n[workspace.package]\nversion = "0.2.1"\n',
             encoding="utf-8",
         )
         (self.root / "apps" / "usque_gui" / "pubspec.yaml").write_text(
-            "name: usque\nversion: 0.2.0+14\n", encoding="utf-8"
+            "name: usque\nversion: 0.2.1+15\n", encoding="utf-8"
         )
         for name in ("en.dart", "zh_cn.dart"):
             (self.root / "apps" / "usque_gui" / "lib" / "core" / "l10n" / name).write_text(
-                "const catalog = <String, String>{\n  'app_version': 'Usque 0.2.0',\n};\n",
+                "const catalog = <String, String>{\n  'app_version': 'Usque 0.2.1',\n};\n",
                 encoding="utf-8",
             )
         self.workflow_path = self.root / ".github" / "workflows" / "release.yml"
@@ -82,10 +82,10 @@ class ReleaseVersionContractTests(unittest.TestCase):
             "on:\n"
             "  push:\n"
             "    tags:\n"
-            '      - "v0.2.0"\n'
+            '      - "v0.2.1"\n'
             "env:\n"
-            "  RELEASE_TAG: v0.2.0\n"
-            '  ANDROID_VERSION_CODE: "14"\n',
+            "  RELEASE_TAG: v0.2.1\n"
+            '  ANDROID_VERSION_CODE: "15"\n',
             encoding="utf-8",
         )
 
@@ -93,47 +93,47 @@ class ReleaseVersionContractTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def test_accepts_consistent_release_version_surfaces(self) -> None:
-        release_contract.verify_release_version(self.root, "v0.2.0", 14)
+        release_contract.verify_release_version(self.root, "v0.2.1", 15)
 
     def test_rejects_cargo_or_flutter_version_drift(self) -> None:
+        (self.root / "Cargo.toml").write_text(
+            '[workspace]\n[workspace.package]\nversion = "0.2.2"\n',
+            encoding="utf-8",
+        )
+        with self.assertRaises(release_contract.ContractError):
+            release_contract.verify_release_version(self.root, "v0.2.1", 15)
+
         (self.root / "Cargo.toml").write_text(
             '[workspace]\n[workspace.package]\nversion = "0.2.1"\n',
             encoding="utf-8",
         )
-        with self.assertRaises(release_contract.ContractError):
-            release_contract.verify_release_version(self.root, "v0.2.0", 14)
-
-        (self.root / "Cargo.toml").write_text(
-            '[workspace]\n[workspace.package]\nversion = "0.2.0"\n',
-            encoding="utf-8",
-        )
         (self.root / "apps" / "usque_gui" / "pubspec.yaml").write_text(
-            "name: usque\nversion: 0.2.1+14\n", encoding="utf-8"
+            "name: usque\nversion: 0.2.2+15\n", encoding="utf-8"
         )
         with self.assertRaises(release_contract.ContractError):
-            release_contract.verify_release_version(self.root, "v0.2.0", 14)
+            release_contract.verify_release_version(self.root, "v0.2.1", 15)
 
     def test_rejects_locale_or_workflow_version_drift(self) -> None:
         locale = self.root / "apps" / "usque_gui" / "lib" / "core" / "l10n" / "en.dart"
         locale.write_text(
-            "const catalog = <String, String>{\n  'app_version': 'Usque 0.1.3',\n};\n",
+            "const catalog = <String, String>{\n  'app_version': 'Usque 0.2.0',\n};\n",
             encoding="utf-8",
         )
         with self.assertRaises(release_contract.ContractError):
-            release_contract.verify_release_version(self.root, "v0.2.0", 14)
+            release_contract.verify_release_version(self.root, "v0.2.1", 15)
 
         locale.write_text(
-            "const catalog = <String, String>{\n  'app_version': 'Usque 0.2.0',\n};\n",
+            "const catalog = <String, String>{\n  'app_version': 'Usque 0.2.1',\n};\n",
             encoding="utf-8",
         )
         self.workflow_path.write_text(
             self.workflow_path.read_text(encoding="utf-8").replace(
-                "RELEASE_TAG: v0.2.0", "RELEASE_TAG: v0.2.1"
+                "RELEASE_TAG: v0.2.1", "RELEASE_TAG: v0.2.2"
             ),
             encoding="utf-8",
         )
         with self.assertRaises(release_contract.ContractError):
-            release_contract.verify_release_version(self.root, "v0.2.0", 14)
+            release_contract.verify_release_version(self.root, "v0.2.1", 15)
 
 
 if __name__ == "__main__":

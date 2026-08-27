@@ -2,7 +2,10 @@ use std::{
     io, mem,
     net::SocketAddr,
     ptr::{self, NonNull},
-    sync::Arc,
+    sync::{
+        Arc, RwLock, Weak,
+        atomic::{AtomicU64, Ordering},
+    },
     time::Duration,
 };
 
@@ -19,11 +22,13 @@ use tokio_util::sync::CancellationToken;
 use usque_core::{IpPolicy, Profile, REGISTRATION_API_HOST, REGISTRATION_API_PORT};
 use usque_ipc::{
     agent_v1::{
-        self, AcquireTunnelLeaseRequest, AgentCapabilities, AgentRequest, AgentResponse,
-        AgentState, ApplySystemProxyRequest, ClosePacketSessionRequest, CommitTunnelRequest,
-        GetCapabilitiesRequest, GetStateRequest, OpenPacketSessionRequest, PacketSessionHandles,
-        PrepareTunnelRequest, RestoreSystemProxyRequest, ResumeTunnelRequest,
-        RollbackTunnelRequest, agent_request, agent_response,
+        self, AcquireDirectEgressRequest, AcquireTunnelLeaseRequest, AgentCapabilities,
+        AgentRequest, AgentResponse, AgentState, ApplySystemProxyRequest,
+        ClosePacketSessionRequest, CommitTunnelRequest,
+        DirectEgressLease as AgentDirectEgressLease, GetCapabilitiesRequest,
+        GetPhysicalNetworkInfoRequest, GetStateRequest, OpenPacketSessionRequest,
+        PacketSessionHandles, PhysicalNetworkInfo, PrepareTunnelRequest, RestoreSystemProxyRequest,
+        ResumeTunnelRequest, RollbackTunnelRequest, agent_request, agent_response,
     },
     decode_frame, encode_frame,
 };
@@ -31,9 +36,10 @@ use usque_platform::packet_ring::{
     PACKET_RING_LAYOUT_VERSION, PacketDirection, PacketRingError, SharedPacketRing,
 };
 use usque_transport::{
-    EndpointPinRefresher, ManagedTunnelMonitor, MasqueRuntime, MasqueTlsIdentity, MasqueTunIo,
-    NoopSocketProtector, RuntimeHealth, RuntimePath, SocketHandle, SocketProtector,
-    TrafficSnapshot, TransportError,
+    DirectEgressLease, DirectProtocol, EndpointPinRefresher, GeoDirectPolicy, ManagedTunnelMonitor,
+    MasqueRuntime, MasqueTlsIdentity, MasqueTunIo, NoopSocketProtector, RuntimeHealth, RuntimePath,
+    SPLIT_DNS_IPV4, SPLIT_DNS_IPV6, SocketHandle, SocketProtector, TrafficSnapshot, TransportError,
+    resolve_physical_host,
 };
 use uuid::Uuid;
 use windows_sys::Win32::{
@@ -42,6 +48,10 @@ use windows_sys::Win32::{
         ERROR_SERVICE_ALREADY_RUNNING, ERROR_SERVICE_DISABLED, ERROR_SERVICE_DOES_NOT_EXIST,
         ERROR_SERVICE_MARKED_FOR_DELETE, ERROR_SERVICE_REQUEST_TIMEOUT, HANDLE, WAIT_FAILED,
         WAIT_OBJECT_0,
+    },
+    Networking::WinSock::{
+        IP_UNICAST_IF, IPPROTO_IP, IPPROTO_IPV6, IPV6_UNICAST_IF, SOCKET_ERROR, WSAGetLastError,
+        setsockopt,
     },
     System::{
         Memory::{FILE_MAP_ALL_ACCESS, MEMORY_MAPPED_VIEW_ADDRESS, MapViewOfFile, UnmapViewOfFile},
@@ -56,7 +66,7 @@ use windows_sys::Win32::{
 };
 
 const AGENT_PIPE_NAME: &str = r"\\.\pipe\io.github.georgexie2333.usque.agent.v1";
-const AGENT_PROTOCOL_VERSION: u32 = 2;
+const AGENT_PROTOCOL_VERSION: u32 = 3;
 const MAX_AGENT_FRAME_BYTES: usize = 64 * 1024;
 const AGENT_START_TIMEOUT: Duration = Duration::from_secs(30);
 const AGENT_RPC_TIMEOUT: Duration = Duration::from_secs(30);
@@ -64,14 +74,55 @@ const AGENT_START_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const AGENT_START_RECHECK_INTERVAL: Duration = Duration::from_millis(250);
 const PUMP_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 const DEFAULT_PACKET_RING_CAPACITY: u32 = 4 * 1024 * 1024;
+const PHYSICAL_NETWORK_POLL_INTERVAL: Duration = Duration::from_secs(2);
 
-struct CachedControlSocketProtector {
+struct WindowsVpnSocketProtector {
     registration_api: Vec<SocketAddr>,
+    agent: WindowsAgentClient,
+    operation_id: Uuid,
+    physical_dns: RwLock<Vec<SocketAddr>>,
+    generation: AtomicU64,
+    agent_generation: AtomicU64,
 }
 
-impl SocketProtector for CachedControlSocketProtector {
+#[async_trait]
+impl SocketProtector for WindowsVpnSocketProtector {
     fn protect(&self, _socket: SocketHandle) -> Result<(), String> {
         Ok(())
+    }
+
+    async fn protect_for_target(
+        &self,
+        socket: SocketHandle,
+        remote: SocketAddr,
+        protocol: DirectProtocol,
+    ) -> Result<DirectEgressLease, String> {
+        let (pipe, lease) = self
+            .agent
+            .acquire_direct_egress(self.operation_id, remote, protocol)
+            .await
+            .map_err(|error| error.to_string())?;
+        bind_socket_to_interface(socket, remote, lease.interface_index)?;
+        Ok(DirectEgressLease::hold(pipe))
+    }
+
+    fn tun_direct_available(&self) -> bool {
+        true
+    }
+
+    fn network_generation(&self) -> Option<u64> {
+        Some(self.generation.load(Ordering::Acquire))
+    }
+
+    fn physical_dns_servers(&self) -> Vec<SocketAddr> {
+        self.physical_dns
+            .read()
+            .map(|servers| servers.clone())
+            .unwrap_or_default()
+    }
+
+    async fn resolve_direct(&self, host: &str, port: u16) -> Result<Vec<SocketAddr>, String> {
+        resolve_physical_host(self, host, port).await
     }
 
     fn resolve(&self, host: &str, port: u16) -> Result<Vec<SocketAddr>, String> {
@@ -81,6 +132,157 @@ impl SocketProtector for CachedControlSocketProtector {
             Err("the Windows VPN resolver accepts only the pinned registration API host".to_owned())
         }
     }
+}
+
+impl WindowsVpnSocketProtector {
+    fn advance_network_generation(&self) {
+        let _ = self
+            .generation
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |generation| {
+                Some(generation.saturating_add(1))
+            });
+    }
+}
+
+fn start_physical_network_monitor(protector: &Arc<WindowsVpnSocketProtector>) {
+    let protector = Arc::downgrade(protector);
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(PHYSICAL_NETWORK_POLL_INTERVAL);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        // The initial snapshot was read synchronously during startup.
+        ticker.tick().await;
+        loop {
+            ticker.tick().await;
+            let Some(protector) = Weak::upgrade(&protector) else {
+                break;
+            };
+            let update = protector
+                .agent
+                .get_physical_network_info(protector.operation_id)
+                .await
+                .and_then(|info| physical_dns_endpoints(&info).map(|servers| (info, servers)));
+            match update {
+                Ok((info, servers)) => {
+                    let agent_changed = protector
+                        .agent_generation
+                        .swap(info.generation, Ordering::AcqRel)
+                        != info.generation;
+                    let servers_changed = protector
+                        .physical_dns
+                        .write()
+                        .map(|mut current| {
+                            let changed = *current != servers;
+                            if changed {
+                                *current = servers;
+                            }
+                            changed
+                        })
+                        .unwrap_or(false);
+                    if agent_changed || servers_changed {
+                        protector.advance_network_generation();
+                    }
+                }
+                Err(error) => {
+                    let changed = protector
+                        .physical_dns
+                        .write()
+                        .map(|mut servers| {
+                            let changed = !servers.is_empty();
+                            servers.clear();
+                            changed
+                        })
+                        .unwrap_or(false);
+                    if changed {
+                        protector.advance_network_generation();
+                        tracing::warn!(%error, "Windows physical DNS snapshot became unavailable");
+                    }
+                }
+            }
+        }
+    });
+}
+
+fn bind_socket_to_interface(
+    socket: SocketHandle,
+    remote: SocketAddr,
+    interface_index: u32,
+) -> Result<(), String> {
+    if interface_index == 0 {
+        return Err("Agent returned an empty physical interface index".to_owned());
+    }
+    let value = if remote.is_ipv4() {
+        interface_index.to_be()
+    } else {
+        interface_index
+    };
+    // SAFETY: the socket handle is live, `value` remains valid for the
+    // synchronous call, and the option size exactly matches its storage.
+    let result = unsafe {
+        setsockopt(
+            socket.value() as usize,
+            if remote.is_ipv4() {
+                IPPROTO_IP
+            } else {
+                IPPROTO_IPV6
+            },
+            if remote.is_ipv4() {
+                IP_UNICAST_IF
+            } else {
+                IPV6_UNICAST_IF
+            },
+            (&raw const value).cast(),
+            mem::size_of_val(&value) as i32,
+        )
+    };
+    if result == SOCKET_ERROR {
+        // SAFETY: this reads the calling thread's Winsock error immediately
+        // after the failed `setsockopt` call and has no pointer preconditions.
+        let error = unsafe { WSAGetLastError() };
+        Err(format!(
+            "bind socket to physical interface {interface_index}: WSA {}",
+            error
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn physical_dns_endpoints(info: &PhysicalNetworkInfo) -> Result<Vec<SocketAddr>, WindowsVpnError> {
+    if info.generation == 0 {
+        return Err(WindowsVpnError::InvalidPhysicalNetworkInfo);
+    }
+    let mut output = Vec::new();
+    for interface in &info.interfaces {
+        if interface.interface_luid == 0 || interface.interface_index == 0 {
+            return Err(WindowsVpnError::InvalidPhysicalNetworkInfo);
+        }
+        for value in &interface.dns_servers {
+            let address = value
+                .parse::<std::net::IpAddr>()
+                .map_err(|_| WindowsVpnError::InvalidPhysicalNetworkInfo)?;
+            if address.is_unspecified() || address.is_multicast() {
+                return Err(WindowsVpnError::InvalidPhysicalNetworkInfo);
+            }
+            let endpoint = match address {
+                std::net::IpAddr::V4(address) => SocketAddr::from((address, 53)),
+                std::net::IpAddr::V6(address) => std::net::SocketAddrV6::new(
+                    address,
+                    53,
+                    0,
+                    if address.is_unicast_link_local() {
+                        interface.interface_index
+                    } else {
+                        0
+                    },
+                )
+                .into(),
+            };
+            output.push(endpoint);
+        }
+    }
+    output.sort();
+    output.dedup();
+    Ok(output)
 }
 
 async fn resolve_registration_api() -> Result<Vec<SocketAddr>, WindowsVpnError> {
@@ -262,24 +464,23 @@ impl WindowsVpnRuntime {
         profile: &Profile,
         identity: MasqueTlsIdentity,
         pin_refresher: Arc<dyn EndpointPinRefresher>,
+        geo_policy: Arc<GeoDirectPolicy>,
     ) -> Result<Self, WindowsVpnError> {
         // Resolve before the Agent installs the fail-closed WFP policy. The
         // authenticated refresh client later uses only these exact numeric
         // addresses, so neither DNS nor arbitrary physical egress is opened
         // while the tunnel is active.
         let registration_api = resolve_registration_api().await?;
-        let protector: Arc<dyn SocketProtector> = Arc::new(CachedControlSocketProtector {
-            registration_api: registration_api.clone(),
-        });
+        let geo_enabled = geo_policy.is_enabled();
         let agent = WindowsAgentClient::production();
         let capabilities = agent.get_capabilities().await?;
-        validate_capabilities(&capabilities, profile.kill_switch)?;
+        validate_capabilities(&capabilities, profile.kill_switch, geo_enabled)?;
         let state = agent.get_state().await?;
         let (operation_id, resuming, startup_lease) =
             match agent_v1::AgentPhase::try_from(state.phase) {
                 Ok(agent_v1::AgentPhase::Clean) => {
                     let operation_id = Uuid::new_v4();
-                    let plan = tunnel_plan(profile, &identity, &registration_api);
+                    let plan = tunnel_plan(profile, &identity, &registration_api, geo_enabled);
                     let lease = agent.prepare(operation_id, plan).await?;
                     (operation_id, false, Some(lease))
                 }
@@ -302,11 +503,67 @@ impl WindowsVpnRuntime {
                 }
             };
 
-        let tunnel = match MasqueRuntime::start_with_refresh(
+        let physical_info = if geo_enabled {
+            match agent.get_physical_network_info(operation_id).await {
+                Ok(info) => Some(info),
+                Err(error) => {
+                    abort_startup(
+                        &agent,
+                        operation_id,
+                        resuming,
+                        "PHYSICAL_DNS_SNAPSHOT_FAILED",
+                    )
+                    .await?;
+                    return Err(error);
+                }
+            }
+        } else {
+            None
+        };
+        let physical_dns = match physical_info
+            .as_ref()
+            .map(physical_dns_endpoints)
+            .transpose()
+        {
+            Ok(servers) => servers.unwrap_or_default(),
+            Err(error) => {
+                abort_startup(
+                    &agent,
+                    operation_id,
+                    resuming,
+                    "PHYSICAL_DNS_SNAPSHOT_INVALID",
+                )
+                .await?;
+                return Err(error);
+            }
+        };
+        if geo_enabled && physical_dns.is_empty() {
+            abort_startup(&agent, operation_id, resuming, "PHYSICAL_DNS_UNAVAILABLE").await?;
+            return Err(WindowsVpnError::PhysicalDnsUnavailable);
+        }
+        let initial_generation = physical_info
+            .as_ref()
+            .map_or(state.journal_generation, |info| info.generation)
+            .max(1);
+        let protector = Arc::new(WindowsVpnSocketProtector {
+            registration_api,
+            agent: agent.clone(),
+            operation_id,
+            physical_dns: RwLock::new(physical_dns),
+            generation: AtomicU64::new(initial_generation),
+            agent_generation: AtomicU64::new(initial_generation),
+        });
+        if geo_enabled {
+            start_physical_network_monitor(&protector);
+        }
+        let protector: Arc<dyn SocketProtector> = protector;
+
+        let tunnel = match MasqueRuntime::start_with_geo_policy(
             profile,
             identity,
             protector,
             Some(pin_refresher),
+            geo_policy,
         )
         .await
         {
@@ -392,7 +649,7 @@ impl WindowsVpnRuntime {
             Ok(capabilities) => capabilities,
             Err(error) => return Err((tunnel, error)),
         };
-        if let Err(error) = validate_capabilities(&capabilities, profile.kill_switch) {
+        if let Err(error) = validate_capabilities(&capabilities, profile.kill_switch, false) {
             return Err((tunnel, error));
         }
         let state = match agent.get_state().await {
@@ -414,6 +671,7 @@ impl WindowsVpnRuntime {
             tunnel.assigned_ipv4(),
             tunnel.assigned_ipv6(),
             &registration_api,
+            false,
         );
         let startup_lease = match agent.prepare(operation_id, plan).await {
             Ok(lease) => lease,
@@ -741,12 +999,14 @@ fn tunnel_plan(
     profile: &Profile,
     identity: &MasqueTlsIdentity,
     registration_api: &[SocketAddr],
+    split_dns: bool,
 ) -> agent_v1::TunnelPlan {
     tunnel_plan_from_assignment(
         profile,
         identity.assigned_ipv4,
         identity.assigned_ipv6,
         registration_api,
+        split_dns,
     )
 }
 
@@ -755,6 +1015,7 @@ fn tunnel_plan_from_assignment(
     assigned_ipv4: std::net::Ipv4Addr,
     assigned_ipv6: std::net::Ipv6Addr,
     registration_api: &[SocketAddr],
+    split_dns: bool,
 ) -> agent_v1::TunnelPlan {
     let ipv4 = profile.endpoint.ipv4_socket();
     let ipv6 = profile.endpoint.ipv6_socket();
@@ -775,11 +1036,15 @@ fn tunnel_plan_from_assignment(
         mtu: u32::from(profile.mtu),
         // Endpoint policy selects the physical MASQUE ingress only. DNS is
         // carried inside CONNECT-IP and remains dual-stack over either ingress.
-        dns_servers: profile
-            .dns_servers
-            .iter()
-            .map(ToString::to_string)
-            .collect(),
+        dns_servers: if split_dns {
+            vec![SPLIT_DNS_IPV4.to_string(), SPLIT_DNS_IPV6.to_string()]
+        } else {
+            profile
+                .dns_servers
+                .iter()
+                .map(ToString::to_string)
+                .collect()
+        },
         split_exclusions: profile
             .split_exclusions
             .iter()
@@ -791,12 +1056,14 @@ fn tunnel_plan_from_assignment(
         assigned_ipv6: format!("{assigned_ipv6}/128"),
         endpoint_candidates,
         control_api_candidates: registration_api.iter().map(ToString::to_string).collect(),
+        split_dns,
     }
 }
 
 fn validate_capabilities(
     capabilities: &AgentCapabilities,
     require_kill_switch: bool,
+    require_geo: bool,
 ) -> Result<(), WindowsVpnError> {
     if capabilities.protocol_version != AGENT_PROTOCOL_VERSION {
         return Err(WindowsVpnError::ProtocolVersion(
@@ -818,6 +1085,12 @@ fn validate_capabilities(
     }
     if require_kill_switch && !capabilities.wfp_kill_switch {
         missing.push("wfp_kill_switch");
+    }
+    if require_geo && !capabilities.dynamic_direct_egress {
+        missing.push("dynamic_direct_egress");
+    }
+    if require_geo && !capabilities.physical_dns_snapshot {
+        missing.push("physical_dns_snapshot");
     }
     if missing.is_empty() {
         Ok(())
@@ -1321,6 +1594,59 @@ impl WindowsAgentClient {
         }
     }
 
+    async fn get_physical_network_info(
+        &self,
+        operation_id: Uuid,
+    ) -> Result<PhysicalNetworkInfo, WindowsVpnError> {
+        match self
+            .call(agent_request::Payload::GetPhysicalNetworkInfo(
+                GetPhysicalNetworkInfoRequest {
+                    operation_id: operation_id.to_string(),
+                },
+            ))
+            .await?
+        {
+            agent_response::Payload::PhysicalNetworkInfo(info) => Ok(info),
+            payload => Err(WindowsVpnError::UnexpectedResponse(payload_name(&payload))),
+        }
+    }
+
+    async fn acquire_direct_egress(
+        &self,
+        operation_id: Uuid,
+        remote: SocketAddr,
+        protocol: DirectProtocol,
+    ) -> Result<(NamedPipeClient, AgentDirectEgressLease), WindowsVpnError> {
+        let mut pipe = self.open_pipe().await?;
+        let response = timeout(
+            AGENT_RPC_TIMEOUT,
+            self.exchange(
+                &mut pipe,
+                agent_request::Payload::AcquireDirectEgress(AcquireDirectEgressRequest {
+                    operation_id: operation_id.to_string(),
+                    remote_endpoint: remote.to_string(),
+                    protocol: u32::from(protocol.iana_number()),
+                }),
+            ),
+        )
+        .await
+        .map_err(|_| WindowsVpnError::RpcTimeout)??;
+        match response {
+            agent_response::Payload::DirectEgressLease(lease)
+                if lease.remote_endpoint == remote.to_string()
+                    && lease.protocol == u32::from(protocol.iana_number())
+                    && lease.interface_luid != 0
+                    && lease.interface_index != 0 =>
+            {
+                Ok((pipe, lease))
+            }
+            agent_response::Payload::DirectEgressLease(_) => {
+                Err(WindowsVpnError::InvalidDirectEgressLease)
+            }
+            payload => Err(WindowsVpnError::UnexpectedResponse(payload_name(&payload))),
+        }
+    }
+
     async fn prepare(
         &self,
         operation_id: Uuid,
@@ -1644,6 +1970,8 @@ fn payload_name(payload: &agent_response::Payload) -> &'static str {
         agent_response::Payload::Capabilities(_) => "capabilities",
         agent_response::Payload::State(_) => "state",
         agent_response::Payload::PacketSession(_) => "packet_session",
+        agent_response::Payload::PhysicalNetworkInfo(_) => "physical_network_info",
+        agent_response::Payload::DirectEgressLease(_) => "direct_egress_lease",
     }
 }
 
@@ -1840,6 +2168,12 @@ pub(crate) enum WindowsVpnError {
     ProtocolVersion(u32),
     #[error("Windows Agent returned a malformed active operation ID")]
     InvalidAgentOperationId,
+    #[error("Windows Agent returned malformed physical network metadata")]
+    InvalidPhysicalNetworkInfo,
+    #[error("the selected physical network has no usable DNS server for Split DNS")]
+    PhysicalDnsUnavailable,
+    #[error("Windows Agent returned a mismatched direct-egress lease")]
+    InvalidDirectEgressLease,
     #[error(
         "Windows Agent active tunnel belongs to Profile {active}, not requested Profile {requested}"
     )]
@@ -1955,6 +2289,7 @@ mod tests {
             &profile,
             &identity(),
             &["198.51.100.10:443".parse().unwrap()],
+            false,
         );
         assert_eq!(plan.endpoint, "[2606:4700:103::2]:443");
         assert_eq!(
@@ -1982,9 +2317,30 @@ mod tests {
             ..Profile::default()
         };
 
-        let plan = tunnel_plan(&profile, &identity, &["198.51.100.10:443".parse().unwrap()]);
+        let plan = tunnel_plan(
+            &profile,
+            &identity,
+            &["198.51.100.10:443".parse().unwrap()],
+            false,
+        );
 
         assert_eq!(plan.dns_servers, vec!["1.1.1.1", "2606:4700:4700::1111"]);
+    }
+
+    #[test]
+    fn geo_tunnel_plan_publishes_only_internal_split_dns() {
+        let profile = Profile {
+            mode: OperatingMode::Vpn,
+            ..Profile::default()
+        };
+        let plan = tunnel_plan(
+            &profile,
+            &identity(),
+            &["198.51.100.10:443".parse().unwrap()],
+            true,
+        );
+        assert!(plan.split_dns);
+        assert_eq!(plan.dns_servers, ["198.18.0.1", "fd00::1"]);
     }
 
     #[test]
@@ -1997,6 +2353,7 @@ mod tests {
             &profile,
             &identity(),
             &["198.51.100.10:443".parse().unwrap()],
+            false,
         );
         assert_eq!(plan.endpoint_candidates, ["162.159.198.2:443"]);
         assert_eq!(plan.control_api_candidates, ["198.51.100.10:443"]);

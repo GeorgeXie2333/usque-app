@@ -265,7 +265,7 @@ const Map<String, String> kKoCatalog = <String, String>{
   'diagnostics_subtitle': '엔진 상태, 로그 내보내기, 로컬 데이터입니다.',
   'engine_status': '엔진 상태',
   'version': '버전',
-  'app_version': 'Usque 0.2.0',
+  'app_version': 'Usque 0.2.1',
   'logs': '로컬 로그',
   'export_diagnostics': '진단 번들 내보내기',
   'diagnostics_saved': '진단 번들을 저장한 위치',
@@ -305,4 +305,23 @@ const Map<String, String> kKoCatalog = <String, String>{
   'profile_required': '프로필을 하나 이상 유지해야 합니다.',
   'socks_capabilities': 'TCP 및 UDP',
   'http_capabilities': 'CONNECT 및 일반 전달',
+  'geo_direct': 'Direct countries',
+  'geo_direct_help':
+      'Matched domains are visible to your current network\'s DNS; apps using encrypted DNS are routed by IP only.',
+  'geo_update_all': 'Update geo data',
+  'geo_last_updated': 'Last successful update: {current}',
+  'geo_never_updated': 'Not updated yet',
+  'geo_updating': 'Updating {current} of {total}',
+  'geo_download': 'Download',
+  'geo_update': 'Update',
+  'geo_enable': 'Direct',
+  'geo_search': 'Search countries',
+  'geo_not_downloaded': 'Not downloaded',
+  'geo_downloaded': 'Downloaded',
+  'geo_chip': '{current} direct',
+  'geo_download_first':
+      'Download geo data for this country before enabling it.',
+  'geo_update_complete':
+      'Geo data: {updated} updated, {current} already current.',
+  'geo_update_failed': 'Geo data update failed: {current}',
 };

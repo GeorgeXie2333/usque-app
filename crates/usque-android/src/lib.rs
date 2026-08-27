@@ -16,7 +16,7 @@ use std::sync::{
 #[cfg(any(test, target_os = "android"))]
 use std::time::Duration;
 use std::{
-    net::{IpAddr, SocketAddr},
+    net::{IpAddr, SocketAddr, SocketAddrV6},
     path::PathBuf,
 };
 
@@ -100,28 +100,42 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeSta
     profile_json: JString<'local>,
     warp_secret: JByteArray<'local>,
     proxy_password: JByteArray<'local>,
+    geo_cache_dir: JString<'local>,
     vpn_service: JObject<'local>,
 ) -> jint {
     with_jni_code(&mut environment, |environment| {
         native_start(
             environment,
-            tun_file_descriptor,
-            profile_json,
-            warp_secret,
-            proxy_password,
-            vpn_service,
+            NativeVpnStart {
+                tun_file_descriptor,
+                profile_json,
+                warp_secret,
+                proxy_password,
+                geo_cache_dir,
+                vpn_service,
+            },
         )
     })
 }
 
-fn native_start<'local>(
-    environment: &mut Env<'local>,
+struct NativeVpnStart<'local> {
     tun_file_descriptor: jint,
     profile_json: JString<'local>,
     warp_secret: JByteArray<'local>,
     proxy_password: JByteArray<'local>,
+    geo_cache_dir: JString<'local>,
     vpn_service: JObject<'local>,
-) -> jint {
+}
+
+fn native_start<'local>(environment: &mut Env<'local>, request: NativeVpnStart<'local>) -> jint {
+    let NativeVpnStart {
+        tun_file_descriptor,
+        profile_json,
+        warp_secret,
+        proxy_password,
+        geo_cache_dir,
+        vpn_service,
+    } = request;
     if tun_file_descriptor < 0 || !engine_ready() {
         return START_NOT_READY;
     }
@@ -144,6 +158,10 @@ fn native_start<'local>(
     let profile = match attach_android_proxy_password(profile, proxy_password) {
         Ok(profile) => profile,
         Err(code) => return code,
+    };
+    let geo_cache_dir = match geo_cache_dir.try_to_string(environment) {
+        Ok(path) if PathBuf::from(&path).is_absolute() => PathBuf::from(path),
+        _ => return START_INVALID_PROFILE,
     };
     let identity = match warp_identity_from_secret(&secret) {
         Ok(identity) => identity,
@@ -171,6 +189,7 @@ fn native_start<'local>(
         tun_file_descriptor,
         profile,
         identity,
+        geo_cache_dir,
         Arc::new(AndroidSocketProtector {
             java_vm,
             service,
@@ -187,6 +206,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeSta
     profile_json: JString<'local>,
     warp_secret: JByteArray<'local>,
     proxy_password: JByteArray<'local>,
+    geo_cache_dir: JString<'local>,
     vpn_service: JObject<'local>,
 ) -> jint {
     with_jni_code(&mut environment, |environment| {
@@ -195,6 +215,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeSta
             profile_json,
             warp_secret,
             proxy_password,
+            geo_cache_dir,
             vpn_service,
         )
     })
@@ -205,6 +226,7 @@ fn native_start_proxy<'local>(
     profile_json: JString<'local>,
     warp_secret: JByteArray<'local>,
     proxy_password: JByteArray<'local>,
+    geo_cache_dir: JString<'local>,
     vpn_service: JObject<'local>,
 ) -> jint {
     if !engine_ready() {
@@ -229,6 +251,10 @@ fn native_start_proxy<'local>(
     let profile = match attach_android_proxy_password(profile, proxy_password) {
         Ok(profile) => profile,
         Err(code) => return code,
+    };
+    let geo_cache_dir = match geo_cache_dir.try_to_string(environment) {
+        Ok(path) if PathBuf::from(&path).is_absolute() => PathBuf::from(path),
+        _ => return START_INVALID_PROFILE,
     };
     let identity = match warp_identity_from_secret(&secret) {
         Ok(identity) => identity,
@@ -255,6 +281,7 @@ fn native_start_proxy<'local>(
     start_proxy_engine(
         profile,
         identity,
+        geo_cache_dir,
         Arc::new(AndroidSocketProtector {
             java_vm,
             service,
@@ -741,6 +768,8 @@ struct AndroidProfile {
     auto_connect: bool,
     #[serde(default)]
     bypass_cidrs: Vec<String>,
+    #[serde(default)]
+    geo_direct_countries: Vec<String>,
     proxy: AndroidProxy,
 }
 
@@ -870,6 +899,7 @@ fn android_profile_to_core(source: AndroidProfile) -> Result<Profile, String> {
             .collect::<Result<Vec<_>, _>>()?,
         kill_switch: source.kill_switch,
         auto_connect: source.auto_connect,
+        geo_direct_countries: source.geo_direct_countries,
         proxy: ProxySettings {
             socks5_listeners: vec![
                 SocketAddr::new(socks_ipv4, source.proxy.socks_port),
@@ -891,6 +921,9 @@ fn android_profile_to_core(source: AndroidProfile) -> Result<Profile, String> {
         },
     };
     profile.canonicalize_mode();
+    profile
+        .canonicalize_geo_direct()
+        .map_err(|error| error.to_string())?;
     profile.validate().map_err(|error| error.to_string())?;
     Ok(profile)
 }
@@ -962,6 +995,11 @@ enum AndroidConfigCommand {
     ReconfigureActiveProfile {
         profile: Box<AndroidProfile>,
     },
+    ListGeoRules,
+    DownloadGeoRules {
+        country_code: String,
+    },
+    UpdateAllGeoRules,
 }
 
 fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String, String> {
@@ -1178,6 +1216,11 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
                 .map_err(|error| error.to_string())?;
             changed = true;
         }
+        AndroidConfigCommand::ListGeoRules
+        | AndroidConfigCommand::DownloadGeoRules { .. }
+        | AndroidConfigCommand::UpdateAllGeoRules => {
+            return apply_geo_command(store.path(), command);
+        }
     }
 
     config.validate().map_err(|error| error.to_string())?;
@@ -1188,6 +1231,77 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
         }
     }
     serde_json::to_string(&android_profile_catalog(&config)).map_err(|error| error.to_string())
+}
+
+fn apply_geo_command(
+    config_path: &std::path::Path,
+    command: AndroidConfigCommand,
+) -> Result<String, String> {
+    let cache_dir = config_path
+        .parent()
+        .ok_or_else(|| "Android profile-store path is invalid".to_owned())?;
+    match command {
+        AndroidConfigCommand::ListGeoRules => {
+            let (entries, last_successful_update_unix_milliseconds) =
+                usque_core::list_geo_rules(cache_dir).map_err(|error| error.to_string())?;
+            let (has_global_geosite, global_geosite_updated_unix_milliseconds) =
+                usque_core::global_geosite_status(cache_dir);
+            serde_json::to_string(&serde_json::json!({
+                "entries": entries.iter().map(|entry| serde_json::json!({
+                    "country_code": entry.country_code,
+                    "has_geoip": entry.has_geoip,
+                    "has_geosite": entry.has_geosite,
+                    "last_updated_unix_milliseconds": entry.last_updated_unix_milliseconds,
+                })).collect::<Vec<_>>(),
+                "last_successful_update_unix_milliseconds": last_successful_update_unix_milliseconds,
+                "has_global_geosite": has_global_geosite,
+                "global_geosite_updated_unix_milliseconds": global_geosite_updated_unix_milliseconds,
+            }))
+            .map_err(|error| error.to_string())
+        }
+        AndroidConfigCommand::DownloadGeoRules { country_code } => {
+            geo_update_json(cache_dir, Some(country_code))
+        }
+        AndroidConfigCommand::UpdateAllGeoRules => geo_update_json(cache_dir, None),
+        _ => Err("unsupported geo command".to_owned()),
+    }
+}
+
+fn geo_update_json(
+    cache_dir: &std::path::Path,
+    country_code: Option<String>,
+) -> Result<String, String> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| format!("geo runtime failed: {error}"))?;
+    let fetch = usque_geo::ReqwestFetch::new().map_err(|error| error.to_string())?;
+    let downloader = usque_geo::GeoDownloader::new(fetch, cache_dir);
+    let results = runtime
+        .block_on(async {
+            match country_code.as_deref() {
+                Some(country) => usque_core::download_geo_rules(&downloader, country, |_| {}).await,
+                None => usque_core::update_all_geo_rules(&downloader, |_| {}).await,
+            }
+        })
+        .map_err(|error| error.to_string())?;
+    serde_json::to_string(&serde_json::json!({
+        "results": results.iter().map(|result| {
+            let (status, reason) = match &result.status {
+                usque_geo::UpdateStatus::UpToDate => ("up_to_date", String::new()),
+                usque_geo::UpdateStatus::Updated => ("updated", String::new()),
+                usque_geo::UpdateStatus::Failed { reason } => ("failed", reason.clone()),
+            };
+            serde_json::json!({
+                "country_code": result.country_code,
+                "status": status,
+                "reason": reason,
+                "artifact_kind": result.artifact_kind,
+                "artifact_scope": result.artifact_scope,
+            })
+        }).collect::<Vec<_>>(),
+    }))
+    .map_err(|error| error.to_string())
 }
 
 fn android_profile_catalog(config: &AppConfig) -> serde_json::Value {
@@ -1289,6 +1403,7 @@ fn android_profile_value(
             .iter()
             .map(ToString::to_string)
             .collect::<Vec<_>>(),
+        "geo_direct_countries": profile.geo_direct_countries,
         "proxy": {
             "socks_ipv4": socks_ipv4.ip().to_string(),
             "socks_ipv6": socks_ipv6.ip().to_string(),
@@ -1446,6 +1561,10 @@ impl SocketProtector for AndroidSocketProtector {
         Ok(())
     }
 
+    fn tun_direct_available(&self) -> bool {
+        self.policy.requires_vpn_protection()
+    }
+
     fn endpoint_family_available(&self, endpoint: SocketAddr) -> Option<bool> {
         let mask = self
             .java_vm
@@ -1472,6 +1591,53 @@ impl SocketProtector for AndroidSocketProtector {
 
     fn network_generation(&self) -> Option<u64> {
         Some(self.network_generation.load(Ordering::Acquire))
+    }
+
+    fn physical_dns_servers(&self) -> Vec<SocketAddr> {
+        let values = self
+            .java_vm
+            .attach_current_thread(|environment| -> jni::errors::Result<Vec<String>> {
+                let servers = environment
+                    .call_method(
+                        &self.service,
+                        jni_str!("getUnderlyingDnsServers"),
+                        jni_sig!("()[Ljava/lang/String;"),
+                        &[],
+                    )?
+                    .l()?;
+                let servers = environment.cast_local::<JObjectArray<JString<'static>>>(servers)?;
+                let length = servers.len(environment)?;
+                let mut values = Vec::with_capacity(length);
+                for index in 0..length {
+                    let value = servers.get_element(environment, index)?;
+                    values.push(value.try_to_string(environment)?);
+                }
+                Ok(values)
+            })
+            .unwrap_or_default();
+        let mut servers = values
+            .into_iter()
+            .filter_map(|value| {
+                let (host, scope) = value.split_once('|')?;
+                let ip = host.parse::<IpAddr>().ok()?;
+                if ip.is_unspecified() || ip.is_multicast() {
+                    return None;
+                }
+                match ip {
+                    IpAddr::V4(ip) => Some(SocketAddr::new(ip.into(), 53)),
+                    IpAddr::V6(ip) => Some(SocketAddr::V6(SocketAddrV6::new(
+                        ip,
+                        53,
+                        0,
+                        scope.parse().ok()?,
+                    ))),
+                }
+            })
+            .collect::<Vec<_>>();
+        servers.sort();
+        servers.dedup();
+        servers.truncate(8);
+        servers
     }
 
     fn resolve(&self, host: &str, port: u16) -> Result<Vec<SocketAddr>, String> {
@@ -1672,15 +1838,28 @@ fn start_engine(
     tun_file_descriptor: jint,
     profile: Profile,
     identity: WarpIdentity,
+    geo_cache_dir: PathBuf,
     protector: Arc<AndroidSocketProtector>,
 ) -> jint {
     #[cfg(target_os = "android")]
     {
-        android_runtime::start(tun_file_descriptor, profile, identity, protector)
+        android_runtime::start(
+            tun_file_descriptor,
+            profile,
+            identity,
+            geo_cache_dir,
+            protector,
+        )
     }
     #[cfg(not(target_os = "android"))]
     {
-        let _ = (tun_file_descriptor, profile, identity, protector);
+        let _ = (
+            tun_file_descriptor,
+            profile,
+            identity,
+            geo_cache_dir,
+            protector,
+        );
         START_NOT_READY
     }
 }
@@ -1688,15 +1867,16 @@ fn start_engine(
 fn start_proxy_engine(
     profile: Profile,
     identity: WarpIdentity,
+    geo_cache_dir: PathBuf,
     protector: Arc<AndroidSocketProtector>,
 ) -> jint {
     #[cfg(target_os = "android")]
     {
-        android_runtime::start_proxy(profile, identity, protector)
+        android_runtime::start_proxy(profile, identity, geo_cache_dir, protector)
     }
     #[cfg(not(target_os = "android"))]
     {
-        let _ = (profile, identity, protector);
+        let _ = (profile, identity, geo_cache_dir, protector);
         START_NOT_READY
     }
 }
@@ -2122,6 +2302,26 @@ mod tests {
                 "1.1.1.1".parse::<IpAddr>().unwrap(),
                 "2606:4700:4700::1111".parse::<IpAddr>().unwrap(),
             ]
+        );
+        assert!(profile.geo_direct_countries.is_empty());
+    }
+
+    #[test]
+    fn android_profile_accepts_geo_direct_countries_without_expanding_bypass() {
+        let mut source: serde_json::Value = serde_json::from_str(&valid_profile_json()).unwrap();
+        source["geo_direct_countries"] = serde_json::json!(["CN"]);
+        source["bypass_cidrs"] = serde_json::json!(["192.0.2.0/24"]);
+        let profile = parse_android_profile(&source.to_string()).unwrap();
+        assert_eq!(profile.geo_direct_countries, vec!["CN".to_owned()]);
+        assert_eq!(
+            profile.split_exclusions,
+            vec!["192.0.2.0/24".parse::<ipnet::IpNet>().unwrap()]
+        );
+        let exported = android_profile_value(&profile, None);
+        assert_eq!(exported["geo_direct_countries"], serde_json::json!(["CN"]));
+        assert_eq!(
+            exported["bypass_cidrs"],
+            serde_json::json!(["192.0.2.0/24"])
         );
     }
 

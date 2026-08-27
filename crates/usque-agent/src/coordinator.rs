@@ -1500,6 +1500,7 @@ mod tests {
             ],
             allow_lan: true,
             kill_switch: true,
+            split_dns: false,
             assigned_ipv4: Some(
                 Ipv4Net::new(Ipv4Addr::new(172, 16, 0, 2), 32)
                     .expect("assignment")

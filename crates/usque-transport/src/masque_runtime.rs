@@ -9,6 +9,8 @@ use tokio_util::sync::CancellationToken;
 use ts_netstack_smoltcp::WakingPipe;
 use usque_core::{Profile, ProxyAuthCredentials, ProxyDnsMode};
 
+use crate::direct_gateway::DirectGatewayRouter;
+use crate::geo_direct::GeoDirectPolicy;
 use crate::h2::{MasqueTlsIdentity, TransportError};
 use crate::http_proxy::HttpProxyFrontend;
 use crate::netstack::{
@@ -89,6 +91,23 @@ impl MasqueRuntime {
         protector: Arc<dyn SocketProtector>,
         pin_refresher: Option<Arc<dyn EndpointPinRefresher>>,
     ) -> Result<Self, TransportError> {
+        Self::start_with_geo_policy(
+            profile,
+            identity,
+            protector,
+            pin_refresher,
+            Arc::new(GeoDirectPolicy::disabled()),
+        )
+        .await
+    }
+
+    pub async fn start_with_geo_policy(
+        profile: &Profile,
+        identity: MasqueTlsIdentity,
+        protector: Arc<dyn SocketProtector>,
+        pin_refresher: Option<Arc<dyn EndpointPinRefresher>>,
+        geo_policy: Arc<GeoDirectPolicy>,
+    ) -> Result<Self, TransportError> {
         let credentials = match profile.proxy.listener_credentials() {
             Ok(credentials) => credentials,
             Err(error) => {
@@ -124,15 +143,38 @@ impl MasqueRuntime {
         .await?;
         let monitor = tunnel.monitor();
         let cancellation = CancellationToken::new();
+        let gateway_protector = Arc::clone(&protector);
+        let gateway_policy = Arc::clone(&geo_policy);
         let (mut stack, proxy_pipe) = PacketStack::start_detached(
             profile,
-            assigned_ipv4,
-            assigned_ipv6,
+            (assigned_ipv4, assigned_ipv6),
             &monitor,
             &cancellation,
             protector,
+            geo_policy,
         )
         .await?;
+        let (direct_gateway, direct_incoming) = match DirectGatewayRouter::start(
+            profile,
+            gateway_policy,
+            gateway_protector,
+            Arc::clone(&stack.counters),
+            Some((stack.channel.clone(), (assigned_ipv4, assigned_ipv6))),
+            &cancellation,
+        )
+        .await
+        {
+            Ok(gateway) => gateway,
+            Err(error) => {
+                stack.shutdown().await;
+                tunnel.shutdown().await;
+                return Err(error);
+            }
+        };
+        let direct_gateway = DirectGatewayMux {
+            router: direct_gateway,
+            incoming: direct_incoming,
+        };
 
         let socks5 = socks5_bound
             .map(|bound| {
@@ -180,6 +222,7 @@ impl MasqueRuntime {
                 &mut tunnel,
                 proxy_pipe,
                 raw_outgoing_rx,
+                direct_gateway,
                 mux_tun_sink,
                 &mux_cancel,
             )
@@ -487,9 +530,14 @@ async fn run_packet_mux(
     tunnel: &mut ManagedTunnelRuntime,
     proxy_pipe: WakingPipe,
     mut raw_outgoing: mpsc::Receiver<Bytes>,
+    direct_gateway: DirectGatewayMux,
     tun_sink: watch::Sender<Option<mpsc::Sender<Bytes>>>,
     cancellation: &CancellationToken,
 ) {
+    let DirectGatewayMux {
+        mut router,
+        mut incoming,
+    } = direct_gateway;
     let WakingPipe {
         mut rx,
         tx: proxy_incoming,
@@ -499,6 +547,7 @@ async fn run_packet_mux(
         Err(_) => return,
     };
     let mut flows = PacketMuxTable::default();
+    let mut direct_incoming_open = true;
 
     loop {
         // Tokio randomizes ready branch order, so the two ingress queues get
@@ -510,6 +559,10 @@ async fn run_packet_mux(
                 let mut packet = packet
                     .try_into_mut()
                     .unwrap_or_else(|packet| bytes::BytesMut::from(packet.as_ref()));
+                let tunnel_owned = flows.owns_outgoing(PacketOrigin::Tunnel, &packet);
+                if !tunnel_owned && router.route_outgoing(&mut packet).await {
+                    continue;
+                }
                 if flows.route_outgoing(PacketOrigin::Tunnel, &mut packet)
                     && sender.send_owned_packet(packet.freeze()).await.is_err()
                 {
@@ -540,8 +593,19 @@ async fn run_packet_mux(
                     None => tracing::debug!("dropped an unattributed MASQUE return packet"),
                 }
             }
+            packet = incoming.recv(), if direct_incoming_open => {
+                match packet {
+                    Some(packet) => dispatch_tun_incoming(&tun_sink, packet),
+                    None => direct_incoming_open = false,
+                }
+            }
         }
     }
+}
+
+struct DirectGatewayMux {
+    router: DirectGatewayRouter,
+    incoming: mpsc::Receiver<Bytes>,
 }
 
 /// Deliver a TUN-destined packet, or drop it when TUN is detached.
@@ -646,6 +710,8 @@ impl FrontendSpec {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
+    use std::sync::{Mutex, OnceLock};
     use std::time::Duration;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use usque_core::FrontendSettings;
@@ -862,9 +928,20 @@ mod tests {
     }
 
     fn free_loopback() -> SocketAddr {
-        let bound = std::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
-            .expect("ephemeral loopback");
-        bound.local_addr().expect("local addr")
+        static USED_PORTS: OnceLock<Mutex<HashSet<u16>>> = OnceLock::new();
+        loop {
+            let bound = std::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
+                .expect("ephemeral loopback");
+            let address = bound.local_addr().expect("local addr");
+            if USED_PORTS
+                .get_or_init(|| Mutex::new(HashSet::new()))
+                .lock()
+                .expect("test port set")
+                .insert(address.port())
+            {
+                return address;
+            }
+        }
     }
 
     fn proxy_profile(socks5: SocketAddr, http: SocketAddr) -> Profile {
@@ -900,11 +977,11 @@ mod tests {
         let cancellation = CancellationToken::new();
         let (stack, _pipe) = PacketStack::start_detached(
             profile,
-            assigned_ipv4,
-            assigned_ipv6,
+            (assigned_ipv4, assigned_ipv6),
             &monitor,
             &cancellation,
             crate::socket::noop_socket_protector(),
+            Arc::new(GeoDirectPolicy::disabled()),
         )
         .await
         .expect("local packet stack");

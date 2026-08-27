@@ -36,6 +36,12 @@ message AgentCapabilities {
   string operating_system = 7;
   string architecture = 8;
   uint32 protocol_version = 9;
+  // The Agent can grant short-lived, exact physical-egress permits whose
+  // lifetime is tied to the authenticated Engine pipe.
+  bool dynamic_direct_egress = 10;
+  // The Agent can snapshot numeric DNS servers from the selected physical
+  // interface without exposing DNS payloads or host names.
+  bool physical_dns_snapshot = 11;
 }
 
 message TunnelPlan {
@@ -55,6 +61,9 @@ message TunnelPlan {
   // only the authenticated Engine binary to reach TCP/443 on these hosts so
   // an endpoint-pin mismatch can refresh once without opening general egress.
   repeated string control_api_candidates = 11;
+  // The Wintun interface publishes Engine-owned Split DNS addresses and must
+  // receive exact host routes for them even when LAN exclusions overlap.
+  bool split_dns = 12;
 }
 
 message GetCapabilitiesRequest {}
@@ -109,6 +118,38 @@ message AcquireTunnelLeaseRequest {
   string operation_id = 1;
 }
 
+message GetPhysicalNetworkInfoRequest {
+  string operation_id = 1;
+}
+
+message PhysicalInterface {
+  uint64 interface_luid = 1;
+  uint32 interface_index = 2;
+  repeated string dns_servers = 3;
+}
+
+message PhysicalNetworkInfo {
+  repeated PhysicalInterface interfaces = 1;
+  // Monotonically increasing journal generation. A new generation invalidates
+  // DNS queries, DNS-derived route hints, and direct-flow leases.
+  uint64 generation = 2;
+}
+
+message AcquireDirectEgressRequest {
+  string operation_id = 1;
+  // Numeric IP address and non-zero destination port only.
+  string remote_endpoint = 2;
+  // IANA protocol number. Version 3 accepts TCP (6) and UDP (17).
+  uint32 protocol = 3;
+}
+
+message DirectEgressLease {
+  uint64 interface_luid = 1;
+  uint32 interface_index = 2;
+  string remote_endpoint = 3;
+  uint32 protocol = 4;
+}
+
 message AgentState {
   AgentPhase phase = 1;
   string operation_id = 2;
@@ -151,6 +192,8 @@ message AgentRequest {
     ClosePacketSessionRequest close_packet_session = 20;
     ResumeTunnelRequest resume_tunnel = 21;
     AcquireTunnelLeaseRequest acquire_tunnel_lease = 22;
+    GetPhysicalNetworkInfoRequest get_physical_network_info = 23;
+    AcquireDirectEgressRequest acquire_direct_egress = 24;
   }
 }
 
@@ -162,5 +205,7 @@ message AgentResponse {
     AgentCapabilities capabilities = 11;
     AgentState state = 12;
     PacketSessionHandles packet_session = 13;
+    PhysicalNetworkInfo physical_network_info = 14;
+    DirectEgressLease direct_egress_lease = 15;
   }
 }

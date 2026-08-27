@@ -8,6 +8,7 @@ import android.net.NetworkRequest
 import android.os.Handler
 import java.net.Inet4Address
 import java.net.Inet6Address
+import java.net.InetAddress
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -48,6 +49,7 @@ internal class PhysicalNetworkMonitor(
     private val availableNetworks = ConcurrentHashMap<Network, NetworkCandidate>()
     private val underlyingNetwork = AtomicReference<Network?>(null)
     private val underlyingFamilyMask = AtomicInteger()
+    private val underlyingDnsServers = AtomicReference<List<InetAddress>>(emptyList())
     private val networkRestartGeneration = NetworkRestartGeneration()
     private val networkSelectionTask = Runnable(::selectUnderlyingNetwork)
 
@@ -117,6 +119,8 @@ internal class PhysicalNetworkMonitor(
 
     fun underlyingFamilyMask(): Int = underlyingFamilyMask.get()
 
+    fun underlyingDnsServers(): List<InetAddress> = underlyingDnsServers.get()
+
     fun generation(): Long = networkRestartGeneration.get()
 
     fun bumpGeneration(): Long = networkRestartGeneration.bump()
@@ -137,11 +141,17 @@ internal class PhysicalNetworkMonitor(
     fun awaitPhysicalNetwork(
         isCurrent: () -> Boolean,
         waitMillis: Long,
+        requireDns: Boolean = false,
     ): Boolean {
         val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(waitMillis)
         while (System.nanoTime() < deadline) {
             if (!isCurrent()) return false
-            if (underlyingNetwork.get() != null) return true
+            if (
+                underlyingNetwork.get() != null &&
+                (!requireDns || underlyingDnsServers.get().isNotEmpty())
+            ) {
+                return true
+            }
             try {
                 Thread.sleep(50)
             } catch (_: InterruptedException) {
@@ -149,7 +159,9 @@ internal class PhysicalNetworkMonitor(
                 return false
             }
         }
-        return underlyingNetwork.get() != null && isCurrent()
+        return underlyingNetwork.get() != null &&
+            (!requireDns || underlyingDnsServers.get().isNotEmpty()) &&
+            isCurrent()
     }
 
     fun selectUnderlyingNetwork() {
@@ -188,8 +200,18 @@ internal class PhysicalNetworkMonitor(
                 .firstOrNull { it.second.handle == selection?.handle }
                 ?.first
         val selectedFamilyMask = selection?.familyMask ?: 0
+        val selectedDnsServers =
+            selectedNetwork
+                ?.let(availableNetworks::get)
+                ?.linkProperties
+                ?.dnsServers
+                ?.distinctBy(::dnsServerKey)
+                ?.sortedBy(::dnsServerKey)
+                ?.take(8)
+                ?: emptyList()
         val previousNetwork = underlyingNetwork.getAndSet(selectedNetwork)
         val previousFamilyMask = underlyingFamilyMask.getAndSet(selectedFamilyMask)
+        val previousDnsServers = underlyingDnsServers.getAndSet(selectedDnsServers)
         // Single source of truth with unit tests: handle + family-mask comparison.
         val generation =
             networkRestartGeneration.bumpIfChanged(
@@ -198,6 +220,8 @@ internal class PhysicalNetworkMonitor(
                     previousFamilyMask = previousFamilyMask,
                     selectedHandle = selectedNetwork?.networkHandle,
                     selectedFamilyMask = selectedFamilyMask,
+                    previousDnsServers = previousDnsServers.map(::dnsServerKey),
+                    selectedDnsServers = selectedDnsServers.map(::dnsServerKey),
                 ),
             ) ?: return
         listener.onUnderlyingNetworkChanged(selectedNetwork, selectedFamilyMask, generation)
@@ -213,7 +237,18 @@ internal fun hasUnderlyingSelectionChanged(
     previousFamilyMask: Int,
     selectedHandle: Long?,
     selectedFamilyMask: Int,
-): Boolean = previousHandle != selectedHandle || previousFamilyMask != selectedFamilyMask
+    previousDnsServers: List<String> = emptyList(),
+    selectedDnsServers: List<String> = emptyList(),
+): Boolean =
+    previousHandle != selectedHandle ||
+        previousFamilyMask != selectedFamilyMask ||
+        previousDnsServers != selectedDnsServers
+
+private fun dnsServerKey(address: InetAddress): String =
+    when (address) {
+        is Inet6Address -> "${address.hostAddress?.substringBefore('%')}|${address.scopeId}"
+        else -> "${address.hostAddress}|0"
+    }
 
 internal fun familyMask(linkProperties: LinkProperties?): Int {
     if (linkProperties == null) return FAMILY_IPV4 or FAMILY_IPV6

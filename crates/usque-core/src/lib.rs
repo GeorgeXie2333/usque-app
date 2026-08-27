@@ -1,6 +1,7 @@
 pub mod config;
 pub mod connector;
 pub mod exit_probe;
+pub mod geo_rules;
 pub mod identity;
 pub mod reconfigure;
 pub mod redaction;
@@ -11,14 +12,18 @@ pub mod update;
 
 pub use config::{
     Account, AppConfig, AppPreferences, ConfigError, DEFAULT_PROFILE_ID, DnsMode, EndpointSettings,
-    FrontendSettings, IpPolicy, LogLevel, OperatingMode, Profile, ProxyAuthCredentials,
-    ProxyDnsMode, ProxySettings, SHARED_NETWORK_SECRET_ID, SharedNetworkSettings, TransportPolicy,
-    validate_proxy_password, validate_proxy_username,
+    FrontendSettings, IpPolicy, LogLevel, MAX_GEO_DIRECT_COUNTRIES, OperatingMode, Profile,
+    ProxyAuthCredentials, ProxyDnsMode, ProxySettings, SHARED_NETWORK_SECRET_ID,
+    SharedNetworkSettings, TransportPolicy, validate_proxy_password, validate_proxy_username,
 };
 pub use connector::{
     ConnectedPath, ConnectionAttempt, ConnectionOrchestrator, ConnectorError, TransportConnector,
 };
 pub use exit_probe::{ExitInfo, GeoLocation, IpSbProbe, ProbeError};
+pub use geo_rules::{
+    GeoProgress, GeoRulesEntry, GeoRulesUpdate, download_geo_rules, global_geosite_status,
+    list_geo_rules, record_successful_geo_update, update_all_geo_rules,
+};
 pub use identity::{
     ConsumerEntitlement, EndpointPin, IdentityError, IdentityMetadata, IdentityProvider,
     MasqueKeyPair, WarpIdentity, parse_manual_warp_secret,

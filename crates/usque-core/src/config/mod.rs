@@ -19,7 +19,7 @@ mod network;
 pub use account::Account;
 pub use network::SharedNetworkSettings;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 9;
+pub const CURRENT_SCHEMA_VERSION: u32 = 10;
 /// Vault namespace for device-wide proxy-listener secrets. Never a profile id.
 pub const SHARED_NETWORK_SECRET_ID: Uuid =
     Uuid::from_u128(0x9f1c_6b20_5a7e_4d3a_9c11_00c0_ffee_0001);
@@ -37,6 +37,7 @@ pub const MAX_PROFILES: usize = 128;
 pub const MAX_DNS_SERVERS: usize = 8;
 pub const MAX_SPLIT_EXCLUSIONS: usize = 256;
 pub const MAX_PROXY_LISTENERS_PER_PROTOCOL: usize = 16;
+pub const MAX_GEO_DIRECT_COUNTRIES: usize = 32;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AppConfig {
@@ -121,6 +122,8 @@ impl AppConfig {
     /// Existing accounts update shared network; Zero Trust endpoints stay on the
     /// account, even without an identity binding.
     pub fn upsert_runtime_profile(&mut self, incoming: Profile) -> Result<Profile, ConfigError> {
+        let mut incoming = incoming;
+        incoming.canonicalize_geo_direct()?;
         incoming.validate()?;
         let id = incoming.id;
         let name = incoming.name.clone();
@@ -350,6 +353,9 @@ pub struct Profile {
     pub kill_switch: bool,
     pub auto_connect: bool,
     pub proxy: ProxySettings,
+    /// Uppercase ISO 3166-1 alpha-2 codes sent DIRECT. Empty disables the feature.
+    #[serde(default)]
+    pub geo_direct_countries: Vec<String>,
 }
 
 impl Default for Profile {
@@ -370,6 +376,7 @@ impl Default for Profile {
             kill_switch: true,
             auto_connect: false,
             proxy: ProxySettings::default(),
+            geo_direct_countries: Vec::new(),
         };
         profile.canonicalize_mode();
         profile
@@ -416,6 +423,7 @@ impl Profile {
         {
             return Err(ConfigError::DuplicateSplitExclusion);
         }
+        normalize_geo_direct_countries(&self.geo_direct_countries)?;
         if self.frontends.tunnel {
             if self.dns_mode == DnsMode::System {
                 return Err(ConfigError::VpnSystemDnsForbidden);
@@ -473,6 +481,16 @@ impl Profile {
         self.allow_lan = false;
         self.split_exclusions.clear();
         self.proxy = ProxySettings::default();
+        self.geo_direct_countries.clear();
+    }
+
+    pub fn canonicalize_geo_direct(&mut self) -> Result<(), ConfigError> {
+        self.geo_direct_countries = normalize_geo_direct_countries(&self.geo_direct_countries)?;
+        Ok(())
+    }
+
+    pub fn validate_geo_cache(&self, cache_dir: &std::path::Path) -> Result<(), ConfigError> {
+        crate::geo_rules::validate_geo_direct_cache(self, cache_dir)
     }
 }
 
@@ -890,6 +908,26 @@ pub fn validate_proxy_password(password: &[u8]) -> Result<(), ConfigError> {
     Ok(())
 }
 
+pub(crate) fn normalize_geo_direct_countries(
+    values: &[String],
+) -> Result<Vec<String>, ConfigError> {
+    if values.len() > MAX_GEO_DIRECT_COUNTRIES {
+        return Err(ConfigError::TooManyGeoDirectCountries(values.len()));
+    }
+    let mut seen = HashSet::new();
+    let mut countries = Vec::with_capacity(values.len());
+    for value in values {
+        let parsed = usque_geo::CountryCode::parse(value)
+            .map_err(|_| ConfigError::InvalidGeoDirectCountry(value.clone()))?;
+        let code = parsed.as_str().to_owned();
+        if !seen.insert(code.clone()) {
+            return Err(ConfigError::DuplicateGeoDirectCountry);
+        }
+        countries.push(code);
+    }
+    Ok(countries)
+}
+
 fn valid_dns_name(value: &str) -> bool {
     if value.is_empty()
         || value.len() > 253
@@ -937,6 +975,14 @@ pub enum ConfigError {
     TooManySplitExclusions(usize),
     #[error("duplicate split exclusion")]
     DuplicateSplitExclusion,
+    #[error("no more than {MAX_GEO_DIRECT_COUNTRIES} direct countries are allowed, got {0}")]
+    TooManyGeoDirectCountries(usize),
+    #[error("duplicate direct country")]
+    DuplicateGeoDirectCountry,
+    #[error("invalid direct country code: {0}")]
+    InvalidGeoDirectCountry(String),
+    #[error("download GeoIP data for {0} before enabling it")]
+    GeoDirectCountryNotDownloaded(String),
     #[error("at least one SOCKS5 listener is required while SOCKS5 is enabled")]
     MissingSocks5Listener,
     #[error("at least one HTTP listener is required while HTTP is enabled")]
@@ -1464,5 +1510,55 @@ mod tests {
         assert_eq!(network.endpoint, EndpointSettings::default());
         assert!(!network.endpoint.is_zero_trust_managed());
         assert_eq!(network.mtu, 1400);
+    }
+
+    #[test]
+    fn geo_direct_countries_are_unique_bounded_and_iso_alpha2() {
+        let mut profile = Profile {
+            geo_direct_countries: vec!["C".to_owned()],
+            ..Profile::default()
+        };
+        assert_eq!(
+            profile.validate(),
+            Err(ConfigError::InvalidGeoDirectCountry("C".to_owned()))
+        );
+
+        profile.geo_direct_countries = vec!["CN".to_owned(), "cn".to_owned()];
+        assert_eq!(
+            profile.validate(),
+            Err(ConfigError::DuplicateGeoDirectCountry)
+        );
+
+        profile.geo_direct_countries = (0..33)
+            .map(|index| {
+                format!(
+                    "{}{}",
+                    (b'A' + (index / 26) as u8) as char,
+                    (b'A' + (index % 26) as u8) as char
+                )
+            })
+            .collect();
+        assert_eq!(
+            profile.validate(),
+            Err(ConfigError::TooManyGeoDirectCountries(33))
+        );
+
+        profile.geo_direct_countries = vec!["cn".to_owned(), "US".to_owned()];
+        assert!(profile.validate().is_ok());
+        profile.canonicalize_geo_direct().unwrap();
+        assert_eq!(
+            profile.geo_direct_countries,
+            vec!["CN".to_owned(), "US".to_owned()]
+        );
+    }
+
+    #[test]
+    fn reset_network_defaults_clears_geo_direct_countries() {
+        let mut profile = Profile {
+            geo_direct_countries: vec!["CN".to_owned()],
+            ..Profile::default()
+        };
+        profile.reset_network_defaults();
+        assert!(profile.geo_direct_countries.is_empty());
     }
 }

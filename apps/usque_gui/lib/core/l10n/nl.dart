@@ -276,7 +276,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'diagnostics_subtitle': 'Engine-status, logboekexport en lokale gegevens.',
   'engine_status': 'Engine-status',
   'version': 'Versie',
-  'app_version': 'Usque 0.2.0',
+  'app_version': 'Usque 0.2.1',
   'logs': 'Lokale logboeken',
   'export_diagnostics': 'Diagnostisch pakket exporteren',
   'diagnostics_saved': 'Diagnostisch pakket opgeslagen in',
@@ -318,4 +318,23 @@ const Map<String, String> kNlCatalog = <String, String>{
   'profile_required': 'Behoud ten minste één profiel.',
   'socks_capabilities': 'TCP en UDP',
   'http_capabilities': 'CONNECT en gewone doorsturing',
+  'geo_direct': 'Direct countries',
+  'geo_direct_help':
+      'Matched domains are visible to your current network\'s DNS; apps using encrypted DNS are routed by IP only.',
+  'geo_update_all': 'Update geo data',
+  'geo_last_updated': 'Last successful update: {current}',
+  'geo_never_updated': 'Not updated yet',
+  'geo_updating': 'Updating {current} of {total}',
+  'geo_download': 'Download',
+  'geo_update': 'Update',
+  'geo_enable': 'Direct',
+  'geo_search': 'Search countries',
+  'geo_not_downloaded': 'Not downloaded',
+  'geo_downloaded': 'Downloaded',
+  'geo_chip': '{current} direct',
+  'geo_download_first':
+      'Download geo data for this country before enabling it.',
+  'geo_update_complete':
+      'Geo data: {updated} updated, {current} already current.',
+  'geo_update_failed': 'Geo data update failed: {current}',
 };

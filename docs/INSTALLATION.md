@@ -1,15 +1,15 @@
 # Installation and removal
 
-Install only packages from this repository's [GitHub Releases page](https://github.com/GeorgeXie2333/usque-app/releases) for `v0.2.0`.
+Install only packages from this repository's [GitHub Releases page](https://github.com/GeorgeXie2333/usque-app/releases) for `v0.2.1`.
 
 ## Official packages
 
-- `usque-v0.2.0-windows-x64-v2.msi`
-- `usque-v0.2.0-windows-arm64.msi`
-- `usque-v0.2.0-android-arm64-v8a.apk`
-- `usque-v0.2.0-android-x86_64.apk`
-- `usque-v0.2.0-android-armeabi-v7a.apk`
-- `usque-v0.2.0-android-universal.apk`
+- `usque-v0.2.1-windows-x64-v2.msi`
+- `usque-v0.2.1-windows-arm64.msi`
+- `usque-v0.2.1-android-arm64-v8a.apk`
+- `usque-v0.2.1-android-x86_64.apk`
+- `usque-v0.2.1-android-armeabi-v7a.apk`
+- `usque-v0.2.1-android-universal.apk`
 
 The GitHub Release attaches only those six packages. GitHub shows a SHA-256 for each asset. Signer fingerprints, SBOMs, and build provenance stay in the release notes and GitHub attestations. A local validation package, Actions development output, fork artifact, or a file from somewhere else is not an official release. Official identities and fingerprint rules are in [CODE_SIGNING.md](CODE_SIGNING.md).
 
@@ -22,6 +22,12 @@ The GitHub Release attaches only those six packages. GitHub shows a SHA-256 for 
 5. Stop if the filename, hash, signature, architecture, or version differs.
 
 Never disable endpoint pinning, import signing certificates from an unofficial package, or run a package that asks you to turn off antivirus or the firewall.
+
+## Direct-country DNS privacy
+
+Direct-country rules are optional and downloaded separately. Per-country GeoIP data is combined with one global V2Fly GeoSite catalog. Downloads may be started while Usque is disconnected, but they still obey Android Lockdown and any Windows Kill Switch state; a real system block appears as a retryable network failure and never replaces a valid cached ruleset.
+
+With direct-country routing enabled, Usque identifies GeoSite matches before sending DNS. Matching domains use the DNS servers of the current physical network and are visible to that DNS provider; non-matching domains continue through the configured WARP DNS. Applications that encrypt DNS themselves with DoH or DoT do not expose QNAME to Usque, so their destinations fall back to GeoIP classification. This behavior applies to Android VPN and Windows TUN as well as known SOCKS5/HTTP hostnames.
 
 ## Windows
 

@@ -122,6 +122,64 @@ enum LocalePreference {
   };
 }
 
+class GeoRulesEntry {
+  const GeoRulesEntry({
+    required this.countryCode,
+    this.hasGeoip = false,
+    this.hasGeosite = false,
+    this.lastUpdatedUnixMilliseconds = 0,
+  });
+
+  final String countryCode;
+  final bool hasGeoip;
+  final bool hasGeosite;
+  final int lastUpdatedUnixMilliseconds;
+}
+
+class GeoRulesList {
+  const GeoRulesList({
+    this.entries = const <GeoRulesEntry>[],
+    this.lastSuccessfulUpdateUnixMilliseconds = 0,
+    this.hasGlobalGeosite = false,
+    this.globalGeositeUpdatedUnixMilliseconds = 0,
+  });
+
+  final List<GeoRulesEntry> entries;
+  final int lastSuccessfulUpdateUnixMilliseconds;
+  final bool hasGlobalGeosite;
+  final int globalGeositeUpdatedUnixMilliseconds;
+}
+
+enum GeoRulesUpdateStatus { upToDate, updated, failed }
+
+class GeoRulesUpdateResult {
+  const GeoRulesUpdateResult({
+    required this.countryCode,
+    required this.status,
+    this.reason = '',
+    this.artifactKind = '',
+    this.artifactScope = '',
+  });
+
+  final String countryCode;
+  final GeoRulesUpdateStatus status;
+  final String reason;
+  final String artifactKind;
+  final String artifactScope;
+}
+
+class GeoRulesProgress {
+  const GeoRulesProgress({
+    this.currentFile = '',
+    this.completed = 0,
+    this.total = 0,
+  });
+
+  final String currentFile;
+  final int completed;
+  final int total;
+}
+
 class UpdateCheckResult {
   const UpdateCheckResult({
     required this.available,
@@ -468,6 +526,7 @@ class UsqueProfile {
     this.allowLan = false,
     this.autoConnect = false,
     this.bypassCidrs = const <String>[],
+    this.geoDirectCountries = const <String>[],
     this.proxy = const ProxySettings(),
     this.frontends = const FrontendSettings.windowsDefault(),
   });
@@ -498,6 +557,7 @@ class UsqueProfile {
   final bool allowLan;
   final bool autoConnect;
   final List<String> bypassCidrs;
+  final List<String> geoDirectCountries;
   final ProxySettings proxy;
   final FrontendSettings frontends;
 
@@ -559,6 +619,7 @@ class UsqueProfile {
     bool? allowLan,
     bool? autoConnect,
     List<String>? bypassCidrs,
+    List<String>? geoDirectCountries,
     ProxySettings? proxy,
     FrontendSettings? frontends,
   }) {
@@ -584,6 +645,7 @@ class UsqueProfile {
       allowLan: allowLan ?? this.allowLan,
       autoConnect: autoConnect ?? this.autoConnect,
       bypassCidrs: bypassCidrs ?? this.bypassCidrs,
+      geoDirectCountries: geoDirectCountries ?? this.geoDirectCountries,
       proxy: proxy ?? this.proxy,
       frontends: nextFrontends,
     );
@@ -608,6 +670,7 @@ class UsqueProfile {
       'allow_lan': allowLan,
       'auto_connect': autoConnect,
       'bypass_cidrs': bypassCidrs,
+      'geo_direct_countries': geoDirectCountries,
       'proxy': proxy.toMap(),
       'frontends': frontends.toMap(),
     };
@@ -628,6 +691,12 @@ class UsqueProfile {
     final bypass = _stringList(map, 'bypass_cidrs');
     if (bypass.length > 256) {
       throw const FormatException('Too many bypass routes');
+    }
+    final geoDirect = map.containsKey('geo_direct_countries')
+        ? _stringList(map, 'geo_direct_countries')
+        : const <String>[];
+    if (geoDirect.length > 32) {
+      throw const FormatException('Too many direct countries');
     }
     final proxy = map['proxy'];
     if (proxy is! Map) {
@@ -662,6 +731,7 @@ class UsqueProfile {
       allowLan: _bool(map, 'allow_lan'),
       autoConnect: _bool(map, 'auto_connect'),
       bypassCidrs: List<String>.unmodifiable(bypass),
+      geoDirectCountries: List<String>.unmodifiable(geoDirect),
       proxy: ProxySettings.fromMap(Map<String, Object?>.from(proxy)),
       frontends: migratedFrontends,
     );

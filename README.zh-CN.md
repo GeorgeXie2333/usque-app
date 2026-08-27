@@ -22,7 +22,7 @@
 Usque 是面向 Cloudflare WARP 个人版（Consumer WARP）的非官方图形客户端。界面由 Flutter 实现；MASQUE、CONNECT-IP、DNS、代理与连接状态由 Rust 引擎处理。项目不使用 WebView。
 
 > [!IMPORTANT]
-> 当前发布版本为 **v0.2.0**。请仅从 [GitHub Releases 页面](https://github.com/GeorgeXie2333/usque-app/releases) 下载正式安装包。Pull Request 构建、本地构建以及未打标签的二进制均非正式发布。
+> 当前发布版本为 **v0.2.1**。请仅从 [GitHub Releases 页面](https://github.com/GeorgeXie2333/usque-app/releases) 下载正式安装包。Pull Request 构建、本地构建以及未打标签的二进制均非正式发布。
 
 Usque 为独立项目，与 Cloudflare 无隶属、赞助或背书关系。Cloudflare 与 WARP 是 Cloudflare, Inc. 的商标。使用个人版 WARP 仍须遵守 Cloudflare 的适用条款与隐私政策。
 
@@ -43,7 +43,7 @@ Usque 为独立项目，与 Cloudflare 无隶属、赞助或背书关系。Cloud
 
 ## 发布范围
 
-`v0.2.0` 由 `main` 上的对应标签构建并校验以下六个安装包：
+`v0.2.1` 由 `main` 上的对应标签构建并校验以下六个安装包：
 
 | 平台 | 安装包 | 最低系统 | 架构 |
 | --- | --- | --- | --- |

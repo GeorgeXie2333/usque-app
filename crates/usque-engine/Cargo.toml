@@ -26,6 +26,7 @@ tokio-util.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 usque-core = { path = "../usque-core" }
+usque-geo = { path = "../usque-geo" }
 usque-ipc = { path = "../usque-ipc" }
 usque-platform = { path = "../usque-platform" }
 usque-transport = { path = "../usque-transport" }

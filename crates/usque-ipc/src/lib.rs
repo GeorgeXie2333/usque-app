@@ -75,8 +75,9 @@ pub enum FrameError {
 mod tests {
     use super::*;
     use crate::agent_v1::{
-        AcquireTunnelLeaseRequest, AgentRequest, GetCapabilitiesRequest, PrepareTunnelRequest,
-        ResumeTunnelRequest, TunnelPlan, agent_request,
+        AcquireDirectEgressRequest, AcquireTunnelLeaseRequest, AgentCapabilities, AgentRequest,
+        GetCapabilitiesRequest, PrepareTunnelRequest, ResumeTunnelRequest, TunnelPlan,
+        agent_request,
     };
     use crate::v1::{
         Capabilities, CapabilitiesChanged, ControlRequest, CreateProfileWithIdentityRequest,
@@ -226,6 +227,42 @@ mod tests {
     }
 
     #[test]
+    fn privileged_agent_v3_direct_egress_contract_round_trips() {
+        let request = AgentRequest {
+            request_id: "d3".to_owned(),
+            protocol_version: 3,
+            payload: Some(agent_request::Payload::AcquireDirectEgress(
+                AcquireDirectEgressRequest {
+                    operation_id: "operation".to_owned(),
+                    remote_endpoint: "203.0.113.9:53".to_owned(),
+                    protocol: 17,
+                },
+            )),
+        };
+        let decoded: AgentRequest = decode_frame(encode_frame(&request).unwrap()).unwrap();
+        assert_eq!(decoded, request);
+        assert!(matches!(
+            decoded.payload,
+            Some(agent_request::Payload::AcquireDirectEgress(
+                AcquireDirectEgressRequest {
+                    remote_endpoint,
+                    protocol: 17,
+                    ..
+                }
+            )) if remote_endpoint == "203.0.113.9:53"
+        ));
+
+        let capabilities = AgentCapabilities {
+            protocol_version: 3,
+            dynamic_direct_egress: true,
+            physical_dns_snapshot: true,
+            ..AgentCapabilities::default()
+        };
+        let decoded = AgentCapabilities::decode(&*capabilities.encode_to_vec()).unwrap();
+        assert!(decoded.dynamic_direct_egress && decoded.physical_dns_snapshot);
+    }
+
+    #[test]
     fn v1_control_request_wire_snapshot_is_stable() {
         let decoded: ControlRequest =
             decode_frame(Bytes::from_static(GET_STATUS_V1_FRAME)).expect("decode snapshot");
@@ -367,6 +404,17 @@ mod tests {
             profile.encode_to_vec(),
             [0x0a, 1, b'p', 0x7a, 4, 0x08, 1, 0x10, 1]
         );
+
+        let legacy = Profile::decode(&*profile.encode_to_vec()).expect("decode without field 16");
+        assert!(legacy.geo_direct_countries.is_empty());
+
+        let with_geo = Profile {
+            id: "p".to_owned(),
+            geo_direct_countries: vec!["CN".to_owned()],
+            ..Profile::default()
+        };
+        let decoded = Profile::decode(&*with_geo.encode_to_vec()).expect("decode field 16");
+        assert_eq!(decoded.geo_direct_countries, ["CN"]);
 
         let snapshot = crate::v1::ConnectionSnapshot {
             frontends: vec![FrontendStatus {

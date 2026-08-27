@@ -26,6 +26,14 @@ class AndroidVpnConfigurationTest {
         assertEquals(2, profile.dnsServers.size)
     }
 
+    @Test
+    fun geoCountriesEnableSplitDnsWithoutReplacingWarpUpstreams() {
+        val profile = profile("auto").copy(geoDirectCountries = listOf("CN"))
+
+        assertTrue(profile.splitDnsEnabled)
+        assertEquals(listOf(profile.dnsIpv4, profile.dnsIpv6), profile.dnsServers)
+    }
+
     private fun profile(ipPolicy: String): AndroidVpnProfile =
         AndroidVpnProfile(
             id = "11111111-2222-4333-8444-555555555555",

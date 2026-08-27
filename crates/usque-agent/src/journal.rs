@@ -421,7 +421,11 @@ fn validate_receipt(
         }
         MutationReceipt::DefaultRoutes { created, replaced } => {
             let plan = tunnel_plan.expect("validated tunnel operation");
-            if created.len() > plan.split_exclusions.len() + 2 || !replaced.is_empty() {
+            let split_dns_routes = usize::from(plan.split_dns && plan.assigned_ipv4.is_some())
+                + usize::from(plan.split_dns && plan.assigned_ipv6.is_some());
+            if created.len() > plan.split_exclusions.len() + 2 + split_dns_routes
+                || !replaced.is_empty()
+            {
                 return Err(unsafe_receipt("unexpected route count or replacement"));
             }
             for route in created {
@@ -437,6 +441,21 @@ fn validate_receipt(
                             && route.next_hop.is_none()
                     }
                     IpNet::V6(network) if network.prefix_len() == 0 => {
+                        plan.assigned_ipv6.is_some()
+                            && route.interface_luid == wintun_luid.unwrap_or_default()
+                            && route.next_hop.is_none()
+                    }
+                    _ if plan.split_dns
+                        && destination
+                            == "198.18.0.1/32".parse::<IpNet>().expect("static CIDR") =>
+                    {
+                        plan.assigned_ipv4.is_some()
+                            && route.interface_luid == wintun_luid.unwrap_or_default()
+                            && route.next_hop.is_none()
+                    }
+                    _ if plan.split_dns
+                        && destination == "fd00::1/128".parse::<IpNet>().expect("static CIDR") =>
+                    {
                         plan.assigned_ipv6.is_some()
                             && route.interface_luid == wintun_luid.unwrap_or_default()
                             && route.next_hop.is_none()
@@ -715,6 +734,7 @@ mod tests {
             ],
             allow_lan: true,
             kill_switch: true,
+            split_dns: false,
             assigned_ipv4: Some(
                 Ipv4Net::new(Ipv4Addr::new(172, 16, 0, 2), 32)
                     .expect("assignment")

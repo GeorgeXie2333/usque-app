@@ -39,6 +39,7 @@ class AppController extends ChangeNotifier {
   bool initialized = false;
   bool onboardingComplete = false;
   bool busy = false;
+  int _activeOperations = 0;
   bool updateChecksEnabled = true;
   bool startOnBoot = false;
   bool closeToTray = true;
@@ -54,6 +55,9 @@ class AppController extends ChangeNotifier {
   bool snapshotStreamDegraded = false;
   bool _userDisconnectedThisSession = false;
   UpdateCheckResult? updateResult;
+  GeoRulesList geoRules = const GeoRulesList();
+  GeoRulesProgress? geoProgress;
+  bool _geoOperationActive = false;
   List<UsqueProfile> profiles = <UsqueProfile>[UsqueProfile.defaultProfile()];
   String activeProfileId = UsqueProfile.defaultProfileId;
   Map<String, ProfileIdentityState> profileIdentityStates =
@@ -467,6 +471,84 @@ class AppController extends ChangeNotifier {
     await _checkForUpdates(manual: true, silent: false);
   }
 
+  Future<void> refreshGeoRules() async {
+    try {
+      geoRules = await _engine.listGeoRules();
+      _notifyListeners();
+    } on EngineException catch (error) {
+      lastError = error.message;
+      _notifyListeners();
+    }
+  }
+
+  Future<void> downloadGeoRules(String countryCode) async {
+    await _run(() async {
+      lastNotice = null;
+      _geoOperationActive = true;
+      geoProgress = GeoRulesProgress(currentFile: countryCode, total: 1);
+      _notifyListeners();
+      try {
+        final results = await _engine.downloadGeoRules(countryCode);
+        _recordGeoUpdateResults(results);
+        geoRules = await _engine.listGeoRules();
+      } finally {
+        _geoOperationActive = false;
+        geoProgress = null;
+      }
+    }, affectsConnection: false);
+  }
+
+  Future<void> updateAllGeoRules() async {
+    await _run(() async {
+      lastNotice = null;
+      _geoOperationActive = true;
+      geoProgress = const GeoRulesProgress(total: 1);
+      _notifyListeners();
+      try {
+        final results = await _engine.updateAllGeoRules();
+        _recordGeoUpdateResults(results);
+        geoRules = await _engine.listGeoRules();
+      } finally {
+        _geoOperationActive = false;
+        geoProgress = null;
+      }
+    }, affectsConnection: false);
+  }
+
+  void _recordGeoUpdateResults(List<GeoRulesUpdateResult> results) {
+    final updated = results
+        .where((result) => result.status == GeoRulesUpdateStatus.updated)
+        .length;
+    final current = results
+        .where((result) => result.status == GeoRulesUpdateStatus.upToDate)
+        .length;
+    final failures = results
+        .where((result) => result.status == GeoRulesUpdateStatus.failed)
+        .map((result) {
+          final scope = result.artifactScope == 'global'
+              ? 'global'
+              : result.countryCode;
+          final artifact = result.artifactKind.isEmpty
+              ? scope
+              : '$scope ${result.artifactKind}';
+          return result.reason.isEmpty
+              ? artifact
+              : '$artifact: ${result.reason}';
+        })
+        .join('; ');
+    if (updated > 0 || current > 0) {
+      lastNotice = strings
+          .get('geo_update_complete')
+          .replaceAll('{updated}', '$updated')
+          .replaceAll('{current}', '$current');
+    }
+    if (failures.isNotEmpty) {
+      lastError = strings
+          .get('geo_update_failed')
+          .replaceAll('{current}', failures);
+    }
+  }
+
   Future<void> clearAllData() async {
     await flushProfileWrites();
     final success = await _run(() async {
@@ -532,6 +614,7 @@ class AppController extends ChangeNotifier {
     Future<void> Function() operation, {
     bool affectsConnection = true,
   }) async {
+    _activeOperations += 1;
     busy = true;
     lastError = null;
     _notifyListeners();
@@ -548,7 +631,8 @@ class AppController extends ChangeNotifier {
       }
       return false;
     } finally {
-      busy = false;
+      _activeOperations -= 1;
+      busy = _activeOperations > 0;
       _notifyListeners();
     }
   }
@@ -811,6 +895,7 @@ class AppController extends ChangeNotifier {
       allowLan: normalized.allowLan,
       autoConnect: normalized.autoConnect,
       bypassCidrs: normalized.bypassCidrs,
+      geoDirectCountries: normalized.geoDirectCountries,
       proxy: normalized.proxy,
     );
     _notifyListeners();
@@ -937,9 +1022,17 @@ class AppController extends ChangeNotifier {
     _snapshotReconnectTimer = null;
     snapshotStreamDegraded = false;
     _stopPolling();
+    final handledGeoProgress = event.geoProgress != null && _geoOperationActive;
+    if (handledGeoProgress) {
+      final progress = event.geoProgress!;
+      geoProgress = progress.total > 0 && progress.completed >= progress.total
+          ? null
+          : progress;
+      _notifyListeners();
+    }
     final next = event.snapshot;
     if (next == null) {
-      if (wasDegraded) {
+      if (wasDegraded && !handledGeoProgress) {
         _notifyListeners();
       }
       return;

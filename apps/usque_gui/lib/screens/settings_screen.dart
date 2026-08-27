@@ -8,6 +8,7 @@ import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
 import 'advanced_settings_screen.dart';
+import 'geo_direct_settings_screen.dart';
 import 'per_app_proxy_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -80,6 +81,7 @@ class SettingsScreen extends StatelessWidget {
                 ],
               ),
               _NetworkOutputsPanel(controller: controller),
+              _GeoDirectCard(controller: controller),
               SectionPanel(
                 icon: LucideIcons.monitorCog,
                 title: strings.get('system_integration'),
@@ -295,6 +297,55 @@ class _NetworkOutputsPanel extends StatelessWidget {
           ),
         ],
       ],
+    );
+  }
+}
+
+class _GeoDirectCard extends StatelessWidget {
+  const _GeoDirectCard({required this.controller});
+
+  final AppController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = controller.activeProfile.geoDirectCountries;
+    final preview = enabled.take(4).join(' · ');
+    final remaining = enabled.length - 4;
+    return Panel(
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => GeoDirectSettingsScreen(controller: controller),
+        ),
+      ),
+      child: SectionTitle(
+        icon: LucideIcons.route,
+        title: controller.strings.get('geo_direct'),
+        subtitle: enabled.isEmpty
+            ? null
+            : remaining > 0
+            ? '$preview · +$remaining'
+            : preview,
+        trailing: Semantics(
+          label: '${controller.strings.get('geo_direct')}: ${enabled.length}',
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Text(
+                '${enabled.length}',
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Icon(
+                LucideIcons.chevronRight,
+                size: 20,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
