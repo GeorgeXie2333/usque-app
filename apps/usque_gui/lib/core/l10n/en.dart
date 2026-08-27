@@ -262,7 +262,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'bypass_hint': 'One CIDR per line',
   'reset_defaults': 'Reset network defaults',
   'reset_defaults_body':
-      'Restore endpoints, SNI, DNS, MTU, listeners, transport, endpoint preference, and direct countries?',
+      'Restore endpoints, SNI, DNS, MTU, listeners, transport, and endpoint preference?',
   'reset': 'Reset',
   'save': 'Save',
   'saved': 'Saved',
@@ -319,7 +319,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'http_capabilities': 'CONNECT and ordinary forwarding',
   'geo_direct': 'Direct countries',
   'geo_direct_help':
-      'Rules use per-country GeoIP plus one global V2Fly GeoSite catalog and may be downloaded while disconnected. GeoSite-matched domains are resolved by the current physical-network DNS, so that DNS provider can see those names; other names keep using WARP DNS. Apps using DoH/DoT hide QNAME from Usque and fall back to GeoIP. Android VPN and Windows TUN both support this split. Downloads never bypass Android Lockdown or the Windows Kill Switch.',
+      'Matched domains are visible to your current network\'s DNS; apps using encrypted DNS are routed by IP only.',
   'geo_update_all': 'Update geo data',
   'geo_last_updated': 'Last successful update: {current}',
   'geo_never_updated': 'Not updated yet',

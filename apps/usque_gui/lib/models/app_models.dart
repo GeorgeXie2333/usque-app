@@ -148,9 +148,6 @@ class GeoRulesList {
   final int lastSuccessfulUpdateUnixMilliseconds;
   final bool hasGlobalGeosite;
   final int globalGeositeUpdatedUnixMilliseconds;
-
-  bool get hasCachedRules =>
-      hasGlobalGeosite || entries.any((entry) => entry.hasGeoip || entry.hasGeosite);
 }
 
 enum GeoRulesUpdateStatus { upToDate, updated, failed }
@@ -600,7 +597,6 @@ class UsqueProfile {
       dnsMode: DnsMode.tunnel,
       allowLan: false,
       bypassCidrs: const <String>[],
-      geoDirectCountries: const <String>[],
       proxy: const ProxySettings(),
     );
   }

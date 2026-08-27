@@ -4,8 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
-import '../core/app_strings.dart';
-import '../core/iso_countries.dart';
 import '../core/usque_theme.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
@@ -31,12 +29,10 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   late final TextEditingController _dnsV4;
   late final TextEditingController _dnsV6;
   late final TextEditingController _bypass;
-  late final TextEditingController _geoSearch;
   late TransportPolicy _transport;
   late IpPolicy _ipPolicy;
   late bool _killSwitch;
   late bool _allowLan;
-  late Set<String> _geoEnabled;
 
   bool get _zeroTrustEndpointManaged =>
       widget.controller
@@ -55,9 +51,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     _dnsV4 = TextEditingController();
     _dnsV6 = TextEditingController();
     _bypass = TextEditingController();
-    _geoSearch = TextEditingController();
     _load(widget.controller.activeProfile);
-    widget.controller.refreshGeoRules();
   }
 
   void _load(UsqueProfile profile) {
@@ -73,7 +67,6 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     _ipPolicy = profile.ipPolicy;
     _killSwitch = profile.killSwitch;
     _allowLan = profile.allowLan;
-    _geoEnabled = profile.geoDirectCountries.toSet();
   }
 
   @override
@@ -87,7 +80,6 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
       _dnsV4,
       _dnsV6,
       _bypass,
-      _geoSearch,
     ]) {
       controller.dispose();
     }
@@ -288,14 +280,6 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                       ),
                       validator: _validateCidrs,
                     ),
-                    const SizedBox(height: 18),
-                    _GeoDirectPanel(
-                      controller: widget.controller,
-                      enabled: _geoEnabled,
-                      search: _geoSearch,
-                      onEnabledChanged: (next) =>
-                          setState(() => _geoEnabled = next),
-                    ),
                   ],
                 ),
               ],
@@ -393,7 +377,6 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
             .map((line) => line.trim())
             .where((line) => line.isNotEmpty)
             .toList(growable: false),
-        geoDirectCountries: _orderedGeoCountries(_geoEnabled),
       ),
     );
     ScaffoldMessenger.of(context).showSnackBar(
@@ -437,225 +420,6 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     }
     widget.controller.updateNetwork(reset);
     setState(() => _load(reset));
-  }
-}
-
-List<String> _orderedGeoCountries(Set<String> enabled) {
-  final countries = enabled.toList();
-  countries.sort();
-  if (countries.remove('CN')) {
-    countries.insert(0, 'CN');
-  }
-  return countries;
-}
-
-class _GeoDirectPanel extends StatefulWidget {
-  const _GeoDirectPanel({
-    required this.controller,
-    required this.enabled,
-    required this.search,
-    required this.onEnabledChanged,
-  });
-
-  final AppController controller;
-  final Set<String> enabled;
-  final TextEditingController search;
-  final ValueChanged<Set<String>> onEnabledChanged;
-
-  @override
-  State<_GeoDirectPanel> createState() => _GeoDirectPanelState();
-}
-
-class _GeoDirectPanelState extends State<_GeoDirectPanel> {
-  @override
-  Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: widget.controller,
-      builder: (context, _) => _buildPanel(context),
-    );
-  }
-
-  Widget _buildPanel(BuildContext context) {
-    final controller = widget.controller;
-    final enabled = widget.enabled;
-    final search = widget.search;
-    final strings = controller.strings;
-    final progress = controller.geoProgress;
-    final updating = progress != null && progress.total > 0;
-    final cached = controller.geoRules.hasCachedRules;
-    final query = search.text.trim().toLowerCase();
-    final byCode = <String, GeoRulesEntry>{
-      for (final entry in controller.geoRules.entries) entry.countryCode: entry,
-    };
-    final countries = kIsoCountries
-        .where((country) {
-          if (query.isEmpty) {
-            return true;
-          }
-          return country.code.toLowerCase().contains(query) ||
-              country.name.toLowerCase().contains(query);
-        })
-        .toList(growable: false);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        Text(
-          strings.get('geo_direct'),
-          style: Theme.of(context).textTheme.titleSmall,
-        ),
-        const SizedBox(height: 8),
-        Text(
-          strings.get('geo_direct_help'),
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'GeoSite · ${_globalGeoSiteLabel(strings, controller.geoRules)}',
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-        ),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: <Widget>[
-            FilledButton.tonalIcon(
-              onPressed: !cached || updating
-                  ? null
-                  : controller.updateAllGeoRules,
-              icon: const Icon(LucideIcons.refreshCw),
-              label: Text(
-                updating
-                    ? strings
-                          .get('geo_updating')
-                          .replaceAll('{current}', '${progress.completed}')
-                          .replaceAll('{total}', '${progress.total}')
-                    : strings.get('geo_update_all'),
-              ),
-            ),
-            Text(
-              _lastUpdateLabel(strings, controller.geoRules),
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: search,
-          onChanged: (_) => setState(() {}),
-          decoration: InputDecoration(
-            labelText: strings.get('geo_search'),
-            prefixIcon: const Icon(LucideIcons.search),
-          ),
-        ),
-        const SizedBox(height: 8),
-        ConstrainedBox(
-          constraints: const BoxConstraints(maxHeight: 360),
-          child: ListView.builder(
-            shrinkWrap: true,
-            itemCount: countries.length,
-            itemBuilder: (context, index) {
-              final country = countries[index];
-              final entry = byCode[country.code];
-              final hasGeoip = entry?.hasGeoip ?? false;
-              final ready = hasGeoip && (entry?.hasGeosite ?? false);
-              final date = _entryDate(entry);
-              return ListTile(
-                contentPadding: EdgeInsets.zero,
-                dense: true,
-                title: Text(
-                  '${country.code}  ${country.name}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                subtitle: Text(
-                  ready
-                      ? (date ?? strings.get('geo_downloaded'))
-                      : strings.get('geo_not_downloaded'),
-                ),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    if (hasGeoip)
-                      IconButton(
-                        tooltip: strings.get('geo_update'),
-                        onPressed: updating
-                            ? null
-                            : () => controller.downloadGeoRules(country.code),
-                        icon: const Icon(LucideIcons.refreshCw),
-                      )
-                    else
-                      IconButton(
-                        tooltip: strings.get('geo_download'),
-                        onPressed: updating
-                            ? null
-                            : () => controller.downloadGeoRules(country.code),
-                        icon: const Icon(LucideIcons.download),
-                      ),
-                    const SizedBox(width: 8),
-                    Semantics(
-                      label: '${strings.get('geo_enable')} ${country.code}',
-                      child: Switch(
-                        value: enabled.contains(country.code),
-                        onChanged: ready
-                            ? (value) {
-                                final next = {...enabled};
-                                if (value) {
-                                  next.add(country.code);
-                                } else {
-                                  next.remove(country.code);
-                                }
-                                widget.onEnabledChanged(next);
-                              }
-                            : null,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
-  String _lastUpdateLabel(AppStrings strings, GeoRulesList rules) {
-    if (rules.lastSuccessfulUpdateUnixMilliseconds <= 0) {
-      return strings.get('geo_never_updated');
-    }
-    final time = DateTime.fromMillisecondsSinceEpoch(
-      rules.lastSuccessfulUpdateUnixMilliseconds,
-    );
-    return strings
-        .get('geo_last_updated')
-        .replaceAll('{current}', time.toLocal().toString().split('.').first);
-  }
-
-  String _globalGeoSiteLabel(AppStrings strings, GeoRulesList rules) {
-    if (!rules.hasGlobalGeosite) {
-      return strings.get('geo_not_downloaded');
-    }
-    if (rules.globalGeositeUpdatedUnixMilliseconds <= 0) {
-      return strings.get('geo_downloaded');
-    }
-    return DateTime.fromMillisecondsSinceEpoch(
-      rules.globalGeositeUpdatedUnixMilliseconds,
-    ).toLocal().toString().split('.').first;
-  }
-
-  String? _entryDate(GeoRulesEntry? entry) {
-    if (entry == null || entry.lastUpdatedUnixMilliseconds <= 0) {
-      return null;
-    }
-    return DateTime.fromMillisecondsSinceEpoch(
-      entry.lastUpdatedUnixMilliseconds,
-    ).toLocal().toString().split('.').first;
   }
 }
 

@@ -14,6 +14,7 @@ import 'package:usque/core/usque_theme.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/screens/advanced_settings_screen.dart';
 import 'package:usque/screens/diagnostics_screen.dart';
+import 'package:usque/screens/geo_direct_settings_screen.dart';
 import 'package:usque/screens/home_screen.dart';
 import 'package:usque/screens/per_app_proxy_screen.dart';
 import 'package:usque/screens/profiles_screen.dart';
@@ -426,8 +427,10 @@ class FakeEngineClient implements EngineClient {
   ) async => geoDownloadResults;
 
   @override
-  Future<List<GeoRulesUpdateResult>> updateAllGeoRules() async =>
-      geoUpdateResults;
+  Future<List<GeoRulesUpdateResult>> updateAllGeoRules() async {
+    calls.add('updateAllGeoRules');
+    return geoUpdateResults;
+  }
 
   @override
   Future<void> clearAllData({required bool confirmed}) async {
@@ -620,6 +623,18 @@ void main() {
     await connecting;
     expect(controller.busy, isFalse);
     controller.dispose();
+  });
+
+  test('advanced defaults preserve countries managed on their own page', () {
+    final reset = UsqueProfile.defaultProfile()
+        .copyWith(geoDirectCountries: const <String>['CN', 'US'])
+        .resetAdvancedDefaults();
+
+    expect(reset.geoDirectCountries, const <String>['CN', 'US']);
+    expect(
+      AppStrings(LocalePreference.english).get('reset_defaults_body'),
+      isNot(contains('direct countries')),
+    );
   });
 
   testWidgets('controller selectors ignore unrelated engine statistics', (
@@ -2161,6 +2176,154 @@ void main() {
       debugDefaultTargetPlatformOverride = null;
     }
   });
+
+  testWidgets(
+    'direct countries opens its own settings page and leaves Advanced',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1280, 1100);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'onboarding_complete': true,
+      });
+      final controller = AppController(FakeEngineClient());
+      await controller.initialize();
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: UsqueTheme.light(),
+          home: SettingsScreen(controller: controller),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final directCountries = find.text('Direct countries');
+      expect(directCountries, findsOneWidget);
+      await tester.ensureVisible(directCountries);
+      await tester.tap(directCountries);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(GeoDirectSettingsScreen), findsOneWidget);
+      expect(find.text('Search countries'), findsOneWidget);
+      expect(
+        find.text(
+          "Matched domains are visible to your current network's DNS; "
+          'apps using encrypted DNS are routed by IP only.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Android VPN'), findsNothing);
+      expect(find.byType(AdvancedSettingsScreen), findsNothing);
+
+      await tester.tap(find.text('Back'));
+      await tester.pumpAndSettle();
+      final advanced = find.text('Advanced network settings');
+      await tester.ensureVisible(advanced);
+      await tester.tap(advanced);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AdvancedSettingsScreen), findsOneWidget);
+      expect(find.text('Direct countries'), findsNothing);
+    },
+  );
+
+  testWidgets('direct countries page enables and saves a ready country', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(360, 800);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+    });
+    final engine = FakeEngineClient()
+      ..storedGeoRules = const GeoRulesList(
+        entries: <GeoRulesEntry>[
+          GeoRulesEntry(countryCode: 'CN', hasGeoip: true, hasGeosite: true),
+        ],
+        hasGlobalGeosite: true,
+      );
+    final controller = AppController(engine);
+    await controller.initialize();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: UsqueTheme.light(),
+        home: GeoDirectSettingsScreen(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), 'CN');
+    await tester.pump();
+    final countryTile = find.widgetWithText(ListTile, 'CN  China');
+    final countrySwitch = find.descendant(
+      of: countryTile,
+      matching: find.byType(Switch),
+    );
+    expect(countrySwitch, findsOneWidget);
+    await tester.tap(countrySwitch);
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pump();
+
+    expect(controller.activeProfile.geoDirectCountries, const <String>['CN']);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'direct countries can initialize data and disable an unavailable country',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1280, 900);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'onboarding_complete': true,
+      });
+      final engine = FakeEngineClient();
+      final controller = AppController(engine);
+      await controller.initialize();
+      controller.updateNetwork(
+        controller.activeProfile.copyWith(
+          geoDirectCountries: const <String>['CN'],
+        ),
+      );
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: UsqueTheme.light(),
+          home: GeoDirectSettingsScreen(controller: controller),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Update geo data'));
+      await tester.pumpAndSettle();
+      expect(engine.calls, contains('updateAllGeoRules'));
+
+      await tester.enterText(find.byType(TextField), 'CN');
+      await tester.pump();
+      final countryTile = find.widgetWithText(ListTile, 'CN  China');
+      final countrySwitch = tester.widget<Switch>(
+        find.descendant(of: countryTile, matching: find.byType(Switch)),
+      );
+      expect(countrySwitch.value, isTrue);
+      expect(countrySwitch.onChanged, isNotNull);
+
+      await tester.tap(
+        find.descendant(of: countryTile, matching: find.byType(Switch)),
+      );
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pump();
+
+      expect(controller.activeProfile.geoDirectCountries, isEmpty);
+    },
+  );
 
   testWidgets('Per-app picker can select visible apps and save', (
     tester,

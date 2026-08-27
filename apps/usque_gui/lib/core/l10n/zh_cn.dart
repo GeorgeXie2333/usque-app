@@ -238,7 +238,7 @@ const Map<String, String> kZhCnCatalog = <String, String>{
   'bypass_cidrs': '额外绕过 CIDR',
   'bypass_hint': '每行一个 CIDR',
   'reset_defaults': '恢复网络默认值',
-  'reset_defaults_body': '恢复端点、SNI、DNS、MTU、监听地址、传输协议、入口偏好和直连国家？',
+  'reset_defaults_body': '恢复端点、SNI、DNS、MTU、监听地址、传输协议和入口偏好？',
   'reset': '恢复',
   'save': '保存',
   'saved': '已保存',
@@ -288,8 +288,7 @@ const Map<String, String> kZhCnCatalog = <String, String>{
   'socks_capabilities': 'TCP 与 UDP',
   'http_capabilities': 'CONNECT 与普通转发',
   'geo_direct': '直连国家',
-  'geo_direct_help':
-      '规则集由逐国家 GeoIP 和一份 V2Fly 全量 GeoSite 组成，断开时也可下载。命中 GeoSite 的域名会交给当前物理网络 DNS 解析，因此该 DNS 提供方可看到这些域名；其余域名继续使用 WARP DNS。应用使用 DoH/DoT 时 Usque 无法读取 QNAME，只能按 GeoIP 分流。Android VPN 与 Windows TUN 均支持；下载不会绕过系统封锁或 Kill Switch。',
+  'geo_direct_help': '命中的域名对当前网络的 DNS 可见；使用加密 DNS 的应用仅按 IP 分流。',
   'geo_update_all': '更新地理数据',
   'geo_last_updated': '上次成功更新：{current}',
   'geo_never_updated': '尚未更新',

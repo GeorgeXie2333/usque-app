@@ -307,7 +307,7 @@ const Map<String, String> kKoCatalog = <String, String>{
   'http_capabilities': 'CONNECT 및 일반 전달',
   'geo_direct': 'Direct countries',
   'geo_direct_help':
-      'Rules use per-country GeoIP plus one global V2Fly GeoSite catalog and may be downloaded while disconnected. GeoSite-matched domains are resolved by the current physical-network DNS, so that DNS provider can see those names; other names keep using WARP DNS. Apps using DoH/DoT hide QNAME from Usque and fall back to GeoIP. Android VPN and Windows TUN both support this split. Downloads never bypass Android Lockdown or the Windows Kill Switch.',
+      'Matched domains are visible to your current network\'s DNS; apps using encrypted DNS are routed by IP only.',
   'geo_update_all': 'Update geo data',
   'geo_last_updated': 'Last successful update: {current}',
   'geo_never_updated': 'Not updated yet',
