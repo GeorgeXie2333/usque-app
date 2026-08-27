@@ -39,6 +39,7 @@ class AppController extends ChangeNotifier {
   bool initialized = false;
   bool onboardingComplete = false;
   bool busy = false;
+  int _activeOperations = 0;
   bool updateChecksEnabled = true;
   bool startOnBoot = false;
   bool closeToTray = true;
@@ -524,9 +525,12 @@ class AppController extends ChangeNotifier {
     final failures = results
         .where((result) => result.status == GeoRulesUpdateStatus.failed)
         .map((result) {
+          final scope = result.artifactScope == 'global'
+              ? 'global'
+              : result.countryCode;
           final artifact = result.artifactKind.isEmpty
-              ? result.countryCode
-              : '${result.countryCode} ${result.artifactKind}';
+              ? scope
+              : '$scope ${result.artifactKind}';
           return result.reason.isEmpty
               ? artifact
               : '$artifact: ${result.reason}';
@@ -610,6 +614,7 @@ class AppController extends ChangeNotifier {
     Future<void> Function() operation, {
     bool affectsConnection = true,
   }) async {
+    _activeOperations += 1;
     busy = true;
     lastError = null;
     _notifyListeners();
@@ -626,7 +631,8 @@ class AppController extends ChangeNotifier {
       }
       return false;
     } finally {
-      busy = false;
+      _activeOperations -= 1;
+      busy = _activeOperations > 0;
       _notifyListeners();
     }
   }

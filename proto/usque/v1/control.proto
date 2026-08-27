@@ -367,6 +367,8 @@ message GeoRulesEntry {
 message GeoRulesList {
   repeated GeoRulesEntry entries = 1;
   int64 last_successful_update_unix_milliseconds = 2;
+  bool has_global_geosite = 3;
+  int64 global_geosite_updated_unix_milliseconds = 4;
 }
 
 enum GeoRulesUpdateStatus {
@@ -381,6 +383,8 @@ message GeoRulesUpdateResult {
   GeoRulesUpdateStatus status = 2;
   string reason = 3;
   string artifact_kind = 4;
+  // "country" for GeoIP and "global" for the shared V2Fly dlc.dat.
+  string artifact_scope = 5;
 }
 
 message GeoRulesUpdateResults {

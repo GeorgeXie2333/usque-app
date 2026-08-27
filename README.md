@@ -63,7 +63,7 @@ macOS source is in the tree but is not built or released. This release does not 
 - VPN, SOCKS5, HTTP proxy, and Windows system proxy can run together on one MASQUE channel.
 - HTTP/3 over QUIC, falling back to HTTP/2 over TLS, with IPv4/IPv6 Happy Eyeballs for the physical path.
 - Full-tunnel VPN, tunneled DNS, Kill Switch, LAN access, and custom CIDR bypass rules.
-- Optional country-based direct routing with separately downloaded v2fly rules: SOCKS5/HTTP can use GeoSite/GeoIP, and Android VPN uses a protected userspace GeoIP gateway. Windows requires VPN/TUN output to be off for direct routing; unknown destinations stay on MASQUE.
+- Optional country-based direct routing with separately downloaded per-country GeoIP data and one verified global V2Fly GeoSite catalog. SOCKS5/HTTP, Android VPN, and Windows TUN classify GeoSite names before DNS and use GeoIP when no QNAME is available; unknown destinations stay on MASQUE.
 - SOCKS5 TCP/UDP and HTTP CONNECT/forward; listeners default to loopback.
 - Several profiles, one active at a time, with identity stored per profile.
 - Android per-app proxy (include-only): when off, every app uses the VPN; when on, only selected apps do. Newly installed apps stay off the tunnel until selected.
@@ -72,6 +72,8 @@ macOS source is in the tree but is not built or released. This release does not 
 - Local redacted diagnostics. No analytics, telemetry, or automatic upload.
 
 Choosing an IPv4 or IPv6 MASQUE endpoint only picks the physical ingress. Either path can carry IPv4 and IPv6 inside CONNECT-IP. Usque keeps one active transport; it does not add bandwidth across paths.
+
+When direct-country routing is enabled, GeoSite-matched domain queries use the DNS servers of the selected physical network and are visible to that DNS provider. Other domain queries keep using the configured WARP DNS through MASQUE. Applications using DoH or DoT hide the QNAME from Usque, so those flows can only be classified by GeoIP. GEO rule downloads are allowed while disconnected, but never bypass Android Lockdown or a surviving Windows Kill Switch.
 
 ## Default network settings
 

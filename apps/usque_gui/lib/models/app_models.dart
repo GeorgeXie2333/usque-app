@@ -140,12 +140,17 @@ class GeoRulesList {
   const GeoRulesList({
     this.entries = const <GeoRulesEntry>[],
     this.lastSuccessfulUpdateUnixMilliseconds = 0,
+    this.hasGlobalGeosite = false,
+    this.globalGeositeUpdatedUnixMilliseconds = 0,
   });
 
   final List<GeoRulesEntry> entries;
   final int lastSuccessfulUpdateUnixMilliseconds;
+  final bool hasGlobalGeosite;
+  final int globalGeositeUpdatedUnixMilliseconds;
 
-  bool get hasCachedRules => entries.any((entry) => entry.hasGeoip || entry.hasGeosite);
+  bool get hasCachedRules =>
+      hasGlobalGeosite || entries.any((entry) => entry.hasGeoip || entry.hasGeosite);
 }
 
 enum GeoRulesUpdateStatus { upToDate, updated, failed }
@@ -156,12 +161,14 @@ class GeoRulesUpdateResult {
     required this.status,
     this.reason = '',
     this.artifactKind = '',
+    this.artifactScope = '',
   });
 
   final String countryCode;
   final GeoRulesUpdateStatus status;
   final String reason;
   final String artifactKind;
+  final String artifactScope;
 }
 
 class GeoRulesProgress {

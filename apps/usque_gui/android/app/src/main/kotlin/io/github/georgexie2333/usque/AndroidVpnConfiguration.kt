@@ -17,6 +17,7 @@ internal data class AndroidVpnProfile(
     val killSwitch: Boolean,
     val allowLan: Boolean,
     val bypassCidrs: List<String>,
+    val geoDirectCountries: List<String> = emptyList(),
 ) {
     // ipPolicy controls only the physical MASQUE endpoint. CONNECT-IP remains
     // dual-stack regardless of which outer address family carries it.
@@ -32,6 +33,9 @@ internal data class AndroidVpnProfile(
                 if (includeIpv4) add(dnsIpv4)
                 if (includeIpv6) add(dnsIpv6)
             }
+
+    val splitDnsEnabled: Boolean
+        get() = geoDirectCountries.isNotEmpty()
 
     companion object {
         private val profileIdPattern =
@@ -68,6 +72,20 @@ internal data class AndroidVpnProfile(
                 "Too many bypass CIDRs"
             }
             val allowLan = source.getBoolean("allow_lan")
+            val geoDirectCountries =
+                source
+                    .optJSONArray("geo_direct_countries")
+                    ?.strings()
+                    ?.map { country -> country.uppercase() }
+                    ?.also { countries ->
+                        require(countries.size <= 32 && countries.distinct().size == countries.size) {
+                            "Invalid GEO direct countries"
+                        }
+                        require(countries.all { country -> country.matches(Regex("^[A-Z]{2}$")) }) {
+                            "Invalid GEO direct country"
+                        }
+                    }
+                    ?: emptyList()
             val dnsIpv4 =
                 parseNumericAddress(source.requiredString("dns_v4", 64), false) as Inet4Address
             val dnsIpv6 =
@@ -105,6 +123,7 @@ internal data class AndroidVpnProfile(
                 killSwitch = source.getBoolean("kill_switch"),
                 allowLan = allowLan,
                 bypassCidrs = bypassCidrs,
+                geoDirectCountries = geoDirectCountries,
             )
         }
     }

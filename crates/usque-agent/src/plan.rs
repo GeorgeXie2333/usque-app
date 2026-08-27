@@ -15,6 +15,8 @@ pub const MAX_ENDPOINT_CANDIDATES: usize = 2;
 pub const MAX_CONTROL_API_CANDIDATES: usize = 16;
 pub const MIN_MTU: u16 = 1280;
 pub const MAX_MTU: u16 = 9000;
+const SPLIT_DNS_IPV4: IpAddr = IpAddr::V4(std::net::Ipv4Addr::new(198, 18, 0, 1));
+const SPLIT_DNS_IPV6: IpAddr = IpAddr::V6(std::net::Ipv6Addr::new(0xfd00, 0, 0, 0, 0, 0, 0, 1));
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ValidatedTunnelPlan {
@@ -28,6 +30,8 @@ pub struct ValidatedTunnelPlan {
     pub split_exclusions: Vec<IpNet>,
     pub allow_lan: bool,
     pub kill_switch: bool,
+    #[serde(default)]
+    pub split_dns: bool,
     pub assigned_ipv4: Option<IpNet>,
     pub assigned_ipv6: Option<IpNet>,
 }
@@ -118,6 +122,7 @@ impl TryFrom<agent_v1::TunnelPlan> for ValidatedTunnelPlan {
         {
             return Err(PlanError::DnsFamilyUnavailable);
         }
+        validate_split_dns(value.split_dns, &dns_servers, assigned_ipv4, assigned_ipv6)?;
 
         let plan = Self {
             profile_id,
@@ -129,6 +134,7 @@ impl TryFrom<agent_v1::TunnelPlan> for ValidatedTunnelPlan {
             split_exclusions,
             allow_lan: value.allow_lan,
             kill_switch: value.kill_switch,
+            split_dns: value.split_dns,
             assigned_ipv4,
             assigned_ipv6,
         };
@@ -176,8 +182,36 @@ impl ValidatedTunnelPlan {
         {
             return Err(PlanError::DnsFamilyUnavailable);
         }
+        validate_split_dns(
+            self.split_dns,
+            &self.dns_servers,
+            self.assigned_ipv4,
+            self.assigned_ipv6,
+        )?;
         Ok(())
     }
+}
+
+fn validate_split_dns(
+    enabled: bool,
+    dns_servers: &[IpAddr],
+    assigned_ipv4: Option<IpNet>,
+    assigned_ipv6: Option<IpNet>,
+) -> Result<(), PlanError> {
+    if !enabled {
+        return Ok(());
+    }
+    let expected = [
+        assigned_ipv4.map(|_| SPLIT_DNS_IPV4),
+        assigned_ipv6.map(|_| SPLIT_DNS_IPV6),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
+    if dns_servers != expected {
+        return Err(PlanError::SplitDnsServers);
+    }
+    Ok(())
 }
 
 fn validate_control_api_candidates(candidates: &[SocketAddr]) -> Result<(), PlanError> {
@@ -280,6 +314,8 @@ pub enum PlanError {
     MissingAssignment,
     #[error("configured DNS has no matching assigned address family")]
     DnsFamilyUnavailable,
+    #[error("Split DNS requires only the Engine-owned internal DNS addresses")]
+    SplitDnsServers,
 }
 
 #[cfg(test)]
@@ -305,6 +341,7 @@ mod tests {
             kill_switch: true,
             assigned_ipv4: "172.16.0.2/32".to_owned(),
             assigned_ipv6: "2606:4700:110::2/128".to_owned(),
+            split_dns: false,
         }
     }
 
@@ -366,5 +403,20 @@ mod tests {
         let recovered: ValidatedTunnelPlan = serde_json::from_value(json).unwrap();
         assert!(recovered.control_api_candidates.is_empty());
         recovered.validate().unwrap();
+    }
+
+    #[test]
+    fn split_dns_accepts_only_engine_internal_addresses() {
+        let mut plan = valid_plan();
+        plan.split_dns = true;
+        plan.dns_servers = vec!["198.18.0.1".to_owned(), "fd00::1".to_owned()];
+        assert!(ValidatedTunnelPlan::try_from(plan).is_ok());
+
+        let mut unsafe_plan = valid_plan();
+        unsafe_plan.split_dns = true;
+        assert_eq!(
+            ValidatedTunnelPlan::try_from(unsafe_plan),
+            Err(PlanError::SplitDnsServers)
+        );
     }
 }

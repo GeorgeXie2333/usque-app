@@ -649,12 +649,10 @@ impl ControlService {
                 control_response::Payload::GeoRulesList(self.list_geo_rules_locked()?),
             ),
             control_request::Payload::DownloadGeoRules(request) => {
-                self.ensure_geo_download_allowed().await?;
                 let results = self.download_geo_rules(&request.country_code).await?;
                 Ok(control_response::Payload::GeoRulesUpdate(results))
             }
             control_request::Payload::UpdateAllGeoRules(_) => {
-                self.ensure_geo_download_allowed().await?;
                 let results = self.update_all_geo_rules().await?;
                 Ok(control_response::Payload::GeoRulesUpdate(results))
             }
@@ -792,6 +790,8 @@ impl ControlService {
     fn list_geo_rules_locked(&self) -> Result<v1::GeoRulesList, ControlServiceError> {
         let (entries, last_successful_update_unix_milliseconds) =
             list_geo_rules(&self.cache_dir).map_err(ControlServiceError::geo_rules)?;
+        let (has_global_geosite, global_geosite_updated_unix_milliseconds) =
+            usque_core::global_geosite_status(&self.cache_dir);
         Ok(v1::GeoRulesList {
             entries: entries
                 .into_iter()
@@ -803,25 +803,9 @@ impl ControlService {
                 })
                 .collect(),
             last_successful_update_unix_milliseconds,
+            has_global_geosite,
+            global_geosite_updated_unix_milliseconds,
         })
-    }
-
-    async fn ensure_geo_download_allowed(&self) -> Result<(), ControlServiceError> {
-        let snapshot = self.status_snapshot().await;
-        let disconnected = matches!(
-            snapshot.phase,
-            ConnectionPhase::Disconnected | ConnectionPhase::Error | ConnectionPhase::Disconnecting
-        );
-        let kill_switch_configured = self
-            .config
-            .read()
-            .await
-            .active_profile()
-            .is_some_and(|profile| profile.frontends.tunnel && profile.kill_switch);
-        if kill_switch_configured && disconnected {
-            return Err(ControlServiceError::GeoDownloadBlocked);
-        }
-        Ok(())
     }
 
     fn geo_downloader(&self) -> Result<GeoDownloader<ReqwestFetch>, ControlServiceError> {
@@ -912,6 +896,14 @@ impl ControlService {
             vault: Arc::clone(&self.vault),
             identity: Mutex::new(warp_identity),
         });
+        let geo_policy = load_geo_direct_policy(&profile, &self.cache_dir);
+        if !profile.geo_direct_countries.is_empty() && !geo_policy.is_enabled() {
+            let error = ControlServiceError::GeoRules(
+                "the configured GeoIP/GeoSite cache is missing or invalid".to_owned(),
+            );
+            self.mark_connection_error(&error).await;
+            return Err(error);
+        }
 
         {
             let mut state = self.state.lock().await;
@@ -935,6 +927,7 @@ impl ControlService {
                     &profile,
                     identity,
                     Arc::clone(&pin_refresher),
+                    Arc::new(geo_policy.clone()),
                 )
                 .await
                 {
@@ -951,7 +944,6 @@ impl ControlService {
                 unreachable!("non-Windows VPN mode was rejected before identity loading")
             }
         } else {
-            let geo_policy = load_geo_direct_policy(&profile, &self.cache_dir);
             match ProxyRuntime::start_with_geo_policy(
                 &profile,
                 identity,
@@ -2418,8 +2410,6 @@ pub enum ControlServiceError {
     DisconnectCleanup(String),
     #[error("proxy listener authentication is invalid: {0}")]
     InvalidProxyAuth(String),
-    #[error("Kill Switch is blocking geo downloads while disconnected")]
-    GeoDownloadBlocked,
     #[error("geo rules operation failed: {0}")]
     GeoRules(String),
 }
@@ -2511,7 +2501,6 @@ impl ControlServiceError {
                 ("SENSITIVE_OUTPUT_FAILED", false)
             }
             Self::DisconnectCleanup(_) => ("DISCONNECT_CLEANUP_FAILED", true),
-            Self::GeoDownloadBlocked => ("GEO_DOWNLOAD_BLOCKED", false),
             Self::GeoRules(_) => ("GEO_RULES_FAILED", true),
         };
         StructuredError {
@@ -2944,6 +2933,7 @@ fn geo_results_to_proto(results: Vec<usque_core::GeoRulesUpdate>) -> v1::GeoRule
                     status: status as i32,
                     reason,
                     artifact_kind: result.artifact_kind,
+                    artifact_scope: result.artifact_scope,
                 }
             })
             .collect(),
@@ -3230,28 +3220,6 @@ mod tests {
             ..unchanged
         };
         assert!(runtime_path_changed(state.snapshot(), peer_withdrew_ipv6));
-    }
-
-    #[tokio::test]
-    async fn disconnected_kill_switch_blocks_geo_downloads_from_config() {
-        let directory = tempfile::tempdir().unwrap();
-        let service = ControlService::open_with_vault(
-            ConfigStore::new(directory.path().join("config.json")),
-            Arc::new(MemoryVault::default()),
-        )
-        .unwrap();
-
-        assert_eq!(
-            service.state.lock().await.snapshot().kill_switch_state,
-            KillSwitchState::NotApplicable
-        );
-        assert!(matches!(
-            service.ensure_geo_download_allowed().await,
-            Err(ControlServiceError::GeoDownloadBlocked)
-        ));
-
-        service.config.write().await.network.kill_switch = false;
-        assert!(service.ensure_geo_download_allowed().await.is_ok());
     }
 
     #[tokio::test]

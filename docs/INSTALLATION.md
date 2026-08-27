@@ -23,6 +23,12 @@ The GitHub Release attaches only those six packages. GitHub shows a SHA-256 for 
 
 Never disable endpoint pinning, import signing certificates from an unofficial package, or run a package that asks you to turn off antivirus or the firewall.
 
+## Direct-country DNS privacy
+
+Direct-country rules are optional and downloaded separately. Per-country GeoIP data is combined with one global V2Fly GeoSite catalog. Downloads may be started while Usque is disconnected, but they still obey Android Lockdown and any Windows Kill Switch state; a real system block appears as a retryable network failure and never replaces a valid cached ruleset.
+
+With direct-country routing enabled, Usque identifies GeoSite matches before sending DNS. Matching domains use the DNS servers of the current physical network and are visible to that DNS provider; non-matching domains continue through the configured WARP DNS. Applications that encrypt DNS themselves with DoH or DoT do not expose QNAME to Usque, so their destinations fall back to GeoIP classification. This behavior applies to Android VPN and Windows TUN as well as known SOCKS5/HTTP hostnames.
+
 ## Windows
 
 The release needs Windows 10 22H2 build 19045 or later. Use the x64-v2 MSI on native x64 Windows and the ARM64 MSI on native ARM64 Windows.

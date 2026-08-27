@@ -5,8 +5,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use usque_geo::{
-    ArtifactKind, ArtifactResult, CachedCountry, CountryCode, GeoClassifier, GeoDownloader,
-    GeoError, HttpFetch, UpdateStatus, geoip_cache_path, geosite_cache_path, list_cached_countries,
+    ArtifactResult, ArtifactScope, CachedCountry, CountryCode, GeoClassifier, GeoDownloader,
+    GeoError, GeoSiteSet, HttpFetch, UpdateStatus, geoip_cache_path, geosite_cache_path,
+    global_geosite_cache_path, list_cached_countries,
 };
 
 use crate::config::{ConfigError, Profile, normalize_geo_direct_countries};
@@ -32,6 +33,7 @@ pub struct GeoProgress {
 pub struct GeoRulesUpdate {
     pub country_code: String,
     pub artifact_kind: String,
+    pub artifact_scope: String,
     pub status: UpdateStatus,
 }
 
@@ -47,6 +49,14 @@ pub fn list_geo_rules(cache_dir: &Path) -> Result<(Vec<GeoRulesEntry>, i64), Geo
         .map(|country| entry_from_cached(cache_dir, country))
         .collect();
     Ok((entries, last_successful_update(cache_dir)))
+}
+
+pub fn global_geosite_status(cache_dir: &Path) -> (bool, i64) {
+    let path = global_geosite_cache_path(cache_dir);
+    let valid = std::fs::read(&path)
+        .ok()
+        .is_some_and(|bytes| GeoSiteSet::validate_v2ray_dat(&bytes).is_ok());
+    (valid, if valid { file_mtime_millis(&path) } else { 0 })
 }
 
 pub fn last_successful_update(cache_dir: &Path) -> i64 {
@@ -91,6 +101,14 @@ pub fn validate_geo_direct_cache(profile: &Profile, cache_dir: &Path) -> Result<
             .unwrap_or_else(|| ConfigError::GeoDirectCountryNotDownloaded(String::new())),
         other => ConfigError::GeoDirectCountryNotDownloaded(other.to_string()),
     })?;
+    if let Some(country) = codes
+        .iter()
+        .find(|country| !classifier.has_geosite(country))
+    {
+        return Err(ConfigError::GeoDirectCountryNotDownloaded(
+            country.to_string(),
+        ));
+    }
     if profile.frontends.tunnel {
         for server in &profile.dns_servers {
             if classifier.lookup_ip(*server).is_some() {
@@ -111,8 +129,7 @@ where
     P: FnMut(GeoProgress),
 {
     let country = CountryCode::parse(country)?;
-    let include_geosite = country.as_str() == "CN";
-    let total = if include_geosite { 2 } else { 1 };
+    let total = 2;
     let mut results = Vec::new();
 
     progress(GeoProgress {
@@ -120,60 +137,31 @@ where
         completed: 0,
         total,
     });
-    match downloader.download_geoip(&country).await {
-        Ok(()) => results.push(GeoRulesUpdate {
-            country_code: country.to_string(),
-            artifact_kind: ArtifactKind::GeoIp.to_string(),
-            status: UpdateStatus::Updated,
-        }),
-        Err(error) => {
-            results.push(GeoRulesUpdate {
-                country_code: country.to_string(),
-                artifact_kind: ArtifactKind::GeoIp.to_string(),
-                status: UpdateStatus::Failed {
-                    reason: error.to_string(),
-                },
-            });
-            return Ok(results);
-        }
-    }
+    results.push(from_artifact(downloader.update_geoip(&country).await));
     progress(GeoProgress {
         current_file: format!("{country} geoip"),
         completed: 1,
         total,
     });
 
-    if include_geosite {
-        progress(GeoProgress {
-            current_file: format!("{country} geosite"),
-            completed: 1,
-            total,
-        });
-        match downloader.download_geosite(&country).await {
-            Ok(()) => results.push(GeoRulesUpdate {
-                country_code: country.to_string(),
-                artifact_kind: ArtifactKind::GeoSite.to_string(),
-                status: UpdateStatus::Updated,
-            }),
-            Err(error) => results.push(GeoRulesUpdate {
-                country_code: country.to_string(),
-                artifact_kind: ArtifactKind::GeoSite.to_string(),
-                status: UpdateStatus::Failed {
-                    reason: error.to_string(),
-                },
-            }),
-        }
-        progress(GeoProgress {
-            current_file: format!("{country} geosite"),
-            completed: 2,
-            total,
-        });
-    }
+    progress(GeoProgress {
+        current_file: "global geosite".to_owned(),
+        completed: 1,
+        total,
+    });
+    results.push(from_artifact(downloader.update_geosite().await));
+    progress(GeoProgress {
+        current_file: "global geosite".to_owned(),
+        completed: 2,
+        total,
+    });
 
-    if results
-        .iter()
-        .any(|result| matches!(result.status, UpdateStatus::Updated))
-    {
+    if results.iter().any(|result| {
+        matches!(
+            result.status,
+            UpdateStatus::Updated | UpdateStatus::UpToDate
+        )
+    }) {
         record_successful_geo_update(downloader.cache_dir())?;
     }
     Ok(results)
@@ -191,35 +179,37 @@ where
     let mut jobs = Vec::new();
     for country in &cached {
         if country.geoip {
-            jobs.push((country.country.clone(), ArtifactKind::GeoIp));
-        }
-        if country.geosite {
-            jobs.push((country.country.clone(), ArtifactKind::GeoSite));
+            jobs.push(country.country.clone());
         }
     }
-    let total = u32::try_from(jobs.len()).unwrap_or(u32::MAX);
-    if total == 0 {
-        return Ok(Vec::new());
-    }
+    let total = u32::try_from(jobs.len() + 1).unwrap_or(u32::MAX);
     let mut results = Vec::with_capacity(jobs.len());
-    for (index, (country, kind)) in jobs.into_iter().enumerate() {
+    for (index, country) in jobs.into_iter().enumerate() {
         let completed = u32::try_from(index).unwrap_or(u32::MAX);
         progress(GeoProgress {
-            current_file: format!("{country} {kind}"),
+            current_file: format!("{country} geoip"),
             completed,
             total,
         });
-        let artifact = match kind {
-            ArtifactKind::GeoIp => downloader.update_geoip(&country).await,
-            ArtifactKind::GeoSite => downloader.update_geosite(&country).await,
-        };
-        results.push(from_artifact(artifact));
+        results.push(from_artifact(downloader.update_geoip(&country).await));
         progress(GeoProgress {
-            current_file: format!("{country} {kind}"),
+            current_file: format!("{country} geoip"),
             completed: completed.saturating_add(1),
             total,
         });
     }
+    let completed = total.saturating_sub(1);
+    progress(GeoProgress {
+        current_file: "global geosite".to_owned(),
+        completed,
+        total,
+    });
+    results.push(from_artifact(downloader.update_geosite().await));
+    progress(GeoProgress {
+        current_file: "global geosite".to_owned(),
+        completed: total,
+        total,
+    });
     if results.iter().any(|result| {
         matches!(
             result.status,
@@ -232,9 +222,14 @@ where
 }
 
 fn from_artifact(artifact: ArtifactResult) -> GeoRulesUpdate {
+    let (country_code, artifact_scope) = match artifact.scope {
+        ArtifactScope::Country(country) => (country.to_string(), "country".to_owned()),
+        ArtifactScope::Global => (String::new(), "global".to_owned()),
+    };
     GeoRulesUpdate {
-        country_code: artifact.country.to_string(),
+        country_code,
         artifact_kind: artifact.kind.to_string(),
+        artifact_scope,
         status: artifact.status,
     }
 }
@@ -248,10 +243,12 @@ fn entry_from_cached(cache_dir: &Path, country: CachedCountry) -> GeoRulesEntry 
         )));
     }
     if country.geosite {
-        last_updated = last_updated.max(file_mtime_millis(&geosite_cache_path(
-            cache_dir,
-            &country.country,
-        )));
+        let global_path = global_geosite_cache_path(cache_dir);
+        last_updated = last_updated.max(if global_path.is_file() {
+            file_mtime_millis(&global_path)
+        } else {
+            file_mtime_millis(&geosite_cache_path(cache_dir, &country.country))
+        });
     }
     GeoRulesEntry {
         country_code: country.country.to_string(),
@@ -289,6 +286,7 @@ mod tests {
     use usque_geo::{CountryCode, geoip_cache_path};
 
     const GEOIP_CN: &[u8] = include_bytes!("../../usque-geo/tests/fixtures/geoip-cn.dat");
+    const GEOSITE_CN: &str = include_str!("../../usque-geo/tests/fixtures/geosite-cn.txt");
 
     fn vpn_profile(countries: &[&str]) -> Profile {
         Profile {
@@ -386,6 +384,9 @@ mod tests {
         let path = geoip_cache_path(directory.path(), &cn);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, GEOIP_CN).unwrap();
+        let geosite = usque_geo::geosite_cache_path(directory.path(), &cn);
+        std::fs::create_dir_all(geosite.parent().unwrap()).unwrap();
+        std::fs::write(geosite, GEOSITE_CN).unwrap();
 
         let mut profile = vpn_profile(&["CN"]);
         profile.dns_servers = vec!["1.2.3.4".parse().unwrap()];

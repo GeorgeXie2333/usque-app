@@ -1,7 +1,9 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{BTreeSet, HashMap, VecDeque, hash_map::DefaultHasher},
     future::Future,
+    hash::{Hash, Hasher},
     io, mem,
+    net::SocketAddr,
     os::windows::io::AsRawHandle,
     ptr,
     sync::{
@@ -12,6 +14,7 @@ use std::{
 };
 
 use bytes::BytesMut;
+use ipnet::IpNet;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::windows::named_pipe::{NamedPipeServer, ServerOptions},
@@ -40,14 +43,16 @@ use crate::{
         AgentCoordinator, BackendError, CoordinatorError, ORPHANED_TUNNEL_RECOVERY_GRACE,
         PrivilegedBackend, SystemProxySettings,
     },
-    journal::{RecoveryJournal, RecoveryPhase},
+    journal::{MutationReceipt, RecoveryJournal, RecoveryPhase},
     plan::ValidatedTunnelPlan,
     windows::{
         auth::{AuthenticationError, CallerPolicy, authenticate_named_pipe},
+        network,
         service_config::{
             NoopServiceStartModeController, ServiceConfigError, ServiceStartMode,
             ServiceStartModeController, desired_start_mode,
         },
+        wfp,
     },
 };
 
@@ -56,6 +61,7 @@ const MAX_AGENT_FRAME_BYTES: usize = 64 * 1024;
 const READ_CHUNK_BYTES: usize = 16 * 1024;
 const MAX_REQUEST_ID_BYTES: usize = 128;
 const MAX_REPLAY_ENTRIES: usize = 256;
+const MAX_DYNAMIC_DIRECT_TARGETS: usize = 1024;
 pub const AGENT_IDLE_TIMEOUT: Duration = Duration::from_secs(10);
 const DEMAND_RETRY_DELAYS: [Duration; 3] = [
     Duration::from_millis(100),
@@ -70,6 +76,32 @@ pub struct AgentService<Backend> {
     start_mode: Arc<dyn ServiceStartModeController>,
     mutation_gate: Mutex<()>,
     activity: Arc<ActivityTracker>,
+    direct_egress: Mutex<DirectEgressRegistry>,
+    physical_generation: Mutex<PhysicalGenerationState>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct DirectEgressKey {
+    operation_id: Uuid,
+    remote: SocketAddr,
+    protocol: u8,
+    interface_luid: u64,
+}
+
+struct DirectEgressEntry {
+    references: usize,
+    _permit: Option<wfp::DynamicPermit>,
+}
+
+#[derive(Default)]
+struct DirectEgressRegistry {
+    entries: HashMap<DirectEgressKey, DirectEgressEntry>,
+}
+
+#[derive(Default)]
+struct PhysicalGenerationState {
+    fingerprint: Option<u64>,
+    generation: u64,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -166,11 +198,157 @@ where
             start_mode,
             mutation_gate: Mutex::new(()),
             activity: Arc::new(ActivityTracker::default()),
+            direct_egress: Mutex::new(DirectEgressRegistry::default()),
+            physical_generation: Mutex::new(PhysicalGenerationState::default()),
         }
     }
 
     pub async fn state(&self) -> RecoveryJournal {
         self.coordinator.state().await
+    }
+
+    async fn physical_network_info(
+        &self,
+        operation_id: Uuid,
+        caller: &AuthenticatedCaller,
+    ) -> Result<agent_v1::PhysicalNetworkInfo, ServiceError> {
+        let journal = self.state().await;
+        validate_direct_context(&journal, operation_id, caller, false)?;
+        let mut interfaces = physical_interface_luids(&journal, None)
+            .into_iter()
+            .map(|interface_luid| {
+                network::physical_interface_info(interface_luid)
+                    .map_err(|error| ServiceError::PhysicalNetwork(error.to_string()))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        interfaces.sort_by_key(|interface| interface.interface_luid);
+        if interfaces.is_empty() {
+            return Err(ServiceError::PhysicalNetwork(
+                "the prepared tunnel has no verified physical interface".to_owned(),
+            ));
+        }
+        let fingerprint = physical_network_fingerprint(&interfaces);
+        let (generation, changed) = {
+            let mut state = self.physical_generation.lock().await;
+            let changed = state.fingerprint.is_some_and(|value| value != fingerprint);
+            if state.fingerprint != Some(fingerprint) {
+                state.fingerprint = Some(fingerprint);
+                state.generation = state
+                    .generation
+                    .saturating_add(1)
+                    .max(journal.generation)
+                    .max(1);
+            }
+            (state.generation, changed)
+        };
+        if changed {
+            self.clear_direct_egress().await;
+        }
+        Ok(agent_v1::PhysicalNetworkInfo {
+            interfaces: interfaces
+                .into_iter()
+                .map(|interface| agent_v1::PhysicalInterface {
+                    interface_luid: interface.interface_luid,
+                    interface_index: interface.interface_index,
+                    dns_servers: interface
+                        .dns_servers
+                        .into_iter()
+                        .map(|address| address.to_string())
+                        .collect(),
+                })
+                .collect(),
+            generation,
+        })
+    }
+
+    async fn acquire_direct_egress(
+        &self,
+        operation_id: Uuid,
+        remote: SocketAddr,
+        protocol: u8,
+        caller: &AuthenticatedCaller,
+    ) -> Result<(agent_v1::DirectEgressLease, DirectEgressKey), ServiceError> {
+        if remote.port() == 0
+            || remote.ip().is_unspecified()
+            || remote.ip().is_multicast()
+            || !matches!(protocol, 6 | 17)
+        {
+            return Err(ServiceError::DirectEgressTarget);
+        }
+        let journal = self.state().await;
+        let plan = validate_direct_context(&journal, operation_id, caller, true)?;
+        let interface_luid = physical_interface_luids(&journal, Some(remote.is_ipv6()))
+            .into_iter()
+            .next()
+            .ok_or_else(|| {
+                ServiceError::PhysicalNetwork(format!(
+                    "no verified physical interface supports {}",
+                    if remote.is_ipv6() { "IPv6" } else { "IPv4" }
+                ))
+            })?;
+        let interface = network::physical_interface_info(interface_luid)
+            .map_err(|error| ServiceError::PhysicalNetwork(error.to_string()))?;
+        let key = DirectEgressKey {
+            operation_id,
+            remote,
+            protocol,
+            interface_luid,
+        };
+        let mut registry = self.direct_egress.lock().await;
+        if let Some(existing) = registry.entries.get_mut(&key) {
+            existing.references = existing
+                .references
+                .checked_add(1)
+                .ok_or(ServiceError::DirectEgressLimit)?;
+        } else {
+            if registry.entries.len() >= MAX_DYNAMIC_DIRECT_TARGETS {
+                return Err(ServiceError::DirectEgressLimit);
+            }
+            let permit = if plan.kill_switch {
+                Some(
+                    wfp::acquire_dynamic_permit(
+                        remote,
+                        protocol,
+                        interface_luid,
+                        &caller.executable_path,
+                    )
+                    .map_err(|error| ServiceError::DirectEgress(error.to_string()))?,
+                )
+            } else {
+                None
+            };
+            registry.entries.insert(
+                key,
+                DirectEgressEntry {
+                    references: 1,
+                    _permit: permit,
+                },
+            );
+        }
+        Ok((
+            agent_v1::DirectEgressLease {
+                interface_luid,
+                interface_index: interface.interface_index,
+                remote_endpoint: remote.to_string(),
+                protocol: u32::from(protocol),
+            },
+            key,
+        ))
+    }
+
+    async fn release_direct_egress(&self, key: DirectEgressKey) {
+        let mut registry = self.direct_egress.lock().await;
+        let remove = registry.entries.get_mut(&key).is_some_and(|entry| {
+            entry.references = entry.references.saturating_sub(1);
+            entry.references == 0
+        });
+        if remove {
+            registry.entries.remove(&key);
+        }
+    }
+
+    async fn clear_direct_egress(&self) {
+        self.direct_egress.lock().await.entries.clear();
     }
 
     pub async fn reconcile_removed_adapter_dependencies(
@@ -284,7 +462,11 @@ where
             process_id: caller.process_id,
             request_id: request.request_id.clone(),
         };
-        {
+        let cacheable = !matches!(
+            request.payload.as_ref(),
+            Some(agent_request::Payload::AcquireDirectEgress(_))
+        );
+        if cacheable {
             let replay = self.replay.lock().await;
             if let Some(cached) = replay.entries.get(&replay_key) {
                 return if cached.request == request {
@@ -300,13 +482,15 @@ where
             Ok(response) => response,
             Err((request_id, error)) => error_response(request_id, error),
         };
-        self.replay.lock().await.insert(
-            replay_key,
-            CachedResponse {
-                request: request_for_cache,
-                response: response.clone(),
-            },
-        );
+        if cacheable {
+            self.replay.lock().await.insert(
+                replay_key,
+                CachedResponse {
+                    request: request_for_cache,
+                    response: response.clone(),
+                },
+            );
+        }
         response
     }
 
@@ -327,6 +511,31 @@ where
                 &self.state().await,
                 self.coordinator.packet_session_attached(),
             )),
+            agent_request::Payload::GetPhysicalNetworkInfo(request) => {
+                let operation_id = parse_operation_id(&request.operation_id)
+                    .map_err(|error| (request_id.clone(), error))?;
+                agent_response::Payload::PhysicalNetworkInfo(
+                    self.physical_network_info(operation_id, caller)
+                        .await
+                        .map_err(|error| (request_id.clone(), error))?,
+                )
+            }
+            agent_request::Payload::AcquireDirectEgress(request) => {
+                let operation_id = parse_operation_id(&request.operation_id)
+                    .map_err(|error| (request_id.clone(), error))?;
+                let remote = request
+                    .remote_endpoint
+                    .trim()
+                    .parse::<SocketAddr>()
+                    .map_err(|_| (request_id.clone(), ServiceError::DirectEgressTarget))?;
+                let protocol = u8::try_from(request.protocol)
+                    .map_err(|_| (request_id.clone(), ServiceError::DirectEgressTarget))?;
+                let (lease, _) = self
+                    .acquire_direct_egress(operation_id, remote, protocol, caller)
+                    .await
+                    .map_err(|error| (request_id.clone(), error))?;
+                agent_response::Payload::DirectEgressLease(lease)
+            }
             agent_request::Payload::PrepareTunnel(request) => {
                 let operation_id = parse_operation_id(&request.operation_id)
                     .map_err(|error| (request_id.clone(), error))?;
@@ -342,6 +551,7 @@ where
                     })
                     .await
                     .map_err(|error| (request_id.clone(), ServiceError::Lifecycle(error)))?;
+                self.clear_direct_egress().await;
                 agent_response::Payload::State(state_to_proto(
                     &state,
                     self.coordinator.packet_session_attached(),
@@ -374,6 +584,7 @@ where
                     })
                     .await
                     .map_err(|error| (request_id.clone(), ServiceError::Lifecycle(error)))?;
+                self.clear_direct_egress().await;
                 agent_response::Payload::State(state_to_proto(
                     &state,
                     self.coordinator.packet_session_attached(),
@@ -383,6 +594,7 @@ where
                 self.recover_stale()
                     .await
                     .map_err(|error| (request_id.clone(), ServiceError::Lifecycle(error)))?;
+                self.clear_direct_egress().await;
                 agent_response::Payload::State(state_to_proto(
                     &self.state().await,
                     self.coordinator.packet_session_attached(),
@@ -786,6 +998,7 @@ where
     let mut chunk = [0_u8; READ_CHUNK_BYTES];
     let mut system_proxy_lease = None;
     let mut tunnel_lease = None;
+    let mut direct_egress_lease = None;
 
     let result = async {
         loop {
@@ -809,6 +1022,12 @@ where
                     return Err(ServerError::FrameTooLarge(frame.len() - 4));
                 }
                 let request: AgentRequest = decode_frame(frame)?;
+                let direct_operation_id = match request.payload.as_ref() {
+                    Some(agent_request::Payload::AcquireDirectEgress(request)) => {
+                        Uuid::parse_str(request.operation_id.trim()).ok()
+                    }
+                    _ => None,
+                };
                 let lease_action = match request.payload.as_ref() {
                     Some(agent_request::Payload::ApplySystemProxy(request)) => {
                         Uuid::parse_str(request.operation_id.trim()).ok().map(Some)
@@ -833,7 +1052,14 @@ where
                     }
                     _ => None,
                 };
-                let response = service.handle(request, &caller).await;
+                let response = if direct_egress_lease.is_some() && direct_operation_id.is_some() {
+                    error_response(
+                        request.request_id,
+                        ServiceError::DirectEgressLeaseAlreadyAcquired,
+                    )
+                } else {
+                    service.handle(request, &caller).await
+                };
                 if response.error.is_none()
                     && let Some(next_lease) = lease_action
                 {
@@ -843,6 +1069,23 @@ where
                     && let Some(next_lease) = tunnel_lease_action
                 {
                     tunnel_lease = Some(next_lease);
+                }
+                if response.error.is_none()
+                    && let (
+                        Some(operation_id),
+                        Some(agent_response::Payload::DirectEgressLease(lease)),
+                    ) = (direct_operation_id, response.payload.as_ref())
+                    && let (Ok(remote), Ok(protocol)) = (
+                        lease.remote_endpoint.parse::<SocketAddr>(),
+                        u8::try_from(lease.protocol),
+                    )
+                {
+                    direct_egress_lease = Some(DirectEgressKey {
+                        operation_id,
+                        remote,
+                        protocol,
+                        interface_luid: lease.interface_luid,
+                    });
                 }
                 let encoded = encode_frame(&response)?;
                 if encoded.len() > MAX_AGENT_FRAME_BYTES + 4 {
@@ -869,7 +1112,62 @@ where
         }
         None => {}
     }
+    if let Some(key) = direct_egress_lease {
+        service.release_direct_egress(key).await;
+    }
     result
+}
+
+fn validate_direct_context<'a>(
+    journal: &'a RecoveryJournal,
+    operation_id: Uuid,
+    caller: &AuthenticatedCaller,
+    require_process_owner: bool,
+) -> Result<&'a ValidatedTunnelPlan, ServiceError> {
+    if !matches!(
+        journal.phase,
+        RecoveryPhase::Prepared | RecoveryPhase::Active
+    ) {
+        return Err(ServiceError::DirectEgressState);
+    }
+    if journal.operation_id != Some(operation_id)
+        || journal.owner_sid.as_deref() != Some(caller.user_sid.as_str())
+        || require_process_owner && journal.owner_process_id != Some(caller.process_id)
+    {
+        return Err(ServiceError::DirectEgressOwner);
+    }
+    journal.plan.as_ref().ok_or(ServiceError::DirectEgressState)
+}
+
+fn physical_interface_luids(journal: &RecoveryJournal, ipv6: Option<bool>) -> BTreeSet<u64> {
+    journal
+        .steps
+        .iter()
+        .filter_map(|step| match &step.receipt {
+            MutationReceipt::EndpointBypass { created } => Some(created),
+            _ => None,
+        })
+        .flatten()
+        .filter(|route| {
+            ipv6.is_none_or(|ipv6| {
+                route
+                    .destination
+                    .parse::<IpNet>()
+                    .is_ok_and(|network| network.addr().is_ipv6() == ipv6)
+            })
+        })
+        .filter_map(|route| (route.interface_luid != 0).then_some(route.interface_luid))
+        .collect()
+}
+
+fn physical_network_fingerprint(interfaces: &[network::PhysicalInterfaceInfo]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    for interface in interfaces {
+        interface.interface_luid.hash(&mut hasher);
+        interface.interface_index.hash(&mut hasher);
+        interface.dns_servers.hash(&mut hasher);
+    }
+    hasher.finish()
 }
 
 fn create_agent_pipe(pipe_name: &str, first_instance: bool) -> io::Result<NamedPipeServer> {
@@ -1102,6 +1400,20 @@ enum ServiceError {
     MissingTunnelPlan,
     #[error("tunnel plan is invalid: {0}")]
     Plan(String),
+    #[error("physical network metadata is unavailable: {0}")]
+    PhysicalNetwork(String),
+    #[error("direct egress is available only for the prepared or active tunnel")]
+    DirectEgressState,
+    #[error("direct egress operation owner does not match the authenticated Engine")]
+    DirectEgressOwner,
+    #[error("direct egress target must be a numeric unicast TCP/UDP endpoint")]
+    DirectEgressTarget,
+    #[error("this pipe already owns a direct-egress lease")]
+    DirectEgressLeaseAlreadyAcquired,
+    #[error("the dynamic direct-egress target limit was reached")]
+    DirectEgressLimit,
+    #[error("could not install dynamic direct-egress policy: {0}")]
+    DirectEgress(String),
     #[error("{0}")]
     Lifecycle(AgentLifecycleError),
 }
@@ -1117,6 +1429,15 @@ impl ServiceError {
             | Self::ReasonCode => ("AGENT_INVALID_REQUEST", false),
             Self::RequestIdReused => ("AGENT_REQUEST_ID_REUSED", false),
             Self::MissingTunnelPlan | Self::Plan(_) => ("AGENT_INVALID_PLAN", false),
+            Self::DirectEgressOwner => ("AGENT_OWNER_MISMATCH", false),
+            Self::DirectEgressTarget | Self::DirectEgressLeaseAlreadyAcquired => {
+                ("AGENT_INVALID_DIRECT_EGRESS", false)
+            }
+            Self::DirectEgressState => ("AGENT_DIRECT_EGRESS_UNAVAILABLE", true),
+            Self::DirectEgressLimit => ("AGENT_DIRECT_EGRESS_LIMIT", true),
+            Self::PhysicalNetwork(_) | Self::DirectEgress(_) => {
+                ("AGENT_DIRECT_EGRESS_FAILED", true)
+            }
             Self::Lifecycle(AgentLifecycleError::StartMode(_)) => {
                 ("SERVICE_START_MODE_UNAVAILABLE", false)
             }
@@ -1308,6 +1629,8 @@ mod tests {
                 operating_system: "windows".to_owned(),
                 architecture: std::env::consts::ARCH.to_owned(),
                 protocol_version: AGENT_PROTOCOL_VERSION,
+                dynamic_direct_egress: false,
+                physical_dns_snapshot: false,
             },
         ));
         let pipe_name = format!("{AGENT_PIPE_NAME}.test-{}", Uuid::new_v4());

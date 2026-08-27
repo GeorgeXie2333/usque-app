@@ -121,7 +121,17 @@ fn spawn_runtime(
         identity: tokio::sync::Mutex::new(identity),
         protector: Arc::clone(&protector),
     });
-    let geo_policy = Arc::new(load_geo_direct_policy(&profile, &geo_cache_dir));
+    let geo_policy = match load_geo_direct_policy(&profile, &geo_cache_dir) {
+        Ok(policy) => Arc::new(policy),
+        Err(message) => {
+            let mut snapshot = NativeSnapshot::disconnected();
+            snapshot.phase = "error".to_owned();
+            snapshot.error_code = Some("ANDROID_GEO_RULES_UNAVAILABLE".to_owned());
+            snapshot.warning = Some(message);
+            remember_last_start_error(snapshot);
+            return START_TRANSPORT_FAILURE;
+        }
+    };
 
     let cancellation = CancellationToken::new();
     let status = Arc::new(Mutex::new(NativeSnapshot::preparing()));
@@ -202,9 +212,9 @@ fn spawn_runtime(
     result
 }
 
-fn load_geo_direct_policy(profile: &Profile, cache_dir: &Path) -> GeoDirectPolicy {
+fn load_geo_direct_policy(profile: &Profile, cache_dir: &Path) -> Result<GeoDirectPolicy, String> {
     if profile.geo_direct_countries.is_empty() {
-        return GeoDirectPolicy::disabled();
+        return Ok(GeoDirectPolicy::disabled());
     }
     let countries = match profile
         .geo_direct_countries
@@ -214,16 +224,12 @@ fn load_geo_direct_policy(profile: &Profile, cache_dir: &Path) -> GeoDirectPolic
     {
         Ok(countries) => countries,
         Err(error) => {
-            tracing::warn!(%error, "invalid Android GEO direct policy; using tunnel-only routing");
-            return GeoDirectPolicy::disabled();
+            return Err(format!("invalid Android GEO direct policy: {error}"));
         }
     };
     match GeoDirectPolicy::load(cache_dir, countries) {
-        Ok(policy) => policy,
-        Err(error) => {
-            tracing::warn!(%error, "Android GEO cache could not be loaded; using tunnel-only routing");
-            GeoDirectPolicy::disabled()
-        }
+        Ok(policy) => Ok(policy),
+        Err(error) => Err(format!("Android GEO cache could not be loaded: {error}")),
     }
 }
 
@@ -813,6 +819,7 @@ fn set_transport_error(status: &Arc<Mutex<NativeSnapshot>>, error: &TransportErr
         TransportError::EndpointFamilyUnavailable(_) => "ENDPOINT_FAMILY_UNAVAILABLE",
         TransportError::EndpointTimeout(_) => "MASQUE_ENDPOINT_TIMEOUT",
         TransportError::AllEndpointsFailed(_) => "MASQUE_ALL_ENDPOINTS_FAILED",
+        TransportError::Dns(_) => "ANDROID_SPLIT_DNS_FAILED",
         _ if message.contains("Android network")
             || message.contains("endpoint socket")
             || message.contains("VpnService.protect") =>

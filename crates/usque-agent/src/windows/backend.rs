@@ -68,6 +68,8 @@ impl WindowsBackend {
             operating_system: "windows".to_owned(),
             architecture: std::env::consts::ARCH.to_owned(),
             protocol_version: AGENT_PROTOCOL_VERSION,
+            dynamic_direct_egress: true,
+            physical_dns_snapshot: true,
         }
     }
 }

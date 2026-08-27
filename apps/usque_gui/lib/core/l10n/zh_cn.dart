@@ -289,7 +289,7 @@ const Map<String, String> kZhCnCatalog = <String, String>{
   'http_capabilities': 'CONNECT 与普通转发',
   'geo_direct': '直连国家',
   'geo_direct_help':
-      '规则来自 v2fly，经 jsDelivr 分发且不随安装包提供。请在已连接时下载或更新。SOCKS5/HTTP 域名使用 GeoSite、IP 使用 GeoIP；Android VPN 使用 GeoIP。Windows 仅在关闭 VPN/TUN 输出时支持直连。未知目标仍走隧道，Kill Switch 在断开时仍会拦截流量。',
+      '规则集由逐国家 GeoIP 和一份 V2Fly 全量 GeoSite 组成，断开时也可下载。命中 GeoSite 的域名会交给当前物理网络 DNS 解析，因此该 DNS 提供方可看到这些域名；其余域名继续使用 WARP DNS。应用使用 DoH/DoT 时 Usque 无法读取 QNAME，只能按 GeoIP 分流。Android VPN 与 Windows TUN 均支持；下载不会绕过系统封锁或 Kill Switch。',
   'geo_update_all': '更新地理数据',
   'geo_last_updated': '上次成功更新：{current}',
   'geo_never_updated': '尚未更新',

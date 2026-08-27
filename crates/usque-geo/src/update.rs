@@ -3,14 +3,13 @@ use std::path::{Path, PathBuf};
 use sha2::{Digest, Sha256};
 
 use crate::cache::{
-    atomic_write, cached_geoip_countries, cached_geosite_countries, geoip_cache_path,
-    geosite_cache_path,
+    atomic_write, cached_geoip_countries, geoip_cache_path, global_geosite_cache_path,
 };
 use crate::country::CountryCode;
 use crate::error::{ArtifactKind, GeoError};
 use crate::fetch::{
     ALLOWED_HOSTS, HttpFetch, MAX_CHECKSUM_BYTES, MAX_GEOIP_BYTES, MAX_GEOSITE_BYTES,
-    fetch_first_ok, geoip_dat_url, geoip_sha256_url, geosite_cn_url,
+    fetch_first_ok, geoip_dat_url, geoip_sha256_url, geosite_dat_url, geosite_sha256_url,
 };
 use crate::geoip::GeoIpSet;
 use crate::geosite::GeoSiteSet;
@@ -23,8 +22,14 @@ pub enum UpdateStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ArtifactScope {
+    Country(CountryCode),
+    Global,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArtifactResult {
-    pub country: CountryCode,
+    pub scope: ArtifactScope,
     pub kind: ArtifactKind,
     pub status: UpdateStatus,
 }
@@ -51,67 +56,43 @@ impl<F: HttpFetch> GeoDownloader<F> {
         atomic_write(&geoip_cache_path(&self.cache_dir, country), &bytes)
     }
 
-    /// Fetches v2fly's flattened `cn.txt` release artifact.
-    pub async fn download_geosite(&self, country: &CountryCode) -> Result<(), GeoError> {
-        let text = self.fetch_validated_geosite(country).await?;
-        atomic_write(
-            &geosite_cache_path(&self.cache_dir, country),
-            text.as_bytes(),
-        )
+    /// Fetches and verifies v2fly's global `dlc.dat` release artifact.
+    pub async fn download_geosite(&self) -> Result<(), GeoError> {
+        let bytes = self.fetch_verified_geosite().await?;
+        atomic_write(&global_geosite_cache_path(&self.cache_dir), &bytes)
     }
 
     pub async fn update_cached(&self) -> Vec<ArtifactResult> {
         let mut jobs = Vec::new();
         if let Ok(countries) = cached_geoip_countries(&self.cache_dir) {
             for country in countries {
-                jobs.push((country, ArtifactKind::GeoIp));
-            }
-        }
-        if let Ok(countries) = cached_geosite_countries(&self.cache_dir) {
-            for country in countries {
-                jobs.push((country, ArtifactKind::GeoSite));
+                jobs.push(country);
             }
         }
 
-        let mut results = Vec::with_capacity(jobs.len());
+        let mut results = Vec::with_capacity(jobs.len() + 1);
         for chunk in jobs.chunks(2) {
-            match chunk {
-                [(country, ArtifactKind::GeoIp)] => {
-                    results.push(self.update_geoip(country).await);
-                }
-                [(country, ArtifactKind::GeoSite)] => {
-                    results.push(self.update_geosite(country).await);
-                }
-                [(left_country, left_kind), (right_country, right_kind)] => {
-                    let (left, right) = tokio::join!(
-                        self.update_one(left_country, *left_kind),
-                        self.update_one(right_country, *right_kind)
-                    );
-                    results.push(left);
-                    results.push(right);
-                }
-                _ => {}
+            if let [left, right] = chunk {
+                let (left, right) = tokio::join!(self.update_geoip(left), self.update_geoip(right));
+                results.push(left);
+                results.push(right);
+            } else if let [country] = chunk {
+                results.push(self.update_geoip(country).await);
             }
         }
+        results.push(self.update_geosite().await);
         results
-    }
-
-    async fn update_one(&self, country: &CountryCode, kind: ArtifactKind) -> ArtifactResult {
-        match kind {
-            ArtifactKind::GeoIp => self.update_geoip(country).await,
-            ArtifactKind::GeoSite => self.update_geosite(country).await,
-        }
     }
 
     pub async fn update_geoip(&self, country: &CountryCode) -> ArtifactResult {
         match self.update_geoip_inner(country).await {
             Ok(status) => ArtifactResult {
-                country: country.clone(),
+                scope: ArtifactScope::Country(country.clone()),
                 kind: ArtifactKind::GeoIp,
                 status,
             },
             Err(error) => ArtifactResult {
-                country: country.clone(),
+                scope: ArtifactScope::Country(country.clone()),
                 kind: ArtifactKind::GeoIp,
                 status: UpdateStatus::Failed {
                     reason: error.to_string(),
@@ -120,15 +101,15 @@ impl<F: HttpFetch> GeoDownloader<F> {
         }
     }
 
-    pub async fn update_geosite(&self, country: &CountryCode) -> ArtifactResult {
-        match self.update_geosite_inner(country).await {
+    pub async fn update_geosite(&self) -> ArtifactResult {
+        match self.update_geosite_inner().await {
             Ok(status) => ArtifactResult {
-                country: country.clone(),
+                scope: ArtifactScope::Global,
                 kind: ArtifactKind::GeoSite,
                 status,
             },
             Err(error) => ArtifactResult {
-                country: country.clone(),
+                scope: ArtifactScope::Global,
                 kind: ArtifactKind::GeoSite,
                 status: UpdateStatus::Failed {
                     reason: error.to_string(),
@@ -155,15 +136,21 @@ impl<F: HttpFetch> GeoDownloader<F> {
         Ok(UpdateStatus::Updated)
     }
 
-    async fn update_geosite_inner(&self, country: &CountryCode) -> Result<UpdateStatus, GeoError> {
-        let text = self.fetch_validated_geosite(country).await?;
-        let path = geosite_cache_path(&self.cache_dir, country);
+    async fn update_geosite_inner(&self) -> Result<UpdateStatus, GeoError> {
+        let expected = self.fetch_geosite_digest().await?;
+        let path = global_geosite_cache_path(&self.cache_dir);
         if let Ok(existing) = std::fs::read(&path)
-            && existing == text.as_bytes()
+            && sha256_digest(&existing) == expected
         {
+            GeoSiteSet::validate_v2ray_dat(&existing)?;
             return Ok(UpdateStatus::UpToDate);
         }
-        atomic_write(&path, text.as_bytes())?;
+        let bytes = self.fetch_geosite_dat().await?;
+        if sha256_digest(&bytes) != expected {
+            return Err(GeoError::ChecksumMismatch);
+        }
+        GeoSiteSet::validate_v2ray_dat(&bytes)?;
+        atomic_write(&path, &bytes)?;
         Ok(UpdateStatus::Updated)
     }
 
@@ -194,19 +181,35 @@ impl<F: HttpFetch> GeoDownloader<F> {
         Ok(body.to_vec())
     }
 
-    async fn fetch_validated_geosite(&self, country: &CountryCode) -> Result<String, GeoError> {
-        if country.as_str() != "CN" {
-            return Err(GeoError::UnsupportedGeoSite(country.clone()));
+    async fn fetch_verified_geosite(&self) -> Result<Vec<u8>, GeoError> {
+        let expected = self.fetch_geosite_digest().await?;
+        let bytes = self.fetch_geosite_dat().await?;
+        if sha256_digest(&bytes) != expected {
+            return Err(GeoError::ChecksumMismatch);
         }
+        GeoSiteSet::validate_v2ray_dat(&bytes)?;
+        Ok(bytes)
+    }
+
+    async fn fetch_geosite_digest(&self) -> Result<[u8; 32], GeoError> {
         let body = fetch_first_ok(
             &self.fetch,
-            url_fallbacks(geosite_cn_url)?,
+            url_fallbacks(geosite_sha256_url)?,
+            MAX_CHECKSUM_BYTES,
+        )
+        .await?;
+        let text = std::str::from_utf8(&body).map_err(|_| GeoError::InvalidChecksum)?;
+        parse_sha256sum(text)
+    }
+
+    async fn fetch_geosite_dat(&self) -> Result<Vec<u8>, GeoError> {
+        let body = fetch_first_ok(
+            &self.fetch,
+            url_fallbacks(geosite_dat_url)?,
             MAX_GEOSITE_BYTES,
         )
         .await?;
-        let text = String::from_utf8(body.to_vec()).map_err(|_| GeoError::InvalidGeoSite)?;
-        GeoSiteSet::from_text(&text, country)?;
-        Ok(text)
+        Ok(body.to_vec())
     }
 }
 

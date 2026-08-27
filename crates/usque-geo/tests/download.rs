@@ -2,9 +2,10 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
+use sha2::{Digest, Sha256};
 use usque_geo::{
-    ALLOWED_HOSTS, ArtifactKind, CountryCode, FetchedBody, GeoDownloader, GeoError, HttpFetch,
-    MAX_GEOIP_BYTES, UpdateStatus, geoip_cache_path, geosite_cache_path,
+    ALLOWED_HOSTS, ArtifactKind, ArtifactScope, CountryCode, FetchedBody, GeoDownloader, GeoError,
+    HttpFetch, MAX_GEOIP_BYTES, UpdateStatus, geoip_cache_path, global_geosite_cache_path,
 };
 
 const GEOIP_CN: &[u8] = include_bytes!("fixtures/geoip-cn.dat");
@@ -40,8 +41,29 @@ fn geoip_sum(host: &str, country: &str) -> String {
     )
 }
 
-fn geosite_cn(host: &str) -> String {
-    format!("https://{host}/gh/v2fly/domain-list-community@release/cn.txt")
+fn geosite_dat_url(host: &str) -> String {
+    format!("https://{host}/gh/v2fly/domain-list-community@release/dlc.dat")
+}
+
+fn geosite_sum_url(host: &str) -> String {
+    format!("https://{host}/gh/v2fly/domain-list-community@release/dlc.dat.sha256sum")
+}
+
+fn append_field(message: &mut Vec<u8>, tag: u8, value: &[u8]) {
+    message.push(tag);
+    message.push(u8::try_from(value.len()).unwrap());
+    message.extend_from_slice(value);
+}
+
+fn geosite_fixture() -> Vec<u8> {
+    let mut domain = vec![0x08, 0x02];
+    append_field(&mut domain, 0x12, b"example.cn");
+    let mut site = Vec::new();
+    append_field(&mut site, 0x0a, b"geolocation-cn");
+    append_field(&mut site, 0x12, &domain);
+    let mut list = Vec::new();
+    append_field(&mut list, 0x0a, &site);
+    list
 }
 
 enum MockRoute {
@@ -75,11 +97,22 @@ impl MockFetch {
         self
     }
 
-    fn with_cn_geosite(mut self) -> Self {
+    fn with_global_geosite(mut self) -> Self {
+        let dat = geosite_fixture();
+        let digest = Sha256::digest(&dat);
+        let checksum = format!(
+            "{}  dlc.dat\n",
+            digest
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        );
         for host in ALLOWED_HOSTS {
+            self.routes
+                .insert(geosite_dat_url(host), MockRoute::Ok(dat.clone()));
             self.routes.insert(
-                geosite_cn(host),
-                MockRoute::Ok(b"domain:example.cn\nfull:baidu.com\n".to_vec()),
+                geosite_sum_url(host),
+                MockRoute::Ok(checksum.as_bytes().to_vec()),
             );
         }
         self
@@ -145,13 +178,12 @@ async fn downloads_verified_geoip_into_cache_layout() {
 }
 
 #[tokio::test]
-async fn downloads_cn_geosite_text_lists() {
+async fn downloads_verified_global_geosite_catalog() {
     let directory = tempfile::tempdir().unwrap();
-    let downloader = GeoDownloader::new(MockFetch::new().with_cn_geosite(), directory.path());
-    downloader.download_geosite(&cn()).await.unwrap();
-    let cached = std::fs::read_to_string(geosite_cache_path(directory.path(), &cn())).unwrap();
-    assert!(cached.contains("domain:example.cn"));
-    assert!(cached.contains("full:baidu.com"));
+    let downloader = GeoDownloader::new(MockFetch::new().with_global_geosite(), directory.path());
+    downloader.download_geosite().await.unwrap();
+    let cached = std::fs::read(global_geosite_cache_path(directory.path())).unwrap();
+    assert_eq!(cached, geosite_fixture());
 }
 
 #[tokio::test]
@@ -209,12 +241,20 @@ async fn sha256_match_skips_dat_download() {
     let path = geoip_cache_path(directory.path(), &cn());
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(&path, GEOIP_CN).unwrap();
-    let fetch = Arc::new(MockFetch::new().with_cn_geoip());
+    let fetch = Arc::new(MockFetch::new().with_cn_geoip().with_global_geosite());
     let downloader = GeoDownloader::new(SharedFetch(Arc::clone(&fetch)), directory.path());
     let results = downloader.update_cached().await;
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0].kind, ArtifactKind::GeoIp);
-    assert_eq!(results[0].status, UpdateStatus::UpToDate);
+    assert_eq!(results.len(), 2);
+    let geoip = results
+        .iter()
+        .find(|result| result.kind == ArtifactKind::GeoIp)
+        .unwrap();
+    assert_eq!(geoip.status, UpdateStatus::UpToDate);
+    assert!(results.iter().any(|result| {
+        result.scope == ArtifactScope::Global
+            && result.kind == ArtifactKind::GeoSite
+            && result.status == UpdateStatus::Updated
+    }));
     let hits = fetch.hits();
     assert!(
         hits.iter().any(|url| url.ends_with("cn.dat.sha256sum")),
@@ -244,11 +284,15 @@ async fn partial_update_failure_keeps_old_file() {
     let results = downloader.update_cached().await;
     let cn_result = results
         .iter()
-        .find(|result| result.country == cn() && result.kind == ArtifactKind::GeoIp)
+        .find(|result| {
+            result.scope == ArtifactScope::Country(cn()) && result.kind == ArtifactKind::GeoIp
+        })
         .unwrap();
     let us_result = results
         .iter()
-        .find(|result| result.country == us() && result.kind == ArtifactKind::GeoIp)
+        .find(|result| {
+            result.scope == ArtifactScope::Country(us()) && result.kind == ArtifactKind::GeoIp
+        })
         .unwrap();
     assert_eq!(cn_result.status, UpdateStatus::Updated);
     assert!(matches!(us_result.status, UpdateStatus::Failed { .. }));
@@ -257,11 +301,9 @@ async fn partial_update_failure_keeps_old_file() {
 }
 
 #[tokio::test]
-async fn geosite_is_cn_only() {
+async fn global_geosite_is_not_country_scoped() {
     let directory = tempfile::tempdir().unwrap();
-    let downloader = GeoDownloader::new(MockFetch::new(), directory.path());
-    assert!(matches!(
-        downloader.download_geosite(&us()).await,
-        Err(GeoError::UnsupportedGeoSite(_))
-    ));
+    let downloader = GeoDownloader::new(MockFetch::new().with_global_geosite(), directory.path());
+    downloader.download_geosite().await.unwrap();
+    assert!(global_geosite_cache_path(directory.path()).is_file());
 }

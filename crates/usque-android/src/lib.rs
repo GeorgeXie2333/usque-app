@@ -16,7 +16,7 @@ use std::sync::{
 #[cfg(any(test, target_os = "android"))]
 use std::time::Duration;
 use std::{
-    net::{IpAddr, SocketAddr},
+    net::{IpAddr, SocketAddr, SocketAddrV6},
     path::PathBuf,
 };
 
@@ -1244,6 +1244,8 @@ fn apply_geo_command(
         AndroidConfigCommand::ListGeoRules => {
             let (entries, last_successful_update_unix_milliseconds) =
                 usque_core::list_geo_rules(cache_dir).map_err(|error| error.to_string())?;
+            let (has_global_geosite, global_geosite_updated_unix_milliseconds) =
+                usque_core::global_geosite_status(cache_dir);
             serde_json::to_string(&serde_json::json!({
                 "entries": entries.iter().map(|entry| serde_json::json!({
                     "country_code": entry.country_code,
@@ -1252,6 +1254,8 @@ fn apply_geo_command(
                     "last_updated_unix_milliseconds": entry.last_updated_unix_milliseconds,
                 })).collect::<Vec<_>>(),
                 "last_successful_update_unix_milliseconds": last_successful_update_unix_milliseconds,
+                "has_global_geosite": has_global_geosite,
+                "global_geosite_updated_unix_milliseconds": global_geosite_updated_unix_milliseconds,
             }))
             .map_err(|error| error.to_string())
         }
@@ -1293,6 +1297,7 @@ fn geo_update_json(
                 "status": status,
                 "reason": reason,
                 "artifact_kind": result.artifact_kind,
+                "artifact_scope": result.artifact_scope,
             })
         }).collect::<Vec<_>>(),
     }))
@@ -1586,6 +1591,53 @@ impl SocketProtector for AndroidSocketProtector {
 
     fn network_generation(&self) -> Option<u64> {
         Some(self.network_generation.load(Ordering::Acquire))
+    }
+
+    fn physical_dns_servers(&self) -> Vec<SocketAddr> {
+        let values = self
+            .java_vm
+            .attach_current_thread(|environment| -> jni::errors::Result<Vec<String>> {
+                let servers = environment
+                    .call_method(
+                        &self.service,
+                        jni_str!("getUnderlyingDnsServers"),
+                        jni_sig!("()[Ljava/lang/String;"),
+                        &[],
+                    )?
+                    .l()?;
+                let servers = environment.cast_local::<JObjectArray<JString<'static>>>(servers)?;
+                let length = servers.len(environment)?;
+                let mut values = Vec::with_capacity(length);
+                for index in 0..length {
+                    let value = servers.get_element(environment, index)?;
+                    values.push(value.try_to_string(environment)?);
+                }
+                Ok(values)
+            })
+            .unwrap_or_default();
+        let mut servers = values
+            .into_iter()
+            .filter_map(|value| {
+                let (host, scope) = value.split_once('|')?;
+                let ip = host.parse::<IpAddr>().ok()?;
+                if ip.is_unspecified() || ip.is_multicast() {
+                    return None;
+                }
+                match ip {
+                    IpAddr::V4(ip) => Some(SocketAddr::new(ip.into(), 53)),
+                    IpAddr::V6(ip) => Some(SocketAddr::V6(SocketAddrV6::new(
+                        ip,
+                        53,
+                        0,
+                        scope.parse().ok()?,
+                    ))),
+                }
+            })
+            .collect::<Vec<_>>();
+        servers.sort();
+        servers.dedup();
+        servers.truncate(8);
+        servers
     }
 
     fn resolve(&self, host: &str, port: u16) -> Result<Vec<SocketAddr>, String> {

@@ -449,6 +449,27 @@ class FakeEngineClient implements EngineClient {
   void dispose() {}
 }
 
+class ConcurrentGeoEngineClient extends FakeEngineClient {
+  final connectStarted = Completer<void>();
+  final connectResult = Completer<EngineSnapshot>();
+  bool downloadedWhileConnecting = false;
+
+  @override
+  Future<EngineSnapshot> connect(UsqueProfile profile) {
+    calls.add('connect');
+    connectStarted.complete();
+    return connectResult.future;
+  }
+
+  @override
+  Future<List<GeoRulesUpdateResult>> downloadGeoRules(
+    String countryCode,
+  ) async {
+    downloadedWhileConnecting = !connectResult.isCompleted;
+    return const <GeoRulesUpdateResult>[];
+  }
+}
+
 class EventEngineClient extends FakeEngineClient {
   final List<StreamController<EngineSnapshotEvent>> eventControllers =
       <StreamController<EngineSnapshotEvent>>[];
@@ -578,6 +599,28 @@ void main() {
       controller.dispose();
     },
   );
+
+  test('geo rules can download while a connection is still starting', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final engine = ConcurrentGeoEngineClient();
+    final controller = AppController(engine);
+    await controller.initialize();
+
+    final connecting = controller.connectOrDisconnect();
+    await engine.connectStarted.future;
+    expect(controller.busy, isTrue);
+
+    await controller.downloadGeoRules('CN');
+    expect(engine.downloadedWhileConnecting, isTrue);
+    expect(controller.busy, isTrue);
+
+    engine.connectResult.complete(
+      const EngineSnapshot(phase: ConnectionPhase.connected),
+    );
+    await connecting;
+    expect(controller.busy, isFalse);
+    controller.dispose();
+  });
 
   testWidgets('controller selectors ignore unrelated engine statistics', (
     tester,

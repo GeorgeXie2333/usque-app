@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::num::NonZeroU16;
 use std::sync::Arc;
@@ -5,7 +6,7 @@ use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, UdpSocket as TokioUdpSocket};
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{Mutex, mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, timeout};
 use tokio_util::sync::CancellationToken;
@@ -25,7 +26,9 @@ use crate::netstack::{
 };
 use crate::pin_refresh::EndpointPinRefresher;
 use crate::port_allocator::{next_tcp_port, next_udp_port};
-use crate::socket::{SocketProtector, noop_socket_protector};
+use crate::socket::{
+    DirectEgressLease, DirectProtocol, SocketProtector, noop_socket_protector, socket_handle,
+};
 
 const SOCKS_VERSION: u8 = 5;
 const AUTH_NONE: u8 = 0;
@@ -564,6 +567,7 @@ struct UdpResponse {
 struct DirectUdpSockets {
     v4: Option<Arc<TokioUdpSocket>>,
     v6: Option<Arc<TokioUdpSocket>>,
+    leases: Mutex<HashMap<(Option<u64>, SocketAddr), DirectEgressLease>>,
 }
 
 #[derive(Clone, Copy)]
@@ -587,6 +591,7 @@ impl DirectUdpSockets {
                     tracing::debug!(%error, "protected direct UDP/IPv6 socket unavailable");
                 })
                 .ok(),
+            leases: Mutex::new(HashMap::new()),
         }
     }
 
@@ -596,6 +601,35 @@ impl DirectUdpSockets {
         } else {
             self.v6.as_ref()
         }
+    }
+
+    async fn ensure_target(
+        &self,
+        protector: &dyn SocketProtector,
+        remote: SocketAddr,
+    ) -> Result<(), String> {
+        let socket = self
+            .for_address(remote)
+            .ok_or_else(|| format!("{remote}: protected socket unavailable"))?;
+        let generation = protector.network_generation();
+        {
+            let mut leases = self.leases.lock().await;
+            leases.retain(|(existing_generation, _), _| *existing_generation == generation);
+            if leases.contains_key(&(generation, remote)) {
+                return Ok(());
+            }
+            if leases.len() >= 1024 {
+                return Err("direct UDP target lease limit reached".to_owned());
+            }
+        }
+        let lease = protector
+            .protect_for_target(socket_handle(socket.as_ref()), remote, DirectProtocol::Udp)
+            .await
+            .map_err(|error| format!("protect direct UDP target {remote}: {error}"))?;
+        let mut leases = self.leases.lock().await;
+        leases.retain(|(existing_generation, _), _| *existing_generation == generation);
+        leases.entry((generation, remote)).or_insert(lease);
+        Ok(())
     }
 }
 
@@ -614,7 +648,7 @@ async fn send_udp_routed(
     if geo_target.route(&context.geo_policy) == GeoRoute::Direct {
         let addresses = match target {
             Target::Address(address) => Ok(vec![SocketAddr::new(*address, port)]),
-            Target::Domain(name) => context.protector.resolve(name, port),
+            Target::Domain(name) => context.protector.resolve_direct(name, port).await,
         };
         match addresses {
             Ok(addresses) => {
@@ -629,6 +663,13 @@ async fn send_udp_routed(
                         failures.push(format!("{remote}: protected socket unavailable"));
                         continue;
                     };
+                    if let Err(error) = direct
+                        .ensure_target(context.protector.as_ref(), remote)
+                        .await
+                    {
+                        failures.push(format!("{remote}: {error}"));
+                        continue;
+                    }
                     match socket.send_to(payload, remote).await {
                         Ok(written) if written == payload.len() => {
                             context.counters.record_sent(written);

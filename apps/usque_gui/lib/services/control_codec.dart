@@ -559,6 +559,8 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
 GeoRulesList _decodeGeoRulesList(_ProtoReader reader) {
   final entries = <GeoRulesEntry>[];
   var lastSuccessfulUpdateUnixMilliseconds = 0;
+  var hasGlobalGeosite = false;
+  var globalGeositeUpdatedUnixMilliseconds = 0;
   while (!reader.isDone) {
     final field = reader.field();
     switch (field.number) {
@@ -566,6 +568,10 @@ GeoRulesList _decodeGeoRulesList(_ProtoReader reader) {
         entries.add(_decodeGeoRulesEntry(reader.message(field)));
       case 2:
         lastSuccessfulUpdateUnixMilliseconds = reader.varint(field);
+      case 3:
+        hasGlobalGeosite = reader.varint(field) != 0;
+      case 4:
+        globalGeositeUpdatedUnixMilliseconds = reader.varint(field);
       default:
         reader.skip(field);
     }
@@ -573,6 +579,8 @@ GeoRulesList _decodeGeoRulesList(_ProtoReader reader) {
   return GeoRulesList(
     entries: List<GeoRulesEntry>.unmodifiable(entries),
     lastSuccessfulUpdateUnixMilliseconds: lastSuccessfulUpdateUnixMilliseconds,
+    hasGlobalGeosite: hasGlobalGeosite,
+    globalGeositeUpdatedUnixMilliseconds: globalGeositeUpdatedUnixMilliseconds,
   );
 }
 
@@ -617,6 +625,7 @@ List<GeoRulesUpdateResult> _decodeGeoRulesUpdate(_ProtoReader reader) {
     var status = GeoRulesUpdateStatus.updated;
     var reason = '';
     var artifactKind = '';
+    var artifactScope = '';
     while (!item.isDone) {
       final itemField = item.field();
       switch (itemField.number) {
@@ -632,6 +641,8 @@ List<GeoRulesUpdateResult> _decodeGeoRulesUpdate(_ProtoReader reader) {
           reason = item.string(itemField);
         case 4:
           artifactKind = item.string(itemField);
+        case 5:
+          artifactScope = item.string(itemField);
         default:
           item.skip(itemField);
       }
@@ -642,6 +653,7 @@ List<GeoRulesUpdateResult> _decodeGeoRulesUpdate(_ProtoReader reader) {
         status: status,
         reason: reason,
         artifactKind: artifactKind,
+        artifactScope: artifactScope,
       ),
     );
   }

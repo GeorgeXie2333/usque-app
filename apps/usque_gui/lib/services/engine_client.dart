@@ -490,6 +490,9 @@ GeoRulesList _geoRulesListFromMap(Map<Object?, Object?> map) {
     entries: entries ?? const <GeoRulesEntry>[],
     lastSuccessfulUpdateUnixMilliseconds:
         (map['last_successful_update_unix_milliseconds'] as num?)?.toInt() ?? 0,
+    hasGlobalGeosite: map['has_global_geosite'] as bool? ?? false,
+    globalGeositeUpdatedUnixMilliseconds:
+        (map['global_geosite_updated_unix_milliseconds'] as num?)?.toInt() ?? 0,
   );
 }
 
@@ -506,6 +509,7 @@ List<GeoRulesUpdateResult> _geoRulesUpdateFromMap(Map<Object?, Object?> map) {
               },
               reason: result['reason'] as String? ?? '',
               artifactKind: result['artifact_kind'] as String? ?? '',
+              artifactScope: result['artifact_scope'] as String? ?? '',
             ),
           )
           .toList(growable: false) ??

@@ -511,6 +511,13 @@ class _GeoDirectPanelState extends State<_GeoDirectPanel> {
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
         ),
+        const SizedBox(height: 8),
+        Text(
+          'GeoSite · ${_globalGeoSiteLabel(strings, controller.geoRules)}',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
         const SizedBox(height: 12),
         Wrap(
           spacing: 8,
@@ -518,7 +525,7 @@ class _GeoDirectPanelState extends State<_GeoDirectPanel> {
           crossAxisAlignment: WrapCrossAlignment.center,
           children: <Widget>[
             FilledButton.tonalIcon(
-              onPressed: !cached || updating || controller.busy
+              onPressed: !cached || updating
                   ? null
                   : controller.updateAllGeoRules,
               icon: const Icon(LucideIcons.refreshCw),
@@ -556,6 +563,7 @@ class _GeoDirectPanelState extends State<_GeoDirectPanel> {
               final country = countries[index];
               final entry = byCode[country.code];
               final hasGeoip = entry?.hasGeoip ?? false;
+              final ready = hasGeoip && (entry?.hasGeosite ?? false);
               final date = _entryDate(entry);
               return ListTile(
                 contentPadding: EdgeInsets.zero,
@@ -566,7 +574,7 @@ class _GeoDirectPanelState extends State<_GeoDirectPanel> {
                   overflow: TextOverflow.ellipsis,
                 ),
                 subtitle: Text(
-                  hasGeoip
+                  ready
                       ? (date ?? strings.get('geo_downloaded'))
                       : strings.get('geo_not_downloaded'),
                 ),
@@ -576,7 +584,7 @@ class _GeoDirectPanelState extends State<_GeoDirectPanel> {
                     if (hasGeoip)
                       IconButton(
                         tooltip: strings.get('geo_update'),
-                        onPressed: updating || controller.busy
+                        onPressed: updating
                             ? null
                             : () => controller.downloadGeoRules(country.code),
                         icon: const Icon(LucideIcons.refreshCw),
@@ -584,7 +592,7 @@ class _GeoDirectPanelState extends State<_GeoDirectPanel> {
                     else
                       IconButton(
                         tooltip: strings.get('geo_download'),
-                        onPressed: updating || controller.busy
+                        onPressed: updating
                             ? null
                             : () => controller.downloadGeoRules(country.code),
                         icon: const Icon(LucideIcons.download),
@@ -594,7 +602,7 @@ class _GeoDirectPanelState extends State<_GeoDirectPanel> {
                       label: '${strings.get('geo_enable')} ${country.code}',
                       child: Switch(
                         value: enabled.contains(country.code),
-                        onChanged: hasGeoip
+                        onChanged: ready
                             ? (value) {
                                 final next = {...enabled};
                                 if (value) {
@@ -627,6 +635,18 @@ class _GeoDirectPanelState extends State<_GeoDirectPanel> {
     return strings
         .get('geo_last_updated')
         .replaceAll('{current}', time.toLocal().toString().split('.').first);
+  }
+
+  String _globalGeoSiteLabel(AppStrings strings, GeoRulesList rules) {
+    if (!rules.hasGlobalGeosite) {
+      return strings.get('geo_not_downloaded');
+    }
+    if (rules.globalGeositeUpdatedUnixMilliseconds <= 0) {
+      return strings.get('geo_downloaded');
+    }
+    return DateTime.fromMillisecondsSinceEpoch(
+      rules.globalGeositeUpdatedUnixMilliseconds,
+    ).toLocal().toString().split('.').first;
   }
 
   String? _entryDate(GeoRulesEntry? entry) {

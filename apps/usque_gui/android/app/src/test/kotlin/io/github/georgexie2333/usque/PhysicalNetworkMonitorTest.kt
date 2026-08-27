@@ -48,6 +48,16 @@ class PhysicalNetworkMonitorTest {
         assertTrue(
             hasUnderlyingSelectionChanged(
                 previousHandle = 11L,
+                previousFamilyMask = FAMILY_IPV4 or FAMILY_IPV6,
+                selectedHandle = 11L,
+                selectedFamilyMask = FAMILY_IPV4 or FAMILY_IPV6,
+                previousDnsServers = listOf("192.0.2.53|0"),
+                selectedDnsServers = listOf("2001:db8::53|7"),
+            ),
+        )
+        assertTrue(
+            hasUnderlyingSelectionChanged(
+                previousHandle = 11L,
                 previousFamilyMask = FAMILY_IPV4,
                 selectedHandle = 11L,
                 selectedFamilyMask = FAMILY_IPV4 or FAMILY_IPV6,

@@ -11,10 +11,10 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::{TcpSocket, TcpStream, UdpSocket};
 use tokio::time::timeout;
 use ts_netstack_smoltcp::netsock::TcpStream as StackTcpStream;
-use usque_geo::{CountryCode, GeoClassifier, GeoError};
+use usque_geo::{ArtifactKind, CountryCode, GeoClassifier, GeoError};
 
 use crate::netstack::TrafficCounters;
-use crate::socket::{SocketProtector, socket_handle};
+use crate::socket::{DirectEgressLease, DirectProtocol, SocketProtector, socket_handle};
 
 const DIRECT_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_DIRECT_ADDRESSES: usize = 16;
@@ -94,6 +94,15 @@ impl GeoDirectPolicy {
             return Ok(Self::disabled());
         }
         let classifier = GeoClassifier::load(cache_dir, &countries)?;
+        if let Some(country) = countries
+            .iter()
+            .find(|country| !classifier.has_geosite(country))
+        {
+            return Err(GeoError::MissingArtifact {
+                country: country.clone(),
+                kind: ArtifactKind::GeoSite,
+            });
+        }
         Ok(Self::new(Arc::new(classifier), countries))
     }
 
@@ -207,6 +216,7 @@ pub(crate) enum RoutedTcpStream {
     Direct {
         stream: TcpStream,
         counters: Arc<TrafficCounters>,
+        _lease: DirectEgressLease,
     },
 }
 
@@ -227,7 +237,9 @@ impl AsyncRead for RoutedTcpStream {
     ) -> Poll<io::Result<()>> {
         match self.get_mut() {
             Self::Tunnel(stream) => Pin::new(stream).poll_read(cx, buf),
-            Self::Direct { stream, counters } => {
+            Self::Direct {
+                stream, counters, ..
+            } => {
                 let before = buf.filled().len();
                 let result = Pin::new(stream).poll_read(cx, buf);
                 if matches!(result, Poll::Ready(Ok(()))) {
@@ -247,7 +259,9 @@ impl AsyncWrite for RoutedTcpStream {
     ) -> Poll<io::Result<usize>> {
         match self.get_mut() {
             Self::Tunnel(stream) => Pin::new(stream).poll_write(cx, buf),
-            Self::Direct { stream, counters } => {
+            Self::Direct {
+                stream, counters, ..
+            } => {
                 let result = Pin::new(stream).poll_write(cx, buf);
                 if let Poll::Ready(Ok(written)) = result {
                     counters.record_sent(written);
@@ -285,7 +299,9 @@ impl AsyncWrite for RoutedTcpStream {
     ) -> Poll<io::Result<usize>> {
         match self.get_mut() {
             Self::Tunnel(stream) => Pin::new(stream).poll_write_vectored(cx, bufs),
-            Self::Direct { stream, counters } => {
+            Self::Direct {
+                stream, counters, ..
+            } => {
                 let result = Pin::new(stream).poll_write_vectored(cx, bufs);
                 if let Poll::Ready(Ok(written)) = result {
                     counters.record_sent(written);
@@ -297,7 +313,7 @@ impl AsyncWrite for RoutedTcpStream {
 }
 
 enum DirectFallback<T> {
-    Direct(TcpStream),
+    Direct(TcpStream, DirectEgressLease),
     Fallback(T),
 }
 
@@ -317,7 +333,7 @@ where
 {
     if target.route(policy) == GeoRoute::Direct {
         match connect_direct(protector, target, port).await {
-            Ok(stream) => return Ok(DirectFallback::Direct(stream)),
+            Ok((stream, lease)) => return Ok(DirectFallback::Direct(stream, lease)),
             Err(error) => {
                 let target = target.label();
                 tracing::debug!(%target, %error, "GEO direct TCP connect failed; falling back to tunnel");
@@ -342,7 +358,11 @@ where
     connect_with_geo_fallback(policy, protector, target, port, tunnel)
         .await
         .map(|stream| match stream {
-            DirectFallback::Direct(stream) => RoutedTcpStream::Direct { stream, counters },
+            DirectFallback::Direct(stream, lease) => RoutedTcpStream::Direct {
+                stream,
+                counters,
+                _lease: lease,
+            },
             DirectFallback::Fallback(stream) => RoutedTcpStream::Tunnel(stream),
         })
 }
@@ -351,9 +371,9 @@ async fn connect_direct(
     protector: &dyn SocketProtector,
     target: GeoTarget<'_>,
     port: u16,
-) -> Result<TcpStream, String> {
+) -> Result<(TcpStream, DirectEgressLease), String> {
     let addresses = match target {
-        GeoTarget::Host(host) => protector.resolve(host, port)?,
+        GeoTarget::Host(host) => protector.resolve_direct(host, port).await?,
         GeoTarget::Ip(ip) => vec![SocketAddr::new(ip, port)],
     };
     let mut failures = Vec::new();
@@ -378,15 +398,16 @@ async fn connect_direct(
 async fn connect_direct_address(
     protector: &dyn SocketProtector,
     remote: SocketAddr,
-) -> Result<TcpStream, String> {
+) -> Result<(TcpStream, DirectEgressLease), String> {
     let socket = if remote.is_ipv4() {
         TcpSocket::new_v4()
     } else {
         TcpSocket::new_v6()
     }
     .map_err(|error| error.to_string())?;
-    protector
-        .protect(socket_handle(&socket))
+    let lease = protector
+        .protect_for_target(socket_handle(&socket), remote, DirectProtocol::Tcp)
+        .await
         .map_err(|error| format!("protect direct socket: {error}"))?;
     let stream = timeout(DIRECT_CONNECT_TIMEOUT, socket.connect(remote))
         .await
@@ -395,13 +416,13 @@ async fn connect_direct_address(
     stream
         .set_nodelay(true)
         .map_err(|error| error.to_string())?;
-    Ok(stream)
+    Ok((stream, lease))
 }
 
 pub(crate) async fn connect_direct_ip(
     protector: &dyn SocketProtector,
     remote: SocketAddr,
-) -> Result<TcpStream, String> {
+) -> Result<(TcpStream, DirectEgressLease), String> {
     connect_direct_address(protector, remote).await
 }
 
@@ -422,6 +443,27 @@ pub(crate) fn bind_protected_udp(
         .set_nonblocking(true)
         .map_err(|error| error.to_string())?;
     UdpSocket::from_std(socket).map_err(|error| error.to_string())
+}
+
+pub(crate) async fn bind_direct_udp(
+    protector: &dyn SocketProtector,
+    remote: SocketAddr,
+) -> Result<(UdpSocket, DirectEgressLease), String> {
+    let bind = if remote.is_ipv6() {
+        SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0)
+    } else {
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0)
+    };
+    let socket = StdUdpSocket::bind(bind).map_err(|error| error.to_string())?;
+    let lease = protector
+        .protect_for_target(socket_handle(&socket), remote, DirectProtocol::Udp)
+        .await
+        .map_err(|error| format!("protect direct UDP socket: {error}"))?;
+    socket
+        .set_nonblocking(true)
+        .map_err(|error| error.to_string())?;
+    let socket = UdpSocket::from_std(socket).map_err(|error| error.to_string())?;
+    Ok((socket, lease))
 }
 
 #[cfg(test)]
@@ -530,7 +572,10 @@ mod tests {
             },
         )
         .await;
-        assert!(matches!(result.unwrap(), super::DirectFallback::Direct(_)));
+        assert!(matches!(
+            result.unwrap(),
+            super::DirectFallback::Direct(_, _)
+        ));
         assert_eq!(protector.resolve_calls.load(Ordering::SeqCst), 1);
         assert_eq!(protector.protect_calls.load(Ordering::SeqCst), 1);
         assert!(!fallback_called.load(Ordering::SeqCst));
@@ -580,6 +625,7 @@ mod tests {
         let mut stream = super::RoutedTcpStream::Direct {
             stream: client,
             counters: Arc::clone(&counters),
+            _lease: crate::socket::DirectEgressLease::default(),
         };
         stream.write_all(b"ping").await.unwrap();
         let mut response = [0u8; 4];

@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use prost::Message;
 
@@ -42,22 +42,50 @@ impl GeoSiteSet {
     }
 
     pub fn from_v2ray_dat(bytes: &[u8], country: &CountryCode) -> Result<Self, GeoError> {
+        Self::from_v2ray_dat_many(bytes, std::slice::from_ref(country))?
+            .remove(country)
+            .ok_or_else(|| GeoError::EmptyGeoSite(country.clone()))
+    }
+
+    /// Extracts every requested country from one protobuf decode. Each country
+    /// is the union of `xx`, `geolocation-xx`, `category-xx`, and `tld-xx`.
+    pub fn from_v2ray_dat_many(
+        bytes: &[u8],
+        countries: &[CountryCode],
+    ) -> Result<BTreeMap<CountryCode, Self>, GeoError> {
         let list = GeoSiteList::decode(bytes).map_err(|_| GeoError::InvalidGeoSite)?;
-        let mut set = Self::empty(country.clone());
-        let mut found = false;
+        let mut sets = countries
+            .iter()
+            .cloned()
+            .map(|country| (country.clone(), Self::empty(country)))
+            .collect::<BTreeMap<_, _>>();
         for entry in list.entry {
-            if !entry_matches_country(&entry.country_code, country) {
-                continue;
-            }
-            found = true;
-            for domain in entry.domain {
-                set.push_protobuf_domain(domain.r#type, &domain.value);
+            for (country, set) in &mut sets {
+                if entry_matches_country(&entry.country_code, country) {
+                    for domain in &entry.domain {
+                        set.push_protobuf_domain(domain.r#type, &domain.value);
+                    }
+                }
             }
         }
-        if !found {
-            return Err(GeoError::InvalidGeoSite);
+        sets.retain(|_, set| set.has_rules());
+        Ok(sets)
+    }
+
+    /// Validates the global v2fly catalog without selecting a country.
+    pub fn validate_v2ray_dat(bytes: &[u8]) -> Result<(), GeoError> {
+        let list = GeoSiteList::decode(bytes).map_err(|_| GeoError::InvalidGeoSite)?;
+        if list.entry.iter().any(|entry| {
+            !entry.country_code.trim().is_empty()
+                && entry.domain.iter().any(|domain| {
+                    matches!(domain.r#type, DOMAIN_FULL | DOMAIN_DOMAIN | DOMAIN_PLAIN)
+                        && normalize_host(&domain.value).is_some()
+                })
+        }) {
+            Ok(())
+        } else {
+            Err(GeoError::InvalidGeoSite)
         }
-        set.finish(country)
     }
 
     fn finish(self, country: &CountryCode) -> Result<Self, GeoError> {
@@ -146,10 +174,12 @@ impl GeoSiteSet {
 }
 
 fn entry_matches_country(entry: &str, country: &CountryCode) -> bool {
-    if CountryCode::parse(entry).is_ok_and(|parsed| parsed == *country) {
-        return true;
-    }
-    country.as_str() == "CN" && entry.trim().eq_ignore_ascii_case("geolocation-cn")
+    let entry = entry.trim().to_ascii_lowercase();
+    let country = country.as_lower();
+    entry == country
+        || entry == format!("geolocation-{country}")
+        || entry == format!("category-{country}")
+        || entry == format!("tld-{country}")
 }
 
 fn normalize_host(host: &str) -> Option<String> {
@@ -220,7 +250,7 @@ mod tests {
     }
 
     #[test]
-    fn protobuf_extracts_cn_and_geolocation_cn() {
+    fn protobuf_unions_all_country_candidate_lists() {
         let bytes = GeoSiteList {
             entry: vec![
                 GeoSite {
@@ -254,6 +284,20 @@ mod tests {
                         value: "google.com".to_owned(),
                     }],
                 },
+                GeoSite {
+                    country_code: "category-cn".to_owned(),
+                    domain: vec![Domain {
+                        r#type: DOMAIN_DOMAIN,
+                        value: "category.example".to_owned(),
+                    }],
+                },
+                GeoSite {
+                    country_code: "tld-cn".to_owned(),
+                    domain: vec![Domain {
+                        r#type: DOMAIN_FULL,
+                        value: "tld.example".to_owned(),
+                    }],
+                },
             ],
         }
         .encode_to_vec();
@@ -261,6 +305,8 @@ mod tests {
         assert!(set.contains("foo.example.cn"));
         assert!(set.contains("baidu.com"));
         assert!(set.contains("weixin.qq.com"));
+        assert!(set.contains("sub.category.example"));
+        assert!(set.contains("tld.example"));
         assert!(!set.contains("google.com"));
         assert!(!set.contains("not-a-match.example"));
     }

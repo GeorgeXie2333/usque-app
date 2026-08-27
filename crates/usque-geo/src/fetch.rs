@@ -19,7 +19,7 @@ const GEOIP_PATH_PREFIX: &str = "/gh/v2fly/geoip@";
 const GEOSITE_PATH_PREFIX: &str = "/gh/v2fly/domain-list-community@";
 
 pub const MAX_GEOIP_BYTES: usize = 2 * 1024 * 1024;
-pub const MAX_GEOSITE_BYTES: usize = 2 * 1024 * 1024;
+pub const MAX_GEOSITE_BYTES: usize = 16 * 1024 * 1024;
 pub(crate) const MAX_CHECKSUM_BYTES: usize = 8 * 1024;
 
 #[derive(Debug, Clone)]
@@ -153,10 +153,17 @@ pub(crate) fn geoip_sha256_url(host: &str, country: &CountryCode) -> Result<Stri
     ))
 }
 
-pub(crate) fn geosite_cn_url(host: &str) -> Result<String, GeoError> {
+pub(crate) fn geosite_dat_url(host: &str) -> Result<String, GeoError> {
     allowlisted_host(host)?;
     Ok(format!(
-        "https://{host}/gh/v2fly/domain-list-community@release/cn.txt"
+        "https://{host}/gh/v2fly/domain-list-community@release/dlc.dat"
+    ))
+}
+
+pub(crate) fn geosite_sha256_url(host: &str) -> Result<String, GeoError> {
+    allowlisted_host(host)?;
+    Ok(format!(
+        "https://{host}/gh/v2fly/domain-list-community@release/dlc.dat.sha256sum"
     ))
 }
 
@@ -235,7 +242,7 @@ mod tests {
         );
         assert!(
             parse_allowed_url(
-                "https://cdn.jsdelivr.net/gh/v2fly/domain-list-community@release/cn.txt"
+                "https://cdn.jsdelivr.net/gh/v2fly/domain-list-community@release/dlc.dat"
             )
             .is_ok()
         );

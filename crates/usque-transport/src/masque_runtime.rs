@@ -159,6 +159,7 @@ impl MasqueRuntime {
             gateway_policy,
             gateway_protector,
             Arc::clone(&stack.counters),
+            Some((stack.channel.clone(), (assigned_ipv4, assigned_ipv6))),
             &cancellation,
         )
         .await

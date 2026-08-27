@@ -12,10 +12,14 @@ use ts_netstack_smoltcp::netcore::{Channel, HasChannel, NetstackControl};
 use ts_netstack_smoltcp::netsock::{TcpListener as StackTcpListener, UdpSocket as StackUdpSocket};
 use usque_core::Profile;
 
-use crate::geo_direct::{GeoDirectPolicy, GeoRoute, bind_protected_udp, connect_direct_ip};
+use crate::geo_direct::{GeoDirectPolicy, GeoRoute, bind_direct_udp, connect_direct_ip};
 use crate::h2::TransportError;
 use crate::netstack::{TrafficCounters, bounded_piped, proxy_netstack_config};
+use crate::socket::DirectEgressLease;
 use crate::socket::SocketProtector;
+use crate::split_dns::{
+    DnsRouteCache, SPLIT_DNS_IPV4, SPLIT_DNS_IPV6, SplitDnsConfig, SplitDnsRuntime,
+};
 
 const GATEWAY_IPV4: Ipv4Addr = Ipv4Addr::new(198, 18, 0, 1);
 const GATEWAY_IPV6: Ipv6Addr = Ipv6Addr::new(0xfd00, 0, 0, 0, 0, 0, 0, 1);
@@ -249,6 +253,8 @@ pub(crate) struct DirectGatewayRouter {
     cancellation: CancellationToken,
     stack_task: Option<JoinHandle<()>>,
     incoming_task: Option<JoinHandle<()>>,
+    split_dns: Option<SplitDnsRuntime>,
+    dns_hints: Arc<DnsRouteCache>,
 }
 
 impl DirectGatewayRouter {
@@ -257,12 +263,21 @@ impl DirectGatewayRouter {
         policy: Arc<GeoDirectPolicy>,
         protector: Arc<dyn SocketProtector>,
         counters: Arc<TrafficCounters>,
+        tunnel_dns: Option<(Channel, (Ipv4Addr, Ipv6Addr))>,
         parent_cancellation: &CancellationToken,
     ) -> Result<(Self, mpsc::Receiver<Bytes>), TransportError> {
         let (incoming_tx, incoming_rx) = mpsc::channel(DIRECT_PACKET_CAPACITY);
         let cancellation = parent_cancellation.child_token();
         let flows = Arc::new(Mutex::new(NatTable::default()));
-        if !policy.is_enabled() || !protector.tun_direct_available() {
+        let split_dns_enabled = profile.frontends.tunnel
+            && !profile.geo_direct_countries.is_empty()
+            && policy.is_enabled();
+        if split_dns_enabled && !protector.tun_direct_available() {
+            return Err(TransportError::Dns(
+                "platform cannot safely bypass the TUN for Split DNS".to_owned(),
+            ));
+        }
+        if (!policy.is_enabled() && !split_dns_enabled) || !protector.tun_direct_available() {
             return Ok((
                 Self {
                     channel: None,
@@ -274,6 +289,8 @@ impl DirectGatewayRouter {
                     cancellation,
                     stack_task: None,
                     incoming_task: None,
+                    split_dns: None,
+                    dns_hints: Arc::new(DnsRouteCache::default()),
                 },
                 incoming_rx,
             ));
@@ -294,6 +311,41 @@ impl DirectGatewayRouter {
             mut rx,
             tx: stack_incoming,
         } = pipe;
+        let split_dns = if split_dns_enabled {
+            let Some((tunnel_channel, assigned_addresses)) = tunnel_dns else {
+                stack_task.abort();
+                return Err(TransportError::Dns(
+                    "Split DNS is missing the MASQUE resolver channel".to_owned(),
+                ));
+            };
+            match SplitDnsRuntime::start(
+                &channel,
+                SplitDnsConfig::new(
+                    tunnel_channel,
+                    assigned_addresses,
+                    &profile.dns_servers,
+                    Arc::clone(&policy),
+                    Arc::clone(&protector),
+                ),
+                &cancellation,
+            )
+            .await
+            {
+                Ok(runtime) => Some(runtime),
+                Err(error) => {
+                    stack_task.abort();
+                    return Err(TransportError::Dns(format!(
+                        "start Split DNS gateway: {error}"
+                    )));
+                }
+            }
+        } else {
+            None
+        };
+        let dns_hints = split_dns.as_ref().map_or_else(
+            || Arc::new(DnsRouteCache::default()),
+            |dns| Arc::clone(&dns.hints),
+        );
         let incoming_flows = Arc::clone(&flows);
         let incoming_cancel = cancellation.clone();
         let incoming_counters = Arc::clone(&counters);
@@ -309,7 +361,9 @@ impl DirectGatewayRouter {
                 let mut packet = packet
                     .try_into_mut()
                     .unwrap_or_else(|packet| BytesMut::from(packet.as_ref()));
-                if route_incoming(&incoming_flows, &mut packet) {
+                if route_incoming(&incoming_flows, &mut packet)
+                    || is_split_dns_server_packet(&packet)
+                {
                     incoming_counters.record_received(packet.len());
                     match incoming_tx.try_send(packet.freeze()) {
                         Ok(()) => {}
@@ -331,6 +385,8 @@ impl DirectGatewayRouter {
                 cancellation,
                 stack_task: Some(stack_task),
                 incoming_task: Some(incoming_task),
+                split_dns,
+                dns_hints,
             },
             incoming_rx,
         ))
@@ -338,16 +394,27 @@ impl DirectGatewayRouter {
 
     /// Returns true when the packet was consumed by the direct gateway.
     pub(crate) async fn route_outgoing(&mut self, packet: &mut BytesMut) -> bool {
-        if self
+        let worker_failed = self
             .stack_task
             .as_ref()
             .is_some_and(JoinHandle::is_finished)
             || self
                 .incoming_task
                 .as_ref()
-                .is_some_and(JoinHandle::is_finished)
+                .is_some_and(JoinHandle::is_finished);
+        let Some(parsed) = NatPacket::parse(packet) else {
+            return false;
+        };
+        if !matches!(parsed.protocol, 6 | 17)
+            || parsed.source.is_ipv4() != parsed.destination.is_ipv4()
         {
             return false;
+        }
+        let split_dns_client = self.split_dns.is_some() && is_split_dns_client_packet(&parsed);
+        if worker_failed {
+            // Never let an Engine-internal DNS query fall through into MASQUE
+            // if its local listener or packet pump has failed.
+            return split_dns_client;
         }
         let Some(channel) = self.channel.as_ref() else {
             return false;
@@ -355,12 +422,16 @@ impl DirectGatewayRouter {
         let Some(stack_incoming) = self.stack_incoming.as_ref() else {
             return false;
         };
-        let Some(parsed) = NatPacket::parse(packet) else {
-            return false;
-        };
-        if !matches!(parsed.protocol, 6 | 17)
-            || parsed.source.is_ipv4() != parsed.destination.is_ipv4()
-            || self.policy.route_ip(parsed.destination) != GeoRoute::Direct
+        if split_dns_client {
+            stack_incoming.send_async(packet).await;
+            self.counters.record_sent(packet.len());
+            return true;
+        }
+        if self.dns_hints.route_ip(
+            parsed.destination,
+            self.protector.network_generation(),
+            &self.policy,
+        ) != GeoRoute::Direct
         {
             return false;
         }
@@ -425,7 +496,7 @@ impl DirectGatewayRouter {
         flow: &FlowKey,
         mapping: &Mapping,
     ) -> Result<DirectSocket, String> {
-        let physical = bind_protected_udp(self.protector.as_ref(), flow.remote.is_ipv6())?;
+        let (physical, lease) = bind_direct_udp(self.protector.as_ref(), flow.remote).await?;
         physical
             .connect(flow.remote)
             .await
@@ -434,7 +505,11 @@ impl DirectGatewayRouter {
             .udp_bind(mapping.gateway)
             .await
             .map_err(|error| error.to_string())?;
-        Ok(DirectSocket::Udp { local, physical })
+        Ok(DirectSocket::Udp {
+            local,
+            physical,
+            _lease: lease,
+        })
     }
 
     fn spawn_flow(&self, flow: FlowKey, mapping: Mapping, socket: DirectSocket) {
@@ -445,9 +520,11 @@ impl DirectGatewayRouter {
                 DirectSocket::Tcp(listener) => {
                     run_tcp_flow(listener, &flow, protector, &mapping.cancel).await
                 }
-                DirectSocket::Udp { local, physical } => {
-                    run_udp_flow(local, physical, &flow, &mapping.cancel).await
-                }
+                DirectSocket::Udp {
+                    local,
+                    physical,
+                    _lease,
+                } => run_udp_flow(local, physical, _lease, &flow, &mapping.cancel).await,
             };
             if let Err(error) = result {
                 if let Ok(mut flows) = flows.lock() {
@@ -471,7 +548,26 @@ impl Drop for DirectGatewayRouter {
         if let Some(task) = self.incoming_task.as_ref() {
             task.abort();
         }
+        self.split_dns.take();
     }
+}
+
+fn is_split_dns_client_packet(packet: &NatPacket) -> bool {
+    packet.destination_port == 53
+        && matches!(
+            packet.destination,
+            IpAddr::V4(SPLIT_DNS_IPV4) | IpAddr::V6(SPLIT_DNS_IPV6)
+        )
+}
+
+fn is_split_dns_server_packet(packet: &[u8]) -> bool {
+    NatPacket::parse(packet).is_some_and(|packet| {
+        packet.source_port == 53
+            && matches!(
+                packet.source,
+                IpAddr::V4(SPLIT_DNS_IPV4) | IpAddr::V6(SPLIT_DNS_IPV6)
+            )
+    })
 }
 
 enum DirectSocket {
@@ -479,6 +575,7 @@ enum DirectSocket {
     Udp {
         local: StackUdpSocket,
         physical: tokio::net::UdpSocket,
+        _lease: DirectEgressLease,
     },
 }
 
@@ -500,7 +597,7 @@ async fn run_tcp_flow(
         ));
     }
     let mut local = accepted;
-    let mut physical = tokio::select! {
+    let (mut physical, _lease) = tokio::select! {
         _ = cancellation.cancelled() => return Ok(()),
         connected = connect_direct_ip(protector.as_ref(), flow.remote) => connected?,
     };
@@ -515,6 +612,7 @@ async fn run_tcp_flow(
 async fn run_udp_flow(
     local: StackUdpSocket,
     physical: tokio::net::UdpSocket,
+    _lease: DirectEgressLease,
     flow: &FlowKey,
     cancellation: &CancellationToken,
 ) -> Result<(), String> {
@@ -859,6 +957,7 @@ mod tests {
                 direct_policy(),
                 protector_trait,
                 Arc::clone(&counters),
+                None,
                 &cancellation,
             )
             .await
@@ -1016,6 +1115,7 @@ mod tests {
             direct_policy(),
             protector_trait,
             Arc::new(TrafficCounters::default()),
+            None,
             &cancellation,
         )
         .await

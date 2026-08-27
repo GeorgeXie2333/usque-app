@@ -27,11 +27,22 @@ impl GeoClassifier {
         let cache_dir = cache_dir.as_ref();
         let mut geoip = BTreeMap::new();
         let mut geosite = BTreeMap::new();
+        let global_geosite = read_optional_global_geosite(cache_dir)?;
+        let global_sets = if let Some(bytes) = global_geosite.as_deref() {
+            GeoSiteSet::validate_v2ray_dat(bytes)?;
+            Some(GeoSiteSet::from_v2ray_dat_many(bytes, countries)?)
+        } else {
+            None
+        };
         for country in countries {
             let geoip_path = geoip_cache_path(cache_dir, country);
             let bytes = read_required(&geoip_path, country, ArtifactKind::GeoIp)?;
             geoip.insert(country.clone(), GeoIpSet::from_v2ray_dat(&bytes, country)?);
-            if let Some((bytes, geosite_path)) = read_optional_geosite(cache_dir, country)? {
+            if let Some(sets) = global_sets.as_ref() {
+                if let Some(set) = sets.get(country) {
+                    geosite.insert(country.clone(), set.clone());
+                }
+            } else if let Some((bytes, geosite_path)) = read_optional_geosite(cache_dir, country)? {
                 let set = load_geosite(&bytes, &geosite_path, country)?;
                 geosite.insert(country.clone(), set);
             }
@@ -83,6 +94,17 @@ pub fn list_cached_countries(cache_dir: impl AsRef<Path>) -> Result<Vec<CachedCo
             })
             .geosite = true;
     }
+    if let Some(bytes) = read_optional_global_geosite(cache_dir)? {
+        GeoSiteSet::validate_v2ray_dat(&bytes)?;
+        let countries = by_country
+            .values()
+            .map(|cached| cached.country.clone())
+            .collect::<Vec<_>>();
+        let sets = GeoSiteSet::from_v2ray_dat_many(&bytes, &countries)?;
+        for cached in by_country.values_mut() {
+            cached.geosite = sets.contains_key(&cached.country);
+        }
+    }
     Ok(by_country.into_values().collect())
 }
 
@@ -92,6 +114,15 @@ pub fn geoip_cache_path(cache_dir: impl AsRef<Path>, country: &CountryCode) -> P
 
 pub fn geosite_cache_path(cache_dir: impl AsRef<Path>, country: &CountryCode) -> PathBuf {
     geosite_dir(cache_dir.as_ref()).join(format!("{country}.txt"))
+}
+
+/// Global v2fly domain-list-community protobuf cache.
+pub fn global_geosite_cache_path(cache_dir: impl AsRef<Path>) -> PathBuf {
+    geosite_dir(cache_dir.as_ref()).join("dlc.dat")
+}
+
+pub fn has_global_geosite(cache_dir: impl AsRef<Path>) -> bool {
+    global_geosite_cache_path(cache_dir).is_file()
 }
 
 pub(crate) fn geosite_bin_path(cache_dir: &Path, country: &CountryCode) -> PathBuf {
@@ -191,6 +222,14 @@ fn read_optional_geosite(
     }
 }
 
+fn read_optional_global_geosite(cache_dir: &Path) -> Result<Option<Vec<u8>>, GeoError> {
+    match fs::read(global_geosite_cache_path(cache_dir)) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
 fn load_geosite(bytes: &[u8], path: &Path, country: &CountryCode) -> Result<GeoSiteSet, GeoError> {
     match path.extension().and_then(|ext| ext.to_str()) {
         Some("bin") => GeoSiteSet::from_v2ray_dat(bytes, country),
@@ -240,10 +279,6 @@ pub(crate) fn cached_geoip_countries(cache_dir: &Path) -> Result<Vec<CountryCode
     countries.sort();
     countries.dedup();
     Ok(countries)
-}
-
-pub(crate) fn cached_geosite_countries(cache_dir: &Path) -> Result<Vec<CountryCode>, GeoError> {
-    list_geosite_codes(&geosite_dir(cache_dir))
 }
 
 #[cfg(test)]

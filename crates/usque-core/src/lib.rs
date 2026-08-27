@@ -21,8 +21,8 @@ pub use connector::{
 };
 pub use exit_probe::{ExitInfo, GeoLocation, IpSbProbe, ProbeError};
 pub use geo_rules::{
-    GeoProgress, GeoRulesEntry, GeoRulesUpdate, download_geo_rules, list_geo_rules,
-    record_successful_geo_update, update_all_geo_rules,
+    GeoProgress, GeoRulesEntry, GeoRulesUpdate, download_geo_rules, global_geosite_status,
+    list_geo_rules, record_successful_geo_update, update_all_geo_rules,
 };
 pub use identity::{
     ConsumerEntitlement, EndpointPin, IdentityError, IdentityMetadata, IdentityProvider,
