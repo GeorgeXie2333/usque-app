@@ -61,6 +61,13 @@ explicit recovery succeeds, rather than abandoning privileged network residue.
 
 ### Upgrade
 
+A running Usque process is asked to disconnect and exit through Windows Restart
+Manager before any installed files are replaced. Usque treats that maintenance
+request differently from an ordinary window close, so the close-to-tray setting
+does not keep the process alive. If an older or unresponsive build cannot honor
+the request, Windows Installer uses its bounded force-shutdown fallback; it does
+not restart that process during the upgrade.
+
 A major upgrade first stops the Agent and restores Usque-owned WFP, route, DNS, system-proxy, and Wintun state. It keeps user profiles, settings, logs, caches, Credential Manager identities, and the recovery journal the new version needs.
 
 If privileged network state cannot be restored, the upgrade stops with an error. It must not continue with leftover routes, filters, DNS, proxies, or adapters.
@@ -71,11 +78,12 @@ Uninstall from **Settings > Apps > Installed apps** or the classic Programs and 
 
 Confirming Uninstall starts Windows Installer, which then:
 
-1. stops the Agent;
-2. removes Usque WFP Kill Switch objects;
-3. restores journaled routes, DNS, and system-proxy state;
-4. removes the Usque-owned Wintun adapter;
-5. removes the service, program files, shortcut, and clean machine journal.
+1. asks the GUI and Engine to disconnect and exit, with a bounded force fallback for an unresponsive older build;
+2. stops the Agent;
+3. removes Usque WFP Kill Switch objects;
+4. restores journaled routes, DNS, and system-proxy state;
+5. removes the Usque-owned Wintun adapter;
+6. removes the service, program files, shortcut, and clean machine journal.
 
 The shared Wintun driver package stays, because another application may use it. A successful uninstall must not leave an Usque Wintun adapter.
 

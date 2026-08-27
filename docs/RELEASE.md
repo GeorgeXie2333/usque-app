@@ -84,6 +84,13 @@ an explanation, and an execute-sequence error action rejects command-line
 maintenance before `StopServices`. Normal uninstall and major upgrade remain
 allowed.
 
+The GUI accepts Restart Manager's `ENDSESSION_CLOSEAPP` query and commit
+messages as a maintenance-only disconnect-and-exit request, bypassing the normal
+close-to-tray behavior. The MSI sets `MSIRMSHUTDOWN=1` so a pre-protocol or hung
+process is force-closed only after Restart Manager's bounded graceful timeout,
+and sets `MSIDISABLERMRESTART=1` so an old process is never relaunched after an
+uninstall or in the middle of a major upgrade.
+
 The build rejects unsigned project EXE/DLL files, a signer mismatch, PDBs, reparse points, a modified Wintun DLL, a wrong service command/start type/DACL, an advertised shortcut, a missing maintenance guard, a wrong uninstall action/condition sequence, a 32-bit component, or an ICE failure. True uninstall runs emergency WFP cleanup, journal recovery, optional current-user data cleanup, and clean-state finalization after the service stops and before its binary is removed. A major upgrade runs the first two actions but skips user-data cleanup and clean-state finalization so the replacement service keeps user state and the machine-state directory. The installer UI exposes `INSTALLFOLDER` and stores the chosen path in the 64-bit machine registry for the next major upgrade.
 
 Uninstall keeps the current user's profiles, preferences, logs, caches, and Credential Manager records by default. Settings does not host the MSI wizard, so the package hides the Windows Installer ARP entry (`ARPSYSTEMCOMPONENT`) and registers `usque-uninstall.exe` as the visible uninstall command. That helper asks for confirmation and, only if requested, passes `USQUE_REMOVE_USER_DATA=1` into `msiexec`. Deletion covers only that user's Usque directories and credential namespace. Silent uninstall (`QuietUninstallString` / `msiexec /x /qn`) keeps data unless `USQUE_REMOVE_USER_DATA=1` is set. The shared Wintun driver package is not removed.

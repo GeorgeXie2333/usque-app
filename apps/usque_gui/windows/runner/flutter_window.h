@@ -40,6 +40,7 @@ class FlutterWindow : public Win32Window {
   void ShowTrayMenu();
   void UpdateTrayState(const std::string& phase, bool connected);
   void InvokeTrayCommand(const std::string& command, bool exit_on_success);
+  void RequestDisconnectAndExit();
   void ShowAndActivate();
   void NotifyZeroTrustCallbackArrived();
   bool HandleZeroTrustCopyData(const COPYDATASTRUCT* data);

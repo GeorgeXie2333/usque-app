@@ -14,6 +14,7 @@
 
 #include "engine_ipc.h"
 #include "flutter/generated_plugin_registrant.h"
+#include "maintenance_shutdown.h"
 #include "resource.h"
 #include "utils.h"
 #include "window_frame.h"
@@ -667,7 +668,7 @@ void FlutterWindow::ShowTrayMenu() {
   } else if (command == kTrayToggle) {
     InvokeTrayCommand("toggle", false);
   } else if (command == kTrayDisconnectExit) {
-    InvokeTrayCommand("disconnectAndExit", true);
+    RequestDisconnectAndExit();
   }
   ::PostMessageW(GetHandle(), WM_NULL, 0, 0);
 }
@@ -689,6 +690,21 @@ void FlutterWindow::InvokeTrayCommand(const std::string& command,
           [this]() { exit_pending_ = false; }));
 }
 
+void FlutterWindow::RequestDisconnectAndExit() {
+  if (force_exit_ || exit_pending_) return;
+  exit_pending_ = true;
+  if (engine_channel_) {
+    InvokeTrayCommand("disconnectAndExit", true);
+    return;
+  }
+
+  // A maintenance request can arrive while the Flutter engine is still being
+  // created. No tunnel can be owned at that point, so release the executable
+  // immediately instead of making Restart Manager wait for its force timeout.
+  force_exit_ = true;
+  ::PostMessageW(GetHandle(), WM_CLOSE, 0, 0);
+}
+
 void FlutterWindow::StopEngineEventStream() {
   if (engine_event_active_) {
     engine_event_active_->store(false);
@@ -707,6 +723,18 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                reinterpret_cast<const COPYDATASTRUCT*>(lparam))
                ? TRUE
                : FALSE;
+  }
+
+  switch (usque::ClassifyMaintenanceShutdownMessage(message, wparam, lparam)) {
+    case usque::MaintenanceShutdownAction::kAllow:
+      // Restart Manager sends WM_ENDSESSION only after every affected GUI
+      // process accepts this query. Do not start cleanup during the query.
+      return TRUE;
+    case usque::MaintenanceShutdownAction::kCommit:
+      RequestDisconnectAndExit();
+      return 0;
+    case usque::MaintenanceShutdownAction::kNone:
+      break;
   }
 
   // The caption is drawn by Flutter, so the frame messages are answered before
@@ -800,8 +828,7 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
         return 0;
       }
       if (!exit_pending_) {
-        exit_pending_ = true;
-        InvokeTrayCommand("disconnectAndExit", true);
+        RequestDisconnectAndExit();
       }
       return 0;
     case WM_FONTCHANGE:

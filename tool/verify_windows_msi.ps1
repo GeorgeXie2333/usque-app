@@ -217,6 +217,8 @@ try {
         "ARPCOMMENTS"
     Assert-Equal $propertyMap.WIXUI_INSTALLDIR "INSTALLFOLDER" "WixUI install directory"
     Assert-Equal $propertyMap.ARPSYSTEMCOMPONENT "1" "hidden MSI ARP entry"
+    Assert-Equal $propertyMap.MSIRMSHUTDOWN "1" "forced Restart Manager fallback"
+    Assert-Equal $propertyMap.MSIDISABLERMRESTART "1" "Restart Manager relaunch suppression"
     if (
         $propertyMap.ContainsKey("USQUE_REMOVE_USER_DATA") -and
         -not [string]::IsNullOrEmpty([string]$propertyMap.USQUE_REMOVE_USER_DATA)

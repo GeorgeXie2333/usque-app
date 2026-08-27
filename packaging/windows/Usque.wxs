@@ -36,6 +36,15 @@
     <Property Id="ARPSYSTEMCOMPONENT" Value="1" />
     <Property Id="ARPPRODUCTICON" Value="UsqueProductIcon.ico" />
     <!--
+      Restart Manager first gives the GUI and Engine a bounded graceful exit.
+      Force only an unresponsive process so an already-installed version that
+      predates the maintenance-shutdown protocol cannot block its own upgrade.
+      Never restart a process after uninstall or while a major upgrade is
+      replacing its executable and recovering privileged network state.
+    -->
+    <Property Id="MSIRMSHUTDOWN" Value="1" />
+    <Property Id="MSIDISABLERMRESTART" Value="1" />
+    <!--
       Leave this public property unset so the MSI checkbox stays off by default.
       Settings uninstall uses usque-uninstall.exe, which sets the value only
       after the user confirms.

@@ -10,6 +10,7 @@ add_executable(${BINARY_NAME} WIN32
   "engine_ipc.cpp"
   "flutter_window.cpp"
   "main.cpp"
+  "maintenance_shutdown.cpp"
   "utils.cpp"
   "win32_window.cpp"
   "window_frame.cpp"
@@ -46,6 +47,7 @@ add_dependencies(${BINARY_NAME} flutter_assemble)
 
 add_executable(usque_zero_trust_test
   "engine_ipc.cpp"
+  "maintenance_shutdown.cpp"
   "zero_trust_callback.cpp"
   "zero_trust_protocol.cpp"
   "zero_trust_windows_test.cpp"
