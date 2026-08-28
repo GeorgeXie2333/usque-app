@@ -12,8 +12,7 @@ use uuid::Uuid;
 
 use crate::config::{
     Account, AppConfig, AppPreferences, CURRENT_SCHEMA_VERSION, ConfigError, DnsMode,
-    EndpointSettings, FrontendSettings, LEGACY_DEFAULT_SNI, OperatingMode, Profile,
-    SharedNetworkSettings,
+    EndpointSettings, FrontendSettings, OperatingMode, Profile, SharedNetworkSettings,
 };
 use crate::identity::IdentityProvider;
 
@@ -207,9 +206,6 @@ fn migrate_legacy(config: &mut LegacyStoredConfig) -> Result<(), StoreError> {
                             .proxy
                             .http_listeners
                             .push("127.0.0.1:8080".parse().expect("static listener"));
-                    }
-                    if profile.endpoint.sni == LEGACY_DEFAULT_SNI {
-                        profile.endpoint.sni = crate::config::DEFAULT_SNI.to_owned();
                     }
                 }
                 config.schema_version = 6;
@@ -417,26 +413,17 @@ mod tests {
     }
 
     #[test]
-    fn schema_five_migrates_only_the_exact_legacy_sni_and_keeps_custom_listeners() {
+    fn schema_five_resets_auto_connect_and_keeps_custom_listeners() {
         let directory = tempfile::tempdir().unwrap();
         let store = ConfigStore::new(directory.path().join("config.json"));
         let mut legacy = fat_legacy(5);
-        legacy.profiles[0].endpoint.sni = LEGACY_DEFAULT_SNI.to_owned();
         legacy.profiles[0].auto_connect = true;
         legacy.profiles[0].proxy.http_listeners = vec!["192.0.2.5:9090".parse().unwrap()];
-        let mut custom = legacy.profiles[0].clone();
-        custom.id = uuid::Uuid::new_v4();
-        custom.name = "Custom".to_owned();
-        custom.endpoint.sni = "custom.example.com".to_owned();
-        legacy.profiles.push(custom);
         fs::write(store.path(), serde_json::to_vec_pretty(&legacy).unwrap()).unwrap();
 
         let migrated = store.load().unwrap();
         let profiles = migrated.runtime_profiles();
 
-        assert_eq!(profiles[0].endpoint.sni, crate::config::DEFAULT_SNI);
-        assert_eq!(profiles[1].endpoint.sni, crate::config::DEFAULT_SNI);
-        assert_eq!(migrated.network.endpoint.sni, crate::config::DEFAULT_SNI);
         assert!(!profiles[0].auto_connect);
         assert!(
             profiles[0]

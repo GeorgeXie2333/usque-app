@@ -28,7 +28,6 @@ pub const DEFAULT_ENDPOINT_V4: Ipv4Addr = Ipv4Addr::new(162, 159, 198, 2);
 pub const DEFAULT_ENDPOINT_V6: Ipv6Addr = Ipv6Addr::new(0x2606, 0x4700, 0x0103, 0, 0, 0, 0, 2);
 pub const DEFAULT_PORT: u16 = 443;
 pub const DEFAULT_SNI: &str = "speed.cloudflare.com";
-pub const LEGACY_DEFAULT_SNI: &str = "www.visa.cn";
 pub const DEFAULT_MTU: u16 = 1280;
 pub const DEFAULT_DNS_V4: Ipv4Addr = Ipv4Addr::new(1, 1, 1, 1);
 pub const DEFAULT_DNS_V6: Ipv6Addr = Ipv6Addr::new(0x2606, 0x4700, 0x4700, 0, 0, 0, 0, 0x1111);
@@ -1061,7 +1060,7 @@ mod tests {
             u64::from(profile.endpoint.port),
             fixture["endpoint_port"].as_u64().expect("endpoint_port")
         );
-        assert_eq!(profile.endpoint.sni, "speed.cloudflare.com");
+        assert_eq!(profile.endpoint.sni, fixture["sni"].as_str().expect("sni"));
         assert_eq!(
             u64::from(profile.mtu),
             fixture["mtu"].as_u64().expect("mtu")

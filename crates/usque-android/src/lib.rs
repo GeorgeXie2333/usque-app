@@ -2300,7 +2300,7 @@ mod tests {
             "endpoint_v4": "162.159.198.2",
             "endpoint_v6": "2606:4700:103::2",
             "endpoint_port": 443,
-            "sni": "www.visa.cn",
+            "sni": "speed.cloudflare.com",
             "mtu": 1280,
             "dns_v4": "1.1.1.1",
             "dns_v6": "2606:4700:4700::1111",
@@ -2351,7 +2351,7 @@ mod tests {
         let profile = parse_android_profile(&valid_profile_json()).unwrap();
         assert_eq!(profile.mode, OperatingMode::Vpn);
         assert_eq!(profile.transport, TransportPolicy::Auto);
-        assert_eq!(profile.endpoint.sni, "www.visa.cn");
+        assert_eq!(profile.endpoint.sni, "speed.cloudflare.com");
         assert_eq!(
             profile.proxy.socks5_listeners[0].to_string(),
             "127.0.0.1:1080"
