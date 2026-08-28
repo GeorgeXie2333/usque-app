@@ -30,9 +30,7 @@ class ConnectionTimelineView extends StatelessWidget {
             const SizedBox(width: 12),
             Expanded(
               child: Text(
-                strings.languageCode == 'zh'
-                    ? '连接后，关键状态变化会显示在这里。'
-                    : 'Key connection transitions will appear here after a connection attempt.',
+                strings.get('diag_timeline_empty'),
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
@@ -56,9 +54,7 @@ class ConnectionTimelineView extends StatelessWidget {
         if (omitted > 0) ...<Widget>[
           const SizedBox(height: 10),
           Text(
-            strings.languageCode == 'zh'
-                ? '界面仅显示最近 100 条；诊断包仍保留有界时间线。'
-                : 'Showing the latest 100 events; the bounded bundle timeline is retained.',
+            strings.get('diag_timeline_truncated'),
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
@@ -66,7 +62,7 @@ class ConnectionTimelineView extends StatelessWidget {
         ],
         const SizedBox(height: 16),
         Semantics(
-          label: strings.languageCode == 'zh' ? '连接时间线' : 'Connection timeline',
+          label: strings.get('diag_timeline'),
           child: ListView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
@@ -94,25 +90,25 @@ class _MetricsStrip extends StatelessWidget {
   Widget build(BuildContext context) {
     final items = <({String label, String value})>[
       (
-        label: strings.languageCode == 'zh' ? '重连' : 'Reconnects',
+        label: strings.get('diag_metric_reconnects'),
         value: '${metrics.reconnectCount}',
       ),
       (
-        label: strings.languageCode == 'zh' ? '回退' : 'Fallbacks',
+        label: strings.get('diag_metric_fallbacks'),
         value: '${metrics.fallbackCount}',
       ),
       (
-        label: strings.languageCode == 'zh' ? '网络变化' : 'Network changes',
+        label: strings.get('diag_metric_network_changes'),
         value: '${metrics.networkChangeCount}',
       ),
       (
-        label: strings.languageCode == 'zh' ? '队列高水位' : 'Queue high-water',
+        label: strings.get('diag_metric_queue_high_water'),
         value: '${metrics.sendQueueHighWatermark}',
       ),
       (
         label: 'RTT',
         value: metrics.currentSmoothedRttMilliseconds == null
-            ? (strings.languageCode == 'zh' ? '未知' : 'Unknown')
+            ? strings.get('diag_unknown')
             : '${metrics.currentSmoothedRttMilliseconds} ms',
       ),
     ];

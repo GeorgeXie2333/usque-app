@@ -49,15 +49,12 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
     final diagnostics = controller.diagnostics;
     final session = diagnostics.session;
     final presentation = ConnectionPresentation.of(controller.snapshot.phase);
-    final zh = strings.languageCode == 'zh';
 
     return FocusTraversalGroup(
       policy: OrderedTraversalPolicy(),
       child: PageFrame(
         title: strings.get('diagnostics_title'),
-        subtitle: zh
-            ? '逐层检查连接、平台保护和恢复状态；结果只保存在本机。'
-            : 'Inspect connection, platform protection, and recovery state. Results remain local.',
+        subtitle: strings.get('diagnostics_page_subtitle'),
         actions: <Widget>[
           OutlinedButton.icon(
             onPressed: diagnostics.timelineLoading
@@ -69,7 +66,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(LucideIcons.refreshCw),
-            label: Text(zh ? '刷新时间线' : 'Refresh timeline'),
+            label: Text(strings.get('diag_refresh_timeline')),
           ),
         ],
         child: Column(
@@ -89,7 +86,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
               child: diagnostics.lastError == null
                   ? null
                   : WarningBanner(
-                      title: zh ? '诊断操作失败' : 'Diagnostics operation failed',
+                      title: strings.get('diag_operation_failed'),
                       message: diagnostics.lastError!,
                       danger: true,
                       onDismiss: diagnostics.clearError,
@@ -118,12 +115,8 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
             BannerSlot(
               child: diagnostics.eventStreamDegraded && diagnostics.isActive
                   ? WarningBanner(
-                      title: zh
-                          ? '诊断事件流已中断'
-                          : 'Diagnostics event stream interrupted',
-                      message: zh
-                          ? '正在通过有界轮询恢复会话状态；诊断不会重复启动。'
-                          : 'Session state is being recovered with bounded polling; the run will not restart.',
+                      title: strings.get('diag_event_stream_degraded'),
+                      message: strings.get('diag_event_stream_degraded_body'),
                     )
                   : null,
             ),
@@ -217,7 +210,6 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
 
   Future<void> _confirmAndExport(BuildContext context) async {
     final strings = controller.strings;
-    final zh = strings.languageCode == 'zh';
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => UsqueDialog(
@@ -228,28 +220,22 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            Text(zh ? '将包含：' : 'Included:'),
+            Text(strings.get('diag_export_included')),
             const SizedBox(height: 8),
             _PrivacyRow(
               icon: LucideIcons.circleCheck,
-              text: zh
-                  ? '错误码、阶段、相对耗时、计数器和布尔状态'
-                  : 'Error codes, stages, relative timing, counters, and boolean state',
+              text: strings.get('diag_export_included_body'),
             ),
             const SizedBox(height: 6),
-            Text(zh ? '不会包含：' : 'Excluded:'),
+            Text(strings.get('diag_export_excluded')),
             const SizedBox(height: 8),
             _PrivacyRow(
               icon: LucideIcons.shieldCheck,
-              text: zh
-                  ? '密钥、Token、Profile 名称、完整地址、SSID、应用列表和用户路径'
-                  : 'Keys, tokens, profile names, full addresses, SSIDs, app lists, and user paths',
+              text: strings.get('diag_export_excluded_body'),
             ),
             const SizedBox(height: 12),
             Text(
-              zh
-                  ? '压缩包只写入你选择的位置，不会自动上传。'
-                  : 'The archive is written only to the location you choose and is never uploaded automatically.',
+              strings.get('diag_export_local_only'),
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
@@ -327,7 +313,6 @@ class _DiagnosticControlPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final diagnostics = controller.diagnostics;
     final strings = controller.strings;
-    final zh = strings.languageCode == 'zh';
     final busy =
         diagnostics.isActive ||
         diagnostics.state == DiagnosticsControllerState.starting ||
@@ -337,10 +322,8 @@ class _DiagnosticControlPanel extends StatelessWidget {
         diagnostics.state == DiagnosticsControllerState.starting;
     return SectionPanel(
       icon: LucideIcons.stethoscope,
-      title: zh ? '运行网络诊断' : 'Run network diagnostics',
-      subtitle: zh
-          ? '标准模式仅做只读和被动检查。'
-          : 'Standard mode uses read-only and passive checks.',
+      title: strings.get('diag_run_title'),
+      subtitle: strings.get('diag_run_subtitle'),
       trailing: StatusPill(
         label: strings.get(presentation.labelKey),
         tone: presentation.tone,
@@ -354,12 +337,12 @@ class _DiagnosticControlPanel extends StatelessWidget {
             ButtonSegment<DiagnosticMode>(
               value: DiagnosticMode.standard,
               icon: const Icon(LucideIcons.gauge),
-              label: Text(zh ? '标准' : 'Standard'),
+              label: Text(strings.get('diag_mode_standard')),
             ),
             ButtonSegment<DiagnosticMode>(
               value: DiagnosticMode.deep,
               icon: const Icon(LucideIcons.microscope),
-              label: Text(zh ? '深度' : 'Deep'),
+              label: Text(strings.get('diag_mode_deep')),
             ),
           ],
           selected: <DiagnosticMode>{selectedMode},
@@ -371,14 +354,12 @@ class _DiagnosticControlPanel extends StatelessWidget {
         if (selectedMode == DiagnosticMode.deep) ...<Widget>[
           const SizedBox(height: 12),
           WarningBanner(
-            title: zh ? '深度诊断说明' : 'About deep diagnostics',
-            message: controller.snapshot.isConnected
-                ? (zh
-                      ? '当前已有连接：不会创建第二条 MASQUE 数据通道，主动传输检查将明确标记为跳过或警告。'
-                      : 'A tunnel is active: no second MASQUE data path will be opened; active transport checks will be marked skipped or warning.')
-                : (zh
-                      ? '未连接时可运行受超时与取消保护的主动检查；完成后会比较平台状态。'
-                      : 'When disconnected, active checks are bounded by timeout and cancellation, followed by a platform-state comparison.'),
+            title: strings.get('diag_deep_title'),
+            message: strings.get(
+              controller.snapshot.isConnected
+                  ? 'diag_deep_connected'
+                  : 'diag_deep_disconnected',
+            ),
           ),
         ],
         const SizedBox(height: 16),
@@ -393,7 +374,7 @@ class _DiagnosticControlPanel extends StatelessWidget {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(LucideIcons.play),
-                label: Text(zh ? '开始诊断' : 'Start diagnostics'),
+                label: Text(strings.get('diag_start')),
               ),
             ),
             if (canRequestCancel ||
@@ -406,7 +387,7 @@ class _DiagnosticControlPanel extends StatelessWidget {
                     ? null
                     : diagnostics.cancel,
                 icon: const Icon(LucideIcons.square),
-                label: Text(zh ? '取消' : 'Cancel'),
+                label: Text(strings.get('cancel')),
               ),
             ],
           ],
@@ -428,13 +409,12 @@ class _SessionProgressPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final strings = controller.strings;
-    final zh = strings.languageCode == 'zh';
     final summary = session.summary;
     return SectionPanel(
       icon: LucideIcons.radio,
-      title: zh ? '诊断会话' : 'Diagnostic session',
+      title: strings.get('diag_session'),
       trailing: StatusPill(
-        label: _sessionStateLabel(zh, session.state),
+        label: diagnosticSessionStateLabel(strings, session.state),
         tone: _sessionTone(session.state),
         icon: session.isActive
             ? LucideIcons.loaderCircle
@@ -442,9 +422,9 @@ class _SessionProgressPanel extends StatelessWidget {
       ),
       children: <Widget>[
         Semantics(
-          label: zh
-              ? '诊断进度 ${session.progressPercent}%'
-              : 'Diagnostic progress ${session.progressPercent}%',
+          label: strings
+              .get('diag_progress_semantics')
+              .replaceAll('{current}', '${session.progressPercent}'),
           value: '${session.progressPercent}%',
           child: LinearProgressIndicator(value: session.progressPercent / 100),
         ),
@@ -454,7 +434,7 @@ class _SessionProgressPanel extends StatelessWidget {
             Expanded(
               child: Text(
                 session.currentCheck == null
-                    ? (zh ? '等待检查状态…' : 'Waiting for check state…')
+                    ? strings.get('diag_waiting_check')
                     : diagnosticCheckLabel(strings, session.currentCheck!),
                 overflow: TextOverflow.ellipsis,
               ),
@@ -469,22 +449,30 @@ class _SessionProgressPanel extends StatelessWidget {
           runSpacing: 8,
           children: <Widget>[
             StatusPill(
-              label: '${zh ? '通过' : 'Passed'} ${summary.passed}',
+              label: strings
+                  .get('diag_summary_passed')
+                  .replaceAll('{count}', '${summary.passed}'),
               tone: StatusTone.success,
               icon: LucideIcons.circleCheck,
             ),
             StatusPill(
-              label: '${zh ? '警告' : 'Warnings'} ${summary.warnings}',
+              label: strings
+                  .get('diag_summary_warnings')
+                  .replaceAll('{count}', '${summary.warnings}'),
               tone: StatusTone.warning,
               icon: LucideIcons.triangleAlert,
             ),
             StatusPill(
-              label: '${zh ? '失败' : 'Failed'} ${summary.failed}',
+              label: strings
+                  .get('diag_summary_failed')
+                  .replaceAll('{count}', '${summary.failed}'),
               tone: StatusTone.danger,
               icon: LucideIcons.circleX,
             ),
             StatusPill(
-              label: '${zh ? '跳过' : 'Skipped'} ${summary.skipped}',
+              label: strings
+                  .get('diag_summary_skipped')
+                  .replaceAll('{count}', '${summary.skipped}'),
               tone: StatusTone.neutral,
               icon: LucideIcons.circle,
             ),
@@ -504,17 +492,14 @@ class _ChecksPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final strings = controller.strings;
-    final zh = strings.languageCode == 'zh';
     final findings = session?.findings ?? const <DiagnosticFinding>[];
     if (findings.isEmpty) {
       return SectionPanel(
         icon: LucideIcons.listChecks,
-        title: zh ? '检查结果' : 'Check results',
+        title: strings.get('diag_check_results'),
         children: <Widget>[
           Text(
-            zh
-                ? '启动诊断后，检查会按依赖关系和层级显示在这里。'
-                : 'Start a diagnostic run to see dependency-aware checks grouped by layer.',
+            strings.get('diag_check_results_empty'),
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
@@ -556,10 +541,8 @@ class _TimelinePanel extends StatelessWidget {
     final strings = controller.strings;
     return SectionPanel(
       icon: LucideIcons.gitCommitVertical,
-      title: strings.languageCode == 'zh' ? '连接时间线' : 'Connection timeline',
-      subtitle: strings.languageCode == 'zh'
-          ? '仅记录有界状态事件，不记录逐包内容或原始地址。'
-          : 'Bounded state events only; packet contents and raw addresses are never recorded.',
+      title: strings.get('diag_timeline'),
+      subtitle: strings.get('diag_timeline_subtitle'),
       children: <Widget>[
         ConnectionTimelineView(
           timeline: controller.diagnostics.timeline,
@@ -580,13 +563,10 @@ class _ExportPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final strings = controller.strings;
     final diagnostics = controller.diagnostics;
-    final zh = strings.languageCode == 'zh';
     return SectionPanel(
       icon: LucideIcons.logs,
       title: strings.get('logs'),
-      subtitle: zh
-          ? '导出会话、时间线、平台健康摘要和脱敏日志。'
-          : 'Export the session, timeline, platform-health summary, and sanitized logs.',
+      subtitle: strings.get('diag_logs_subtitle'),
       children: <Widget>[
         if (diagnostics.lastExportPath != null) ...<Widget>[
           SelectableText(
@@ -693,17 +673,6 @@ class _DangerPanel extends StatelessWidget {
       ),
     );
   }
-}
-
-String _sessionStateLabel(bool zh, DiagnosticSessionState state) {
-  return switch (state) {
-    DiagnosticSessionState.pending => zh ? '准备中' : 'Pending',
-    DiagnosticSessionState.running => zh ? '运行中' : 'Running',
-    DiagnosticSessionState.cancelling => zh ? '取消中' : 'Cancelling',
-    DiagnosticSessionState.completed => zh ? '已完成' : 'Completed',
-    DiagnosticSessionState.failed => zh ? '失败' : 'Failed',
-    DiagnosticSessionState.cancelled => zh ? '已取消' : 'Cancelled',
-  };
 }
 
 StatusTone _sessionTone(DiagnosticSessionState state) {

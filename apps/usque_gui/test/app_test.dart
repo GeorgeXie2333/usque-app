@@ -10,6 +10,8 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:usque/app.dart';
 import 'package:usque/core/app_strings.dart';
+import 'package:usque/core/diagnostics_strings.dart';
+import 'package:usque/core/l10n/catalogs.dart';
 import 'package:usque/core/usque_theme.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/models/diagnostics_models.dart';
@@ -965,9 +967,93 @@ void main() {
     },
   );
 
-  test('interpolated catalogs keep {count}, {current}, and {total}', () {
-    expect(AppStrings.debugPlaceholdersArePreserved, isTrue);
+  test(
+    'interpolated catalogs keep {count}, {current}, {total}, and {updated}',
+    () {
+      expect(AppStrings.debugPlaceholdersArePreserved, isTrue);
+    },
+  );
+
+  test('non-English catalogs translate geo and diagnostics UI copy', () {
+    // geo_enable is the short "Direct" toggle; Direct is also Dutch/French.
+    final keys = <String>{
+      ...kEnCatalog.keys.where(
+        (key) => key.startsWith('geo_') && key != 'geo_enable',
+      ),
+      'diagnostics_page_subtitle',
+      'diag_refresh_timeline',
+      'diag_operation_failed',
+      'diag_event_stream_degraded',
+      'diag_event_stream_degraded_body',
+      'diag_export_included_body',
+      'diag_export_excluded_body',
+      'diag_export_local_only',
+      'diag_run_title',
+      'diag_run_subtitle',
+      'diag_deep_title',
+      'diag_deep_connected',
+      'diag_deep_disconnected',
+      'diag_start',
+      'diag_session',
+      'diag_progress_semantics',
+      'diag_waiting_check',
+      'diag_check_results',
+      'diag_check_results_empty',
+      'diag_timeline',
+      'diag_timeline_subtitle',
+      'diag_logs_subtitle',
+      'diag_timeline_empty',
+      'diag_timeline_truncated',
+      'diag_copy_support',
+      'diag_support_copied',
+      'diag_finding_passed',
+      'diag_finding_attention',
+      'diag_finding_failed',
+      'diag_finding_skipped',
+      'diag_finding_cancelled',
+      'diag_finding_running',
+      'diag_finding_pending',
+    };
+    expect(AppStrings.debugUntranslatedKeys(keys), isEmpty);
   });
+
+  test(
+    'diagnostics helpers resolve English, Chinese, Japanese, and German',
+    () {
+      expect(
+        diagnosticCheckLabel(
+          AppStrings(LocalePreference.english),
+          'transport.h3_connect',
+        ),
+        'HTTP/3 connection',
+      );
+      expect(
+        diagnosticCheckLabel(
+          AppStrings(LocalePreference.simplifiedChinese),
+          'transport.h3_connect',
+        ),
+        'HTTP/3 连接',
+      );
+      expect(
+        diagnosticFailureTitle(
+          AppStrings(LocalePreference.english),
+          'H3_HANDSHAKE_TIMEOUT',
+        ),
+        'H3 handshake timeout',
+      );
+      expect(
+        diagnosticCheckLabel(
+          AppStrings(LocalePreference.japanese),
+          'transport.h3_connect',
+        ),
+        isNot(equals('HTTP/3 connection')),
+      );
+      expect(
+        AppStrings(LocalePreference.german).get('diag_start'),
+        isNot(equals('Start diagnostics')),
+      );
+    },
+  );
 
   test(
     'language picker lists System then English-name A–Z with Chinese grouped',
@@ -1080,6 +1166,10 @@ void main() {
     expect(tw.get('upload'), '上傳');
     expect(hk.get('close_to_tray'), contains('系統列'));
     expect(tw.get('close_to_tray'), contains('系統匣'));
+    expect(hk.get('geo_direct_help'), contains('網絡'));
+    expect(tw.get('geo_direct_help'), contains('網路'));
+    expect(hk.get('diag_family'), '地址族');
+    expect(tw.get('diag_family'), '位址族');
   });
 
   testWidgets('Persian and Arabic locales select RTL directionality', (

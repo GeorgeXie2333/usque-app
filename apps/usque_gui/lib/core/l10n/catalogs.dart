@@ -72,4 +72,5 @@ const List<String> kPlaceholderTokens = <String>[
   '{count}',
   '{current}',
   '{total}',
+  '{updated}',
 ];

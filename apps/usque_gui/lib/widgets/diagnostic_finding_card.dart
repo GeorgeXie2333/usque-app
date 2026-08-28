@@ -68,26 +68,23 @@ class DiagnosticFindingCard extends StatelessWidget {
               spacing: 8,
               runSpacing: 8,
               children: <Widget>[
-                _Fact(
-                  label: strings.languageCode == 'zh' ? '阶段' : 'Stage',
-                  value: failure.stage,
-                ),
+                _Fact(label: strings.get('diag_stage'), value: failure.stage),
                 if (failure.transport != null)
                   _Fact(
-                    label: strings.languageCode == 'zh' ? '传输' : 'Transport',
+                    label: strings.get('transport'),
                     value: failure.transport!,
                   ),
                 if (failure.addressFamily != null)
                   _Fact(
-                    label: strings.languageCode == 'zh' ? '地址族' : 'Family',
+                    label: strings.get('diag_family'),
                     value: failure.addressFamily!,
                   ),
                 _Fact(
-                  label: strings.languageCode == 'zh' ? '可重试' : 'Retryable',
+                  label: strings.get('diag_retryable'),
                   value: _yesNo(strings, failure.retryable),
                 ),
                 _Fact(
-                  label: strings.languageCode == 'zh' ? '允许回退' : 'Fallback',
+                  label: strings.get('diag_fallback_allowed'),
                   value: _yesNo(strings, failure.fallbackAllowed),
                 ),
               ],
@@ -103,9 +100,7 @@ class DiagnosticFindingCard extends StatelessWidget {
               child: OutlinedButton.icon(
                 onPressed: () => _copySupportInfo(context, failure),
                 icon: const Icon(LucideIcons.copy, size: 17),
-                label: Text(
-                  strings.languageCode == 'zh' ? '复制支持信息' : 'Copy support info',
-                ),
+                label: Text(strings.get('diag_copy_support')),
               ),
             ),
           ] else ...<Widget>[
@@ -160,13 +155,7 @@ class DiagnosticFindingCard extends StatelessWidget {
     await Clipboard.setData(ClipboardData(text: parts.join('\n')));
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            strings.languageCode == 'zh'
-                ? '支持信息已复制。'
-                : 'Support information copied.',
-          ),
-        ),
+        SnackBar(content: Text(strings.get('diag_support_copied'))),
       );
     }
   }
@@ -195,29 +184,11 @@ class _Fact extends StatelessWidget {
 }
 
 String _yesNo(AppStrings strings, bool value) {
-  if (strings.languageCode == 'zh') {
-    return value ? '是' : '否';
-  }
-  return value ? 'Yes' : 'No';
+  return strings.get(value ? 'diag_yes' : 'diag_no');
 }
 
 String _summaryText(AppStrings strings, DiagnosticFinding finding) {
-  final zh = strings.languageCode == 'zh';
-  return switch (finding.status) {
-    DiagnosticCheckStatus.passed => zh ? '检查通过。' : 'This check passed.',
-    DiagnosticCheckStatus.warning =>
-      zh ? '检查需要注意。' : 'This check needs attention.',
-    DiagnosticCheckStatus.failed => zh ? '检查失败。' : 'This check failed.',
-    DiagnosticCheckStatus.skipped =>
-      zh
-          ? '由于当前状态或依赖项，此检查未运行。'
-          : 'This check did not run in the current state.',
-    DiagnosticCheckStatus.cancelled =>
-      zh ? '检查已取消。' : 'This check was cancelled.',
-    DiagnosticCheckStatus.running => zh ? '检查正在运行。' : 'This check is running.',
-    DiagnosticCheckStatus.pending =>
-      zh ? '检查尚未开始。' : 'This check has not started.',
-  };
+  return diagnosticFindingSummary(strings, finding);
 }
 
 Color _statusColor(UsqueTokens tokens, DiagnosticCheckStatus status) {
