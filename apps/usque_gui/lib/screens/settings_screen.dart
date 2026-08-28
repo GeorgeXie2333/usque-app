@@ -441,40 +441,44 @@ class _Picker<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(UsqueRadii.control),
-        border: Border.all(color: UsqueTokens.of(context).hairline),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        child: DropdownButtonHideUnderline(
-          child: DropdownButton<T>(
-            value: value,
-            isDense: true,
-            borderRadius: BorderRadius.circular(UsqueRadii.control),
-            icon: const Padding(
-              padding: EdgeInsetsDirectional.only(start: 6),
-              child: Icon(LucideIcons.chevronDown, size: 16),
+    final bool touchPlatform = theme.platform == TargetPlatform.android;
+    return ConstrainedBox(
+      constraints: BoxConstraints(minHeight: touchPlatform ? 48 : 0),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(UsqueRadii.control),
+          border: Border.all(color: UsqueTokens.of(context).hairline),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<T>(
+              value: value,
+              isDense: true,
+              borderRadius: BorderRadius.circular(UsqueRadii.control),
+              icon: const Padding(
+                padding: EdgeInsetsDirectional.only(start: 6),
+                child: Icon(LucideIcons.chevronDown, size: 16),
+              ),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurface,
+              ),
+              padding: const EdgeInsets.symmetric(vertical: 11),
+              onChanged: (next) {
+                if (next != null) {
+                  onChanged(next);
+                }
+              },
+              items: values
+                  .map(
+                    (item) => DropdownMenuItem<T>(
+                      value: item,
+                      child: Text(labelOf(item)),
+                    ),
+                  )
+                  .toList(growable: false),
             ),
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurface,
-            ),
-            padding: const EdgeInsets.symmetric(vertical: 11),
-            onChanged: (next) {
-              if (next != null) {
-                onChanged(next);
-              }
-            },
-            items: values
-                .map(
-                  (item) => DropdownMenuItem<T>(
-                    value: item,
-                    child: Text(labelOf(item)),
-                  ),
-                )
-                .toList(growable: false),
           ),
         ),
       ),

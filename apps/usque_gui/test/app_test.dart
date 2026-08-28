@@ -2163,6 +2163,38 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('Android rail theme target is at least 48dp', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    try {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(900, 800);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'onboarding_complete': true,
+      });
+
+      await tester.pumpWidget(UsqueBootstrap(engine: FakeEngineClient()));
+      await tester.pumpAndSettle();
+
+      final themeButton = find.descendant(
+        of: find.byType(NavigationRail),
+        matching: find.byTooltip('Theme · System'),
+      );
+      expect(themeButton, findsOneWidget);
+      expect(
+        tester.getSize(themeButton).shortestSide,
+        greaterThanOrEqualTo(48),
+      );
+      expect(
+        tester.getSemantics(themeButton).rect.size.shortestSide,
+        greaterThanOrEqualTo(48),
+      );
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
   testWidgets('Android settings exposes boot, tile, and Always-on controls', (
     tester,
   ) async {
@@ -2181,6 +2213,15 @@ void main() {
       await tester.tap(find.text('Settings').last);
       await tester.pumpAndSettle();
 
+      final themePicker = find.byWidgetPredicate(
+        (widget) => widget is DropdownButton<ThemePreference>,
+      );
+      expect(themePicker, findsOneWidget);
+      expect(tester.getSize(themePicker).height, greaterThanOrEqualTo(48));
+      expect(
+        tester.getSemantics(themePicker).rect.height,
+        greaterThanOrEqualTo(48),
+      );
       expect(find.text('System integration'), findsOneWidget);
       expect(find.text('Start Usque when you sign in'), findsOneWidget);
       expect(find.text('Add Quick Settings Tile'), findsOneWidget);

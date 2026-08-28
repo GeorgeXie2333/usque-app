@@ -338,6 +338,8 @@ class _ThemeCycleButton extends StatelessWidget {
       controller: controller,
       selector: (controller) => controller.themePreference,
       builder: (context, preference) {
+        final bool touchPlatform =
+            Theme.of(context).platform == TargetPlatform.android;
         final IconData icon = switch (preference) {
           ThemePreference.system => LucideIcons.sunMoon,
           ThemePreference.light => LucideIcons.sun,
@@ -351,11 +353,13 @@ class _ThemeCycleButton extends StatelessWidget {
         return IconButton(
           tooltip: '${strings.get('theme')} · $label',
           iconSize: 19,
-          visualDensity: VisualDensity.compact,
+          visualDensity: touchPlatform
+              ? VisualDensity.standard
+              : VisualDensity.compact,
           style: IconButton.styleFrom(
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             padding: const EdgeInsets.all(8),
-            minimumSize: const Size(36, 36),
+            minimumSize: Size.square(touchPlatform ? 48 : 36),
           ),
           onPressed: () => controller.setTheme(
             ThemePreference.values[(preference.index + 1) %
