@@ -9,6 +9,7 @@ use usque_ipc::{
     v1::{self, EventEnvelope, event_envelope},
 };
 
+use crate::diagnostics::{self, DiagnosticEvent};
 use crate::{ControlService, current_capabilities};
 
 const SNAPSHOT_INTERVAL: Duration = Duration::from_secs(1);
@@ -39,6 +40,7 @@ where
     let mut ticker = interval(SNAPSHOT_INTERVAL);
     ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let mut geo_progress = service.subscribe_geo_progress();
+    let mut diagnostics = service.subscribe_diagnostics();
 
     loop {
         tokio::select! {
@@ -76,6 +78,56 @@ where
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => return Ok(()),
                 }
             }
+            event = diagnostics.recv() => {
+                match event {
+                    Ok(event) => {
+                        write_event(
+                            &mut stream,
+                            EventEnvelope {
+                                sequence: service.next_event_sequence(),
+                                payload: Some(diagnostic_event_payload(event)),
+                            },
+                        )
+                        .await?;
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => return Ok(()),
+                }
+            }
+        }
+    }
+}
+
+fn diagnostic_event_payload(event: DiagnosticEvent) -> event_envelope::Payload {
+    match event {
+        DiagnosticEvent::SessionStarted(session) => {
+            event_envelope::Payload::DiagnosticSessionStarted(v1::DiagnosticSessionStarted {
+                session: Some(diagnostics::session_to_proto(&session)),
+            })
+        }
+        DiagnosticEvent::CheckStarted {
+            session_id,
+            finding,
+        } => event_envelope::Payload::DiagnosticCheckStarted(v1::DiagnosticCheckStarted {
+            session_id: session_id.to_string(),
+            finding: Some(diagnostics::finding_to_proto(&finding)),
+        }),
+        DiagnosticEvent::CheckCompleted {
+            session_id,
+            finding,
+        } => event_envelope::Payload::DiagnosticCheckCompleted(v1::DiagnosticCheckCompleted {
+            session_id: session_id.to_string(),
+            finding: Some(diagnostics::finding_to_proto(&finding)),
+        }),
+        DiagnosticEvent::SessionCompleted(session) => {
+            event_envelope::Payload::DiagnosticSessionCompleted(v1::DiagnosticSessionCompleted {
+                session: Some(diagnostics::session_to_proto(&session)),
+            })
+        }
+        DiagnosticEvent::SessionCancelled(session) => {
+            event_envelope::Payload::DiagnosticSessionCancelled(v1::DiagnosticSessionCancelled {
+                session: Some(diagnostics::session_to_proto(&session)),
+            })
         }
     }
 }

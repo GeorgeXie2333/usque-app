@@ -302,7 +302,7 @@ fn scrub_network_tokens(input: &str) -> String {
                 .strip_suffix(char::is_whitespace)
                 .map_or((part, ""), |token| (token, &part[token.len()..]));
             let trimmed = token.trim_matches(|character: char| {
-                matches!(character, '"' | '\'' | '(' | ')' | '[' | ']' | ',' | ';')
+                matches!(character, '"' | '\'' | '(' | ')' | ',' | ';')
             });
             if looks_like_network_identifier(trimmed) {
                 format!("[NETWORK_REDACTED]{whitespace}")
@@ -324,16 +324,40 @@ fn looks_like_network_identifier(token: &str) -> bool {
     {
         return true;
     }
-    let candidate = token.trim_end_matches(['.', ':']);
-    candidate.contains('.')
-        && !candidate.contains(['/', '\\'])
-        && candidate.split('.').all(|label| {
-            !label.is_empty()
-                && label.len() <= 63
-                && label
-                    .chars()
-                    .all(|character| character.is_ascii_alphanumeric() || character == '-')
+    let authority = token
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or(token)
+        .rsplit('@')
+        .next()
+        .unwrap_or(token);
+    if authority.parse::<IpAddr>().is_ok() || authority.parse::<SocketAddr>().is_ok() {
+        return true;
+    }
+    if let Some(bracketed) = authority
+        .strip_prefix('[')
+        .and_then(|value| value.split(']').next())
+        && bracketed.parse::<IpAddr>().is_ok()
+    {
+        return true;
+    }
+    let host = authority
+        .rsplit_once(':')
+        .filter(|(host, port)| {
+            !host.contains(':') && port.bytes().all(|byte| byte.is_ascii_digit())
         })
+        .map_or(authority, |(host, _)| host)
+        .trim_end_matches('.');
+    host.eq_ignore_ascii_case("localhost")
+        || host.contains('.')
+            && !host.contains(['/', '\\'])
+            && host.split('.').all(|label| {
+                !label.is_empty()
+                    && label.len() <= 63
+                    && label
+                        .chars()
+                        .all(|character| character.is_ascii_alphanumeric() || character == '-')
+            })
 }
 
 fn looks_like_jwt(token: &str) -> bool {
@@ -379,6 +403,24 @@ mod tests {
             assert!(!text.contains(secret), "log retained {secret}");
         }
         assert!(text.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn hostname_ports_paths_and_bracketed_ipv6_are_redacted() {
+        let sanitized = sanitize_log_bytes(
+            br#"{"message":"example.com:443 example.net/path user@private.example:8443 [2001:db8::5]:443/path localhost"}"#,
+        );
+        let text = String::from_utf8(sanitized).unwrap();
+        for private in [
+            "example.com",
+            "example.net",
+            "private.example",
+            "2001:db8",
+            "localhost",
+        ] {
+            assert!(!text.contains(private), "log retained {private}");
+        }
+        assert_eq!(text.matches("[NETWORK_REDACTED]").count(), 5);
     }
 
     #[test]

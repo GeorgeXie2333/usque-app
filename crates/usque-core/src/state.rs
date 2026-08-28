@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::exit_probe::ExitInfo;
+use crate::failure::TransportFailure;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
@@ -52,6 +53,9 @@ pub struct ConnectionSnapshot {
     pub statistics: Statistics,
     pub exit: Option<ExitInfo>,
     pub error: Option<ConnectionError>,
+    /// Structured, export-safe failure details for new control clients.
+    /// `error` remains populated for backwards compatibility.
+    pub failure: Option<TransportFailure>,
     pub kill_switch_state: KillSwitchState,
     pub lockdown_state: LockdownState,
     pub reconnect_count: u32,
@@ -72,6 +76,7 @@ impl Default for ConnectionSnapshot {
             statistics: Statistics::default(),
             exit: None,
             error: None,
+            failure: None,
             kill_switch_state: KillSwitchState::NotApplicable,
             lockdown_state: LockdownState::NotSupported,
             reconnect_count: 0,
@@ -156,6 +161,7 @@ impl StateMachine {
         self.snapshot.changed_at = Utc::now();
         if phase != ConnectionPhase::Error {
             self.snapshot.error = None;
+            self.snapshot.failure = None;
         }
         if phase == ConnectionPhase::Disconnected {
             self.snapshot.transport = None;
@@ -198,6 +204,23 @@ impl StateMachine {
         self.snapshot.phase = ConnectionPhase::Error;
         self.snapshot.changed_at = Utc::now();
         self.snapshot.error = Some(error);
+        self.snapshot.failure = None;
+        &self.snapshot
+    }
+
+    pub fn mark_failure(
+        &mut self,
+        failure: TransportFailure,
+        legacy_message: impl Into<String>,
+    ) -> &ConnectionSnapshot {
+        self.snapshot.phase = ConnectionPhase::Error;
+        self.snapshot.changed_at = Utc::now();
+        self.snapshot.error = Some(ConnectionError {
+            code: failure.code.legacy_error_code(),
+            message: legacy_message.into(),
+            retryable: failure.retryable,
+        });
+        self.snapshot.failure = Some(failure);
         &self.snapshot
     }
 
@@ -222,6 +245,10 @@ impl StateMachine {
 
     pub fn update_reconnect_count(&mut self, reconnect_count: u32) {
         self.snapshot.reconnect_count = reconnect_count;
+    }
+
+    pub fn update_failure(&mut self, failure: Option<TransportFailure>) {
+        self.snapshot.failure = failure;
     }
 
     pub fn update_safety_state(

@@ -8,9 +8,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/app_strings.dart';
 import '../models/app_models.dart';
 import '../services/engine_client.dart';
+import 'diagnostics_controller.dart';
 
 class AppController extends ChangeNotifier {
-  AppController(this._engine);
+  AppController(EngineClient engine)
+    : _engine = engine,
+      diagnostics = DiagnosticsController(engine);
 
   static const int _profileSchemaVersion = 1;
   static const int _maximumProfilePayloadBytes = 1024 * 1024;
@@ -26,6 +29,7 @@ class AppController extends ChangeNotifier {
   ];
 
   final EngineClient _engine;
+  final DiagnosticsController diagnostics;
   SharedPreferences? _preferences;
   Timer? _snapshotTimer;
   Timer? _snapshotReconnectTimer;
@@ -163,6 +167,7 @@ class AppController extends ChangeNotifier {
     }
     initialized = true;
     _notifyListeners();
+    unawaited(diagnostics.restore(silent: true));
     unawaited(refreshSnapshot(silent: true));
     if (updateChecksEnabled) {
       unawaited(_checkForUpdates(manual: false, silent: true));
@@ -1022,6 +1027,10 @@ class AppController extends ChangeNotifier {
     _snapshotReconnectTimer = null;
     snapshotStreamDegraded = false;
     _stopPolling();
+    diagnostics.handleEngineEvent(event);
+    if (wasDegraded) {
+      unawaited(diagnostics.restore(silent: true));
+    }
     final handledGeoProgress = event.geoProgress != null && _geoOperationActive;
     if (handledGeoProgress) {
       final progress = event.geoProgress!;
@@ -1076,6 +1085,7 @@ class AppController extends ChangeNotifier {
     final established = _snapshotStreamEstablished;
     if (established) {
       snapshotStreamDegraded = true;
+      diagnostics.markEventStreamUnavailable();
     }
     _startPolling(force: true);
     if (_snapshotReconnectTimer == null) {
@@ -1106,6 +1116,7 @@ class AppController extends ChangeNotifier {
     _snapshotSubscriptionGeneration += 1;
     unawaited(_snapshotSubscription?.cancel());
     _snapshotSubscription = null;
+    diagnostics.dispose();
     unawaited(_profileWriteTail.whenComplete(_engine.dispose));
     super.dispose();
   }

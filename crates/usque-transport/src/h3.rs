@@ -13,6 +13,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, MissedTickBehavior, interval_at, sleep_until, timeout};
 use tokio_util::task::AbortOnDropHandle;
+use usque_core::TransportStage;
 use usque_protocol::{IpDatagram, MAX_CAPSULE_PAYLOAD, PeerNetworkState};
 
 use crate::connect_ip_control::{ConnectIpControlPlane, PendingControlCapsule};
@@ -21,6 +22,7 @@ use crate::h2::{
     validate_ip_packet,
 };
 use crate::socket::{SocketProtector, noop_socket_protector, socket_handle};
+use crate::telemetry::{ConnectionAttemptTelemetry, ConnectionEventType};
 
 const CONNECT_AUTHORITY: &[u8] = b"cloudflareaccess.com";
 const CONNECT_PATH: &[u8] = b"/";
@@ -34,6 +36,7 @@ const MAX_IDLE_TIMEOUT_MS: u64 = 90_000;
 const MAX_UDP_PAYLOAD_SIZE: usize = 1_350;
 const DATAGRAM_CHANNEL_CAPACITY: usize = 1_024;
 const MAX_PENDING_WIRE_DATAGRAMS: usize = 64;
+const PACKET_SEND_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// An established Cloudflare CONNECT-IP stream over HTTP/3 and QUIC.
 pub struct H3Tunnel {
@@ -75,20 +78,23 @@ impl H3SendHalf {
         self.sender
             .as_ref()
             .ok_or(TransportError::TunnelClosed)?
-            .send(OutgoingPacket {
+            .try_send(OutgoingPacket {
                 packet,
                 completion: completion_tx,
             })
-            .await
-            .map_err(|_| TransportError::TunnelClosed)?;
-        match completion_rx.await {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(DatagramSendFailure::TooLarge {
+            .map_err(|error| match error {
+                TrySendError::Full(_) => TransportError::SendQueueFull,
+                TrySendError::Closed(_) => TransportError::TunnelClosed,
+            })?;
+        match timeout(PACKET_SEND_TIMEOUT, completion_rx).await {
+            Ok(Ok(Ok(()))) => Ok(()),
+            Ok(Ok(Err(DatagramSendFailure::TooLarge {
                 maximum_packet_size,
-            })) => Err(TransportError::Http3DatagramTooLarge {
+            }))) => Err(TransportError::Http3DatagramTooLarge {
                 maximum_packet_size,
             }),
-            Err(_) => Err(TransportError::TunnelClosed),
+            Ok(Err(_)) => Err(TransportError::TunnelClosed),
+            Err(_) => Err(TransportError::SendTimeout),
         }
     }
 
@@ -152,7 +158,14 @@ pub async fn connect_h3(
     sni: &str,
     identity: &MasqueTlsIdentity,
 ) -> Result<H3Tunnel, TransportError> {
-    connect_h3_with_protector(endpoint, sni, identity, noop_socket_protector().as_ref()).await
+    connect_h3_with_protector(
+        endpoint,
+        sni,
+        identity,
+        noop_socket_protector().as_ref(),
+        None,
+    )
+    .await
 }
 
 pub(crate) async fn connect_h3_with_protector(
@@ -160,13 +173,14 @@ pub(crate) async fn connect_h3_with_protector(
     sni: &str,
     identity: &MasqueTlsIdentity,
     protector: &dyn SocketProtector,
+    attempt: Option<&ConnectionAttemptTelemetry>,
 ) -> Result<H3Tunnel, TransportError> {
-    let first = connect_h3_once(endpoint, sni, identity, protector).await;
+    let first = connect_h3_once(endpoint, sni, identity, protector, attempt).await;
     match first {
         Err(TransportError::Http3ProtocolViolation(_)) => {
             // The Go oracle retries this specific Cloudflare interoperability
             // failure once. All other failures preserve normal fallback rules.
-            connect_h3_once(endpoint, sni, identity, protector).await
+            connect_h3_once(endpoint, sni, identity, protector, attempt).await
         }
         result => result,
     }
@@ -177,6 +191,7 @@ async fn connect_h3_once(
     sni: &str,
     identity: &MasqueTlsIdentity,
     protector: &dyn SocketProtector,
+    attempt: Option<&ConnectionAttemptTelemetry>,
 ) -> Result<H3Tunnel, TransportError> {
     let bind_address = match endpoint {
         SocketAddr::V4(_) => SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0),
@@ -189,6 +204,12 @@ async fn connect_h3_once(
     std_socket.set_nonblocking(true)?;
     let socket = UdpSocket::from_std(std_socket)?;
     let local_address = socket.local_addr()?;
+    if let Some(attempt) = attempt {
+        attempt.record(
+            ConnectionEventType::SocketConnected,
+            TransportStage::SocketConnect,
+        );
+    }
 
     let (mut quic_config, pin_state) = quic_config(identity)?;
     let mut source_connection_id = [0u8; CONNECTION_ID_LENGTH];
@@ -222,6 +243,7 @@ async fn connect_h3_once(
         incoming_tx,
         control_tx,
         startup_tx,
+        attempt.cloned(),
     )));
 
     let startup = timeout(CONNECT_TIMEOUT, startup_rx).await;
@@ -342,6 +364,7 @@ async fn run_h3_actor(
     incoming_tx: mpsc::Sender<Bytes>,
     control_tx: watch::Sender<PeerNetworkState>,
     startup_tx: oneshot::Sender<Result<(), StartupFailure>>,
+    attempt: Option<ConnectionAttemptTelemetry>,
 ) -> Result<(), TransportError> {
     let mut startup_tx = Some(startup_tx);
     let result = drive_h3_actor(
@@ -352,6 +375,7 @@ async fn run_h3_actor(
         incoming_tx,
         control_tx,
         &mut startup_tx,
+        attempt.as_ref(),
     )
     .await;
     if let Some(startup_tx) = startup_tx.take() {
@@ -378,11 +402,13 @@ async fn drive_h3_actor(
     incoming_tx: mpsc::Sender<Bytes>,
     control_tx: watch::Sender<PeerNetworkState>,
     startup_tx: &mut Option<oneshot::Sender<Result<(), StartupFailure>>>,
+    attempt: Option<&ConnectionAttemptTelemetry>,
 ) -> Result<(), TransportError> {
     let local_address = socket.local_addr()?;
     let mut http3 = None;
     let mut request_stream_id = None;
     let mut response_accepted = false;
+    let mut peer_settings_recorded = false;
     let mut ready = false;
     let mut control = ConnectIpControlPlane::new(control_tx);
     let mut pending_packet: Option<OutgoingPacket> = None;
@@ -393,6 +419,12 @@ async fn drive_h3_actor(
 
     loop {
         if connection.is_established() && http3.is_none() {
+            if let Some(attempt) = attempt {
+                attempt.record(
+                    ConnectionEventType::QuicReady,
+                    TransportStage::QuicHandshake,
+                );
+            }
             http3 = Some(
                 quiche::h3::Connection::with_transport(&mut connection, &h3_config).map_err(
                     |error| TransportError::Http3(format!("start HTTP/3 session: {error:?}")),
@@ -401,6 +433,7 @@ async fn drive_h3_actor(
         }
 
         if let Some(http3) = http3.as_mut() {
+            let response_was_accepted = response_accepted;
             process_http3_events(
                 http3,
                 &mut connection,
@@ -408,6 +441,15 @@ async fn drive_h3_actor(
                 &mut response_accepted,
                 &mut control,
             )?;
+            if !response_was_accepted
+                && response_accepted
+                && let Some(attempt) = attempt
+            {
+                attempt.record(
+                    ConnectionEventType::MasqueAccepted,
+                    TransportStage::MasqueConnect,
+                );
+            }
 
             if let Some(stream_id) = request_stream_id {
                 flush_control_capsules(http3, &mut connection, stream_id, &mut control.pending)?;
@@ -416,6 +458,15 @@ async fn drive_h3_actor(
             if request_stream_id.is_none() && http3.peer_settings_raw().is_some() {
                 if !http3.dgram_enabled_by_peer(&connection) {
                     return Err(TransportError::Http3DatagramUnavailable);
+                }
+                if !peer_settings_recorded {
+                    peer_settings_recorded = true;
+                    if let Some(attempt) = attempt {
+                        attempt.record(
+                            ConnectionEventType::PeerSettingsReceived,
+                            TransportStage::PeerSettings,
+                        );
+                    }
                 }
                 match http3.send_request(&mut connection, &connect_headers(), false) {
                     Ok(stream_id) => request_stream_id = Some(stream_id),

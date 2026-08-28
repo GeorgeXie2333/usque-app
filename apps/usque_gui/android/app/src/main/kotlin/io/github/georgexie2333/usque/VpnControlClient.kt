@@ -99,11 +99,13 @@ internal class VpnControlClient(
     var clearAllAcknowledgedListener: ClearAllAcknowledgedListener? = null
 
     private val pendingSnapshots = mutableMapOf<Int, MethodChannel.Result>()
+    private val pendingDiagnosticProbes = mutableMapOf<Int, (SnapshotProbe) -> Unit>()
     private val pendingClearAll = mutableMapOf<Int, MethodChannel.Result>()
     private var nextSnapshotId = 1
     private var endpoint: ControlEndpoint? = null
     private var controlBound = false
     private var eventsWanted = false
+    private var eventSubscriptionReachable = false
     private var pendingDisconnectResult: MethodChannel.Result? = null
     private var pendingReconfigure: PendingReconfigure? = null
 
@@ -125,6 +127,14 @@ internal class VpnControlClient(
 
     val hasEndpoint: Boolean
         get() = endpoint != null
+
+    val eventStreamReachable: Boolean
+        get() = eventsWanted && eventSubscriptionReachable && endpoint != null
+
+    data class SnapshotProbe(
+        val snapshot: Map<String, Any?>,
+        val controlReachable: Boolean,
+    )
 
     val controlConnection: ServiceConnection =
         object : ServiceConnection {
@@ -152,10 +162,12 @@ internal class VpnControlClient(
 
             override fun onServiceDisconnected(name: ComponentName?) {
                 endpoint = null
+                eventSubscriptionReachable = false
             }
 
             override fun onBindingDied(name: ComponentName?) {
                 endpoint = null
+                eventSubscriptionReachable = false
                 if (controlBound) {
                     runCatching { serviceUnbinder(this) }
                     controlBound = false
@@ -167,6 +179,7 @@ internal class VpnControlClient(
 
             override fun onNullBinding(name: ComponentName?) {
                 endpoint = null
+                eventSubscriptionReachable = false
             }
         }
 
@@ -180,6 +193,7 @@ internal class VpnControlClient(
         runCatching { serviceUnbinder(controlConnection) }
         controlBound = false
         endpoint = null
+        eventSubscriptionReachable = false
     }
 
     fun setEventsWanted(wanted: Boolean) {
@@ -226,6 +240,34 @@ internal class VpnControlClient(
                 "ENGINE_IPC_TIMEOUT",
                 "The Android VPN process did not reply in time.",
                 null,
+            )
+        }
+    }
+
+    /** Performs one bounded, read-only snapshot round trip for diagnostics. */
+    fun probeSnapshot(callback: (SnapshotProbe) -> Unit) {
+        if (destroyed) {
+            callback(SnapshotProbe(lastSnapshot.toMap(), false))
+            return
+        }
+        val service = endpoint
+        if (service == null) {
+            bind()
+            callback(SnapshotProbe(lastSnapshot.toMap(), false))
+            return
+        }
+        val requestId = allocateRequestId()
+        pendingDiagnosticProbes[requestId] = callback
+        if (!service.send(UsqueVpnService.MSG_SNAPSHOT, requestId)) {
+            pendingDiagnosticProbes.remove(requestId)
+            endpoint = null
+            eventSubscriptionReachable = false
+            callback(SnapshotProbe(lastSnapshot.toMap(), false))
+            return
+        }
+        scheduler.postDelayed(snapshotTimeoutMillis, snapshotTimeoutToken(requestId)) {
+            pendingDiagnosticProbes.remove(requestId)?.invoke(
+                SnapshotProbe(lastSnapshot.toMap(), false),
             )
         }
     }
@@ -474,6 +516,14 @@ internal class VpnControlClient(
         }
         pendingSnapshots.clear()
 
+        pendingDiagnosticProbes.keys.toList().forEach { requestId ->
+            scheduler.cancel(snapshotTimeoutToken(requestId))
+        }
+        pendingDiagnosticProbes.values.forEach { callback ->
+            callback(SnapshotProbe(lastSnapshot.toMap(), false))
+        }
+        pendingDiagnosticProbes.clear()
+
         pendingClearAll.keys.toList().forEach { requestId ->
             scheduler.cancel(clearAllTimeoutToken(requestId))
         }
@@ -580,6 +630,19 @@ internal class VpnControlClient(
             return
         }
 
+        val diagnosticProbe = pendingDiagnosticProbes.remove(requestId)
+        if (diagnosticProbe != null) {
+            scheduler.cancel(snapshotTimeoutToken(requestId))
+            if (errorCode != null) {
+                diagnosticProbe(SnapshotProbe(lastSnapshot.toMap(), false))
+            } else {
+                val payload = snapshot ?: disconnectedSnapshot()
+                lastSnapshot = payload
+                diagnosticProbe(SnapshotProbe(payload.toMap(), true))
+            }
+            return
+        }
+
         val result = pendingSnapshots.remove(requestId) ?: return
         scheduler.cancel(snapshotTimeoutToken(requestId))
         if (errorCode != null) {
@@ -596,6 +659,9 @@ internal class VpnControlClient(
     }
 
     fun deliverEvent(snapshot: Map<String, Any?>) {
+        if (eventsWanted) {
+            eventSubscriptionReachable = true
+        }
         lastSnapshot = snapshot
         eventListener?.onEvent(snapshot)
     }
@@ -623,6 +689,8 @@ internal class VpnControlClient(
     }
 
     fun pendingSnapshotCountForTest(): Int = pendingSnapshots.size
+
+    fun pendingDiagnosticProbeCountForTest(): Int = pendingDiagnosticProbes.size
 
     fun pendingClearAllCountForTest(): Int = pendingClearAll.size
 
@@ -668,18 +736,23 @@ internal class VpnControlClient(
         }
 
     private fun registerForEvents() {
+        eventSubscriptionReachable = false
         sendEventControlMessage(UsqueVpnService.MSG_REGISTER_EVENTS)
     }
 
     private fun unregisterForEvents() {
         sendEventControlMessage(UsqueVpnService.MSG_UNREGISTER_EVENTS)
+        eventSubscriptionReachable = false
     }
 
-    private fun sendEventControlMessage(what: Int) {
-        val service = endpoint ?: return
+    private fun sendEventControlMessage(what: Int): Boolean {
+        val service = endpoint ?: return false
         if (!service.send(what)) {
             endpoint = null
+            eventSubscriptionReachable = false
+            return false
         }
+        return true
     }
 
     private fun allocateRequestId(): Int {
@@ -712,11 +785,35 @@ internal class VpnControlClient(
     )
 
     private fun snapshotFromBundle(bundle: Bundle): Map<String, Any?> {
+        val failure =
+            bundle.getString(ServiceSnapshotState.WireKeys.FAILURE_CODE)?.let { code ->
+                mapOf(
+                    "code" to code,
+                    "stage" to bundle.getString(ServiceSnapshotState.WireKeys.FAILURE_STAGE),
+                    "transport" to
+                        bundle.getString(ServiceSnapshotState.WireKeys.FAILURE_TRANSPORT),
+                    "address_family" to
+                        bundle.getString(ServiceSnapshotState.WireKeys.FAILURE_ADDRESS_FAMILY),
+                    "retryable" to
+                        bundle.getBoolean(ServiceSnapshotState.WireKeys.FAILURE_RETRYABLE),
+                    "fallback_allowed" to
+                        bundle.getBoolean(
+                            ServiceSnapshotState.WireKeys.FAILURE_FALLBACK_ALLOWED,
+                        ),
+                    "severity" to
+                        bundle.getString(ServiceSnapshotState.WireKeys.FAILURE_SEVERITY),
+                    "remediation_key" to
+                        bundle.getString(ServiceSnapshotState.WireKeys.FAILURE_REMEDIATION_KEY),
+                    "sanitized_detail" to
+                        bundle.getString(ServiceSnapshotState.WireKeys.FAILURE_SANITIZED_DETAIL),
+                ).filterValues { value -> value != null }
+            }
         val snapshot =
             mapOf(
                 "phase" to (bundle.getString("phase") ?: "error"),
                 "warning" to bundle.getString("warning"),
                 "error_code" to bundle.getString("error_code"),
+                "failure" to failure,
                 "transport" to bundle.getString("transport"),
                 "address_family" to bundle.getString("address_family"),
                 "connected_at" to bundle.getString("connected_at"),
@@ -727,9 +824,32 @@ internal class VpnControlClient(
                 "reconnect_count" to bundle.getInt("reconnect_count"),
                 "active_listeners" to
                     (bundle.getStringArrayList("active_listeners") ?: arrayListOf<String>()),
+                "active_frontends" to
+                    (
+                        bundle.getStringArrayList(ServiceSnapshotState.WireKeys.ACTIVE_FRONTENDS)
+                            ?: arrayListOf<String>()
+                    ),
+                "tunnel_ipv4_available" to
+                    bundle.getBoolean(ServiceSnapshotState.WireKeys.TUNNEL_IPV4_AVAILABLE),
+                "tunnel_ipv6_available" to
+                    bundle.getBoolean(ServiceSnapshotState.WireKeys.TUNNEL_IPV6_AVAILABLE),
                 "kill_switch_state" to bundle.getString("kill_switch_state"),
                 "platform_lockdown" to bundle.getBoolean("platform_lockdown"),
                 "always_on" to bundle.getBoolean("always_on"),
+                "vpn_service_state" to bundle.getString("vpn_service_state"),
+                "vpn_process_state" to bundle.getString("vpn_process_state"),
+                "tun_fd_valid" to bundle.getBoolean("tun_fd_valid"),
+                "tun_interface_present" to bundle.getBoolean("tun_interface_present"),
+                "underlying_network_present" to
+                    bundle.getBoolean("underlying_network_present"),
+                "underlying_family_mask" to bundle.getInt("underlying_family_mask"),
+                "network_generation" to bundle.getLong("network_generation"),
+                "dns_server_count" to bundle.getInt("dns_server_count"),
+                "native_runtime_state" to bundle.getString("native_runtime_state"),
+                "foreground_notification_state" to
+                    bundle.getString("foreground_notification_state"),
+                "pending_cleanup" to bundle.getBoolean("pending_cleanup"),
+                "platform_state_observed" to true,
                 "exit_ipv4" to bundle.getString("exit_ipv4"),
                 "exit_ipv6" to bundle.getString("exit_ipv6"),
                 "exit_city" to bundle.getString("exit_city"),
@@ -748,6 +868,7 @@ internal class VpnControlClient(
             "upload_bytes_per_second" to 0,
             "downloaded_bytes" to 0,
             "uploaded_bytes" to 0,
+            "platform_state_observed" to false,
         )
 
     private class MessengerControlEndpoint(

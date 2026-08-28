@@ -1424,6 +1424,14 @@ class UsqueVpnService : VpnService() {
             platformLockdown =
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && isLockdownEnabled,
             alwaysOn = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && isAlwaysOn,
+            tunFdValid = tunnel.get()?.fileDescriptor?.valid() == true,
+            underlyingNetworkPresent = networkMonitor.underlyingNetwork() != null,
+            underlyingFamilyMask = networkMonitor.underlyingFamilyMask(),
+            networkGeneration = networkMonitor.generation(),
+            dnsServerCount = networkMonitor.underlyingDnsServers().size,
+            nativeRuntimeActive = nativeRuntimeActive.get(),
+            foregroundNotificationActive = activeProfileJson.get() != null,
+            pendingCleanup = clearAllRequested.get(),
         )
 
     private fun updateNotification() {

@@ -122,6 +122,30 @@ message GetPhysicalNetworkInfoRequest {
   string operation_id = 1;
 }
 
+// Read-only, allowlisted platform inspection. Counts and state enums are
+// returned instead of adapter names, addresses, DNS servers, paths, SIDs, or
+// other stable machine identifiers.
+message InspectPlatformStateRequest {}
+
+message PlatformState {
+  string service_state = 1;
+  AgentPhase agent_phase = 2;
+  bool active_tunnel_lease = 3;
+  bool packet_session_active = 4;
+  string wintun_adapter_state = 5;
+  uint32 expected_route_count = 6;
+  bool actual_route_count_known = 7;
+  uint32 actual_route_count = 8;
+  string expected_dns_state = 9;
+  string actual_dns_state = 10;
+  string expected_wfp_state = 11;
+  string actual_wfp_state = 12;
+  bool system_proxy_lease = 13;
+  string recovery_journal_state = 14;
+  bool pending_cleanup = 15;
+  uint64 journal_generation = 16;
+}
+
 message PhysicalInterface {
   uint64 interface_luid = 1;
   uint32 interface_index = 2;
@@ -194,6 +218,7 @@ message AgentRequest {
     AcquireTunnelLeaseRequest acquire_tunnel_lease = 22;
     GetPhysicalNetworkInfoRequest get_physical_network_info = 23;
     AcquireDirectEgressRequest acquire_direct_egress = 24;
+    InspectPlatformStateRequest inspect_platform_state = 25;
   }
 }
 
@@ -207,5 +232,6 @@ message AgentResponse {
     PacketSessionHandles packet_session = 13;
     PhysicalNetworkInfo physical_network_info = 14;
     DirectEgressLease direct_egress_lease = 15;
+    PlatformState platform_state = 16;
   }
 }

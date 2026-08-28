@@ -1,0 +1,391 @@
+use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::{Duration, Instant, SystemTime};
+
+use usque_core::{
+    AddressFamily, Transport, TransportFailure, TransportFailureCode, TransportStage,
+};
+
+pub const CONNECTION_TIMELINE_CAPACITY: usize = 512;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConnectionEventType {
+    AttemptStarted,
+    EndpointResolved,
+    SocketConnected,
+    TlsReady,
+    QuicReady,
+    MasqueAccepted,
+    PeerSettingsReceived,
+    AddressAssigned,
+    TunnelReady,
+    FirstPacketSent,
+    FirstPacketReceived,
+    FallbackStarted,
+    ReconnectScheduled,
+    NetworkChanged,
+    RecoveryProbeStarted,
+    RecoveryProbeSucceeded,
+    RecoveryProbeFailed,
+    PathPromoted,
+    QueueSaturated,
+    Disconnected,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectionEvent {
+    pub sequence: u64,
+    pub timestamp: SystemTime,
+    pub elapsed_from_attempt_start: Duration,
+    pub event_type: ConnectionEventType,
+    pub stage: Option<TransportStage>,
+    pub transport: Option<Transport>,
+    pub address_family: Option<AddressFamily>,
+    pub duration: Option<Duration>,
+    pub failure: Option<TransportFailure>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ConnectionEventPath {
+    pub transport: Option<Transport>,
+    pub address_family: Option<AddressFamily>,
+}
+
+impl ConnectionEventPath {
+    pub const fn new(transport: Option<Transport>, address_family: Option<AddressFamily>) -> Self {
+        Self {
+            transport,
+            address_family,
+        }
+    }
+
+    pub const fn known(transport: Transport, address_family: AddressFamily) -> Self {
+        Self::new(Some(transport), Some(address_family))
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ConnectionMetrics {
+    pub last_connect_duration: Option<Duration>,
+    pub last_h3_handshake_duration: Option<Duration>,
+    pub last_h2_handshake_duration: Option<Duration>,
+    /// Remains `None` unless the underlying transport provides a real RTT.
+    pub current_smoothed_rtt: Option<Duration>,
+    pub reconnect_count: u32,
+    pub fallback_count: u32,
+    pub network_change_count: u32,
+    pub send_queue_high_watermark: u64,
+    pub send_queue_drop_count: u64,
+    pub last_failure_code: Option<TransportFailureCode>,
+    pub last_reconnect_code: Option<TransportFailureCode>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ConnectionTimelineSnapshot {
+    pub events: Vec<ConnectionEvent>,
+    pub metrics: ConnectionMetrics,
+    pub dropped_event_count: u64,
+}
+
+#[derive(Clone)]
+pub struct ConnectionTelemetry {
+    inner: Arc<Mutex<TelemetryState>>,
+    sequence: Arc<AtomicU64>,
+    first_packet_sent: Arc<AtomicBool>,
+    first_packet_received: Arc<AtomicBool>,
+}
+
+/// Carries the path identity for one in-flight transport attempt so lower
+/// layers can publish successful stage transitions without learning about the
+/// Engine or retaining endpoint details.
+#[derive(Clone)]
+pub(crate) struct ConnectionAttemptTelemetry {
+    telemetry: ConnectionTelemetry,
+    transport: Transport,
+    family: AddressFamily,
+}
+
+impl ConnectionAttemptTelemetry {
+    pub(crate) fn new(
+        telemetry: ConnectionTelemetry,
+        transport: Transport,
+        family: AddressFamily,
+    ) -> Self {
+        Self {
+            telemetry,
+            transport,
+            family,
+        }
+    }
+
+    pub(crate) fn record(&self, event_type: ConnectionEventType, stage: TransportStage) {
+        self.telemetry.record(
+            event_type,
+            Some(stage),
+            ConnectionEventPath::known(self.transport, self.family),
+            None,
+            None,
+        );
+    }
+}
+
+struct TelemetryState {
+    capacity: usize,
+    attempt_started: Instant,
+    events: VecDeque<ConnectionEvent>,
+    metrics: ConnectionMetrics,
+    dropped_event_count: u64,
+}
+
+impl Default for ConnectionTelemetry {
+    fn default() -> Self {
+        Self::new(CONNECTION_TIMELINE_CAPACITY)
+    }
+}
+
+impl ConnectionTelemetry {
+    pub fn new(capacity: usize) -> Self {
+        assert!(
+            capacity > 0,
+            "connection timeline capacity must be non-zero"
+        );
+        Self {
+            inner: Arc::new(Mutex::new(TelemetryState {
+                capacity,
+                attempt_started: Instant::now(),
+                events: VecDeque::with_capacity(capacity),
+                metrics: ConnectionMetrics::default(),
+                dropped_event_count: 0,
+            })),
+            sequence: Arc::new(AtomicU64::new(0)),
+            first_packet_sent: Arc::new(AtomicBool::new(false)),
+            first_packet_received: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    pub fn reset_attempt(&self) {
+        let mut state = self.state();
+        state.attempt_started = Instant::now();
+        self.first_packet_sent.store(false, Ordering::Release);
+        self.first_packet_received.store(false, Ordering::Release);
+    }
+
+    pub fn record(
+        &self,
+        event_type: ConnectionEventType,
+        stage: Option<TransportStage>,
+        path: ConnectionEventPath,
+        duration: Option<Duration>,
+        failure: Option<TransportFailure>,
+    ) {
+        let mut state = self.state();
+        let event = ConnectionEvent {
+            sequence: self.sequence.fetch_add(1, Ordering::Relaxed) + 1,
+            timestamp: SystemTime::now(),
+            elapsed_from_attempt_start: state.attempt_started.elapsed(),
+            event_type,
+            stage,
+            transport: path.transport,
+            address_family: path.address_family,
+            duration,
+            failure: failure.clone(),
+        };
+        if state.events.len() == state.capacity {
+            state.events.pop_front();
+            state.dropped_event_count = state.dropped_event_count.saturating_add(1);
+        }
+        if let Some(failure) = failure {
+            state.metrics.last_failure_code = Some(failure.code);
+        }
+        state.events.push_back(event);
+    }
+
+    pub fn record_attempt(&self, transport: Transport, family: AddressFamily) {
+        self.record(
+            ConnectionEventType::AttemptStarted,
+            Some(TransportStage::EndpointResolution),
+            ConnectionEventPath::known(transport, family),
+            None,
+            None,
+        );
+    }
+
+    pub fn record_tunnel_ready(
+        &self,
+        transport: Transport,
+        family: AddressFamily,
+        duration: Duration,
+    ) {
+        {
+            let mut state = self.state();
+            state.metrics.last_connect_duration = Some(duration);
+            match transport {
+                Transport::Http3 => state.metrics.last_h3_handshake_duration = Some(duration),
+                Transport::Http2 => state.metrics.last_h2_handshake_duration = Some(duration),
+            }
+        }
+        self.record(
+            ConnectionEventType::TunnelReady,
+            Some(TransportStage::TunnelStartup),
+            ConnectionEventPath::known(transport, family),
+            Some(duration),
+            None,
+        );
+    }
+
+    pub fn record_first_packet_sent(&self, transport: Transport, family: AddressFamily) {
+        if !self.first_packet_sent.swap(true, Ordering::AcqRel) {
+            self.record(
+                ConnectionEventType::FirstPacketSent,
+                Some(TransportStage::PacketSend),
+                ConnectionEventPath::known(transport, family),
+                None,
+                None,
+            );
+        }
+    }
+
+    pub fn record_first_packet_received(&self, transport: Transport, family: AddressFamily) {
+        if !self.first_packet_received.swap(true, Ordering::AcqRel) {
+            self.record(
+                ConnectionEventType::FirstPacketReceived,
+                Some(TransportStage::PacketReceive),
+                ConnectionEventPath::known(transport, family),
+                None,
+                None,
+            );
+        }
+    }
+
+    pub fn observe_queue_depth(&self, depth: usize) {
+        let mut state = self.state();
+        state.metrics.send_queue_high_watermark =
+            state.metrics.send_queue_high_watermark.max(depth as u64);
+    }
+
+    pub fn record_queue_drop(&self) {
+        {
+            let mut state = self.state();
+            state.metrics.send_queue_drop_count =
+                state.metrics.send_queue_drop_count.saturating_add(1);
+        }
+        let failure = TransportFailure::new(
+            TransportFailureCode::SendQueueFull,
+            TransportStage::PacketSend,
+        );
+        self.record(
+            ConnectionEventType::QueueSaturated,
+            Some(TransportStage::PacketSend),
+            ConnectionEventPath::default(),
+            None,
+            Some(failure),
+        );
+    }
+
+    pub fn set_reconnect(&self, count: u32, failure: &TransportFailure) {
+        let mut state = self.state();
+        state.metrics.reconnect_count = count;
+        state.metrics.last_reconnect_code = Some(failure.code);
+    }
+
+    pub fn increment_fallback(&self) {
+        let mut state = self.state();
+        state.metrics.fallback_count = state.metrics.fallback_count.saturating_add(1);
+    }
+
+    pub fn increment_network_change(&self) {
+        let mut state = self.state();
+        state.metrics.network_change_count = state.metrics.network_change_count.saturating_add(1);
+    }
+
+    pub fn snapshot(&self) -> ConnectionTimelineSnapshot {
+        let state = self.state();
+        ConnectionTimelineSnapshot {
+            events: state.events.iter().cloned().collect(),
+            metrics: state.metrics.clone(),
+            dropped_event_count: state.dropped_event_count,
+        }
+    }
+
+    fn state(&self) -> MutexGuard<'_, TelemetryState> {
+        self.inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn inv_bounded_work_timeline_evicts_oldest_records() {
+        let telemetry = ConnectionTelemetry::new(2);
+        for _ in 0..3 {
+            telemetry.record(
+                ConnectionEventType::AttemptStarted,
+                None,
+                ConnectionEventPath::default(),
+                None,
+                None,
+            );
+        }
+        let snapshot = telemetry.snapshot();
+        assert_eq!(snapshot.events.len(), 2);
+        assert_eq!(snapshot.dropped_event_count, 1);
+        assert_eq!(snapshot.events[0].sequence, 2);
+        assert_eq!(snapshot.events[1].sequence, 3);
+    }
+
+    #[test]
+    fn inv_single_active_tunnel_records_only_first_packet_markers_per_attempt() {
+        let telemetry = ConnectionTelemetry::new(8);
+        telemetry.record_first_packet_sent(Transport::Http2, AddressFamily::Ipv4);
+        telemetry.record_first_packet_sent(Transport::Http2, AddressFamily::Ipv4);
+        telemetry.record_first_packet_received(Transport::Http2, AddressFamily::Ipv4);
+        telemetry.record_first_packet_received(Transport::Http2, AddressFamily::Ipv4);
+        let snapshot = telemetry.snapshot();
+        assert_eq!(snapshot.events.len(), 2);
+    }
+
+    #[test]
+    fn rtt_remains_unknown_without_transport_measurement() {
+        assert!(
+            ConnectionTelemetry::default()
+                .snapshot()
+                .metrics
+                .current_smoothed_rtt
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn successful_stage_observer_preserves_path_and_sequence() {
+        let telemetry = ConnectionTelemetry::new(8);
+        let attempt = ConnectionAttemptTelemetry::new(
+            telemetry.clone(),
+            Transport::Http3,
+            AddressFamily::Ipv6,
+        );
+        attempt.record(
+            ConnectionEventType::EndpointResolved,
+            TransportStage::EndpointResolution,
+        );
+        attempt.record(
+            ConnectionEventType::SocketConnected,
+            TransportStage::SocketConnect,
+        );
+
+        let snapshot = telemetry.snapshot();
+        assert_eq!(snapshot.events.len(), 2);
+        assert_eq!(snapshot.events[0].sequence, 1);
+        assert_eq!(snapshot.events[1].sequence, 2);
+        assert!(snapshot.events.iter().all(|event| {
+            event.transport == Some(Transport::Http3)
+                && event.address_family == Some(AddressFamily::Ipv6)
+                && event.failure.is_none()
+        }));
+    }
+}

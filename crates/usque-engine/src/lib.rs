@@ -25,8 +25,9 @@ use usque_core::{
     FrontendStatus, GeoProgress, IdentityMetadata, IdentityProvider, IpPolicy, IpSbProbe,
     KillSwitchState, LockdownState, MasqueKeyPair, OperatingMode, Profile, ProxyAuthCredentials,
     ProxyDnsMode, ProxySettings, RegistrationError, RegistrationOptions, SHARED_NETWORK_SECRET_ID,
-    SharedNetworkSettings, StateMachine, Statistics, Transport, TransportPolicy, WarpIdentity,
-    download_geo_rules, is_zero_trust_endpoint, list_geo_rules, normalize_zero_trust_team,
+    SharedNetworkSettings, StateMachine, Statistics, Transport, TransportFailure, TransportPolicy,
+    WarpIdentity, download_geo_rules, is_zero_trust_endpoint, list_geo_rules,
+    normalize_zero_trust_team,
     storage::{ConfigStore, StoreError},
     update_all_geo_rules, validate_proxy_password, validate_proxy_username,
 };
@@ -43,6 +44,7 @@ use usque_transport::{
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
+pub mod diagnostics;
 #[cfg(any(windows, test))]
 mod event_stream;
 #[cfg(any(windows, target_os = "macos", test))]
@@ -78,6 +80,7 @@ pub struct ControlService {
     disconnect_cleanup: Mutex<Option<tokio::task::JoinHandle<Result<(), ControlServiceError>>>>,
     exit_probe_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     maintenance: maintenance::Maintenance,
+    diagnostics: diagnostics::DiagnosticsManager,
     cache_dir: PathBuf,
     geo_progress_tx: tokio::sync::broadcast::Sender<v1::GeoRulesProgress>,
     session_generation: AtomicU64,
@@ -293,6 +296,7 @@ impl ControlService {
         let (geo_progress_tx, _) = tokio::sync::broadcast::channel(16);
         Ok(Self {
             maintenance: maintenance::Maintenance::new(store.path()),
+            diagnostics: diagnostics::DiagnosticsManager::new(),
             store,
             config: RwLock::new(config),
             state: Arc::new(Mutex::new(StateMachine::default())),
@@ -640,10 +644,73 @@ impl ControlService {
                 }
                 let config = self.config.read().await.clone();
                 let snapshot = self.status_snapshot().await;
+                let diagnostic_session = self.diagnostics.get().await;
+                if !request.diagnostic_session_id.trim().is_empty()
+                    && diagnostic_session.as_ref().is_none_or(|session| {
+                        session.session_id.to_string() != request.diagnostic_session_id.trim()
+                    })
+                {
+                    return Err(ControlServiceError::InvalidRequest(
+                        "the requested diagnostic session is unavailable".to_owned(),
+                    ));
+                }
+                let timeline = self.connection_timeline_snapshot().await;
                 self.maintenance
-                    .export_diagnostics(destination.into(), config, snapshot)
+                    .export_diagnostics(
+                        destination.into(),
+                        config,
+                        snapshot,
+                        diagnostic_session,
+                        timeline,
+                    )
                     .await?;
                 Ok(control_response::Payload::Empty(v1::Empty {}))
+            }
+            control_request::Payload::StartDiagnostics(request) => {
+                let mode = match v1::DiagnosticMode::try_from(request.mode) {
+                    Ok(v1::DiagnosticMode::Standard) => usque_core::DiagnosticMode::Standard,
+                    Ok(v1::DiagnosticMode::Deep) => usque_core::DiagnosticMode::Deep,
+                    _ => {
+                        return Err(ControlServiceError::InvalidRequest(
+                            "a supported diagnostic mode is required".to_owned(),
+                        ));
+                    }
+                };
+                let context = self.diagnostic_context().await;
+                let session = self.diagnostics.start(mode, context).await?;
+                Ok(control_response::Payload::Diagnostics(
+                    diagnostics::session_to_proto(&session),
+                ))
+            }
+            control_request::Payload::CancelDiagnostics(request) => {
+                let session_id = if request.session_id.trim().is_empty() {
+                    None
+                } else {
+                    Some(Uuid::parse_str(request.session_id.trim()).map_err(|_| {
+                        ControlServiceError::InvalidRequest(
+                            "the diagnostic session id is invalid".to_owned(),
+                        )
+                    })?)
+                };
+                let session = self.diagnostics.cancel(session_id).await?;
+                Ok(control_response::Payload::Diagnostics(
+                    diagnostics::session_to_proto(&session),
+                ))
+            }
+            control_request::Payload::GetDiagnostics(_) => {
+                let session = self
+                    .diagnostics
+                    .get()
+                    .await
+                    .map(|session| diagnostics::session_to_proto(&session))
+                    .unwrap_or_else(diagnostics::empty_session_to_proto);
+                Ok(control_response::Payload::Diagnostics(session))
+            }
+            control_request::Payload::GetConnectionTimeline(_) => {
+                let timeline = self.connection_timeline_snapshot().await;
+                Ok(control_response::Payload::ConnectionTimeline(
+                    diagnostics::timeline_to_proto(&timeline),
+                ))
             }
             control_request::Payload::ListGeoRules(_) => Ok(
                 control_response::Payload::GeoRulesList(self.list_geo_rules_locked()?),
@@ -686,26 +753,25 @@ impl ControlService {
                         });
                     }
                 }
-                RuntimeHealth::Reconnecting { .. }
+                RuntimeHealth::Reconnecting { failure, .. } => {
                     if matches!(
                         state.snapshot().phase,
                         ConnectionPhase::Connected | ConnectionPhase::Degraded
-                    ) =>
-                {
-                    if let Err(error) = state.transition(ConnectionPhase::Reconnecting) {
+                    ) && let Err(error) = state.transition(ConnectionPhase::Reconnecting)
+                    {
                         state.mark_error(ConnectionError {
                             code: ErrorCode::Internal,
                             message: error.to_string(),
                             retryable: false,
                         });
+                    } else {
+                        state.update_failure(Some(failure));
                     }
                 }
-                RuntimeHealth::Failed { message, .. } => {
-                    state.mark_error(ConnectionError {
-                        code: ErrorCode::TransportUnavailable,
-                        message,
-                        retryable: false,
-                    });
+                RuntimeHealth::Failed {
+                    message, failure, ..
+                } => {
+                    state.mark_failure(failure, message);
                 }
                 _ => {}
             }
@@ -778,6 +844,52 @@ impl ControlService {
         &self,
     ) -> tokio::sync::broadcast::Receiver<v1::GeoRulesProgress> {
         self.geo_progress_tx.subscribe()
+    }
+
+    #[cfg(any(windows, test))]
+    pub(crate) fn subscribe_diagnostics(
+        &self,
+    ) -> tokio::sync::broadcast::Receiver<diagnostics::DiagnosticEvent> {
+        self.diagnostics.subscribe()
+    }
+
+    async fn connection_timeline_snapshot(&self) -> usque_transport::ConnectionTimelineSnapshot {
+        self.data_plane
+            .lock()
+            .await
+            .as_ref()
+            .map(|active| active.runtime.connection_timeline())
+            .unwrap_or_default()
+    }
+
+    async fn diagnostic_context(&self) -> diagnostics::DiagnosticContext {
+        let connection = self.status_snapshot().await;
+        let config = self.config.read().await.clone();
+        let active_profile = config.active_profile();
+        let platform_state = if std::env::consts::OS == "windows" {
+            windows_agent::inspect_platform_state_if_running()
+                .await
+                .ok()
+        } else {
+            None
+        };
+        diagnostics::DiagnosticContext {
+            connection,
+            configuration_valid: config.validate().is_ok(),
+            secure_storage_available: current_capabilities().secure_storage,
+            kill_switch_expected: active_profile
+                .as_ref()
+                .is_some_and(|profile| profile.kill_switch),
+            tunnel_dns_expected: active_profile
+                .as_ref()
+                .is_some_and(|profile| profile.dns_mode == DnsMode::Tunnel),
+            system_proxy_expected: active_profile
+                .as_ref()
+                .is_some_and(|profile| profile.proxy.system_proxy),
+            operating_system: std::env::consts::OS.to_owned(),
+            timeline: self.connection_timeline_snapshot().await,
+            platform_state,
+        }
     }
 
     fn emit_geo_progress(&self, progress: GeoProgress) {
@@ -1390,10 +1502,15 @@ impl ControlService {
     }
 
     async fn mark_connection_error(&self, error: &ControlServiceError) {
-        self.state
-            .lock()
-            .await
-            .mark_error(connection_error_for(error));
+        let mut state = self.state.lock().await;
+        if let ControlServiceError::Transport(transport) = error {
+            state.mark_failure(
+                transport.failure(None, None),
+                error.as_structured_error().message,
+            );
+        } else {
+            state.mark_error(connection_error_for(error));
+        }
     }
 
     async fn provision_identity(
@@ -2403,6 +2520,8 @@ pub enum ControlServiceError {
     PersistenceWorker(String),
     #[error("maintenance operation failed: {0}")]
     Maintenance(#[from] maintenance::MaintenanceError),
+    #[error("diagnostics operation failed: {0}")]
+    Diagnostics(#[from] diagnostics::DiagnosticsError),
     #[error("sensitive output operation failed: {0}")]
     SensitiveOutput(#[source] std::io::Error),
     #[error("sensitive output worker failed: {0}")]
@@ -2451,7 +2570,8 @@ impl ControlServiceError {
             Self::Transport(
                 TransportError::EndpointTimeout(_)
                 | TransportError::ConnectTimeout
-                | TransportError::AllEndpointsFailed(_),
+                | TransportError::AllEndpointsFailed(_)
+                | TransportError::AllTransportsFailed { .. },
             ) => ("ENDPOINT_UNREACHABLE", true),
             Self::Transport(TransportError::Dns(_)) => ("DNS_UNAVAILABLE", true),
             Self::Transport(
@@ -2498,6 +2618,15 @@ impl ControlServiceError {
                 ("UPDATE_CHECK_FAILED", true)
             }
             Self::Maintenance(_) => ("DIAGNOSTICS_EXPORT_FAILED", false),
+            Self::Diagnostics(diagnostics::DiagnosticsError::AlreadyRunning) => {
+                ("DIAGNOSTIC_ALREADY_RUNNING", false)
+            }
+            Self::Diagnostics(diagnostics::DiagnosticsError::NotStarted) => {
+                ("DIAGNOSTICS_NOT_STARTED", false)
+            }
+            Self::Diagnostics(diagnostics::DiagnosticsError::SessionMismatch) => {
+                ("DIAGNOSTIC_SESSION_MISMATCH", false)
+            }
             Self::SensitiveOutput(_) | Self::SensitiveOutputWorker(_) => {
                 ("SENSITIVE_OUTPUT_FAILED", false)
             }
@@ -2521,7 +2650,8 @@ fn connection_error_for(error: &ControlServiceError) -> ConnectionError {
         ControlServiceError::Transport(
             TransportError::EndpointTimeout(_)
             | TransportError::ConnectTimeout
-            | TransportError::AllEndpointsFailed(_),
+            | TransportError::AllEndpointsFailed(_)
+            | TransportError::AllTransportsFailed { .. },
         ) => ErrorCode::EndpointUnreachable,
         ControlServiceError::Transport(TransportError::Dns(_)) => ErrorCode::DnsUnavailable,
         ControlServiceError::Transport(TransportError::Http3DatagramUnavailable)
@@ -3001,6 +3131,9 @@ fn current_capabilities() -> v1::Capabilities {
         system_start: cfg!(any(windows, target_os = "android")),
         license_management: true,
         warp_secret_export: true,
+        diagnostics_sessions: true,
+        connection_timeline: true,
+        deep_diagnostics: true,
     }
 }
 
@@ -3075,6 +3208,40 @@ pub(crate) fn snapshot_to_proto(snapshot: &ConnectionSnapshot) -> v1::Connection
             .iter()
             .map(frontend_status_to_proto)
             .collect(),
+        failure: snapshot.failure.as_ref().map(transport_failure_to_proto),
+    }
+}
+
+pub(crate) fn transport_failure_to_proto(failure: &TransportFailure) -> v1::TransportFailure {
+    v1::TransportFailure {
+        code: failure.code.as_str().to_owned(),
+        stage: failure.stage.as_str().to_owned(),
+        transport: failure
+            .transport
+            .map(|transport| match transport {
+                Transport::Http3 => "h3",
+                Transport::Http2 => "h2",
+            })
+            .unwrap_or_default()
+            .to_owned(),
+        address_family: failure
+            .address_family
+            .map(|family| match family {
+                AddressFamily::Ipv4 => "ipv4",
+                AddressFamily::Ipv6 => "ipv6",
+            })
+            .unwrap_or_default()
+            .to_owned(),
+        retryable: failure.retryable,
+        fallback_allowed: failure.fallback_allowed,
+        severity: match failure.severity {
+            usque_core::FailureSeverity::Info => v1::FailureSeverity::Info as i32,
+            usque_core::FailureSeverity::Warning => v1::FailureSeverity::Warning as i32,
+            usque_core::FailureSeverity::Error => v1::FailureSeverity::Error as i32,
+            usque_core::FailureSeverity::Critical => v1::FailureSeverity::Critical as i32,
+        },
+        remediation_key: failure.remediation_key.clone(),
+        sanitized_detail: failure.sanitized_detail.clone().unwrap_or_default(),
     }
 }
 

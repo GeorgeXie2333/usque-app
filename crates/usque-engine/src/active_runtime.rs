@@ -2,7 +2,8 @@ use std::{net::SocketAddr, time::Instant};
 
 use usque_core::{FrontendKind, FrontendPhase, FrontendSettings, FrontendStatus, Profile};
 use usque_transport::{
-    ProxyPerformanceSnapshot, ProxyRuntime, RuntimeHealth, RuntimePath, TrafficSnapshot,
+    ConnectionTimelineSnapshot, ProxyPerformanceSnapshot, ProxyRuntime, RuntimeHealth, RuntimePath,
+    TrafficSnapshot,
 };
 
 use crate::ControlServiceError;
@@ -169,6 +170,16 @@ impl ActiveRuntime {
             Self::Vpn(runtime) => runtime.statistics(),
             #[cfg(test)]
             Self::Harness(_) => TrafficSnapshot::default(),
+        }
+    }
+
+    pub(crate) fn connection_timeline(&self) -> ConnectionTimelineSnapshot {
+        match self {
+            Self::Proxy(runtime) => runtime.runtime.connection_timeline(),
+            #[cfg(windows)]
+            Self::Vpn(runtime) => runtime.connection_timeline(),
+            #[cfg(test)]
+            Self::Harness(_) => ConnectionTimelineSnapshot::default(),
         }
     }
 

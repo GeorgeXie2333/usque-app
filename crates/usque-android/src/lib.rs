@@ -30,6 +30,8 @@ use jni::{
     sys::{JNI_FALSE, JNI_TRUE, jboolean, jbyteArray, jint, jlong, jstring},
 };
 use serde::{Deserialize, Serialize};
+#[cfg(target_os = "android")]
+use usque_core::TransportFailure;
 use usque_core::{
     AppConfig, ConsumerEntitlement, ConsumerRegistrationClient, DnsMode, EndpointSettings,
     FrontendSettings, IdentityProvider, IpPolicy, OperatingMode, Profile, ProxyDnsMode,
@@ -1769,12 +1771,63 @@ impl EndpointPinRefresher for AndroidEndpointPinRefresher {
 }
 
 #[derive(Debug, Clone, Serialize)]
+struct NativeFailure {
+    code: String,
+    stage: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    transport: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    address_family: Option<String>,
+    retryable: bool,
+    fallback_allowed: bool,
+    severity: String,
+    remediation_key: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sanitized_detail: Option<String>,
+}
+
+impl NativeFailure {
+    #[cfg(target_os = "android")]
+    fn from_failure(failure: &TransportFailure) -> Self {
+        Self {
+            code: failure.code.as_str().to_owned(),
+            stage: failure.stage.as_str().to_owned(),
+            transport: failure.transport.map(|transport| match transport {
+                usque_core::Transport::Http3 => "h3".to_owned(),
+                usque_core::Transport::Http2 => "h2".to_owned(),
+            }),
+            address_family: failure.address_family.map(|family| match family {
+                usque_core::AddressFamily::Ipv4 => "ipv4".to_owned(),
+                usque_core::AddressFamily::Ipv6 => "ipv6".to_owned(),
+            }),
+            retryable: failure.retryable,
+            fallback_allowed: failure.fallback_allowed,
+            severity: match failure.severity {
+                usque_core::FailureSeverity::Info => "info",
+                usque_core::FailureSeverity::Warning => "warning",
+                usque_core::FailureSeverity::Error => "error",
+                usque_core::FailureSeverity::Critical => "critical",
+            }
+            .to_owned(),
+            remediation_key: failure.remediation_key.clone(),
+            sanitized_detail: failure
+                .sanitized_detail
+                .as_deref()
+                .filter(|detail| TransportFailure::sanitized_detail_is_safe(detail))
+                .map(ToOwned::to_owned),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
 struct NativeSnapshot {
     phase: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     warning: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    failure: Option<NativeFailure>,
     #[serde(skip_serializing_if = "Option::is_none")]
     transport: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1785,6 +1838,9 @@ struct NativeSnapshot {
     uploaded_bytes: u64,
     reconnect_count: u32,
     active_listeners: Vec<String>,
+    active_frontends: Vec<String>,
+    tunnel_ipv4_available: bool,
+    tunnel_ipv6_available: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     exit_ipv4: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1805,6 +1861,7 @@ impl NativeSnapshot {
             phase: "disconnected".to_owned(),
             warning: None,
             error_code: None,
+            failure: None,
             transport: None,
             address_family: None,
             download_bytes_per_second: 0,
@@ -1813,6 +1870,9 @@ impl NativeSnapshot {
             uploaded_bytes: 0,
             reconnect_count: 0,
             active_listeners: Vec::new(),
+            active_frontends: Vec::new(),
+            tunnel_ipv4_available: false,
+            tunnel_ipv6_available: false,
             exit_ipv4: None,
             exit_ipv6: None,
             exit_city: None,

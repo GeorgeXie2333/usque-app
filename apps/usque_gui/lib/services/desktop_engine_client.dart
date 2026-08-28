@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import '../models/app_models.dart';
+import '../models/diagnostics_models.dart';
 import 'control_codec.dart';
 import 'desktop_engine_transport.dart';
 import 'engine_client.dart';
@@ -344,12 +345,64 @@ class DesktopEngineClient implements EngineClient {
   }
 
   @override
-  Future<String?> exportDiagnostics() async {
+  Future<DiagnosticSession> startDiagnostics(DiagnosticMode mode) {
+    return _serialized(() async {
+      final payload = ControlPayloadWriter()
+        ..enumeration(1, mode == DiagnosticMode.standard ? 1 : 2);
+      final response = await _request(36, payload.takeBytes());
+      final session = response.diagnosticSession;
+      if (session == null || session.sessionId.isEmpty) {
+        throw const EngineException(
+          'ENGINE_IPC_INVALID_RESPONSE',
+          'The local Engine returned no diagnostic session.',
+        );
+      }
+      return session;
+    });
+  }
+
+  @override
+  Future<DiagnosticSession> cancelDiagnostics(String sessionId) {
+    return _serialized(() async {
+      final payload = ControlPayloadWriter()..string(1, sessionId);
+      final response = await _request(37, payload.takeBytes());
+      final session = response.diagnosticSession;
+      if (session == null || session.sessionId.isEmpty) {
+        throw const EngineException(
+          'ENGINE_IPC_INVALID_RESPONSE',
+          'The local Engine returned no diagnostic session.',
+        );
+      }
+      return session;
+    });
+  }
+
+  @override
+  Future<DiagnosticSession?> getDiagnostics() {
+    return _serialized(() async {
+      final response = await _request(38, Uint8List(0));
+      final session = response.diagnosticSession;
+      return session == null || session.sessionId.isEmpty ? null : session;
+    });
+  }
+
+  @override
+  Future<ConnectionTimeline> getConnectionTimeline() {
+    return _serialized(() async {
+      final response = await _request(39, Uint8List(0));
+      return response.connectionTimeline ?? const ConnectionTimeline();
+    });
+  }
+
+  @override
+  Future<String?> exportDiagnostics({String? diagnosticSessionId}) async {
     final destination = await _transport.selectDiagnosticsDestination();
     if (destination == null || destination.isEmpty) {
       return null;
     }
-    final payload = ControlPayloadWriter()..string(1, destination);
+    final payload = ControlPayloadWriter()
+      ..string(1, destination)
+      ..string(2, diagnosticSessionId ?? '');
     await _serialized(() => _request(21, payload.takeBytes()));
     return destination;
   }

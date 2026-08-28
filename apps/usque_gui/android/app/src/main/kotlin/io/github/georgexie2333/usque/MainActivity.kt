@@ -46,6 +46,7 @@ class MainActivity : FlutterFragmentActivity() {
     }
     private val pendingVpnConnection = VpnPermissionRequestQueue()
     private var pendingDiagnosticsResult: MethodChannel.Result? = null
+    private var pendingDiagnosticsPayload: AndroidEngineMethodHandler.DiagnosticExportPayload? = null
     private var pendingWarpSecretResult: MethodChannel.Result? = null
     private var pendingWarpSecretProfileId: String? = null
     private var pendingLaunchTarget: String? = null
@@ -87,8 +88,11 @@ class MainActivity : FlutterFragmentActivity() {
                 connectWithPermission(profileJson, mode, result)
             }
 
-            override fun selectDiagnosticsDestination(result: MethodChannel.Result) {
-                this@MainActivity.selectDiagnosticsDestination(result)
+            override fun selectDiagnosticsDestination(
+                result: MethodChannel.Result,
+                payload: AndroidEngineMethodHandler.DiagnosticExportPayload,
+            ) {
+                this@MainActivity.selectDiagnosticsDestination(result, payload)
             }
 
             override fun selectWarpSecretDestination(
@@ -166,6 +170,10 @@ class MainActivity : FlutterFragmentActivity() {
                         this@MainActivity,
                         PerAppProxySettings(enabled = enabled, packageNames = packageNames),
                     ).toMap()
+
+            override fun publishEngineEvent(event: Map<String, Any?>) {
+                eventSink?.success(event)
+            }
 
             override fun requestAddQuickSettingsTile(result: MethodChannel.Result) {
                 if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
@@ -258,6 +266,9 @@ class MainActivity : FlutterFragmentActivity() {
         controlClient = VpnControlClient.create(this)
         controlClient.eventListener =
             VpnControlClient.EventListener { snapshot ->
+                if (::methodHandler.isInitialized) {
+                    methodHandler.observeSnapshot(snapshot)
+                }
                 eventSink?.success(snapshot)
             }
         methodHandler =
@@ -319,6 +330,7 @@ class MainActivity : FlutterFragmentActivity() {
             null,
         )
         pendingDiagnosticsResult = null
+        pendingDiagnosticsPayload = null
         pendingWarpSecretResult?.error(
             "SENSITIVE_OUTPUT_CANCELLED",
             "The Android UI closed before the WARP Secret was saved.",
@@ -343,7 +355,17 @@ class MainActivity : FlutterFragmentActivity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != CREATE_DIAGNOSTICS_REQUEST) return
         val result = pendingDiagnosticsResult ?: return
+        val payload = pendingDiagnosticsPayload
         pendingDiagnosticsResult = null
+        pendingDiagnosticsPayload = null
+        if (payload == null) {
+            result.error(
+                "DIAGNOSTICS_SESSION_MISMATCH",
+                "The diagnostic data selected for export is no longer available.",
+                null,
+            )
+            return
+        }
         if (resultCode != Activity.RESULT_OK) {
             result.success(null)
             return
@@ -357,12 +379,16 @@ class MainActivity : FlutterFragmentActivity() {
             )
             return
         }
-        ensureEngineComponents()
-        val snapshot = controlClient.lastSnapshot.toMap()
         val mainHandler = android.os.Handler(mainLooper)
         identityExecutor.execute {
             try {
-                AndroidMaintenance.writeDiagnostics(this, destination, snapshot)
+                AndroidMaintenance.writeDiagnostics(
+                    this,
+                    destination,
+                    payload.snapshot,
+                    payload.diagnosticSession,
+                    payload.connectionTimeline,
+                )
                 mainHandler.post { result.success(destination.toString()) }
             } catch (error: Exception) {
                 mainHandler.post {
@@ -376,7 +402,10 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
 
-    private fun selectDiagnosticsDestination(result: MethodChannel.Result) {
+    private fun selectDiagnosticsDestination(
+        result: MethodChannel.Result,
+        payload: AndroidEngineMethodHandler.DiagnosticExportPayload,
+    ) {
         if (pendingDiagnosticsResult != null) {
             result.error(
                 "DIAGNOSTICS_IN_PROGRESS",
@@ -386,6 +415,7 @@ class MainActivity : FlutterFragmentActivity() {
             return
         }
         pendingDiagnosticsResult = result
+        pendingDiagnosticsPayload = payload
         val intent =
             Intent(Intent.ACTION_CREATE_DOCUMENT)
                 .addCategory(Intent.CATEGORY_OPENABLE)
@@ -396,6 +426,7 @@ class MainActivity : FlutterFragmentActivity() {
             startActivityForResult(intent, CREATE_DIAGNOSTICS_REQUEST)
         } catch (error: Exception) {
             pendingDiagnosticsResult = null
+            pendingDiagnosticsPayload = null
             result.error(
                 "DIAGNOSTICS_DESTINATION_FAILED",
                 "No Android document provider is available.",

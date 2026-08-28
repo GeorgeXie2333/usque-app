@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 
 import '../models/app_models.dart';
+import '../models/diagnostics_models.dart';
 import 'engine_client.dart';
 
 /// Maximum framed IPC message size (4 MiB), shared with the Rust engine.
@@ -112,6 +113,8 @@ class ControlCodec {
       ProfileCatalog? profileCatalog;
       GeoRulesList? geoRulesList;
       List<GeoRulesUpdateResult>? geoRulesUpdate;
+      DiagnosticSession? diagnosticSession;
+      ConnectionTimeline? connectionTimeline;
       while (!reader.isDone) {
         final field = reader.field();
         switch (field.number) {
@@ -129,6 +132,12 @@ class ControlCodec {
             geoRulesList = _decodeGeoRulesList(reader.message(field));
           case 18:
             geoRulesUpdate = _decodeGeoRulesUpdate(reader.message(field));
+          case 19:
+            diagnosticSession = _decodeDiagnosticSession(reader.message(field));
+          case 20:
+            connectionTimeline = _decodeConnectionTimeline(
+              reader.message(field),
+            );
           default:
             reader.skip(field);
         }
@@ -148,6 +157,8 @@ class ControlCodec {
         profileCatalog,
         geoRulesList: geoRulesList,
         geoRulesUpdate: geoRulesUpdate,
+        diagnosticSession: diagnosticSession,
+        connectionTimeline: connectionTimeline,
       );
     } on FormatException catch (error) {
       throw _invalidIpcResponse(error);
@@ -177,6 +188,8 @@ class ControlCodec {
       final envelope = _ProtoReader(Uint8List.sublistView(frame, 4));
       EngineSnapshot? snapshot;
       GeoRulesProgress? geoProgress;
+      DiagnosticSession? diagnosticSession;
+      var diagnosticsChanged = false;
       while (!envelope.isDone) {
         final field = envelope.field();
         switch (field.number) {
@@ -194,11 +207,35 @@ class ControlCodec {
             }
           case 17:
             geoProgress = _decodeGeoProgress(envelope.message(field));
+          case 18:
+          case 21:
+          case 22:
+            final event = envelope.message(field);
+            diagnosticsChanged = true;
+            while (!event.isDone) {
+              final eventField = event.field();
+              if (eventField.number == 1) {
+                diagnosticSession = _decodeDiagnosticSession(
+                  event.message(eventField),
+                );
+              } else {
+                event.skip(eventField);
+              }
+            }
+          case 19:
+          case 20:
+            diagnosticsChanged = true;
+            envelope.skip(field);
           default:
             envelope.skip(field);
         }
       }
-      return EngineSnapshotEvent(snapshot: snapshot, geoProgress: geoProgress);
+      return EngineSnapshotEvent(
+        snapshot: snapshot,
+        geoProgress: geoProgress,
+        diagnosticSession: diagnosticSession,
+        diagnosticsChanged: diagnosticsChanged,
+      );
     } on FormatException catch (error) {
       throw _invalidIpcResponse(error);
     }
@@ -224,6 +261,8 @@ class ControlResponse {
     this.profileCatalog, {
     this.geoRulesList,
     this.geoRulesUpdate,
+    this.diagnosticSession,
+    this.connectionTimeline,
   });
 
   final EngineSnapshot? snapshot;
@@ -231,6 +270,8 @@ class ControlResponse {
   final ProfileCatalog? profileCatalog;
   final GeoRulesList? geoRulesList;
   final List<GeoRulesUpdateResult>? geoRulesUpdate;
+  final DiagnosticSession? diagnosticSession;
+  final ConnectionTimeline? connectionTimeline;
 }
 
 /// Minimal protobuf field writer for control request payloads.
@@ -684,6 +725,378 @@ GeoRulesProgress _decodeGeoProgress(_ProtoReader reader) {
   );
 }
 
+DiagnosticSession _decodeDiagnosticSession(_ProtoReader reader) {
+  var sessionId = '';
+  var state = DiagnosticSessionState.failed;
+  var startedAt = DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+  DateTime? completedAt;
+  var mode = DiagnosticMode.standard;
+  String? currentCheck;
+  var progressPercent = 0;
+  final findings = <DiagnosticFinding>[];
+  var summary = const DiagnosticSummary();
+  while (!reader.isDone) {
+    final field = reader.field();
+    switch (field.number) {
+      case 1:
+        sessionId = reader.string(field);
+      case 2:
+        state = _decodeIndexedEnum(
+          DiagnosticSessionState.values,
+          reader.varint(field),
+          'diagnostic session state',
+        );
+      case 3:
+        final milliseconds = reader.varint(field);
+        if (milliseconds > 0) {
+          startedAt = DateTime.fromMillisecondsSinceEpoch(
+            milliseconds,
+            isUtc: true,
+          );
+        }
+      case 4:
+        final milliseconds = reader.varint(field);
+        if (milliseconds > 0) {
+          completedAt = DateTime.fromMillisecondsSinceEpoch(
+            milliseconds,
+            isUtc: true,
+          );
+        }
+      case 5:
+        mode = _decodeIndexedEnum(
+          DiagnosticMode.values,
+          reader.varint(field),
+          'diagnostic mode',
+        );
+      case 6:
+        currentCheck = _emptyToNull(reader.string(field));
+      case 7:
+        progressPercent = reader.varint(field).clamp(0, 100);
+      case 8:
+        findings.add(_decodeDiagnosticFinding(reader.message(field)));
+      case 9:
+        summary = _decodeDiagnosticSummary(reader.message(field));
+      default:
+        reader.skip(field);
+    }
+  }
+  return DiagnosticSession(
+    sessionId: sessionId,
+    state: state,
+    startedAt: startedAt,
+    completedAt: completedAt,
+    mode: mode,
+    currentCheck: currentCheck,
+    progressPercent: progressPercent,
+    findings: List<DiagnosticFinding>.unmodifiable(findings),
+    summary: summary,
+  );
+}
+
+DiagnosticFinding _decodeDiagnosticFinding(_ProtoReader reader) {
+  var checkId = '';
+  var category = DiagnosticCategory.localComponent;
+  var status = DiagnosticCheckStatus.pending;
+  TransportFailureInfo? failure;
+  var severity = DiagnosticSeverity.info;
+  var summaryKey = '';
+  var remediationKey = '';
+  final evidence = <String>[];
+  DateTime? startedAt;
+  int? durationMilliseconds;
+  String? dependencyReason;
+  while (!reader.isDone) {
+    final field = reader.field();
+    switch (field.number) {
+      case 1:
+        checkId = reader.string(field);
+      case 2:
+        category = _decodeIndexedEnum(
+          DiagnosticCategory.values,
+          reader.varint(field),
+          'diagnostic category',
+        );
+      case 3:
+        status = _decodeIndexedEnum(
+          DiagnosticCheckStatus.values,
+          reader.varint(field),
+          'diagnostic check status',
+        );
+      case 4:
+        failure = _decodeTransportFailure(reader.message(field));
+      case 5:
+        severity = _decodeIndexedEnum(
+          DiagnosticSeverity.values,
+          reader.varint(field),
+          'diagnostic severity',
+        );
+      case 6:
+        summaryKey = reader.string(field);
+      case 7:
+        remediationKey = reader.string(field);
+      case 8:
+        evidence.add(reader.string(field));
+      case 9:
+        final milliseconds = reader.varint(field);
+        if (milliseconds > 0) {
+          startedAt = DateTime.fromMillisecondsSinceEpoch(
+            milliseconds,
+            isUtc: true,
+          );
+        }
+      case 10:
+        final value = reader.varint(field);
+        durationMilliseconds = value == 0 ? null : value;
+      case 11:
+        dependencyReason = _emptyToNull(reader.string(field));
+      default:
+        reader.skip(field);
+    }
+  }
+  return DiagnosticFinding(
+    checkId: checkId,
+    category: category,
+    status: status,
+    failure: failure,
+    severity: severity,
+    summaryKey: summaryKey,
+    remediationKey: remediationKey,
+    sanitizedEvidence: List<String>.unmodifiable(evidence),
+    startedAt: startedAt,
+    durationMilliseconds: durationMilliseconds,
+    dependencyReason: dependencyReason,
+  );
+}
+
+DiagnosticSummary _decodeDiagnosticSummary(_ProtoReader reader) {
+  var passed = 0;
+  var warnings = 0;
+  var failed = 0;
+  var skipped = 0;
+  var cancelled = 0;
+  while (!reader.isDone) {
+    final field = reader.field();
+    switch (field.number) {
+      case 1:
+        passed = reader.varint(field);
+      case 2:
+        warnings = reader.varint(field);
+      case 3:
+        failed = reader.varint(field);
+      case 4:
+        skipped = reader.varint(field);
+      case 5:
+        cancelled = reader.varint(field);
+      default:
+        reader.skip(field);
+    }
+  }
+  return DiagnosticSummary(
+    passed: passed,
+    warnings: warnings,
+    failed: failed,
+    skipped: skipped,
+    cancelled: cancelled,
+  );
+}
+
+TransportFailureInfo _decodeTransportFailure(_ProtoReader reader) {
+  var code = 'INTERNAL';
+  var stage = 'diagnostics';
+  String? transport;
+  String? addressFamily;
+  var retryable = false;
+  var fallbackAllowed = false;
+  var severity = DiagnosticSeverity.error;
+  var remediationKey = '';
+  String? sanitizedDetail;
+  while (!reader.isDone) {
+    final field = reader.field();
+    switch (field.number) {
+      case 1:
+        code = reader.string(field);
+      case 2:
+        stage = reader.string(field);
+      case 3:
+        transport = _emptyToNull(reader.string(field));
+      case 4:
+        addressFamily = _emptyToNull(reader.string(field));
+      case 5:
+        retryable = reader.varint(field) != 0;
+      case 6:
+        fallbackAllowed = reader.varint(field) != 0;
+      case 7:
+        severity = _decodeIndexedEnum(
+          DiagnosticSeverity.values,
+          reader.varint(field),
+          'failure severity',
+        );
+      case 8:
+        remediationKey = reader.string(field);
+      case 9:
+        sanitizedDetail = _emptyToNull(reader.string(field));
+      default:
+        reader.skip(field);
+    }
+  }
+  return TransportFailureInfo(
+    code: code,
+    stage: stage,
+    transport: transport,
+    addressFamily: addressFamily,
+    retryable: retryable,
+    fallbackAllowed: fallbackAllowed,
+    severity: severity,
+    remediationKey: remediationKey,
+    sanitizedDetail: sanitizedDetail,
+  );
+}
+
+ConnectionTimeline _decodeConnectionTimeline(_ProtoReader reader) {
+  final events = <ConnectionTimelineEvent>[];
+  var metrics = const ConnectionMetrics();
+  var droppedEventCount = 0;
+  while (!reader.isDone) {
+    final field = reader.field();
+    switch (field.number) {
+      case 1:
+        events.add(_decodeConnectionTimelineEvent(reader.message(field)));
+      case 2:
+        metrics = _decodeConnectionMetrics(reader.message(field));
+      case 3:
+        droppedEventCount = reader.varint(field);
+      default:
+        reader.skip(field);
+    }
+  }
+  return ConnectionTimeline(
+    events: List<ConnectionTimelineEvent>.unmodifiable(events),
+    metrics: metrics,
+    droppedEventCount: droppedEventCount,
+  );
+}
+
+ConnectionTimelineEvent _decodeConnectionTimelineEvent(_ProtoReader reader) {
+  var sequence = 0;
+  DateTime? timestamp;
+  var elapsedMilliseconds = 0;
+  var eventType = ConnectionTimelineEventType.failed;
+  String? stage;
+  String? transport;
+  String? addressFamily;
+  int? durationMilliseconds;
+  TransportFailureInfo? failure;
+  while (!reader.isDone) {
+    final field = reader.field();
+    switch (field.number) {
+      case 1:
+        sequence = reader.varint(field);
+      case 2:
+        final milliseconds = reader.varint(field);
+        if (milliseconds > 0) {
+          timestamp = DateTime.fromMillisecondsSinceEpoch(
+            milliseconds,
+            isUtc: true,
+          );
+        }
+      case 3:
+        elapsedMilliseconds = reader.varint(field);
+      case 4:
+        eventType = _decodeIndexedEnum(
+          ConnectionTimelineEventType.values,
+          reader.varint(field),
+          'connection event type',
+        );
+      case 5:
+        stage = _emptyToNull(reader.string(field));
+      case 6:
+        transport = _emptyToNull(reader.string(field));
+      case 7:
+        addressFamily = _emptyToNull(reader.string(field));
+      case 8:
+        final value = reader.varint(field);
+        durationMilliseconds = value == 0 ? null : value;
+      case 9:
+        failure = _decodeTransportFailure(reader.message(field));
+      default:
+        reader.skip(field);
+    }
+  }
+  return ConnectionTimelineEvent(
+    sequence: sequence,
+    timestamp: timestamp,
+    elapsedMilliseconds: elapsedMilliseconds,
+    eventType: eventType,
+    stage: stage,
+    transport: transport,
+    addressFamily: addressFamily,
+    durationMilliseconds: durationMilliseconds,
+    failure: failure,
+  );
+}
+
+ConnectionMetrics _decodeConnectionMetrics(_ProtoReader reader) {
+  int? lastConnectDuration;
+  int? h3Duration;
+  int? h2Duration;
+  var rtt = 0;
+  var rttKnown = false;
+  var reconnectCount = 0;
+  var fallbackCount = 0;
+  var networkChangeCount = 0;
+  var highWatermark = 0;
+  var dropCount = 0;
+  String? lastFailureCode;
+  String? lastReconnectCode;
+  while (!reader.isDone) {
+    final field = reader.field();
+    switch (field.number) {
+      case 1:
+        final value = reader.varint(field);
+        lastConnectDuration = value == 0 ? null : value;
+      case 2:
+        final value = reader.varint(field);
+        h3Duration = value == 0 ? null : value;
+      case 3:
+        final value = reader.varint(field);
+        h2Duration = value == 0 ? null : value;
+      case 4:
+        rtt = reader.varint(field);
+      case 5:
+        rttKnown = reader.varint(field) != 0;
+      case 6:
+        reconnectCount = reader.varint(field);
+      case 7:
+        fallbackCount = reader.varint(field);
+      case 8:
+        networkChangeCount = reader.varint(field);
+      case 9:
+        highWatermark = reader.varint(field);
+      case 10:
+        dropCount = reader.varint(field);
+      case 11:
+        lastFailureCode = _emptyToNull(reader.string(field));
+      case 12:
+        lastReconnectCode = _emptyToNull(reader.string(field));
+      default:
+        reader.skip(field);
+    }
+  }
+  return ConnectionMetrics(
+    lastConnectDurationMilliseconds: lastConnectDuration,
+    lastH3HandshakeDurationMilliseconds: h3Duration,
+    lastH2HandshakeDurationMilliseconds: h2Duration,
+    currentSmoothedRttMilliseconds: rttKnown ? rtt : null,
+    reconnectCount: reconnectCount,
+    fallbackCount: fallbackCount,
+    networkChangeCount: networkChangeCount,
+    sendQueueHighWatermark: highWatermark,
+    sendQueueDropCount: dropCount,
+    lastFailureCode: lastFailureCode,
+    lastReconnectCode: lastReconnectCode,
+  );
+}
+
 ProxySettings _decodeProxySettings(
   _ProtoReader reader,
   ProxySettings defaults,
@@ -882,6 +1295,7 @@ EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
   var platformLockdown = false;
   final activeListeners = <String>[];
   final frontends = <FrontendRuntimeStatus>[];
+  TransportFailureInfo? failure;
   while (!reader.isDone) {
     final field = reader.field();
     switch (field.number) {
@@ -924,6 +1338,8 @@ EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
         activeListeners.add(reader.string(field));
       case 15:
         frontends.add(_decodeFrontendStatus(reader.message(field)));
+      case 16:
+        failure = _decodeTransportFailure(reader.message(field));
       default:
         // Includes reserved field 14 (legacy captive-portal countdown).
         reader.skip(field);
@@ -947,6 +1363,8 @@ EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
     platformLockdown: platformLockdown,
     activeListeners: List<String>.unmodifiable(activeListeners),
     frontends: List<FrontendRuntimeStatus>.unmodifiable(frontends),
+    errorCode: failure?.code,
+    failure: failure,
   );
 }
 

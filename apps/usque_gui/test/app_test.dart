@@ -12,6 +12,7 @@ import 'package:usque/app.dart';
 import 'package:usque/core/app_strings.dart';
 import 'package:usque/core/usque_theme.dart';
 import 'package:usque/models/app_models.dart';
+import 'package:usque/models/diagnostics_models.dart';
 import 'package:usque/screens/advanced_settings_screen.dart';
 import 'package:usque/screens/diagnostics_screen.dart';
 import 'package:usque/screens/geo_direct_settings_screen.dart';
@@ -412,7 +413,39 @@ class FakeEngineClient implements EngineClient {
   Future<EngineSnapshot> snapshot() async => current;
 
   @override
-  Future<String?> exportDiagnostics() async => 'test-diagnostics.zip';
+  Future<DiagnosticSession> startDiagnostics(DiagnosticMode mode) async {
+    return DiagnosticSession(
+      sessionId: 'test-diagnostic-session',
+      state: DiagnosticSessionState.completed,
+      startedAt: DateTime.fromMillisecondsSinceEpoch(1, isUtc: true),
+      completedAt: DateTime.fromMillisecondsSinceEpoch(2, isUtc: true),
+      mode: mode,
+      progressPercent: 100,
+    );
+  }
+
+  @override
+  Future<DiagnosticSession> cancelDiagnostics(String sessionId) async {
+    return DiagnosticSession(
+      sessionId: sessionId,
+      state: DiagnosticSessionState.cancelled,
+      startedAt: DateTime.fromMillisecondsSinceEpoch(1, isUtc: true),
+      completedAt: DateTime.fromMillisecondsSinceEpoch(2, isUtc: true),
+      mode: DiagnosticMode.standard,
+      progressPercent: 100,
+    );
+  }
+
+  @override
+  Future<DiagnosticSession?> getDiagnostics() async => null;
+
+  @override
+  Future<ConnectionTimeline> getConnectionTimeline() async =>
+      const ConnectionTimeline();
+
+  @override
+  Future<String?> exportDiagnostics({String? diagnosticSessionId}) async =>
+      'test-diagnostics.zip';
 
   @override
   Future<UpdateCheckResult> checkForUpdates({bool manual = true}) async =>

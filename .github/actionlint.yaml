@@ -1,0 +1,6 @@
+self-hosted-runner:
+  labels:
+    - usque-snapshot-vm
+    - usque-android-device
+    - usque-network-observer
+    - usque-performance-lab

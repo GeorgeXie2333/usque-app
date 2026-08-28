@@ -21,6 +21,7 @@ use crate::packet_mux::{PacketMuxTable, PacketOrigin};
 use crate::pin_refresh::EndpointPinRefresher;
 use crate::socket::{SocketProtector, noop_socket_protector};
 use crate::socks5::Socks5Frontend;
+use crate::telemetry::ConnectionTimelineSnapshot;
 
 const PACKET_QUEUE_CAPACITY: usize = 1_024;
 
@@ -36,10 +37,11 @@ pub struct MasqueTunIo {
 impl MasqueTunIo {
     pub async fn send_packet(&self, packet: &[u8]) -> Result<(), TransportError> {
         crate::h2::validate_ip_packet(packet)?;
-        self.outgoing
-            .send(Bytes::copy_from_slice(packet))
-            .await
-            .map_err(|_| TransportError::TunnelClosed)
+        match self.outgoing.try_send(Bytes::copy_from_slice(packet)) {
+            Ok(()) => Ok(()),
+            Err(mpsc::error::TrySendError::Full(_)) => Err(TransportError::SendQueueFull),
+            Err(mpsc::error::TrySendError::Closed(_)) => Err(TransportError::TunnelClosed),
+        }
     }
 
     pub async fn receive_packet(&mut self) -> Result<Bytes, TransportError> {
@@ -433,9 +435,11 @@ impl MasqueRuntime {
         self.raw_outgoing
             .as_ref()
             .ok_or(TransportError::TunnelClosed)?
-            .send(Bytes::copy_from_slice(packet))
-            .await
-            .map_err(|_| TransportError::TunnelClosed)
+            .try_send(Bytes::copy_from_slice(packet))
+            .map_err(|error| match error {
+                mpsc::error::TrySendError::Full(_) => TransportError::SendQueueFull,
+                mpsc::error::TrySendError::Closed(_) => TransportError::TunnelClosed,
+            })
     }
 
     pub fn assigned_ipv4(&self) -> Ipv4Addr {
@@ -460,6 +464,10 @@ impl MasqueRuntime {
 
     pub fn statistics(&self) -> TrafficSnapshot {
         self.monitor.statistics()
+    }
+
+    pub fn connection_timeline(&self) -> ConnectionTimelineSnapshot {
+        self.monitor.connection_timeline()
     }
 
     pub fn performance(&self) -> ProxyPerformanceSnapshot {
@@ -925,6 +933,22 @@ mod tests {
         tun_sink.send_replace(Some(tx));
         dispatch_tun_incoming(&tun_sink, Bytes::from_static(b"closed"));
         assert!(tun_sink.borrow().is_none());
+    }
+
+    #[tokio::test]
+    async fn tun_send_queue_saturation_fails_immediately() {
+        let (outgoing, _outgoing_rx) = mpsc::channel(1);
+        let (_incoming_tx, incoming) = mpsc::channel(1);
+        let io = MasqueTunIo { outgoing, incoming };
+        let packet = [
+            0x45, 0, 0, 20, 0, 0, 0, 0, 64, 17, 0, 0, 1, 1, 1, 1, 8, 8, 8, 8,
+        ];
+
+        io.send_packet(&packet).await.unwrap();
+        assert!(matches!(
+            io.send_packet(&packet).await,
+            Err(TransportError::SendQueueFull)
+        ));
     }
 
     fn free_loopback() -> SocketAddr {

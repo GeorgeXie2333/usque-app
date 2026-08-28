@@ -83,6 +83,44 @@ class VpnControlClientTest {
     }
 
     @Test
+    fun diagnosticProbePassesOnlyAfterABoundedSnapshotReply() {
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        var probe: VpnControlClient.SnapshotProbe? = null
+
+        client.probeSnapshot { probe = it }
+
+        assertNull(probe)
+        assertEquals(1, client.pendingDiagnosticProbeCountForTest())
+        val requestId = endpoint.messages.single().requestId
+        client.deliverSnapshotReply(
+            requestId,
+            errorCode = null,
+            errorMessage = null,
+            snapshot = mapOf("phase" to "connected"),
+        )
+
+        assertEquals(true, probe?.controlReachable)
+        assertEquals("connected", probe?.snapshot?.get("phase"))
+        assertEquals(0, client.pendingDiagnosticProbeCountForTest())
+        scheduler.fireAllDelayed()
+        assertEquals(true, probe?.controlReachable)
+    }
+
+    @Test
+    fun diagnosticProbeTimeoutFailsClosedWithTheLastSnapshot() {
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        var probe: VpnControlClient.SnapshotProbe? = null
+
+        client.probeSnapshot { probe = it }
+        scheduler.fireAllDelayed()
+
+        assertEquals(false, probe?.controlReachable)
+        assertEquals(0, client.pendingDiagnosticProbeCountForTest())
+    }
+
+    @Test
     fun destroyCompletesPendingResultsOnlyOnce() {
         val endpoint = RecordingEndpoint()
         client.attachEndpointForTest(endpoint)
@@ -424,6 +462,21 @@ class VpnControlClientTest {
         client.deliverEvent(mapOf("phase" to "connected", "transport" to "h3"))
         assertEquals("connected", client.lastSnapshot["phase"])
         assertEquals(1, events.size)
+    }
+
+    @Test
+    fun eventStreamIsReachableOnlyAfterAnObservedSubscribedEvent() {
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+
+        client.setEventsWanted(true)
+        assertFalse(client.eventStreamReachable)
+
+        client.deliverEvent(mapOf("phase" to "connected"))
+        assertTrue(client.eventStreamReachable)
+
+        client.setEventsWanted(false)
+        assertFalse(client.eventStreamReachable)
     }
 
     @Test

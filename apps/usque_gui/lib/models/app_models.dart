@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+import 'diagnostics_models.dart';
+
 enum AppSection { home, profiles, proxy, settings, diagnostics }
 
 enum ConnectionPhase {
@@ -889,6 +891,7 @@ class EngineSnapshot {
     this.exit = const ExitInfo(),
     this.warning,
     this.errorCode,
+    this.failure,
     this.frontends = const <FrontendRuntimeStatus>[],
   });
 
@@ -908,6 +911,7 @@ class EngineSnapshot {
   final ExitInfo exit;
   final String? warning;
   final String? errorCode;
+  final TransportFailureInfo? failure;
   final List<FrontendRuntimeStatus> frontends;
 
   bool get isConnected =>
@@ -959,6 +963,11 @@ class EngineSnapshot {
       ),
       warning: map['warning'] as String?,
       errorCode: map['error_code'] as String?,
+      failure: map['failure'] is Map
+          ? TransportFailureInfo.fromMap(
+              Map<Object?, Object?>.from(map['failure'] as Map),
+            )
+          : null,
       frontends:
           (map['frontends'] as List?)
               ?.whereType<Map<Object?, Object?>>()
@@ -1007,6 +1016,7 @@ class EngineSnapshot {
             exit == other.exit &&
             warning == other.warning &&
             errorCode == other.errorCode &&
+            failure == other.failure &&
             listEquals(frontends, other.frontends);
   }
 
@@ -1028,6 +1038,7 @@ class EngineSnapshot {
     exit,
     warning,
     errorCode,
+    failure,
     Object.hashAll(frontends),
   ]);
 }

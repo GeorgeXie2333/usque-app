@@ -186,6 +186,10 @@ where
         self.packet_session_attached.load(Ordering::Acquire)
     }
 
+    pub fn tunnel_lease_attached(&self) -> bool {
+        self.tunnel_lease_attached.load(Ordering::Acquire)
+    }
+
     pub async fn recover_stale(&self) -> Result<(), CoordinatorError> {
         let mut journal = self.journal.lock().await;
         if journal.phase == RecoveryPhase::Clean {

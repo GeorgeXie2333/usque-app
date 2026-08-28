@@ -28,6 +28,18 @@ internal class AndroidEngineMethodHandler(
         const val DEFAULT_IDENTITY_PROFILE = "8c30b771-9ebd-457a-b67b-bbc74a1ddba6"
     }
 
+    private val diagnosticsCoordinator =
+        AndroidDiagnosticsCoordinator(
+            executor = identityExecutor,
+            publish = { event -> mainScheduler.post { activityCommands.publishEngineEvent(event) } },
+        )
+
+    data class DiagnosticExportPayload(
+        val snapshot: Map<String, Any?>,
+        val diagnosticSession: Map<String, Any?>?,
+        val connectionTimeline: Map<String, Any?>,
+    )
+
     /**
      * Activity-owned flows that require UI / permission surfaces.
      */
@@ -43,7 +55,10 @@ internal class AndroidEngineMethodHandler(
             result: MethodChannel.Result,
         )
 
-        fun selectDiagnosticsDestination(result: MethodChannel.Result)
+        fun selectDiagnosticsDestination(
+            result: MethodChannel.Result,
+            payload: DiagnosticExportPayload,
+        )
 
         fun selectWarpSecretDestination(
             profileId: String,
@@ -81,6 +96,8 @@ internal class AndroidEngineMethodHandler(
             enabled: Boolean,
             packageNames: List<String>,
         ): Map<String, Any?>
+
+        fun publishEngineEvent(event: Map<String, Any?>) {}
     }
 
     /**
@@ -225,6 +242,44 @@ internal class AndroidEngineMethodHandler(
                 controlClient.requestSnapshot(result)
             }
 
+            "startDiagnostics" -> {
+                val mode = call.argument<String>("mode")
+                if (mode == null) {
+                    result.error("INVALID_ARGUMENT", "The diagnostic mode is missing.", null)
+                } else {
+                    controlClient.probeSnapshot { probe ->
+                        runDiagnosticsCommand(result) {
+                            diagnosticsCoordinator.start(
+                                mode = mode,
+                                snapshot = probe.snapshot,
+                                controlReachable = probe.controlReachable,
+                                eventStreamReachable =
+                                    probe.controlReachable && controlClient.eventStreamReachable,
+                                nativeLinked = engineBridge.isLinked(),
+                                nativeReady = engineBridge.isReady(),
+                            )
+                        }
+                    }
+                }
+            }
+
+            "cancelDiagnostics" -> {
+                val sessionId = call.argument<String>("session_id")
+                if (sessionId.isNullOrBlank()) {
+                    result.error("INVALID_ARGUMENT", "The diagnostic session identifier is missing.", null)
+                } else {
+                    runDiagnosticsCommand(result) { diagnosticsCoordinator.cancel(sessionId) }
+                }
+            }
+
+            "getDiagnostics" -> {
+                result.success(diagnosticsCoordinator.current())
+            }
+
+            "getConnectionTimeline" -> {
+                result.success(diagnosticsCoordinator.timeline())
+            }
+
             "disconnect" -> {
                 activityCommands.cancelPendingVpnConnection(
                     "VPN_PERMISSION_CANCELLED",
@@ -359,7 +414,23 @@ internal class AndroidEngineMethodHandler(
             }
 
             "exportDiagnostics" -> {
-                activityCommands.selectDiagnosticsDestination(result)
+                val sessionId = call.argument<String>("diagnostic_session_id")
+                if (!diagnosticsCoordinator.matchesSession(sessionId)) {
+                    result.error(
+                        "DIAGNOSTICS_SESSION_MISMATCH",
+                        "The requested diagnostic session is no longer available.",
+                        null,
+                    )
+                } else {
+                    activityCommands.selectDiagnosticsDestination(
+                        result,
+                        DiagnosticExportPayload(
+                            snapshot = controlClient.lastSnapshot.toMap(),
+                            diagnosticSession = diagnosticsCoordinator.current()?.toMap(),
+                            connectionTimeline = diagnosticsCoordinator.timeline(),
+                        ),
+                    )
+                }
             }
 
             "checkForUpdates" -> {
@@ -385,6 +456,21 @@ internal class AndroidEngineMethodHandler(
             else -> {
                 result.notImplemented()
             }
+        }
+    }
+
+    fun observeSnapshot(snapshot: Map<String, Any?>) {
+        diagnosticsCoordinator.observeSnapshot(snapshot)
+    }
+
+    private fun runDiagnosticsCommand(
+        result: MethodChannel.Result,
+        command: () -> Map<String, Any?>,
+    ) {
+        try {
+            result.success(command())
+        } catch (error: AndroidDiagnosticsCoordinator.DiagnosticsException) {
+            result.error(error.code, error.message, null)
         }
     }
 

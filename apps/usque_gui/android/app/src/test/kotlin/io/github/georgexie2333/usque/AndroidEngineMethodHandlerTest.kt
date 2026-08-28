@@ -282,6 +282,63 @@ class AndroidEngineMethodHandlerTest {
     }
 
     @Test
+    fun startDiagnosticsFailsControlCheckWhenSnapshotProbeCannotReachService() {
+        controlClient.detachEndpointForTest()
+        val result = RecordingResult()
+
+        handler.handle(MethodCall("startDiagnostics", mapOf("mode" to "standard")), result)
+
+        val session = result.successValue as Map<*, *>
+        val findings = session["findings"] as List<*>
+        val controlFinding =
+            findings
+                .filterIsInstance<Map<*, *>>()
+                .single { it["check_id"] == "engine.control_channel" }
+        assertEquals("failed", controlFinding["status"])
+        assertEquals("ENGINE_UNAVAILABLE", (controlFinding["failure"] as Map<*, *>)["code"])
+    }
+
+    @Test
+    fun exportDiagnosticsFreezesTheRequestedSessionBeforeDestinationSelection() {
+        val firstResult = RecordingResult()
+        handler.handle(MethodCall("startDiagnostics", mapOf("mode" to "standard")), firstResult)
+        val firstRequestId =
+            endpoint.messages.last { it.first == UsqueVpnService.MSG_SNAPSHOT }.second
+        controlClient.deliverSnapshotReply(
+            firstRequestId,
+            null,
+            null,
+            diagnosticSnapshot(networkGeneration = 1L),
+        )
+        val firstSession = firstResult.successValue as Map<*, *>
+        val firstSessionId = firstSession["session_id"] as String
+
+        val exportResult = RecordingResult()
+        handler.handle(
+            MethodCall("exportDiagnostics", mapOf("diagnostic_session_id" to firstSessionId)),
+            exportResult,
+        )
+        val frozenPayload = requireNotNull(activityCommands.diagnosticsPayload)
+
+        val secondResult = RecordingResult()
+        handler.handle(MethodCall("startDiagnostics", mapOf("mode" to "standard")), secondResult)
+        val secondRequestId =
+            endpoint.messages.last { it.first == UsqueVpnService.MSG_SNAPSHOT }.second
+        controlClient.deliverSnapshotReply(
+            secondRequestId,
+            null,
+            null,
+            diagnosticSnapshot(networkGeneration = 2L),
+        )
+
+        assertEquals(1L, frozenPayload.snapshot["network_generation"])
+        assertEquals(firstSessionId, frozenPayload.diagnosticSession?.get("session_id"))
+        assertEquals(1, activityCommands.diagnosticsCount)
+        assertNull(exportResult.errorCode)
+        assertNull(secondResult.errorCode)
+    }
+
+    @Test
     fun provisionIdentityRequiresTerms() {
         val result = RecordingResult()
         handler.handle(MethodCall("provisionIdentity", mapOf("terms_accepted" to false)), result)
@@ -1037,6 +1094,24 @@ class AndroidEngineMethodHandlerTest {
         }
     }
 
+    private fun diagnosticSnapshot(networkGeneration: Long): Map<String, Any?> =
+        mapOf(
+            "phase" to "connected",
+            "transport" to "h3",
+            "address_family" to "ipv4",
+            "active_frontends" to listOf("socks5", "http"),
+            "tunnel_ipv4_available" to true,
+            "tunnel_ipv6_available" to false,
+            "tun_fd_valid" to true,
+            "tun_interface_present" to true,
+            "underlying_network_present" to true,
+            "underlying_family_mask" to 1,
+            "network_generation" to networkGeneration,
+            "dns_server_count" to 1,
+            "pending_cleanup" to false,
+            "platform_state_observed" to true,
+        )
+
     private class RecordingActivityCommands : AndroidEngineMethodHandler.ActivityCommands {
         var cancelCount = 0
         var lastCancelCode: String? = null
@@ -1044,6 +1119,7 @@ class AndroidEngineMethodHandlerTest {
         var lastProfileJson: String? = null
         var lastMode: String? = null
         var diagnosticsCount = 0
+        var diagnosticsPayload: AndroidEngineMethodHandler.DiagnosticExportPayload? = null
 
         override fun cancelPendingVpnConnection(
             code: String,
@@ -1064,8 +1140,12 @@ class AndroidEngineMethodHandlerTest {
             result.success(mapOf("phase" to "preparing"))
         }
 
-        override fun selectDiagnosticsDestination(result: MethodChannel.Result) {
+        override fun selectDiagnosticsDestination(
+            result: MethodChannel.Result,
+            payload: AndroidEngineMethodHandler.DiagnosticExportPayload,
+        ) {
             diagnosticsCount += 1
+            diagnosticsPayload = payload
             result.success(null)
         }
 

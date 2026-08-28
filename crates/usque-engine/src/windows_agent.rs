@@ -19,16 +19,20 @@ use tokio::{
     time::timeout,
 };
 use tokio_util::sync::CancellationToken;
-use usque_core::{IpPolicy, Profile, REGISTRATION_API_HOST, REGISTRATION_API_PORT};
+use usque_core::{
+    IpPolicy, Profile, REGISTRATION_API_HOST, REGISTRATION_API_PORT, TransportFailure,
+    TransportFailureCode, TransportStage,
+};
 use usque_ipc::{
     agent_v1::{
         self, AcquireDirectEgressRequest, AcquireTunnelLeaseRequest, AgentCapabilities,
         AgentRequest, AgentResponse, AgentState, ApplySystemProxyRequest,
         ClosePacketSessionRequest, CommitTunnelRequest,
         DirectEgressLease as AgentDirectEgressLease, GetCapabilitiesRequest,
-        GetPhysicalNetworkInfoRequest, GetStateRequest, OpenPacketSessionRequest,
-        PacketSessionHandles, PhysicalNetworkInfo, PrepareTunnelRequest, RestoreSystemProxyRequest,
-        ResumeTunnelRequest, RollbackTunnelRequest, agent_request, agent_response,
+        GetPhysicalNetworkInfoRequest, GetStateRequest, InspectPlatformStateRequest,
+        OpenPacketSessionRequest, PacketSessionHandles, PhysicalNetworkInfo, PlatformState,
+        PrepareTunnelRequest, RestoreSystemProxyRequest, ResumeTunnelRequest,
+        RollbackTunnelRequest, agent_request, agent_response,
     },
     decode_frame, encode_frame,
 };
@@ -36,10 +40,10 @@ use usque_platform::packet_ring::{
     PACKET_RING_LAYOUT_VERSION, PacketDirection, PacketRingError, SharedPacketRing,
 };
 use usque_transport::{
-    DirectEgressLease, DirectProtocol, EndpointPinRefresher, GeoDirectPolicy, ManagedTunnelMonitor,
-    MasqueRuntime, MasqueTlsIdentity, MasqueTunIo, NoopSocketProtector, RuntimeHealth, RuntimePath,
-    SPLIT_DNS_IPV4, SPLIT_DNS_IPV6, SocketHandle, SocketProtector, TrafficSnapshot, TransportError,
-    resolve_physical_host,
+    ConnectionTimelineSnapshot, DirectEgressLease, DirectProtocol, EndpointPinRefresher,
+    GeoDirectPolicy, ManagedTunnelMonitor, MasqueRuntime, MasqueTlsIdentity, MasqueTunIo,
+    NoopSocketProtector, RuntimeHealth, RuntimePath, SPLIT_DNS_IPV4, SPLIT_DNS_IPV6, SocketHandle,
+    SocketProtector, TrafficSnapshot, TransportError, resolve_physical_host,
 };
 use uuid::Uuid;
 use windows_sys::Win32::{
@@ -437,6 +441,11 @@ impl WindowsVpnMonitor {
                 last_path: transport.path(),
                 reconnect_count: transport.reconnect_count(),
                 message,
+                failure: TransportFailure::new(
+                    TransportFailureCode::AgentUnreachable,
+                    TransportStage::PlatformRecovery,
+                )
+                .on_path(transport.path().transport, transport.path().endpoint_family),
             }
         } else {
             self.tunnel.health()
@@ -445,6 +454,10 @@ impl WindowsVpnMonitor {
 
     pub(crate) fn statistics(&self) -> TrafficSnapshot {
         self.tunnel.statistics()
+    }
+
+    pub(crate) fn connection_timeline(&self) -> ConnectionTimelineSnapshot {
+        self.tunnel.connection_timeline()
     }
 
     pub(crate) fn failure(&self) -> Option<String> {
@@ -601,6 +614,10 @@ impl WindowsVpnRuntime {
 
     pub(crate) fn statistics(&self) -> TrafficSnapshot {
         self.monitor.statistics()
+    }
+
+    pub(crate) fn connection_timeline(&self) -> ConnectionTimelineSnapshot {
+        self.monitor.connection_timeline()
     }
 
     pub(crate) fn failure(&self) -> Option<String> {
@@ -1594,6 +1611,24 @@ impl WindowsAgentClient {
         }
     }
 
+    async fn inspect_platform_state_if_running(&self) -> Result<PlatformState, WindowsVpnError> {
+        // Diagnostics must be read-only. Opening an existing pipe is allowed;
+        // unlike `call`, this deliberately never starts or reconfigures the
+        // Agent service when it is not already available.
+        let mut pipe = ClientOptions::new().open(self.pipe_name.as_ref())?;
+        let exchange = self.exchange(
+            &mut pipe,
+            agent_request::Payload::InspectPlatformState(InspectPlatformStateRequest {}),
+        );
+        match timeout(AGENT_RPC_TIMEOUT, exchange)
+            .await
+            .map_err(|_| WindowsVpnError::RpcTimeout)??
+        {
+            agent_response::Payload::PlatformState(state) => Ok(state),
+            payload => Err(WindowsVpnError::UnexpectedResponse(payload_name(&payload))),
+        }
+    }
+
     async fn get_physical_network_info(
         &self,
         operation_id: Uuid,
@@ -1964,6 +1999,12 @@ impl WindowsAgentClient {
     }
 }
 
+pub(crate) async fn inspect_platform_state_if_running() -> Result<PlatformState, WindowsVpnError> {
+    WindowsAgentClient::production()
+        .inspect_platform_state_if_running()
+        .await
+}
+
 fn payload_name(payload: &agent_response::Payload) -> &'static str {
     match payload {
         agent_response::Payload::Empty(_) => "empty",
@@ -1972,6 +2013,7 @@ fn payload_name(payload: &agent_response::Payload) -> &'static str {
         agent_response::Payload::PacketSession(_) => "packet_session",
         agent_response::Payload::PhysicalNetworkInfo(_) => "physical_network_info",
         agent_response::Payload::DirectEgressLease(_) => "direct_egress_lease",
+        agent_response::Payload::PlatformState(_) => "platform_state",
     }
 }
 
