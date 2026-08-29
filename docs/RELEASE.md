@@ -9,6 +9,7 @@ Which signatures count as official, how fingerprints are published, and what hap
 - The tag must be `v0.2.1` and must point at the current `main` commit.
 - That commit must already have a successful `ci.yml` push run, including `CI / gate`.
 - `release-signing` and `release-publish` both require approval.
+- Android Developer Console must show `io.github.georgexie2333.usque` and the certificate fingerprint in `ANDROID_SIGNER_SHA256` as **Registered**.
 - Signing material stays in environment secrets. Do not put it in repository variables, files, artifacts, logs, or caches.
 
 ## Signing inputs
