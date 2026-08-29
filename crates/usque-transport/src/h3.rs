@@ -412,7 +412,8 @@ async fn drive_h3_actor(
     let mut ready = false;
     let mut control = ConnectIpControlPlane::new(control_tx);
     let mut pending_packet: Option<OutgoingPacket> = None;
-    let mut wire_datagrams = VecDeque::new();
+    let mut wire_datagrams = VecDeque::with_capacity(MAX_PENDING_WIRE_DATAGRAMS);
+    let mut free_wire_buffers = Vec::new();
     let mut receive_buffer = vec![0u8; 65_535];
     let mut keepalive = interval_at(Instant::now() + KEEPALIVE_INTERVAL, KEEPALIVE_INTERVAL);
     keepalive.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -528,8 +529,8 @@ async fn drive_h3_actor(
             }
         }
 
-        generate_wire_datagrams(&mut connection, &mut wire_datagrams)?;
-        send_due_wire_datagrams(&socket, &mut wire_datagrams).await?;
+        generate_wire_datagrams(&mut connection, &mut wire_datagrams, &mut free_wire_buffers)?;
+        send_due_wire_datagrams(&socket, &mut wire_datagrams, &mut free_wire_buffers).await?;
 
         if connection.is_closed() {
             return Err(connection_closed_error(&connection));
@@ -754,15 +755,19 @@ struct WireDatagram {
 fn generate_wire_datagrams(
     connection: &mut quiche::Connection,
     pending: &mut VecDeque<WireDatagram>,
+    free_buffers: &mut Vec<Vec<u8>>,
 ) -> Result<(), TransportError> {
     while pending.len() < MAX_PENDING_WIRE_DATAGRAMS {
-        let mut bytes = vec![0u8; MAX_UDP_PAYLOAD_SIZE];
+        let mut bytes = take_wire_buffer(free_buffers);
         match connection.send(&mut bytes) {
             Ok((length, send_info)) => {
                 bytes.truncate(length);
                 pending.push_back(WireDatagram { bytes, send_info });
             }
-            Err(quiche::Error::Done) => break,
+            Err(quiche::Error::Done) => {
+                recycle_wire_buffer(free_buffers, bytes);
+                break;
+            }
             Err(error) => {
                 return Err(TransportError::Http3(format!(
                     "generate QUIC packet: {error:?}"
@@ -776,6 +781,7 @@ fn generate_wire_datagrams(
 async fn send_due_wire_datagrams(
     socket: &UdpSocket,
     pending: &mut VecDeque<WireDatagram>,
+    free_buffers: &mut Vec<Vec<u8>>,
 ) -> Result<(), TransportError> {
     while pending
         .front()
@@ -794,16 +800,32 @@ async fn send_due_wire_datagrams(
             )
             .into());
         }
+        recycle_wire_buffer(free_buffers, datagram.bytes);
     }
     Ok(())
 }
 
+fn take_wire_buffer(free_buffers: &mut Vec<Vec<u8>>) -> Vec<u8> {
+    let mut bytes = free_buffers
+        .pop()
+        .unwrap_or_else(|| Vec::with_capacity(MAX_UDP_PAYLOAD_SIZE));
+    bytes.resize(MAX_UDP_PAYLOAD_SIZE, 0);
+    bytes
+}
+
+fn recycle_wire_buffer(free_buffers: &mut Vec<Vec<u8>>, mut bytes: Vec<u8>) {
+    bytes.clear();
+    if free_buffers.len() < MAX_PENDING_WIRE_DATAGRAMS {
+        free_buffers.push(bytes);
+    }
+}
+
 fn encode_http_datagram(stream_id: u64, packet: &[u8]) -> Result<Vec<u8>, TransportError> {
     validate_ip_packet(packet)?;
-    let payload = IpDatagram::new(Bytes::copy_from_slice(packet)).encode()?;
-    let mut encoded = Vec::with_capacity(payload.len() + 8);
+    let mut encoded = Vec::with_capacity(packet.len() + 16);
     encode_varint(stream_id / 4, &mut encoded)?;
-    encoded.extend_from_slice(&payload);
+    encode_varint(usque_protocol::DEFAULT_CONTEXT_ID, &mut encoded)?;
+    encoded.extend_from_slice(packet);
     Ok(encoded)
 }
 
@@ -911,6 +933,50 @@ mod tests {
             packet
         );
         assert!(decode_http_datagram(4, &encoded).unwrap().is_none());
+    }
+
+    #[test]
+    fn http_datagram_encoding_matches_protocol_composition() {
+        let packet = ipv4_packet();
+        for quarter_stream_id in [
+            0,
+            63,
+            64,
+            16_383,
+            16_384,
+            1_073_741_823,
+            1_073_741_824,
+            (1_u64 << 60) - 1,
+        ] {
+            let stream_id = quarter_stream_id * 4;
+            let payload = IpDatagram::new(Bytes::copy_from_slice(&packet))
+                .encode()
+                .unwrap();
+            let mut reference = Vec::with_capacity(payload.len() + 8);
+            encode_varint(quarter_stream_id, &mut reference).unwrap();
+            reference.extend_from_slice(&payload);
+
+            assert_eq!(encode_http_datagram(stream_id, &packet).unwrap(), reference);
+        }
+    }
+
+    #[test]
+    fn wire_datagram_buffers_are_reused_with_a_fixed_bound() {
+        let mut free = Vec::new();
+        let first = take_wire_buffer(&mut free);
+        assert_eq!(first.len(), MAX_UDP_PAYLOAD_SIZE);
+        let allocation = first.as_ptr();
+        recycle_wire_buffer(&mut free, first);
+
+        let reused = take_wire_buffer(&mut free);
+        assert_eq!(reused.len(), MAX_UDP_PAYLOAD_SIZE);
+        assert_eq!(reused.as_ptr(), allocation);
+        recycle_wire_buffer(&mut free, reused);
+
+        for _ in 0..=MAX_PENDING_WIRE_DATAGRAMS {
+            recycle_wire_buffer(&mut free, Vec::with_capacity(MAX_UDP_PAYLOAD_SIZE));
+        }
+        assert_eq!(free.len(), MAX_PENDING_WIRE_DATAGRAMS);
     }
 
     #[test]
