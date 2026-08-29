@@ -67,6 +67,27 @@ A lost backup of an official key is treated the same as a compromise: do not inv
 
 Debug and unsigned Android builds used on a developer device are not release certificates. Do not reuse the official Android keystore on a development host.
 
+## Android developer-verification ownership proofs
+
+An Android developer-verification ownership-proof APK is a restricted,
+single-purpose artifact. It is not an official release, must not be installed or
+distributed, and must never be attached to a GitHub Release.
+
+Only `.github/workflows/android-developer-verification.yml` may create this
+artifact. The workflow runs manually from `main`, requires approval through the
+`release-signing` environment, injects the account-bound challenge from the
+`ANDROID_DEVELOPER_VERIFICATION_SNIPPET` environment secret, and signs with the
+existing Android release identity. It must verify the package name, embedded
+challenge, ABI set, and pinned signing-certificate fingerprint before exposing
+the proof APK as a one-day Actions artifact.
+
+The challenge must not be committed, accepted as a workflow input, printed in a
+log, or retained as a plaintext file outside the protected runner. The proof APK
+may be downloaded by the release maintainer only for immediate console upload;
+delete that copy and remove the environment secret after the console accepts the
+proof. This ownership flow does not authorize signing-key rotation or
+publication of any package.
+
 ## Maintainer rules
 
 - Do not commit PFX, keystore, or password files.

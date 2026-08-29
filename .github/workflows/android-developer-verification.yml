@@ -1,0 +1,236 @@
+name: Android developer verification proof
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: android-developer-verification-proof
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  CMAKE_GENERATOR: Ninja
+  FLUTTER_COMMIT: 84fc5cbb223bc12f83d65b647ff8a56caf779ffd
+  FLUTTER_VERSION: 3.44.7
+
+jobs:
+  proof-apk:
+    name: Build restricted ownership-proof APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    environment: release-signing
+    permissions:
+      contents: read
+    env:
+      ANDROID_SIGNER_SHA256: ${{ vars.ANDROID_SIGNER_SHA256 }}
+    steps:
+      - name: Checkout current main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Validate protected inputs and source
+        shell: bash
+        env:
+          ANDROID_DEVELOPER_VERIFICATION_SNIPPET: ${{ secrets.ANDROID_DEVELOPER_VERIFICATION_SNIPPET }}
+          USQUE_ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+          USQUE_ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_STORE_PASSWORD }}
+          USQUE_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          USQUE_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main" || {
+            echo "::error::Ownership proof APKs may only be built from main."
+            exit 1
+          }
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+          required=(
+            ANDROID_DEVELOPER_VERIFICATION_SNIPPET
+            USQUE_ANDROID_KEYSTORE_BASE64
+            USQUE_ANDROID_STORE_PASSWORD
+            USQUE_ANDROID_KEY_ALIAS
+            USQUE_ANDROID_KEY_PASSWORD
+            ANDROID_SIGNER_SHA256
+          )
+          for variable_name in "${required[@]}"; do
+            test -n "${!variable_name:-}" || {
+              echo "::error::Protected input is missing: $variable_name"
+              exit 1
+            }
+          done
+          [[ "$ANDROID_SIGNER_SHA256" =~ ^[0-9A-Fa-f]{64}$ ]] || {
+            echo "::error::ANDROID_SIGNER_SHA256 must contain one SHA-256 digest."
+            exit 1
+          }
+
+          asset="apps/usque_gui/android/app/src/main/assets/adi-registration.properties"
+          test ! -e "$asset" || {
+            echo "::error::The verification asset must not be committed."
+            exit 1
+          }
+
+      - name: Install Java
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Flutter from pinned commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/flutter"
+          git -C "$RUNNER_TEMP/flutter" init
+          git -C "$RUNNER_TEMP/flutter" remote add origin https://github.com/flutter/flutter.git
+          git -C "$RUNNER_TEMP/flutter" fetch --depth 1 origin \
+            "refs/tags/$FLUTTER_VERSION:refs/tags/$FLUTTER_VERSION"
+          git -C "$RUNNER_TEMP/flutter" checkout --detach "refs/tags/$FLUTTER_VERSION"
+          test "$(git -C "$RUNNER_TEMP/flutter" rev-parse HEAD)" = "$FLUTTER_COMMIT"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+
+      - name: Install pinned Rust and Android toolchains
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal
+          rustup default 1.97.1
+          rustup target add aarch64-linux-android
+          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          test -n "$android_sdk"
+          sdkmanager="$android_sdk/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$sdkmanager"
+          "$sdkmanager" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;29.0.14206865" \
+            "cmake;3.22.1"
+
+      - name: Restore protected Android signing identity
+        shell: bash
+        env:
+          USQUE_ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          keystore="$RUNNER_TEMP/usque-release.keystore"
+          printf '%s' "$USQUE_ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore"
+          chmod 600 "$keystore"
+          test -s "$keystore"
+          echo "USQUE_ANDROID_KEYSTORE=$keystore" >> "$GITHUB_ENV"
+
+      - name: Inject account-bound verification challenge
+        shell: bash
+        env:
+          ANDROID_DEVELOPER_VERIFICATION_SNIPPET: ${{ secrets.ANDROID_DEVELOPER_VERIFICATION_SNIPPET }}
+        run: |
+          set -euo pipefail
+          asset="$GITHUB_WORKSPACE/apps/usque_gui/android/app/src/main/assets/adi-registration.properties"
+          mkdir -p "$(dirname "$asset")"
+          umask 077
+          printf '%s' "$ANDROID_DEVELOPER_VERIFICATION_SNIPPET" > "$asset"
+          test -s "$asset"
+          echo "USQUE_ADI_VERIFICATION_ASSET=$asset" >> "$GITHUB_ENV"
+
+      - name: Resolve locked Flutter packages
+        working-directory: apps/usque_gui
+        run: flutter --suppress-analytics pub get --enforce-lockfile
+
+      - name: Build signed ARM64 ownership-proof APK
+        working-directory: apps/usque_gui
+        env:
+          USQUE_ANDROID_ABI: arm64-v8a
+          USQUE_ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_STORE_PASSWORD }}
+          USQUE_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          USQUE_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+        run: |
+          flutter --suppress-analytics build apk \
+            --release \
+            --split-per-abi \
+            --target-platform android-arm64 \
+            --no-pub
+
+      - name: Verify proof APK contents, package, and signer
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_apk="apps/usque_gui/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk"
+          output_dir="$RUNNER_TEMP/android-developer-verification"
+          proof_apk="$output_dir/DO-NOT-DISTRIBUTE-usque-android-developer-verification.apk"
+          test -s "$source_apk"
+          mkdir -p "$output_dir"
+          install -m 0600 "$source_apk" "$proof_apk"
+
+          entries="$RUNNER_TEMP/android-developer-verification.entries"
+          unzip -Z1 "$proof_apk" > "$entries"
+          test "$(grep -cx 'assets/adi-registration.properties' "$entries")" -eq 1
+          unzip -p "$proof_apk" assets/adi-registration.properties |
+            cmp -s - "$USQUE_ADI_VERIFICATION_ASSET"
+
+          actual_abis="$(
+            sed -nE 's#^lib/([^/]+)/.*#\1#p' "$entries" |
+              sort -u |
+              paste -sd ' ' -
+          )"
+          test "$actual_abis" = "arm64-v8a"
+          grep -q '^lib/arm64-v8a/libusque_android\.so$' "$entries"
+          if grep -Eq 'kernel_blob\.bin|libVkLayer_khronos_validation\.so' "$entries"; then
+            echo "::error::The proof APK contains a forbidden debug artifact."
+            exit 1
+          fi
+
+          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          aapt2="$android_sdk/build-tools/36.0.0/aapt2"
+          apksigner="$android_sdk/build-tools/36.0.0/apksigner"
+          test -x "$aapt2"
+          test -x "$apksigner"
+          package_name="$(
+            "$aapt2" dump badging "$proof_apk" |
+              sed -nE "s/^package: name='([^']+)'.*/\1/p" |
+              head -n1
+          )"
+          test "$package_name" = "io.github.georgexie2333.usque"
+
+          signature_output="$("$apksigner" verify --verbose --print-certs "$proof_apk")"
+          printf '%s\n' "$signature_output"
+          grep -q '^Verified using v2 scheme.*: true$' <<<"$signature_output"
+          test "$(
+            sed -nE 's/^Number of signers: ([0-9]+)$/\1/p' <<<"$signature_output"
+          )" = "1"
+          actual_signer="$(
+            sed -nE \
+              's/^Signer #1 certificate SHA-256 digest: ([0-9a-fA-F]+)$/\1/p' \
+              <<<"$signature_output" |
+              head -n1 |
+              tr '[:upper:]' '[:lower:]'
+          )"
+          expected_signer="$(tr '[:upper:]' '[:lower:]' <<<"$ANDROID_SIGNER_SHA256")"
+          test "$actual_signer" = "$expected_signer" || {
+            echo "::error::The proof APK was signed by an unexpected certificate."
+            exit 1
+          }
+
+      - name: Upload restricted proof APK
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: restricted-usque-android-developer-verification-${{ github.run_id }}
+          path: ${{ runner.temp }}/android-developer-verification/DO-NOT-DISTRIBUTE-usque-android-developer-verification.apk
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+      - name: Remove signing and verification material
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          asset="$GITHUB_WORKSPACE/apps/usque_gui/android/app/src/main/assets/adi-registration.properties"
+          source_apk="$GITHUB_WORKSPACE/apps/usque_gui/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk"
+          proof_apk="$RUNNER_TEMP/android-developer-verification/DO-NOT-DISTRIBUTE-usque-android-developer-verification.apk"
+          rm -f -- "$asset" "$source_apk" "$proof_apk" \
+            "$RUNNER_TEMP/usque-release.keystore" \
+            "$RUNNER_TEMP/android-developer-verification.entries"
+          rmdir -- "$RUNNER_TEMP/android-developer-verification" 2>/dev/null || true
