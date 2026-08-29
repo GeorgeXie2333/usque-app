@@ -477,12 +477,10 @@ impl DirectGatewayRouter {
             (mapping, true)
         };
 
-        let original = packet.clone();
         if !rewrite_destination(packet, &parsed, mapping.gateway) {
             if newly_reserved && let Ok(mut flows) = self.flows.lock() {
                 flows.remove_if(&flow, mapping.id);
             }
-            *packet = original;
             return false;
         }
         stack_incoming.send_async(packet).await;
@@ -772,6 +770,9 @@ fn rewrite_endpoint(
     new_port: u16,
     source: bool,
 ) -> bool {
+    // Keep every fallible check ahead of the first write. `route_outgoing`
+    // relies on a false result leaving the packet byte-for-byte unchanged so
+    // it can safely fall back to MASQUE without retaining a full packet copy.
     if old_ip.is_ipv4() != new_ip.is_ipv4() {
         return false;
     }
@@ -794,16 +795,19 @@ fn rewrite_endpoint(
     {
         return false;
     }
-    let old_bytes = ip_bytes(old_ip);
-    let new_bytes = ip_bytes(new_ip);
-    if old_bytes.len() != address_length || new_bytes.len() != address_length {
+    let (old_bytes, old_length) = ip_bytes(old_ip);
+    let (new_bytes, new_length) = ip_bytes(new_ip);
+    if old_length != address_length || new_length != address_length {
         return false;
     }
     let transport_checksum = read_u16(packet, parsed.checksum_offset).unwrap_or_default();
     let has_transport_checksum = !(parsed.checksum_optional && transport_checksum == 0);
     let mut updated_transport = transport_checksum;
     let mut updated_ipv4 = (parsed.version == 4).then(|| read_u16(packet, 10).unwrap_or_default());
-    for (old, new) in old_bytes.chunks_exact(2).zip(new_bytes.chunks_exact(2)) {
+    for (old, new) in old_bytes[..old_length]
+        .chunks_exact(2)
+        .zip(new_bytes[..new_length].chunks_exact(2))
+    {
         let old = u16::from_be_bytes([old[0], old[1]]);
         let new = u16::from_be_bytes([new[0], new[1]]);
         if has_transport_checksum {
@@ -823,7 +827,8 @@ fn rewrite_endpoint(
     if let Some(checksum) = updated_ipv4 {
         write_u16(packet, 10, checksum);
     }
-    packet[address_offset..address_offset + address_length].copy_from_slice(&new_bytes);
+    packet[address_offset..address_offset + address_length]
+        .copy_from_slice(&new_bytes[..new_length]);
     write_u16(packet, port_offset, new_port);
     true
 }
@@ -836,10 +841,17 @@ fn gateway_ip(ipv6: bool) -> IpAddr {
     }
 }
 
-fn ip_bytes(ip: IpAddr) -> Vec<u8> {
+fn ip_bytes(ip: IpAddr) -> ([u8; 16], usize) {
+    let mut bytes = [0_u8; 16];
     match ip {
-        IpAddr::V4(ip) => ip.octets().to_vec(),
-        IpAddr::V6(ip) => ip.octets().to_vec(),
+        IpAddr::V4(ip) => {
+            bytes[..4].copy_from_slice(&ip.octets());
+            (bytes, 4)
+        }
+        IpAddr::V6(ip) => {
+            bytes.copy_from_slice(&ip.octets());
+            (bytes, 16)
+        }
     }
 }
 
@@ -1189,12 +1201,14 @@ mod tests {
         let new_ip = IpAddr::V6(GATEWAY_IPV6);
         let old_port = 53;
         let new_port = 60_000;
+        let (old_bytes, old_length) = ip_bytes(old_ip);
+        let (new_bytes, new_length) = ip_bytes(new_ip);
         let initial_checksum = (1..=u16::MAX)
             .find(|candidate| {
                 let mut updated = *candidate;
-                for (old, new) in ip_bytes(old_ip)
+                for (old, new) in old_bytes[..old_length]
                     .chunks_exact(2)
-                    .zip(ip_bytes(new_ip).chunks_exact(2))
+                    .zip(new_bytes[..new_length].chunks_exact(2))
                 {
                     updated = update_checksum(
                         updated,
@@ -1224,6 +1238,39 @@ mod tests {
             SocketAddr::new(new_ip, new_port),
         ));
         assert_eq!(read_u16(&packet, parsed.checksum_offset), Some(u16::MAX));
+    }
+
+    #[test]
+    fn failed_nat_rewrite_never_mutates_the_packet() {
+        let mut packet = vec![0_u8; 28];
+        packet[0] = 0x45;
+        packet[2..4].copy_from_slice(&28_u16.to_be_bytes());
+        packet[9] = 17;
+        packet[12..16].copy_from_slice(&CLIENT_IPV4.octets());
+        packet[16..20].copy_from_slice(&Ipv4Addr::LOCALHOST.octets());
+        packet[20..22].copy_from_slice(&50_007_u16.to_be_bytes());
+        packet[22..24].copy_from_slice(&53_u16.to_be_bytes());
+        packet[24..26].copy_from_slice(&8_u16.to_be_bytes());
+        let parsed = NatPacket::parse(&packet).expect("valid UDP packet");
+
+        let original = packet.clone();
+        assert!(!rewrite_destination(
+            &mut packet,
+            &parsed,
+            SocketAddr::new(IpAddr::V6(GATEWAY_IPV6), 60_000),
+        ));
+        assert_eq!(packet, original);
+
+        for truncated_length in 0..original.len() {
+            let mut truncated = original[..truncated_length].to_vec();
+            let before = truncated.clone();
+            assert!(!rewrite_destination(
+                &mut truncated,
+                &parsed,
+                SocketAddr::new(IpAddr::V4(GATEWAY_IPV4), 60_000),
+            ));
+            assert_eq!(truncated, before);
+        }
     }
 
     #[test]
