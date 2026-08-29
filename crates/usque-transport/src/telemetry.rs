@@ -95,6 +95,8 @@ pub struct ConnectionTelemetry {
     sequence: Arc<AtomicU64>,
     first_packet_sent: Arc<AtomicBool>,
     first_packet_received: Arc<AtomicBool>,
+    send_queue_high_watermark: Arc<AtomicU64>,
+    send_queue_drop_count: Arc<AtomicU64>,
 }
 
 /// Carries the path identity for one in-flight transport attempt so lower
@@ -162,6 +164,8 @@ impl ConnectionTelemetry {
             sequence: Arc::new(AtomicU64::new(0)),
             first_packet_sent: Arc::new(AtomicBool::new(false)),
             first_packet_received: Arc::new(AtomicBool::new(false)),
+            send_queue_high_watermark: Arc::new(AtomicU64::new(0)),
+            send_queue_drop_count: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -236,7 +240,12 @@ impl ConnectionTelemetry {
     }
 
     pub fn record_first_packet_sent(&self, transport: Transport, family: AddressFamily) {
-        if !self.first_packet_sent.swap(true, Ordering::AcqRel) {
+        if !self.first_packet_sent.load(Ordering::Acquire)
+            && self
+                .first_packet_sent
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+        {
             self.record(
                 ConnectionEventType::FirstPacketSent,
                 Some(TransportStage::PacketSend),
@@ -248,7 +257,12 @@ impl ConnectionTelemetry {
     }
 
     pub fn record_first_packet_received(&self, transport: Transport, family: AddressFamily) {
-        if !self.first_packet_received.swap(true, Ordering::AcqRel) {
+        if !self.first_packet_received.load(Ordering::Acquire)
+            && self
+                .first_packet_received
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+        {
             self.record(
                 ConnectionEventType::FirstPacketReceived,
                 Some(TransportStage::PacketReceive),
@@ -260,17 +274,16 @@ impl ConnectionTelemetry {
     }
 
     pub fn observe_queue_depth(&self, depth: usize) {
-        let mut state = self.state();
-        state.metrics.send_queue_high_watermark =
-            state.metrics.send_queue_high_watermark.max(depth as u64);
+        self.send_queue_high_watermark
+            .fetch_max(depth as u64, Ordering::Relaxed);
     }
 
     pub fn record_queue_drop(&self) {
-        {
-            let mut state = self.state();
-            state.metrics.send_queue_drop_count =
-                state.metrics.send_queue_drop_count.saturating_add(1);
-        }
+        let _ = self.send_queue_drop_count.fetch_update(
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+            |count| Some(count.saturating_add(1)),
+        );
         let failure = TransportFailure::new(
             TransportFailureCode::SendQueueFull,
             TransportStage::PacketSend,
@@ -302,9 +315,12 @@ impl ConnectionTelemetry {
 
     pub fn snapshot(&self) -> ConnectionTimelineSnapshot {
         let state = self.state();
+        let mut metrics = state.metrics.clone();
+        metrics.send_queue_high_watermark = self.send_queue_high_watermark.load(Ordering::Relaxed);
+        metrics.send_queue_drop_count = self.send_queue_drop_count.load(Ordering::Relaxed);
         ConnectionTimelineSnapshot {
             events: state.events.iter().cloned().collect(),
-            metrics: state.metrics.clone(),
+            metrics,
             dropped_event_count: state.dropped_event_count,
         }
     }
@@ -348,6 +364,50 @@ mod tests {
         telemetry.record_first_packet_received(Transport::Http2, AddressFamily::Ipv4);
         let snapshot = telemetry.snapshot();
         assert_eq!(snapshot.events.len(), 2);
+    }
+
+    #[test]
+    fn queue_metrics_use_atomic_high_water_and_saturating_counts() {
+        let telemetry = ConnectionTelemetry::new(8);
+        telemetry.observe_queue_depth(7);
+        telemetry.observe_queue_depth(3);
+        telemetry.record_queue_drop();
+        telemetry.record_queue_drop();
+
+        let snapshot = telemetry.snapshot();
+        assert_eq!(snapshot.metrics.send_queue_high_watermark, 7);
+        assert_eq!(snapshot.metrics.send_queue_drop_count, 2);
+        assert_eq!(
+            snapshot
+                .events
+                .iter()
+                .filter(|event| event.event_type == ConnectionEventType::QueueSaturated)
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn concurrent_first_packet_updates_record_one_marker() {
+        let telemetry = ConnectionTelemetry::new(32);
+        std::thread::scope(|scope| {
+            for _ in 0..16 {
+                let telemetry = telemetry.clone();
+                scope.spawn(move || {
+                    telemetry.record_first_packet_sent(Transport::Http3, AddressFamily::Ipv4);
+                });
+            }
+        });
+
+        let snapshot = telemetry.snapshot();
+        assert_eq!(
+            snapshot
+                .events
+                .iter()
+                .filter(|event| event.event_type == ConnectionEventType::FirstPacketSent)
+                .count(),
+            1
+        );
     }
 
     #[test]
