@@ -34,17 +34,13 @@ impl Default for SharedNetworkSettings {
 }
 
 impl SharedNetworkSettings {
-    /// Copy device-wide settings from a runtime profile. Zero Trust ingress is
-    /// never stored as the shared endpoint.
+    /// Copy device-wide settings from a runtime profile. Endpoint settings are
+    /// shared by Consumer and Zero Trust accounts.
     pub fn from_profile(profile: &Profile) -> Self {
         Self {
             frontends: profile.frontends,
             transport: profile.transport,
-            endpoint: if profile.endpoint.is_zero_trust_managed() {
-                EndpointSettings::default()
-            } else {
-                profile.endpoint.clone()
-            },
+            endpoint: profile.endpoint.clone(),
             ip_policy: profile.ip_policy,
             mtu: profile.mtu,
             dns_mode: profile.dns_mode,
@@ -58,12 +54,6 @@ impl SharedNetworkSettings {
         }
     }
 
-    pub fn from_profile_keeping_endpoint(profile: &Profile, endpoint: EndpointSettings) -> Self {
-        let mut network = Self::from_profile(profile);
-        network.endpoint = endpoint;
-        network
-    }
-
     pub fn hydrate(&self, account: &Account) -> Profile {
         let mut profile = Profile {
             id: account.id,
@@ -71,10 +61,7 @@ impl SharedNetworkSettings {
             mode: super::OperatingMode::Vpn,
             frontends: self.frontends,
             transport: self.transport,
-            endpoint: account
-                .managed_endpoint
-                .clone()
-                .unwrap_or_else(|| self.endpoint.clone()),
+            endpoint: self.endpoint.clone(),
             ip_policy: self.ip_policy,
             mtu: self.mtu,
             dns_mode: self.dns_mode,

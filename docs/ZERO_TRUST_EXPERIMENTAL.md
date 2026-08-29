@@ -11,19 +11,19 @@ It does not implement organization policy synchronization, device posture, manag
 3. Accept the existing Cloudflare terms and open `https://<team>.cloudflareaccess.com/warp` in the system browser.
 4. Complete the organization's Access/IdP login.
 5. After Access login, return to Usque. Android may show an app chooser if the official WARP client is also installed. On Windows, paste the complete `com.cloudflare.warp://.../auth?token=...` callback or fill it from the clipboard. If you opted in to the current-user protocol association and Usque is already running, Windows can forward that callback to the open window. Manual paste remains available on both platforms.
-6. Usque exchanges the one-time assertion for a device ID/token and P-256 MASQUE enrollment, saves the returned Zero Trust endpoint, and commits the identity and profile atomically.
+6. Usque exchanges the one-time assertion for a device ID/token and P-256 MASQUE enrollment, validates the returned enrollment endpoint contract, and commits the identity and profile atomically. Runtime endpoint, port, and SNI remain the same editable device-wide settings used by Consumer profiles.
 
 The Access assertion is never written to the profile, vault, Android saved state, or logs. It is bounded to 64 KiB, accepted only for the expected team and exact callback shape, held in memory, consumed once, and discarded after submission. A restarted Android process has no active login and rejects the callback.
 
 ## Identity boundaries
 
 - Consumer profiles cannot be converted to Zero Trust profiles.
-- A Zero Trust profile can sign in again only to the same organization. This refreshes its device registration and endpoint.
+- A Zero Trust profile can sign in again only to the same organization. This refreshes its device registration and credentials without replacing the shared network endpoint.
 - Provider and organization are mirrored in a versioned, non-secret profile binding. The vault metadata must match it; missing or conflicting metadata is invalid and may only be repaired by signing in to the bound organization. Unbound pre-feature profiles remain legacy Consumer identities.
-- The registered Zero Trust endpoint is owned by that binding. Generic profile edits and network-default resets cannot replace it with a Consumer endpoint.
+- Endpoint, port, and SNI are device-wide settings shared by Consumer and Zero Trust profiles. Editing or resetting them from either account type updates every profile. Upgrading a legacy or schema-10 configuration removes historical per-account Zero Trust endpoint overrides and hydrates those profiles from the shared values.
 - Zero Trust profiles have no Usque WARP License operation. License copy, bind/unbind, and WARP Secret export are hidden and rejected by the engine.
 - Deleting a profile removes only local credentials. It does not revoke the device registration in the organization dashboard; an administrator must remove residual or test registrations there.
-- Registration never falls back to a Consumer endpoint, Consumer SNI, or Consumer identity after a Zero Trust failure.
+- Registration never falls back to a Consumer identity after a Zero Trust failure.
 
 ## Platform behavior
 
@@ -31,7 +31,7 @@ Windows does not change the default MSI tables and does not register `com.cloudf
 
 Android declares a restricted browsable intent for `com.cloudflare.warp://*.cloudflareaccess.com/auth`. An in-memory login session additionally requires the exact expected team. `onCreate` and `onNewIntent` feed the same one-shot gate; callbacks without an active login, for another team, after cancellation, after process restart, or after the first accepted callback are discarded. Co-installation with the official WARP app is allowed to produce Android's normal app chooser. Windows uses the same scheme, host, path, and single-token checks before any registration request is sent.
 
-Re-authenticating the connected profile disconnects the active tunnel before replacing credentials and reconnects only after the refreshed endpoint is loaded.
+Re-authenticating the connected profile disconnects the active tunnel before replacing credentials and then reconnects with the existing shared endpoint/SNI settings.
 
 ## Release gate
 

@@ -82,22 +82,7 @@ class AppController extends ChangeNotifier {
   }
 
   UsqueProfile _hydrateAccount(UsqueProfile account) {
-    final zeroTrust =
-        identityStatus(account.id).provider == IdentityProvider.zeroTrust;
-    return sharedNetwork.copyWith(
-      id: account.id,
-      name: account.name,
-      endpointIpv4: zeroTrust
-          ? account.endpointIpv4
-          : sharedNetwork.endpointIpv4,
-      endpointIpv6: zeroTrust
-          ? account.endpointIpv6
-          : sharedNetwork.endpointIpv6,
-      endpointPort: zeroTrust
-          ? account.endpointPort
-          : sharedNetwork.endpointPort,
-      sni: zeroTrust ? account.sni : sharedNetwork.sni,
-    );
+    return sharedNetwork.copyWith(id: account.id, name: account.name);
   }
 
   void _captureSharedNetwork() {
@@ -105,21 +90,7 @@ class AppController extends ChangeNotifier {
       sharedNetwork = UsqueProfile.defaultProfile();
       return;
     }
-    final source = profiles.firstWhere(
-      (profile) =>
-          identityStatus(profile.id).provider != IdentityProvider.zeroTrust,
-      orElse: () => profiles.first,
-    );
-    final zeroTrust =
-        identityStatus(source.id).provider == IdentityProvider.zeroTrust;
-    sharedNetwork = zeroTrust
-        ? source.copyWith(
-            endpointIpv4: UsqueProfile.defaultEndpointIpv4,
-            endpointIpv6: UsqueProfile.defaultEndpointIpv6,
-            endpointPort: UsqueProfile.defaultEndpointPort,
-            sni: UsqueProfile.defaultSni,
-          )
-        : source;
+    sharedNetwork = profiles.first;
   }
 
   Future<void> initialize() async {
@@ -876,22 +847,14 @@ class AppController extends ChangeNotifier {
     final normalized = updated.frontends.http
         ? updated
         : updated.copyWith(proxy: updated.proxy.copyWith(systemProxy: false));
-    final zeroTrust =
-        identityStatus(activeProfileId).provider == IdentityProvider.zeroTrust;
     sharedNetwork = sharedNetwork.copyWith(
       frontends: normalized.frontends,
       transport: normalized.transport,
       ipPolicy: normalized.ipPolicy,
-      endpointIpv4: zeroTrust
-          ? sharedNetwork.endpointIpv4
-          : normalized.endpointIpv4,
-      endpointIpv6: zeroTrust
-          ? sharedNetwork.endpointIpv6
-          : normalized.endpointIpv6,
-      endpointPort: zeroTrust
-          ? sharedNetwork.endpointPort
-          : normalized.endpointPort,
-      sni: zeroTrust ? sharedNetwork.sni : normalized.sni,
+      endpointIpv4: normalized.endpointIpv4,
+      endpointIpv6: normalized.endpointIpv6,
+      endpointPort: normalized.endpointPort,
+      sni: normalized.sni,
       mtu: normalized.mtu,
       dnsIpv4: normalized.dnsIpv4,
       dnsIpv6: normalized.dnsIpv6,
@@ -955,6 +918,7 @@ class AppController extends ChangeNotifier {
           activeProfileId = catalog.activeProfileId;
           profileIdentityStates = catalog.identityStates;
           profileIdentityStatuses = catalog.identityStatuses;
+          _captureSharedNetwork();
         } on Object {
           // Keep the optimistic in-memory state when the authoritative store
           // cannot be reloaded; the original mutation error remains visible.

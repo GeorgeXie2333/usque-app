@@ -19,7 +19,7 @@ mod network;
 pub use account::Account;
 pub use network::SharedNetworkSettings;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 10;
+pub const CURRENT_SCHEMA_VERSION: u32 = 11;
 /// Vault namespace for device-wide proxy-listener secrets. Never a profile id.
 pub const SHARED_NETWORK_SECRET_ID: Uuid =
     Uuid::from_u128(0x9f1c_6b20_5a7e_4d3a_9c11_00c0_ffee_0001);
@@ -103,9 +103,7 @@ impl AppConfig {
         matches!(
             self.identity_bindings.get(&id),
             Some(IdentityProvider::ZeroTrust { .. })
-        ) || self
-            .account(id)
-            .is_some_and(|account| account.managed_endpoint.is_some())
+        )
     }
 
     pub fn rename_account(&mut self, id: Uuid, name: String) -> Result<Profile, ConfigError> {
@@ -117,72 +115,37 @@ impl AppConfig {
             .ok_or(ConfigError::MissingActiveProfile(id))
     }
 
-    /// Apply a runtime profile snapshot. New accounts inherit existing network.
-    /// Existing accounts update shared network; Zero Trust endpoints stay on the
-    /// account, even without an identity binding.
+    /// Apply a runtime profile snapshot. New accounts inherit existing network;
+    /// existing accounts update the shared Consumer/Zero Trust network settings.
     pub fn upsert_runtime_profile(&mut self, incoming: Profile) -> Result<Profile, ConfigError> {
         let mut incoming = incoming;
         incoming.canonicalize_geo_direct()?;
         incoming.validate()?;
         let id = incoming.id;
         let name = incoming.name.clone();
-        let bound_zt = matches!(
-            self.identity_bindings.get(&id),
-            Some(IdentityProvider::ZeroTrust { .. })
-        );
-        let managed = incoming.endpoint.is_zero_trust_managed();
         match self.profiles.iter().position(|account| account.id == id) {
             None => {
-                self.profiles.push(Account {
-                    id,
-                    name,
-                    managed_endpoint: managed.then(|| incoming.endpoint.clone()),
-                });
+                self.profiles.push(Account { id, name });
             }
             Some(index) => {
                 let keep_username = incoming.proxy.listener_auth_username().is_none();
                 self.profiles[index].name = name;
-                if bound_zt || managed {
-                    let mut network = SharedNetworkSettings::from_profile_keeping_endpoint(
-                        &incoming,
-                        self.network.endpoint.clone(),
-                    );
-                    if keep_username {
-                        network.proxy.auth_username = self.network.proxy.auth_username.clone();
-                    }
-                    self.network = network;
-                    if managed {
-                        self.profiles[index].managed_endpoint = Some(incoming.endpoint.clone());
-                    }
-                } else {
-                    let mut network = SharedNetworkSettings::from_profile(&incoming);
-                    if keep_username {
-                        network.proxy.auth_username = self.network.proxy.auth_username.clone();
-                    }
-                    self.network = network;
-                    self.profiles[index].managed_endpoint = None;
+                let mut network = SharedNetworkSettings::from_profile(&incoming);
+                if keep_username {
+                    network.proxy.auth_username = self.network.proxy.auth_username.clone();
                 }
+                self.network = network;
             }
         }
         self.runtime_profile(id)
             .ok_or(ConfigError::MissingActiveProfile(id))
     }
 
-    pub fn insert_account(
-        &mut self,
-        id: Uuid,
-        name: String,
-        managed_endpoint: Option<EndpointSettings>,
-    ) -> Result<Profile, ConfigError> {
+    pub fn insert_account(&mut self, id: Uuid, name: String) -> Result<Profile, ConfigError> {
         if self.account(id).is_some() {
             return Err(ConfigError::DuplicateProfileId(id));
         }
-        let managed_endpoint = managed_endpoint.filter(EndpointSettings::is_zero_trust_managed);
-        self.profiles.push(Account {
-            id,
-            name,
-            managed_endpoint,
-        });
+        self.profiles.push(Account { id, name });
         let profile = self
             .runtime_profile(id)
             .ok_or(ConfigError::MissingActiveProfile(id))?;
@@ -1411,39 +1374,32 @@ mod tests {
     }
 
     #[test]
-    fn zero_trust_endpoint_stays_on_that_account() {
+    fn zero_trust_account_uses_and_updates_the_shared_endpoint() {
         let mut config = AppConfig::default();
         let work_id = Uuid::new_v4();
-        let managed = EndpointSettings {
-            ipv4: Ipv4Addr::new(162, 159, 197, 8),
-            ipv6: Ipv6Addr::new(0x2606, 0x4700, 0x0102, 0, 0, 0, 0, 8),
-            port: 443,
-            sni: "zt-masque.cloudflareclient.com".to_owned(),
-        };
         config.identity_bindings.insert(
             work_id,
             IdentityProvider::ZeroTrust {
                 organization: "example-team".to_owned(),
             },
         );
-        let work = config
-            .insert_account(work_id, "Work".to_owned(), Some(managed.clone()))
-            .unwrap();
-        assert_eq!(work.endpoint, managed);
+        let work = config.insert_account(work_id, "Work".to_owned()).unwrap();
+        assert_eq!(work.endpoint, config.network.endpoint);
 
-        let mut home = config.active_profile().unwrap();
-        home.endpoint.sni = "example.com".to_owned();
-        config.upsert_runtime_profile(home).unwrap();
+        let mut work = config.runtime_profile(work_id).unwrap();
+        work.endpoint.sni = "example.com".to_owned();
+        config.upsert_runtime_profile(work).unwrap();
 
         let work = config.runtime_profile(work_id).unwrap();
         let home = config.active_profile().unwrap();
-        assert_eq!(work.endpoint, managed);
+        assert_eq!(work.endpoint, home.endpoint);
+        assert_eq!(work.endpoint.sni, "example.com");
         assert_eq!(home.endpoint.sni, "example.com");
         assert_eq!(config.network.endpoint.sni, "example.com");
     }
 
     #[test]
-    fn binding_before_managed_endpoint_keeps_zt_off_the_shared_copy() {
+    fn zero_trust_edits_replace_the_shared_endpoint() {
         let mut config = AppConfig::default();
         let id = config.active_profile_id.unwrap();
         config.identity_bindings.insert(
@@ -1461,18 +1417,12 @@ mod tests {
         };
         let stored = config.upsert_runtime_profile(registered).unwrap();
         assert!(stored.endpoint.is_zero_trust_managed());
-        assert!(!config.network.endpoint.is_zero_trust_managed());
+        assert_eq!(config.network.endpoint, stored.endpoint);
     }
 
     #[test]
-    fn unbound_zero_trust_endpoint_stays_off_the_shared_copy() {
+    fn endpoint_values_do_not_classify_an_account_as_zero_trust() {
         let mut config = AppConfig::default();
-        let mut home = config.active_profile().unwrap();
-        home.endpoint.sni = "example.com".to_owned();
-        config.upsert_runtime_profile(home).unwrap();
-        let consumer = config.network.endpoint.clone();
-        assert!(!consumer.is_zero_trust_managed());
-
         let id = config.active_profile_id.unwrap();
         assert!(!config.is_zero_trust_account(id));
         let mut registered = config.active_profile().unwrap();
@@ -1485,16 +1435,12 @@ mod tests {
         let stored = config.upsert_runtime_profile(registered).unwrap();
 
         assert!(stored.endpoint.is_zero_trust_managed());
-        assert_eq!(config.network.endpoint, consumer);
-        assert_eq!(
-            config.account(id).unwrap().managed_endpoint.as_ref(),
-            Some(&stored.endpoint)
-        );
-        assert!(config.is_zero_trust_account(id));
+        assert_eq!(config.network.endpoint, stored.endpoint);
+        assert!(!config.is_zero_trust_account(id));
     }
 
     #[test]
-    fn from_profile_does_not_accept_zero_trust_shared_endpoint() {
+    fn from_profile_accepts_any_valid_shared_endpoint() {
         let profile = Profile {
             endpoint: EndpointSettings {
                 ipv4: Ipv4Addr::new(162, 159, 197, 2),
@@ -1506,8 +1452,7 @@ mod tests {
             ..Profile::default()
         };
         let network = SharedNetworkSettings::from_profile(&profile);
-        assert_eq!(network.endpoint, EndpointSettings::default());
-        assert!(!network.endpoint.is_zero_trust_managed());
+        assert_eq!(network.endpoint, profile.endpoint);
         assert_eq!(network.mtu, 1400);
     }
 

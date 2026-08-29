@@ -1049,16 +1049,20 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
                     .iter()
                     .find(|profile| Some(profile.id) == config.active_profile_id)
                 {
-                    config.network = SharedNetworkSettings::from_profile(active);
+                    let mut network = SharedNetworkSettings::from_profile(active);
+                    if active.endpoint.is_zero_trust_managed() {
+                        network.endpoint = incoming
+                            .iter()
+                            .find(|profile| !profile.endpoint.is_zero_trust_managed())
+                            .map(|profile| profile.endpoint.clone())
+                            .unwrap_or_default();
+                    }
+                    config.network = network;
                 }
                 config.profiles.clear();
                 for profile in incoming {
-                    let managed_endpoint = profile
-                        .endpoint
-                        .is_zero_trust_managed()
-                        .then_some(profile.endpoint.clone());
                     config
-                        .insert_account(profile.id, profile.name, managed_endpoint)
+                        .insert_account(profile.id, profile.name)
                         .map_err(|error| error.to_string())?;
                 }
                 if config.active_profile().is_none() {
@@ -1173,12 +1177,8 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
             if let Some(binding) = binding {
                 config.identity_bindings.insert(profile.id, binding);
             }
-            let managed_endpoint = profile
-                .endpoint
-                .is_zero_trust_managed()
-                .then_some(profile.endpoint.clone());
             config
-                .insert_account(profile.id, profile.name, managed_endpoint)
+                .insert_account(profile.id, profile.name)
                 .map_err(|error| error.to_string())?;
             config.preferences.profiles_migrated_from_flutter = true;
             changed = true;
@@ -2471,7 +2471,31 @@ mod tests {
     }
 
     #[test]
-    fn android_profile_store_persists_and_protects_zero_trust_binding() {
+    fn rust_profile_store_migrates_legacy_zero_trust_endpoint_to_shared_defaults() {
+        let directory = tempfile::tempdir().unwrap();
+        let config_path = directory.path().join("profiles-v2.json");
+        let mut profile: serde_json::Value = serde_json::from_str(&valid_profile_json()).unwrap();
+        profile["endpoint_v4"] = serde_json::json!("162.159.197.2");
+        profile["endpoint_v6"] = serde_json::json!("2606:4700:102::2");
+        profile["sni"] = serde_json::json!("zt-masque.cloudflareclient.com");
+        let import = serde_json::json!({
+            "command": "import_legacy_profiles",
+            "profiles": [profile],
+            "active_profile_id": "8c30b771-9ebd-457a-b67b-bbc74a1ddba6",
+        });
+
+        let response =
+            apply_profile_command(config_path.to_str().unwrap(), &import.to_string()).unwrap();
+        let response: serde_json::Value = serde_json::from_str(&response).unwrap();
+
+        assert_eq!(response["profiles"][0]["endpoint_v4"], "162.159.198.2");
+        assert_eq!(response["profiles"][0]["sni"], "speed.cloudflare.com");
+        let stored = ConfigStore::new(config_path).load().unwrap();
+        assert_eq!(stored.network.endpoint, EndpointSettings::default());
+    }
+
+    #[test]
+    fn android_profile_store_shares_endpoint_edits_and_protects_zero_trust_binding() {
         let directory = tempfile::tempdir().unwrap();
         let config_path = directory.path().join("profiles-v2.json");
         let mut registered: serde_json::Value =
@@ -2508,11 +2532,8 @@ mod tests {
         )
         .unwrap();
         let response: serde_json::Value = serde_json::from_str(&response).unwrap();
-        assert_eq!(response["profiles"][0]["endpoint_v4"], "162.159.197.2");
-        assert_eq!(
-            response["profiles"][0]["sni"],
-            "zt-masque.cloudflareclient.com"
-        );
+        assert_eq!(response["profiles"][0]["endpoint_v4"], "162.159.198.2");
+        assert_eq!(response["profiles"][0]["sni"], "speed.cloudflare.com");
 
         let conversion = apply_profile_command(
             config_path.to_str().unwrap(),

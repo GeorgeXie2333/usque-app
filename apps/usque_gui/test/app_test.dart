@@ -44,6 +44,7 @@ class FakeEngineClient implements EngineClient {
   String? lastZeroTrustTeam;
   String? lastZeroTrustCallback;
   bool failProfileIdentityCreation = false;
+  bool failProfileUpsert = false;
   final List<String> calls = <String>[];
   UsqueProfile? lastConnectedProfile;
   EngineSnapshot current = const EngineSnapshot();
@@ -82,42 +83,25 @@ class FakeEngineClient implements EngineClient {
     );
   }
 
-  bool _preservesEndpoint(String id) =>
-      storedIdentityStatuses[id]?.provider == IdentityProvider.zeroTrust;
-
   UsqueProfile _hydrate(UsqueProfile account, UsqueProfile network) {
-    final keepEndpoint = _preservesEndpoint(account.id);
-    return network.copyWith(
-      id: account.id,
-      name: account.name,
-      endpointIpv4: keepEndpoint ? account.endpointIpv4 : network.endpointIpv4,
-      endpointIpv6: keepEndpoint ? account.endpointIpv6 : network.endpointIpv6,
-      endpointPort: keepEndpoint ? account.endpointPort : network.endpointPort,
-      sni: keepEndpoint ? account.sni : network.sni,
-    );
+    return network.copyWith(id: account.id, name: account.name);
   }
 
   UsqueProfile _currentNetwork(UsqueProfile fallback) {
     if (storedProfiles.isEmpty) {
       return fallback;
     }
-    final source = storedProfiles.firstWhere(
-      (stored) => !_preservesEndpoint(stored.id),
-      orElse: () => storedProfiles.first,
-    );
-    if (_preservesEndpoint(source.id)) {
-      return source.copyWith(
-        endpointIpv4: UsqueProfile.defaultEndpointIpv4,
-        endpointIpv6: UsqueProfile.defaultEndpointIpv6,
-        endpointPort: UsqueProfile.defaultEndpointPort,
-        sni: UsqueProfile.defaultSni,
-      );
-    }
-    return source;
+    return storedProfiles.first;
   }
 
   @override
   Future<void> upsertProfile(UsqueProfile profile) async {
+    if (failProfileUpsert) {
+      throw const EngineException(
+        'PROFILE_SAVE_FAILED',
+        'Profile save failed.',
+      );
+    }
     final index = storedProfiles.indexWhere(
       (stored) => stored.id == profile.id,
     );
@@ -128,21 +112,12 @@ class FakeEngineClient implements EngineClient {
       ];
       return;
     }
-    final current = _currentNetwork(profile);
-    final network = _preservesEndpoint(profile.id)
-        ? profile.copyWith(
-            endpointIpv4: current.endpointIpv4,
-            endpointIpv6: current.endpointIpv6,
-            endpointPort: current.endpointPort,
-            sni: current.sni,
-          )
-        : profile;
     storedProfiles = storedProfiles
         .map((stored) {
           final account = stored.id == profile.id
               ? stored.copyWith(name: profile.name)
               : stored;
-          return _hydrate(account, network);
+          return _hydrate(account, profile);
         })
         .toList(growable: false);
   }
@@ -1527,6 +1502,38 @@ void main() {
   });
 
   test(
+    'failed shared endpoint save restores the authoritative network',
+    () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final authoritative = UsqueProfile.defaultProfile().copyWith(
+        sni: 'before.example.com',
+      );
+      final engine = FakeEngineClient()
+        ..legacyProfilesImported = true
+        ..storedProfiles = <UsqueProfile>[authoritative];
+      final controller = AppController(engine);
+      await controller.initialize();
+      addTearDown(controller.dispose);
+
+      engine.failProfileUpsert = true;
+      controller.updateNetwork(
+        controller.activeProfile.copyWith(sni: 'unsaved.example.com'),
+      );
+      expect(controller.activeProfile.sni, 'unsaved.example.com');
+
+      await controller.flushProfileWrites();
+
+      expect(
+        controller.lastError,
+        contains('Profile changes could not be saved'),
+      );
+      expect(controller.sharedNetwork.sni, 'before.example.com');
+      expect(controller.activeProfile.sni, 'before.example.com');
+      expect(engine.storedProfiles.single.sni, 'before.example.com');
+    },
+  );
+
+  test(
     'profile creation is committed only after identity provisioning',
     () async {
       SharedPreferences.setMockInitialValues(<String, Object>{});
@@ -1706,7 +1713,7 @@ void main() {
     controller.dispose();
   });
 
-  testWidgets('Zero Trust registered endpoint fields are read only', (
+  testWidgets('Zero Trust endpoint fields are editable and saved', (
     tester,
   ) async {
     SharedPreferences.setMockInitialValues(<String, Object>{
@@ -1738,12 +1745,59 @@ void main() {
       find.text(
         'This endpoint is managed by the Zero Trust device registration and cannot be edited here.',
       ),
-      findsOneWidget,
+      findsNothing,
     );
     final endpointFields = tester
         .widgetList<TextField>(find.byType(TextField))
         .take(4);
-    expect(endpointFields.every((field) => field.readOnly), isTrue);
+    expect(endpointFields.every((field) => !field.readOnly), isTrue);
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'SNI'),
+      'shared.example.com',
+    );
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(controller.activeProfile.sni, 'shared.example.com');
+    expect(engine.storedProfiles.single.sni, 'shared.example.com');
+  });
+
+  test('Zero Trust and Consumer profiles share endpoint changes', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+    });
+    final consumer = UsqueProfile.defaultProfile().copyWith(
+      sni: 'consumer.example.com',
+    );
+    final zeroTrust = consumer.copyWith(
+      id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+      name: 'Work',
+      sni: 'zt-masque.cloudflareclient.com',
+    );
+    final engine = FakeEngineClient()
+      ..legacyProfilesImported = true
+      ..storedProfiles = <UsqueProfile>[consumer, zeroTrust]
+      ..storedActiveProfileId = zeroTrust.id
+      ..storedIdentityStatuses = <String, ProfileIdentityStatus>{
+        zeroTrust.id: const ProfileIdentityStatus(
+          state: ProfileIdentityState.ready,
+          licenseState: LicenseState.notApplicable,
+          accountType: 'Zero Trust',
+          provider: IdentityProvider.zeroTrust,
+          organization: 'example-team',
+        ),
+      };
+    final controller = AppController(engine);
+    await controller.initialize();
+    addTearDown(controller.dispose);
+
+    expect(controller.activeProfile.sni, 'consumer.example.com');
+    controller.updateNetwork(
+      controller.activeProfile.copyWith(sni: 'shared.example.com'),
+    );
+    controller.setActiveProfile(consumer.id);
+
+    expect(controller.activeProfile.sni, 'shared.example.com');
   });
 
   testWidgets('Zero Trust identity choice remains readable on a narrow phone', (

@@ -1231,8 +1231,6 @@ internal class AndroidEngineMethodHandler(
             var licenseBytes: ByteArray? = null
             var remoteRegistered = false
             var identityStored = false
-            var oldProfile: JSONObject? = null
-            var endpointUpdated = false
             try {
                 val provider = storedIdentityProvider(profileId)
                 if (!provider.valid && !provider.repairable) {
@@ -1255,53 +1253,46 @@ internal class AndroidEngineMethodHandler(
                         ?.replace('-', '_')
                         ?.takeIf { it.isNotBlank() }
                         ?: Locale.getDefault().toString()
-                val endpoint =
-                    when (method) {
-                        "registerWithLicense" -> {
-                            licenseBytes = licenseKey!!.toByteArray(Charsets.UTF_8)
-                            newIdentity =
-                                engineBridge.registerConsumerWarpWithLicense(locale, licenseKey)
-                                    ?: throw IllegalStateException(
-                                        "Rust licensed registration returned no identity",
-                                    )
-                            newMetadata = consumerIdentityMetadata(newIdentity)
-                            null
-                        }
+                when (method) {
+                    "registerWithLicense" -> {
+                        licenseBytes = licenseKey!!.toByteArray(Charsets.UTF_8)
+                        newIdentity =
+                            engineBridge.registerConsumerWarpWithLicense(locale, licenseKey)
+                                ?: throw IllegalStateException(
+                                    "Rust licensed registration returned no identity",
+                                )
+                        newMetadata = consumerIdentityMetadata(newIdentity)
+                    }
 
-                        "zeroTrust" -> {
-                            val envelopeBytes =
-                                engineBridge.registerZeroTrustWarp(locale, team!!, callbackUri!!)
-                                    ?: throw IllegalStateException(
-                                        "Rust Zero Trust registration returned no identity",
-                                    )
+                    "zeroTrust" -> {
+                        val envelopeBytes =
+                            engineBridge.registerZeroTrustWarp(locale, team!!, callbackUri!!)
+                                ?: throw IllegalStateException(
+                                    "Rust Zero Trust registration returned no identity",
+                                )
                             remoteRegistered = true
                             try {
                                 val envelope = JSONObject(envelopeBytes.toString(Charsets.UTF_8))
+                                // Rust already validated the enrollment endpoint. Runtime endpoint,
+                                // port, and SNI remain in the shared editable profile settings.
                                 newIdentity =
                                     envelope.getString("warp_secret").toByteArray(Charsets.UTF_8)
-                                newMetadata =
-                                    envelope
-                                        .getString("identity_metadata")
-                                        .toByteArray(Charsets.UTF_8)
-                                ZeroTrustEndpoint(
-                                    ipv4 = envelope.getString("endpoint_v4"),
-                                    ipv6 = envelope.getString("endpoint_v6"),
-                                    port = envelope.getInt("endpoint_port"),
-                                    sni = envelope.getString("sni"),
-                                )
-                            } finally {
-                                envelopeBytes.fill(0)
-                            }
-                        }
-
-                        else -> {
-                            newIdentity =
-                                engineBridge.registerConsumerWarp(locale)
-                                    ?: throw IllegalStateException("Rust registration returned no identity")
-                            newMetadata = consumerIdentityMetadata(newIdentity)
-                            null
+                            newMetadata =
+                                envelope
+                                    .getString("identity_metadata")
+                                    .toByteArray(Charsets.UTF_8)
+                        } finally {
+                            envelopeBytes.fill(0)
                         }
                     }
+
+                    else -> {
+                        newIdentity =
+                            engineBridge.registerConsumerWarp(locale)
+                                ?: throw IllegalStateException("Rust registration returned no identity")
+                        newMetadata = consumerIdentityMetadata(newIdentity)
+                    }
+                }
                 remoteRegistered = true
 
                 identityStore.put(
@@ -1325,36 +1316,21 @@ internal class AndroidEngineMethodHandler(
                     identityStore.delete(profileId, SecureIdentityStore.Record.LICENSE)
                 }
 
-                if (endpoint != null) {
-                    oldProfile = loadProfile(profileId)
-                    val updated = JSONObject(oldProfile.toString())
-                    endpoint.applyTo(updated)
+                if (method == "zeroTrust") {
+                    val currentProfile = loadProfile(profileId)
                     engineBridge.applyProfileCommand(
                         profileConfigPath,
                         JSONObject()
                             .put("command", "upsert_profile")
-                            .put("profile", updated)
+                            .put("profile", currentProfile)
                             .put("identity_provider", "zero_trust")
                             .put("organization", team)
                             .toString(),
-                    ) ?: throw IllegalStateException("Rust did not update the Zero Trust endpoint")
-                    endpointUpdated = true
+                    ) ?: throw IllegalStateException("Rust did not persist the Zero Trust binding")
                 }
+
                 mainScheduler.post { result.success(null) }
             } catch (error: Exception) {
-                if (endpointUpdated && oldProfile != null) {
-                    runCatching {
-                        engineBridge.applyProfileCommand(
-                            profileConfigPath,
-                            JSONObject()
-                                .put("command", "upsert_profile")
-                                .put("profile", oldProfile)
-                                .put("identity_provider", "zero_trust")
-                                .put("organization", team)
-                                .toString(),
-                        )
-                    }
-                }
                 if (identityStored) {
                     runCatching {
                         restoreIdentityRecord(
@@ -1458,7 +1434,6 @@ internal class AndroidEngineMethodHandler(
                         ?.replace('-', '_')
                         ?.takeIf { it.isNotBlank() }
                         ?: Locale.getDefault().toString()
-                var endpoint: ZeroTrustEndpoint? = null
                 when (method) {
                     "registerWithLicense" -> {
                         licenseBytes = licenseKey!!.toByteArray(Charsets.UTF_8)
@@ -1479,18 +1454,13 @@ internal class AndroidEngineMethodHandler(
                         remoteRegistered = true
                         try {
                             val envelope = JSONObject(envelopeBytes.toString(Charsets.UTF_8))
+                            // Do not copy the enrollment endpoint into the new account: it inherits
+                            // the same shared endpoint/SNI settings as every Consumer account.
                             bytes = envelope.getString("warp_secret").toByteArray(Charsets.UTF_8)
                             metadata =
                                 envelope
                                     .getString("identity_metadata")
                                     .toByteArray(Charsets.UTF_8)
-                            endpoint =
-                                ZeroTrustEndpoint(
-                                    ipv4 = envelope.getString("endpoint_v4"),
-                                    ipv6 = envelope.getString("endpoint_v6"),
-                                    port = envelope.getInt("endpoint_port"),
-                                    sni = envelope.getString("sni"),
-                                )
                         } finally {
                             envelopeBytes.fill(0)
                         }
@@ -1532,12 +1502,10 @@ internal class AndroidEngineMethodHandler(
                         licenseBytes,
                     )
                 }
-                val committedProfile = JSONObject(profile)
-                endpoint?.applyTo(committedProfile)
                 val commitCommand =
                     JSONObject()
                         .put("command", "commit_profile_with_identity")
-                        .put("profile", committedProfile)
+                        .put("profile", JSONObject(profile))
                         .put(
                             "identity_provider",
                             if (method == "zeroTrust") "zero_trust" else "consumer",
@@ -1679,21 +1647,6 @@ internal class AndroidEngineMethodHandler(
         val repairable: Boolean = valid,
         val entitlement: String? = null,
     )
-
-    private data class ZeroTrustEndpoint(
-        val ipv4: String,
-        val ipv6: String,
-        val port: Int,
-        val sni: String,
-    ) {
-        fun applyTo(profile: JSONObject) {
-            profile
-                .put("endpoint_v4", ipv4)
-                .put("endpoint_v6", ipv6)
-                .put("endpoint_port", port)
-                .put("sni", sni)
-        }
-    }
 
     private fun consumerIdentityMetadata(identityJson: ByteArray?): ByteArray {
         val entitlement =
@@ -1951,20 +1904,13 @@ internal class AndroidEngineMethodHandler(
         return try {
             bytes = identityStore.get(profileId, SecureIdentityStore.Record.IDENTITY_METADATA)
             if (bytes == null) {
-                return binding ?: when {
-                    storedProfile == null -> {
-                        StoredIdentityProvider("consumer", valid = false)
-                    }
-
-                    isZeroTrustEndpoint(storedProfile) -> {
-                        StoredIdentityProvider("zeroTrust", valid = false)
-                    }
-
-                    else -> {
-                        // Profiles created before identity metadata existed are
-                        // legitimate Consumer identities.
-                        StoredIdentityProvider("consumer")
-                    }
+                return binding ?: if (storedProfile == null) {
+                    StoredIdentityProvider("consumer", valid = false)
+                } else {
+                    // Profiles created before identity metadata existed are
+                    // legitimate Consumer identities. Endpoint/SNI values are
+                    // user-editable and cannot identify an account provider.
+                    StoredIdentityProvider("consumer")
                 }
             }
             val metadata = JSONObject(bytes.toString(Charsets.UTF_8))
@@ -2054,15 +2000,6 @@ internal class AndroidEngineMethodHandler(
                 StoredIdentityProvider("consumer", valid = false, repairable = false)
             }
         }
-    }
-
-    private fun isZeroTrustEndpoint(profile: JSONObject): Boolean {
-        val sni = profile.optString("sni")
-        val ipv4 = profile.optString("endpoint_v4")
-        val ipv6 = profile.optString("endpoint_v6")
-        return sni.equals("zt-masque.cloudflareclient.com", ignoreCase = true) ||
-            ipv4.startsWith("162.159.197.") ||
-            ipv6.startsWith("2606:4700:102:", ignoreCase = true)
     }
 
     private fun connect(

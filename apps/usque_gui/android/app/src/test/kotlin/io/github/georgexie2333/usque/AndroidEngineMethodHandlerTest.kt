@@ -3,6 +3,7 @@ package io.github.georgexie2333.usque
 import android.content.ServiceConnection
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -574,6 +575,44 @@ class AndroidEngineMethodHandlerTest {
     }
 
     @Test
+    fun zeroTrustCreationKeepsTheSharedEndpointFromTheProfile() {
+        val result = RecordingResult()
+        handler.handle(
+            MethodCall(
+                "createProfileWithIdentity",
+                mapOf(
+                    "profile" to
+                        mapOf(
+                            "id" to "p-new",
+                            "name" to "Work",
+                            "endpoint_v4" to "162.159.198.2",
+                            "endpoint_v6" to "2606:4700:103::2",
+                            "endpoint_port" to 443,
+                            "sni" to "speed.cloudflare.com",
+                        ),
+                    "method" to "zeroTrust",
+                    "team_name" to "example-team",
+                    "callback_uri" to
+                        "com.cloudflare.warp://example-team.cloudflareaccess.com/auth?token=test",
+                    "terms_accepted" to true,
+                ),
+            ),
+            result,
+        )
+
+        assertNull(result.errorCode)
+        val commit =
+            engineBridge.commands
+                .map(::JSONObject)
+                .first { it.optString("command") == "commit_profile_with_identity" }
+        val committedProfile = commit.getJSONObject("profile")
+        assertEquals("162.159.198.2", committedProfile.getString("endpoint_v4"))
+        assertEquals("2606:4700:103::2", committedProfile.getString("endpoint_v6"))
+        assertEquals(443, committedProfile.getInt("endpoint_port"))
+        assertEquals("speed.cloudflare.com", committedProfile.getString("sni"))
+    }
+
+    @Test
     fun zeroTrustCreationDeletesPartialIdentityWhenMetadataStorageFails() {
         identityStore.failOnPut = SecureIdentityStore.Record.IDENTITY_METADATA
         val result = RecordingResult()
@@ -712,7 +751,7 @@ class AndroidEngineMethodHandlerTest {
     }
 
     @Test
-    fun missingMetadataOnZeroTrustEndpointIsInvalidAndBlocksExport() {
+    fun missingMetadataOnBoundZeroTrustIdentityIsInvalidAndBlocksExport() {
         identityStore.put(
             "p1",
             SecureIdentityStore.Record.WARP_SECRET,
@@ -872,6 +911,10 @@ class AndroidEngineMethodHandlerTest {
             {
               "profiles":[{
                 "id":"p1",
+                "endpoint_v4":"162.159.198.2",
+                "endpoint_v6":"2606:4700:103::2",
+                "endpoint_port":443,
+                "sni":"speed.cloudflare.com",
                 "identity_provider":"zero_trust",
                 "identity_organization":"example-team"
               }]
@@ -894,12 +937,13 @@ class AndroidEngineMethodHandlerTest {
             repaired,
         )
         assertNull(repaired.errorCode)
-        assertTrue(
-            engineBridge.commands.any {
-                it.contains("\"identity_provider\":\"zero_trust\"") &&
-                    it.contains("\"organization\":\"example-team\"")
-            },
-        )
+        val update =
+            engineBridge.commands
+                .map(::JSONObject)
+                .first { it.optString("command") == "upsert_profile" }
+        assertEquals("zero_trust", update.getString("identity_provider"))
+        assertEquals("example-team", update.getString("organization"))
+        assertEquals("speed.cloudflare.com", update.getJSONObject("profile").getString("sni"))
 
         identityStore.delete("p1", SecureIdentityStore.Record.IDENTITY_METADATA)
         val crossTeam = RecordingResult()

@@ -126,7 +126,6 @@ struct LegacyStoredConfig {
 
 impl AppConfig {
     fn from_legacy(legacy: LegacyStoredConfig) -> Self {
-        let identity_bindings = legacy.identity_bindings;
         let mut network = legacy.network;
         if network.endpoint.is_zero_trust_managed() {
             network.endpoint = legacy
@@ -143,22 +142,13 @@ impl AppConfig {
             profiles: legacy
                 .profiles
                 .into_iter()
-                .map(|profile| {
-                    let bound_zt = matches!(
-                        identity_bindings.get(&profile.id),
-                        Some(IdentityProvider::ZeroTrust { .. })
-                    );
-                    Account {
-                        id: profile.id,
-                        name: profile.name,
-                        managed_endpoint: (bound_zt || profile.endpoint.is_zero_trust_managed())
-                            .then_some(profile.endpoint)
-                            .filter(EndpointSettings::is_zero_trust_managed),
-                    }
+                .map(|profile| Account {
+                    id: profile.id,
+                    name: profile.name,
                 })
                 .collect(),
             preferences: legacy.preferences,
-            identity_bindings,
+            identity_bindings: legacy.identity_bindings,
             pending_identity_deletions: legacy.pending_identity_deletions,
             pending_identity_creations: legacy.pending_identity_creations,
         }
@@ -245,6 +235,16 @@ fn migrate_app_config(config: &mut AppConfig) {
     if config.schema_version < 10 {
         config.network.geo_direct_countries.clear();
         config.schema_version = 10;
+    }
+    if config.schema_version < 11 {
+        // Schema 11 removes per-account Zero Trust endpoint overrides. The
+        // shared network endpoint is already the Consumer/default value in
+        // schema 9 and 10. Repair any out-of-contract legacy copy before every
+        // account starts hydrating from this one editable value.
+        if config.network.endpoint.is_zero_trust_managed() {
+            config.network.endpoint = EndpointSettings::default();
+        }
+        config.schema_version = 11;
     }
 }
 
@@ -512,12 +512,8 @@ mod tests {
         assert_eq!(migrated.network.mtu, 1400);
         assert!(!migrated.network.endpoint.is_zero_trust_managed());
         assert_eq!(
-            migrated.account(zero_trust.id).unwrap().managed_endpoint,
-            Some(zero_trust.endpoint.clone())
-        );
-        assert_eq!(
             migrated.runtime_profile(zero_trust.id).unwrap().endpoint,
-            zero_trust.endpoint
+            migrated.network.endpoint
         );
         assert_eq!(migrated.active_profile().unwrap().mtu, 1400);
 
@@ -525,7 +521,7 @@ mod tests {
             serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
         assert!(saved["profiles"][0].get("mtu").is_none());
         assert!(saved["profiles"][0].get("frontends").is_none());
-        assert!(saved["profiles"][1].get("managed_endpoint").is_some());
+        assert!(saved["profiles"][1].get("managed_endpoint").is_none());
     }
 
     #[test]
@@ -552,6 +548,76 @@ mod tests {
             serde_json::from_slice(&fs::read(store.backup_path()).unwrap()).unwrap();
         assert_eq!(backup["schema_version"], 9);
         assert!(backup["network"].get("geo_direct_countries").is_none());
+    }
+
+    #[test]
+    fn schema_ten_drops_zero_trust_endpoint_override_and_uses_shared_network() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ConfigStore::new(directory.path().join("config.json"));
+        let profile_id = Uuid::new_v4();
+        let mut config = AppConfig {
+            schema_version: 10,
+            ..AppConfig::default()
+        };
+        config
+            .insert_account(profile_id, "Work".to_owned())
+            .unwrap();
+        config.identity_bindings.insert(
+            profile_id,
+            IdentityProvider::zero_trust("example-team").unwrap(),
+        );
+        config.network.endpoint.sni = "shared.example.com".to_owned();
+        let mut value = serde_json::to_value(&config).unwrap();
+        value["schema_version"] = serde_json::json!(10);
+        value["profiles"][1]["managed_endpoint"] = serde_json::json!({
+            "ipv4": "162.159.197.8",
+            "ipv6": "2606:4700:102::8",
+            "port": 443,
+            "sni": "zt-masque.cloudflareclient.com"
+        });
+        fs::write(store.path(), serde_json::to_vec_pretty(&value).unwrap()).unwrap();
+
+        let migrated = store.load().unwrap();
+
+        assert_eq!(migrated.schema_version, CURRENT_SCHEMA_VERSION);
+        assert_eq!(
+            migrated.runtime_profile(profile_id).unwrap().endpoint,
+            migrated.network.endpoint
+        );
+        assert_eq!(migrated.network.endpoint.sni, "shared.example.com");
+        let saved: serde_json::Value =
+            serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+        assert!(saved["profiles"][1].get("managed_endpoint").is_none());
+        let backup: serde_json::Value =
+            serde_json::from_slice(&fs::read(store.backup_path()).unwrap()).unwrap();
+        assert_eq!(backup["schema_version"], 10);
+        assert!(backup["profiles"][1].get("managed_endpoint").is_some());
+    }
+
+    #[test]
+    fn schema_ten_repairs_a_legacy_zero_trust_shared_endpoint() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ConfigStore::new(directory.path().join("config.json"));
+        let mut config = AppConfig {
+            schema_version: 10,
+            ..AppConfig::default()
+        };
+        config.network.endpoint = EndpointSettings {
+            ipv4: "162.159.197.8".parse().unwrap(),
+            ipv6: "2606:4700:102::8".parse().unwrap(),
+            port: 443,
+            sni: "zt-masque.cloudflareclient.com".to_owned(),
+        };
+        fs::write(store.path(), serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+
+        let migrated = store.load().unwrap();
+
+        assert_eq!(migrated.schema_version, CURRENT_SCHEMA_VERSION);
+        assert_eq!(migrated.network.endpoint, EndpointSettings::default());
+        assert_eq!(
+            migrated.active_profile().unwrap().endpoint,
+            EndpointSettings::default()
+        );
     }
 
     #[test]
