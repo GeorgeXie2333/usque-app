@@ -95,8 +95,8 @@ Usque 为独立项目，与 Cloudflare 无隶属、赞助或背书关系。Cloud
 - 1.0 之前的 Windows 安装包使用固定自签名身份。接受系统警告前，请核对已公布的 SHA-256 与证书指纹。
 - 1.0 之前的 Android 安装包使用项目自行管理的固定自签名证书，不通过 Google Play 分发，可能需要手动安装或使用 ADB。
 - v1.0.0 的签名变更将作为独立版本发布。
-- 发布流程会完成编译、签名，以及架构、校验和、SBOM 与构建来源检查，但不会把这些附属文件挂到 GitHub Release 上，也不会在真机上安装软件包，也不会进行长时间 VPN 验证。
-- Usque 不会自动安装更新；可选的更新检查仅打开发布页面。
+- 发布流程会编译并签名六个安装包，同时在 GitHub Release 附带 `release-manifest.json`、`SHA256SUMS`、每包 SPDX SBOM、`reliability-report.json` 与 `device-matrix.md`。同一签名候选还必须通过受保护的 Windows 快照虚拟机、Android 专用设备、独立网络观察器和受控性能实验室报告校验；受限抓包与原始实验数据仅保留在 CI 中。
+- 启用自动检查后，Usque 会在每次进程启动后检查一次。仅在用户确认后才下载已验证的稳定版本；Windows 将其交给已签名的被动更新器，Android 则打开系统软件包安装器。手动检查始终获取实时发布数据。
 - Windows 卸载会在系统设置中要求确认，随后恢复 Usque 修改过的网络状态；用户可选择删除当前用户的本地数据。
 
 安装包校验、升级、卸载与恢复见[安装说明（英文）](docs/INSTALLATION.md)。

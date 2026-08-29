@@ -1,81 +1,165 @@
-# Usque workspace build notes
+# Usque agent contract
 
-## Safety boundary
+## Scope and authoritative sources
 
-On this development host, never install a generated MSI, start Windows VPN mode, create a TUN/Wintun session, or run commands that apply WFP, routes, DNS, or system-proxy mutations.
+This root file keeps repository-wide safety and operating rules. Do not move
+critical safety guidance into a nested file.
 
-`usque-agent --validate-only` and MSI table/static verification are safe. Do not run `--recover-state` or `--emergency-remove-kill-switch` on this host merely to test a build.
+Use the checked-in sources instead of duplicating mutable procedures:
 
-Windows VPN and uninstall recovery need a snapshot-enabled isolated VM with another way in. SOCKS5/HTTP tests are allowed here.
+- `CONTRIBUTING.md` is the required check and acceptance matrix.
+- Toolchain manifests, lockfiles, Gradle configuration, and build helpers define
+  versions and local build behavior.
+- `.github/workflows/ci.yml` and `.github/workflows/build.yml` define CI and
+  compile-only gates.
+- `.github/workflows/release.yml`, `tool/release_contract.py`,
+  `tool/reliability_gate.py`, `docs/CODE_SIGNING.md`, and
+  `docs/RELIABILITY_TESTING.md` define release, signing, evidence, and
+  protected-runner contracts.
 
-Install and uninstall behavior for end users is in `docs/INSTALLATION.md`. Do not run `usque-uninstall.exe` against a real ProductCode on this host, and do not run the engine `--purge-user-data`.
+If sources conflict, apply the most restrictive safety rule. For executable
+behavior, follow the helper or workflow and update stale documentation in the
+same change. Never weaken a fail-closed check to make a local run pass.
 
-## Pinned local toolchains
+## Development-machine safety boundary
 
-- Rust: `1.97.1`; always use `--locked`.
-- Flutter and Android SDK paths come from `apps/usque_gui/android/local.properties`. Do not assume `flutter` is on `PATH`.
-- Android CMake/Ninja: use the SDK copy below `<sdk.dir>\cmake\3.22.1\bin` (or the newest installed SDK CMake directory containing both executables).
-- Windows C++ tools: locate Visual Studio Build Tools with `vswhere.exe` and import `VC\Auxiliary\Build\vcvars64.bat`.
+On a normal development machine, never:
 
-## Windows x64-v2 build
+- install a generated MSI or use `usque-update.exe` to start an upgrade;
+- run `usque-uninstall.exe` against a live ProductCode;
+- start Windows VPN mode or create a TUN/Wintun session;
+- apply WFP, route, interface-DNS, or system-proxy mutations;
+- run `usque-agent --recover-state`, `--emergency-remove-kill-switch`, or the
+  Engine's `--purge-user-data` merely to exercise a build;
+- install or exercise a release APK on a personal or shared Android device;
+- invoke `usque-reliability-runner`, provision its protected labels, or set
+  `USQUE_ISOLATED_SNAPSHOT_VM=1` as a workstation workaround.
 
-Do not invoke a plain release Cargo build in a fresh shell. With Visual Studio 18 Build Tools, the `cmake` crate may auto-select `Visual Studio 18 2026`, while the installed CMake 3.22 only understands generators through Visual Studio 17. The resulting BoringSSL build fails before compiling.
+Keep the protected environments distinct:
 
-Use the checked-in helper, which imports the MSVC x64 environment and forces the Ninja generator. Use the same helper for full-workspace tests and Clippy because they also compile BoringSSL.
+- `usque-snapshot-vm`: Windows install, upgrade, connected uninstall, crash
+  recovery, platform-state restoration, and Wintun lifecycle.
+- `usque-android-device`: Android device, Doze, process, Always-on, Lockdown,
+  reboot, upgrade, and TV lifecycle.
+- `usque-network-observer`: externally observed IPv4, IPv6, DNS, Kill Switch,
+  route, endpoint, and direct-rule leak behavior.
+- `usque-performance-lab`: controlled repeated resource and performance
+  sampling.
 
-The helper must invoke the `vcvars64.bat` wrapper with no `-arch` or `-host_arch` arguments; those switches are invalid for the installed Visual Studio 18 wrapper and can leave `INCLUDE` unset while appearing to return success. The helper also locates `libclang.dll`, places its dependency directory on `PATH`, and the vendored `boring-sys` build forwards the imported MSVC/Windows SDK include directories to bindgen. Do not remove any of these steps merely because a cached BoringSSL binding makes one local build pass.
+A label or environment variable alone is not proof of isolation. Windows
+destructive tests additionally require a snapshot and independent management
+channel; Android tests require a dedicated device or isolated emulator.
+
+Safe workstation operations include source inspection, locked compile-only
+builds, deterministic unit/static tests, SOCKS5 and HTTP loopback tests,
+`usque-agent --validate-only`, MSI table/ICE verification, and
+`usque-uninstall --dry-run` without a live ProductCode.
+
+If an isolated test cannot run, report it as not run. Missing infrastructure
+must never become a pass.
+
+## Worktree and validation discipline
+
+- Inspect the worktree and preserve unrelated user changes.
+- Do not commit `apps/usque_gui/android/local.properties`, signing material,
+  generated JNI libraries, build directories, logs, diagnostics, packet
+  captures, or release artifacts.
+- Treat `oracle/go` as a frozen interoperability reference. Do not update or
+  reformat it during routine work. Do not reformat `third_party` or generated
+  sources in unrelated changes.
+- Reliability invariant identifiers and protobuf field numbers are append-only.
+- Privileged networking, update, installer, uninstall, diagnostics, and release
+  changes require cleanup, fail-closed, and privacy analysis.
+
+Run the exact change-scoped commands in `CONTRIBUTING.md`. The aggregate
+`tool/check_source.ps1` is check-only and does not replace tests. The full
+matrix includes Rust format/Clippy/tests, Flutter format/analyze/tests, Android
+Rust Clippy plus Kotlin unit/lint checks, Ruff lint/format and Python unit tests,
+both PSScriptAnalyzer passes, Buf lint/format and CI breaking checks, actionlint,
+and the frozen Go-oracle checks where applicable.
+
+For Markdown-only changes, run:
 
 ```powershell
-& .\tool\build_windows_rust_release.ps1 -Variant x64-v2
+python tool/check_repository_policy.py
+git diff --check
+```
+
+Use any verified Python 3.10+ executable when `python` is not on `PATH`. Do
+not claim a gate passed unless its exact command completed successfully.
+
+## Toolchains and dependency locking
+
+- Rust versions and targets come from `rust-toolchain.toml`. Cargo build, test,
+  and Clippy operations must use `--locked`.
+- Resolve Flutter from `apps/usque_gui/android/local.properties`, verify it
+  matches the CI pin, and use `pub get --enforce-lockfile` followed by
+  `--no-pub` checks/builds. Do not assume `flutter` is globally available.
+- `tool/build_android_rust.ps1` enforces the pinned NDK revision from
+  `source.properties` and the exact SDK CMake version. Do not override it with
+  a different NDK.
+- `tool/build_windows_rust_release.ps1` selects the supported CMake/Ninja and
+  Visual Studio environment through `vswhere.exe`.
+- Restore WiX through the checked-in .NET tool manifest; do not substitute a
+  global version.
+
+## Windows native build trap
+
+Do not run a plain release Cargo build in a fresh Windows shell. With Visual
+Studio 18 Build Tools, CMake 3.22 cannot name the Visual Studio 18 generator and
+BoringSSL fails before compiling. Use the helper for the x64-v2 host gates and
+release build:
+
+```powershell
 & .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction test
 & .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction clippy
-```
-
-If a previous failed BoringSSL configure left a generator cache, clean only that generated package and retry; do not delete the entire `target` tree:
-
-```powershell
-cargo clean -p boring-sys --release --target x86_64-pc-windows-msvc
 & .\tool\build_windows_rust_release.ps1 -Variant x64-v2
 ```
 
-When Flutter/Dart or Windows runner code changed, rebuild the GUI using the exact SDK from `local.properties`:
+When editing the helper, preserve these invariants:
 
-```powershell
-$flutterSdk = ((Get-Content .\apps\usque_gui\android\local.properties |
-    Where-Object { $_.StartsWith('flutter.sdk=') } |
-    Select-Object -First 1).Substring('flutter.sdk='.Length)).Replace('\:', ':').Replace('\\', '\')
-Push-Location .\apps\usque_gui
-& "$flutterSdk\bin\flutter.bat" pub get
-& "$flutterSdk\bin\flutter.bat" analyze
-& "$flutterSdk\bin\flutter.bat" test
-& "$flutterSdk\bin\flutter.bat" build windows --release
-Pop-Location
-```
+- call the selected `vcvars*.bat` without `-arch` or `-host_arch`;
+- retain PATH normalization, Ninja selection, and loadable `libclang.dll`
+  discovery;
+- retain imported MSVC/Windows SDK include forwarding for vendored
+  `boring-sys` bindgen.
 
-Package the local validation MSI only after Rust tests/Clippy and Flutter checks pass:
+A cached binding is not clean-shell evidence. After a failed configure, clean
+only `boring-sys` for the affected profile/target; never delete the whole
+`target` tree.
 
-```powershell
-& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction test
-& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction clippy
-& .\tool\build_windows_local_validation.ps1 -Variant x64-v2 -Version "0.2.1"
-```
+For Flutter or Windows-runner changes, use the exact locked resolve,
+format/analyze/test, plugin-junction, and `build windows --release --no-pub`
+sequence in `CONTRIBUTING.md` and `.github/workflows/build.yml`. Do not copy
+a build-only subset and call it validation.
 
-The packaging script creates one temporary self-signed identity, signs the copied payload and MSI, validates the MSI tables, then removes the private key and temporary trust entries. Certificate-store access may need an approved elevated run. Never install the produced MSI automatically.
+## Packaging, Android, and release boundaries
 
-WiX, ARP hiding, `usque-uninstall.exe`, and `USQUE_REMOVE_USER_DATA` are documented in `docs/RELEASE.md`. Do not replace the custom installer UI with stock `WixUI_InstallDir`.
+Create a local validation MSI only when explicitly requested. First produce
+fresh Rust and Flutter release artifacts from the same working tree after all
+applicable checks. Pass the current SemVer shared by `Cargo.toml` and
+`apps/usque_gui/pubspec.yaml`; `build_windows_local_validation.ps1` otherwise
+copies whatever artifacts already exist.
 
-## Android arm64-v8a build
+The local packaging script temporarily creates and trusts a self-signed
+identity. It may require approved certificate-store access and removes its key
+and trust entries afterward. Never install, publish, or rename its output to
+look official. Keep the custom installer UI; do not replace it with stock
+`WixUI_InstallDir`.
 
-Use the pinned NDK/CMake routing in the existing helper, then call Flutter by its explicit SDK path:
+Use `tool/build_android_rust.ps1` for JNI builds and never commit its generated
+`jniLibs`. Release APK builds are signing-sensitive: run them only when
+explicitly requested, mirror `.github/workflows/build.yml` with an ephemeral
+build-only identity, and never use official release signing material locally.
+Before delivery, verify ABI contents, absence of `kernel_blob.bin` and Vulkan
+validation layers, and the signing-certificate identity.
 
-```powershell
-& .\tool\build_android_rust.ps1 -AbiFilter arm64-v8a -CargoAction build -Profile release
-$flutterSdk = ((Get-Content .\apps\usque_gui\android\local.properties |
-    Where-Object { $_.StartsWith('flutter.sdk=') } |
-    Select-Object -First 1).Substring('flutter.sdk='.Length)).Replace('\:', ':').Replace('\\', '\')
-Push-Location .\apps\usque_gui
-& "$flutterSdk\bin\flutter.bat" build apk --release --split-per-abi --target-platform android-arm64
-Pop-Location
-```
+Official packages come only from the approved tag workflow and exact staged
+candidate. Local artifacts cannot replace a failed job. Do not access signing
+secrets, move release tags, publish releases, or upload artifacts without an
+explicit user request and satisfied approval gates.
 
-Verify the APK contains only `lib/arm64-v8a`, has no `kernel_blob.bin` or Vulkan validation layer, and uses the expected signing certificate before delivery.
+Protected reports must match the exact candidate; `failed`, `not_run`,
+missing, forged, or wrong-environment evidence blocks publication. Restricted
+packet captures and raw lab evidence stay in restricted CI artifacts; only the
+allowlisted sanitized release evidence may be public.

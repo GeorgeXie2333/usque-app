@@ -209,7 +209,7 @@ try {
             )
         }
         "test" {
-            @("test", "--locked", "--workspace")
+            @("test", "--locked", "--workspace", "--all-targets")
         }
         "clippy" {
             @("clippy", "--locked", "--workspace", "--all-targets", "--", "-D", "warnings")

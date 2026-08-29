@@ -11,12 +11,20 @@ Install only packages from this repository's [GitHub Releases page](https://gith
 - `usque-v0.2.1-android-armeabi-v7a.apk`
 - `usque-v0.2.1-android-universal.apk`
 
-The GitHub Release attaches only those six packages. GitHub shows a SHA-256 for each asset. Signer fingerprints, SBOMs, and build provenance stay in the release notes and GitHub attestations. A local validation package, Actions development output, fork artifact, or a file from somewhere else is not an official release. Official identities and fingerprint rules are in [CODE_SIGNING.md](CODE_SIGNING.md).
+The GitHub Release attaches those six packages plus `release-manifest.json`,
+`SHA256SUMS`, each package's SPDX SBOM, `reliability-report.json`, and
+`device-matrix.md`. GitHub shows a SHA-256 for each asset; signer fingerprints
+remain in the release notes, and build provenance remains available through
+GitHub attestations. Restricted packet captures and raw lab evidence are not
+public release assets. A local validation package, Actions development output,
+fork artifact, or a file from somewhere else is not an official release.
+Official identities and fingerprint rules are in
+[CODE_SIGNING.md](CODE_SIGNING.md).
 
 ## Verify before installing
 
 1. Download the package from the [GitHub Releases page](https://github.com/GeorgeXie2333/usque-app/releases).
-2. Calculate the package SHA-256 and compare it with the digest GitHub shows for that asset.
+2. Calculate the package SHA-256 and compare it with both `SHA256SUMS` and the digest GitHub shows for that asset.
 3. Compare the package signer with the fingerprint in the release notes.
 4. Check the GitHub artifact attestation when it is available.
 5. Stop if the filename, hash, signature, architecture, or version differs.
@@ -97,7 +105,12 @@ command-line maintenance is rejected before `StopServices`. Use the supported
 major-upgrade path, or uninstall and reinstall while leaving the data-deletion
 checkbox off.
 
-If recovery fails, uninstall stops rather than leaving privileged network residue behind. Recovery and leak testing belong on a snapshot VM, not on a daily-driver machine. Development-machine limits are in [CONTRIBUTING.md](../CONTRIBUTING.md).
+If recovery fails, uninstall stops rather than leaving privileged network
+residue behind. Windows install, recovery, upgrade, connected-uninstall, and
+platform-state restoration tests belong on a snapshot VM. Externally observed
+IPv4, IPv6, DNS, Kill Switch, and route leak tests belong on the independent
+controlled-network observer. Neither belongs on a daily-driver machine.
+Development-machine limits are in [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## Android and Android TV
 

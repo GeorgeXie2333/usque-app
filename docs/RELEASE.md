@@ -44,8 +44,10 @@ The MSI does not install the publisher certificate into the machine Root or Trus
 1. The tag job builds signed x64-v2 and ARM64 MSIs plus signed arm64-v8a, x86_64, armeabi-v7a, and universal APKs in the signing environment.
 2. Each platform job checks the certificate identity and creates GitHub build provenance.
 3. A staging job downloads those artifacts, rejects missing or extra MSI/APK files, writes an internal release manifest, generates SPDX SBOMs, and records SBOM attestations.
-4. The publish job downloads the staged candidate and checks every primary file against the immutable manifest.
-5. Only then does the workflow create the GitHub release, prepending the two signer fingerprints to the generated notes and attaching the six install packages and nothing else.
+4. Four protected self-hosted runner classes exercise the exact staged candidate: a Windows snapshot VM, a dedicated Android device, an independent network observer, and a controlled performance lab.
+5. Each protected runner uploads its fixed report and restricted evidence. Missing infrastructure, `failed`, `not_run`, a wrong candidate digest, or malformed evidence blocks the release.
+6. The reliability gate validates all protected reports, writes `reliability-report.json` and `device-matrix.md`, calculates final package checksums, and collects the release manifest and per-package SBOMs as publishable verification evidence.
+7. The publish job rechecks every primary package against the immutable manifest, then creates the GitHub release with the six install packages and the validated release evidence.
 
 Primary files:
 
@@ -56,7 +58,13 @@ Primary files:
 - `usque-v0.2.1-android-armeabi-v7a.apk`
 - `usque-v0.2.1-android-universal.apk`
 
-A public release also needs the usual CI result plus architecture, signature, package, checksum, SBOM, and provenance checks. Endpoint-pin, credential, reconnect, crash, sleep/wake, upgrade, and uninstall leak tests on real hardware are still hardening work, not jobs in this workflow.
+In addition to the six install packages, the public release includes
+`release-manifest.json`, `SHA256SUMS`, each package's SPDX SBOM,
+`reliability-report.json`, and `device-matrix.md`. A public release requires the
+usual CI, architecture, signature, package, checksum, SBOM, and provenance
+checks plus every protected reliability gate. The environments, evidence
+contract, and privacy boundary are documented in
+[RELIABILITY_TESTING.md](RELIABILITY_TESTING.md).
 
 ## Windows package rules
 
@@ -97,6 +105,14 @@ Uninstall keeps the current user's profiles, preferences, logs, caches, and Cred
 
 User-facing install and uninstall steps are in [INSTALLATION.md](INSTALLATION.md).
 
-## What the runners do not do
+## Runner isolation boundary
 
-GitHub-hosted runners compile, test, sign, inspect, hash, inventory, and attest the release. They do not install an MSI, start Windows VPN/TUN, change runner networking, install APKs on phones, or run long soak or hostile-network tests. Those remain separate hardening work.
+GitHub-hosted runners compile, test, sign, inspect, hash, inventory, attest, and
+aggregate the release. They do not install an MSI, start Windows VPN/TUN,
+change runner networking, or install APKs on devices.
+
+The separate protected self-hosted jobs perform destructive lifecycle,
+independent-network, and performance testing only in the environments described
+in [RELIABILITY_TESTING.md](RELIABILITY_TESTING.md). Do not provision those
+runner labels on a developer workstation, and do not treat an environment
+variable or label as proof of isolation.
