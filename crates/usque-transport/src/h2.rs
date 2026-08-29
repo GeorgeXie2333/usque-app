@@ -121,6 +121,20 @@ impl H2SendHalf {
     /// request stream. ADDRESS_REQUEST rejections use this path so the receive
     /// half never touches `SendStream`.
     pub async fn send_capsule(&mut self, capsule: Bytes) -> Result<(), TransportError> {
+        match timeout(PACKET_SEND_TIMEOUT, self.send_capsule_inner(capsule)).await {
+            Ok(result) => result,
+            Err(_) => Err(TransportError::SendTimeout),
+        }
+    }
+
+    /// Sends an owned packet under the transport supervisor's outer deadline.
+    pub(crate) async fn send_owned_packet(&mut self, packet: Bytes) -> Result<(), TransportError> {
+        validate_ip_packet(&packet)?;
+        self.send_capsule_inner(encode_datagram_capsule(&packet)?)
+            .await
+    }
+
+    async fn send_capsule_inner(&mut self, capsule: Bytes) -> Result<(), TransportError> {
         let (completion_tx, completion_rx) = oneshot::channel();
         self.sender
             .as_ref()
@@ -133,10 +147,9 @@ impl H2SendHalf {
                 mpsc::error::TrySendError::Full(_) => TransportError::SendQueueFull,
                 mpsc::error::TrySendError::Closed(_) => TransportError::TunnelClosed,
             })?;
-        match timeout(PACKET_SEND_TIMEOUT, completion_rx).await {
-            Ok(Ok(result)) => result,
-            Ok(Err(_)) => Err(TransportError::TunnelClosed),
-            Err(_) => Err(TransportError::SendTimeout),
+        match completion_rx.await {
+            Ok(result) => result,
+            Err(_) => Err(TransportError::TunnelClosed),
         }
     }
 

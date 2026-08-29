@@ -69,10 +69,23 @@ pub struct H3SendHalf {
 
 impl H3SendHalf {
     pub async fn send_packet(&mut self, packet: &[u8]) -> Result<(), TransportError> {
-        self.send_owned_packet(Bytes::copy_from_slice(packet)).await
+        match timeout(
+            PACKET_SEND_TIMEOUT,
+            self.send_owned_packet_inner(Bytes::copy_from_slice(packet)),
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(_) => Err(TransportError::SendTimeout),
+        }
     }
 
+    /// Sends an owned packet under the transport supervisor's outer deadline.
     pub(crate) async fn send_owned_packet(&mut self, packet: Bytes) -> Result<(), TransportError> {
+        self.send_owned_packet_inner(packet).await
+    }
+
+    async fn send_owned_packet_inner(&mut self, packet: Bytes) -> Result<(), TransportError> {
         validate_ip_packet(&packet)?;
         let (completion_tx, completion_rx) = oneshot::channel();
         self.sender
@@ -86,15 +99,14 @@ impl H3SendHalf {
                 TrySendError::Full(_) => TransportError::SendQueueFull,
                 TrySendError::Closed(_) => TransportError::TunnelClosed,
             })?;
-        match timeout(PACKET_SEND_TIMEOUT, completion_rx).await {
-            Ok(Ok(Ok(()))) => Ok(()),
-            Ok(Ok(Err(DatagramSendFailure::TooLarge {
+        match completion_rx.await {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(DatagramSendFailure::TooLarge {
                 maximum_packet_size,
-            }))) => Err(TransportError::Http3DatagramTooLarge {
+            })) => Err(TransportError::Http3DatagramTooLarge {
                 maximum_packet_size,
             }),
-            Ok(Err(_)) => Err(TransportError::TunnelClosed),
-            Err(_) => Err(TransportError::SendTimeout),
+            Err(_) => Err(TransportError::TunnelClosed),
         }
     }
 
