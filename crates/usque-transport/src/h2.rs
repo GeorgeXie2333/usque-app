@@ -13,7 +13,9 @@ use boring::ssl::{
     SslAlert, SslConnector, SslContextBuilder, SslMethod, SslVerifyError, SslVerifyMode,
 };
 use boring::x509::{X509, X509NameBuilder};
-use bytes::{Buf, Bytes, BytesMut};
+#[cfg(test)]
+use bytes::Buf;
+use bytes::{Bytes, BytesMut};
 use h2::{RecvStream, SendStream};
 use http::{Method, Request, StatusCode, Version};
 use p256::SecretKey;
@@ -191,12 +193,9 @@ impl H2ReceiveHalf {
 
     fn drain_ready_capsules(&mut self) -> Result<(), TransportError> {
         loop {
-            let mut cursor = self.control.buffer.clone().freeze();
-            let Some(capsule) = ConnectIpCapsule::decode_if_complete(&mut cursor)? else {
+            let Some(capsule) = take_complete_capsule(&mut self.control.buffer)? else {
                 return Ok(());
             };
-            let consumed = self.control.buffer.len() - cursor.len();
-            self.control.buffer.advance(consumed);
             if let ConnectIpCapsule::Unknown {
                 capsule_type: DATAGRAM_CAPSULE_TYPE,
                 payload,
@@ -532,6 +531,37 @@ fn self_signed_certificate(private_key: &PKey<Private>) -> Result<X509, ErrorSta
     Ok(certificate.build())
 }
 
+fn take_complete_capsule(
+    buffer: &mut BytesMut,
+) -> Result<Option<ConnectIpCapsule>, TransportError> {
+    let Some((_, type_length)) = decode_varint(buffer)? else {
+        return Ok(None);
+    };
+    let Some((payload_length, length_length)) = decode_varint(&buffer[type_length..])? else {
+        return Ok(None);
+    };
+    let payload_length =
+        usize::try_from(payload_length).map_err(|_| TransportError::CapsuleTooLarge)?;
+    if payload_length > MAX_CAPSULE_PAYLOAD {
+        return Err(TransportError::CapsuleTooLarge);
+    }
+    let frame_length = type_length
+        .checked_add(length_length)
+        .and_then(|header_length| header_length.checked_add(payload_length))
+        .ok_or(TransportError::CapsuleTooLarge)?;
+    if buffer.len() < frame_length {
+        return Ok(None);
+    }
+
+    // A complete malformed capsule is terminal for this H2 tunnel. Splitting
+    // only after framing is complete preserves fragmented-input semantics while
+    // allowing successful DATAGRAM payloads to remain zero-copy `Bytes` views.
+    let mut frame = buffer.split_to(frame_length).freeze();
+    let capsule = ConnectIpCapsule::decode(&mut frame)?;
+    debug_assert!(frame.is_empty());
+    Ok(Some(capsule))
+}
+
 #[cfg(test)]
 fn decode_capsule(buffer: &[u8]) -> Result<Option<(u64, Bytes, usize)>, TransportError> {
     let Some((capsule_type, type_length)) = decode_varint(buffer)? else {
@@ -559,7 +589,6 @@ fn decode_capsule(buffer: &[u8]) -> Result<Option<(u64, Bytes, usize)>, Transpor
     )))
 }
 
-#[cfg(test)]
 fn decode_varint(buffer: &[u8]) -> Result<Option<(u64, usize)>, TransportError> {
     let Some(first) = buffer.first().copied() else {
         return Ok(None);
@@ -944,6 +973,62 @@ mod tests {
         assert_eq!(first.as_ref(), packet_v4);
         let (_, second, _) = decode_capsule(&encoded[consumed..]).unwrap().unwrap();
         assert_eq!(second.as_ref(), packet_v6);
+    }
+
+    #[test]
+    fn streaming_capsule_take_is_transactional_until_a_frame_is_complete() {
+        let first = ConnectIpCapsule::Unknown {
+            capsule_type: 42,
+            payload: Bytes::from_static(b"first"),
+        }
+        .encode()
+        .unwrap();
+        let second = ConnectIpCapsule::Unknown {
+            capsule_type: 43,
+            payload: Bytes::from_static(b"second"),
+        }
+        .encode()
+        .unwrap();
+        let split = first.len() - 1;
+        let mut buffer = BytesMut::from(&first[..split]);
+        let incomplete = buffer.clone();
+
+        assert!(take_complete_capsule(&mut buffer).unwrap().is_none());
+        assert_eq!(buffer, incomplete);
+
+        buffer.extend_from_slice(&first[split..]);
+        buffer.extend_from_slice(&second);
+        assert!(matches!(
+            take_complete_capsule(&mut buffer).unwrap(),
+            Some(ConnectIpCapsule::Unknown { capsule_type: 42, payload })
+                if payload == Bytes::from_static(b"first")
+        ));
+        assert!(matches!(
+            take_complete_capsule(&mut buffer).unwrap(),
+            Some(ConnectIpCapsule::Unknown { capsule_type: 43, payload })
+                if payload == Bytes::from_static(b"second")
+        ));
+        assert!(buffer.is_empty());
+    }
+
+    #[test]
+    fn complete_malformed_capsule_is_consumed_as_a_terminal_error() {
+        let mut malformed = BytesMut::from(
+            &[
+                usque_protocol::ADDRESS_ASSIGN_CAPSULE_TYPE as u8,
+                3,
+                0,
+                4,
+                192,
+            ][..],
+        );
+        assert!(matches!(
+            take_complete_capsule(&mut malformed),
+            Err(TransportError::Protocol(
+                usque_protocol::ProtocolError::TruncatedCapsuleEntry
+            ))
+        ));
+        assert!(malformed.is_empty());
     }
 
     #[test]
