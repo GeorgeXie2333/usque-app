@@ -74,6 +74,18 @@ pub(crate) struct PacketMuxTable {
     last_sweep: Instant,
 }
 
+pub(crate) struct OutgoingPacketInspection {
+    origin: PacketOrigin,
+    parsed: Option<ParsedPacket>,
+    owned: bool,
+}
+
+impl OutgoingPacketInspection {
+    pub(crate) fn is_owned(&self) -> bool {
+        self.owned
+    }
+}
+
 impl Default for PacketMuxTable {
     fn default() -> Self {
         Self {
@@ -90,27 +102,60 @@ impl Default for PacketMuxTable {
 }
 
 impl PacketMuxTable {
-    /// Returns whether this origin already owns the outgoing flow.
+    /// Parses an outgoing packet and records whether this origin already owns
+    /// its flow.
     ///
     /// The raw TUN mux uses this before offering a packet to an optional
     /// direct gateway so a flow that fell back to MASQUE cannot switch paths
-    /// on a later retransmission.
-    pub(crate) fn owns_outgoing(&mut self, origin: PacketOrigin, packet: &[u8]) -> bool {
+    /// on a later retransmission. The returned parse result can then be reused
+    /// when routing the unchanged packet through MASQUE.
+    pub(crate) fn inspect_outgoing(
+        &mut self,
+        origin: PacketOrigin,
+        packet: &[u8],
+    ) -> OutgoingPacketInspection {
         self.sweep_if_needed();
-        match ParsedPacket::parse(packet, Direction::Outgoing) {
+        let parsed = ParsedPacket::parse(packet, Direction::Outgoing);
+        let owned = match parsed.as_ref() {
             Some(ParsedPacket::Flow { tuple, .. }) => {
-                self.forward.contains_key(&flow_key(origin, tuple))
+                self.forward.contains_key(&flow_key(origin, *tuple))
             }
-            Some(ParsedPacket::Fragment(fragment)) => self
-                .outgoing_fragments
-                .contains_key(&OriginFragmentKey { origin, fragment }),
+            Some(ParsedPacket::Fragment(fragment)) => {
+                self.outgoing_fragments.contains_key(&OriginFragmentKey {
+                    origin,
+                    fragment: fragment.clone(),
+                })
+            }
             None => false,
+        };
+        OutgoingPacketInspection {
+            origin,
+            parsed,
+            owned,
         }
     }
 
     pub(crate) fn route_outgoing(&mut self, origin: PacketOrigin, packet: &mut [u8]) -> bool {
         self.sweep_if_needed();
-        let Some(parsed) = ParsedPacket::parse(packet, Direction::Outgoing) else {
+        let parsed = ParsedPacket::parse(packet, Direction::Outgoing);
+        self.route_parsed_outgoing(origin, packet, parsed)
+    }
+
+    pub(crate) fn route_inspected_outgoing(
+        &mut self,
+        packet: &mut [u8],
+        inspection: OutgoingPacketInspection,
+    ) -> bool {
+        self.route_parsed_outgoing(inspection.origin, packet, inspection.parsed)
+    }
+
+    fn route_parsed_outgoing(
+        &mut self,
+        origin: PacketOrigin,
+        packet: &mut [u8],
+        parsed: Option<ParsedPacket>,
+    ) -> bool {
+        let Some(parsed) = parsed else {
             return is_outgoing_icmp_error(packet);
         };
         let (tuple, fragment) = match parsed {
@@ -829,13 +874,26 @@ mod tests {
         let mut table = PacketMuxTable::default();
         let mut packet = udp_packet(50_000, 443, false);
 
-        assert!(!table.owns_outgoing(PacketOrigin::Tunnel, &packet));
-        assert!(table.route_outgoing(PacketOrigin::Tunnel, &mut packet));
-        assert!(table.owns_outgoing(PacketOrigin::Tunnel, &packet));
-        assert!(!table.owns_outgoing(PacketOrigin::Proxy, &packet));
+        let inspection = table.inspect_outgoing(PacketOrigin::Tunnel, &packet);
+        assert!(!inspection.is_owned());
+        assert!(table.route_inspected_outgoing(&mut packet, inspection));
+        assert!(
+            table
+                .inspect_outgoing(PacketOrigin::Tunnel, &packet)
+                .is_owned()
+        );
+        assert!(
+            !table
+                .inspect_outgoing(PacketOrigin::Proxy, &packet)
+                .is_owned()
+        );
 
         let retransmission = udp_packet(50_000, 443, false);
-        assert!(table.owns_outgoing(PacketOrigin::Tunnel, &retransmission));
+        assert!(
+            table
+                .inspect_outgoing(PacketOrigin::Tunnel, &retransmission)
+                .is_owned()
+        );
     }
 
     #[test]

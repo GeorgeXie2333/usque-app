@@ -567,11 +567,13 @@ async fn run_packet_mux(
                 let mut packet = packet
                     .try_into_mut()
                     .unwrap_or_else(|packet| bytes::BytesMut::from(packet.as_ref()));
-                let tunnel_owned = flows.owns_outgoing(PacketOrigin::Tunnel, &packet);
-                if !tunnel_owned && router.route_outgoing(&mut packet).await {
+                let inspection = flows.inspect_outgoing(PacketOrigin::Tunnel, &packet);
+                if !inspection.is_owned() && router.route_outgoing(&mut packet).await {
                     continue;
                 }
-                if flows.route_outgoing(PacketOrigin::Tunnel, &mut packet)
+                // DirectGatewayRouter guarantees that a false result leaves
+                // the packet unchanged, so the earlier parse remains valid.
+                if flows.route_inspected_outgoing(&mut packet, inspection)
                     && sender.send_owned_packet(packet.freeze()).await.is_err()
                 {
                     break;
