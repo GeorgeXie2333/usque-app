@@ -15,9 +15,9 @@ use usque_core::{
 };
 
 pub(crate) use checks::DiagnosticContext;
-pub(crate) use report::{
-    empty_session_to_proto, finding_to_proto, session_to_proto, timeline_to_proto,
-};
+#[cfg(any(windows, test))]
+pub(crate) use report::finding_to_proto;
+pub(crate) use report::{empty_session_to_proto, session_to_proto, timeline_to_proto};
 
 use catalog::diagnostic_catalog;
 use checks::{DiagnosticCheck, pending_finding};

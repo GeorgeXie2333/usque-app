@@ -864,13 +864,14 @@ impl ControlService {
         let connection = self.status_snapshot().await;
         let config = self.config.read().await.clone();
         let active_profile = config.active_profile();
-        let platform_state = if std::env::consts::OS == "windows" {
+        #[cfg(windows)]
+        let platform_state = {
             windows_agent::inspect_platform_state_if_running()
                 .await
                 .ok()
-        } else {
-            None
         };
+        #[cfg(not(windows))]
+        let platform_state = None;
         diagnostics::DiagnosticContext {
             connection,
             configuration_valid: config.validate().is_ok(),
