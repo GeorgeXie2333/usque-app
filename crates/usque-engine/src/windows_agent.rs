@@ -10,7 +10,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::windows::named_pipe::{ClientOptions, NamedPipeClient},
@@ -78,6 +78,7 @@ const AGENT_START_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const AGENT_START_RECHECK_INTERVAL: Duration = Duration::from_millis(250);
 const PUMP_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 const DEFAULT_PACKET_RING_CAPACITY: u32 = 4 * 1024 * 1024;
+const PACKET_WAKE_BATCH: usize = 64;
 const PHYSICAL_NETWORK_POLL_INTERVAL: Duration = Duration::from_secs(2);
 
 struct WindowsVpnSocketProtector {
@@ -1193,32 +1194,13 @@ fn start_packet_pumps(
                 packet = tun_io.receive_packet() => {
                     match packet {
                         Ok(packet) => {
-                            match pump_mapping
-                                .ring()
-                                .try_push(PacketDirection::EngineToAgent, &packet)
-                            {
-                                Ok(true) => {
-                                    if let Err(error) = pump_mapping.signal_engine_to_agent() {
-                                        report_pump_failure(
-                                            &pump_failure,
-                                            &pump_cancel,
-                                            error.to_string(),
-                                        );
-                                        break;
-                                    }
-                                }
-                                Ok(false) => {
-                                    // Ring pressure is accounted by the shared
-                                    // dropped counter. Keep the tunnel alive.
-                                }
-                                Err(error) => {
-                                    report_pump_failure(
-                                        &pump_failure,
-                                        &pump_cancel,
-                                        format!("Engine-to-Agent packet ring failed: {error}"),
-                                    );
-                                    break;
-                                }
+                            if let Err(message) = publish_engine_packet_batch(
+                                &mut tun_io,
+                                &pump_mapping,
+                                packet,
+                            ) {
+                                report_pump_failure(&pump_failure, &pump_cancel, message);
+                                break;
                             }
                         }
                         Err(error) => {
@@ -1239,6 +1221,48 @@ fn start_packet_pumps(
     });
 
     vec![wait_task, pump_task]
+}
+
+fn publish_engine_packet_batch(
+    tun_io: &mut MasqueTunIo,
+    mapping: &PacketSessionMapping,
+    first: Bytes,
+) -> Result<(), String> {
+    let ring = mapping.ring();
+    let wake_bytes = (ring.capacity() as usize / 4).max(1);
+    let mut packet = first;
+    let mut published = false;
+    let mut published_bytes = 0usize;
+    let mut packet_count = 0usize;
+    let result: Result<(), String> = loop {
+        match ring.try_push(PacketDirection::EngineToAgent, &packet) {
+            Ok(pushed) => {
+                published |= pushed;
+                if pushed {
+                    published_bytes = published_bytes.saturating_add(packet.len());
+                }
+            }
+            Err(error) => break Err(format!("Engine-to-Agent packet ring failed: {error}")),
+        }
+        packet_count += 1;
+        if packet_count == PACKET_WAKE_BATCH || published_bytes >= wake_bytes {
+            break Ok(());
+        }
+        match tun_io.try_receive_packet() {
+            Ok(Some(next)) => packet = next,
+            Ok(None) => break Ok(()),
+            Err(error) => break Err(format!("failed to receive a MASQUE packet: {error}")),
+        }
+    };
+
+    if published {
+        // Signal after publication, once per bounded batch. The Agent drains
+        // until empty, so coalesced auto-reset signals cannot strand packets.
+        mapping
+            .signal_engine_to_agent()
+            .map_err(|error| error.to_string())?;
+    }
+    result
 }
 
 fn report_pump_failure(

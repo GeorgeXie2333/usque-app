@@ -50,6 +50,16 @@ impl MasqueTunIo {
             .await
             .ok_or(TransportError::TunnelClosed)
     }
+
+    /// Receives an already queued packet without waiting. This lets platform
+    /// packet pumps publish a bounded batch under one kernel wakeup.
+    pub fn try_receive_packet(&mut self) -> Result<Option<Bytes>, TransportError> {
+        match self.incoming.try_recv() {
+            Ok(packet) => Ok(Some(packet)),
+            Err(mpsc::error::TryRecvError::Empty) => Ok(None),
+            Err(mpsc::error::TryRecvError::Disconnected) => Err(TransportError::TunnelClosed),
+        }
+    }
 }
 
 /// One reconnecting MASQUE connection shared by the platform TUN/VPN and the
@@ -950,6 +960,28 @@ mod tests {
         assert!(matches!(
             io.send_packet(&packet).await,
             Err(TransportError::SendQueueFull)
+        ));
+    }
+
+    #[test]
+    fn tun_receive_queue_can_be_drained_without_waiting() {
+        let (outgoing, _outgoing_rx) = mpsc::channel(1);
+        let (incoming_tx, incoming) = mpsc::channel(2);
+        let mut io = MasqueTunIo { outgoing, incoming };
+
+        incoming_tx
+            .try_send(Bytes::from_static(b"packet"))
+            .expect("queue packet");
+        assert_eq!(
+            io.try_receive_packet().expect("queued packet"),
+            Some(Bytes::from_static(b"packet"))
+        );
+        assert_eq!(io.try_receive_packet().expect("empty queue"), None);
+
+        drop(incoming_tx);
+        assert!(matches!(
+            io.try_receive_packet(),
+            Err(TransportError::TunnelClosed)
         ));
     }
 

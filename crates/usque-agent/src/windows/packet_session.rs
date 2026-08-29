@@ -28,6 +28,8 @@ use crate::{
     windows::wintun::{WintunError, WintunSession},
 };
 
+const PACKET_WAKE_BATCH: usize = 64;
+
 pub struct PacketMapping {
     mapping: OwnedHandle,
     engine_to_agent_event: OwnedHandle,
@@ -236,6 +238,8 @@ fn run_packet_pump(
         mapping.engine_to_agent_event(),
         session.read_wait_event(),
     ];
+    let mut engine_packet = Vec::new();
+    let mut wintun_packet = Vec::new();
     loop {
         // SAFETY: all three handles remain live for this thread and the array is
         // valid for the complete wait call.
@@ -244,8 +248,11 @@ fn run_packet_pump(
         match wait {
             value if value == WAIT_OBJECT_0 => return Ok(()),
             value if value == WAIT_OBJECT_0 + 1 => {
-                while let Some(packet) = mapping.ring().try_pop(PacketDirection::EngineToAgent)? {
-                    match session.send(&packet) {
+                while mapping
+                    .ring()
+                    .try_pop_into(PacketDirection::EngineToAgent, &mut engine_packet)?
+                {
+                    match session.send(&engine_packet) {
                         Ok(()) => {}
                         Err(error) if error.raw_os_error() == Some(111) => {
                             // Wintun transmit ring full: drop this packet. The
@@ -256,22 +263,64 @@ fn run_packet_pump(
                 }
             }
             value if value == WAIT_OBJECT_0 + 2 => {
-                while let Some(packet) = session.receive()? {
-                    if mapping
-                        .ring()
-                        .try_push(PacketDirection::AgentToEngine, &packet)?
-                    {
-                        // SAFETY: mapping owns this live auto-reset event.
-                        if unsafe { SetEvent(mapping.agent_to_engine_event()) } == 0 {
-                            return Err(last_error("SetEvent(agent_to_engine)"));
-                        }
-                    }
-                }
+                drain_wintun_packets(&session, mapping, &mut wintun_packet)?;
             }
             WAIT_FAILED => return Err(last_error("WaitForMultipleObjects")),
             value => return Err(PacketSessionError::UnexpectedWait(value)),
         }
     }
+}
+
+fn drain_wintun_packets(
+    session: &WintunSession,
+    mapping: &PacketMapping,
+    packet: &mut Vec<u8>,
+) -> Result<(), PacketSessionError> {
+    let ring = mapping.ring();
+    let wake_bytes = (ring.capacity() as usize / 4).max(1);
+    let mut published = false;
+    let mut published_bytes = 0usize;
+    let mut packet_count = 0usize;
+    let result: Result<(), PacketSessionError> = loop {
+        match session.receive_into(packet) {
+            Ok(true) => match ring.try_push(PacketDirection::AgentToEngine, packet) {
+                Ok(pushed) => {
+                    published |= pushed;
+                    if pushed {
+                        published_bytes = published_bytes.saturating_add(packet.len());
+                    }
+                    packet_count += 1;
+                    if packet_count == PACKET_WAKE_BATCH || published_bytes >= wake_bytes {
+                        signal_agent_packets(mapping, &mut published)?;
+                        packet_count = 0;
+                        published_bytes = 0;
+                    }
+                }
+                Err(error) => break Err(error.into()),
+            },
+            Ok(false) => break Ok(()),
+            Err(error) => break Err(error.into()),
+        }
+    };
+    signal_agent_packets(mapping, &mut published)?;
+    result
+}
+
+fn signal_agent_packets(
+    mapping: &PacketMapping,
+    published: &mut bool,
+) -> Result<(), PacketSessionError> {
+    if !*published {
+        return Ok(());
+    }
+    // Signal after publication, once per bounded batch. The consumer drains
+    // until empty, so auto-reset event coalescing cannot strand packets.
+    // SAFETY: mapping owns this live auto-reset event.
+    if unsafe { SetEvent(mapping.agent_to_engine_event()) } == 0 {
+        return Err(last_error("SetEvent(agent_to_engine)"));
+    }
+    *published = false;
+    Ok(())
 }
 
 fn create_event(manual_reset: bool) -> Result<OwnedHandle, PacketSessionError> {
