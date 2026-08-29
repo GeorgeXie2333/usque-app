@@ -427,6 +427,7 @@ async fn drive_h3_actor(
     let mut wire_datagrams = VecDeque::with_capacity(MAX_PENDING_WIRE_DATAGRAMS);
     let mut free_wire_buffers = Vec::new();
     let mut receive_buffer = vec![0u8; 65_535];
+    let mut inbound_dropped_packets = 0u64;
     let mut keepalive = interval_at(Instant::now() + KEEPALIVE_INTERVAL, KEEPALIVE_INTERVAL);
     keepalive.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
@@ -507,6 +508,7 @@ async fn drive_h3_actor(
                 ready,
                 &incoming_tx,
                 &mut receive_buffer,
+                &mut inbound_dropped_packets,
             )?;
         }
 
@@ -731,6 +733,7 @@ fn drain_received_datagrams(
     ready: bool,
     incoming_tx: &mpsc::Sender<Bytes>,
     buffer: &mut [u8],
+    dropped_packets: &mut u64,
 ) -> Result<(), TransportError> {
     loop {
         let length = match connection.dgram_recv(buffer) {
@@ -751,12 +754,22 @@ fn drain_received_datagrams(
         match incoming_tx.try_send(packet) {
             Ok(()) => {}
             Err(TrySendError::Full(_)) => {
-                tracing::warn!("dropping an inbound H3 packet because the netstack is congested");
+                *dropped_packets = dropped_packets.saturating_add(1);
+                if should_log_inbound_drop(*dropped_packets) {
+                    tracing::warn!(
+                        dropped_packets = *dropped_packets,
+                        "dropping inbound H3 packets because the netstack is congested"
+                    );
+                }
             }
             Err(TrySendError::Closed(_)) => return Ok(()),
         }
     }
     Ok(())
+}
+
+fn should_log_inbound_drop(dropped_packets: u64) -> bool {
+    dropped_packets.is_power_of_two()
 }
 
 struct WireDatagram {
@@ -989,6 +1002,14 @@ mod tests {
             recycle_wire_buffer(&mut free, Vec::with_capacity(MAX_UDP_PAYLOAD_SIZE));
         }
         assert_eq!(free.len(), MAX_PENDING_WIRE_DATAGRAMS);
+    }
+
+    #[test]
+    fn inbound_congestion_warnings_are_exponentially_rate_limited() {
+        let logged = (0..=17)
+            .filter(|count| should_log_inbound_drop(*count))
+            .collect::<Vec<_>>();
+        assert_eq!(logged, vec![1, 2, 4, 8, 16]);
     }
 
     #[test]
