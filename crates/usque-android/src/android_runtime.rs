@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::path::{Path, PathBuf};
@@ -487,6 +488,27 @@ fn spawn_exit_probe(
     }
 }
 
+enum SessionDataEvent<TunRead, TunnelReceive> {
+    TunRead(TunRead),
+    TunnelReceive(TunnelReceive),
+    Tick,
+}
+
+async fn next_session_data<TunRead, TunnelReceive>(
+    tun_read: impl Future<Output = TunRead>,
+    tunnel_receive: impl Future<Output = TunnelReceive>,
+    tick: impl Future,
+) -> SessionDataEvent<TunRead, TunnelReceive> {
+    // Tokio randomizes the starting branch when `biased` is absent. Keep this
+    // fairness local to the data plane; the outer loop still gives cancellation
+    // and runtime commands deterministic priority.
+    tokio::select! {
+        read = tun_read => SessionDataEvent::TunRead(read),
+        received = tunnel_receive => SessionDataEvent::TunnelReceive(received),
+        _ = tick => SessionDataEvent::Tick,
+    }
+}
+
 #[expect(
     clippy::too_many_arguments,
     reason = "session loop owns optional TUN I/O, MASQUE, profile, cancellation, status, and reconfigure commands"
@@ -522,70 +544,76 @@ async fn run_session(
                 )
                 .await;
             }
-            read = async {
-                match tun.as_ref() {
-                    Some(tun) => Some(read_packet(tun, &mut packet).await),
-                    None => {
-                        std::future::pending::<()>().await;
-                        None
-                    }
-                }
-            } => {
-                let Some(read) = read else { continue; };
-                let Some(io) = tun_io.as_ref() else { continue; };
-                let length = match read {
-                    Ok(0) => break,
-                    Ok(length) => length,
-                    Err(error) => {
-                        set_error(&status, format!("read Android TUN: {error}"));
-                        break;
-                    }
-                };
-                if let Err(error) = io.send_packet(&packet[..length]).await {
-                    set_error(&status, error.to_string());
-                    break;
-                }
-            }
-            received = async {
-                match tun_io.as_mut() {
-                    Some(io) => Some(io.receive_packet().await),
-                    None => {
-                        std::future::pending::<()>().await;
-                        None
-                    }
-                }
-            } => {
-                let Some(received) = received else { continue; };
-                let Some(tun) = tun.as_ref() else { continue; };
-                match received {
-                    Ok(packet) => {
-                        if let Err(error) = write_packet(tun, &packet).await {
-                            set_error(&status, format!("write Android TUN: {error}"));
-                            break;
+            event = next_session_data(
+                async {
+                    match tun.as_ref() {
+                        Some(tun) => Some(read_packet(tun, &mut packet).await),
+                        None => {
+                            std::future::pending::<()>().await;
+                            None
                         }
                     }
-                    Err(error) => {
+                },
+                async {
+                    match tun_io.as_mut() {
+                        Some(io) => Some(io.receive_packet().await),
+                        None => {
+                            std::future::pending::<()>().await;
+                            None
+                        }
+                    }
+                },
+                ticker.tick(),
+            ) => match event {
+                SessionDataEvent::TunRead(read) => {
+                    let Some(read) = read else { continue; };
+                    let Some(io) = tun_io.as_ref() else { continue; };
+                    let length = match read {
+                        Ok(0) => break,
+                        Ok(length) => length,
+                        Err(error) => {
+                            set_error(&status, format!("read Android TUN: {error}"));
+                            break;
+                        }
+                    };
+                    if let Err(error) = io.send_packet(&packet[..length]).await {
                         set_error(&status, error.to_string());
                         break;
                     }
                 }
-            }
-            _ = ticker.tick() => {
-                update_health(&status, tunnel.health());
-                update_frontends(&status, &tunnel);
-                let now = Instant::now();
-                let current = tunnel.statistics();
-                let seconds = now.duration_since(last_sample).as_secs_f64().max(0.001);
-                if let Ok(mut snapshot) = status.lock() {
-                    snapshot.upload_bytes_per_second =
-                        rate(current.bytes_sent, last_traffic.bytes_sent, seconds);
-                    snapshot.download_bytes_per_second =
-                        rate(current.bytes_received, last_traffic.bytes_received, seconds);
-                    snapshot.uploaded_bytes = current.bytes_sent;
-                    snapshot.downloaded_bytes = current.bytes_received;
+                SessionDataEvent::TunnelReceive(received) => {
+                    let Some(received) = received else { continue; };
+                    let Some(tun) = tun.as_ref() else { continue; };
+                    match received {
+                        Ok(packet) => {
+                            if let Err(error) = write_packet(tun, &packet).await {
+                                set_error(&status, format!("write Android TUN: {error}"));
+                                break;
+                            }
+                        }
+                        Err(error) => {
+                            set_error(&status, error.to_string());
+                            break;
+                        }
+                    }
                 }
-                last_sample = now;
-                last_traffic = current;
+                SessionDataEvent::Tick => {
+                    update_health(&status, tunnel.health());
+                    update_frontends(&status, &tunnel);
+                    let now = Instant::now();
+                    let current = tunnel.statistics();
+                    let seconds = now.duration_since(last_sample).as_secs_f64().max(0.001);
+                    if let Ok(mut snapshot) = status.lock() {
+                        snapshot.upload_bytes_per_second =
+                            rate(current.bytes_sent, last_traffic.bytes_sent, seconds);
+                        snapshot.download_bytes_per_second =
+                            rate(current.bytes_received, last_traffic.bytes_received, seconds);
+                        snapshot.uploaded_bytes = current.bytes_sent;
+                        snapshot.downloaded_bytes = current.bytes_received;
+                    }
+                    last_sample = now;
+                    last_traffic = current;
+                }
             }
         }
     }
