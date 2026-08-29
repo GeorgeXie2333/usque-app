@@ -7,7 +7,9 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use thiserror::Error;
-use tokio::sync::{Mutex, broadcast};
+use tokio::sync::Mutex;
+#[cfg(any(windows, test))]
+use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use usque_core::{
     DiagnosticCheckStatus, DiagnosticFinding, DiagnosticMode, DiagnosticSession,
@@ -22,6 +24,7 @@ pub(crate) use report::{empty_session_to_proto, session_to_proto, timeline_to_pr
 use catalog::diagnostic_catalog;
 use checks::{DiagnosticCheck, pending_finding};
 
+#[cfg(any(windows, test))]
 #[derive(Debug, Clone)]
 pub(crate) enum DiagnosticEvent {
     SessionStarted(DiagnosticSession),
@@ -40,6 +43,8 @@ pub(crate) enum DiagnosticEvent {
 #[derive(Clone)]
 pub(crate) struct DiagnosticsManager {
     inner: Arc<Mutex<DiagnosticsState>>,
+    // Only Windows exposes the live event stream; tests exercise it on hosts.
+    #[cfg(any(windows, test))]
     events: broadcast::Sender<DiagnosticEvent>,
 }
 
@@ -56,13 +61,13 @@ impl Default for DiagnosticsManager {
 
 impl DiagnosticsManager {
     pub(crate) fn new() -> Self {
-        let (events, _) = broadcast::channel(128);
         Self {
             inner: Arc::new(Mutex::new(DiagnosticsState {
                 session: None,
                 cancellation: None,
             })),
-            events,
+            #[cfg(any(windows, test))]
+            events: broadcast::channel(128).0,
         }
     }
 
@@ -98,6 +103,7 @@ impl DiagnosticsManager {
             state.cancellation = Some(cancellation.clone());
             session
         };
+        #[cfg(any(windows, test))]
         let _ = self
             .events
             .send(DiagnosticEvent::SessionStarted(session.clone()));
@@ -137,6 +143,7 @@ impl DiagnosticsManager {
         self.inner.lock().await.session.clone()
     }
 
+    #[cfg(any(windows, test))]
     pub(crate) fn subscribe(&self) -> broadcast::Receiver<DiagnosticEvent> {
         self.events.subscribe()
     }
@@ -146,7 +153,7 @@ impl DiagnosticsManager {
     }
 
     pub(super) async fn check_started(&self, check_id: &str) {
-        let event = {
+        {
             let mut state = self.inner.lock().await;
             let Some(session) = state.session.as_mut() else {
                 return;
@@ -161,16 +168,16 @@ impl DiagnosticsManager {
             finding.status = DiagnosticCheckStatus::Running;
             finding.started_at = Some(Utc::now());
             session.current_check = Some(check_id.to_owned());
-            DiagnosticEvent::CheckStarted {
+            #[cfg(any(windows, test))]
+            let _ = self.events.send(DiagnosticEvent::CheckStarted {
                 session_id: session.session_id,
                 finding: finding.clone(),
-            }
-        };
-        let _ = self.events.send(event);
+            });
+        }
     }
 
     pub(super) async fn check_completed(&self, mut completed: DiagnosticFinding) {
-        let event = {
+        {
             let mut state = self.inner.lock().await;
             let Some(session) = state.session.as_mut() else {
                 return;
@@ -188,16 +195,16 @@ impl DiagnosticsManager {
             *finding = completed.clone();
             session.current_check = None;
             session.recompute_summary();
-            DiagnosticEvent::CheckCompleted {
+            #[cfg(any(windows, test))]
+            let _ = self.events.send(DiagnosticEvent::CheckCompleted {
                 session_id: session.session_id,
                 finding: completed,
-            }
-        };
-        let _ = self.events.send(event);
+            });
+        }
     }
 
     pub(super) async fn finish(&self, cancelled: bool) {
-        let (session, event) = {
+        let session = {
             let mut state = self.inner.lock().await;
             let Some(session) = state.session.as_mut() else {
                 return;
@@ -220,14 +227,14 @@ impl DiagnosticsManager {
             session.recompute_summary();
             let session = session.clone();
             state.cancellation = None;
-            let event = if cancelled {
-                DiagnosticEvent::SessionCancelled(session.clone())
-            } else {
-                DiagnosticEvent::SessionCompleted(session.clone())
-            };
-            (session, event)
+            session
         };
-        let _ = self.events.send(event);
+        #[cfg(any(windows, test))]
+        let _ = self.events.send(if cancelled {
+            DiagnosticEvent::SessionCancelled(session.clone())
+        } else {
+            DiagnosticEvent::SessionCompleted(session.clone())
+        });
         tracing::debug!(
             session_id = %session.session_id,
             state = ?session.state,
