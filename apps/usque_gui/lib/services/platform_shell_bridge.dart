@@ -8,10 +8,11 @@ import '../state/app_controller.dart';
 
 class PlatformShellBridge {
   PlatformShellBridge(this._controller) {
-    if (!Platform.isWindows) return;
     _channel.setMethodCallHandler(_handleMethod);
-    _controller.addListener(_publishTrayState);
-    _publishTrayState();
+    if (Platform.isWindows) {
+      _controller.addListener(_publishTrayState);
+      _publishTrayState();
+    }
   }
 
   static const MethodChannel _channel = MethodChannel(
@@ -24,6 +25,16 @@ class PlatformShellBridge {
   Future<Object?> _handleMethod(MethodCall call) async {
     if (call.method == 'zeroTrustCallbackArrived') {
       _controller.noteZeroTrustCallbackArrived();
+      return null;
+    }
+    if (call.method == 'updateInstallFinished') {
+      final arguments = call.arguments;
+      if (arguments is Map) {
+        _controller.noteUpdateInstallFinished(
+          success: arguments['success'] == true,
+          message: arguments['message'] as String?,
+        );
+      }
       return null;
     }
     if (call.method != 'trayCommand') return null;
@@ -60,8 +71,7 @@ class PlatformShellBridge {
   }
 
   void dispose() {
-    if (!Platform.isWindows) return;
-    _controller.removeListener(_publishTrayState);
+    if (Platform.isWindows) _controller.removeListener(_publishTrayState);
     _channel.setMethodCallHandler(null);
   }
 }

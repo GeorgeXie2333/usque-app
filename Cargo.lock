@@ -2885,6 +2885,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "usque-update"
+version = "0.2.1"
+dependencies = [
+ "clap",
+ "sha2",
+ "thiserror",
+ "usque-platform",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "utf8_iter"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"

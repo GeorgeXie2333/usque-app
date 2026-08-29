@@ -11,6 +11,9 @@ use zeroize::Zeroizing;
 pub mod packet_ring;
 
 #[cfg(windows)]
+pub mod windows_authenticode;
+
+#[cfg(windows)]
 pub mod windows_vault;
 
 #[cfg(target_os = "macos")]

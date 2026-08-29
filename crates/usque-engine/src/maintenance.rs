@@ -1,14 +1,13 @@
 use std::{
     fs::{self, File, OpenOptions},
-    io::{self, BufReader, Read, Seek, SeekFrom, Write},
+    io::{self, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     time::Duration,
 };
 
 use crate::logging::{log_directory, sanitize_log_bytes};
 
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use chrono::Utc;
 use sha2::{Digest, Sha256};
 use tempfile::NamedTempFile;
 use thiserror::Error;
@@ -19,14 +18,11 @@ use usque_core::{
 };
 use usque_transport::{ConnectionEventType, ConnectionTimelineSnapshot};
 
-const UPDATE_STATE_SCHEMA: u32 = 1;
-const UPDATE_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
-const MAX_UPDATE_STATE_BYTES: u64 = 64 * 1024;
 const MAX_DIAGNOSTIC_LOG_BYTES: usize = 2 * 1024 * 1024;
 
 pub struct Maintenance {
     update_checker: UpdateChecker,
-    update_state_path: PathBuf,
+    legacy_update_state_path: PathBuf,
     log_directory: PathBuf,
     flag_cache_directory: PathBuf,
     config_backup_path: PathBuf,
@@ -36,10 +32,12 @@ pub struct Maintenance {
 impl Maintenance {
     pub fn new(config_path: &Path) -> Self {
         let parent = config_path.parent().unwrap_or_else(|| Path::new("."));
+        let legacy_update_state_path = parent.join("update-state-v1.json");
+        let _ = remove_file_if_present(&legacy_update_state_path);
         Self {
             update_checker: UpdateChecker::new()
                 .expect("the static GitHub update client configuration must be valid"),
-            update_state_path: parent.join("update-state-v1.json"),
+            legacy_update_state_path,
             log_directory: log_directory(config_path),
             flag_cache_directory: parent.join("cache").join("flag-icons-7.5.0"),
             config_backup_path: config_path.with_extension("json.bak"),
@@ -56,28 +54,11 @@ impl Maintenance {
             return Ok(UpdateInfo::current());
         }
         let _guard = self.update_lock.lock().await;
-        if !manual
-            && let Some(cached) = load_update_state(&self.update_state_path)?
-            && Utc::now()
-                .signed_duration_since(cached.checked_at)
-                .to_std()
-                .unwrap_or_default()
-                < UPDATE_INTERVAL
-        {
-            return Ok(cached.info);
-        }
-
-        let info = self.update_checker.check(env!("CARGO_PKG_VERSION")).await?;
-        let state_path = self.update_state_path.clone();
-        let cached = CachedUpdateState {
-            schema_version: UPDATE_STATE_SCHEMA,
-            checked_at: Utc::now(),
-            info: info.clone(),
-        };
-        tokio::task::spawn_blocking(move || save_update_state(&state_path, &cached))
-            .await
-            .map_err(|error| MaintenanceError::Worker(error.to_string()))??;
-        Ok(info)
+        // Older releases cached automatic checks for 24 hours. A launch now
+        // always performs a fresh request; remove the obsolete cache without
+        // allowing cleanup failure to block discovery.
+        let _ = remove_file_if_present(&self.legacy_update_state_path);
+        Ok(self.update_checker.check(env!("CARGO_PKG_VERSION")).await?)
     }
 
     pub async fn export_diagnostics(
@@ -104,7 +85,7 @@ impl Maintenance {
     }
 
     pub async fn clear_local_state(&self) -> Result<(), MaintenanceError> {
-        let update_state_path = self.update_state_path.clone();
+        let update_state_path = self.legacy_update_state_path.clone();
         let log_directory = self.log_directory.clone();
         let flag_cache_directory = self.flag_cache_directory.clone();
         let config_backup_path = self.config_backup_path.clone();
@@ -153,40 +134,6 @@ fn clear_engine_logs(directory: &Path) -> io::Result<()> {
             fs::remove_file(entry.path())?;
         }
     }
-    Ok(())
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct CachedUpdateState {
-    schema_version: u32,
-    checked_at: DateTime<Utc>,
-    info: UpdateInfo,
-}
-
-fn load_update_state(path: &Path) -> Result<Option<CachedUpdateState>, MaintenanceError> {
-    let metadata = match fs::metadata(path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error.into()),
-    };
-    if metadata.len() > MAX_UPDATE_STATE_BYTES {
-        return Ok(None);
-    }
-    let state: CachedUpdateState = serde_json::from_reader(BufReader::new(File::open(path)?))?;
-    Ok((state.schema_version == UPDATE_STATE_SCHEMA).then_some(state))
-}
-
-fn save_update_state(path: &Path, state: &CachedUpdateState) -> Result<(), MaintenanceError> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| MaintenanceError::InvalidDestination(path.to_owned()))?;
-    fs::create_dir_all(parent)?;
-    let mut temporary = NamedTempFile::new_in(parent)?;
-    serde_json::to_writer(&mut temporary, state)?;
-    temporary.write_all(b"\n")?;
-    temporary.as_file().sync_all()?;
-    replace_file(temporary.path(), path)?;
-    let _ = temporary.keep();
     Ok(())
 }
 

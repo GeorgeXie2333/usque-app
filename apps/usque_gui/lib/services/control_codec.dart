@@ -1242,6 +1242,7 @@ UpdateCheckResult _decodeUpdate(_ProtoReader reader) {
   var available = false;
   String? version;
   String? releaseUrl;
+  UpdatePackage? package;
   while (!reader.isDone) {
     final field = reader.field();
     switch (field.number) {
@@ -1251,6 +1252,8 @@ UpdateCheckResult _decodeUpdate(_ProtoReader reader) {
         version = _emptyToNull(reader.string(field));
       case 3:
         releaseUrl = _emptyToNull(reader.string(field));
+      case 4:
+        package = _decodeUpdatePackage(reader.message(field));
       default:
         reader.skip(field);
     }
@@ -1259,6 +1262,43 @@ UpdateCheckResult _decodeUpdate(_ProtoReader reader) {
     available: available,
     version: version,
     releaseUrl: releaseUrl,
+    package: package,
+  );
+}
+
+UpdatePackage _decodeUpdatePackage(_ProtoReader reader) {
+  var name = '';
+  var downloadUrl = '';
+  var size = 0;
+  var sha256 = '';
+  var platform = '';
+  var variant = '';
+  while (!reader.isDone) {
+    final field = reader.field();
+    switch (field.number) {
+      case 1:
+        name = reader.string(field);
+      case 2:
+        downloadUrl = reader.string(field);
+      case 3:
+        size = reader.varint(field);
+      case 4:
+        sha256 = reader.string(field);
+      case 5:
+        platform = reader.string(field);
+      case 6:
+        variant = reader.string(field);
+      default:
+        reader.skip(field);
+    }
+  }
+  return UpdatePackage(
+    name: name,
+    downloadUrl: downloadUrl,
+    size: size,
+    sha256: sha256,
+    platform: platform,
+    variant: variant,
   );
 }
 

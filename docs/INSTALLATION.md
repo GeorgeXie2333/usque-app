@@ -113,8 +113,14 @@ Uninstalling the app removes its Android Keystore entries and private data the w
 
 ## Updates
 
-Usque never downloads or installs an update by itself. At most once every 24 hours it can check this repository for a newer release, show a notification, and open the release page. Automatic checks can be turned off; a manual check stays available.
+When automatic checks are enabled, each new Usque application process checks once after local state initialization. Returning from the background or reopening the window does not check again. Turning the switch off disables that startup check; **Check now** always performs a live request.
 
-Treat each update as a new package: check the filename, GitHub SHA-256, signer, architecture, and attestations before installing.
+Only a non-prerelease GitHub Release is offered. Usque does not download it in the background: the Settings page first shows the release version, architecture, and package size. After you choose Download, Usque requires the exact package and `release-manifest.json` from the same release, streams into a private `.part` file, checks the declared size and SHA-256, and atomically publishes the completed file. Downloads can be cancelled and retried. Failed and partial downloads are removed immediately; abandoned update packages are removed after seven days.
+
+On Windows, **Restart and update** flushes local settings, disconnects the Engine normally, and starts the signed `usque-update.exe` helper. The helper checks the MSI digest, Authenticode signer, UpgradeCode, ProductVersion, architecture, and installed variant before waiting for the GUI to exit and running Windows Installer in passive, no-restart mode. It deletes the MSI at a terminal result and starts the installed application again unless Windows requires a reboot. Validate the real upgrade and failure-recovery paths only in a snapshot-enabled VM.
+
+On Android, **Install update** verifies that the APK stays in Usque's private cache and has the same package name and signing identity, a higher version code, the advertised version, and native code for the running ABI. Android may first open the permission page for installing unknown apps; Usque then submits the APK with `PackageInstaller` and Android shows its normal confirmation UI. Success, failure, cancellation, package replacement, and the next startup all clean the cached APK. Validate this path only on a dedicated phone or TV.
+
+Treat each update as a new package: the app performs these checks automatically, while the release page remains available for independent filename, SHA-256, signer, architecture, SBOM, and attestation review.
 
 The GitHub release workflow does not install packages on physical devices or run long VPN tests. Signing and supply-chain steps are in [RELEASE.md](RELEASE.md).

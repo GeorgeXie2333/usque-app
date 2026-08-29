@@ -188,6 +188,20 @@ const Map<String, String> kIdCatalog = <String, String>{
   'update_available': 'Rilis yang lebih baru tersedia:',
   'already_latest': 'Instalasi ini sudah yang terbaru.',
   'open_release': 'Buka halaman rilis',
+  'update_startup_description':
+      'Memeriksa sekali saat Usque dimulai. Pemeriksaan manual selalu langsung.',
+  'update_checking': 'Memeriksa pembaruan…',
+  'update_downloading': 'Mengunduh paket pembaruan terverifikasi…',
+  'update_verifying': 'Memverifikasi paket pembaruan…',
+  'update_ready': 'Pembaruan siap dipasang.',
+  'update_installing': 'Pembaruan diserahkan ke pemasang sistem.',
+  'update_restart_install': 'Mulai ulang dan perbarui',
+  'update_install_android': 'Pasang pembaruan',
+  'update_confirm_title': 'Pasang pembaruan ini?',
+  'update_confirm_body':
+      'Koneksi VPN dan proksi akan terputus sementara selama pemasangan.',
+  'update_package_unavailable':
+      'Tidak ada paket terverifikasi untuk perangkat ini. Buka halaman rilis.',
   'notice': 'Selesai',
   'identity': 'Identitas WARP',
   'identity_and_license': 'Identitas & License Key',

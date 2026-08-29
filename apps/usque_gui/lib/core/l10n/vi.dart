@@ -187,6 +187,20 @@ const Map<String, String> kViCatalog = <String, String>{
   'update_available': 'Đã có bản phát hành mới hơn:',
   'already_latest': 'Bản cài đặt này đã là phiên bản mới nhất.',
   'open_release': 'Mở trang phát hành',
+  'update_startup_description':
+      'Kiểm tra một lần khi Usque khởi động. Kiểm tra thủ công luôn lấy kết quả mới.',
+  'update_checking': 'Đang kiểm tra bản cập nhật…',
+  'update_downloading': 'Đang tải gói cập nhật đã xác minh…',
+  'update_verifying': 'Đang xác minh gói cập nhật…',
+  'update_ready': 'Bản cập nhật đã sẵn sàng để cài đặt.',
+  'update_installing':
+      'Bản cập nhật đã được chuyển cho trình cài đặt hệ thống.',
+  'update_restart_install': 'Khởi động lại và cập nhật',
+  'update_install_android': 'Cài đặt bản cập nhật',
+  'update_confirm_title': 'Cài đặt bản cập nhật này?',
+  'update_confirm_body': 'Kết nối VPN và proxy sẽ tạm ngắt trong khi cài đặt.',
+  'update_package_unavailable':
+      'Không có gói đã xác minh cho thiết bị này. Hãy mở trang phát hành.',
   'notice': 'Hoàn tất',
   'identity': 'Danh tính WARP',
   'identity_and_license': 'Danh tính & License',

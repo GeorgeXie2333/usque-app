@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.net.Uri
 import android.os.Build
+import androidx.core.content.edit
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
@@ -13,53 +14,38 @@ import java.util.zip.ZipOutputStream
 
 internal object AndroidMaintenance {
     private const val UPDATE_PREFERENCES = "usque_update_state_v1"
-    private const val UPDATE_CHECKED_AT = "checked_at_unix_millis"
-    private const val UPDATE_RESULT = "result_json"
-    private const val UPDATE_INTERVAL_MILLIS = 24L * 60L * 60L * 1_000L
     private const val MAX_UPDATE_RESULT_BYTES = 16 * 1024
     private const val MAX_DIAGNOSTIC_LOG_BYTES = 2 * 1024 * 1024
     private const val MAX_DIAGNOSTIC_BUNDLE_BYTES = 8 * 1024 * 1024
     private const val RELEASE_URL_PREFIX =
         "https://github.com/GeorgeXie2333/usque-app/releases/"
+    private const val RELEASE_DOWNLOAD_PREFIX =
+        "https://github.com/GeorgeXie2333/usque-app/releases/download/"
+    private const val MAX_UPDATE_PACKAGE_BYTES = 512L * 1024L * 1024L
+    private val UPDATE_SHA256 = Regex("^[0-9a-f]{64}$")
+    private val UPDATE_VARIANTS = setOf("arm64-v8a", "x86_64", "armeabi-v7a")
 
-    // A cached update result must be durable before reporting success.
-    @SuppressLint("ApplySharedPref", "UseKtx")
+    @Suppress("UNUSED_PARAMETER")
     fun checkForUpdates(
         context: Context,
         manual: Boolean,
     ): Map<String, Any?> {
-        val preferences =
-            context.getSharedPreferences(UPDATE_PREFERENCES, Context.MODE_PRIVATE)
-        val now = System.currentTimeMillis()
-        if (!manual) {
-            val checkedAt = preferences.getLong(UPDATE_CHECKED_AT, 0L)
-            val cached = preferences.getString(UPDATE_RESULT, null)
-            if (
-                checkedAt in 1..now &&
-                now - checkedAt < UPDATE_INTERVAL_MILLIS &&
-                cached != null
-            ) {
-                return parseUpdateResult(cached)
-            }
-        }
-
+        // `manual` remains part of the MethodChannel contract, but every call
+        // is live now. Clear the obsolete 24-hour cache left by older builds.
+        cleanupLegacyUpdateState(context)
         val response =
             NativeEngine.checkForUpdates()
                 ?: throw IOException("The Rust update checker is unavailable.")
         if (response.toByteArray(Charsets.UTF_8).size > MAX_UPDATE_RESULT_BYTES) {
             throw IOException("The update result exceeded the Android safety limit.")
         }
-        val parsed = parseUpdateResult(response)
-        if (
-            !preferences
-                .edit()
-                .putLong(UPDATE_CHECKED_AT, now)
-                .putString(UPDATE_RESULT, response)
-                .commit()
-        ) {
-            throw IOException("Android could not persist the update-check timestamp.")
-        }
-        return parsed
+        return parseUpdateResult(response)
+    }
+
+    fun cleanupLegacyUpdateState(context: Context) {
+        context
+            .getSharedPreferences(UPDATE_PREFERENCES, Context.MODE_PRIVATE)
+            .edit { clear() }
     }
 
     fun writeDiagnostics(
@@ -228,10 +214,41 @@ internal object AndroidMaintenance {
         if (available && (version == null || releaseUrl == null)) {
             throw IOException("The Rust update checker returned an invalid release.")
         }
+        val updatePackage =
+            value.optJSONObject("package")?.let { packageValue ->
+                val name = packageValue.optString("name")
+                val downloadUrl = packageValue.optString("download_url")
+                val size = packageValue.optLong("size", 0L)
+                val sha256 = packageValue.optString("sha256").lowercase()
+                val platform = packageValue.optString("platform")
+                val variant = packageValue.optString("variant")
+                val expectedUrl = "$RELEASE_DOWNLOAD_PREFIX$version/$name"
+                if (
+                    name.isEmpty() ||
+                    name.length > 160 ||
+                    downloadUrl != expectedUrl ||
+                    size !in 1..MAX_UPDATE_PACKAGE_BYTES ||
+                    !UPDATE_SHA256.matches(sha256) ||
+                    platform != "android" ||
+                    variant !in UPDATE_VARIANTS ||
+                    name != "usque-$version-android-$variant.apk"
+                ) {
+                    throw IOException("The Rust update checker returned an invalid Android package.")
+                }
+                mapOf(
+                    "name" to name,
+                    "download_url" to downloadUrl,
+                    "size" to size,
+                    "sha256" to sha256,
+                    "platform" to platform,
+                    "variant" to variant,
+                )
+            }
         return mapOf(
             "available" to available,
             "version" to version,
             "release_url" to releaseUrl,
+            "package" to updatePackage,
         )
     }
 

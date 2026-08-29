@@ -187,24 +187,80 @@ class UpdateCheckResult {
     required this.available,
     this.version,
     this.releaseUrl,
+    this.package,
   });
 
   const UpdateCheckResult.current()
     : available = false,
       version = null,
-      releaseUrl = null;
+      releaseUrl = null,
+      package = null;
 
   final bool available;
   final String? version;
   final String? releaseUrl;
+  final UpdatePackage? package;
 
   factory UpdateCheckResult.fromMap(Map<Object?, Object?> map) {
+    final package = map['package'];
     return UpdateCheckResult(
       available: map['available'] as bool? ?? false,
       version: map['version'] as String?,
       releaseUrl: map['release_url'] as String?,
+      package: package is Map<Object?, Object?>
+          ? UpdatePackage.fromMap(package)
+          : null,
     );
   }
+}
+
+class UpdatePackage {
+  const UpdatePackage({
+    required this.name,
+    required this.downloadUrl,
+    required this.size,
+    required this.sha256,
+    required this.platform,
+    required this.variant,
+  });
+
+  final String name;
+  final String downloadUrl;
+  final int size;
+  final String sha256;
+  final String platform;
+  final String variant;
+
+  factory UpdatePackage.fromMap(Map<Object?, Object?> map) {
+    return UpdatePackage(
+      name: map['name'] as String? ?? '',
+      downloadUrl: map['download_url'] as String? ?? '',
+      size: map['size'] as int? ?? 0,
+      sha256: map['sha256'] as String? ?? '',
+      platform: map['platform'] as String? ?? '',
+      variant: map['variant'] as String? ?? '',
+    );
+  }
+
+  Map<String, Object> toMap() => <String, Object>{
+    'name': name,
+    'download_url': downloadUrl,
+    'size': size,
+    'sha256': sha256,
+    'platform': platform,
+    'variant': variant,
+  };
+}
+
+enum UpdateOperationPhase {
+  idle,
+  checking,
+  available,
+  downloading,
+  verifying,
+  ready,
+  installing,
+  failed,
 }
 
 class PerAppProxySettings {

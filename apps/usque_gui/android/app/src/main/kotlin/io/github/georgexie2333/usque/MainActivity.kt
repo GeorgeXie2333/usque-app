@@ -14,15 +14,18 @@ import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
 import android.os.PersistableBundle
+import android.provider.Settings
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
+import androidx.core.net.toUri
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 
 /**
  * Flutter host: channel adapters, VPN permission, and document-picker results.
@@ -40,6 +43,8 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private val identityExecutor = Executors.newSingleThreadExecutor()
+    private val updateInstallExecutor = Executors.newSingleThreadExecutor()
+    private val updateInstallGate = UpdateInstallOperationGate()
     private val identityStore by lazy { SecureIdentityStore(this) }
     private val profileConfigPath by lazy {
         File(noBackupFilesDir, "usque_config/profiles-v2.json").absolutePath
@@ -49,9 +54,14 @@ class MainActivity : FlutterFragmentActivity() {
     private var pendingDiagnosticsPayload: AndroidEngineMethodHandler.DiagnosticExportPayload? = null
     private var pendingWarpSecretResult: MethodChannel.Result? = null
     private var pendingWarpSecretProfileId: String? = null
+    private var pendingUpdateResult: MethodChannel.Result? = null
+    private var pendingUpdateRequest: AndroidUpdateInstaller.Request? = null
+    private var pendingUpdateToken: Long? = null
     private var pendingLaunchTarget: String? = null
     private val zeroTrustCallbackSession = ZeroTrustCallbackSession()
+    private val updateInstaller by lazy { AndroidUpdateInstaller(this) }
     private var eventSink: EventChannel.EventSink? = null
+    private var engineMethodChannel: MethodChannel? = null
 
     private lateinit var controlClient: VpnControlClient
     private lateinit var methodHandler: AndroidEngineMethodHandler
@@ -69,6 +79,11 @@ class MainActivity : FlutterFragmentActivity() {
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) {
             // Notification permission never gates VPN or proxy connectivity.
+        }
+
+    private val updatePermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            finishUpdateInstallPermission()
         }
 
     private val activityCommands =
@@ -171,6 +186,25 @@ class MainActivity : FlutterFragmentActivity() {
                         PerAppProxySettings(enabled = enabled, packageNames = packageNames),
                     ).toMap()
 
+            override fun getUpdateCacheDirectory(): String {
+                updateInstaller.prepareCache()
+                return updateInstaller.cacheDirectory.absolutePath
+            }
+
+            override fun verifyUpdatePackage(arguments: Map<String, Any?>) {
+                updateInstaller.verify(
+                    AndroidUpdateInstaller.fromArguments(arguments),
+                    allowPartial = true,
+                )
+            }
+
+            override fun installUpdatePackage(
+                arguments: Map<String, Any?>,
+                result: MethodChannel.Result,
+            ) {
+                beginUpdateInstall(arguments, result)
+            }
+
             override fun publishEngineEvent(event: Map<String, Any?>) {
                 eventSink?.success(event)
             }
@@ -199,6 +233,8 @@ class MainActivity : FlutterFragmentActivity() {
         super.onCreate(savedInstanceState)
         configureQuickSettingsTileAvailability()
         AndroidShortcutController.sync(this)
+        AndroidMaintenance.cleanupLegacyUpdateState(this)
+        updateInstaller.prepareCache(recoverAbandonedOperation = true)
         handleIncomingIntent(intent)
     }
 
@@ -290,10 +326,16 @@ class MainActivity : FlutterFragmentActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         ensureEngineComponents()
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
-            .setMethodCallHandler { call, result ->
-                methodHandler.handle(call, result)
-            }
+        engineMethodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
+        engineMethodChannel?.setMethodCallHandler { call, result ->
+            methodHandler.handle(call, result)
+        }
+        AndroidUpdateInstaller.terminalListener = { success, message ->
+            runOnUiThread { publishUpdateInstallResult(success, message) }
+        }
+        updateInstaller.consumeTerminalResult()?.let { (success, message) ->
+            publishUpdateInstallResult(success, message)
+        }
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, EVENT_CHANNEL)
             .setStreamHandler(
                 object : EventChannel.StreamHandler {
@@ -338,12 +380,269 @@ class MainActivity : FlutterFragmentActivity() {
         )
         pendingWarpSecretResult = null
         pendingWarpSecretProfileId = null
+        cancelPendingUpdateOperation()
+        AndroidUpdateInstaller.terminalListener = null
+        engineMethodChannel = null
         eventSink = null
         if (::controlClient.isInitialized) {
             controlClient.destroy()
         }
+        updateInstallExecutor.shutdownNow()
         identityExecutor.shutdownNow()
         super.onDestroy()
+    }
+
+    private fun beginUpdateInstall(
+        arguments: Map<String, Any?>,
+        result: MethodChannel.Result,
+    ) {
+        if (pendingUpdateResult != null) {
+            result.error(
+                "UPDATE_INSTALL_IN_PROGRESS",
+                "Another Android update installation is already waiting for confirmation.",
+                null,
+            )
+            return
+        }
+        val request =
+            try {
+                AndroidUpdateInstaller.fromArguments(arguments)
+            } catch (error: AndroidUpdateInstaller.UpdateException) {
+                result.error(error.code, error.message, null)
+                return
+            }
+        try {
+            updateInstaller.trackPending(request)
+        } catch (error: AndroidUpdateInstaller.UpdateException) {
+            updateInstaller.discard(request)
+            result.error(error.code, error.message, null)
+            return
+        } catch (error: Exception) {
+            updateInstaller.discard(request)
+            result.error(
+                "UPDATE_INSTALL_SESSION_FAILED",
+                "Android could not persist the pending update installation.",
+                error.javaClass.simpleName,
+            )
+            return
+        }
+        val token = updateInstallGate.begin()
+        pendingUpdateToken = token
+        pendingUpdateRequest = request
+        pendingUpdateResult = result
+        try {
+            updateInstallExecutor.execute {
+                try {
+                    updateInstaller.verify(
+                        request,
+                        cancelled = { !updateInstallGate.isActive(token) },
+                    )
+                    runOnUiThread {
+                        if (!isUpdateOperationActive(token, request, result)) return@runOnUiThread
+                        val canInstall =
+                            try {
+                                updateInstaller.canRequestPackageInstalls()
+                            } catch (error: Exception) {
+                                failUpdateOperation(
+                                    token,
+                                    request,
+                                    result,
+                                    "UPDATE_INSTALL_PERMISSION_UNAVAILABLE",
+                                    "Android could not inspect the unknown-app installation permission.",
+                                    error.javaClass.simpleName,
+                                )
+                                return@runOnUiThread
+                            }
+                        if (canInstall) {
+                            commitUpdateInstall(token, request, result)
+                        } else {
+                            try {
+                                updatePermissionLauncher.launch(
+                                    Intent(
+                                        Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                        "package:$packageName".toUri(),
+                                    ),
+                                )
+                            } catch (error: Exception) {
+                                failUpdateOperation(
+                                    token,
+                                    request,
+                                    result,
+                                    "UPDATE_INSTALL_PERMISSION_UNAVAILABLE",
+                                    "Android could not open the unknown-app installation settings.",
+                                    error.javaClass.simpleName,
+                                )
+                            }
+                        }
+                    }
+                } catch (error: AndroidUpdateInstaller.UpdateException) {
+                    runOnUiThread {
+                        failUpdateOperation(token, request, result, error.code, error.message, null)
+                    }
+                } catch (error: Exception) {
+                    runOnUiThread {
+                        failUpdateOperation(
+                            token,
+                            request,
+                            result,
+                            "UPDATE_PACKAGE_INVALID",
+                            "Android could not verify the update package.",
+                            error.javaClass.simpleName,
+                        )
+                    }
+                }
+            }
+        } catch (error: RejectedExecutionException) {
+            failUpdateOperation(
+                token,
+                request,
+                result,
+                "UPDATE_INSTALL_CANCELLED",
+                "The Android UI closed before the update installation could start.",
+                error.javaClass.simpleName,
+            )
+        }
+    }
+
+    private fun finishUpdateInstallPermission() {
+        val token = pendingUpdateToken ?: return
+        val result = pendingUpdateResult ?: return
+        val request = pendingUpdateRequest ?: return
+        val canInstall =
+            try {
+                updateInstaller.canRequestPackageInstalls()
+            } catch (error: Exception) {
+                failUpdateOperation(
+                    token,
+                    request,
+                    result,
+                    "UPDATE_INSTALL_PERMISSION_UNAVAILABLE",
+                    "Android could not inspect the unknown-app installation permission.",
+                    error.javaClass.simpleName,
+                )
+                return
+            }
+        if (!canInstall) {
+            failUpdateOperation(
+                token,
+                request,
+                result,
+                "UPDATE_INSTALL_PERMISSION_DENIED",
+                "Permission to install updates from Usque was not granted.",
+                null,
+            )
+            return
+        }
+        commitUpdateInstall(token, request, result)
+    }
+
+    private fun commitUpdateInstall(
+        token: Long,
+        request: AndroidUpdateInstaller.Request,
+        result: MethodChannel.Result,
+    ) {
+        if (!isUpdateOperationActive(token, request, result)) return
+        try {
+            updateInstallExecutor.execute {
+                try {
+                    val sessionId =
+                        updateInstaller.commit(
+                            request,
+                            cancelled = { !updateInstallGate.isActive(token) },
+                        )
+                    runOnUiThread {
+                        if (finishUpdateOperation(token, request, result)) {
+                            result.success(mapOf("session_id" to sessionId))
+                        }
+                    }
+                } catch (error: AndroidUpdateInstaller.UpdateException) {
+                    runOnUiThread {
+                        failUpdateOperation(token, request, result, error.code, error.message, null)
+                    }
+                } catch (error: Exception) {
+                    runOnUiThread {
+                        failUpdateOperation(
+                            token,
+                            request,
+                            result,
+                            "UPDATE_INSTALL_SESSION_FAILED",
+                            "Android could not hand the APK to the package installer.",
+                            error.javaClass.simpleName,
+                        )
+                    }
+                }
+            }
+        } catch (error: RejectedExecutionException) {
+            failUpdateOperation(
+                token,
+                request,
+                result,
+                "UPDATE_INSTALL_CANCELLED",
+                "The Android UI closed before the update installation could start.",
+                error.javaClass.simpleName,
+            )
+        }
+    }
+
+    private fun isUpdateOperationActive(
+        token: Long,
+        request: AndroidUpdateInstaller.Request,
+        result: MethodChannel.Result,
+    ): Boolean =
+        updateInstallGate.isActive(token) &&
+            pendingUpdateToken == token &&
+            pendingUpdateRequest == request &&
+            pendingUpdateResult === result
+
+    private fun finishUpdateOperation(
+        token: Long,
+        request: AndroidUpdateInstaller.Request,
+        result: MethodChannel.Result,
+    ): Boolean {
+        if (!isUpdateOperationActive(token, request, result)) return false
+        updateInstallGate.finish(token)
+        pendingUpdateToken = null
+        pendingUpdateRequest = null
+        pendingUpdateResult = null
+        return true
+    }
+
+    private fun failUpdateOperation(
+        token: Long,
+        request: AndroidUpdateInstaller.Request,
+        result: MethodChannel.Result,
+        code: String,
+        message: String,
+        details: String?,
+    ) {
+        if (!finishUpdateOperation(token, request, result)) return
+        updateInstaller.discard(request)
+        result.error(code, message, details)
+    }
+
+    private fun cancelPendingUpdateOperation() {
+        val request = pendingUpdateRequest
+        val result = pendingUpdateResult
+        pendingUpdateToken = null
+        pendingUpdateRequest = null
+        pendingUpdateResult = null
+        updateInstallGate.invalidateAll()
+        request?.let(updateInstaller::discard)
+        result?.error(
+            "UPDATE_INSTALL_CANCELLED",
+            "The Android UI closed before the update installation was handed off.",
+            null,
+        )
+    }
+
+    private fun publishUpdateInstallResult(
+        success: Boolean,
+        message: String?,
+    ) {
+        engineMethodChannel?.invokeMethod(
+            "updateInstallFinished",
+            mapOf("success" to success, "message" to message),
+        )
     }
 
     @Deprecated("The Storage Access Framework result is bridged to Flutter.")

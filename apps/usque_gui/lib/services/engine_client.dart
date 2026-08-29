@@ -129,6 +129,20 @@ abstract interface class EngineClient {
 
   Future<UpdateCheckResult> checkForUpdates({bool manual = true});
 
+  Future<String> getUpdateCacheDirectory();
+
+  Future<void> verifyUpdatePackage({
+    required String path,
+    required String version,
+    required UpdatePackage package,
+  });
+
+  Future<void> installUpdatePackage({
+    required String path,
+    required String version,
+    required UpdatePackage package,
+  });
+
   Future<GeoRulesList> listGeoRules();
 
   Future<List<GeoRulesUpdateResult>> downloadGeoRules(String countryCode);
@@ -489,6 +503,40 @@ class MethodChannelEngineClient implements EngineClient {
     );
     return UpdateCheckResult.fromMap(result ?? const <Object?, Object?>{});
   }
+
+  @override
+  Future<String> getUpdateCacheDirectory() async {
+    final result = await _invoke<String>('getUpdateCacheDirectory');
+    if (result == null || result.isEmpty) {
+      throw const EngineException(
+        'UPDATE_STORAGE_UNAVAILABLE',
+        'The platform did not provide an update cache directory.',
+      );
+    }
+    return result;
+  }
+
+  @override
+  Future<void> verifyUpdatePackage({
+    required String path,
+    required String version,
+    required UpdatePackage package,
+  }) => _invoke<void>('verifyUpdatePackage', <String, Object>{
+    'path': path,
+    'version': version,
+    'package': package.toMap(),
+  });
+
+  @override
+  Future<void> installUpdatePackage({
+    required String path,
+    required String version,
+    required UpdatePackage package,
+  }) => _invoke<void>('installUpdatePackage', <String, Object>{
+    'path': path,
+    'version': version,
+    'package': package.toMap(),
+  });
 
   @override
   Future<GeoRulesList> listGeoRules() async {

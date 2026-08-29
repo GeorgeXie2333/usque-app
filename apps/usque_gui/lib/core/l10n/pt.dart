@@ -192,6 +192,20 @@ const Map<String, String> kPtCatalog = <String, String>{
   'update_available': 'Uma versão mais recente está disponível:',
   'already_latest': 'Esta instalação já está atualizada.',
   'open_release': 'Abrir página da versão',
+  'update_startup_description':
+      'Verifica uma vez ao iniciar o Usque. A verificação manual é sempre em tempo real.',
+  'update_checking': 'A procurar uma atualização…',
+  'update_downloading': 'A transferir o pacote de atualização verificado…',
+  'update_verifying': 'A verificar o pacote de atualização…',
+  'update_ready': 'A atualização está pronta para instalar.',
+  'update_installing': 'A atualização foi entregue ao instalador do sistema.',
+  'update_restart_install': 'Reiniciar e atualizar',
+  'update_install_android': 'Instalar atualização',
+  'update_confirm_title': 'Instalar esta atualização?',
+  'update_confirm_body':
+      'As ligações VPN e proxy serão desligadas temporariamente durante a instalação.',
+  'update_package_unavailable':
+      'Não há pacote verificado para este dispositivo. Abra a página da versão.',
   'notice': 'Concluído',
   'identity': 'Identidade WARP',
   'identity_and_license': 'Identidade e License Key',

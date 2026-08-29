@@ -193,6 +193,21 @@ const Map<String, String> kDeCatalog = <String, String>{
   'update_available': 'Eine neuere Version ist verfügbar:',
   'already_latest': 'Diese Installation ist bereits aktuell.',
   'open_release': 'Release-Seite öffnen',
+  'update_startup_description':
+      'Prüft einmal beim Start von Usque. Manuelle Prüfungen sind immer aktuell.',
+  'update_checking': 'Suche nach einem Update…',
+  'update_downloading': 'Verifiziertes Update-Paket wird heruntergeladen…',
+  'update_verifying': 'Update-Paket wird geprüft…',
+  'update_ready': 'Das Update ist installationsbereit.',
+  'update_installing':
+      'Das Update wurde an das Systeminstallationsprogramm übergeben.',
+  'update_restart_install': 'Neu starten und aktualisieren',
+  'update_install_android': 'Update installieren',
+  'update_confirm_title': 'Dieses Update installieren?',
+  'update_confirm_body':
+      'VPN- und Proxyverbindungen werden während der Installation vorübergehend getrennt.',
+  'update_package_unavailable':
+      'Für dieses Gerät ist kein verifiziertes Paket verfügbar. Öffnen Sie die Release-Seite.',
   'notice': 'Abgeschlossen',
   'identity': 'WARP-Identität',
   'identity_and_license': 'Identität & License',

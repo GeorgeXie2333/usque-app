@@ -190,6 +190,21 @@ const Map<String, String> kNlCatalog = <String, String>{
   'update_available': 'Er is een nieuwere versie beschikbaar:',
   'already_latest': 'Deze installatie is al up-to-date.',
   'open_release': 'Releasepagina openen',
+  'update_startup_description':
+      'Controleert eenmaal bij het starten van Usque. Handmatig controleren is altijd live.',
+  'update_checking': 'Controleren op een update…',
+  'update_downloading': 'Geverifieerd updatepakket downloaden…',
+  'update_verifying': 'Updatepakket verifiëren…',
+  'update_ready': 'De update kan worden geïnstalleerd.',
+  'update_installing':
+      'De update is aan het systeeminstallatieprogramma overgedragen.',
+  'update_restart_install': 'Herstarten en bijwerken',
+  'update_install_android': 'Update installeren',
+  'update_confirm_title': 'Deze update installeren?',
+  'update_confirm_body':
+      'VPN- en proxyverbindingen worden tijdens de installatie tijdelijk verbroken.',
+  'update_package_unavailable':
+      'Er is geen geverifieerd pakket voor dit apparaat. Open de releasepagina.',
   'notice': 'Voltooid',
   'identity': 'WARP-identiteit',
   'identity_and_license': 'Identiteit en License',

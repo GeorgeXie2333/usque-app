@@ -7,6 +7,7 @@ import '../core/usque_theme.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
+import '../widgets/usque_dialog.dart';
 import 'advanced_settings_screen.dart';
 import 'geo_direct_settings_screen.dart';
 import 'per_app_proxy_screen.dart';
@@ -171,6 +172,7 @@ class SettingsScreen extends StatelessWidget {
                     contentPadding: EdgeInsets.zero,
                     secondary: const Icon(LucideIcons.bell),
                     title: Text(strings.get('check_updates')),
+                    subtitle: Text(strings.get('update_startup_description')),
                     value: controller.updateChecksEnabled,
                     onChanged: controller.setUpdateChecks,
                   ),
@@ -196,32 +198,193 @@ class _UpdateActions extends StatelessWidget {
   Widget build(BuildContext context) {
     final strings = controller.strings;
     final UpdateCheckResult? update = controller.updateResult;
+    final UpdatePackage? package = update?.package;
     final bool offerRelease =
         update != null &&
         update.available &&
         (update.releaseUrl?.isNotEmpty ?? false);
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      alignment: WrapAlignment.end,
+    final bool canDownload =
+        update?.available == true &&
+        package != null &&
+        (controller.updatePhase == UpdateOperationPhase.available ||
+            controller.updatePhase == UpdateOperationPhase.failed);
+    final bool canInstall =
+        controller.updatePhase == UpdateOperationPhase.ready &&
+        controller.downloadedUpdatePath != null;
+    final String? statusKey = switch (controller.updatePhase) {
+      UpdateOperationPhase.checking => 'update_checking',
+      UpdateOperationPhase.downloading => 'update_downloading',
+      UpdateOperationPhase.verifying => 'update_verifying',
+      UpdateOperationPhase.ready => 'update_ready',
+      UpdateOperationPhase.installing => 'update_installing',
+      _ => null,
+    };
+    final bool showProgress =
+        controller.updatePhase == UpdateOperationPhase.downloading ||
+        controller.updatePhase == UpdateOperationPhase.verifying;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        OutlinedButton.icon(
-          onPressed: controller.busy ? null : controller.checkForUpdates,
-          icon: const Icon(LucideIcons.refreshCw),
-          label: Text(strings.get('check_now')),
-        ),
-        if (offerRelease)
-          FilledButton.tonalIcon(
-            onPressed: () => launchUrl(
-              Uri.parse(update.releaseUrl!),
-              mode: LaunchMode.externalApplication,
-            ),
-            icon: const Icon(LucideIcons.externalLink),
-            label: Text(strings.get('open_release')),
+        if (update?.available == true) ...<Widget>[
+          Row(
+            children: <Widget>[
+              Icon(
+                LucideIcons.packageCheck,
+                size: 18,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  <String>[
+                    'v${(update?.version ?? '').replaceFirst(RegExp(r'^v'), '')}',
+                    if (package != null) package.variant,
+                    if (package != null) _formatUpdateBytes(package.size),
+                  ].join('  •  '),
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+              ),
+            ],
           ),
+          if (package == null) ...<Widget>[
+            const SizedBox(height: 10),
+            WarningBanner(
+              title: strings.get('updates'),
+              message: strings.get('update_package_unavailable'),
+            ),
+          ],
+          const SizedBox(height: 12),
+        ],
+        if (statusKey != null) ...<Widget>[
+          Text(
+            strings.get(statusKey),
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+        if (showProgress) ...<Widget>[
+          Semantics(
+            label: strings.get(statusKey ?? 'update_downloading'),
+            value: controller.updateProgress == null
+                ? null
+                : '${(controller.updateProgress! * 100).round()}%',
+            child: LinearProgressIndicator(
+              value: controller.updatePhase == UpdateOperationPhase.downloading
+                  ? controller.updateProgress
+                  : null,
+            ),
+          ),
+          if (controller.updatePhase ==
+              UpdateOperationPhase.downloading) ...<Widget>[
+            const SizedBox(height: 6),
+            Text(
+              '${_formatUpdateBytes(controller.updateDownloadedBytes)} / '
+              '${_formatUpdateBytes(controller.updateTotalBytes)}',
+              textAlign: TextAlign.end,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+        ],
+        if (controller.updateError case final message?) ...<Widget>[
+          WarningBanner(
+            title: strings.get('error'),
+            message: message,
+            danger: true,
+          ),
+          const SizedBox(height: 12),
+        ],
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          alignment: WrapAlignment.end,
+          children: <Widget>[
+            OutlinedButton.icon(
+              onPressed: controller.busy || controller.updateOperationActive
+                  ? null
+                  : controller.checkForUpdates,
+              icon: const Icon(LucideIcons.refreshCw),
+              label: Text(strings.get('check_now')),
+            ),
+            if (canDownload)
+              FilledButton.icon(
+                onPressed: controller.downloadUpdate,
+                icon: const Icon(LucideIcons.download),
+                label: Text(
+                  controller.updatePhase == UpdateOperationPhase.failed
+                      ? strings.get('retry')
+                      : strings.get('download'),
+                ),
+              ),
+            if (controller.updatePhase == UpdateOperationPhase.downloading)
+              OutlinedButton.icon(
+                onPressed: controller.cancelUpdateDownload,
+                icon: const Icon(LucideIcons.x),
+                label: Text(strings.get('cancel')),
+              ),
+            if (canInstall)
+              FilledButton.icon(
+                onPressed: () => _confirmInstall(context),
+                icon: const Icon(LucideIcons.rotateCw),
+                label: Text(
+                  package?.platform == 'android'
+                      ? strings.get('update_install_android')
+                      : strings.get('update_restart_install'),
+                ),
+              ),
+            if (offerRelease)
+              FilledButton.tonalIcon(
+                onPressed: () => launchUrl(
+                  Uri.parse(update.releaseUrl!),
+                  mode: LaunchMode.externalApplication,
+                ),
+                icon: const Icon(LucideIcons.externalLink),
+                label: Text(strings.get('open_release')),
+              ),
+          ],
+        ),
       ],
     );
   }
+
+  Future<void> _confirmInstall(BuildContext context) async {
+    final strings = controller.strings;
+    final package = controller.updateResult?.package;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => UsqueDialog(
+        icon: LucideIcons.refreshCw,
+        title: strings.get('update_confirm_title'),
+        width: 430,
+        content: Text(strings.get('update_confirm_body')),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(strings.get('cancel')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(
+              package?.platform == 'android'
+                  ? strings.get('update_install_android')
+                  : strings.get('update_restart_install'),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed ?? false) await controller.installDownloadedUpdate();
+  }
+}
+
+String _formatUpdateBytes(int bytes) {
+  if (bytes < 1024) return '$bytes B';
+  if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KiB';
+  return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MiB';
 }
 
 class _NetworkOutputsPanel extends StatelessWidget {
@@ -404,7 +567,8 @@ class _SettingRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    final textScale = MediaQuery.textScalerOf(context).scale(14) / 14;
+    Widget label() => Row(
       children: <Widget>[
         SizedBox(
           width: 22,
@@ -416,9 +580,29 @@ class _SettingRow extends StatelessWidget {
         ),
         const SizedBox(width: 11),
         Expanded(child: Text(title)),
-        const SizedBox(width: 12),
-        control,
       ],
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 520 || textScale > 1.3) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[label(), const SizedBox(height: 10), control],
+          );
+        }
+        return Row(
+          children: <Widget>[
+            Expanded(child: label()),
+            const SizedBox(width: 12),
+            SizedBox(
+              width: constraints.maxWidth < 680
+                  ? constraints.maxWidth * 0.48
+                  : 320,
+              child: control,
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -455,6 +639,7 @@ class _Picker<T> extends StatelessWidget {
           child: DropdownButtonHideUnderline(
             child: DropdownButton<T>(
               value: value,
+              isExpanded: true,
               isDense: true,
               borderRadius: BorderRadius.circular(UsqueRadii.control),
               icon: const Padding(
@@ -474,7 +659,11 @@ class _Picker<T> extends StatelessWidget {
                   .map(
                     (item) => DropdownMenuItem<T>(
                       value: item,
-                      child: Text(labelOf(item)),
+                      child: Text(
+                        labelOf(item),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                   )
                   .toList(growable: false),

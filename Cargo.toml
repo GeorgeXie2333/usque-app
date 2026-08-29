@@ -10,6 +10,7 @@ members = [
     "crates/usque-platform",
     "crates/usque-protocol",
     "crates/usque-transport",
+    "crates/usque-update",
     "crates/usque-uninstall",
 ]
 default-members = [
@@ -22,6 +23,7 @@ default-members = [
     "crates/usque-platform",
     "crates/usque-protocol",
     "crates/usque-transport",
+    "crates/usque-update",
     "crates/usque-uninstall",
 ]
 
@@ -107,9 +109,11 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_System_Rpc",
     "Win32_System_Registry",
     "Win32_System_Services",
+    "Win32_System_SystemInformation",
     "Win32_System_Console",
     "Win32_System_Threading",
     "Win32_System_DataExchange",
+    "Win32_System_ApplicationInstallationAndServicing",
     "Win32_Graphics_Gdi",
     "Win32_UI_Controls",
     "Win32_UI_Input_KeyboardAndMouse",

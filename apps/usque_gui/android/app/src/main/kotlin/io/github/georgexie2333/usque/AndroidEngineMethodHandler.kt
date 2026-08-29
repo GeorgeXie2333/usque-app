@@ -97,6 +97,17 @@ internal class AndroidEngineMethodHandler(
             packageNames: List<String>,
         ): Map<String, Any?>
 
+        fun getUpdateCacheDirectory(): String = ""
+
+        fun verifyUpdatePackage(arguments: Map<String, Any?>) {}
+
+        fun installUpdatePackage(
+            arguments: Map<String, Any?>,
+            result: MethodChannel.Result,
+        ) {
+            result.notImplemented()
+        }
+
         fun publishEngineEvent(event: Map<String, Any?>) {}
     }
 
@@ -435,6 +446,18 @@ internal class AndroidEngineMethodHandler(
 
             "checkForUpdates" -> {
                 checkForUpdates(call, result)
+            }
+
+            "getUpdateCacheDirectory" -> {
+                result.success(activityCommands.getUpdateCacheDirectory())
+            }
+
+            "verifyUpdatePackage" -> {
+                verifyUpdatePackage(call, result)
+            }
+
+            "installUpdatePackage" -> {
+                installUpdatePackage(call, result)
             }
 
             "listGeoRules" -> {
@@ -1154,6 +1177,50 @@ internal class AndroidEngineMethodHandler(
         }
     }
 
+    private fun verifyUpdatePackage(
+        call: MethodCall,
+        result: MethodChannel.Result,
+    ) {
+        val arguments = updateArguments(call, result) ?: return
+        identityExecutor.execute {
+            try {
+                activityCommands.verifyUpdatePackage(arguments)
+                mainScheduler.post { result.success(null) }
+            } catch (error: AndroidUpdateInstaller.UpdateException) {
+                mainScheduler.post { result.error(error.code, error.message, null) }
+            } catch (error: Exception) {
+                mainScheduler.post {
+                    result.error(
+                        "UPDATE_PACKAGE_INVALID",
+                        "Android could not verify the update package.",
+                        error.javaClass.simpleName,
+                    )
+                }
+            }
+        }
+    }
+
+    private fun installUpdatePackage(
+        call: MethodCall,
+        result: MethodChannel.Result,
+    ) {
+        val arguments = updateArguments(call, result) ?: return
+        activityCommands.installUpdatePackage(arguments, result)
+    }
+
+    private fun updateArguments(
+        call: MethodCall,
+        result: MethodChannel.Result,
+    ): Map<String, Any?>? {
+        val raw = call.arguments as? Map<*, *>
+        if (raw == null || raw.keys.any { it !is String }) {
+            result.error("INVALID_ARGUMENT", "The update package arguments are missing.", null)
+            return null
+        }
+        @Suppress("UNCHECKED_CAST")
+        return raw as Map<String, Any?>
+    }
+
     private fun clearAllData(
         call: MethodCall,
         result: MethodChannel.Result,
@@ -1270,13 +1337,13 @@ internal class AndroidEngineMethodHandler(
                                 ?: throw IllegalStateException(
                                     "Rust Zero Trust registration returned no identity",
                                 )
-                            remoteRegistered = true
-                            try {
-                                val envelope = JSONObject(envelopeBytes.toString(Charsets.UTF_8))
-                                // Rust already validated the enrollment endpoint. Runtime endpoint,
-                                // port, and SNI remain in the shared editable profile settings.
-                                newIdentity =
-                                    envelope.getString("warp_secret").toByteArray(Charsets.UTF_8)
+                        remoteRegistered = true
+                        try {
+                            val envelope = JSONObject(envelopeBytes.toString(Charsets.UTF_8))
+                            // Rust already validated the enrollment endpoint. Runtime endpoint,
+                            // port, and SNI remain in the shared editable profile settings.
+                            newIdentity =
+                                envelope.getString("warp_secret").toByteArray(Charsets.UTF_8)
                             newMetadata =
                                 envelope
                                     .getString("identity_metadata")

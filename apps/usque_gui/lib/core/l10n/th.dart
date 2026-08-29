@@ -187,6 +187,20 @@ const Map<String, String> kThCatalog = <String, String>{
   'update_available': 'มีรุ่นใหม่กว่า:',
   'already_latest': 'การติดตั้งนี้เป็นรุ่นล่าสุดแล้ว',
   'open_release': 'เปิดหน้ารุ่น',
+  'update_startup_description':
+      'ตรวจสอบหนึ่งครั้งเมื่อเริ่ม Usque การตรวจสอบด้วยตนเองเป็นข้อมูลล่าสุดเสมอ',
+  'update_checking': 'กำลังตรวจสอบการอัปเดต…',
+  'update_downloading': 'กำลังดาวน์โหลดแพ็กเกจอัปเดตที่ตรวจสอบแล้ว…',
+  'update_verifying': 'กำลังตรวจสอบแพ็กเกจอัปเดต…',
+  'update_ready': 'การอัปเดตพร้อมติดตั้งแล้ว',
+  'update_installing': 'ส่งการอัปเดตไปยังตัวติดตั้งของระบบแล้ว',
+  'update_restart_install': 'เริ่มใหม่และอัปเดต',
+  'update_install_android': 'ติดตั้งการอัปเดต',
+  'update_confirm_title': 'ติดตั้งการอัปเดตนี้หรือไม่',
+  'update_confirm_body':
+      'การเชื่อมต่อ VPN และพร็อกซีจะหยุดชั่วคราวระหว่างการติดตั้ง',
+  'update_package_unavailable':
+      'ไม่มีแพ็กเกจที่ตรวจสอบแล้วสำหรับอุปกรณ์นี้ โปรดเปิดหน้ารุ่น',
   'notice': 'เสร็จแล้ว',
   'identity': 'ตัวตน WARP',
   'identity_and_license': 'ตัวตนและ License',

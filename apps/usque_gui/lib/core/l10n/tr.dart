@@ -191,6 +191,20 @@ const Map<String, String> kTrCatalog = <String, String>{
   'update_available': 'Daha yeni bir sürüm var:',
   'already_latest': 'Bu kurulum zaten güncel.',
   'open_release': 'Sürüm sayfasını aç',
+  'update_startup_description':
+      'Usque başlarken bir kez kontrol eder. Elle kontrol her zaman günceldir.',
+  'update_checking': 'Güncelleme denetleniyor…',
+  'update_downloading': 'Doğrulanmış güncelleme paketi indiriliyor…',
+  'update_verifying': 'Güncelleme paketi doğrulanıyor…',
+  'update_ready': 'Güncelleme yüklenmeye hazır.',
+  'update_installing': 'Güncelleme sistem yükleyicisine aktarıldı.',
+  'update_restart_install': 'Yeniden başlat ve güncelle',
+  'update_install_android': 'Güncellemeyi yükle',
+  'update_confirm_title': 'Bu güncelleme yüklensin mi?',
+  'update_confirm_body':
+      'Yükleme sırasında VPN ve proxy bağlantıları geçici olarak kesilir.',
+  'update_package_unavailable':
+      'Bu cihaz için doğrulanmış paket yok. Sürüm sayfasını açın.',
   'notice': 'Tamamlandı',
   'identity': 'WARP kimliği',
   'identity_and_license': 'Kimlik ve lisans',

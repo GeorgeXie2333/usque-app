@@ -189,6 +189,20 @@ const Map<String, String> kEnCatalog = <String, String>{
   'update_available': 'A newer release is available:',
   'already_latest': 'This installation is already up to date.',
   'open_release': 'Open release page',
+  'update_startup_description':
+      'Checks once when Usque starts. Manual checks are always live.',
+  'update_checking': 'Checking for an update…',
+  'update_downloading': 'Downloading the verified update package…',
+  'update_verifying': 'Verifying the update package…',
+  'update_ready': 'The update is ready to install.',
+  'update_installing': 'The update was handed to the system installer.',
+  'update_restart_install': 'Restart and update',
+  'update_install_android': 'Install update',
+  'update_confirm_title': 'Install this update?',
+  'update_confirm_body':
+      'VPN and proxy connections will disconnect temporarily while the update is installed.',
+  'update_package_unavailable':
+      'No verified package is available for this device. Open the release page to continue.',
   'notice': 'Completed',
   'identity': 'WARP identity',
   'identity_and_license': 'Identity & License',

@@ -191,6 +191,21 @@ const Map<String, String> kPlCatalog = <String, String>{
   'update_available': 'Dostępne jest nowsze wydanie:',
   'already_latest': 'Ta instalacja jest już aktualna.',
   'open_release': 'Otwórz stronę wydania',
+  'update_startup_description':
+      'Sprawdza raz przy uruchomieniu Usque. Ręczne sprawdzanie jest zawsze aktualne.',
+  'update_checking': 'Sprawdzanie aktualizacji…',
+  'update_downloading': 'Pobieranie zweryfikowanego pakietu aktualizacji…',
+  'update_verifying': 'Weryfikowanie pakietu aktualizacji…',
+  'update_ready': 'Aktualizacja jest gotowa do instalacji.',
+  'update_installing':
+      'Aktualizacja została przekazana instalatorowi systemowemu.',
+  'update_restart_install': 'Uruchom ponownie i zaktualizuj',
+  'update_install_android': 'Zainstaluj aktualizację',
+  'update_confirm_title': 'Zainstalować tę aktualizację?',
+  'update_confirm_body':
+      'Podczas instalacji połączenia VPN i proxy zostaną tymczasowo rozłączone.',
+  'update_package_unavailable':
+      'Brak zweryfikowanego pakietu dla tego urządzenia. Otwórz stronę wydania.',
   'notice': 'Zakończono',
   'identity': 'Tożsamość WARP',
   'identity_and_license': 'Tożsamość i License Key',

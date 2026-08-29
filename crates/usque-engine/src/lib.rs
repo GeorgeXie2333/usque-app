@@ -623,6 +623,14 @@ impl ControlService {
                     available: update.available,
                     version: update.version,
                     release_url: update.release_url,
+                    package: update.package.map(|package| v1::UpdatePackage {
+                        name: package.name,
+                        download_url: package.download_url,
+                        size: package.size,
+                        sha256: package.sha256,
+                        platform: package.platform,
+                        variant: package.variant,
+                    }),
                 }))
             }
             control_request::Payload::ExportDiagnostics(request) => {

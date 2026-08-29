@@ -408,12 +408,59 @@ class DesktopEngineClient implements EngineClient {
   }
 
   @override
-  Future<UpdateCheckResult> checkForUpdates({bool manual = true}) {
-    return _serialized(() async {
-      final payload = ControlPayloadWriter()..boolean(1, manual);
-      final response = await _request(20, payload.takeBytes());
-      return response.update ?? const UpdateCheckResult.current();
-    });
+  Future<UpdateCheckResult> checkForUpdates({bool manual = true}) async {
+    // Update discovery is read-only and uses its own framed exchange. Keeping it
+    // outside the mutation queue prevents a slow GitHub request from delaying
+    // startup connection, while the transport still enforces its request bound.
+    final payload = ControlPayloadWriter()..boolean(1, manual);
+    final response = await _request(20, payload.takeBytes());
+    return response.update ?? const UpdateCheckResult.current();
+  }
+
+  @override
+  Future<String> getUpdateCacheDirectory() async {
+    if (!Platform.isWindows) {
+      throw const EngineException(
+        'UPDATE_PLATFORM_UNSUPPORTED',
+        'In-app package installation is available only on Windows and Android.',
+      );
+    }
+    final localAppData = Platform.environment['LOCALAPPDATA'];
+    if (localAppData == null || localAppData.isEmpty) {
+      throw const EngineException(
+        'UPDATE_STORAGE_UNAVAILABLE',
+        'Windows did not provide the current user application-data directory.',
+      );
+    }
+    return '$localAppData${Platform.pathSeparator}Usque'
+        '${Platform.pathSeparator}updates';
+  }
+
+  @override
+  Future<void> verifyUpdatePackage({
+    required String path,
+    required String version,
+    required UpdatePackage package,
+  }) async {
+    await _runUpdateHelper(<String>[
+      '--verify-only',
+      ..._updatePackageArguments(path, version, package),
+    ], failureCode: 'UPDATE_PACKAGE_INVALID');
+  }
+
+  @override
+  Future<void> installUpdatePackage({
+    required String path,
+    required String version,
+    required UpdatePackage package,
+  }) async {
+    await _runUpdateHelper(<String>[
+      '--install',
+      '--parent-pid',
+      '$pid',
+      ..._updatePackageArguments(path, version, package),
+    ], failureCode: 'UPDATE_INSTALL_LAUNCH_FAILED');
+    await _transport.invokePlatformMethod<void>('exitApplication');
   }
 
   @override
@@ -422,6 +469,56 @@ class DesktopEngineClient implements EngineClient {
       final response = await _request(33, Uint8List(0));
       return response.geoRulesList ?? const GeoRulesList();
     });
+  }
+
+  List<String> _updatePackageArguments(
+    String path,
+    String version,
+    UpdatePackage package,
+  ) => <String>[
+    '--package',
+    path,
+    '--version',
+    version,
+    '--expected-name',
+    package.name,
+    '--expected-size',
+    '${package.size}',
+    '--expected-sha256',
+    package.sha256,
+    '--variant',
+    package.variant,
+  ];
+
+  Future<void> _runUpdateHelper(
+    List<String> arguments, {
+    required String failureCode,
+  }) async {
+    if (!Platform.isWindows) {
+      throw const EngineException(
+        'UPDATE_PLATFORM_UNSUPPORTED',
+        'In-app package installation is available only on Windows and Android.',
+      );
+    }
+    final helper = File(
+      '${File(Platform.resolvedExecutable).parent.path}'
+      '${Platform.pathSeparator}usque-update.exe',
+    );
+    if (!helper.isAbsolute || !await helper.exists()) {
+      throw const EngineException(
+        'UPDATE_HELPER_UNAVAILABLE',
+        'The signed Windows update helper is missing from this installation.',
+      );
+    }
+    final result = await Process.run(helper.path, arguments, runInShell: false);
+    if (result.exitCode == 0) return;
+    final detail = '${result.stderr}'.trim();
+    throw EngineException(
+      failureCode,
+      detail.isEmpty
+          ? 'The Windows update helper rejected the operation.'
+          : (detail.length <= 512 ? detail : detail.substring(0, 512)),
+    );
   }
 
   @override

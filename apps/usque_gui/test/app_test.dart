@@ -25,6 +25,7 @@ import 'package:usque/screens/proxy_screen.dart';
 import 'package:usque/screens/settings_screen.dart';
 import 'package:usque/services/desktop_engine_client.dart';
 import 'package:usque/services/engine_client.dart';
+import 'package:usque/services/update_downloader.dart';
 import 'package:usque/state/app_controller.dart';
 import 'package:usque/widgets/common.dart';
 import 'package:usque/widgets/connection_ring.dart';
@@ -59,6 +60,11 @@ class FakeEngineClient implements EngineClient {
   List<GeoRulesUpdateResult> geoDownloadResults =
       const <GeoRulesUpdateResult>[];
   List<GeoRulesUpdateResult> geoUpdateResults = const <GeoRulesUpdateResult>[];
+  UpdateCheckResult updateCheckResult = const UpdateCheckResult.current();
+  Object? updateCheckError;
+  Object? installUpdateError;
+  Completer<UpdateCheckResult>? pendingUpdateCheck;
+  final List<bool> updateCheckManualValues = <bool>[];
 
   @override
   Future<ProfileCatalog> importLegacyProfiles(
@@ -353,6 +359,7 @@ class FakeEngineClient implements EngineClient {
 
   Object? connectError;
   Object? retryError;
+  Completer<EngineSnapshot>? pendingConnect;
 
   @override
   Future<EngineSnapshot> connect(UsqueProfile profile) async {
@@ -360,6 +367,8 @@ class FakeEngineClient implements EngineClient {
     if (connectError != null) {
       throw connectError!;
     }
+    final pending = pendingConnect;
+    if (pending != null) return pending.future;
     lastConnectedProfile = profile;
     current = EngineSnapshot(
       phase: ConnectionPhase.connected,
@@ -425,8 +434,35 @@ class FakeEngineClient implements EngineClient {
       'test-diagnostics.zip';
 
   @override
-  Future<UpdateCheckResult> checkForUpdates({bool manual = true}) async =>
-      const UpdateCheckResult.current();
+  Future<UpdateCheckResult> checkForUpdates({bool manual = true}) async {
+    updateCheckManualValues.add(manual);
+    final pending = pendingUpdateCheck;
+    if (pending != null) return pending.future;
+    if (updateCheckError case final error?) throw error;
+    return updateCheckResult;
+  }
+
+  @override
+  Future<String> getUpdateCacheDirectory() async => 'test-update-cache';
+
+  @override
+  Future<void> verifyUpdatePackage({
+    required String path,
+    required String version,
+    required UpdatePackage package,
+  }) async {
+    calls.add('verifyUpdatePackage');
+  }
+
+  @override
+  Future<void> installUpdatePackage({
+    required String path,
+    required String version,
+    required UpdatePackage package,
+  }) async {
+    calls.add('installUpdatePackage');
+    if (installUpdateError case final error?) throw error;
+  }
 
   @override
   Future<GeoRulesList> listGeoRules() async => storedGeoRules;
@@ -460,6 +496,17 @@ class FakeEngineClient implements EngineClient {
 
   @override
   void dispose() {}
+}
+
+class RecordingUpdateDownloader extends UpdateDownloader {
+  RecordingUpdateDownloader(super.engine);
+
+  String? discardedPath;
+
+  @override
+  Future<void> discard(String? path) async {
+    discardedPath = path;
+  }
 }
 
 class ConcurrentGeoEngineClient extends FakeEngineClient {
@@ -526,6 +573,147 @@ class EventEngineClient extends FakeEngineClient {
 }
 
 void main() {
+  test(
+    'cold process startup checks exactly once after initialization',
+    () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final engine = FakeEngineClient();
+      final controller = AppController(engine);
+
+      await controller.initialize();
+      await Future<void>.delayed(Duration.zero);
+      await controller.initialize();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(engine.updateCheckManualValues, <bool>[false]);
+      controller.dispose();
+    },
+  );
+
+  test('startup update check begins while auto-connect is pending', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+    });
+    final engine = FakeEngineClient()
+      ..legacyProfilesImported = true
+      ..storedProfiles = <UsqueProfile>[
+        UsqueProfile.defaultProfile().copyWith(autoConnect: true),
+      ]
+      ..pendingConnect = Completer<EngineSnapshot>();
+    final controller = AppController(engine);
+
+    final initialization = controller.initialize();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(engine.calls, contains('connect'));
+    expect(engine.updateCheckManualValues, <bool>[false]);
+    engine.pendingConnect!.complete(
+      EngineSnapshot(
+        phase: ConnectionPhase.connected,
+        connectedAt: DateTime.now(),
+      ),
+    );
+    await initialization;
+    controller.dispose();
+  });
+
+  test('disabled startup checks still allow every manual live check', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'update_checks_enabled': false,
+    });
+    final engine = FakeEngineClient();
+    final controller = AppController(engine);
+
+    await controller.initialize();
+    await Future<void>.delayed(Duration.zero);
+    expect(engine.updateCheckManualValues, isEmpty);
+
+    await controller.checkForUpdates();
+    await controller.checkForUpdates();
+    expect(engine.updateCheckManualValues, <bool>[true, true]);
+    controller.dispose();
+  });
+
+  test(
+    'automatic update failure stays silent and manual failure is visible',
+    () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final engine = FakeEngineClient()
+        ..updateCheckError = const EngineException(
+          'UPDATE_CHECK_FAILED',
+          'release endpoint unavailable',
+        );
+      final controller = AppController(engine);
+
+      await controller.initialize();
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.lastError, isNull);
+      expect(controller.updatePhase, UpdateOperationPhase.idle);
+
+      await controller.checkForUpdates();
+      expect(controller.lastError, 'release endpoint unavailable');
+      controller.dispose();
+    },
+  );
+
+  test('concurrent manual update checks share the in-flight guard', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'update_checks_enabled': false,
+    });
+    final engine = FakeEngineClient()
+      ..pendingUpdateCheck = Completer<UpdateCheckResult>();
+    final controller = AppController(engine);
+    await controller.initialize();
+
+    final first = controller.checkForUpdates();
+    await Future<void>.delayed(Duration.zero);
+    final second = controller.checkForUpdates();
+    expect(engine.updateCheckManualValues, <bool>[true]);
+    engine.pendingUpdateCheck!.complete(const UpdateCheckResult.current());
+    await Future.wait(<Future<void>>[first, second]);
+    expect(engine.updateCheckManualValues, <bool>[true]);
+    controller.dispose();
+  });
+
+  test('Android install handoff failure discards the terminal APK', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'update_checks_enabled': false,
+    });
+    final engine = FakeEngineClient()
+      ..installUpdateError = const EngineException(
+        'UPDATE_INSTALL_PERMISSION_DENIED',
+        'permission denied',
+      );
+    final downloader = RecordingUpdateDownloader(engine);
+    final controller = AppController(engine, updateDownloader: downloader);
+    await controller.initialize();
+    const path = 'test-update-cache/usque-v0.2.2-android-arm64-v8a.apk';
+    controller.updateResult = const UpdateCheckResult(
+      available: true,
+      version: 'v0.2.2',
+      package: UpdatePackage(
+        name: 'usque-v0.2.2-android-arm64-v8a.apk',
+        downloadUrl:
+            'https://github.com/GeorgeXie2333/usque-app/releases/download/v0.2.2/usque-v0.2.2-android-arm64-v8a.apk',
+        size: 1024,
+        sha256:
+            'a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5',
+        platform: 'android',
+        variant: 'arm64-v8a',
+      ),
+    );
+    controller.downloadedUpdatePath = path;
+    controller.updatePhase = UpdateOperationPhase.ready;
+
+    await controller.installDownloadedUpdate();
+
+    expect(downloader.discardedPath, path);
+    expect(controller.downloadedUpdatePath, isNull);
+    expect(controller.updatePhase, UpdateOperationPhase.available);
+    expect(controller.updateError, 'permission denied');
+    controller.dispose();
+  });
+
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test('Windows profile defaults match the product contract', () {
@@ -2396,6 +2584,105 @@ void main() {
   });
 
   testWidgets(
+    'verified update UI shows progress, retry, and install confirmation',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      try {
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = const Size(1280, 1400);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        addTearDown(tester.view.resetPhysicalSize);
+        SharedPreferences.setMockInitialValues(<String, Object>{
+          'update_checks_enabled': false,
+        });
+        final controller = AppController(FakeEngineClient());
+        await controller.initialize();
+        addTearDown(controller.dispose);
+        controller.updateResult = const UpdateCheckResult(
+          available: true,
+          version: 'v0.2.2',
+          releaseUrl:
+              'https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.2.2',
+          package: UpdatePackage(
+            name: 'usque-v0.2.2-windows-x64-v2.msi',
+            downloadUrl:
+                'https://github.com/GeorgeXie2333/usque-app/releases/download/v0.2.2/usque-v0.2.2-windows-x64-v2.msi',
+            size: 20 * 1024 * 1024,
+            sha256:
+                'a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5',
+            platform: 'windows',
+            variant: 'x64-v2',
+          ),
+        );
+        controller.updatePhase = UpdateOperationPhase.downloading;
+        controller.updateDownloadedBytes = 5 * 1024 * 1024;
+        controller.updateTotalBytes = 20 * 1024 * 1024;
+
+        Widget app() => MaterialApp(
+          theme: UsqueTheme.light(),
+          home: SettingsScreen(controller: controller),
+        );
+
+        await tester.pumpWidget(app());
+        expect(find.text('v0.2.2  •  x64-v2  •  20.0 MiB'), findsOneWidget);
+        expect(find.byType(LinearProgressIndicator), findsOneWidget);
+        expect(find.text('5.0 MiB / 20.0 MiB'), findsOneWidget);
+        expect(find.text('Cancel'), findsOneWidget);
+
+        controller.updatePhase = UpdateOperationPhase.failed;
+        controller.updateError = 'network interrupted';
+        await tester.pumpWidget(app());
+        expect(find.text('Retry'), findsOneWidget);
+        expect(find.text('network interrupted'), findsOneWidget);
+
+        controller.updatePhase = UpdateOperationPhase.ready;
+        controller.updateError = null;
+        controller.downloadedUpdatePath = r'C:\update\usque.msi';
+        await tester.pumpWidget(app());
+        final install = find.text('Restart and update');
+        expect(install, findsOneWidget);
+        await tester.ensureVisible(install);
+        await tester.tap(install);
+        await tester.pumpAndSettle();
+        expect(find.text('Install this update?'), findsOneWidget);
+        expect(
+          find.textContaining('VPN and proxy connections will disconnect'),
+          findsOneWidget,
+        );
+        await tester.tap(find.text('Cancel').last);
+        await tester.pumpAndSettle();
+
+        Future<void> pumpAccessibleViewport(Size size) async {
+          tester.view.physicalSize = size;
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.pump();
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: UsqueTheme.dark(),
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(context).copyWith(
+                  textScaler: const TextScaler.linear(2),
+                  disableAnimations: true,
+                ),
+                child: child!,
+              ),
+              home: SettingsScreen(controller: controller),
+            ),
+          );
+          await tester.ensureVisible(find.text('Updates'));
+          await tester.pump();
+          expect(tester.takeException(), isNull);
+        }
+
+        await pumpAccessibleViewport(const Size(375, 667));
+        await pumpAccessibleViewport(const Size(667, 375));
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    },
+  );
+
+  testWidgets(
     'direct countries opens its own settings page and leaves Advanced',
     (tester) async {
       tester.view.devicePixelRatio = 1;
@@ -2903,7 +3190,12 @@ void main() {
 
       Future<void> toggle(String title) async {
         final tile = find.widgetWithText(SwitchListTile, title);
-        await tester.ensureVisible(tile);
+        await Scrollable.ensureVisible(
+          tester.element(tile),
+          alignment: 0.5,
+          duration: Duration.zero,
+        );
+        await tester.pumpAndSettle();
         await tester.tap(tile);
         await tester.pumpAndSettle();
       }

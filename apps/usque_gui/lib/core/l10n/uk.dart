@@ -190,6 +190,20 @@ const Map<String, String> kUkCatalog = <String, String>{
   'update_available': 'Доступний новіший випуск:',
   'already_latest': 'Ця інсталяція вже актуальна.',
   'open_release': 'Відкрити сторінку випуску',
+  'update_startup_description':
+      'Перевіряє один раз під час запуску Usque. Ручна перевірка завжди актуальна.',
+  'update_checking': 'Перевірка оновлень…',
+  'update_downloading': 'Завантаження перевіреного пакета оновлення…',
+  'update_verifying': 'Перевірка пакета оновлення…',
+  'update_ready': 'Оновлення готове до встановлення.',
+  'update_installing': 'Оновлення передано системному інсталятору.',
+  'update_restart_install': 'Перезапустити й оновити',
+  'update_install_android': 'Установити оновлення',
+  'update_confirm_title': 'Установити це оновлення?',
+  'update_confirm_body':
+      'Під час встановлення з’єднання VPN і проксі буде тимчасово розірвано.',
+  'update_package_unavailable':
+      'Для цього пристрою немає перевіреного пакета. Відкрийте сторінку випуску.',
   'notice': 'Завершено',
   'identity': 'Ідентичність WARP',
   'identity_and_license': 'Ідентичність і License',

@@ -219,6 +219,7 @@ try {
     Assert-Equal $propertyMap.ARPSYSTEMCOMPONENT "1" "hidden MSI ARP entry"
     Assert-Equal $propertyMap.MSIRMSHUTDOWN "1" "forced Restart Manager fallback"
     Assert-Equal $propertyMap.MSIDISABLERMRESTART "1" "Restart Manager relaunch suppression"
+    Assert-Equal $propertyMap.USQUE_UPDATE_VARIANT $Variant "in-app update variant"
     if (
         $propertyMap.ContainsKey("USQUE_REMOVE_USER_DATA") -and
         -not [string]::IsNullOrEmpty([string]$propertyMap.USQUE_REMOVE_USER_DATA)
@@ -754,6 +755,7 @@ try {
             "usque-engine.exe",
             "usque-agent.exe",
             "usque-uninstall.exe",
+            "usque-update.exe",
             "wintun.dll"
         )) {
         if (@($longNames | Where-Object { $_ -ieq $requiredFile }).Count -ne 1) {

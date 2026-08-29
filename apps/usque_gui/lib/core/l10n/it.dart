@@ -193,6 +193,21 @@ const Map<String, String> kItCatalog = <String, String>{
   'update_available': 'È disponibile una versione più recente:',
   'already_latest': 'Questa installazione è già aggiornata.',
   'open_release': 'Apri la pagina della versione',
+  'update_startup_description':
+      'Controlla una volta all’avvio di Usque. Il controllo manuale è sempre in tempo reale.',
+  'update_checking': 'Ricerca di un aggiornamento…',
+  'update_downloading': 'Download del pacchetto di aggiornamento verificato…',
+  'update_verifying': 'Verifica del pacchetto di aggiornamento…',
+  'update_ready': 'L’aggiornamento è pronto per l’installazione.',
+  'update_installing':
+      'L’aggiornamento è stato affidato al programma di installazione di sistema.',
+  'update_restart_install': 'Riavvia e aggiorna',
+  'update_install_android': 'Installa aggiornamento',
+  'update_confirm_title': 'Installare questo aggiornamento?',
+  'update_confirm_body':
+      'Le connessioni VPN e proxy verranno interrotte temporaneamente durante l’installazione.',
+  'update_package_unavailable':
+      'Nessun pacchetto verificato per questo dispositivo. Apri la pagina della versione.',
   'notice': 'Completato',
   'identity': 'Identità WARP',
   'identity_and_license': 'Identità e License Key',

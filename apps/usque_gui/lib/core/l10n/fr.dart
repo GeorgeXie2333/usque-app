@@ -193,6 +193,21 @@ const Map<String, String> kFrCatalog = <String, String>{
   'update_available': 'Une version plus récente est disponible :',
   'already_latest': 'Cette installation est déjà à jour.',
   'open_release': 'Ouvrir la page de version',
+  'update_startup_description':
+      'Vérifie une fois au démarrage d’Usque. La vérification manuelle est toujours en direct.',
+  'update_checking': 'Recherche d’une mise à jour…',
+  'update_downloading': 'Téléchargement du paquet de mise à jour vérifié…',
+  'update_verifying': 'Vérification du paquet de mise à jour…',
+  'update_ready': 'La mise à jour est prête à être installée.',
+  'update_installing':
+      'La mise à jour a été transmise au programme d’installation système.',
+  'update_restart_install': 'Redémarrer et mettre à jour',
+  'update_install_android': 'Installer la mise à jour',
+  'update_confirm_title': 'Installer cette mise à jour ?',
+  'update_confirm_body':
+      'Les connexions VPN et proxy seront temporairement interrompues pendant l’installation.',
+  'update_package_unavailable':
+      'Aucun paquet vérifié n’est disponible pour cet appareil. Ouvrez la page de version.',
   'notice': 'Terminé',
   'identity': 'Identité WARP',
   'identity_and_license': 'Identité et License',

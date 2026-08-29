@@ -189,6 +189,20 @@ const Map<String, String> kRuCatalog = <String, String>{
   'update_available': 'Доступна более новая версия:',
   'already_latest': 'Эта установка уже актуальна.',
   'open_release': 'Открыть страницу выпуска',
+  'update_startup_description':
+      'Проверяет один раз при запуске Usque. Ручная проверка всегда актуальна.',
+  'update_checking': 'Проверка обновлений…',
+  'update_downloading': 'Загрузка проверенного пакета обновления…',
+  'update_verifying': 'Проверка пакета обновления…',
+  'update_ready': 'Обновление готово к установке.',
+  'update_installing': 'Обновление передано системному установщику.',
+  'update_restart_install': 'Перезапустить и обновить',
+  'update_install_android': 'Установить обновление',
+  'update_confirm_title': 'Установить это обновление?',
+  'update_confirm_body':
+      'Во время установки VPN и прокси-соединения будут временно отключены.',
+  'update_package_unavailable':
+      'Для этого устройства нет проверенного пакета. Откройте страницу выпуска.',
   'notice': 'Выполнено',
   'identity': 'Идентичность WARP',
   'identity_and_license': 'Идентичность и лицензия',

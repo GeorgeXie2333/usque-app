@@ -610,10 +610,20 @@ message ProfileList {
   repeated ProfileIdentityStatus identity_statuses = 3;
 }
 
+message UpdatePackage {
+  string name = 1;
+  string download_url = 2;
+  uint64 size = 3;
+  string sha256 = 4;
+  string platform = 5;
+  string variant = 6;
+}
+
 message UpdateInfo {
   bool available = 1;
   string version = 2;
   string release_url = 3;
+  UpdatePackage package = 4;
 }
 
 message ControlResponse {

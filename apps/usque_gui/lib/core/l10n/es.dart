@@ -194,6 +194,20 @@ const Map<String, String> kEsCatalog = <String, String>{
   'update_available': 'Hay una versión más reciente disponible:',
   'already_latest': 'Esta instalación ya está actualizada.',
   'open_release': 'Abrir la página de la versión',
+  'update_startup_description':
+      'Comprueba una vez al iniciar Usque. La comprobación manual siempre es en tiempo real.',
+  'update_checking': 'Buscando una actualización…',
+  'update_downloading': 'Descargando el paquete de actualización verificado…',
+  'update_verifying': 'Verificando el paquete de actualización…',
+  'update_ready': 'La actualización está lista para instalarse.',
+  'update_installing': 'La actualización se entregó al instalador del sistema.',
+  'update_restart_install': 'Reiniciar y actualizar',
+  'update_install_android': 'Instalar actualización',
+  'update_confirm_title': '¿Instalar esta actualización?',
+  'update_confirm_body':
+      'Las conexiones VPN y proxy se desconectarán temporalmente durante la instalación.',
+  'update_package_unavailable':
+      'No hay un paquete verificado para este dispositivo. Abre la página de la versión.',
   'notice': 'Completado',
   'identity': 'Identidad WARP',
   'identity_and_license': 'Identidad y License Key',

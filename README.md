@@ -99,7 +99,7 @@ Download Usque from the [GitHub Releases page](https://github.com/GeorgeXie2333/
 - Pre-1.0 Android packages use a project-controlled self-signed certificate and are not on Google Play. You may need a manual install or ADB.
 - A later v1.0.0 signing change will be its own release.
 - The release workflow compiles, signs, and checks architecture, checksums, SBOMs, and provenance. It does not attach those extras to the GitHub Release, and it does not install packages on real devices or run long VPN tests.
-- Usque never installs updates by itself. Optional update checks only open the release page.
+- Usque checks once after each process startup when automatic checks are enabled. A verified stable release can be downloaded only after confirmation; Windows hands it to a signed passive updater and Android opens the system package installer. Manual checks always fetch live release data.
 - Windows uninstall asks for confirmation in Settings, restores Usque-owned network state, and can delete the current user's local data if you ask.
 
 See [Installation and removal](docs/INSTALLATION.md) for verification, upgrades, uninstall, and recovery.

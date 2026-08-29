@@ -188,6 +188,20 @@ const Map<String, String> kFaCatalog = <String, String>{
   'update_available': 'نسخهٔ جدیدتری در دسترس است:',
   'already_latest': 'این نصب هم‌اکنون به‌روز است.',
   'open_release': 'باز کردن صفحهٔ انتشار',
+  'update_startup_description':
+      'هنگام شروع Usque یک‌بار بررسی می‌کند. بررسی دستی همیشه زنده است.',
+  'update_checking': 'در حال بررسی به‌روزرسانی…',
+  'update_downloading': 'در حال دریافت بستهٔ تأییدشدهٔ به‌روزرسانی…',
+  'update_verifying': 'در حال تأیید بستهٔ به‌روزرسانی…',
+  'update_ready': 'به‌روزرسانی آمادهٔ نصب است.',
+  'update_installing': 'به‌روزرسانی به نصب‌کنندهٔ سیستم تحویل شد.',
+  'update_restart_install': 'راه‌اندازی دوباره و به‌روزرسانی',
+  'update_install_android': 'نصب به‌روزرسانی',
+  'update_confirm_title': 'این به‌روزرسانی نصب شود؟',
+  'update_confirm_body':
+      'هنگام نصب، اتصال‌های VPN و پراکسی موقتاً قطع می‌شوند.',
+  'update_package_unavailable':
+      'بستهٔ تأییدشده‌ای برای این دستگاه نیست. صفحهٔ انتشار را باز کنید.',
   'notice': 'انجام شد',
   'identity': 'هویت WARP',
   'identity_and_license': 'هویت و مجوز',
