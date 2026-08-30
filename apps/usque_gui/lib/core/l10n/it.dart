@@ -3,7 +3,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'app_name': 'Usque',
   'window_minimize': 'Riduci a icona',
   'window_maximize': 'Ingrandisci',
-  'window_restore': 'Ripristina ingombro',
+  'window_restore': 'Ripristina dimensioni della finestra',
   'window_close': 'Chiudi',
   'connection_status': 'Stato della connessione',
   'outputs': 'Uscite di rete',
@@ -15,10 +15,14 @@ const Map<String, String> kItCatalog = <String, String>{
   'settings': 'Impostazioni',
   'settings_subtitle': 'Comportamento dell’app su questo dispositivo.',
   'diagnostics': 'Diagnostica',
+  'nav_home': 'Inizio',
+  'nav_profiles': 'Profili',
+  'nav_proxy': 'Proxy',
+  'nav_settings': 'Opzioni',
   'status_stream_degraded':
       'Gli aggiornamenti di stato in tempo reale sono degradati',
   'status_stream_degraded_body':
-      'Il polling dello stato è attivo; gli aggiornamenti in tempo reale verranno ripetuti automaticamente.',
+      'Il polling dello stato è attivo; gli aggiornamenti in tempo reale verranno ritentati automaticamente.',
   'connect': 'Connetti',
   'retry': 'Riprova',
   'disconnect': 'Disconnetti',
@@ -42,7 +46,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'not_available': 'Non disponibile',
   'location_disconnected': 'In attesa di connessione',
   'engine_unavailable':
-      'Il motore nativo Usque non è ancora disponibile in questa versione.',
+      'L’Usque Engine nativo non è ancora disponibile in questa build.',
   'dismiss': 'Ignora',
   'new_profile': 'Nuovo profilo',
   'profile_name': 'Nome del profilo',
@@ -59,11 +63,11 @@ const Map<String, String> kItCatalog = <String, String>{
   'zero_trust_subtitle': 'Accedi con un account dell’organizzazione',
   'zero_trust_team': 'Nome del team dell’organizzazione',
   'zero_trust_team_invalid':
-      'Immettere un unico nome team costituito da un’etichetta DNS.',
+      'Immettere un unico nome del team costituito da una sola etichetta DNS.',
   'zero_trust_open_login': 'Apri l’accesso dell’organizzazione',
   'zero_trust_browser_failed': 'Impossibile aprire il browser di sistema.',
   'zero_trust_manual_callback':
-      'Dopo l’accesso, tornare qui automaticamente, compilare il callback dagli appunti o incollare l’URL completo.',
+      'Dopo l’accesso, torna a Usque. Se il callback non viene compilato automaticamente, compilalo dagli appunti o incolla l’URL completo.',
   'zero_trust_callback_received':
       'Callback dell’organizzazione ricevuto in modo sicuro.',
   'zero_trust_callback': 'URL di callback completo',
@@ -77,7 +81,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'zero_trust_protocol_association':
       'Apri i callback Access in Usque (solo questo utente)',
   'zero_trust_protocol_association_help':
-      'Facoltativo. Registra com.cloudflare.warp per l’utente Windows connesso. Il client WARP ufficiale può restare installato. Lasciare disattivato per mantenere WARP come gestore; l’incolla continua a funzionare.',
+      'Facoltativo. Registra com.cloudflare.warp per l’utente Windows connesso. Il client WARP ufficiale può restare installato. Lasciare disattivato per mantenere WARP come gestore; l’incollaggio continua a funzionare.',
   'zero_trust_scope_note':
       'Sperimentale: usa la registrazione del dispositivo dell’organizzazione per l’accesso a Internet; la sincronizzazione delle policy e la postura del dispositivo non sono implementate.',
   'zero_trust_repair_same_team':
@@ -122,7 +126,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'remote_dns': 'Risolvi i nomi in remoto',
   'proxy_dns_mode': 'Risoluzione DNS del proxy',
   'proxy_dns_subtitle': 'Dove i client SOCKS5 e HTTP risolvono i nomi.',
-  'proxy_dns_remote': 'Remoto tramite tunnel',
+  'proxy_dns_remote': 'Remoto tramite il tunnel',
   'proxy_dns_configured': 'Server DNS personalizzati',
   'proxy_dns_system': 'DNS di sistema',
   'dns_leak_warning': 'Il DNS locale può rivelare i nomi richiesti',
@@ -173,7 +177,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'language_ja': '日本語',
   'language_ko': '한국어',
   'language_es': 'Español',
-  'language_pt': 'Português',
+  'language_pt': 'Português (Brasil)',
   'language_fr': 'Français',
   'language_nl': 'Nederlands',
   'language_tr': 'Türkçe',
@@ -194,7 +198,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'already_latest': 'Questa installazione è già aggiornata.',
   'open_release': 'Apri la pagina della versione',
   'update_startup_description':
-      'Controlla una volta all’avvio di Usque. Il controllo manuale è sempre in tempo reale.',
+      'Usque esegue un controllo dopo l’avvio. Tornare all’app non avvia un nuovo controllo. «Controlla ora» invia sempre una richiesta in tempo reale.',
   'update_checking': 'Ricerca di un aggiornamento…',
   'update_downloading': 'Download del pacchetto di aggiornamento verificato…',
   'update_verifying': 'Verifica del pacchetto di aggiornamento…',
@@ -210,20 +214,20 @@ const Map<String, String> kItCatalog = <String, String>{
       'Nessun pacchetto verificato per questo dispositivo. Apri la pagina della versione.',
   'notice': 'Completato',
   'identity': 'Identità WARP',
-  'identity_and_license': 'Identità e License Key',
+  'identity_and_license': 'Identità e licenza',
   'license_cleanup_pending':
-      'Uno slot dispositivo precedente è in attesa di pulizia.',
+      'Una vecchia registrazione del dispositivo WARP è in attesa di rimozione.',
   'copy_license': 'Copia License Key',
   'change_license': 'Cambia License Key',
   'unbind_license': 'Torna a WARP Free',
   'export_warp_secret': 'Esporta WARP Secret',
   'close': 'Chiudi',
   'advanced': 'Impostazioni di rete avanzate',
-  'advanced_subtitle': 'Endpoint, DNS, MTU, routing e Kill Switch.',
+  'advanced_subtitle': 'Endpoint, DNS, MTU, instradamento e Kill Switch.',
   'advanced_warning':
       'Endpoint, SNI, DNS o MTU non corretti possono impedire la connessione del tunnel.',
   'ip_dns': 'IP e DNS',
-  'routing_protection': 'Routing e protezione',
+  'routing_protection': 'Instradamento e protezione',
   'transport': 'Trasporto',
   'automatic': 'Auto',
   'http3': 'HTTP/3',
@@ -251,7 +255,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'lockdown': 'Blocca senza VPN',
   'not_used_proxy': 'Non usato in modalità proxy',
   'kill_switch_help':
-      'Blocca il traffico durante la connessione, la riconnessione o il ripristino da un errore del motore. Su Android resta attivo mentre il servizio VPN è in esecuzione; abilitare VPN sempre attiva e Blocca le connessioni senza VPN nelle impostazioni di sistema per la protezione dopo la chiusura dell’app.',
+      'Blocca il traffico durante la connessione, la riconnessione o il ripristino da un errore dell’Usque Engine. Su Android resta attivo mentre il servizio VPN è in esecuzione; abilitare VPN sempre attiva e Blocca le connessioni senza VPN nelle impostazioni di sistema per la protezione dopo la chiusura dell’app.',
   'start_on_boot_android':
       'Avvia Usque dopo il riavvio. Abilitare anche la connessione automatica all’avvio.',
   'add_quick_settings_tile_help':
@@ -264,15 +268,15 @@ const Map<String, String> kItCatalog = <String, String>{
   'per_app_proxy_on': 'Proxy di {count} app',
   'per_app_proxy_enable': 'Usa il proxy solo per le app selezionate',
   'per_app_proxy_help':
-      'Solo le app selezionate usano la VPN. Le app appena installate restano fuori dal tunnel finché non le si seleziona. Seleziona tutto non disattiva questa opzione.',
+      'Solo le app selezionate usano la VPN. Le app appena installate restano fuori dal tunnel finché non le si seleziona. La selezione di tutte le app non disattiva questa opzione.',
   'per_app_proxy_lockdown_help':
       'Se VPN sempre attiva e Blocca le connessioni senza VPN sono attive, le app non selezionate vengono bloccate, non inviate fuori dal tunnel.',
   'per_app_proxy_tunnel_hint':
-      'Si applica al prossimo avvio dell’uscita VPN. La modalità solo SOCKS5/HTTP non filtra le app.',
+      'Si applica alla prossima attivazione dell’uscita VPN. La modalità solo SOCKS5/HTTP non filtra le app.',
   'per_app_search': 'Cerca app',
   'per_app_show_system': 'Mostra le app di sistema',
-  'per_app_select_visible': 'Seleziona visibili',
-  'per_app_clear_visible': 'Deseleziona visibili',
+  'per_app_select_visible': 'Seleziona le app visibili',
+  'per_app_clear_visible': 'Deseleziona le app visibili',
   'per_app_selected_count': '{count} selezionate',
   'per_app_need_one': 'Selezionare almeno un’app prima di abilitare.',
   'per_app_loading': 'Caricamento delle app installate…',
@@ -293,8 +297,8 @@ const Map<String, String> kItCatalog = <String, String>{
   'invalid_cidr': 'CIDR non valido',
   'diagnostics_title': 'Diagnostica e informazioni',
   'diagnostics_subtitle':
-      'Stato del motore, esportazione dei log e dati locali.',
-  'engine_status': 'Stato del motore',
+      'Stato dell’Usque Engine, esportazione dei log e dati locali.',
+  'engine_status': 'Stato dell’Usque Engine',
   'version': 'Versione',
   'app_version': 'Usque 0.2.1',
   'logs': 'Log locali',
@@ -339,10 +343,10 @@ const Map<String, String> kItCatalog = <String, String>{
   'profile_required': 'Mantenere almeno un profilo.',
   'socks_capabilities': 'TCP e UDP',
   'http_capabilities': 'CONNECT e inoltro ordinario',
-  'geo_direct': 'Paesi in connessione diretta',
+  'geo_direct': 'Paesi con instradamento diretto',
   'geo_direct_help':
       'I domini corrispondenti sono visibili al DNS della rete attuale; le app con DNS crittografato sono instradate solo per IP.',
-  'geo_update_all': 'Aggiorna dati geo',
+  'geo_update_all': 'Aggiorna dati geografici',
   'geo_last_updated': 'Ultimo aggiornamento riuscito: {current}',
   'geo_never_updated': 'Non ancora aggiornato',
   'geo_updating': 'Aggiornamento {current} di {total}',
@@ -352,12 +356,13 @@ const Map<String, String> kItCatalog = <String, String>{
   'geo_search': 'Cerca paesi',
   'geo_not_downloaded': 'Non scaricato',
   'geo_downloaded': 'Scaricato',
-  'geo_chip': '{current} in connessione diretta',
+  'geo_chip': 'Instradamento diretto: {current}',
   'geo_download_first':
-      'Scarica i dati geo di questo paese prima di abilitarlo.',
+      'Scarica i dati geografici di questo paese prima di abilitarlo.',
   'geo_update_complete':
-      'Dati geo: {updated} aggiornati, {current} già aggiornati.',
-  'geo_update_failed': 'Aggiornamento dei dati geo non riuscito: {current}',
+      'Dati geografici: {updated} aggiornati, {current} già aggiornati.',
+  'geo_update_failed':
+      'Aggiornamento dei dati geografici non riuscito: {current}',
   'diagnostics_page_subtitle':
       'Ispeziona connessione, protezione della piattaforma e stato di ripristino. I risultati restano sul dispositivo.',
   'diag_refresh_timeline': 'Aggiorna cronologia',
@@ -380,9 +385,9 @@ const Map<String, String> kItCatalog = <String, String>{
   'diag_mode_deep': 'Approfondita',
   'diag_deep_title': 'Informazioni sulla diagnostica approfondita',
   'diag_deep_connected':
-      'Un tunnel è attivo: non verrà aperto un secondo percorso dati MASQUE; i controlli di trasporto attivi saranno contrassegnati come saltati o avviso.',
+      'Un tunnel è attivo: non verrà aperto un secondo percorso dati MASQUE; i controlli di trasporto attivi saranno contrassegnati come saltati o con un avviso.',
   'diag_deep_disconnected':
-      'Da disconnessi, i controlli attivi sono limitati da timeout e annullamento, poi si confronta lo stato della piattaforma.',
+      'In assenza di connessione, i controlli attivi hanno un limite di tempo e possono essere annullati; poi si confronta lo stato della piattaforma.',
   'diag_start': 'Avvia diagnostica',
   'diag_session': 'Sessione di diagnostica',
   'diag_progress_semantics': 'Avanzamento diagnostica {current}%',
@@ -396,9 +401,9 @@ const Map<String, String> kItCatalog = <String, String>{
       'Avvia una diagnostica per vedere i controlli raggruppati per livello e dipendenze.',
   'diag_timeline': 'Cronologia di connessione',
   'diag_timeline_subtitle':
-      'Solo eventi di stato limitati; i contenuti dei pacchetti e gli indirizzi grezzi non vengono mai registrati.',
+      'Vengono conservati solo i cambiamenti di stato più recenti; i contenuti dei pacchetti e gli indirizzi completi non vengono mai registrati.',
   'diag_logs_subtitle':
-      'Esporta sessione, cronologia, riepilogo dello stato della piattaforma e log sanitizzati.',
+      'Esporta la sessione, la cronologia, il riepilogo dello stato della piattaforma e i log privi di dati sensibili.',
   'diag_session_pending': 'In attesa',
   'diag_session_running': 'In esecuzione',
   'diag_session_cancelling': 'Annullamento',
@@ -408,21 +413,21 @@ const Map<String, String> kItCatalog = <String, String>{
   'diag_timeline_empty':
       'Le transizioni di connessione importanti compariranno qui dopo un tentativo di connessione.',
   'diag_timeline_truncated':
-      'Vengono mostrati gli ultimi 100 eventi; la cronologia limitata del pacchetto viene conservata.',
+      'Vengono mostrati gli ultimi 100 eventi; il pacchetto diagnostico esportato conserva tutti gli eventi ancora presenti nell’Usque Engine.',
   'diag_metric_reconnects': 'Riconnessioni',
   'diag_metric_fallbacks': 'Fallback',
   'diag_metric_network_changes': 'Cambi di rete',
-  'diag_metric_queue_high_water': 'Livello massimo coda',
+  'diag_metric_queue_high_water': 'Livello massimo della coda di invio',
   'diag_unknown': 'Sconosciuto',
   'diag_stage': 'Fase',
-  'diag_family': 'Famiglia',
+  'diag_family': 'Famiglia di indirizzi',
   'diag_retryable': 'Riprovabile',
   'diag_fallback_allowed': 'Fallback',
   'diag_copy_support': 'Copia informazioni di supporto',
   'diag_support_copied': 'Informazioni di supporto copiate.',
   'diag_yes': 'Sì',
   'diag_no': 'No',
-  'diag_finding_passed': 'Questo controllo è superato.',
+  'diag_finding_passed': 'Questo controllo ha avuto esito positivo.',
   'diag_finding_attention': 'Questo controllo richiede attenzione.',
   'diag_finding_failed': 'Questo controllo non è riuscito.',
   'diag_finding_skipped':
@@ -443,8 +448,8 @@ const Map<String, String> kItCatalog = <String, String>{
   'diag_cat_tunnel': 'Tunnel',
   'diag_cat_protection': 'Protezione di sistema',
   'diag_cat_recovery': 'Ripristino',
-  'diag_check_engine_control_channel': 'Canale di controllo Engine',
-  'diag_check_engine_event_stream': 'Flusso eventi Engine',
+  'diag_check_engine_control_channel': 'Canale di controllo di Usque Engine',
+  'diag_check_engine_event_stream': 'Flusso eventi di Usque Engine',
   'diag_check_engine_capabilities': 'Capacità API',
   'diag_check_engine_configuration': 'Configurazione',
   'diag_check_engine_secure_storage_metadata': 'Metadati identità',
@@ -472,9 +477,9 @@ const Map<String, String> kItCatalog = <String, String>{
   'diag_check_protection_kill_switch': 'Stato del Kill Switch',
   'diag_check_protection_dns_path': 'Percorso DNS',
   'diag_check_protection_route_ownership': 'Proprietà delle rotte',
-  'diag_check_protection_recovery_journal': 'Giornale di ripristino',
-  'diag_fail_ENGINE_UNAVAILABLE': 'Engine non disponibile',
-  'diag_fail_AGENT_UNREACHABLE': 'Agent irraggiungibile',
+  'diag_check_protection_recovery_journal': 'Registro di ripristino',
+  'diag_fail_ENGINE_UNAVAILABLE': 'Usque Engine non disponibile',
+  'diag_fail_AGENT_UNREACHABLE': 'Usque Agent irraggiungibile',
   'diag_fail_VPN_SERVICE_UNAVAILABLE': 'Servizio VPN non disponibile',
   'diag_fail_PROXY_PORT_IN_USE': 'Porta proxy in uso',
   'diag_fail_PHYSICAL_IPV4_UNAVAILABLE': 'IPv4 fisico non disponibile',
@@ -482,7 +487,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'diag_fail_PHYSICAL_DNS_UNAVAILABLE': 'DNS fisico non disponibile',
   'diag_fail_PHYSICAL_NETWORK_CHANGED': 'Rete fisica cambiata',
   'diag_fail_H3_UDP_UNREACHABLE': 'UDP H3 irraggiungibile',
-  'diag_fail_H3_HANDSHAKE_TIMEOUT': 'Timeout handshake H3',
+  'diag_fail_H3_HANDSHAKE_TIMEOUT': 'Timeout dell’handshake H3',
   'diag_fail_H3_PROTOCOL_ERROR': 'Errore di protocollo H3',
   'diag_fail_H3_DATAGRAM_UNAVAILABLE': 'Datagramma H3 non disponibile',
   'diag_fail_H3_CONNECTION_CLOSED': 'Connessione H3 chiusa',
@@ -511,15 +516,17 @@ const Map<String, String> kItCatalog = <String, String>{
       'Stato proxy di sistema non corrispondente',
   'diag_fail_ROUTE_RESTORE_INCOMPLETE': 'Ripristino rotte incompleto',
   'diag_fail_DNS_RESTORE_INCOMPLETE': 'Ripristino DNS incompleto',
-  'diag_fail_SYSTEM_PROXY_STALE': 'Proxy di sistema obsoleto',
-  'diag_fail_PLATFORM_RECOVERY_PENDING': 'Ripristino piattaforma in sospeso',
+  'diag_fail_SYSTEM_PROXY_STALE':
+      'Stato del proxy di sistema di Usque non ripristinato',
+  'diag_fail_PLATFORM_RECOVERY_PENDING':
+      'In attesa del ripristino dello stato di rete della piattaforma',
   'diag_fail_PACKET_SEND_FAILED': 'Invio pacchetto non riuscito',
   'diag_fail_PACKET_SEND_TIMEOUT': 'Timeout invio pacchetto',
   'diag_fail_PACKET_RECEIVE_FAILED': 'Ricezione pacchetto non riuscita',
-  'diag_fail_PACKET_RECEIVE_STALLED': 'Ricezione pacchetto ferma',
+  'diag_fail_PACKET_RECEIVE_STALLED': 'Ricezione del pacchetto bloccata',
   'diag_fail_SEND_QUEUE_FULL': 'Coda di invio piena',
   'diag_fail_DIAGNOSTIC_ALREADY_RUNNING': 'Diagnostica già in esecuzione',
-  'diag_fail_DIAGNOSTIC_TIMEOUT': 'Controllo diagnostica scaduto',
+  'diag_fail_DIAGNOSTIC_TIMEOUT': 'Timeout del controllo diagnostico',
   'diag_fail_DIAGNOSTIC_CANCELLED': 'Diagnostica annullata',
   'diag_fail_DIAGNOSTIC_DEPENDENCY_FAILED':
       'Dipendenza della diagnostica non riuscita',
@@ -538,19 +545,19 @@ const Map<String, String> kItCatalog = <String, String>{
   'diag_fix_run_deep_diagnostics':
       'Esegui la diagnostica approfondita in un ambiente adatto.',
   'diag_fix_run_release_leak_gate':
-      'Esegui il gate di perdita di rilascio con un osservatore indipendente.',
+      'Esegui il test indipendente di fughe della release con un osservatore di rete esterno.',
   'diag_fix_inspect_platform_state':
-      'Conferma lo stato reale con l’ispettore della piattaforma.',
+      'Conferma lo stato reale con una verifica in sola lettura dello stato di rete e del proxy di sistema.',
   'diag_fix_generate_tunnel_traffic':
       'Genera un po’ di traffico nel tunnel, poi controlla di nuovo.',
   'diag_fix_export_diagnostics':
-      'Esporta un pacchetto diagnostico sanitizzato per il supporto.',
+      'Esporta un pacchetto diagnostico privo di dati sensibili per il supporto.',
   'diag_fix_retry': 'Riprova tra poco.',
   'diag_fix_none': 'Nessuna azione richiesta.',
   'diag_fix_default':
       'Usa il codice di errore per esaminare la configurazione e lo stato di rete correlati.',
   'diag_event_attempt_started': 'Tentativo di connessione avviato',
-  'diag_event_endpoint_resolved': 'Endpoint risolto',
+  'diag_event_endpoint_resolved': 'Indirizzo dell’endpoint risolto',
   'diag_event_socket_connected': 'Socket connesso',
   'diag_event_tls_ready': 'TLS pronto',
   'diag_event_quic_ready': 'QUIC pronto',
@@ -560,14 +567,14 @@ const Map<String, String> kItCatalog = <String, String>{
   'diag_event_tunnel_ready': 'Tunnel pronto',
   'diag_event_first_packet_sent': 'Primo pacchetto inviato',
   'diag_event_first_packet_received': 'Primo pacchetto ricevuto',
-  'diag_event_fallback_started': 'Fallback a H2 avviato',
+  'diag_event_fallback_started': 'Passaggio a H2 avviato',
   'diag_event_reconnect_scheduled': 'Riconnessione pianificata',
   'diag_event_network_changed': 'Rete fisica cambiata',
   'diag_event_recovery_probe_started': 'Sonda di ripristino H3 avviata',
   'diag_event_recovery_probe_succeeded': 'Sonda di ripristino H3 riuscita',
   'diag_event_recovery_probe_failed': 'Sonda di ripristino H3 non riuscita',
-  'diag_event_path_promoted': 'Percorso candidato promosso',
-  'diag_event_queue_saturated': 'Coda di invio satura',
+  'diag_event_path_promoted': 'Percorso candidato attivato',
+  'diag_event_queue_saturated': 'La coda di invio ha raggiunto la capacità',
   'diag_event_disconnected': 'Disconnesso',
   'diag_event_failed': 'Connessione non riuscita',
 };

@@ -17,6 +17,7 @@ import '../widgets/controller_selector.dart';
 import '../widgets/live_duration.dart';
 import '../widgets/profile_identity_dialog.dart';
 import '../widgets/sparkline.dart';
+import 'diagnostics_screen.dart';
 
 /// The instrument panel: one connection control, one status readout, and the
 /// live numbers that prove the tunnel is doing something.
@@ -374,10 +375,26 @@ class _ConnectionHero extends StatelessWidget {
           ),
           if (presentation.recoverable) ...<Widget>[
             const SizedBox(height: 16),
-            OutlinedButton.icon(
-              onPressed: view.busy ? null : controller.retry,
-              icon: const Icon(LucideIcons.refreshCw),
-              label: Text(strings.get('retry')),
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 8,
+              runSpacing: 8,
+              children: <Widget>[
+                OutlinedButton.icon(
+                  onPressed: view.busy ? null : controller.retry,
+                  icon: const Icon(LucideIcons.refreshCw),
+                  label: Text(strings.get('retry')),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => DiagnosticsScreen(controller: controller),
+                    ),
+                  ),
+                  icon: const Icon(LucideIcons.activity),
+                  label: Text(strings.get('diagnostics')),
+                ),
+              ],
             ),
           ],
           const SizedBox(height: 22),

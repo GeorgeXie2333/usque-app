@@ -39,7 +39,10 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: controller.diagnostics,
+      listenable: Listenable.merge(<Listenable>[
+        controller,
+        controller.diagnostics,
+      ]),
       builder: (context, _) => _buildPage(context),
     );
   }
@@ -48,13 +51,17 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
     final strings = controller.strings;
     final diagnostics = controller.diagnostics;
     final session = diagnostics.session;
+    final selectedMode = session?.isActive == true
+        ? session!.mode
+        : diagnostics.requestedMode ?? _selectedMode;
     final presentation = ConnectionPresentation.of(controller.snapshot.phase);
 
     return FocusTraversalGroup(
       policy: OrderedTraversalPolicy(),
-      child: PageFrame(
+      child: SubPage(
         title: strings.get('diagnostics_title'),
         subtitle: strings.get('diagnostics_page_subtitle'),
+        backLabel: strings.get('back'),
         actions: <Widget>[
           OutlinedButton.icon(
             onPressed: diagnostics.timelineLoading
@@ -124,7 +131,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
               children: <Widget>[
                 _DiagnosticControlPanel(
                   controller: controller,
-                  selectedMode: _selectedMode,
+                  selectedMode: selectedMode,
                   onModeChanged: (mode) => setState(() => _selectedMode = mode),
                   presentation: presentation,
                 ),
@@ -292,7 +299,12 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
         ],
       ),
     );
-    if (confirmed == true) await controller.clearAllData();
+    if (confirmed == true) {
+      final cleared = await controller.clearAllData();
+      if (cleared && !controller.onboardingComplete && context.mounted) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      }
+    }
   }
 }
 

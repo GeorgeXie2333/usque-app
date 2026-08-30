@@ -17,6 +17,7 @@ class DiagnosticsController extends ChangeNotifier {
   bool _cancelRequestedDuringStart = false;
   bool _startRequestInFlight = false;
   bool _disposed = false;
+  DiagnosticMode? _requestedMode;
 
   DiagnosticsControllerState state = DiagnosticsControllerState.idle;
   DiagnosticSession? session;
@@ -28,6 +29,7 @@ class DiagnosticsController extends ChangeNotifier {
   bool eventStreamDegraded = false;
 
   bool get isActive => session?.isActive ?? false;
+  DiagnosticMode? get requestedMode => _requestedMode;
 
   Future<void> restore({bool silent = false}) {
     final current = _restoreInFlight;
@@ -78,6 +80,7 @@ class DiagnosticsController extends ChangeNotifier {
     final generation = ++_operationGeneration;
     _startRequestInFlight = true;
     _cancelRequestedDuringStart = false;
+    _requestedMode = mode;
     state = DiagnosticsControllerState.starting;
     lastError = null;
     lastExportPath = null;
@@ -89,6 +92,7 @@ class DiagnosticsController extends ChangeNotifier {
       }
       if (_cancelRequestedDuringStart && started.isActive) {
         _cancelRequestedDuringStart = false;
+        _requestedMode = null;
         session = started;
         state = DiagnosticsControllerState.cancelling;
         notifyListeners();
@@ -102,6 +106,7 @@ class DiagnosticsController extends ChangeNotifier {
       if (_disposed || generation != _operationGeneration) {
         return;
       }
+      _requestedMode = null;
       lastError = '${error.code}: ${error.message}';
       state = DiagnosticsControllerState.failed;
       notifyListeners();
@@ -243,6 +248,7 @@ class DiagnosticsController extends ChangeNotifier {
   }
 
   void _applySession(DiagnosticSession next) {
+    _requestedMode = null;
     session = next;
     state = switch (next.state) {
       DiagnosticSessionState.pending => DiagnosticsControllerState.starting,

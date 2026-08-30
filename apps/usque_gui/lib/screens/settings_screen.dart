@@ -9,6 +9,7 @@ import '../state/app_controller.dart';
 import '../widgets/common.dart';
 import '../widgets/usque_dialog.dart';
 import 'advanced_settings_screen.dart';
+import 'diagnostics_screen.dart';
 import 'geo_direct_settings_screen.dart';
 import 'per_app_proxy_screen.dart';
 
@@ -127,7 +128,10 @@ class SettingsScreen extends StatelessWidget {
                       subtitle: Text(
                         strings.get('add_quick_settings_tile_help'),
                       ),
-                      trailing: const Icon(LucideIcons.chevronRight, size: 18),
+                      trailing: const Icon(
+                        LucideIcons.chevronRightDir,
+                        size: 18,
+                      ),
                       onTap: controller.requestAddQuickSettingsTile,
                     ),
                     ListTile(
@@ -135,7 +139,10 @@ class SettingsScreen extends StatelessWidget {
                       leading: const Icon(LucideIcons.shield),
                       title: Text(strings.get('always_on_vpn')),
                       subtitle: Text(strings.get('always_on_vpn_help')),
-                      trailing: const Icon(LucideIcons.chevronRight, size: 18),
+                      trailing: const Icon(
+                        LucideIcons.chevronRightDir,
+                        size: 18,
+                      ),
                       onTap: controller.openAlwaysOnVpnSettings,
                     ),
                     ListTile(
@@ -152,7 +159,10 @@ class SettingsScreen extends StatelessWidget {
                                   )
                             : strings.get('per_app_proxy_off'),
                       ),
-                      trailing: const Icon(LucideIcons.chevronRight, size: 18),
+                      trailing: const Icon(
+                        LucideIcons.chevronRightDir,
+                        size: 18,
+                      ),
                       onTap: () => Navigator.of(context).push(
                         MaterialPageRoute<void>(
                           builder: (_) =>
@@ -180,6 +190,7 @@ class SettingsScreen extends StatelessWidget {
                   _UpdateActions(controller: controller),
                 ],
               ),
+              _DiagnosticsCard(controller: controller),
               _AdvancedCard(controller: controller),
             ],
           ),
@@ -501,12 +512,40 @@ class _GeoDirectCard extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               Icon(
-                LucideIcons.chevronRight,
+                LucideIcons.chevronRightDir,
                 size: 20,
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DiagnosticsCard extends StatelessWidget {
+  const _DiagnosticsCard({required this.controller});
+
+  final AppController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = controller.strings;
+    return Panel(
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => DiagnosticsScreen(controller: controller),
+        ),
+      ),
+      child: SectionTitle(
+        icon: LucideIcons.activity,
+        title: strings.get('diagnostics'),
+        subtitle: strings.get('diagnostics_subtitle'),
+        trailing: Icon(
+          LucideIcons.chevronRightDir,
+          size: 20,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
         ),
       ),
     );
@@ -533,7 +572,7 @@ class _AdvancedCard extends StatelessWidget {
         title: strings.get('advanced'),
         subtitle: strings.get('advanced_subtitle'),
         trailing: Icon(
-          LucideIcons.chevronRight,
+          LucideIcons.chevronRightDir,
           size: 20,
           color: Theme.of(context).colorScheme.onSurfaceVariant,
         ),

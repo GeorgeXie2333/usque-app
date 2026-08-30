@@ -8,7 +8,6 @@ import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/animated_index_stack.dart';
 import '../widgets/controller_selector.dart';
-import 'diagnostics_screen.dart';
 import 'home_screen.dart';
 import 'profiles_screen.dart';
 import 'proxy_screen.dart';
@@ -34,7 +33,6 @@ class ShellScreen extends StatelessWidget {
     LucideIcons.layers3,
     LucideIcons.waypoints,
     LucideIcons.settings,
-    LucideIcons.activity,
   ];
 
   /// Width at which the bottom bar gives way to the side rail.
@@ -79,11 +77,16 @@ class ShellScreen extends StatelessWidget {
       builder: (context, section) {
         final strings = controller.strings;
         final labels = <String>[
+          strings.get('nav_home'),
+          strings.get('nav_profiles'),
+          strings.get('nav_proxy'),
+          strings.get('nav_settings'),
+        ];
+        final fullLabels = <String>[
           strings.get('home'),
           strings.get('profiles'),
           strings.get('proxy'),
           strings.get('settings'),
-          strings.get('diagnostics'),
         ];
         final pages = <Widget>[
           // Home subscribes per block, so it takes the controller directly.
@@ -154,30 +157,6 @@ class ShellScreen extends StatelessWidget {
             ),
             builder: (context, _) => SettingsScreen(controller: controller),
           ),
-          ControllerSelector<
-            ({
-              EngineSnapshot snapshot,
-              ConnectionPhase phase,
-              bool streamDegraded,
-              bool busy,
-              String? error,
-              String? notice,
-            })
-          >(
-            key: const ValueKey<String>('diagnostics-controller-selector'),
-            controller: controller,
-            active: (controller) =>
-                controller.section == AppSection.diagnostics,
-            selector: (controller) => (
-              snapshot: controller.snapshot,
-              phase: controller.snapshot.phase,
-              streamDegraded: controller.snapshotStreamDegraded,
-              busy: controller.busy,
-              error: controller.lastError,
-              notice: controller.lastNotice,
-            ),
-            builder: (context, _) => DiagnosticsScreen(controller: controller),
-          ),
         ];
         final selected = section.index;
 
@@ -213,9 +192,21 @@ class ShellScreen extends StatelessWidget {
                               List<NavigationRailDestination>.generate(
                                 labels.length,
                                 (index) => NavigationRailDestination(
-                                  icon: Icon(_icons[index]),
-                                  selectedIcon: Icon(_icons[index]),
-                                  label: Text(labels[index]),
+                                  icon: Tooltip(
+                                    message: fullLabels[index],
+                                    excludeFromSemantics: true,
+                                    child: Icon(_icons[index]),
+                                  ),
+                                  selectedIcon: Tooltip(
+                                    message: fullLabels[index],
+                                    excludeFromSemantics: true,
+                                    child: Icon(_icons[index]),
+                                  ),
+                                  label: Tooltip(
+                                    message: fullLabels[index],
+                                    excludeFromSemantics: true,
+                                    child: Text(labels[index]),
+                                  ),
                                   padding: _destinationPadding,
                                 ),
                               ),
@@ -262,7 +253,7 @@ class ShellScreen extends StatelessWidget {
                                 icon: Icon(_icons[index]),
                                 selectedIcon: Icon(_icons[index]),
                                 label: labels[index],
-                                tooltip: labels[index],
+                                tooltip: fullLabels[index],
                               ),
                             ),
                           ),

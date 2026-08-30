@@ -3,7 +3,7 @@ const Map<String, String> kRuCatalog = <String, String>{
   'app_name': 'Usque',
   'window_minimize': 'Свернуть',
   'window_maximize': 'Развернуть',
-  'window_restore': 'Свернуть в окно',
+  'window_restore': 'Восстановить размер окна',
   'window_close': 'Закрыть',
   'connection_status': 'Состояние подключения',
   'outputs': 'Сетевые выходы',
@@ -15,6 +15,10 @@ const Map<String, String> kRuCatalog = <String, String>{
   'settings': 'Настройки',
   'settings_subtitle': 'Поведение приложения на этом устройстве.',
   'diagnostics': 'Диагностика',
+  'nav_home': 'Главная',
+  'nav_profiles': 'Профили',
+  'nav_proxy': 'Прокси',
+  'nav_settings': 'Опции',
   'status_stream_degraded': 'Оперативные обновления состояния ограничены',
   'status_stream_degraded_body':
       'Опрос состояния активен; оперативные обновления будут повторяться автоматически.',
@@ -60,7 +64,7 @@ const Map<String, String> kRuCatalog = <String, String>{
   'zero_trust_open_login': 'Открыть вход организации',
   'zero_trust_browser_failed': 'Не удалось открыть системный браузер.',
   'zero_trust_manual_callback':
-      'После входа вернитесь сюда автоматически, заполните обратный вызов из буфера обмена или вставьте полный URL.',
+      'После входа вернитесь в Usque. Если обратный вызов не заполнился автоматически, заполните его из буфера обмена или вставьте полный URL.',
   'zero_trust_callback_received':
       'Обратный вызов организации получен безопасным способом.',
   'zero_trust_callback': 'Полный URL обратного вызова',
@@ -169,7 +173,7 @@ const Map<String, String> kRuCatalog = <String, String>{
   'language_ja': '日本語',
   'language_ko': '한국어',
   'language_es': 'Español',
-  'language_pt': 'Português',
+  'language_pt': 'Português (Brasil)',
   'language_fr': 'Français',
   'language_nl': 'Nederlands',
   'language_tr': 'Türkçe',
@@ -190,7 +194,7 @@ const Map<String, String> kRuCatalog = <String, String>{
   'already_latest': 'Эта установка уже актуальна.',
   'open_release': 'Открыть страницу выпуска',
   'update_startup_description':
-      'Проверяет один раз при запуске Usque. Ручная проверка всегда актуальна.',
+      'Проверка выполняется один раз после запуска Usque; возврат в приложение не запускает её повторно. Немедленная проверка выполняется в реальном времени.',
   'update_checking': 'Проверка обновлений…',
   'update_downloading': 'Загрузка проверенного пакета обновления…',
   'update_verifying': 'Проверка пакета обновления…',
@@ -206,7 +210,8 @@ const Map<String, String> kRuCatalog = <String, String>{
   'notice': 'Выполнено',
   'identity': 'Идентичность WARP',
   'identity_and_license': 'Идентичность и лицензия',
-  'license_cleanup_pending': 'Старый слот устройства ожидает очистки.',
+  'license_cleanup_pending':
+      'Старая регистрация устройства WARP ожидает удаления.',
   'copy_license': 'Копировать License Key',
   'change_license': 'Изменить License Key',
   'unbind_license': 'Вернуться к бесплатному WARP',
@@ -245,7 +250,7 @@ const Map<String, String> kRuCatalog = <String, String>{
   'lockdown': 'Блокировать без VPN',
   'not_used_proxy': 'Не используется в режиме прокси',
   'kill_switch_help':
-      'Блокировать трафик во время подключения, повторного подключения или восстановления после сбоя движка. На Android это действует, пока работает служба VPN; включите «Постоянный VPN» и «Блокировать соединения без VPN» в системных настройках для защиты после принудительного завершения приложения.',
+      'Блокировать трафик во время подключения, повторного подключения или восстановления после сбоя Usque Engine. На Android это действует, пока работает служба VPN; включите «Постоянный VPN» и «Блокировать соединения без VPN» в системных настройках для защиты после принудительного завершения приложения.',
   'start_on_boot_android':
       'Запускать Usque после перезагрузки. Также включите автоматическое подключение при запуске.',
   'add_quick_settings_tile_help':
@@ -255,7 +260,7 @@ const Map<String, String> kRuCatalog = <String, String>{
       'Включите «Постоянный VPN» и «Блокировать соединения без VPN» для защиты от утечек после принудительного завершения приложения.',
   'per_app_proxy': 'Прокси по приложениям',
   'per_app_proxy_off': 'Все приложения используют VPN',
-  'per_app_proxy_on': 'Проксируется приложений: {count}',
+  'per_app_proxy_on': 'Через прокси: {count} приложений',
   'per_app_proxy_enable': 'Проксировать только выбранные приложения',
   'per_app_proxy_help':
       'VPN используют только отмеченные приложения. Недавно установленные приложения остаются вне туннеля, пока вы их не выберете. Команда «Выбрать все» этот режим не отключает.',
@@ -287,8 +292,8 @@ const Map<String, String> kRuCatalog = <String, String>{
   'invalid_cidr': 'Недопустимый CIDR',
   'diagnostics_title': 'Диагностика и сведения',
   'diagnostics_subtitle':
-      'Состояние движка, экспорт журналов и локальные данные.',
-  'engine_status': 'Состояние движка',
+      'Состояние Usque Engine, экспорт журналов и локальные данные.',
+  'engine_status': 'Состояние Usque Engine',
   'version': 'Версия',
   'app_version': 'Usque 0.2.1',
   'logs': 'Локальные журналы',
@@ -332,7 +337,7 @@ const Map<String, String> kRuCatalog = <String, String>{
   'profile_required': 'Оставьте хотя бы один профиль.',
   'socks_capabilities': 'TCP и UDP',
   'http_capabilities': 'CONNECT и обычная пересылка',
-  'geo_direct': 'Страны напрямую',
+  'geo_direct': 'Страны с прямой маршрутизацией',
   'geo_direct_help':
       'Совпавшие домены видны DNS текущей сети; приложения с шифрованным DNS маршрутизируются только по IP.',
   'geo_update_all': 'Обновить геоданные',
@@ -345,7 +350,7 @@ const Map<String, String> kRuCatalog = <String, String>{
   'geo_search': 'Поиск стран',
   'geo_not_downloaded': 'Не скачано',
   'geo_downloaded': 'Скачано',
-  'geo_chip': '{current} напрямую',
+  'geo_chip': 'Прямая маршрутизация: {current}',
   'geo_download_first':
       'Скачайте геоданные этой страны, прежде чем включать её.',
   'geo_update_complete':
@@ -368,14 +373,14 @@ const Map<String, String> kRuCatalog = <String, String>{
       'Архив записывается только в выбранное место и никогда не отправляется автоматически.',
   'diag_run_title': 'Запустить сетевую диагностику',
   'diag_run_subtitle':
-      'Стандартный режим использует только проверки только для чтения и пассивные проверки.',
+      'Стандартный режим использует проверки только для чтения и пассивные проверки.',
   'diag_mode_standard': 'Стандартная',
   'diag_mode_deep': 'Глубокая',
   'diag_deep_title': 'О глубокой диагностике',
   'diag_deep_connected':
-      'Туннель активен: второй путь данных MASQUE не будет открыт; активные транспортные проверки будут отмечены как пропущенные или предупреждение.',
+      'Туннель активен: второй путь данных MASQUE не будет открыт; активные транспортные проверки будут отмечены как пропущенные или предупреждения.',
   'diag_deep_disconnected':
-      'Без соединения активные проверки ограничены тайм-аутом и отменой, затем сравнивается состояние платформы.',
+      'Без соединения активные проверки ограничены временем ожидания и могут быть отменены. Затем сравнивается состояние платформы.',
   'diag_start': 'Начать диагностику',
   'diag_session': 'Сеанс диагностики',
   'diag_progress_semantics': 'Ход диагностики {current}%',
@@ -389,9 +394,9 @@ const Map<String, String> kRuCatalog = <String, String>{
       'Запустите диагностику, чтобы увидеть проверки, сгруппированные по слоям и зависимостям.',
   'diag_timeline': 'Шкала времени соединения',
   'diag_timeline_subtitle':
-      'Только ограниченные события состояния; содержимое пакетов и сырые адреса никогда не записываются.',
+      'Только последние изменения состояния; содержимое пакетов и полные адреса никогда не записываются.',
   'diag_logs_subtitle':
-      'Экспортируйте сеанс, шкалу времени, сводку состояния платформы и очищенные журналы.',
+      'Экспортируйте сеанс, шкалу времени, сводку состояния платформы и журналы с удалёнными конфиденциальными данными.',
   'diag_session_pending': 'Ожидание',
   'diag_session_running': 'Выполняется',
   'diag_session_cancelling': 'Отмена',
@@ -401,16 +406,16 @@ const Map<String, String> kRuCatalog = <String, String>{
   'diag_timeline_empty':
       'Ключевые переходы соединения появятся здесь после попытки подключения.',
   'diag_timeline_truncated':
-      'Показаны последние 100 событий; ограниченная шкала времени пакета сохраняется.',
+      'В интерфейсе отображаются только последние 100 событий; экспортируемый пакет содержит события, которые по-прежнему хранит Usque Engine.',
   'diag_metric_reconnects': 'Повторные подключения',
-  'diag_metric_fallbacks': 'Откаты',
+  'diag_metric_fallbacks': 'Переходы на резервный путь',
   'diag_metric_network_changes': 'Изменения сети',
-  'diag_metric_queue_high_water': 'Высокая отметка очереди',
+  'diag_metric_queue_high_water': 'Максимальная глубина очереди отправки',
   'diag_unknown': 'Неизвестно',
   'diag_stage': 'Этап',
-  'diag_family': 'Семейство',
+  'diag_family': 'Семейство адресов',
   'diag_retryable': 'Можно повторить',
-  'diag_fallback_allowed': 'Откат',
+  'diag_fallback_allowed': 'Резервный путь',
   'diag_copy_support': 'Копировать сведения для поддержки',
   'diag_support_copied': 'Сведения для поддержки скопированы.',
   'diag_yes': 'Да',
@@ -435,11 +440,11 @@ const Map<String, String> kRuCatalog = <String, String>{
   'diag_cat_tunnel': 'Туннель',
   'diag_cat_protection': 'Системная защита',
   'diag_cat_recovery': 'Восстановление',
-  'diag_check_engine_control_channel': 'Канал управления Engine',
-  'diag_check_engine_event_stream': 'Поток событий Engine',
+  'diag_check_engine_control_channel': 'Канал управления Usque Engine',
+  'diag_check_engine_event_stream': 'Поток событий Usque Engine',
   'diag_check_engine_capabilities': 'Возможности API',
   'diag_check_engine_configuration': 'Конфигурация',
-  'diag_check_engine_secure_storage_metadata': 'Метаданные удостоверения',
+  'diag_check_engine_secure_storage_metadata': 'Метаданные идентичности',
   'diag_check_frontend_socks_port': 'Прослушиватель SOCKS5',
   'diag_check_frontend_http_port': 'Прослушиватель HTTP',
   'diag_check_frontend_system_proxy_state': 'Состояние системного прокси',
@@ -454,7 +459,7 @@ const Map<String, String> kRuCatalog = <String, String>{
   'diag_check_transport_h2_tls': 'TLS HTTP/2',
   'diag_check_transport_h2_connect': 'CONNECT-IP HTTP/2',
   'diag_check_transport_endpoint_pin': 'Закрепление конечной точки',
-  'diag_check_transport_fallback_policy': 'Политика отката',
+  'diag_check_transport_fallback_policy': 'Политика резервного пути',
   'diag_check_tunnel_address_assignment': 'Назначение адреса туннеля',
   'diag_check_tunnel_routes': 'Маршруты туннеля',
   'diag_check_tunnel_dns': 'DNS туннеля',
@@ -465,8 +470,8 @@ const Map<String, String> kRuCatalog = <String, String>{
   'diag_check_protection_dns_path': 'Путь DNS',
   'diag_check_protection_route_ownership': 'Владение маршрутами',
   'diag_check_protection_recovery_journal': 'Журнал восстановления',
-  'diag_fail_ENGINE_UNAVAILABLE': 'Engine недоступен',
-  'diag_fail_AGENT_UNREACHABLE': 'Agent недоступен',
+  'diag_fail_ENGINE_UNAVAILABLE': 'Usque Engine недоступен',
+  'diag_fail_AGENT_UNREACHABLE': 'Usque Agent недоступен',
   'diag_fail_VPN_SERVICE_UNAVAILABLE': 'Служба VPN недоступна',
   'diag_fail_PROXY_PORT_IN_USE': 'Порт прокси занят',
   'diag_fail_PHYSICAL_IPV4_UNAVAILABLE': 'Физический IPv4 недоступен',
@@ -485,7 +490,7 @@ const Map<String, String> kRuCatalog = <String, String>{
   'diag_fail_H2_GOAWAY': 'H2 получил GOAWAY',
   'diag_fail_ALL_TRANSPORTS_FAILED': 'HTTP/3 и HTTP/2 завершились сбоем',
   'diag_fail_ENDPOINT_PIN_MISMATCH': 'Несовпадение закрепления конечной точки',
-  'diag_fail_IDENTITY_INVALID': 'Недействительное удостоверение',
+  'diag_fail_IDENTITY_INVALID': 'Недействительная идентичность',
   'diag_fail_AUTHENTICATION_FAILED': 'Сбой проверки подлинности',
   'diag_fail_CONFIGURATION_INVALID': 'Недействительная конфигурация',
   'diag_fail_CONNECT_IP_REJECTED': 'CONNECT-IP отклонён',
@@ -502,15 +507,17 @@ const Map<String, String> kRuCatalog = <String, String>{
       'Состояние системного прокси не совпадает',
   'diag_fail_ROUTE_RESTORE_INCOMPLETE': 'Восстановление маршрутов неполное',
   'diag_fail_DNS_RESTORE_INCOMPLETE': 'Восстановление DNS неполное',
-  'diag_fail_SYSTEM_PROXY_STALE': 'Устаревший системный прокси',
-  'diag_fail_PLATFORM_RECOVERY_PENDING': 'Восстановление платформы ожидает',
+  'diag_fail_SYSTEM_PROXY_STALE':
+      'Остаточное состояние системного прокси Usque',
+  'diag_fail_PLATFORM_RECOVERY_PENDING':
+      'Ожидается восстановление сетевого состояния платформы',
   'diag_fail_PACKET_SEND_FAILED': 'Сбой отправки пакета',
   'diag_fail_PACKET_SEND_TIMEOUT': 'Тайм-аут отправки пакета',
   'diag_fail_PACKET_RECEIVE_FAILED': 'Сбой приёма пакета',
   'diag_fail_PACKET_RECEIVE_STALLED': 'Приём пакетов остановился',
   'diag_fail_SEND_QUEUE_FULL': 'Очередь отправки заполнена',
   'diag_fail_DIAGNOSTIC_ALREADY_RUNNING': 'Диагностика уже выполняется',
-  'diag_fail_DIAGNOSTIC_TIMEOUT': 'Проверка диагностики истекла по времени',
+  'diag_fail_DIAGNOSTIC_TIMEOUT': 'Время диагностической проверки истекло',
   'diag_fail_DIAGNOSTIC_CANCELLED': 'Диагностика отменена',
   'diag_fail_DIAGNOSTIC_DEPENDENCY_FAILED': 'Сбой зависимости диагностики',
   'diag_fail_INTERNAL': 'Внутренняя ошибка',
@@ -519,8 +526,8 @@ const Map<String, String> kRuCatalog = <String, String>{
   'diag_fix_check_physical_network':
       'Проверьте доступность текущей сети, DNS и семейства адресов.',
   'diag_fix_refresh_or_replace_identity':
-      'Обновите или замените удостоверение перед повторным подключением.',
-  'diag_fix_replace_identity': 'Снова настройте действительное удостоверение.',
+      'Обновите или замените идентичность перед повторным подключением.',
+  'diag_fix_replace_identity': 'Снова настройте действительную идентичность.',
   'diag_fix_review_configuration':
       'Проверьте конфигурацию и исправьте недопустимые значения.',
   'diag_fix_restore_platform_state':
@@ -530,19 +537,19 @@ const Map<String, String> kRuCatalog = <String, String>{
   'diag_fix_run_deep_diagnostics':
       'Запустите глубокую диагностику в подходящей среде.',
   'diag_fix_run_release_leak_gate':
-      'Запустите шлюз утечек выпуска с независимым наблюдателем.',
+      'Запустите независимый тест утечек при выпуске с внешним наблюдателем сети.',
   'diag_fix_inspect_platform_state':
-      'Подтвердите фактическое состояние инспектором платформы.',
+      'Проверьте фактическое состояние с помощью операции, которая только читает состояние сети и системного прокси.',
   'diag_fix_generate_tunnel_traffic':
       'Создайте небольшой туннельный трафик, затем проверьте снова.',
   'diag_fix_export_diagnostics':
-      'Экспортируйте очищенный диагностический пакет для поддержки.',
+      'Экспортируйте диагностический пакет с удалёнными конфиденциальными данными для поддержки.',
   'diag_fix_retry': 'Повторите попытку чуть позже.',
   'diag_fix_none': 'Действий не требуется.',
   'diag_fix_default':
       'Используйте код ошибки, чтобы проверить связанную конфигурацию и состояние сети.',
   'diag_event_attempt_started': 'Попытка соединения начата',
-  'diag_event_endpoint_resolved': 'Конечная точка разрешена',
+  'diag_event_endpoint_resolved': 'Адрес конечной точки разрешён',
   'diag_event_socket_connected': 'Сокет подключён',
   'diag_event_tls_ready': 'TLS готов',
   'diag_event_quic_ready': 'QUIC готов',
@@ -552,14 +559,15 @@ const Map<String, String> kRuCatalog = <String, String>{
   'diag_event_tunnel_ready': 'Туннель готов',
   'diag_event_first_packet_sent': 'Первый пакет отправлен',
   'diag_event_first_packet_received': 'Первый пакет получен',
-  'diag_event_fallback_started': 'Начат откат на H2',
+  'diag_event_fallback_started': 'Начат переход на H2',
   'diag_event_reconnect_scheduled': 'Повторное подключение запланировано',
   'diag_event_network_changed': 'Физическая сеть изменилась',
   'diag_event_recovery_probe_started': 'Зонд восстановления H3 запущен',
   'diag_event_recovery_probe_succeeded': 'Зонд восстановления H3 успешен',
-  'diag_event_recovery_probe_failed': 'Зонд восстановления H3 не удался',
-  'diag_event_path_promoted': 'Кандидатский путь стал активным',
-  'diag_event_queue_saturated': 'Очередь отправки насыщена',
+  'diag_event_recovery_probe_failed':
+      'Зонд восстановления H3 завершился с ошибкой',
+  'diag_event_path_promoted': 'Кандидатский путь активирован',
+  'diag_event_queue_saturated': 'Очередь отправки достигла предельной ёмкости',
   'diag_event_disconnected': 'Отключено',
   'diag_event_failed': 'Сбой соединения',
 };

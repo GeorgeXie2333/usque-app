@@ -141,7 +141,7 @@ class SubPage extends StatelessWidget {
             alignment: AlignmentDirectional.centerStart,
             child: TextButton.icon(
               onPressed: () => Navigator.of(context).maybePop(),
-              icon: const Icon(LucideIcons.arrowLeft, size: 17),
+              icon: const Icon(LucideIcons.arrowLeftDir, size: 17),
               label: Text(backLabel),
               style: TextButton.styleFrom(
                 alignment: AlignmentDirectional.centerStart,
@@ -438,8 +438,7 @@ class StatusPill extends StatelessWidget {
   /// Renders the pill without a fill, for dense rows of many pills.
   final bool dim;
 
-  /// Drops the dot or glyph. A label-only pill can wrap, so use it where the
-  /// pill sits in a narrow column rather than a row of states.
+  /// Drops the dot or glyph when a dense row does not need a status marker.
   final bool showIndicator;
 
   @override
@@ -482,7 +481,7 @@ class StatusPill extends StatelessWidget {
                 else
                   _StatusDot(color: foreground),
                 const SizedBox(width: 7),
-                text,
+                Flexible(child: text),
               ],
             ),
     );

@@ -3,7 +3,7 @@ const Map<String, String> kUkCatalog = <String, String>{
   'app_name': 'Usque',
   'window_minimize': 'Згорнути',
   'window_maximize': 'Розгорнути',
-  'window_restore': 'Відновити вниз',
+  'window_restore': 'Відновити розмір вікна',
   'window_close': 'Закрити',
   'connection_status': 'Стан зʼєднання',
   'outputs': 'Мережеві виходи',
@@ -15,6 +15,10 @@ const Map<String, String> kUkCatalog = <String, String>{
   'settings': 'Налаштування',
   'settings_subtitle': 'Поведінка програми на цьому пристрої.',
   'diagnostics': 'Діагностика',
+  'nav_home': 'Головна',
+  'nav_profiles': 'Профілі',
+  'nav_proxy': 'Проксі',
+  'nav_settings': 'Опції',
   'status_stream_degraded': 'Оновлення стану в реальному часі погіршено',
   'status_stream_degraded_body':
       'Опитування стану активне; оновлення в реальному часі повторюватимуться автоматично.',
@@ -60,7 +64,7 @@ const Map<String, String> kUkCatalog = <String, String>{
   'zero_trust_open_login': 'Відкрити вхід організації',
   'zero_trust_browser_failed': 'Не вдалося відкрити системний браузер.',
   'zero_trust_manual_callback':
-      'Після входу автоматично поверніться сюди, заповніть зворотний виклик із буфера обміну або вставте повну URL-адресу.',
+      'Після входу поверніться в Usque. Якщо URL зворотного виклику не заповнився автоматично, заповніть його з буфера обміну або вставте повну URL-адресу.',
   'zero_trust_callback_received':
       'Зворотний виклик організації отримано безпечно.',
   'zero_trust_callback': 'Повна URL-адреса зворотного виклику',
@@ -148,7 +152,7 @@ const Map<String, String> kUkCatalog = <String, String>{
   'proxy_auth_cleared': 'Автентифікацію слухача вилучено',
   'lan_warning_authenticated': 'Автентифікований слухач локальної мережі',
   'lan_warning_authenticated_body':
-      'Цей слухач доступний у локальній мережі та потребує імʼя користувача й пароль, які ви задали.',
+      'Цей слухач доступний у локальній мережі та потребує імені користувача й пароля, які ви задали.',
   'proxy_password_set': 'Пароль установлено. Введіть новий, щоб замінити його.',
   'proxy_auth_clear': 'Вилучити автентифікацію',
   'general': 'Загальні',
@@ -170,7 +174,7 @@ const Map<String, String> kUkCatalog = <String, String>{
   'language_ja': '日本語',
   'language_ko': '한국어',
   'language_es': 'Español',
-  'language_pt': 'Português',
+  'language_pt': 'Português (Brasil)',
   'language_fr': 'Français',
   'language_nl': 'Nederlands',
   'language_tr': 'Türkçe',
@@ -191,7 +195,7 @@ const Map<String, String> kUkCatalog = <String, String>{
   'already_latest': 'Ця інсталяція вже актуальна.',
   'open_release': 'Відкрити сторінку випуску',
   'update_startup_description':
-      'Перевіряє один раз під час запуску Usque. Ручна перевірка завжди актуальна.',
+      'Перевірка виконується один раз після запуску Usque; повернення до програми не запускає її повторно. Негайна перевірка виконується в реальному часі.',
   'update_checking': 'Перевірка оновлень…',
   'update_downloading': 'Завантаження перевіреного пакета оновлення…',
   'update_verifying': 'Перевірка пакета оновлення…',
@@ -206,8 +210,8 @@ const Map<String, String> kUkCatalog = <String, String>{
       'Для цього пристрою немає перевіреного пакета. Відкрийте сторінку випуску.',
   'notice': 'Завершено',
   'identity': 'Ідентичність WARP',
-  'identity_and_license': 'Ідентичність і License',
-  'license_cleanup_pending': 'Старий слот пристрою очікує очищення.',
+  'identity_and_license': 'Ідентичність і ліцензія',
+  'license_cleanup_pending': 'Стара реєстрація пристрою WARP очікує видалення.',
   'copy_license': 'Копіювати License Key',
   'change_license': 'Змінити License Key',
   'unbind_license': 'Повернутися до WARP Free',
@@ -246,7 +250,7 @@ const Map<String, String> kUkCatalog = <String, String>{
   'lockdown': 'Блокувати без VPN',
   'not_used_proxy': 'Не використовується в режимі проксі',
   'kill_switch_help':
-      'Блокувати трафік під час зʼєднання, повторного зʼєднання або відновлення після збою рушія. На Android це діє, поки працює служба VPN; увімкніть «Завжди ввімкнений VPN» і «Блокувати зʼєднання без VPN» у системних налаштуваннях для захисту після завершення програми.',
+      'Блокувати трафік під час зʼєднання, повторного зʼєднання або відновлення після збою Usque Engine. На Android це діє, поки працює служба VPN; увімкніть «Завжди ввімкнений VPN» і «Блокувати зʼєднання без VPN» у системних налаштуваннях для захисту після завершення програми.',
   'start_on_boot_android':
       'Запускати Usque після перезавантаження. Також увімкніть автоматичне зʼєднання під час запуску.',
   'add_quick_settings_tile_help':
@@ -287,8 +291,9 @@ const Map<String, String> kUkCatalog = <String, String>{
   'invalid_dns_name': 'Недійсне імʼя DNS',
   'invalid_cidr': 'Недійсний CIDR',
   'diagnostics_title': 'Діагностика та відомості',
-  'diagnostics_subtitle': 'Стан рушія, експорт журналів і локальні дані.',
-  'engine_status': 'Стан рушія',
+  'diagnostics_subtitle':
+      'Стан Usque Engine, експорт журналів і локальні дані.',
+  'engine_status': 'Стан Usque Engine',
   'version': 'Версія',
   'app_version': 'Usque 0.2.1',
   'logs': 'Локальні журнали',
@@ -332,7 +337,7 @@ const Map<String, String> kUkCatalog = <String, String>{
   'profile_required': 'Залиште принаймні один профіль.',
   'socks_capabilities': 'TCP і UDP',
   'http_capabilities': 'CONNECT і звичайне пересилання',
-  'geo_direct': 'Країни напряму',
+  'geo_direct': 'Країни з прямою маршрутизацією',
   'geo_direct_help':
       'Зіставлені домени видимі DNS поточної мережі; програми з шифрованим DNS маршрутизуються лише за IP.',
   'geo_update_all': 'Оновити геодані',
@@ -345,7 +350,7 @@ const Map<String, String> kUkCatalog = <String, String>{
   'geo_search': 'Пошук країн',
   'geo_not_downloaded': 'Не завантажено',
   'geo_downloaded': 'Завантажено',
-  'geo_chip': '{current} напряму',
+  'geo_chip': 'Пряма маршрутизація: {current}',
   'geo_download_first': 'Завантажте геодані цієї країни, перш ніж вмикати її.',
   'geo_update_complete':
       'Геодані: оновлено {updated}, уже актуальні {current}.',
@@ -367,14 +372,14 @@ const Map<String, String> kUkCatalog = <String, String>{
       'Архів записується лише у вибране місце і ніколи не надсилається автоматично.',
   'diag_run_title': 'Запустити мережеву діагностику',
   'diag_run_subtitle':
-      'Стандартний режим використовує лише перевірки лише для читання та пасивні перевірки.',
+      'Стандартний режим використовує перевірки лише для читання та пасивні перевірки.',
   'diag_mode_standard': 'Стандартна',
   'diag_mode_deep': 'Глибока',
   'diag_deep_title': 'Про глибоку діагностику',
   'diag_deep_connected':
-      'Тунель активний: другий шлях даних MASQUE не буде відкрито; активні транспортні перевірки буде позначено як пропущені або попередження.',
+      'Тунель активний: другий шлях даних MASQUE не буде відкрито; активні транспортні перевірки буде позначено як «пропущені» або як «попередження».',
   'diag_deep_disconnected':
-      'Без з’єднання активні перевірки обмежено часом очікування й скасуванням, після чого порівнюється стан платформи.',
+      'Без з’єднання активні перевірки обмежені часом очікування й можуть бути скасовані. Після цього порівнюється стан платформи.',
   'diag_start': 'Почати діагностику',
   'diag_session': 'Сеанс діагностики',
   'diag_progress_semantics': 'Перебіг діагностики {current}%',
@@ -388,9 +393,9 @@ const Map<String, String> kUkCatalog = <String, String>{
       'Запустіть діагностику, щоб побачити перевірки, згруповані за шарами та залежностями.',
   'diag_timeline': 'Шкала часу з’єднання',
   'diag_timeline_subtitle':
-      'Лише обмежені події стану; вміст пакетів і необроблені адреси ніколи не записуються.',
+      'Лише останні зміни стану; вміст пакетів і повні адреси ніколи не записуються.',
   'diag_logs_subtitle':
-      'Експортуйте сеанс, шкалу часу, зведення стану платформи та очищені журнали.',
+      'Експортуйте сеанс, шкалу часу, зведення стану платформи та журнали, з яких вилучено конфіденційні дані.',
   'diag_session_pending': 'Очікування',
   'diag_session_running': 'Виконується',
   'diag_session_cancelling': 'Скасування',
@@ -400,16 +405,16 @@ const Map<String, String> kUkCatalog = <String, String>{
   'diag_timeline_empty':
       'Ключові переходи з’єднання з’являться тут після спроби підключення.',
   'diag_timeline_truncated':
-      'Показано останні 100 подій; обмежена шкала часу пакета зберігається.',
+      'В інтерфейсі відображаються лише останні 100 подій; експортований пакет містить події, які й надалі зберігає Usque Engine.',
   'diag_metric_reconnects': 'Повторні підключення',
-  'diag_metric_fallbacks': 'Відкати',
+  'diag_metric_fallbacks': 'Переходи на резервний шлях',
   'diag_metric_network_changes': 'Зміни мережі',
-  'diag_metric_queue_high_water': 'Висока позначка черги',
+  'diag_metric_queue_high_water': 'Максимальна глибина черги надсилання',
   'diag_unknown': 'Невідомо',
   'diag_stage': 'Етап',
-  'diag_family': 'Родина',
+  'diag_family': 'Сімейство адрес',
   'diag_retryable': 'Можна повторити',
-  'diag_fallback_allowed': 'Відкат',
+  'diag_fallback_allowed': 'Резервний шлях',
   'diag_copy_support': 'Копіювати відомості для підтримки',
   'diag_support_copied': 'Відомості для підтримки скопійовано.',
   'diag_yes': 'Так',
@@ -434,11 +439,11 @@ const Map<String, String> kUkCatalog = <String, String>{
   'diag_cat_tunnel': 'Тунель',
   'diag_cat_protection': 'Системний захист',
   'diag_cat_recovery': 'Відновлення',
-  'diag_check_engine_control_channel': 'Канал керування Engine',
-  'diag_check_engine_event_stream': 'Потік подій Engine',
+  'diag_check_engine_control_channel': 'Канал керування Usque Engine',
+  'diag_check_engine_event_stream': 'Потік подій Usque Engine',
   'diag_check_engine_capabilities': 'Можливості API',
   'diag_check_engine_configuration': 'Конфігурація',
-  'diag_check_engine_secure_storage_metadata': 'Метадані посвідчення',
+  'diag_check_engine_secure_storage_metadata': 'Метадані ідентичності',
   'diag_check_frontend_socks_port': 'Прослуховувач SOCKS5',
   'diag_check_frontend_http_port': 'Прослуховувач HTTP',
   'diag_check_frontend_system_proxy_state': 'Стан системного проксі',
@@ -453,7 +458,7 @@ const Map<String, String> kUkCatalog = <String, String>{
   'diag_check_transport_h2_tls': 'TLS HTTP/2',
   'diag_check_transport_h2_connect': 'CONNECT-IP HTTP/2',
   'diag_check_transport_endpoint_pin': 'Закріплення кінцевої точки',
-  'diag_check_transport_fallback_policy': 'Політика відкату',
+  'diag_check_transport_fallback_policy': 'Політика резервного шляху',
   'diag_check_tunnel_address_assignment': 'Призначення адреси тунелю',
   'diag_check_tunnel_routes': 'Маршрути тунелю',
   'diag_check_tunnel_dns': 'DNS тунелю',
@@ -464,8 +469,8 @@ const Map<String, String> kUkCatalog = <String, String>{
   'diag_check_protection_dns_path': 'Шлях DNS',
   'diag_check_protection_route_ownership': 'Володіння маршрутами',
   'diag_check_protection_recovery_journal': 'Журнал відновлення',
-  'diag_fail_ENGINE_UNAVAILABLE': 'Engine недоступний',
-  'diag_fail_AGENT_UNREACHABLE': 'Agent недоступний',
+  'diag_fail_ENGINE_UNAVAILABLE': 'Usque Engine недоступний',
+  'diag_fail_AGENT_UNREACHABLE': 'Usque Agent недоступний',
   'diag_fail_VPN_SERVICE_UNAVAILABLE': 'Служба VPN недоступна',
   'diag_fail_PROXY_PORT_IN_USE': 'Порт проксі зайнятий',
   'diag_fail_PHYSICAL_IPV4_UNAVAILABLE': 'Фізичний IPv4 недоступний',
@@ -485,7 +490,7 @@ const Map<String, String> kUkCatalog = <String, String>{
   'diag_fail_ALL_TRANSPORTS_FAILED': 'HTTP/3 і HTTP/2 завершилися збоєм',
   'diag_fail_ENDPOINT_PIN_MISMATCH':
       'Невідповідність закріплення кінцевої точки',
-  'diag_fail_IDENTITY_INVALID': 'Недійсне посвідчення',
+  'diag_fail_IDENTITY_INVALID': 'Недійсна ідентичність',
   'diag_fail_AUTHENTICATION_FAILED': 'Збій автентифікації',
   'diag_fail_CONFIGURATION_INVALID': 'Недійсна конфігурація',
   'diag_fail_CONNECT_IP_REJECTED': 'CONNECT-IP відхилено',
@@ -501,8 +506,9 @@ const Map<String, String> kUkCatalog = <String, String>{
       'Стан системного проксі не збігається',
   'diag_fail_ROUTE_RESTORE_INCOMPLETE': 'Відновлення маршрутів неповне',
   'diag_fail_DNS_RESTORE_INCOMPLETE': 'Відновлення DNS неповне',
-  'diag_fail_SYSTEM_PROXY_STALE': 'Застарілий системний проксі',
-  'diag_fail_PLATFORM_RECOVERY_PENDING': 'Відновлення платформи очікує',
+  'diag_fail_SYSTEM_PROXY_STALE': 'Залишковий стан системного проксі Usque',
+  'diag_fail_PLATFORM_RECOVERY_PENDING':
+      'Очікується відновлення мережевого стану платформи',
   'diag_fail_PACKET_SEND_FAILED': 'Збій надсилання пакета',
   'diag_fail_PACKET_SEND_TIMEOUT': 'Час очікування надсилання пакета',
   'diag_fail_PACKET_RECEIVE_FAILED': 'Збій приймання пакета',
@@ -517,10 +523,10 @@ const Map<String, String> kUkCatalog = <String, String>{
   'diag_fix_try_http2':
       'Використовуйте HTTP/2 і залиште зонди відновлення ввімкненими.',
   'diag_fix_check_physical_network':
-      'Перевірте доступність поточної мережі, DNS і родини адрес.',
+      'Перевірте доступність поточної мережі, DNS і сімейств адрес.',
   'diag_fix_refresh_or_replace_identity':
-      'Оновіть або замініть посвідчення перед повторним підключенням.',
-  'diag_fix_replace_identity': 'Знову налаштуйте дійсне посвідчення.',
+      'Оновіть або замініть ідентичність перед повторним підключенням.',
+  'diag_fix_replace_identity': 'Знову налаштуйте дійсну ідентичність.',
   'diag_fix_review_configuration':
       'Перегляньте конфігурацію та виправте неприпустимі значення.',
   'diag_fix_restore_platform_state':
@@ -529,19 +535,19 @@ const Map<String, String> kUkCatalog = <String, String>{
   'diag_fix_run_deep_diagnostics':
       'Запустіть глибоку діагностику в придатному середовищі.',
   'diag_fix_run_release_leak_gate':
-      'Запустіть шлюз витоку випуску з незалежним спостерігачем.',
+      'Запустіть незалежний тест витоків під час випуску із зовнішнім спостерігачем мережі.',
   'diag_fix_inspect_platform_state':
-      'Підтвердьте фактичний стан інспектором платформи.',
+      'Перевірте фактичний стан за допомогою перевірки, яка лише читає стан мережі та системного проксі.',
   'diag_fix_generate_tunnel_traffic':
       'Створіть невеликий тунельний трафік, потім перевірте знову.',
   'diag_fix_export_diagnostics':
-      'Експортуйте очищений діагностичний пакет для підтримки.',
+      'Експортуйте діагностичний пакет із вилученими конфіденційними даними для підтримки.',
   'diag_fix_retry': 'Повторіть спробу трохи згодом.',
   'diag_fix_none': 'Дій не потрібно.',
   'diag_fix_default':
       'Використовуйте код помилки, щоб переглянути пов’язану конфігурацію та стан мережі.',
   'diag_event_attempt_started': 'Спробу з’єднання розпочато',
-  'diag_event_endpoint_resolved': 'Кінцеву точку розв’язано',
+  'diag_event_endpoint_resolved': 'Адресу кінцевої точки визначено',
   'diag_event_socket_connected': 'Сокет підключено',
   'diag_event_tls_ready': 'TLS готовий',
   'diag_event_quic_ready': 'QUIC готовий',
@@ -551,14 +557,17 @@ const Map<String, String> kUkCatalog = <String, String>{
   'diag_event_tunnel_ready': 'Тунель готовий',
   'diag_event_first_packet_sent': 'Перший пакет надіслано',
   'diag_event_first_packet_received': 'Перший пакет отримано',
-  'diag_event_fallback_started': 'Розпочато відкат на H2',
+  'diag_event_fallback_started': 'Розпочато перехід на H2',
   'diag_event_reconnect_scheduled': 'Повторне підключення заплановано',
   'diag_event_network_changed': 'Фізична мережа змінилася',
   'diag_event_recovery_probe_started': 'Зонд відновлення H3 запущено',
-  'diag_event_recovery_probe_succeeded': 'Зонд відновлення H3 успішний',
-  'diag_event_recovery_probe_failed': 'Зонд відновлення H3 не вдався',
-  'diag_event_path_promoted': 'Шлях-кандидат став активним',
-  'diag_event_queue_saturated': 'Черга надсилання насичена',
+  'diag_event_recovery_probe_succeeded':
+      'Зонд відновлення H3 завершився успішно',
+  'diag_event_recovery_probe_failed':
+      'Зонд відновлення H3 завершився з помилкою',
+  'diag_event_path_promoted': 'Шлях-кандидат активовано',
+  'diag_event_queue_saturated':
+      'Черга надсилання досягла максимальної місткості',
   'diag_event_disconnected': 'Від’єднано',
   'diag_event_failed': 'Збій з’єднання',
 };

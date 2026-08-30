@@ -688,8 +688,9 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  Future<void> clearAllData() async {
+  Future<bool> clearAllData() async {
     await flushProfileWrites();
+    String? cleanupWarning;
     final success = await _run(() async {
       await _engine.clearAllData(confirmed: true);
       await _preferences?.clear();
@@ -705,7 +706,13 @@ class AppController extends ChangeNotifier {
       profileIdentityStatuses = <String, ProfileIdentityStatus>{};
       _updateCancellation?.cancel();
       _updateOperationGeneration += 1;
-      await _updateDownloader.discard(downloadedUpdatePath);
+      try {
+        await _updateDownloader.discard(downloadedUpdatePath);
+      } on Object catch (error) {
+        cleanupWarning = error is EngineException
+            ? error.message
+            : error.toString();
+      }
       updateResult = null;
       updatePhase = UpdateOperationPhase.idle;
       updateDownloadedBytes = 0;
@@ -716,8 +723,10 @@ class AppController extends ChangeNotifier {
     }, affectsConnection: false);
     if (success) {
       lastNotice = strings.get('clear_all_data_complete');
+      lastError = cleanupWarning;
       _notifyListeners();
     }
+    return success;
   }
 
   Future<void> _checkForUpdates({

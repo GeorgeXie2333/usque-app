@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import 'diagnostics_models.dart';
 
-enum AppSection { home, profiles, proxy, settings, diagnostics }
+enum AppSection { home, profiles, proxy, settings }
 
 enum ConnectionPhase {
   disconnected,

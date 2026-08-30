@@ -3,7 +3,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'app_name': 'Usque',
   'window_minimize': 'Minimizar',
   'window_maximize': 'Maximizar',
-  'window_restore': 'Restaurar',
+  'window_restore': 'Restaurar tamaño de ventana',
   'window_close': 'Cerrar',
   'connection_status': 'Estado de la conexión',
   'outputs': 'Salidas de red',
@@ -15,6 +15,10 @@ const Map<String, String> kEsCatalog = <String, String>{
   'settings': 'Ajustes',
   'settings_subtitle': 'Comportamiento de la aplicación en este dispositivo.',
   'diagnostics': 'Diagnóstico',
+  'nav_home': 'Inicio',
+  'nav_profiles': 'Perfiles',
+  'nav_proxy': 'Proxy',
+  'nav_settings': 'Ajustes',
   'status_stream_degraded':
       'Las actualizaciones de estado en tiempo real están degradadas',
   'status_stream_degraded_body':
@@ -42,7 +46,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'not_available': 'No disponible',
   'location_disconnected': 'Esperando para conectar',
   'engine_unavailable':
-      'El motor nativo de Usque aún no está disponible en esta compilación.',
+      'El Usque Engine nativo aún no está disponible en esta compilación.',
   'dismiss': 'Descartar',
   'new_profile': 'Nuevo perfil',
   'profile_name': 'Nombre del perfil',
@@ -63,7 +67,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'zero_trust_open_login': 'Abrir inicio de sesión de la organización',
   'zero_trust_browser_failed': 'No se pudo abrir el navegador del sistema.',
   'zero_trust_manual_callback':
-      'Tras iniciar sesión, vuelva aquí automáticamente, complete el callback desde el portapapeles o pegue la URL completa.',
+      'Tras iniciar sesión, vuelva a Usque. Si el callback no se completa automáticamente, rellénelo desde el portapapeles o pegue la URL completa.',
   'zero_trust_callback_received':
       'Callback de la organización recibido de forma segura.',
   'zero_trust_callback': 'URL de callback completa',
@@ -83,7 +87,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'zero_trust_repair_same_team':
       'Inicie sesión de nuevo en la misma organización para actualizar el registro de este dispositivo.',
   'zero_trust_metadata_missing':
-      'Falta la vinculación de organización guardada. Por seguridad, este perfil no se puede reparar en el mismo sitio; cree un perfil Zero Trust nuevo.',
+      'Falta la vinculación de organización guardada. Por seguridad, este perfil no se puede reparar directamente; cree un perfil Zero Trust nuevo.',
   'zero_trust_endpoint_managed':
       'Este extremo lo gestiona el registro de dispositivo de Zero Trust y no se puede editar aquí.',
   'experimental': 'Experimental',
@@ -136,7 +140,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'lan_warning_body':
       'Usque no añade autenticación con nombre de usuario y contraseña. Cualquiera que pueda alcanzar esta escucha puede usarla.',
   'lan_warning_body_authenticated':
-      'Esta escucha acepta clientes autenticados que no sean de bucle local y que presenten el nombre de usuario y la contraseña configurados.',
+      'Esta escucha acepta clientes autenticados que no sean de tipo loopback y que presenten el nombre de usuario y la contraseña configurados.',
   'proxy_auth': 'Autenticación de la escucha',
   'proxy_auth_help':
       'Nombre de usuario y contraseña opcionales para las escuchas SOCKS5 y HTTP. La contraseña se almacena en la bóveda del sistema, no en el archivo del perfil.',
@@ -159,7 +163,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'system_integration': 'Integración con el sistema',
   'start_on_boot': 'Iniciar Usque al iniciar sesión',
   'close_to_tray': 'Cerrar la ventana a la bandeja del sistema',
-  'add_quick_settings_tile': 'Añadir acceso de Ajustes rápidos',
+  'add_quick_settings_tile': 'Añadir mosaico a Ajustes rápidos',
   'appearance': 'Apariencia',
   'theme': 'Tema',
   'theme_system': 'Sistema',
@@ -174,7 +178,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'language_ja': '日本語',
   'language_ko': '한국어',
   'language_es': 'Español',
-  'language_pt': 'Português',
+  'language_pt': 'Português (Brasil)',
   'language_fr': 'Français',
   'language_nl': 'Nederlands',
   'language_tr': 'Türkçe',
@@ -195,7 +199,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'already_latest': 'Esta instalación ya está actualizada.',
   'open_release': 'Abrir la página de la versión',
   'update_startup_description':
-      'Comprueba una vez al iniciar Usque. La comprobación manual siempre es en tiempo real.',
+      'Usque comprueba una vez después de iniciarse. Al volver a la aplicación no se vuelve a comprobar. «Buscar ahora» siempre realiza una solicitud en directo.',
   'update_checking': 'Buscando una actualización…',
   'update_downloading': 'Descargando el paquete de actualización verificado…',
   'update_verifying': 'Verificando el paquete de actualización…',
@@ -207,12 +211,12 @@ const Map<String, String> kEsCatalog = <String, String>{
   'update_confirm_body':
       'Las conexiones VPN y proxy se desconectarán temporalmente durante la instalación.',
   'update_package_unavailable':
-      'No hay un paquete verificado para este dispositivo. Abre la página de la versión.',
+      'No hay un paquete verificado para este dispositivo. Abra la página de la versión para continuar.',
   'notice': 'Completado',
   'identity': 'Identidad WARP',
-  'identity_and_license': 'Identidad y License Key',
+  'identity_and_license': 'Identidad y licencia',
   'license_cleanup_pending':
-      'Hay un espacio de dispositivo antiguo pendiente de limpieza.',
+      'Hay un registro antiguo de dispositivo WARP pendiente de eliminación.',
   'copy_license': 'Copiar License Key',
   'change_license': 'Cambiar License Key',
   'unbind_license': 'Volver a WARP gratuito',
@@ -251,7 +255,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'lockdown': 'Bloquear sin VPN',
   'not_used_proxy': 'No se usa en modo proxy',
   'kill_switch_help':
-      'Bloquea el tráfico al conectar, reconectar o recuperarse de un fallo del motor. En Android esto dura mientras el servicio VPN está en ejecución; active VPN siempre activada y Bloquear conexiones sin VPN en los ajustes del sistema para protegerse después de que se cierre la aplicación.',
+      'Bloquea el tráfico al conectar, reconectar o recuperarse de un fallo de Usque Engine. En Android esto dura mientras el servicio VPN está en ejecución; active VPN siempre activada y Bloquear conexiones sin VPN en los ajustes del sistema para protegerse después de que se cierre la aplicación.',
   'start_on_boot_android':
       'Inicie Usque después de reiniciar. Active también la conexión automática al iniciar.',
   'add_quick_settings_tile_help':
@@ -291,10 +295,10 @@ const Map<String, String> kEsCatalog = <String, String>{
   'invalid_address': 'Dirección no válida',
   'invalid_dns_name': 'Nombre DNS no válido',
   'invalid_cidr': 'CIDR no válido',
-  'diagnostics_title': 'Diagnóstico y acerca de',
+  'diagnostics_title': 'Diagnóstico e información',
   'diagnostics_subtitle':
-      'Estado del motor, exportación de registros y datos locales.',
-  'engine_status': 'Estado del motor',
+      'Estado de Usque Engine, exportación de registros y datos locales.',
+  'engine_status': 'Estado de Usque Engine',
   'version': 'Versión',
   'app_version': 'Usque 0.2.1',
   'logs': 'Registros locales',
@@ -338,10 +342,10 @@ const Map<String, String> kEsCatalog = <String, String>{
   'profile_required': 'Conserve al menos un perfil.',
   'socks_capabilities': 'TCP y UDP',
   'http_capabilities': 'CONNECT y reenvío ordinario',
-  'geo_direct': 'Países de conexión directa',
+  'geo_direct': 'Países con enrutamiento directo',
   'geo_direct_help':
       'Los dominios coincidentes son visibles para el DNS de su red actual; las aplicaciones con DNS cifrado se enrutan solo por IP.',
-  'geo_update_all': 'Actualizar datos geo',
+  'geo_update_all': 'Actualizar datos geográficos',
   'geo_last_updated': 'Última actualización correcta: {current}',
   'geo_never_updated': 'Aún no actualizado',
   'geo_updating': 'Actualizando {current} de {total}',
@@ -351,12 +355,12 @@ const Map<String, String> kEsCatalog = <String, String>{
   'geo_search': 'Buscar países',
   'geo_not_downloaded': 'No descargado',
   'geo_downloaded': 'Descargado',
-  'geo_chip': '{current} conexión directa',
+  'geo_chip': 'Enrutamiento directo: {current}',
   'geo_download_first':
-      'Descargue los datos geo de este país antes de activarlo.',
+      'Descargue los datos geográficos de este país antes de activarlo.',
   'geo_update_complete':
-      'Datos geo: {updated} actualizados, {current} ya estaban al día.',
-  'geo_update_failed': 'Error al actualizar los datos geo: {current}',
+      'Datos geográficos: {updated} actualizados, {current} ya estaban al día.',
+  'geo_update_failed': 'Error al actualizar los datos geográficos: {current}',
   'diagnostics_page_subtitle':
       'Inspeccione la conexión, la protección de la plataforma y el estado de recuperación. Los resultados permanecen en el dispositivo.',
   'diag_refresh_timeline': 'Actualizar cronología',
@@ -379,9 +383,9 @@ const Map<String, String> kEsCatalog = <String, String>{
   'diag_mode_deep': 'Profundo',
   'diag_deep_title': 'Acerca del diagnóstico profundo',
   'diag_deep_connected':
-      'Hay un túnel activo: no se abrirá un segundo camino de datos MASQUE; las comprobaciones de transporte activas se marcarán como omitidas o advertencia.',
+      'Hay un túnel activo: no se abrirá un segundo camino de datos MASQUE; las comprobaciones de transporte activas se marcarán como omitidas o con una advertencia.',
   'diag_deep_disconnected':
-      'Sin conexión, las comprobaciones activas quedan limitadas por tiempo de espera y cancelación, y después se compara el estado de la plataforma.',
+      'Sin conexión, las comprobaciones activas tienen un tiempo límite y se pueden cancelar; después se compara el estado de la plataforma.',
   'diag_start': 'Iniciar diagnóstico',
   'diag_session': 'Sesión de diagnóstico',
   'diag_progress_semantics': 'Progreso del diagnóstico {current}%',
@@ -395,9 +399,9 @@ const Map<String, String> kEsCatalog = <String, String>{
       'Inicie un diagnóstico para ver comprobaciones agrupadas por capa y dependencias.',
   'diag_timeline': 'Cronología de conexión',
   'diag_timeline_subtitle':
-      'Solo eventos de estado acotados; nunca se registran contenidos de paquetes ni direcciones en bruto.',
+      'Solo se conservan los cambios de estado más recientes; nunca se registran contenidos de paquetes ni direcciones completas.',
   'diag_logs_subtitle':
-      'Exporte la sesión, la cronología, el resumen de salud de la plataforma y los registros depurados.',
+      'Exporte la sesión, la cronología, el resumen del estado de la plataforma y los registros sin datos sensibles.',
   'diag_session_pending': 'Pendiente',
   'diag_session_running': 'En ejecución',
   'diag_session_cancelling': 'Cancelando',
@@ -407,16 +411,16 @@ const Map<String, String> kEsCatalog = <String, String>{
   'diag_timeline_empty':
       'Los cambios de estado importantes aparecerán aquí tras un intento de conexión.',
   'diag_timeline_truncated':
-      'Se muestran los 100 eventos más recientes; la cronología acotada del paquete se conserva.',
+      'Se muestran los 100 eventos más recientes; el paquete de diagnóstico exportado conserva todos los eventos que el Usque Engine aún mantiene.',
   'diag_metric_reconnects': 'Reconexiones',
-  'diag_metric_fallbacks': 'Respaldo',
+  'diag_metric_fallbacks': 'Cambios a transporte alternativo',
   'diag_metric_network_changes': 'Cambios de red',
-  'diag_metric_queue_high_water': 'Marca alta de cola',
+  'diag_metric_queue_high_water': 'Profundidad máxima de la cola de envío',
   'diag_unknown': 'Desconocido',
   'diag_stage': 'Etapa',
-  'diag_family': 'Familia',
+  'diag_family': 'Familia de direcciones',
   'diag_retryable': 'Reintentable',
-  'diag_fallback_allowed': 'Respaldo',
+  'diag_fallback_allowed': 'Transporte alternativo permitido',
   'diag_copy_support': 'Copiar información de soporte',
   'diag_support_copied': 'Información de soporte copiada.',
   'diag_yes': 'Sí',
@@ -442,8 +446,8 @@ const Map<String, String> kEsCatalog = <String, String>{
   'diag_cat_tunnel': 'Túnel',
   'diag_cat_protection': 'Protección del sistema',
   'diag_cat_recovery': 'Recuperación',
-  'diag_check_engine_control_channel': 'Canal de control del Engine',
-  'diag_check_engine_event_stream': 'Flujo de eventos del Engine',
+  'diag_check_engine_control_channel': 'Canal de control de Usque Engine',
+  'diag_check_engine_event_stream': 'Flujo de eventos de Usque Engine',
   'diag_check_engine_capabilities': 'Capacidades de API',
   'diag_check_engine_configuration': 'Configuración',
   'diag_check_engine_secure_storage_metadata': 'Metadatos de identidad',
@@ -461,7 +465,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'diag_check_transport_h2_tls': 'TLS HTTP/2',
   'diag_check_transport_h2_connect': 'CONNECT-IP HTTP/2',
   'diag_check_transport_endpoint_pin': 'Pin de extremo',
-  'diag_check_transport_fallback_policy': 'Directiva de respaldo',
+  'diag_check_transport_fallback_policy': 'Política de transporte alternativo',
   'diag_check_tunnel_address_assignment': 'Asignación de dirección del túnel',
   'diag_check_tunnel_routes': 'Rutas del túnel',
   'diag_check_tunnel_dns': 'DNS del túnel',
@@ -472,8 +476,8 @@ const Map<String, String> kEsCatalog = <String, String>{
   'diag_check_protection_dns_path': 'Ruta DNS',
   'diag_check_protection_route_ownership': 'Propiedad de rutas',
   'diag_check_protection_recovery_journal': 'Diario de recuperación',
-  'diag_fail_ENGINE_UNAVAILABLE': 'Engine no disponible',
-  'diag_fail_AGENT_UNREACHABLE': 'Agent inalcanzable',
+  'diag_fail_ENGINE_UNAVAILABLE': 'Usque Engine no disponible',
+  'diag_fail_AGENT_UNREACHABLE': 'Usque Agent inalcanzable',
   'diag_fail_VPN_SERVICE_UNAVAILABLE': 'Servicio VPN no disponible',
   'diag_fail_PROXY_PORT_IN_USE': 'Puerto de proxy en uso',
   'diag_fail_PHYSICAL_IPV4_UNAVAILABLE': 'IPv4 físico no disponible',
@@ -511,16 +515,17 @@ const Map<String, String> kEsCatalog = <String, String>{
       'El estado del proxy del sistema no coincide',
   'diag_fail_ROUTE_RESTORE_INCOMPLETE': 'Restauración de rutas incompleta',
   'diag_fail_DNS_RESTORE_INCOMPLETE': 'Restauración de DNS incompleta',
-  'diag_fail_SYSTEM_PROXY_STALE': 'Proxy del sistema obsoleto',
-  'diag_fail_PLATFORM_RECOVERY_PENDING': 'Recuperación de plataforma pendiente',
+  'diag_fail_SYSTEM_PROXY_STALE': 'Estado del proxy de Usque sin limpiar',
+  'diag_fail_PLATFORM_RECOVERY_PENDING':
+      'Esperando a que se restaure el estado de red de la plataforma',
   'diag_fail_PACKET_SEND_FAILED': 'Falló el envío de paquetes',
   'diag_fail_PACKET_SEND_TIMEOUT': 'Tiempo de espera al enviar paquetes',
   'diag_fail_PACKET_RECEIVE_FAILED': 'Falló la recepción de paquetes',
-  'diag_fail_PACKET_RECEIVE_STALLED': 'La recepción de paquetes se detuvo',
+  'diag_fail_PACKET_RECEIVE_STALLED': 'La recepción de paquetes está atascada',
   'diag_fail_SEND_QUEUE_FULL': 'Cola de envío llena',
   'diag_fail_DIAGNOSTIC_ALREADY_RUNNING': 'Ya hay un diagnóstico en ejecución',
   'diag_fail_DIAGNOSTIC_TIMEOUT':
-      'La comprobación de diagnóstico agotó el tiempo',
+      'La comprobación de diagnóstico agotó el tiempo de espera',
   'diag_fail_DIAGNOSTIC_CANCELLED': 'Diagnóstico cancelado',
   'diag_fail_DIAGNOSTIC_DEPENDENCY_FAILED':
       'Falló una dependencia del diagnóstico',
@@ -541,19 +546,19 @@ const Map<String, String> kEsCatalog = <String, String>{
   'diag_fix_run_deep_diagnostics':
       'Ejecute el diagnóstico profundo en un entorno adecuado.',
   'diag_fix_run_release_leak_gate':
-      'Ejecute la puerta de fugas de publicación con un observador independiente.',
+      'Ejecute la prueba independiente de fugas de la versión con un observador de red externo.',
   'diag_fix_inspect_platform_state':
-      'Confirme el estado real con el inspector de la plataforma.',
+      'Confirme el estado real con una comprobación de solo lectura del estado de red y proxy del sistema.',
   'diag_fix_generate_tunnel_traffic':
       'Genere un poco de tráfico del túnel y vuelva a comprobar.',
   'diag_fix_export_diagnostics':
-      'Exporte un paquete de diagnóstico depurado para soporte.',
+      'Exporte un paquete de diagnóstico sin datos sensibles para soporte.',
   'diag_fix_retry': 'Vuelva a intentarlo en breve.',
   'diag_fix_none': 'No se requiere ninguna acción.',
   'diag_fix_default':
       'Use el código de error para revisar la configuración y el estado de red relacionados.',
   'diag_event_attempt_started': 'Intento de conexión iniciado',
-  'diag_event_endpoint_resolved': 'Extremo resuelto',
+  'diag_event_endpoint_resolved': 'Dirección del extremo resuelta',
   'diag_event_socket_connected': 'Socket conectado',
   'diag_event_tls_ready': 'TLS listo',
   'diag_event_quic_ready': 'QUIC listo',
@@ -563,14 +568,15 @@ const Map<String, String> kEsCatalog = <String, String>{
   'diag_event_tunnel_ready': 'Túnel listo',
   'diag_event_first_packet_sent': 'Primer paquete enviado',
   'diag_event_first_packet_received': 'Primer paquete recibido',
-  'diag_event_fallback_started': 'Respaldo a H2 iniciado',
+  'diag_event_fallback_started': 'Cambio a H2 iniciado',
   'diag_event_reconnect_scheduled': 'Reconexión programada',
   'diag_event_network_changed': 'La red física cambió',
   'diag_event_recovery_probe_started': 'Sonda de recuperación H3 iniciada',
-  'diag_event_recovery_probe_succeeded': 'Sonda de recuperación H3 correcta',
+  'diag_event_recovery_probe_succeeded':
+      'Sonda de recuperación H3 completada correctamente',
   'diag_event_recovery_probe_failed': 'Sonda de recuperación H3 fallida',
-  'diag_event_path_promoted': 'Ruta candidata promovida',
-  'diag_event_queue_saturated': 'Cola de envío saturada',
+  'diag_event_path_promoted': 'Ruta candidata activada',
+  'diag_event_queue_saturated': 'La cola de envío alcanzó su capacidad',
   'diag_event_disconnected': 'Desconectado',
-  'diag_event_failed': 'Error de conexión',
+  'diag_event_failed': 'Conexión fallida',
 };

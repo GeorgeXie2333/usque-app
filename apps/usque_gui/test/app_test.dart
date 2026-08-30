@@ -19,10 +19,12 @@ import 'package:usque/screens/advanced_settings_screen.dart';
 import 'package:usque/screens/diagnostics_screen.dart';
 import 'package:usque/screens/geo_direct_settings_screen.dart';
 import 'package:usque/screens/home_screen.dart';
+import 'package:usque/screens/onboarding_screen.dart';
 import 'package:usque/screens/per_app_proxy_screen.dart';
 import 'package:usque/screens/profiles_screen.dart';
 import 'package:usque/screens/proxy_screen.dart';
 import 'package:usque/screens/settings_screen.dart';
+import 'package:usque/screens/shell_screen.dart';
 import 'package:usque/services/desktop_engine_client.dart';
 import 'package:usque/services/engine_client.dart';
 import 'package:usque/services/update_downloader.dart';
@@ -359,6 +361,7 @@ class FakeEngineClient implements EngineClient {
 
   Object? connectError;
   Object? retryError;
+  Object? clearAllDataError;
   Completer<EngineSnapshot>? pendingConnect;
 
   @override
@@ -486,6 +489,9 @@ class FakeEngineClient implements EngineClient {
         'Confirmation is required.',
       );
     }
+    if (clearAllDataError != null) {
+      throw clearAllDataError!;
+    }
     current = const EngineSnapshot();
     storedProfiles = <UsqueProfile>[UsqueProfile.defaultProfile()];
     storedActiveProfileId = UsqueProfile.defaultProfileId;
@@ -502,10 +508,14 @@ class RecordingUpdateDownloader extends UpdateDownloader {
   RecordingUpdateDownloader(super.engine);
 
   String? discardedPath;
+  Object? discardError;
 
   @override
   Future<void> discard(String? path) async {
     discardedPath = path;
+    if (discardError != null) {
+      throw discardError!;
+    }
   }
 }
 
@@ -1129,6 +1139,26 @@ void main() {
       expect(AppStrings.debugCatalogsAreComplete, isTrue);
     },
   );
+
+  test('compact navigation labels keep reviewed short translations', () {
+    expect(AppStrings(LocalePreference.arabic).get('nav_profiles'), 'الحسابات');
+    expect(AppStrings(LocalePreference.german).get('nav_settings'), 'Optionen');
+    expect(AppStrings(LocalePreference.french).get('nav_settings'), 'Réglages');
+    expect(
+      AppStrings(LocalePreference.indonesian).get('nav_settings'),
+      'Setelan',
+    );
+    expect(AppStrings(LocalePreference.italian).get('nav_settings'), 'Opzioni');
+    expect(AppStrings(LocalePreference.japanese).get('nav_profiles'), 'アカウント');
+    expect(AppStrings(LocalePreference.dutch).get('nav_settings'), 'Opties');
+    expect(AppStrings(LocalePreference.polish).get('nav_settings'), 'Opcje');
+    expect(
+      AppStrings(LocalePreference.portuguese).get('nav_settings'),
+      'Ajustes',
+    );
+    expect(AppStrings(LocalePreference.russian).get('nav_settings'), 'Опции');
+    expect(AppStrings(LocalePreference.ukrainian).get('nav_settings'), 'Опції');
+  });
 
   test(
     'interpolated catalogs keep {count}, {current}, {total}, and {updated}',
@@ -2058,7 +2088,7 @@ void main() {
     controller.addProfile('Temporary');
     await controller.flushProfileWrites();
 
-    await controller.clearAllData();
+    expect(await controller.clearAllData(), isTrue);
 
     final preferences = await SharedPreferences.getInstance();
     expect(controller.onboardingComplete, isFalse);
@@ -2068,6 +2098,25 @@ void main() {
     expect(controller.localePreference, LocalePreference.system);
     expect(engine.provisioned, isFalse);
     expect(preferences.getKeys(), isEmpty);
+    controller.dispose();
+  });
+
+  test('clear all data commits even when update-cache cleanup warns', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+    });
+    final engine = FakeEngineClient()..provisioned = true;
+    final downloader = RecordingUpdateDownloader(engine)
+      ..discardError = const FormatException('update cache is locked');
+    final controller = AppController(engine, updateDownloader: downloader);
+    await controller.initialize();
+    controller.downloadedUpdatePath = 'test-update.msi';
+
+    expect(await controller.clearAllData(), isTrue);
+
+    expect(controller.onboardingComplete, isFalse);
+    expect(controller.lastError, contains('update cache is locked'));
+    expect(downloader.discardedPath, 'test-update.msi');
     controller.dispose();
   });
 
@@ -2223,7 +2272,7 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.text('Home'), findsWidgets);
-    expect(find.text('Engine status'), findsOneWidget);
+    expect(find.text('Usque Engine status'), findsOneWidget);
     expect(find.text('Connect'), findsOneWidget);
   });
 
@@ -2256,6 +2305,66 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'mobile navigation has four destinations and arrow keys cycle them',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(600, 900);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'onboarding_complete': true,
+        'update_checks_enabled': false,
+      });
+      final controller = AppController(FakeEngineClient());
+      await controller.initialize();
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: UsqueTheme.light(),
+          home: ShellScreen(controller: controller),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final barFinder = find.byType(NavigationBar);
+      expect(barFinder, findsOneWidget);
+      final bar = tester.widget<NavigationBar>(barFinder);
+      expect(bar.destinations, hasLength(4));
+      expect(
+        bar.destinations.cast<NavigationDestination>().map(
+          (destination) => destination.label,
+        ),
+        <String>['Home', 'Profiles', 'Proxy', 'Settings'],
+      );
+
+      final homeLabel = find.descendant(
+        of: barFinder,
+        matching: find.text('Home'),
+      );
+      Focus.of(tester.element(homeLabel)).requestFocus();
+      await tester.pump();
+
+      Future<void> moveRight(AppSection expected) async {
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.arrowRight);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.arrowRight);
+        await tester.pumpAndSettle();
+        expect(controller.section, expected);
+        expect(
+          tester.takeException(),
+          isNull,
+          reason: 'after moving to ${expected.name}',
+        );
+      }
+
+      await moveRight(AppSection.profiles);
+      await moveRight(AppSection.proxy);
+      await moveRight(AppSection.settings);
+      await moveRight(AppSection.home);
+    },
+  );
 
   testWidgets(
     'profile dialogs survive repeated exit paths while status events arrive',
@@ -2371,24 +2480,49 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     SharedPreferences.setMockInitialValues(<String, Object>{
       'onboarding_complete': true,
+      'update_checks_enabled': false,
     });
+    final controller = AppController(FakeEngineClient());
+    await controller.initialize();
+    addTearDown(controller.dispose);
 
-    await tester.pumpWidget(UsqueBootstrap(engine: FakeEngineClient()));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: UsqueTheme.light(),
+        home: ShellScreen(controller: controller),
+      ),
+    );
     await tester.pumpAndSettle();
 
+    final railFinder = find.byType(NavigationRail);
+    final rail = tester.widget<NavigationRail>(railFinder);
+    expect(rail.destinations, hasLength(4));
+    expect(
+      rail.destinations.map(
+        (destination) => (destination.label as Tooltip).message,
+      ),
+      <String>['Home', 'Profiles', 'Proxy', 'Settings'],
+    );
     final homeLabel = find.descendant(
-      of: find.byType(NavigationRail),
+      of: railFinder,
       matching: find.text('Home'),
     );
     expect(homeLabel, findsOneWidget);
     Focus.of(tester.element(homeLabel)).requestFocus();
     await tester.pump();
-    await tester.sendKeyDownEvent(LogicalKeyboardKey.arrowDown);
-    await tester.sendKeyUpEvent(LogicalKeyboardKey.arrowDown);
-    await tester.pumpAndSettle();
 
-    expect(tester.takeException(), isNull);
-    expect(find.widgetWithText(FilledButton, 'New profile'), findsOneWidget);
+    Future<void> moveDown(AppSection expected) async {
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.arrowDown);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pumpAndSettle();
+      expect(controller.section, expected);
+      expect(tester.takeException(), isNull);
+    }
+
+    await moveDown(AppSection.profiles);
+    await moveDown(AppSection.proxy);
+    await moveDown(AppSection.settings);
+    await moveDown(AppSection.home);
   });
 
   testWidgets(
@@ -2406,6 +2540,8 @@ void main() {
       await tester.pumpAndSettle();
 
       final Finder rail = find.byType(NavigationRail);
+      final railWidget = tester.widget<NavigationRail>(rail);
+      expect(railWidget.extended, isTrue);
       final Finder brand = find.descendant(
         of: rail,
         matching: find.text('Usque'),
@@ -2470,6 +2606,9 @@ void main() {
     await tester.pumpAndSettle();
 
     final Finder rail = find.byType(NavigationRail);
+    final railWidget = tester.widget<NavigationRail>(rail);
+    expect(railWidget.extended, isFalse);
+    expect(railWidget.labelType, NavigationRailLabelType.all);
     final Finder brandIcon = find.byWidgetPredicate(
       (widget) =>
           widget is Image &&
@@ -2704,7 +2843,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final directCountries = find.text('Direct countries');
+      final directCountries = find.text('Countries routed directly');
       expect(directCountries, findsOneWidget);
       await tester.ensureVisible(directCountries);
       await tester.tap(directCountries);
@@ -2730,9 +2869,200 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(AdvancedSettingsScreen), findsOneWidget);
-      expect(find.text('Direct countries'), findsNothing);
+      expect(find.text('Countries routed directly'), findsNothing);
     },
   );
+
+  testWidgets('Settings opens Diagnostics as a subpage on mobile and desktop', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+
+    for (final size in <Size>[const Size(430, 900), const Size(1280, 1100)]) {
+      tester.view.physicalSize = size;
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'onboarding_complete': true,
+        'update_checks_enabled': false,
+      });
+      final controller = AppController(FakeEngineClient());
+      await controller.initialize();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          key: ValueKey<double>(size.width),
+          theme: UsqueTheme.light(),
+          home: ShellScreen(controller: controller),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final navigation = size.width < 760
+          ? find.byType(NavigationBar)
+          : find.byType(NavigationRail);
+      await tester.tap(
+        find.descendant(of: navigation, matching: find.text('Settings')),
+      );
+      await tester.pumpAndSettle();
+      expect(controller.section, AppSection.settings);
+
+      final diagnosticsCard = find.widgetWithText(Panel, 'Diagnostics');
+      expect(diagnosticsCard, findsOneWidget);
+      await tester.ensureVisible(diagnosticsCard);
+      await tester.pumpAndSettle();
+      expect(tester.getSize(diagnosticsCard).height, greaterThanOrEqualTo(48));
+      expect(
+        tester.getSemantics(diagnosticsCard).rect.height,
+        greaterThanOrEqualTo(48),
+      );
+      expect(
+        find.descendant(
+          of: diagnosticsCard,
+          matching: find.byIcon(LucideIcons.chevronRightDir),
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(diagnosticsCard);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(DiagnosticsScreen), findsOneWidget);
+      expect(find.text('Diagnostics & app information'), findsOneWidget);
+      expect(find.widgetWithText(TextButton, 'Back'), findsOneWidget);
+      expect(find.byIcon(LucideIcons.arrowLeftDir), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      await tester.tap(find.widgetWithText(TextButton, 'Back'));
+      await tester.pumpAndSettle();
+      expect(find.byType(DiagnosticsScreen), findsNothing);
+      expect(find.byType(SettingsScreen), findsOneWidget);
+      expect(controller.section, AppSection.settings);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      controller.dispose();
+    }
+  });
+
+  testWidgets('pushed Diagnostics listens to live AppController state', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(800, 900);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+      'update_checks_enabled': false,
+    });
+    final engine = EventEngineClient();
+    final controller = AppController(engine);
+    await controller.initialize();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: UsqueTheme.light(),
+        home: SettingsScreen(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final diagnosticsCard = find.widgetWithText(Panel, 'Diagnostics');
+    await tester.ensureVisible(diagnosticsCard);
+    await tester.pumpAndSettle();
+    await tester.tap(diagnosticsCard);
+    await tester.pumpAndSettle();
+    expect(find.text('Disconnected'), findsWidgets);
+
+    controller.snapshot = const EngineSnapshot(phase: ConnectionPhase.degraded);
+    controller.selectSection(AppSection.home);
+    await tester.pump();
+    expect(find.text('Connected with limited connectivity'), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('clearing all data from Diagnostics returns to onboarding', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(430, 900);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+      'update_checks_enabled': false,
+    });
+
+    await tester.pumpWidget(UsqueBootstrap(engine: FakeEngineClient()));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(NavigationBar),
+        matching: find.text('Settings'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final diagnosticsCard = find.widgetWithText(Panel, 'Diagnostics');
+    await tester.ensureVisible(diagnosticsCard);
+    await tester.pumpAndSettle();
+    await tester.tap(diagnosticsCard);
+    await tester.pumpAndSettle();
+
+    final clearButton = find.widgetWithText(OutlinedButton, 'Clear all data');
+    await tester.ensureVisible(clearButton);
+    await tester.pumpAndSettle();
+    await tester.tap(clearButton);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Clear all data'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(DiagnosticsScreen), findsNothing);
+    expect(find.byType(OnboardingScreen), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('failed data clearing stays on Diagnostics and shows the error', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(430, 900);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+      'update_checks_enabled': false,
+    });
+    final engine = FakeEngineClient()
+      ..clearAllDataError = const FormatException('clear failed');
+
+    await tester.pumpWidget(UsqueBootstrap(engine: engine));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(NavigationBar),
+        matching: find.text('Settings'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final diagnosticsCard = find.widgetWithText(Panel, 'Diagnostics');
+    await tester.ensureVisible(diagnosticsCard);
+    await tester.pumpAndSettle();
+    await tester.tap(diagnosticsCard);
+    await tester.pumpAndSettle();
+
+    final clearButton = find.widgetWithText(OutlinedButton, 'Clear all data');
+    await tester.ensureVisible(clearButton);
+    await tester.pumpAndSettle();
+    await tester.tap(clearButton);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Clear all data'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(DiagnosticsScreen), findsOneWidget);
+    expect(find.textContaining('clear failed'), findsOneWidget);
+    expect(find.byType(OnboardingScreen), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('direct countries page enables and saves a ready country', (
     tester,
@@ -2807,7 +3137,9 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Update geo data'));
+      await tester.tap(
+        find.widgetWithText(FilledButton, 'Update geographic data'),
+      );
       await tester.pumpAndSettle();
       expect(engine.calls, contains('updateAllGeoRules'));
 
@@ -3076,7 +3408,9 @@ void main() {
       expect(find.text('IPv6'), findsNothing);
       expect(find.text('Not available'), findsNothing);
 
-      final Offset engineOrigin = tester.getTopLeft(find.text('Engine status'));
+      final Offset engineOrigin = tester.getTopLeft(
+        find.text('Usque Engine status'),
+      );
       final Offset locationOrigin = tester.getTopLeft(find.text('Location'));
       final Offset downloadOrigin = tester.getTopLeft(find.text('Download'));
       expect(locationOrigin.dx, closeTo(engineOrigin.dx, 1));
@@ -3113,31 +3447,59 @@ void main() {
     },
   );
 
-  testWidgets('error and degraded home show Retry and invoke the engine', (
-    tester,
-  ) async {
-    SharedPreferences.setMockInitialValues(<String, Object>{
-      'onboarding_complete': true,
-    });
-    final engine = EventEngineClient();
-    engine.current = const EngineSnapshot(phase: ConnectionPhase.error);
-    final controller = AppController(engine);
-    await controller.initialize();
-    addTearDown(controller.dispose);
-    controller.snapshot = const EngineSnapshot(phase: ConnectionPhase.error);
+  testWidgets(
+    'error and degraded home expose Retry and the Diagnostics shortcut',
+    (tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'onboarding_complete': true,
+      });
+      final engine = EventEngineClient();
+      engine.current = const EngineSnapshot(phase: ConnectionPhase.error);
+      final controller = AppController(engine);
+      await controller.initialize();
+      addTearDown(controller.dispose);
+      controller.snapshot = const EngineSnapshot(phase: ConnectionPhase.error);
 
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: UsqueTheme.light(),
-        home: HomeScreen(controller: controller),
-      ),
-    );
-    await tester.pump();
-    expect(find.text('Retry'), findsOneWidget);
-    await tester.tap(find.text('Retry'));
-    await tester.pump();
-    expect(engine.calls, contains('retry'));
-  });
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: UsqueTheme.light(),
+          home: HomeScreen(controller: controller),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Retry'), findsOneWidget);
+      final diagnosticsButton = find.widgetWithText(
+        OutlinedButton,
+        'Diagnostics',
+      );
+      expect(diagnosticsButton, findsOneWidget);
+      expect(
+        tester.getSemantics(diagnosticsButton).rect.height,
+        greaterThanOrEqualTo(48),
+      );
+      await tester.tap(diagnosticsButton);
+      await tester.pumpAndSettle();
+      expect(find.byType(DiagnosticsScreen), findsOneWidget);
+      await tester.tap(find.widgetWithText(TextButton, 'Back'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Retry'));
+      await tester.pumpAndSettle();
+      expect(engine.calls, contains('retry'));
+      expect(find.widgetWithText(OutlinedButton, 'Diagnostics'), findsNothing);
+
+      controller.snapshot = const EngineSnapshot(
+        phase: ConnectionPhase.degraded,
+      );
+      controller.selectSection(AppSection.home);
+      await tester.pump();
+      expect(
+        find.widgetWithText(OutlinedButton, 'Diagnostics'),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   test(
     'initialize with auto_connect connects a ready disconnected profile once',

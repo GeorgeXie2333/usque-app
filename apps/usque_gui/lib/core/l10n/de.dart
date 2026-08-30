@@ -3,7 +3,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'app_name': 'Usque',
   'window_minimize': 'Minimieren',
   'window_maximize': 'Maximieren',
-  'window_restore': 'Verkleinern',
+  'window_restore': 'Fenstergröße wiederherstellen',
   'window_close': 'Schließen',
   'connection_status': 'Verbindungsstatus',
   'outputs': 'Netzwerkausgaben',
@@ -15,6 +15,10 @@ const Map<String, String> kDeCatalog = <String, String>{
   'settings': 'Einstellungen',
   'settings_subtitle': 'App-Verhalten auf diesem Gerät.',
   'diagnostics': 'Diagnose',
+  'nav_home': 'Start',
+  'nav_profiles': 'Profile',
+  'nav_proxy': 'Proxy',
+  'nav_settings': 'Optionen',
   'status_stream_degraded': 'Live-Statusaktualisierungen sind eingeschränkt',
   'status_stream_degraded_body':
       'Die Statusabfrage ist aktiv; Live-Aktualisierungen werden automatisch erneut versucht.',
@@ -41,7 +45,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'not_available': 'Nicht verfügbar',
   'location_disconnected': 'Warten auf Verbindung',
   'engine_unavailable':
-      'Die native Usque-Engine ist in dieser Version noch nicht verfügbar.',
+      'Die native Usque Engine ist in diesem Build noch nicht verfügbar.',
   'dismiss': 'Ausblenden',
   'new_profile': 'Neues Profil',
   'profile_name': 'Profilname',
@@ -64,7 +68,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'zero_trust_browser_failed':
       'Der Systembrowser konnte nicht geöffnet werden.',
   'zero_trust_manual_callback':
-      'Kehren Sie nach der Anmeldung automatisch hierher zurück, übernehmen Sie den Callback aus der Zwischenablage oder fügen Sie die vollständige URL ein.',
+      'Kehren Sie nach der Anmeldung zu Usque zurück. Wenn der Callback nicht automatisch eingefügt wird, übernehmen Sie ihn aus der Zwischenablage oder fügen Sie die vollständige URL ein.',
   'zero_trust_callback_received': 'Organisations-Callback sicher empfangen.',
   'zero_trust_callback': 'Vollständige Callback-URL',
   'zero_trust_callback_required':
@@ -116,8 +120,8 @@ const Map<String, String> kDeCatalog = <String, String>{
   'channel_only_warning': 'Keine Netzwerkausgabe ist aktiviert.',
   'socks_listener': 'SOCKS5-Listener',
   'http_listener': 'HTTP-Listener',
-  'listen_ipv4': 'Auf IPv4 hören',
-  'listen_ipv6': 'Auf IPv6 hören',
+  'listen_ipv4': 'An IPv4 lauschen',
+  'listen_ipv6': 'An IPv6 lauschen',
   'port': 'Port',
   'remote_dns': 'Namen remote auflösen',
   'proxy_dns_mode': 'Proxy-DNS-Auflösung',
@@ -138,11 +142,11 @@ const Map<String, String> kDeCatalog = <String, String>{
       'Dieser Listener akzeptiert authentifizierte Nicht-Loopback-Clients, die den konfigurierten Benutzernamen und das Passwort vorweisen.',
   'proxy_auth': 'Listener-Authentifizierung',
   'proxy_auth_help':
-      'Optionaler Benutzername und Passwort für SOCKS5- und HTTP-Listener. Das Passwort wird im Systemtresor gespeichert, nicht in der Profildatei.',
+      'Optional: Benutzername und Passwort für SOCKS5- und HTTP-Listener. Das Passwort wird im Systemtresor gespeichert, nicht in der Profildatei.',
   'proxy_username': 'Benutzername',
   'proxy_password': 'Passwort',
   'proxy_password_hint':
-      'Nur zum Schreiben. Geben Sie das Passwort erneut ein, um Anmeldedaten festzulegen oder zu ändern.',
+      'Nur-Eingabe. Geben Sie das Passwort erneut ein, um Anmeldedaten festzulegen oder zu ändern.',
   'proxy_auth_apply': 'Anmeldedaten speichern',
   'proxy_auth_invalid':
       'Der Benutzername muss 1–255 Byte ohne „:“ oder NUL umfassen. Mit einem Benutzernamen ist ein Passwort von 1–255 Byte erforderlich.',
@@ -173,7 +177,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'language_ja': '日本語',
   'language_ko': '한국어',
   'language_es': 'Español',
-  'language_pt': 'Português',
+  'language_pt': 'Português (Brasil)',
   'language_fr': 'Français',
   'language_nl': 'Nederlands',
   'language_tr': 'Türkçe',
@@ -194,7 +198,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'already_latest': 'Diese Installation ist bereits aktuell.',
   'open_release': 'Release-Seite öffnen',
   'update_startup_description':
-      'Prüft einmal beim Start von Usque. Manuelle Prüfungen sind immer aktuell.',
+      'Usque prüft einmal nach dem Start. Beim Zurückkehren zur App wird nicht erneut geprüft. „Jetzt prüfen“ führt immer eine Live-Anfrage aus.',
   'update_checking': 'Suche nach einem Update…',
   'update_downloading': 'Verifiziertes Update-Paket wird heruntergeladen…',
   'update_verifying': 'Update-Paket wird geprüft…',
@@ -210,8 +214,9 @@ const Map<String, String> kDeCatalog = <String, String>{
       'Für dieses Gerät ist kein verifiziertes Paket verfügbar. Öffnen Sie die Release-Seite.',
   'notice': 'Abgeschlossen',
   'identity': 'WARP-Identität',
-  'identity_and_license': 'Identität & License',
-  'license_cleanup_pending': 'Ein alter Geräteslot wartet auf die Bereinigung.',
+  'identity_and_license': 'Identität & Lizenz',
+  'license_cleanup_pending':
+      'Eine alte WARP-Geräteregistrierung wartet auf die Entfernung.',
   'copy_license': 'License Key kopieren',
   'change_license': 'License Key ändern',
   'unbind_license': 'Zu WARP Free zurückkehren',
@@ -220,7 +225,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'advanced': 'Erweiterte Netzwerkeinstellungen',
   'advanced_subtitle': 'Endpunkte, DNS, MTU, Routing und Kill Switch.',
   'advanced_warning':
-      'Falsche Endpunkte, SNI, DNS oder MTU können verhindern, dass der Tunnel verbunden wird.',
+      'Falsche Endpunkte, SNI, DNS oder MTU können verhindern, dass eine Tunnelverbindung hergestellt wird.',
   'ip_dns': 'IP & DNS',
   'routing_protection': 'Routing & Schutz',
   'transport': 'Transport',
@@ -250,7 +255,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'lockdown': 'Ohne VPN blockieren',
   'not_used_proxy': 'Im Proxy-Modus nicht verwendet',
   'kill_switch_help':
-      'Blockiert den Datenverkehr beim Verbinden, erneuten Verbinden oder bei der Wiederherstellung nach einem Engine-Fehler. Unter Android gilt dies, solange der VPN-Dienst läuft; aktivieren Sie Immer aktives VPN und Verbindungen ohne VPN blockieren in den Systemeinstellungen für Schutz, nachdem die App beendet wurde.',
+      'Blockiert den Datenverkehr beim Verbinden, erneuten Verbinden oder bei der Wiederherstellung nach einem Fehler der Usque Engine. Unter Android gilt dies, solange der VPN-Dienst läuft; aktivieren Sie Immer aktives VPN und Verbindungen ohne VPN blockieren in den Systemeinstellungen für Schutz, nachdem die App beendet wurde.',
   'start_on_boot_android':
       'Usque nach dem Neustart starten. Aktivieren Sie außerdem das automatische Verbinden beim Start.',
   'add_quick_settings_tile_help':
@@ -291,9 +296,10 @@ const Map<String, String> kDeCatalog = <String, String>{
   'invalid_address': 'Ungültige Adresse',
   'invalid_dns_name': 'Ungültiger DNS-Name',
   'invalid_cidr': 'Ungültiges CIDR',
-  'diagnostics_title': 'Diagnose & Info',
-  'diagnostics_subtitle': 'Engine-Status, Protokollexport und lokale Daten.',
-  'engine_status': 'Engine-Status',
+  'diagnostics_title': 'Diagnose und Informationen',
+  'diagnostics_subtitle':
+      'Status der Usque Engine, Protokollexport und lokale Daten.',
+  'engine_status': 'Status der Usque Engine',
   'version': 'Version',
   'app_version': 'Usque 0.2.1',
   'logs': 'Lokale Protokolle',
@@ -337,7 +343,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'profile_required': 'Behalten Sie mindestens ein Profil.',
   'socks_capabilities': 'TCP und UDP',
   'http_capabilities': 'CONNECT und gewöhnliche Weiterleitung',
-  'geo_direct': 'Direktländer',
+  'geo_direct': 'Länder mit direktem Routing',
   'geo_direct_help':
       'Passende Domains sind für den DNS Ihres aktuellen Netzes sichtbar; Apps mit verschlüsseltem DNS werden nur per IP geroutet.',
   'geo_update_all': 'Geodaten aktualisieren',
@@ -350,7 +356,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'geo_search': 'Länder suchen',
   'geo_not_downloaded': 'Nicht heruntergeladen',
   'geo_downloaded': 'Heruntergeladen',
-  'geo_chip': '{current} direkt',
+  'geo_chip': 'Direktes Routing: {current}',
   'geo_download_first':
       'Laden Sie die Geodaten für dieses Land herunter, bevor Sie es aktivieren.',
   'geo_update_complete':
@@ -378,9 +384,9 @@ const Map<String, String> kDeCatalog = <String, String>{
   'diag_mode_deep': 'Tiefgehend',
   'diag_deep_title': 'Hinweise zur tiefen Diagnose',
   'diag_deep_connected':
-      'Ein Tunnel ist aktiv: Es wird kein zweiter MASQUE-Datenpfad geöffnet; aktive Transportprüfungen werden als übersprungen oder Warnung markiert.',
+      'Ein Tunnel ist aktiv: Es wird kein zweiter MASQUE-Datenpfad geöffnet; aktive Transportprüfungen werden als übersprungen oder als Warnung markiert.',
   'diag_deep_disconnected':
-      'Ohne Verbindung laufen aktive Prüfungen mit Zeitlimit und Abbruch, danach folgt ein Vergleich des Plattformzustands.',
+      'Ohne Verbindung haben aktive Prüfungen ein Zeitlimit und können abgebrochen werden; anschließend wird der Plattformzustand verglichen.',
   'diag_start': 'Diagnose starten',
   'diag_session': 'Diagnosesitzung',
   'diag_progress_semantics': 'Diagnosefortschritt {current}%',
@@ -391,12 +397,12 @@ const Map<String, String> kDeCatalog = <String, String>{
   'diag_summary_skipped': 'Übersprungen {count}',
   'diag_check_results': 'Prüfergebnisse',
   'diag_check_results_empty':
-      'Starten Sie eine Diagnose, um abhängigkeitsbewusste Prüfungen nach Schicht zu sehen.',
-  'diag_timeline': 'Verbindungszeitlinie',
+      'Starten Sie eine Diagnose, um nach Ebene gruppierte Prüfungen unter Berücksichtigung ihrer Abhängigkeiten zu sehen.',
+  'diag_timeline': 'Verbindungszeitachse',
   'diag_timeline_subtitle':
-      'Nur begrenzte Zustandsereignisse; Paketinhalte und Rohadressen werden nie aufgezeichnet.',
+      'Nur die neuesten Zustandsänderungen werden gespeichert; Paketinhalte und vollständige Adressen werden nie aufgezeichnet.',
   'diag_logs_subtitle':
-      'Sitzung, Zeitlinie, Plattformgesundheitsübersicht und bereinigte Protokolle exportieren.',
+      'Sitzung, Zeitachse, Plattformzustandsübersicht und Protokolle ohne sensible Daten exportieren.',
   'diag_session_pending': 'Ausstehend',
   'diag_session_running': 'Läuft',
   'diag_session_cancelling': 'Wird abgebrochen',
@@ -406,14 +412,14 @@ const Map<String, String> kDeCatalog = <String, String>{
   'diag_timeline_empty':
       'Wichtige Verbindungswechsel erscheinen hier nach einem Verbindungsversuch.',
   'diag_timeline_truncated':
-      'Es werden die neuesten 100 Ereignisse angezeigt; die begrenzte Bundle-Zeitlinie bleibt erhalten.',
+      'Die neuesten 100 Ereignisse werden angezeigt; das exportierte Diagnosepaket enthält weiterhin alle von der Usque Engine gespeicherten Ereignisse.',
   'diag_metric_reconnects': 'Neuverbindungen',
   'diag_metric_fallbacks': 'Fallbacks',
   'diag_metric_network_changes': 'Netzwerkwechsel',
-  'diag_metric_queue_high_water': 'Warteschlangen-Höchststand',
+  'diag_metric_queue_high_water': 'Maximale Tiefe der Sendewarteschlange',
   'diag_unknown': 'Unbekannt',
   'diag_stage': 'Phase',
-  'diag_family': 'Familie',
+  'diag_family': 'Adressfamilie',
   'diag_retryable': 'Wiederholbar',
   'diag_fallback_allowed': 'Fallback',
   'diag_copy_support': 'Supportinformationen kopieren',
@@ -423,7 +429,8 @@ const Map<String, String> kDeCatalog = <String, String>{
   'diag_finding_passed': 'Diese Prüfung wurde bestanden.',
   'diag_finding_attention': 'Diese Prüfung erfordert Aufmerksamkeit.',
   'diag_finding_failed': 'Diese Prüfung ist fehlgeschlagen.',
-  'diag_finding_skipped': 'Diese Prüfung lief im aktuellen Zustand nicht.',
+  'diag_finding_skipped':
+      'Diese Prüfung wurde im aktuellen Zustand nicht ausgeführt.',
   'diag_finding_cancelled': 'Diese Prüfung wurde abgebrochen.',
   'diag_finding_running': 'Diese Prüfung läuft.',
   'diag_finding_pending': 'Diese Prüfung hat noch nicht begonnen.',
@@ -440,8 +447,8 @@ const Map<String, String> kDeCatalog = <String, String>{
   'diag_cat_tunnel': 'Tunnel',
   'diag_cat_protection': 'Systemschutz',
   'diag_cat_recovery': 'Wiederherstellung',
-  'diag_check_engine_control_channel': 'Engine-Steuerkanal',
-  'diag_check_engine_event_stream': 'Engine-Ereignisstrom',
+  'diag_check_engine_control_channel': 'Steuerkanal der Usque Engine',
+  'diag_check_engine_event_stream': 'Ereignisstrom der Usque Engine',
   'diag_check_engine_capabilities': 'API-Fähigkeiten',
   'diag_check_engine_configuration': 'Konfiguration',
   'diag_check_engine_secure_storage_metadata': 'Identitätsmetadaten',
@@ -470,8 +477,8 @@ const Map<String, String> kDeCatalog = <String, String>{
   'diag_check_protection_dns_path': 'DNS-Pfad',
   'diag_check_protection_route_ownership': 'Routenbesitz',
   'diag_check_protection_recovery_journal': 'Wiederherstellungsjournal',
-  'diag_fail_ENGINE_UNAVAILABLE': 'Engine nicht verfügbar',
-  'diag_fail_AGENT_UNREACHABLE': 'Agent nicht erreichbar',
+  'diag_fail_ENGINE_UNAVAILABLE': 'Usque Engine nicht verfügbar',
+  'diag_fail_AGENT_UNREACHABLE': 'Usque Agent nicht erreichbar',
   'diag_fail_VPN_SERVICE_UNAVAILABLE': 'VPN-Dienst nicht verfügbar',
   'diag_fail_PROXY_PORT_IN_USE': 'Proxy-Port belegt',
   'diag_fail_PHYSICAL_IPV4_UNAVAILABLE': 'Physisches IPv4 nicht verfügbar',
@@ -507,16 +514,16 @@ const Map<String, String> kDeCatalog = <String, String>{
       'Systemproxy-Zustand stimmt nicht überein',
   'diag_fail_ROUTE_RESTORE_INCOMPLETE': 'Routenwiederherstellung unvollständig',
   'diag_fail_DNS_RESTORE_INCOMPLETE': 'DNS-Wiederherstellung unvollständig',
-  'diag_fail_SYSTEM_PROXY_STALE': 'Veralteter Systemproxy',
+  'diag_fail_SYSTEM_PROXY_STALE': 'Usque-Systemproxy-Zustand nicht bereinigt',
   'diag_fail_PLATFORM_RECOVERY_PENDING':
-      'Plattformwiederherstellung ausstehend',
+      'Warten auf die Wiederherstellung des Plattform-Netzwerkzustands',
   'diag_fail_PACKET_SEND_FAILED': 'Paketsendung fehlgeschlagen',
-  'diag_fail_PACKET_SEND_TIMEOUT': 'Paketsendung zeitüberschritten',
+  'diag_fail_PACKET_SEND_TIMEOUT': 'Zeitüberschreitung beim Senden von Paketen',
   'diag_fail_PACKET_RECEIVE_FAILED': 'Paketempfang fehlgeschlagen',
-  'diag_fail_PACKET_RECEIVE_STALLED': 'Paketempfang steht still',
+  'diag_fail_PACKET_RECEIVE_STALLED': 'Paketempfang stockt',
   'diag_fail_SEND_QUEUE_FULL': 'Sendewarteschlange voll',
   'diag_fail_DIAGNOSTIC_ALREADY_RUNNING': 'Diagnose läuft bereits',
-  'diag_fail_DIAGNOSTIC_TIMEOUT': 'Diagnoseprüfung zeitüberschritten',
+  'diag_fail_DIAGNOSTIC_TIMEOUT': 'Zeitüberschreitung bei der Diagnoseprüfung',
   'diag_fail_DIAGNOSTIC_CANCELLED': 'Diagnose abgebrochen',
   'diag_fail_DIAGNOSTIC_DEPENDENCY_FAILED':
       'Diagnoseabhängigkeit fehlgeschlagen',
@@ -537,19 +544,19 @@ const Map<String, String> kDeCatalog = <String, String>{
   'diag_fix_run_deep_diagnostics':
       'Tiefe Diagnose in einer geeigneten Umgebung ausführen.',
   'diag_fix_run_release_leak_gate':
-      'Das Veröffentlichungs-Leck-Gate mit einem unabhängigen Beobachter ausführen.',
+      'Führen Sie den unabhängigen Release-Leak-Test mit einem externen Netzwerkbeobachter aus.',
   'diag_fix_inspect_platform_state':
-      'Den tatsächlichen Zustand mit der Plattformprüfung bestätigen.',
+      'Bestätigen Sie den tatsächlichen Plattformzustand mit einer schreibgeschützten Prüfung des System-, Netzwerk- und Proxyzustands.',
   'diag_fix_generate_tunnel_traffic':
       'Etwas Tunnelverkehr erzeugen und danach erneut prüfen.',
   'diag_fix_export_diagnostics':
-      'Ein bereinigtes Diagnosebündel für den Support exportieren.',
+      'Ein Diagnosepaket mit entfernten sensiblen Daten für den Support exportieren.',
   'diag_fix_retry': 'In Kürze erneut versuchen.',
   'diag_fix_none': 'Keine Aktion erforderlich.',
   'diag_fix_default':
       'Den Fehlercode nutzen, um zugehörige Konfiguration und Netzwerkzustand zu prüfen.',
   'diag_event_attempt_started': 'Verbindungsversuch gestartet',
-  'diag_event_endpoint_resolved': 'Endpunkt aufgelöst',
+  'diag_event_endpoint_resolved': 'Endpunktadresse aufgelöst',
   'diag_event_socket_connected': 'Socket verbunden',
   'diag_event_tls_ready': 'TLS bereit',
   'diag_event_quic_ready': 'QUIC bereit',
@@ -559,7 +566,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'diag_event_tunnel_ready': 'Tunnel bereit',
   'diag_event_first_packet_sent': 'Erstes Paket gesendet',
   'diag_event_first_packet_received': 'Erstes Paket empfangen',
-  'diag_event_fallback_started': 'Fallback auf H2 gestartet',
+  'diag_event_fallback_started': 'Umschalten auf H2 gestartet',
   'diag_event_reconnect_scheduled': 'Neuverbindung geplant',
   'diag_event_network_changed': 'Physisches Netzwerk geändert',
   'diag_event_recovery_probe_started': 'H3-Wiederherstellungssonde gestartet',
@@ -568,7 +575,8 @@ const Map<String, String> kDeCatalog = <String, String>{
   'diag_event_recovery_probe_failed':
       'H3-Wiederherstellungssonde fehlgeschlagen',
   'diag_event_path_promoted': 'Kandidatenpfad aktiviert',
-  'diag_event_queue_saturated': 'Sendewarteschlange gesättigt',
+  'diag_event_queue_saturated':
+      'Sendewarteschlange hat ihre Kapazität erreicht',
   'diag_event_disconnected': 'Getrennt',
   'diag_event_failed': 'Verbindung fehlgeschlagen',
 };

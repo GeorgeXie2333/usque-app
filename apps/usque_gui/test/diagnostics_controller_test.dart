@@ -116,13 +116,39 @@ void main() {
     final controller = DiagnosticsController(engine);
 
     final first = controller.start(DiagnosticMode.standard);
+    expect(controller.requestedMode, DiagnosticMode.standard);
     await controller.start(DiagnosticMode.deep);
     expect(engine.startCalls, 1);
 
     engine.pendingStart!.complete(runningSession());
     await first;
     expect(controller.state, DiagnosticsControllerState.running);
+    expect(controller.requestedMode, isNull);
     controller.dispose();
+  });
+
+  testWidgets('active deep session keeps Deep selected after reopening', (
+    tester,
+  ) async {
+    final engine = DiagnosticsEngineStub()
+      ..recovered = runningSession(mode: DiagnosticMode.deep);
+    final app = AppController(engine);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: UsqueTheme.light(),
+        home: DiagnosticsScreen(controller: app),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    final modePicker = tester.widget<SegmentedButton<DiagnosticMode>>(
+      find.byType(SegmentedButton<DiagnosticMode>),
+    );
+    expect(modePicker.selected, <DiagnosticMode>{DiagnosticMode.deep});
+    expect(modePicker.onSelectionChanged, isNull);
+    app.dispose();
   });
 
   testWidgets(
