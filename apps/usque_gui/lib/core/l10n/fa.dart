@@ -16,7 +16,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'settings_subtitle': 'رفتار برنامه در این دستگاه.',
   'diagnostics': 'عیب‌یابی',
   'nav_home': 'خانه',
-  'nav_profiles': 'پروفایل‌ها',
+  'nav_profiles': 'حساب‌ها',
   'nav_proxy': 'پروکسی',
   'nav_settings': 'تنظیمات',
   'status_stream_degraded': 'به‌روزرسانی زندهٔ وضعیت مختل شده است',
