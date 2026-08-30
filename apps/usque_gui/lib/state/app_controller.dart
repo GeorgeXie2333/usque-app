@@ -105,7 +105,18 @@ class AppController extends ChangeNotifier {
   }
 
   UsqueProfile _hydrateAccount(UsqueProfile account) {
-    return sharedNetwork.copyWith(id: account.id, name: account.name);
+    final zeroTrust =
+        identityStatus(account.id).provider == IdentityProvider.zeroTrust;
+    return sharedNetwork.copyWith(
+      id: account.id,
+      name: account.name,
+      endpointIpv4: zeroTrust
+          ? account.endpointIpv4
+          : sharedNetwork.endpointIpv4,
+      endpointIpv6: zeroTrust
+          ? account.endpointIpv6
+          : sharedNetwork.endpointIpv6,
+    );
   }
 
   void _captureSharedNetwork() {
@@ -113,7 +124,19 @@ class AppController extends ChangeNotifier {
       sharedNetwork = UsqueProfile.defaultProfile();
       return;
     }
-    sharedNetwork = profiles.first;
+    final source = profiles.firstWhere(
+      (profile) =>
+          identityStatus(profile.id).provider != IdentityProvider.zeroTrust,
+      orElse: () => profiles.first,
+    );
+    final zeroTrust =
+        identityStatus(source.id).provider == IdentityProvider.zeroTrust;
+    sharedNetwork = zeroTrust
+        ? source.copyWith(
+            endpointIpv4: UsqueProfile.defaultEndpointIpv4,
+            endpointIpv6: UsqueProfile.defaultEndpointIpv6,
+          )
+        : source;
   }
 
   Future<void> initialize() async {
@@ -1066,12 +1089,18 @@ class AppController extends ChangeNotifier {
     final normalized = updated.frontends.http
         ? updated
         : updated.copyWith(proxy: updated.proxy.copyWith(systemProxy: false));
+    final zeroTrust =
+        identityStatus(updated.id).provider == IdentityProvider.zeroTrust;
     sharedNetwork = sharedNetwork.copyWith(
       frontends: normalized.frontends,
       transport: normalized.transport,
       ipPolicy: normalized.ipPolicy,
-      endpointIpv4: normalized.endpointIpv4,
-      endpointIpv6: normalized.endpointIpv6,
+      endpointIpv4: zeroTrust
+          ? sharedNetwork.endpointIpv4
+          : normalized.endpointIpv4,
+      endpointIpv6: zeroTrust
+          ? sharedNetwork.endpointIpv6
+          : normalized.endpointIpv6,
       endpointPort: normalized.endpointPort,
       sni: normalized.sni,
       mtu: normalized.mtu,

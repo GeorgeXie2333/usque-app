@@ -575,7 +575,7 @@ class AndroidEngineMethodHandlerTest {
     }
 
     @Test
-    fun zeroTrustCreationKeepsTheSharedEndpointFromTheProfile() {
+    fun zeroTrustCreationUsesRegisteredIpsAndKeepsSharedPortAndSni() {
         val result = RecordingResult()
         handler.handle(
             MethodCall(
@@ -587,8 +587,8 @@ class AndroidEngineMethodHandlerTest {
                             "name" to "Work",
                             "endpoint_v4" to "162.159.198.2",
                             "endpoint_v6" to "2606:4700:103::2",
-                            "endpoint_port" to 443,
-                            "sni" to "speed.cloudflare.com",
+                            "endpoint_port" to 8443,
+                            "sni" to "shared.example.com",
                         ),
                     "method" to "zeroTrust",
                     "team_name" to "example-team",
@@ -606,10 +606,10 @@ class AndroidEngineMethodHandlerTest {
                 .map(::JSONObject)
                 .first { it.optString("command") == "commit_profile_with_identity" }
         val committedProfile = commit.getJSONObject("profile")
-        assertEquals("162.159.198.2", committedProfile.getString("endpoint_v4"))
-        assertEquals("2606:4700:103::2", committedProfile.getString("endpoint_v6"))
-        assertEquals(443, committedProfile.getInt("endpoint_port"))
-        assertEquals("speed.cloudflare.com", committedProfile.getString("sni"))
+        assertEquals("162.159.197.2", committedProfile.getString("endpoint_v4"))
+        assertEquals("2606:4700:102::2", committedProfile.getString("endpoint_v6"))
+        assertEquals(8443, committedProfile.getInt("endpoint_port"))
+        assertEquals("shared.example.com", committedProfile.getString("sni"))
     }
 
     @Test
@@ -764,8 +764,8 @@ class AndroidEngineMethodHandlerTest {
                 "id":"p1",
                 "endpoint_v4":"162.159.198.2",
                 "endpoint_v6":"2606:4700:103::2",
-                "endpoint_port":443,
-                "sni":"speed.cloudflare.com",
+                "endpoint_port":8443,
+                "sni":"shared.example.com",
                 "identity_provider":"zero_trust",
                 "identity_organization":"example-team"
               }]
@@ -913,8 +913,8 @@ class AndroidEngineMethodHandlerTest {
                 "id":"p1",
                 "endpoint_v4":"162.159.198.2",
                 "endpoint_v6":"2606:4700:103::2",
-                "endpoint_port":443,
-                "sni":"speed.cloudflare.com",
+                "endpoint_port":8443,
+                "sni":"shared.example.com",
                 "identity_provider":"zero_trust",
                 "identity_organization":"example-team"
               }]
@@ -940,10 +940,30 @@ class AndroidEngineMethodHandlerTest {
         val update =
             engineBridge.commands
                 .map(::JSONObject)
-                .first { it.optString("command") == "upsert_profile" }
+                .first { it.optString("command") == "commit_identity_replacement" }
         assertEquals("zero_trust", update.getString("identity_provider"))
         assertEquals("example-team", update.getString("organization"))
-        assertEquals("speed.cloudflare.com", update.getJSONObject("profile").getString("sni"))
+        val updatedProfile = update.getJSONObject("profile")
+        assertEquals("162.159.197.2", updatedProfile.getString("endpoint_v4"))
+        assertEquals("2606:4700:102::2", updatedProfile.getString("endpoint_v6"))
+        assertEquals(8443, updatedProfile.getInt("endpoint_port"))
+        assertEquals("shared.example.com", updatedProfile.getString("sni"))
+        val replacementCommands =
+            engineBridge.commands.map { JSONObject(it).optString("command") }
+        assertTrue(
+            replacementCommands.indexOf("begin_identity_replacement") <
+                replacementCommands.indexOf("arm_identity_replacement"),
+        )
+        assertTrue(
+            replacementCommands.indexOf("arm_identity_replacement") <
+                replacementCommands.indexOf("commit_identity_replacement"),
+        )
+        assertNull(
+            identityStore.get(
+                "p1",
+                SecureIdentityStore.Record.PENDING_REPLACEMENT_IDENTITY,
+            ),
+        )
 
         identityStore.delete("p1", SecureIdentityStore.Record.IDENTITY_METADATA)
         val crossTeam = RecordingResult()
@@ -962,6 +982,91 @@ class AndroidEngineMethodHandlerTest {
             crossTeam,
         )
         assertEquals("IDENTITY_PROVIDER_CHANGE_UNSUPPORTED", crossTeam.errorCode)
+    }
+
+    @Test
+    fun pendingIdentityReplacementIsRolledBackBeforeCatalogPublication() {
+        identityStore.put(
+            "p1",
+            SecureIdentityStore.Record.WARP_SECRET,
+            "new-secret".toByteArray(),
+        )
+        identityStore.put(
+            "p1",
+            SecureIdentityStore.Record.IDENTITY_METADATA,
+            "new-metadata".toByteArray(),
+        )
+        identityStore.put(
+            "p1",
+            SecureIdentityStore.Record.PENDING_REPLACEMENT_IDENTITY,
+            IdentityReplacementRollbackCodec.encode(
+                identity = "old-secret".toByteArray(),
+                metadata = "old-metadata".toByteArray(),
+                license = null,
+            ),
+        )
+        engineBridge.profileCatalogJson =
+            """
+            {
+              "profiles":[{"id":"p1"}],
+              "pending_identity_replacements":["p1"],
+              "armed_identity_replacements":["p1"]
+            }
+            """.trimIndent()
+
+        catalogIdentityStatuses()
+
+        assertTrue(
+            identityStore
+                .get("p1", SecureIdentityStore.Record.WARP_SECRET)!!
+                .contentEquals("old-secret".toByteArray()),
+        )
+        assertTrue(
+            identityStore
+                .get("p1", SecureIdentityStore.Record.IDENTITY_METADATA)!!
+                .contentEquals("old-metadata".toByteArray()),
+        )
+        assertNull(
+            identityStore.get(
+                "p1",
+                SecureIdentityStore.Record.PENDING_REPLACEMENT_IDENTITY,
+            ),
+        )
+        assertTrue(
+            engineBridge.commands
+                .map(::JSONObject)
+                .any { it.optString("command") == "complete_identity_replacements" },
+        )
+    }
+
+    @Test
+    fun zeroTrustWithoutRegisteredEndpointIsReportedInvalid() {
+        identityStore.put(
+            "p1",
+            SecureIdentityStore.Record.WARP_SECRET,
+            "secret".toByteArray(),
+        )
+        identityStore.put(
+            "p1",
+            SecureIdentityStore.Record.IDENTITY_METADATA,
+            """{"version":1,"provider":"zero_trust","organization":"example-team"}"""
+                .toByteArray(),
+        )
+        engineBridge.profileCatalogJson =
+            """
+            {
+              "profiles":[{
+                "id":"p1",
+                "identity_provider":"zero_trust",
+                "identity_organization":"example-team",
+                "zero_trust_endpoint_ready":false
+              }]
+            }
+            """.trimIndent()
+
+        val status = catalogIdentityStatuses().single()
+        assertEquals("invalid", status["state"])
+        assertEquals("zeroTrust", status["provider"])
     }
 
     @Test

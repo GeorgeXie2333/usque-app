@@ -14,9 +14,10 @@ pub mod update;
 
 pub use config::{
     Account, AppConfig, AppPreferences, ConfigError, DEFAULT_PROFILE_ID, DnsMode, EndpointSettings,
-    FrontendSettings, IpPolicy, LogLevel, MAX_GEO_DIRECT_COUNTRIES, OperatingMode, Profile,
-    ProxyAuthCredentials, ProxyDnsMode, ProxySettings, SHARED_NETWORK_SECRET_ID,
-    SharedNetworkSettings, TransportPolicy, validate_proxy_password, validate_proxy_username,
+    FrontendSettings, IpPolicy, LogLevel, MAX_GEO_DIRECT_COUNTRIES, ManagedEndpointIps,
+    OperatingMode, PendingIdentityReplacement, Profile, ProxyAuthCredentials, ProxyDnsMode,
+    ProxySettings, SHARED_NETWORK_SECRET_ID, SharedNetworkSettings, TransportPolicy,
+    validate_proxy_password, validate_proxy_username,
 };
 pub use connector::{
     ConnectedPath, ConnectionAttempt, ConnectionOrchestrator, ConnectorError, TransportConnector,

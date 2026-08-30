@@ -23,10 +23,11 @@ use usque_core::{
     ConnectionWarning, ConsumerEntitlement, ConsumerRegistrationClient, DnsMode, EndpointPin,
     EndpointSettings, ErrorCode, ExitInfo, FrontendKind, FrontendPhase, FrontendSettings,
     FrontendStatus, GeoProgress, IdentityMetadata, IdentityProvider, IpPolicy, IpSbProbe,
-    KillSwitchState, LockdownState, MasqueKeyPair, OperatingMode, Profile, ProxyAuthCredentials,
-    ProxyDnsMode, ProxySettings, RegistrationError, RegistrationOptions, SHARED_NETWORK_SECRET_ID,
-    SharedNetworkSettings, StateMachine, Statistics, Transport, TransportFailure, TransportPolicy,
-    WarpIdentity, download_geo_rules, list_geo_rules, normalize_zero_trust_team,
+    KillSwitchState, LockdownState, ManagedEndpointIps, MasqueKeyPair, OperatingMode,
+    PendingIdentityReplacement, Profile, ProxyAuthCredentials, ProxyDnsMode, ProxySettings,
+    RegistrationError, RegistrationOptions, SHARED_NETWORK_SECRET_ID, SharedNetworkSettings,
+    StateMachine, Statistics, Transport, TransportFailure, TransportPolicy, WarpIdentity,
+    download_geo_rules, list_geo_rules, normalize_zero_trust_team,
     storage::{ConfigStore, StoreError},
     update_all_geo_rules, validate_proxy_password, validate_proxy_username,
 };
@@ -105,9 +106,10 @@ fn should_unbind_remote_license(identity: &WarpIdentity) -> bool {
 
 enum ProvisionedIdentity {
     Consumer(WarpIdentity),
-    // The enrollment endpoint has already passed the Zero Trust contract
-    // checks in usque-core. Runtime endpoint/SNI stay in shared network config.
-    ZeroTrust(WarpIdentity),
+    ZeroTrust {
+        identity: WarpIdentity,
+        endpoint_ips: ManagedEndpointIps,
+    },
 }
 
 impl ProvisionedIdentity {
@@ -115,8 +117,11 @@ impl ProvisionedIdentity {
         Self::Consumer(identity)
     }
 
-    fn zero_trust(identity: WarpIdentity) -> Self {
-        Self::ZeroTrust(identity)
+    fn zero_trust(identity: WarpIdentity, endpoint: &EndpointSettings) -> Self {
+        Self::ZeroTrust {
+            identity,
+            endpoint_ips: ManagedEndpointIps::from_endpoint(endpoint),
+        }
     }
 
     fn is_zero_trust(&self) -> bool {
@@ -125,13 +130,24 @@ impl ProvisionedIdentity {
 
     fn identity(&self) -> &WarpIdentity {
         match self {
-            Self::Consumer(identity) | Self::ZeroTrust(identity) => identity,
+            Self::Consumer(identity) | Self::ZeroTrust { identity, .. } => identity,
         }
     }
 
-    fn into_identity(self) -> WarpIdentity {
+    fn managed_endpoint_ips(&self) -> Option<&ManagedEndpointIps> {
         match self {
-            Self::Consumer(identity) | Self::ZeroTrust(identity) => identity,
+            Self::Consumer(_) => None,
+            Self::ZeroTrust { endpoint_ips, .. } => Some(endpoint_ips),
+        }
+    }
+
+    fn into_parts(self) -> (WarpIdentity, Option<ManagedEndpointIps>) {
+        match self {
+            Self::Consumer(identity) => (identity, None),
+            Self::ZeroTrust {
+                identity,
+                endpoint_ips,
+            } => (identity, Some(endpoint_ips)),
         }
     }
 }
@@ -447,6 +463,7 @@ impl ControlService {
     /// so a removed profile can never be resurrected by this cleanup step.
     pub async fn reap_pending_identity_deletions(&self) -> Result<(), ControlServiceError> {
         let _mutation = self.mutation_lock.lock().await;
+        self.recover_pending_identity_replacements_locked().await?;
         self.reap_pending_identity_deletions_locked().await
     }
 
@@ -973,12 +990,15 @@ impl ControlService {
             }
         }
 
-        let mut profile = self
-            .config
-            .read()
-            .await
-            .runtime_profile(profile_id)
-            .ok_or(ControlServiceError::ProfileNotFound(profile_id))?;
+        let mut profile = {
+            let config = self.config.read().await;
+            if config.zero_trust_endpoint_needs_reauthentication(profile_id) {
+                return Err(ControlServiceError::InvalidStoredIdentity);
+            }
+            config
+                .runtime_profile(profile_id)
+                .ok_or(ControlServiceError::ProfileNotFound(profile_id))?
+        };
         self.attach_proxy_auth(&mut profile).await?;
         if profile.frontends.tunnel && !cfg!(windows) {
             return Err(ControlServiceError::OperatingModeUnavailable(profile.mode));
@@ -1336,6 +1356,13 @@ impl ControlService {
             .iter()
             .map(|profile| profile.id)
             .chain(config.pending_identity_deletions.iter().copied())
+            .chain(config.pending_identity_local_deletions.iter().copied())
+            .chain(
+                config
+                    .pending_identity_replacements
+                    .values()
+                    .filter_map(|replacement| replacement.backup_identity_id),
+            )
             .collect::<std::collections::HashSet<_>>();
         drop(config);
         for profile_id in profile_ids {
@@ -1572,7 +1599,7 @@ impl ControlService {
                 let result = client
                     .register_zero_trust(&options, &team, callback)
                     .await?;
-                ProvisionedIdentity::zero_trust(result.identity)
+                ProvisionedIdentity::zero_trust(result.identity, &result.endpoint)
             }
             v1::IdentityProvisioningMethod::ImportSecret => {
                 return Err(ControlServiceError::FeatureRemoved("WARP Secret import"));
@@ -1619,8 +1646,11 @@ impl ControlService {
                 return Err(Self::after_zero_trust_registration(error, is_zero_trust));
             }
         }
-        let identity = provisioned.into_identity();
-        if let Err(error) = self.replace_identity_locked(profile_id, identity).await {
+        let (identity, managed_endpoint_ips) = provisioned.into_parts();
+        if let Err(error) = self
+            .replace_identity_locked(profile_id, identity, managed_endpoint_ips)
+            .await
+        {
             return Err(Self::after_zero_trust_registration(error, is_zero_trust));
         }
         if reconnect {
@@ -1634,7 +1664,6 @@ impl ControlService {
         profile: Profile,
         provisioning: v1::IdentityProvisioning,
     ) -> Result<(), ControlServiceError> {
-        let profile_id = profile.id;
         profile
             .validate()
             .map_err(ControlServiceError::configuration)?;
@@ -1710,7 +1739,7 @@ impl ControlService {
                 let result = ConsumerRegistrationClient::new()?
                     .register_zero_trust(&options, &enrollment.team_name, callback)
                     .await?;
-                ProvisionedIdentity::zero_trust(result.identity)
+                ProvisionedIdentity::zero_trust(result.identity, &result.endpoint)
             }
             v1::IdentityProvisioningMethod::Unspecified => {
                 return Err(ControlServiceError::InvalidRequest(
@@ -1721,6 +1750,7 @@ impl ControlService {
 
         let is_zero_trust = provisioned.is_zero_trust();
         let identity_provider = provisioned.identity().provider().clone();
+        let managed_endpoint_ips = provisioned.managed_endpoint_ips().cloned();
 
         let _mutation = self.mutation_lock.lock().await;
         let mut pending = self.config.read().await.clone();
@@ -1751,6 +1781,23 @@ impl ControlService {
             return Err(Self::after_zero_trust_registration(error, is_zero_trust));
         }
 
+        self.commit_pending_profile_identity(
+            profile,
+            identity_provider,
+            managed_endpoint_ips,
+            is_zero_trust,
+        )
+        .await
+    }
+
+    async fn commit_pending_profile_identity(
+        &self,
+        profile: Profile,
+        identity_provider: IdentityProvider,
+        managed_endpoint_ips: Option<ManagedEndpointIps>,
+        is_zero_trust: bool,
+    ) -> Result<(), ControlServiceError> {
+        let profile_id = profile.id;
         let mut committed = self.config.read().await.clone();
         committed
             .pending_identity_creations
@@ -1758,7 +1805,9 @@ impl ControlService {
         committed
             .identity_bindings
             .insert(profile.id, identity_provider);
-        if let Err(error) = committed.insert_account(profile.id, profile.name) {
+        if let Err(error) = committed.insert_account(profile.id, profile.name, managed_endpoint_ips)
+        {
+            self.abort_pending_identity_creation(profile.id).await;
             return Err(Self::after_zero_trust_registration(
                 ControlServiceError::configuration(error),
                 is_zero_trust,
@@ -1783,7 +1832,9 @@ impl ControlService {
     async fn profile_catalog(&self) -> v1::ProfileList {
         let config = self.config.read().await.clone();
         let mut catalog = profile_list_to_proto(&config);
-        let cleanup_pending = !config.pending_identity_deletions.is_empty();
+        let cleanup_pending = !config.pending_identity_deletions.is_empty()
+            || !config.pending_identity_local_deletions.is_empty()
+            || !config.pending_identity_replacements.is_empty();
         for account in &config.profiles {
             let binding = config.identity_bindings.get(&account.id).cloned();
             let stored_provider = self
@@ -1791,7 +1842,7 @@ impl ControlService {
                 .await
                 .ok();
             let boundary_provider = stored_provider.clone().or(binding);
-            let (state, mut license_state, mut account_type, provider) =
+            let (mut state, mut license_state, mut account_type, provider) =
                 match self.load_warp_identity(account.id).await {
                     Ok(identity)
                         if matches!(identity.provider(), IdentityProvider::ZeroTrust { .. }) =>
@@ -1830,6 +1881,11 @@ impl ControlService {
                 };
             let zero_trust = matches!(provider, IdentityProvider::ZeroTrust { .. });
             if zero_trust {
+                if account.managed_endpoint_ips.is_none()
+                    && state == v1::ProfileIdentityState::Ready
+                {
+                    state = v1::ProfileIdentityState::Invalid;
+                }
                 license_state = v1::LicenseState::NotApplicable;
                 if account_type.is_empty() {
                     account_type = "Zero Trust".to_owned();
@@ -1951,7 +2007,7 @@ impl ControlService {
                 license,
             )
             .await?;
-        self.replace_identity_locked(profile_id, new_identity)
+        self.replace_identity_locked(profile_id, new_identity, None)
             .await?;
         if reconnect {
             self.connect_locked(profile_id).await?;
@@ -1971,7 +2027,7 @@ impl ControlService {
         let new_identity = ConsumerRegistrationClient::new()?
             .register(&registration_options(String::new(), "en_US".to_owned()))
             .await?;
-        self.replace_identity_locked(profile_id, new_identity)
+        self.replace_identity_locked(profile_id, new_identity, None)
             .await?;
         if reconnect {
             self.connect_locked(profile_id).await?;
@@ -2134,11 +2190,33 @@ impl ControlService {
         &self,
         profile_id: Uuid,
         new_identity: WarpIdentity,
+        managed_endpoint_ips: Option<ManagedEndpointIps>,
     ) -> Result<(), ControlServiceError> {
         let new_provider = new_identity.provider().clone();
-        let mut next = self.config.read().await.clone();
-        if next.account(profile_id).is_none() {
+        let current = self.config.read().await.clone();
+        if current.account(profile_id).is_none() {
             return Err(ControlServiceError::ProfileNotFound(profile_id));
+        }
+        if current
+            .pending_identity_replacements
+            .contains_key(&profile_id)
+        {
+            return Err(ControlServiceError::InvalidRequest(format!(
+                "identity replacement is already pending for profile {profile_id}"
+            )));
+        }
+        let mut next = current.clone();
+        match (&new_provider, managed_endpoint_ips) {
+            (IdentityProvider::ZeroTrust { .. }, Some(managed_endpoint_ips)) => {
+                next.set_managed_endpoint_ips(profile_id, managed_endpoint_ips)
+                    .map_err(ControlServiceError::configuration)?;
+            }
+            (IdentityProvider::Consumer, _) => {
+                next.account_mut(profile_id)
+                    .ok_or(ControlServiceError::ProfileNotFound(profile_id))?
+                    .managed_endpoint_ips = None;
+            }
+            (IdentityProvider::ZeroTrust { .. }, None) => {}
         }
         next.identity_bindings.insert(profile_id, new_provider);
 
@@ -2156,15 +2234,28 @@ impl ControlService {
             self.persist_identity(cleanup_id, previous, None).await?;
         }
 
-        if let Err(error) = self.persist_identity(profile_id, &new_identity, None).await {
-            if let Some(previous) = previous.as_ref() {
-                self.persist_identity(profile_id, previous, None).await?;
-            } else {
-                let _ = self.vault.delete_identity(profile_id).await;
-            }
+        let mut staged = current;
+        staged.pending_identity_replacements.insert(
+            profile_id,
+            PendingIdentityReplacement {
+                backup_identity_id: cleanup_id,
+                armed: true,
+            },
+        );
+        if let Err(error) = self.persist(staged).await {
             if let Some(cleanup_id) = cleanup_id {
                 let _ = self.vault.delete_identity(cleanup_id).await;
             }
+            return Err(error);
+        }
+
+        if let Err(error) = self.persist_identity(profile_id, &new_identity, None).await {
+            self.rollback_pending_identity_replacement_locked(
+                profile_id,
+                previous.as_ref(),
+                cleanup_id,
+            )
+            .await?;
             return Err(error);
         }
 
@@ -2172,28 +2263,50 @@ impl ControlService {
             next.pending_identity_deletions.push(cleanup_id);
         }
         if let Err(error) = self.persist(next).await {
-            let restore = if let Some(previous) = previous.as_ref() {
-                self.persist_identity(profile_id, previous, None).await
-            } else {
-                self.vault
-                    .delete_identity(profile_id)
-                    .await
-                    .map_err(ControlServiceError::from)
-            };
-            if let Some(cleanup_id) = cleanup_id {
-                let _ = self.vault.delete_identity(cleanup_id).await;
-            }
             if new_identity.license().is_some() {
                 let _ = ConsumerRegistrationClient::new()?
                     .unbind_license(&new_identity)
                     .await;
             }
-            restore?;
+            self.rollback_pending_identity_replacement_locked(
+                profile_id,
+                previous.as_ref(),
+                cleanup_id,
+            )
+            .await?;
             return Err(error);
         }
 
         if let Err(error) = self.reap_pending_identity_deletions_locked().await {
             tracing::warn!(%error, "old WARP device cleanup was queued for a later retry");
+        }
+        Ok(())
+    }
+
+    async fn rollback_pending_identity_replacement_locked(
+        &self,
+        profile_id: Uuid,
+        previous: Option<&WarpIdentity>,
+        backup_id: Option<Uuid>,
+    ) -> Result<(), ControlServiceError> {
+        if let Some(previous) = previous {
+            self.persist_identity(profile_id, previous, None).await?;
+        } else {
+            self.vault.delete_identity(profile_id).await?;
+        }
+
+        let mut rollback = self.config.read().await.clone();
+        rollback.pending_identity_replacements.remove(&profile_id);
+        if let Some(backup_id) = backup_id
+            && !rollback
+                .pending_identity_local_deletions
+                .contains(&backup_id)
+        {
+            rollback.pending_identity_local_deletions.push(backup_id);
+        }
+        self.persist(rollback).await?;
+        if let Err(error) = self.reap_pending_identity_deletions_locked().await {
+            tracing::warn!(%error, "identity replacement rollback cleanup was queued for retry");
         }
         Ok(())
     }
@@ -2272,7 +2385,11 @@ impl ControlService {
             }
             next.profiles.clear();
             for profile in profiles {
-                next.insert_account(profile.id, profile.name)
+                let managed_endpoint_ips = profile
+                    .endpoint
+                    .is_zero_trust_managed()
+                    .then(|| ManagedEndpointIps::from_endpoint(&profile.endpoint));
+                next.insert_account(profile.id, profile.name, managed_endpoint_ips)
                     .map_err(ControlServiceError::configuration)?;
             }
             if next.active_profile().is_none() {
@@ -2316,6 +2433,57 @@ impl ControlService {
         self.persist(next).await
     }
 
+    /// Roll back an identity replacement that was interrupted after its vault
+    /// write but before the matching non-secret endpoint/configuration commit.
+    /// The journal remains durable until the old identity has been restored.
+    async fn recover_pending_identity_replacements_locked(
+        &self,
+    ) -> Result<(), ControlServiceError> {
+        let snapshot = self.config.read().await.clone();
+        if snapshot.pending_identity_replacements.is_empty() {
+            return Ok(());
+        }
+
+        let mut completed = Vec::new();
+        let mut first_error = None;
+        for (profile_id, replacement) in &snapshot.pending_identity_replacements {
+            if !replacement.armed {
+                completed.push((*profile_id, replacement.backup_identity_id));
+                continue;
+            }
+            let result = match replacement.backup_identity_id {
+                Some(backup_id) => match self.load_warp_identity(backup_id).await {
+                    Ok(previous) => self.persist_identity(*profile_id, &previous, None).await,
+                    Err(error) => Err(error),
+                },
+                None => self
+                    .vault
+                    .delete_identity(*profile_id)
+                    .await
+                    .map_err(ControlServiceError::from),
+            };
+            match result {
+                Ok(()) => completed.push((*profile_id, replacement.backup_identity_id)),
+                Err(error) if first_error.is_none() => first_error = Some(error),
+                Err(_) => {}
+            }
+        }
+
+        if !completed.is_empty() {
+            let mut next = self.config.read().await.clone();
+            for (profile_id, backup_id) in completed {
+                next.pending_identity_replacements.remove(&profile_id);
+                if let Some(backup_id) = backup_id
+                    && !next.pending_identity_local_deletions.contains(&backup_id)
+                {
+                    next.pending_identity_local_deletions.push(backup_id);
+                }
+            }
+            self.persist(next).await?;
+        }
+        first_error.map_or(Ok(()), Err)
+    }
+
     async fn reset_profile(&self, id: Uuid) -> Result<Profile, ControlServiceError> {
         let _mutation = self.mutation_lock.lock().await;
         self.migrate_shared_proxy_password().await?;
@@ -2338,8 +2506,9 @@ impl ControlService {
     async fn reap_pending_identity_deletions_locked(&self) -> Result<(), ControlServiceError> {
         let snapshot = self.config.read().await.clone();
         let pending = snapshot.pending_identity_deletions;
+        let pending_local = snapshot.pending_identity_local_deletions;
         let pending_creations = snapshot.pending_identity_creations;
-        if pending.is_empty() && pending_creations.is_empty() {
+        if pending.is_empty() && pending_local.is_empty() && pending_creations.is_empty() {
             return Ok(());
         }
 
@@ -2355,6 +2524,16 @@ impl ControlService {
             match self.vault.delete_identity(profile_id).await {
                 Ok(()) => {
                     completed.insert(profile_id);
+                }
+                Err(error) if first_error.is_none() => first_error = Some(error.into()),
+                Err(_) => {}
+            }
+        }
+        let mut completed_local = std::collections::HashSet::new();
+        for profile_id in pending_local {
+            match self.vault.delete_identity(profile_id).await {
+                Ok(()) => {
+                    completed_local.insert(profile_id);
                 }
                 Err(error) if first_error.is_none() => first_error = Some(error.into()),
                 Err(_) => {}
@@ -2376,10 +2555,12 @@ impl ControlService {
                 Err(_) => {}
             }
         }
-        if !completed.is_empty() || !completed_creations.is_empty() {
+        if !completed.is_empty() || !completed_local.is_empty() || !completed_creations.is_empty() {
             let mut next = self.config.read().await.clone();
             next.pending_identity_deletions
                 .retain(|profile_id| !completed.contains(profile_id));
+            next.pending_identity_local_deletions
+                .retain(|profile_id| !completed_local.contains(profile_id));
             next.pending_identity_creations
                 .retain(|profile_id| !completed_creations.contains(profile_id));
             self.persist(next).await?;
@@ -3948,7 +4129,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn legacy_zero_trust_endpoint_import_uses_shared_consumer_defaults() {
+    async fn legacy_zero_trust_import_keeps_ips_with_shared_port_and_sni() {
         let directory = tempfile::tempdir().expect("tempdir");
         let service = ControlService::open(ConfigStore::new(directory.path().join("config.json")))
             .expect("service");
@@ -3977,10 +4158,11 @@ mod tests {
         assert!(response.error.is_none(), "{:?}", response.error);
         let config = service.config_snapshot().await;
         assert_eq!(config.network.endpoint, EndpointSettings::default());
-        assert_eq!(
-            config.runtime_profile(imported.id).unwrap().endpoint,
-            EndpointSettings::default()
-        );
+        let runtime = config.runtime_profile(imported.id).unwrap();
+        assert_eq!(runtime.endpoint.ipv4, imported.endpoint.ipv4);
+        assert_eq!(runtime.endpoint.ipv6, imported.endpoint.ipv6);
+        assert_eq!(runtime.endpoint.port, EndpointSettings::default().port);
+        assert_eq!(runtime.endpoint.sni, EndpointSettings::default().sni);
     }
 
     #[tokio::test]
@@ -5042,7 +5224,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn zero_trust_repair_keeps_shared_endpoint_and_rejects_provider_changes() {
+    async fn zero_trust_repair_updates_registered_ips_and_rejects_provider_changes() {
         let directory = tempfile::tempdir().expect("tempdir");
         let vault = Arc::new(MemoryVault::default());
         let service = ControlService::open_with_vault(
@@ -5057,21 +5239,26 @@ mod tests {
             .await
             .unwrap();
         let mut config = service.config_snapshot().await;
+        config.network.endpoint.port = 8443;
         config.network.endpoint.sni = "shared.example.com".to_owned();
         service.persist(config).await.unwrap();
+        let first_ips = ManagedEndpointIps {
+            ipv4: "162.159.197.8".parse().unwrap(),
+            ipv6: "2606:4700:102::8".parse().unwrap(),
+        };
         service
-            .replace_identity_locked(profile_id, test_identity(provider.clone(), None))
+            .replace_identity_locked(
+                profile_id,
+                test_identity(provider.clone(), None),
+                Some(first_ips.clone()),
+            )
             .await
             .unwrap();
-        assert_eq!(
-            service
-                .config_snapshot()
-                .await
-                .active_profile()
-                .unwrap()
-                .endpoint,
-            service.config_snapshot().await.network.endpoint
-        );
+        let stored = service.config_snapshot().await.active_profile().unwrap();
+        assert_eq!(stored.endpoint.ipv4, first_ips.ipv4);
+        assert_eq!(stored.endpoint.ipv6, first_ips.ipv6);
+        assert_eq!(stored.endpoint.port, 8443);
+        assert_eq!(stored.endpoint.sni, "shared.example.com");
 
         vault.delete_identity(profile_id).await.unwrap();
         let metadata = provider.to_metadata_json().unwrap();
@@ -5079,20 +5266,23 @@ mod tests {
             .put(profile_id, SecretRecord::IdentityMetadata, &metadata)
             .await
             .unwrap();
+        let repaired_ips = ManagedEndpointIps {
+            ipv4: "162.159.197.9".parse().unwrap(),
+            ipv6: "2606:4700:102::9".parse().unwrap(),
+        };
         service
-            .replace_identity_locked(profile_id, test_identity(provider, None))
+            .replace_identity_locked(
+                profile_id,
+                test_identity(provider, None),
+                Some(repaired_ips.clone()),
+            )
             .await
             .expect("missing credentials should be repairable");
-        assert_eq!(
-            service
-                .config_snapshot()
-                .await
-                .active_profile()
-                .unwrap()
-                .endpoint
-                .sni,
-            "shared.example.com"
-        );
+        let repaired = service.config_snapshot().await.active_profile().unwrap();
+        assert_eq!(repaired.endpoint.ipv4, repaired_ips.ipv4);
+        assert_eq!(repaired.endpoint.ipv6, repaired_ips.ipv6);
+        assert_eq!(repaired.endpoint.port, 8443);
+        assert_eq!(repaired.endpoint.sni, "shared.example.com");
 
         let cross_team = service
             .provision_identity(v1::ProvisionIdentityRequest {
@@ -5112,7 +5302,11 @@ mod tests {
         ));
 
         service
-            .replace_identity_locked(profile_id, test_identity(IdentityProvider::Consumer, None))
+            .replace_identity_locked(
+                profile_id,
+                test_identity(IdentityProvider::Consumer, None),
+                None,
+            )
             .await
             .unwrap();
         let consumer_conversion = service
@@ -5130,6 +5324,169 @@ mod tests {
         assert!(matches!(
             consumer_conversion,
             Err(ControlServiceError::IdentityProviderChangeUnsupported)
+        ));
+    }
+
+    #[tokio::test]
+    async fn interrupted_identity_replacement_restores_the_old_identity_and_endpoint() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let vault = Arc::new(MemoryVault::default());
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::clone(&vault) as Arc<dyn SecretVault>,
+        )
+        .expect("service");
+        let profile_id = service.config_snapshot().await.profiles[0].id;
+        let backup_id = Uuid::new_v4();
+        let provider = IdentityProvider::zero_trust("example-team").unwrap();
+        let previous = test_identity(provider.clone(), None);
+        let replacement = test_identity(provider.clone(), None);
+        service
+            .persist_identity(backup_id, &previous, None)
+            .await
+            .unwrap();
+        service
+            .persist_identity(profile_id, &replacement, None)
+            .await
+            .unwrap();
+
+        let previous_token = vault
+            .get(backup_id, SecretRecord::AccessToken)
+            .await
+            .unwrap()
+            .unwrap();
+        let replacement_token = vault
+            .get(profile_id, SecretRecord::AccessToken)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_ne!(&*previous_token, &*replacement_token);
+
+        let old_ips = ManagedEndpointIps {
+            ipv4: "162.159.197.8".parse().unwrap(),
+            ipv6: "2606:4700:102::8".parse().unwrap(),
+        };
+        let mut interrupted = service.config_snapshot().await;
+        interrupted.identity_bindings.insert(profile_id, provider);
+        interrupted
+            .set_managed_endpoint_ips(profile_id, old_ips.clone())
+            .unwrap();
+        interrupted.pending_identity_replacements.insert(
+            profile_id,
+            PendingIdentityReplacement {
+                backup_identity_id: Some(backup_id),
+                armed: true,
+            },
+        );
+        service.persist(interrupted).await.unwrap();
+
+        service.reap_pending_identity_deletions().await.unwrap();
+
+        let restored_token = vault
+            .get(profile_id, SecretRecord::AccessToken)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(&*restored_token, &*previous_token);
+        assert!(
+            vault
+                .get(backup_id, SecretRecord::AccessToken)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let recovered = service.config_snapshot().await;
+        assert!(recovered.pending_identity_replacements.is_empty());
+        assert!(recovered.pending_identity_local_deletions.is_empty());
+        let endpoint = recovered.active_profile().unwrap().endpoint;
+        assert_eq!(endpoint.ipv4, old_ips.ipv4);
+        assert_eq!(endpoint.ipv6, old_ips.ipv6);
+    }
+
+    #[tokio::test]
+    async fn rejected_zero_trust_endpoint_rolls_back_staged_profile_identity() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let vault = Arc::new(MemoryVault::default());
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::clone(&vault) as Arc<dyn SecretVault>,
+        )
+        .expect("service");
+        let profile_id = Uuid::new_v4();
+        let managed = ManagedEndpointIps {
+            ipv4: "162.159.197.8".parse().unwrap(),
+            ipv6: "2606:4700:102::8".parse().unwrap(),
+        };
+        let mut pending = service.config_snapshot().await;
+        pending.network.dns_servers = vec![IpAddr::V4(managed.ipv4)];
+        pending.pending_identity_creations.push(profile_id);
+        service.persist(pending).await.unwrap();
+        service
+            .persist_identity(
+                profile_id,
+                &test_identity(IdentityProvider::zero_trust("example-team").unwrap(), None),
+                None,
+            )
+            .await
+            .unwrap();
+
+        let profile = Profile {
+            id: profile_id,
+            name: "Work".to_owned(),
+            ..Profile::default()
+        };
+        let result = service
+            .commit_pending_profile_identity(
+                profile,
+                IdentityProvider::zero_trust("example-team").unwrap(),
+                Some(managed),
+                true,
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(ControlServiceError::ZeroTrustLocalCommit)
+        ));
+        let config = service.config_snapshot().await;
+        assert!(config.account(profile_id).is_none());
+        assert!(!config.pending_identity_creations.contains(&profile_id));
+        assert!(
+            vault
+                .get(profile_id, SecretRecord::AccessToken)
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn zero_trust_without_a_recovered_endpoint_requires_reauthentication() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let vault = Arc::new(MemoryVault::default());
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::clone(&vault) as Arc<dyn SecretVault>,
+        )
+        .expect("service");
+        let profile_id = service.config_snapshot().await.profiles[0].id;
+        let provider = IdentityProvider::zero_trust("example-team").unwrap();
+        service
+            .persist_identity(profile_id, &test_identity(provider.clone(), None), None)
+            .await
+            .unwrap();
+        let mut config = service.config_snapshot().await;
+        config.identity_bindings.insert(profile_id, provider);
+        service.persist(config).await.unwrap();
+
+        let catalog = service.profile_catalog().await;
+        assert_eq!(
+            catalog.identity_statuses[0].state,
+            v1::ProfileIdentityState::Invalid as i32
+        );
+        assert!(matches!(
+            service.connect_locked(profile_id).await,
+            Err(ControlServiceError::InvalidStoredIdentity)
         ));
     }
 
@@ -5322,7 +5679,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn reset_zero_trust_profile_restores_shared_endpoint_defaults() {
+    async fn reset_zero_trust_profile_keeps_registered_ips_and_resets_port_and_sni() {
         let directory = tempfile::tempdir().expect("tempdir");
         let service = ControlService::open_with_vault(
             ConfigStore::new(directory.path().join("config.json")),
@@ -5331,10 +5688,14 @@ mod tests {
         .expect("service");
         let profile_id = service.config_snapshot().await.profiles[0].id;
         let custom = EndpointSettings {
+            ipv4: "192.0.2.1".parse().unwrap(),
+            ipv6: "2001:db8::1".parse().unwrap(),
+            port: 8443,
+            sni: "shared.example.com".to_owned(),
+        };
+        let managed = ManagedEndpointIps {
             ipv4: "162.159.197.8".parse().unwrap(),
             ipv6: "2606:4700:102::8".parse().unwrap(),
-            port: 443,
-            sni: "shared.example.com".to_owned(),
         };
         let mut config = service.config_snapshot().await;
         config.network.endpoint = custom;
@@ -5343,10 +5704,16 @@ mod tests {
             profile_id,
             IdentityProvider::zero_trust("example-team").unwrap(),
         );
+        config
+            .set_managed_endpoint_ips(profile_id, managed.clone())
+            .unwrap();
         service.persist(config).await.unwrap();
 
         let reset = service.reset_profile(profile_id).await.unwrap();
-        assert_eq!(reset.endpoint, EndpointSettings::default());
+        assert_eq!(reset.endpoint.ipv4, managed.ipv4);
+        assert_eq!(reset.endpoint.ipv6, managed.ipv6);
+        assert_eq!(reset.endpoint.port, EndpointSettings::default().port);
+        assert_eq!(reset.endpoint.sni, EndpointSettings::default().sni);
         assert_eq!(reset.mtu, 1280);
         assert_eq!(service.config_snapshot().await.network.mtu, 1280);
         assert_eq!(

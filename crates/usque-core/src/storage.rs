@@ -12,7 +12,8 @@ use uuid::Uuid;
 
 use crate::config::{
     Account, AppConfig, AppPreferences, CURRENT_SCHEMA_VERSION, ConfigError, DnsMode,
-    EndpointSettings, FrontendSettings, OperatingMode, Profile, SharedNetworkSettings,
+    EndpointSettings, FrontendSettings, ManagedEndpointIps, OperatingMode, Profile,
+    SharedNetworkSettings,
 };
 use crate::identity::IdentityProvider;
 
@@ -62,8 +63,12 @@ impl ConfigStore {
             self.save(&config)?;
             config
         } else if schema < CURRENT_SCHEMA_VERSION {
-            self.back_up_existing()?;
             let mut config: AppConfig = serde_json::from_value(value)?;
+            let preserve_recovery_backup = schema == 11
+                && recover_schema_eleven_managed_endpoint_ips(&mut config, &self.backup_path());
+            if !preserve_recovery_backup {
+                self.back_up_existing()?;
+            }
             migrate_app_config(&mut config);
             self.save(&config)?;
             config
@@ -108,6 +113,82 @@ impl ConfigStore {
     }
 }
 
+/// Schema 11 intentionally discarded per-account Zero Trust endpoints. Its
+/// migration backup is the only durable source that can still identify the
+/// exact registration-returned address pair, so consume it before the normal
+/// pre-migration backup step could overwrite it.
+///
+/// A recognized pre-schema-11 backup is preserved even when it is incomplete.
+/// Callers can then fail closed and request reauthentication without destroying
+/// the last potentially recoverable artifact.
+fn recover_schema_eleven_managed_endpoint_ips(config: &mut AppConfig, backup_path: &Path) -> bool {
+    let Ok(file) = File::open(backup_path) else {
+        return false;
+    };
+    let Ok(value) = serde_json::from_reader::<_, serde_json::Value>(BufReader::new(file)) else {
+        return false;
+    };
+    let schema = value
+        .get("schema_version")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0) as u32;
+    if schema >= 11 {
+        return false;
+    }
+
+    let recovered = if schema < 9 {
+        serde_json::from_value::<LegacyStoredConfig>(value)
+            .ok()
+            .map(|legacy| {
+                legacy
+                    .profiles
+                    .into_iter()
+                    .map(|profile| {
+                        (
+                            profile.id,
+                            ManagedEndpointIps::from_endpoint(&profile.endpoint),
+                        )
+                    })
+                    .collect::<BTreeMap<_, _>>()
+            })
+    } else {
+        serde_json::from_value::<AppConfig>(value)
+            .ok()
+            .map(|backup| {
+                backup
+                    .profiles
+                    .into_iter()
+                    .filter_map(|account| {
+                        account
+                            .managed_endpoint_ips
+                            .map(|endpoint| (account.id, endpoint))
+                    })
+                    .collect::<BTreeMap<_, _>>()
+            })
+    };
+
+    if let Some(recovered) = recovered {
+        let zero_trust_ids = config
+            .identity_bindings
+            .iter()
+            .filter_map(|(profile_id, provider)| {
+                matches!(provider, IdentityProvider::ZeroTrust { .. }).then_some(*profile_id)
+            })
+            .collect::<std::collections::HashSet<_>>();
+        for account in &mut config.profiles {
+            if account.managed_endpoint_ips.is_none()
+                && zero_trust_ids.contains(&account.id)
+                && let Some(endpoint) = recovered
+                    .get(&account.id)
+                    .filter(|endpoint| endpoint.matches_zero_trust_contract())
+            {
+                account.managed_endpoint_ips = Some(endpoint.clone());
+            }
+        }
+    }
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct LegacyStoredConfig {
     schema_version: u32,
@@ -121,11 +202,14 @@ struct LegacyStoredConfig {
     #[serde(default)]
     pending_identity_deletions: Vec<Uuid>,
     #[serde(default)]
+    pending_identity_local_deletions: Vec<Uuid>,
+    #[serde(default)]
     pending_identity_creations: Vec<Uuid>,
 }
 
 impl AppConfig {
     fn from_legacy(legacy: LegacyStoredConfig) -> Self {
+        let identity_bindings = legacy.identity_bindings;
         let mut network = legacy.network;
         if network.endpoint.is_zero_trust_managed() {
             network.endpoint = legacy
@@ -142,15 +226,27 @@ impl AppConfig {
             profiles: legacy
                 .profiles
                 .into_iter()
-                .map(|profile| Account {
-                    id: profile.id,
-                    name: profile.name,
+                .map(|profile| {
+                    let bound_zero_trust = matches!(
+                        identity_bindings.get(&profile.id),
+                        Some(IdentityProvider::ZeroTrust { .. })
+                    );
+                    let managed_endpoint_ips = (bound_zero_trust
+                        || profile.endpoint.is_zero_trust_managed())
+                    .then(|| ManagedEndpointIps::from_endpoint(&profile.endpoint));
+                    Account {
+                        id: profile.id,
+                        name: profile.name,
+                        managed_endpoint_ips,
+                    }
                 })
                 .collect(),
             preferences: legacy.preferences,
-            identity_bindings: legacy.identity_bindings,
+            identity_bindings,
             pending_identity_deletions: legacy.pending_identity_deletions,
+            pending_identity_local_deletions: legacy.pending_identity_local_deletions,
             pending_identity_creations: legacy.pending_identity_creations,
+            pending_identity_replacements: Default::default(),
         }
     }
 }
@@ -237,14 +333,16 @@ fn migrate_app_config(config: &mut AppConfig) {
         config.schema_version = 10;
     }
     if config.schema_version < 11 {
-        // Schema 11 removes per-account Zero Trust endpoint overrides. The
-        // shared network endpoint is already the Consumer/default value in
-        // schema 9 and 10. Repair any out-of-contract legacy copy before every
-        // account starts hydrating from this one editable value.
+        // The shared network endpoint is already the Consumer/default value in
+        // schema 9 and 10. Repair any out-of-contract legacy copy before schema
+        // 12 restores only the registration-owned Zero Trust address pair.
         if config.network.endpoint.is_zero_trust_managed() {
             config.network.endpoint = EndpointSettings::default();
         }
         config.schema_version = 11;
+    }
+    if config.schema_version < 12 {
+        config.schema_version = 12;
     }
 }
 
@@ -344,6 +442,7 @@ mod tests {
             preferences: AppPreferences::default(),
             identity_bindings: BTreeMap::new(),
             pending_identity_deletions: Vec::new(),
+            pending_identity_local_deletions: Vec::new(),
             pending_identity_creations: Vec::new(),
         }
     }
@@ -511,9 +610,16 @@ mod tests {
         assert_eq!(migrated.schema_version, CURRENT_SCHEMA_VERSION);
         assert_eq!(migrated.network.mtu, 1400);
         assert!(!migrated.network.endpoint.is_zero_trust_managed());
+        let migrated_zero_trust = migrated.runtime_profile(zero_trust.id).unwrap();
+        assert_eq!(migrated_zero_trust.endpoint.ipv4, zero_trust.endpoint.ipv4);
+        assert_eq!(migrated_zero_trust.endpoint.ipv6, zero_trust.endpoint.ipv6);
         assert_eq!(
-            migrated.runtime_profile(zero_trust.id).unwrap().endpoint,
-            migrated.network.endpoint
+            migrated_zero_trust.endpoint.port,
+            migrated.network.endpoint.port
+        );
+        assert_eq!(
+            migrated_zero_trust.endpoint.sni,
+            migrated.network.endpoint.sni
         );
         assert_eq!(migrated.active_profile().unwrap().mtu, 1400);
 
@@ -522,6 +628,7 @@ mod tests {
         assert!(saved["profiles"][0].get("mtu").is_none());
         assert!(saved["profiles"][0].get("frontends").is_none());
         assert!(saved["profiles"][1].get("managed_endpoint").is_none());
+        assert!(saved["profiles"][1].get("managed_endpoint_ips").is_some());
     }
 
     #[test]
@@ -551,7 +658,7 @@ mod tests {
     }
 
     #[test]
-    fn schema_ten_drops_zero_trust_endpoint_override_and_uses_shared_network() {
+    fn schema_ten_keeps_zero_trust_ips_and_uses_shared_port_and_sni() {
         let directory = tempfile::tempdir().unwrap();
         let store = ConfigStore::new(directory.path().join("config.json"));
         let profile_id = Uuid::new_v4();
@@ -560,7 +667,7 @@ mod tests {
             ..AppConfig::default()
         };
         config
-            .insert_account(profile_id, "Work".to_owned())
+            .insert_account(profile_id, "Work".to_owned(), None)
             .unwrap();
         config.identity_bindings.insert(
             profile_id,
@@ -580,18 +687,118 @@ mod tests {
         let migrated = store.load().unwrap();
 
         assert_eq!(migrated.schema_version, CURRENT_SCHEMA_VERSION);
+        let migrated_zero_trust = migrated.runtime_profile(profile_id).unwrap();
         assert_eq!(
-            migrated.runtime_profile(profile_id).unwrap().endpoint,
-            migrated.network.endpoint
+            migrated_zero_trust.endpoint.ipv4,
+            "162.159.197.8".parse::<std::net::Ipv4Addr>().unwrap()
         );
+        assert_eq!(
+            migrated_zero_trust.endpoint.ipv6,
+            "2606:4700:102::8".parse::<std::net::Ipv6Addr>().unwrap()
+        );
+        assert_eq!(
+            migrated_zero_trust.endpoint.port,
+            migrated.network.endpoint.port
+        );
+        assert_eq!(migrated_zero_trust.endpoint.sni, "shared.example.com");
         assert_eq!(migrated.network.endpoint.sni, "shared.example.com");
         let saved: serde_json::Value =
             serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
         assert!(saved["profiles"][1].get("managed_endpoint").is_none());
+        assert!(saved["profiles"][1].get("managed_endpoint_ips").is_some());
         let backup: serde_json::Value =
             serde_json::from_slice(&fs::read(store.backup_path()).unwrap()).unwrap();
         assert_eq!(backup["schema_version"], 10);
         assert!(backup["profiles"][1].get("managed_endpoint").is_some());
+    }
+
+    #[test]
+    fn schema_eleven_recovers_zero_trust_ips_without_overwriting_schema_ten_backup() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ConfigStore::new(directory.path().join("config.json"));
+        let profile_id = Uuid::new_v4();
+        let mut config = AppConfig {
+            schema_version: 11,
+            ..AppConfig::default()
+        };
+        config
+            .insert_account(profile_id, "Work".to_owned(), None)
+            .unwrap();
+        config.identity_bindings.insert(
+            profile_id,
+            IdentityProvider::zero_trust("example-team").unwrap(),
+        );
+
+        let mut schema_eleven = serde_json::to_value(&config).unwrap();
+        schema_eleven["schema_version"] = serde_json::json!(11);
+        schema_eleven["profiles"][1]
+            .as_object_mut()
+            .unwrap()
+            .remove("managed_endpoint_ips");
+        fs::write(
+            store.path(),
+            serde_json::to_vec_pretty(&schema_eleven).unwrap(),
+        )
+        .unwrap();
+
+        let mut schema_ten_backup = schema_eleven.clone();
+        schema_ten_backup["schema_version"] = serde_json::json!(10);
+        schema_ten_backup["profiles"][1]["managed_endpoint"] = serde_json::json!({
+            "ipv4": "162.159.197.8",
+            "ipv6": "2606:4700:102::8",
+            "port": 443,
+            "sni": "zt-masque.cloudflareclient.com"
+        });
+        fs::write(
+            store.backup_path(),
+            serde_json::to_vec_pretty(&schema_ten_backup).unwrap(),
+        )
+        .unwrap();
+
+        let migrated = store.load().unwrap();
+        let managed = migrated
+            .account(profile_id)
+            .unwrap()
+            .managed_endpoint_ips
+            .as_ref()
+            .unwrap();
+        assert_eq!(managed.ipv4.to_string(), "162.159.197.8");
+        assert_eq!(managed.ipv6.to_string(), "2606:4700:102::8");
+        assert!(!migrated.zero_trust_endpoint_needs_reauthentication(profile_id));
+
+        let preserved: serde_json::Value =
+            serde_json::from_slice(&fs::read(store.backup_path()).unwrap()).unwrap();
+        assert_eq!(preserved["schema_version"], 10);
+        assert!(preserved["profiles"][1].get("managed_endpoint").is_some());
+    }
+
+    #[test]
+    fn schema_eleven_without_recovery_data_requires_zero_trust_reauthentication() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ConfigStore::new(directory.path().join("config.json"));
+        let profile_id = Uuid::new_v4();
+        let mut config = AppConfig {
+            schema_version: 11,
+            ..AppConfig::default()
+        };
+        config
+            .insert_account(profile_id, "Work".to_owned(), None)
+            .unwrap();
+        config.identity_bindings.insert(
+            profile_id,
+            IdentityProvider::zero_trust("example-team").unwrap(),
+        );
+        fs::write(store.path(), serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+
+        let migrated = store.load().unwrap();
+        assert!(migrated.zero_trust_endpoint_needs_reauthentication(profile_id));
+        assert!(
+            migrated
+                .account(profile_id)
+                .unwrap()
+                .managed_endpoint_ips
+                .is_none()
+        );
     }
 
     #[test]

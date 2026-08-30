@@ -1052,6 +1052,8 @@ internal class AndroidEngineMethodHandler(
                     engineBridge.applyProfileCommand(profileConfigPath, commandJson)
                         ?: throw IllegalStateException("Rust returned no profile catalog")
                 var responseObject = JSONObject(response)
+                responseObject = recoverPendingIdentityReplacements(responseObject)
+                response = responseObject.toString()
                 val pending = responseObject.optJSONArray("pending_identity_deletions")
                 if (pending != null && pending.length() > 0) {
                     val completed = JSONArray()
@@ -1088,6 +1090,7 @@ internal class AndroidEngineMethodHandler(
                         ) ?: throw IllegalStateException("Rust did not acknowledge identity rollback")
                     responseObject = JSONObject(response)
                 }
+                deleteStaleIdentityReplacementBackups(responseObject)
                 val catalog =
                     if (returnCatalog) {
                         appendIdentityStatuses(responseObject)
@@ -1102,6 +1105,91 @@ internal class AndroidEngineMethodHandler(
                         "PROFILE_STORE_FAILED",
                         "The Rust profile store rejected this operation.",
                         error.javaClass.simpleName,
+                    )
+                }
+            }
+        }
+    }
+
+    private fun recoverPendingIdentityReplacements(catalog: JSONObject): JSONObject {
+        val pending = catalog.optJSONArray("pending_identity_replacements") ?: return catalog
+        if (pending.length() == 0) return catalog
+
+        val armed =
+            buildSet {
+                val values = catalog.optJSONArray("armed_identity_replacements") ?: JSONArray()
+                for (index in 0 until values.length()) add(values.optString(index))
+            }
+        val completed = JSONArray()
+        val restored = mutableListOf<String>()
+        for (index in 0 until pending.length()) {
+            val profileId = pending.getString(index)
+            if (profileId in armed) {
+                val encoded =
+                    identityStore.get(
+                        profileId,
+                        SecureIdentityStore.Record.PENDING_REPLACEMENT_IDENTITY,
+                    ) ?: throw IllegalStateException("Identity replacement rollback record is missing")
+                try {
+                    val rollback = IdentityReplacementRollbackCodec.decode(encoded)
+                    try {
+                        restoreIdentityRecord(
+                            profileId,
+                            SecureIdentityStore.Record.WARP_SECRET,
+                            rollback.identity,
+                        )
+                        restoreIdentityRecord(
+                            profileId,
+                            SecureIdentityStore.Record.IDENTITY_METADATA,
+                            rollback.metadata,
+                        )
+                        restoreIdentityRecord(
+                            profileId,
+                            SecureIdentityStore.Record.LICENSE,
+                            rollback.license,
+                        )
+                    } finally {
+                        rollback.clear()
+                    }
+                } finally {
+                    encoded.fill(0)
+                }
+            }
+            completed.put(profileId)
+            restored += profileId
+        }
+
+        val response =
+            engineBridge.applyProfileCommand(
+                profileConfigPath,
+                JSONObject()
+                    .put("command", "complete_identity_replacements")
+                    .put("profile_ids", completed)
+                    .toString(),
+            ) ?: throw IllegalStateException("Rust did not acknowledge identity replacement rollback")
+        for (profileId in restored) {
+            identityStore.delete(
+                profileId,
+                SecureIdentityStore.Record.PENDING_REPLACEMENT_IDENTITY,
+            )
+        }
+        return JSONObject(response)
+    }
+
+    private fun deleteStaleIdentityReplacementBackups(catalog: JSONObject) {
+        val pending =
+            buildSet {
+                val values = catalog.optJSONArray("pending_identity_replacements") ?: JSONArray()
+                for (index in 0 until values.length()) add(values.optString(index))
+            }
+        val profiles = catalog.optJSONArray("profiles") ?: JSONArray()
+        for (index in 0 until profiles.length()) {
+            val profileId = profiles.optJSONObject(index)?.optString("id").orEmpty()
+            if (profileId.isNotBlank() && profileId !in pending) {
+                runCatching {
+                    identityStore.delete(
+                        profileId,
+                        SecureIdentityStore.Record.PENDING_REPLACEMENT_IDENTITY,
                     )
                 }
             }
@@ -1298,6 +1386,10 @@ internal class AndroidEngineMethodHandler(
             var licenseBytes: ByteArray? = null
             var remoteRegistered = false
             var identityStored = false
+            var endpointIps: ZeroTrustEndpointIps? = null
+            var replacementBackupStored = false
+            var replacementPrepared = false
+            var replacementCommitted = false
             try {
                 val provider = storedIdentityProvider(profileId)
                 if (!provider.valid && !provider.repairable) {
@@ -1340,14 +1432,19 @@ internal class AndroidEngineMethodHandler(
                         remoteRegistered = true
                         try {
                             val envelope = JSONObject(envelopeBytes.toString(Charsets.UTF_8))
-                            // Rust already validated the enrollment endpoint. Runtime endpoint,
-                            // port, and SNI remain in the shared editable profile settings.
+                            // Rust already validated both registration-owned endpoint addresses.
+                            // Port and SNI remain in the shared editable profile settings.
                             newIdentity =
                                 envelope.getString("warp_secret").toByteArray(Charsets.UTF_8)
                             newMetadata =
                                 envelope
                                     .getString("identity_metadata")
                                     .toByteArray(Charsets.UTF_8)
+                            endpointIps =
+                                ZeroTrustEndpointIps(
+                                    ipv4 = envelope.getString("endpoint_v4"),
+                                    ipv6 = envelope.getString("endpoint_v6"),
+                                )
                         } finally {
                             envelopeBytes.fill(0)
                         }
@@ -1361,6 +1458,36 @@ internal class AndroidEngineMethodHandler(
                     }
                 }
                 remoteRegistered = true
+
+                if (method == "zeroTrust") {
+                    engineBridge.applyProfileCommand(
+                        profileConfigPath,
+                        JSONObject()
+                            .put("command", "begin_identity_replacement")
+                            .put("profile_id", profileId)
+                            .toString(),
+                    ) ?: throw IllegalStateException("Rust did not prepare identity replacement")
+                    replacementPrepared = true
+                    val rollback =
+                        IdentityReplacementRollbackCodec.encode(oldIdentity, oldMetadata, oldLicense)
+                    try {
+                        identityStore.put(
+                            profileId,
+                            SecureIdentityStore.Record.PENDING_REPLACEMENT_IDENTITY,
+                            rollback,
+                        )
+                        replacementBackupStored = true
+                    } finally {
+                        rollback.fill(0)
+                    }
+                    engineBridge.applyProfileCommand(
+                        profileConfigPath,
+                        JSONObject()
+                            .put("command", "arm_identity_replacement")
+                            .put("profile_id", profileId)
+                            .toString(),
+                    ) ?: throw IllegalStateException("Rust did not arm identity replacement")
+                }
 
                 identityStore.put(
                     profileId,
@@ -1385,35 +1512,78 @@ internal class AndroidEngineMethodHandler(
 
                 if (method == "zeroTrust") {
                     val currentProfile = loadProfile(profileId)
+                    val updatedProfile = JSONObject(currentProfile.toString())
+                    endpointIps!!.applyTo(updatedProfile)
                     engineBridge.applyProfileCommand(
                         profileConfigPath,
                         JSONObject()
-                            .put("command", "upsert_profile")
-                            .put("profile", currentProfile)
+                            .put("command", "commit_identity_replacement")
+                            .put("profile", updatedProfile)
                             .put("identity_provider", "zero_trust")
                             .put("organization", team)
                             .toString(),
                     ) ?: throw IllegalStateException("Rust did not persist the Zero Trust binding")
+                    replacementCommitted = true
+                    runCatching {
+                        identityStore.delete(
+                            profileId,
+                            SecureIdentityStore.Record.PENDING_REPLACEMENT_IDENTITY,
+                        )
+                    }
+                    replacementBackupStored = false
                 }
 
                 mainScheduler.post { result.success(null) }
             } catch (error: Exception) {
-                if (identityStored) {
+                var rollbackRestored = !identityStored
+                if (identityStored && !replacementCommitted) {
+                    rollbackRestored =
+                        runCatching {
+                            restoreIdentityRecord(
+                                profileId,
+                                SecureIdentityStore.Record.WARP_SECRET,
+                                oldIdentity,
+                            )
+                            restoreIdentityRecord(
+                                profileId,
+                                SecureIdentityStore.Record.IDENTITY_METADATA,
+                                oldMetadata,
+                            )
+                            restoreIdentityRecord(
+                                profileId,
+                                SecureIdentityStore.Record.LICENSE,
+                                oldLicense,
+                            )
+                        }.isSuccess
+                }
+                if (replacementPrepared && !replacementCommitted && rollbackRestored) {
+                    val acknowledged =
+                        runCatching {
+                            engineBridge.applyProfileCommand(
+                                profileConfigPath,
+                                JSONObject()
+                                    .put("command", "complete_identity_replacements")
+                                    .put("profile_ids", JSONArray().put(profileId))
+                                    .toString(),
+                            ) ?: throw IllegalStateException(
+                                "Rust did not acknowledge identity replacement rollback",
+                            )
+                        }.isSuccess
+                    if (acknowledged) {
+                        runCatching {
+                            identityStore.delete(
+                                profileId,
+                                SecureIdentityStore.Record.PENDING_REPLACEMENT_IDENTITY,
+                            )
+                        }
+                        replacementBackupStored = false
+                    }
+                }
+                if (replacementBackupStored && !replacementPrepared) {
                     runCatching {
-                        restoreIdentityRecord(
+                        identityStore.delete(
                             profileId,
-                            SecureIdentityStore.Record.WARP_SECRET,
-                            oldIdentity,
-                        )
-                        restoreIdentityRecord(
-                            profileId,
-                            SecureIdentityStore.Record.IDENTITY_METADATA,
-                            oldMetadata,
-                        )
-                        restoreIdentityRecord(
-                            profileId,
-                            SecureIdentityStore.Record.LICENSE,
-                            oldLicense,
+                            SecureIdentityStore.Record.PENDING_REPLACEMENT_IDENTITY,
                         )
                     }
                 }
@@ -1495,6 +1665,7 @@ internal class AndroidEngineMethodHandler(
             var licenseBytes: ByteArray? = null
             var remoteRegistered = false
             var committed = false
+            var endpointIps: ZeroTrustEndpointIps? = null
             try {
                 val locale =
                     (arguments["locale"] as? String)
@@ -1521,13 +1692,18 @@ internal class AndroidEngineMethodHandler(
                         remoteRegistered = true
                         try {
                             val envelope = JSONObject(envelopeBytes.toString(Charsets.UTF_8))
-                            // Do not copy the enrollment endpoint into the new account: it inherits
-                            // the same shared endpoint/SNI settings as every Consumer account.
+                            // Persist only the validated registration-owned addresses. The profile's
+                            // default/editable port and SNI stay untouched.
                             bytes = envelope.getString("warp_secret").toByteArray(Charsets.UTF_8)
                             metadata =
                                 envelope
                                     .getString("identity_metadata")
                                     .toByteArray(Charsets.UTF_8)
+                            endpointIps =
+                                ZeroTrustEndpointIps(
+                                    ipv4 = envelope.getString("endpoint_v4"),
+                                    ipv6 = envelope.getString("endpoint_v6"),
+                                )
                         } finally {
                             envelopeBytes.fill(0)
                         }
@@ -1569,10 +1745,12 @@ internal class AndroidEngineMethodHandler(
                         licenseBytes,
                     )
                 }
+                val committedProfile = JSONObject(profile)
+                endpointIps?.applyTo(committedProfile)
                 val commitCommand =
                     JSONObject()
                         .put("command", "commit_profile_with_identity")
-                        .put("profile", JSONObject(profile))
+                        .put("profile", committedProfile)
                         .put(
                             "identity_provider",
                             if (method == "zeroTrust") "zero_trust" else "consumer",
@@ -1654,6 +1832,9 @@ internal class AndroidEngineMethodHandler(
             val profileId = profile.optString("id")
             var pendingCleanup: ByteArray? = null
             val provider = storedIdentityProvider(profileId, profile)
+            val zeroTrustEndpointReady =
+                !profile.has("zero_trust_endpoint_ready") ||
+                    profile.optBoolean("zero_trust_endpoint_ready", true)
             val state =
                 if (profileId.isBlank()) {
                     "invalid"
@@ -1665,7 +1846,8 @@ internal class AndroidEngineMethodHandler(
                             identity == null -> "missing"
 
                             engineBridge.validateWarpSecret(identity) == warpSecretOkCode &&
-                                provider.valid -> "ready"
+                                provider.valid &&
+                                (provider.provider != "zeroTrust" || zeroTrustEndpointReady) -> "ready"
 
                             else -> "invalid"
                         }
@@ -1714,6 +1896,15 @@ internal class AndroidEngineMethodHandler(
         val repairable: Boolean = valid,
         val entitlement: String? = null,
     )
+
+    private data class ZeroTrustEndpointIps(
+        val ipv4: String,
+        val ipv6: String,
+    ) {
+        fun applyTo(profile: JSONObject) {
+            profile.put("endpoint_v4", ipv4).put("endpoint_v6", ipv6)
+        }
+    }
 
     private fun consumerIdentityMetadata(identityJson: ByteArray?): ByteArray {
         val entitlement =

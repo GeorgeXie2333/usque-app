@@ -8,7 +8,8 @@ use super::{
     TransportPolicy,
 };
 
-/// Device-wide MASQUE, DNS, proxy, and output settings.
+/// Device-wide MASQUE, DNS, proxy, and output settings. A Zero Trust account
+/// overlays its registration-owned endpoint IPv4/IPv6 pair during hydration.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SharedNetworkSettings {
     pub frontends: FrontendSettings,
@@ -34,8 +35,8 @@ impl Default for SharedNetworkSettings {
 }
 
 impl SharedNetworkSettings {
-    /// Copy device-wide settings from a runtime profile. Endpoint settings are
-    /// shared by Consumer and Zero Trust accounts.
+    /// Copy device-wide settings from a runtime profile. Zero Trust endpoint
+    /// addresses are restored from the account after the shared copy is made.
     pub fn from_profile(profile: &Profile) -> Self {
         Self {
             frontends: profile.frontends,
@@ -55,13 +56,18 @@ impl SharedNetworkSettings {
     }
 
     pub fn hydrate(&self, account: &Account) -> Profile {
+        let mut endpoint = self.endpoint.clone();
+        if let Some(managed) = &account.managed_endpoint_ips {
+            endpoint.ipv4 = managed.ipv4;
+            endpoint.ipv6 = managed.ipv6;
+        }
         let mut profile = Profile {
             id: account.id,
             name: account.name.clone(),
             mode: super::OperatingMode::Vpn,
             frontends: self.frontends,
             transport: self.transport,
-            endpoint: self.endpoint.clone(),
+            endpoint,
             ip_policy: self.ip_policy,
             mtu: self.mtu,
             dns_mode: self.dns_mode,
