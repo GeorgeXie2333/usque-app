@@ -50,6 +50,24 @@ The MSI does not install the publisher certificate into the machine Root or Trus
 6. The reliability gate validates all protected reports, writes `reliability-report.json` and `device-matrix.md`, calculates final package checksums, and collects the release manifest and per-package SBOMs as publishable verification evidence.
 7. The publish job rechecks every primary package against the immutable manifest, then creates the GitHub release with the six install packages and the validated release evidence.
 
+## Release-note format
+
+`.github/RELEASE_NOTES_TEMPLATE.md` is the publication source for the GitHub
+Release body. Before creating a new release tag, replace the **Highlights**
+items with that release's user-visible changes. Every statement is written in
+English first, followed immediately by its Simplified Chinese translation.
+Keep the standard sections for official downloads, installation requirements,
+signature and evidence verification, and issue feedback.
+
+The release renderer accepts only the version, official repository URL, and
+the two validated signer fingerprints as template values. It rejects missing
+or unknown template values and links outside this repository. This keeps the
+published body free of community-group links, sponsorships, advertisements,
+affiliate links, and referral codes. GitHub-generated release notes stay off
+because an automatically appended monolingual changelog would break the
+bilingual ordering. The publish job fails instead of falling back to an
+unrendered or partially rendered body.
+
 Primary files:
 
 - `usque-v0.2.1-windows-x64-v2.msi`

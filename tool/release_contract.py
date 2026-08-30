@@ -16,6 +16,9 @@ SCHEMA_VERSION = 1
 TAG_PATTERN = re.compile(r"^v\d+\.\d+\.\d+(?:-beta\.\d+)?$")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+REPOSITORY_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+RELEASE_TEMPLATE_TOKEN_PATTERN = re.compile(r"\{\{([^{}]+)\}\}")
+HTTP_URL_PATTERN = re.compile(r"https?://[^\s<>)\]]+")
 CARGO_WORKSPACE_PACKAGE_PATTERN = re.compile(
     r"^\[workspace\.package\]\s*$\n(.*?)(?=^\[|\Z)", re.MULTILINE | re.DOTALL
 )
@@ -32,6 +35,18 @@ RELEASE_TAG_TRIGGER_PATTERN = re.compile(
 
 WINDOWS_VARIANTS = ("x64-v2", "arm64")
 ANDROID_VARIANTS = ("arm64-v8a", "x86_64", "armeabi-v7a", "universal")
+RELEASE_TEMPLATE_TOKENS = {
+    "release_tag",
+    "repository",
+    "windows_signer_sha256",
+    "android_signer_sha256",
+}
+RELEASE_NOTES_REQUIRED_HEADINGS = (
+    "## Highlights / 更新亮点",
+    "## Download / 下载",
+    "## Verify before installing / 安装前验证",
+    "## Feedback / 问题反馈",
+)
 
 
 class ContractError(ValueError):
@@ -90,6 +105,69 @@ def normalize_commit(value: Any) -> str:
     if not COMMIT_PATTERN.fullmatch(normalized):
         raise ContractError("commit must be one full 40-character Git SHA")
     return normalized
+
+
+def render_release_notes(
+    template: Path,
+    tag: str,
+    repository: str,
+    windows_signer: str,
+    android_signer: str,
+) -> str:
+    """Render the curated bilingual release body without external links."""
+
+    if not TAG_PATTERN.fullmatch(tag):
+        raise ContractError(f"unsupported release tag: {tag}")
+    repository = repository.strip()
+    if not REPOSITORY_PATTERN.fullmatch(repository):
+        raise ContractError(f"invalid GitHub repository: {repository!r}")
+    windows_signer = normalize_sha256(windows_signer, "Windows signer")
+    android_signer = normalize_sha256(android_signer, "Android signer")
+
+    template_text = _read_text(template)
+    tokens = set(RELEASE_TEMPLATE_TOKEN_PATTERN.findall(template_text))
+    missing = sorted(RELEASE_TEMPLATE_TOKENS - tokens)
+    unknown = sorted(tokens - RELEASE_TEMPLATE_TOKENS)
+    if missing or unknown:
+        raise ContractError(
+            f"release-note template token mismatch; missing={missing}, unknown={unknown}"
+        )
+    malformed_delimiters = "{{" in RELEASE_TEMPLATE_TOKEN_PATTERN.sub("", template_text) or (
+        "}}" in RELEASE_TEMPLATE_TOKEN_PATTERN.sub("", template_text)
+    )
+    if malformed_delimiters:
+        raise ContractError("release-note template contains a malformed token")
+    invalid_headings = [
+        heading for heading in RELEASE_NOTES_REQUIRED_HEADINGS if template_text.count(heading) != 1
+    ]
+    if invalid_headings:
+        raise ContractError(
+            "release-note template must contain each required bilingual heading exactly once: "
+            + ", ".join(invalid_headings)
+        )
+
+    repository_url = f"https://github.com/{repository}"
+    replacements = {
+        "release_tag": tag,
+        "repository": repository,
+        "windows_signer_sha256": windows_signer,
+        "android_signer_sha256": android_signer,
+    }
+    rendered = RELEASE_TEMPLATE_TOKEN_PATTERN.sub(
+        lambda match: replacements[match.group(1)], template_text
+    )
+    external_urls = sorted(
+        {
+            url
+            for url in HTTP_URL_PATTERN.findall(rendered)
+            if url != repository_url and not url.startswith(f"{repository_url}/")
+        }
+    )
+    if external_urls:
+        raise ContractError(
+            "release notes may link only to the official repository: " + ", ".join(external_urls)
+        )
+    return rendered if rendered.endswith("\n") else rendered + "\n"
 
 
 def _read_text(path: Path) -> str:
@@ -302,6 +380,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     version.add_argument("--tag", required=True)
     version.add_argument("--android-version-code", type=int, required=True)
 
+    notes = subparsers.add_parser("render-release-notes")
+    notes.add_argument("--template", type=Path, required=True)
+    notes.add_argument("--tag", required=True)
+    notes.add_argument("--repository", required=True)
+    notes.add_argument("--windows-signer-sha256", required=True)
+    notes.add_argument("--android-signer-sha256", required=True)
+    notes.add_argument("--output", type=Path, required=True)
+
     return parser.parse_args(argv)
 
 
@@ -321,6 +407,16 @@ def main(argv: list[str] | None = None) -> int:
             verify_artifacts(args.directory, load_json(args.manifest))
         elif args.command == "verify-version":
             verify_release_version(args.root, args.tag, args.android_version_code)
+        elif args.command == "render-release-notes":
+            notes = render_release_notes(
+                args.template,
+                args.tag,
+                args.repository,
+                args.windows_signer_sha256,
+                args.android_signer_sha256,
+            )
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_bytes(notes.encode("utf-8"))
         else:  # pragma: no cover - argparse guarantees the command
             raise AssertionError(args.command)
     except ContractError as error:

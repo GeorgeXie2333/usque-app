@@ -59,6 +59,60 @@ class ReleaseContractTests(unittest.TestCase):
             release_contract.artifact_index(manifest)
 
 
+class ReleaseNotesContractTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.template = (
+            Path(__file__).resolve().parent.parent / ".github" / "RELEASE_NOTES_TEMPLATE.md"
+        )
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def render(self, template: Path | None = None) -> str:
+        return release_contract.render_release_notes(
+            template or self.template,
+            "v9.8.7-beta.3",
+            "Example/Usque",
+            "b" * 64,
+            "c" * 64,
+        )
+
+    def test_checked_in_template_renders_bilingual_official_links(self) -> None:
+        rendered = self.render()
+
+        self.assertNotIn("{{", rendered)
+        self.assertIn("Usque v9.8.7-beta.3 official release", rendered)
+        self.assertIn("usque-v9.8.7-beta.3-windows-x64-v2.msi", rendered)
+        self.assertIn("usque-v9.8.7-beta.3-android-universal.apk", rendered)
+        self.assertIn("`" + "b" * 64 + "`", rendered)
+        self.assertIn("`" + "c" * 64 + "`", rendered)
+        self.assertLess(rendered.index("Download packages only"), rendered.index("请仅从此"))
+
+    def test_rejects_missing_or_unknown_template_tokens(self) -> None:
+        invalid = Path(self.temporary.name) / "invalid.md"
+        invalid.write_text(
+            self.template.read_text(encoding="utf-8").replace(
+                "{{android_signer_sha256}}", "{{sponsor_url}}"
+            ),
+            encoding="utf-8",
+        )
+
+        with self.assertRaises(release_contract.ContractError):
+            self.render(invalid)
+
+    def test_rejects_links_outside_the_official_repository(self) -> None:
+        invalid = Path(self.temporary.name) / "external.md"
+        invalid.write_text(
+            self.template.read_text(encoding="utf-8")
+            + "\n[External promotion](https://example.com/promo)\n",
+            encoding="utf-8",
+        )
+
+        with self.assertRaises(release_contract.ContractError):
+            self.render(invalid)
+
+
 class ReleaseVersionContractTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()

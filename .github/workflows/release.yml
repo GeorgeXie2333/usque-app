@@ -980,6 +980,20 @@ jobs:
           test "$(find "$publish" -maxdepth 1 -type f | wc -l)" -eq 6
           cp "$RUNNER_TEMP"/evidence/* "$publish/"
 
+      - name: Render English-first bilingual release notes
+        env:
+          WINDOWS_SIGNER_SHA256: ${{ vars.WINDOWS_SIGNER_SHA256 }}
+          ANDROID_SIGNER_SHA256: ${{ vars.ANDROID_SIGNER_SHA256 }}
+        run: |
+          set -euo pipefail
+          python tool/release_contract.py render-release-notes \
+            --template .github/RELEASE_NOTES_TEMPLATE.md \
+            --tag "$RELEASE_TAG" \
+            --repository "$GITHUB_REPOSITORY" \
+            --windows-signer-sha256 "$WINDOWS_SIGNER_SHA256" \
+            --android-signer-sha256 "$ANDROID_SIGNER_SHA256" \
+            --output "$RUNNER_TEMP/release-notes.md"
+
       - name: Publish GitHub release only after signing and supply-chain gates
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
@@ -990,21 +1004,5 @@ jobs:
           draft: false
           make_latest: true
           fail_on_unmatched_files: true
-          generate_release_notes: true
-          previous_tag: v0.2.0
-          body: |
-            ## Highlights
-
-            - GeoSite and GeoIP direct routing now covers Android VPN, Windows TUN, SOCKS5, and HTTP, with Split DNS classifying domains before WARP DNS.
-            - Country rules can be downloaded while disconnected, using validated GeoIP data and the full V2Fly GeoSite database.
-            - Direct-country controls now live on a dedicated Settings page, alongside DNS hinting, network-change cleanup, and transport hardening.
-
-            ## DNS privacy
-
-            GeoSite-matched DNS queries use the current physical network DNS and can be visible to that network. Apps using their own DoH or DoT hide the domain from Usque, so those connections fall back to GeoIP routing.
-
-            ## Official signer fingerprints
-
-            - Windows Authenticode certificate SHA-256: `${{ vars.WINDOWS_SIGNER_SHA256 }}`
-            - Android release certificate SHA-256: `${{ vars.ANDROID_SIGNER_SHA256 }}`
+          body_path: ${{ runner.temp }}/release-notes.md
           files: ${{ runner.temp }}/publish/*
