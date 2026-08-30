@@ -12,10 +12,11 @@ Use the checked-in sources instead of duplicating mutable procedures:
   versions and local build behavior.
 - `.github/workflows/ci.yml` and `.github/workflows/build.yml` define CI and
   compile-only gates.
-- `.github/workflows/release.yml`, `tool/release_contract.py`,
-  `tool/reliability_gate.py`, `docs/CODE_SIGNING.md`, and
-  `docs/RELIABILITY_TESTING.md` define release, signing, evidence, and
-  protected-runner contracts.
+- `.github/workflows/release.yml`, `tool/release_contract.py`, and
+  `docs/CODE_SIGNING.md` define release and signing contracts.
+- `tool/reliability_gate.py` and `docs/RELIABILITY_TESTING.md` define optional
+  protected-runner validation and evidence contracts. Protected runners are
+  supplemental and are not a publication prerequisite.
 
 If sources conflict, apply the most restrictive safety rule. For executable
 behavior, follow the helper or workflow and update stale documentation in the
@@ -159,7 +160,11 @@ candidate. Local artifacts cannot replace a failed job. Do not access signing
 secrets, move release tags, publish releases, or upload artifacts without an
 explicit user request and satisfied approval gates.
 
-Protected reports must match the exact candidate; `failed`, `not_run`,
-missing, forged, or wrong-environment evidence blocks publication. Restricted
-packet captures and raw lab evidence stay in restricted CI artifacts; only the
-allowlisted sanitized release evidence may be public.
+Protected-runner execution and reports are optional, non-blocking validation
+and must not gate publication. Their absence, `failed` or `not_run` status, or
+an unavailable runner does not block publication. Never present such a result as
+a pass. Any report used or published as release evidence must match the exact
+candidate and come from the required isolated environment. Forged,
+wrong-candidate, or wrong-environment evidence must be rejected. Restricted
+packet captures and raw lab evidence stay in restricted CI artifacts; only
+allowlisted sanitized evidence may be public.
