@@ -24,7 +24,7 @@ body:
     attributes:
       label: Version or commit
       description: Use the exact release tag, validation label, or commit SHA.
-      placeholder: v0.2.1 or 40-character commit SHA
+      placeholder: v0.2.2 or 40-character commit SHA
     validations:
       required: true
   - type: dropdown

@@ -2,7 +2,7 @@
 
 Usque separates deterministic pull-request evidence from destructive or
 network-observer release evidence. Missing infrastructure is never converted
-to a pass.
+to a pass, and protected-runner availability does not gate publication.
 
 ## Pull-request gate
 
@@ -14,8 +14,10 @@ change host routes, DNS, firewall, proxy, or TUN state.
 
 ## Protected release runners
 
-The public release workflow waits for four explicitly labelled, self-hosted
-runners after the exact signed candidate has been staged:
+After the exact signed candidate has been staged, the public release workflow
+selects four explicitly labelled self-hosted runners only when repository
+variable `RUN_PROTECTED_RELEASE_VALIDATION` is exactly `true`. Publication does
+not wait for these supplemental jobs:
 
 | Runner label | Required isolation | Scope |
 | --- | --- | --- |
@@ -53,12 +55,14 @@ mismatches, empty files, and oversized files fail closed.
 
 `tool/reliability_gate.py` rejects unknown gates, wrong environments,
 duplicates, missing or forged evidence, candidate digest mismatches, `failed`,
-and `not_run`. It emits the publishable `reliability-report.json` and
-`device-matrix.md` only when all required gates pass. PCAPs stay in restricted
-CI artifacts and are never copied into the public diagnostic bundle or GitHub
-release.
+and `not_run`. It emits the validated `reliability-report.json` and
+`device-matrix.md` only when all required gates pass. The release workflow keeps
+that validated summary as a protected Actions artifact; missing or failed
+optional runs produce no summary and do not block publication. PCAPs stay in
+restricted CI artifacts and are never copied into the public diagnostic bundle
+or GitHub release.
 
 The final public release includes the signed packages, per-package SPDX SBOMs,
-`release-manifest.json`, `SHA256SUMS`, `reliability-report.json`, and
-`device-matrix.md`. Package checksums are calculated after signing and against
-the same immutable files used by the protected runners.
+`release-manifest.json`, and `SHA256SUMS`. Package checksums are calculated after
+signing and against the same immutable candidate offered to any enabled
+protected runners.

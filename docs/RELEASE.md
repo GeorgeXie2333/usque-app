@@ -1,12 +1,12 @@
-# How v0.2.1 is published
+# How v0.2.2 is published
 
-`v0.2.1` is built by the tag workflow on the current `main` commit. The `v0.2.1` tag is maintainer-only. Signing and publish jobs run in GitHub Environments that need approval. If a required file, signature input, or CI result is missing, the workflow fails. A local MSI or APK cannot replace a failed Actions build.
+`v0.2.2` is built by the tag workflow on the current `main` commit. The `v0.2.2` tag is maintainer-only. Signing and publish jobs run in GitHub Environments that need approval. If a required file, signature input, or CI result is missing, the workflow fails. A local MSI or APK cannot replace a failed Actions build.
 
 Which signatures count as official, how fingerprints are published, and what happens if a key is lost or leaked are in [CODE_SIGNING.md](CODE_SIGNING.md). Repository rules around this workflow are in [GITHUB_GOVERNANCE.md](GITHUB_GOVERNANCE.md).
 
 ## Before signing starts
 
-- The tag must be `v0.2.1` and must point at the current `main` commit.
+- The tag must be `v0.2.2` and must point at the current `main` commit.
 - That commit must already have a successful `ci.yml` push run, including `CI / gate`.
 - `release-signing` and `release-publish` both require approval.
 - Android Developer Console must show `io.github.georgexie2333.usque` and the certificate fingerprint in `ANDROID_SIGNER_SHA256` as **Registered**.
@@ -45,10 +45,9 @@ The MSI does not install the publisher certificate into the machine Root or Trus
 1. The tag job builds signed x64-v2 and ARM64 MSIs plus signed arm64-v8a, x86_64, armeabi-v7a, and universal APKs in the signing environment.
 2. Each platform job checks the certificate identity and creates GitHub build provenance.
 3. A staging job downloads those artifacts, rejects missing or extra MSI/APK files, writes an internal release manifest, generates SPDX SBOMs, and records SBOM attestations.
-4. Four protected self-hosted runner classes exercise the exact staged candidate: a Windows snapshot VM, a dedicated Android device, an independent network observer, and a controlled performance lab.
-5. Each protected runner uploads its fixed report and restricted evidence. Missing infrastructure, `failed`, `not_run`, a wrong candidate digest, or malformed evidence blocks the release.
-6. The reliability gate validates all protected reports, writes `reliability-report.json` and `device-matrix.md`, calculates final package checksums, and collects the release manifest and per-package SBOMs as publishable verification evidence.
-7. The publish job rechecks every primary package against the immutable manifest, then creates the GitHub release with the six install packages and the validated release evidence.
+4. The publish job rechecks every primary package against the immutable manifest, calculates final package checksums, and creates the GitHub release with the six install packages, manifest, checksums, and per-package SBOMs.
+5. When repository variable `RUN_PROTECTED_RELEASE_VALIDATION` is exactly `true`, four protected self-hosted runner classes separately exercise the staged candidate: a Windows snapshot VM, a dedicated Android device, an independent network observer, and a controlled performance lab.
+6. Protected validation is supplemental and does not gate publication. The aggregator emits `reliability-report.json` and `device-matrix.md` as a protected Actions artifact only when every required report and evidence file passes its exact-candidate and isolation checks. Missing infrastructure, `failed`, and `not_run` remain visible non-passes and never become release approval.
 
 ## Release-note format
 
@@ -70,20 +69,19 @@ unrendered or partially rendered body.
 
 Primary files:
 
-- `usque-v0.2.1-windows-x64-v2.msi`
-- `usque-v0.2.1-windows-arm64.msi`
-- `usque-v0.2.1-android-arm64-v8a.apk`
-- `usque-v0.2.1-android-x86_64.apk`
-- `usque-v0.2.1-android-armeabi-v7a.apk`
-- `usque-v0.2.1-android-universal.apk`
+- `usque-v0.2.2-windows-x64-v2.msi`
+- `usque-v0.2.2-windows-arm64.msi`
+- `usque-v0.2.2-android-arm64-v8a.apk`
+- `usque-v0.2.2-android-x86_64.apk`
+- `usque-v0.2.2-android-armeabi-v7a.apk`
+- `usque-v0.2.2-android-universal.apk`
 
 In addition to the six install packages, the public release includes
-`release-manifest.json`, `SHA256SUMS`, each package's SPDX SBOM,
-`reliability-report.json`, and `device-matrix.md`. A public release requires the
-usual CI, architecture, signature, package, checksum, SBOM, and provenance
-checks plus every protected reliability gate. The environments, evidence
-contract, and privacy boundary are documented in
-[RELIABILITY_TESTING.md](RELIABILITY_TESTING.md).
+`release-manifest.json`, `SHA256SUMS`, and each package's SPDX SBOM. A public
+release requires the usual CI, architecture, signature, package, checksum,
+SBOM, and provenance checks. Protected-runner validation is optional and
+non-blocking; its environments, evidence contract, and privacy boundary are
+documented in [RELIABILITY_TESTING.md](RELIABILITY_TESTING.md).
 
 ## Windows package rules
 
@@ -94,7 +92,7 @@ MSI build = SemVer patch * 100 + beta ordinal
 stable ordinal = 99
 ```
 
-Stable `v0.2.1` is therefore MSI ProductVersion `0.2.199`. The real SemVer stays in ProductName and the filenames. Equal-version major upgrades are enabled so a validation build can replace the same product instead of installing a second copy under `Program Files\Usque`. WiX validation suppresses only ICE61, which assumes upgrades must raise the version; every other standard ICE check stays on.
+Stable `v0.2.2` is therefore MSI ProductVersion `0.2.299`. The real SemVer stays in ProductName and the filenames. Equal-version major upgrades are enabled so a validation build can replace the same product instead of installing a second copy under `Program Files\Usque`. WiX validation suppresses only ICE61, which assumes upgrades must raise the version; every other standard ICE check stays on.
 
 The Agent is installed as demand-start and is not started by the MSI. Its
 `MsiLockPermissionsEx` descriptor gives `SYSTEM` and Administrators full service
@@ -130,8 +128,9 @@ GitHub-hosted runners compile, test, sign, inspect, hash, inventory, attest, and
 aggregate the release. They do not install an MSI, start Windows VPN/TUN,
 change runner networking, or install APKs on devices.
 
-The separate protected self-hosted jobs perform destructive lifecycle,
+The separate, opt-in protected self-hosted jobs perform destructive lifecycle,
 independent-network, and performance testing only in the environments described
-in [RELIABILITY_TESTING.md](RELIABILITY_TESTING.md). Do not provision those
-runner labels on a developer workstation, and do not treat an environment
-variable or label as proof of isolation.
+in [RELIABILITY_TESTING.md](RELIABILITY_TESTING.md). They are supplemental and
+do not gate publication. Do not provision those runner labels on a developer
+workstation, and do not treat an environment variable or label as proof of
+isolation.

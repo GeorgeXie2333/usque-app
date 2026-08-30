@@ -6,12 +6,14 @@ immediately below the matching English text.
 
 ## Highlights / 更新亮点
 
-- GeoSite and GeoIP direct routing now covers Android VPN, Windows TUN, SOCKS5, and HTTP. Split DNS classifies domains before WARP DNS.
-  <br>GeoSite 与 GeoIP 直连路由现已覆盖 Android VPN、Windows TUN、SOCKS5 和 HTTP；Split DNS 会在 WARP DNS 之前完成域名分类。
-- Country and region rules can now be downloaded while disconnected, using validated GeoIP data and the complete V2Fly GeoSite database.
-  <br>现在可在未连接时下载国家与地区规则，并使用经过验证的 GeoIP 数据和完整的 V2Fly GeoSite 数据库。
-- Direct-country controls now have a dedicated Settings page, together with clearer DNS guidance, network-change cleanup, and transport hardening.
-  <br>国家与地区直连控制现已移至独立的“设置”页面，并改进了 DNS 提示、网络变化清理和传输层加固。
+- Verified in-app upgrades are now available on Windows and Android. Usque requires the architecture-matched package, release manifest, size, SHA-256, signer, package identity, and version to agree before handing the update to the platform installer.
+  <br>Windows 与 Android 现已支持经过验证的应用内升级。Usque 仅在架构匹配的软件包、Release 清单、大小、SHA-256、签名者、软件包身份和版本全部一致后，才会将更新交给系统安装程序。
+- Structured diagnostics now explain tunnel, transport, frontend, and platform failures and can export privacy-sanitized evidence. Official releases add an immutable manifest, checksums, and per-package SBOMs; isolated-runner reports remain optional supplemental validation.
+  <br>结构化诊断现可说明隧道、传输层、前端和平台故障，并导出经过隐私清理的证据。正式 Release 还会附带不可变清单、校验和与逐包 SBOM；隔离 Runner 报告作为可选的补充验证。
+- H3 and H2 transport paths now reduce packet copies, allocations, logging contention, and nested timers. Windows packet-ring batching and fairer Android tunnel scheduling improve sustained traffic handling.
+  <br>H3 与 H2 传输路径现已减少数据包复制、内存分配、日志竞争和嵌套计时器；Windows 数据包环批处理与更公平的 Android 隧道调度可改善持续流量处理。
+- Navigation, accessibility, touch behavior, platform-specific VPN labels, and translations have been refined. Zero Trust reauthentication now preserves registration-owned endpoint addresses while sharing device-wide port and SNI settings consistently.
+  <br>导航、无障碍、触控行为、平台专用 VPN 标签和翻译均已改进；Zero Trust 重新认证现会保留注册方下发的端点地址，并一致共享设备级端口与 SNI 设置。
 
 ### DNS privacy / DNS 隐私
 
@@ -62,9 +64,9 @@ For complete installation, upgrade, and uninstall guidance, see the [installatio
 >
 > v1.0 之前的 Windows 软件包使用固定的自签名身份，系统可能显示“未知发布者”警告。Android 软件包使用由项目管理的固定证书，且不通过 Google Play 分发。
 
-Release evidence: [manifest](https://github.com/{{repository}}/releases/download/{{release_tag}}/release-manifest.json) · [reliability report](https://github.com/{{repository}}/releases/download/{{release_tag}}/reliability-report.json) · [device matrix](https://github.com/{{repository}}/releases/download/{{release_tag}}/device-matrix.md)
+Release evidence: [manifest](https://github.com/{{repository}}/releases/download/{{release_tag}}/release-manifest.json) · [SHA-256 checksums](https://github.com/{{repository}}/releases/download/{{release_tag}}/SHA256SUMS) · per-package SPDX SBOMs attached to this release
 
-发布验证材料：[清单](https://github.com/{{repository}}/releases/download/{{release_tag}}/release-manifest.json) · [可靠性报告](https://github.com/{{repository}}/releases/download/{{release_tag}}/reliability-report.json) · [设备矩阵](https://github.com/{{repository}}/releases/download/{{release_tag}}/device-matrix.md)
+发布验证材料：[清单](https://github.com/{{repository}}/releases/download/{{release_tag}}/release-manifest.json) · [SHA-256 校验和](https://github.com/{{repository}}/releases/download/{{release_tag}}/SHA256SUMS) · 此 Release 附带的逐包 SPDX SBOM
 
 ## Feedback / 问题反馈
 

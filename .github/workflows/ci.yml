@@ -401,12 +401,12 @@ jobs:
       - name: Test fail-closed artifact contract
         run: python -m unittest discover -s tool -p "test_*.py" -v
 
-      - name: Verify v0.2.1 release version contract
+      - name: Verify v0.2.2 release version contract
         run: |
           python tool/release_contract.py verify-version \
             --root . \
-            --tag v0.2.1 \
-            --android-version-code 15
+            --tag v0.2.2 \
+            --android-version-code 16
 
   windows-installer-authoring:
     name: MSI authoring (${{ matrix.arch }})
@@ -442,19 +442,19 @@ jobs:
       - name: Verify MSI version mapping
         shell: pwsh
         run: |
-          $stable = & ./tool/convert_to_msi_version.ps1 -SemVer "v0.2.1"
-          if ($stable -ne "0.2.199") {
+          $stable = & ./tool/convert_to_msi_version.ps1 -SemVer "v0.2.2"
+          if ($stable -ne "0.2.299") {
             throw "Stable MSI version mapping is invalid: $stable"
           }
 
-          $beta = & ./tool/convert_to_msi_version.ps1 -SemVer "0.2.1-beta.3"
-          if ($beta -ne "0.2.103") {
+          $beta = & ./tool/convert_to_msi_version.ps1 -SemVer "0.2.2-beta.3"
+          if ($beta -ne "0.2.203") {
             throw "Beta MSI version mapping is invalid: $beta"
           }
 
           $rejected = $false
           try {
-            & ./tool/convert_to_msi_version.ps1 -SemVer "0.2.1-beta.0"
+            & ./tool/convert_to_msi_version.ps1 -SemVer "0.2.2-beta.0"
           } catch {
             $rejected = $_.Exception.Message -like "Beta ordinal must be*"
           }
@@ -485,8 +485,8 @@ jobs:
             -arch "${{ matrix.arch }}" `
             -ext "WixToolset.UI.wixext/5.0.2" `
             -bindpath "app=$payload" `
-            -define "DisplayVersion=0.2.1" `
-            -define "MsiVersion=0.2.199" `
+            -define "DisplayVersion=0.2.2" `
+            -define "MsiVersion=0.2.299" `
             -define "Variant=${{ matrix.variant }}" `
             -define "SignerSha256=$("0" * 64)" `
             -define "IconPath=$((Resolve-Path "assets/branding/usque-app-icon.ico").Path)" `
@@ -502,8 +502,8 @@ jobs:
           & ./tool/verify_windows_msi.ps1 `
             -MsiPath $output `
             -Variant "${{ matrix.variant }}" `
-            -ExpectedMsiVersion "0.2.199" `
-            -ExpectedDisplayVersion "0.2.1" `
+            -ExpectedMsiVersion "0.2.299" `
+            -ExpectedDisplayVersion "0.2.2" `
             -SignerSha256 ("0" * 64)
 
           # Equal-version validation packages intentionally replace the same

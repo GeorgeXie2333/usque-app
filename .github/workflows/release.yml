@@ -3,7 +3,7 @@ name: Public release
 on:
   push:
     tags:
-      - "v0.2.1"
+      - "v0.2.2"
 
 concurrency:
   group: release-${{ github.ref }}
@@ -17,8 +17,8 @@ env:
   CMAKE_GENERATOR: Ninja
   FLUTTER_COMMIT: 84fc5cbb223bc12f83d65b647ff8a56caf779ffd
   FLUTTER_VERSION: 3.44.7
-  RELEASE_TAG: v0.2.1
-  ANDROID_VERSION_CODE: "15"
+  RELEASE_TAG: v0.2.2
+  ANDROID_VERSION_CODE: "16"
   DOTNET_CLI_TELEMETRY_OPTOUT: "1"
 
 jobs:
@@ -687,6 +687,7 @@ jobs:
 
   windows-reliability:
     name: Windows snapshot VM lifecycle and recovery
+    if: ${{ vars.RUN_PROTECTED_RELEASE_VALIDATION == 'true' }}
     needs: stage-candidate
     runs-on: [self-hosted, Windows, X64, usque-snapshot-vm]
     timeout-minutes: 180
@@ -736,6 +737,7 @@ jobs:
 
   android-reliability:
     name: Android physical-device lifecycle
+    if: ${{ vars.RUN_PROTECTED_RELEASE_VALIDATION == 'true' }}
     needs: stage-candidate
     runs-on: [self-hosted, Linux, ARM64, usque-android-device]
     timeout-minutes: 180
@@ -780,6 +782,7 @@ jobs:
 
   network-leak-reliability:
     name: Independent IPv4, IPv6, DNS, route, and Kill Switch observer
+    if: ${{ vars.RUN_PROTECTED_RELEASE_VALIDATION == 'true' }}
     needs: stage-candidate
     runs-on: [self-hosted, Linux, X64, usque-network-observer]
     timeout-minutes: 180
@@ -824,6 +827,7 @@ jobs:
 
   performance-reliability:
     name: Informational controlled performance baseline
+    if: ${{ vars.RUN_PROTECTED_RELEASE_VALIDATION == 'true' }}
     needs: stage-candidate
     runs-on: [self-hosted, Linux, X64, usque-performance-lab]
     timeout-minutes: 120
@@ -874,8 +878,9 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  release-reliability-gate:
-    name: Require the complete reliability and device matrix
+  protected-reliability-summary:
+    name: Validate optional protected reliability evidence
+    if: ${{ always() && vars.RUN_PROTECTED_RELEASE_VALIDATION == 'true' && needs.windows-reliability.result == 'success' && needs.android-reliability.result == 'success' && needs.network-leak-reliability.result == 'success' && needs.performance-reliability.result == 'success' }}
     needs:
       - stage-candidate
       - windows-reliability
@@ -912,7 +917,7 @@ jobs:
       - name: Reject failed, missing, not-run, or wrong-candidate evidence
         run: |
           set -euo pipefail
-          evidence="$RUNNER_TEMP/release-evidence"
+          evidence="$RUNNER_TEMP/protected-validation-summary"
           mkdir -p "$evidence"
           python tool/reliability_gate.py aggregate \
             --reports-directory "$RUNNER_TEMP/reports" \
@@ -921,24 +926,18 @@ jobs:
             --commit "$GITHUB_SHA" \
             --output "$evidence/reliability-report.json" \
             --device-matrix "$evidence/device-matrix.md"
-          (
-            cd "$RUNNER_TEMP/candidate"
-            sha256sum -- *.msi *.apk > "$evidence/SHA256SUMS"
-          )
-          cp "$RUNNER_TEMP/candidate/release-manifest.json" "$evidence/"
-          cp "$RUNNER_TEMP"/candidate/*.spdx.json "$evidence/"
 
-      - name: Upload immutable release verification evidence
+      - name: Upload validated supplemental reliability summary
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: usque-release-evidence
-          path: ${{ runner.temp }}/release-evidence
+          name: usque-protected-validation-summary
+          path: ${{ runner.temp }}/protected-validation-summary
           if-no-files-found: error
           retention-days: 90
 
   publish:
     name: Reverify and publish release
-    needs: release-reliability-gate
+    needs: stage-candidate
     runs-on: ubuntu-24.04
     environment: release-publish
     permissions:
@@ -954,12 +953,6 @@ jobs:
         with:
           name: usque-release-candidate
           path: ${{ runner.temp }}/candidate
-
-      - name: Download release verification evidence
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: usque-release-evidence
-          path: ${{ runner.temp }}/evidence
 
       - name: Reverify exact artifacts before publication
         run: |
@@ -978,7 +971,14 @@ jobs:
               sort -z
           )
           test "$(find "$publish" -maxdepth 1 -type f | wc -l)" -eq 6
-          cp "$RUNNER_TEMP"/evidence/* "$publish/"
+          test "$(find "$RUNNER_TEMP/candidate" -maxdepth 1 -type f -name '*.spdx.json' | wc -l)" -eq 6
+          cp "$RUNNER_TEMP/candidate/release-manifest.json" "$publish/"
+          cp "$RUNNER_TEMP"/candidate/*.spdx.json "$publish/"
+          (
+            cd "$publish"
+            sha256sum -- *.msi *.apk > SHA256SUMS
+          )
+          test "$(find "$publish" -maxdepth 1 -type f | wc -l)" -eq 14
 
       - name: Render English-first bilingual release notes
         env:

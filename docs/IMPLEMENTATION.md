@@ -165,8 +165,8 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] Add an exact-candidate H3/H2 endpoint and independent IPv4, IPv6, DNS, Kill Switch, route, and direct-rule observer gate.
 - [x] Add a protected Windows snapshot-VM matrix for clean install, upgrade, connected uninstall, Engine/Agent failure, sleep/network change, platform-state restoration, and Wintun residue.
 - [x] Add a protected Android physical-device matrix for network changes, airplane mode, Doze, process reclamation, Always-on, Lockdown, reboot, upgrade, and TV lifecycle.
-- [x] Require a controlled seven-sample performance baseline and its protected evidence report before publication.
-- [ ] Define enforced throughput, latency, and memory thresholds versus the Go oracle (wish targets: throughput >= 90%, p95 latency regression <= 10%, memory <= 125%). The required baseline currently records and validates evidence but does not encode these numeric acceptance targets.
+- [x] Add an optional controlled seven-sample performance baseline and protected evidence report without making runner availability a publication prerequisite.
+- [ ] Define enforced throughput, latency, and memory thresholds versus the Go oracle (wish targets: throughput >= 90%, p95 latency regression <= 10%, memory <= 125%). The optional baseline records and validates evidence but does not encode these numeric acceptance targets.
 - [x] Stable signing identities and published fingerprints.
 - [x] The protected stable tag workflow builds every declared package from `main`.
 - [x] SHA-256, SPDX SBOM attestations, provenance, commit, and certificate fingerprint.

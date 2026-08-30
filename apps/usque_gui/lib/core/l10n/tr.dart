@@ -296,7 +296,7 @@ const Map<String, String> kTrCatalog = <String, String>{
       'Usque Engine durumu, günlük dışa aktarma ve yerel veriler.',
   'engine_status': 'Usque Engine durumu',
   'version': 'Sürüm',
-  'app_version': 'Usque 0.2.1',
+  'app_version': 'Usque 0.2.2',
   'logs': 'Yerel günlükler',
   'export_diagnostics': 'Tanılama paketini dışa aktar',
   'diagnostics_saved': 'Tanılama paketi şuraya kaydedildi',
