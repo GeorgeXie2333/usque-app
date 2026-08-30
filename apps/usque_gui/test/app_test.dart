@@ -1220,6 +1220,7 @@ void main() {
 
   test('compact navigation labels keep reviewed short translations', () {
     expect(AppStrings(LocalePreference.arabic).get('nav_profiles'), 'الحسابات');
+    expect(AppStrings(LocalePreference.arabic).get('nav_settings'), 'إعدادات');
     expect(AppStrings(LocalePreference.german).get('nav_settings'), 'Optionen');
     expect(AppStrings(LocalePreference.french).get('nav_settings'), 'Réglages');
     expect(

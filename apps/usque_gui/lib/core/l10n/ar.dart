@@ -18,7 +18,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'nav_home': 'الرئيسية',
   'nav_profiles': 'الحسابات',
   'nav_proxy': 'الوكيل',
-  'nav_settings': 'الإعدادات',
+  'nav_settings': 'إعدادات',
   'status_stream_degraded': 'تحديثات الحالة المباشرة متدهورة',
   'status_stream_degraded_body':
       'استطلاع الحالة نشط؛ ستُعاد محاولة التحديثات المباشرة تلقائيًا.',
