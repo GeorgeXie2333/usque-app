@@ -105,7 +105,7 @@ const Map<String, String> kJaCatalog = <String, String>{
   'socks_mode': 'SOCKS5',
   'http_mode': 'HTTP',
   'edit_profile': 'プロファイルを編集',
-  'tunnel_output': 'VPN / 仮想アダプター',
+  'tunnel_output': 'VPN (TUN)',
   'channel_only': 'MASQUE チャネルのみ',
   'channel_only_warning': 'ネットワーク出力が有効になっていません。',
   'socks_listener': 'SOCKS5 リスナー',

@@ -417,7 +417,7 @@ class _NetworkOutputsPanel extends StatelessWidget {
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
           secondary: const Icon(LucideIcons.shield),
-          title: Text(strings.get('tunnel_output')),
+          title: Text(strings.tunnelOutputLabel(defaultTargetPlatform)),
           value: frontends.tunnel,
           onChanged: (value) => controller.updateNetwork(
             profile.copyWith(frontends: frontends.copyWith(tunnel: value)),

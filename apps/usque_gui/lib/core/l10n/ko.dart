@@ -105,7 +105,7 @@ const Map<String, String> kKoCatalog = <String, String>{
   'socks_mode': 'SOCKS5',
   'http_mode': 'HTTP',
   'edit_profile': '프로필 편집',
-  'tunnel_output': 'VPN / 가상 어댑터',
+  'tunnel_output': 'VPN (TUN)',
   'channel_only': 'MASQUE 채널만',
   'channel_only_warning': '사용 설정된 네트워크 출력이 없습니다.',
   'socks_listener': 'SOCKS5 리스너',

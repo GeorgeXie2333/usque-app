@@ -110,7 +110,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'socks_mode': 'SOCKS5',
   'http_mode': 'HTTP',
   'edit_profile': 'Ubah profil',
-  'tunnel_output': 'VPN / adaptor virtual',
+  'tunnel_output': 'VPN (TUN)',
   'channel_only': 'Hanya saluran MASQUE',
   'channel_only_warning': 'Tidak ada keluaran jaringan yang diaktifkan.',
   'socks_listener': 'Listener SOCKS5',

@@ -21,6 +21,11 @@ class AppStrings {
     return values[key] ?? kEnCatalog[key] ?? key;
   }
 
+  String tunnelOutputLabel(TargetPlatform platform) =>
+      platform == TargetPlatform.android
+      ? get('vpn_mode')
+      : get('tunnel_output');
+
   @visibleForTesting
   static bool get debugCatalogsAreComplete {
     final englishKeys = kEnCatalog.keys.toSet();

@@ -115,7 +115,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'socks_mode': 'SOCKS5',
   'http_mode': 'HTTP',
   'edit_profile': 'Profil bearbeiten',
-  'tunnel_output': 'VPN / virtueller Adapter',
+  'tunnel_output': 'VPN (TUN)',
   'channel_only': 'Nur MASQUE-Kanal',
   'channel_only_warning': 'Keine Netzwerkausgabe ist aktiviert.',
   'socks_listener': 'SOCKS5-Listener',

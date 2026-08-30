@@ -110,7 +110,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'socks_mode': 'SOCKS5',
   'http_mode': 'HTTP',
   'edit_profile': 'Sửa hồ sơ',
-  'tunnel_output': 'VPN / bộ điều hợp ảo',
+  'tunnel_output': 'VPN (TUN)',
   'channel_only': 'Chỉ kênh MASQUE',
   'channel_only_warning': 'Chưa bật đầu ra mạng nào.',
   'socks_listener': 'Trình lắng nghe SOCKS5',

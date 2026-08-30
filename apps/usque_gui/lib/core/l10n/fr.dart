@@ -115,7 +115,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'socks_mode': 'SOCKS5',
   'http_mode': 'HTTP',
   'edit_profile': 'Modifier le profil',
-  'tunnel_output': 'VPN / adaptateur virtuel',
+  'tunnel_output': 'VPN (TUN)',
   'channel_only': 'Canal MASQUE uniquement',
   'channel_only_warning': 'Aucune sortie réseau n’est activée.',
   'socks_listener': 'Écouteur SOCKS5',

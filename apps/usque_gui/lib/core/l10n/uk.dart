@@ -112,7 +112,7 @@ const Map<String, String> kUkCatalog = <String, String>{
   'socks_mode': 'SOCKS5',
   'http_mode': 'HTTP',
   'edit_profile': 'Редагувати профіль',
-  'tunnel_output': 'VPN / віртуальний адаптер',
+  'tunnel_output': 'VPN (TUN)',
   'channel_only': 'Лише канал MASQUE',
   'channel_only_warning': 'Жоден мережевий вихід не ввімкнено.',
   'socks_listener': 'Слухач SOCKS5',

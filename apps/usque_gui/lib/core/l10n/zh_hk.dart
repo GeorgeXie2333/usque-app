@@ -100,7 +100,7 @@ const Map<String, String> kZhHkCatalog = <String, String>{
   'socks_mode': 'SOCKS5',
   'http_mode': 'HTTP',
   'edit_profile': '編輯設定檔',
-  'tunnel_output': 'VPN／虛擬配接器',
+  'tunnel_output': 'VPN (TUN)',
   'channel_only': '僅 MASQUE 通道',
   'channel_only_warning': '尚未啟用網絡輸出。',
   'socks_listener': 'SOCKS5 接聽端',

@@ -110,7 +110,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'socks_mode': 'SOCKS5',
   'http_mode': 'HTTP',
   'edit_profile': 'تعديل ملف التعريف',
-  'tunnel_output': 'VPN / محوّل افتراضي',
+  'tunnel_output': 'VPN (TUN)',
   'channel_only': 'قناة MASQUE فقط',
   'channel_only_warning': 'لم يُفعَّل أي مخرج شبكة.',
   'socks_listener': 'مستمع SOCKS5',

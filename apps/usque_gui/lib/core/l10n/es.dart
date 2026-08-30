@@ -115,7 +115,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'socks_mode': 'SOCKS5',
   'http_mode': 'HTTP',
   'edit_profile': 'Editar perfil',
-  'tunnel_output': 'VPN / adaptador virtual',
+  'tunnel_output': 'VPN (TUN)',
   'channel_only': 'Solo canal MASQUE',
   'channel_only_warning': 'No hay ninguna salida de red habilitada.',
   'socks_listener': 'Escucha SOCKS5',

@@ -112,7 +112,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'socks_mode': 'SOCKS5',
   'http_mode': 'HTTP',
   'edit_profile': 'Profili düzenle',
-  'tunnel_output': 'VPN / sanal bağdaştırıcı',
+  'tunnel_output': 'VPN (TUN)',
   'channel_only': 'Yalnızca MASQUE kanalı',
   'channel_only_warning': 'Hiçbir ağ çıkışı etkin değil.',
   'socks_listener': 'SOCKS5 dinleyicisi',

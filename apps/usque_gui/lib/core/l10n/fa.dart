@@ -110,7 +110,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'socks_mode': 'SOCKS5',
   'http_mode': 'HTTP',
   'edit_profile': 'ویرایش پروفایل',
-  'tunnel_output': 'VPN / آداپتور مجازی',
+  'tunnel_output': 'VPN (TUN)',
   'channel_only': 'فقط کانال MASQUE',
   'channel_only_warning': 'هیچ خروجی شبکه‌ای فعال نیست.',
   'socks_listener': 'شنونده SOCKS5',

@@ -114,7 +114,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'socks_mode': 'SOCKS5',
   'http_mode': 'HTTP',
   'edit_profile': 'Edytuj profil',
-  'tunnel_output': 'VPN / karta wirtualna',
+  'tunnel_output': 'VPN (TUN)',
   'channel_only': 'Tylko kanał MASQUE',
   'channel_only_warning': 'Żadne wyjście sieciowe nie jest włączone.',
   'socks_listener': 'Nasłuch SOCKS5',

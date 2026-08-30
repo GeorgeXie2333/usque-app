@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -464,7 +465,9 @@ class _FrontendChips extends StatelessWidget {
           phase == FrontendPhase.error;
       return StatusPill(
         label: switch (entry.key) {
-          FrontendKind.tunnel => strings.get('tunnel_output'),
+          FrontendKind.tunnel => strings.tunnelOutputLabel(
+            defaultTargetPlatform,
+          ),
           FrontendKind.socks5 => 'SOCKS5',
           FrontendKind.http => 'HTTP',
           FrontendKind.systemProxy => strings.get('system_proxy'),

@@ -112,7 +112,7 @@ const Map<String, String> kRuCatalog = <String, String>{
   'socks_mode': 'SOCKS5',
   'http_mode': 'HTTP',
   'edit_profile': 'Изменить профиль',
-  'tunnel_output': 'VPN / виртуальный адаптер',
+  'tunnel_output': 'VPN (TUN)',
   'channel_only': 'Только канал MASQUE',
   'channel_only_warning': 'Сетевой выход не включён.',
   'socks_listener': 'Прослушиватель SOCKS5',

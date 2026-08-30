@@ -1199,6 +1199,25 @@ void main() {
     },
   );
 
+  test('tunnel output copy is platform-specific in every catalog', () {
+    for (final catalog in kCatalogs.entries) {
+      expect(
+        catalog.value['tunnel_output'],
+        'VPN (TUN)',
+        reason: '${catalog.key} Windows tunnel label',
+      );
+      expect(
+        catalog.value['vpn_mode'],
+        'VPN',
+        reason: '${catalog.key} Android tunnel label',
+      );
+    }
+
+    final strings = AppStrings(LocalePreference.english);
+    expect(strings.tunnelOutputLabel(TargetPlatform.windows), 'VPN (TUN)');
+    expect(strings.tunnelOutputLabel(TargetPlatform.android), 'VPN');
+  });
+
   test('compact navigation labels keep reviewed short translations', () {
     expect(AppStrings(LocalePreference.arabic).get('nav_profiles'), 'الحسابات');
     expect(AppStrings(LocalePreference.german).get('nav_settings'), 'Optionen');
@@ -3754,7 +3773,7 @@ void main() {
       expect(settings().controller.activeProfile.proxy.systemProxy, isFalse);
       expect(settings().controller.activeProfile.autoConnect, isFalse);
 
-      await toggle('VPN / virtual adapter');
+      await toggle('VPN (TUN)');
       expect(settings().controller.activeProfile.frontends.tunnel, isFalse);
 
       await toggle('SOCKS5');
@@ -3798,7 +3817,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Network outputs'), findsOneWidget);
-      expect(find.text('VPN / virtual adapter'), findsOneWidget);
+      expect(find.text('VPN'), findsOneWidget);
+      expect(find.text('VPN (TUN)'), findsNothing);
       expect(find.text('Configure system proxy'), findsNothing);
     } finally {
       debugDefaultTargetPlatformOverride = null;
@@ -3857,10 +3877,7 @@ void main() {
     expect(find.text('Edit profile'), findsOneWidget);
     expect(find.text('Profile name'), findsOneWidget);
     expect(find.widgetWithText(SwitchListTile, 'SOCKS5'), findsNothing);
-    expect(
-      find.widgetWithText(SwitchListTile, 'VPN / virtual adapter'),
-      findsNothing,
-    );
+    expect(find.widgetWithText(SwitchListTile, 'VPN (TUN)'), findsNothing);
     expect(
       find.widgetWithText(SwitchListTile, 'Connect this Profile automatically'),
       findsNothing,

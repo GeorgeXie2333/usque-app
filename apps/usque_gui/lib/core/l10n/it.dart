@@ -115,7 +115,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'socks_mode': 'SOCKS5',
   'http_mode': 'HTTP',
   'edit_profile': 'Modifica profilo',
-  'tunnel_output': 'VPN / adattatore virtuale',
+  'tunnel_output': 'VPN (TUN)',
   'channel_only': 'Solo canale MASQUE',
   'channel_only_warning': 'Nessuna uscita di rete è abilitata.',
   'socks_listener': 'Listener SOCKS5',

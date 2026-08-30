@@ -110,7 +110,7 @@ const Map<String, String> kThCatalog = <String, String>{
   'socks_mode': 'SOCKS5',
   'http_mode': 'HTTP',
   'edit_profile': 'แก้ไขโปรไฟล์',
-  'tunnel_output': 'VPN / อะแดปเตอร์เสมือน',
+  'tunnel_output': 'VPN (TUN)',
   'channel_only': 'ช่อง MASQUE เท่านั้น',
   'channel_only_warning': 'ยังไม่ได้เปิดเอาต์พุตเครือข่าย',
   'socks_listener': 'ตัวรับฟัง SOCKS5',

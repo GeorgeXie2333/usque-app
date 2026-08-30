@@ -112,7 +112,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'socks_mode': 'SOCKS5',
   'http_mode': 'HTTP',
   'edit_profile': 'Edit profile',
-  'tunnel_output': 'VPN / virtual adapter',
+  'tunnel_output': 'VPN (TUN)',
   'channel_only': 'MASQUE channel only',
   'channel_only_warning': 'No network output is enabled.',
   'socks_listener': 'SOCKS5 listener',

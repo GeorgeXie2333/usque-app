@@ -112,7 +112,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'socks_mode': 'SOCKS5',
   'http_mode': 'HTTP',
   'edit_profile': 'Profiel bewerken',
-  'tunnel_output': 'VPN / virtuele adapter',
+  'tunnel_output': 'VPN (TUN)',
   'channel_only': 'Alleen MASQUE-kanaal',
   'channel_only_warning': 'Er is geen netwerkuitgang ingeschakeld.',
   'socks_listener': 'SOCKS5-listener',
