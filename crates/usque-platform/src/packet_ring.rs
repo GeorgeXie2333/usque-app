@@ -199,6 +199,22 @@ impl SharedPacketRing {
     }
 
     pub fn try_pop(&self, direction: PacketDirection) -> Result<Option<Vec<u8>>, PacketRingError> {
+        let mut packet = Vec::new();
+        if self.try_pop_into(direction, &mut packet)? {
+            Ok(Some(packet))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Pops one packet into a caller-owned buffer so steady-state consumers can
+    /// retain their allocation. The buffer is unchanged when the ring is empty
+    /// or a record fails validation.
+    pub fn try_pop_into(
+        &self,
+        direction: PacketDirection,
+        packet: &mut Vec<u8>,
+    ) -> Result<bool, PacketRingError> {
         let (head, tail, buffer) = self.consumer_fields(direction);
         let tail_value = tail.load(Ordering::Relaxed);
         let head_value = head.load(Ordering::Acquire);
@@ -211,7 +227,7 @@ impl SharedPacketRing {
             });
         }
         if used == 0 {
-            return Ok(None);
+            return Ok(false);
         }
         if used < RECORD_HEADER_BYTES as u32 {
             return Err(PacketRingError::TruncatedRecord);
@@ -230,7 +246,7 @@ impl SharedPacketRing {
         if required as u32 > used || required as u32 > self.capacity {
             return Err(PacketRingError::TruncatedRecord);
         }
-        let mut packet = vec![0_u8; length];
+        packet.resize(length, 0);
         // SAFETY: the complete aligned record is within the producer-published
         // used range and this is the sole consumer.
         unsafe {
@@ -238,11 +254,11 @@ impl SharedPacketRing {
                 buffer,
                 self.capacity,
                 tail_value.wrapping_add(RECORD_HEADER_BYTES as u32),
-                &mut packet,
+                packet,
             );
         }
         tail.store(tail_value.wrapping_add(required as u32), Ordering::Release);
-        Ok(Some(packet))
+        Ok(true)
     }
 
     pub fn dropped(&self, direction: PacketDirection) -> u64 {
@@ -436,6 +452,42 @@ mod tests {
             );
             assert_eq!(ring.try_pop(direction).expect("empty"), None);
         }
+    }
+
+    #[test]
+    fn caller_owned_pop_buffer_is_reused() {
+        let (_memory, ring) = AlignedMemory::ring(MIN_RING_CAPACITY);
+        let first = vec![0x45; 1_500];
+        let second = vec![0x60; 512];
+        let mut packet = Vec::new();
+
+        assert!(
+            ring.try_push(PacketDirection::EngineToAgent, &first)
+                .expect("first push")
+        );
+        assert!(
+            ring.try_pop_into(PacketDirection::EngineToAgent, &mut packet)
+                .expect("first pop")
+        );
+        assert_eq!(packet, first);
+        let allocation = packet.as_ptr();
+
+        assert!(
+            ring.try_push(PacketDirection::EngineToAgent, &second)
+                .expect("second push")
+        );
+        assert!(
+            ring.try_pop_into(PacketDirection::EngineToAgent, &mut packet)
+                .expect("second pop")
+        );
+        assert_eq!(packet, second);
+        assert_eq!(packet.as_ptr(), allocation);
+        assert!(
+            !ring
+                .try_pop_into(PacketDirection::EngineToAgent, &mut packet)
+                .expect("empty pop")
+        );
+        assert_eq!(packet, second);
     }
 
     #[test]

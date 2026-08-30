@@ -20,6 +20,7 @@ import android.service.quicksettings.TileService
 import androidx.annotation.Keep
 import androidx.core.content.ContextCompat
 import org.json.JSONObject
+import java.io.File
 import java.net.Inet6Address
 import java.net.InetAddress
 import java.util.concurrent.CopyOnWriteArrayList
@@ -514,7 +515,7 @@ class UsqueVpnService : VpnService() {
             }
         val secret =
             try {
-                loadWarpSecret(profile.id)
+                loadWarpSecret(profile.id, profileJson)
             } catch (error: Exception) {
                 fail(
                     generation,
@@ -767,7 +768,7 @@ class UsqueVpnService : VpnService() {
             }
         val secret =
             try {
-                loadWarpSecret(profile.id)
+                loadWarpSecret(profile.id, profileJson)
             } catch (error: Exception) {
                 fail(
                     generation,
@@ -908,7 +909,7 @@ class UsqueVpnService : VpnService() {
             }
         val secret =
             try {
-                loadWarpSecret(profileId)
+                loadWarpSecret(profileId, profileJson)
             } catch (_: Exception) {
                 null
             }
@@ -959,8 +960,151 @@ class UsqueVpnService : VpnService() {
         }
     }
 
-    private fun loadWarpSecret(profileId: String): ByteArray? =
-        SecureIdentityStore(this).get(profileId, SecureIdentityStore.Record.WARP_SECRET)
+    private fun loadWarpSecret(
+        profileId: String,
+        profileJson: String,
+    ): ByteArray? {
+        val store = SecureIdentityStore(this)
+        val encodedRollback =
+            runCatching {
+                store.get(
+                    profileId,
+                    SecureIdentityStore.Record.PENDING_REPLACEMENT_IDENTITY,
+                )
+            }.getOrNull()
+        var current = store.get(profileId, SecureIdentityStore.Record.WARP_SECRET)
+        try {
+            val authority = identityReplacementAuthority(profileId) ?: return null
+            if (!authority.matches(profileJson)) return null
+            return when (authority.state) {
+                IdentityReplacementState.Preparing -> {
+                    current.also { current = null }
+                }
+
+                IdentityReplacementState.Armed -> {
+                    val rollback =
+                        IdentityReplacementRollbackCodec.decode(encodedRollback ?: return null)
+                    try {
+                        rollback.identity?.copyOf()
+                    } finally {
+                        rollback.clear()
+                    }
+                }
+
+                IdentityReplacementState.None -> {
+                    if (encodedRollback != null) {
+                        runCatching {
+                            store.delete(
+                                profileId,
+                                SecureIdentityStore.Record.PENDING_REPLACEMENT_IDENTITY,
+                            )
+                        }
+                    }
+                    current?.fill(0)
+                    current = null
+                    store.get(profileId, SecureIdentityStore.Record.WARP_SECRET)
+                }
+            }
+        } catch (_: Exception) {
+            return null
+        } finally {
+            current?.fill(0)
+            encodedRollback?.fill(0)
+        }
+    }
+
+    private enum class IdentityReplacementState {
+        None,
+        Preparing,
+        Armed,
+    }
+
+    private data class IdentityReplacementAuthority(
+        val state: IdentityReplacementState,
+        val endpointIpv4: String,
+        val endpointIpv6: String,
+        val endpointPort: Int,
+        val sni: String,
+        val endpointReady: Boolean,
+    ) {
+        fun matches(profileJson: String): Boolean =
+            runCatching {
+                val profile = JSONObject(profileJson)
+
+                fun numericAddress(value: String): ByteArray? {
+                    if (value.isEmpty() ||
+                        value.any { character ->
+                            !character.isDigit() &&
+                                character.lowercaseChar() !in 'a'..'f' &&
+                                character != '.' &&
+                                character != ':'
+                        }
+                    ) {
+                        return null
+                    }
+                    return InetAddress.getByName(value).address
+                }
+                endpointReady &&
+                    numericAddress(profile.getString("endpoint_v4"))
+                        ?.contentEquals(numericAddress(endpointIpv4) ?: return@runCatching false) == true &&
+                    numericAddress(profile.getString("endpoint_v6"))
+                        ?.contentEquals(numericAddress(endpointIpv6) ?: return@runCatching false) == true &&
+                    profile.getInt("endpoint_port") == endpointPort &&
+                    profile.getString("sni").equals(sni, ignoreCase = true)
+            }.getOrDefault(false)
+    }
+
+    private fun identityReplacementAuthority(profileId: String): IdentityReplacementAuthority? {
+        val configPath = File(noBackupFilesDir, "usque_config/profiles-v2.json").absolutePath
+        val response =
+            NativeEngine.applyProfileCommand(
+                configPath,
+                """{"command":"list_profiles"}""",
+            ) ?: return null
+        val catalog = JSONObject(response)
+        val profiles = catalog.optJSONArray("profiles") ?: return null
+        var profile: JSONObject? = null
+        for (index in 0 until profiles.length()) {
+            val candidate = profiles.optJSONObject(index) ?: continue
+            if (candidate.optString("id") == profileId) {
+                profile = candidate
+                break
+            }
+        }
+        profile ?: return null
+        val pendingValues =
+            catalog.optJSONArray("pending_identity_replacements") ?: return null
+        var pending = false
+        for (index in 0 until pendingValues.length()) {
+            if (pendingValues.optString(index) == profileId) {
+                pending = true
+                break
+            }
+        }
+        val state =
+            if (!pending) {
+                IdentityReplacementState.None
+            } else {
+                val armedValues =
+                    catalog.optJSONArray("armed_identity_replacements") ?: return null
+                var armed = false
+                for (index in 0 until armedValues.length()) {
+                    if (armedValues.optString(index) == profileId) {
+                        armed = true
+                        break
+                    }
+                }
+                if (armed) IdentityReplacementState.Armed else IdentityReplacementState.Preparing
+            }
+        return IdentityReplacementAuthority(
+            state = state,
+            endpointIpv4 = profile.getString("endpoint_v4"),
+            endpointIpv6 = profile.getString("endpoint_v6"),
+            endpointPort = profile.getInt("endpoint_port"),
+            sni = profile.getString("sni"),
+            endpointReady = profile.optBoolean("zero_trust_endpoint_ready", true),
+        )
+    }
 
     private fun inspectAssignment(secret: ByteArray): WarpAddressAssignment {
         val metadata =
@@ -1424,6 +1568,14 @@ class UsqueVpnService : VpnService() {
             platformLockdown =
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && isLockdownEnabled,
             alwaysOn = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && isAlwaysOn,
+            tunFdValid = tunnel.get()?.fileDescriptor?.valid() == true,
+            underlyingNetworkPresent = networkMonitor.underlyingNetwork() != null,
+            underlyingFamilyMask = networkMonitor.underlyingFamilyMask(),
+            networkGeneration = networkMonitor.generation(),
+            dnsServerCount = networkMonitor.underlyingDnsServers().size,
+            nativeRuntimeActive = nativeRuntimeActive.get(),
+            foregroundNotificationActive = activeProfileJson.get() != null,
+            pendingCleanup = clearAllRequested.get(),
         )
 
     private fun updateNotification() {

@@ -62,6 +62,23 @@ if ([string]::IsNullOrWhiteSpace($NdkRoot) -or -not (Test-Path -LiteralPath $Ndk
     throw "Android NDK $ndkVersion was not found. Set ANDROID_SDK_ROOT or ANDROID_NDK_HOME."
 }
 $NdkRoot = (Resolve-Path -LiteralPath $NdkRoot).Path
+$ndkSourceProperties = Join-Path $NdkRoot "source.properties"
+if (-not (Test-Path -LiteralPath $ndkSourceProperties -PathType Leaf)) {
+    throw "Android NDK source.properties was not found: $ndkSourceProperties"
+}
+$ndkRevisionLine = Get-Content -LiteralPath $ndkSourceProperties |
+    Where-Object { $_ -match '^\s*Pkg\.Revision\s*=' } |
+    Select-Object -First 1
+$ndkRevision = if ([string]::IsNullOrWhiteSpace($ndkRevisionLine)) {
+    ""
+}
+else {
+    $revisionText = [string]$ndkRevisionLine
+    $revisionText.Substring($revisionText.IndexOf('=') + 1).Trim()
+}
+if (-not [StringComparer]::Ordinal.Equals($ndkRevision, $ndkVersion)) {
+    throw "Android NDK version mismatch: expected $ndkVersion, found '$ndkRevision' at $NdkRoot."
+}
 $env:ANDROID_NDK_HOME = $NdkRoot
 $env:ANDROID_NDK_ROOT = $NdkRoot
 $sdkRootFromNdk = Split-Path -Parent (Split-Path -Parent $NdkRoot)

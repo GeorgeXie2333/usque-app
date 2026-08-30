@@ -36,11 +36,22 @@
     <Property Id="ARPSYSTEMCOMPONENT" Value="1" />
     <Property Id="ARPPRODUCTICON" Value="UsqueProductIcon.ico" />
     <!--
+      Restart Manager first gives the GUI and Engine a bounded graceful exit.
+      Force only an unresponsive process so an already-installed version that
+      predates the maintenance-shutdown protocol cannot block its own upgrade.
+      Never restart a process after uninstall or while a major upgrade is
+      replacing its executable and recovering privileged network state.
+    -->
+    <Property Id="MSIRMSHUTDOWN" Value="1" />
+    <Property Id="MSIDISABLERMRESTART" Value="1" />
+    <!--
       Leave this public property unset so the MSI checkbox stays off by default.
       Settings uninstall uses usque-uninstall.exe, which sets the value only
       after the user confirms.
     -->
     <Property Id="USQUE_REMOVE_USER_DATA" Secure="yes" />
+    <!-- Read by the signed in-app update helper before Windows Installer runs. -->
+    <Property Id="USQUE_UPDATE_VARIANT" Value="$(Variant)" />
     <Icon Id="UsqueProductIcon.ico" SourceFile="$(IconPath)" />
 
     <!-- Preserve a user-selected target directory across major upgrades. -->
@@ -106,6 +117,16 @@
         Name="ProductCode"
         Type="string"
         Value="[ProductCode]" />
+    </Component>
+
+    <Component
+      Id="UsqueUpdateComponent"
+      Directory="INSTALLFOLDER"
+      Guid="C3D450E1-4C8F-4E47-A4FC-9AA38A838B5B">
+      <File
+        Id="UsqueUpdateExecutable"
+        Source="!(bindpath.app)\usque-update.exe"
+        KeyPath="yes" />
     </Component>
 
     <!--
@@ -363,6 +384,7 @@
       <ComponentRef Id="UsqueAgentComponent" />
       <ComponentRef Id="OfficialWintunComponent" />
       <ComponentRef Id="UsqueUninstallComponent" />
+      <ComponentRef Id="UsqueUpdateComponent" />
 
       <!-- Flutter runtime, plug-ins, data, and assets not owned above. -->
       <Files Include="!(bindpath.app)\**" Directory="INSTALLFOLDER">
@@ -370,6 +392,7 @@
         <Exclude Files="!(bindpath.app)\usque-engine.exe" />
         <Exclude Files="!(bindpath.app)\usque-agent.exe" />
         <Exclude Files="!(bindpath.app)\usque-uninstall.exe" />
+        <Exclude Files="!(bindpath.app)\usque-update.exe" />
         <Exclude Files="!(bindpath.app)\wintun.dll" />
         <Exclude Files="!(bindpath.app)\**\*.pdb" />
       </Files>

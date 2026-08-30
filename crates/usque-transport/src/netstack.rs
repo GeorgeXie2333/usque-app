@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use bytes::Bytes;
+use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, sleep, timeout};
@@ -16,7 +17,10 @@ use ts_netstack_smoltcp::netcore::{
 use ts_netstack_smoltcp::{
     Netstack, WakingPipe, WakingPipeDev, WakingPipeReceiver, WakingPipeSender,
 };
-use usque_core::{AddressFamily, IpPolicy, Profile, Transport, TransportPolicy};
+use usque_core::{
+    AddressFamily, IpPolicy, Profile, Transport, TransportFailure, TransportFailureCode,
+    TransportPolicy, TransportStage,
+};
 use usque_protocol::{IpAddressRange, IpPrefix, PeerNetworkState};
 
 use crate::geo_direct::GeoDirectPolicy;
@@ -24,6 +28,10 @@ use crate::h2::{MasqueTlsIdentity, TransportError, connect_h2_with_protector};
 use crate::h3::connect_h3_with_protector;
 use crate::pin_refresh::EndpointPinRefresher;
 use crate::socket::SocketProtector;
+use crate::telemetry::{
+    ConnectionAttemptTelemetry, ConnectionEventPath, ConnectionEventType, ConnectionTelemetry,
+    ConnectionTimelineSnapshot,
+};
 use crate::tunnel::MasqueTunnel;
 
 const HAPPY_EYEBALLS_DELAY: Duration = Duration::from_millis(250);
@@ -68,11 +76,13 @@ pub enum RuntimeHealth {
         attempt: u32,
         reconnect_count: u32,
         reason: String,
+        failure: TransportFailure,
     },
     Failed {
         last_path: RuntimePath,
         reconnect_count: u32,
         message: String,
+        failure: TransportFailure,
     },
 }
 
@@ -116,6 +126,10 @@ pub struct ProxyPerformanceSnapshot {
     pub http_pool_misses: u64,
     pub http_stale_retries: u64,
     pub http_busy_rejections: u64,
+    pub send_queue_high_watermark: u64,
+    pub send_queue_drop_count: u64,
+    pub fallback_count: u32,
+    pub network_change_count: u32,
 }
 
 #[derive(Debug, Default)]
@@ -150,6 +164,7 @@ pub(crate) struct PacketStack {
     pub(crate) counters: Arc<TrafficCounters>,
     tcp_buffer_metrics: TcpBufferMetrics,
     health: watch::Receiver<RuntimeHealth>,
+    telemetry: ConnectionTelemetry,
     // Retain a receiver so the supervisor can publish control state even
     // though proxy modes do not currently expose route diagnostics.
     _control: watch::Receiver<PeerNetworkState>,
@@ -189,6 +204,7 @@ impl PacketStack {
                 counters: Arc::clone(&monitor.counters),
                 tcp_buffer_metrics,
                 health: monitor.health.clone(),
+                telemetry: monitor.telemetry.clone(),
                 _control: monitor.control.clone(),
                 tasks: vec![stack_task],
             },
@@ -202,12 +218,15 @@ impl PacketStack {
         protector: Arc<dyn SocketProtector>,
         pin_refresher: Option<Arc<dyn EndpointPinRefresher>>,
     ) -> Result<Self, TransportError> {
+        let telemetry = ConnectionTelemetry::default();
+        telemetry.reset_attempt();
         let (tunnel, endpoint_family, identity, pin_refresh_attempted) =
             connect_initial_with_refresh(
                 profile,
                 identity,
                 Arc::clone(&protector),
                 pin_refresher.as_ref(),
+                &telemetry,
             )
             .await?;
         let transport = tunnel.transport();
@@ -248,6 +267,7 @@ impl PacketStack {
                 health_tx,
                 control_tx,
                 counters: Arc::clone(&counters),
+                telemetry: telemetry.clone(),
             },
         )));
 
@@ -274,6 +294,7 @@ impl PacketStack {
             counters,
             tcp_buffer_metrics,
             health,
+            telemetry,
             _control: control,
             tasks,
         })
@@ -293,6 +314,7 @@ impl PacketStack {
 
     pub(crate) fn performance(&self) -> ProxyPerformanceSnapshot {
         let snapshot = self.tcp_buffer_metrics.snapshot();
+        let telemetry = self.telemetry.snapshot();
         ProxyPerformanceSnapshot {
             preferred_tcp_buffer_bytes: snapshot.preferred_bytes,
             total_tcp_buffer_bytes: snapshot.total_bytes,
@@ -303,6 +325,10 @@ impl PacketStack {
             http_pool_misses: 0,
             http_stale_retries: 0,
             http_busy_rejections: 0,
+            send_queue_high_watermark: telemetry.metrics.send_queue_high_watermark,
+            send_queue_drop_count: telemetry.metrics.send_queue_drop_count,
+            fallback_count: telemetry.metrics.fallback_count,
+            network_change_count: telemetry.metrics.network_change_count,
         }
     }
 
@@ -395,6 +421,7 @@ pub struct ManagedTunnelRuntime {
     health: watch::Receiver<RuntimeHealth>,
     control: watch::Receiver<PeerNetworkState>,
     counters: Arc<TrafficCounters>,
+    telemetry: ConnectionTelemetry,
     tasks: Vec<JoinHandle<()>>,
 }
 
@@ -409,11 +436,13 @@ pub struct ManagedTunnelMonitor {
     health: watch::Receiver<RuntimeHealth>,
     control: watch::Receiver<PeerNetworkState>,
     counters: Arc<TrafficCounters>,
+    telemetry: ConnectionTelemetry,
 }
 
 #[derive(Clone)]
 pub struct ManagedTunnelSender {
     outgoing: mpsc::Sender<Bytes>,
+    telemetry: ConnectionTelemetry,
 }
 
 impl ManagedTunnelSender {
@@ -424,10 +453,19 @@ impl ManagedTunnelSender {
 
     pub(crate) async fn send_owned_packet(&self, packet: Bytes) -> Result<(), TransportError> {
         crate::h2::validate_ip_packet(&packet)?;
-        self.outgoing
-            .send(packet)
-            .await
-            .map_err(|_| TransportError::TunnelClosed)
+        let queued = self
+            .outgoing
+            .max_capacity()
+            .saturating_sub(self.outgoing.capacity());
+        self.telemetry.observe_queue_depth(queued);
+        match self.outgoing.try_send(packet) {
+            Ok(()) => Ok(()),
+            Err(TrySendError::Full(_)) => {
+                self.telemetry.record_queue_drop();
+                Err(TransportError::SendQueueFull)
+            }
+            Err(TrySendError::Closed(_)) => Err(TransportError::TunnelClosed),
+        }
     }
 }
 
@@ -451,6 +489,7 @@ impl ManagedTunnelMonitor {
             health,
             control,
             counters: Arc::new(TrafficCounters::default()),
+            telemetry: ConnectionTelemetry::default(),
         }
     }
 
@@ -472,6 +511,10 @@ impl ManagedTunnelMonitor {
 
     pub fn control_state(&self) -> PeerNetworkState {
         self.control.borrow().clone()
+    }
+
+    pub fn connection_timeline(&self) -> ConnectionTimelineSnapshot {
+        self.telemetry.snapshot()
     }
 }
 
@@ -498,12 +541,15 @@ impl ManagedTunnelRuntime {
         pin_refresher: Option<Arc<dyn EndpointPinRefresher>>,
     ) -> Result<Self, TransportError> {
         let identity = Arc::new(identity);
+        let telemetry = ConnectionTelemetry::default();
+        telemetry.reset_attempt();
         let (tunnel, endpoint_family, identity, pin_refresh_attempted) =
             connect_initial_with_refresh(
                 profile,
                 identity,
                 Arc::clone(&protector),
                 pin_refresher.as_ref(),
+                &telemetry,
             )
             .await?;
         let path = runtime_path(tunnel.transport(), endpoint_family);
@@ -535,6 +581,7 @@ impl ManagedTunnelRuntime {
                 health_tx,
                 control_tx,
                 counters: Arc::clone(&counters),
+                telemetry: telemetry.clone(),
             },
         ))];
         let watcher_cancel = cancellation.clone();
@@ -559,6 +606,7 @@ impl ManagedTunnelRuntime {
             health,
             control,
             counters,
+            telemetry,
             tasks,
         })
     }
@@ -574,6 +622,7 @@ impl ManagedTunnelRuntime {
                 .as_ref()
                 .ok_or(TransportError::TunnelClosed)?
                 .clone(),
+            telemetry: self.telemetry.clone(),
         })
     }
 
@@ -604,12 +653,17 @@ impl ManagedTunnelRuntime {
         self.control.borrow().clone()
     }
 
+    pub fn connection_timeline(&self) -> ConnectionTimelineSnapshot {
+        self.telemetry.snapshot()
+    }
+
     pub fn monitor(&self) -> ManagedTunnelMonitor {
         ManagedTunnelMonitor {
             failure: self.failure.clone(),
             health: self.health.clone(),
             control: self.control.clone(),
             counters: Arc::clone(&self.counters),
+            telemetry: self.telemetry.clone(),
         }
     }
 
@@ -640,8 +694,16 @@ async fn connect_initial_with_refresh(
     identity: Arc<MasqueTlsIdentity>,
     protector: Arc<dyn SocketProtector>,
     pin_refresher: Option<&Arc<dyn EndpointPinRefresher>>,
+    telemetry: &ConnectionTelemetry,
 ) -> Result<(MasqueTunnel, AddressFamily, Arc<MasqueTlsIdentity>, bool), TransportError> {
-    match connect_with_policy(profile, identity.as_ref(), Arc::clone(&protector)).await {
+    match connect_with_policy(
+        profile,
+        identity.as_ref(),
+        Arc::clone(&protector),
+        telemetry,
+    )
+    .await
+    {
         Ok((tunnel, family)) => Ok((tunnel, family, identity, false)),
         Err(TransportError::EndpointPinMismatch) => {
             let Some(pin_refresher) = pin_refresher else {
@@ -650,7 +712,8 @@ async fn connect_initial_with_refresh(
             let refreshed = pin_refresher.refresh(Arc::clone(&protector)).await?;
             ensure_assignments_unchanged(identity.as_ref(), &refreshed)?;
             let refreshed = Arc::new(refreshed);
-            match connect_with_policy(profile, refreshed.as_ref(), protector).await {
+            telemetry.reset_attempt();
+            match connect_with_policy(profile, refreshed.as_ref(), protector, telemetry).await {
                 Ok((tunnel, family)) => Ok((tunnel, family, refreshed, true)),
                 Err(error) => Err(TransportError::EndpointPinRefresh(format!(
                     "the single retry with the refreshed enrollment failed: {error}"
@@ -678,34 +741,56 @@ async fn connect_with_policy(
     profile: &Profile,
     identity: &MasqueTlsIdentity,
     protector: Arc<dyn SocketProtector>,
+    telemetry: &ConnectionTelemetry,
 ) -> Result<(MasqueTunnel, AddressFamily), TransportError> {
     match profile.transport {
         TransportPolicy::Http3 => {
-            connect_happy_eyeballs(profile, identity, Transport::Http3, protector).await
+            connect_happy_eyeballs(profile, identity, Transport::Http3, protector, telemetry).await
         }
         TransportPolicy::Http2 => {
-            connect_happy_eyeballs(profile, identity, Transport::Http2, protector).await
+            connect_happy_eyeballs(profile, identity, Transport::Http2, protector, telemetry).await
         }
         TransportPolicy::Auto => {
-            let h3_result =
-                connect_happy_eyeballs(profile, identity, Transport::Http3, Arc::clone(&protector))
-                    .await;
+            let h3_result = connect_happy_eyeballs(
+                profile,
+                identity,
+                Transport::Http3,
+                Arc::clone(&protector),
+                telemetry,
+            )
+            .await;
             match h3_result {
                 Ok(connected) => Ok(connected),
-                Err(TransportError::EndpointPinMismatch) => {
-                    Err(TransportError::EndpointPinMismatch)
-                }
                 Err(h3_error) => {
-                    match connect_happy_eyeballs(profile, identity, Transport::Http2, protector)
-                        .await
+                    let h3_failure = h3_error.failure(Some(Transport::Http3), None);
+                    if !h3_failure.fallback_allowed {
+                        return Err(h3_error);
+                    }
+                    telemetry.increment_fallback();
+                    telemetry.record(
+                        ConnectionEventType::FallbackStarted,
+                        Some(h3_failure.stage),
+                        ConnectionEventPath::new(Some(Transport::Http3), h3_failure.address_family),
+                        None,
+                        Some(h3_failure.clone()),
+                    );
+                    match connect_happy_eyeballs(
+                        profile,
+                        identity,
+                        Transport::Http2,
+                        protector,
+                        telemetry,
+                    )
+                    .await
                     {
                         Ok(connected) => Ok(connected),
                         Err(TransportError::EndpointPinMismatch) => {
                             Err(TransportError::EndpointPinMismatch)
                         }
-                        Err(h2_error) => Err(TransportError::AllEndpointsFailed(format!(
-                            "HTTP/3: {h3_error}; HTTP/2: {h2_error}"
-                        ))),
+                        Err(h2_error) => Err(TransportError::AllTransportsFailed {
+                            h3: Box::new(h3_failure),
+                            h2: Box::new(h2_error.failure(Some(Transport::Http2), None)),
+                        }),
                     }
                 }
             }
@@ -718,6 +803,7 @@ async fn connect_happy_eyeballs(
     identity: &MasqueTlsIdentity,
     transport: Transport,
     protector: Arc<dyn SocketProtector>,
+    telemetry: &ConnectionTelemetry,
 ) -> Result<(MasqueTunnel, AddressFamily), TransportError> {
     let (preferred, preferred_family, alternate, alternate_family) = match profile.ip_policy {
         IpPolicy::Auto | IpPolicy::PreferIpv6 | IpPolicy::Ipv6Only => (
@@ -750,10 +836,11 @@ async fn connect_happy_eyeballs(
         }
         return connect_endpoint(
             transport,
-            alternate,
+            EndpointCandidate::new(alternate, alternate_family),
             &profile.endpoint.sni,
             identity,
             protector,
+            telemetry,
         )
         .await
         .map(|tunnel| (tunnel, alternate_family));
@@ -761,10 +848,11 @@ async fn connect_happy_eyeballs(
 
     let preferred_connect = connect_endpoint(
         transport,
-        preferred,
+        EndpointCandidate::new(preferred, preferred_family),
         &profile.endpoint.sni,
         identity,
         Arc::clone(&protector),
+        telemetry,
     );
     tokio::pin!(preferred_connect);
 
@@ -782,10 +870,11 @@ async fn connect_happy_eyeballs(
 
     let alternate_connect = connect_endpoint(
         transport,
-        alternate,
+        EndpointCandidate::new(alternate, alternate_family),
         &profile.endpoint.sni,
         identity,
         protector,
+        telemetry,
     );
     match race_candidates(preferred_connect, alternate_connect, HAPPY_EYEBALLS_DELAY).await {
         Ok((tunnel, false)) => Ok((tunnel, preferred_family)),
@@ -846,38 +935,114 @@ const fn preferred_family_label(family: AddressFamily) -> &'static str {
     }
 }
 
+#[derive(Clone, Copy)]
+struct EndpointCandidate {
+    socket: std::net::SocketAddr,
+    family: AddressFamily,
+}
+
+impl EndpointCandidate {
+    const fn new(socket: std::net::SocketAddr, family: AddressFamily) -> Self {
+        Self { socket, family }
+    }
+}
+
 async fn connect_endpoint(
     transport: Transport,
-    endpoint: std::net::SocketAddr,
+    target: EndpointCandidate,
     sni: &str,
     identity: &MasqueTlsIdentity,
     protector: Arc<dyn SocketProtector>,
+    telemetry: &ConnectionTelemetry,
 ) -> Result<MasqueTunnel, TransportError> {
+    let EndpointCandidate {
+        socket: endpoint,
+        family,
+    } = target;
+    telemetry.record_attempt(transport, family);
+    let attempt = ConnectionAttemptTelemetry::new(telemetry.clone(), transport, family);
+    attempt.record(
+        ConnectionEventType::EndpointResolved,
+        TransportStage::EndpointResolution,
+    );
+    let started = Instant::now();
     for _ in 0..8 {
         let network_generation = protector.network_generation();
         let connecting = async {
             match transport {
-                Transport::Http3 => {
-                    connect_h3_with_protector(endpoint, sni, identity, protector.as_ref())
-                        .await
-                        .map(MasqueTunnel::Http3)
-                }
-                Transport::Http2 => {
-                    connect_h2_with_protector(endpoint, sni, identity, protector.as_ref())
-                        .await
-                        .map(MasqueTunnel::Http2)
-                }
+                Transport::Http3 => connect_h3_with_protector(
+                    endpoint,
+                    sni,
+                    identity,
+                    protector.as_ref(),
+                    Some(&attempt),
+                )
+                .await
+                .map(MasqueTunnel::Http3),
+                Transport::Http2 => connect_h2_with_protector(
+                    endpoint,
+                    sni,
+                    identity,
+                    protector.as_ref(),
+                    Some(&attempt),
+                )
+                .await
+                .map(MasqueTunnel::Http2),
             }
         };
         tokio::pin!(connecting);
         tokio::select! {
-            result = &mut connecting => return result,
+            result = &mut connecting => {
+                match &result {
+                    Ok(_) => {
+                        telemetry.record(
+                            ConnectionEventType::AddressAssigned,
+                            Some(TransportStage::AddressAssignment),
+                            ConnectionEventPath::known(transport, family),
+                            None,
+                            None,
+                        );
+                        telemetry.record_tunnel_ready(transport, family, started.elapsed());
+                    }
+                    Err(error) => {
+                        let failure = error.failure(Some(transport), Some(family));
+                        telemetry.record(
+                            ConnectionEventType::Failed,
+                            Some(failure.stage),
+                            ConnectionEventPath::known(transport, family),
+                            Some(started.elapsed()),
+                            Some(failure),
+                        );
+                    }
+                }
+                return result;
+            },
             _ = wait_for_network_change(&protector, network_generation), if network_generation.is_some() => {
+                telemetry.increment_network_change();
+                telemetry.record(
+                    ConnectionEventType::NetworkChanged,
+                    Some(TransportStage::SocketConnect),
+                    ConnectionEventPath::known(transport, family),
+                    None,
+                    Some(TransportFailure::new(
+                        TransportFailureCode::PhysicalNetworkChanged,
+                        TransportStage::SocketConnect,
+                    ).on_path(transport, family)),
+                );
                 continue;
             }
         }
     }
-    Err(TransportError::UnderlyingNetworkChanged)
+    let error = TransportError::UnderlyingNetworkChanged;
+    let failure = error.failure(Some(transport), Some(family));
+    telemetry.record(
+        ConnectionEventType::Failed,
+        Some(failure.stage),
+        ConnectionEventPath::known(transport, family),
+        Some(started.elapsed()),
+        Some(failure),
+    );
+    Err(error)
 }
 
 fn combine_endpoint_errors(
@@ -904,9 +1069,9 @@ type ProbeFuture = Pin<
 
 enum ActiveOutcome {
     Switch(Box<MasqueTunnel>, AddressFamily),
-    Reconnect(String),
+    Reconnect(TransportFailure),
     PinMismatch,
-    Terminal(String),
+    Terminal(TransportFailure),
     Shutdown,
 }
 
@@ -984,6 +1149,7 @@ struct SupervisorContext {
     health_tx: watch::Sender<RuntimeHealth>,
     control_tx: watch::Sender<PeerNetworkState>,
     counters: Arc<TrafficCounters>,
+    telemetry: ConnectionTelemetry,
 }
 
 async fn run_transport_supervisor(
@@ -1003,6 +1169,7 @@ async fn run_transport_supervisor(
         health_tx,
         control_tx,
         counters,
+        telemetry,
     } = context;
     let mut active_tunnel = tunnel;
     let mut active_family = endpoint_family;
@@ -1030,6 +1197,7 @@ async fn run_transport_supervisor(
             Arc::clone(&counters),
             &control_tx,
             &health_tx,
+            &telemetry,
             probe_generation,
             protector.network_generation(),
         )
@@ -1037,17 +1205,43 @@ async fn run_transport_supervisor(
         probe_generation = probe_generation.wrapping_add(1);
 
         match outcome {
-            ActiveOutcome::Shutdown => return,
-            ActiveOutcome::Terminal(message) => {
+            ActiveOutcome::Shutdown => {
+                telemetry.record(
+                    ConnectionEventType::Disconnected,
+                    None,
+                    ConnectionEventPath::known(active_path.transport, active_path.endpoint_family),
+                    None,
+                    None,
+                );
+                return;
+            }
+            ActiveOutcome::Terminal(failure) => {
+                let message = failure.code.to_string();
                 let _ = health_tx.send(RuntimeHealth::Failed {
                     last_path: active_path,
                     reconnect_count,
                     message: message.clone(),
+                    failure: failure.clone(),
                 });
+                telemetry.record(
+                    ConnectionEventType::Failed,
+                    Some(failure.stage),
+                    ConnectionEventPath::new(failure.transport, failure.address_family),
+                    None,
+                    Some(failure),
+                );
                 report_failure(&cancellation, &failure_tx, message);
                 return;
             }
             ActiveOutcome::Switch(tunnel, family) => {
+                let transport = tunnel.transport();
+                telemetry.record(
+                    ConnectionEventType::PathPromoted,
+                    Some(TransportStage::TunnelStartup),
+                    ConnectionEventPath::known(transport, family),
+                    None,
+                    None,
+                );
                 active_tunnel = *tunnel;
                 active_family = family;
                 continue;
@@ -1055,20 +1249,34 @@ async fn run_transport_supervisor(
             ActiveOutcome::PinMismatch => {
                 control_tx.send_replace(PeerNetworkState::default());
                 reconnect_count = reconnect_count.saturating_add(1);
-                let reason = TransportError::EndpointPinMismatch.to_string();
+                let failure = TransportError::EndpointPinMismatch.failure(
+                    Some(active_path.transport),
+                    Some(active_path.endpoint_family),
+                );
+                let reason = failure.code.to_string();
+                telemetry.set_reconnect(reconnect_count, &failure);
                 let _ = health_tx.send(RuntimeHealth::Reconnecting {
                     last_path: active_path,
                     attempt: 1,
                     reconnect_count,
                     reason,
+                    failure: failure.clone(),
                 });
                 if pin_refresh_attempted {
-                    let message = TransportError::EndpointPinMismatch.to_string();
+                    let message = failure.code.to_string();
                     let _ = health_tx.send(RuntimeHealth::Failed {
                         last_path: active_path,
                         reconnect_count,
                         message: message.clone(),
+                        failure: failure.clone(),
                     });
+                    telemetry.record(
+                        ConnectionEventType::Failed,
+                        Some(failure.stage),
+                        ConnectionEventPath::new(failure.transport, failure.address_family),
+                        None,
+                        Some(failure),
+                    );
                     report_failure(&cancellation, &failure_tx, message);
                     return;
                 }
@@ -1078,8 +1286,11 @@ async fn run_transport_supervisor(
                     identity.as_ref(),
                     pin_refresher.as_ref(),
                     Arc::clone(&protector),
-                    &mut packet_io,
-                    &cancellation,
+                    RefreshRetryContext {
+                        packet_io: &mut packet_io,
+                        cancellation: &cancellation,
+                        telemetry: &telemetry,
+                    },
                 )
                 .await
                 {
@@ -1090,19 +1301,32 @@ async fn run_transport_supervisor(
                         continue;
                     }
                     Some(Err(error)) => {
-                        let message = error.to_string();
+                        tracing::warn!(%error, "endpoint-pin refresh reconnect failed");
+                        let failure = error.failure(
+                            Some(active_path.transport),
+                            Some(active_path.endpoint_family),
+                        );
+                        let message = failure.code.to_string();
                         let _ = health_tx.send(RuntimeHealth::Failed {
                             last_path: active_path,
                             reconnect_count,
                             message: message.clone(),
+                            failure: failure.clone(),
                         });
+                        telemetry.record(
+                            ConnectionEventType::Failed,
+                            Some(failure.stage),
+                            ConnectionEventPath::new(failure.transport, failure.address_family),
+                            None,
+                            Some(failure),
+                        );
                         report_failure(&cancellation, &failure_tx, message);
                         return;
                     }
                     None => return,
                 }
             }
-            ActiveOutcome::Reconnect(mut reason) => {
+            ActiveOutcome::Reconnect(mut failure) => {
                 control_tx.send_replace(PeerNetworkState::default());
                 if stable_since.elapsed() >= STABLE_CONNECTION_RESET {
                     backoff_index = 0;
@@ -1116,11 +1340,21 @@ async fn run_transport_supervisor(
                         reconnect_count,
                     );
                     backoff_index = (backoff_index + 1).min(RECONNECT_DELAYS.len() - 1);
+                    let reason = failure.code.to_string();
+                    telemetry.set_reconnect(reconnect_count, &failure);
+                    telemetry.record(
+                        ConnectionEventType::ReconnectScheduled,
+                        Some(failure.stage),
+                        ConnectionEventPath::new(failure.transport, failure.address_family),
+                        Some(delay),
+                        Some(failure.clone()),
+                    );
                     let _ = health_tx.send(RuntimeHealth::Reconnecting {
                         last_path: active_path,
                         attempt,
                         reconnect_count,
-                        reason: reason.clone(),
+                        reason,
+                        failure: failure.clone(),
                     });
                     if !wait_while_dropping_packets(
                         delay,
@@ -1139,6 +1373,7 @@ async fn run_transport_supervisor(
                         Arc::clone(&protector),
                         &mut packet_io,
                         &cancellation,
+                        &telemetry,
                     )
                     .await
                     {
@@ -1148,12 +1383,17 @@ async fn run_transport_supervisor(
                             break;
                         }
                         Some(Err(TransportError::EndpointPinMismatch)) => {
+                            failure = TransportError::EndpointPinMismatch.failure(
+                                Some(active_path.transport),
+                                Some(active_path.endpoint_family),
+                            );
                             if pin_refresh_attempted {
-                                let message = TransportError::EndpointPinMismatch.to_string();
+                                let message = failure.code.to_string();
                                 let _ = health_tx.send(RuntimeHealth::Failed {
                                     last_path: active_path,
                                     reconnect_count,
                                     message: message.clone(),
+                                    failure: failure.clone(),
                                 });
                                 report_failure(&cancellation, &failure_tx, message);
                                 return;
@@ -1164,8 +1404,11 @@ async fn run_transport_supervisor(
                                 identity.as_ref(),
                                 pin_refresher.as_ref(),
                                 Arc::clone(&protector),
-                                &mut packet_io,
-                                &cancellation,
+                                RefreshRetryContext {
+                                    packet_io: &mut packet_io,
+                                    cancellation: &cancellation,
+                                    telemetry: &telemetry,
+                                },
                             )
                             .await
                             {
@@ -1176,11 +1419,17 @@ async fn run_transport_supervisor(
                                     break;
                                 }
                                 Some(Err(error)) => {
-                                    let message = error.to_string();
+                                    tracing::warn!(%error, "endpoint-pin refresh retry failed");
+                                    let failure = error.failure(
+                                        Some(active_path.transport),
+                                        Some(active_path.endpoint_family),
+                                    );
+                                    let message = failure.code.to_string();
                                     let _ = health_tx.send(RuntimeHealth::Failed {
                                         last_path: active_path,
                                         reconnect_count,
                                         message: message.clone(),
+                                        failure,
                                     });
                                     report_failure(&cancellation, &failure_tx, message);
                                     return;
@@ -1189,7 +1438,8 @@ async fn run_transport_supervisor(
                             }
                         }
                         Some(Err(error)) => {
-                            reason = error.to_string();
+                            tracing::debug!(%error, "bounded reconnect attempt failed");
+                            failure = error.failure(None, None);
                         }
                         None => return,
                     }
@@ -1199,13 +1449,18 @@ async fn run_transport_supervisor(
     }
 }
 
+struct RefreshRetryContext<'a> {
+    packet_io: &'a mut PacketIo,
+    cancellation: &'a CancellationToken,
+    telemetry: &'a ConnectionTelemetry,
+}
+
 async fn refresh_and_retry_connection(
     profile: &Profile,
     current: &MasqueTlsIdentity,
     pin_refresher: Option<&Arc<dyn EndpointPinRefresher>>,
     protector: Arc<dyn SocketProtector>,
-    packet_io: &mut PacketIo,
-    cancellation: &CancellationToken,
+    context: RefreshRetryContext<'_>,
 ) -> Option<Result<(MasqueTunnel, AddressFamily, Arc<MasqueTlsIdentity>), TransportError>> {
     let pin_refresher = match pin_refresher {
         Some(pin_refresher) => pin_refresher,
@@ -1223,8 +1478,9 @@ async fn refresh_and_retry_connection(
         profile,
         Arc::clone(&refreshed),
         protector,
-        packet_io,
-        cancellation,
+        context.packet_io,
+        context.cancellation,
+        context.telemetry,
     )
     .await
     {
@@ -1252,6 +1508,7 @@ async fn pump_active_tunnel(
     counters: Arc<TrafficCounters>,
     control_tx: &watch::Sender<PeerNetworkState>,
     health_tx: &watch::Sender<RuntimeHealth>,
+    telemetry: &ConnectionTelemetry,
     probe_generation: u32,
     network_generation: Option<u64>,
 ) -> ActiveOutcome {
@@ -1278,7 +1535,11 @@ async fn pump_active_tunnel(
     );
     if !current_path.ipv4_available && !current_path.ipv6_available {
         return ActiveOutcome::Terminal(
-            "the CONNECT-IP peer withdrew every usable address family".to_owned(),
+            TransportFailure::new(
+                TransportFailureCode::AddressAssignmentInvalid,
+                TransportStage::PeerSettings,
+            )
+            .on_path(active_transport, active_path.endpoint_family),
         );
     }
     let _ = health_tx.send(RuntimeHealth::Connected {
@@ -1294,6 +1555,7 @@ async fn pump_active_tunnel(
                 Arc::clone(&identity),
                 Arc::clone(&protector),
                 probe_generation,
+                telemetry.clone(),
             ))
         } else {
             None
@@ -1303,9 +1565,19 @@ async fn pump_active_tunnel(
         tokio::select! {
             _ = cancellation.cancelled() => break ActiveOutcome::Shutdown,
             _ = wait_for_network_change(&protector, network_generation), if network_generation.is_some() => {
-                break ActiveOutcome::Reconnect(
-                    "the selected Android physical network changed".to_owned(),
+                telemetry.increment_network_change();
+                let failure = TransportFailure::new(
+                    TransportFailureCode::PhysicalNetworkChanged,
+                    TransportStage::SocketConnect,
+                ).on_path(active_transport, active_path.endpoint_family);
+                telemetry.record(
+                    ConnectionEventType::NetworkChanged,
+                    Some(failure.stage),
+                    ConnectionEventPath::new(failure.transport, failure.address_family),
+                    None,
+                    Some(failure.clone()),
                 );
+                break ActiveOutcome::Reconnect(failure);
             }
             packet = packet_io.receive_outgoing() => {
                 let Some(packet) = packet else {
@@ -1325,6 +1597,10 @@ async fn pump_active_tunnel(
                 match timeout(PACKET_SEND_TIMEOUT, send.send_owned_packet(packet)).await {
                     Ok(Ok(())) => {
                         counters.sent.fetch_add(packet_length as u64, Ordering::Relaxed);
+                        telemetry.record_first_packet_sent(
+                            active_transport,
+                            active_path.endpoint_family,
+                        );
                     }
                     Ok(Err(TransportError::Http3DatagramTooLarge {
                         maximum_packet_size,
@@ -1336,9 +1612,12 @@ async fn pump_active_tunnel(
                                 }
                             }
                             Err(TransportError::Ipv6MinimumMtuUnavailable(maximum)) => {
-                                break ActiveOutcome::Terminal(
-                                    TransportError::Ipv6MinimumMtuUnavailable(maximum).to_string(),
-                                );
+                                let error =
+                                    TransportError::Ipv6MinimumMtuUnavailable(maximum);
+                                break ActiveOutcome::Terminal(error.failure(
+                                    Some(active_transport),
+                                    Some(active_path.endpoint_family),
+                                ));
                             }
                             Err(error) => {
                                 tracing::warn!(
@@ -1348,10 +1627,20 @@ async fn pump_active_tunnel(
                             }
                         }
                     }
-                    Ok(Err(error)) => break ActiveOutcome::Reconnect(error.to_string()),
+                    Ok(Err(error)) => {
+                        tracing::debug!(%error, "active MASQUE packet send failed");
+                        break ActiveOutcome::Reconnect(error.failure(
+                            Some(active_transport),
+                            Some(active_path.endpoint_family),
+                        ));
+                    }
                     Err(_) => {
                         break ActiveOutcome::Reconnect(
-                            "sending a packet through MASQUE timed out".to_owned(),
+                            TransportFailure::new(
+                                TransportFailureCode::PacketSendTimeout,
+                                TransportStage::PacketSend,
+                            )
+                            .on_path(active_transport, active_path.endpoint_family),
                         );
                     }
                 }
@@ -1367,25 +1656,57 @@ async fn pump_active_tunnel(
                             continue;
                         }
                         counters.received.fetch_add(packet.len() as u64, Ordering::Relaxed);
+                        telemetry.record_first_packet_received(
+                            active_transport,
+                            active_path.endpoint_family,
+                        );
                         if !packet_io.send_incoming(packet).await {
                             break ActiveOutcome::Shutdown;
                         }
                     }
-                    Err(error) => break ActiveOutcome::Reconnect(error.to_string()),
+                    Err(error) => {
+                        tracing::debug!(%error, "active MASQUE packet receive failed");
+                        break ActiveOutcome::Reconnect(error.failure(
+                            Some(active_transport),
+                            Some(active_path.endpoint_family),
+                        ));
+                    }
                 }
             }
             result = &mut driver_wait => {
-                let message = match result {
-                    Ok(()) => "the MASQUE connection ended unexpectedly".to_owned(),
-                    Err(error) => error.to_string(),
+                let failure = match result {
+                    Ok(()) => TransportFailure::new(
+                        match active_transport {
+                            Transport::Http3 => TransportFailureCode::H3ConnectionClosed,
+                            Transport::Http2 => TransportFailureCode::H2StreamClosed,
+                        },
+                        TransportStage::PacketReceive,
+                    ).on_path(active_transport, active_path.endpoint_family),
+                    Err(error) => {
+                        tracing::debug!(%error, "MASQUE transport driver stopped");
+                        error.failure(
+                            Some(active_transport),
+                            Some(active_path.endpoint_family),
+                        )
+                    }
                 };
-                break ActiveOutcome::Reconnect(message);
+                break ActiveOutcome::Reconnect(failure);
             }
             changed = wait_for_control(&mut control), if control.is_some() => {
                 match changed {
                     Ok(state) => {
                         peer_state = state;
                         control_tx.send_replace(peer_state.clone());
+                        telemetry.record(
+                            ConnectionEventType::PeerSettingsReceived,
+                            Some(TransportStage::PeerSettings),
+                            ConnectionEventPath::known(
+                                active_transport,
+                                active_path.endpoint_family,
+                            ),
+                            None,
+                            None,
+                        );
                         current_path = apply_peer_network_state(
                             base_path,
                             &peer_state,
@@ -1394,8 +1715,11 @@ async fn pump_active_tunnel(
                         );
                         if !current_path.ipv4_available && !current_path.ipv6_available {
                             break ActiveOutcome::Terminal(
-                                "the CONNECT-IP peer withdrew every usable address family"
-                                    .to_owned(),
+                                TransportFailure::new(
+                                    TransportFailureCode::AddressAssignmentInvalid,
+                                    TransportStage::PeerSettings,
+                                )
+                                .on_path(active_transport, active_path.endpoint_family),
                             );
                         }
                         let _ = health_tx.send(RuntimeHealth::Connected {
@@ -1405,7 +1729,11 @@ async fn pump_active_tunnel(
                     }
                     Err(()) => {
                         break ActiveOutcome::Reconnect(
-                            "the CONNECT-IP control stream ended unexpectedly".to_owned(),
+                            TransportFailure::new(
+                                TransportFailureCode::ConnectIpRejected,
+                                TransportStage::PeerSettings,
+                            )
+                            .on_path(active_transport, active_path.endpoint_family),
                         );
                     }
                 }
@@ -1419,18 +1747,51 @@ async fn pump_active_tunnel(
                             endpoint_family = ?family,
                             "switching the single active MASQUE channel after a successful H3 probe"
                         );
+                        telemetry.record(
+                            ConnectionEventType::RecoveryProbeSucceeded,
+                            Some(TransportStage::TunnelStartup),
+                            ConnectionEventPath::known(Transport::Http3, family),
+                            None,
+                            None,
+                        );
                         break ActiveOutcome::Switch(Box::new(tunnel), family);
                     }
                     Err(TransportError::EndpointPinMismatch) => {
+                        let failure = TransportError::EndpointPinMismatch.failure(
+                            Some(Transport::Http3),
+                            Some(active_path.endpoint_family),
+                        );
+                        telemetry.record(
+                            ConnectionEventType::RecoveryProbeFailed,
+                            Some(failure.stage),
+                            ConnectionEventPath::new(
+                                failure.transport,
+                                failure.address_family,
+                            ),
+                            None,
+                            Some(failure),
+                        );
                         break ActiveOutcome::PinMismatch;
                     }
                     Err(error) => {
                         tracing::debug!(%error, "non-bearing H3 recovery probe failed");
+                        let failure = error.failure(Some(Transport::Http3), None);
+                        telemetry.record(
+                            ConnectionEventType::RecoveryProbeFailed,
+                            Some(failure.stage),
+                            ConnectionEventPath::new(
+                                failure.transport,
+                                failure.address_family,
+                            ),
+                            None,
+                            Some(failure),
+                        );
                         probe = Some(schedule_h3_probe(
                             profile.clone(),
                             Arc::clone(&identity),
                             Arc::clone(&protector),
                             probe_generation.wrapping_add(1),
+                            telemetry.clone(),
                         ));
                     }
                 }
@@ -1459,6 +1820,7 @@ fn schedule_h3_probe(
     identity: Arc<MasqueTlsIdentity>,
     protector: Arc<dyn SocketProtector>,
     generation: u32,
+    telemetry: ConnectionTelemetry,
 ) -> ProbeFuture {
     Box::pin(async move {
         sleep(jitter_duration(
@@ -1467,7 +1829,21 @@ fn schedule_h3_probe(
             generation,
         ))
         .await;
-        connect_happy_eyeballs(&profile, identity.as_ref(), Transport::Http3, protector).await
+        telemetry.record(
+            ConnectionEventType::RecoveryProbeStarted,
+            Some(TransportStage::QuicHandshake),
+            ConnectionEventPath::new(Some(Transport::Http3), None),
+            None,
+            None,
+        );
+        connect_happy_eyeballs(
+            &profile,
+            identity.as_ref(),
+            Transport::Http3,
+            protector,
+            &telemetry,
+        )
+        .await
     })
 }
 
@@ -1511,9 +1887,16 @@ async fn connect_while_dropping_packets(
     protector: Arc<dyn SocketProtector>,
     packet_io: &mut PacketIo,
     cancellation: &CancellationToken,
+    telemetry: &ConnectionTelemetry,
 ) -> Option<Result<(MasqueTunnel, AddressFamily), TransportError>> {
     let network_generation = protector.network_generation();
-    let connect = connect_with_policy(profile, identity.as_ref(), Arc::clone(&protector));
+    telemetry.reset_attempt();
+    let connect = connect_with_policy(
+        profile,
+        identity.as_ref(),
+        Arc::clone(&protector),
+        telemetry,
+    );
     tokio::pin!(connect);
     loop {
         tokio::select! {

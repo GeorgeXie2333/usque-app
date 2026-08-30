@@ -35,11 +35,17 @@ else {
 if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) {
     throw "vswhere.exe was not found: $vswhere"
 }
-$visualStudio = (& $vswhere `
-        -latest `
-        -products * `
-        -requires $platform.VisualStudioComponent `
-        -property installationPath).Trim()
+$visualStudioMatch = & $vswhere `
+    -latest `
+    -products * `
+    -requires $platform.VisualStudioComponent `
+    -property installationPath
+$visualStudio = if ($null -eq $visualStudioMatch) {
+    ""
+}
+else {
+    ([string]$visualStudioMatch).Trim()
+}
 if ([string]::IsNullOrWhiteSpace($visualStudio)) {
     throw "Visual Studio C++ Build Tools for $Variant were not found."
 }
@@ -198,11 +204,12 @@ try {
                 "--target", $platform.RustTarget,
                 "--package", "usque-agent",
                 "--package", "usque-engine",
+                "--package", "usque-update",
                 "--package", "usque-uninstall"
             )
         }
         "test" {
-            @("test", "--locked", "--workspace")
+            @("test", "--locked", "--workspace", "--all-targets")
         }
         "clippy" {
             @("clippy", "--locked", "--workspace", "--all-targets", "--", "-D", "warnings")

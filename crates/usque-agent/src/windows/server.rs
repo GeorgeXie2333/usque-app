@@ -511,6 +511,14 @@ where
                 &self.state().await,
                 self.coordinator.packet_session_attached(),
             )),
+            agent_request::Payload::InspectPlatformState(_) => {
+                let journal = self.state().await;
+                agent_response::Payload::PlatformState(platform_state_to_proto(
+                    &journal,
+                    self.coordinator.packet_session_attached(),
+                    self.coordinator.tunnel_lease_attached(),
+                ))
+            }
             agent_request::Payload::GetPhysicalNetworkInfo(request) => {
                 let operation_id = parse_operation_id(&request.operation_id)
                     .map_err(|error| (request_id.clone(), error))?;
@@ -1284,6 +1292,95 @@ fn state_to_proto(journal: &RecoveryJournal, packet_session_attached: bool) -> A
         packet_session_active: packet_session_attached,
         journal_generation: journal.generation,
         warnings,
+    }
+}
+
+fn platform_state_to_proto(
+    journal: &RecoveryJournal,
+    packet_session_attached: bool,
+    tunnel_lease_attached: bool,
+) -> agent_v1::PlatformState {
+    let expected = |kind| {
+        journal
+            .steps
+            .iter()
+            .any(|step| step.kind == kind && step.state != crate::journal::MutationState::Restored)
+    };
+    let expected_route_count = journal
+        .steps
+        .iter()
+        .filter(|step| step.state != crate::journal::MutationState::Restored)
+        .map(|step| match &step.receipt {
+            MutationReceipt::EndpointBypass { created }
+            | MutationReceipt::DefaultRoutes { created, .. } => {
+                created.iter().filter(|route| route.owned).count()
+            }
+            _ => 0,
+        })
+        .sum::<usize>();
+    let pending_cleanup = matches!(
+        journal.phase,
+        RecoveryPhase::Recovering | RecoveryPhase::RecoveryRequired | RecoveryPhase::Paused
+    ) || journal
+        .steps
+        .iter()
+        .any(|step| step.state == crate::journal::MutationState::Intended);
+    agent_v1::PlatformState {
+        service_state: "running".to_owned(),
+        agent_phase: phase_to_proto(journal.phase),
+        active_tunnel_lease: tunnel_lease_attached,
+        packet_session_active: packet_session_attached,
+        wintun_adapter_state: if expected(crate::journal::MutationKind::WintunAdapter) {
+            "expected"
+        } else {
+            "not_expected"
+        }
+        .to_owned(),
+        expected_route_count: u32::try_from(expected_route_count).unwrap_or(u32::MAX),
+        // The current backend does not yet have a cross-version-safe route
+        // enumerator. Unknown is explicit so diagnostics cannot claim a leak
+        // check passed based only on the recovery journal.
+        actual_route_count_known: false,
+        actual_route_count: 0,
+        expected_dns_state: if expected(crate::journal::MutationKind::Dns) {
+            "configured"
+        } else {
+            "not_expected"
+        }
+        .to_owned(),
+        actual_dns_state: "unknown".to_owned(),
+        expected_wfp_state: if expected(crate::journal::MutationKind::KillSwitch) {
+            "active"
+        } else {
+            "not_expected"
+        }
+        .to_owned(),
+        actual_wfp_state: "unknown".to_owned(),
+        system_proxy_lease: expected(crate::journal::MutationKind::SystemProxy),
+        recovery_journal_state: match journal.phase {
+            RecoveryPhase::Clean => "clean",
+            RecoveryPhase::Preparing => "preparing",
+            RecoveryPhase::Prepared => "prepared",
+            RecoveryPhase::Active => "active",
+            RecoveryPhase::Paused => "legacy_paused",
+            RecoveryPhase::Recovering => "recovering",
+            RecoveryPhase::RecoveryRequired => "recovery_required",
+        }
+        .to_owned(),
+        pending_cleanup,
+        journal_generation: journal.generation,
+    }
+}
+
+fn phase_to_proto(phase: RecoveryPhase) -> i32 {
+    match phase {
+        RecoveryPhase::Clean => agent_v1::AgentPhase::Clean as i32,
+        RecoveryPhase::Preparing => agent_v1::AgentPhase::Preparing as i32,
+        RecoveryPhase::Prepared => agent_v1::AgentPhase::Prepared as i32,
+        RecoveryPhase::Active => agent_v1::AgentPhase::Active as i32,
+        RecoveryPhase::Paused => agent_v1::AgentPhase::RecoveryRequired as i32,
+        RecoveryPhase::Recovering => agent_v1::AgentPhase::Recovering as i32,
+        RecoveryPhase::RecoveryRequired => agent_v1::AgentPhase::RecoveryRequired as i32,
     }
 }
 

@@ -527,6 +527,36 @@ void main() {
       client.dispose();
     });
 
+    test('update discovery does not wait behind the mutation queue', () async {
+      final firstEntered = Completer<void>();
+      final releaseFirst = Completer<void>();
+      final updateFinished = Completer<void>();
+      var requestIds = 0;
+      final transport = DesktopEngineTransport.forTest(
+        exchange: (Uint8List request) async {
+          final requestId = utf8RequestIdHint(request)!;
+          if (requestId == '1') {
+            firstEntered.complete();
+            await releaseFirst.future;
+            return _statusResponse(requestId);
+          }
+          updateFinished.complete();
+          return _updateResponse(requestId);
+        },
+        requestIdFactory: () => '${++requestIds}',
+      );
+      final client = DesktopEngineClient.forTest(transport: transport);
+
+      final status = client.snapshot();
+      await firstEntered.future;
+      final update = client.checkForUpdates(manual: false);
+      await updateFinished.future.timeout(const Duration(seconds: 1));
+      expect((await update).available, isFalse);
+      releaseFirst.complete();
+      await status;
+      client.dispose();
+    });
+
     test(
       'structured engine errors map to EngineException without retry mask',
       () async {
@@ -828,6 +858,14 @@ Uint8List _statusResponse(String requestId) {
   ByteData.sublistView(frame).setUint32(0, payload.length);
   frame.setRange(4, frame.length, payload);
   return frame;
+}
+
+Uint8List _updateResponse(String requestId) {
+  final codec = ControlCodec();
+  final payload = ControlPayloadWriter()
+    ..string(1, requestId)
+    ..message(14, Uint8List(0));
+  return codec.frame(payload.takeBytes());
 }
 
 String? utf8RequestIdHint(Uint8List frame) {

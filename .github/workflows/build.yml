@@ -164,6 +164,9 @@ jobs:
             "target/${{ matrix.rust_target }}/release/usque-uninstall.exe" `
             $directory
           Copy-Item `
+            "target/${{ matrix.rust_target }}/release/usque-update.exe" `
+            $directory
+          Copy-Item `
             "third_party/wintun-0.14.1/wintun/bin/${{ matrix.wintun_arch }}/wintun.dll" `
             $directory
           $required = @(
@@ -171,6 +174,7 @@ jobs:
             "usque-engine.exe"
             "usque-agent.exe"
             "usque-uninstall.exe"
+            "usque-update.exe"
             "wintun.dll"
             "flutter_windows.dll"
             "data"

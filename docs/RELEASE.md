@@ -1,14 +1,15 @@
-# How v0.2.1 is published
+# How v0.2.2 is published
 
-`v0.2.1` is built by the tag workflow on the current `main` commit. The `v0.2.1` tag is maintainer-only. Signing and publish jobs run in GitHub Environments that need approval. If a required file, signature input, or CI result is missing, the workflow fails. A local MSI or APK cannot replace a failed Actions build.
+`v0.2.2` is built by the tag workflow on the current `main` commit. The `v0.2.2` tag is maintainer-only. Signing and publish jobs run in GitHub Environments that need approval. If a required file, signature input, or CI result is missing, the workflow fails. A local MSI or APK cannot replace a failed Actions build.
 
 Which signatures count as official, how fingerprints are published, and what happens if a key is lost or leaked are in [CODE_SIGNING.md](CODE_SIGNING.md). Repository rules around this workflow are in [GITHUB_GOVERNANCE.md](GITHUB_GOVERNANCE.md).
 
 ## Before signing starts
 
-- The tag must be `v0.2.1` and must point at the current `main` commit.
+- The tag must be `v0.2.2` and must point at the current `main` commit.
 - That commit must already have a successful `ci.yml` push run, including `CI / gate`.
 - `release-signing` and `release-publish` both require approval.
+- Android Developer Console must show `io.github.georgexie2333.usque` and the certificate fingerprint in `ANDROID_SIGNER_SHA256` as **Registered**.
 - Signing material stays in environment secrets. Do not put it in repository variables, files, artifacts, logs, or caches.
 
 ## Signing inputs
@@ -44,19 +45,43 @@ The MSI does not install the publisher certificate into the machine Root or Trus
 1. The tag job builds signed x64-v2 and ARM64 MSIs plus signed arm64-v8a, x86_64, armeabi-v7a, and universal APKs in the signing environment.
 2. Each platform job checks the certificate identity and creates GitHub build provenance.
 3. A staging job downloads those artifacts, rejects missing or extra MSI/APK files, writes an internal release manifest, generates SPDX SBOMs, and records SBOM attestations.
-4. The publish job downloads the staged candidate and checks every primary file against the immutable manifest.
-5. Only then does the workflow create the GitHub release, prepending the two signer fingerprints to the generated notes and attaching the six install packages and nothing else.
+4. The publish job rechecks every primary package against the immutable manifest, calculates final package checksums, and creates the GitHub release with the six install packages, manifest, checksums, and per-package SBOMs.
+5. When repository variable `RUN_PROTECTED_RELEASE_VALIDATION` is exactly `true`, four protected self-hosted runner classes separately exercise the staged candidate: a Windows snapshot VM, a dedicated Android device, an independent network observer, and a controlled performance lab.
+6. Protected validation is supplemental and does not gate publication. The aggregator emits `reliability-report.json` and `device-matrix.md` as a protected Actions artifact only when every required report and evidence file passes its exact-candidate and isolation checks. Missing infrastructure, `failed`, and `not_run` remain visible non-passes and never become release approval.
+
+## Release-note format
+
+`.github/RELEASE_NOTES_TEMPLATE.md` is the publication source for the GitHub
+Release body. Before creating a new release tag, replace the **Highlights**
+items with that release's user-visible changes. Every statement is written in
+English first, followed immediately by its Simplified Chinese translation.
+Keep the standard sections for official downloads, installation requirements,
+signature and evidence verification, and issue feedback.
+
+The release renderer accepts only the version, official repository URL, and
+the two validated signer fingerprints as template values. It rejects missing
+or unknown template values and links outside this repository. This keeps the
+published body free of community-group links, sponsorships, advertisements,
+affiliate links, and referral codes. GitHub-generated release notes stay off
+because an automatically appended monolingual changelog would break the
+bilingual ordering. The publish job fails instead of falling back to an
+unrendered or partially rendered body.
 
 Primary files:
 
-- `usque-v0.2.1-windows-x64-v2.msi`
-- `usque-v0.2.1-windows-arm64.msi`
-- `usque-v0.2.1-android-arm64-v8a.apk`
-- `usque-v0.2.1-android-x86_64.apk`
-- `usque-v0.2.1-android-armeabi-v7a.apk`
-- `usque-v0.2.1-android-universal.apk`
+- `usque-v0.2.2-windows-x64-v2.msi`
+- `usque-v0.2.2-windows-arm64.msi`
+- `usque-v0.2.2-android-arm64-v8a.apk`
+- `usque-v0.2.2-android-x86_64.apk`
+- `usque-v0.2.2-android-armeabi-v7a.apk`
+- `usque-v0.2.2-android-universal.apk`
 
-A public release also needs the usual CI result plus architecture, signature, package, checksum, SBOM, and provenance checks. Endpoint-pin, credential, reconnect, crash, sleep/wake, upgrade, and uninstall leak tests on real hardware are still hardening work, not jobs in this workflow.
+In addition to the six install packages, the public release includes
+`release-manifest.json`, `SHA256SUMS`, and each package's SPDX SBOM. A public
+release requires the usual CI, architecture, signature, package, checksum,
+SBOM, and provenance checks. Protected-runner validation is optional and
+non-blocking; its environments, evidence contract, and privacy boundary are
+documented in [RELIABILITY_TESTING.md](RELIABILITY_TESTING.md).
 
 ## Windows package rules
 
@@ -67,7 +92,7 @@ MSI build = SemVer patch * 100 + beta ordinal
 stable ordinal = 99
 ```
 
-Stable `v0.2.1` is therefore MSI ProductVersion `0.2.199`. The real SemVer stays in ProductName and the filenames. Equal-version major upgrades are enabled so a validation build can replace the same product instead of installing a second copy under `Program Files\Usque`. WiX validation suppresses only ICE61, which assumes upgrades must raise the version; every other standard ICE check stays on.
+Stable `v0.2.2` is therefore MSI ProductVersion `0.2.299`. The real SemVer stays in ProductName and the filenames. Equal-version major upgrades are enabled so a validation build can replace the same product instead of installing a second copy under `Program Files\Usque`. WiX validation suppresses only ICE61, which assumes upgrades must raise the version; every other standard ICE check stays on.
 
 The Agent is installed as demand-start and is not started by the MSI. Its
 `MsiLockPermissionsEx` descriptor gives `SYSTEM` and Administrators full service
@@ -84,12 +109,28 @@ an explanation, and an execute-sequence error action rejects command-line
 maintenance before `StopServices`. Normal uninstall and major upgrade remain
 allowed.
 
-The build rejects unsigned project EXE/DLL files, a signer mismatch, PDBs, reparse points, a modified Wintun DLL, a wrong service command/start type/DACL, an advertised shortcut, a missing maintenance guard, a wrong uninstall action/condition sequence, a 32-bit component, or an ICE failure. True uninstall runs emergency WFP cleanup, journal recovery, optional current-user data cleanup, and clean-state finalization after the service stops and before its binary is removed. A major upgrade runs the first two actions but skips user-data cleanup and clean-state finalization so the replacement service keeps user state and the machine-state directory. The installer UI exposes `INSTALLFOLDER` and stores the chosen path in the 64-bit machine registry for the next major upgrade.
+The GUI accepts Restart Manager's `ENDSESSION_CLOSEAPP` query and commit
+messages as a maintenance-only disconnect-and-exit request, bypassing the normal
+close-to-tray behavior. The MSI sets `MSIRMSHUTDOWN=1` so a pre-protocol or hung
+process is force-closed only after Restart Manager's bounded graceful timeout,
+and sets `MSIDISABLERMRESTART=1` so an old process is never relaunched after an
+uninstall or in the middle of a major upgrade.
+
+The build rejects unsigned project EXE/DLL files, a signer mismatch, PDBs, reparse points, a modified Wintun DLL, a missing `usque-update.exe`, a wrong service command/start type/DACL, an advertised shortcut, a missing maintenance guard, a wrong uninstall action/condition sequence, a 32-bit component, or an ICE failure. The signed update helper reuses the Agent's offline Authenticode verifier and additionally checks the MSI SHA-256, UpgradeCode, mapped stable ProductVersion, summary architecture, and `USQUE_UPDATE_VARIANT` property before starting Windows Installer. True uninstall runs emergency WFP cleanup, journal recovery, optional current-user data cleanup, and clean-state finalization after the service stops and before its binary is removed. A major upgrade runs the first two actions but skips user-data cleanup and clean-state finalization so the replacement service keeps user state and the machine-state directory. The installer UI exposes `INSTALLFOLDER` and stores the chosen path in the 64-bit machine registry for the next major upgrade.
 
 Uninstall keeps the current user's profiles, preferences, logs, caches, and Credential Manager records by default. Settings does not host the MSI wizard, so the package hides the Windows Installer ARP entry (`ARPSYSTEMCOMPONENT`) and registers `usque-uninstall.exe` as the visible uninstall command. That helper asks for confirmation and, only if requested, passes `USQUE_REMOVE_USER_DATA=1` into `msiexec`. Deletion covers only that user's Usque directories and credential namespace. Silent uninstall (`QuietUninstallString` / `msiexec /x /qn`) keeps data unless `USQUE_REMOVE_USER_DATA=1` is set. The shared Wintun driver package is not removed.
 
 User-facing install and uninstall steps are in [INSTALLATION.md](INSTALLATION.md).
 
-## What the runners do not do
+## Runner isolation boundary
 
-GitHub-hosted runners compile, test, sign, inspect, hash, inventory, and attest the release. They do not install an MSI, start Windows VPN/TUN, change runner networking, install APKs on phones, or run long soak or hostile-network tests. Those remain separate hardening work.
+GitHub-hosted runners compile, test, sign, inspect, hash, inventory, attest, and
+aggregate the release. They do not install an MSI, start Windows VPN/TUN,
+change runner networking, or install APKs on devices.
+
+The separate, opt-in protected self-hosted jobs perform destructive lifecycle,
+independent-network, and performance testing only in the environments described
+in [RELIABILITY_TESTING.md](RELIABILITY_TESTING.md). They are supplemental and
+do not gate publication. Do not provision those runner labels on a developer
+workstation, and do not treat an environment variable or label as proof of
+isolation.

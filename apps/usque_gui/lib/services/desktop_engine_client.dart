@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import '../models/app_models.dart';
+import '../models/diagnostics_models.dart';
 import 'control_codec.dart';
 import 'desktop_engine_transport.dart';
 import 'engine_client.dart';
@@ -344,23 +345,122 @@ class DesktopEngineClient implements EngineClient {
   }
 
   @override
-  Future<String?> exportDiagnostics() async {
+  Future<DiagnosticSession> startDiagnostics(DiagnosticMode mode) {
+    return _serialized(() async {
+      final payload = ControlPayloadWriter()
+        ..enumeration(1, mode == DiagnosticMode.standard ? 1 : 2);
+      final response = await _request(36, payload.takeBytes());
+      final session = response.diagnosticSession;
+      if (session == null || session.sessionId.isEmpty) {
+        throw const EngineException(
+          'ENGINE_IPC_INVALID_RESPONSE',
+          'The local Engine returned no diagnostic session.',
+        );
+      }
+      return session;
+    });
+  }
+
+  @override
+  Future<DiagnosticSession> cancelDiagnostics(String sessionId) {
+    return _serialized(() async {
+      final payload = ControlPayloadWriter()..string(1, sessionId);
+      final response = await _request(37, payload.takeBytes());
+      final session = response.diagnosticSession;
+      if (session == null || session.sessionId.isEmpty) {
+        throw const EngineException(
+          'ENGINE_IPC_INVALID_RESPONSE',
+          'The local Engine returned no diagnostic session.',
+        );
+      }
+      return session;
+    });
+  }
+
+  @override
+  Future<DiagnosticSession?> getDiagnostics() {
+    return _serialized(() async {
+      final response = await _request(38, Uint8List(0));
+      final session = response.diagnosticSession;
+      return session == null || session.sessionId.isEmpty ? null : session;
+    });
+  }
+
+  @override
+  Future<ConnectionTimeline> getConnectionTimeline() {
+    return _serialized(() async {
+      final response = await _request(39, Uint8List(0));
+      return response.connectionTimeline ?? const ConnectionTimeline();
+    });
+  }
+
+  @override
+  Future<String?> exportDiagnostics({String? diagnosticSessionId}) async {
     final destination = await _transport.selectDiagnosticsDestination();
     if (destination == null || destination.isEmpty) {
       return null;
     }
-    final payload = ControlPayloadWriter()..string(1, destination);
+    final payload = ControlPayloadWriter()
+      ..string(1, destination)
+      ..string(2, diagnosticSessionId ?? '');
     await _serialized(() => _request(21, payload.takeBytes()));
     return destination;
   }
 
   @override
-  Future<UpdateCheckResult> checkForUpdates({bool manual = true}) {
-    return _serialized(() async {
-      final payload = ControlPayloadWriter()..boolean(1, manual);
-      final response = await _request(20, payload.takeBytes());
-      return response.update ?? const UpdateCheckResult.current();
-    });
+  Future<UpdateCheckResult> checkForUpdates({bool manual = true}) async {
+    // Update discovery is read-only and uses its own framed exchange. Keeping it
+    // outside the mutation queue prevents a slow GitHub request from delaying
+    // startup connection, while the transport still enforces its request bound.
+    final payload = ControlPayloadWriter()..boolean(1, manual);
+    final response = await _request(20, payload.takeBytes());
+    return response.update ?? const UpdateCheckResult.current();
+  }
+
+  @override
+  Future<String> getUpdateCacheDirectory() async {
+    if (!Platform.isWindows) {
+      throw const EngineException(
+        'UPDATE_PLATFORM_UNSUPPORTED',
+        'In-app package installation is available only on Windows and Android.',
+      );
+    }
+    final localAppData = Platform.environment['LOCALAPPDATA'];
+    if (localAppData == null || localAppData.isEmpty) {
+      throw const EngineException(
+        'UPDATE_STORAGE_UNAVAILABLE',
+        'Windows did not provide the current user application-data directory.',
+      );
+    }
+    return '$localAppData${Platform.pathSeparator}Usque'
+        '${Platform.pathSeparator}updates';
+  }
+
+  @override
+  Future<void> verifyUpdatePackage({
+    required String path,
+    required String version,
+    required UpdatePackage package,
+  }) async {
+    await _runUpdateHelper(<String>[
+      '--verify-only',
+      ..._updatePackageArguments(path, version, package),
+    ], failureCode: 'UPDATE_PACKAGE_INVALID');
+  }
+
+  @override
+  Future<void> installUpdatePackage({
+    required String path,
+    required String version,
+    required UpdatePackage package,
+  }) async {
+    await _runUpdateHelper(<String>[
+      '--install',
+      '--parent-pid',
+      '$pid',
+      ..._updatePackageArguments(path, version, package),
+    ], failureCode: 'UPDATE_INSTALL_LAUNCH_FAILED');
+    await _transport.invokePlatformMethod<void>('exitApplication');
   }
 
   @override
@@ -369,6 +469,56 @@ class DesktopEngineClient implements EngineClient {
       final response = await _request(33, Uint8List(0));
       return response.geoRulesList ?? const GeoRulesList();
     });
+  }
+
+  List<String> _updatePackageArguments(
+    String path,
+    String version,
+    UpdatePackage package,
+  ) => <String>[
+    '--package',
+    path,
+    '--version',
+    version,
+    '--expected-name',
+    package.name,
+    '--expected-size',
+    '${package.size}',
+    '--expected-sha256',
+    package.sha256,
+    '--variant',
+    package.variant,
+  ];
+
+  Future<void> _runUpdateHelper(
+    List<String> arguments, {
+    required String failureCode,
+  }) async {
+    if (!Platform.isWindows) {
+      throw const EngineException(
+        'UPDATE_PLATFORM_UNSUPPORTED',
+        'In-app package installation is available only on Windows and Android.',
+      );
+    }
+    final helper = File(
+      '${File(Platform.resolvedExecutable).parent.path}'
+      '${Platform.pathSeparator}usque-update.exe',
+    );
+    if (!helper.isAbsolute || !await helper.exists()) {
+      throw const EngineException(
+        'UPDATE_HELPER_UNAVAILABLE',
+        'The signed Windows update helper is missing from this installation.',
+      );
+    }
+    final result = await Process.run(helper.path, arguments, runInShell: false);
+    if (result.exitCode == 0) return;
+    final detail = '${result.stderr}'.trim();
+    throw EngineException(
+      failureCode,
+      detail.isEmpty
+          ? 'The Windows update helper rejected the operation.'
+          : (detail.length <= 512 ? detail : detail.substring(0, 512)),
+    );
   }
 
   @override

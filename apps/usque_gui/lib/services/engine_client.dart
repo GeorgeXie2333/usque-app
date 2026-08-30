@@ -4,6 +4,7 @@ import 'dart:ui';
 import 'package:flutter/services.dart';
 
 import '../models/app_models.dart';
+import '../models/diagnostics_models.dart';
 
 class EngineException implements Exception {
   const EngineException(this.code, this.message);
@@ -18,10 +19,17 @@ class EngineException implements Exception {
 /// A live engine event. [snapshot] is null for heartbeat-only frames such as
 /// CapabilitiesChanged.
 class EngineSnapshotEvent {
-  const EngineSnapshotEvent({this.snapshot, this.geoProgress});
+  const EngineSnapshotEvent({
+    this.snapshot,
+    this.geoProgress,
+    this.diagnosticSession,
+    this.diagnosticsChanged = false,
+  });
 
   final EngineSnapshot? snapshot;
   final GeoRulesProgress? geoProgress;
+  final DiagnosticSession? diagnosticSession;
+  final bool diagnosticsChanged;
 }
 
 abstract interface class EngineClient {
@@ -109,9 +117,31 @@ abstract interface class EngineClient {
 
   Future<void> openAlwaysOnVpnSettings();
 
-  Future<String?> exportDiagnostics();
+  Future<DiagnosticSession> startDiagnostics(DiagnosticMode mode);
+
+  Future<DiagnosticSession> cancelDiagnostics(String sessionId);
+
+  Future<DiagnosticSession?> getDiagnostics();
+
+  Future<ConnectionTimeline> getConnectionTimeline();
+
+  Future<String?> exportDiagnostics({String? diagnosticSessionId});
 
   Future<UpdateCheckResult> checkForUpdates({bool manual = true});
+
+  Future<String> getUpdateCacheDirectory();
+
+  Future<void> verifyUpdatePackage({
+    required String path,
+    required String version,
+    required UpdatePackage package,
+  });
+
+  Future<void> installUpdatePackage({
+    required String path,
+    required String version,
+    required UpdatePackage package,
+  });
 
   Future<GeoRulesList> listGeoRules();
 
@@ -151,6 +181,12 @@ class MethodChannelEngineClient implements EngineClient {
         geoProgress: progress is Map
             ? geoRulesProgressFromMap(Map<Object?, Object?>.from(progress))
             : null,
+        diagnosticSession: map['diagnostic_session'] is Map
+            ? DiagnosticSession.fromMap(
+                Map<Object?, Object?>.from(map['diagnostic_session'] as Map),
+              )
+            : null,
+        diagnosticsChanged: map.containsKey('diagnostic_session'),
       );
     });
   }
@@ -416,7 +452,48 @@ class MethodChannelEngineClient implements EngineClient {
   }
 
   @override
-  Future<String?> exportDiagnostics() => _invoke<String>('exportDiagnostics');
+  Future<DiagnosticSession> startDiagnostics(DiagnosticMode mode) async {
+    final result = await _invoke<Map<Object?, Object?>>(
+      'startDiagnostics',
+      <String, Object>{'mode': mode.name},
+    );
+    return DiagnosticSession.fromMap(result ?? const <Object?, Object?>{});
+  }
+
+  @override
+  Future<DiagnosticSession> cancelDiagnostics(String sessionId) async {
+    final result = await _invoke<Map<Object?, Object?>>(
+      'cancelDiagnostics',
+      <String, Object>{'session_id': sessionId},
+    );
+    return DiagnosticSession.fromMap(result ?? const <Object?, Object?>{});
+  }
+
+  @override
+  Future<DiagnosticSession?> getDiagnostics() async {
+    final result = await _invoke<Map<Object?, Object?>>('getDiagnostics');
+    if (result == null || (result['session_id'] as String? ?? '').isEmpty) {
+      return null;
+    }
+    return DiagnosticSession.fromMap(result);
+  }
+
+  @override
+  Future<ConnectionTimeline> getConnectionTimeline() async {
+    // Android exposes its live platform/runtime history through the same map
+    // contract. Older native builds return an empty map, which is a valid
+    // unknown timeline rather than fabricated measurements.
+    final result = await _invoke<Map<Object?, Object?>>(
+      'getConnectionTimeline',
+    );
+    return connectionTimelineFromMap(result ?? const <Object?, Object?>{});
+  }
+
+  @override
+  Future<String?> exportDiagnostics({String? diagnosticSessionId}) =>
+      _invoke<String>('exportDiagnostics', <String, Object?>{
+        'diagnostic_session_id': ?diagnosticSessionId,
+      });
 
   @override
   Future<UpdateCheckResult> checkForUpdates({bool manual = true}) async {
@@ -426,6 +503,40 @@ class MethodChannelEngineClient implements EngineClient {
     );
     return UpdateCheckResult.fromMap(result ?? const <Object?, Object?>{});
   }
+
+  @override
+  Future<String> getUpdateCacheDirectory() async {
+    final result = await _invoke<String>('getUpdateCacheDirectory');
+    if (result == null || result.isEmpty) {
+      throw const EngineException(
+        'UPDATE_STORAGE_UNAVAILABLE',
+        'The platform did not provide an update cache directory.',
+      );
+    }
+    return result;
+  }
+
+  @override
+  Future<void> verifyUpdatePackage({
+    required String path,
+    required String version,
+    required UpdatePackage package,
+  }) => _invoke<void>('verifyUpdatePackage', <String, Object>{
+    'path': path,
+    'version': version,
+    'package': package.toMap(),
+  });
+
+  @override
+  Future<void> installUpdatePackage({
+    required String path,
+    required String version,
+    required UpdatePackage package,
+  }) => _invoke<void>('installUpdatePackage', <String, Object>{
+    'path': path,
+    'version': version,
+    'package': package.toMap(),
+  });
 
   @override
   Future<GeoRulesList> listGeoRules() async {

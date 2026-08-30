@@ -10,7 +10,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::windows::named_pipe::{ClientOptions, NamedPipeClient},
@@ -19,16 +19,20 @@ use tokio::{
     time::timeout,
 };
 use tokio_util::sync::CancellationToken;
-use usque_core::{IpPolicy, Profile, REGISTRATION_API_HOST, REGISTRATION_API_PORT};
+use usque_core::{
+    IpPolicy, Profile, REGISTRATION_API_HOST, REGISTRATION_API_PORT, TransportFailure,
+    TransportFailureCode, TransportStage,
+};
 use usque_ipc::{
     agent_v1::{
         self, AcquireDirectEgressRequest, AcquireTunnelLeaseRequest, AgentCapabilities,
         AgentRequest, AgentResponse, AgentState, ApplySystemProxyRequest,
         ClosePacketSessionRequest, CommitTunnelRequest,
         DirectEgressLease as AgentDirectEgressLease, GetCapabilitiesRequest,
-        GetPhysicalNetworkInfoRequest, GetStateRequest, OpenPacketSessionRequest,
-        PacketSessionHandles, PhysicalNetworkInfo, PrepareTunnelRequest, RestoreSystemProxyRequest,
-        ResumeTunnelRequest, RollbackTunnelRequest, agent_request, agent_response,
+        GetPhysicalNetworkInfoRequest, GetStateRequest, InspectPlatformStateRequest,
+        OpenPacketSessionRequest, PacketSessionHandles, PhysicalNetworkInfo, PlatformState,
+        PrepareTunnelRequest, RestoreSystemProxyRequest, ResumeTunnelRequest,
+        RollbackTunnelRequest, agent_request, agent_response,
     },
     decode_frame, encode_frame,
 };
@@ -36,10 +40,10 @@ use usque_platform::packet_ring::{
     PACKET_RING_LAYOUT_VERSION, PacketDirection, PacketRingError, SharedPacketRing,
 };
 use usque_transport::{
-    DirectEgressLease, DirectProtocol, EndpointPinRefresher, GeoDirectPolicy, ManagedTunnelMonitor,
-    MasqueRuntime, MasqueTlsIdentity, MasqueTunIo, NoopSocketProtector, RuntimeHealth, RuntimePath,
-    SPLIT_DNS_IPV4, SPLIT_DNS_IPV6, SocketHandle, SocketProtector, TrafficSnapshot, TransportError,
-    resolve_physical_host,
+    ConnectionTimelineSnapshot, DirectEgressLease, DirectProtocol, EndpointPinRefresher,
+    GeoDirectPolicy, ManagedTunnelMonitor, MasqueRuntime, MasqueTlsIdentity, MasqueTunIo,
+    NoopSocketProtector, RuntimeHealth, RuntimePath, SPLIT_DNS_IPV4, SPLIT_DNS_IPV6, SocketHandle,
+    SocketProtector, TrafficSnapshot, TransportError, resolve_physical_host,
 };
 use uuid::Uuid;
 use windows_sys::Win32::{
@@ -74,6 +78,7 @@ const AGENT_START_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const AGENT_START_RECHECK_INTERVAL: Duration = Duration::from_millis(250);
 const PUMP_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 const DEFAULT_PACKET_RING_CAPACITY: u32 = 4 * 1024 * 1024;
+const PACKET_WAKE_BATCH: usize = 64;
 const PHYSICAL_NETWORK_POLL_INTERVAL: Duration = Duration::from_secs(2);
 
 struct WindowsVpnSocketProtector {
@@ -437,6 +442,11 @@ impl WindowsVpnMonitor {
                 last_path: transport.path(),
                 reconnect_count: transport.reconnect_count(),
                 message,
+                failure: TransportFailure::new(
+                    TransportFailureCode::AgentUnreachable,
+                    TransportStage::PlatformRecovery,
+                )
+                .on_path(transport.path().transport, transport.path().endpoint_family),
             }
         } else {
             self.tunnel.health()
@@ -445,6 +455,10 @@ impl WindowsVpnMonitor {
 
     pub(crate) fn statistics(&self) -> TrafficSnapshot {
         self.tunnel.statistics()
+    }
+
+    pub(crate) fn connection_timeline(&self) -> ConnectionTimelineSnapshot {
+        self.tunnel.connection_timeline()
     }
 
     pub(crate) fn failure(&self) -> Option<String> {
@@ -601,6 +615,10 @@ impl WindowsVpnRuntime {
 
     pub(crate) fn statistics(&self) -> TrafficSnapshot {
         self.monitor.statistics()
+    }
+
+    pub(crate) fn connection_timeline(&self) -> ConnectionTimelineSnapshot {
+        self.monitor.connection_timeline()
     }
 
     pub(crate) fn failure(&self) -> Option<String> {
@@ -1176,32 +1194,13 @@ fn start_packet_pumps(
                 packet = tun_io.receive_packet() => {
                     match packet {
                         Ok(packet) => {
-                            match pump_mapping
-                                .ring()
-                                .try_push(PacketDirection::EngineToAgent, &packet)
-                            {
-                                Ok(true) => {
-                                    if let Err(error) = pump_mapping.signal_engine_to_agent() {
-                                        report_pump_failure(
-                                            &pump_failure,
-                                            &pump_cancel,
-                                            error.to_string(),
-                                        );
-                                        break;
-                                    }
-                                }
-                                Ok(false) => {
-                                    // Ring pressure is accounted by the shared
-                                    // dropped counter. Keep the tunnel alive.
-                                }
-                                Err(error) => {
-                                    report_pump_failure(
-                                        &pump_failure,
-                                        &pump_cancel,
-                                        format!("Engine-to-Agent packet ring failed: {error}"),
-                                    );
-                                    break;
-                                }
+                            if let Err(message) = publish_engine_packet_batch(
+                                &mut tun_io,
+                                &pump_mapping,
+                                packet,
+                            ) {
+                                report_pump_failure(&pump_failure, &pump_cancel, message);
+                                break;
                             }
                         }
                         Err(error) => {
@@ -1222,6 +1221,48 @@ fn start_packet_pumps(
     });
 
     vec![wait_task, pump_task]
+}
+
+fn publish_engine_packet_batch(
+    tun_io: &mut MasqueTunIo,
+    mapping: &PacketSessionMapping,
+    first: Bytes,
+) -> Result<(), String> {
+    let ring = mapping.ring();
+    let wake_bytes = (ring.capacity() as usize / 4).max(1);
+    let mut packet = first;
+    let mut published = false;
+    let mut published_bytes = 0usize;
+    let mut packet_count = 0usize;
+    let result: Result<(), String> = loop {
+        match ring.try_push(PacketDirection::EngineToAgent, &packet) {
+            Ok(pushed) => {
+                published |= pushed;
+                if pushed {
+                    published_bytes = published_bytes.saturating_add(packet.len());
+                }
+            }
+            Err(error) => break Err(format!("Engine-to-Agent packet ring failed: {error}")),
+        }
+        packet_count += 1;
+        if packet_count == PACKET_WAKE_BATCH || published_bytes >= wake_bytes {
+            break Ok(());
+        }
+        match tun_io.try_receive_packet() {
+            Ok(Some(next)) => packet = next,
+            Ok(None) => break Ok(()),
+            Err(error) => break Err(format!("failed to receive a MASQUE packet: {error}")),
+        }
+    };
+
+    if published {
+        // Signal after publication, once per bounded batch. The Agent drains
+        // until empty, so coalesced auto-reset signals cannot strand packets.
+        mapping
+            .signal_engine_to_agent()
+            .map_err(|error| error.to_string())?;
+    }
+    result
 }
 
 fn report_pump_failure(
@@ -1590,6 +1631,24 @@ impl WindowsAgentClient {
             .await?
         {
             agent_response::Payload::State(state) => Ok(state),
+            payload => Err(WindowsVpnError::UnexpectedResponse(payload_name(&payload))),
+        }
+    }
+
+    async fn inspect_platform_state_if_running(&self) -> Result<PlatformState, WindowsVpnError> {
+        // Diagnostics must be read-only. Opening an existing pipe is allowed;
+        // unlike `call`, this deliberately never starts or reconfigures the
+        // Agent service when it is not already available.
+        let mut pipe = ClientOptions::new().open(self.pipe_name.as_ref())?;
+        let exchange = self.exchange(
+            &mut pipe,
+            agent_request::Payload::InspectPlatformState(InspectPlatformStateRequest {}),
+        );
+        match timeout(AGENT_RPC_TIMEOUT, exchange)
+            .await
+            .map_err(|_| WindowsVpnError::RpcTimeout)??
+        {
+            agent_response::Payload::PlatformState(state) => Ok(state),
             payload => Err(WindowsVpnError::UnexpectedResponse(payload_name(&payload))),
         }
     }
@@ -1964,6 +2023,12 @@ impl WindowsAgentClient {
     }
 }
 
+pub(crate) async fn inspect_platform_state_if_running() -> Result<PlatformState, WindowsVpnError> {
+    WindowsAgentClient::production()
+        .inspect_platform_state_if_running()
+        .await
+}
+
 fn payload_name(payload: &agent_response::Payload) -> &'static str {
     match payload {
         agent_response::Payload::Empty(_) => "empty",
@@ -1972,6 +2037,7 @@ fn payload_name(payload: &agent_response::Payload) -> &'static str {
         agent_response::Payload::PacketSession(_) => "packet_session",
         agent_response::Payload::PhysicalNetworkInfo(_) => "physical_network_info",
         agent_response::Payload::DirectEgressLease(_) => "direct_egress_lease",
+        agent_response::Payload::PlatformState(_) => "platform_state",
     }
 }
 

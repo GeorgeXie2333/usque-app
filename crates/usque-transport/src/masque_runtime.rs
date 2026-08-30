@@ -21,6 +21,7 @@ use crate::packet_mux::{PacketMuxTable, PacketOrigin};
 use crate::pin_refresh::EndpointPinRefresher;
 use crate::socket::{SocketProtector, noop_socket_protector};
 use crate::socks5::Socks5Frontend;
+use crate::telemetry::ConnectionTimelineSnapshot;
 
 const PACKET_QUEUE_CAPACITY: usize = 1_024;
 
@@ -36,10 +37,11 @@ pub struct MasqueTunIo {
 impl MasqueTunIo {
     pub async fn send_packet(&self, packet: &[u8]) -> Result<(), TransportError> {
         crate::h2::validate_ip_packet(packet)?;
-        self.outgoing
-            .send(Bytes::copy_from_slice(packet))
-            .await
-            .map_err(|_| TransportError::TunnelClosed)
+        match self.outgoing.try_send(Bytes::copy_from_slice(packet)) {
+            Ok(()) => Ok(()),
+            Err(mpsc::error::TrySendError::Full(_)) => Err(TransportError::SendQueueFull),
+            Err(mpsc::error::TrySendError::Closed(_)) => Err(TransportError::TunnelClosed),
+        }
     }
 
     pub async fn receive_packet(&mut self) -> Result<Bytes, TransportError> {
@@ -47,6 +49,16 @@ impl MasqueTunIo {
             .recv()
             .await
             .ok_or(TransportError::TunnelClosed)
+    }
+
+    /// Receives an already queued packet without waiting. This lets platform
+    /// packet pumps publish a bounded batch under one kernel wakeup.
+    pub fn try_receive_packet(&mut self) -> Result<Option<Bytes>, TransportError> {
+        match self.incoming.try_recv() {
+            Ok(packet) => Ok(Some(packet)),
+            Err(mpsc::error::TryRecvError::Empty) => Ok(None),
+            Err(mpsc::error::TryRecvError::Disconnected) => Err(TransportError::TunnelClosed),
+        }
     }
 }
 
@@ -433,9 +445,11 @@ impl MasqueRuntime {
         self.raw_outgoing
             .as_ref()
             .ok_or(TransportError::TunnelClosed)?
-            .send(Bytes::copy_from_slice(packet))
-            .await
-            .map_err(|_| TransportError::TunnelClosed)
+            .try_send(Bytes::copy_from_slice(packet))
+            .map_err(|error| match error {
+                mpsc::error::TrySendError::Full(_) => TransportError::SendQueueFull,
+                mpsc::error::TrySendError::Closed(_) => TransportError::TunnelClosed,
+            })
     }
 
     pub fn assigned_ipv4(&self) -> Ipv4Addr {
@@ -460,6 +474,10 @@ impl MasqueRuntime {
 
     pub fn statistics(&self) -> TrafficSnapshot {
         self.monitor.statistics()
+    }
+
+    pub fn connection_timeline(&self) -> ConnectionTimelineSnapshot {
+        self.monitor.connection_timeline()
     }
 
     pub fn performance(&self) -> ProxyPerformanceSnapshot {
@@ -559,11 +577,13 @@ async fn run_packet_mux(
                 let mut packet = packet
                     .try_into_mut()
                     .unwrap_or_else(|packet| bytes::BytesMut::from(packet.as_ref()));
-                let tunnel_owned = flows.owns_outgoing(PacketOrigin::Tunnel, &packet);
-                if !tunnel_owned && router.route_outgoing(&mut packet).await {
+                let inspection = flows.inspect_outgoing(PacketOrigin::Tunnel, &packet);
+                if !inspection.is_owned() && router.route_outgoing(&mut packet).await {
                     continue;
                 }
-                if flows.route_outgoing(PacketOrigin::Tunnel, &mut packet)
+                // DirectGatewayRouter guarantees that a false result leaves
+                // the packet unchanged, so the earlier parse remains valid.
+                if flows.route_inspected_outgoing(&mut packet, inspection)
                     && sender.send_owned_packet(packet.freeze()).await.is_err()
                 {
                     break;
@@ -925,6 +945,44 @@ mod tests {
         tun_sink.send_replace(Some(tx));
         dispatch_tun_incoming(&tun_sink, Bytes::from_static(b"closed"));
         assert!(tun_sink.borrow().is_none());
+    }
+
+    #[tokio::test]
+    async fn tun_send_queue_saturation_fails_immediately() {
+        let (outgoing, _outgoing_rx) = mpsc::channel(1);
+        let (_incoming_tx, incoming) = mpsc::channel(1);
+        let io = MasqueTunIo { outgoing, incoming };
+        let packet = [
+            0x45, 0, 0, 20, 0, 0, 0, 0, 64, 17, 0, 0, 1, 1, 1, 1, 8, 8, 8, 8,
+        ];
+
+        io.send_packet(&packet).await.unwrap();
+        assert!(matches!(
+            io.send_packet(&packet).await,
+            Err(TransportError::SendQueueFull)
+        ));
+    }
+
+    #[test]
+    fn tun_receive_queue_can_be_drained_without_waiting() {
+        let (outgoing, _outgoing_rx) = mpsc::channel(1);
+        let (incoming_tx, incoming) = mpsc::channel(2);
+        let mut io = MasqueTunIo { outgoing, incoming };
+
+        incoming_tx
+            .try_send(Bytes::from_static(b"packet"))
+            .expect("queue packet");
+        assert_eq!(
+            io.try_receive_packet().expect("queued packet"),
+            Some(Bytes::from_static(b"packet"))
+        );
+        assert_eq!(io.try_receive_packet().expect("empty queue"), None);
+
+        drop(incoming_tx);
+        assert!(matches!(
+            io.try_receive_packet(),
+            Err(TransportError::TunnelClosed)
+        ));
     }
 
     fn free_loopback() -> SocketAddr {

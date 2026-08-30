@@ -3,6 +3,7 @@ package io.github.georgexie2333.usque
 import android.content.ServiceConnection
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -282,6 +283,63 @@ class AndroidEngineMethodHandlerTest {
     }
 
     @Test
+    fun startDiagnosticsFailsControlCheckWhenSnapshotProbeCannotReachService() {
+        controlClient.detachEndpointForTest()
+        val result = RecordingResult()
+
+        handler.handle(MethodCall("startDiagnostics", mapOf("mode" to "standard")), result)
+
+        val session = result.successValue as Map<*, *>
+        val findings = session["findings"] as List<*>
+        val controlFinding =
+            findings
+                .filterIsInstance<Map<*, *>>()
+                .single { it["check_id"] == "engine.control_channel" }
+        assertEquals("failed", controlFinding["status"])
+        assertEquals("ENGINE_UNAVAILABLE", (controlFinding["failure"] as Map<*, *>)["code"])
+    }
+
+    @Test
+    fun exportDiagnosticsFreezesTheRequestedSessionBeforeDestinationSelection() {
+        val firstResult = RecordingResult()
+        handler.handle(MethodCall("startDiagnostics", mapOf("mode" to "standard")), firstResult)
+        val firstRequestId =
+            endpoint.messages.last { it.first == UsqueVpnService.MSG_SNAPSHOT }.second
+        controlClient.deliverSnapshotReply(
+            firstRequestId,
+            null,
+            null,
+            diagnosticSnapshot(networkGeneration = 1L),
+        )
+        val firstSession = firstResult.successValue as Map<*, *>
+        val firstSessionId = firstSession["session_id"] as String
+
+        val exportResult = RecordingResult()
+        handler.handle(
+            MethodCall("exportDiagnostics", mapOf("diagnostic_session_id" to firstSessionId)),
+            exportResult,
+        )
+        val frozenPayload = requireNotNull(activityCommands.diagnosticsPayload)
+
+        val secondResult = RecordingResult()
+        handler.handle(MethodCall("startDiagnostics", mapOf("mode" to "standard")), secondResult)
+        val secondRequestId =
+            endpoint.messages.last { it.first == UsqueVpnService.MSG_SNAPSHOT }.second
+        controlClient.deliverSnapshotReply(
+            secondRequestId,
+            null,
+            null,
+            diagnosticSnapshot(networkGeneration = 2L),
+        )
+
+        assertEquals(1L, frozenPayload.snapshot["network_generation"])
+        assertEquals(firstSessionId, frozenPayload.diagnosticSession?.get("session_id"))
+        assertEquals(1, activityCommands.diagnosticsCount)
+        assertNull(exportResult.errorCode)
+        assertNull(secondResult.errorCode)
+    }
+
+    @Test
     fun provisionIdentityRequiresTerms() {
         val result = RecordingResult()
         handler.handle(MethodCall("provisionIdentity", mapOf("terms_accepted" to false)), result)
@@ -517,6 +575,44 @@ class AndroidEngineMethodHandlerTest {
     }
 
     @Test
+    fun zeroTrustCreationUsesRegisteredIpsAndKeepsSharedPortAndSni() {
+        val result = RecordingResult()
+        handler.handle(
+            MethodCall(
+                "createProfileWithIdentity",
+                mapOf(
+                    "profile" to
+                        mapOf(
+                            "id" to "p-new",
+                            "name" to "Work",
+                            "endpoint_v4" to "162.159.198.2",
+                            "endpoint_v6" to "2606:4700:103::2",
+                            "endpoint_port" to 8443,
+                            "sni" to "shared.example.com",
+                        ),
+                    "method" to "zeroTrust",
+                    "team_name" to "example-team",
+                    "callback_uri" to
+                        "com.cloudflare.warp://example-team.cloudflareaccess.com/auth?token=test",
+                    "terms_accepted" to true,
+                ),
+            ),
+            result,
+        )
+
+        assertNull(result.errorCode)
+        val commit =
+            engineBridge.commands
+                .map(::JSONObject)
+                .first { it.optString("command") == "commit_profile_with_identity" }
+        val committedProfile = commit.getJSONObject("profile")
+        assertEquals("162.159.197.2", committedProfile.getString("endpoint_v4"))
+        assertEquals("2606:4700:102::2", committedProfile.getString("endpoint_v6"))
+        assertEquals(8443, committedProfile.getInt("endpoint_port"))
+        assertEquals("shared.example.com", committedProfile.getString("sni"))
+    }
+
+    @Test
     fun zeroTrustCreationDeletesPartialIdentityWhenMetadataStorageFails() {
         identityStore.failOnPut = SecureIdentityStore.Record.IDENTITY_METADATA
         val result = RecordingResult()
@@ -655,7 +751,7 @@ class AndroidEngineMethodHandlerTest {
     }
 
     @Test
-    fun missingMetadataOnZeroTrustEndpointIsInvalidAndBlocksExport() {
+    fun missingMetadataOnBoundZeroTrustIdentityIsInvalidAndBlocksExport() {
         identityStore.put(
             "p1",
             SecureIdentityStore.Record.WARP_SECRET,
@@ -668,8 +764,8 @@ class AndroidEngineMethodHandlerTest {
                 "id":"p1",
                 "endpoint_v4":"162.159.198.2",
                 "endpoint_v6":"2606:4700:103::2",
-                "endpoint_port":443,
-                "sni":"speed.cloudflare.com",
+                "endpoint_port":8443,
+                "sni":"shared.example.com",
                 "identity_provider":"zero_trust",
                 "identity_organization":"example-team"
               }]
@@ -815,6 +911,10 @@ class AndroidEngineMethodHandlerTest {
             {
               "profiles":[{
                 "id":"p1",
+                "endpoint_v4":"162.159.198.2",
+                "endpoint_v6":"2606:4700:103::2",
+                "endpoint_port":8443,
+                "sni":"shared.example.com",
                 "identity_provider":"zero_trust",
                 "identity_organization":"example-team"
               }]
@@ -837,11 +937,32 @@ class AndroidEngineMethodHandlerTest {
             repaired,
         )
         assertNull(repaired.errorCode)
+        val update =
+            engineBridge.commands
+                .map(::JSONObject)
+                .first { it.optString("command") == "commit_identity_replacement" }
+        assertEquals("zero_trust", update.getString("identity_provider"))
+        assertEquals("example-team", update.getString("organization"))
+        val updatedProfile = update.getJSONObject("profile")
+        assertEquals("162.159.197.2", updatedProfile.getString("endpoint_v4"))
+        assertEquals("2606:4700:102::2", updatedProfile.getString("endpoint_v6"))
+        assertEquals(8443, updatedProfile.getInt("endpoint_port"))
+        assertEquals("shared.example.com", updatedProfile.getString("sni"))
+        val replacementCommands =
+            engineBridge.commands.map { JSONObject(it).optString("command") }
         assertTrue(
-            engineBridge.commands.any {
-                it.contains("\"identity_provider\":\"zero_trust\"") &&
-                    it.contains("\"organization\":\"example-team\"")
-            },
+            replacementCommands.indexOf("begin_identity_replacement") <
+                replacementCommands.indexOf("arm_identity_replacement"),
+        )
+        assertTrue(
+            replacementCommands.indexOf("arm_identity_replacement") <
+                replacementCommands.indexOf("commit_identity_replacement"),
+        )
+        assertNull(
+            identityStore.get(
+                "p1",
+                SecureIdentityStore.Record.PENDING_REPLACEMENT_IDENTITY,
+            ),
         )
 
         identityStore.delete("p1", SecureIdentityStore.Record.IDENTITY_METADATA)
@@ -861,6 +982,91 @@ class AndroidEngineMethodHandlerTest {
             crossTeam,
         )
         assertEquals("IDENTITY_PROVIDER_CHANGE_UNSUPPORTED", crossTeam.errorCode)
+    }
+
+    @Test
+    fun pendingIdentityReplacementIsRolledBackBeforeCatalogPublication() {
+        identityStore.put(
+            "p1",
+            SecureIdentityStore.Record.WARP_SECRET,
+            "new-secret".toByteArray(),
+        )
+        identityStore.put(
+            "p1",
+            SecureIdentityStore.Record.IDENTITY_METADATA,
+            "new-metadata".toByteArray(),
+        )
+        identityStore.put(
+            "p1",
+            SecureIdentityStore.Record.PENDING_REPLACEMENT_IDENTITY,
+            IdentityReplacementRollbackCodec.encode(
+                identity = "old-secret".toByteArray(),
+                metadata = "old-metadata".toByteArray(),
+                license = null,
+            ),
+        )
+        engineBridge.profileCatalogJson =
+            """
+            {
+              "profiles":[{"id":"p1"}],
+              "pending_identity_replacements":["p1"],
+              "armed_identity_replacements":["p1"]
+            }
+            """.trimIndent()
+
+        catalogIdentityStatuses()
+
+        assertTrue(
+            identityStore
+                .get("p1", SecureIdentityStore.Record.WARP_SECRET)!!
+                .contentEquals("old-secret".toByteArray()),
+        )
+        assertTrue(
+            identityStore
+                .get("p1", SecureIdentityStore.Record.IDENTITY_METADATA)!!
+                .contentEquals("old-metadata".toByteArray()),
+        )
+        assertNull(
+            identityStore.get(
+                "p1",
+                SecureIdentityStore.Record.PENDING_REPLACEMENT_IDENTITY,
+            ),
+        )
+        assertTrue(
+            engineBridge.commands
+                .map(::JSONObject)
+                .any { it.optString("command") == "complete_identity_replacements" },
+        )
+    }
+
+    @Test
+    fun zeroTrustWithoutRegisteredEndpointIsReportedInvalid() {
+        identityStore.put(
+            "p1",
+            SecureIdentityStore.Record.WARP_SECRET,
+            "secret".toByteArray(),
+        )
+        identityStore.put(
+            "p1",
+            SecureIdentityStore.Record.IDENTITY_METADATA,
+            """{"version":1,"provider":"zero_trust","organization":"example-team"}"""
+                .toByteArray(),
+        )
+        engineBridge.profileCatalogJson =
+            """
+            {
+              "profiles":[{
+                "id":"p1",
+                "identity_provider":"zero_trust",
+                "identity_organization":"example-team",
+                "zero_trust_endpoint_ready":false
+              }]
+            }
+            """.trimIndent()
+
+        val status = catalogIdentityStatuses().single()
+        assertEquals("invalid", status["state"])
+        assertEquals("zeroTrust", status["provider"])
     }
 
     @Test
@@ -1037,6 +1243,24 @@ class AndroidEngineMethodHandlerTest {
         }
     }
 
+    private fun diagnosticSnapshot(networkGeneration: Long): Map<String, Any?> =
+        mapOf(
+            "phase" to "connected",
+            "transport" to "h3",
+            "address_family" to "ipv4",
+            "active_frontends" to listOf("socks5", "http"),
+            "tunnel_ipv4_available" to true,
+            "tunnel_ipv6_available" to false,
+            "tun_fd_valid" to true,
+            "tun_interface_present" to true,
+            "underlying_network_present" to true,
+            "underlying_family_mask" to 1,
+            "network_generation" to networkGeneration,
+            "dns_server_count" to 1,
+            "pending_cleanup" to false,
+            "platform_state_observed" to true,
+        )
+
     private class RecordingActivityCommands : AndroidEngineMethodHandler.ActivityCommands {
         var cancelCount = 0
         var lastCancelCode: String? = null
@@ -1044,6 +1268,7 @@ class AndroidEngineMethodHandlerTest {
         var lastProfileJson: String? = null
         var lastMode: String? = null
         var diagnosticsCount = 0
+        var diagnosticsPayload: AndroidEngineMethodHandler.DiagnosticExportPayload? = null
 
         override fun cancelPendingVpnConnection(
             code: String,
@@ -1064,8 +1289,12 @@ class AndroidEngineMethodHandlerTest {
             result.success(mapOf("phase" to "preparing"))
         }
 
-        override fun selectDiagnosticsDestination(result: MethodChannel.Result) {
+        override fun selectDiagnosticsDestination(
+            result: MethodChannel.Result,
+            payload: AndroidEngineMethodHandler.DiagnosticExportPayload,
+        ) {
             diagnosticsCount += 1
+            diagnosticsPayload = payload
             result.success(null)
         }
 

@@ -22,7 +22,11 @@ mod relay;
 mod socket;
 mod socks5;
 mod split_dns;
+mod telemetry;
 mod tunnel;
+
+#[cfg(any(test, feature = "fault-injection"))]
+mod fault_injection;
 
 pub use geo_direct::{GeoDirectClassifier, GeoDirectPolicy, GeoRoute};
 pub use h2::{
@@ -43,4 +47,14 @@ pub use socket::{
 pub use socks5::Socks5Runtime;
 pub use split_dns::resolve_physical_host;
 pub use split_dns::{SPLIT_DNS_IPV4, SPLIT_DNS_IPV6};
+pub use telemetry::{
+    CONNECTION_TIMELINE_CAPACITY, ConnectionEvent, ConnectionEventType, ConnectionMetrics,
+    ConnectionTelemetry, ConnectionTimelineSnapshot,
+};
 pub use usque_protocol::PeerNetworkState;
+
+#[cfg(any(test, feature = "fault-injection"))]
+pub use fault_injection::{
+    ConnectorFactory, EndpointResolver, FaultHarness, FaultKind, FaultScript,
+    NetworkGenerationSource, ScheduledFault, SocketFactory, TransportClock,
+};

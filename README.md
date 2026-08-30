@@ -22,7 +22,7 @@
 Usque is an unofficial GUI client for consumer Cloudflare WARP. Flutter draws the UI. A Rust engine handles MASQUE, CONNECT-IP, DNS, proxies, and connection state. There is no WebView.
 
 > [!IMPORTANT]
-> The current release is **v0.2.1**. Download official packages only from the [GitHub Releases page](https://github.com/GeorgeXie2333/usque-app/releases). Pull Request artifacts, local builds, and untagged binaries are not official.
+> The current release is **v0.2.2**. Download official packages only from the [GitHub Releases page](https://github.com/GeorgeXie2333/usque-app/releases). Pull Request artifacts, local builds, and untagged binaries are not official.
 
 Usque is an independent project. It is not affiliated with, sponsored by, or endorsed by Cloudflare. Cloudflare and WARP are trademarks of Cloudflare, Inc. Use of consumer WARP remains subject to Cloudflare's terms and privacy policy.
 
@@ -43,7 +43,7 @@ Usque is an independent project. It is not affiliated with, sponsored by, or end
 
 ## Release targets
 
-The `v0.2.1` tag on `main` builds and checks these six packages:
+The `v0.2.2` tag on `main` builds and checks these six packages:
 
 | Platform | Package | Minimum OS | Architecture |
 | --- | --- | --- | --- |
@@ -96,10 +96,10 @@ These values can be changed and reset. A non-loopback proxy listener has no pass
 Download Usque from the [GitHub Releases page](https://github.com/GeorgeXie2333/usque-app/releases). Prefer the APK that matches the device ABI. The universal APK includes ARMv8, x64, and ARMv7 libraries and is larger; use it when the architecture is unknown. GitHub shows a SHA-256 for each asset; compare that digest and the published signer fingerprint before installing.
 
 - Pre-1.0 Windows packages use a fixed self-signed identity. Check the published SHA-256 and certificate fingerprint before accepting the OS warning.
-- Pre-1.0 Android packages use a project-controlled self-signed certificate and are not on Google Play. You may need a manual install or ADB.
+- Pre-1.0 Android packages use a project-controlled self-signed certificate and are not on Google Play. The package name `io.github.georgexie2333.usque` and current official release certificate are registered through [Android developer verification](https://developer.android.com/developer-verification). This registration verifies developer identity and signing-key ownership; it is not Google Play distribution or an app-content review, and manual installation or ADB may still be required.
 - A later v1.0.0 signing change will be its own release.
-- The release workflow compiles, signs, and checks architecture, checksums, SBOMs, and provenance. It does not attach those extras to the GitHub Release, and it does not install packages on real devices or run long VPN tests.
-- Usque never installs updates by itself. Optional update checks only open the release page.
+- The release workflow compiles and signs the six packages, then attaches them with `release-manifest.json`, `SHA256SUMS`, and per-package SPDX SBOMs. Protected Windows, Android, network-observer, and performance-lab runs are optional supplemental validation; missing or failed protected runs never count as passed and do not block publication. Restricted captures and raw lab evidence remain CI-only.
+- Usque checks once after each process startup when automatic checks are enabled. A verified stable release can be downloaded only after confirmation; Windows hands it to a signed passive updater and Android opens the system package installer. Manual checks always fetch live release data.
 - Windows uninstall asks for confirmation in Settings, restores Usque-owned network state, and can delete the current user's local data if you ask.
 
 See [Installation and removal](docs/INSTALLATION.md) for verification, upgrades, uninstall, and recovery.

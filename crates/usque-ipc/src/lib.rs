@@ -76,16 +76,17 @@ mod tests {
     use super::*;
     use crate::agent_v1::{
         AcquireDirectEgressRequest, AcquireTunnelLeaseRequest, AgentCapabilities, AgentRequest,
-        GetCapabilitiesRequest, PrepareTunnelRequest, ResumeTunnelRequest, TunnelPlan,
-        agent_request,
+        GetCapabilitiesRequest, InspectPlatformStateRequest, PrepareTunnelRequest,
+        ResumeTunnelRequest, TunnelPlan, agent_request,
     };
     use crate::v1::{
         Capabilities, CapabilitiesChanged, ControlRequest, CreateProfileWithIdentityRequest,
-        EventEnvelope, ExportWarpSecretRequest, FrontendKind, FrontendPhase, FrontendSettings,
-        FrontendStatus, GetStatusRequest, IdentityProvisioning, IdentityProvisioningMethod,
-        Profile, ProvisionIdentityRequest, ReconfigureActiveProfileRequest,
-        UpdateLicenseKeyRequest, UpdateProxyAuthRequest, WarningRaised, ZeroTrustEnrollment,
-        control_request, event_envelope,
+        DiagnosticMode, EventEnvelope, ExportWarpSecretRequest, FrontendKind, FrontendPhase,
+        FrontendSettings, FrontendStatus, GetStatusRequest, IdentityProvisioning,
+        IdentityProvisioningMethod, Profile, ProvisionIdentityRequest,
+        ReconfigureActiveProfileRequest, StartDiagnosticsRequest, UpdateLicenseKeyRequest,
+        UpdateProxyAuthRequest, WarningRaised, ZeroTrustEnrollment, control_request,
+        event_envelope,
     };
 
     // Checked-in v1 wire snapshots. Changing an established field number or
@@ -129,6 +130,8 @@ mod tests {
         0, 0, 0, 17, 0x0a, 1, b'x', 0x82, 0x02, 0x0b, 0x0a, 1, b'p', 0x12, 1, b'u', 0x1a, 1, b'k',
         0x20, 1,
     ];
+    const START_DIAGNOSTICS_V1_FRAME: &[u8] =
+        &[0, 0, 0, 9, 0x0a, 2, b'd', b'1', 0xa2, 0x02, 2, 0x08, 1];
     const AGENT_CAPABILITIES_V1_FRAME: &[u8] = &[0, 0, 0, 8, 0x0a, 2, b'a', b'1', 0x10, 1, 0x52, 0];
     const AGENT_RESUME_TUNNEL_V1_FRAME: &[u8] = &[
         0, 0, 0, 15, 0x0a, 2, b'r', b'1', 0x10, 1, 0xaa, 0x01, 6, 0x0a, 1, b'o', 0x12, 1, b'p',
@@ -141,6 +144,8 @@ mod tests {
         b'1', b'9', b'8', b'.', b'5', b'1', b'.', b'1', b'0', b'0', b'.', b'1', b'0', b':', b'4',
         b'4', b'3',
     ];
+    const AGENT_INSPECT_PLATFORM_V3_FRAME: &[u8] =
+        &[0, 0, 0, 9, 0x0a, 2, b'i', b'1', 0x10, 3, 0xca, 0x01, 0];
 
     #[test]
     fn control_request_round_trips_through_a_bounded_frame() {
@@ -263,6 +268,23 @@ mod tests {
     }
 
     #[test]
+    fn privileged_agent_platform_inspection_uses_append_only_field_twenty_five() {
+        let decoded: AgentRequest =
+            decode_frame(Bytes::from_static(AGENT_INSPECT_PLATFORM_V3_FRAME))
+                .expect("decode platform inspection snapshot");
+        assert!(matches!(
+            decoded.payload,
+            Some(agent_request::Payload::InspectPlatformState(
+                InspectPlatformStateRequest {}
+            ))
+        ));
+        assert_eq!(
+            encode_frame(&decoded).expect("re-encode").as_ref(),
+            AGENT_INSPECT_PLATFORM_V3_FRAME
+        );
+    }
+
+    #[test]
     fn v1_control_request_wire_snapshot_is_stable() {
         let decoded: ControlRequest =
             decode_frame(Bytes::from_static(GET_STATUS_V1_FRAME)).expect("decode snapshot");
@@ -274,6 +296,22 @@ mod tests {
         assert_eq!(
             encode_frame(&decoded).expect("re-encode").as_ref(),
             GET_STATUS_V1_FRAME
+        );
+    }
+
+    #[test]
+    fn diagnostics_request_uses_append_only_field_thirty_six() {
+        let decoded: ControlRequest = decode_frame(Bytes::from_static(START_DIAGNOSTICS_V1_FRAME))
+            .expect("decode diagnostics snapshot");
+        assert!(matches!(
+            decoded.payload.as_ref(),
+            Some(control_request::Payload::StartDiagnostics(StartDiagnosticsRequest {
+                mode,
+            })) if *mode == DiagnosticMode::Standard as i32
+        ));
+        assert_eq!(
+            encode_frame(&decoded).expect("re-encode").as_ref(),
+            START_DIAGNOSTICS_V1_FRAME
         );
     }
 

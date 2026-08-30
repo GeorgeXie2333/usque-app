@@ -194,6 +194,26 @@ message StructuredError {
   bool retryable = 3;
 }
 
+enum FailureSeverity {
+  FAILURE_SEVERITY_UNSPECIFIED = 0;
+  FAILURE_SEVERITY_INFO = 1;
+  FAILURE_SEVERITY_WARNING = 2;
+  FAILURE_SEVERITY_ERROR = 3;
+  FAILURE_SEVERITY_CRITICAL = 4;
+}
+
+message TransportFailure {
+  string code = 1;
+  string stage = 2;
+  string transport = 3;
+  string address_family = 4;
+  bool retryable = 5;
+  bool fallback_allowed = 6;
+  FailureSeverity severity = 7;
+  string remediation_key = 8;
+  string sanitized_detail = 9;
+}
+
 message ConnectionWarning {
   string code = 1;
   string message = 2;
@@ -216,6 +236,9 @@ message Capabilities {
   bool system_start = 14;
   bool license_management = 15;
   bool warp_secret_export = 16;
+  bool diagnostics_sessions = 17;
+  bool connection_timeline = 18;
+  bool deep_diagnostics = 19;
 }
 
 message FrontendStatus {
@@ -242,6 +265,7 @@ message ConnectionSnapshot {
   // 14 was captive_portal_pause_remaining_seconds (removed).
   reserved 14;
   repeated FrontendStatus frontends = 15;
+  TransportFailure failure = 16;
 }
 
 message Empty {}
@@ -274,6 +298,147 @@ message CheckUpdateRequest {
 }
 message ExportDiagnosticsRequest {
   string destination = 1;
+  string diagnostic_session_id = 2;
+}
+
+enum DiagnosticMode {
+  DIAGNOSTIC_MODE_UNSPECIFIED = 0;
+  DIAGNOSTIC_MODE_STANDARD = 1;
+  DIAGNOSTIC_MODE_DEEP = 2;
+}
+
+enum DiagnosticSessionState {
+  DIAGNOSTIC_SESSION_STATE_UNSPECIFIED = 0;
+  DIAGNOSTIC_SESSION_STATE_PENDING = 1;
+  DIAGNOSTIC_SESSION_STATE_RUNNING = 2;
+  DIAGNOSTIC_SESSION_STATE_CANCELLING = 3;
+  DIAGNOSTIC_SESSION_STATE_COMPLETED = 4;
+  DIAGNOSTIC_SESSION_STATE_FAILED = 5;
+  DIAGNOSTIC_SESSION_STATE_CANCELLED = 6;
+}
+
+enum DiagnosticCheckStatus {
+  DIAGNOSTIC_CHECK_STATUS_UNSPECIFIED = 0;
+  DIAGNOSTIC_CHECK_STATUS_PENDING = 1;
+  DIAGNOSTIC_CHECK_STATUS_RUNNING = 2;
+  DIAGNOSTIC_CHECK_STATUS_PASSED = 3;
+  DIAGNOSTIC_CHECK_STATUS_WARNING = 4;
+  DIAGNOSTIC_CHECK_STATUS_FAILED = 5;
+  DIAGNOSTIC_CHECK_STATUS_SKIPPED = 6;
+  DIAGNOSTIC_CHECK_STATUS_CANCELLED = 7;
+}
+
+enum DiagnosticCategory {
+  DIAGNOSTIC_CATEGORY_UNSPECIFIED = 0;
+  DIAGNOSTIC_CATEGORY_LOCAL_COMPONENT = 1;
+  DIAGNOSTIC_CATEGORY_PHYSICAL_NETWORK = 2;
+  DIAGNOSTIC_CATEGORY_TRANSPORT = 3;
+  DIAGNOSTIC_CATEGORY_TUNNEL = 4;
+  DIAGNOSTIC_CATEGORY_PROTECTION = 5;
+  DIAGNOSTIC_CATEGORY_RECOVERY = 6;
+}
+
+message DiagnosticFinding {
+  string check_id = 1;
+  DiagnosticCategory category = 2;
+  DiagnosticCheckStatus status = 3;
+  TransportFailure failure = 4;
+  FailureSeverity severity = 5;
+  string summary_key = 6;
+  string remediation_key = 7;
+  repeated string sanitized_evidence = 8;
+  int64 started_at_unix_milliseconds = 9;
+  uint64 duration_milliseconds = 10;
+  string dependency_reason = 11;
+}
+
+message DiagnosticSummary {
+  uint32 passed = 1;
+  uint32 warnings = 2;
+  uint32 failed = 3;
+  uint32 skipped = 4;
+  uint32 cancelled = 5;
+}
+
+message DiagnosticSession {
+  string session_id = 1;
+  DiagnosticSessionState state = 2;
+  int64 started_at_unix_milliseconds = 3;
+  int64 completed_at_unix_milliseconds = 4;
+  DiagnosticMode mode = 5;
+  string current_check = 6;
+  uint32 progress_percent = 7;
+  repeated DiagnosticFinding findings = 8;
+  DiagnosticSummary summary = 9;
+}
+
+message StartDiagnosticsRequest {
+  DiagnosticMode mode = 1;
+}
+
+message CancelDiagnosticsRequest {
+  string session_id = 1;
+}
+
+message GetDiagnosticsRequest {}
+message GetConnectionTimelineRequest {}
+
+enum ConnectionEventType {
+  CONNECTION_EVENT_TYPE_UNSPECIFIED = 0;
+  CONNECTION_EVENT_TYPE_ATTEMPT_STARTED = 1;
+  CONNECTION_EVENT_TYPE_ENDPOINT_RESOLVED = 2;
+  CONNECTION_EVENT_TYPE_SOCKET_CONNECTED = 3;
+  CONNECTION_EVENT_TYPE_TLS_READY = 4;
+  CONNECTION_EVENT_TYPE_QUIC_READY = 5;
+  CONNECTION_EVENT_TYPE_MASQUE_ACCEPTED = 6;
+  CONNECTION_EVENT_TYPE_PEER_SETTINGS_RECEIVED = 7;
+  CONNECTION_EVENT_TYPE_ADDRESS_ASSIGNED = 8;
+  CONNECTION_EVENT_TYPE_TUNNEL_READY = 9;
+  CONNECTION_EVENT_TYPE_FIRST_PACKET_SENT = 10;
+  CONNECTION_EVENT_TYPE_FIRST_PACKET_RECEIVED = 11;
+  CONNECTION_EVENT_TYPE_FALLBACK_STARTED = 12;
+  CONNECTION_EVENT_TYPE_RECONNECT_SCHEDULED = 13;
+  CONNECTION_EVENT_TYPE_NETWORK_CHANGED = 14;
+  CONNECTION_EVENT_TYPE_RECOVERY_PROBE_STARTED = 15;
+  CONNECTION_EVENT_TYPE_RECOVERY_PROBE_SUCCEEDED = 16;
+  CONNECTION_EVENT_TYPE_RECOVERY_PROBE_FAILED = 17;
+  CONNECTION_EVENT_TYPE_PATH_PROMOTED = 18;
+  CONNECTION_EVENT_TYPE_QUEUE_SATURATED = 19;
+  CONNECTION_EVENT_TYPE_DISCONNECTED = 20;
+  CONNECTION_EVENT_TYPE_FAILED = 21;
+}
+
+message ConnectionEvent {
+  uint64 sequence = 1;
+  int64 timestamp_unix_milliseconds = 2;
+  uint64 elapsed_from_attempt_start_milliseconds = 3;
+  ConnectionEventType event_type = 4;
+  string stage = 5;
+  string transport = 6;
+  string address_family = 7;
+  uint64 duration_milliseconds = 8;
+  TransportFailure failure = 9;
+}
+
+message ConnectionMetrics {
+  uint64 last_connect_duration_milliseconds = 1;
+  uint64 last_h3_handshake_duration_milliseconds = 2;
+  uint64 last_h2_handshake_duration_milliseconds = 3;
+  uint64 current_smoothed_rtt_milliseconds = 4;
+  bool current_smoothed_rtt_known = 5;
+  uint32 reconnect_count = 6;
+  uint32 fallback_count = 7;
+  uint32 network_change_count = 8;
+  uint64 send_queue_high_watermark = 9;
+  uint64 send_queue_drop_count = 10;
+  string last_failure_code = 11;
+  string last_reconnect_code = 12;
+}
+
+message ConnectionTimeline {
+  repeated ConnectionEvent events = 1;
+  ConnectionMetrics metrics = 2;
+  uint64 dropped_event_count = 3;
 }
 message ClearAllDataRequest {
   bool confirmed = 1;
@@ -432,6 +597,10 @@ message ControlRequest {
     ListGeoRulesRequest list_geo_rules = 33;
     DownloadGeoRulesRequest download_geo_rules = 34;
     UpdateAllGeoRulesRequest update_all_geo_rules = 35;
+    StartDiagnosticsRequest start_diagnostics = 36;
+    CancelDiagnosticsRequest cancel_diagnostics = 37;
+    GetDiagnosticsRequest get_diagnostics = 38;
+    GetConnectionTimelineRequest get_connection_timeline = 39;
   }
 }
 
@@ -441,10 +610,20 @@ message ProfileList {
   repeated ProfileIdentityStatus identity_statuses = 3;
 }
 
+message UpdatePackage {
+  string name = 1;
+  string download_url = 2;
+  uint64 size = 3;
+  string sha256 = 4;
+  string platform = 5;
+  string variant = 6;
+}
+
 message UpdateInfo {
   bool available = 1;
   string version = 2;
   string release_url = 3;
+  UpdatePackage package = 4;
 }
 
 message ControlResponse {
@@ -460,6 +639,8 @@ message ControlResponse {
     ReconfigureResult reconfigure = 16;
     GeoRulesList geo_rules_list = 17;
     GeoRulesUpdateResults geo_rules_update = 18;
+    DiagnosticSession diagnostics = 19;
+    ConnectionTimeline connection_timeline = 20;
   }
 }
 
@@ -489,6 +670,28 @@ message DiagnosticsProgress {
   bool complete = 3;
 }
 
+message DiagnosticSessionStarted {
+  DiagnosticSession session = 1;
+}
+
+message DiagnosticCheckStarted {
+  string session_id = 1;
+  DiagnosticFinding finding = 2;
+}
+
+message DiagnosticCheckCompleted {
+  string session_id = 1;
+  DiagnosticFinding finding = 2;
+}
+
+message DiagnosticSessionCompleted {
+  DiagnosticSession session = 1;
+}
+
+message DiagnosticSessionCancelled {
+  DiagnosticSession session = 1;
+}
+
 message EventEnvelope {
   uint64 sequence = 1;
   oneof payload {
@@ -500,5 +703,10 @@ message EventEnvelope {
     NetworkChanged network_changed = 15;
     DiagnosticsProgress diagnostics_progress = 16;
     GeoRulesProgress geo_rules_progress = 17;
+    DiagnosticSessionStarted diagnostic_session_started = 18;
+    DiagnosticCheckStarted diagnostic_check_started = 19;
+    DiagnosticCheckCompleted diagnostic_check_completed = 20;
+    DiagnosticSessionCompleted diagnostic_session_completed = 21;
+    DiagnosticSessionCancelled diagnostic_session_cancelled = 22;
   }
 }

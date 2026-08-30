@@ -31,6 +31,7 @@ const MAX_CNAME_DEPTH: usize = 16;
 const MAX_RESOURCE_RECORDS: usize = 1024;
 const MAX_HINTS: usize = 8192;
 const MAX_HINT_TTL: Duration = Duration::from_secs(60 * 60);
+const HINT_PRUNE_INTERVAL: Duration = Duration::from_secs(30);
 const RCODE_FORMERR: u16 = 1;
 const RCODE_SERVFAIL: u16 = 2;
 
@@ -68,10 +69,21 @@ struct HintState {
     last_seen: Instant,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct HintTable {
     generation: Option<u64>,
     hints: HashMap<IpAddr, HintState>,
+    next_prune: Instant,
+}
+
+impl Default for HintTable {
+    fn default() -> Self {
+        Self {
+            generation: None,
+            hints: HashMap::new(),
+            next_prune: Instant::now() + HINT_PRUNE_INTERVAL,
+        }
+    }
 }
 
 /// Bounded, non-persistent DNS-to-IP route hints shared by Split DNS and TUN
@@ -94,8 +106,8 @@ impl DnsRouteCache {
             .inner
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        sync_generation(&mut table, generation);
-        prune_hints(&mut table, now);
+        sync_generation(&mut table, generation, now);
+        prune_hints_if_needed(&mut table, now, false);
         let dns_direct = table.hints.get(&ip).is_some_and(|hint| {
             hint.direct_until.is_some_and(|until| until > now)
                 && !hint.tunnel_until.is_some_and(|until| until > now)
@@ -122,8 +134,9 @@ impl DnsRouteCache {
             .inner
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        sync_generation(&mut table, generation);
-        prune_hints(&mut table, now);
+        sync_generation(&mut table, generation, now);
+        let force_prune = table.hints.len() >= MAX_HINTS;
+        prune_hints_if_needed(&mut table, now, force_prune);
         for (ip, ttl) in records {
             if ttl == 0 {
                 continue;
@@ -153,11 +166,20 @@ impl DnsRouteCache {
     }
 }
 
-fn sync_generation(table: &mut HintTable, generation: Option<u64>) {
+fn sync_generation(table: &mut HintTable, generation: Option<u64>, now: Instant) {
     if table.generation != generation {
         table.generation = generation;
         table.hints.clear();
+        table.next_prune = now + HINT_PRUNE_INTERVAL;
     }
+}
+
+fn prune_hints_if_needed(table: &mut HintTable, now: Instant, force: bool) {
+    if !force && now < table.next_prune {
+        return;
+    }
+    prune_hints(table, now);
+    table.next_prune = now + HINT_PRUNE_INTERVAL;
 }
 
 fn prune_hints(table: &mut HintTable, now: Instant) {
@@ -1276,6 +1298,54 @@ mod tests {
         assert_eq!(read_u16(&failure, 0).unwrap(), 13);
         assert_eq!(read_u16(&failure, 2).unwrap() & 0xf, RCODE_SERVFAIL);
         assert_eq!(&failure[12..], &request[12..]);
+    }
+
+    #[test]
+    fn expired_hint_is_ignored_before_deferred_pruning() {
+        let now = Instant::now();
+        let ip = IpAddr::V4(Ipv4Addr::new(198, 51, 100, 7));
+        let cache = DnsRouteCache {
+            inner: Mutex::new(HintTable {
+                generation: Some(1),
+                hints: HashMap::from([(
+                    ip,
+                    HintState {
+                        direct_until: Some(now - Duration::from_secs(1)),
+                        tunnel_until: None,
+                        last_seen: now - Duration::from_secs(1),
+                    },
+                )]),
+                next_prune: now + HINT_PRUNE_INTERVAL,
+            }),
+        };
+
+        assert_eq!(cache.route_ip(ip, Some(1), &policy()), GeoRoute::Tunnel);
+        assert!(cache.inner.lock().unwrap().hints.contains_key(&ip));
+    }
+
+    #[test]
+    fn scheduled_and_forced_pruning_remove_expired_hints() {
+        let now = Instant::now();
+        let ip = IpAddr::V4(Ipv4Addr::new(198, 51, 100, 7));
+        let expired = HintState {
+            direct_until: Some(now - Duration::from_secs(1)),
+            tunnel_until: None,
+            last_seen: now - Duration::from_secs(1),
+        };
+        let mut table = HintTable {
+            generation: Some(1),
+            hints: HashMap::from([(ip, expired)]),
+            next_prune: now,
+        };
+
+        prune_hints_if_needed(&mut table, now, false);
+        assert!(table.hints.is_empty());
+        assert!(table.next_prune > now);
+
+        table.hints.insert(ip, expired);
+        table.next_prune = now + HINT_PRUNE_INTERVAL;
+        prune_hints_if_needed(&mut table, now, true);
+        assert!(table.hints.is_empty());
     }
 
     struct LocalDnsProtector {

@@ -15,6 +15,19 @@ Those identities are not a public CA and are not in the Windows Root or Trusted 
 
 A v1.0.0 change of signing identity is a separate release. Until then, the pre-1.0 fingerprints published on the current GitHub Release remain the only official ones.
 
+## Android developer verification
+
+The Android package name `io.github.georgexie2333.usque` and current official
+release certificate are registered to a verified developer identity through
+Android developer verification. Registration records package-name and signing-key
+ownership; it is not an app-content review or Google Play distribution.
+
+Every official Android release must use that application ID and the certificate
+identified by `ANDROID_SIGNER_SHA256`, and that pair must remain **Registered**
+in Android Developer Console. A planned package-name or signing-identity change
+requires security review, an upgrade and migration plan, and updated registration
+before distribution. Developer verification does not authorize key rotation.
+
 ## What is signed
 
 | Artifact | Signer |

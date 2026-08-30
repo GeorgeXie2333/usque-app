@@ -8,6 +8,7 @@ use crate::masque_runtime::MasqueRuntime;
 use crate::netstack::{ProxyPerformanceSnapshot, RuntimeHealth, RuntimePath, TrafficSnapshot};
 use crate::pin_refresh::EndpointPinRefresher;
 use crate::socket::{SocketProtector, noop_socket_protector};
+use crate::telemetry::ConnectionTimelineSnapshot;
 
 /// One reconnecting MASQUE channel with zero, one, or both local proxy
 /// frontends attached to the same userspace packet stack.
@@ -105,6 +106,10 @@ impl ProxyRuntime {
 
     pub fn statistics(&self) -> TrafficSnapshot {
         self.inner().statistics()
+    }
+
+    pub fn connection_timeline(&self) -> ConnectionTimelineSnapshot {
+        self.inner().connection_timeline()
     }
 
     pub fn performance(&self) -> ProxyPerformanceSnapshot {

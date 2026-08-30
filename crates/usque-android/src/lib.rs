@@ -30,11 +30,14 @@ use jni::{
     sys::{JNI_FALSE, JNI_TRUE, jboolean, jbyteArray, jint, jlong, jstring},
 };
 use serde::{Deserialize, Serialize};
+#[cfg(target_os = "android")]
+use usque_core::TransportFailure;
 use usque_core::{
     AppConfig, ConsumerEntitlement, ConsumerRegistrationClient, DnsMode, EndpointSettings,
-    FrontendSettings, IdentityProvider, IpPolicy, OperatingMode, Profile, ProxyDnsMode,
-    ProxySettings, RegistrationError, RegistrationOptions, SharedNetworkSettings, TransportPolicy,
-    WarpIdentity, parse_manual_warp_secret, storage::ConfigStore, update::UpdateChecker,
+    FrontendSettings, IdentityProvider, IpPolicy, ManagedEndpointIps, OperatingMode,
+    PendingIdentityReplacement, Profile, ProxyDnsMode, ProxySettings, RegistrationError,
+    RegistrationOptions, SharedNetworkSettings, TransportPolicy, WarpIdentity,
+    parse_manual_warp_secret, storage::ConfigStore, update::UpdateChecker,
 };
 #[cfg(target_os = "android")]
 use usque_transport::{
@@ -990,6 +993,20 @@ enum AndroidConfigCommand {
     CompleteIdentityCreations {
         profile_ids: Vec<String>,
     },
+    BeginIdentityReplacement {
+        profile_id: String,
+    },
+    ArmIdentityReplacement {
+        profile_id: String,
+    },
+    CommitIdentityReplacement {
+        profile: Box<AndroidProfile>,
+        identity_provider: Option<String>,
+        organization: Option<String>,
+    },
+    CompleteIdentityReplacements {
+        profile_ids: Vec<String>,
+    },
     ClearAllData,
     ListProfiles,
     ReconfigureActiveProfile {
@@ -1047,16 +1064,24 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
                     .iter()
                     .find(|profile| Some(profile.id) == config.active_profile_id)
                 {
-                    config.network = SharedNetworkSettings::from_profile(active);
+                    let mut network = SharedNetworkSettings::from_profile(active);
+                    if active.endpoint.is_zero_trust_managed() {
+                        network.endpoint = incoming
+                            .iter()
+                            .find(|profile| !profile.endpoint.is_zero_trust_managed())
+                            .map(|profile| profile.endpoint.clone())
+                            .unwrap_or_default();
+                    }
+                    config.network = network;
                 }
                 config.profiles.clear();
                 for profile in incoming {
-                    let managed_endpoint = profile
+                    let managed_endpoint_ips = profile
                         .endpoint
                         .is_zero_trust_managed()
-                        .then_some(profile.endpoint.clone());
+                        .then(|| ManagedEndpointIps::from_endpoint(&profile.endpoint));
                     config
-                        .insert_account(profile.id, profile.name, managed_endpoint)
+                        .insert_account(profile.id, profile.name, managed_endpoint_ips)
                         .map_err(|error| error.to_string())?;
                 }
                 if config.active_profile().is_none() {
@@ -1074,6 +1099,9 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
             let binding = parse_identity_binding(identity_provider, organization)?;
             let profile = android_profile_to_core(*profile)?;
             let profile_id = profile.id;
+            let managed_endpoint_ips =
+                matches!(binding.as_ref(), Some(IdentityProvider::ZeroTrust { .. }))
+                    .then(|| ManagedEndpointIps::from_endpoint(&profile.endpoint));
             if let (Some(existing), Some(incoming)) =
                 (config.identity_bindings.get(&profile.id), binding.as_ref())
                 && existing != incoming
@@ -1086,6 +1114,11 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
             config
                 .upsert_runtime_profile(profile)
                 .map_err(|error| error.to_string())?;
+            if let Some(managed_endpoint_ips) = managed_endpoint_ips {
+                config
+                    .set_managed_endpoint_ips(profile_id, managed_endpoint_ips)
+                    .map_err(|error| error.to_string())?;
+            }
             config.preferences.profiles_migrated_from_flutter = true;
             changed = true;
         }
@@ -1155,6 +1188,9 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
         } => {
             let binding = parse_identity_binding(identity_provider, organization)?;
             let profile = android_profile_to_core(*profile)?;
+            let managed_endpoint_ips =
+                matches!(binding.as_ref(), Some(IdentityProvider::ZeroTrust { .. }))
+                    .then(|| ManagedEndpointIps::from_endpoint(&profile.endpoint));
             if !config.pending_identity_creations.contains(&profile.id) {
                 return Err("profile identity creation was not prepared".to_owned());
             }
@@ -1171,12 +1207,8 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
             if let Some(binding) = binding {
                 config.identity_bindings.insert(profile.id, binding);
             }
-            let managed_endpoint = profile
-                .endpoint
-                .is_zero_trust_managed()
-                .then_some(profile.endpoint.clone());
             config
-                .insert_account(profile.id, profile.name, managed_endpoint)
+                .insert_account(profile.id, profile.name, managed_endpoint_ips)
                 .map_err(|error| error.to_string())?;
             config.preferences.profiles_migrated_from_flutter = true;
             changed = true;
@@ -1192,6 +1224,91 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
             config
                 .pending_identity_creations
                 .retain(|profile_id| !completed.contains(profile_id));
+            changed = true;
+        }
+        AndroidConfigCommand::BeginIdentityReplacement { profile_id } => {
+            let profile_id = parse_value(&profile_id, "profile ID")?;
+            if config.account(profile_id).is_none() {
+                return Err("profile does not exist".to_owned());
+            }
+            if config
+                .pending_identity_replacements
+                .insert(
+                    profile_id,
+                    PendingIdentityReplacement {
+                        backup_identity_id: None,
+                        armed: false,
+                    },
+                )
+                .is_some()
+            {
+                return Err("profile identity replacement is already pending".to_owned());
+            }
+            changed = true;
+        }
+        AndroidConfigCommand::ArmIdentityReplacement { profile_id } => {
+            let profile_id = parse_value(&profile_id, "profile ID")?;
+            let replacement = config
+                .pending_identity_replacements
+                .get_mut(&profile_id)
+                .ok_or_else(|| "profile identity replacement was not prepared".to_owned())?;
+            if replacement.armed {
+                return Err("profile identity replacement is already armed".to_owned());
+            }
+            replacement.armed = true;
+            changed = true;
+        }
+        AndroidConfigCommand::CommitIdentityReplacement {
+            profile,
+            identity_provider,
+            organization,
+        } => {
+            let binding = parse_identity_binding(identity_provider, organization)?;
+            let profile = android_profile_to_core(*profile)?;
+            let profile_id = profile.id;
+            if !config
+                .pending_identity_replacements
+                .contains_key(&profile_id)
+            {
+                return Err("profile identity replacement was not prepared".to_owned());
+            }
+            if !config.pending_identity_replacements[&profile_id].armed {
+                return Err("profile identity replacement was not armed".to_owned());
+            }
+            let managed_endpoint_ips =
+                matches!(binding.as_ref(), Some(IdentityProvider::ZeroTrust { .. }))
+                    .then(|| ManagedEndpointIps::from_endpoint(&profile.endpoint));
+            if let (Some(existing), Some(incoming)) =
+                (config.identity_bindings.get(&profile_id), binding.as_ref())
+                && existing != incoming
+            {
+                return Err("profile identity provider cannot be changed".to_owned());
+            }
+            if let Some(binding) = binding {
+                config.identity_bindings.insert(profile_id, binding);
+            }
+            config
+                .upsert_runtime_profile(profile)
+                .map_err(|error| error.to_string())?;
+            if let Some(managed_endpoint_ips) = managed_endpoint_ips {
+                config
+                    .set_managed_endpoint_ips(profile_id, managed_endpoint_ips)
+                    .map_err(|error| error.to_string())?;
+            }
+            config.pending_identity_replacements.remove(&profile_id);
+            changed = true;
+        }
+        AndroidConfigCommand::CompleteIdentityReplacements { profile_ids } => {
+            if profile_ids.len() > usque_core::config::MAX_PROFILES {
+                return Err("too many completed identity replacements".to_owned());
+            }
+            let completed = profile_ids
+                .into_iter()
+                .map(|profile_id| parse_value::<uuid::Uuid>(&profile_id, "profile ID"))
+                .collect::<Result<std::collections::HashSet<_>, _>>()?;
+            config
+                .pending_identity_replacements
+                .retain(|profile_id, _| !completed.contains(profile_id));
             changed = true;
         }
         AndroidConfigCommand::ClearAllData => {
@@ -1307,10 +1424,15 @@ fn geo_update_json(
 fn android_profile_catalog(config: &AppConfig) -> serde_json::Value {
     serde_json::json!({
         "profiles": config
-            .runtime_profiles()
+            .profiles
             .iter()
-            .map(|profile| {
-                android_profile_value(profile, config.identity_bindings.get(&profile.id))
+            .filter_map(|account| {
+                let profile = config.runtime_profile(account.id)?;
+                Some(android_profile_value(
+                    &profile,
+                    config.identity_bindings.get(&profile.id),
+                    account.managed_endpoint_ips.is_some(),
+                ))
             })
             .collect::<Vec<_>>(),
         "active_profile_id": config
@@ -1327,12 +1449,24 @@ fn android_profile_catalog(config: &AppConfig) -> serde_json::Value {
             .iter()
             .map(ToString::to_string)
             .collect::<Vec<_>>(),
+        "pending_identity_replacements": config
+            .pending_identity_replacements
+            .keys()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        "armed_identity_replacements": config
+            .pending_identity_replacements
+            .iter()
+            .filter_map(|(profile_id, replacement)| replacement.armed.then_some(profile_id))
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
     })
 }
 
 fn android_profile_value(
     profile: &Profile,
     binding: Option<&IdentityProvider>,
+    managed_endpoint_ips_present: bool,
 ) -> serde_json::Value {
     let dns_ipv4 = profile
         .dns_servers
@@ -1387,6 +1521,8 @@ fn android_profile_value(
         "identity_organization": binding
             .and_then(IdentityProvider::organization)
             .unwrap_or_default(),
+        "zero_trust_endpoint_ready": !matches!(binding, Some(IdentityProvider::ZeroTrust { .. }))
+            || managed_endpoint_ips_present,
         "mtu": profile.mtu,
         "dns_v4": dns_ipv4.to_string(),
         "dns_v6": dns_ipv6.to_string(),
@@ -1769,12 +1905,63 @@ impl EndpointPinRefresher for AndroidEndpointPinRefresher {
 }
 
 #[derive(Debug, Clone, Serialize)]
+struct NativeFailure {
+    code: String,
+    stage: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    transport: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    address_family: Option<String>,
+    retryable: bool,
+    fallback_allowed: bool,
+    severity: String,
+    remediation_key: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sanitized_detail: Option<String>,
+}
+
+impl NativeFailure {
+    #[cfg(target_os = "android")]
+    fn from_failure(failure: &TransportFailure) -> Self {
+        Self {
+            code: failure.code.as_str().to_owned(),
+            stage: failure.stage.as_str().to_owned(),
+            transport: failure.transport.map(|transport| match transport {
+                usque_core::Transport::Http3 => "h3".to_owned(),
+                usque_core::Transport::Http2 => "h2".to_owned(),
+            }),
+            address_family: failure.address_family.map(|family| match family {
+                usque_core::AddressFamily::Ipv4 => "ipv4".to_owned(),
+                usque_core::AddressFamily::Ipv6 => "ipv6".to_owned(),
+            }),
+            retryable: failure.retryable,
+            fallback_allowed: failure.fallback_allowed,
+            severity: match failure.severity {
+                usque_core::FailureSeverity::Info => "info",
+                usque_core::FailureSeverity::Warning => "warning",
+                usque_core::FailureSeverity::Error => "error",
+                usque_core::FailureSeverity::Critical => "critical",
+            }
+            .to_owned(),
+            remediation_key: failure.remediation_key.clone(),
+            sanitized_detail: failure
+                .sanitized_detail
+                .as_deref()
+                .filter(|detail| TransportFailure::sanitized_detail_is_safe(detail))
+                .map(ToOwned::to_owned),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
 struct NativeSnapshot {
     phase: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     warning: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    failure: Option<NativeFailure>,
     #[serde(skip_serializing_if = "Option::is_none")]
     transport: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1785,6 +1972,9 @@ struct NativeSnapshot {
     uploaded_bytes: u64,
     reconnect_count: u32,
     active_listeners: Vec<String>,
+    active_frontends: Vec<String>,
+    tunnel_ipv4_available: bool,
+    tunnel_ipv6_available: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     exit_ipv4: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1805,6 +1995,7 @@ impl NativeSnapshot {
             phase: "disconnected".to_owned(),
             warning: None,
             error_code: None,
+            failure: None,
             transport: None,
             address_family: None,
             download_bytes_per_second: 0,
@@ -1813,6 +2004,9 @@ impl NativeSnapshot {
             uploaded_bytes: 0,
             reconnect_count: 0,
             active_listeners: Vec::new(),
+            active_frontends: Vec::new(),
+            tunnel_ipv4_available: false,
+            tunnel_ipv6_available: false,
             exit_ipv4: None,
             exit_ipv6: None,
             exit_city: None,
@@ -2240,7 +2434,7 @@ mod tests {
             "endpoint_v4": "162.159.198.2",
             "endpoint_v6": "2606:4700:103::2",
             "endpoint_port": 443,
-            "sni": "www.visa.cn",
+            "sni": "speed.cloudflare.com",
             "mtu": 1280,
             "dns_v4": "1.1.1.1",
             "dns_v6": "2606:4700:4700::1111",
@@ -2277,7 +2471,7 @@ mod tests {
         let profile = parse_android_profile(&source.to_string()).unwrap();
         assert_eq!(profile.proxy.auth_username.as_deref(), Some("lan-user"));
         assert!(profile.proxy.auth_password.is_none());
-        let exported = android_profile_value(&profile, None);
+        let exported = android_profile_value(&profile, None, false);
         assert_eq!(exported["proxy"]["auth_username"], "lan-user");
         assert!(exported["proxy"].get("password").is_none());
         assert!(exported["proxy"].get("auth_password").is_none());
@@ -2291,7 +2485,7 @@ mod tests {
         let profile = parse_android_profile(&valid_profile_json()).unwrap();
         assert_eq!(profile.mode, OperatingMode::Vpn);
         assert_eq!(profile.transport, TransportPolicy::Auto);
-        assert_eq!(profile.endpoint.sni, "www.visa.cn");
+        assert_eq!(profile.endpoint.sni, "speed.cloudflare.com");
         assert_eq!(
             profile.proxy.socks5_listeners[0].to_string(),
             "127.0.0.1:1080"
@@ -2317,7 +2511,7 @@ mod tests {
             profile.split_exclusions,
             vec!["192.0.2.0/24".parse::<ipnet::IpNet>().unwrap()]
         );
-        let exported = android_profile_value(&profile, None);
+        let exported = android_profile_value(&profile, None, false);
         assert_eq!(exported["geo_direct_countries"], serde_json::json!(["CN"]));
         assert_eq!(
             exported["bypass_cidrs"],
@@ -2411,14 +2605,42 @@ mod tests {
     }
 
     #[test]
-    fn android_profile_store_persists_and_protects_zero_trust_binding() {
+    fn rust_profile_store_keeps_legacy_zero_trust_ips_with_shared_port_and_sni() {
+        let directory = tempfile::tempdir().unwrap();
+        let config_path = directory.path().join("profiles-v2.json");
+        let mut profile: serde_json::Value = serde_json::from_str(&valid_profile_json()).unwrap();
+        profile["endpoint_v4"] = serde_json::json!("162.159.197.2");
+        profile["endpoint_v6"] = serde_json::json!("2606:4700:102::2");
+        profile["sni"] = serde_json::json!("zt-masque.cloudflareclient.com");
+        let import = serde_json::json!({
+            "command": "import_legacy_profiles",
+            "profiles": [profile],
+            "active_profile_id": "8c30b771-9ebd-457a-b67b-bbc74a1ddba6",
+        });
+
+        let response =
+            apply_profile_command(config_path.to_str().unwrap(), &import.to_string()).unwrap();
+        let response: serde_json::Value = serde_json::from_str(&response).unwrap();
+
+        assert_eq!(response["profiles"][0]["endpoint_v4"], "162.159.197.2");
+        assert_eq!(response["profiles"][0]["endpoint_v6"], "2606:4700:102::2");
+        assert_eq!(response["profiles"][0]["endpoint_port"], 443);
+        assert_eq!(response["profiles"][0]["sni"], "speed.cloudflare.com");
+        let stored = ConfigStore::new(config_path).load().unwrap();
+        assert_eq!(stored.network.endpoint, EndpointSettings::default());
+        assert!(stored.profiles[0].managed_endpoint_ips.is_some());
+    }
+
+    #[test]
+    fn android_profile_store_locks_zero_trust_ips_but_shares_port_and_sni() {
         let directory = tempfile::tempdir().unwrap();
         let config_path = directory.path().join("profiles-v2.json");
         let mut registered: serde_json::Value =
             serde_json::from_str(&valid_profile_json()).unwrap();
         registered["endpoint_v4"] = serde_json::json!("162.159.197.2");
         registered["endpoint_v6"] = serde_json::json!("2606:4700:102::2");
-        registered["sni"] = serde_json::json!("zt-masque.cloudflareclient.com");
+        registered["endpoint_port"] = serde_json::json!(8443);
+        registered["sni"] = serde_json::json!("shared.example.com");
         let response = apply_profile_command(
             config_path.to_str().unwrap(),
             &serde_json::json!({
@@ -2436,8 +2658,15 @@ mod tests {
             response["profiles"][0]["identity_organization"],
             "example-team"
         );
+        assert_eq!(response["profiles"][0]["endpoint_v4"], "162.159.197.2");
+        assert_eq!(response["profiles"][0]["endpoint_v6"], "2606:4700:102::2");
+        assert_eq!(response["profiles"][0]["endpoint_port"], 8443);
+        assert_eq!(response["profiles"][0]["sni"], "shared.example.com");
 
-        let generic_edit: serde_json::Value = serde_json::from_str(&valid_profile_json()).unwrap();
+        let mut generic_edit: serde_json::Value =
+            serde_json::from_str(&valid_profile_json()).unwrap();
+        generic_edit["endpoint_port"] = serde_json::json!(9443);
+        generic_edit["sni"] = serde_json::json!("edited.example.com");
         let response = apply_profile_command(
             config_path.to_str().unwrap(),
             &serde_json::json!({
@@ -2449,10 +2678,9 @@ mod tests {
         .unwrap();
         let response: serde_json::Value = serde_json::from_str(&response).unwrap();
         assert_eq!(response["profiles"][0]["endpoint_v4"], "162.159.197.2");
-        assert_eq!(
-            response["profiles"][0]["sni"],
-            "zt-masque.cloudflareclient.com"
-        );
+        assert_eq!(response["profiles"][0]["endpoint_v6"], "2606:4700:102::2");
+        assert_eq!(response["profiles"][0]["endpoint_port"], 9443);
+        assert_eq!(response["profiles"][0]["sni"], "edited.example.com");
 
         let conversion = apply_profile_command(
             config_path.to_str().unwrap(),
@@ -2464,6 +2692,129 @@ mod tests {
             .to_string(),
         );
         assert!(conversion.is_err());
+    }
+
+    #[test]
+    fn android_identity_replacement_journal_commits_or_rolls_back_with_the_endpoint() {
+        let directory = tempfile::tempdir().unwrap();
+        let config_path = directory.path().join("profiles-v2.json");
+        let mut registered: serde_json::Value =
+            serde_json::from_str(&valid_profile_json()).unwrap();
+        registered["endpoint_v4"] = serde_json::json!("162.159.197.2");
+        registered["endpoint_v6"] = serde_json::json!("2606:4700:102::2");
+        apply_profile_command(
+            config_path.to_str().unwrap(),
+            &serde_json::json!({
+                "command": "upsert_profile",
+                "profile": registered,
+                "identity_provider": "zero_trust",
+                "organization": "example-team",
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let prepared = apply_profile_command(
+            config_path.to_str().unwrap(),
+            &serde_json::json!({
+                "command": "begin_identity_replacement",
+                "profile_id": "8c30b771-9ebd-457a-b67b-bbc74a1ddba6",
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let prepared: serde_json::Value = serde_json::from_str(&prepared).unwrap();
+        assert_eq!(
+            prepared["pending_identity_replacements"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(
+            prepared["armed_identity_replacements"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+
+        let armed = apply_profile_command(
+            config_path.to_str().unwrap(),
+            &serde_json::json!({
+                "command": "arm_identity_replacement",
+                "profile_id": "8c30b771-9ebd-457a-b67b-bbc74a1ddba6",
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let armed: serde_json::Value = serde_json::from_str(&armed).unwrap();
+        assert_eq!(
+            armed["armed_identity_replacements"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+
+        let mut replacement = armed["profiles"][0].clone();
+        replacement["endpoint_v4"] = serde_json::json!("162.159.197.9");
+        replacement["endpoint_v6"] = serde_json::json!("2606:4700:102::9");
+        let committed = apply_profile_command(
+            config_path.to_str().unwrap(),
+            &serde_json::json!({
+                "command": "commit_identity_replacement",
+                "profile": replacement,
+                "identity_provider": "zero_trust",
+                "organization": "example-team",
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let committed: serde_json::Value = serde_json::from_str(&committed).unwrap();
+        assert!(
+            committed["pending_identity_replacements"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(committed["profiles"][0]["endpoint_v4"], "162.159.197.9");
+        assert_eq!(committed["profiles"][0]["endpoint_v6"], "2606:4700:102::9");
+
+        apply_profile_command(
+            config_path.to_str().unwrap(),
+            &serde_json::json!({
+                "command": "begin_identity_replacement",
+                "profile_id": "8c30b771-9ebd-457a-b67b-bbc74a1ddba6",
+            })
+            .to_string(),
+        )
+        .unwrap();
+        apply_profile_command(
+            config_path.to_str().unwrap(),
+            &serde_json::json!({
+                "command": "arm_identity_replacement",
+                "profile_id": "8c30b771-9ebd-457a-b67b-bbc74a1ddba6",
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let rolled_back = apply_profile_command(
+            config_path.to_str().unwrap(),
+            &serde_json::json!({
+                "command": "complete_identity_replacements",
+                "profile_ids": ["8c30b771-9ebd-457a-b67b-bbc74a1ddba6"],
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let rolled_back: serde_json::Value = serde_json::from_str(&rolled_back).unwrap();
+        assert!(
+            rolled_back["pending_identity_replacements"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(rolled_back["profiles"][0]["endpoint_v4"], "162.159.197.9");
     }
 
     #[test]

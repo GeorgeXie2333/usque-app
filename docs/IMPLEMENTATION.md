@@ -162,14 +162,21 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 
 ## Milestone 5 — release hardening
 
-- [ ] Real-device H3/H2 interoperability and hostile-network matrix.
-- [ ] IPv4, IPv6, DNS, route, reconnect, crash, sleep/wake, and real-MSI uninstall leak tests.
-- [ ] Throughput, latency, and memory versus the Go oracle (wish targets: throughput >= 90%, p95 latency regression <= 10%, memory <= 125%). These are not current release gates, and the pipeline does not measure them yet.
+- [x] Add an exact-candidate H3/H2 endpoint and independent IPv4, IPv6, DNS, Kill Switch, route, and direct-rule observer gate.
+- [x] Add a protected Windows snapshot-VM matrix for clean install, upgrade, connected uninstall, Engine/Agent failure, sleep/network change, platform-state restoration, and Wintun residue.
+- [x] Add a protected Android physical-device matrix for network changes, airplane mode, Doze, process reclamation, Always-on, Lockdown, reboot, upgrade, and TV lifecycle.
+- [x] Add an optional controlled seven-sample performance baseline and protected evidence report without making runner availability a publication prerequisite.
+- [ ] Define enforced throughput, latency, and memory thresholds versus the Go oracle (wish targets: throughput >= 90%, p95 latency regression <= 10%, memory <= 125%). The optional baseline records and validates evidence but does not encode these numeric acceptance targets.
 - [x] Stable signing identities and published fingerprints.
 - [x] The protected stable tag workflow builds every declared package from `main`.
 - [x] SHA-256, SPDX SBOM attestations, provenance, commit, and certificate fingerprint.
-- [ ] Clean-machine installation and removal validation for every artifact.
+- [ ] Expand clean-machine installation and removal coverage beyond the current protected matrix to every supported artifact and OS/architecture combination.
 
-The release workflow fails if a Windows or Android artifact, signing input, architecture check, required CI result, manifest, SBOM, or attestation is missing. A local binary cannot replace a failed GitHub Actions artifact. Real-device, leak, performance, and clean-machine items above are still open hardening work.
+The release workflow fails if a Windows or Android artifact, signing input,
+architecture check, required CI result, manifest, SBOM, attestation, protected
+runner report, or matching evidence is missing, failed, `not_run`, or bound to
+the wrong candidate. A local binary cannot replace a failed GitHub Actions
+artifact. The current protected matrix is mandatory; broader per-artifact
+clean-machine coverage and numeric Go-oracle performance thresholds remain open.
 
 How the current stable tag is built and published is in [RELEASE.md](RELEASE.md).

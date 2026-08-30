@@ -21,6 +21,11 @@ class AppStrings {
     return values[key] ?? kEnCatalog[key] ?? key;
   }
 
+  String tunnelOutputLabel(TargetPlatform platform) =>
+      platform == TargetPlatform.android
+      ? get('vpn_mode')
+      : get('tunnel_output');
+
   @visibleForTesting
   static bool get debugCatalogsAreComplete {
     final englishKeys = kEnCatalog.keys.toSet();
@@ -36,6 +41,31 @@ class AppStrings {
       }
     }
     return true;
+  }
+
+  /// Catalog entries whose value still matches English for [keys].
+  ///
+  /// Returns `catalogId.key` labels so a failure names the leftover.
+  @visibleForTesting
+  static List<String> debugUntranslatedKeys(Iterable<String> keys) {
+    final leftovers = <String>[];
+    for (final catalogEntry in kCatalogs.entries) {
+      if (catalogEntry.key == 'en') {
+        continue;
+      }
+      for (final key in keys) {
+        final english = kEnCatalog[key];
+        final value = catalogEntry.value[key];
+        if (english == null || value == null) {
+          continue;
+        }
+        if (value == english) {
+          leftovers.add('${catalogEntry.key}.$key');
+        }
+      }
+    }
+    leftovers.sort();
+    return leftovers;
   }
 
   @visibleForTesting

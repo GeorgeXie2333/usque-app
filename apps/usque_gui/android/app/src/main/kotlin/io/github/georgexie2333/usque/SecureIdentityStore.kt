@@ -38,6 +38,7 @@ internal class SecureIdentityStore(
         DEVICE_ID("device-id"),
         LICENSE("license"),
         PENDING_CLEANUP_SECRET("pending-cleanup-secret"),
+        PENDING_REPLACEMENT_IDENTITY("pending-replacement-identity"),
         ENDPOINT_PIN("endpoint-pin"),
         IDENTITY_METADATA("identity-metadata"),
         PROXY_PASSWORD("proxy-password"),
@@ -242,5 +243,87 @@ internal class SecureIdentityStore(
         const val GCM_TAG_BITS = 128
         const val GCM_TAG_BYTES = GCM_TAG_BITS / 8
         const val FORMAT_VERSION: Byte = 1
+    }
+}
+
+internal data class IdentityReplacementRollback(
+    val identity: ByteArray?,
+    val metadata: ByteArray?,
+    val license: ByteArray?,
+) {
+    fun clear() {
+        identity?.fill(0)
+        metadata?.fill(0)
+        license?.fill(0)
+    }
+}
+
+/**
+ * One encrypted rollback record couples every Android identity component. The
+ * profile-store journal decides whether this old record or the live records are
+ * authoritative after a process interruption.
+ */
+internal object IdentityReplacementRollbackCodec {
+    private const val VERSION: Byte = 1
+    private const val MAX_BYTES = 128 * 1024
+
+    fun encode(
+        identity: ByteArray?,
+        metadata: ByteArray?,
+        license: ByteArray?,
+    ): ByteArray {
+        val values = listOf(identity, metadata, license)
+        val size = 1 + values.size * Int.SIZE_BYTES + values.sumOf { it?.size ?: 0 }
+        require(size <= MAX_BYTES) { "Identity replacement rollback record is too large" }
+        return ByteBuffer
+            .allocate(size)
+            .put(VERSION)
+            .also { buffer ->
+                for (value in values) {
+                    if (value == null) {
+                        buffer.putInt(-1)
+                    } else {
+                        buffer.putInt(value.size).put(value)
+                    }
+                }
+            }.array()
+    }
+
+    fun decode(encoded: ByteArray): IdentityReplacementRollback {
+        require(encoded.size in (1 + 3 * Int.SIZE_BYTES)..MAX_BYTES) {
+            "Identity replacement rollback record has an invalid size"
+        }
+        val buffer = ByteBuffer.wrap(encoded)
+        require(buffer.get() == VERSION) {
+            "Identity replacement rollback record has an unsupported version"
+        }
+        var identity: ByteArray? = null
+        var metadata: ByteArray? = null
+        var license: ByteArray? = null
+        try {
+            fun readValue(): ByteArray? {
+                require(buffer.remaining() >= Int.SIZE_BYTES) {
+                    "Identity replacement rollback record is truncated"
+                }
+                val length = buffer.getInt()
+                if (length == -1) return null
+                require(length > 0 && length <= buffer.remaining()) {
+                    "Identity replacement rollback record has an invalid field"
+                }
+                return ByteArray(length).also(buffer::get)
+            }
+            identity = readValue()
+            metadata = readValue()
+            license = readValue()
+            require(!buffer.hasRemaining()) {
+                "Identity replacement rollback record has trailing data"
+            }
+            return IdentityReplacementRollback(identity, metadata, license)
+        } catch (error: Exception) {
+            identity?.fill(0)
+            metadata?.fill(0)
+            license?.fill(0)
+            throw error
+        }
     }
 }

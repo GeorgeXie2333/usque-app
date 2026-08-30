@@ -3,7 +3,7 @@ name: Public release
 on:
   push:
     tags:
-      - "v0.2.1"
+      - "v0.2.2"
 
 concurrency:
   group: release-${{ github.ref }}
@@ -17,8 +17,8 @@ env:
   CMAKE_GENERATOR: Ninja
   FLUTTER_COMMIT: 84fc5cbb223bc12f83d65b647ff8a56caf779ffd
   FLUTTER_VERSION: 3.44.7
-  RELEASE_TAG: v0.2.1
-  ANDROID_VERSION_CODE: "15"
+  RELEASE_TAG: v0.2.2
+  ANDROID_VERSION_CODE: "16"
   DOTNET_CLI_TELEMETRY_OPTOUT: "1"
 
 jobs:
@@ -180,6 +180,9 @@ jobs:
             $payload
           Copy-Item `
             "target/${{ matrix.rust_target }}/release/usque-uninstall.exe" `
+            $payload
+          Copy-Item `
+            "target/${{ matrix.rust_target }}/release/usque-update.exe" `
             $payload
           Copy-Item `
             "third_party/wintun-0.14.1/wintun/bin/${{ matrix.wintun_arch }}/wintun.dll" `
@@ -682,6 +685,256 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  windows-reliability:
+    name: Windows snapshot VM lifecycle and recovery
+    if: ${{ vars.RUN_PROTECTED_RELEASE_VALIDATION == 'true' }}
+    needs: stage-candidate
+    runs-on: [self-hosted, Windows, X64, usque-snapshot-vm]
+    timeout-minutes: 180
+    steps:
+      - name: Checkout exact tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download exact signed candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: usque-release-candidate
+          path: ${{ runner.temp }}/candidate
+
+      - name: Run destructive lifecycle matrix only inside the snapshot VM
+        shell: pwsh
+        env:
+          USQUE_ISOLATED_SNAPSHOT_VM: "1"
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = "Stop"
+          $output = Join-Path $env:RUNNER_TEMP "windows-reliability"
+          New-Item -ItemType Directory -Force -Path $output | Out-Null
+          & usque-reliability-runner.exe windows `
+            --candidate-directory (Join-Path $env:RUNNER_TEMP "candidate") `
+            --commit $env:GITHUB_SHA `
+            --output-directory $output
+          if ($LASTEXITCODE -ne 0) { throw "Windows reliability matrix failed." }
+
+      - name: Upload Windows gate report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: usque-reliability-report-windows
+          path: ${{ runner.temp }}/windows-reliability/report.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Preserve restricted Windows evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: usque-restricted-windows-evidence
+          path: ${{ runner.temp }}/windows-reliability/evidence
+          if-no-files-found: error
+          retention-days: 14
+
+  android-reliability:
+    name: Android physical-device lifecycle
+    if: ${{ vars.RUN_PROTECTED_RELEASE_VALIDATION == 'true' }}
+    needs: stage-candidate
+    runs-on: [self-hosted, Linux, ARM64, usque-android-device]
+    timeout-minutes: 180
+    steps:
+      - name: Checkout exact tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download exact signed candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: usque-release-candidate
+          path: ${{ runner.temp }}/candidate
+
+      - name: Run device, Doze, process, Always-on, and Lockdown matrix
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/android-reliability"
+          mkdir -p "$output"
+          usque-reliability-runner android-device \
+            --candidate-directory "$RUNNER_TEMP/candidate" \
+            --commit "$GITHUB_SHA" \
+            --output-directory "$output"
+
+      - name: Upload Android gate report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: usque-reliability-report-android
+          path: ${{ runner.temp }}/android-reliability/report.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Preserve restricted Android evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: usque-restricted-android-evidence
+          path: ${{ runner.temp }}/android-reliability/evidence
+          if-no-files-found: error
+          retention-days: 14
+
+  network-leak-reliability:
+    name: Independent IPv4, IPv6, DNS, route, and Kill Switch observer
+    if: ${{ vars.RUN_PROTECTED_RELEASE_VALIDATION == 'true' }}
+    needs: stage-candidate
+    runs-on: [self-hosted, Linux, X64, usque-network-observer]
+    timeout-minutes: 180
+    steps:
+      - name: Checkout exact tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download exact signed candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: usque-release-candidate
+          path: ${{ runner.temp }}/candidate
+
+      - name: Run independent controlled-network observations
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/network-reliability"
+          mkdir -p "$output"
+          usque-reliability-runner network-observer \
+            --candidate-directory "$RUNNER_TEMP/candidate" \
+            --commit "$GITHUB_SHA" \
+            --output-directory "$output"
+
+      - name: Upload independent-network gate report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: usque-reliability-report-network
+          path: ${{ runner.temp }}/network-reliability/report.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Preserve restricted packet captures
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: usque-restricted-network-evidence
+          path: ${{ runner.temp }}/network-reliability/evidence
+          if-no-files-found: error
+          retention-days: 14
+
+  performance-reliability:
+    name: Informational controlled performance baseline
+    if: ${{ vars.RUN_PROTECTED_RELEASE_VALIDATION == 'true' }}
+    needs: stage-candidate
+    runs-on: [self-hosted, Linux, X64, usque-performance-lab]
+    timeout-minutes: 120
+    steps:
+      - name: Checkout exact tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download exact signed candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: usque-release-candidate
+          path: ${{ runner.temp }}/candidate
+
+      - name: Record repeated raw H3 and H2 resource samples
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/performance-reliability"
+          mkdir -p "$output"
+          usque-reliability-runner performance \
+            --candidate-directory "$RUNNER_TEMP/candidate" \
+            --commit "$GITHUB_SHA" \
+            --output-directory "$output" \
+            --repetitions 7
+
+      - name: Upload performance gate report and raw samples
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: usque-reliability-report-performance
+          path: ${{ runner.temp }}/performance-reliability/report.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload informational raw performance samples
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: usque-performance-raw-samples
+          path: ${{ runner.temp }}/performance-reliability/raw-samples.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Preserve protected performance evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: usque-restricted-performance-evidence
+          path: ${{ runner.temp }}/performance-reliability/evidence
+          if-no-files-found: error
+          retention-days: 14
+
+  protected-reliability-summary:
+    name: Validate optional protected reliability evidence
+    if: ${{ always() && vars.RUN_PROTECTED_RELEASE_VALIDATION == 'true' && needs.windows-reliability.result == 'success' && needs.android-reliability.result == 'success' && needs.network-leak-reliability.result == 'success' && needs.performance-reliability.result == 'success' }}
+    needs:
+      - stage-candidate
+      - windows-reliability
+      - android-reliability
+      - network-leak-reliability
+      - performance-reliability
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download exact candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: usque-release-candidate
+          path: ${{ runner.temp }}/candidate
+
+      - name: Download all protected gate reports
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: usque-reliability-report-*
+          path: ${{ runner.temp }}/reports
+
+      - name: Download all protected gate evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: usque-restricted-*-evidence
+          path: ${{ runner.temp }}/reliability-evidence
+          merge-multiple: true
+
+      - name: Reject failed, missing, not-run, or wrong-candidate evidence
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/protected-validation-summary"
+          mkdir -p "$evidence"
+          python tool/reliability_gate.py aggregate \
+            --reports-directory "$RUNNER_TEMP/reports" \
+            --evidence-directory "$RUNNER_TEMP/reliability-evidence" \
+            --candidate-manifest "$RUNNER_TEMP/candidate/release-manifest.json" \
+            --commit "$GITHUB_SHA" \
+            --output "$evidence/reliability-report.json" \
+            --device-matrix "$evidence/device-matrix.md"
+
+      - name: Upload validated supplemental reliability summary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: usque-protected-validation-summary
+          path: ${{ runner.temp }}/protected-validation-summary
+          if-no-files-found: error
+          retention-days: 90
+
   publish:
     name: Reverify and publish release
     needs: stage-candidate
@@ -718,6 +971,28 @@ jobs:
               sort -z
           )
           test "$(find "$publish" -maxdepth 1 -type f | wc -l)" -eq 6
+          test "$(find "$RUNNER_TEMP/candidate" -maxdepth 1 -type f -name '*.spdx.json' | wc -l)" -eq 6
+          cp "$RUNNER_TEMP/candidate/release-manifest.json" "$publish/"
+          cp "$RUNNER_TEMP"/candidate/*.spdx.json "$publish/"
+          (
+            cd "$publish"
+            sha256sum -- *.msi *.apk > SHA256SUMS
+          )
+          test "$(find "$publish" -maxdepth 1 -type f | wc -l)" -eq 14
+
+      - name: Render English-first bilingual release notes
+        env:
+          WINDOWS_SIGNER_SHA256: ${{ vars.WINDOWS_SIGNER_SHA256 }}
+          ANDROID_SIGNER_SHA256: ${{ vars.ANDROID_SIGNER_SHA256 }}
+        run: |
+          set -euo pipefail
+          python tool/release_contract.py render-release-notes \
+            --template .github/RELEASE_NOTES_TEMPLATE.md \
+            --tag "$RELEASE_TAG" \
+            --repository "$GITHUB_REPOSITORY" \
+            --windows-signer-sha256 "$WINDOWS_SIGNER_SHA256" \
+            --android-signer-sha256 "$ANDROID_SIGNER_SHA256" \
+            --output "$RUNNER_TEMP/release-notes.md"
 
       - name: Publish GitHub release only after signing and supply-chain gates
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
@@ -729,21 +1004,5 @@ jobs:
           draft: false
           make_latest: true
           fail_on_unmatched_files: true
-          generate_release_notes: true
-          previous_tag: v0.2.0
-          body: |
-            ## Highlights
-
-            - GeoSite and GeoIP direct routing now covers Android VPN, Windows TUN, SOCKS5, and HTTP, with Split DNS classifying domains before WARP DNS.
-            - Country rules can be downloaded while disconnected, using validated GeoIP data and the full V2Fly GeoSite database.
-            - Direct-country controls now live on a dedicated Settings page, alongside DNS hinting, network-change cleanup, and transport hardening.
-
-            ## DNS privacy
-
-            GeoSite-matched DNS queries use the current physical network DNS and can be visible to that network. Apps using their own DoH or DoT hide the domain from Usque, so those connections fall back to GeoIP routing.
-
-            ## Official signer fingerprints
-
-            - Windows Authenticode certificate SHA-256: `${{ vars.WINDOWS_SIGNER_SHA256 }}`
-            - Android release certificate SHA-256: `${{ vars.ANDROID_SIGNER_SHA256 }}`
+          body_path: ${{ runner.temp }}/release-notes.md
           files: ${{ runner.temp }}/publish/*

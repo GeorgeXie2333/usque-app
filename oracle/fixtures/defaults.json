@@ -3,7 +3,7 @@
   "endpoint_v4": "162.159.198.2",
   "endpoint_v6": "2606:4700:103::2",
   "endpoint_port": 443,
-  "sni": "www.visa.cn",
+  "sni": "speed.cloudflare.com",
   "mtu": 1280,
   "fallback_dns": [
     "1.1.1.1",

@@ -10,18 +10,24 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:usque/app.dart';
 import 'package:usque/core/app_strings.dart';
+import 'package:usque/core/diagnostics_strings.dart';
+import 'package:usque/core/l10n/catalogs.dart';
 import 'package:usque/core/usque_theme.dart';
 import 'package:usque/models/app_models.dart';
+import 'package:usque/models/diagnostics_models.dart';
 import 'package:usque/screens/advanced_settings_screen.dart';
 import 'package:usque/screens/diagnostics_screen.dart';
 import 'package:usque/screens/geo_direct_settings_screen.dart';
 import 'package:usque/screens/home_screen.dart';
+import 'package:usque/screens/onboarding_screen.dart';
 import 'package:usque/screens/per_app_proxy_screen.dart';
 import 'package:usque/screens/profiles_screen.dart';
 import 'package:usque/screens/proxy_screen.dart';
 import 'package:usque/screens/settings_screen.dart';
+import 'package:usque/screens/shell_screen.dart';
 import 'package:usque/services/desktop_engine_client.dart';
 import 'package:usque/services/engine_client.dart';
+import 'package:usque/services/update_downloader.dart';
 import 'package:usque/state/app_controller.dart';
 import 'package:usque/widgets/common.dart';
 import 'package:usque/widgets/connection_ring.dart';
@@ -41,6 +47,7 @@ class FakeEngineClient implements EngineClient {
   String? lastZeroTrustTeam;
   String? lastZeroTrustCallback;
   bool failProfileIdentityCreation = false;
+  bool failProfileUpsert = false;
   final List<String> calls = <String>[];
   UsqueProfile? lastConnectedProfile;
   EngineSnapshot current = const EngineSnapshot();
@@ -55,6 +62,11 @@ class FakeEngineClient implements EngineClient {
   List<GeoRulesUpdateResult> geoDownloadResults =
       const <GeoRulesUpdateResult>[];
   List<GeoRulesUpdateResult> geoUpdateResults = const <GeoRulesUpdateResult>[];
+  UpdateCheckResult updateCheckResult = const UpdateCheckResult.current();
+  Object? updateCheckError;
+  Object? installUpdateError;
+  Completer<UpdateCheckResult>? pendingUpdateCheck;
+  final List<bool> updateCheckManualValues = <bool>[];
 
   @override
   Future<ProfileCatalog> importLegacyProfiles(
@@ -79,18 +91,20 @@ class FakeEngineClient implements EngineClient {
     );
   }
 
-  bool _preservesEndpoint(String id) =>
+  bool _preservesEndpointIps(String id) =>
       storedIdentityStatuses[id]?.provider == IdentityProvider.zeroTrust;
 
   UsqueProfile _hydrate(UsqueProfile account, UsqueProfile network) {
-    final keepEndpoint = _preservesEndpoint(account.id);
+    final keepEndpointIps = _preservesEndpointIps(account.id);
     return network.copyWith(
       id: account.id,
       name: account.name,
-      endpointIpv4: keepEndpoint ? account.endpointIpv4 : network.endpointIpv4,
-      endpointIpv6: keepEndpoint ? account.endpointIpv6 : network.endpointIpv6,
-      endpointPort: keepEndpoint ? account.endpointPort : network.endpointPort,
-      sni: keepEndpoint ? account.sni : network.sni,
+      endpointIpv4: keepEndpointIps
+          ? account.endpointIpv4
+          : network.endpointIpv4,
+      endpointIpv6: keepEndpointIps
+          ? account.endpointIpv6
+          : network.endpointIpv6,
     );
   }
 
@@ -99,15 +113,13 @@ class FakeEngineClient implements EngineClient {
       return fallback;
     }
     final source = storedProfiles.firstWhere(
-      (stored) => !_preservesEndpoint(stored.id),
+      (stored) => !_preservesEndpointIps(stored.id),
       orElse: () => storedProfiles.first,
     );
-    if (_preservesEndpoint(source.id)) {
+    if (_preservesEndpointIps(source.id)) {
       return source.copyWith(
         endpointIpv4: UsqueProfile.defaultEndpointIpv4,
         endpointIpv6: UsqueProfile.defaultEndpointIpv6,
-        endpointPort: UsqueProfile.defaultEndpointPort,
-        sni: UsqueProfile.defaultSni,
       );
     }
     return source;
@@ -115,6 +127,12 @@ class FakeEngineClient implements EngineClient {
 
   @override
   Future<void> upsertProfile(UsqueProfile profile) async {
+    if (failProfileUpsert) {
+      throw const EngineException(
+        'PROFILE_SAVE_FAILED',
+        'Profile save failed.',
+      );
+    }
     final index = storedProfiles.indexWhere(
       (stored) => stored.id == profile.id,
     );
@@ -126,12 +144,10 @@ class FakeEngineClient implements EngineClient {
       return;
     }
     final current = _currentNetwork(profile);
-    final network = _preservesEndpoint(profile.id)
+    final network = _preservesEndpointIps(profile.id)
         ? profile.copyWith(
             endpointIpv4: current.endpointIpv4,
             endpointIpv6: current.endpointIpv6,
-            endpointPort: current.endpointPort,
-            sni: current.sni,
           )
         : profile;
     storedProfiles = storedProfiles
@@ -228,7 +244,36 @@ class FakeEngineClient implements EngineClient {
     lastProvisioningMethod = method;
     lastZeroTrustTeam = teamName;
     lastZeroTrustCallback = callbackUri;
-    storedProfiles = <UsqueProfile>[...storedProfiles, profile];
+    final storedProfile = method == IdentityProvisioningMethod.zeroTrust
+        ? profile.copyWith(
+            endpointIpv4: '162.159.197.2',
+            endpointIpv6: '2606:4700:102::2',
+          )
+        : profile;
+    storedProfiles = <UsqueProfile>[...storedProfiles, storedProfile];
+    storedIdentityStatuses = <String, ProfileIdentityStatus>{
+      ...storedIdentityStatuses,
+      profile.id: switch (method) {
+        IdentityProvisioningMethod.zeroTrust => ProfileIdentityStatus(
+          state: ProfileIdentityState.ready,
+          licenseState: LicenseState.notApplicable,
+          accountType: 'Zero Trust',
+          provider: IdentityProvider.zeroTrust,
+          organization: teamName ?? '',
+        ),
+        IdentityProvisioningMethod.registerWithLicense =>
+          const ProfileIdentityStatus(
+            state: ProfileIdentityState.ready,
+            licenseState: LicenseState.warpPlus,
+            accountType: 'WARP+',
+          ),
+        _ => const ProfileIdentityStatus(
+          state: ProfileIdentityState.ready,
+          licenseState: LicenseState.free,
+          accountType: 'Free',
+        ),
+      },
+    };
     return ProfileCatalog(
       profiles: List<UsqueProfile>.unmodifiable(storedProfiles),
       activeProfileId: storedActiveProfileId,
@@ -375,6 +420,8 @@ class FakeEngineClient implements EngineClient {
 
   Object? connectError;
   Object? retryError;
+  Object? clearAllDataError;
+  Completer<EngineSnapshot>? pendingConnect;
 
   @override
   Future<EngineSnapshot> connect(UsqueProfile profile) async {
@@ -382,6 +429,8 @@ class FakeEngineClient implements EngineClient {
     if (connectError != null) {
       throw connectError!;
     }
+    final pending = pendingConnect;
+    if (pending != null) return pending.future;
     lastConnectedProfile = profile;
     current = EngineSnapshot(
       phase: ConnectionPhase.connected,
@@ -412,11 +461,70 @@ class FakeEngineClient implements EngineClient {
   Future<EngineSnapshot> snapshot() async => current;
 
   @override
-  Future<String?> exportDiagnostics() async => 'test-diagnostics.zip';
+  Future<DiagnosticSession> startDiagnostics(DiagnosticMode mode) async {
+    return DiagnosticSession(
+      sessionId: 'test-diagnostic-session',
+      state: DiagnosticSessionState.completed,
+      startedAt: DateTime.fromMillisecondsSinceEpoch(1, isUtc: true),
+      completedAt: DateTime.fromMillisecondsSinceEpoch(2, isUtc: true),
+      mode: mode,
+      progressPercent: 100,
+    );
+  }
 
   @override
-  Future<UpdateCheckResult> checkForUpdates({bool manual = true}) async =>
-      const UpdateCheckResult.current();
+  Future<DiagnosticSession> cancelDiagnostics(String sessionId) async {
+    return DiagnosticSession(
+      sessionId: sessionId,
+      state: DiagnosticSessionState.cancelled,
+      startedAt: DateTime.fromMillisecondsSinceEpoch(1, isUtc: true),
+      completedAt: DateTime.fromMillisecondsSinceEpoch(2, isUtc: true),
+      mode: DiagnosticMode.standard,
+      progressPercent: 100,
+    );
+  }
+
+  @override
+  Future<DiagnosticSession?> getDiagnostics() async => null;
+
+  @override
+  Future<ConnectionTimeline> getConnectionTimeline() async =>
+      const ConnectionTimeline();
+
+  @override
+  Future<String?> exportDiagnostics({String? diagnosticSessionId}) async =>
+      'test-diagnostics.zip';
+
+  @override
+  Future<UpdateCheckResult> checkForUpdates({bool manual = true}) async {
+    updateCheckManualValues.add(manual);
+    final pending = pendingUpdateCheck;
+    if (pending != null) return pending.future;
+    if (updateCheckError case final error?) throw error;
+    return updateCheckResult;
+  }
+
+  @override
+  Future<String> getUpdateCacheDirectory() async => 'test-update-cache';
+
+  @override
+  Future<void> verifyUpdatePackage({
+    required String path,
+    required String version,
+    required UpdatePackage package,
+  }) async {
+    calls.add('verifyUpdatePackage');
+  }
+
+  @override
+  Future<void> installUpdatePackage({
+    required String path,
+    required String version,
+    required UpdatePackage package,
+  }) async {
+    calls.add('installUpdatePackage');
+    if (installUpdateError case final error?) throw error;
+  }
 
   @override
   Future<GeoRulesList> listGeoRules() async => storedGeoRules;
@@ -440,6 +548,9 @@ class FakeEngineClient implements EngineClient {
         'Confirmation is required.',
       );
     }
+    if (clearAllDataError != null) {
+      throw clearAllDataError!;
+    }
     current = const EngineSnapshot();
     storedProfiles = <UsqueProfile>[UsqueProfile.defaultProfile()];
     storedActiveProfileId = UsqueProfile.defaultProfileId;
@@ -450,6 +561,21 @@ class FakeEngineClient implements EngineClient {
 
   @override
   void dispose() {}
+}
+
+class RecordingUpdateDownloader extends UpdateDownloader {
+  RecordingUpdateDownloader(super.engine);
+
+  String? discardedPath;
+  Object? discardError;
+
+  @override
+  Future<void> discard(String? path) async {
+    discardedPath = path;
+    if (discardError != null) {
+      throw discardError!;
+    }
+  }
 }
 
 class ConcurrentGeoEngineClient extends FakeEngineClient {
@@ -516,6 +642,147 @@ class EventEngineClient extends FakeEngineClient {
 }
 
 void main() {
+  test(
+    'cold process startup checks exactly once after initialization',
+    () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final engine = FakeEngineClient();
+      final controller = AppController(engine);
+
+      await controller.initialize();
+      await Future<void>.delayed(Duration.zero);
+      await controller.initialize();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(engine.updateCheckManualValues, <bool>[false]);
+      controller.dispose();
+    },
+  );
+
+  test('startup update check begins while auto-connect is pending', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+    });
+    final engine = FakeEngineClient()
+      ..legacyProfilesImported = true
+      ..storedProfiles = <UsqueProfile>[
+        UsqueProfile.defaultProfile().copyWith(autoConnect: true),
+      ]
+      ..pendingConnect = Completer<EngineSnapshot>();
+    final controller = AppController(engine);
+
+    final initialization = controller.initialize();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(engine.calls, contains('connect'));
+    expect(engine.updateCheckManualValues, <bool>[false]);
+    engine.pendingConnect!.complete(
+      EngineSnapshot(
+        phase: ConnectionPhase.connected,
+        connectedAt: DateTime.now(),
+      ),
+    );
+    await initialization;
+    controller.dispose();
+  });
+
+  test('disabled startup checks still allow every manual live check', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'update_checks_enabled': false,
+    });
+    final engine = FakeEngineClient();
+    final controller = AppController(engine);
+
+    await controller.initialize();
+    await Future<void>.delayed(Duration.zero);
+    expect(engine.updateCheckManualValues, isEmpty);
+
+    await controller.checkForUpdates();
+    await controller.checkForUpdates();
+    expect(engine.updateCheckManualValues, <bool>[true, true]);
+    controller.dispose();
+  });
+
+  test(
+    'automatic update failure stays silent and manual failure is visible',
+    () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final engine = FakeEngineClient()
+        ..updateCheckError = const EngineException(
+          'UPDATE_CHECK_FAILED',
+          'release endpoint unavailable',
+        );
+      final controller = AppController(engine);
+
+      await controller.initialize();
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.lastError, isNull);
+      expect(controller.updatePhase, UpdateOperationPhase.idle);
+
+      await controller.checkForUpdates();
+      expect(controller.lastError, 'release endpoint unavailable');
+      controller.dispose();
+    },
+  );
+
+  test('concurrent manual update checks share the in-flight guard', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'update_checks_enabled': false,
+    });
+    final engine = FakeEngineClient()
+      ..pendingUpdateCheck = Completer<UpdateCheckResult>();
+    final controller = AppController(engine);
+    await controller.initialize();
+
+    final first = controller.checkForUpdates();
+    await Future<void>.delayed(Duration.zero);
+    final second = controller.checkForUpdates();
+    expect(engine.updateCheckManualValues, <bool>[true]);
+    engine.pendingUpdateCheck!.complete(const UpdateCheckResult.current());
+    await Future.wait(<Future<void>>[first, second]);
+    expect(engine.updateCheckManualValues, <bool>[true]);
+    controller.dispose();
+  });
+
+  test('Android install handoff failure discards the terminal APK', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'update_checks_enabled': false,
+    });
+    final engine = FakeEngineClient()
+      ..installUpdateError = const EngineException(
+        'UPDATE_INSTALL_PERMISSION_DENIED',
+        'permission denied',
+      );
+    final downloader = RecordingUpdateDownloader(engine);
+    final controller = AppController(engine, updateDownloader: downloader);
+    await controller.initialize();
+    const path = 'test-update-cache/usque-v0.2.3-android-arm64-v8a.apk';
+    controller.updateResult = const UpdateCheckResult(
+      available: true,
+      version: 'v0.2.3',
+      package: UpdatePackage(
+        name: 'usque-v0.2.3-android-arm64-v8a.apk',
+        downloadUrl:
+            'https://github.com/GeorgeXie2333/usque-app/releases/download/v0.2.3/usque-v0.2.3-android-arm64-v8a.apk',
+        size: 1024,
+        sha256:
+            'a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5',
+        platform: 'android',
+        variant: 'arm64-v8a',
+      ),
+    );
+    controller.downloadedUpdatePath = path;
+    controller.updatePhase = UpdateOperationPhase.ready;
+
+    await controller.installDownloadedUpdate();
+
+    expect(downloader.discardedPath, path);
+    expect(controller.downloadedUpdatePath, isNull);
+    expect(controller.updatePhase, UpdateOperationPhase.available);
+    expect(controller.updateError, 'permission denied');
+    controller.dispose();
+  });
+
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test('Windows profile defaults match the product contract', () {
@@ -932,9 +1199,135 @@ void main() {
     },
   );
 
-  test('interpolated catalogs keep {count}, {current}, and {total}', () {
-    expect(AppStrings.debugPlaceholdersArePreserved, isTrue);
+  test('tunnel output copy is platform-specific in every catalog', () {
+    for (final catalog in kCatalogs.entries) {
+      expect(
+        catalog.value['tunnel_output'],
+        'VPN (TUN)',
+        reason: '${catalog.key} Windows tunnel label',
+      );
+      expect(
+        catalog.value['vpn_mode'],
+        'VPN',
+        reason: '${catalog.key} Android tunnel label',
+      );
+    }
+
+    final strings = AppStrings(LocalePreference.english);
+    expect(strings.tunnelOutputLabel(TargetPlatform.windows), 'VPN (TUN)');
+    expect(strings.tunnelOutputLabel(TargetPlatform.android), 'VPN');
   });
+
+  test('compact navigation labels keep reviewed short translations', () {
+    expect(AppStrings(LocalePreference.arabic).get('nav_home'), 'رئيسية');
+    expect(AppStrings(LocalePreference.arabic).get('nav_profiles'), 'حسابات');
+    expect(AppStrings(LocalePreference.arabic).get('nav_proxy'), 'وكيل');
+    expect(AppStrings(LocalePreference.arabic).get('nav_settings'), 'إعدادات');
+    expect(AppStrings(LocalePreference.german).get('nav_settings'), 'Optionen');
+    expect(AppStrings(LocalePreference.french).get('nav_settings'), 'Réglages');
+    expect(
+      AppStrings(LocalePreference.indonesian).get('nav_settings'),
+      'Setelan',
+    );
+    expect(AppStrings(LocalePreference.italian).get('nav_settings'), 'Opzioni');
+    expect(AppStrings(LocalePreference.japanese).get('nav_profiles'), 'アカウント');
+    expect(AppStrings(LocalePreference.dutch).get('nav_settings'), 'Opties');
+    expect(AppStrings(LocalePreference.polish).get('nav_settings'), 'Opcje');
+    expect(
+      AppStrings(LocalePreference.portuguese).get('nav_settings'),
+      'Ajustes',
+    );
+    expect(AppStrings(LocalePreference.russian).get('nav_settings'), 'Опции');
+    expect(AppStrings(LocalePreference.ukrainian).get('nav_settings'), 'Опції');
+  });
+
+  test(
+    'interpolated catalogs keep {count}, {current}, {total}, and {updated}',
+    () {
+      expect(AppStrings.debugPlaceholdersArePreserved, isTrue);
+    },
+  );
+
+  test('non-English catalogs translate geo and diagnostics UI copy', () {
+    // geo_enable is the short "Direct" toggle; Direct is also Dutch/French.
+    final keys = <String>{
+      ...kEnCatalog.keys.where(
+        (key) => key.startsWith('geo_') && key != 'geo_enable',
+      ),
+      'diagnostics_page_subtitle',
+      'diag_refresh_timeline',
+      'diag_operation_failed',
+      'diag_event_stream_degraded',
+      'diag_event_stream_degraded_body',
+      'diag_export_included_body',
+      'diag_export_excluded_body',
+      'diag_export_local_only',
+      'diag_run_title',
+      'diag_run_subtitle',
+      'diag_deep_title',
+      'diag_deep_connected',
+      'diag_deep_disconnected',
+      'diag_start',
+      'diag_session',
+      'diag_progress_semantics',
+      'diag_waiting_check',
+      'diag_check_results',
+      'diag_check_results_empty',
+      'diag_timeline',
+      'diag_timeline_subtitle',
+      'diag_logs_subtitle',
+      'diag_timeline_empty',
+      'diag_timeline_truncated',
+      'diag_copy_support',
+      'diag_support_copied',
+      'diag_finding_passed',
+      'diag_finding_attention',
+      'diag_finding_failed',
+      'diag_finding_skipped',
+      'diag_finding_cancelled',
+      'diag_finding_running',
+      'diag_finding_pending',
+    };
+    expect(AppStrings.debugUntranslatedKeys(keys), isEmpty);
+  });
+
+  test(
+    'diagnostics helpers resolve English, Chinese, Japanese, and German',
+    () {
+      expect(
+        diagnosticCheckLabel(
+          AppStrings(LocalePreference.english),
+          'transport.h3_connect',
+        ),
+        'HTTP/3 connection',
+      );
+      expect(
+        diagnosticCheckLabel(
+          AppStrings(LocalePreference.simplifiedChinese),
+          'transport.h3_connect',
+        ),
+        'HTTP/3 连接',
+      );
+      expect(
+        diagnosticFailureTitle(
+          AppStrings(LocalePreference.english),
+          'H3_HANDSHAKE_TIMEOUT',
+        ),
+        'H3 handshake timeout',
+      );
+      expect(
+        diagnosticCheckLabel(
+          AppStrings(LocalePreference.japanese),
+          'transport.h3_connect',
+        ),
+        isNot(equals('HTTP/3 connection')),
+      );
+      expect(
+        AppStrings(LocalePreference.german).get('diag_start'),
+        isNot(equals('Start diagnostics')),
+      );
+    },
+  );
 
   test(
     'language picker lists System then English-name A–Z with Chinese grouped',
@@ -1047,6 +1440,10 @@ void main() {
     expect(tw.get('upload'), '上傳');
     expect(hk.get('close_to_tray'), contains('系統列'));
     expect(tw.get('close_to_tray'), contains('系統匣'));
+    expect(hk.get('geo_direct_help'), contains('網絡'));
+    expect(tw.get('geo_direct_help'), contains('網路'));
+    expect(hk.get('diag_family'), '地址族');
+    expect(tw.get('diag_family'), '位址族');
   });
 
   testWidgets('Persian and Arabic locales select RTL directionality', (
@@ -1404,6 +1801,38 @@ void main() {
   });
 
   test(
+    'failed shared endpoint save restores the authoritative network',
+    () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final authoritative = UsqueProfile.defaultProfile().copyWith(
+        sni: 'before.example.com',
+      );
+      final engine = FakeEngineClient()
+        ..legacyProfilesImported = true
+        ..storedProfiles = <UsqueProfile>[authoritative];
+      final controller = AppController(engine);
+      await controller.initialize();
+      addTearDown(controller.dispose);
+
+      engine.failProfileUpsert = true;
+      controller.updateNetwork(
+        controller.activeProfile.copyWith(sni: 'unsaved.example.com'),
+      );
+      expect(controller.activeProfile.sni, 'unsaved.example.com');
+
+      await controller.flushProfileWrites();
+
+      expect(
+        controller.lastError,
+        contains('Profile changes could not be saved'),
+      );
+      expect(controller.sharedNetwork.sni, 'before.example.com');
+      expect(controller.activeProfile.sni, 'before.example.com');
+      expect(engine.storedProfiles.single.sni, 'before.example.com');
+    },
+  );
+
+  test(
     'profile creation is committed only after identity provisioning',
     () async {
       SharedPreferences.setMockInitialValues(<String, Object>{});
@@ -1436,6 +1865,45 @@ void main() {
         ProfileIdentityState.ready,
       );
       controller.dispose();
+    },
+  );
+
+  test(
+    'Zero Trust creation hydrates registered IPs with shared port and SNI',
+    () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final engine = FakeEngineClient();
+      final controller = AppController(engine);
+      await controller.initialize();
+      addTearDown(controller.dispose);
+      controller.updateNetwork(
+        controller.activeProfile.copyWith(
+          endpointPort: 8443,
+          sni: 'shared.example.com',
+        ),
+      );
+      await controller.flushProfileWrites();
+
+      expect(
+        await controller.createProfileWithIdentity(
+          'Work',
+          method: IdentityProvisioningMethod.zeroTrust,
+          teamName: 'example-team',
+          callbackUri:
+              'com.cloudflare.warp://example-team.cloudflareaccess.com/auth?token=test',
+        ),
+        isTrue,
+      );
+      final work = controller.profiles.last;
+      expect(
+        controller.identityStatus(work.id).provider,
+        IdentityProvider.zeroTrust,
+      );
+      controller.setActiveProfile(work.id);
+      expect(controller.activeProfile.endpointIpv4, '162.159.197.2');
+      expect(controller.activeProfile.endpointIpv6, '2606:4700:102::2');
+      expect(controller.activeProfile.endpointPort, 8443);
+      expect(controller.activeProfile.sni, 'shared.example.com');
     },
   );
 
@@ -1583,22 +2051,28 @@ void main() {
     controller.dispose();
   });
 
-  testWidgets('Zero Trust registered endpoint fields are read only', (
+  testWidgets('Zero Trust locks endpoint IPs but saves port and SNI', (
     tester,
   ) async {
     SharedPreferences.setMockInitialValues(<String, Object>{
       'onboarding_complete': true,
     });
-    final engine = FakeEngineClient();
-    engine.storedIdentityStatuses = <String, ProfileIdentityStatus>{
-      UsqueProfile.defaultProfileId: const ProfileIdentityStatus(
-        state: ProfileIdentityState.ready,
-        licenseState: LicenseState.notApplicable,
-        accountType: 'Zero Trust',
-        provider: IdentityProvider.zeroTrust,
-        organization: 'example-team',
-      ),
-    };
+    final registered = UsqueProfile.defaultProfile().copyWith(
+      endpointIpv4: '162.159.197.2',
+      endpointIpv6: '2606:4700:102::2',
+    );
+    final engine = FakeEngineClient()
+      ..legacyProfilesImported = true
+      ..storedProfiles = <UsqueProfile>[registered]
+      ..storedIdentityStatuses = <String, ProfileIdentityStatus>{
+        UsqueProfile.defaultProfileId: const ProfileIdentityStatus(
+          state: ProfileIdentityState.ready,
+          licenseState: LicenseState.notApplicable,
+          accountType: 'Zero Trust',
+          provider: IdentityProvider.zeroTrust,
+          organization: 'example-team',
+        ),
+      };
     final controller = AppController(engine);
     await controller.initialize();
     addTearDown(controller.dispose);
@@ -1615,13 +2089,138 @@ void main() {
       find.text(
         'This endpoint is managed by the Zero Trust device registration and cannot be edited here.',
       ),
-      findsOneWidget,
+      findsNothing,
     );
     final endpointFields = tester
         .widgetList<TextField>(find.byType(TextField))
-        .take(4);
-    expect(endpointFields.every((field) => field.readOnly), isTrue);
+        .take(4)
+        .toList(growable: false);
+    expect(endpointFields[0].readOnly, isTrue);
+    expect(endpointFields[1].readOnly, isTrue);
+    expect(endpointFields[2].readOnly, isFalse);
+    expect(endpointFields[3].readOnly, isFalse);
+    await tester.enterText(find.widgetWithText(TextFormField, 'Port'), '8443');
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'SNI'),
+      'shared.example.com',
+    );
+    final save = find.widgetWithText(FilledButton, 'Save');
+    await tester.ensureVisible(save);
+    await tester.tap(save);
+    await tester.pumpAndSettle();
+
+    expect(controller.activeProfile.endpointIpv4, '162.159.197.2');
+    expect(controller.activeProfile.endpointIpv6, '2606:4700:102::2');
+    expect(controller.activeProfile.endpointPort, 8443);
+    expect(controller.activeProfile.sni, 'shared.example.com');
+    expect(engine.storedProfiles.single.endpointIpv4, '162.159.197.2');
+    expect(engine.storedProfiles.single.endpointIpv6, '2606:4700:102::2');
+    expect(engine.storedProfiles.single.endpointPort, 8443);
+    expect(engine.storedProfiles.single.sni, 'shared.example.com');
   });
+
+  test('Zero Trust keeps registered IPs while sharing port and SNI', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+    });
+    final consumer = UsqueProfile.defaultProfile().copyWith(
+      sni: 'consumer.example.com',
+    );
+    final zeroTrust = consumer.copyWith(
+      id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+      name: 'Work',
+      endpointIpv4: '162.159.197.2',
+      endpointIpv6: '2606:4700:102::2',
+    );
+    final engine = FakeEngineClient()
+      ..legacyProfilesImported = true
+      ..storedProfiles = <UsqueProfile>[consumer, zeroTrust]
+      ..storedActiveProfileId = zeroTrust.id
+      ..storedIdentityStatuses = <String, ProfileIdentityStatus>{
+        zeroTrust.id: const ProfileIdentityStatus(
+          state: ProfileIdentityState.ready,
+          licenseState: LicenseState.notApplicable,
+          accountType: 'Zero Trust',
+          provider: IdentityProvider.zeroTrust,
+          organization: 'example-team',
+        ),
+      };
+    final controller = AppController(engine);
+    await controller.initialize();
+    addTearDown(controller.dispose);
+
+    expect(controller.activeProfile.sni, 'consumer.example.com');
+    controller.updateNetwork(
+      controller.activeProfile.copyWith(
+        endpointIpv4: '192.0.2.10',
+        endpointIpv6: '2001:db8::10',
+        endpointPort: 8443,
+        sni: 'shared.example.com',
+      ),
+    );
+    controller.setActiveProfile(consumer.id);
+
+    expect(controller.activeProfile.endpointIpv4, consumer.endpointIpv4);
+    expect(controller.activeProfile.endpointIpv6, consumer.endpointIpv6);
+    expect(controller.activeProfile.endpointPort, 8443);
+    expect(controller.activeProfile.sni, 'shared.example.com');
+    controller.setActiveProfile(zeroTrust.id);
+    expect(controller.activeProfile.endpointIpv4, '162.159.197.2');
+    expect(controller.activeProfile.endpointIpv6, '2606:4700:102::2');
+    expect(controller.activeProfile.endpointPort, 8443);
+    expect(controller.activeProfile.sni, 'shared.example.com');
+  });
+
+  test(
+    'editing a non-active Zero Trust account cannot replace shared IPs',
+    () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'onboarding_complete': true,
+      });
+      final consumer = UsqueProfile.defaultProfile();
+      final zeroTrust = consumer.copyWith(
+        id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+        name: 'Work',
+        endpointIpv4: '162.159.197.2',
+        endpointIpv6: '2606:4700:102::2',
+      );
+      final engine = FakeEngineClient()
+        ..legacyProfilesImported = true
+        ..storedProfiles = <UsqueProfile>[consumer, zeroTrust]
+        ..storedActiveProfileId = consumer.id
+        ..storedIdentityStatuses = <String, ProfileIdentityStatus>{
+          zeroTrust.id: const ProfileIdentityStatus(
+            state: ProfileIdentityState.ready,
+            licenseState: LicenseState.notApplicable,
+            accountType: 'Zero Trust',
+            provider: IdentityProvider.zeroTrust,
+            organization: 'example-team',
+          ),
+        };
+      final controller = AppController(engine);
+      await controller.initialize();
+      addTearDown(controller.dispose);
+
+      controller.updateNetwork(
+        zeroTrust.copyWith(
+          endpointIpv4: '192.0.2.10',
+          endpointIpv6: '2001:db8::10',
+          endpointPort: 8443,
+          sni: 'shared.example.com',
+        ),
+      );
+      await controller.flushProfileWrites();
+
+      expect(controller.activeProfile.id, consumer.id);
+      expect(controller.activeProfile.endpointIpv4, consumer.endpointIpv4);
+      expect(controller.activeProfile.endpointIpv6, consumer.endpointIpv6);
+      expect(controller.activeProfile.endpointPort, 8443);
+      expect(controller.activeProfile.sni, 'shared.example.com');
+      controller.setActiveProfile(zeroTrust.id);
+      expect(controller.activeProfile.endpointIpv4, '162.159.197.2');
+      expect(controller.activeProfile.endpointIpv6, '2606:4700:102::2');
+    },
+  );
 
   testWidgets('Zero Trust identity choice remains readable on a narrow phone', (
     tester,
@@ -1693,7 +2292,7 @@ void main() {
     controller.addProfile('Temporary');
     await controller.flushProfileWrites();
 
-    await controller.clearAllData();
+    expect(await controller.clearAllData(), isTrue);
 
     final preferences = await SharedPreferences.getInstance();
     expect(controller.onboardingComplete, isFalse);
@@ -1703,6 +2302,25 @@ void main() {
     expect(controller.localePreference, LocalePreference.system);
     expect(engine.provisioned, isFalse);
     expect(preferences.getKeys(), isEmpty);
+    controller.dispose();
+  });
+
+  test('clear all data commits even when update-cache cleanup warns', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+    });
+    final engine = FakeEngineClient()..provisioned = true;
+    final downloader = RecordingUpdateDownloader(engine)
+      ..discardError = const FormatException('update cache is locked');
+    final controller = AppController(engine, updateDownloader: downloader);
+    await controller.initialize();
+    controller.downloadedUpdatePath = 'test-update.msi';
+
+    expect(await controller.clearAllData(), isTrue);
+
+    expect(controller.onboardingComplete, isFalse);
+    expect(controller.lastError, contains('update cache is locked'));
+    expect(downloader.discardedPath, 'test-update.msi');
     controller.dispose();
   });
 
@@ -1858,7 +2476,7 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.text('Home'), findsWidgets);
-    expect(find.text('Engine status'), findsOneWidget);
+    expect(find.text('Usque Engine status'), findsOneWidget);
     expect(find.text('Connect'), findsOneWidget);
   });
 
@@ -1891,6 +2509,66 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'mobile navigation has four destinations and arrow keys cycle them',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(600, 900);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'onboarding_complete': true,
+        'update_checks_enabled': false,
+      });
+      final controller = AppController(FakeEngineClient());
+      await controller.initialize();
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: UsqueTheme.light(),
+          home: ShellScreen(controller: controller),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final barFinder = find.byType(NavigationBar);
+      expect(barFinder, findsOneWidget);
+      final bar = tester.widget<NavigationBar>(barFinder);
+      expect(bar.destinations, hasLength(4));
+      expect(
+        bar.destinations.cast<NavigationDestination>().map(
+          (destination) => destination.label,
+        ),
+        <String>['Home', 'Profiles', 'Proxy', 'Settings'],
+      );
+
+      final homeLabel = find.descendant(
+        of: barFinder,
+        matching: find.text('Home'),
+      );
+      Focus.of(tester.element(homeLabel)).requestFocus();
+      await tester.pump();
+
+      Future<void> moveRight(AppSection expected) async {
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.arrowRight);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.arrowRight);
+        await tester.pumpAndSettle();
+        expect(controller.section, expected);
+        expect(
+          tester.takeException(),
+          isNull,
+          reason: 'after moving to ${expected.name}',
+        );
+      }
+
+      await moveRight(AppSection.profiles);
+      await moveRight(AppSection.proxy);
+      await moveRight(AppSection.settings);
+      await moveRight(AppSection.home);
+    },
+  );
 
   testWidgets(
     'profile dialogs survive repeated exit paths while status events arrive',
@@ -2006,24 +2684,49 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     SharedPreferences.setMockInitialValues(<String, Object>{
       'onboarding_complete': true,
+      'update_checks_enabled': false,
     });
+    final controller = AppController(FakeEngineClient());
+    await controller.initialize();
+    addTearDown(controller.dispose);
 
-    await tester.pumpWidget(UsqueBootstrap(engine: FakeEngineClient()));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: UsqueTheme.light(),
+        home: ShellScreen(controller: controller),
+      ),
+    );
     await tester.pumpAndSettle();
 
+    final railFinder = find.byType(NavigationRail);
+    final rail = tester.widget<NavigationRail>(railFinder);
+    expect(rail.destinations, hasLength(4));
+    expect(
+      rail.destinations.map(
+        (destination) => (destination.label as Tooltip).message,
+      ),
+      <String>['Home', 'Profiles', 'Proxy', 'Settings'],
+    );
     final homeLabel = find.descendant(
-      of: find.byType(NavigationRail),
+      of: railFinder,
       matching: find.text('Home'),
     );
     expect(homeLabel, findsOneWidget);
     Focus.of(tester.element(homeLabel)).requestFocus();
     await tester.pump();
-    await tester.sendKeyDownEvent(LogicalKeyboardKey.arrowDown);
-    await tester.sendKeyUpEvent(LogicalKeyboardKey.arrowDown);
-    await tester.pumpAndSettle();
 
-    expect(tester.takeException(), isNull);
-    expect(find.widgetWithText(FilledButton, 'New profile'), findsOneWidget);
+    Future<void> moveDown(AppSection expected) async {
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.arrowDown);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pumpAndSettle();
+      expect(controller.section, expected);
+      expect(tester.takeException(), isNull);
+    }
+
+    await moveDown(AppSection.profiles);
+    await moveDown(AppSection.proxy);
+    await moveDown(AppSection.settings);
+    await moveDown(AppSection.home);
   });
 
   testWidgets(
@@ -2041,6 +2744,8 @@ void main() {
       await tester.pumpAndSettle();
 
       final Finder rail = find.byType(NavigationRail);
+      final railWidget = tester.widget<NavigationRail>(rail);
+      expect(railWidget.extended, isTrue);
       final Finder brand = find.descendant(
         of: rail,
         matching: find.text('Usque'),
@@ -2105,6 +2810,9 @@ void main() {
     await tester.pumpAndSettle();
 
     final Finder rail = find.byType(NavigationRail);
+    final railWidget = tester.widget<NavigationRail>(rail);
+    expect(railWidget.extended, isFalse);
+    expect(railWidget.labelType, NavigationRailLabelType.all);
     final Finder brandIcon = find.byWidgetPredicate(
       (widget) =>
           widget is Image &&
@@ -2130,6 +2838,38 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('Android rail theme target is at least 48dp', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    try {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(900, 800);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'onboarding_complete': true,
+      });
+
+      await tester.pumpWidget(UsqueBootstrap(engine: FakeEngineClient()));
+      await tester.pumpAndSettle();
+
+      final themeButton = find.descendant(
+        of: find.byType(NavigationRail),
+        matching: find.byTooltip('Theme · System'),
+      );
+      expect(themeButton, findsOneWidget);
+      expect(
+        tester.getSize(themeButton).shortestSide,
+        greaterThanOrEqualTo(48),
+      );
+      expect(
+        tester.getSemantics(themeButton).rect.size.shortestSide,
+        greaterThanOrEqualTo(48),
+      );
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
   testWidgets('Android settings exposes boot, tile, and Always-on controls', (
     tester,
   ) async {
@@ -2148,6 +2888,15 @@ void main() {
       await tester.tap(find.text('Settings').last);
       await tester.pumpAndSettle();
 
+      final themePicker = find.byWidgetPredicate(
+        (widget) => widget is DropdownButton<ThemePreference>,
+      );
+      expect(themePicker, findsOneWidget);
+      expect(tester.getSize(themePicker).height, greaterThanOrEqualTo(48));
+      expect(
+        tester.getSemantics(themePicker).rect.height,
+        greaterThanOrEqualTo(48),
+      );
       expect(find.text('System integration'), findsOneWidget);
       expect(find.text('Start Usque when you sign in'), findsOneWidget);
       expect(find.text('Add Quick Settings Tile'), findsOneWidget);
@@ -2178,6 +2927,105 @@ void main() {
   });
 
   testWidgets(
+    'verified update UI shows progress, retry, and install confirmation',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      try {
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = const Size(1280, 1400);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        addTearDown(tester.view.resetPhysicalSize);
+        SharedPreferences.setMockInitialValues(<String, Object>{
+          'update_checks_enabled': false,
+        });
+        final controller = AppController(FakeEngineClient());
+        await controller.initialize();
+        addTearDown(controller.dispose);
+        controller.updateResult = const UpdateCheckResult(
+          available: true,
+          version: 'v0.2.3',
+          releaseUrl:
+              'https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.2.3',
+          package: UpdatePackage(
+            name: 'usque-v0.2.3-windows-x64-v2.msi',
+            downloadUrl:
+                'https://github.com/GeorgeXie2333/usque-app/releases/download/v0.2.3/usque-v0.2.3-windows-x64-v2.msi',
+            size: 20 * 1024 * 1024,
+            sha256:
+                'a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5',
+            platform: 'windows',
+            variant: 'x64-v2',
+          ),
+        );
+        controller.updatePhase = UpdateOperationPhase.downloading;
+        controller.updateDownloadedBytes = 5 * 1024 * 1024;
+        controller.updateTotalBytes = 20 * 1024 * 1024;
+
+        Widget app() => MaterialApp(
+          theme: UsqueTheme.light(),
+          home: SettingsScreen(controller: controller),
+        );
+
+        await tester.pumpWidget(app());
+        expect(find.text('v0.2.3  •  x64-v2  •  20.0 MiB'), findsOneWidget);
+        expect(find.byType(LinearProgressIndicator), findsOneWidget);
+        expect(find.text('5.0 MiB / 20.0 MiB'), findsOneWidget);
+        expect(find.text('Cancel'), findsOneWidget);
+
+        controller.updatePhase = UpdateOperationPhase.failed;
+        controller.updateError = 'network interrupted';
+        await tester.pumpWidget(app());
+        expect(find.text('Retry'), findsOneWidget);
+        expect(find.text('network interrupted'), findsOneWidget);
+
+        controller.updatePhase = UpdateOperationPhase.ready;
+        controller.updateError = null;
+        controller.downloadedUpdatePath = r'C:\update\usque.msi';
+        await tester.pumpWidget(app());
+        final install = find.text('Restart and update');
+        expect(install, findsOneWidget);
+        await tester.ensureVisible(install);
+        await tester.tap(install);
+        await tester.pumpAndSettle();
+        expect(find.text('Install this update?'), findsOneWidget);
+        expect(
+          find.textContaining('VPN and proxy connections will disconnect'),
+          findsOneWidget,
+        );
+        await tester.tap(find.text('Cancel').last);
+        await tester.pumpAndSettle();
+
+        Future<void> pumpAccessibleViewport(Size size) async {
+          tester.view.physicalSize = size;
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.pump();
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: UsqueTheme.dark(),
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(context).copyWith(
+                  textScaler: const TextScaler.linear(2),
+                  disableAnimations: true,
+                ),
+                child: child!,
+              ),
+              home: SettingsScreen(controller: controller),
+            ),
+          );
+          await tester.ensureVisible(find.text('Updates'));
+          await tester.pump();
+          expect(tester.takeException(), isNull);
+        }
+
+        await pumpAccessibleViewport(const Size(375, 667));
+        await pumpAccessibleViewport(const Size(667, 375));
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    },
+  );
+
+  testWidgets(
     'direct countries opens its own settings page and leaves Advanced',
     (tester) async {
       tester.view.devicePixelRatio = 1;
@@ -2199,7 +3047,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final directCountries = find.text('Direct countries');
+      final directCountries = find.text('Countries routed directly');
       expect(directCountries, findsOneWidget);
       await tester.ensureVisible(directCountries);
       await tester.tap(directCountries);
@@ -2225,9 +3073,200 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(AdvancedSettingsScreen), findsOneWidget);
-      expect(find.text('Direct countries'), findsNothing);
+      expect(find.text('Countries routed directly'), findsNothing);
     },
   );
+
+  testWidgets('Settings opens Diagnostics as a subpage on mobile and desktop', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+
+    for (final size in <Size>[const Size(430, 900), const Size(1280, 1100)]) {
+      tester.view.physicalSize = size;
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'onboarding_complete': true,
+        'update_checks_enabled': false,
+      });
+      final controller = AppController(FakeEngineClient());
+      await controller.initialize();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          key: ValueKey<double>(size.width),
+          theme: UsqueTheme.light(),
+          home: ShellScreen(controller: controller),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final navigation = size.width < 760
+          ? find.byType(NavigationBar)
+          : find.byType(NavigationRail);
+      await tester.tap(
+        find.descendant(of: navigation, matching: find.text('Settings')),
+      );
+      await tester.pumpAndSettle();
+      expect(controller.section, AppSection.settings);
+
+      final diagnosticsCard = find.widgetWithText(Panel, 'Diagnostics');
+      expect(diagnosticsCard, findsOneWidget);
+      await tester.ensureVisible(diagnosticsCard);
+      await tester.pumpAndSettle();
+      expect(tester.getSize(diagnosticsCard).height, greaterThanOrEqualTo(48));
+      expect(
+        tester.getSemantics(diagnosticsCard).rect.height,
+        greaterThanOrEqualTo(48),
+      );
+      expect(
+        find.descendant(
+          of: diagnosticsCard,
+          matching: find.byIcon(LucideIcons.chevronRightDir),
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(diagnosticsCard);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(DiagnosticsScreen), findsOneWidget);
+      expect(find.text('Diagnostics & app information'), findsOneWidget);
+      expect(find.widgetWithText(TextButton, 'Back'), findsOneWidget);
+      expect(find.byIcon(LucideIcons.arrowLeftDir), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      await tester.tap(find.widgetWithText(TextButton, 'Back'));
+      await tester.pumpAndSettle();
+      expect(find.byType(DiagnosticsScreen), findsNothing);
+      expect(find.byType(SettingsScreen), findsOneWidget);
+      expect(controller.section, AppSection.settings);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      controller.dispose();
+    }
+  });
+
+  testWidgets('pushed Diagnostics listens to live AppController state', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(800, 900);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+      'update_checks_enabled': false,
+    });
+    final engine = EventEngineClient();
+    final controller = AppController(engine);
+    await controller.initialize();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: UsqueTheme.light(),
+        home: SettingsScreen(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final diagnosticsCard = find.widgetWithText(Panel, 'Diagnostics');
+    await tester.ensureVisible(diagnosticsCard);
+    await tester.pumpAndSettle();
+    await tester.tap(diagnosticsCard);
+    await tester.pumpAndSettle();
+    expect(find.text('Disconnected'), findsWidgets);
+
+    controller.snapshot = const EngineSnapshot(phase: ConnectionPhase.degraded);
+    controller.selectSection(AppSection.home);
+    await tester.pump();
+    expect(find.text('Connected with limited connectivity'), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('clearing all data from Diagnostics returns to onboarding', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(430, 900);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+      'update_checks_enabled': false,
+    });
+
+    await tester.pumpWidget(UsqueBootstrap(engine: FakeEngineClient()));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(NavigationBar),
+        matching: find.text('Settings'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final diagnosticsCard = find.widgetWithText(Panel, 'Diagnostics');
+    await tester.ensureVisible(diagnosticsCard);
+    await tester.pumpAndSettle();
+    await tester.tap(diagnosticsCard);
+    await tester.pumpAndSettle();
+
+    final clearButton = find.widgetWithText(OutlinedButton, 'Clear all data');
+    await tester.ensureVisible(clearButton);
+    await tester.pumpAndSettle();
+    await tester.tap(clearButton);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Clear all data'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(DiagnosticsScreen), findsNothing);
+    expect(find.byType(OnboardingScreen), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('failed data clearing stays on Diagnostics and shows the error', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(430, 900);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+      'update_checks_enabled': false,
+    });
+    final engine = FakeEngineClient()
+      ..clearAllDataError = const FormatException('clear failed');
+
+    await tester.pumpWidget(UsqueBootstrap(engine: engine));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(NavigationBar),
+        matching: find.text('Settings'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final diagnosticsCard = find.widgetWithText(Panel, 'Diagnostics');
+    await tester.ensureVisible(diagnosticsCard);
+    await tester.pumpAndSettle();
+    await tester.tap(diagnosticsCard);
+    await tester.pumpAndSettle();
+
+    final clearButton = find.widgetWithText(OutlinedButton, 'Clear all data');
+    await tester.ensureVisible(clearButton);
+    await tester.pumpAndSettle();
+    await tester.tap(clearButton);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Clear all data'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(DiagnosticsScreen), findsOneWidget);
+    expect(find.textContaining('clear failed'), findsOneWidget);
+    expect(find.byType(OnboardingScreen), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('direct countries page enables and saves a ready country', (
     tester,
@@ -2302,7 +3341,9 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Update geo data'));
+      await tester.tap(
+        find.widgetWithText(FilledButton, 'Update geographic data'),
+      );
       await tester.pumpAndSettle();
       expect(engine.calls, contains('updateAllGeoRules'));
 
@@ -2571,7 +3612,9 @@ void main() {
       expect(find.text('IPv6'), findsNothing);
       expect(find.text('Not available'), findsNothing);
 
-      final Offset engineOrigin = tester.getTopLeft(find.text('Engine status'));
+      final Offset engineOrigin = tester.getTopLeft(
+        find.text('Usque Engine status'),
+      );
       final Offset locationOrigin = tester.getTopLeft(find.text('Location'));
       final Offset downloadOrigin = tester.getTopLeft(find.text('Download'));
       expect(locationOrigin.dx, closeTo(engineOrigin.dx, 1));
@@ -2608,31 +3651,59 @@ void main() {
     },
   );
 
-  testWidgets('error and degraded home show Retry and invoke the engine', (
-    tester,
-  ) async {
-    SharedPreferences.setMockInitialValues(<String, Object>{
-      'onboarding_complete': true,
-    });
-    final engine = EventEngineClient();
-    engine.current = const EngineSnapshot(phase: ConnectionPhase.error);
-    final controller = AppController(engine);
-    await controller.initialize();
-    addTearDown(controller.dispose);
-    controller.snapshot = const EngineSnapshot(phase: ConnectionPhase.error);
+  testWidgets(
+    'error and degraded home expose Retry and the Diagnostics shortcut',
+    (tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'onboarding_complete': true,
+      });
+      final engine = EventEngineClient();
+      engine.current = const EngineSnapshot(phase: ConnectionPhase.error);
+      final controller = AppController(engine);
+      await controller.initialize();
+      addTearDown(controller.dispose);
+      controller.snapshot = const EngineSnapshot(phase: ConnectionPhase.error);
 
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: UsqueTheme.light(),
-        home: HomeScreen(controller: controller),
-      ),
-    );
-    await tester.pump();
-    expect(find.text('Retry'), findsOneWidget);
-    await tester.tap(find.text('Retry'));
-    await tester.pump();
-    expect(engine.calls, contains('retry'));
-  });
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: UsqueTheme.light(),
+          home: HomeScreen(controller: controller),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Retry'), findsOneWidget);
+      final diagnosticsButton = find.widgetWithText(
+        OutlinedButton,
+        'Diagnostics',
+      );
+      expect(diagnosticsButton, findsOneWidget);
+      expect(
+        tester.getSemantics(diagnosticsButton).rect.height,
+        greaterThanOrEqualTo(48),
+      );
+      await tester.tap(diagnosticsButton);
+      await tester.pumpAndSettle();
+      expect(find.byType(DiagnosticsScreen), findsOneWidget);
+      await tester.tap(find.widgetWithText(TextButton, 'Back'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Retry'));
+      await tester.pumpAndSettle();
+      expect(engine.calls, contains('retry'));
+      expect(find.widgetWithText(OutlinedButton, 'Diagnostics'), findsNothing);
+
+      controller.snapshot = const EngineSnapshot(
+        phase: ConnectionPhase.degraded,
+      );
+      controller.selectSection(AppSection.home);
+      await tester.pump();
+      expect(
+        find.widgetWithText(OutlinedButton, 'Diagnostics'),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   test(
     'initialize with auto_connect connects a ready disconnected profile once',
@@ -2685,7 +3756,12 @@ void main() {
 
       Future<void> toggle(String title) async {
         final tile = find.widgetWithText(SwitchListTile, title);
-        await tester.ensureVisible(tile);
+        await Scrollable.ensureVisible(
+          tester.element(tile),
+          alignment: 0.5,
+          duration: Duration.zero,
+        );
+        await tester.pumpAndSettle();
         await tester.tap(tile);
         await tester.pumpAndSettle();
       }
@@ -2700,7 +3776,7 @@ void main() {
       expect(settings().controller.activeProfile.proxy.systemProxy, isFalse);
       expect(settings().controller.activeProfile.autoConnect, isFalse);
 
-      await toggle('VPN / virtual adapter');
+      await toggle('VPN (TUN)');
       expect(settings().controller.activeProfile.frontends.tunnel, isFalse);
 
       await toggle('SOCKS5');
@@ -2744,7 +3820,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Network outputs'), findsOneWidget);
-      expect(find.text('VPN / virtual adapter'), findsOneWidget);
+      expect(find.text('VPN'), findsOneWidget);
+      expect(find.text('VPN (TUN)'), findsNothing);
       expect(find.text('Configure system proxy'), findsNothing);
     } finally {
       debugDefaultTargetPlatformOverride = null;
@@ -2803,10 +3880,7 @@ void main() {
     expect(find.text('Edit profile'), findsOneWidget);
     expect(find.text('Profile name'), findsOneWidget);
     expect(find.widgetWithText(SwitchListTile, 'SOCKS5'), findsNothing);
-    expect(
-      find.widgetWithText(SwitchListTile, 'VPN / virtual adapter'),
-      findsNothing,
-    );
+    expect(find.widgetWithText(SwitchListTile, 'VPN (TUN)'), findsNothing);
     expect(
       find.widgetWithText(SwitchListTile, 'Connect this Profile automatically'),
       findsNothing,

@@ -13,6 +13,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, MissedTickBehavior, interval_at, sleep_until, timeout};
 use tokio_util::task::AbortOnDropHandle;
+use usque_core::TransportStage;
 use usque_protocol::{IpDatagram, MAX_CAPSULE_PAYLOAD, PeerNetworkState};
 
 use crate::connect_ip_control::{ConnectIpControlPlane, PendingControlCapsule};
@@ -21,6 +22,7 @@ use crate::h2::{
     validate_ip_packet,
 };
 use crate::socket::{SocketProtector, noop_socket_protector, socket_handle};
+use crate::telemetry::{ConnectionAttemptTelemetry, ConnectionEventType};
 
 const CONNECT_AUTHORITY: &[u8] = b"cloudflareaccess.com";
 const CONNECT_PATH: &[u8] = b"/";
@@ -34,6 +36,7 @@ const MAX_IDLE_TIMEOUT_MS: u64 = 90_000;
 const MAX_UDP_PAYLOAD_SIZE: usize = 1_350;
 const DATAGRAM_CHANNEL_CAPACITY: usize = 1_024;
 const MAX_PENDING_WIRE_DATAGRAMS: usize = 64;
+const PACKET_SEND_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// An established Cloudflare CONNECT-IP stream over HTTP/3 and QUIC.
 pub struct H3Tunnel {
@@ -66,21 +69,36 @@ pub struct H3SendHalf {
 
 impl H3SendHalf {
     pub async fn send_packet(&mut self, packet: &[u8]) -> Result<(), TransportError> {
-        self.send_owned_packet(Bytes::copy_from_slice(packet)).await
+        match timeout(
+            PACKET_SEND_TIMEOUT,
+            self.send_owned_packet_inner(Bytes::copy_from_slice(packet)),
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(_) => Err(TransportError::SendTimeout),
+        }
     }
 
+    /// Sends an owned packet under the transport supervisor's outer deadline.
     pub(crate) async fn send_owned_packet(&mut self, packet: Bytes) -> Result<(), TransportError> {
+        self.send_owned_packet_inner(packet).await
+    }
+
+    async fn send_owned_packet_inner(&mut self, packet: Bytes) -> Result<(), TransportError> {
         validate_ip_packet(&packet)?;
         let (completion_tx, completion_rx) = oneshot::channel();
         self.sender
             .as_ref()
             .ok_or(TransportError::TunnelClosed)?
-            .send(OutgoingPacket {
+            .try_send(OutgoingPacket {
                 packet,
                 completion: completion_tx,
             })
-            .await
-            .map_err(|_| TransportError::TunnelClosed)?;
+            .map_err(|error| match error {
+                TrySendError::Full(_) => TransportError::SendQueueFull,
+                TrySendError::Closed(_) => TransportError::TunnelClosed,
+            })?;
         match completion_rx.await {
             Ok(Ok(())) => Ok(()),
             Ok(Err(DatagramSendFailure::TooLarge {
@@ -152,7 +170,14 @@ pub async fn connect_h3(
     sni: &str,
     identity: &MasqueTlsIdentity,
 ) -> Result<H3Tunnel, TransportError> {
-    connect_h3_with_protector(endpoint, sni, identity, noop_socket_protector().as_ref()).await
+    connect_h3_with_protector(
+        endpoint,
+        sni,
+        identity,
+        noop_socket_protector().as_ref(),
+        None,
+    )
+    .await
 }
 
 pub(crate) async fn connect_h3_with_protector(
@@ -160,13 +185,14 @@ pub(crate) async fn connect_h3_with_protector(
     sni: &str,
     identity: &MasqueTlsIdentity,
     protector: &dyn SocketProtector,
+    attempt: Option<&ConnectionAttemptTelemetry>,
 ) -> Result<H3Tunnel, TransportError> {
-    let first = connect_h3_once(endpoint, sni, identity, protector).await;
+    let first = connect_h3_once(endpoint, sni, identity, protector, attempt).await;
     match first {
         Err(TransportError::Http3ProtocolViolation(_)) => {
             // The Go oracle retries this specific Cloudflare interoperability
             // failure once. All other failures preserve normal fallback rules.
-            connect_h3_once(endpoint, sni, identity, protector).await
+            connect_h3_once(endpoint, sni, identity, protector, attempt).await
         }
         result => result,
     }
@@ -177,6 +203,7 @@ async fn connect_h3_once(
     sni: &str,
     identity: &MasqueTlsIdentity,
     protector: &dyn SocketProtector,
+    attempt: Option<&ConnectionAttemptTelemetry>,
 ) -> Result<H3Tunnel, TransportError> {
     let bind_address = match endpoint {
         SocketAddr::V4(_) => SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0),
@@ -189,6 +216,12 @@ async fn connect_h3_once(
     std_socket.set_nonblocking(true)?;
     let socket = UdpSocket::from_std(std_socket)?;
     let local_address = socket.local_addr()?;
+    if let Some(attempt) = attempt {
+        attempt.record(
+            ConnectionEventType::SocketConnected,
+            TransportStage::SocketConnect,
+        );
+    }
 
     let (mut quic_config, pin_state) = quic_config(identity)?;
     let mut source_connection_id = [0u8; CONNECTION_ID_LENGTH];
@@ -222,6 +255,7 @@ async fn connect_h3_once(
         incoming_tx,
         control_tx,
         startup_tx,
+        attempt.cloned(),
     )));
 
     let startup = timeout(CONNECT_TIMEOUT, startup_rx).await;
@@ -342,6 +376,7 @@ async fn run_h3_actor(
     incoming_tx: mpsc::Sender<Bytes>,
     control_tx: watch::Sender<PeerNetworkState>,
     startup_tx: oneshot::Sender<Result<(), StartupFailure>>,
+    attempt: Option<ConnectionAttemptTelemetry>,
 ) -> Result<(), TransportError> {
     let mut startup_tx = Some(startup_tx);
     let result = drive_h3_actor(
@@ -352,6 +387,7 @@ async fn run_h3_actor(
         incoming_tx,
         control_tx,
         &mut startup_tx,
+        attempt.as_ref(),
     )
     .await;
     if let Some(startup_tx) = startup_tx.take() {
@@ -378,21 +414,31 @@ async fn drive_h3_actor(
     incoming_tx: mpsc::Sender<Bytes>,
     control_tx: watch::Sender<PeerNetworkState>,
     startup_tx: &mut Option<oneshot::Sender<Result<(), StartupFailure>>>,
+    attempt: Option<&ConnectionAttemptTelemetry>,
 ) -> Result<(), TransportError> {
     let local_address = socket.local_addr()?;
     let mut http3 = None;
     let mut request_stream_id = None;
     let mut response_accepted = false;
+    let mut peer_settings_recorded = false;
     let mut ready = false;
     let mut control = ConnectIpControlPlane::new(control_tx);
     let mut pending_packet: Option<OutgoingPacket> = None;
-    let mut wire_datagrams = VecDeque::new();
+    let mut wire_datagrams = VecDeque::with_capacity(MAX_PENDING_WIRE_DATAGRAMS);
+    let mut free_wire_buffers = Vec::new();
     let mut receive_buffer = vec![0u8; 65_535];
+    let mut inbound_dropped_packets = 0u64;
     let mut keepalive = interval_at(Instant::now() + KEEPALIVE_INTERVAL, KEEPALIVE_INTERVAL);
     keepalive.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
     loop {
         if connection.is_established() && http3.is_none() {
+            if let Some(attempt) = attempt {
+                attempt.record(
+                    ConnectionEventType::QuicReady,
+                    TransportStage::QuicHandshake,
+                );
+            }
             http3 = Some(
                 quiche::h3::Connection::with_transport(&mut connection, &h3_config).map_err(
                     |error| TransportError::Http3(format!("start HTTP/3 session: {error:?}")),
@@ -401,6 +447,7 @@ async fn drive_h3_actor(
         }
 
         if let Some(http3) = http3.as_mut() {
+            let response_was_accepted = response_accepted;
             process_http3_events(
                 http3,
                 &mut connection,
@@ -408,6 +455,15 @@ async fn drive_h3_actor(
                 &mut response_accepted,
                 &mut control,
             )?;
+            if !response_was_accepted
+                && response_accepted
+                && let Some(attempt) = attempt
+            {
+                attempt.record(
+                    ConnectionEventType::MasqueAccepted,
+                    TransportStage::MasqueConnect,
+                );
+            }
 
             if let Some(stream_id) = request_stream_id {
                 flush_control_capsules(http3, &mut connection, stream_id, &mut control.pending)?;
@@ -416,6 +472,15 @@ async fn drive_h3_actor(
             if request_stream_id.is_none() && http3.peer_settings_raw().is_some() {
                 if !http3.dgram_enabled_by_peer(&connection) {
                     return Err(TransportError::Http3DatagramUnavailable);
+                }
+                if !peer_settings_recorded {
+                    peer_settings_recorded = true;
+                    if let Some(attempt) = attempt {
+                        attempt.record(
+                            ConnectionEventType::PeerSettingsReceived,
+                            TransportStage::PeerSettings,
+                        );
+                    }
                 }
                 match http3.send_request(&mut connection, &connect_headers(), false) {
                     Ok(stream_id) => request_stream_id = Some(stream_id),
@@ -443,6 +508,7 @@ async fn drive_h3_actor(
                 ready,
                 &incoming_tx,
                 &mut receive_buffer,
+                &mut inbound_dropped_packets,
             )?;
         }
 
@@ -477,8 +543,8 @@ async fn drive_h3_actor(
             }
         }
 
-        generate_wire_datagrams(&mut connection, &mut wire_datagrams)?;
-        send_due_wire_datagrams(&socket, &mut wire_datagrams).await?;
+        generate_wire_datagrams(&mut connection, &mut wire_datagrams, &mut free_wire_buffers)?;
+        send_due_wire_datagrams(&socket, &mut wire_datagrams, &mut free_wire_buffers).await?;
 
         if connection.is_closed() {
             return Err(connection_closed_error(&connection));
@@ -667,6 +733,7 @@ fn drain_received_datagrams(
     ready: bool,
     incoming_tx: &mpsc::Sender<Bytes>,
     buffer: &mut [u8],
+    dropped_packets: &mut u64,
 ) -> Result<(), TransportError> {
     loop {
         let length = match connection.dgram_recv(buffer) {
@@ -687,12 +754,22 @@ fn drain_received_datagrams(
         match incoming_tx.try_send(packet) {
             Ok(()) => {}
             Err(TrySendError::Full(_)) => {
-                tracing::warn!("dropping an inbound H3 packet because the netstack is congested");
+                *dropped_packets = dropped_packets.saturating_add(1);
+                if should_log_inbound_drop(*dropped_packets) {
+                    tracing::warn!(
+                        dropped_packets = *dropped_packets,
+                        "dropping inbound H3 packets because the netstack is congested"
+                    );
+                }
             }
             Err(TrySendError::Closed(_)) => return Ok(()),
         }
     }
     Ok(())
+}
+
+fn should_log_inbound_drop(dropped_packets: u64) -> bool {
+    dropped_packets.is_power_of_two()
 }
 
 struct WireDatagram {
@@ -703,15 +780,19 @@ struct WireDatagram {
 fn generate_wire_datagrams(
     connection: &mut quiche::Connection,
     pending: &mut VecDeque<WireDatagram>,
+    free_buffers: &mut Vec<Vec<u8>>,
 ) -> Result<(), TransportError> {
     while pending.len() < MAX_PENDING_WIRE_DATAGRAMS {
-        let mut bytes = vec![0u8; MAX_UDP_PAYLOAD_SIZE];
+        let mut bytes = take_wire_buffer(free_buffers);
         match connection.send(&mut bytes) {
             Ok((length, send_info)) => {
                 bytes.truncate(length);
                 pending.push_back(WireDatagram { bytes, send_info });
             }
-            Err(quiche::Error::Done) => break,
+            Err(quiche::Error::Done) => {
+                recycle_wire_buffer(free_buffers, bytes);
+                break;
+            }
             Err(error) => {
                 return Err(TransportError::Http3(format!(
                     "generate QUIC packet: {error:?}"
@@ -725,6 +806,7 @@ fn generate_wire_datagrams(
 async fn send_due_wire_datagrams(
     socket: &UdpSocket,
     pending: &mut VecDeque<WireDatagram>,
+    free_buffers: &mut Vec<Vec<u8>>,
 ) -> Result<(), TransportError> {
     while pending
         .front()
@@ -743,16 +825,32 @@ async fn send_due_wire_datagrams(
             )
             .into());
         }
+        recycle_wire_buffer(free_buffers, datagram.bytes);
     }
     Ok(())
 }
 
+fn take_wire_buffer(free_buffers: &mut Vec<Vec<u8>>) -> Vec<u8> {
+    let mut bytes = free_buffers
+        .pop()
+        .unwrap_or_else(|| Vec::with_capacity(MAX_UDP_PAYLOAD_SIZE));
+    bytes.resize(MAX_UDP_PAYLOAD_SIZE, 0);
+    bytes
+}
+
+fn recycle_wire_buffer(free_buffers: &mut Vec<Vec<u8>>, mut bytes: Vec<u8>) {
+    bytes.clear();
+    if free_buffers.len() < MAX_PENDING_WIRE_DATAGRAMS {
+        free_buffers.push(bytes);
+    }
+}
+
 fn encode_http_datagram(stream_id: u64, packet: &[u8]) -> Result<Vec<u8>, TransportError> {
     validate_ip_packet(packet)?;
-    let payload = IpDatagram::new(Bytes::copy_from_slice(packet)).encode()?;
-    let mut encoded = Vec::with_capacity(payload.len() + 8);
+    let mut encoded = Vec::with_capacity(packet.len() + 16);
     encode_varint(stream_id / 4, &mut encoded)?;
-    encoded.extend_from_slice(&payload);
+    encode_varint(usque_protocol::DEFAULT_CONTEXT_ID, &mut encoded)?;
+    encoded.extend_from_slice(packet);
     Ok(encoded)
 }
 
@@ -860,6 +958,58 @@ mod tests {
             packet
         );
         assert!(decode_http_datagram(4, &encoded).unwrap().is_none());
+    }
+
+    #[test]
+    fn http_datagram_encoding_matches_protocol_composition() {
+        let packet = ipv4_packet();
+        for quarter_stream_id in [
+            0,
+            63,
+            64,
+            16_383,
+            16_384,
+            1_073_741_823,
+            1_073_741_824,
+            (1_u64 << 60) - 1,
+        ] {
+            let stream_id = quarter_stream_id * 4;
+            let payload = IpDatagram::new(Bytes::copy_from_slice(&packet))
+                .encode()
+                .unwrap();
+            let mut reference = Vec::with_capacity(payload.len() + 8);
+            encode_varint(quarter_stream_id, &mut reference).unwrap();
+            reference.extend_from_slice(&payload);
+
+            assert_eq!(encode_http_datagram(stream_id, &packet).unwrap(), reference);
+        }
+    }
+
+    #[test]
+    fn wire_datagram_buffers_are_reused_with_a_fixed_bound() {
+        let mut free = Vec::new();
+        let first = take_wire_buffer(&mut free);
+        assert_eq!(first.len(), MAX_UDP_PAYLOAD_SIZE);
+        let allocation = first.as_ptr();
+        recycle_wire_buffer(&mut free, first);
+
+        let reused = take_wire_buffer(&mut free);
+        assert_eq!(reused.len(), MAX_UDP_PAYLOAD_SIZE);
+        assert_eq!(reused.as_ptr(), allocation);
+        recycle_wire_buffer(&mut free, reused);
+
+        for _ in 0..=MAX_PENDING_WIRE_DATAGRAMS {
+            recycle_wire_buffer(&mut free, Vec::with_capacity(MAX_UDP_PAYLOAD_SIZE));
+        }
+        assert_eq!(free.len(), MAX_PENDING_WIRE_DATAGRAMS);
+    }
+
+    #[test]
+    fn inbound_congestion_warnings_are_exponentially_rate_limited() {
+        let logged = (0..=17)
+            .filter(|count| should_log_inbound_drop(*count))
+            .collect::<Vec<_>>();
+        assert_eq!(logged, vec![1, 2, 4, 8, 16]);
     }
 
     #[test]

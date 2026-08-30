@@ -8,7 +8,6 @@ import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/animated_index_stack.dart';
 import '../widgets/controller_selector.dart';
-import 'diagnostics_screen.dart';
 import 'home_screen.dart';
 import 'profiles_screen.dart';
 import 'proxy_screen.dart';
@@ -34,7 +33,6 @@ class ShellScreen extends StatelessWidget {
     LucideIcons.layers3,
     LucideIcons.waypoints,
     LucideIcons.settings,
-    LucideIcons.activity,
   ];
 
   /// Width at which the bottom bar gives way to the side rail.
@@ -79,11 +77,16 @@ class ShellScreen extends StatelessWidget {
       builder: (context, section) {
         final strings = controller.strings;
         final labels = <String>[
+          strings.get('nav_home'),
+          strings.get('nav_profiles'),
+          strings.get('nav_proxy'),
+          strings.get('nav_settings'),
+        ];
+        final fullLabels = <String>[
           strings.get('home'),
           strings.get('profiles'),
           strings.get('proxy'),
           strings.get('settings'),
-          strings.get('diagnostics'),
         ];
         final pages = <Widget>[
           // Home subscribes per block, so it takes the controller directly.
@@ -123,6 +126,11 @@ class ShellScreen extends StatelessWidget {
               LocalePreference locale,
               bool updateChecksEnabled,
               UpdateCheckResult? updateResult,
+              UpdateOperationPhase updatePhase,
+              int updateDownloadedBytes,
+              int updateTotalBytes,
+              String? updateError,
+              String? downloadedUpdatePath,
               bool busy,
               String? error,
               String? notice,
@@ -137,36 +145,17 @@ class ShellScreen extends StatelessWidget {
               locale: controller.localePreference,
               updateChecksEnabled: controller.updateChecksEnabled,
               updateResult: controller.updateResult,
+              updatePhase: controller.updatePhase,
+              updateDownloadedBytes: controller.updateDownloadedBytes,
+              updateTotalBytes: controller.updateTotalBytes,
+              updateError: controller.updateError,
+              downloadedUpdatePath: controller.downloadedUpdatePath,
               busy: controller.busy,
               error: controller.lastError,
               notice: controller.lastNotice,
               profile: controller.activeProfile,
             ),
             builder: (context, _) => SettingsScreen(controller: controller),
-          ),
-          ControllerSelector<
-            ({
-              EngineSnapshot snapshot,
-              ConnectionPhase phase,
-              bool streamDegraded,
-              bool busy,
-              String? error,
-              String? notice,
-            })
-          >(
-            key: const ValueKey<String>('diagnostics-controller-selector'),
-            controller: controller,
-            active: (controller) =>
-                controller.section == AppSection.diagnostics,
-            selector: (controller) => (
-              snapshot: controller.snapshot,
-              phase: controller.snapshot.phase,
-              streamDegraded: controller.snapshotStreamDegraded,
-              busy: controller.busy,
-              error: controller.lastError,
-              notice: controller.lastNotice,
-            ),
-            builder: (context, _) => DiagnosticsScreen(controller: controller),
           ),
         ];
         final selected = section.index;
@@ -203,9 +192,21 @@ class ShellScreen extends StatelessWidget {
                               List<NavigationRailDestination>.generate(
                                 labels.length,
                                 (index) => NavigationRailDestination(
-                                  icon: Icon(_icons[index]),
-                                  selectedIcon: Icon(_icons[index]),
-                                  label: Text(labels[index]),
+                                  icon: Tooltip(
+                                    message: fullLabels[index],
+                                    excludeFromSemantics: true,
+                                    child: Icon(_icons[index]),
+                                  ),
+                                  selectedIcon: Tooltip(
+                                    message: fullLabels[index],
+                                    excludeFromSemantics: true,
+                                    child: Icon(_icons[index]),
+                                  ),
+                                  label: Tooltip(
+                                    message: fullLabels[index],
+                                    excludeFromSemantics: true,
+                                    child: Text(labels[index]),
+                                  ),
                                   padding: _destinationPadding,
                                 ),
                               ),
@@ -252,7 +253,7 @@ class ShellScreen extends StatelessWidget {
                                 icon: Icon(_icons[index]),
                                 selectedIcon: Icon(_icons[index]),
                                 label: labels[index],
-                                tooltip: labels[index],
+                                tooltip: fullLabels[index],
                               ),
                             ),
                           ),
@@ -338,6 +339,8 @@ class _ThemeCycleButton extends StatelessWidget {
       controller: controller,
       selector: (controller) => controller.themePreference,
       builder: (context, preference) {
+        final bool touchPlatform =
+            Theme.of(context).platform == TargetPlatform.android;
         final IconData icon = switch (preference) {
           ThemePreference.system => LucideIcons.sunMoon,
           ThemePreference.light => LucideIcons.sun,
@@ -351,11 +354,13 @@ class _ThemeCycleButton extends StatelessWidget {
         return IconButton(
           tooltip: '${strings.get('theme')} · $label',
           iconSize: 19,
-          visualDensity: VisualDensity.compact,
+          visualDensity: touchPlatform
+              ? VisualDensity.standard
+              : VisualDensity.compact,
           style: IconButton.styleFrom(
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             padding: const EdgeInsets.all(8),
-            minimumSize: const Size(36, 36),
+            minimumSize: Size.square(touchPlatform ? 48 : 36),
           ),
           onPressed: () => controller.setTheme(
             ThemePreference.values[(preference.index + 1) %

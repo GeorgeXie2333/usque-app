@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "engine_ipc.h"
+#include "maintenance_shutdown.h"
 #include "zero_trust_callback.h"
 #include "zero_trust_protocol.h"
 
@@ -293,6 +294,32 @@ void engineEventPipeReportsFatalValidationErrors() {
          "engineEventPipeReportsFatalValidationErrors.error");
 }
 
+void maintenanceShutdownMessagesAreClassified() {
+  using usque::ClassifyMaintenanceShutdownMessage;
+  using usque::MaintenanceShutdownAction;
+
+  Expect(ClassifyMaintenanceShutdownMessage(WM_QUERYENDSESSION, 0,
+                                             ENDSESSION_CLOSEAPP) ==
+             MaintenanceShutdownAction::kAllow,
+         "maintenanceShutdownMessagesAreClassified.query");
+  Expect(ClassifyMaintenanceShutdownMessage(WM_ENDSESSION, TRUE,
+                                             ENDSESSION_CLOSEAPP) ==
+             MaintenanceShutdownAction::kCommit,
+         "maintenanceShutdownMessagesAreClassified.commit");
+  Expect(ClassifyMaintenanceShutdownMessage(WM_ENDSESSION, FALSE,
+                                             ENDSESSION_CLOSEAPP) ==
+             MaintenanceShutdownAction::kNone,
+         "maintenanceShutdownMessagesAreClassified.cancelled");
+  Expect(ClassifyMaintenanceShutdownMessage(WM_QUERYENDSESSION, 0,
+                                             ENDSESSION_LOGOFF) ==
+             MaintenanceShutdownAction::kNone,
+         "maintenanceShutdownMessagesAreClassified.logoff");
+  Expect(ClassifyMaintenanceShutdownMessage(WM_CLOSE, 0,
+                                             ENDSESSION_CLOSEAPP) ==
+             MaintenanceShutdownAction::kNone,
+         "maintenanceShutdownMessagesAreClassified.close");
+}
+
 }  // namespace
 
 int main() {
@@ -305,10 +332,11 @@ int main() {
   enginePipeReadinessUsesAnOverallDeadline();
   engineEventPipeReadsFramesWithReadOnlyClientAccess();
   engineEventPipeReportsFatalValidationErrors();
+  maintenanceShutdownMessagesAreClassified();
   if (g_failures != 0) {
-    std::fprintf(stderr, "%d Zero Trust Windows tests failed\n", g_failures);
+    std::fprintf(stderr, "%d Windows runner tests failed\n", g_failures);
     return 1;
   }
-  std::printf("zero_trust_windows_test: ok\n");
+  std::printf("windows_runner_test: ok\n");
   return 0;
 }

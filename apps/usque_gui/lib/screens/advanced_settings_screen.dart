@@ -34,7 +34,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   late bool _killSwitch;
   late bool _allowLan;
 
-  bool get _zeroTrustEndpointManaged =>
+  bool get _zeroTrustEndpointIpsManaged =>
       widget.controller
           .identityStatus(widget.controller.activeProfile.id)
           .provider ==
@@ -120,9 +120,6 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                 SectionPanel(
                   icon: LucideIcons.cable,
                   title: strings.get('transport'),
-                  subtitle: _zeroTrustEndpointManaged
-                      ? strings.get('zero_trust_endpoint_managed')
-                      : null,
                   gap: 20,
                   children: <Widget>[
                     SegmentedButton<TransportPolicy>(
@@ -150,7 +147,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                       children: <Widget>[
                         TextFormField(
                           controller: _endpointV4,
-                          readOnly: _zeroTrustEndpointManaged,
+                          readOnly: _zeroTrustEndpointIpsManaged,
                           decoration: InputDecoration(
                             labelText: strings.get('endpoint_ipv4'),
                           ),
@@ -159,7 +156,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                         ),
                         TextFormField(
                           controller: _endpointV6,
-                          readOnly: _zeroTrustEndpointManaged,
+                          readOnly: _zeroTrustEndpointIpsManaged,
                           decoration: InputDecoration(
                             labelText: strings.get('endpoint_ipv6'),
                           ),
@@ -168,7 +165,6 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                         ),
                         TextFormField(
                           controller: _port,
-                          readOnly: _zeroTrustEndpointManaged,
                           keyboardType: TextInputType.number,
                           inputFormatters: <TextInputFormatter>[
                             FilteringTextInputFormatter.digitsOnly,
@@ -180,7 +176,6 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                         ),
                         TextFormField(
                           controller: _sni,
-                          readOnly: _zeroTrustEndpointManaged,
                           keyboardType: TextInputType.url,
                           decoration: InputDecoration(
                             labelText: strings.get('sni'),
@@ -352,21 +347,19 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
       return;
     }
     final profile = widget.controller.activeProfile;
-    final endpointManaged = _zeroTrustEndpointManaged;
+    final endpointIpsManaged = _zeroTrustEndpointIpsManaged;
     widget.controller.updateNetwork(
       profile.copyWith(
         transport: _transport,
         ipPolicy: _ipPolicy,
-        endpointIpv4: endpointManaged
+        endpointIpv4: endpointIpsManaged
             ? profile.endpointIpv4
             : _endpointV4.text.trim(),
-        endpointIpv6: endpointManaged
+        endpointIpv6: endpointIpsManaged
             ? profile.endpointIpv6
             : _endpointV6.text.trim(),
-        endpointPort: endpointManaged
-            ? profile.endpointPort
-            : int.parse(_port.text),
-        sni: endpointManaged ? profile.sni : _sni.text.trim(),
+        endpointPort: int.parse(_port.text),
+        sni: _sni.text.trim(),
         mtu: int.parse(_mtu.text),
         dnsIpv4: _dnsV4.text.trim(),
         dnsIpv6: _dnsV6.text.trim(),
@@ -410,12 +403,10 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     }
     final current = widget.controller.activeProfile;
     var reset = current.resetAdvancedDefaults();
-    if (_zeroTrustEndpointManaged) {
+    if (_zeroTrustEndpointIpsManaged) {
       reset = reset.copyWith(
         endpointIpv4: current.endpointIpv4,
         endpointIpv6: current.endpointIpv6,
-        endpointPort: current.endpointPort,
-        sni: current.sni,
       );
     }
     widget.controller.updateNetwork(reset);

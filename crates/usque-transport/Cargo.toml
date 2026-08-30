@@ -7,6 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = []
+fault-injection = []
+
 [dependencies]
 async-trait.workspace = true
 boring.workspace = true

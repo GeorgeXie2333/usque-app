@@ -389,13 +389,25 @@ impl WintunSession {
     }
 
     pub fn receive(&self) -> Result<Option<Vec<u8>>, WintunError> {
+        let mut packet = Vec::new();
+        if self.receive_into(&mut packet)? {
+            Ok(Some(packet))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Receives into a caller-owned buffer so the packet pump can reuse its
+    /// allocation. The buffer is unchanged when no packet is available or the
+    /// Wintun record fails validation.
+    pub fn receive_into(&self, output: &mut Vec<u8>) -> Result<bool, WintunError> {
         let mut size = 0_u32;
         // SAFETY: session is valid and size is writable.
         let packet = unsafe { (self.adapter.0.library.receive_packet)(self.handle, &mut size) };
         if packet.is_null() {
             let error = io::Error::last_os_error();
             return if error.raw_os_error() == Some(259) {
-                Ok(None)
+                Ok(false)
             } else {
                 Err(WintunError::Windows("WintunReceivePacket", error))
             };
@@ -409,12 +421,14 @@ impl WintunSession {
             return Err(WintunError::InvalidPacketSize(size));
         }
         // SAFETY: Wintun guarantees `size` readable bytes until release.
-        let output = unsafe { std::slice::from_raw_parts(packet, size as usize) }.to_vec();
+        let source = unsafe { std::slice::from_raw_parts(packet, size as usize) };
+        output.clear();
+        output.extend_from_slice(source);
         // SAFETY: packet belongs to this session and is released exactly once.
         unsafe {
             (self.adapter.0.library.release_receive_packet)(self.handle, packet);
         }
-        Ok(Some(output))
+        Ok(true)
     }
 
     pub fn send(&self, packet: &[u8]) -> Result<(), WintunError> {

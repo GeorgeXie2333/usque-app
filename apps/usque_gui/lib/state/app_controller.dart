@@ -8,9 +8,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/app_strings.dart';
 import '../models/app_models.dart';
 import '../services/engine_client.dart';
+import '../services/update_downloader.dart';
+import 'diagnostics_controller.dart';
 
 class AppController extends ChangeNotifier {
-  AppController(this._engine);
+  AppController(EngineClient engine, {UpdateDownloader? updateDownloader})
+    : _engine = engine,
+      _updateDownloader = updateDownloader ?? UpdateDownloader(engine),
+      diagnostics = DiagnosticsController(engine);
 
   static const int _profileSchemaVersion = 1;
   static const int _maximumProfilePayloadBytes = 1024 * 1024;
@@ -26,6 +31,8 @@ class AppController extends ChangeNotifier {
   ];
 
   final EngineClient _engine;
+  final UpdateDownloader _updateDownloader;
+  final DiagnosticsController diagnostics;
   SharedPreferences? _preferences;
   Timer? _snapshotTimer;
   Timer? _snapshotReconnectTimer;
@@ -34,7 +41,10 @@ class AppController extends ChangeNotifier {
   int _snapshotReconnectAttempt = 0;
   int _snapshotSubscriptionGeneration = 0;
   bool _snapshotStreamEstablished = false;
+  bool _startupUpdateCheckStarted = false;
   bool _disposed = false;
+  int _updateOperationGeneration = 0;
+  UpdateDownloadCancellation? _updateCancellation;
 
   bool initialized = false;
   bool onboardingComplete = false;
@@ -55,6 +65,11 @@ class AppController extends ChangeNotifier {
   bool snapshotStreamDegraded = false;
   bool _userDisconnectedThisSession = false;
   UpdateCheckResult? updateResult;
+  UpdateOperationPhase updatePhase = UpdateOperationPhase.idle;
+  int updateDownloadedBytes = 0;
+  int updateTotalBytes = 0;
+  String? updateError;
+  String? downloadedUpdatePath;
   GeoRulesList geoRules = const GeoRulesList();
   GeoRulesProgress? geoProgress;
   bool _geoOperationActive = false;
@@ -66,6 +81,18 @@ class AppController extends ChangeNotifier {
       <String, ProfileIdentityStatus>{};
 
   AppStrings get strings => AppStrings(localePreference);
+
+  double? get updateProgress => updateTotalBytes <= 0
+      ? null
+      : (updateDownloadedBytes / updateTotalBytes).clamp(0.0, 1.0).toDouble();
+
+  bool get updateOperationActive => switch (updatePhase) {
+    UpdateOperationPhase.checking ||
+    UpdateOperationPhase.downloading ||
+    UpdateOperationPhase.verifying ||
+    UpdateOperationPhase.installing => true,
+    _ => false,
+  };
 
   UsqueProfile sharedNetwork = UsqueProfile.defaultProfile();
 
@@ -89,10 +116,6 @@ class AppController extends ChangeNotifier {
       endpointIpv6: zeroTrust
           ? account.endpointIpv6
           : sharedNetwork.endpointIpv6,
-      endpointPort: zeroTrust
-          ? account.endpointPort
-          : sharedNetwork.endpointPort,
-      sni: zeroTrust ? account.sni : sharedNetwork.sni,
     );
   }
 
@@ -112,8 +135,6 @@ class AppController extends ChangeNotifier {
         ? source.copyWith(
             endpointIpv4: UsqueProfile.defaultEndpointIpv4,
             endpointIpv6: UsqueProfile.defaultEndpointIpv6,
-            endpointPort: UsqueProfile.defaultEndpointPort,
-            sni: UsqueProfile.defaultSni,
           )
         : source;
   }
@@ -163,8 +184,11 @@ class AppController extends ChangeNotifier {
     }
     initialized = true;
     _notifyListeners();
+    unawaited(diagnostics.restore(silent: true));
     unawaited(refreshSnapshot(silent: true));
-    if (updateChecksEnabled) {
+    unawaited(_updateDownloader.cleanupStale());
+    if (updateChecksEnabled && !_startupUpdateCheckStarted) {
+      _startupUpdateCheckStarted = true;
       unawaited(_checkForUpdates(manual: false, silent: true));
     }
     if (_shouldAutoConnectOnStart()) {
@@ -468,7 +492,145 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> checkForUpdates() async {
+    if (updateOperationActive) return;
     await _checkForUpdates(manual: true, silent: false);
+  }
+
+  Future<void> downloadUpdate() async {
+    final result = updateResult;
+    final package = result?.package;
+    final version = result?.version;
+    if (result == null ||
+        !result.available ||
+        package == null ||
+        version == null ||
+        updateOperationActive) {
+      return;
+    }
+    final generation = ++_updateOperationGeneration;
+    final cancellation = UpdateDownloadCancellation();
+    _updateCancellation = cancellation;
+    updatePhase = UpdateOperationPhase.downloading;
+    updateDownloadedBytes = 0;
+    updateTotalBytes = package.size;
+    updateError = null;
+    lastError = null;
+    _notifyListeners();
+    String? path;
+    try {
+      path = await _updateDownloader.download(
+        package,
+        cancellation: cancellation,
+        onProgress: (downloaded, total) {
+          if (_disposed || generation != _updateOperationGeneration) return;
+          updateDownloadedBytes = downloaded;
+          updateTotalBytes = total;
+          _notifyListeners();
+        },
+      );
+      if (_disposed || generation != _updateOperationGeneration) {
+        await _updateDownloader.discard(path);
+        return;
+      }
+      updatePhase = UpdateOperationPhase.verifying;
+      _notifyListeners();
+      await _engine.verifyUpdatePackage(
+        path: path,
+        version: version,
+        package: package,
+      );
+      if (_disposed || generation != _updateOperationGeneration) {
+        await _updateDownloader.discard(path);
+        return;
+      }
+      path = await _updateDownloader.publish(path, package);
+      downloadedUpdatePath = path;
+      updatePhase = UpdateOperationPhase.ready;
+      updateDownloadedBytes = package.size;
+      updateTotalBytes = package.size;
+      _notifyListeners();
+    } on UpdateDownloadCancelled {
+      if (!_disposed && generation == _updateOperationGeneration) {
+        updatePhase = UpdateOperationPhase.available;
+        updateDownloadedBytes = 0;
+        updateTotalBytes = package.size;
+        _notifyListeners();
+      }
+    } on Object catch (error) {
+      await _updateDownloader.discard(path);
+      if (!_disposed && generation == _updateOperationGeneration) {
+        updateError = error is EngineException
+            ? error.message
+            : error.toString();
+        updatePhase = UpdateOperationPhase.failed;
+        _notifyListeners();
+      }
+    } finally {
+      if (identical(_updateCancellation, cancellation)) {
+        _updateCancellation = null;
+      }
+    }
+  }
+
+  void cancelUpdateDownload() {
+    if (updatePhase != UpdateOperationPhase.downloading) return;
+    _updateCancellation?.cancel();
+  }
+
+  Future<void> installDownloadedUpdate() async {
+    final result = updateResult;
+    final package = result?.package;
+    final version = result?.version;
+    final path = downloadedUpdatePath;
+    if (result == null ||
+        !result.available ||
+        package == null ||
+        version == null ||
+        path == null ||
+        updatePhase != UpdateOperationPhase.ready) {
+      return;
+    }
+    updatePhase = UpdateOperationPhase.installing;
+    updateError = null;
+    _notifyListeners();
+    final success = await _run(() async {
+      await flushProfileWrites();
+      if (snapshot.phase != ConnectionPhase.disconnected) {
+        final disconnected = await _engine.disconnect();
+        if (disconnected.phase != ConnectionPhase.disconnected) {
+          throw const EngineException(
+            'UPDATE_DISCONNECT_FAILED',
+            'Usque could not disconnect safely before installing the update.',
+          );
+        }
+        snapshot = disconnected;
+        _notifyListeners();
+      }
+      await _engine.installUpdatePackage(
+        path: path,
+        version: version,
+        package: package,
+      );
+    }, affectsConnection: false);
+    if (!success && !_disposed) {
+      updateError = lastError;
+      await _updateDownloader.discard(path);
+      downloadedUpdatePath = null;
+      updateDownloadedBytes = 0;
+      updatePhase = UpdateOperationPhase.available;
+      _notifyListeners();
+    }
+  }
+
+  void noteUpdateInstallFinished({required bool success, String? message}) {
+    if (success) return;
+    downloadedUpdatePath = null;
+    updateDownloadedBytes = 0;
+    updatePhase = updateResult?.available == true
+        ? UpdateOperationPhase.available
+        : UpdateOperationPhase.idle;
+    updateError = message;
+    _notifyListeners();
   }
 
   Future<void> refreshGeoRules() async {
@@ -549,8 +711,9 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  Future<void> clearAllData() async {
+  Future<bool> clearAllData() async {
     await flushProfileWrites();
+    String? cleanupWarning;
     final success = await _run(() async {
       await _engine.clearAllData(confirmed: true);
       await _preferences?.clear();
@@ -564,34 +727,60 @@ class AppController extends ChangeNotifier {
       activeProfileId = UsqueProfile.defaultProfileId;
       profileIdentityStates = <String, ProfileIdentityState>{};
       profileIdentityStatuses = <String, ProfileIdentityStatus>{};
+      _updateCancellation?.cancel();
+      _updateOperationGeneration += 1;
+      try {
+        await _updateDownloader.discard(downloadedUpdatePath);
+      } on Object catch (error) {
+        cleanupWarning = error is EngineException
+            ? error.message
+            : error.toString();
+      }
       updateResult = null;
+      updatePhase = UpdateOperationPhase.idle;
+      updateDownloadedBytes = 0;
+      updateTotalBytes = 0;
+      updateError = null;
+      downloadedUpdatePath = null;
       perAppProxy = const PerAppProxySettings();
     }, affectsConnection: false);
     if (success) {
       lastNotice = strings.get('clear_all_data_complete');
+      lastError = cleanupWarning;
       _notifyListeners();
     }
+    return success;
   }
 
   Future<void> _checkForUpdates({
     required bool manual,
     required bool silent,
   }) async {
+    if (updateOperationActive) return;
+    updatePhase = UpdateOperationPhase.checking;
+    updateError = null;
+    _notifyListeners();
     if (silent) {
       try {
         final result = await _engine.checkForUpdates(manual: manual);
         if (_disposed) {
           return;
         }
-        updateResult = result;
+        await _applyUpdateResult(result);
         if (result.available) {
           lastNotice =
               '${strings.get('update_available')} ${result.version ?? ''}'
                   .trim();
-          _notifyListeners();
         }
+        _notifyListeners();
       } on Object {
         // Automatic checks are optional and must not affect tunnel state.
+        if (!_disposed && updatePhase == UpdateOperationPhase.checking) {
+          updatePhase = updateResult?.available == true
+              ? UpdateOperationPhase.available
+              : UpdateOperationPhase.idle;
+          _notifyListeners();
+        }
       }
       return;
     }
@@ -601,13 +790,42 @@ class AppController extends ChangeNotifier {
       checked = await _engine.checkForUpdates(manual: manual);
     }, affectsConnection: false);
     if (success && checked != null) {
-      updateResult = checked;
+      await _applyUpdateResult(checked!);
       lastNotice = checked!.available
           ? '${strings.get('update_available')} ${checked!.version ?? ''}'
                 .trim()
           : strings.get('already_latest');
       _notifyListeners();
+    } else if (!_disposed && updatePhase == UpdateOperationPhase.checking) {
+      updatePhase = updateResult?.available == true
+          ? UpdateOperationPhase.available
+          : UpdateOperationPhase.idle;
+      _notifyListeners();
     }
+  }
+
+  Future<void> _applyUpdateResult(UpdateCheckResult result) async {
+    final previousName = updateResult?.package?.name;
+    final nextName = result.package?.name;
+    final packageChanged = previousName != nextName;
+    if (packageChanged && downloadedUpdatePath != null) {
+      _updateOperationGeneration += 1;
+      _updateCancellation?.cancel();
+      await _updateDownloader.discard(downloadedUpdatePath);
+      downloadedUpdatePath = null;
+      updateDownloadedBytes = 0;
+      updateTotalBytes = 0;
+    }
+    updateResult = result;
+    if (!result.available) {
+      updatePhase = UpdateOperationPhase.idle;
+    } else if (downloadedUpdatePath != null && !packageChanged) {
+      updatePhase = UpdateOperationPhase.ready;
+    } else {
+      updatePhase = UpdateOperationPhase.available;
+      updateTotalBytes = result.package?.size ?? 0;
+    }
+    updateError = null;
   }
 
   Future<bool> _run(
@@ -872,7 +1090,7 @@ class AppController extends ChangeNotifier {
         ? updated
         : updated.copyWith(proxy: updated.proxy.copyWith(systemProxy: false));
     final zeroTrust =
-        identityStatus(activeProfileId).provider == IdentityProvider.zeroTrust;
+        identityStatus(updated.id).provider == IdentityProvider.zeroTrust;
     sharedNetwork = sharedNetwork.copyWith(
       frontends: normalized.frontends,
       transport: normalized.transport,
@@ -883,10 +1101,8 @@ class AppController extends ChangeNotifier {
       endpointIpv6: zeroTrust
           ? sharedNetwork.endpointIpv6
           : normalized.endpointIpv6,
-      endpointPort: zeroTrust
-          ? sharedNetwork.endpointPort
-          : normalized.endpointPort,
-      sni: zeroTrust ? sharedNetwork.sni : normalized.sni,
+      endpointPort: normalized.endpointPort,
+      sni: normalized.sni,
       mtu: normalized.mtu,
       dnsIpv4: normalized.dnsIpv4,
       dnsIpv6: normalized.dnsIpv6,
@@ -950,6 +1166,7 @@ class AppController extends ChangeNotifier {
           activeProfileId = catalog.activeProfileId;
           profileIdentityStates = catalog.identityStates;
           profileIdentityStatuses = catalog.identityStatuses;
+          _captureSharedNetwork();
         } on Object {
           // Keep the optimistic in-memory state when the authoritative store
           // cannot be reloaded; the original mutation error remains visible.
@@ -1022,6 +1239,10 @@ class AppController extends ChangeNotifier {
     _snapshotReconnectTimer = null;
     snapshotStreamDegraded = false;
     _stopPolling();
+    diagnostics.handleEngineEvent(event);
+    if (wasDegraded) {
+      unawaited(diagnostics.restore(silent: true));
+    }
     final handledGeoProgress = event.geoProgress != null && _geoOperationActive;
     if (handledGeoProgress) {
       final progress = event.geoProgress!;
@@ -1076,6 +1297,7 @@ class AppController extends ChangeNotifier {
     final established = _snapshotStreamEstablished;
     if (established) {
       snapshotStreamDegraded = true;
+      diagnostics.markEventStreamUnavailable();
     }
     _startPolling(force: true);
     if (_snapshotReconnectTimer == null) {
@@ -1100,12 +1322,16 @@ class AppController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _updateOperationGeneration += 1;
+    _updateCancellation?.cancel();
+    _updateCancellation = null;
     _stopPolling();
     _snapshotReconnectTimer?.cancel();
     _snapshotReconnectTimer = null;
     _snapshotSubscriptionGeneration += 1;
     unawaited(_snapshotSubscription?.cancel());
     _snapshotSubscription = null;
+    diagnostics.dispose();
     unawaited(_profileWriteTail.whenComplete(_engine.dispose));
     super.dispose();
   }

@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::path::{Path, PathBuf};
@@ -20,10 +21,10 @@ use usque_transport::{
 };
 
 use super::{
-    AndroidEndpointPinRefresher, AndroidSocketProtector, MasqueTlsIdentity, NativeSnapshot,
-    Profile, RECONFIGURE_NEED_ATTACH, RECONFIGURE_NEED_COLD, RECONFIGURE_NOT_RUNNING,
-    RECONFIGURE_OK, START_ALREADY_RUNNING, START_INVALID_PROFILE, START_OK, START_PLATFORM_FAILURE,
-    START_TRANSPORT_FAILURE, START_TUN_FAILURE, SocketProtector,
+    AndroidEndpointPinRefresher, AndroidSocketProtector, MasqueTlsIdentity, NativeFailure,
+    NativeSnapshot, Profile, RECONFIGURE_NEED_ATTACH, RECONFIGURE_NEED_COLD,
+    RECONFIGURE_NOT_RUNNING, RECONFIGURE_OK, START_ALREADY_RUNNING, START_INVALID_PROFILE,
+    START_OK, START_PLATFORM_FAILURE, START_TRANSPORT_FAILURE, START_TUN_FAILURE, SocketProtector,
 };
 
 static ENGINE: OnceLock<Mutex<Option<EngineHandle>>> = OnceLock::new();
@@ -438,9 +439,7 @@ async fn run(
         }
     };
     update_health(&status, tunnel.health());
-    if let Ok(mut snapshot) = status.lock() {
-        snapshot.active_listeners = tunnel.listeners().iter().map(ToString::to_string).collect();
-    }
+    update_frontends(&status, &tunnel);
     let _ = started.send(START_OK);
     spawn_exit_probe(&status, &tunnel, &profile, tun.is_some());
 
@@ -489,6 +488,27 @@ fn spawn_exit_probe(
     }
 }
 
+enum SessionDataEvent<TunRead, TunnelReceive> {
+    TunRead(TunRead),
+    TunnelReceive(TunnelReceive),
+    Tick,
+}
+
+async fn next_session_data<TunRead, TunnelReceive>(
+    tun_read: impl Future<Output = TunRead>,
+    tunnel_receive: impl Future<Output = TunnelReceive>,
+    tick: impl Future,
+) -> SessionDataEvent<TunRead, TunnelReceive> {
+    // Tokio randomizes the starting branch when `biased` is absent. Keep this
+    // fairness local to the data plane; the outer loop still gives cancellation
+    // and runtime commands deterministic priority.
+    tokio::select! {
+        read = tun_read => SessionDataEvent::TunRead(read),
+        received = tunnel_receive => SessionDataEvent::TunnelReceive(received),
+        _ = tick => SessionDataEvent::Tick,
+    }
+}
+
 #[expect(
     clippy::too_many_arguments,
     reason = "session loop owns optional TUN I/O, MASQUE, profile, cancellation, status, and reconfigure commands"
@@ -524,73 +544,76 @@ async fn run_session(
                 )
                 .await;
             }
-            read = async {
-                match tun.as_ref() {
-                    Some(tun) => Some(read_packet(tun, &mut packet).await),
-                    None => {
-                        std::future::pending::<()>().await;
-                        None
-                    }
-                }
-            } => {
-                let Some(read) = read else { continue; };
-                let Some(io) = tun_io.as_ref() else { continue; };
-                let length = match read {
-                    Ok(0) => break,
-                    Ok(length) => length,
-                    Err(error) => {
-                        set_error(&status, format!("read Android TUN: {error}"));
-                        break;
-                    }
-                };
-                if let Err(error) = io.send_packet(&packet[..length]).await {
-                    set_error(&status, error.to_string());
-                    break;
-                }
-            }
-            received = async {
-                match tun_io.as_mut() {
-                    Some(io) => Some(io.receive_packet().await),
-                    None => {
-                        std::future::pending::<()>().await;
-                        None
-                    }
-                }
-            } => {
-                let Some(received) = received else { continue; };
-                let Some(tun) = tun.as_ref() else { continue; };
-                match received {
-                    Ok(packet) => {
-                        if let Err(error) = write_packet(tun, &packet).await {
-                            set_error(&status, format!("write Android TUN: {error}"));
-                            break;
+            event = next_session_data(
+                async {
+                    match tun.as_ref() {
+                        Some(tun) => Some(read_packet(tun, &mut packet).await),
+                        None => {
+                            std::future::pending::<()>().await;
+                            None
                         }
                     }
-                    Err(error) => {
+                },
+                async {
+                    match tun_io.as_mut() {
+                        Some(io) => Some(io.receive_packet().await),
+                        None => {
+                            std::future::pending::<()>().await;
+                            None
+                        }
+                    }
+                },
+                ticker.tick(),
+            ) => match event {
+                SessionDataEvent::TunRead(read) => {
+                    let Some(read) = read else { continue; };
+                    let Some(io) = tun_io.as_ref() else { continue; };
+                    let length = match read {
+                        Ok(0) => break,
+                        Ok(length) => length,
+                        Err(error) => {
+                            set_error(&status, format!("read Android TUN: {error}"));
+                            break;
+                        }
+                    };
+                    if let Err(error) = io.send_packet(&packet[..length]).await {
                         set_error(&status, error.to_string());
                         break;
                     }
                 }
-            }
-            _ = ticker.tick() => {
-                update_health(&status, tunnel.health());
-                if let Ok(mut snapshot) = status.lock() {
-                    snapshot.active_listeners =
-                        tunnel.listeners().iter().map(ToString::to_string).collect();
+                SessionDataEvent::TunnelReceive(received) => {
+                    let Some(received) = received else { continue; };
+                    let Some(tun) = tun.as_ref() else { continue; };
+                    match received {
+                        Ok(packet) => {
+                            if let Err(error) = write_packet(tun, &packet).await {
+                                set_error(&status, format!("write Android TUN: {error}"));
+                                break;
+                            }
+                        }
+                        Err(error) => {
+                            set_error(&status, error.to_string());
+                            break;
+                        }
+                    }
                 }
-                let now = Instant::now();
-                let current = tunnel.statistics();
-                let seconds = now.duration_since(last_sample).as_secs_f64().max(0.001);
-                if let Ok(mut snapshot) = status.lock() {
-                    snapshot.upload_bytes_per_second =
-                        rate(current.bytes_sent, last_traffic.bytes_sent, seconds);
-                    snapshot.download_bytes_per_second =
-                        rate(current.bytes_received, last_traffic.bytes_received, seconds);
-                    snapshot.uploaded_bytes = current.bytes_sent;
-                    snapshot.downloaded_bytes = current.bytes_received;
+                SessionDataEvent::Tick => {
+                    update_health(&status, tunnel.health());
+                    update_frontends(&status, &tunnel);
+                    let now = Instant::now();
+                    let current = tunnel.statistics();
+                    let seconds = now.duration_since(last_sample).as_secs_f64().max(0.001);
+                    if let Ok(mut snapshot) = status.lock() {
+                        snapshot.upload_bytes_per_second =
+                            rate(current.bytes_sent, last_traffic.bytes_sent, seconds);
+                        snapshot.download_bytes_per_second =
+                            rate(current.bytes_received, last_traffic.bytes_received, seconds);
+                        snapshot.uploaded_bytes = current.bytes_sent;
+                        snapshot.downloaded_bytes = current.bytes_received;
+                    }
+                    last_sample = now;
+                    last_traffic = current;
                 }
-                last_sample = now;
-                last_traffic = current;
             }
         }
     }
@@ -628,10 +651,7 @@ async fn handle_runtime_command(
                 ReconfigureClass::HotFrontends => match tunnel.reconfigure_frontends(&next).await {
                     Ok(()) => {
                         *profile = next;
-                        if let Ok(mut snapshot) = status.lock() {
-                            snapshot.active_listeners =
-                                tunnel.listeners().iter().map(ToString::to_string).collect();
-                        }
+                        update_frontends(status, tunnel);
                         RECONFIGURE_OK
                     }
                     Err(error) => {
@@ -713,10 +733,7 @@ async fn handle_runtime_command(
                 return;
             }
             *profile = next;
-            if let Ok(mut snapshot) = status.lock() {
-                snapshot.active_listeners =
-                    tunnel.listeners().iter().map(ToString::to_string).collect();
-            }
+            update_frontends(status, tunnel);
         }
         RuntimeCommand::DetachTun { reply, cancelled } => {
             if super::jni_command_abandoned(&cancelled) {
@@ -780,6 +797,8 @@ fn update_health(status: &Arc<Mutex<NativeSnapshot>>, health: RuntimeHealth) {
     snapshot.reconnect_count = health.reconnect_count();
     match health {
         RuntimeHealth::Connected { path, .. } => {
+            snapshot.tunnel_ipv4_available = path.ipv4_available;
+            snapshot.tunnel_ipv6_available = path.ipv6_available;
             let dual_stack = path.ipv4_available && path.ipv6_available;
             snapshot.phase = if dual_stack { "connected" } else { "degraded" }.to_owned();
             snapshot.warning = (!dual_stack).then(|| {
@@ -791,17 +810,42 @@ fn update_health(status: &Arc<Mutex<NativeSnapshot>>, health: RuntimeHealth) {
                 .to_owned()
             });
             snapshot.error_code = None;
+            snapshot.failure = None;
         }
-        RuntimeHealth::Reconnecting { reason, .. } => {
+        RuntimeHealth::Reconnecting {
+            reason, failure, ..
+        } => {
+            snapshot.tunnel_ipv4_available = false;
+            snapshot.tunnel_ipv6_available = false;
             snapshot.phase = "reconnecting".to_owned();
             snapshot.warning = Some(reason);
-            snapshot.error_code = None;
+            snapshot.error_code = Some(failure.code.as_str().to_owned());
+            snapshot.failure = Some(NativeFailure::from_failure(&failure));
         }
-        RuntimeHealth::Failed { message, .. } => {
+        RuntimeHealth::Failed {
+            message, failure, ..
+        } => {
+            snapshot.tunnel_ipv4_available = false;
+            snapshot.tunnel_ipv6_available = false;
             snapshot.phase = "error".to_owned();
             snapshot.warning = Some(message);
-            snapshot.error_code = Some("MASQUE_CONNECT_FAILED".to_owned());
+            snapshot.error_code = Some(failure.code.as_str().to_owned());
+            snapshot.failure = Some(NativeFailure::from_failure(&failure));
         }
+    }
+}
+
+fn update_frontends(status: &Arc<Mutex<NativeSnapshot>>, tunnel: &MasqueRuntime) {
+    let Ok(mut snapshot) = status.lock() else {
+        return;
+    };
+    snapshot.active_listeners = tunnel.listeners().iter().map(ToString::to_string).collect();
+    snapshot.active_frontends.clear();
+    if !tunnel.socks5_listeners().is_empty() {
+        snapshot.active_frontends.push("socks5".to_owned());
+    }
+    if !tunnel.http_listeners().is_empty() {
+        snapshot.active_frontends.push("http".to_owned());
     }
 }
 
@@ -811,24 +855,13 @@ fn set_error(status: &Arc<Mutex<NativeSnapshot>>, message: String) {
 
 fn set_transport_error(status: &Arc<Mutex<NativeSnapshot>>, error: &TransportError) {
     let message = error.to_string();
-    let code = match error {
-        TransportError::SocksListener { .. } | TransportError::HttpProxyListener { .. } => {
-            "PROXY_LISTEN_FAILED"
-        }
-        TransportError::SocketProtection(_) => "ANDROID_SOCKET_ROUTE_FAILED",
-        TransportError::EndpointFamilyUnavailable(_) => "ENDPOINT_FAMILY_UNAVAILABLE",
-        TransportError::EndpointTimeout(_) => "MASQUE_ENDPOINT_TIMEOUT",
-        TransportError::AllEndpointsFailed(_) => "MASQUE_ALL_ENDPOINTS_FAILED",
-        TransportError::Dns(_) => "ANDROID_SPLIT_DNS_FAILED",
-        _ if message.contains("Android network")
-            || message.contains("endpoint socket")
-            || message.contains("VpnService.protect") =>
-        {
-            "ANDROID_SOCKET_ROUTE_FAILED"
-        }
-        _ => "MASQUE_CONNECT_FAILED",
-    };
-    set_error_with_code(status, code, message);
+    let failure = error.failure(None, None);
+    if let Ok(mut snapshot) = status.lock() {
+        snapshot.phase = "error".to_owned();
+        snapshot.warning = Some(message.chars().take(512).collect());
+        snapshot.error_code = Some(failure.code.as_str().to_owned());
+        snapshot.failure = Some(NativeFailure::from_failure(&failure));
+    }
 }
 
 fn set_error_with_code(status: &Arc<Mutex<NativeSnapshot>>, code: &str, message: String) {
@@ -836,6 +869,7 @@ fn set_error_with_code(status: &Arc<Mutex<NativeSnapshot>>, code: &str, message:
         snapshot.phase = "error".to_owned();
         snapshot.warning = Some(message.chars().take(512).collect());
         snapshot.error_code = Some(code.to_owned());
+        snapshot.failure = None;
     }
 }
 

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:usque/core/connection_presentation.dart';
 import 'package:usque/core/usque_theme.dart';
@@ -62,6 +64,18 @@ double _ringProgress(WidgetTester tester) {
     }
   }
   fail('ConnectionRing has no progress painter');
+}
+
+double _contrastRatio(Color foreground, Color background) {
+  final double foregroundLuminance = foreground.computeLuminance();
+  final double backgroundLuminance = background.computeLuminance();
+  final double lighter = foregroundLuminance > backgroundLuminance
+      ? foregroundLuminance
+      : backgroundLuminance;
+  final double darker = foregroundLuminance > backgroundLuminance
+      ? backgroundLuminance
+      : foregroundLuminance;
+  return (lighter + 0.05) / (darker + 0.05);
 }
 
 Widget _host(Widget child) {
@@ -348,5 +362,136 @@ void main() {
       expect(firstGap, secondGap);
       expect(firstGap, greaterThan(0));
     });
+  });
+
+  group('Panel', () {
+    testWidgets('interactive panels support material and keyboard activation', (
+      tester,
+    ) async {
+      var taps = 0;
+      await tester.pumpWidget(
+        _host(
+          Center(
+            child: Panel(
+              onTap: () => taps += 1,
+              accent: Colors.orange,
+              child: const Text('Open panel'),
+            ),
+          ),
+        ),
+      );
+
+      final panel = find.byType(Panel);
+      expect(
+        find.descendant(of: panel, matching: find.byType(InkWell)),
+        findsOneWidget,
+      );
+      final semantics = tester.widget<Semantics>(
+        find.descendant(of: panel, matching: find.byType(Semantics)).first,
+      );
+      expect(semantics.properties.button, isTrue);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      final material = tester.widget<Material>(
+        find.descendant(of: panel, matching: find.byType(Material)).first,
+      );
+      expect((material.shape! as RoundedRectangleBorder).side.width, 2);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+      expect(taps, 1);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pump();
+      expect(taps, 2);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.select);
+      await tester.pump();
+      expect(taps, 3);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.gameButtonA);
+      await tester.pump();
+      expect(taps, 4);
+
+      final semanticButton = find.semantics.byPredicate((node) {
+        final data = node.getSemanticsData();
+        return data.label.contains('Open panel') &&
+            data.hasAction(SemanticsAction.tap);
+      }, describeMatch: (_) => 'tappable Open panel semantics node');
+      expect(semanticButton, findsOneWidget);
+      tester.semantics.tap(semanticButton);
+      await tester.pump();
+      expect(taps, 5);
+
+      final panelRect = tester.getRect(panel);
+      await tester.tapAt(Offset(panelRect.left + 1, panelRect.center.dy));
+      await tester.pump();
+      expect(taps, 6);
+    });
+  });
+
+  group('StatusPill', () {
+    final themes = <String, ThemeData>{
+      'light': UsqueTheme.light(),
+      'dark': UsqueTheme.dark(),
+    };
+    for (final themeEntry in themes.entries) {
+      testWidgets('${themeEntry.key} labels meet WCAG AA contrast', (
+        tester,
+      ) async {
+        for (final tone in StatusTone.values) {
+          final label = tone.name;
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: themeEntry.value,
+              home: Scaffold(
+                body: Center(
+                  child: StatusPill(label: label, tone: tone),
+                ),
+              ),
+            ),
+          );
+
+          final text = tester.widget<Text>(find.text(label));
+          final container = tester.widget<AnimatedContainer>(
+            find
+                .ancestor(
+                  of: find.text(label),
+                  matching: find.byType(AnimatedContainer),
+                )
+                .first,
+          );
+          final decoration = container.decoration! as BoxDecoration;
+          final background = Color.alphaBlend(
+            decoration.color!,
+            themeEntry.value.colorScheme.surface,
+          );
+          expect(
+            _contrastRatio(text.style!.color!, background),
+            greaterThanOrEqualTo(4.5),
+            reason: '${themeEntry.key} ${tone.name}',
+          );
+
+          final indicator = tester.widget<AnimatedContainer>(
+            find.descendant(
+              of: find.byType(StatusPill),
+              matching: find.byWidgetPredicate(
+                (widget) =>
+                    widget is AnimatedContainer &&
+                    widget.constraints?.isTight == true &&
+                    widget.constraints?.biggest == const Size.square(7),
+              ),
+            ),
+          );
+          final indicatorDecoration = indicator.decoration! as BoxDecoration;
+          expect(
+            _contrastRatio(indicatorDecoration.color!, background),
+            greaterThanOrEqualTo(3),
+            reason: '${themeEntry.key} ${tone.name} indicator',
+          );
+        }
+      });
+    }
   });
 }

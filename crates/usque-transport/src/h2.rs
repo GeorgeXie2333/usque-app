@@ -13,7 +13,9 @@ use boring::ssl::{
     SslAlert, SslConnector, SslContextBuilder, SslMethod, SslVerifyError, SslVerifyMode,
 };
 use boring::x509::{X509, X509NameBuilder};
-use bytes::{Buf, Bytes, BytesMut};
+#[cfg(test)]
+use bytes::Buf;
+use bytes::{Bytes, BytesMut};
 use h2::{RecvStream, SendStream};
 use http::{Method, Request, StatusCode, Version};
 use p256::SecretKey;
@@ -24,12 +26,15 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
 use tokio_util::task::AbortOnDropHandle;
-use usque_core::EndpointPin;
+use usque_core::{
+    AddressFamily, EndpointPin, Transport, TransportFailure, TransportFailureCode, TransportStage,
+};
 use usque_protocol::{ConnectIpCapsule, MAX_CAPSULE_PAYLOAD, PeerNetworkState};
 use zeroize::Zeroizing;
 
 use crate::connect_ip_control::ConnectIpControlPlane;
 use crate::socket::{SocketProtector, noop_socket_protector, socket_handle};
+use crate::telemetry::{ConnectionAttemptTelemetry, ConnectionEventType};
 
 const CONNECT_URI: &str = "https://cloudflareaccess.com/";
 const H2_ALPN: &[u8] = b"\x02h2";
@@ -37,6 +42,7 @@ const DATAGRAM_CAPSULE_TYPE: u64 = 0;
 const MAX_CAPSULE_BYTES: usize = 65_535;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 const H2_OUTGOING_CAPACITY: usize = 1_024;
+const PACKET_SEND_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Secret and enrolled identity material required by a MASQUE TLS session.
 ///
@@ -117,16 +123,32 @@ impl H2SendHalf {
     /// request stream. ADDRESS_REQUEST rejections use this path so the receive
     /// half never touches `SendStream`.
     pub async fn send_capsule(&mut self, capsule: Bytes) -> Result<(), TransportError> {
+        match timeout(PACKET_SEND_TIMEOUT, self.send_capsule_inner(capsule)).await {
+            Ok(result) => result,
+            Err(_) => Err(TransportError::SendTimeout),
+        }
+    }
+
+    /// Sends an owned packet under the transport supervisor's outer deadline.
+    pub(crate) async fn send_owned_packet(&mut self, packet: Bytes) -> Result<(), TransportError> {
+        validate_ip_packet(&packet)?;
+        self.send_capsule_inner(encode_datagram_capsule(&packet)?)
+            .await
+    }
+
+    async fn send_capsule_inner(&mut self, capsule: Bytes) -> Result<(), TransportError> {
         let (completion_tx, completion_rx) = oneshot::channel();
         self.sender
             .as_ref()
             .ok_or(TransportError::TunnelClosed)?
-            .send(H2Outgoing {
+            .try_send(H2Outgoing {
                 bytes: capsule,
                 completion: completion_tx,
             })
-            .await
-            .map_err(|_| TransportError::TunnelClosed)?;
+            .map_err(|error| match error {
+                mpsc::error::TrySendError::Full(_) => TransportError::SendQueueFull,
+                mpsc::error::TrySendError::Closed(_) => TransportError::TunnelClosed,
+            })?;
         match completion_rx.await {
             Ok(result) => result,
             Err(_) => Err(TransportError::TunnelClosed),
@@ -171,12 +193,9 @@ impl H2ReceiveHalf {
 
     fn drain_ready_capsules(&mut self) -> Result<(), TransportError> {
         loop {
-            let mut cursor = self.control.buffer.clone().freeze();
-            let Some(capsule) = ConnectIpCapsule::decode_if_complete(&mut cursor)? else {
+            let Some(capsule) = take_complete_capsule(&mut self.control.buffer)? else {
                 return Ok(());
             };
-            let consumed = self.control.buffer.len() - cursor.len();
-            self.control.buffer.advance(consumed);
             if let ConnectIpCapsule::Unknown {
                 capsule_type: DATAGRAM_CAPSULE_TYPE,
                 payload,
@@ -240,7 +259,14 @@ pub async fn connect_h2(
     sni: &str,
     identity: &MasqueTlsIdentity,
 ) -> Result<H2Tunnel, TransportError> {
-    connect_h2_with_protector(endpoint, sni, identity, noop_socket_protector().as_ref()).await
+    connect_h2_with_protector(
+        endpoint,
+        sni,
+        identity,
+        noop_socket_protector().as_ref(),
+        None,
+    )
+    .await
 }
 
 pub(crate) async fn connect_h2_with_protector(
@@ -248,6 +274,7 @@ pub(crate) async fn connect_h2_with_protector(
     sni: &str,
     identity: &MasqueTlsIdentity,
     protector: &dyn SocketProtector,
+    attempt: Option<&ConnectionAttemptTelemetry>,
 ) -> Result<H2Tunnel, TransportError> {
     let socket = if endpoint.is_ipv4() {
         TcpSocket::new_v4()
@@ -261,6 +288,12 @@ pub(crate) async fn connect_h2_with_protector(
         .await
         .map_err(|_| TransportError::EndpointTimeout(endpoint))??;
     tcp.set_nodelay(true)?;
+    if let Some(attempt) = attempt {
+        attempt.record(
+            ConnectionEventType::SocketConnected,
+            TransportStage::SocketConnect,
+        );
+    }
 
     let (connector, pin_state) = tls_connector(identity)?;
     let config = connector
@@ -288,10 +321,19 @@ pub(crate) async fn connect_h2_with_protector(
     {
         return Err(TransportError::AlpnMismatch);
     }
+    if let Some(attempt) = attempt {
+        attempt.record(ConnectionEventType::TlsReady, TransportStage::TlsHandshake);
+    }
 
     let (mut sender, connection) = h2::client::handshake(tls).await?;
     let task = tokio::spawn(connection);
     sender = sender.ready().await?;
+    if let Some(attempt) = attempt {
+        attempt.record(
+            ConnectionEventType::PeerSettingsReceived,
+            TransportStage::PeerSettings,
+        );
+    }
 
     let request = connect_request()?;
     let (response, stream) = sender.send_request(request, false)?;
@@ -300,6 +342,12 @@ pub(crate) async fn connect_h2_with_protector(
         .map_err(|_| TransportError::ConnectTimeout)??;
     if response.status() != StatusCode::OK {
         return Err(TransportError::ConnectRejected(response.status()));
+    }
+    if let Some(attempt) = attempt {
+        attempt.record(
+            ConnectionEventType::MasqueAccepted,
+            TransportStage::MasqueConnect,
+        );
     }
     let receive = response.into_body();
     Ok(h2_tunnel_from_streams(stream, receive, task))
@@ -483,6 +531,37 @@ fn self_signed_certificate(private_key: &PKey<Private>) -> Result<X509, ErrorSta
     Ok(certificate.build())
 }
 
+fn take_complete_capsule(
+    buffer: &mut BytesMut,
+) -> Result<Option<ConnectIpCapsule>, TransportError> {
+    let Some((_, type_length)) = decode_varint(buffer)? else {
+        return Ok(None);
+    };
+    let Some((payload_length, length_length)) = decode_varint(&buffer[type_length..])? else {
+        return Ok(None);
+    };
+    let payload_length =
+        usize::try_from(payload_length).map_err(|_| TransportError::CapsuleTooLarge)?;
+    if payload_length > MAX_CAPSULE_PAYLOAD {
+        return Err(TransportError::CapsuleTooLarge);
+    }
+    let frame_length = type_length
+        .checked_add(length_length)
+        .and_then(|header_length| header_length.checked_add(payload_length))
+        .ok_or(TransportError::CapsuleTooLarge)?;
+    if buffer.len() < frame_length {
+        return Ok(None);
+    }
+
+    // A complete malformed capsule is terminal for this H2 tunnel. Splitting
+    // only after framing is complete preserves fragmented-input semantics while
+    // allowing successful DATAGRAM payloads to remain zero-copy `Bytes` views.
+    let mut frame = buffer.split_to(frame_length).freeze();
+    let capsule = ConnectIpCapsule::decode(&mut frame)?;
+    debug_assert!(frame.is_empty());
+    Ok(Some(capsule))
+}
+
 #[cfg(test)]
 fn decode_capsule(buffer: &[u8]) -> Result<Option<(u64, Bytes, usize)>, TransportError> {
     let Some((capsule_type, type_length)) = decode_varint(buffer)? else {
@@ -510,7 +589,6 @@ fn decode_capsule(buffer: &[u8]) -> Result<Option<(u64, Bytes, usize)>, Transpor
     )))
 }
 
-#[cfg(test)]
 fn decode_varint(buffer: &[u8]) -> Result<Option<(u64, usize)>, TransportError> {
     let Some(first) = buffer.first().copied() else {
         return Ok(None);
@@ -639,6 +717,11 @@ pub enum TransportError {
     UnsupportedOperatingMode,
     #[error("all configured MASQUE endpoints failed: {0}")]
     AllEndpointsFailed(String),
+    #[error("both HTTP/3 and HTTP/2 connection attempts failed")]
+    AllTransportsFailed {
+        h3: Box<TransportFailure>,
+        h2: Box<TransportFailure>,
+    },
     #[error("the userspace network stack failed: {0}")]
     Netstack(String),
     #[error("SOCKS5 listener {address} failed: {source}")]
@@ -659,6 +742,10 @@ pub enum TransportError {
     Dns(String),
     #[error("the CONNECT-IP tunnel closed")]
     TunnelClosed,
+    #[error("the bounded tunnel send queue is full")]
+    SendQueueFull,
+    #[error("the tunnel packet send operation timed out")]
+    SendTimeout,
     #[error("the HTTP/2 driver stopped: {0}")]
     Driver(String),
     #[error("a received HTTP capsule exceeded the safety limit")]
@@ -677,6 +764,105 @@ pub enum TransportError {
     Http2(#[from] h2::Error),
     #[error("the CONNECT-IP request was invalid: {0}")]
     Http(#[from] http::Error),
+}
+
+impl TransportError {
+    /// Converts internal transport errors to the stable, export-safe failure
+    /// contract used for retry/fallback decisions and diagnostics.
+    pub fn failure(
+        &self,
+        transport: Option<Transport>,
+        family: Option<AddressFamily>,
+    ) -> TransportFailure {
+        use TransportFailureCode as Code;
+        use TransportStage as Stage;
+
+        let (code, stage) = match self {
+            Self::InvalidIdentity | Self::InvalidPrivateKey | Self::InvalidEndpointPin => {
+                (Code::IdentityInvalid, Stage::TunnelStartup)
+            }
+            Self::EndpointTimeout(_) => match transport {
+                Some(Transport::Http3) => (Code::H3HandshakeTimeout, Stage::QuicHandshake),
+                _ => (Code::H2TcpConnectFailed, Stage::SocketConnect),
+            },
+            Self::EndpointFamilyUnavailable(AddressFamily::Ipv4) => {
+                (Code::PhysicalIpv4Unavailable, Stage::EndpointResolution)
+            }
+            Self::EndpointFamilyUnavailable(AddressFamily::Ipv6) => {
+                (Code::PhysicalIpv6Unavailable, Stage::EndpointResolution)
+            }
+            Self::UnderlyingNetworkChanged => (Code::PhysicalNetworkChanged, Stage::SocketConnect),
+            Self::EndpointPinMismatch | Self::EndpointPinRefresh(_) => {
+                (Code::EndpointPinMismatch, Stage::TlsHandshake)
+            }
+            Self::EndpointAssignmentChanged => {
+                (Code::AddressAssignmentInvalid, Stage::AddressAssignment)
+            }
+            Self::TlsHandshake(_) | Self::AlpnMismatch | Self::Tls(_) => match transport {
+                Some(Transport::Http3) => (Code::H3ProtocolError, Stage::QuicHandshake),
+                _ => (Code::H2TlsFailed, Stage::TlsHandshake),
+            },
+            Self::SocketProtection(_) => (Code::SocketProtectionFailed, Stage::SocketProtection),
+            Self::ConnectTimeout => match transport {
+                Some(Transport::Http3) => (Code::H3HandshakeTimeout, Stage::MasqueConnect),
+                _ => (Code::H2ConnectRejected, Stage::MasqueConnect),
+            },
+            Self::ConnectRejected(status) if matches!(status.as_u16(), 401 | 403) => {
+                (Code::AuthenticationFailed, Stage::MasqueConnect)
+            }
+            Self::ConnectRejected(_) => (Code::H2ConnectRejected, Stage::MasqueConnect),
+            Self::Http3(_) | Self::Http3ProtocolViolation(_) => {
+                (Code::H3ProtocolError, Stage::QuicHandshake)
+            }
+            Self::Http3ConnectRejected(401 | 403) => {
+                (Code::AuthenticationFailed, Stage::MasqueConnect)
+            }
+            Self::Http3ConnectRejected(_) => (Code::H3ProtocolError, Stage::MasqueConnect),
+            Self::Http3DatagramUnavailable => (Code::H3DatagramUnavailable, Stage::PeerSettings),
+            Self::Http3DatagramTooLarge { .. }
+            | Self::Ipv6MinimumMtuUnavailable(_)
+            | Self::MalformedIpPacket => (Code::PacketSendFailed, Stage::PacketSend),
+            Self::UnsupportedOperatingMode => (Code::ConfigurationInvalid, Stage::TunnelStartup),
+            Self::AllEndpointsFailed(_) => match transport {
+                Some(Transport::Http3) => (Code::H3UdpUnreachable, Stage::SocketConnect),
+                _ => (Code::H2TcpConnectFailed, Stage::SocketConnect),
+            },
+            Self::AllTransportsFailed { .. } => (Code::AllTransportsFailed, Stage::TunnelStartup),
+            Self::Netstack(_) => (Code::Internal, Stage::TunnelStartup),
+            Self::SocksListener { .. } | Self::HttpProxyListener { .. } => {
+                (Code::ProxyPortInUse, Stage::TunnelStartup)
+            }
+            Self::Socks5(_) | Self::HttpProxy(_) => (Code::Internal, Stage::TunnelStartup),
+            Self::Dns(_) => (Code::PhysicalDnsUnavailable, Stage::EndpointResolution),
+            Self::TunnelClosed => match transport {
+                Some(Transport::Http3) => (Code::H3ConnectionClosed, Stage::PacketReceive),
+                _ => (Code::H2StreamClosed, Stage::PacketReceive),
+            },
+            Self::SendQueueFull => (Code::SendQueueFull, Stage::PacketSend),
+            Self::SendTimeout => (Code::PacketSendTimeout, Stage::PacketSend),
+            Self::Driver(_) | Self::Http2(_) => (Code::H2StreamClosed, Stage::PacketReceive),
+            Self::CapsuleTooLarge | Self::InvalidVarint | Self::Protocol(_) | Self::Http(_) => {
+                (Code::ConnectIpRejected, Stage::PeerSettings)
+            }
+            Self::Io(_) => match transport {
+                Some(Transport::Http3) => (Code::H3UdpUnreachable, Stage::SocketConnect),
+                _ => (Code::H2TcpConnectFailed, Stage::SocketConnect),
+            },
+        };
+
+        let failure = TransportFailure::new(code, stage);
+        match (transport, family) {
+            (Some(transport), Some(family)) => failure.on_path(transport, family),
+            _ => failure,
+        }
+    }
+
+    pub fn exhausted_transport_failures(&self) -> Option<(&TransportFailure, &TransportFailure)> {
+        match self {
+            Self::AllTransportsFailed { h3, h2 } => Some((h3, h2)),
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -740,6 +926,31 @@ mod tests {
     }
 
     #[test]
+    fn aggregate_transport_failure_preserves_both_structured_causes() {
+        let h3 = TransportFailure::new(
+            TransportFailureCode::H3HandshakeTimeout,
+            TransportStage::QuicHandshake,
+        );
+        let h2 = TransportFailure::new(
+            TransportFailureCode::H2TlsFailed,
+            TransportStage::TlsHandshake,
+        );
+        let error = TransportError::AllTransportsFailed {
+            h3: Box::new(h3.clone()),
+            h2: Box::new(h2.clone()),
+        };
+
+        let aggregate = error.failure(None, None);
+        assert_eq!(aggregate.code, TransportFailureCode::AllTransportsFailed);
+        assert!(!aggregate.fallback_allowed);
+        let (recorded_h3, recorded_h2) = error
+            .exhausted_transport_failures()
+            .expect("aggregate failure keeps both transport causes");
+        assert_eq!(recorded_h3, &h3);
+        assert_eq!(recorded_h2, &h2);
+    }
+
+    #[test]
     fn capsule_codec_handles_fragmentation_and_coalescing() {
         let packet_v4 = [
             0x45, 0, 0, 20, 0, 0, 0, 0, 64, 17, 0, 0, 1, 1, 1, 1, 8, 8, 8, 8,
@@ -762,6 +973,62 @@ mod tests {
         assert_eq!(first.as_ref(), packet_v4);
         let (_, second, _) = decode_capsule(&encoded[consumed..]).unwrap().unwrap();
         assert_eq!(second.as_ref(), packet_v6);
+    }
+
+    #[test]
+    fn streaming_capsule_take_is_transactional_until_a_frame_is_complete() {
+        let first = ConnectIpCapsule::Unknown {
+            capsule_type: 42,
+            payload: Bytes::from_static(b"first"),
+        }
+        .encode()
+        .unwrap();
+        let second = ConnectIpCapsule::Unknown {
+            capsule_type: 43,
+            payload: Bytes::from_static(b"second"),
+        }
+        .encode()
+        .unwrap();
+        let split = first.len() - 1;
+        let mut buffer = BytesMut::from(&first[..split]);
+        let incomplete = buffer.clone();
+
+        assert!(take_complete_capsule(&mut buffer).unwrap().is_none());
+        assert_eq!(buffer, incomplete);
+
+        buffer.extend_from_slice(&first[split..]);
+        buffer.extend_from_slice(&second);
+        assert!(matches!(
+            take_complete_capsule(&mut buffer).unwrap(),
+            Some(ConnectIpCapsule::Unknown { capsule_type: 42, payload })
+                if payload == Bytes::from_static(b"first")
+        ));
+        assert!(matches!(
+            take_complete_capsule(&mut buffer).unwrap(),
+            Some(ConnectIpCapsule::Unknown { capsule_type: 43, payload })
+                if payload == Bytes::from_static(b"second")
+        ));
+        assert!(buffer.is_empty());
+    }
+
+    #[test]
+    fn complete_malformed_capsule_is_consumed_as_a_terminal_error() {
+        let mut malformed = BytesMut::from(
+            &[
+                usque_protocol::ADDRESS_ASSIGN_CAPSULE_TYPE as u8,
+                3,
+                0,
+                4,
+                192,
+            ][..],
+        );
+        assert!(matches!(
+            take_complete_capsule(&mut malformed),
+            Err(TransportError::Protocol(
+                usque_protocol::ProtocolError::TruncatedCapsuleEntry
+            ))
+        ));
+        assert!(malformed.is_empty());
     }
 
     #[test]

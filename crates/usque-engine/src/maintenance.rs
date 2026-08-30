@@ -1,30 +1,28 @@
 use std::{
     fs::{self, File, OpenOptions},
-    io::{self, BufReader, Read, Seek, SeekFrom, Write},
+    io::{self, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     time::Duration,
 };
 
 use crate::logging::{log_directory, sanitize_log_bytes};
 
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use chrono::Utc;
+use sha2::{Digest, Sha256};
 use tempfile::NamedTempFile;
 use thiserror::Error;
 use tokio::sync::Mutex;
 use usque_core::{
-    AppConfig, ConnectionSnapshot,
+    AppConfig, ConnectionSnapshot, DiagnosticSession, TransportFailure,
     update::{UpdateChecker, UpdateError, UpdateInfo},
 };
+use usque_transport::{ConnectionEventType, ConnectionTimelineSnapshot};
 
-const UPDATE_STATE_SCHEMA: u32 = 1;
-const UPDATE_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
-const MAX_UPDATE_STATE_BYTES: u64 = 64 * 1024;
 const MAX_DIAGNOSTIC_LOG_BYTES: usize = 2 * 1024 * 1024;
 
 pub struct Maintenance {
     update_checker: UpdateChecker,
-    update_state_path: PathBuf,
+    legacy_update_state_path: PathBuf,
     log_directory: PathBuf,
     flag_cache_directory: PathBuf,
     config_backup_path: PathBuf,
@@ -34,10 +32,12 @@ pub struct Maintenance {
 impl Maintenance {
     pub fn new(config_path: &Path) -> Self {
         let parent = config_path.parent().unwrap_or_else(|| Path::new("."));
+        let legacy_update_state_path = parent.join("update-state-v1.json");
+        let _ = remove_file_if_present(&legacy_update_state_path);
         Self {
             update_checker: UpdateChecker::new()
                 .expect("the static GitHub update client configuration must be valid"),
-            update_state_path: parent.join("update-state-v1.json"),
+            legacy_update_state_path,
             log_directory: log_directory(config_path),
             flag_cache_directory: parent.join("cache").join("flag-icons-7.5.0"),
             config_backup_path: config_path.with_extension("json.bak"),
@@ -54,28 +54,11 @@ impl Maintenance {
             return Ok(UpdateInfo::current());
         }
         let _guard = self.update_lock.lock().await;
-        if !manual
-            && let Some(cached) = load_update_state(&self.update_state_path)?
-            && Utc::now()
-                .signed_duration_since(cached.checked_at)
-                .to_std()
-                .unwrap_or_default()
-                < UPDATE_INTERVAL
-        {
-            return Ok(cached.info);
-        }
-
-        let info = self.update_checker.check(env!("CARGO_PKG_VERSION")).await?;
-        let state_path = self.update_state_path.clone();
-        let cached = CachedUpdateState {
-            schema_version: UPDATE_STATE_SCHEMA,
-            checked_at: Utc::now(),
-            info: info.clone(),
-        };
-        tokio::task::spawn_blocking(move || save_update_state(&state_path, &cached))
-            .await
-            .map_err(|error| MaintenanceError::Worker(error.to_string()))??;
-        Ok(info)
+        // Older releases cached automatic checks for 24 hours. A launch now
+        // always performs a fresh request; remove the obsolete cache without
+        // allowing cleanup failure to block discovery.
+        let _ = remove_file_if_present(&self.legacy_update_state_path);
+        Ok(self.update_checker.check(env!("CARGO_PKG_VERSION")).await?)
     }
 
     pub async fn export_diagnostics(
@@ -83,17 +66,26 @@ impl Maintenance {
         destination: PathBuf,
         config: AppConfig,
         snapshot: ConnectionSnapshot,
+        diagnostic_session: Option<DiagnosticSession>,
+        timeline: ConnectionTimelineSnapshot,
     ) -> Result<(), MaintenanceError> {
         let log_directory = self.log_directory.clone();
         tokio::task::spawn_blocking(move || {
-            write_diagnostic_bundle(&destination, &config, &snapshot, &log_directory)
+            write_diagnostic_bundle(
+                &destination,
+                &config,
+                &snapshot,
+                diagnostic_session.as_ref(),
+                &timeline,
+                &log_directory,
+            )
         })
         .await
         .map_err(|error| MaintenanceError::Worker(error.to_string()))?
     }
 
     pub async fn clear_local_state(&self) -> Result<(), MaintenanceError> {
-        let update_state_path = self.update_state_path.clone();
+        let update_state_path = self.legacy_update_state_path.clone();
         let log_directory = self.log_directory.clone();
         let flag_cache_directory = self.flag_cache_directory.clone();
         let config_backup_path = self.config_backup_path.clone();
@@ -145,44 +137,12 @@ fn clear_engine_logs(directory: &Path) -> io::Result<()> {
     Ok(())
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct CachedUpdateState {
-    schema_version: u32,
-    checked_at: DateTime<Utc>,
-    info: UpdateInfo,
-}
-
-fn load_update_state(path: &Path) -> Result<Option<CachedUpdateState>, MaintenanceError> {
-    let metadata = match fs::metadata(path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error.into()),
-    };
-    if metadata.len() > MAX_UPDATE_STATE_BYTES {
-        return Ok(None);
-    }
-    let state: CachedUpdateState = serde_json::from_reader(BufReader::new(File::open(path)?))?;
-    Ok((state.schema_version == UPDATE_STATE_SCHEMA).then_some(state))
-}
-
-fn save_update_state(path: &Path, state: &CachedUpdateState) -> Result<(), MaintenanceError> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| MaintenanceError::InvalidDestination(path.to_owned()))?;
-    fs::create_dir_all(parent)?;
-    let mut temporary = NamedTempFile::new_in(parent)?;
-    serde_json::to_writer(&mut temporary, state)?;
-    temporary.write_all(b"\n")?;
-    temporary.as_file().sync_all()?;
-    replace_file(temporary.path(), path)?;
-    let _ = temporary.keep();
-    Ok(())
-}
-
 fn write_diagnostic_bundle(
     destination: &Path,
     config: &AppConfig,
     snapshot: &ConnectionSnapshot,
+    diagnostic_session: Option<&DiagnosticSession>,
+    timeline: &ConnectionTimelineSnapshot,
     log_directory: &Path,
 ) -> Result<(), MaintenanceError> {
     if !destination.is_absolute()
@@ -200,38 +160,10 @@ fn write_diagnostic_bundle(
     }
 
     let log = collect_sanitized_logs(log_directory)?;
-    let mut contents = vec![
-        "manifest.json",
-        "configuration-summary.json",
-        "connection-summary.json",
-        "README.txt",
-    ];
-    if !log.is_empty() {
-        contents.push("engine-log.jsonl");
-    }
-    let manifest = serde_json::json!({
-        "schema_version": 1,
-        "created_at": Utc::now(),
-        "app_version": env!("CARGO_PKG_VERSION"),
-        "operating_system": std::env::consts::OS,
-        "architecture": std::env::consts::ARCH,
-        "contents": contents,
-        "excluded": [
-            "WARP Secret",
-            "private key",
-            "access token",
-            "Cloudflare Access assertion",
-            "Zero Trust callback URL",
-            "device ID",
-            "license",
-            "endpoint pin",
-            "exit IP addresses",
-            "custom endpoint and DNS addresses",
-            "split-exclusion CIDRs"
-        ]
-    });
     let configuration = configuration_summary(config);
     let connection = connection_summary(snapshot);
+    let timeline = connection_timeline_summary(timeline);
+    let platform = platform_health_summary(snapshot);
     let readme = concat!(
         "Usque diagnostic bundle\n\n",
         "This archive is created locally and is never uploaded automatically.\n",
@@ -241,10 +173,6 @@ fn write_diagnostic_bundle(
 
     let mut entries = vec![
         (
-            "manifest.json".to_owned(),
-            serde_json::to_vec_pretty(&manifest)?.into_boxed_slice(),
-        ),
-        (
             "configuration-summary.json".to_owned(),
             serde_json::to_vec_pretty(&configuration)?.into_boxed_slice(),
         ),
@@ -253,13 +181,74 @@ fn write_diagnostic_bundle(
             serde_json::to_vec_pretty(&connection)?.into_boxed_slice(),
         ),
         (
+            "connection-timeline.json".to_owned(),
+            serde_json::to_vec_pretty(&timeline)?.into_boxed_slice(),
+        ),
+        (
+            "platform-health.json".to_owned(),
+            serde_json::to_vec_pretty(&platform)?.into_boxed_slice(),
+        ),
+        (
             "README.txt".to_owned(),
             readme.as_bytes().to_vec().into_boxed_slice(),
         ),
     ];
-    if !log.is_empty() {
-        entries.push(("engine-log.jsonl".to_owned(), log.into_boxed_slice()));
+    if let Some(session) = diagnostic_session {
+        entries.push((
+            "diagnostic-session.json".to_owned(),
+            serde_json::to_vec_pretty(&diagnostic_session_summary(session))?.into_boxed_slice(),
+        ));
     }
+    if !log.is_empty() {
+        entries.push(("logs/engine.jsonl".to_owned(), log.into_boxed_slice()));
+    }
+    let contents = entries
+        .iter()
+        .map(|(name, bytes)| {
+            serde_json::json!({
+                "path": name,
+                "size": bytes.len(),
+                "sha256": sha256_hex(bytes),
+            })
+        })
+        .collect::<Vec<_>>();
+    let manifest = serde_json::json!({
+        "schema_version": 2,
+        "created_at": Utc::now(),
+        "app_version": env!("CARGO_PKG_VERSION"),
+        "operating_system": std::env::consts::OS,
+        "architecture": std::env::consts::ARCH,
+        "diagnostic_complete": diagnostic_session.is_some_and(|session| {
+            session.state == usque_core::DiagnosticSessionState::Completed
+        }),
+        "diagnostic_cancelled": diagnostic_session.is_some_and(|session| {
+            session.state == usque_core::DiagnosticSessionState::Cancelled
+        }),
+        "sanitization_policy": "allowlist-v2",
+        "contents": contents,
+        "excluded": [
+            "WARP Secret",
+            "private key",
+            "token and organization credential",
+            "Cloudflare Access assertion",
+            "Zero Trust callback URL",
+            "device identifier",
+            "license",
+            "endpoint pin",
+            "full IP address and hostname",
+            "custom endpoint and DNS address",
+            "profile name and split-exclusion CIDR",
+            "Windows user directory",
+            "Android package list and SSID"
+        ]
+    });
+    entries.insert(
+        0,
+        (
+            "manifest.json".to_owned(),
+            serde_json::to_vec_pretty(&manifest)?.into_boxed_slice(),
+        ),
+    );
     let mut temporary = NamedTempFile::new_in(parent)?;
     write_stored_zip(&mut temporary, &entries)?;
     temporary.as_file().sync_all()?;
@@ -336,6 +325,7 @@ fn connection_summary(snapshot: &ConnectionSnapshot) -> serde_json::Value {
             "code": error.code,
             "retryable": error.retryable,
         })),
+        "failure": snapshot.failure.as_ref().map(sanitized_failure_summary),
         "kill_switch_state": snapshot.kill_switch_state,
         "lockdown_state": snapshot.lockdown_state,
         "reconnect_count": snapshot.reconnect_count,
@@ -346,6 +336,344 @@ fn connection_summary(snapshot: &ConnectionSnapshot) -> serde_json::Value {
             .map(|warning| warning.code.as_str())
             .collect::<Vec<_>>(),
     })
+}
+
+fn connection_timeline_summary(timeline: &ConnectionTimelineSnapshot) -> serde_json::Value {
+    let events = timeline
+        .events
+        .iter()
+        .map(|event| {
+            serde_json::json!({
+                "sequence": event.sequence,
+                "elapsed_from_attempt_start_milliseconds": duration_milliseconds(
+                    event.elapsed_from_attempt_start,
+                ),
+                "event_type": connection_event_type_name(event.event_type),
+                "stage": event.stage.map(usque_core::TransportStage::as_str),
+                "transport": event.transport,
+                "address_family": event.address_family,
+                "duration_milliseconds": event.duration.map(duration_milliseconds),
+                "failure": event.failure.as_ref().map(sanitized_failure_summary),
+            })
+        })
+        .collect::<Vec<_>>();
+    serde_json::json!({
+        "schema_version": 1,
+        "events": events,
+        "dropped_event_count": timeline.dropped_event_count,
+        "metrics": {
+            "last_connect_duration_milliseconds": timeline.metrics.last_connect_duration.map(duration_milliseconds),
+            "last_h3_handshake_duration_milliseconds": timeline.metrics.last_h3_handshake_duration.map(duration_milliseconds),
+            "last_h2_handshake_duration_milliseconds": timeline.metrics.last_h2_handshake_duration.map(duration_milliseconds),
+            "current_smoothed_rtt_milliseconds": timeline.metrics.current_smoothed_rtt.map(duration_milliseconds),
+            "reconnect_count": timeline.metrics.reconnect_count,
+            "fallback_count": timeline.metrics.fallback_count,
+            "network_change_count": timeline.metrics.network_change_count,
+            "send_queue_high_watermark": timeline.metrics.send_queue_high_watermark,
+            "send_queue_drop_count": timeline.metrics.send_queue_drop_count,
+            "last_failure_code": timeline.metrics.last_failure_code.map(usque_core::TransportFailureCode::as_str),
+            "last_reconnect_code": timeline.metrics.last_reconnect_code.map(usque_core::TransportFailureCode::as_str),
+        }
+    })
+}
+
+fn platform_health_summary(snapshot: &ConnectionSnapshot) -> serde_json::Value {
+    serde_json::json!({
+        "schema_version": 1,
+        "operating_system": std::env::consts::OS,
+        "architecture": std::env::consts::ARCH,
+        "kill_switch_state": snapshot.kill_switch_state,
+        "lockdown_state": snapshot.lockdown_state,
+        "frontends": snapshot.frontends.iter().map(|frontend| serde_json::json!({
+            "kind": frontend.kind,
+            "phase": frontend.phase,
+            "listener_count": frontend.listeners.len(),
+            "error_code": frontend.error.as_ref().map(|error| error.code),
+        })).collect::<Vec<_>>(),
+        "agent_state": "unknown",
+        "tun_state": "unknown",
+        "route_state": "unknown",
+        "dns_state": "unknown",
+        "system_proxy_state": "unknown",
+        "recovery_journal_state": "unknown",
+        "independent_leak_verification": false,
+    })
+}
+
+fn diagnostic_session_summary(session: &DiagnosticSession) -> serde_json::Value {
+    let completed_after_milliseconds = session.completed_at.map(|completed| {
+        completed
+            .signed_duration_since(session.started_at)
+            .num_milliseconds()
+            .max(0)
+    });
+    serde_json::json!({
+        "schema_version": 1,
+        "session_id": session.session_id,
+        "state": session.state,
+        "mode": session.mode,
+        "completed_after_milliseconds": completed_after_milliseconds,
+        "current_check": session.current_check.as_deref().filter(|id| known_diagnostic_check(id)),
+        "progress_percent": session.progress_percent,
+        "summary": session.summary,
+        "findings": session.findings.iter().map(|finding| {
+            let started_after_milliseconds = finding.started_at.map(|started| {
+                started
+                    .signed_duration_since(session.started_at)
+                    .num_milliseconds()
+                    .max(0)
+            });
+            serde_json::json!({
+                "check_id": if known_diagnostic_check(&finding.check_id) {
+                    finding.check_id.as_str()
+                } else {
+                    "unknown"
+                },
+                "category": finding.category,
+                "status": finding.status,
+                "severity": finding.severity,
+                "summary_key": safe_summary_key(&finding.summary_key),
+                "remediation_key": safe_remediation_key(&finding.remediation_key),
+                "sanitized_evidence": finding.sanitized_evidence.iter()
+                    .filter(|value| safe_evidence(value))
+                    .take(16)
+                    .collect::<Vec<_>>(),
+                "started_after_milliseconds": started_after_milliseconds,
+                "duration_milliseconds": finding.duration_milliseconds,
+                "dependency_reason": finding.dependency_reason.as_deref()
+                    .filter(|id| known_diagnostic_check(id)),
+                "failure": finding.failure.as_ref().map(sanitized_failure_summary),
+            })
+        }).collect::<Vec<_>>(),
+    })
+}
+
+fn sanitized_failure_summary(failure: &TransportFailure) -> serde_json::Value {
+    serde_json::json!({
+        "code": failure.code.as_str(),
+        "stage": failure.stage.as_str(),
+        "transport": failure.transport,
+        "address_family": failure.address_family,
+        "retryable": failure.retryable,
+        "fallback_allowed": failure.fallback_allowed,
+        "severity": failure.severity,
+        "remediation_key": safe_remediation_key(&failure.remediation_key).unwrap_or("retry"),
+        "sanitized_detail": failure.sanitized_detail.as_deref()
+            .filter(|detail| TransportFailure::sanitized_detail_is_safe(detail)),
+    })
+}
+
+fn safe_remediation_key(value: &str) -> Option<&str> {
+    matches!(
+        value,
+        "none"
+            | "retry"
+            | "try_http2"
+            | "check_physical_network"
+            | "refresh_or_replace_identity"
+            | "replace_identity"
+            | "review_configuration"
+            | "restore_platform_state"
+            | "resolve_dependency"
+            | "run_deep_diagnostics"
+            | "run_release_leak_gate"
+            | "inspect_platform_state"
+            | "generate_tunnel_traffic"
+            | "export_diagnostics"
+            | "not_configured"
+            | "platform_capability_unavailable"
+            | "connect_or_run_deep_diagnostics"
+            | "active_probe_requires_disconnected_deep_mode"
+            | "http2_fallback_active"
+            | "h3_not_active"
+            | "h3_active"
+            | "no_transport_handshake"
+            | "no_active_runtime"
+            | "no_active_tunnel"
+            | "payload_family_unavailable"
+    )
+    .then_some(value)
+}
+
+fn safe_summary_key(value: &str) -> Option<&str> {
+    matches!(
+        value,
+        "diagnostic_address_assignment_missing"
+            | "diagnostic_address_assignment_unknown"
+            | "diagnostic_address_assignment_valid"
+            | "diagnostic_cancelled"
+            | "diagnostic_capabilities_ok"
+            | "diagnostic_check_failed_internally"
+            | "diagnostic_check_timed_out"
+            | "diagnostic_configuration_invalid"
+            | "diagnostic_configuration_ok"
+            | "diagnostic_dependency_failed"
+            | "diagnostic_dns_path_actual_state_unknown"
+            | "diagnostic_dns_path_consistent"
+            | "diagnostic_dns_path_mismatch"
+            | "diagnostic_dns_path_not_tunnel"
+            | "diagnostic_egress_family_unavailable"
+            | "diagnostic_endpoint_pin_mismatch"
+            | "diagnostic_endpoint_pin_not_tested"
+            | "diagnostic_endpoint_pin_valid"
+            | "diagnostic_engine_control_ok"
+            | "diagnostic_event_stream_ok"
+            | "diagnostic_fallback_policy_valid"
+            | "diagnostic_fallback_policy_violation"
+            | "diagnostic_first_packet_not_observed"
+            | "diagnostic_first_packet_observed"
+            | "diagnostic_first_packet_unknown"
+            | "diagnostic_frontend_disabled"
+            | "diagnostic_frontend_listener_failed"
+            | "diagnostic_frontend_listener_ok"
+            | "diagnostic_frontend_not_configured"
+            | "diagnostic_h2_not_required"
+            | "diagnostic_h2_not_tested"
+            | "diagnostic_h2_stage_ready"
+            | "diagnostic_h3_connected"
+            | "diagnostic_h3_datagram_available"
+            | "diagnostic_h3_datagram_not_tested"
+            | "diagnostic_h3_not_active"
+            | "diagnostic_h3_not_tested"
+            | "diagnostic_ipv4_egress_requires_external_observer"
+            | "diagnostic_ipv4_route_available"
+            | "diagnostic_ipv4_route_unavailable"
+            | "diagnostic_ipv4_route_unknown"
+            | "diagnostic_ipv6_egress_requires_external_observer"
+            | "diagnostic_ipv6_route_available"
+            | "diagnostic_ipv6_route_unavailable"
+            | "diagnostic_ipv6_route_unknown"
+            | "diagnostic_kill_switch_actual_state_unknown"
+            | "diagnostic_kill_switch_disabled"
+            | "diagnostic_kill_switch_state_consistent"
+            | "diagnostic_kill_switch_state_mismatch"
+            | "diagnostic_network_generation_observed"
+            | "diagnostic_physical_dns_available"
+            | "diagnostic_physical_dns_unavailable"
+            | "diagnostic_physical_dns_unknown"
+            | "diagnostic_physical_network_not_observed"
+            | "diagnostic_physical_network_present"
+            | "diagnostic_recovery_journal_agent_unavailable"
+            | "diagnostic_recovery_journal_consistent"
+            | "diagnostic_recovery_journal_not_supported"
+            | "diagnostic_recovery_journal_pending_cleanup"
+            | "diagnostic_requires_deep_mode"
+            | "diagnostic_route_ownership_actual_state_unknown"
+            | "diagnostic_route_ownership_consistent"
+            | "diagnostic_route_ownership_mismatch"
+            | "diagnostic_route_ownership_not_supported"
+            | "diagnostic_secure_storage_available"
+            | "diagnostic_secure_storage_not_supported"
+            | "diagnostic_system_proxy_actual_state_unknown"
+            | "diagnostic_system_proxy_disabled"
+            | "diagnostic_system_proxy_lease_missing"
+            | "diagnostic_system_proxy_lease_only"
+            | "diagnostic_system_proxy_runtime_mismatch"
+            | "diagnostic_tunnel_dns_configured"
+            | "diagnostic_tunnel_dns_disabled"
+            | "diagnostic_tunnel_dns_unknown"
+            | "diagnostic_tunnel_routes_consistent"
+            | "diagnostic_tunnel_routes_unknown"
+    )
+    .then_some(value)
+}
+
+fn safe_evidence(value: &str) -> bool {
+    matches!(
+        value,
+        "responsive"
+            | "recoverable"
+            | "append_only_api"
+            | "schema_valid"
+            | "metadata_only"
+            | "runtime_path"
+            | "payload_family"
+            | "runtime_started"
+            | "stable"
+            | "changed"
+            | "active_path"
+            | "verified_before_ready"
+            | "typed_matrix"
+            | "family_flags"
+            | "configuration_consistent_not_leak_test"
+            | "bidirectional"
+            | "internal_state_only"
+            | "agent_read_only_inspection"
+            | "listener_active"
+    )
+}
+
+fn known_diagnostic_check(value: &str) -> bool {
+    matches!(
+        value,
+        "engine.control_channel"
+            | "engine.event_stream"
+            | "engine.capabilities"
+            | "engine.configuration"
+            | "engine.secure_storage_metadata"
+            | "frontend.socks_port"
+            | "frontend.http_port"
+            | "frontend.system_proxy_state"
+            | "physical.network_present"
+            | "physical.ipv4_route"
+            | "physical.ipv6_route"
+            | "physical.dns_available"
+            | "physical.network_generation"
+            | "transport.h3_connect"
+            | "transport.h3_datagram"
+            | "transport.h2_tcp"
+            | "transport.h2_tls"
+            | "transport.h2_connect"
+            | "transport.endpoint_pin"
+            | "transport.fallback_policy"
+            | "tunnel.address_assignment"
+            | "tunnel.routes"
+            | "tunnel.dns"
+            | "tunnel.first_packet"
+            | "tunnel.ipv4_egress"
+            | "tunnel.ipv6_egress"
+            | "protection.kill_switch"
+            | "protection.dns_path"
+            | "protection.route_ownership"
+            | "protection.recovery_journal"
+    )
+}
+
+const fn connection_event_type_name(event: ConnectionEventType) -> &'static str {
+    match event {
+        ConnectionEventType::AttemptStarted => "attempt_started",
+        ConnectionEventType::EndpointResolved => "endpoint_resolved",
+        ConnectionEventType::SocketConnected => "socket_connected",
+        ConnectionEventType::TlsReady => "tls_ready",
+        ConnectionEventType::QuicReady => "quic_ready",
+        ConnectionEventType::MasqueAccepted => "masque_accepted",
+        ConnectionEventType::PeerSettingsReceived => "peer_settings_received",
+        ConnectionEventType::AddressAssigned => "address_assigned",
+        ConnectionEventType::TunnelReady => "tunnel_ready",
+        ConnectionEventType::FirstPacketSent => "first_packet_sent",
+        ConnectionEventType::FirstPacketReceived => "first_packet_received",
+        ConnectionEventType::FallbackStarted => "fallback_started",
+        ConnectionEventType::ReconnectScheduled => "reconnect_scheduled",
+        ConnectionEventType::NetworkChanged => "network_changed",
+        ConnectionEventType::RecoveryProbeStarted => "recovery_probe_started",
+        ConnectionEventType::RecoveryProbeSucceeded => "recovery_probe_succeeded",
+        ConnectionEventType::RecoveryProbeFailed => "recovery_probe_failed",
+        ConnectionEventType::PathPromoted => "path_promoted",
+        ConnectionEventType::QueueSaturated => "queue_saturated",
+        ConnectionEventType::Disconnected => "disconnected",
+        ConnectionEventType::Failed => "failed",
+    }
+}
+
+fn duration_milliseconds(duration: Duration) -> u64 {
+    duration.as_millis().min(u128::from(u64::MAX)) as u64
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn write_stored_zip(
@@ -575,6 +903,10 @@ pub enum MaintenanceError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use usque_core::{
+        DiagnosticCategory, DiagnosticCheckStatus, DiagnosticFinding, DiagnosticMode,
+        DiagnosticSessionState,
+    };
 
     #[test]
     fn diagnostic_bundle_contains_only_sanitized_summaries() {
@@ -594,6 +926,8 @@ mod tests {
             &destination,
             &config,
             &ConnectionSnapshot::default(),
+            None,
+            &ConnectionTimelineSnapshot::default(),
             &log_directory,
         )
         .unwrap();
@@ -614,10 +948,65 @@ mod tests {
                 Path::new("diagnostics.zip"),
                 &AppConfig::default(),
                 &ConnectionSnapshot::default(),
+                None,
+                &ConnectionTimelineSnapshot::default(),
                 Path::new("missing-logs")
             ),
             Err(MaintenanceError::InvalidDestination(_))
         ));
+    }
+
+    #[test]
+    fn inv_export_sanitized_rejects_hostile_diagnostic_session_values() {
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("diagnostics.zip");
+        let mut finding =
+            DiagnosticFinding::pending("transport.h3_connect", DiagnosticCategory::Transport);
+        finding.status = DiagnosticCheckStatus::Failed;
+        finding.summary_key = "private.example".to_owned();
+        finding.remediation_key = r"C:\Users\private\secret".to_owned();
+        finding.sanitized_evidence = vec![
+            "active_path".to_owned(),
+            "192.0.2.44".to_owned(),
+            "token=supersecret".to_owned(),
+            "private.example".to_owned(),
+        ];
+        finding.dependency_reason = Some("private.example".to_owned());
+        let mut hostile_failure = TransportFailure::new(
+            usque_core::TransportFailureCode::Internal,
+            usque_core::TransportStage::Diagnostics,
+        );
+        hostile_failure.remediation_key = "private_remediation".to_owned();
+        hostile_failure.sanitized_detail = Some("rawsecret".to_owned());
+        finding.failure = Some(hostile_failure);
+        let mut session = DiagnosticSession::pending(DiagnosticMode::Deep, vec![finding]);
+        session.state = DiagnosticSessionState::Completed;
+        session.completed_at = Some(session.started_at + chrono::Duration::milliseconds(25));
+        session.current_check = Some("private.example".to_owned());
+        session.recompute_summary();
+
+        write_diagnostic_bundle(
+            &destination,
+            &AppConfig::default(),
+            &ConnectionSnapshot::default(),
+            Some(&session),
+            &ConnectionTimelineSnapshot::default(),
+            directory.path().join("missing-logs").as_path(),
+        )
+        .unwrap();
+
+        let combined = String::from_utf8_lossy(&fs::read(destination).unwrap()).into_owned();
+        assert!(combined.contains("active_path"));
+        for private in [
+            "192.0.2.44",
+            "token=supersecret",
+            "private.example",
+            r"C:\Users\private\secret",
+            "private_remediation",
+            "rawsecret",
+        ] {
+            assert!(!combined.contains(private), "bundle leaked {private}");
+        }
     }
 
     #[tokio::test]

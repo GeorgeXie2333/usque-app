@@ -141,7 +141,7 @@ class SubPage extends StatelessWidget {
             alignment: AlignmentDirectional.centerStart,
             child: TextButton.icon(
               onPressed: () => Navigator.of(context).maybePop(),
-              icon: const Icon(LucideIcons.arrowLeft, size: 17),
+              icon: const Icon(LucideIcons.arrowLeftDir, size: 17),
               label: Text(backLabel),
               style: TextButton.styleFrom(
                 alignment: AlignmentDirectional.centerStart,
@@ -207,16 +207,34 @@ class Panel extends StatefulWidget {
 
 class _PanelState extends State<Panel> {
   bool _hovered = false;
+  bool _focused = false;
 
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final UsqueTokens tokens = UsqueTokens.of(context);
     final bool interactive = widget.onTap != null;
-    final bool lifted = interactive && _hovered;
+    final bool focused = interactive && _focused;
+    final bool lifted = interactive && (_hovered || focused);
+    final BorderSide border = focused
+        ? BorderSide(color: theme.colorScheme.primary, width: 2)
+        : BorderSide(color: lifted ? tokens.hairlineStrong : tokens.hairline);
+
+    Widget panelChild = Padding(padding: widget.padding, child: widget.child);
+    if (interactive) {
+      panelChild = InkWell(
+        onTap: widget.onTap,
+        onHover: (value) => setState(() => _hovered = value),
+        onFocusChange: (value) => setState(() => _focused = value),
+        borderRadius: BorderRadius.circular(UsqueRadii.card),
+        child: panelChild,
+      );
+    }
 
     // The fill lives on a Material so ListTile ink still lands on a surface;
-    // the container only carries the lift shadow.
+    // the container only carries the lift shadow. Interactive panels use an
+    // InkWell so touch, pointer, keyboard, and D-pad input share one state
+    // layer and focus model.
     Widget content = AnimatedContainer(
       duration: UsqueMotion.of(context, UsqueMotion.fast),
       curve: UsqueMotion.standard,
@@ -237,12 +255,10 @@ class _PanelState extends State<Panel> {
         animationDuration: UsqueMotion.of(context, UsqueMotion.fast),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(UsqueRadii.card),
-          side: BorderSide(
-            color: lifted ? tokens.hairlineStrong : tokens.hairline,
-          ),
+          side: border,
         ),
         clipBehavior: Clip.antiAlias,
-        child: Padding(padding: widget.padding, child: widget.child),
+        child: panelChild,
       ),
     );
 
@@ -254,12 +270,14 @@ class _PanelState extends State<Panel> {
             top: 18,
             bottom: 18,
             start: 0,
-            child: Container(
-              width: 3,
-              decoration: BoxDecoration(
-                color: widget.accent,
-                borderRadius: const BorderRadius.horizontal(
-                  right: Radius.circular(3),
+            child: IgnorePointer(
+              child: Container(
+                width: 3,
+                decoration: BoxDecoration(
+                  color: widget.accent,
+                  borderRadius: const BorderRadius.horizontal(
+                    right: Radius.circular(3),
+                  ),
                 ),
               ),
             ),
@@ -271,16 +289,7 @@ class _PanelState extends State<Panel> {
     if (!interactive) {
       return content;
     }
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: widget.onTap,
-        child: content,
-      ),
-    );
+    return Semantics(button: true, child: content);
   }
 }
 
@@ -391,13 +400,20 @@ enum StatusTone { success, warning, danger, brand, neutral }
 
 /// Foreground colour for a tone, resolved against the current theme.
 Color statusToneColor(BuildContext context, StatusTone tone) {
+  final ThemeData theme = Theme.of(context);
   final UsqueTokens tokens = UsqueTokens.of(context);
   return switch (tone) {
     StatusTone.success => tokens.success,
     StatusTone.warning => tokens.caution,
     StatusTone.danger => tokens.danger,
-    StatusTone.brand => tokens.brand,
-    StatusTone.neutral => Theme.of(context).colorScheme.onSurfaceVariant,
+    // The logo orange is deliberately vivid and misses the 3:1 graphical
+    // contrast threshold on its own light tint. Use the accessible ember for
+    // status indicators in light mode; dark surfaces can keep the brand hue.
+    StatusTone.brand =>
+      theme.brightness == Brightness.light
+          ? theme.colorScheme.primary
+          : tokens.brand,
+    StatusTone.neutral => theme.colorScheme.onSurfaceVariant,
   };
 }
 
@@ -422,23 +438,26 @@ class StatusPill extends StatelessWidget {
   /// Renders the pill without a fill, for dense rows of many pills.
   final bool dim;
 
-  /// Drops the dot or glyph. A label-only pill can wrap, so use it where the
-  /// pill sits in a narrow column rather than a row of states.
+  /// Drops the dot or glyph when a dense row does not need a status marker.
   final bool showIndicator;
 
   @override
   Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
     final UsqueTokens tokens = UsqueTokens.of(context);
     final Color foreground = statusToneColor(context, tone);
     final Color background = tone == StatusTone.neutral
-        ? Theme.of(context).colorScheme.surfaceContainerHigh
+        ? theme.colorScheme.surfaceContainerHigh
         : foreground.withValues(alpha: tokens.tint);
+    // Status hue belongs to the lamp/icon and wash. Small labels use a
+    // semantic foreground that remains AA-readable over every tinted surface.
+    final Color labelColor = tone == StatusTone.neutral
+        ? theme.colorScheme.onSurfaceVariant
+        : theme.colorScheme.onSurface;
     final Widget text = Text(
       label,
-      style: Theme.of(context).textTheme.labelMedium?.copyWith(
-        color: tone == StatusTone.neutral
-            ? Theme.of(context).colorScheme.onSurfaceVariant
-            : foreground,
+      style: theme.textTheme.labelMedium?.copyWith(
+        color: labelColor,
         fontWeight: FontWeight.w700,
       ),
     );
@@ -462,7 +481,7 @@ class StatusPill extends StatelessWidget {
                 else
                   _StatusDot(color: foreground),
                 const SizedBox(width: 7),
-                text,
+                Flexible(child: text),
               ],
             ),
     );

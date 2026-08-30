@@ -16,10 +16,10 @@ use crate::identity::IdentityProvider;
 mod account;
 mod network;
 
-pub use account::Account;
+pub use account::{Account, ManagedEndpointIps};
 pub use network::SharedNetworkSettings;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 10;
+pub const CURRENT_SCHEMA_VERSION: u32 = 12;
 /// Vault namespace for device-wide proxy-listener secrets. Never a profile id.
 pub const SHARED_NETWORK_SECRET_ID: Uuid =
     Uuid::from_u128(0x9f1c_6b20_5a7e_4d3a_9c11_00c0_ffee_0001);
@@ -28,7 +28,6 @@ pub const DEFAULT_ENDPOINT_V4: Ipv4Addr = Ipv4Addr::new(162, 159, 198, 2);
 pub const DEFAULT_ENDPOINT_V6: Ipv6Addr = Ipv6Addr::new(0x2606, 0x4700, 0x0103, 0, 0, 0, 0, 2);
 pub const DEFAULT_PORT: u16 = 443;
 pub const DEFAULT_SNI: &str = "speed.cloudflare.com";
-pub const LEGACY_DEFAULT_SNI: &str = "www.visa.cn";
 pub const DEFAULT_MTU: u16 = 1280;
 pub const DEFAULT_DNS_V4: Ipv4Addr = Ipv4Addr::new(1, 1, 1, 1);
 pub const DEFAULT_DNS_V6: Ipv6Addr = Ipv6Addr::new(0x2606, 0x4700, 0x4700, 0, 0, 0, 0, 0x1111);
@@ -40,10 +39,23 @@ pub const MAX_PROXY_LISTENERS_PER_PROTOCOL: usize = 16;
 pub const MAX_GEO_DIRECT_COUNTRIES: usize = 32;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PendingIdentityReplacement {
+    /// Windows stores the previous identity under a vault-only UUID. Android
+    /// keeps one encrypted rollback envelope under the live Profile instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backup_identity_id: Option<Uuid>,
+    /// `false` means the transaction marker exists but live credentials have
+    /// not been touched. Once armed, startup must restore the rollback record.
+    #[serde(default)]
+    pub armed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AppConfig {
     pub schema_version: u32,
     pub active_profile_id: Option<Uuid>,
-    /// Device-wide connection settings. Switching profiles only changes identity.
+    /// Device-wide connection settings. Zero Trust accounts may replace only
+    /// the endpoint IPv4/IPv6 pair with registration-owned addresses.
     #[serde(default)]
     pub network: SharedNetworkSettings,
     pub profiles: Vec<Account>,
@@ -54,10 +66,18 @@ pub struct AppConfig {
     pub identity_bindings: BTreeMap<Uuid, IdentityProvider>,
     #[serde(default)]
     pub pending_identity_deletions: Vec<Uuid>,
+    /// Vault identities that must be deleted locally without revoking their
+    /// remote registration. Replacement rollback uses this for duplicate
+    /// backup records that now refer to the still-live identity.
+    #[serde(default)]
+    pub pending_identity_local_deletions: Vec<Uuid>,
     /// Profile identities durably staged before the non-secret profile is
     /// committed. Startup recovery deletes these orphaned records.
     #[serde(default)]
     pub pending_identity_creations: Vec<Uuid>,
+    /// Identity replacements with a durable write-ahead state.
+    #[serde(default)]
+    pub pending_identity_replacements: BTreeMap<Uuid, PendingIdentityReplacement>,
 }
 
 impl Default for AppConfig {
@@ -71,7 +91,9 @@ impl Default for AppConfig {
             preferences: AppPreferences::default(),
             identity_bindings: BTreeMap::new(),
             pending_identity_deletions: Vec::new(),
+            pending_identity_local_deletions: Vec::new(),
             pending_identity_creations: Vec::new(),
+            pending_identity_replacements: BTreeMap::new(),
         }
     }
 }
@@ -104,9 +126,14 @@ impl AppConfig {
         matches!(
             self.identity_bindings.get(&id),
             Some(IdentityProvider::ZeroTrust { .. })
-        ) || self
-            .account(id)
-            .is_some_and(|account| account.managed_endpoint.is_some())
+        )
+    }
+
+    pub fn zero_trust_endpoint_needs_reauthentication(&self, id: Uuid) -> bool {
+        self.is_zero_trust_account(id)
+            && self
+                .account(id)
+                .is_some_and(|account| account.managed_endpoint_ips.is_none())
     }
 
     pub fn rename_account(&mut self, id: Uuid, name: String) -> Result<Profile, ConfigError> {
@@ -119,50 +146,40 @@ impl AppConfig {
     }
 
     /// Apply a runtime profile snapshot. New accounts inherit existing network.
-    /// Existing accounts update shared network; Zero Trust endpoints stay on the
-    /// account, even without an identity binding.
+    /// Existing Zero Trust accounts retain registration-owned IPv4/IPv6 while
+    /// updating the shared port, SNI, and remaining network settings.
     pub fn upsert_runtime_profile(&mut self, incoming: Profile) -> Result<Profile, ConfigError> {
         let mut incoming = incoming;
         incoming.canonicalize_geo_direct()?;
         incoming.validate()?;
         let id = incoming.id;
         let name = incoming.name.clone();
-        let bound_zt = matches!(
+        let bound_zero_trust = matches!(
             self.identity_bindings.get(&id),
             Some(IdentityProvider::ZeroTrust { .. })
         );
-        let managed = incoming.endpoint.is_zero_trust_managed();
         match self.profiles.iter().position(|account| account.id == id) {
             None => {
                 self.profiles.push(Account {
                     id,
                     name,
-                    managed_endpoint: managed.then(|| incoming.endpoint.clone()),
+                    managed_endpoint_ips: None,
                 });
             }
             Some(index) => {
                 let keep_username = incoming.proxy.listener_auth_username().is_none();
+                let keep_shared_endpoint_ips =
+                    bound_zero_trust || self.profiles[index].managed_endpoint_ips.is_some();
                 self.profiles[index].name = name;
-                if bound_zt || managed {
-                    let mut network = SharedNetworkSettings::from_profile_keeping_endpoint(
-                        &incoming,
-                        self.network.endpoint.clone(),
-                    );
-                    if keep_username {
-                        network.proxy.auth_username = self.network.proxy.auth_username.clone();
-                    }
-                    self.network = network;
-                    if managed {
-                        self.profiles[index].managed_endpoint = Some(incoming.endpoint.clone());
-                    }
-                } else {
-                    let mut network = SharedNetworkSettings::from_profile(&incoming);
-                    if keep_username {
-                        network.proxy.auth_username = self.network.proxy.auth_username.clone();
-                    }
-                    self.network = network;
-                    self.profiles[index].managed_endpoint = None;
+                let mut network = SharedNetworkSettings::from_profile(&incoming);
+                if keep_shared_endpoint_ips {
+                    network.endpoint.ipv4 = self.network.endpoint.ipv4;
+                    network.endpoint.ipv6 = self.network.endpoint.ipv6;
                 }
+                if keep_username {
+                    network.proxy.auth_username = self.network.proxy.auth_username.clone();
+                }
+                self.network = network;
             }
         }
         self.runtime_profile(id)
@@ -173,17 +190,31 @@ impl AppConfig {
         &mut self,
         id: Uuid,
         name: String,
-        managed_endpoint: Option<EndpointSettings>,
+        managed_endpoint_ips: Option<ManagedEndpointIps>,
     ) -> Result<Profile, ConfigError> {
         if self.account(id).is_some() {
             return Err(ConfigError::DuplicateProfileId(id));
         }
-        let managed_endpoint = managed_endpoint.filter(EndpointSettings::is_zero_trust_managed);
         self.profiles.push(Account {
             id,
             name,
-            managed_endpoint,
+            managed_endpoint_ips,
         });
+        let profile = self
+            .runtime_profile(id)
+            .ok_or(ConfigError::MissingActiveProfile(id))?;
+        profile.validate()?;
+        Ok(profile)
+    }
+
+    pub fn set_managed_endpoint_ips(
+        &mut self,
+        id: Uuid,
+        managed_endpoint_ips: ManagedEndpointIps,
+    ) -> Result<Profile, ConfigError> {
+        self.account_mut(id)
+            .ok_or(ConfigError::MissingActiveProfile(id))?
+            .managed_endpoint_ips = Some(managed_endpoint_ips);
         let profile = self
             .runtime_profile(id)
             .ok_or(ConfigError::MissingActiveProfile(id))?;
@@ -250,6 +281,25 @@ impl AppConfig {
             }
         }
 
+        if self.pending_identity_local_deletions.len() > MAX_PROFILES {
+            return Err(ConfigError::TooManyPendingIdentityLocalDeletions(
+                self.pending_identity_local_deletions.len(),
+            ));
+        }
+        let mut pending_local = HashSet::new();
+        for profile_id in &self.pending_identity_local_deletions {
+            if !pending_local.insert(*profile_id) {
+                return Err(ConfigError::DuplicatePendingIdentityLocalDeletion(
+                    *profile_id,
+                ));
+            }
+            if ids.contains(profile_id) || pending.contains(profile_id) {
+                return Err(ConfigError::InvalidPendingIdentityLocalDeletion(
+                    *profile_id,
+                ));
+            }
+        }
+
         if self.pending_identity_creations.len() > MAX_PROFILES {
             return Err(ConfigError::TooManyPendingIdentityCreations(
                 self.pending_identity_creations.len(),
@@ -265,8 +315,41 @@ impl AppConfig {
                     *profile_id,
                 ));
             }
-            if pending.contains(profile_id) {
+            if pending.contains(profile_id) || pending_local.contains(profile_id) {
                 return Err(ConfigError::PendingIdentityCreationAndDeletion(*profile_id));
+            }
+        }
+
+        if self.pending_identity_replacements.len() > MAX_PROFILES {
+            return Err(ConfigError::TooManyPendingIdentityReplacements(
+                self.pending_identity_replacements.len(),
+            ));
+        }
+        let mut replacement_backups = HashSet::new();
+        for (profile_id, replacement) in &self.pending_identity_replacements {
+            if !ids.contains(profile_id) {
+                return Err(ConfigError::PendingIdentityReplacementWithoutProfile(
+                    *profile_id,
+                ));
+            }
+            if pending.contains(profile_id)
+                || pending_local.contains(profile_id)
+                || pending_creations.contains(profile_id)
+            {
+                return Err(ConfigError::ConflictingPendingIdentityOperation(
+                    *profile_id,
+                ));
+            }
+            if let Some(backup_id) = replacement.backup_identity_id
+                && (ids.contains(&backup_id)
+                    || pending.contains(&backup_id)
+                    || pending_local.contains(&backup_id)
+                    || pending_creations.contains(&backup_id)
+                    || !replacement_backups.insert(backup_id))
+            {
+                return Err(ConfigError::InvalidPendingIdentityReplacementBackup(
+                    backup_id,
+                ));
             }
         }
 
@@ -1025,6 +1108,12 @@ pub enum ConfigError {
     DuplicatePendingIdentityDeletion(Uuid),
     #[error("pending identity deletion is still referenced by a profile: {0}")]
     PendingIdentityStillReferenced(Uuid),
+    #[error("no more than {MAX_PROFILES} pending local identity deletions are allowed, got {0}")]
+    TooManyPendingIdentityLocalDeletions(usize),
+    #[error("duplicate pending local identity deletion: {0}")]
+    DuplicatePendingIdentityLocalDeletion(Uuid),
+    #[error("pending local identity deletion is invalid or still referenced: {0}")]
+    InvalidPendingIdentityLocalDeletion(Uuid),
     #[error("no more than {MAX_PROFILES} pending identity creations are allowed, got {0}")]
     TooManyPendingIdentityCreations(usize),
     #[error("duplicate pending identity creation: {0}")]
@@ -1033,6 +1122,14 @@ pub enum ConfigError {
     PendingIdentityCreationAlreadyReferenced(Uuid),
     #[error("identity cannot be pending creation and deletion at the same time: {0}")]
     PendingIdentityCreationAndDeletion(Uuid),
+    #[error("no more than {MAX_PROFILES} pending identity replacements are allowed, got {0}")]
+    TooManyPendingIdentityReplacements(usize),
+    #[error("pending identity replacement references a missing profile: {0}")]
+    PendingIdentityReplacementWithoutProfile(Uuid),
+    #[error("profile has conflicting pending identity operations: {0}")]
+    ConflictingPendingIdentityOperation(Uuid),
+    #[error("pending identity replacement backup is invalid or duplicated: {0}")]
+    InvalidPendingIdentityReplacementBackup(Uuid),
     #[error("configuration schema {found} is newer than supported schema {supported}")]
     NewerSchema { found: u32, supported: u32 },
 }
@@ -1061,7 +1158,7 @@ mod tests {
             u64::from(profile.endpoint.port),
             fixture["endpoint_port"].as_u64().expect("endpoint_port")
         );
-        assert_eq!(profile.endpoint.sni, "speed.cloudflare.com");
+        assert_eq!(profile.endpoint.sni, fixture["sni"].as_str().expect("sni"));
         assert_eq!(
             u64::from(profile.mtu),
             fixture["mtu"].as_u64().expect("mtu")
@@ -1412,14 +1509,12 @@ mod tests {
     }
 
     #[test]
-    fn zero_trust_endpoint_stays_on_that_account() {
+    fn zero_trust_account_keeps_registered_ips_and_updates_shared_port_and_sni() {
         let mut config = AppConfig::default();
         let work_id = Uuid::new_v4();
-        let managed = EndpointSettings {
+        let managed = ManagedEndpointIps {
             ipv4: Ipv4Addr::new(162, 159, 197, 8),
             ipv6: Ipv6Addr::new(0x2606, 0x4700, 0x0102, 0, 0, 0, 0, 8),
-            port: 443,
-            sni: "zt-masque.cloudflareclient.com".to_owned(),
         };
         config.identity_bindings.insert(
             work_id,
@@ -1430,21 +1525,33 @@ mod tests {
         let work = config
             .insert_account(work_id, "Work".to_owned(), Some(managed.clone()))
             .unwrap();
-        assert_eq!(work.endpoint, managed);
+        assert_eq!(work.endpoint.ipv4, managed.ipv4);
+        assert_eq!(work.endpoint.ipv6, managed.ipv6);
+        assert_eq!(work.endpoint.port, DEFAULT_PORT);
+        assert_eq!(work.endpoint.sni, DEFAULT_SNI);
 
-        let mut home = config.active_profile().unwrap();
-        home.endpoint.sni = "example.com".to_owned();
-        config.upsert_runtime_profile(home).unwrap();
+        let mut work = config.runtime_profile(work_id).unwrap();
+        work.endpoint.ipv4 = Ipv4Addr::new(192, 0, 2, 1);
+        work.endpoint.ipv6 = Ipv6Addr::LOCALHOST;
+        work.endpoint.port = 8443;
+        work.endpoint.sni = "example.com".to_owned();
+        config.upsert_runtime_profile(work).unwrap();
 
         let work = config.runtime_profile(work_id).unwrap();
         let home = config.active_profile().unwrap();
-        assert_eq!(work.endpoint, managed);
+        assert_eq!(work.endpoint.ipv4, managed.ipv4);
+        assert_eq!(work.endpoint.ipv6, managed.ipv6);
+        assert_eq!(home.endpoint.ipv4, DEFAULT_ENDPOINT_V4);
+        assert_eq!(home.endpoint.ipv6, DEFAULT_ENDPOINT_V6);
+        assert_eq!(work.endpoint.port, 8443);
+        assert_eq!(home.endpoint.port, 8443);
+        assert_eq!(work.endpoint.sni, "example.com");
         assert_eq!(home.endpoint.sni, "example.com");
         assert_eq!(config.network.endpoint.sni, "example.com");
     }
 
     #[test]
-    fn binding_before_managed_endpoint_keeps_zt_off_the_shared_copy() {
+    fn bound_zero_trust_edits_cannot_supply_registration_ips() {
         let mut config = AppConfig::default();
         let id = config.active_profile_id.unwrap();
         config.identity_bindings.insert(
@@ -1457,23 +1564,31 @@ mod tests {
         registered.endpoint = EndpointSettings {
             ipv4: Ipv4Addr::new(162, 159, 197, 2),
             ipv6: Ipv6Addr::new(0x2606, 0x4700, 0x0102, 0, 0, 0, 0, 2),
-            port: 443,
-            sni: "zt-masque.cloudflareclient.com".to_owned(),
+            port: 8443,
+            sni: "shared.example.com".to_owned(),
         };
         let stored = config.upsert_runtime_profile(registered).unwrap();
-        assert!(stored.endpoint.is_zero_trust_managed());
-        assert!(!config.network.endpoint.is_zero_trust_managed());
+        assert_eq!(stored.endpoint.ipv4, DEFAULT_ENDPOINT_V4);
+        assert_eq!(stored.endpoint.ipv6, DEFAULT_ENDPOINT_V6);
+        assert_eq!(stored.endpoint.port, 8443);
+        assert_eq!(stored.endpoint.sni, "shared.example.com");
+
+        let managed = ManagedEndpointIps {
+            ipv4: Ipv4Addr::new(162, 159, 197, 2),
+            ipv6: Ipv6Addr::new(0x2606, 0x4700, 0x0102, 0, 0, 0, 0, 2),
+        };
+        let stored = config
+            .set_managed_endpoint_ips(id, managed.clone())
+            .unwrap();
+        assert_eq!(stored.endpoint.ipv4, managed.ipv4);
+        assert_eq!(stored.endpoint.ipv6, managed.ipv6);
+        assert_eq!(stored.endpoint.port, 8443);
+        assert_eq!(stored.endpoint.sni, "shared.example.com");
     }
 
     #[test]
-    fn unbound_zero_trust_endpoint_stays_off_the_shared_copy() {
+    fn endpoint_values_do_not_classify_an_account_as_zero_trust() {
         let mut config = AppConfig::default();
-        let mut home = config.active_profile().unwrap();
-        home.endpoint.sni = "example.com".to_owned();
-        config.upsert_runtime_profile(home).unwrap();
-        let consumer = config.network.endpoint.clone();
-        assert!(!consumer.is_zero_trust_managed());
-
         let id = config.active_profile_id.unwrap();
         assert!(!config.is_zero_trust_account(id));
         let mut registered = config.active_profile().unwrap();
@@ -1486,16 +1601,12 @@ mod tests {
         let stored = config.upsert_runtime_profile(registered).unwrap();
 
         assert!(stored.endpoint.is_zero_trust_managed());
-        assert_eq!(config.network.endpoint, consumer);
-        assert_eq!(
-            config.account(id).unwrap().managed_endpoint.as_ref(),
-            Some(&stored.endpoint)
-        );
-        assert!(config.is_zero_trust_account(id));
+        assert_eq!(config.network.endpoint, stored.endpoint);
+        assert!(!config.is_zero_trust_account(id));
     }
 
     #[test]
-    fn from_profile_does_not_accept_zero_trust_shared_endpoint() {
+    fn from_profile_accepts_any_valid_shared_endpoint() {
         let profile = Profile {
             endpoint: EndpointSettings {
                 ipv4: Ipv4Addr::new(162, 159, 197, 2),
@@ -1507,8 +1618,7 @@ mod tests {
             ..Profile::default()
         };
         let network = SharedNetworkSettings::from_profile(&profile);
-        assert_eq!(network.endpoint, EndpointSettings::default());
-        assert!(!network.endpoint.is_zero_trust_managed());
+        assert_eq!(network.endpoint, profile.endpoint);
         assert_eq!(network.mtu, 1400);
     }
 

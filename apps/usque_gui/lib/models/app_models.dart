@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 
-enum AppSection { home, profiles, proxy, settings, diagnostics }
+import 'diagnostics_models.dart';
+
+enum AppSection { home, profiles, proxy, settings }
 
 enum ConnectionPhase {
   disconnected,
@@ -185,24 +187,80 @@ class UpdateCheckResult {
     required this.available,
     this.version,
     this.releaseUrl,
+    this.package,
   });
 
   const UpdateCheckResult.current()
     : available = false,
       version = null,
-      releaseUrl = null;
+      releaseUrl = null,
+      package = null;
 
   final bool available;
   final String? version;
   final String? releaseUrl;
+  final UpdatePackage? package;
 
   factory UpdateCheckResult.fromMap(Map<Object?, Object?> map) {
+    final package = map['package'];
     return UpdateCheckResult(
       available: map['available'] as bool? ?? false,
       version: map['version'] as String?,
       releaseUrl: map['release_url'] as String?,
+      package: package is Map<Object?, Object?>
+          ? UpdatePackage.fromMap(package)
+          : null,
     );
   }
+}
+
+class UpdatePackage {
+  const UpdatePackage({
+    required this.name,
+    required this.downloadUrl,
+    required this.size,
+    required this.sha256,
+    required this.platform,
+    required this.variant,
+  });
+
+  final String name;
+  final String downloadUrl;
+  final int size;
+  final String sha256;
+  final String platform;
+  final String variant;
+
+  factory UpdatePackage.fromMap(Map<Object?, Object?> map) {
+    return UpdatePackage(
+      name: map['name'] as String? ?? '',
+      downloadUrl: map['download_url'] as String? ?? '',
+      size: map['size'] as int? ?? 0,
+      sha256: map['sha256'] as String? ?? '',
+      platform: map['platform'] as String? ?? '',
+      variant: map['variant'] as String? ?? '',
+    );
+  }
+
+  Map<String, Object> toMap() => <String, Object>{
+    'name': name,
+    'download_url': downloadUrl,
+    'size': size,
+    'sha256': sha256,
+    'platform': platform,
+    'variant': variant,
+  };
+}
+
+enum UpdateOperationPhase {
+  idle,
+  checking,
+  available,
+  downloading,
+  verifying,
+  ready,
+  installing,
+  failed,
 }
 
 class PerAppProxySettings {
@@ -889,6 +947,7 @@ class EngineSnapshot {
     this.exit = const ExitInfo(),
     this.warning,
     this.errorCode,
+    this.failure,
     this.frontends = const <FrontendRuntimeStatus>[],
   });
 
@@ -908,6 +967,7 @@ class EngineSnapshot {
   final ExitInfo exit;
   final String? warning;
   final String? errorCode;
+  final TransportFailureInfo? failure;
   final List<FrontendRuntimeStatus> frontends;
 
   bool get isConnected =>
@@ -959,6 +1019,11 @@ class EngineSnapshot {
       ),
       warning: map['warning'] as String?,
       errorCode: map['error_code'] as String?,
+      failure: map['failure'] is Map
+          ? TransportFailureInfo.fromMap(
+              Map<Object?, Object?>.from(map['failure'] as Map),
+            )
+          : null,
       frontends:
           (map['frontends'] as List?)
               ?.whereType<Map<Object?, Object?>>()
@@ -1007,6 +1072,7 @@ class EngineSnapshot {
             exit == other.exit &&
             warning == other.warning &&
             errorCode == other.errorCode &&
+            failure == other.failure &&
             listEquals(frontends, other.frontends);
   }
 
@@ -1028,6 +1094,7 @@ class EngineSnapshot {
     exit,
     warning,
     errorCode,
+    failure,
     Object.hashAll(frontends),
   ]);
 }

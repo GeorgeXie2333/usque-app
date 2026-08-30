@@ -8,34 +8,23 @@
 
 use std::{
     ffi::c_void,
-    fs, io, mem,
-    os::windows::ffi::OsStrExt,
+    fs, io,
     path::{Path, PathBuf},
     ptr,
 };
 
 use thiserror::Error;
 use tracing::error;
-use windows_sys::Win32::Security::WinTrust::{
-    WINTRUST_ACTION_GENERIC_VERIFY_V2, WINTRUST_DATA, WINTRUST_FILE_INFO,
-    WTD_CACHE_ONLY_URL_RETRIEVAL, WTD_CHOICE_FILE, WTD_REVOCATION_CHECK_NONE,
-    WTD_STATEACTION_CLOSE, WTD_STATEACTION_VERIFY, WTD_UI_NONE, WTD_UICONTEXT_EXECUTE,
-    WinVerifyTrust,
+pub use usque_platform::windows_authenticode::SignerFingerprint;
+use usque_platform::windows_authenticode::{
+    AuthenticodeError, signer_fingerprint, verify_authenticode,
 };
 use windows_sys::{
     Win32::{
-        Foundation::{CERT_E_UNTRUSTEDROOT, CloseHandle, HANDLE, LocalFree},
+        Foundation::{CloseHandle, HANDLE, LocalFree},
         Security::{
-            Authorization::ConvertSidToStringSidW,
-            Cryptography::{
-                CERT_FIND_SUBJECT_CERT, CERT_INFO, CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED,
-                CERT_QUERY_FORMAT_FLAG_BINARY, CERT_QUERY_OBJECT_FILE, CERT_SHA256_HASH_PROP_ID,
-                CMSG_SIGNER_INFO, CMSG_SIGNER_INFO_PARAM, CertCloseStore,
-                CertFindCertificateInStore, CertFreeCertificateContext,
-                CertGetCertificateContextProperty, CryptMsgClose, CryptMsgGetParam,
-                CryptQueryObject, HCERTSTORE, PKCS_7_ASN_ENCODING, X509_ASN_ENCODING,
-            },
-            GetTokenInformation, RevertToSelf, TOKEN_QUERY, TOKEN_USER, TokenUser,
+            Authorization::ConvertSidToStringSidW, GetTokenInformation, RevertToSelf, TOKEN_QUERY,
+            TOKEN_USER, TokenUser,
         },
         System::{
             Pipes::{GetNamedPipeClientProcessId, ImpersonateNamedPipeClient},
@@ -51,32 +40,6 @@ use windows_sys::{
 use crate::AuthenticatedCaller;
 
 const MAX_IMAGE_PATH_UNITS: usize = 32_768;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SignerFingerprint([u8; 32]);
-
-impl SignerFingerprint {
-    pub fn parse(value: &str) -> Result<Self, AuthenticationError> {
-        let compact = value
-            .bytes()
-            .filter(|byte| !matches!(byte, b':' | b'-' | b' '))
-            .collect::<Vec<_>>();
-        if compact.len() != 64 {
-            return Err(AuthenticationError::InvalidFingerprint);
-        }
-        let mut output = [0_u8; 32];
-        for (index, pair) in compact.chunks_exact(2).enumerate() {
-            let high = hex_nibble(pair[0]).ok_or(AuthenticationError::InvalidFingerprint)?;
-            let low = hex_nibble(pair[1]).ok_or(AuthenticationError::InvalidFingerprint)?;
-            output[index] = high << 4 | low;
-        }
-        Ok(Self(output))
-    }
-
-    pub fn as_bytes(&self) -> &[u8; 32] {
-        &self.0
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct CallerPolicy {
@@ -283,165 +246,6 @@ fn process_image_path(process: HANDLE) -> Result<PathBuf, AuthenticationError> {
     ))
 }
 
-fn verify_authenticode(path: &Path) -> Result<(), AuthenticationError> {
-    let path = wide_path(path);
-    let mut file = WINTRUST_FILE_INFO {
-        cbStruct: mem::size_of::<WINTRUST_FILE_INFO>() as u32,
-        pcwszFilePath: path.as_ptr(),
-        hFile: ptr::null_mut(),
-        pgKnownSubject: ptr::null_mut(),
-    };
-    let mut data = WINTRUST_DATA {
-        cbStruct: mem::size_of::<WINTRUST_DATA>() as u32,
-        pPolicyCallbackData: ptr::null_mut(),
-        pSIPClientData: ptr::null_mut(),
-        dwUIChoice: WTD_UI_NONE,
-        fdwRevocationChecks: WTD_REVOCATION_CHECK_NONE,
-        dwUnionChoice: WTD_CHOICE_FILE,
-        Anonymous: windows_sys::Win32::Security::WinTrust::WINTRUST_DATA_0 { pFile: &mut file },
-        dwStateAction: WTD_STATEACTION_VERIFY,
-        hWVTStateData: ptr::null_mut(),
-        pwszURLReference: ptr::null_mut(),
-        dwProvFlags: WTD_CACHE_ONLY_URL_RETRIEVAL,
-        dwUIContext: WTD_UICONTEXT_EXECUTE,
-        pSignatureSettings: ptr::null_mut(),
-    };
-    let mut action = WINTRUST_ACTION_GENERIC_VERIFY_V2;
-    // SAFETY: all structures have the documented size and remain alive for the
-    // complete verification call.
-    let status = unsafe {
-        WinVerifyTrust(
-            ptr::null_mut(),
-            &mut action,
-            (&mut data as *mut WINTRUST_DATA).cast(),
-        )
-    };
-    data.dwStateAction = WTD_STATEACTION_CLOSE;
-    // SAFETY: this releases any state allocated by the preceding call.
-    unsafe {
-        WinVerifyTrust(
-            ptr::null_mut(),
-            &mut action,
-            (&mut data as *mut WINTRUST_DATA).cast(),
-        );
-    }
-    // The public release intentionally uses a stable self-signed publisher
-    // certificate and does not install it as a machine-wide root CA. Windows
-    // therefore reports CERT_E_UNTRUSTEDROOT after the Authenticode provider
-    // has successfully checked the embedded file digest and signature. That
-    // one chain result is safe here because the caller immediately extracts
-    // the embedded signer certificate and compares its SHA-256 fingerprint
-    // with the release-pinned value. Bad digests, expired certificates,
-    // revocation failures, and every other trust result remain fatal.
-    if !authenticode_status_is_acceptable(status) {
-        return Err(AuthenticationError::Authenticode(status));
-    }
-    Ok(())
-}
-
-fn authenticode_status_is_acceptable(status: i32) -> bool {
-    status == 0 || status == CERT_E_UNTRUSTEDROOT
-}
-
-fn signer_fingerprint(path: &Path) -> Result<SignerFingerprint, AuthenticationError> {
-    let path = wide_path(path);
-    let mut encoding = 0_u32;
-    let mut content = 0_u32;
-    let mut format = 0_u32;
-    let mut store: HCERTSTORE = ptr::null_mut();
-    let mut message: *mut c_void = ptr::null_mut();
-    // SAFETY: path is null-terminated and all output pointers are writable.
-    if unsafe {
-        CryptQueryObject(
-            CERT_QUERY_OBJECT_FILE,
-            path.as_ptr().cast(),
-            CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED,
-            CERT_QUERY_FORMAT_FLAG_BINARY,
-            0,
-            &mut encoding,
-            &mut content,
-            &mut format,
-            &mut store,
-            &mut message,
-            ptr::null_mut(),
-        )
-    } == 0
-    {
-        return Err(last_error("CryptQueryObject"));
-    }
-    let store = CertificateStore(store);
-    let message = CryptographicMessage(message);
-
-    let mut signer_size = 0_u32;
-    // SAFETY: the first query obtains the exact variable-size signer buffer.
-    if unsafe {
-        CryptMsgGetParam(
-            message.0,
-            CMSG_SIGNER_INFO_PARAM,
-            0,
-            ptr::null_mut(),
-            &mut signer_size,
-        )
-    } == 0
-        || signer_size < mem::size_of::<CMSG_SIGNER_INFO>() as u32
-    {
-        return Err(last_error("CryptMsgGetParam(size)"));
-    }
-    let mut signer_buffer = vec![0_u8; signer_size as usize];
-    // SAFETY: signer_buffer is exactly the size requested by Crypt32.
-    if unsafe {
-        CryptMsgGetParam(
-            message.0,
-            CMSG_SIGNER_INFO_PARAM,
-            0,
-            signer_buffer.as_mut_ptr().cast(),
-            &mut signer_size,
-        )
-    } == 0
-    {
-        return Err(last_error("CryptMsgGetParam"));
-    }
-    // SAFETY: CryptMsgGetParam populated a CMSG_SIGNER_INFO at the buffer head.
-    let signer = unsafe { &*signer_buffer.as_ptr().cast::<CMSG_SIGNER_INFO>() };
-    let certificate_info = CERT_INFO {
-        Issuer: signer.Issuer,
-        SerialNumber: signer.SerialNumber,
-        ..CERT_INFO::default()
-    };
-    // SAFETY: certificate_info references signer_buffer, which remains alive,
-    // and the returned context is independently reference counted.
-    let context = unsafe {
-        CertFindCertificateInStore(
-            store.0,
-            X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
-            0,
-            CERT_FIND_SUBJECT_CERT,
-            (&certificate_info as *const CERT_INFO).cast(),
-            ptr::null(),
-        )
-    };
-    if context.is_null() {
-        return Err(last_error("CertFindCertificateInStore"));
-    }
-    let context = CertificateContext(context);
-    let mut fingerprint = [0_u8; 32];
-    let mut fingerprint_size = fingerprint.len() as u32;
-    // SAFETY: the output buffer is exactly 32 bytes and context is live.
-    if unsafe {
-        CertGetCertificateContextProperty(
-            context.0,
-            CERT_SHA256_HASH_PROP_ID,
-            fingerprint.as_mut_ptr().cast(),
-            &mut fingerprint_size,
-        )
-    } == 0
-        || fingerprint_size != fingerprint.len() as u32
-    {
-        return Err(last_error("CertGetCertificateContextProperty"));
-    }
-    Ok(SignerFingerprint(fingerprint))
-}
-
 fn normalized_path(path: &Path) -> Result<String, AuthenticationError> {
     let canonical = fs::canonicalize(path)
         .map_err(|error| AuthenticationError::Path(path.to_path_buf(), error))?;
@@ -450,13 +254,6 @@ fn normalized_path(path: &Path) -> Result<String, AuthenticationError> {
         .trim_start_matches(r"\\?\")
         .replace('/', r"\")
         .to_ascii_lowercase())
-}
-
-fn wide_path(path: &Path) -> Vec<u16> {
-    path.as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect()
 }
 
 fn wide_null_to_string(value: *const u16, maximum: usize) -> Result<String, AuthenticationError> {
@@ -473,15 +270,6 @@ fn wide_null_to_string(value: *const u16, maximum: usize) -> Result<String, Auth
         }
     }
     Err(AuthenticationError::InvalidSid)
-}
-
-fn hex_nibble(value: u8) -> Option<u8> {
-    match value {
-        b'0'..=b'9' => Some(value - b'0'),
-        b'a'..=b'f' => Some(value - b'a' + 10),
-        b'A'..=b'F' => Some(value - b'A' + 10),
-        _ => None,
-    }
 }
 
 fn last_error(operation: &'static str) -> AuthenticationError {
@@ -547,45 +335,6 @@ impl Drop for LocalAllocation {
     }
 }
 
-struct CertificateStore(HCERTSTORE);
-
-impl Drop for CertificateStore {
-    fn drop(&mut self) {
-        if !self.0.is_null() {
-            // SAFETY: CryptQueryObject transferred this store handle.
-            unsafe {
-                CertCloseStore(self.0, 0);
-            }
-        }
-    }
-}
-
-struct CryptographicMessage(*mut c_void);
-
-impl Drop for CryptographicMessage {
-    fn drop(&mut self) {
-        if !self.0.is_null() {
-            // SAFETY: CryptQueryObject transferred this message handle.
-            unsafe {
-                CryptMsgClose(self.0);
-            }
-        }
-    }
-}
-
-struct CertificateContext(*mut windows_sys::Win32::Security::Cryptography::CERT_CONTEXT);
-
-impl Drop for CertificateContext {
-    fn drop(&mut self) {
-        if !self.0.is_null() {
-            // SAFETY: CertFindCertificateInStore returned this context.
-            unsafe {
-                CertFreeCertificateContext(self.0);
-            }
-        }
-    }
-}
-
 #[derive(Debug, Error)]
 pub enum AuthenticationError {
     #[error("Windows {0} failed: {1}")]
@@ -602,14 +351,12 @@ pub enum AuthenticationError {
     UnexpectedExecutable(PathBuf),
     #[error("failed to normalize path {0}: {1}")]
     Path(PathBuf, io::Error),
-    #[error("Engine Authenticode verification failed with HRESULT 0x{0:08x}")]
-    Authenticode(i32),
+    #[error(transparent)]
+    Authenticode(#[from] AuthenticodeError),
     #[error("Engine signer certificate does not match the pinned fingerprint")]
     SignerMismatch,
     #[error("unsigned Engine clients are denied")]
     UnsignedClientDenied,
-    #[error("signer fingerprint must contain exactly 64 hexadecimal digits")]
-    InvalidFingerprint,
     #[error("caller policy is invalid: {0}")]
     InvalidPolicy(String),
 }
@@ -663,13 +410,5 @@ mod tests {
             )
             .is_err()
         );
-    }
-
-    #[test]
-    fn pinned_self_signed_policy_allows_only_the_untrusted_root_chain_result() {
-        assert!(authenticode_status_is_acceptable(0));
-        assert!(authenticode_status_is_acceptable(CERT_E_UNTRUSTEDROOT));
-        assert!(!authenticode_status_is_acceptable(0x8009_6010_u32 as i32)); // TRUST_E_BAD_DIGEST
-        assert!(!authenticode_status_is_acceptable(0x800b_0101_u32 as i32)); // CERT_E_EXPIRED
     }
 }
