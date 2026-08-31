@@ -16,7 +16,7 @@ use tokio::{
     net::windows::named_pipe::{ClientOptions, NamedPipeClient},
     sync::{mpsc, watch},
     task::JoinHandle,
-    time::timeout,
+    time::{sleep, timeout},
 };
 use tokio_util::sync::CancellationToken;
 use usque_core::{
@@ -79,6 +79,7 @@ const AGENT_START_RECHECK_INTERVAL: Duration = Duration::from_millis(250);
 const PUMP_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 const DEFAULT_PACKET_RING_CAPACITY: u32 = 4 * 1024 * 1024;
 const PACKET_WAKE_BATCH: usize = 64;
+const PACKET_RING_RETRY_INTERVAL: Duration = Duration::from_millis(1);
 const PHYSICAL_NETWORK_POLL_INTERVAL: Duration = Duration::from_secs(2);
 
 struct WindowsVpnSocketProtector {
@@ -424,9 +425,34 @@ pub(crate) struct WindowsVpnRuntime {
 }
 
 #[derive(Clone)]
+struct WindowsPumpFailure {
+    message: String,
+    failure: TransportFailure,
+}
+
+impl WindowsPumpFailure {
+    fn agent(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            failure: TransportFailure::new(
+                TransportFailureCode::AgentUnreachable,
+                TransportStage::PlatformRecovery,
+            ),
+        }
+    }
+
+    fn transport(context: &str, error: &TransportError, path: RuntimePath) -> Self {
+        Self {
+            message: format!("{context}: {error}"),
+            failure: error.failure(Some(path.transport), Some(path.endpoint_family)),
+        }
+    }
+}
+
+#[derive(Clone)]
 pub(crate) struct WindowsVpnMonitor {
     tunnel: ManagedTunnelMonitor,
-    pump_failure: watch::Receiver<Option<String>>,
+    pump_failure: watch::Receiver<Option<WindowsPumpFailure>>,
     agent_disconnected: watch::Receiver<bool>,
 }
 
@@ -436,17 +462,23 @@ impl WindowsVpnMonitor {
     }
 
     pub(crate) fn health(&self) -> RuntimeHealth {
-        if let Some(message) = self.pump_failure.borrow().clone() {
+        if let Some(pump_failure) = self.pump_failure.borrow().clone() {
             let transport = self.tunnel.health();
+            let path = transport.path();
+            let failure = if pump_failure.failure.transport.is_none()
+                || pump_failure.failure.address_family.is_none()
+            {
+                pump_failure
+                    .failure
+                    .on_path(path.transport, path.endpoint_family)
+            } else {
+                pump_failure.failure
+            };
             RuntimeHealth::Failed {
-                last_path: transport.path(),
+                last_path: path,
                 reconnect_count: transport.reconnect_count(),
-                message,
-                failure: TransportFailure::new(
-                    TransportFailureCode::AgentUnreachable,
-                    TransportStage::PlatformRecovery,
-                )
-                .on_path(transport.path().transport, transport.path().endpoint_family),
+                message: pump_failure.message,
+                failure,
             }
         } else {
             self.tunnel.health()
@@ -464,7 +496,8 @@ impl WindowsVpnMonitor {
     pub(crate) fn failure(&self) -> Option<String> {
         self.pump_failure
             .borrow()
-            .clone()
+            .as_ref()
+            .map(|failure| failure.message.clone())
             .or_else(|| self.tunnel.failure())
     }
 
@@ -918,6 +951,7 @@ async fn bind_agent_session(
     let mut tasks = start_packet_pumps(
         tun_io,
         Arc::clone(&mapping),
+        tunnel_monitor.clone(),
         cancellation.clone(),
         pump_failure_tx.clone(),
     );
@@ -1120,8 +1154,9 @@ fn validate_capabilities(
 fn start_packet_pumps(
     mut tun_io: MasqueTunIo,
     mapping: Arc<PacketSessionMapping>,
+    tunnel_monitor: ManagedTunnelMonitor,
     cancellation: CancellationToken,
-    failure: watch::Sender<Option<String>>,
+    failure: watch::Sender<Option<WindowsPumpFailure>>,
 ) -> Vec<JoinHandle<()>> {
     let (packet_ready_tx, mut packet_ready_rx) = mpsc::channel(1);
 
@@ -1135,11 +1170,15 @@ fn start_packet_pumps(
         .await;
         match result {
             Ok(Ok(())) => {}
-            Ok(Err(error)) => report_pump_failure(&wait_failure, &wait_cancel, error.to_string()),
+            Ok(Err(error)) => report_pump_failure(
+                &wait_failure,
+                &wait_cancel,
+                WindowsPumpFailure::agent(error.to_string()),
+            ),
             Err(error) => report_pump_failure(
                 &wait_failure,
                 &wait_cancel,
-                format!("Agent packet wait task failed: {error}"),
+                WindowsPumpFailure::agent(format!("Agent packet wait task failed: {error}")),
             ),
         }
     });
@@ -1148,6 +1187,7 @@ fn start_packet_pumps(
     let pump_cancel = cancellation.clone();
     let pump_failure = failure.clone();
     let pump_task = tokio::spawn(async move {
+        let mut ring_saturation_count = 0u64;
         loop {
             tokio::select! {
                 () = pump_cancel.cancelled() => break,
@@ -1157,7 +1197,9 @@ fn start_packet_pumps(
                             report_pump_failure(
                                 &pump_failure,
                                 &pump_cancel,
-                                "Agent packet notification channel closed".to_owned(),
+                                WindowsPumpFailure::agent(
+                                    "Agent packet notification channel closed",
+                                ),
                             );
                         }
                         break;
@@ -1168,12 +1210,21 @@ fn start_packet_pumps(
                             .try_pop(PacketDirection::AgentToEngine)
                         {
                             Ok(Some(packet)) => {
-                                if let Err(error) = tun_io.send_packet(&packet).await {
+                                let send = tokio::select! {
+                                    biased;
+                                    _ = pump_cancel.cancelled() => return,
+                                    result = tun_io.send_packet(&packet) => result,
+                                };
+                                if let Err(error) = send {
                                     if !pump_cancel.is_cancelled() {
                                         report_pump_failure(
                                             &pump_failure,
                                             &pump_cancel,
-                                            format!("failed to send a TUN packet into MASQUE: {error}"),
+                                            WindowsPumpFailure::transport(
+                                                "failed to send a TUN packet into MASQUE",
+                                                &error,
+                                                tunnel_monitor.path(),
+                                            ),
                                         );
                                     }
                                     return;
@@ -1184,7 +1235,9 @@ fn start_packet_pumps(
                                 report_pump_failure(
                                     &pump_failure,
                                     &pump_cancel,
-                                    format!("Agent-to-Engine packet ring failed: {error}"),
+                                    WindowsPumpFailure::agent(format!(
+                                        "Agent-to-Engine packet ring failed: {error}"
+                                    )),
                                 );
                                 return;
                             }
@@ -1194,13 +1247,22 @@ fn start_packet_pumps(
                 packet = tun_io.receive_packet() => {
                     match packet {
                         Ok(packet) => {
-                            if let Err(message) = publish_engine_packet_batch(
+                            match publish_engine_packet_batch(
                                 &mut tun_io,
                                 &pump_mapping,
+                                &tunnel_monitor,
+                                &pump_cancel,
+                                &mut ring_saturation_count,
                                 packet,
-                            ) {
-                                report_pump_failure(&pump_failure, &pump_cancel, message);
-                                break;
+                            )
+                            .await
+                            {
+                                Ok(true) => {}
+                                Ok(false) => break,
+                                Err(failure) => {
+                                    report_pump_failure(&pump_failure, &pump_cancel, failure);
+                                    break;
+                                }
                             }
                         }
                         Err(error) => {
@@ -1208,7 +1270,11 @@ fn start_packet_pumps(
                                 report_pump_failure(
                                     &pump_failure,
                                     &pump_cancel,
-                                    format!("failed to receive a MASQUE packet: {error}"),
+                                    WindowsPumpFailure::transport(
+                                        "failed to receive a MASQUE packet",
+                                        &error,
+                                        tunnel_monitor.path(),
+                                    ),
                                 );
                             }
                             break;
@@ -1223,35 +1289,70 @@ fn start_packet_pumps(
     vec![wait_task, pump_task]
 }
 
-fn publish_engine_packet_batch(
+async fn publish_engine_packet_batch(
     tun_io: &mut MasqueTunIo,
     mapping: &PacketSessionMapping,
+    tunnel_monitor: &ManagedTunnelMonitor,
+    cancellation: &CancellationToken,
+    saturation_count: &mut u64,
     first: Bytes,
-) -> Result<(), String> {
+) -> Result<bool, WindowsPumpFailure> {
     let ring = mapping.ring();
     let wake_bytes = (ring.capacity() as usize / 4).max(1);
     let mut packet = first;
     let mut published = false;
     let mut published_bytes = 0usize;
     let mut packet_count = 0usize;
-    let result: Result<(), String> = loop {
-        match ring.try_push(PacketDirection::EngineToAgent, &packet) {
-            Ok(pushed) => {
-                published |= pushed;
-                if pushed {
-                    published_bytes = published_bytes.saturating_add(packet.len());
+    let result: Result<bool, WindowsPumpFailure> = 'batch: loop {
+        loop {
+            match ring.try_push_preserving(PacketDirection::EngineToAgent, &packet) {
+                Ok(true) => break,
+                Ok(false) => {
+                    if published {
+                        mapping
+                            .signal_engine_to_agent()
+                            .map_err(|error| WindowsPumpFailure::agent(error.to_string()))?;
+                        published = false;
+                        published_bytes = 0;
+                        packet_count = 0;
+                    }
+                    *saturation_count = saturation_count.saturating_add(1);
+                    if saturation_count.is_power_of_two() {
+                        tracing::warn!(
+                            wait_count = *saturation_count,
+                            ring_capacity = ring.capacity(),
+                            "waiting for capacity in the Engine-to-Agent packet ring"
+                        );
+                    }
+                    tokio::select! {
+                        biased;
+                        _ = cancellation.cancelled() => break 'batch Ok(false),
+                        () = sleep(PACKET_RING_RETRY_INTERVAL) => {}
+                    }
+                }
+                Err(error) => {
+                    break 'batch Err(WindowsPumpFailure::agent(format!(
+                        "Engine-to-Agent packet ring failed: {error}"
+                    )));
                 }
             }
-            Err(error) => break Err(format!("Engine-to-Agent packet ring failed: {error}")),
         }
+        published = true;
+        published_bytes = published_bytes.saturating_add(packet.len());
         packet_count += 1;
         if packet_count == PACKET_WAKE_BATCH || published_bytes >= wake_bytes {
-            break Ok(());
+            break 'batch Ok(true);
         }
         match tun_io.try_receive_packet() {
             Ok(Some(next)) => packet = next,
-            Ok(None) => break Ok(()),
-            Err(error) => break Err(format!("failed to receive a MASQUE packet: {error}")),
+            Ok(None) => break 'batch Ok(true),
+            Err(error) => {
+                break 'batch Err(WindowsPumpFailure::transport(
+                    "failed to receive a MASQUE packet",
+                    &error,
+                    tunnel_monitor.path(),
+                ));
+            }
         }
     };
 
@@ -1260,18 +1361,18 @@ fn publish_engine_packet_batch(
         // until empty, so coalesced auto-reset signals cannot strand packets.
         mapping
             .signal_engine_to_agent()
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| WindowsPumpFailure::agent(error.to_string()))?;
     }
     result
 }
 
 fn report_pump_failure(
-    failure: &watch::Sender<Option<String>>,
+    failure: &watch::Sender<Option<WindowsPumpFailure>>,
     cancellation: &CancellationToken,
-    message: String,
+    pump_failure: WindowsPumpFailure,
 ) {
     if failure.borrow().is_none() {
-        failure.send_replace(Some(message));
+        failure.send_replace(Some(pump_failure));
     }
     cancellation.cancel();
 }
@@ -1280,7 +1381,7 @@ fn start_agent_liveness_watch(
     mut pipe: NamedPipeClient,
     mapping: Arc<PacketSessionMapping>,
     cancellation: CancellationToken,
-    failure: watch::Sender<Option<String>>,
+    failure: watch::Sender<Option<WindowsPumpFailure>>,
     agent_disconnected: watch::Sender<bool>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
@@ -1299,7 +1400,7 @@ fn start_agent_liveness_watch(
             Ok(_) => "Windows Agent sent unexpected liveness data".to_owned(),
             Err(error) => format!("Windows Agent service connection failed: {error}"),
         };
-        report_pump_failure(&failure, &cancellation, message);
+        report_pump_failure(&failure, &cancellation, WindowsPumpFailure::agent(message));
     })
 }
 
@@ -2287,9 +2388,48 @@ mod tests {
     };
 
     use tokio::net::windows::named_pipe::ServerOptions;
-    use usque_core::{MasqueKeyPair, OperatingMode};
+    use usque_core::{AddressFamily, MasqueKeyPair, OperatingMode, Transport};
 
     use super::*;
+
+    #[test]
+    fn packet_pump_transport_failures_keep_the_active_transport_code() {
+        let path = RuntimePath {
+            transport: Transport::Http3,
+            endpoint_family: AddressFamily::Ipv4,
+            ipv4_available: true,
+            ipv6_available: true,
+        };
+        let closed = WindowsPumpFailure::transport(
+            "receive MASQUE packet",
+            &TransportError::TunnelClosed,
+            path,
+        );
+        assert_eq!(
+            closed.failure.code,
+            TransportFailureCode::H3ConnectionClosed
+        );
+        assert_eq!(closed.failure.transport, Some(Transport::Http3));
+        assert_eq!(closed.failure.address_family, Some(AddressFamily::Ipv4));
+
+        let saturated = WindowsPumpFailure::transport(
+            "send MASQUE packet",
+            &TransportError::SendQueueFull,
+            path,
+        );
+        assert_eq!(saturated.failure.code, TransportFailureCode::SendQueueFull);
+        assert_ne!(
+            saturated.failure.code,
+            TransportFailureCode::AgentUnreachable
+        );
+    }
+
+    #[test]
+    fn only_agent_liveness_failures_use_agent_unreachable() {
+        let failure = WindowsPumpFailure::agent("agent pipe closed");
+        assert_eq!(failure.failure.code, TransportFailureCode::AgentUnreachable);
+        assert_eq!(failure.failure.stage, TransportStage::PlatformRecovery);
+    }
 
     struct StartingTestController {
         pipe_name: String,

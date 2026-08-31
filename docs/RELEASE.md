@@ -1,12 +1,12 @@
-# How v0.2.2 is published
+# How v0.2.3 is published
 
-`v0.2.2` is built by the tag workflow on the current `main` commit. The `v0.2.2` tag is maintainer-only. Signing and publish jobs run in GitHub Environments that need approval. If a required file, signature input, or CI result is missing, the workflow fails. A local MSI or APK cannot replace a failed Actions build.
+`v0.2.3` is built by the tag workflow on the current `main` commit. The `v0.2.3` tag is maintainer-only. Signing and publish jobs run in GitHub Environments that need approval. If a required file, signature input, or CI result is missing, the workflow fails. A local MSI or APK cannot replace a failed Actions build.
 
 Which signatures count as official, how fingerprints are published, and what happens if a key is lost or leaked are in [CODE_SIGNING.md](CODE_SIGNING.md). Repository rules around this workflow are in [GITHUB_GOVERNANCE.md](GITHUB_GOVERNANCE.md).
 
 ## Before signing starts
 
-- The tag must be `v0.2.2` and must point at the current `main` commit.
+- The tag must be `v0.2.3` and must point at the current `main` commit.
 - That commit must already have a successful `ci.yml` push run, including `CI / gate`.
 - `release-signing` and `release-publish` both require approval.
 - Android Developer Console must show `io.github.georgexie2333.usque` and the certificate fingerprint in `ANDROID_SIGNER_SHA256` as **Registered**.
@@ -69,12 +69,12 @@ unrendered or partially rendered body.
 
 Primary files:
 
-- `usque-v0.2.2-windows-x64-v2.msi`
-- `usque-v0.2.2-windows-arm64.msi`
-- `usque-v0.2.2-android-arm64-v8a.apk`
-- `usque-v0.2.2-android-x86_64.apk`
-- `usque-v0.2.2-android-armeabi-v7a.apk`
-- `usque-v0.2.2-android-universal.apk`
+- `usque-v0.2.3-windows-x64-v2.msi`
+- `usque-v0.2.3-windows-arm64.msi`
+- `usque-v0.2.3-android-arm64-v8a.apk`
+- `usque-v0.2.3-android-x86_64.apk`
+- `usque-v0.2.3-android-armeabi-v7a.apk`
+- `usque-v0.2.3-android-universal.apk`
 
 In addition to the six install packages, the public release includes
 `release-manifest.json`, `SHA256SUMS`, and each package's SPDX SBOM. A public
@@ -92,7 +92,7 @@ MSI build = SemVer patch * 100 + beta ordinal
 stable ordinal = 99
 ```
 
-Stable `v0.2.2` is therefore MSI ProductVersion `0.2.299`. The real SemVer stays in ProductName and the filenames. Equal-version major upgrades are enabled so a validation build can replace the same product instead of installing a second copy under `Program Files\Usque`. WiX validation suppresses only ICE61, which assumes upgrades must raise the version; every other standard ICE check stays on.
+Stable `v0.2.3` is therefore MSI ProductVersion `0.2.399`. The real SemVer stays in ProductName and the filenames. Equal-version major upgrades are enabled so a validation build can replace the same product instead of installing a second copy under `Program Files\Usque`. WiX validation suppresses only ICE61, which assumes upgrades must raise the version; every other standard ICE check stays on.
 
 The Agent is installed as demand-start and is not started by the MSI. Its
 `MsiLockPermissionsEx` descriptor gives `SYSTEM` and Administrators full service

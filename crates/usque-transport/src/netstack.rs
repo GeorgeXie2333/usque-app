@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::future::Future;
 use std::net::IpAddr;
 use std::pin::Pin;
@@ -6,7 +7,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use bytes::Bytes;
-use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, sleep, timeout};
@@ -26,13 +26,14 @@ use usque_protocol::{IpAddressRange, IpPrefix, PeerNetworkState};
 use crate::geo_direct::GeoDirectPolicy;
 use crate::h2::{MasqueTlsIdentity, TransportError, connect_h2_with_protector};
 use crate::h3::connect_h3_with_protector;
+use crate::packet_batch::{PACKET_BATCH_CHANNEL_CAPACITY, PacketBatch, PacketBatchResult};
 use crate::pin_refresh::EndpointPinRefresher;
 use crate::socket::SocketProtector;
 use crate::telemetry::{
     ConnectionAttemptTelemetry, ConnectionEventPath, ConnectionEventType, ConnectionTelemetry,
     ConnectionTimelineSnapshot,
 };
-use crate::tunnel::MasqueTunnel;
+use crate::tunnel::{BatchSendFuture, MasqueTunnel};
 
 const HAPPY_EYEBALLS_DELAY: Duration = Duration::from_millis(250);
 const STACK_COMMAND_CAPACITY: usize = 256;
@@ -415,7 +416,8 @@ impl Drop for PacketStack {
 /// them and decrements TTL/hop-limit immediately before encapsulation.
 pub struct ManagedTunnelRuntime {
     outgoing: Option<mpsc::Sender<Bytes>>,
-    incoming: mpsc::Receiver<Bytes>,
+    incoming: mpsc::Receiver<PacketBatch>,
+    pending_incoming: PacketBatch,
     cancellation: CancellationToken,
     failure: watch::Receiver<Option<String>>,
     health: watch::Receiver<RuntimeHealth>,
@@ -458,14 +460,16 @@ impl ManagedTunnelSender {
             .max_capacity()
             .saturating_sub(self.outgoing.capacity());
         self.telemetry.observe_queue_depth(queued);
-        match self.outgoing.try_send(packet) {
-            Ok(()) => Ok(()),
-            Err(TrySendError::Full(_)) => {
-                self.telemetry.record_queue_drop();
-                Err(TransportError::SendQueueFull)
-            }
-            Err(TrySendError::Closed(_)) => Err(TransportError::TunnelClosed),
+        if self.outgoing.capacity() == 0 {
+            self.telemetry.record_queue_saturated(queued);
         }
+        let permit = self
+            .outgoing
+            .reserve()
+            .await
+            .map_err(|_| TransportError::TunnelClosed)?;
+        permit.send(packet);
+        Ok(())
     }
 }
 
@@ -519,6 +523,37 @@ impl ManagedTunnelMonitor {
 }
 
 impl ManagedTunnelRuntime {
+    #[cfg(test)]
+    pub(crate) fn packet_mux_test_channels(
+        outgoing_capacity: usize,
+    ) -> (Self, mpsc::Receiver<Bytes>, mpsc::Sender<PacketBatch>) {
+        let (outgoing, outgoing_rx) = mpsc::channel(outgoing_capacity);
+        let (incoming_tx, incoming) = mpsc::channel(PACKET_BATCH_CHANNEL_CAPACITY);
+        let (_failure_tx, failure) = watch::channel(None);
+        let path = runtime_path(Transport::Http3, AddressFamily::Ipv4);
+        let (_health_tx, health) = watch::channel(RuntimeHealth::Connected {
+            path,
+            reconnect_count: 0,
+        });
+        let (_control_tx, control) = watch::channel(PeerNetworkState::default());
+        (
+            Self {
+                outgoing: Some(outgoing),
+                incoming,
+                pending_incoming: PacketBatch::new(),
+                cancellation: CancellationToken::new(),
+                failure,
+                health,
+                control,
+                counters: Arc::new(TrafficCounters::default()),
+                telemetry: ConnectionTelemetry::default(),
+                tasks: Vec::new(),
+            },
+            outgoing_rx,
+            incoming_tx,
+        )
+    }
+
     pub async fn start(
         profile: &Profile,
         identity: MasqueTlsIdentity,
@@ -554,7 +589,7 @@ impl ManagedTunnelRuntime {
             .await?;
         let path = runtime_path(tunnel.transport(), endpoint_family);
         let (outgoing, outgoing_rx) = mpsc::channel(RAW_PACKET_CHANNEL_CAPACITY);
-        let (incoming_tx, incoming) = mpsc::channel(RAW_PACKET_CHANNEL_CAPACITY);
+        let (incoming_tx, incoming) = mpsc::channel(PACKET_BATCH_CHANNEL_CAPACITY);
         let cancellation = CancellationToken::new();
         let (failure_tx, failure) = watch::channel(None);
         let (health_tx, health) = watch::channel(RuntimeHealth::Connected {
@@ -569,6 +604,7 @@ impl ManagedTunnelRuntime {
             PacketIo::Channel {
                 outgoing: outgoing_rx,
                 incoming: incoming_tx,
+                buffered_outgoing: None,
             },
             SupervisorContext {
                 profile: profile.clone(),
@@ -601,6 +637,7 @@ impl ManagedTunnelRuntime {
         Ok(Self {
             outgoing: Some(outgoing),
             incoming,
+            pending_incoming: PacketBatch::new(),
             cancellation,
             failure,
             health,
@@ -627,6 +664,22 @@ impl ManagedTunnelRuntime {
     }
 
     pub async fn receive_packet(&mut self) -> Result<Bytes, TransportError> {
+        loop {
+            if let Some(packet) = self.pending_incoming.pop_front() {
+                return Ok(packet);
+            }
+            self.pending_incoming = self
+                .incoming
+                .recv()
+                .await
+                .ok_or(TransportError::TunnelClosed)?;
+        }
+    }
+
+    pub(crate) async fn receive_batch(&mut self) -> Result<PacketBatch, TransportError> {
+        if !self.pending_incoming.is_empty() {
+            return Ok(std::mem::take(&mut self.pending_incoming));
+        }
         self.incoming
             .recv()
             .await
@@ -1079,21 +1132,59 @@ enum PacketIo {
     Pipe {
         rx: WakingPipeReceiver,
         tx: WakingPipeSender,
+        buffered_outgoing: Option<Bytes>,
     },
     Channel {
         outgoing: mpsc::Receiver<Bytes>,
-        incoming: mpsc::Sender<Bytes>,
+        incoming: mpsc::Sender<PacketBatch>,
+        buffered_outgoing: Option<Bytes>,
     },
+}
+
+enum TryOutgoingPacket {
+    Packet(Bytes),
+    Empty,
+    Closed,
+}
+
+type IncomingDeliveryFuture = Pin<Box<dyn Future<Output = bool> + Send + 'static>>;
+type TimedBatchSendResult =
+    Result<Result<PacketBatchResult, TransportError>, tokio::time::error::Elapsed>;
+type TimedBatchSendFuture = Pin<Box<dyn Future<Output = TimedBatchSendResult> + Send + 'static>>;
+
+fn start_timed_batch_send(future: BatchSendFuture) -> TimedBatchSendFuture {
+    Box::pin(timeout(PACKET_SEND_TIMEOUT, future))
+}
+
+async fn wait_for_batch_send(pending: &mut Option<TimedBatchSendFuture>) -> TimedBatchSendResult {
+    pending
+        .as_mut()
+        .expect("pending batch send is present while selected")
+        .await
+}
+
+async fn wait_for_incoming_delivery(pending: &mut Option<IncomingDeliveryFuture>) -> bool {
+    pending
+        .as_mut()
+        .expect("pending incoming delivery is present while selected")
+        .await
 }
 
 impl PacketIo {
     fn from_pipe(pipe: WakingPipe) -> Self {
         let WakingPipe { rx, tx } = pipe;
-        Self::Pipe { rx, tx }
+        Self::Pipe {
+            rx,
+            tx,
+            buffered_outgoing: None,
+        }
     }
 
     async fn receive_outgoing(&mut self) -> Option<Bytes> {
         loop {
+            if let Some(packet) = self.take_buffered_outgoing() {
+                return Some(packet);
+            }
             let packet = match self {
                 Self::Pipe { rx, .. } => rx.recv_async().await.map(|packet| {
                     let mut packet = packet
@@ -1127,13 +1218,91 @@ impl PacketIo {
         }
     }
 
-    async fn send_incoming(&mut self, packet: Bytes) -> bool {
+    async fn receive_outgoing_batch(&mut self) -> Option<PacketBatch> {
+        let first = self.receive_outgoing().await?;
+        let mut batch = PacketBatch::single(first);
+        while let TryOutgoingPacket::Packet(packet) = self.try_receive_outgoing() {
+            if let Err(packet) = batch.push_back(packet) {
+                self.store_buffered_outgoing(packet);
+                break;
+            }
+        }
+        Some(batch)
+    }
+
+    fn try_receive_outgoing(&mut self) -> TryOutgoingPacket {
+        loop {
+            if let Some(packet) = self.take_buffered_outgoing() {
+                return TryOutgoingPacket::Packet(packet);
+            }
+            let packet = match self {
+                Self::Pipe { rx, .. } => {
+                    if !rx.rx_ready() {
+                        return TryOutgoingPacket::Empty;
+                    }
+                    match rx.try_recv() {
+                        Some(packet) => packet,
+                        None => return TryOutgoingPacket::Closed,
+                    }
+                }
+                Self::Channel { outgoing, .. } => match outgoing.try_recv() {
+                    Ok(packet) => packet,
+                    Err(mpsc::error::TryRecvError::Empty) => return TryOutgoingPacket::Empty,
+                    Err(mpsc::error::TryRecvError::Disconnected) => {
+                        return TryOutgoingPacket::Closed;
+                    }
+                },
+            };
+            let mut packet = packet
+                .try_into_mut()
+                .unwrap_or_else(|packet| bytes::BytesMut::from(packet.as_ref()));
+            if let Err(error) = prepare_forwarded_packet(&mut packet) {
+                tracing::warn!(%error, "discarded malformed packet while building a MASQUE batch");
+                continue;
+            }
+            return TryOutgoingPacket::Packet(packet.freeze());
+        }
+    }
+
+    fn take_buffered_outgoing(&mut self) -> Option<Bytes> {
+        match self {
+            Self::Pipe {
+                buffered_outgoing, ..
+            }
+            | Self::Channel {
+                buffered_outgoing, ..
+            } => buffered_outgoing.take(),
+        }
+    }
+
+    fn store_buffered_outgoing(&mut self, packet: Bytes) {
+        let slot = match self {
+            Self::Pipe {
+                buffered_outgoing, ..
+            }
+            | Self::Channel {
+                buffered_outgoing, ..
+            } => buffered_outgoing,
+        };
+        debug_assert!(slot.is_none());
+        *slot = Some(packet);
+    }
+
+    fn start_incoming_batch(&self, mut batch: PacketBatch) -> IncomingDeliveryFuture {
         match self {
             Self::Pipe { tx, .. } => {
-                tx.send_async(&packet).await;
-                true
+                let tx = tx.clone();
+                Box::pin(async move {
+                    while let Some(packet) = batch.pop_front() {
+                        tx.send_async(&packet).await;
+                    }
+                    true
+                })
             }
-            Self::Channel { incoming, .. } => incoming.send(packet).await.is_ok(),
+            Self::Channel { incoming, .. } => {
+                let incoming = incoming.clone();
+                Box::pin(async move { incoming.send(batch).await.is_ok() })
+            }
         }
     }
 }
@@ -1560,8 +1729,19 @@ async fn pump_active_tunnel(
         } else {
             None
         };
+    let mut pending_send: Option<TimedBatchSendFuture> = None;
+    let mut pending_incoming: Option<IncomingDeliveryFuture> = None;
+    let mut queued_incoming = VecDeque::new();
 
     let outcome = loop {
+        if cancellation.is_cancelled() {
+            break ActiveOutcome::Shutdown;
+        }
+        if pending_incoming.is_none()
+            && let Some(batch) = queued_incoming.pop_front()
+        {
+            pending_incoming = Some(packet_io.start_incoming_batch(batch));
+        }
         tokio::select! {
             _ = cancellation.cancelled() => break ActiveOutcome::Shutdown,
             _ = wait_for_network_change(&protector, network_generation), if network_generation.is_some() => {
@@ -1579,52 +1759,50 @@ async fn pump_active_tunnel(
                 );
                 break ActiveOutcome::Reconnect(failure);
             }
-            packet = packet_io.receive_outgoing() => {
-                let Some(packet) = packet else {
-                    break ActiveOutcome::Shutdown;
-                };
-                if !packet_allowed_by_peer_state(&packet, current_path) {
-                    tracing::warn!(
-                        family = packet.first().map(|byte| byte >> 4),
-                        "discarded a packet for an address family withdrawn by the CONNECT-IP peer"
-                    );
-                    continue;
-                }
-                let packet_length = packet.len();
-                // A cheap reference-counted view is retained only so an H3
-                // datagram-size rejection can be reflected as ICMP.
-                let retained_packet = packet.clone();
-                match timeout(PACKET_SEND_TIMEOUT, send.send_owned_packet(packet)).await {
-                    Ok(Ok(())) => {
-                        counters.sent.fetch_add(packet_length as u64, Ordering::Relaxed);
-                        telemetry.record_first_packet_sent(
-                            active_transport,
-                            active_path.endpoint_family,
-                        );
-                    }
-                    Ok(Err(TransportError::Http3DatagramTooLarge {
-                        maximum_packet_size,
-                    })) => {
-                        match crate::icmp::packet_too_big(&retained_packet, maximum_packet_size) {
-                            Ok(icmp) => {
-                                if !packet_io.send_incoming(icmp).await {
-                                    break ActiveOutcome::Shutdown;
+            result = wait_for_batch_send(&mut pending_send), if pending_send.is_some() => {
+                pending_send.take();
+                match result {
+                    Ok(Ok(PacketBatchResult { accepted_bytes, oversized })) => {
+                        if accepted_bytes != 0 {
+                            counters.sent.fetch_add(accepted_bytes as u64, Ordering::Relaxed);
+                            telemetry.record_first_packet_sent(
+                                active_transport,
+                                active_path.endpoint_family,
+                            );
+                        }
+                        let mut icmp_batch = PacketBatch::new();
+                        let mut oversized_outcome = None;
+                        for (packet, maximum_packet_size) in oversized {
+                            match crate::icmp::packet_too_big(&packet, maximum_packet_size) {
+                                Ok(icmp) => {
+                                    icmp_batch
+                                        .push_back(icmp)
+                                        .expect("one ICMP response per bounded packet batch fits");
+                                }
+                                Err(TransportError::Ipv6MinimumMtuUnavailable(maximum)) => {
+                                    let error =
+                                        TransportError::Ipv6MinimumMtuUnavailable(maximum);
+                                    oversized_outcome = Some(ActiveOutcome::Terminal(
+                                        error.failure(
+                                            Some(active_transport),
+                                            Some(active_path.endpoint_family),
+                                        ),
+                                    ));
+                                    break;
+                                }
+                                Err(error) => {
+                                    tracing::warn!(
+                                        %error,
+                                        "failed to generate ICMP Packet Too Big"
+                                    );
                                 }
                             }
-                            Err(TransportError::Ipv6MinimumMtuUnavailable(maximum)) => {
-                                let error =
-                                    TransportError::Ipv6MinimumMtuUnavailable(maximum);
-                                break ActiveOutcome::Terminal(error.failure(
-                                    Some(active_transport),
-                                    Some(active_path.endpoint_family),
-                                ));
-                            }
-                            Err(error) => {
-                                tracing::warn!(
-                                    %error,
-                                    "failed to generate ICMP Packet Too Big"
-                                );
-                            }
+                        }
+                        if !icmp_batch.is_empty() {
+                            queued_incoming.push_back(icmp_batch);
+                        }
+                        if let Some(outcome) = oversized_outcome {
+                            break outcome;
                         }
                     }
                     Ok(Err(error)) => {
@@ -1645,24 +1823,59 @@ async fn pump_active_tunnel(
                     }
                 }
             }
-            result = receive.receive_packet() => {
+            delivered = wait_for_incoming_delivery(&mut pending_incoming), if pending_incoming.is_some() => {
+                pending_incoming.take();
+                if !delivered {
+                    break ActiveOutcome::Shutdown;
+                }
+            }
+            batch = packet_io.receive_outgoing_batch(), if pending_send.is_none() && queued_incoming.is_empty() => {
+                let Some(mut batch) = batch else {
+                    break ActiveOutcome::Shutdown;
+                };
+                let mut allowed = PacketBatch::new();
+                while let Some(packet) = batch.pop_front() {
+                    if !packet_allowed_by_peer_state(&packet, current_path) {
+                        tracing::warn!(
+                            family = packet.first().map(|byte| byte >> 4),
+                            "discarded a packet for an address family withdrawn by the CONNECT-IP peer"
+                        );
+                        continue;
+                    }
+                    allowed
+                        .push_back(packet)
+                        .expect("filtering cannot grow a bounded packet batch");
+                }
+                if allowed.is_empty() {
+                    continue;
+                }
+                pending_send = Some(start_timed_batch_send(send.start_owned_batch(allowed)));
+            }
+            result = receive.receive_batch(), if pending_incoming.is_none() => {
                 match result {
-                    Ok(packet) => {
-                        if !packet_allowed_by_peer_state(&packet, current_path) {
-                            tracing::warn!(
-                                family = packet.first().map(|byte| byte >> 4),
-                                "discarded a peer packet for an unavailable address family"
-                            );
+                    Ok(mut batch) => {
+                        let mut allowed = PacketBatch::new();
+                        while let Some(packet) = batch.pop_front() {
+                            if !packet_allowed_by_peer_state(&packet, current_path) {
+                                tracing::warn!(
+                                    family = packet.first().map(|byte| byte >> 4),
+                                    "discarded a peer packet for an unavailable address family"
+                                );
+                                continue;
+                            }
+                            allowed
+                                .push_back(packet)
+                                .expect("filtering cannot grow a bounded packet batch");
+                        }
+                        if allowed.is_empty() {
                             continue;
                         }
-                        counters.received.fetch_add(packet.len() as u64, Ordering::Relaxed);
+                        counters.received.fetch_add(allowed.bytes() as u64, Ordering::Relaxed);
                         telemetry.record_first_packet_received(
                             active_transport,
                             active_path.endpoint_family,
                         );
-                        if !packet_io.send_incoming(packet).await {
-                            break ActiveOutcome::Shutdown;
-                        }
+                        pending_incoming = Some(packet_io.start_incoming_batch(allowed));
                     }
                     Err(error) => {
                         tracing::debug!(%error, "active MASQUE packet receive failed");
@@ -1872,8 +2085,8 @@ async fn wait_while_dropping_packets(
             _ = wait_for_network_change(&protector, network_generation), if network_generation.is_some() => {
                 return true;
             }
-            packet = packet_io.receive_outgoing() => {
-                if packet.is_none() {
+            batch = packet_io.receive_outgoing_batch() => {
+                if batch.is_none() {
                     return false;
                 }
             }
@@ -1905,8 +2118,8 @@ async fn connect_while_dropping_packets(
                 return Some(Err(TransportError::UnderlyingNetworkChanged));
             }
             result = &mut connect => return Some(result),
-            packet = packet_io.receive_outgoing() => {
-                packet?;
+            batch = packet_io.receive_outgoing_batch() => {
+                batch?;
             }
         }
     }
@@ -2128,7 +2341,22 @@ fn ipv4_header_checksum(header: &[u8]) -> u16 {
 mod tests {
     use super::*;
     use std::net::{Ipv4Addr, Ipv6Addr};
+    use tokio::sync::oneshot;
     use ts_netstack_smoltcp::CreateSocket;
+
+    fn test_ipv4_packet(sequence: u16) -> Bytes {
+        let mut packet = vec![0u8; 20];
+        packet[0] = 0x45;
+        packet[2..4].copy_from_slice(&20_u16.to_be_bytes());
+        packet[4..6].copy_from_slice(&sequence.to_be_bytes());
+        packet[8] = 64;
+        packet[9] = 17;
+        packet[12..16].copy_from_slice(&[192, 0, 2, 1]);
+        packet[16..20].copy_from_slice(&[198, 51, 100, 1]);
+        let checksum = ipv4_header_checksum(&packet);
+        packet[10..12].copy_from_slice(&checksum.to_be_bytes());
+        Bytes::from(packet)
+    }
 
     #[test]
     fn forwarding_decrements_ipv4_ttl_and_repairs_checksum() {
@@ -2147,6 +2375,147 @@ mod tests {
         packet[7] = 64;
         prepare_forwarded_packet(&mut packet).unwrap();
         assert_eq!(packet[7], 63);
+    }
+
+    #[tokio::test]
+    async fn managed_sender_backpressures_instead_of_dropping_or_closing() {
+        let telemetry = ConnectionTelemetry::default();
+        let (outgoing, mut receiver) = mpsc::channel(1);
+        let sender = ManagedTunnelSender {
+            outgoing,
+            telemetry: telemetry.clone(),
+        };
+        let first = test_ipv4_packet(1);
+        let second = test_ipv4_packet(2);
+        sender.send_owned_packet(first.clone()).await.unwrap();
+
+        let blocked_sender = sender.clone();
+        let blocked_packet = second.clone();
+        let blocked =
+            tokio::spawn(async move { blocked_sender.send_owned_packet(blocked_packet).await });
+        tokio::task::yield_now().await;
+        assert!(!blocked.is_finished());
+        assert_eq!(receiver.recv().await.unwrap(), first);
+        timeout(Duration::from_secs(1), blocked)
+            .await
+            .expect("sender did not resume after capacity returned")
+            .unwrap()
+            .unwrap();
+        assert_eq!(receiver.recv().await.unwrap(), second);
+
+        let metrics = telemetry.snapshot().metrics;
+        assert_eq!(metrics.send_queue_drop_count, 0);
+        assert_eq!(metrics.send_queue_high_watermark, 1);
+    }
+
+    #[tokio::test]
+    async fn closing_managed_receiver_releases_a_waiting_sender() {
+        let (outgoing, receiver) = mpsc::channel(1);
+        let sender = ManagedTunnelSender {
+            outgoing,
+            telemetry: ConnectionTelemetry::default(),
+        };
+        sender.send_owned_packet(test_ipv4_packet(1)).await.unwrap();
+        let waiting_sender = sender.clone();
+        let waiting =
+            tokio::spawn(
+                async move { waiting_sender.send_owned_packet(test_ipv4_packet(2)).await },
+            );
+        tokio::task::yield_now().await;
+        assert!(!waiting.is_finished());
+        drop(receiver);
+        let result = timeout(Duration::from_secs(1), waiting)
+            .await
+            .expect("sender did not wake when the receiver closed")
+            .unwrap();
+        assert!(matches!(result, Err(TransportError::TunnelClosed)));
+    }
+
+    #[tokio::test]
+    async fn packet_io_nonblocking_drain_batches_without_reordering() {
+        let (outgoing_tx, outgoing) = mpsc::channel(130);
+        let (incoming, _incoming_rx) = mpsc::channel(1);
+        for sequence in 0..130_u16 {
+            outgoing_tx.try_send(test_ipv4_packet(sequence)).unwrap();
+        }
+        drop(outgoing_tx);
+        let mut packet_io = PacketIo::Channel {
+            outgoing,
+            incoming,
+            buffered_outgoing: None,
+        };
+
+        let mut observed = Vec::new();
+        let mut batch_sizes = Vec::new();
+        while let Some(batch) = packet_io.receive_outgoing_batch().await {
+            batch_sizes.push(batch.len());
+            for packet in batch.iter() {
+                observed.push(u16::from_be_bytes([packet[4], packet[5]]));
+                assert_eq!(packet[8], 63);
+                assert_eq!(ipv4_header_checksum(packet), 0);
+            }
+        }
+        assert_eq!(batch_sizes, [64, 64, 2]);
+        assert_eq!(observed, (0..130_u16).collect::<Vec<_>>());
+    }
+
+    #[tokio::test]
+    async fn pending_batch_send_does_not_mask_other_events_or_cancellation() {
+        let stalled: BatchSendFuture = Box::pin(std::future::pending());
+        let mut pending_send = Some(start_timed_batch_send(stalled));
+        let (event_tx, event_rx) = oneshot::channel();
+        event_tx.send("control").unwrap();
+        tokio::select! {
+            result = wait_for_batch_send(&mut pending_send) => {
+                panic!("stalled batch send completed unexpectedly: {result:?}");
+            }
+            event = event_rx => assert_eq!(event.unwrap(), "control"),
+        }
+        assert!(pending_send.is_some());
+
+        let cancellation = CancellationToken::new();
+        cancellation.cancel();
+        tokio::select! {
+            biased;
+            _ = cancellation.cancelled() => {}
+            result = wait_for_batch_send(&mut pending_send) => {
+                panic!("stalled batch send masked cancellation: {result:?}");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn pending_incoming_delivery_does_not_mask_cancellation() {
+        let (_outgoing_tx, outgoing) = mpsc::channel(1);
+        let (incoming, mut incoming_rx) = mpsc::channel(1);
+        incoming
+            .send(PacketBatch::single(test_ipv4_packet(1)))
+            .await
+            .unwrap();
+        let packet_io = PacketIo::Channel {
+            outgoing,
+            incoming,
+            buffered_outgoing: None,
+        };
+        let mut pending_incoming =
+            Some(packet_io.start_incoming_batch(PacketBatch::single(test_ipv4_packet(2))));
+        tokio::task::yield_now().await;
+        let cancellation = CancellationToken::new();
+        cancellation.cancel();
+        tokio::select! {
+            biased;
+            _ = cancellation.cancelled() => {}
+            delivered = wait_for_incoming_delivery(&mut pending_incoming) => {
+                panic!("blocked incoming delivery masked cancellation: {delivered}");
+            }
+        }
+
+        pending_incoming.take();
+        assert_eq!(
+            incoming_rx.recv().await.unwrap().pop_front().unwrap(),
+            test_ipv4_packet(1)
+        );
+        assert!(incoming_rx.try_recv().is_err());
     }
 
     #[test]

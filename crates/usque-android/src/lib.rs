@@ -30,7 +30,7 @@ use jni::{
     sys::{JNI_FALSE, JNI_TRUE, jboolean, jbyteArray, jint, jlong, jstring},
 };
 use serde::{Deserialize, Serialize};
-#[cfg(target_os = "android")]
+#[cfg(any(test, target_os = "android"))]
 use usque_core::TransportFailure;
 use usque_core::{
     AppConfig, ConsumerEntitlement, ConsumerRegistrationClient, DnsMode, EndpointSettings,
@@ -40,10 +40,10 @@ use usque_core::{
     parse_manual_warp_secret, storage::ConfigStore, update::UpdateChecker,
 };
 #[cfg(target_os = "android")]
-use usque_transport::{
-    EndpointPinRefresher, TransportError, refresh_endpoint_pin_over_protected_socket,
-};
+use usque_transport::{EndpointPinRefresher, refresh_endpoint_pin_over_protected_socket};
 use usque_transport::{MasqueTlsIdentity, SocketHandle, SocketProtector};
+#[cfg(any(test, target_os = "android"))]
+use usque_transport::{RuntimePath, TransportError};
 use zeroize::Zeroizing;
 
 pub const START_OK: i32 = 0;
@@ -1953,6 +1953,17 @@ impl NativeFailure {
     }
 }
 
+#[cfg(any(test, target_os = "android"))]
+fn android_transport_failure(
+    error: &TransportError,
+    path: Option<RuntimePath>,
+) -> TransportFailure {
+    match path {
+        Some(path) => error.failure(Some(path.transport), Some(path.endpoint_family)),
+        None => error.failure(None, None),
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct NativeSnapshot {
     phase: String,
@@ -2358,6 +2369,33 @@ fn jni_command_abandoned(cancelled: &AtomicBool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn android_transport_error_mapping_preserves_h3_and_queue_codes() {
+        let path = RuntimePath {
+            transport: usque_core::Transport::Http3,
+            endpoint_family: usque_core::AddressFamily::Ipv6,
+            ipv4_available: true,
+            ipv6_available: true,
+        };
+        let closed = android_transport_failure(&TransportError::TunnelClosed, Some(path));
+        assert_eq!(
+            closed.code,
+            usque_core::TransportFailureCode::H3ConnectionClosed
+        );
+        assert_eq!(closed.transport, Some(usque_core::Transport::Http3));
+        assert_eq!(closed.address_family, Some(usque_core::AddressFamily::Ipv6));
+
+        let saturated = android_transport_failure(&TransportError::SendQueueFull, Some(path));
+        assert_eq!(
+            saturated.code,
+            usque_core::TransportFailureCode::SendQueueFull
+        );
+        assert_ne!(
+            saturated.code,
+            usque_core::TransportFailureCode::AgentUnreachable
+        );
+    }
 
     #[test]
     fn jni_boundary_failure_default_never_reports_success() {

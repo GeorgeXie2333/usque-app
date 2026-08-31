@@ -1,15 +1,15 @@
 # Installation and removal
 
-Install only packages from this repository's [GitHub Releases page](https://github.com/GeorgeXie2333/usque-app/releases) for `v0.2.2`.
+Install only packages from this repository's [GitHub Releases page](https://github.com/GeorgeXie2333/usque-app/releases) for `v0.2.3`.
 
 ## Official packages
 
-- `usque-v0.2.2-windows-x64-v2.msi`
-- `usque-v0.2.2-windows-arm64.msi`
-- `usque-v0.2.2-android-arm64-v8a.apk`
-- `usque-v0.2.2-android-x86_64.apk`
-- `usque-v0.2.2-android-armeabi-v7a.apk`
-- `usque-v0.2.2-android-universal.apk`
+- `usque-v0.2.3-windows-x64-v2.msi`
+- `usque-v0.2.3-windows-arm64.msi`
+- `usque-v0.2.3-android-arm64-v8a.apk`
+- `usque-v0.2.3-android-x86_64.apk`
+- `usque-v0.2.3-android-armeabi-v7a.apk`
+- `usque-v0.2.3-android-universal.apk`
 
 The GitHub Release attaches those six packages plus `release-manifest.json`,
 `SHA256SUMS`, and each package's SPDX SBOM. GitHub shows a SHA-256 for each

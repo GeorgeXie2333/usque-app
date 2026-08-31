@@ -300,7 +300,7 @@ const Map<String, String> kItCatalog = <String, String>{
       'Stato dell’Usque Engine, esportazione dei log e dati locali.',
   'engine_status': 'Stato dell’Usque Engine',
   'version': 'Versione',
-  'app_version': 'Usque 0.2.2',
+  'app_version': 'Usque 0.2.3',
   'logs': 'Log locali',
   'export_diagnostics': 'Esporta pacchetto diagnostico',
   'diagnostics_saved': 'Pacchetto diagnostico salvato in',

@@ -97,6 +97,7 @@ pub struct ConnectionTelemetry {
     first_packet_received: Arc<AtomicBool>,
     send_queue_high_watermark: Arc<AtomicU64>,
     send_queue_drop_count: Arc<AtomicU64>,
+    send_queue_wait_count: Arc<AtomicU64>,
 }
 
 /// Carries the path identity for one in-flight transport attempt so lower
@@ -166,6 +167,7 @@ impl ConnectionTelemetry {
             first_packet_received: Arc::new(AtomicBool::new(false)),
             send_queue_high_watermark: Arc::new(AtomicU64::new(0)),
             send_queue_drop_count: Arc::new(AtomicU64::new(0)),
+            send_queue_wait_count: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -297,6 +299,28 @@ impl ConnectionTelemetry {
         );
     }
 
+    pub fn record_queue_saturated(&self, queue_depth: usize) {
+        let wait_count = self
+            .send_queue_wait_count
+            .fetch_add(1, Ordering::Relaxed)
+            .saturating_add(1);
+        if !wait_count.is_power_of_two() {
+            return;
+        }
+        let failure = TransportFailure::new(
+            TransportFailureCode::SendQueueFull,
+            TransportStage::PacketSend,
+        )
+        .with_sanitized_detail(format!("queue depth {queue_depth}"));
+        self.record(
+            ConnectionEventType::QueueSaturated,
+            Some(TransportStage::PacketSend),
+            ConnectionEventPath::default(),
+            None,
+            Some(failure),
+        );
+    }
+
     pub fn set_reconnect(&self, count: u32, failure: &TransportFailure) {
         let mut state = self.state();
         state.metrics.reconnect_count = count;
@@ -373,6 +397,9 @@ mod tests {
         telemetry.observe_queue_depth(3);
         telemetry.record_queue_drop();
         telemetry.record_queue_drop();
+        telemetry.record_queue_saturated(1_024);
+        telemetry.record_queue_saturated(1_024);
+        telemetry.record_queue_saturated(1_024);
 
         let snapshot = telemetry.snapshot();
         assert_eq!(snapshot.metrics.send_queue_high_watermark, 7);
@@ -383,7 +410,18 @@ mod tests {
                 .iter()
                 .filter(|event| event.event_type == ConnectionEventType::QueueSaturated)
                 .count(),
-            2
+            4
+        );
+        let saturation_details = snapshot
+            .events
+            .iter()
+            .filter(|event| event.event_type == ConnectionEventType::QueueSaturated)
+            .filter_map(|event| event.failure.as_ref())
+            .filter_map(|failure| failure.sanitized_detail.as_deref())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            saturation_details,
+            vec!["queue depth 1024", "queue depth 1024"]
         );
     }
 

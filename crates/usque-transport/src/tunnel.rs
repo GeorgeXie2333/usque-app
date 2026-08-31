@@ -1,10 +1,16 @@
-use bytes::Bytes;
+use std::future::Future;
+use std::pin::Pin;
+
 use tokio::sync::watch;
 use usque_core::Transport;
 use usque_protocol::PeerNetworkState;
 
 use crate::h2::{H2Driver, H2ReceiveHalf, H2SendHalf, H2Tunnel, TransportError};
 use crate::h3::{H3Driver, H3ReceiveHalf, H3SendHalf, H3Tunnel};
+use crate::packet_batch::{PacketBatch, PacketBatchResult};
+
+pub(crate) type BatchSendFuture =
+    Pin<Box<dyn Future<Output = Result<PacketBatchResult, TransportError>> + Send + 'static>>;
 
 /// One active MASQUE data channel. The enum deliberately has no fan-out or
 /// multipath variant: Auto may replace a channel, but only one channel carries
@@ -59,10 +65,10 @@ pub(crate) enum MasqueSendHalf {
 }
 
 impl MasqueSendHalf {
-    pub(crate) async fn send_owned_packet(&mut self, packet: Bytes) -> Result<(), TransportError> {
+    pub(crate) fn start_owned_batch(&self, batch: PacketBatch) -> BatchSendFuture {
         match self {
-            Self::Http3(send) => send.send_owned_packet(packet).await,
-            Self::Http2(send) => send.send_owned_packet(packet).await,
+            Self::Http3(send) => send.start_owned_batch(batch),
+            Self::Http2(send) => send.start_owned_batch(batch),
         }
     }
 
@@ -80,10 +86,10 @@ pub(crate) enum MasqueReceiveHalf {
 }
 
 impl MasqueReceiveHalf {
-    pub(crate) async fn receive_packet(&mut self) -> Result<Bytes, TransportError> {
+    pub(crate) async fn receive_batch(&mut self) -> Result<PacketBatch, TransportError> {
         match self {
-            Self::Http3(receive) => receive.receive_packet().await,
-            Self::Http2(receive) => receive.receive_packet().await,
+            Self::Http3(receive) => receive.receive_batch().await,
+            Self::Http2(receive) => receive.receive_batch().await,
         }
     }
 }

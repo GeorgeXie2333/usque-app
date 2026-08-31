@@ -14,6 +14,7 @@ mod http_proxy;
 mod icmp;
 mod masque_runtime;
 mod netstack;
+mod packet_batch;
 mod packet_mux;
 mod pin_refresh;
 mod port_allocator;

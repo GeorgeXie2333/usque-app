@@ -102,6 +102,7 @@ pub struct FaultHarness {
     send_queue_capacity: usize,
     send_queue_depth: usize,
     send_queue_high_watermark: usize,
+    send_queue_waits: u64,
     send_queue_drops: u64,
 }
 
@@ -122,6 +123,7 @@ impl FaultHarness {
             send_queue_capacity,
             send_queue_depth: 0,
             send_queue_high_watermark: 0,
+            send_queue_waits: 0,
             send_queue_drops: 0,
         })
     }
@@ -285,11 +287,8 @@ impl FaultHarness {
         if self.active.contains(&FaultKind::FillSendQueue)
             || self.send_queue_depth == self.send_queue_capacity
         {
-            self.send_queue_drops = self.send_queue_drops.saturating_add(1);
-            return Err(TransportFailure::new(
-                TransportFailureCode::SendQueueFull,
-                TransportStage::PacketSend,
-            ));
+            self.send_queue_waits = self.send_queue_waits.saturating_add(1);
+            return Ok(());
         }
         self.send_queue_depth += 1;
         self.send_queue_high_watermark = self.send_queue_high_watermark.max(self.send_queue_depth);
@@ -297,7 +296,11 @@ impl FaultHarness {
     }
 
     pub fn complete_send(&mut self) {
-        self.send_queue_depth = self.send_queue_depth.saturating_sub(1);
+        if self.send_queue_waits != 0 {
+            self.send_queue_waits -= 1;
+        } else {
+            self.send_queue_depth = self.send_queue_depth.saturating_sub(1);
+        }
     }
 
     pub fn receive_packet(&self) -> Result<(), TransportFailure> {
@@ -340,6 +343,10 @@ impl FaultHarness {
 
     pub const fn send_queue_drops(&self) -> u64 {
         self.send_queue_drops
+    }
+
+    pub const fn send_queue_waits(&self) -> u64 {
+        self.send_queue_waits
     }
 
     pub const fn send_queue_depth(&self) -> usize {
@@ -471,19 +478,38 @@ mod tests {
     }
 
     #[test]
-    fn send_queue_is_bounded_and_saturation_is_counted() {
+    fn send_queue_saturation_waits_without_dropping_or_failing() {
         let mut harness = harness(Vec::new());
         harness.send_packet().unwrap();
         harness.send_packet().unwrap();
-        let failure = harness
-            .send_packet()
-            .expect_err("bounded queue must reject");
-        assert_eq!(failure.code, TransportFailureCode::SendQueueFull);
+        harness.send_packet().unwrap();
         assert_eq!(harness.send_queue_high_watermark(), 2);
-        assert_eq!(harness.send_queue_drops(), 1);
+        assert_eq!(harness.send_queue_waits(), 1);
+        assert_eq!(harness.send_queue_drops(), 0);
+        harness.complete_send();
+        assert_eq!(harness.send_queue_depth(), 2);
+        assert_eq!(harness.send_queue_waits(), 0);
         harness.complete_send();
         harness.complete_send();
         assert_eq!(harness.send_queue_depth(), 0);
+    }
+
+    #[test]
+    fn burst_beyond_1024_packets_remains_recoverable() {
+        let script = FaultScript::new(0x5eed, Vec::new()).unwrap();
+        let mut harness = FaultHarness::new(script, 1_024).unwrap();
+        for _ in 0..=1_024 {
+            harness.send_packet().unwrap();
+        }
+        assert_eq!(harness.send_queue_depth(), 1_024);
+        assert_eq!(harness.send_queue_waits(), 1);
+        assert_eq!(harness.send_queue_drops(), 0);
+
+        for _ in 0..=1_024 {
+            harness.complete_send();
+        }
+        assert_eq!(harness.send_queue_depth(), 0);
+        assert_eq!(harness.send_queue_waits(), 0);
     }
 
     #[test]

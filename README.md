@@ -22,7 +22,7 @@
 Usque is an unofficial GUI client for consumer Cloudflare WARP. Flutter draws the UI. A Rust engine handles MASQUE, CONNECT-IP, DNS, proxies, and connection state. There is no WebView.
 
 > [!IMPORTANT]
-> The current release is **v0.2.2**. Download official packages only from the [GitHub Releases page](https://github.com/GeorgeXie2333/usque-app/releases). Pull Request artifacts, local builds, and untagged binaries are not official.
+> The current release is **v0.2.3**. Download official packages only from the [GitHub Releases page](https://github.com/GeorgeXie2333/usque-app/releases). Pull Request artifacts, local builds, and untagged binaries are not official.
 
 Usque is an independent project. It is not affiliated with, sponsored by, or endorsed by Cloudflare. Cloudflare and WARP are trademarks of Cloudflare, Inc. Use of consumer WARP remains subject to Cloudflare's terms and privacy policy.
 
@@ -43,7 +43,7 @@ Usque is an independent project. It is not affiliated with, sponsored by, or end
 
 ## Release targets
 
-The `v0.2.2` tag on `main` builds and checks these six packages:
+The `v0.2.3` tag on `main` builds and checks these six packages:
 
 | Platform | Package | Minimum OS | Architecture |
 | --- | --- | --- | --- |

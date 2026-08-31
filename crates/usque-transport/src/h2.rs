@@ -1,5 +1,7 @@
 use std::collections::VecDeque;
+use std::future::Future;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -33,6 +35,7 @@ use usque_protocol::{ConnectIpCapsule, MAX_CAPSULE_PAYLOAD, PeerNetworkState};
 use zeroize::Zeroizing;
 
 use crate::connect_ip_control::ConnectIpControlPlane;
+use crate::packet_batch::{PacketBatch, PacketBatchResult};
 use crate::socket::{SocketProtector, noop_socket_protector, socket_handle};
 use crate::telemetry::{ConnectionAttemptTelemetry, ConnectionEventType};
 
@@ -42,6 +45,7 @@ const DATAGRAM_CAPSULE_TYPE: u64 = 0;
 const MAX_CAPSULE_BYTES: usize = 65_535;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 const H2_OUTGOING_CAPACITY: usize = 1_024;
+const H2_PACKET_QUEUE_CAPACITY: usize = 1_024;
 const PACKET_SEND_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Secret and enrolled identity material required by a MASQUE TLS session.
@@ -104,7 +108,8 @@ impl H2Tunnel {
 
 struct H2Outgoing {
     bytes: Bytes,
-    completion: oneshot::Sender<Result<(), TransportError>>,
+    accepted_bytes: usize,
+    completion: oneshot::Sender<Result<usize, TransportError>>,
 }
 
 pub struct H2SendHalf {
@@ -116,7 +121,15 @@ impl H2SendHalf {
     /// Sends one raw IP packet as an HTTP Capsule DATAGRAM.
     pub async fn send_packet(&mut self, packet: &[u8]) -> Result<(), TransportError> {
         validate_ip_packet(packet)?;
-        self.send_capsule(encode_datagram_capsule(packet)?).await
+        match timeout(
+            PACKET_SEND_TIMEOUT,
+            self.send_owned_batch(PacketBatch::single(Bytes::copy_from_slice(packet))),
+        )
+        .await
+        {
+            Ok(result) => result.map(|_| ()),
+            Err(_) => Err(TransportError::SendTimeout),
+        }
     }
 
     /// Writes one already-framed Capsule Protocol record on the CONNECT-IP
@@ -129,26 +142,53 @@ impl H2SendHalf {
         }
     }
 
-    /// Sends an owned packet under the transport supervisor's outer deadline.
-    pub(crate) async fn send_owned_packet(&mut self, packet: Bytes) -> Result<(), TransportError> {
-        validate_ip_packet(&packet)?;
-        self.send_capsule_inner(encode_datagram_capsule(&packet)?)
-            .await
+    pub(crate) async fn send_owned_batch(
+        &self,
+        batch: PacketBatch,
+    ) -> Result<PacketBatchResult, TransportError> {
+        self.start_owned_batch(batch).await
     }
 
-    async fn send_capsule_inner(&mut self, capsule: Bytes) -> Result<(), TransportError> {
-        let (completion_tx, completion_rx) = oneshot::channel();
-        self.sender
-            .as_ref()
-            .ok_or(TransportError::TunnelClosed)?
-            .try_send(H2Outgoing {
-                bytes: capsule,
-                completion: completion_tx,
+    pub(crate) fn start_owned_batch(
+        &self,
+        batch: PacketBatch,
+    ) -> Pin<Box<dyn Future<Output = Result<PacketBatchResult, TransportError>> + Send + 'static>>
+    {
+        let sender = self.sender.clone();
+        Box::pin(async move {
+            if batch.is_empty() {
+                return Ok(PacketBatchResult::default());
+            }
+            let (encoded, accepted_bytes) = encode_datagram_batch(&batch)?;
+            let accepted_bytes = Self::send_encoded(sender, encoded, accepted_bytes).await?;
+            Ok(PacketBatchResult {
+                accepted_bytes,
+                oversized: Vec::new(),
             })
-            .map_err(|error| match error {
-                mpsc::error::TrySendError::Full(_) => TransportError::SendQueueFull,
-                mpsc::error::TrySendError::Closed(_) => TransportError::TunnelClosed,
-            })?;
+        })
+    }
+
+    async fn send_capsule_inner(&self, capsule: Bytes) -> Result<(), TransportError> {
+        Self::send_encoded(self.sender.clone(), capsule, 0).await?;
+        Ok(())
+    }
+
+    async fn send_encoded(
+        sender: Option<mpsc::Sender<H2Outgoing>>,
+        bytes: Bytes,
+        accepted_bytes: usize,
+    ) -> Result<usize, TransportError> {
+        let (completion_tx, completion_rx) = oneshot::channel();
+        let sender = sender.ok_or(TransportError::TunnelClosed)?;
+        let permit = sender
+            .reserve()
+            .await
+            .map_err(|_| TransportError::TunnelClosed)?;
+        permit.send(H2Outgoing {
+            bytes,
+            accepted_bytes,
+            completion: completion_tx,
+        });
         match completion_rx.await {
             Ok(result) => result,
             Err(_) => Err(TransportError::TunnelClosed),
@@ -191,8 +231,23 @@ impl H2ReceiveHalf {
         }
     }
 
+    pub(crate) async fn receive_batch(&mut self) -> Result<PacketBatch, TransportError> {
+        let first = self.receive_packet().await?;
+        let mut batch = PacketBatch::single(first);
+        while let Some(packet) = self.packets.pop_front() {
+            if let Err(packet) = batch.push_back(packet) {
+                self.packets.push_front(packet);
+                break;
+            }
+        }
+        Ok(batch)
+    }
+
     fn drain_ready_capsules(&mut self) -> Result<(), TransportError> {
         loop {
+            if self.packets.len() >= H2_PACKET_QUEUE_CAPACITY {
+                return Ok(());
+            }
             let Some(capsule) = take_complete_capsule(&mut self.control.buffer)? else {
                 return Ok(());
             };
@@ -229,9 +284,11 @@ pub struct H2Driver {
 
 impl H2Driver {
     pub async fn wait(mut self) -> Result<(), TransportError> {
-        self.task
+        let task = self
+            .task
             .take()
-            .expect("H2 driver task is present until wait")
+            .expect("H2 driver task is present until wait");
+        AbortOnDropHandle::new(task)
             .await
             .map_err(|error| TransportError::Driver(error.to_string()))?
             .map_err(TransportError::Http2)
@@ -398,8 +455,10 @@ async fn run_h2_writer(
             }
             item = outgoing.recv() => {
                 match item {
-                    Some(H2Outgoing { bytes, completion }) => {
-                        let result = write_h2_data(&mut stream, bytes).await;
+                    Some(H2Outgoing { bytes, accepted_bytes, completion }) => {
+                        let result = write_h2_data(&mut stream, bytes)
+                            .await
+                            .map(|()| accepted_bytes);
                         let _ = completion.send(result);
                     }
                     None => {
@@ -430,12 +489,32 @@ async fn write_h2_data(
     Ok(())
 }
 
+#[cfg(test)]
 fn encode_datagram_capsule(packet: &[u8]) -> Result<Bytes, TransportError> {
     let mut encoded = BytesMut::with_capacity(packet.len() + 16);
-    encode_varint(DATAGRAM_CAPSULE_TYPE, &mut encoded)?;
-    encode_varint(packet.len() as u64, &mut encoded)?;
-    encoded.extend_from_slice(packet);
+    encode_datagram_capsule_into(packet, &mut encoded)?;
     Ok(encoded.freeze())
+}
+
+fn encode_datagram_batch(batch: &PacketBatch) -> Result<(Bytes, usize), TransportError> {
+    let accepted_bytes = batch.bytes();
+    let mut encoded =
+        BytesMut::with_capacity(accepted_bytes.saturating_add(batch.len().saturating_mul(16)));
+    for packet in batch.iter() {
+        validate_ip_packet(packet)?;
+        encode_datagram_capsule_into(packet, &mut encoded)?;
+    }
+    Ok((encoded.freeze(), accepted_bytes))
+}
+
+fn encode_datagram_capsule_into(
+    packet: &[u8],
+    encoded: &mut BytesMut,
+) -> Result<(), TransportError> {
+    encode_varint(DATAGRAM_CAPSULE_TYPE, encoded)?;
+    encode_varint(packet.len() as u64, encoded)?;
+    encoded.extend_from_slice(packet);
+    Ok(())
 }
 
 fn connect_request() -> Result<Request<()>, http::Error> {
@@ -976,6 +1055,33 @@ mod tests {
     }
 
     #[test]
+    fn h2_batch_preserves_packet_order_and_capsule_wire_format() {
+        let mut ipv4 = vec![0u8; 20];
+        ipv4[0] = 0x45;
+        ipv4[2..4].copy_from_slice(&20_u16.to_be_bytes());
+        ipv4[8] = 64;
+        ipv4[9] = 17;
+        let mut ipv6 = vec![0u8; 40];
+        ipv6[0] = 0x60;
+        ipv6[7] = 64;
+
+        let mut batch = PacketBatch::new();
+        batch.push_back(Bytes::from(ipv4.clone())).unwrap();
+        batch.push_back(Bytes::from(ipv6.clone())).unwrap();
+        let (encoded, accepted_bytes) = encode_datagram_batch(&batch).unwrap();
+        assert_eq!(accepted_bytes, ipv4.len() + ipv6.len());
+
+        let (first_type, first, consumed) = decode_capsule(&encoded).unwrap().unwrap();
+        assert_eq!(first_type, DATAGRAM_CAPSULE_TYPE);
+        assert_eq!(first.as_ref(), ipv4);
+        let (second_type, second, final_consumed) =
+            decode_capsule(&encoded[consumed..]).unwrap().unwrap();
+        assert_eq!(second_type, DATAGRAM_CAPSULE_TYPE);
+        assert_eq!(second.as_ref(), ipv6);
+        assert_eq!(consumed + final_consumed, encoded.len());
+    }
+
+    #[test]
     fn streaming_capsule_take_is_transactional_until_a_frame_is_complete() {
         let first = ConnectIpCapsule::Unknown {
             capsule_type: 42,
@@ -1191,6 +1297,46 @@ mod tests {
             buffer.extend_from_slice(&chunk);
             stream.flow_control().release_capacity(length).unwrap();
         }
+    }
+
+    #[tokio::test]
+    async fn h2_parsed_packet_queue_stops_at_1024_without_consuming_the_tail() {
+        let mut loopback = connect_h2_loopback().await;
+        let mut wire = BytesMut::new();
+        let mut final_capsule = Bytes::new();
+        for sequence in 0..=H2_PACKET_QUEUE_CAPACITY as u16 {
+            let mut packet = ipv4_packet();
+            packet[4..6].copy_from_slice(&sequence.to_be_bytes());
+            let capsule = encode_datagram_capsule(&packet).unwrap();
+            if usize::from(sequence) == H2_PACKET_QUEUE_CAPACITY {
+                final_capsule = capsule.clone();
+            }
+            wire.extend_from_slice(&capsule);
+        }
+        loopback.receive.control.buffer.extend_from_slice(&wire);
+
+        loopback.receive.drain_ready_capsules().unwrap();
+        assert_eq!(loopback.receive.packets.len(), H2_PACKET_QUEUE_CAPACITY);
+        assert_eq!(loopback.receive.control.buffer, final_capsule);
+        assert_eq!(
+            u16::from_be_bytes([
+                loopback.receive.packets.front().unwrap()[4],
+                loopback.receive.packets.front().unwrap()[5],
+            ]),
+            0
+        );
+
+        loopback.receive.packets.pop_front();
+        loopback.receive.drain_ready_capsules().unwrap();
+        assert_eq!(loopback.receive.packets.len(), H2_PACKET_QUEUE_CAPACITY);
+        assert!(loopback.receive.control.buffer.is_empty());
+        assert_eq!(
+            u16::from_be_bytes([
+                loopback.receive.packets.back().unwrap()[4],
+                loopback.receive.packets.back().unwrap()[5],
+            ]),
+            H2_PACKET_QUEUE_CAPACITY as u16
+        );
     }
 
     #[tokio::test]

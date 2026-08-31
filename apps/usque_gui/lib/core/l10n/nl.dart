@@ -297,7 +297,7 @@ const Map<String, String> kNlCatalog = <String, String>{
       'Status van Usque Engine, export van logboeken en lokale gegevens.',
   'engine_status': 'Status van Usque Engine',
   'version': 'Versie',
-  'app_version': 'Usque 0.2.2',
+  'app_version': 'Usque 0.2.3',
   'logs': 'Lokale logboeken',
   'export_diagnostics': 'Diagnostisch pakket exporteren',
   'diagnostics_saved': 'Diagnostisch pakket opgeslagen in',
