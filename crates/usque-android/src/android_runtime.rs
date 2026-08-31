@@ -16,7 +16,7 @@ use usque_core::{AddressFamily, IpSbProbe, Transport, WarpIdentity};
 use usque_core::{ReconfigureClass, classify_reconfigure};
 use usque_geo::CountryCode;
 use usque_transport::{
-    EndpointPinRefresher, GeoDirectPolicy, MasqueRuntime, MasqueTunIo, RuntimeHealth,
+    EndpointPinRefresher, GeoDirectPolicy, MasqueRuntime, MasqueTunIo, RuntimeHealth, RuntimePath,
     TrafficSnapshot, TransportError,
 };
 
@@ -25,6 +25,7 @@ use super::{
     NativeSnapshot, Profile, RECONFIGURE_NEED_ATTACH, RECONFIGURE_NEED_COLD,
     RECONFIGURE_NOT_RUNNING, RECONFIGURE_OK, START_ALREADY_RUNNING, START_INVALID_PROFILE,
     START_OK, START_PLATFORM_FAILURE, START_TRANSPORT_FAILURE, START_TUN_FAILURE, SocketProtector,
+    android_transport_failure,
 };
 
 static ENGINE: OnceLock<Mutex<Option<EngineHandle>>> = OnceLock::new();
@@ -447,7 +448,7 @@ async fn run(
         match tunnel.attach_tun() {
             Ok(tun_io) => Some(tun_io),
             Err(error) => {
-                set_transport_error(&status, &error);
+                set_transport_error_on_path(&status, &error, tunnel.path());
                 tunnel.shutdown().await;
                 return;
             }
@@ -576,8 +577,16 @@ async fn run_session(
                             break;
                         }
                     };
-                    if let Err(error) = io.send_packet(&packet[..length]).await {
-                        set_error(&status, error.to_string());
+                    let send = tokio::select! {
+                        biased;
+                        _ = cancellation.cancelled() => None,
+                        result = io.send_packet(&packet[..length]) => Some(result),
+                    };
+                    let Some(send) = send else {
+                        break;
+                    };
+                    if let Err(error) = send {
+                        set_transport_error_on_path(&status, &error, tunnel.path());
                         break;
                     }
                 }
@@ -586,13 +595,21 @@ async fn run_session(
                     let Some(tun) = tun.as_ref() else { continue; };
                     match received {
                         Ok(packet) => {
-                            if let Err(error) = write_packet(tun, &packet).await {
+                            let written = tokio::select! {
+                                biased;
+                                _ = cancellation.cancelled() => None,
+                                result = write_packet(tun, &packet) => Some(result),
+                            };
+                            let Some(written) = written else {
+                                break;
+                            };
+                            if let Err(error) = written {
                                 set_error(&status, format!("write Android TUN: {error}"));
                                 break;
                             }
                         }
                         Err(error) => {
-                            set_error(&status, error.to_string());
+                            set_transport_error_on_path(&status, &error, tunnel.path());
                             break;
                         }
                     }
@@ -655,7 +672,7 @@ async fn handle_runtime_command(
                         RECONFIGURE_OK
                     }
                     Err(error) => {
-                        set_transport_error(status, &error);
+                        set_transport_error_on_path(status, &error, tunnel.path());
                         START_TRANSPORT_FAILURE
                     }
                 },
@@ -707,7 +724,7 @@ async fn handle_runtime_command(
             let io = match tunnel.attach_tun() {
                 Ok(io) => io,
                 Err(error) => {
-                    set_transport_error(status, &error);
+                    set_transport_error_on_path(status, &error, tunnel.path());
                     let _ = reply.send(START_TRANSPORT_FAILURE);
                     return;
                 }
@@ -717,7 +734,7 @@ async fn handle_runtime_command(
             }
             if let Err(error) = tunnel.reconfigure_frontends(&next).await {
                 tunnel.detach_tun();
-                set_transport_error(status, &error);
+                set_transport_error_on_path(status, &error, tunnel.path());
                 let _ = reply.send(START_TRANSPORT_FAILURE);
                 return;
             }
@@ -854,8 +871,23 @@ fn set_error(status: &Arc<Mutex<NativeSnapshot>>, message: String) {
 }
 
 fn set_transport_error(status: &Arc<Mutex<NativeSnapshot>>, error: &TransportError) {
+    set_transport_failure(status, error, android_transport_failure(error, None));
+}
+
+fn set_transport_error_on_path(
+    status: &Arc<Mutex<NativeSnapshot>>,
+    error: &TransportError,
+    path: RuntimePath,
+) {
+    set_transport_failure(status, error, android_transport_failure(error, Some(path)));
+}
+
+fn set_transport_failure(
+    status: &Arc<Mutex<NativeSnapshot>>,
+    error: &TransportError,
+    failure: usque_core::TransportFailure,
+) {
     let message = error.to_string();
-    let failure = error.failure(None, None);
     if let Ok(mut snapshot) = status.lock() {
         snapshot.phase = "error".to_owned();
         snapshot.warning = Some(message.chars().take(512).collect());

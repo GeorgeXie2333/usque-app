@@ -151,6 +151,25 @@ impl SharedPacketRing {
         direction: PacketDirection,
         packet: &[u8],
     ) -> Result<bool, PacketRingError> {
+        self.try_push_inner(direction, packet, true)
+    }
+
+    /// Attempts to publish a packet while leaving overflow accounting to a
+    /// caller that retains and retries the packet.
+    pub fn try_push_preserving(
+        &self,
+        direction: PacketDirection,
+        packet: &[u8],
+    ) -> Result<bool, PacketRingError> {
+        self.try_push_inner(direction, packet, false)
+    }
+
+    fn try_push_inner(
+        &self,
+        direction: PacketDirection,
+        packet: &[u8],
+        count_drop: bool,
+    ) -> Result<bool, PacketRingError> {
         if packet.is_empty() || packet.len() > MAX_PACKET_BYTES {
             return Err(PacketRingError::PacketSize(packet.len()));
         }
@@ -167,7 +186,9 @@ impl SharedPacketRing {
             });
         }
         if required as u32 > self.capacity - used {
-            dropped.fetch_add(1, Ordering::Relaxed);
+            if count_drop {
+                dropped.fetch_add(1, Ordering::Relaxed);
+            }
             return Ok(false);
         }
 
@@ -528,6 +549,29 @@ mod tests {
                 .expect("packet"),
             packet
         );
+    }
+
+    #[test]
+    fn preserving_push_can_retry_without_counting_a_drop() {
+        let (_memory, ring) = AlignedMemory::ring(MIN_RING_CAPACITY);
+        let packet = vec![0x45; MAX_PACKET_BYTES];
+        while ring
+            .try_push_preserving(PacketDirection::EngineToAgent, &packet)
+            .expect("fill")
+        {}
+        assert_eq!(ring.dropped(PacketDirection::EngineToAgent), 0);
+
+        assert_eq!(
+            ring.try_pop(PacketDirection::EngineToAgent)
+                .expect("pop")
+                .expect("packet"),
+            packet
+        );
+        assert!(
+            ring.try_push_preserving(PacketDirection::EngineToAgent, b"retained")
+                .expect("retry")
+        );
+        assert_eq!(ring.dropped(PacketDirection::EngineToAgent), 0);
     }
 
     #[test]

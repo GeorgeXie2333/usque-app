@@ -17,6 +17,7 @@ use crate::netstack::{
     ManagedTunnelMonitor, ManagedTunnelRuntime, PacketStack, ProxyPerformanceSnapshot,
     RuntimeHealth, RuntimePath, TrafficSnapshot,
 };
+use crate::packet_batch::{PACKET_BATCH_CHANNEL_CAPACITY, PacketBatch};
 use crate::packet_mux::{PacketMuxTable, PacketOrigin};
 use crate::pin_refresh::EndpointPinRefresher;
 use crate::socket::{SocketProtector, noop_socket_protector};
@@ -31,31 +32,46 @@ const PACKET_QUEUE_CAPACITY: usize = 1_024;
 /// TUN-origin packets are discarded until [`MasqueRuntime::attach_tun`].
 pub struct MasqueTunIo {
     outgoing: mpsc::Sender<Bytes>,
-    incoming: mpsc::Receiver<Bytes>,
+    incoming: mpsc::Receiver<PacketBatch>,
+    pending_incoming: PacketBatch,
 }
 
 impl MasqueTunIo {
     pub async fn send_packet(&self, packet: &[u8]) -> Result<(), TransportError> {
         crate::h2::validate_ip_packet(packet)?;
-        match self.outgoing.try_send(Bytes::copy_from_slice(packet)) {
-            Ok(()) => Ok(()),
-            Err(mpsc::error::TrySendError::Full(_)) => Err(TransportError::SendQueueFull),
-            Err(mpsc::error::TrySendError::Closed(_)) => Err(TransportError::TunnelClosed),
-        }
+        let permit = self
+            .outgoing
+            .reserve()
+            .await
+            .map_err(|_| TransportError::TunnelClosed)?;
+        permit.send(Bytes::copy_from_slice(packet));
+        Ok(())
     }
 
     pub async fn receive_packet(&mut self) -> Result<Bytes, TransportError> {
-        self.incoming
-            .recv()
-            .await
-            .ok_or(TransportError::TunnelClosed)
+        loop {
+            if let Some(packet) = self.pending_incoming.pop_front() {
+                return Ok(packet);
+            }
+            self.pending_incoming = self
+                .incoming
+                .recv()
+                .await
+                .ok_or(TransportError::TunnelClosed)?;
+        }
     }
 
     /// Receives an already queued packet without waiting. This lets platform
     /// packet pumps publish a bounded batch under one kernel wakeup.
     pub fn try_receive_packet(&mut self) -> Result<Option<Bytes>, TransportError> {
+        if let Some(packet) = self.pending_incoming.pop_front() {
+            return Ok(Some(packet));
+        }
         match self.incoming.try_recv() {
-            Ok(packet) => Ok(Some(packet)),
+            Ok(batch) => {
+                self.pending_incoming = batch;
+                Ok(self.pending_incoming.pop_front())
+            }
             Err(mpsc::error::TryRecvError::Empty) => Ok(None),
             Err(mpsc::error::TryRecvError::Disconnected) => Err(TransportError::TunnelClosed),
         }
@@ -73,8 +89,8 @@ pub struct MasqueRuntime {
     http_spec: Option<FrontendSpec>,
     listeners: Vec<SocketAddr>,
     raw_outgoing: Option<mpsc::Sender<Bytes>>,
-    tun_sink: watch::Sender<Option<mpsc::Sender<Bytes>>>,
-    _tun_sink_rx: watch::Receiver<Option<mpsc::Sender<Bytes>>>,
+    tun_sink: watch::Sender<Option<mpsc::Sender<PacketBatch>>>,
+    _tun_sink_rx: watch::Receiver<Option<mpsc::Sender<PacketBatch>>>,
     cancellation: CancellationToken,
     mux_task: Option<JoinHandle<()>>,
     assigned_ipv4: Ipv4Addr,
@@ -430,9 +446,13 @@ impl MasqueRuntime {
             .raw_outgoing
             .clone()
             .ok_or(TransportError::TunnelClosed)?;
-        let (incoming_tx, incoming) = mpsc::channel(PACKET_QUEUE_CAPACITY);
+        let (incoming_tx, incoming) = mpsc::channel(PACKET_BATCH_CHANNEL_CAPACITY);
         self.tun_sink.send_replace(Some(incoming_tx));
-        Ok(MasqueTunIo { outgoing, incoming })
+        Ok(MasqueTunIo {
+            outgoing,
+            incoming,
+            pending_incoming: PacketBatch::new(),
+        })
     }
 
     /// Stop delivering TUN-origin packets. SOCKS/HTTP and MASQUE stay up.
@@ -442,14 +462,15 @@ impl MasqueRuntime {
 
     pub async fn send_packet(&self, packet: &[u8]) -> Result<(), TransportError> {
         crate::h2::validate_ip_packet(packet)?;
-        self.raw_outgoing
+        let permit = self
+            .raw_outgoing
             .as_ref()
             .ok_or(TransportError::TunnelClosed)?
-            .try_send(Bytes::copy_from_slice(packet))
-            .map_err(|error| match error {
-                mpsc::error::TrySendError::Full(_) => TransportError::SendQueueFull,
-                mpsc::error::TrySendError::Closed(_) => TransportError::TunnelClosed,
-            })
+            .reserve()
+            .await
+            .map_err(|_| TransportError::TunnelClosed)?;
+        permit.send(Bytes::copy_from_slice(packet));
+        Ok(())
     }
 
     pub fn assigned_ipv4(&self) -> Ipv4Addr {
@@ -549,7 +570,7 @@ async fn run_packet_mux(
     proxy_pipe: WakingPipe,
     mut raw_outgoing: mpsc::Receiver<Bytes>,
     direct_gateway: DirectGatewayMux,
-    tun_sink: watch::Sender<Option<mpsc::Sender<Bytes>>>,
+    tun_sink: watch::Sender<Option<mpsc::Sender<PacketBatch>>>,
     cancellation: &CancellationToken,
 ) {
     let DirectGatewayMux {
@@ -566,6 +587,8 @@ async fn run_packet_mux(
     };
     let mut flows = PacketMuxTable::default();
     let mut direct_incoming_open = true;
+    let mut tun_dropped_batches = 0u64;
+    let mut tun_dropped_packets = 0u64;
 
     loop {
         // Tokio randomizes ready branch order, so the two ingress queues get
@@ -583,10 +606,14 @@ async fn run_packet_mux(
                 }
                 // DirectGatewayRouter guarantees that a false result leaves
                 // the packet unchanged, so the earlier parse remains valid.
-                if flows.route_inspected_outgoing(&mut packet, inspection)
-                    && sender.send_owned_packet(packet.freeze()).await.is_err()
-                {
-                    break;
+                if flows.route_inspected_outgoing(&mut packet, inspection) {
+                    match sender.send_owned_packet(packet.freeze()).await {
+                        Ok(()) => {}
+                        Err(TransportError::TunnelClosed) => break,
+                        Err(error) => {
+                            tracing::warn!(%error, "discarded a TUN packet rejected by the MASQUE sender");
+                        }
+                    }
                 }
             }
             packet = rx.recv_async() => {
@@ -594,28 +621,54 @@ async fn run_packet_mux(
                 let mut packet = packet
                     .try_into_mut()
                     .unwrap_or_else(|packet| bytes::BytesMut::from(packet.as_ref()));
-                if flows.route_outgoing(PacketOrigin::Proxy, &mut packet)
-                    && sender.send_owned_packet(packet.freeze()).await.is_err()
-                {
-                    break;
+                if flows.route_outgoing(PacketOrigin::Proxy, &mut packet) {
+                    match sender.send_owned_packet(packet.freeze()).await {
+                        Ok(()) => {}
+                        Err(TransportError::TunnelClosed) => break,
+                        Err(error) => {
+                            tracing::warn!(%error, "discarded a proxy packet rejected by the MASQUE sender");
+                        }
+                    }
                 }
             }
-            packet = tunnel.receive_packet() => {
-                let Ok(packet) = packet else { break; };
-                let mut packet = packet
-                    .try_into_mut()
-                    .unwrap_or_else(|packet| bytes::BytesMut::from(packet.as_ref()));
-                match flows.route_incoming(&mut packet) {
-                    Some(PacketOrigin::Tunnel) => {
-                        dispatch_tun_incoming(&tun_sink, packet.freeze());
+            batch = tunnel.receive_batch() => {
+                let Ok(mut batch) = batch else { break; };
+                let mut tun_batch = PacketBatch::new();
+                while let Some(packet) = batch.pop_front() {
+                    let mut packet = packet
+                        .try_into_mut()
+                        .unwrap_or_else(|packet| bytes::BytesMut::from(packet.as_ref()));
+                    match flows.route_incoming(&mut packet) {
+                        Some(PacketOrigin::Tunnel) => {
+                            let packet = packet.freeze();
+                            if let Err(packet) = tun_batch.push_back(packet) {
+                                record_tun_sink_drop(
+                                    dispatch_tun_incoming_batch(&tun_sink, std::mem::take(&mut tun_batch)),
+                                    &mut tun_dropped_batches,
+                                    &mut tun_dropped_packets,
+                                );
+                                tun_batch
+                                    .push_back(packet)
+                                    .expect("one valid packet fits an empty TUN batch");
+                            }
+                        }
+                        Some(PacketOrigin::Proxy) => proxy_incoming.send_async(&packet).await,
+                        None => tracing::debug!("dropped an unattributed MASQUE return packet"),
                     }
-                    Some(PacketOrigin::Proxy) => proxy_incoming.send_async(&packet).await,
-                    None => tracing::debug!("dropped an unattributed MASQUE return packet"),
                 }
+                record_tun_sink_drop(
+                    dispatch_tun_incoming_batch(&tun_sink, tun_batch),
+                    &mut tun_dropped_batches,
+                    &mut tun_dropped_packets,
+                );
             }
             packet = incoming.recv(), if direct_incoming_open => {
                 match packet {
-                    Some(packet) => dispatch_tun_incoming(&tun_sink, packet),
+                    Some(packet) => record_tun_sink_drop(
+                        dispatch_tun_incoming(&tun_sink, packet),
+                        &mut tun_dropped_batches,
+                        &mut tun_dropped_packets,
+                    ),
                     None => direct_incoming_open = false,
                 }
             }
@@ -632,17 +685,46 @@ struct DirectGatewayMux {
 ///
 /// A closed or full TUN sink must not tear the MASQUE mux: SOCKS/HTTP still
 /// need the session.
-fn dispatch_tun_incoming(tun_sink: &watch::Sender<Option<mpsc::Sender<Bytes>>>, packet: Bytes) {
+fn dispatch_tun_incoming(
+    tun_sink: &watch::Sender<Option<mpsc::Sender<PacketBatch>>>,
+    packet: Bytes,
+) -> usize {
+    dispatch_tun_incoming_batch(tun_sink, PacketBatch::single(packet))
+}
+
+fn dispatch_tun_incoming_batch(
+    tun_sink: &watch::Sender<Option<mpsc::Sender<PacketBatch>>>,
+    batch: PacketBatch,
+) -> usize {
+    if batch.is_empty() {
+        return 0;
+    }
     let sink = tun_sink.borrow().clone();
     let Some(sink) = sink else {
-        return;
+        return 0;
     };
-    match sink.try_send(packet) {
-        Ok(()) => {}
-        Err(mpsc::error::TrySendError::Full(_)) => {}
+    match sink.try_send(batch) {
+        Ok(()) => 0,
+        Err(mpsc::error::TrySendError::Full(batch)) => batch.len(),
         Err(mpsc::error::TrySendError::Closed(_)) => {
             tun_sink.send_replace(None);
+            0
         }
+    }
+}
+
+fn record_tun_sink_drop(dropped: usize, batches: &mut u64, packets: &mut u64) {
+    if dropped == 0 {
+        return;
+    }
+    *batches = batches.saturating_add(1);
+    *packets = packets.saturating_add(dropped as u64);
+    if batches.is_power_of_two() {
+        tracing::warn!(
+            dropped_batches = *batches,
+            dropped_packets = *packets,
+            "dropping inbound TUN batches because the platform packet pump is congested"
+        );
     }
 }
 
@@ -734,8 +816,31 @@ mod tests {
     use std::sync::{Mutex, OnceLock};
     use std::time::Duration;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::time::timeout;
     use usque_core::FrontendSettings;
     use zeroize::Zeroizing;
+
+    fn mux_udp_packet(source_port: u16) -> Bytes {
+        let mut packet = vec![0u8; 28];
+        packet[0] = 0x45;
+        packet[2..4].copy_from_slice(&28_u16.to_be_bytes());
+        packet[8] = 64;
+        packet[9] = 17;
+        packet[12..16].copy_from_slice(&[172, 16, 0, 2]);
+        packet[16..20].copy_from_slice(&[198, 51, 100, 1]);
+        packet[20..22].copy_from_slice(&source_port.to_be_bytes());
+        packet[22..24].copy_from_slice(&443_u16.to_be_bytes());
+        packet[24..26].copy_from_slice(&8_u16.to_be_bytes());
+        let mut sum = 0u32;
+        for word in packet[..20].chunks_exact(2) {
+            sum += u32::from(u16::from_be_bytes([word[0], word[1]]));
+        }
+        while sum > 0xffff {
+            sum = (sum & 0xffff) + (sum >> 16);
+        }
+        packet[10..12].copy_from_slice(&(!(sum as u16)).to_be_bytes());
+        Bytes::from(packet)
+    }
 
     #[test]
     fn frontend_spec_includes_auth_dns_and_idle() {
@@ -933,44 +1038,235 @@ mod tests {
         let (tun_sink, _rx) = watch::channel(None);
         let (tx, mut rx) = mpsc::channel(4);
         tun_sink.send_replace(Some(tx.clone()));
-        dispatch_tun_incoming(&tun_sink, Bytes::from_static(b"keep"));
-        assert_eq!(rx.recv().await.unwrap(), Bytes::from_static(b"keep"));
+        assert_eq!(
+            dispatch_tun_incoming(&tun_sink, Bytes::from_static(b"keep")),
+            0
+        );
+        assert_eq!(
+            rx.recv().await.unwrap().pop_front().unwrap(),
+            Bytes::from_static(b"keep")
+        );
 
         tun_sink.send_replace(None);
-        dispatch_tun_incoming(&tun_sink, Bytes::from_static(b"drop"));
+        assert_eq!(
+            dispatch_tun_incoming(&tun_sink, Bytes::from_static(b"drop")),
+            0
+        );
         assert!(rx.try_recv().is_err());
         assert!(tun_sink.borrow().is_none());
 
         drop(rx);
         tun_sink.send_replace(Some(tx));
-        dispatch_tun_incoming(&tun_sink, Bytes::from_static(b"closed"));
+        assert_eq!(
+            dispatch_tun_incoming(&tun_sink, Bytes::from_static(b"closed")),
+            0
+        );
         assert!(tun_sink.borrow().is_none());
     }
 
     #[tokio::test]
-    async fn tun_send_queue_saturation_fails_immediately() {
-        let (outgoing, _outgoing_rx) = mpsc::channel(1);
+    async fn saturated_tun_sink_drops_only_payload_and_recovers() {
+        let (tun_sink, _watch) = watch::channel(None);
+        let (tx, mut rx) = mpsc::channel(1);
+        tun_sink.send_replace(Some(tx));
+        assert_eq!(
+            dispatch_tun_incoming(&tun_sink, Bytes::from_static(b"first")),
+            0
+        );
+        assert_eq!(
+            dispatch_tun_incoming(&tun_sink, Bytes::from_static(b"overflow")),
+            1
+        );
+        assert!(tun_sink.borrow().is_some());
+        assert_eq!(
+            rx.recv().await.unwrap().pop_front().unwrap(),
+            Bytes::from_static(b"first")
+        );
+        assert_eq!(
+            dispatch_tun_incoming(&tun_sink, Bytes::from_static(b"recovered")),
+            0
+        );
+        assert_eq!(
+            rx.recv().await.unwrap().pop_front().unwrap(),
+            Bytes::from_static(b"recovered")
+        );
+    }
+
+    #[tokio::test]
+    async fn packet_mux_survives_inner_backpressure_for_tun_and_proxy_sources() {
+        let (mut tunnel, mut inner_rx, managed_incoming) =
+            ManagedTunnelRuntime::packet_mux_test_channels(1);
+        let (raw_tx, raw_rx) = mpsc::channel(4);
+        let (_tun_incoming_tx, tun_incoming) = mpsc::channel(1);
+        let tun_io = MasqueTunIo {
+            outgoing: raw_tx,
+            incoming: tun_incoming,
+            pending_incoming: PacketBatch::new(),
+        };
+        let (proxy_pipe, proxy_client) = WakingPipe::bounded(4);
+        let WakingPipe {
+            rx: _proxy_responses,
+            tx: proxy_outgoing,
+        } = proxy_client;
+        let cancellation = CancellationToken::new();
+        let (router, direct_incoming) = DirectGatewayRouter::start(
+            &Profile::default(),
+            Arc::new(GeoDirectPolicy::disabled()),
+            noop_socket_protector(),
+            Arc::new(crate::netstack::TrafficCounters::default()),
+            None,
+            &cancellation,
+        )
+        .await
+        .unwrap();
+        let direct_gateway = DirectGatewayMux {
+            router,
+            incoming: direct_incoming,
+        };
+        let (tun_sink, _tun_sink_rx) = watch::channel(None);
+        let task_cancellation = cancellation.clone();
+        let task = tokio::spawn(async move {
+            let _managed_incoming = managed_incoming;
+            run_packet_mux(
+                &mut tunnel,
+                proxy_pipe,
+                raw_rx,
+                direct_gateway,
+                tun_sink,
+                &task_cancellation,
+            )
+            .await;
+        });
+
+        tun_io.send_packet(&mux_udp_packet(50_000)).await.unwrap();
+        tun_io.send_packet(&mux_udp_packet(50_001)).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        assert!(!task.is_finished());
+        let first = timeout(Duration::from_secs(1), inner_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        let second = timeout(Duration::from_secs(1), inner_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(u16::from_be_bytes([first[20], first[21]]), 50_000);
+        assert_eq!(u16::from_be_bytes([second[20], second[21]]), 50_001);
+
+        proxy_outgoing.send_async(&mux_udp_packet(50_002)).await;
+        let proxy = timeout(Duration::from_secs(1), inner_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(u16::from_be_bytes([proxy[20], proxy[21]]), 50_002);
+        assert!(!task.is_finished());
+
+        cancellation.cancel();
+        timeout(Duration::from_secs(1), task)
+            .await
+            .expect("packet mux did not stop after cancellation")
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn tun_send_queue_saturation_backpressures_and_resumes_in_order() {
+        let (outgoing, mut outgoing_rx) = mpsc::channel(1);
         let (_incoming_tx, incoming) = mpsc::channel(1);
-        let io = MasqueTunIo { outgoing, incoming };
+        let io = MasqueTunIo {
+            outgoing,
+            incoming,
+            pending_incoming: PacketBatch::new(),
+        };
         let packet = [
             0x45, 0, 0, 20, 0, 0, 0, 0, 64, 17, 0, 0, 1, 1, 1, 1, 8, 8, 8, 8,
         ];
 
         io.send_packet(&packet).await.unwrap();
+        let second_send = io.send_packet(&packet);
+        tokio::pin!(second_send);
+        tokio::select! {
+            result = &mut second_send => panic!("saturated send completed early: {result:?}"),
+            () = tokio::time::sleep(Duration::from_millis(10)) => {}
+        }
+
+        assert_eq!(outgoing_rx.recv().await.unwrap().as_ref(), packet);
+        second_send.await.unwrap();
+        assert_eq!(outgoing_rx.recv().await.unwrap().as_ref(), packet);
+    }
+
+    #[tokio::test]
+    async fn closing_tun_send_queue_releases_a_backpressured_sender() {
+        let (outgoing, mut outgoing_rx) = mpsc::channel(1);
+        let (_incoming_tx, incoming) = mpsc::channel(1);
+        let io = MasqueTunIo {
+            outgoing,
+            incoming,
+            pending_incoming: PacketBatch::new(),
+        };
+        let packet = [
+            0x45, 0, 0, 20, 0, 0, 0, 0, 64, 17, 0, 0, 1, 1, 1, 1, 8, 8, 8, 8,
+        ];
+
+        io.send_packet(&packet).await.unwrap();
+        let blocked_send = io.send_packet(&packet);
+        tokio::pin!(blocked_send);
+        tokio::select! {
+            result = &mut blocked_send => panic!("saturated send completed early: {result:?}"),
+            () = tokio::time::sleep(Duration::from_millis(10)) => {}
+        }
+
+        outgoing_rx.close();
         assert!(matches!(
-            io.send_packet(&packet).await,
-            Err(TransportError::SendQueueFull)
+            blocked_send.await,
+            Err(TransportError::TunnelClosed)
         ));
+    }
+
+    #[tokio::test]
+    async fn cancellation_drops_a_backpressured_tun_send_without_enqueuing_it() {
+        let (outgoing, mut outgoing_rx) = mpsc::channel(1);
+        let (_incoming_tx, incoming) = mpsc::channel(1);
+        let io = MasqueTunIo {
+            outgoing,
+            incoming,
+            pending_incoming: PacketBatch::new(),
+        };
+        let packet = [
+            0x45, 0, 0, 20, 0, 0, 0, 0, 64, 17, 0, 0, 1, 1, 1, 1, 8, 8, 8, 8,
+        ];
+        io.send_packet(&packet).await.unwrap();
+        let cancellation = CancellationToken::new();
+        let blocked_send = async {
+            tokio::select! {
+                biased;
+                _ = cancellation.cancelled() => None,
+                result = io.send_packet(&packet) => Some(result),
+            }
+        };
+        tokio::pin!(blocked_send);
+        tokio::select! {
+            result = &mut blocked_send => panic!("saturated send completed early: {result:?}"),
+            () = tokio::time::sleep(Duration::from_millis(10)) => {}
+        }
+
+        cancellation.cancel();
+        assert!(blocked_send.await.is_none());
+        assert_eq!(outgoing_rx.recv().await.unwrap().as_ref(), packet);
+        assert!(outgoing_rx.try_recv().is_err());
     }
 
     #[test]
     fn tun_receive_queue_can_be_drained_without_waiting() {
         let (outgoing, _outgoing_rx) = mpsc::channel(1);
         let (incoming_tx, incoming) = mpsc::channel(2);
-        let mut io = MasqueTunIo { outgoing, incoming };
+        let mut io = MasqueTunIo {
+            outgoing,
+            incoming,
+            pending_incoming: PacketBatch::new(),
+        };
 
         incoming_tx
-            .try_send(Bytes::from_static(b"packet"))
+            .try_send(PacketBatch::single(Bytes::from_static(b"packet")))
             .expect("queue packet");
         assert_eq!(
             io.try_receive_packet().expect("queued packet"),

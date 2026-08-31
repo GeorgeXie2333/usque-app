@@ -1,6 +1,8 @@
 use std::collections::VecDeque;
+use std::future::Future;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket as StdUdpSocket};
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant as StdInstant};
 
@@ -21,6 +23,7 @@ use crate::h2::{
     MasqueTlsIdentity, PinState, TransportError, configure_client_identity_and_pin,
     validate_ip_packet,
 };
+use crate::packet_batch::{MAX_PACKET_BATCH_PACKETS, PacketBatch, PacketBatchResult};
 use crate::socket::{SocketProtector, noop_socket_protector, socket_handle};
 use crate::telemetry::{ConnectionAttemptTelemetry, ConnectionEventType};
 
@@ -34,8 +37,15 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(30);
 const MAX_IDLE_TIMEOUT_MS: u64 = 90_000;
 const MAX_UDP_PAYLOAD_SIZE: usize = 1_350;
-const DATAGRAM_CHANNEL_CAPACITY: usize = 1_024;
+const DATAGRAM_SEND_QUEUE_CAPACITY: usize = 1_024;
+const DATAGRAM_RECV_QUEUE_CAPACITY: usize = MAX_PACKET_BATCH_PACKETS;
+const INBOUND_PACKET_CAPACITY: usize = 1_024;
+const INBOUND_RESERVED_BATCHES: usize = 3;
+const INCOMING_BATCH_CHANNEL_CAPACITY: usize =
+    INBOUND_PACKET_CAPACITY / MAX_PACKET_BATCH_PACKETS - INBOUND_RESERVED_BATCHES;
+const OUTGOING_BATCH_CHANNEL_CAPACITY: usize = 1;
 const MAX_PENDING_WIRE_DATAGRAMS: usize = 64;
+const MAX_SOCKET_DRAIN: usize = 64;
 const PACKET_SEND_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// An established Cloudflare CONNECT-IP stream over HTTP/3 and QUIC.
@@ -64,7 +74,7 @@ impl H3Tunnel {
 }
 
 pub struct H3SendHalf {
-    sender: Option<mpsc::Sender<OutgoingPacket>>,
+    sender: Option<mpsc::Sender<OutgoingBatch>>,
 }
 
 impl H3SendHalf {
@@ -80,34 +90,53 @@ impl H3SendHalf {
         }
     }
 
-    /// Sends an owned packet under the transport supervisor's outer deadline.
-    pub(crate) async fn send_owned_packet(&mut self, packet: Bytes) -> Result<(), TransportError> {
-        self.send_owned_packet_inner(packet).await
-    }
-
     async fn send_owned_packet_inner(&mut self, packet: Bytes) -> Result<(), TransportError> {
         validate_ip_packet(&packet)?;
-        let (completion_tx, completion_rx) = oneshot::channel();
-        self.sender
-            .as_ref()
-            .ok_or(TransportError::TunnelClosed)?
-            .try_send(OutgoingPacket {
-                packet,
-                completion: completion_tx,
-            })
-            .map_err(|error| match error {
-                TrySendError::Full(_) => TransportError::SendQueueFull,
-                TrySendError::Closed(_) => TransportError::TunnelClosed,
-            })?;
-        match completion_rx.await {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(DatagramSendFailure::TooLarge {
+        let mut result = self.send_owned_batch(PacketBatch::single(packet)).await?;
+        if let Some((_packet, maximum_packet_size)) = result.oversized.pop() {
+            return Err(TransportError::Http3DatagramTooLarge {
                 maximum_packet_size,
-            })) => Err(TransportError::Http3DatagramTooLarge {
-                maximum_packet_size,
-            }),
-            Err(_) => Err(TransportError::TunnelClosed),
+            });
         }
+        Ok(())
+    }
+
+    pub(crate) async fn send_owned_batch(
+        &self,
+        batch: PacketBatch,
+    ) -> Result<PacketBatchResult, TransportError> {
+        self.start_owned_batch(batch).await
+    }
+
+    pub(crate) fn start_owned_batch(
+        &self,
+        batch: PacketBatch,
+    ) -> Pin<Box<dyn Future<Output = Result<PacketBatchResult, TransportError>> + Send + 'static>>
+    {
+        let sender = self.sender.clone();
+        Box::pin(async move {
+            if batch.is_empty() {
+                return Ok(PacketBatchResult::default());
+            }
+            for packet in batch.iter() {
+                validate_ip_packet(packet)?;
+            }
+            let (completion_tx, completion_rx) = oneshot::channel();
+            let sender = sender.ok_or(TransportError::TunnelClosed)?;
+            let permit = sender
+                .reserve()
+                .await
+                .map_err(|_| TransportError::TunnelClosed)?;
+            permit.send(OutgoingBatch {
+                batch,
+                result: PacketBatchResult::default(),
+                completion: completion_tx,
+            });
+            match completion_rx.await {
+                Ok(result) => Ok(result),
+                Err(_) => Err(TransportError::TunnelClosed),
+            }
+        })
     }
 
     pub fn close(&mut self) {
@@ -115,21 +144,35 @@ impl H3SendHalf {
     }
 }
 
-struct OutgoingPacket {
-    packet: Bytes,
-    completion: oneshot::Sender<Result<(), DatagramSendFailure>>,
-}
-
-enum DatagramSendFailure {
-    TooLarge { maximum_packet_size: usize },
+struct OutgoingBatch {
+    batch: PacketBatch,
+    result: PacketBatchResult,
+    completion: oneshot::Sender<PacketBatchResult>,
 }
 
 pub struct H3ReceiveHalf {
-    receiver: mpsc::Receiver<Bytes>,
+    receiver: mpsc::Receiver<PacketBatch>,
+    pending: PacketBatch,
 }
 
 impl H3ReceiveHalf {
     pub async fn receive_packet(&mut self) -> Result<Bytes, TransportError> {
+        loop {
+            if let Some(packet) = self.pending.pop_front() {
+                return Ok(packet);
+            }
+            self.pending = self
+                .receiver
+                .recv()
+                .await
+                .ok_or(TransportError::TunnelClosed)?;
+        }
+    }
+
+    pub(crate) async fn receive_batch(&mut self) -> Result<PacketBatch, TransportError> {
+        if !self.pending.is_empty() {
+            return Ok(std::mem::take(&mut self.pending));
+        }
         self.receiver
             .recv()
             .await
@@ -143,9 +186,11 @@ pub struct H3Driver {
 
 impl H3Driver {
     pub async fn wait(mut self) -> Result<(), TransportError> {
-        self.task
+        let task = self
+            .task
             .take()
-            .expect("H3 driver task is present until wait")
+            .expect("H3 driver task is present until wait");
+        AbortOnDropHandle::new(task)
             .await
             .map_err(|error| TransportError::Http3(format!("driver task failed: {error}")))?
     }
@@ -243,8 +288,8 @@ async fn connect_h3_once(
     h3_config.set_qpack_max_table_capacity(0);
     h3_config.set_qpack_blocked_streams(0);
 
-    let (outgoing_tx, outgoing_rx) = mpsc::channel(DATAGRAM_CHANNEL_CAPACITY);
-    let (incoming_tx, incoming_rx) = mpsc::channel(DATAGRAM_CHANNEL_CAPACITY);
+    let (outgoing_tx, outgoing_rx) = mpsc::channel(OUTGOING_BATCH_CHANNEL_CAPACITY);
+    let (incoming_tx, incoming_rx) = mpsc::channel(INCOMING_BATCH_CHANNEL_CAPACITY);
     let (control_tx, control_rx) = watch::channel(PeerNetworkState::default());
     let (startup_tx, startup_rx) = oneshot::channel();
     let task = AbortOnDropHandle::new(tokio::spawn(run_h3_actor(
@@ -266,6 +311,7 @@ async fn connect_h3_once(
             },
             receive: H3ReceiveHalf {
                 receiver: incoming_rx,
+                pending: PacketBatch::new(),
             },
             driver: H3Driver {
                 task: Some(task.detach()),
@@ -328,7 +374,11 @@ fn quic_config(
     config.set_initial_max_streams_bidi(16);
     config.set_initial_max_streams_uni(16);
     config.set_disable_active_migration(true);
-    config.enable_dgram(true, DATAGRAM_CHANNEL_CAPACITY, DATAGRAM_CHANNEL_CAPACITY);
+    config.enable_dgram(
+        true,
+        DATAGRAM_RECV_QUEUE_CAPACITY,
+        DATAGRAM_SEND_QUEUE_CAPACITY,
+    );
     config.set_cc_algorithm(quiche::CongestionControlAlgorithm::CUBIC);
     config.enable_pacing(true);
     Ok((config, pin_state))
@@ -372,8 +422,8 @@ async fn run_h3_actor(
     socket: UdpSocket,
     connection: quiche::Connection,
     h3_config: quiche::h3::Config,
-    outgoing_rx: mpsc::Receiver<OutgoingPacket>,
-    incoming_tx: mpsc::Sender<Bytes>,
+    outgoing_rx: mpsc::Receiver<OutgoingBatch>,
+    incoming_tx: mpsc::Sender<PacketBatch>,
     control_tx: watch::Sender<PeerNetworkState>,
     startup_tx: oneshot::Sender<Result<(), StartupFailure>>,
     attempt: Option<ConnectionAttemptTelemetry>,
@@ -410,8 +460,8 @@ async fn drive_h3_actor(
     socket: UdpSocket,
     mut connection: quiche::Connection,
     h3_config: quiche::h3::Config,
-    mut outgoing_rx: mpsc::Receiver<OutgoingPacket>,
-    incoming_tx: mpsc::Sender<Bytes>,
+    mut outgoing_rx: mpsc::Receiver<OutgoingBatch>,
+    incoming_tx: mpsc::Sender<PacketBatch>,
     control_tx: watch::Sender<PeerNetworkState>,
     startup_tx: &mut Option<oneshot::Sender<Result<(), StartupFailure>>>,
     attempt: Option<&ConnectionAttemptTelemetry>,
@@ -423,11 +473,12 @@ async fn drive_h3_actor(
     let mut peer_settings_recorded = false;
     let mut ready = false;
     let mut control = ConnectIpControlPlane::new(control_tx);
-    let mut pending_packet: Option<OutgoingPacket> = None;
+    let mut pending_batch: Option<OutgoingBatch> = None;
     let mut wire_datagrams = VecDeque::with_capacity(MAX_PENDING_WIRE_DATAGRAMS);
     let mut free_wire_buffers = Vec::new();
     let mut receive_buffer = vec![0u8; 65_535];
-    let mut inbound_dropped_packets = 0u64;
+    let mut incoming_batch = PacketBatch::new();
+    let mut inbound_queue_drop_count = 0_u64;
     let mut keepalive = interval_at(Instant::now() + KEEPALIVE_INTERVAL, KEEPALIVE_INTERVAL);
     keepalive.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
@@ -507,44 +558,21 @@ async fn drive_h3_actor(
                 stream_id,
                 ready,
                 &incoming_tx,
-                &mut receive_buffer,
-                &mut inbound_dropped_packets,
+                &mut incoming_batch,
             )?;
         }
 
-        if ready
-            && let (Some(stream_id), Some(packet)) = (request_stream_id, pending_packet.as_ref())
-        {
-            let datagram = encode_http_datagram(stream_id, &packet.packet)?;
-            let datagram_overhead = datagram.len().saturating_sub(packet.packet.len());
-            let maximum_packet_size = connection
-                .dgram_max_writable_len()
-                .map(|maximum| maximum.saturating_sub(datagram_overhead))
-                .unwrap_or_default();
-            match connection.dgram_send(&datagram) {
-                Ok(()) => {
-                    if let Some(packet) = pending_packet.take() {
-                        let _ = packet.completion.send(Ok(()));
-                    }
-                }
-                Err(quiche::Error::Done) => {}
-                Err(quiche::Error::BufferTooShort) => {
-                    if let Some(packet) = pending_packet.take() {
-                        let _ = packet.completion.send(Err(DatagramSendFailure::TooLarge {
-                            maximum_packet_size,
-                        }));
-                    }
-                }
-                Err(error) => {
-                    return Err(TransportError::Http3(format!(
-                        "queue CONNECT-IP datagram: {error:?}"
-                    )));
-                }
-            }
+        if ready && let Some(stream_id) = request_stream_id {
+            queue_pending_batch(&mut connection, stream_id, &mut pending_batch)?;
         }
 
-        generate_wire_datagrams(&mut connection, &mut wire_datagrams, &mut free_wire_buffers)?;
-        send_due_wire_datagrams(&socket, &mut wire_datagrams, &mut free_wire_buffers).await?;
+        let send_quantum = connection.send_quantum();
+        generate_wire_datagrams(
+            &mut connection,
+            &mut wire_datagrams,
+            &mut free_wire_buffers,
+            send_quantum,
+        )?;
 
         if connection.is_closed() {
             return Err(connection_closed_error(&connection));
@@ -556,30 +584,55 @@ async fn drive_h3_actor(
             .front()
             .map(|datagram| Instant::from_std(datagram.send_info.at))
             .unwrap_or_else(|| Instant::now() + Duration::from_secs(86_400));
+        let wire_is_due = wire_datagrams
+            .front()
+            .is_some_and(|datagram| datagram.send_info.at <= StdInstant::now());
 
         tokio::select! {
             received = socket.recv_from(&mut receive_buffer) => {
                 let (length, from) = received?;
-                let info = quiche::RecvInfo {
+                let dropped = receive_quic_datagram(
+                    &mut connection,
+                    &mut receive_buffer[..length],
                     from,
-                    to: local_address,
-                };
-                match connection.recv(&mut receive_buffer[..length], info) {
-                    Ok(_) | Err(quiche::Error::Done) => {}
-                    Err(error) => {
-                        return Err(TransportError::Http3(format!(
-                            "receive QUIC packet: {error:?}"
-                        )));
+                    local_address,
+                )?;
+                record_inbound_queue_drops(dropped, &mut inbound_queue_drop_count);
+                for _ in 1..MAX_SOCKET_DRAIN {
+                    match socket.try_recv_from(&mut receive_buffer) {
+                        Ok((length, from)) => {
+                            let dropped = receive_quic_datagram(
+                                &mut connection,
+                                &mut receive_buffer[..length],
+                                from,
+                                local_address,
+                            )?;
+                            record_inbound_queue_drops(
+                                dropped,
+                                &mut inbound_queue_drop_count,
+                            );
+                        }
+                        Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
+                        Err(error) => return Err(error.into()),
                     }
                 }
             }
-            packet = outgoing_rx.recv(), if ready && pending_packet.is_none() => {
-                match packet {
-                    Some(packet) => pending_packet = Some(packet),
+            batch = outgoing_rx.recv(), if ready && pending_batch.is_none() => {
+                match batch {
+                    Some(batch) => pending_batch = Some(batch),
                     None => return Ok(()),
                 }
             }
-            _ = sleep_until(wire_deadline), if !wire_datagrams.is_empty() => {}
+            writable = socket.writable(), if wire_is_due => {
+                writable?;
+                send_due_wire_datagrams(
+                    &socket,
+                    &mut wire_datagrams,
+                    &mut free_wire_buffers,
+                    send_quantum,
+                )?;
+            }
+            _ = sleep_until(wire_deadline), if !wire_datagrams.is_empty() && !wire_is_due => {}
             _ = sleep_until(quic_deadline) => connection.on_timeout(),
             _ = keepalive.tick(), if connection.is_established() => {
                 connection
@@ -731,13 +784,22 @@ fn drain_received_datagrams(
     connection: &mut quiche::Connection,
     request_stream_id: u64,
     ready: bool,
-    incoming_tx: &mpsc::Sender<Bytes>,
-    buffer: &mut [u8],
-    dropped_packets: &mut u64,
+    incoming_tx: &mpsc::Sender<PacketBatch>,
+    incoming_batch: &mut PacketBatch,
 ) -> Result<(), TransportError> {
-    loop {
-        let length = match connection.dgram_recv(buffer) {
-            Ok(length) => length,
+    if ready && !flush_incoming_batch(incoming_tx, incoming_batch)? {
+        return Ok(());
+    }
+    while let Some(front_len) = connection.dgram_recv_front_len() {
+        if ready
+            && !incoming_batch.is_empty()
+            && !incoming_batch.can_accept(front_len)
+            && !flush_incoming_batch(incoming_tx, incoming_batch)?
+        {
+            break;
+        }
+        let datagram = match connection.dgram_recv_buf() {
+            Ok(datagram) => datagram,
             Err(quiche::Error::Done) => break,
             Err(error) => {
                 return Err(TransportError::Http3(format!(
@@ -748,28 +810,143 @@ fn drain_received_datagrams(
         if !ready {
             continue;
         }
-        let Some(packet) = decode_http_datagram(request_stream_id, &buffer[..length])? else {
+        let Some(packet) = decode_http_datagram_bytes(request_stream_id, Bytes::from(datagram))?
+        else {
             continue;
         };
-        match incoming_tx.try_send(packet) {
-            Ok(()) => {}
-            Err(TrySendError::Full(_)) => {
-                *dropped_packets = dropped_packets.saturating_add(1);
-                if should_log_inbound_drop(*dropped_packets) {
-                    tracing::warn!(
-                        dropped_packets = *dropped_packets,
-                        "dropping inbound H3 packets because the netstack is congested"
-                    );
-                }
+        if let Err(packet) = incoming_batch.push_back(packet) {
+            if !flush_incoming_batch(incoming_tx, incoming_batch)? {
+                return Err(TransportError::Http3(
+                    "incoming batch capacity accounting failed".to_owned(),
+                ));
             }
-            Err(TrySendError::Closed(_)) => return Ok(()),
+            incoming_batch.push_back(packet).map_err(|_| {
+                TransportError::Http3("an inbound datagram exceeded the batch bound".to_owned())
+            })?;
         }
+    }
+    if ready {
+        let _ = flush_incoming_batch(incoming_tx, incoming_batch)?;
     }
     Ok(())
 }
 
-fn should_log_inbound_drop(dropped_packets: u64) -> bool {
-    dropped_packets.is_power_of_two()
+fn flush_incoming_batch(
+    incoming_tx: &mpsc::Sender<PacketBatch>,
+    incoming_batch: &mut PacketBatch,
+) -> Result<bool, TransportError> {
+    if incoming_batch.is_empty() {
+        return Ok(true);
+    }
+    match incoming_tx.try_send(std::mem::take(incoming_batch)) {
+        Ok(()) => Ok(true),
+        Err(TrySendError::Full(batch)) => {
+            *incoming_batch = batch;
+            Ok(false)
+        }
+        Err(TrySendError::Closed(_)) => Err(TransportError::TunnelClosed),
+    }
+}
+
+fn queue_pending_batch(
+    connection: &mut quiche::Connection,
+    stream_id: u64,
+    pending_batch: &mut Option<OutgoingBatch>,
+) -> Result<(), TransportError> {
+    let completed = {
+        let Some(outgoing) = pending_batch.as_mut() else {
+            return Ok(());
+        };
+        for _ in 0..MAX_SOCKET_DRAIN {
+            if connection.is_dgram_send_queue_full() {
+                break;
+            }
+            let Some(packet) = outgoing.batch.front() else {
+                break;
+            };
+            let packet_len = packet.len();
+            let datagram = encode_http_datagram(stream_id, packet)?;
+            let datagram_overhead = datagram.len().saturating_sub(packet_len);
+            let maximum_packet_size = connection
+                .dgram_max_writable_len()
+                .map(|maximum| maximum.saturating_sub(datagram_overhead))
+                .unwrap_or_default();
+            match connection.dgram_send_buf(datagram) {
+                Ok(()) => {
+                    let packet = outgoing
+                        .batch
+                        .pop_front()
+                        .expect("front packet remains until DATAGRAM is accepted");
+                    outgoing.result.accepted_bytes =
+                        outgoing.result.accepted_bytes.saturating_add(packet.len());
+                }
+                Err(quiche::Error::Done) => break,
+                Err(quiche::Error::BufferTooShort) => {
+                    let packet = outgoing
+                        .batch
+                        .pop_front()
+                        .expect("front packet remains until DATAGRAM is rejected");
+                    outgoing
+                        .result
+                        .oversized
+                        .push((packet, maximum_packet_size));
+                }
+                Err(error) => {
+                    return Err(TransportError::Http3(format!(
+                        "queue CONNECT-IP datagram: {error:?}"
+                    )));
+                }
+            }
+        }
+        outgoing.batch.is_empty()
+    };
+    if completed {
+        let outgoing = pending_batch
+            .take()
+            .expect("completed outgoing batch remains present");
+        let _ = outgoing.completion.send(outgoing.result);
+    }
+    Ok(())
+}
+
+fn receive_quic_datagram(
+    connection: &mut quiche::Connection,
+    datagram: &mut [u8],
+    from: SocketAddr,
+    to: SocketAddr,
+) -> Result<usize, TransportError> {
+    let queued_before = connection.dgram_recv_queue_len();
+    let received_before = connection.stats().dgram_recv;
+    let info = quiche::RecvInfo { from, to };
+    match connection.recv(datagram, info) {
+        Ok(_) | Err(quiche::Error::Done) => {
+            let received = connection
+                .stats()
+                .dgram_recv
+                .saturating_sub(received_before);
+            Ok(inbound_queue_overflow(queued_before, received))
+        }
+        Err(error) => Err(TransportError::Http3(format!(
+            "receive QUIC packet: {error:?}"
+        ))),
+    }
+}
+
+fn inbound_queue_overflow(queued_before: usize, received: usize) -> usize {
+    received.saturating_sub(DATAGRAM_RECV_QUEUE_CAPACITY.saturating_sub(queued_before))
+}
+
+fn record_inbound_queue_drops(dropped: usize, total: &mut u64) {
+    for _ in 0..dropped {
+        *total = total.saturating_add(1);
+        if total.is_power_of_two() {
+            tracing::warn!(
+                dropped_datagrams = *total,
+                queue_capacity = DATAGRAM_RECV_QUEUE_CAPACITY,
+                "dropped inbound CONNECT-IP payload after the bounded queue saturated"
+            );
+        }
+    }
 }
 
 struct WireDatagram {
@@ -781,11 +958,19 @@ fn generate_wire_datagrams(
     connection: &mut quiche::Connection,
     pending: &mut VecDeque<WireDatagram>,
     free_buffers: &mut Vec<Vec<u8>>,
+    send_quantum: usize,
 ) -> Result<(), TransportError> {
-    while pending.len() < MAX_PENDING_WIRE_DATAGRAMS {
+    if send_quantum < MAX_UDP_PAYLOAD_SIZE {
+        return Ok(());
+    }
+    let mut generated_bytes = 0usize;
+    while pending.len() < MAX_PENDING_WIRE_DATAGRAMS
+        && generated_bytes.saturating_add(MAX_UDP_PAYLOAD_SIZE) <= send_quantum
+    {
         let mut bytes = take_wire_buffer(free_buffers);
         match connection.send(&mut bytes) {
             Ok((length, send_info)) => {
+                generated_bytes = generated_bytes.saturating_add(length);
                 bytes.truncate(length);
                 pending.push_back(WireDatagram { bytes, send_info });
             }
@@ -803,29 +988,47 @@ fn generate_wire_datagrams(
     Ok(())
 }
 
-async fn send_due_wire_datagrams(
+fn send_due_wire_datagrams(
     socket: &UdpSocket,
     pending: &mut VecDeque<WireDatagram>,
     free_buffers: &mut Vec<Vec<u8>>,
+    send_quantum: usize,
 ) -> Result<(), TransportError> {
-    while pending
+    if !pending
         .front()
         .is_some_and(|datagram| datagram.send_info.at <= StdInstant::now())
     {
-        let datagram = pending
-            .pop_front()
-            .expect("front exists while draining due QUIC packets");
-        let sent = socket
-            .send_to(&datagram.bytes, datagram.send_info.to)
-            .await?;
-        if sent != datagram.bytes.len() {
-            return Err(io::Error::new(
-                io::ErrorKind::WriteZero,
-                "UDP socket sent a partial QUIC datagram",
-            )
-            .into());
+        return Ok(());
+    }
+    let mut sent_bytes = 0usize;
+    for _ in 0..MAX_SOCKET_DRAIN {
+        let Some(datagram) = pending.front() else {
+            break;
+        };
+        if datagram.send_info.at > StdInstant::now() {
+            break;
         }
-        recycle_wire_buffer(free_buffers, datagram.bytes);
+        if sent_bytes.saturating_add(datagram.bytes.len()) > send_quantum {
+            break;
+        }
+        match socket.try_send_to(&datagram.bytes, datagram.send_info.to) {
+            Ok(sent) if sent == datagram.bytes.len() => {
+                sent_bytes = sent_bytes.saturating_add(sent);
+                let datagram = pending
+                    .pop_front()
+                    .expect("front exists after successful QUIC send");
+                recycle_wire_buffer(free_buffers, datagram.bytes);
+            }
+            Ok(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::WriteZero,
+                    "UDP socket sent a partial QUIC datagram",
+                )
+                .into());
+            }
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
+            Err(error) => return Err(error.into()),
+        }
     }
     Ok(())
 }
@@ -854,11 +1057,11 @@ fn encode_http_datagram(stream_id: u64, packet: &[u8]) -> Result<Vec<u8>, Transp
     Ok(encoded)
 }
 
-fn decode_http_datagram(
+fn decode_http_datagram_bytes(
     request_stream_id: u64,
-    datagram: &[u8],
+    datagram: Bytes,
 ) -> Result<Option<Bytes>, TransportError> {
-    let Some((quarter_stream_id, stream_bytes)) = decode_varint(datagram)? else {
+    let Some((quarter_stream_id, stream_bytes)) = decode_varint(&datagram)? else {
         return Err(TransportError::MalformedIpPacket);
     };
     if quarter_stream_id != request_stream_id / 4 {
@@ -867,12 +1070,20 @@ fn decode_http_datagram(
     let payload = datagram
         .get(stream_bytes..)
         .ok_or(TransportError::MalformedIpPacket)?;
-    let datagram = IpDatagram::decode(Bytes::copy_from_slice(payload))?;
+    let datagram = IpDatagram::decode(datagram.slice(stream_bytes..stream_bytes + payload.len()))?;
     if datagram.context_id != usque_protocol::DEFAULT_CONTEXT_ID {
         return Ok(None);
     }
     validate_ip_packet(&datagram.packet)?;
     Ok(Some(datagram.packet))
+}
+
+#[cfg(test)]
+fn decode_http_datagram(
+    request_stream_id: u64,
+    datagram: &[u8],
+) -> Result<Option<Bytes>, TransportError> {
+    decode_http_datagram_bytes(request_stream_id, Bytes::copy_from_slice(datagram))
 }
 
 fn decode_varint(buffer: &[u8]) -> Result<Option<(u64, usize)>, TransportError> {
@@ -941,10 +1152,43 @@ fn connection_closed_error(connection: &quiche::Connection) -> TransportError {
 mod tests {
     use super::*;
 
+    struct DropSignal(Option<oneshot::Sender<()>>);
+
+    impl Drop for DropSignal {
+        fn drop(&mut self) {
+            if let Some(sender) = self.0.take() {
+                let _ = sender.send(());
+            }
+        }
+    }
+
     fn ipv4_packet() -> [u8; 20] {
         [
             0x45, 0, 0, 20, 0, 0, 0, 0, 64, 17, 0, 0, 1, 1, 1, 1, 8, 8, 8, 8,
         ]
+    }
+
+    #[tokio::test]
+    async fn dropping_driver_wait_aborts_the_old_actor() {
+        let (started_tx, started_rx) = oneshot::channel();
+        let (dropped_tx, dropped_rx) = oneshot::channel();
+        let task = tokio::spawn(async move {
+            let _drop_signal = DropSignal(Some(dropped_tx));
+            let _ = started_tx.send(());
+            std::future::pending::<Result<(), TransportError>>().await
+        });
+        started_rx.await.unwrap();
+        let driver = H3Driver { task: Some(task) };
+        let mut wait = Box::pin(driver.wait());
+        tokio::select! {
+            result = &mut wait => panic!("driver wait completed early: {result:?}"),
+            () = tokio::time::sleep(Duration::from_millis(10)) => {}
+        }
+        drop(wait);
+        timeout(Duration::from_secs(1), dropped_rx)
+            .await
+            .expect("dropping the wait future did not abort the old actor")
+            .unwrap();
     }
 
     #[test]
@@ -986,6 +1230,48 @@ mod tests {
     }
 
     #[test]
+    fn owned_http_datagram_decode_reuses_the_receive_allocation() {
+        let packet = ipv4_packet();
+        let encoded = encode_http_datagram(8, &packet).unwrap();
+        let allocation = encoded.as_ptr() as usize;
+        let (_, stream_prefix) = decode_varint(&encoded).unwrap().unwrap();
+        let (_, context_prefix) = decode_varint(&encoded[stream_prefix..]).unwrap().unwrap();
+        let expected_payload = allocation + stream_prefix + context_prefix;
+
+        let decoded = decode_http_datagram_bytes(8, Bytes::from(encoded))
+            .unwrap()
+            .unwrap();
+        assert_eq!(decoded.as_ptr() as usize, expected_payload);
+        assert_eq!(decoded.as_ref(), packet);
+    }
+
+    #[test]
+    fn inbound_queue_overflow_counts_only_payloads_beyond_the_bound() {
+        assert_eq!(inbound_queue_overflow(0, DATAGRAM_RECV_QUEUE_CAPACITY), 0);
+        assert_eq!(
+            inbound_queue_overflow(DATAGRAM_RECV_QUEUE_CAPACITY - 1, 1),
+            0
+        );
+        assert_eq!(
+            inbound_queue_overflow(DATAGRAM_RECV_QUEUE_CAPACITY - 1, 3),
+            2
+        );
+        assert_eq!(inbound_queue_overflow(DATAGRAM_RECV_QUEUE_CAPACITY, 4), 4);
+    }
+
+    #[test]
+    fn inbound_batch_storage_is_bounded_to_1024_packets() {
+        let application_channel = INCOMING_BATCH_CHANNEL_CAPACITY * MAX_PACKET_BATCH_PACKETS;
+        assert_eq!(
+            application_channel
+                + MAX_PACKET_BATCH_PACKETS // receive-half pending batch
+                + MAX_PACKET_BATCH_PACKETS // actor pending batch
+                + DATAGRAM_RECV_QUEUE_CAPACITY,
+            INBOUND_PACKET_CAPACITY
+        );
+    }
+
+    #[test]
     fn wire_datagram_buffers_are_reused_with_a_fixed_bound() {
         let mut free = Vec::new();
         let first = take_wire_buffer(&mut free);
@@ -1004,12 +1290,71 @@ mod tests {
         assert_eq!(free.len(), MAX_PENDING_WIRE_DATAGRAMS);
     }
 
-    #[test]
-    fn inbound_congestion_warnings_are_exponentially_rate_limited() {
-        let logged = (0..=17)
-            .filter(|count| should_log_inbound_drop(*count))
-            .collect::<Vec<_>>();
-        assert_eq!(logged, vec![1, 2, 4, 8, 16]);
+    #[tokio::test]
+    async fn udp_send_drain_respects_send_quantum_and_pacing_deadline() {
+        let receiver = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let sender = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let from = sender.local_addr().unwrap();
+        let to = receiver.local_addr().unwrap();
+        let due = StdInstant::now();
+        let future = due + Duration::from_secs(60);
+        let mut pending = VecDeque::from([
+            WireDatagram {
+                bytes: vec![1; 100],
+                send_info: quiche::SendInfo { from, to, at: due },
+            },
+            WireDatagram {
+                bytes: vec![2; 100],
+                send_info: quiche::SendInfo { from, to, at: due },
+            },
+            WireDatagram {
+                bytes: vec![3; 100],
+                send_info: quiche::SendInfo {
+                    from,
+                    to,
+                    at: future,
+                },
+            },
+        ]);
+        let mut free = Vec::new();
+
+        sender.writable().await.unwrap();
+        send_due_wire_datagrams(&sender, &mut pending, &mut free, 150).unwrap();
+        assert_eq!(pending.len(), 2);
+        let mut received = [0u8; 128];
+        let length = timeout(Duration::from_secs(1), receiver.recv(&mut received))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(&received[..length], &[1; 100]);
+
+        sender.writable().await.unwrap();
+        send_due_wire_datagrams(&sender, &mut pending, &mut free, 500).unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending.front().unwrap().bytes, vec![3; 100]);
+    }
+
+    #[tokio::test]
+    async fn inbound_batch_is_retained_until_channel_capacity_returns() {
+        let (incoming_tx, mut incoming_rx) = mpsc::channel(1);
+        incoming_tx
+            .try_send(PacketBatch::single(Bytes::from_static(b"queued")))
+            .unwrap();
+        let mut pending = PacketBatch::single(Bytes::from_static(b"pending"));
+
+        assert!(!flush_incoming_batch(&incoming_tx, &mut pending).unwrap());
+        assert_eq!(pending.len(), 1);
+        assert_eq!(
+            incoming_rx.recv().await.unwrap().pop_front().unwrap(),
+            Bytes::from_static(b"queued")
+        );
+
+        assert!(flush_incoming_batch(&incoming_tx, &mut pending).unwrap());
+        assert!(pending.is_empty());
+        assert_eq!(
+            incoming_rx.recv().await.unwrap().pop_front().unwrap(),
+            Bytes::from_static(b"pending")
+        );
     }
 
     #[test]
