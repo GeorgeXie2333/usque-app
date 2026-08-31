@@ -6,14 +6,14 @@ immediately below the matching English text.
 
 ## Highlights / 更新亮点
 
-- Verified in-app upgrades are now available on Windows and Android. Usque requires the architecture-matched package, release manifest, size, SHA-256, signer, package identity, and version to agree before handing the update to the platform installer.
-  <br>Windows 与 Android 现已支持经过验证的应用内升级。Usque 仅在架构匹配的软件包、Release 清单、大小、SHA-256、签名者、软件包身份和版本全部一致后，才会将更新交给系统安装程序。
-- Structured diagnostics now explain tunnel, transport, frontend, and platform failures and can export privacy-sanitized evidence. Official releases add an immutable manifest, checksums, and per-package SBOMs; isolated-runner reports remain optional supplemental validation.
-  <br>结构化诊断现可说明隧道、传输层、前端和平台故障，并导出经过隐私清理的证据。正式 Release 还会附带不可变清单、校验和与逐包 SBOM；隔离 Runner 报告作为可选的补充验证。
-- H3 and H2 transport paths now reduce packet copies, allocations, logging contention, and nested timers. Windows packet-ring batching and fairer Android tunnel scheduling improve sustained traffic handling.
-  <br>H3 与 H2 传输路径现已减少数据包复制、内存分配、日志竞争和嵌套计时器；Windows 数据包环批处理与更公平的 Android 隧道调度可改善持续流量处理。
-- Navigation, accessibility, touch behavior, platform-specific VPN labels, and translations have been refined. Zero Trust reauthentication now preserves registration-owned endpoint addresses while sharing device-wide port and SNI settings consistently.
-  <br>导航、无障碍、触控行为、平台专用 VPN 标签和翻译均已改进；Zero Trust 重新认证现会保留注册方下发的端点地址，并一致共享设备级端口与 SNI 设置。
+- Usque v0.2.3 is a major bug-fix release focused on eliminating traffic stalls and premature packet loss when sustained traffic fills MASQUE or platform packet queues.
+  <br>Usque v0.2.3 是一个重大 Bug 修复版本，重点解决持续流量填满 MASQUE 或平台数据包队列时出现的流量停滞和过早丢包问题。
+- H3 and H2 now retain bounded packet batches and apply backpressure until capacity returns instead of dropping or failing sends while the transport is still healthy. Closing or cancelling a path also releases blocked senders cleanly.
+  <br>H3 与 H2 现在会保留有界数据包批次，并持续施加背压直至容量恢复，而不会在传输仍然健康时丢弃数据包或令发送失败；关闭或取消路径时也会干净地释放被阻塞的发送方。
+- Windows packet-ring publication and Android tunnel scheduling now process bounded, ordered batches and resume in order after congestion, improving sustained traffic handling without introducing unbounded work.
+  <br>Windows 数据包环发布和 Android 隧道调度现在会处理有界、有序的批次，并在拥塞后按顺序恢复，从而改善持续流量处理且不会引入无界工作量。
+- Drop accounting and transport telemetry now distinguish real bounded-queue overflow from recoverable queue pressure. Pinned Rust dependencies and CI, CodeQL, Java, and SBOM tooling have also been refreshed.
+  <br>丢包计数与传输遥测现在能够区分真实的有界队列溢出和可恢复的队列压力；固定的 Rust 依赖以及 CI、CodeQL、Java 与 SBOM 工具也已更新。
 
 ### DNS privacy / DNS 隐私
 
