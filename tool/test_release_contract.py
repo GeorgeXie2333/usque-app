@@ -149,6 +149,18 @@ class ReleaseWorkflowPolicyTests(unittest.TestCase):
         self.assertIn("sha256sum -- *.msi *.apk > SHA256SUMS", publish)
         self.assertIn('wc -l)" -eq 14', publish)
 
+    def test_performance_lab_uses_v2_samples_and_repository_budget_math(self) -> None:
+        performance = self.job("performance-reliability")
+        self.assertIn("PERFORMANCE_ACCEPTED_BASELINE_COMMIT", performance)
+        self.assertIn("--schema-version 2", performance)
+        self.assertIn("--repetitions 7", performance)
+        self.assertIn("tool/performance_gate.py evaluate", performance)
+        self.assertIn("tool/performance_budget.json", performance)
+        self.assertIn("tool/performance_scenarios.json", performance)
+        self.assertIn("tool/schemas/performance_report.schema.json", performance)
+        self.assertIn("*-raw-samples.json", performance)
+        self.assertNotIn("Informational controlled performance baseline", performance)
+
 
 class ReleaseVersionContractTests(unittest.TestCase):
     def setUp(self) -> None:

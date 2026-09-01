@@ -826,11 +826,13 @@ jobs:
           retention-days: 14
 
   performance-reliability:
-    name: Informational controlled performance baseline
+    name: Controlled performance gates v2
     if: ${{ vars.RUN_PROTECTED_RELEASE_VALIDATION == 'true' }}
     needs: stage-candidate
     runs-on: [self-hosted, Linux, X64, usque-performance-lab]
     timeout-minutes: 120
+    env:
+      PERFORMANCE_BASELINE_COMMIT: ${{ vars.PERFORMANCE_ACCEPTED_BASELINE_COMMIT }}
     steps:
       - name: Checkout exact tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -843,18 +845,44 @@ jobs:
           name: usque-release-candidate
           path: ${{ runner.temp }}/candidate
 
-      - name: Record repeated raw H3 and H2 resource samples
+      - name: Require an explicit accepted performance baseline
+        run: |
+          set -euo pipefail
+          if ! [[ "$PERFORMANCE_BASELINE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "PERFORMANCE_ACCEPTED_BASELINE_COMMIT must be one full lowercase commit" >&2
+            exit 1
+          fi
+
+      - name: Record seven raw baseline and candidate samples per scenario
         run: |
           set -euo pipefail
           output="$RUNNER_TEMP/performance-reliability"
-          mkdir -p "$output"
+          measurements="$output/measurements"
+          mkdir -p "$measurements"
           usque-reliability-runner performance \
             --candidate-directory "$RUNNER_TEMP/candidate" \
-            --commit "$GITHUB_SHA" \
-            --output-directory "$output" \
+            --baseline-commit "$PERFORMANCE_BASELINE_COMMIT" \
+            --candidate-commit "$GITHUB_SHA" \
+            --schema-version 2 \
+            --scenarios tool/performance_scenarios.json \
+            --report-schema tool/schemas/performance_report.schema.json \
+            --output-directory "$measurements" \
             --repetitions 7
 
-      - name: Upload performance gate report and raw samples
+      - name: Recompute budgets and bind raw evidence
+        run: |
+          set -euo pipefail
+          python tool/performance_gate.py evaluate \
+            --measurements-directory "$RUNNER_TEMP/performance-reliability/measurements" \
+            --scenarios tool/performance_scenarios.json \
+            --budget tool/performance_budget.json \
+            --schema tool/schemas/performance_report.schema.json \
+            --candidate-manifest "$RUNNER_TEMP/candidate/release-manifest.json" \
+            --candidate-commit "$GITHUB_SHA" \
+            --output-directory "$RUNNER_TEMP/performance-reliability"
+
+      - name: Upload performance gate report
+        if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: usque-reliability-report-performance
@@ -862,15 +890,17 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-      - name: Upload informational raw performance samples
+      - name: Upload raw performance samples
+        if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: usque-performance-raw-samples
-          path: ${{ runner.temp }}/performance-reliability/raw-samples.json
+          path: ${{ runner.temp }}/performance-reliability/evidence/performance_lab/*-raw-samples.json
           if-no-files-found: error
           retention-days: 90
 
       - name: Preserve protected performance evidence
+        if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: usque-restricted-performance-evidence

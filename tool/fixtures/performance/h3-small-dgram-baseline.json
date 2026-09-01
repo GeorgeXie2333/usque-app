@@ -1,0 +1,25 @@
+{
+  "schema_version": 2,
+  "status": "measured",
+  "sample_role": "baseline",
+  "scenario_id": "h3-small-dgram",
+  "baseline_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "candidate_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "platform_class": "linux-x64",
+  "runner_class": "protected-performance-lab",
+  "samples": [
+    {"run_index": 1, "measurement_duration_ms": 1000, "goodput_bps": 1000000, "latency_p50_us": 500, "latency_p95_us": 1000, "latency_p99_us": 1500, "cpu_time_ms": 100, "rss_peak_bytes": 100000000, "queue_drop_packets": 0, "udp_send_syscalls": 1000, "udp_recv_syscalls": 1000, "udp_datagrams_sent": 1000, "udp_datagrams_received": 1000, "controlled_allocations": 200, "inner_packets": 1000},
+    {"run_index": 2, "measurement_duration_ms": 1000, "goodput_bps": 1000000, "latency_p50_us": 500, "latency_p95_us": 1000, "latency_p99_us": 1500, "cpu_time_ms": 100, "rss_peak_bytes": 100000000, "queue_drop_packets": 0, "udp_send_syscalls": 1000, "udp_recv_syscalls": 1000, "udp_datagrams_sent": 1000, "udp_datagrams_received": 1000, "controlled_allocations": 200, "inner_packets": 1000},
+    {"run_index": 3, "measurement_duration_ms": 1000, "goodput_bps": 1000000, "latency_p50_us": 500, "latency_p95_us": 1000, "latency_p99_us": 1500, "cpu_time_ms": 100, "rss_peak_bytes": 100000000, "queue_drop_packets": 0, "udp_send_syscalls": 1000, "udp_recv_syscalls": 1000, "udp_datagrams_sent": 1000, "udp_datagrams_received": 1000, "controlled_allocations": 200, "inner_packets": 1000},
+    {"run_index": 4, "measurement_duration_ms": 1000, "goodput_bps": 1000000, "latency_p50_us": 500, "latency_p95_us": 1000, "latency_p99_us": 1500, "cpu_time_ms": 100, "rss_peak_bytes": 100000000, "queue_drop_packets": 0, "udp_send_syscalls": 1000, "udp_recv_syscalls": 1000, "udp_datagrams_sent": 1000, "udp_datagrams_received": 1000, "controlled_allocations": 200, "inner_packets": 1000},
+    {"run_index": 5, "measurement_duration_ms": 1000, "goodput_bps": 1000000, "latency_p50_us": 500, "latency_p95_us": 1000, "latency_p99_us": 1500, "cpu_time_ms": 100, "rss_peak_bytes": 100000000, "queue_drop_packets": 0, "udp_send_syscalls": 1000, "udp_recv_syscalls": 1000, "udp_datagrams_sent": 1000, "udp_datagrams_received": 1000, "controlled_allocations": 200, "inner_packets": 1000},
+    {"run_index": 6, "measurement_duration_ms": 1000, "goodput_bps": 1000000, "latency_p50_us": 500, "latency_p95_us": 1000, "latency_p99_us": 1500, "cpu_time_ms": 100, "rss_peak_bytes": 100000000, "queue_drop_packets": 0, "udp_send_syscalls": 1000, "udp_recv_syscalls": 1000, "udp_datagrams_sent": 1000, "udp_datagrams_received": 1000, "controlled_allocations": 200, "inner_packets": 1000},
+    {"run_index": 7, "measurement_duration_ms": 1000, "goodput_bps": 1000000, "latency_p50_us": 500, "latency_p95_us": 1000, "latency_p99_us": 1500, "cpu_time_ms": 100, "rss_peak_bytes": 100000000, "queue_drop_packets": 0, "udp_send_syscalls": 1000, "udp_recv_syscalls": 1000, "udp_datagrams_sent": 1000, "udp_datagrams_received": 1000, "controlled_allocations": 200, "inner_packets": 1000}
+  ],
+  "environment": {
+    "network_profile_id": "h3-small-dgram",
+    "thermal_policy": "stable",
+    "battery_policy": "powered-or-stable",
+    "tool_versions": {"kernel": "6.8.0", "runner": "2.1.0", "rustc": "1.93.0"}
+  }
+}

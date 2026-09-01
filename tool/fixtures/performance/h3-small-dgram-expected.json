@@ -1,0 +1,8 @@
+{
+  "gate_id": "performance.h3_batch_io",
+  "status": "passed",
+  "baseline_goodput_median_bps": 1000000,
+  "candidate_latency_median_of_p95_us": 1050,
+  "candidate_syscalls_per_datagram": 0.25,
+  "candidate_rss_peak_median_bytes": 105000000
+}

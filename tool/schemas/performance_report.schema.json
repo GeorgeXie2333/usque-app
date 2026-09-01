@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://usque.example/schemas/performance-report-v2.json",
+  "title": "Usque protected performance sample report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "status",
+    "sample_role",
+    "scenario_id",
+    "baseline_commit",
+    "candidate_commit",
+    "platform_class",
+    "runner_class",
+    "samples",
+    "environment"
+  ],
+  "properties": {
+    "schema_version": {"const": 2},
+    "status": {"enum": ["measured", "not_run"]},
+    "sample_role": {"enum": ["baseline", "candidate"]},
+    "scenario_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+    "baseline_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "candidate_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "platform_class": {"enum": ["android-arm64", "linux-x64", "windows-x64-v2"]},
+    "runner_class": {"const": "protected-performance-lab"},
+    "reason_code": {
+      "enum": [
+        "battery_unstable",
+        "infrastructure_unavailable",
+        "missing_baseline",
+        "scenario_unavailable",
+        "thermal_unstable",
+        "unsupported_platform"
+      ]
+    },
+    "samples": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "run_index",
+          "measurement_duration_ms",
+          "goodput_bps",
+          "latency_p50_us",
+          "latency_p95_us",
+          "latency_p99_us",
+          "cpu_time_ms",
+          "rss_peak_bytes",
+          "queue_drop_packets",
+          "udp_send_syscalls",
+          "udp_recv_syscalls",
+          "udp_datagrams_sent",
+          "udp_datagrams_received",
+          "controlled_allocations",
+          "inner_packets"
+        ],
+        "properties": {
+          "run_index": {"type": "integer", "minimum": 1, "maximum": 7},
+          "measurement_duration_ms": {"type": "integer", "minimum": 1},
+          "goodput_bps": {"type": "integer", "minimum": 0},
+          "latency_p50_us": {"type": "integer", "minimum": 0},
+          "latency_p95_us": {"type": "integer", "minimum": 1},
+          "latency_p99_us": {"type": "integer", "minimum": 1},
+          "cpu_time_ms": {"type": "integer", "minimum": 0},
+          "rss_peak_bytes": {"type": "integer", "minimum": 0},
+          "queue_drop_packets": {"type": "integer", "minimum": 0},
+          "udp_send_syscalls": {"type": "integer", "minimum": 0},
+          "udp_recv_syscalls": {"type": "integer", "minimum": 0},
+          "udp_datagrams_sent": {"type": "integer", "minimum": 0},
+          "udp_datagrams_received": {"type": "integer", "minimum": 0},
+          "controlled_allocations": {"type": "integer", "minimum": 0},
+          "inner_packets": {"type": "integer", "minimum": 0},
+          "dns_queries": {"type": "integer", "minimum": 0},
+          "dns_successes": {"type": "integer", "minimum": 0},
+          "fallback_completion_us": {"type": "integer", "minimum": 0},
+          "full_reconnect_completion_us": {"type": "integer", "minimum": 0},
+          "migration_interruption_p95_us": {"type": "integer", "minimum": 0},
+          "physical_port_53_packets": {"type": "integer", "minimum": 0},
+          "plaintext_fallback_queries": {"type": "integer", "minimum": 0},
+          "pmtu_stable_ms": {"type": "integer", "minimum": 0},
+          "send_error_spin_count": {"type": "integer", "minimum": 0},
+          "silent_truncation_packets": {"type": "integer", "minimum": 0}
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["network_profile_id", "thermal_policy", "battery_policy", "tool_versions"],
+      "properties": {
+        "network_profile_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+        "thermal_policy": {"const": "stable"},
+        "battery_policy": {"enum": ["powered", "stable", "powered-or-stable"]},
+        "tool_versions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kernel", "runner", "rustc"],
+          "properties": {
+            "kernel": {"type": "string", "pattern": "^[0-9]+(?:\\.[0-9]+){1,3}$"},
+            "runner": {"type": "string", "pattern": "^[0-9]+(?:\\.[0-9]+){1,3}$"},
+            "rustc": {"type": "string", "pattern": "^[0-9]+(?:\\.[0-9]+){1,3}$"}
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "measured"}}},
+      "then": {
+        "properties": {"samples": {"minItems": 7, "maxItems": 7}},
+        "not": {"required": ["reason_code"]}
+      },
+      "else": {
+        "required": ["reason_code"],
+        "properties": {"samples": {"maxItems": 0}}
+      }
+    }
+  ]
+}
