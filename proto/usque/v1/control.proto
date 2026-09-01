@@ -57,6 +57,13 @@ enum ProxyDnsMode {
   PROXY_DNS_MODE_SYSTEM = 3;
 }
 
+enum DirectDnsMode {
+  DIRECT_DNS_MODE_UNSPECIFIED = 0;
+  DIRECT_DNS_MODE_PHYSICAL_SYSTEM = 1;
+  DIRECT_DNS_MODE_DOH = 2;
+  DIRECT_DNS_MODE_DOT = 3;
+}
+
 enum IdentityProvisioningMethod {
   IDENTITY_PROVISIONING_METHOD_UNSPECIFIED = 0;
   IDENTITY_PROVISIONING_METHOD_REGISTER = 1;
@@ -143,6 +150,14 @@ message FrontendSettings {
   bool http = 3;
 }
 
+message DirectDnsSettings {
+  DirectDnsMode mode = 1;
+  string server_name = 2;
+  string doh_path = 3;
+  repeated string bootstrap_ips = 4;
+  uint32 port = 5;
+}
+
 message Profile {
   string id = 1;
   string name = 2;
@@ -160,6 +175,7 @@ message Profile {
   DnsMode dns_mode = 14;
   FrontendSettings frontends = 15;
   repeated string geo_direct_countries = 16;
+  DirectDnsSettings direct_dns = 17;
 }
 
 message Statistics {
@@ -239,6 +255,10 @@ message Capabilities {
   bool diagnostics_sessions = 17;
   bool connection_timeline = 18;
   bool deep_diagnostics = 19;
+  bool network_quality = 20;
+  bool encrypted_direct_dns = 21;
+  bool quic_migration = 22;
+  bool automatic_pmtu = 23;
 }
 
 message FrontendStatus {
@@ -266,6 +286,7 @@ message ConnectionSnapshot {
   reserved 14;
   repeated FrontendStatus frontends = 15;
   TransportFailure failure = 16;
+  NetworkQualitySnapshot network_quality = 17;
 }
 
 message Empty {}
@@ -382,6 +403,7 @@ message CancelDiagnosticsRequest {
 
 message GetDiagnosticsRequest {}
 message GetConnectionTimelineRequest {}
+message GetNetworkQualityRequest {}
 
 enum ConnectionEventType {
   CONNECTION_EVENT_TYPE_UNSPECIFIED = 0;
@@ -406,6 +428,15 @@ enum ConnectionEventType {
   CONNECTION_EVENT_TYPE_QUEUE_SATURATED = 19;
   CONNECTION_EVENT_TYPE_DISCONNECTED = 20;
   CONNECTION_EVENT_TYPE_FAILED = 21;
+  CONNECTION_EVENT_TYPE_MIGRATION_STARTED = 22;
+  CONNECTION_EVENT_TYPE_MIGRATION_PATH_VALIDATED = 23;
+  CONNECTION_EVENT_TYPE_MIGRATION_PROMOTED = 24;
+  CONNECTION_EVENT_TYPE_MIGRATION_FAILED = 25;
+  CONNECTION_EVENT_TYPE_PMTU_CHANGED = 26;
+  CONNECTION_EVENT_TYPE_PMTU_REVALIDATION_STARTED = 27;
+  CONNECTION_EVENT_TYPE_PMTU_REVALIDATION_FAILED = 28;
+  CONNECTION_EVENT_TYPE_DIRECT_DNS_DEGRADED = 29;
+  CONNECTION_EVENT_TYPE_DIRECT_DNS_RECOVERED = 30;
 }
 
 message ConnectionEvent {
@@ -433,6 +464,150 @@ message ConnectionMetrics {
   uint64 send_queue_drop_count = 10;
   string last_failure_code = 11;
   string last_reconnect_code = 12;
+  uint64 min_rtt_ms = 13;
+  bool min_rtt_known = 14;
+  uint64 rtt_variance_ms = 15;
+  bool rtt_variance_known = 16;
+  uint32 interval_loss_basis_points = 17;
+  bool interval_loss_known = 18;
+  uint64 congestion_window_bytes = 19;
+  bool congestion_window_known = 20;
+  uint64 bytes_in_flight = 21;
+  bool bytes_in_flight_known = 22;
+  uint64 send_rate_bps = 23;
+  bool send_rate_known = 24;
+  uint64 packets_lost = 25;
+  uint64 bytes_lost = 26;
+  uint64 tun_sink_drop_count = 27;
+  uint64 quic_datagram_drop_count = 28;
+  uint64 queue_oldest_age_ms = 29;
+  bool queue_oldest_age_known = 30;
+  uint32 current_pmtu_bytes = 31;
+  bool current_pmtu_known = 32;
+  uint64 migration_attempt_count = 33;
+  uint64 migration_success_count = 34;
+  uint64 migration_failure_count = 35;
+  uint64 last_migration_duration_ms = 36;
+  bool last_migration_duration_known = 37;
+  uint64 udp_send_syscall_count = 38;
+  uint64 udp_recv_syscall_count = 39;
+  uint64 udp_datagram_sent_count = 40;
+  uint64 udp_datagram_received_count = 41;
+  uint64 packet_buffer_pool_hit_count = 42;
+  uint64 packet_buffer_pool_miss_count = 43;
+  uint64 h2_flow_control_stall_count = 44;
+  uint64 h2_flow_control_stall_total_ms = 45;
+  uint64 h2_flow_control_stall_max_ms = 46;
+  uint32 h2_stream_receive_window_bytes = 47;
+  uint32 h2_connection_receive_window_bytes = 48;
+  uint64 direct_dns_success_count = 49;
+  uint64 direct_dns_failure_count = 50;
+  uint64 direct_dns_timeout_count = 51;
+  uint64 direct_dns_last_rtt_ms = 52;
+  bool direct_dns_last_rtt_known = 53;
+  uint64 pmtu_change_count = 54;
+  uint64 pmtu_revalidation_failure_count = 55;
+  MetricAvailability smoothed_rtt_availability = 56;
+  MetricAvailability min_rtt_availability = 57;
+  MetricAvailability rtt_variance_availability = 58;
+  MetricAvailability interval_loss_availability = 59;
+  MetricAvailability congestion_window_availability = 60;
+  MetricAvailability bytes_in_flight_availability = 61;
+  MetricAvailability send_rate_availability = 62;
+}
+
+enum MetricAvailability {
+  METRIC_AVAILABILITY_UNSPECIFIED = 0;
+  METRIC_AVAILABILITY_AVAILABLE = 1;
+  METRIC_AVAILABILITY_UNSUPPORTED = 2;
+  METRIC_AVAILABILITY_NOT_READY = 3;
+  METRIC_AVAILABILITY_STALE = 4;
+}
+
+enum NetworkQualityLevel {
+  NETWORK_QUALITY_LEVEL_UNSPECIFIED = 0;
+  NETWORK_QUALITY_LEVEL_GOOD = 1;
+  NETWORK_QUALITY_LEVEL_FAIR = 2;
+  NETWORK_QUALITY_LEVEL_POOR = 3;
+  NETWORK_QUALITY_LEVEL_LIMITED_DATA = 4;
+  NETWORK_QUALITY_LEVEL_DISCONNECTED = 5;
+}
+
+enum QueueKind {
+  QUEUE_KIND_UNSPECIFIED = 0;
+  QUEUE_KIND_TUN_TO_TRANSPORT = 1;
+  QUEUE_KIND_PROXY_TO_TRANSPORT = 2;
+  QUEUE_KIND_TRANSPORT_OUTGOING = 3;
+  QUEUE_KIND_H3_DATAGRAM_SEND = 4;
+  QUEUE_KIND_H3_WIRE_SEND = 5;
+  QUEUE_KIND_TRANSPORT_TO_TUN = 6;
+  QUEUE_KIND_TRANSPORT_TO_PROXY = 7;
+  QUEUE_KIND_DIRECT_DNS = 8;
+}
+
+message QueueQuality {
+  QueueKind kind = 1;
+  uint64 current_items = 2;
+  uint64 capacity_items = 3;
+  uint64 current_bytes = 4;
+  uint64 capacity_bytes = 5;
+  uint64 high_water_items = 6;
+  uint64 high_water_bytes = 7;
+  uint64 drop_items = 8;
+  uint64 drop_bytes = 9;
+  uint64 oldest_age_ms = 10;
+  bool oldest_age_known = 11;
+  MetricAvailability availability = 12;
+  uint64 enqueue_count = 13;
+  uint64 dequeue_count = 14;
+  bool closed = 15;
+  bool cancelled = 16;
+}
+
+message PmtuQuality {
+  MetricAvailability availability = 1;
+  uint32 outer_pmtu_bytes = 2;
+  uint32 effective_connect_ip_payload_bytes = 3;
+  string phase_code = 4;
+  uint64 change_count = 5;
+  uint64 revalidation_failure_count = 6;
+  MetricAvailability effective_payload_availability = 7;
+}
+
+message MigrationQuality {
+  string phase_code = 1;
+  uint64 attempt_count = 2;
+  uint64 success_count = 3;
+  uint64 failure_count = 4;
+  uint64 last_duration_ms = 5;
+  bool last_duration_known = 6;
+  string last_reason_code = 7;
+}
+
+message DirectDnsQuality {
+  DirectDnsMode mode = 1;
+  string phase_code = 2;
+  uint64 success_count = 3;
+  uint64 failure_count = 4;
+  uint64 timeout_count = 5;
+  uint64 last_rtt_ms = 6;
+  bool last_rtt_known = 7;
+  string last_reason_code = 8;
+}
+
+message NetworkQualitySnapshot {
+  uint64 sampled_at_unix_ms = 1;
+  string connection_instance_id = 2;
+  NetworkQualityLevel level = 3;
+  ConnectionMetrics metrics = 4;
+  repeated QueueQuality queues = 5;
+  PmtuQuality pmtu = 6;
+  MigrationQuality migration = 7;
+  DirectDnsQuality direct_dns = 8;
+}
+
+message NetworkQualityUpdated {
+  NetworkQualitySnapshot snapshot = 1;
 }
 
 message ConnectionTimeline {
@@ -601,6 +776,7 @@ message ControlRequest {
     CancelDiagnosticsRequest cancel_diagnostics = 37;
     GetDiagnosticsRequest get_diagnostics = 38;
     GetConnectionTimelineRequest get_connection_timeline = 39;
+    GetNetworkQualityRequest get_network_quality = 40;
   }
 }
 
@@ -641,6 +817,7 @@ message ControlResponse {
     GeoRulesUpdateResults geo_rules_update = 18;
     DiagnosticSession diagnostics = 19;
     ConnectionTimeline connection_timeline = 20;
+    NetworkQualitySnapshot network_quality = 21;
   }
 }
 
@@ -708,5 +885,6 @@ message EventEnvelope {
     DiagnosticCheckCompleted diagnostic_check_completed = 20;
     DiagnosticSessionCompleted diagnostic_session_completed = 21;
     DiagnosticSessionCancelled diagnostic_session_cancelled = 22;
+    NetworkQualityUpdated network_quality_updated = 23;
   }
 }

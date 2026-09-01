@@ -2,9 +2,11 @@ use std::{net::SocketAddr, time::Instant};
 
 use usque_core::{FrontendKind, FrontendPhase, FrontendSettings, FrontendStatus, Profile};
 use usque_transport::{
-    ConnectionTimelineSnapshot, ProxyPerformanceSnapshot, ProxyRuntime, RuntimeHealth, RuntimePath,
-    TrafficSnapshot,
+    ConnectionTimelineSnapshot, NetworkQualitySnapshot, ProxyPerformanceSnapshot, ProxyRuntime,
+    RuntimeHealth, RuntimePath, TrafficSnapshot,
 };
+#[cfg(test)]
+use usque_transport::{NetworkQualitySampler, NetworkQualityTelemetry};
 
 use crate::ControlServiceError;
 
@@ -180,6 +182,18 @@ impl ActiveRuntime {
             Self::Vpn(runtime) => runtime.connection_timeline(),
             #[cfg(test)]
             Self::Harness(_) => ConnectionTimelineSnapshot::default(),
+        }
+    }
+
+    pub(crate) fn subscribe_network_quality(
+        &self,
+    ) -> tokio::sync::watch::Receiver<NetworkQualitySnapshot> {
+        match self {
+            Self::Proxy(runtime) => runtime.runtime.subscribe_network_quality(),
+            #[cfg(windows)]
+            Self::Vpn(runtime) => runtime.subscribe_network_quality(),
+            #[cfg(test)]
+            Self::Harness(_) => tokio::sync::watch::channel(harness_network_quality()).1,
         }
     }
 
@@ -433,6 +447,16 @@ impl ActiveRuntime {
             ))
         }
     }
+}
+
+#[cfg(test)]
+fn harness_network_quality() -> NetworkQualitySnapshot {
+    let telemetry = NetworkQualityTelemetry::default();
+    telemetry.begin_connection(
+        usque_core::Transport::Http3,
+        usque_core::AddressFamily::Ipv4,
+    );
+    NetworkQualitySampler::new(telemetry).sample()
 }
 
 fn output_status(

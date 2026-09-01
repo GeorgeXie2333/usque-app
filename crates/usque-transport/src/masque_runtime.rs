@@ -544,6 +544,10 @@ impl MasqueRuntime {
         self.monitor.network_quality()
     }
 
+    pub fn subscribe_network_quality(&self) -> watch::Receiver<crate::NetworkQualitySnapshot> {
+        self.monitor.subscribe_network_quality()
+    }
+
     pub fn performance(&self) -> ProxyPerformanceSnapshot {
         let mut snapshot = self.stack.performance();
         if let Some(http) = &self.http {

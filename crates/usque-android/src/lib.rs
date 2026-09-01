@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 //! JNI boundary owned by the Android `:vpn` process.
 //!
 //! Android decrypts the selected profile's WARP identity immediately before
@@ -14,7 +16,7 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
 };
 #[cfg(any(test, target_os = "android"))]
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{
     net::{IpAddr, SocketAddr, SocketAddrV6},
     path::PathBuf,
@@ -33,17 +35,23 @@ use serde::{Deserialize, Serialize};
 #[cfg(any(test, target_os = "android"))]
 use usque_core::TransportFailure;
 use usque_core::{
-    AppConfig, ConsumerEntitlement, ConsumerRegistrationClient, DnsMode, EndpointSettings,
-    FrontendSettings, IdentityProvider, IpPolicy, ManagedEndpointIps, OperatingMode,
-    PendingIdentityReplacement, Profile, ProxyDnsMode, ProxySettings, RegistrationError,
-    RegistrationOptions, SharedNetworkSettings, TransportPolicy, WarpIdentity,
+    AppConfig, ConsumerEntitlement, ConsumerRegistrationClient, DirectDnsMode, DirectDnsSettings,
+    DnsMode, EndpointSettings, FrontendSettings, IdentityProvider, IpPolicy, ManagedEndpointIps,
+    OperatingMode, PendingIdentityReplacement, Profile, ProxyDnsMode, ProxySettings,
+    RegistrationError, RegistrationOptions, SharedNetworkSettings, TransportPolicy, WarpIdentity,
     parse_manual_warp_secret, storage::ConfigStore, update::UpdateChecker,
+};
+#[cfg(any(test, target_os = "android"))]
+use usque_transport::{
+    DirectDnsMode as QualityDirectDnsMode, DirectDnsPhase, DirectDnsReasonCode, MetricAvailability,
+    MetricValue, MigrationPhase, MigrationReasonCode, NetworkQualityLevel, NetworkQualitySnapshot,
+    PmtuPhase, QueueKind, RuntimePath, TransportError,
 };
 #[cfg(target_os = "android")]
 use usque_transport::{EndpointPinRefresher, refresh_endpoint_pin_over_protected_socket};
 use usque_transport::{MasqueTlsIdentity, SocketHandle, SocketProtector};
-#[cfg(any(test, target_os = "android"))]
-use usque_transport::{RuntimePath, TransportError};
+#[cfg(test)]
+use usque_transport::{NetworkQualitySampler, NetworkQualityTelemetry};
 use zeroize::Zeroizing;
 
 pub const START_OK: i32 = 0;
@@ -773,7 +781,23 @@ struct AndroidProfile {
     bypass_cidrs: Vec<String>,
     #[serde(default)]
     geo_direct_countries: Vec<String>,
+    #[serde(default)]
+    direct_dns: AndroidDirectDns,
     proxy: AndroidProxy,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct AndroidDirectDns {
+    #[serde(default)]
+    mode: String,
+    #[serde(default)]
+    server_name: String,
+    #[serde(default)]
+    doh_path: String,
+    #[serde(default)]
+    bootstrap_ips: Vec<String>,
+    #[serde(default)]
+    port: u16,
 }
 
 #[derive(Debug, Deserialize)]
@@ -850,6 +874,25 @@ fn android_profile_to_core(source: AndroidProfile) -> Result<Profile, String> {
         "system" => ProxyDnsMode::System,
         _ => return Err("invalid Android proxy DNS mode".to_owned()),
     };
+    let direct_dns_mode = match source.direct_dns.mode.as_str() {
+        "" | "physicalSystem" => DirectDnsMode::PhysicalSystem,
+        "doh" => DirectDnsMode::Doh,
+        "dot" => DirectDnsMode::Dot,
+        _ => return Err("invalid Android direct DNS mode".to_owned()),
+    };
+    let mut direct_dns = DirectDnsSettings {
+        mode: direct_dns_mode,
+        server_name: source.direct_dns.server_name,
+        doh_path: source.direct_dns.doh_path,
+        bootstrap_ips: source
+            .direct_dns
+            .bootstrap_ips
+            .iter()
+            .map(|value| parse_value(value, "direct DNS bootstrap IP"))
+            .collect::<Result<Vec<_>, _>>()?,
+        port: source.direct_dns.port,
+    };
+    direct_dns.canonicalize();
     let frontends = source
         .frontends
         .map(|frontends| FrontendSettings {
@@ -903,6 +946,7 @@ fn android_profile_to_core(source: AndroidProfile) -> Result<Profile, String> {
         kill_switch: source.kill_switch,
         auto_connect: source.auto_connect,
         geo_direct_countries: source.geo_direct_countries,
+        direct_dns,
         proxy: ProxySettings {
             socks5_listeners: vec![
                 SocketAddr::new(socks_ipv4, source.proxy.socks_port),
@@ -1540,6 +1584,22 @@ fn android_profile_value(
             .map(ToString::to_string)
             .collect::<Vec<_>>(),
         "geo_direct_countries": profile.geo_direct_countries,
+        "direct_dns": {
+            "mode": match profile.direct_dns.mode {
+                DirectDnsMode::PhysicalSystem => "physicalSystem",
+                DirectDnsMode::Doh => "doh",
+                DirectDnsMode::Dot => "dot",
+            },
+            "server_name": profile.direct_dns.server_name,
+            "doh_path": profile.direct_dns.doh_path,
+            "bootstrap_ips": profile
+                .direct_dns
+                .bootstrap_ips
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+            "port": profile.direct_dns.port,
+        },
         "proxy": {
             "socks_ipv4": socks_ipv4.ip().to_string(),
             "socks_ipv6": socks_ipv6.ip().to_string(),
@@ -1964,6 +2024,301 @@ fn android_transport_failure(
     }
 }
 
+#[cfg(any(test, target_os = "android"))]
+fn network_quality_value(snapshot: &NetworkQualitySnapshot) -> serde_json::Value {
+    let sampled_at = SystemTime::now()
+        .checked_sub(snapshot.sampled_at.elapsed())
+        .unwrap_or(UNIX_EPOCH)
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    let (smoothed_rtt, smoothed_rtt_known) = native_duration_metric(&snapshot.rtt.smoothed);
+    let (minimum_rtt, minimum_rtt_known) = native_duration_metric(&snapshot.rtt.minimum);
+    let (rtt_variance, rtt_variance_known) = native_duration_metric(&snapshot.rtt.variance);
+    let (interval_loss, interval_loss_known) =
+        native_u32_metric(&snapshot.loss.interval_basis_points);
+    let (congestion_window, congestion_window_known) =
+        native_u64_metric(&snapshot.congestion.congestion_window_bytes);
+    let (bytes_in_flight, bytes_in_flight_known) =
+        native_u64_metric(&snapshot.congestion.bytes_in_flight);
+    let (send_rate, send_rate_known) = native_u64_metric(&snapshot.congestion.send_rate_bps);
+    let (current_pmtu, current_pmtu_known) = native_u32_metric(&snapshot.pmtu.current_bytes);
+    let (last_migration_duration, last_migration_duration_known) =
+        native_duration_metric(&snapshot.migration.last_duration);
+    let (direct_dns_last_rtt, direct_dns_last_rtt_known) =
+        native_duration_metric(&snapshot.direct_dns.last_rtt);
+    let queue_oldest_age = snapshot
+        .queues
+        .iter()
+        .filter_map(|queue| native_available_duration(&queue.oldest_age))
+        .max()
+        .map(native_duration_milliseconds);
+
+    serde_json::json!({
+        "sampled_at_unix_ms": native_duration_milliseconds(sampled_at),
+        "connection_instance_id": snapshot
+            .connection_id
+            .map(|connection| connection.0.to_string())
+            .unwrap_or_default(),
+        "level": native_quality_level(snapshot.level),
+        "metrics": {
+            "smoothed_rtt_milliseconds": smoothed_rtt_known.then_some(smoothed_rtt),
+            "minimum_rtt_milliseconds": minimum_rtt_known.then_some(minimum_rtt),
+            "rtt_variance_milliseconds": rtt_variance_known.then_some(rtt_variance),
+            "interval_loss_basis_points": interval_loss_known.then_some(interval_loss),
+            "congestion_window_bytes": congestion_window_known.then_some(congestion_window),
+            "bytes_in_flight": bytes_in_flight_known.then_some(bytes_in_flight),
+            "send_rate_bits_per_second": send_rate_known.then_some(send_rate),
+            "packets_lost": snapshot.loss.lost_packets.value.unwrap_or_default(),
+            "bytes_lost": snapshot.loss.lost_bytes.value.unwrap_or_default(),
+            "tun_sink_drop_count": native_queue_drop(snapshot, QueueKind::TransportToTun),
+            "quic_datagram_drop_count": native_queue_drop(snapshot, QueueKind::H3DatagramSend)
+                .saturating_add(snapshot.loss.datagram_receive_drops.value.unwrap_or_default()),
+            "queue_oldest_age_milliseconds": queue_oldest_age,
+            "current_pmtu_bytes": current_pmtu_known.then_some(current_pmtu),
+            "migration_attempt_count": snapshot.migration.attempts,
+            "migration_success_count": snapshot.migration.successes,
+            "migration_failure_count": snapshot.migration.failures,
+            "last_migration_duration_milliseconds": last_migration_duration_known
+                .then_some(last_migration_duration),
+            "udp_send_syscall_count": snapshot.udp_io.send_syscalls,
+            "udp_recv_syscall_count": snapshot.udp_io.recv_syscalls,
+            "udp_datagram_sent_count": snapshot.udp_io.sent_datagrams,
+            "udp_datagram_received_count": snapshot.udp_io.received_datagrams,
+            "packet_buffer_pool_hit_count": snapshot.allocations.packet_buffer_pool_hits,
+            "packet_buffer_pool_miss_count": snapshot.allocations.packet_buffer_pool_misses,
+            "h2_flow_control_stall_count": snapshot.h2_flow_control.capacity_stall_count,
+            "h2_flow_control_stall_total_milliseconds": native_duration_milliseconds(
+                snapshot.h2_flow_control.capacity_stall_total,
+            ),
+            "h2_flow_control_stall_max_milliseconds": native_duration_milliseconds(
+                snapshot.h2_flow_control.capacity_stall_max,
+            ),
+            "h2_stream_receive_window_bytes": snapshot.h2_flow_control.stream_receive_window_bytes,
+            "h2_connection_receive_window_bytes": snapshot
+                .h2_flow_control
+                .connection_receive_window_bytes,
+            "direct_dns_success_count": snapshot.direct_dns.successes,
+            "direct_dns_failure_count": snapshot.direct_dns.failures,
+            "direct_dns_timeout_count": snapshot.direct_dns.timeouts,
+            "direct_dns_last_rtt_milliseconds": direct_dns_last_rtt_known
+                .then_some(direct_dns_last_rtt),
+            "pmtu_change_count": snapshot.pmtu.change_count,
+            "pmtu_revalidation_failure_count": snapshot.pmtu.revalidation_failure_count,
+            "smoothed_rtt_availability": native_availability(snapshot.rtt.smoothed.availability),
+            "minimum_rtt_availability": native_availability(snapshot.rtt.minimum.availability),
+            "rtt_variance_availability": native_availability(snapshot.rtt.variance.availability),
+            "interval_loss_availability": native_availability(
+                snapshot.loss.interval_basis_points.availability,
+            ),
+            "congestion_window_availability": native_availability(
+                snapshot.congestion.congestion_window_bytes.availability,
+            ),
+            "bytes_in_flight_availability": native_availability(
+                snapshot.congestion.bytes_in_flight.availability,
+            ),
+            "send_rate_availability": native_availability(
+                snapshot.congestion.send_rate_bps.availability,
+            ),
+        },
+        "queues": snapshot.queues.iter().map(|queue| serde_json::json!({
+            "kind": native_queue_kind(queue.kind),
+            "availability": native_availability(queue.availability),
+            "current_items": queue.current_items,
+            "capacity_items": queue.item_capacity,
+            "current_bytes": queue.current_bytes,
+            "capacity_bytes": queue.byte_capacity,
+            "high_water_items": queue.items_high_water,
+            "high_water_bytes": queue.bytes_high_water,
+            "drop_items": queue.drop_items,
+            "drop_bytes": queue.drop_bytes,
+            "oldest_age_milliseconds": native_available_duration(&queue.oldest_age)
+                .map(native_duration_milliseconds),
+            "enqueue_count": queue.enqueue_count,
+            "dequeue_count": queue.dequeue_count,
+            "closed": queue.closed,
+            "cancelled": queue.cancelled,
+        })).collect::<Vec<_>>(),
+        "pmtu": {
+            "availability": native_availability(snapshot.pmtu.current_bytes.availability),
+            "outer_pmtu_bytes": snapshot.pmtu.current_bytes.value,
+            "effective_connect_ip_payload_bytes": serde_json::Value::Null,
+            "effective_payload_availability": "notReady",
+            "phase_code": native_pmtu_phase(snapshot.pmtu.phase),
+            "change_count": snapshot.pmtu.change_count,
+            "revalidation_failure_count": snapshot.pmtu.revalidation_failure_count,
+        },
+        "migration": {
+            "phase_code": native_migration_phase(snapshot.migration.phase),
+            "attempt_count": snapshot.migration.attempts,
+            "success_count": snapshot.migration.successes,
+            "failure_count": snapshot.migration.failures,
+            "last_duration_milliseconds": last_migration_duration_known
+                .then_some(last_migration_duration),
+            "last_reason_code": snapshot.migration.last_reason
+                .map(native_migration_reason)
+                .unwrap_or_default(),
+        },
+        "direct_dns": {
+            "mode": match snapshot.direct_dns.mode {
+                QualityDirectDnsMode::PhysicalSystem => "physicalSystem",
+                QualityDirectDnsMode::Doh => "doh",
+                QualityDirectDnsMode::Dot => "dot",
+            },
+            "phase_code": native_direct_dns_phase(snapshot.direct_dns.phase),
+            "success_count": snapshot.direct_dns.successes,
+            "failure_count": snapshot.direct_dns.failures,
+            "timeout_count": snapshot.direct_dns.timeouts,
+            "last_rtt_milliseconds": direct_dns_last_rtt_known.then_some(direct_dns_last_rtt),
+            "last_reason_code": snapshot.direct_dns.last_reason
+                .map(native_direct_dns_reason)
+                .unwrap_or_default(),
+        },
+    })
+}
+
+#[cfg(any(test, target_os = "android"))]
+fn native_duration_metric(metric: &MetricValue<Duration>) -> (u64, bool) {
+    (
+        metric.value.map_or(0, native_duration_milliseconds),
+        metric.availability == MetricAvailability::Available && metric.value.is_some(),
+    )
+}
+
+#[cfg(any(test, target_os = "android"))]
+fn native_u64_metric(metric: &MetricValue<u64>) -> (u64, bool) {
+    (
+        metric.value.unwrap_or_default(),
+        metric.availability == MetricAvailability::Available && metric.value.is_some(),
+    )
+}
+
+#[cfg(any(test, target_os = "android"))]
+fn native_u32_metric(metric: &MetricValue<u32>) -> (u32, bool) {
+    (
+        metric.value.unwrap_or_default(),
+        metric.availability == MetricAvailability::Available && metric.value.is_some(),
+    )
+}
+
+#[cfg(any(test, target_os = "android"))]
+fn native_available_duration(metric: &MetricValue<Duration>) -> Option<Duration> {
+    (metric.availability == MetricAvailability::Available)
+        .then_some(metric.value)
+        .flatten()
+}
+
+#[cfg(any(test, target_os = "android"))]
+fn native_duration_milliseconds(duration: Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+}
+
+#[cfg(any(test, target_os = "android"))]
+fn native_queue_drop(snapshot: &NetworkQualitySnapshot, kind: QueueKind) -> u64 {
+    snapshot
+        .queues
+        .iter()
+        .find(|queue| queue.kind == kind)
+        .map_or(0, |queue| queue.drop_items)
+}
+
+#[cfg(any(test, target_os = "android"))]
+fn native_availability(value: MetricAvailability) -> &'static str {
+    match value {
+        MetricAvailability::Available => "available",
+        MetricAvailability::Unsupported => "unsupported",
+        MetricAvailability::NotReady => "notReady",
+        MetricAvailability::Stale => "stale",
+    }
+}
+
+#[cfg(any(test, target_os = "android"))]
+fn native_quality_level(value: NetworkQualityLevel) -> &'static str {
+    match value {
+        NetworkQualityLevel::Good => "good",
+        NetworkQualityLevel::Fair => "fair",
+        NetworkQualityLevel::Poor => "poor",
+        NetworkQualityLevel::LimitedData => "limitedData",
+        NetworkQualityLevel::Disconnected => "disconnected",
+    }
+}
+
+#[cfg(any(test, target_os = "android"))]
+fn native_queue_kind(value: QueueKind) -> &'static str {
+    match value {
+        QueueKind::TunToTransport => "tunToTransport",
+        QueueKind::ProxyToTransport => "proxyToTransport",
+        QueueKind::TransportOutgoingPackets => "transportOutgoing",
+        QueueKind::H3DatagramSend => "h3DatagramSend",
+        QueueKind::H3WireSend => "h3WireSend",
+        QueueKind::TransportToTun => "transportToTun",
+        QueueKind::TransportToProxy => "transportToProxy",
+        QueueKind::DirectDnsRequests => "directDns",
+    }
+}
+
+#[cfg(any(test, target_os = "android"))]
+fn native_pmtu_phase(value: PmtuPhase) -> &'static str {
+    match value {
+        PmtuPhase::Unsupported => "unsupported",
+        PmtuPhase::Unknown => "unknown",
+        PmtuPhase::Probing => "probing",
+        PmtuPhase::Stable => "stable",
+        PmtuPhase::Revalidating => "revalidating",
+        PmtuPhase::Degraded => "degraded",
+    }
+}
+
+#[cfg(any(test, target_os = "android"))]
+fn native_migration_phase(value: MigrationPhase) -> &'static str {
+    match value {
+        MigrationPhase::Idle => "idle",
+        MigrationPhase::PreparingSocket => "preparing_socket",
+        MigrationPhase::Probing => "probing",
+        MigrationPhase::Validated => "validated",
+        MigrationPhase::Promoting => "promoting",
+        MigrationPhase::Stable => "stable",
+        MigrationPhase::Aborted => "aborted",
+    }
+}
+
+#[cfg(any(test, target_os = "android"))]
+fn native_migration_reason(value: MigrationReasonCode) -> &'static str {
+    match value {
+        MigrationReasonCode::FamilyUnavailable => "family_unavailable",
+        MigrationReasonCode::SocketProtectFailed => "socket_protect_failed",
+        MigrationReasonCode::GenerationChangedDuringSetup => "generation_changed_during_setup",
+        MigrationReasonCode::PeerCidUnavailable => "peer_cid_unavailable",
+        MigrationReasonCode::LocalCidUnavailable => "local_cid_unavailable",
+        MigrationReasonCode::PathProbeRejected => "path_probe_rejected",
+        MigrationReasonCode::PathValidationTimeout => "path_validation_timeout",
+        MigrationReasonCode::Superseded => "superseded",
+        MigrationReasonCode::PromotionFailed => "promotion_failed",
+        MigrationReasonCode::ConnectionClosed => "connection_closed",
+        MigrationReasonCode::Unsupported => "unsupported",
+    }
+}
+
+#[cfg(any(test, target_os = "android"))]
+fn native_direct_dns_phase(value: DirectDnsPhase) -> &'static str {
+    match value {
+        DirectDnsPhase::System => "system",
+        DirectDnsPhase::Connecting => "connecting",
+        DirectDnsPhase::Ready => "ready",
+        DirectDnsPhase::Degraded => "degraded",
+        DirectDnsPhase::Disabled => "disabled",
+    }
+}
+
+#[cfg(any(test, target_os = "android"))]
+fn native_direct_dns_reason(value: DirectDnsReasonCode) -> &'static str {
+    match value {
+        DirectDnsReasonCode::Timeout => "timeout",
+        DirectDnsReasonCode::QueryFailed => "query_failed",
+        DirectDnsReasonCode::NetworkChanged => "network_changed",
+        DirectDnsReasonCode::Unsupported => "unsupported",
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct NativeSnapshot {
     phase: String,
@@ -1998,6 +2353,8 @@ struct NativeSnapshot {
     exit_country_code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     exit_flag_svg: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    network_quality: Option<serde_json::Value>,
 }
 
 impl NativeSnapshot {
@@ -2024,6 +2381,7 @@ impl NativeSnapshot {
             exit_country: None,
             exit_country_code: None,
             exit_flag_svg: None,
+            network_quality: None,
         }
     }
 
@@ -2046,6 +2404,11 @@ fn start_engine(
     geo_cache_dir: PathBuf,
     protector: Arc<AndroidSocketProtector>,
 ) -> jint {
+    if !profile.geo_direct_countries.is_empty()
+        && profile.direct_dns.mode != DirectDnsMode::PhysicalSystem
+    {
+        return START_INVALID_PROFILE;
+    }
     #[cfg(target_os = "android")]
     {
         android_runtime::start(
@@ -2075,6 +2438,11 @@ fn start_proxy_engine(
     geo_cache_dir: PathBuf,
     protector: Arc<AndroidSocketProtector>,
 ) -> jint {
+    if !profile.geo_direct_countries.is_empty()
+        && profile.direct_dns.mode != DirectDnsMode::PhysicalSystem
+    {
+        return START_INVALID_PROFILE;
+    }
     #[cfg(target_os = "android")]
     {
         android_runtime::start_proxy(profile, identity, geo_cache_dir, protector)
@@ -2555,6 +2923,56 @@ mod tests {
             exported["bypass_cidrs"],
             serde_json::json!(["192.0.2.0/24"])
         );
+    }
+
+    #[test]
+    fn android_profile_round_trips_direct_dns_settings() {
+        let mut source: serde_json::Value = serde_json::from_str(&valid_profile_json()).unwrap();
+        source["direct_dns"] = serde_json::json!({
+            "mode": "doh",
+            "server_name": "dns.example.com",
+            "doh_path": "/dns-query",
+            "bootstrap_ips": ["192.0.2.53"],
+            "port": 443,
+        });
+        let profile = parse_android_profile(&source.to_string()).unwrap();
+        assert_eq!(profile.direct_dns.mode, DirectDnsMode::Doh);
+        assert_eq!(
+            profile.direct_dns.bootstrap_ips,
+            ["192.0.2.53".parse::<IpAddr>().unwrap()]
+        );
+
+        let exported = android_profile_value(&profile, None, false);
+        assert_eq!(exported["direct_dns"]["mode"], "doh");
+        assert_eq!(
+            exported["direct_dns"]["bootstrap_ips"],
+            serde_json::json!(["192.0.2.53"])
+        );
+    }
+
+    #[test]
+    fn android_quality_map_is_numeric_sanitized_and_explicit() {
+        let telemetry = NetworkQualityTelemetry::default();
+        telemetry.begin_connection(
+            usque_core::Transport::Http2,
+            usque_core::AddressFamily::Ipv4,
+        );
+        telemetry.observe_h2_rtt(
+            Duration::from_millis(10),
+            Duration::from_millis(12),
+            Duration::from_millis(8),
+            Duration::from_millis(2),
+        );
+        telemetry.record_direct_dns_failure(DirectDnsReasonCode::Timeout, true);
+        let value = network_quality_value(&NetworkQualitySampler::new(telemetry).sample());
+
+        assert_eq!(value["level"], "limitedData");
+        assert_eq!(value["metrics"]["smoothed_rtt_milliseconds"], 12);
+        assert_eq!(value["direct_dns"]["last_reason_code"], "timeout");
+        let serialized = value.to_string();
+        for forbidden in ["127.0.0.1", "example.com", "bootstrap", "scid", "token="] {
+            assert!(!serialized.contains(forbidden));
+        }
     }
 
     #[test]

@@ -8,6 +8,7 @@ use tokio::task::JoinHandle;
 use tokio::time::{Instant, MissedTickBehavior, interval_at};
 use tokio_util::sync::CancellationToken;
 use usque_core::{AddressFamily, Transport};
+use uuid::Uuid;
 
 use crate::queue_metrics::{ALL_QUEUE_KINDS, QueueKind, QueueMetrics, QueueMetricsSnapshot};
 
@@ -15,8 +16,6 @@ const METRIC_STALE_AFTER: Duration = Duration::from_secs(3);
 const QUALITY_HISTORY_SAMPLES: usize = 30;
 const QUALITY_MINIMUM_SAMPLES: usize = 5;
 const SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
-
-static NEXT_CONNECTION_INSTANCE_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MetricAvailability {
@@ -63,7 +62,7 @@ impl<T> MetricValue<T> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ConnectionInstanceId(pub u64);
+pub struct ConnectionInstanceId(pub Uuid);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NetworkQualityLevel {
@@ -144,13 +143,22 @@ pub struct QueueQuality {
 }
 
 impl QueueQuality {
-    fn from_snapshot(snapshot: QueueMetricsSnapshot) -> Self {
-        let availability = if snapshot.registered {
+    fn from_snapshot(snapshot: QueueMetricsSnapshot, transport: Option<Transport>) -> Self {
+        let h3_only_on_h2 = transport == Some(Transport::Http2)
+            && matches!(
+                snapshot.kind,
+                QueueKind::H3DatagramSend | QueueKind::H3WireSend
+            );
+        let availability = if h3_only_on_h2 {
+            MetricAvailability::Unsupported
+        } else if snapshot.registered {
             MetricAvailability::Available
         } else {
             MetricAvailability::NotReady
         };
-        let oldest_age = if !snapshot.registered {
+        let oldest_age = if availability == MetricAvailability::Unsupported {
+            MetricValue::unsupported()
+        } else if !snapshot.registered {
             MetricValue::not_ready()
         } else if snapshot.current_items == 0 {
             MetricValue::available(Duration::ZERO)
@@ -483,11 +491,7 @@ impl NetworkQualityTelemetry {
         transport: Transport,
         endpoint_family: AddressFamily,
     ) -> ConnectionInstanceId {
-        let connection_id = ConnectionInstanceId(
-            NEXT_CONNECTION_INSTANCE_ID
-                .fetch_add(1, Ordering::Relaxed)
-                .max(1),
-        );
+        let connection_id = ConnectionInstanceId(Uuid::new_v4());
         let mut state = self.state_write();
         state.connection_id = Some(connection_id);
         state.transport = Some(transport);
@@ -870,7 +874,9 @@ impl NetworkQualitySampler {
             .telemetry
             .queues_read()
             .iter()
-            .map(|metrics| QueueQuality::from_snapshot(metrics.snapshot(sampled_at)))
+            .map(|metrics| {
+                QueueQuality::from_snapshot(metrics.snapshot(sampled_at), state.transport)
+            })
             .collect::<Vec<_>>();
         if connection_changed {
             self.previous_queue_drops = queue_drop_total(&queues);
@@ -1346,6 +1352,8 @@ mod tests {
         );
         let second = telemetry.begin_connection(Transport::Http3, AddressFamily::Ipv4);
         assert_ne!(first, second);
+        assert_eq!(first.0.get_version_num(), 4);
+        assert_eq!(second.0.get_version_num(), 4);
         telemetry.observe_h3(h3_sample(1, 0));
         let snapshot = sampler.sample();
         assert_eq!(snapshot.connection_id, Some(second));
@@ -1425,6 +1433,19 @@ mod tests {
         assert_eq!(
             snapshot.rtt.smoothed.availability,
             MetricAvailability::NotReady
+        );
+        assert!(
+            snapshot
+                .queues
+                .iter()
+                .filter(|queue| matches!(
+                    queue.kind,
+                    QueueKind::H3DatagramSend | QueueKind::H3WireSend
+                ))
+                .all(|queue| {
+                    queue.availability == MetricAvailability::Unsupported
+                        && queue.oldest_age.availability == MetricAvailability::Unsupported
+                })
         );
     }
 

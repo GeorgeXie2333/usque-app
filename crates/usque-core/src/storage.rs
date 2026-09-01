@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::config::{
-    Account, AppConfig, AppPreferences, CURRENT_SCHEMA_VERSION, ConfigError, DnsMode,
-    EndpointSettings, FrontendSettings, ManagedEndpointIps, OperatingMode, Profile,
+    Account, AppConfig, AppPreferences, CURRENT_SCHEMA_VERSION, ConfigError, DirectDnsSettings,
+    DnsMode, EndpointSettings, FrontendSettings, ManagedEndpointIps, OperatingMode, Profile,
     SharedNetworkSettings,
 };
 use crate::identity::IdentityProvider;
@@ -343,6 +343,10 @@ fn migrate_app_config(config: &mut AppConfig) {
     }
     if config.schema_version < 12 {
         config.schema_version = 12;
+    }
+    if config.schema_version < 13 {
+        config.network.direct_dns = DirectDnsSettings::default();
+        config.schema_version = 13;
     }
 }
 
@@ -825,6 +829,29 @@ mod tests {
             migrated.active_profile().unwrap().endpoint,
             EndpointSettings::default()
         );
+    }
+
+    #[test]
+    fn schema_twelve_adds_canonical_physical_direct_dns() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ConfigStore::new(directory.path().join("config.json"));
+        let mut value = serde_json::to_value(AppConfig::default()).unwrap();
+        value["schema_version"] = serde_json::json!(12);
+        value["network"]
+            .as_object_mut()
+            .unwrap()
+            .remove("direct_dns");
+        fs::write(store.path(), serde_json::to_vec_pretty(&value).unwrap()).unwrap();
+
+        let migrated = store.load().unwrap();
+
+        assert_eq!(migrated.schema_version, CURRENT_SCHEMA_VERSION);
+        assert_eq!(migrated.network.direct_dns, DirectDnsSettings::default());
+        assert_eq!(
+            migrated.active_profile().unwrap().direct_dns,
+            DirectDnsSettings::default()
+        );
+        assert!(store.backup_path().exists());
     }
 
     #[test]

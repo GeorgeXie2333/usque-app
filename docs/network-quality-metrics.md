@@ -88,7 +88,7 @@ metrics are unsupported.
 ## Privacy
 
 Snapshot types contain only enums, integers, durations, booleans, and a
-process-local connection instance number. They do not contain socket addresses,
+process-local random connection instance UUID. They do not contain socket addresses,
 endpoint names, QNAMEs, DNS server names or bootstrap IPs, SSID/BSSID, QUIC
 connection IDs, tokens, packet payloads, or free-form errors. Direct DNS and
 migration failures use closed reason-code enums.

@@ -114,6 +114,23 @@ String connectionEventLabel(
     ConnectionTimelineEventType.queueSaturated => 'diag_event_queue_saturated',
     ConnectionTimelineEventType.disconnected => 'diag_event_disconnected',
     ConnectionTimelineEventType.failed => 'diag_event_failed',
+    ConnectionTimelineEventType.migrationStarted =>
+      'diag_event_recovery_probe_started',
+    ConnectionTimelineEventType.migrationPathValidated =>
+      'diag_event_recovery_probe_succeeded',
+    ConnectionTimelineEventType.migrationPromoted => 'diag_event_path_promoted',
+    ConnectionTimelineEventType.migrationFailed =>
+      'diag_event_recovery_probe_failed',
+    ConnectionTimelineEventType.pmtuChanged => 'diag_event_path_promoted',
+    ConnectionTimelineEventType.pmtuRevalidationStarted =>
+      'diag_event_recovery_probe_started',
+    ConnectionTimelineEventType.pmtuRevalidationFailed =>
+      'diag_event_recovery_probe_failed',
+    ConnectionTimelineEventType.directDnsDegraded =>
+      'diag_event_network_changed',
+    ConnectionTimelineEventType.directDnsRecovered =>
+      'diag_event_recovery_probe_succeeded',
+    ConnectionTimelineEventType.unknown => 'diag_event_failed',
   });
 }
 

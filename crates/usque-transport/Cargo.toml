@@ -34,6 +34,7 @@ ts_netstack_smoltcp.workspace = true
 usque-core = { path = "../usque-core" }
 usque-geo = { path = "../usque-geo" }
 usque-protocol = { path = "../usque-protocol" }
+uuid.workspace = true
 webpki-roots.workspace = true
 zeroize.workspace = true
 

@@ -25,6 +25,7 @@ import 'package:usque/screens/profiles_screen.dart';
 import 'package:usque/screens/proxy_screen.dart';
 import 'package:usque/screens/settings_screen.dart';
 import 'package:usque/screens/shell_screen.dart';
+import 'package:usque/services/control_codec.dart' as wire;
 import 'package:usque/services/desktop_engine_client.dart';
 import 'package:usque/services/engine_client.dart';
 import 'package:usque/services/update_downloader.dart';
@@ -41,6 +42,13 @@ class FakeEngineClient implements EngineClient {
   @override
   Stream<EngineSnapshotEvent> get snapshotEvents =>
       const Stream<EngineSnapshotEvent>.empty();
+
+  @override
+  Future<NetworkQualitySnapshot?> getNetworkQuality() async =>
+      current.networkQuality;
+
+  @override
+  Future<EngineCapabilities?> getCapabilities() async => null;
 
   bool provisioned = false;
   IdentityProvisioningMethod? lastProvisioningMethod;
@@ -631,6 +639,10 @@ class EventEngineClient extends FakeEngineClient {
     eventControllers.last.add(const EngineSnapshotEvent());
   }
 
+  void emitNetworkQuality(NetworkQualitySnapshot quality) {
+    eventControllers.last.add(EngineSnapshotEvent(networkQuality: quality));
+  }
+
   @override
   void dispose() {
     for (final controller in eventControllers) {
@@ -842,6 +854,39 @@ void main() {
     expect(first.errorCode, 'PROXY_LISTEN_FAILED');
   });
 
+  test('Android snapshot maps expose the same network quality model', () {
+    final snapshot = EngineSnapshot.fromMap(<Object?, Object?>{
+      'phase': 'connected',
+      'network_quality': <Object?, Object?>{
+        'sampled_at_unix_ms': 1234,
+        'connection_instance_id': 'android-quality',
+        'level': 'fair',
+        'metrics': <Object?, Object?>{
+          'smoothed_rtt_milliseconds': 42,
+          'smoothed_rtt_availability': 'available',
+          'bytes_in_flight_availability': 'unsupported',
+        },
+        'queues': <Object?>[
+          <Object?, Object?>{
+            'kind': 'transportOutgoing',
+            'availability': 'available',
+            'current_items': 2,
+            'capacity_items': 8,
+          },
+        ],
+      },
+    });
+    final quality = snapshot.networkQuality!;
+    expect(quality.connectionInstanceId, 'android-quality');
+    expect(quality.level, NetworkQualityLevel.fair);
+    expect(quality.metrics.smoothedRttMilliseconds, 42);
+    expect(
+      quality.metrics.bytesInFlightAvailability,
+      MetricAvailability.unsupported,
+    );
+    expect(quality.queues.single.kind, NetworkQueueKind.transportOutgoing);
+  });
+
   test(
     'geo updates report successful artifacts and partial failures',
     () async {
@@ -969,6 +1014,23 @@ void main() {
     engine.emitSnapshot(failure);
     await tester.pump();
     expect(notifications, notificationsAfterFirstError);
+    controller.dispose();
+  });
+
+  test('quality-only engine events update bounded controller state', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final engine = EventEngineClient();
+    final controller = AppController(engine);
+    await controller.initialize();
+
+    const quality = NetworkQualitySnapshot(
+      connectionInstanceId: 'quality-1',
+      level: NetworkQualityLevel.fair,
+    );
+    engine.emitNetworkQuality(quality);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(controller.networkQuality, quality);
     controller.dispose();
   });
 
@@ -1507,6 +1569,359 @@ void main() {
         'r1',
       );
       expect(snapshot.phase, ConnectionPhase.disconnected);
+      expect(snapshot.networkQuality, isNull);
+    },
+  );
+
+  test('desktop capability additions default missing fields to false', () {
+    final capabilities = debugDecodeCapabilitiesFrame(
+      Uint8List.fromList(<int>[
+        0,
+        0,
+        0,
+        18,
+        0x0a,
+        2,
+        0x63,
+        0x31,
+        0x7a,
+        12,
+        0xa0,
+        0x01,
+        1,
+        0xa8,
+        0x01,
+        1,
+        0xb0,
+        0x01,
+        1,
+        0xb8,
+        0x01,
+        1,
+      ]),
+      'c1',
+    );
+    expect(capabilities!.networkQuality, isTrue);
+    expect(capabilities.encryptedDirectDns, isTrue);
+    expect(capabilities.quicMigration, isTrue);
+    expect(capabilities.automaticPmtu, isTrue);
+
+    final missing = debugDecodeCapabilitiesFrame(
+      Uint8List.fromList(<int>[0, 0, 0, 6, 0x0a, 2, 0x63, 0x31, 0x7a, 0]),
+      'c1',
+    );
+    expect(missing!.networkQuality, isFalse);
+    expect(missing.encryptedDirectDns, isFalse);
+    expect(missing.quicMigration, isFalse);
+    expect(missing.automaticPmtu, isFalse);
+  });
+
+  test(
+    'desktop network quality golden matches the Rust append-only fixture',
+    () {
+      const bytes = <int>[
+        0x00,
+        0x00,
+        0x00,
+        0x41,
+        0x0a,
+        0x02,
+        0x6e,
+        0x31,
+        0xaa,
+        0x01,
+        0x3a,
+        0x08,
+        0xd2,
+        0x09,
+        0x12,
+        0x02,
+        0x63,
+        0x31,
+        0x18,
+        0x01,
+        0x22,
+        0x0e,
+        0x20,
+        0x2a,
+        0x28,
+        0x01,
+        0x68,
+        0x15,
+        0x70,
+        0x01,
+        0xc0,
+        0x03,
+        0x01,
+        0xc8,
+        0x03,
+        0x01,
+        0x2a,
+        0x1f,
+        0x08,
+        0x05,
+        0x10,
+        0x02,
+        0x18,
+        0x40,
+        0x20,
+        0x64,
+        0x28,
+        0x80,
+        0xa3,
+        0x05,
+        0x30,
+        0x04,
+        0x38,
+        0xc8,
+        0x01,
+        0x40,
+        0x01,
+        0x48,
+        0x32,
+        0x50,
+        0x07,
+        0x58,
+        0x01,
+        0x60,
+        0x01,
+        0x68,
+        0x0a,
+        0x70,
+        0x08,
+      ];
+      final quality = debugDecodeNetworkQualityFrame(
+        Uint8List.fromList(bytes),
+        'n1',
+      );
+      expect(quality, isNotNull);
+      expect(quality!.sampledAt!.millisecondsSinceEpoch, 1234);
+      expect(quality.connectionInstanceId, 'c1');
+      expect(quality.level, NetworkQualityLevel.good);
+      expect(quality.metrics.smoothedRttMilliseconds, 42);
+      expect(quality.metrics.minimumRttMilliseconds, 21);
+      expect(
+        quality.metrics.smoothedRttAvailability,
+        MetricAvailability.available,
+      );
+      expect(quality.queues.single.kind, NetworkQueueKind.h3WireSend);
+      expect(quality.queues.single.currentBytes, 100);
+      expect(quality.queues.single.dropItems, 1);
+      expect(quality.queues.single.enqueueCount, 10);
+
+      final unknown = Uint8List.fromList(bytes)..[19] = 99;
+      expect(
+        debugDecodeNetworkQualityFrame(unknown, 'n1')!.level,
+        NetworkQualityLevel.unknown,
+      );
+
+      final notKnown = Uint8List.fromList(bytes)..[25] = 0;
+      final hidden = debugDecodeNetworkQualityFrame(notKnown, 'n1')!;
+      expect(hidden.metrics.smoothedRttMilliseconds, isNull);
+      expect(
+        hidden.metrics.smoothedRttAvailability,
+        MetricAvailability.available,
+      );
+
+      final networkPayload = bytes.sublist(11);
+      final eventPayload = <int>[
+        0x08,
+        0x01,
+        0xba,
+        0x01,
+        0x3c,
+        0x0a,
+        0x3a,
+        ...networkPayload,
+      ];
+      final eventFrame = Uint8List(eventPayload.length + 4);
+      ByteData.sublistView(
+        eventFrame,
+      ).setUint32(0, eventPayload.length, Endian.big);
+      eventFrame.setRange(4, eventFrame.length, eventPayload);
+      final event = debugDecodeEventFrame(eventFrame);
+      expect(event.snapshot, isNull);
+      expect(event.networkQuality, quality);
+    },
+  );
+
+  test('desktop quality decoder preserves counters above JS safe range', () {
+    final quality = debugDecodeNetworkQualityFrame(
+      Uint8List.fromList(<int>[
+        0x00,
+        0x00,
+        0x00,
+        0x13,
+        0x0a,
+        0x02,
+        0x6e,
+        0x32,
+        0xaa,
+        0x01,
+        0x0c,
+        0x22,
+        0x0a,
+        0xb0,
+        0x02,
+        0x81,
+        0x80,
+        0x80,
+        0x80,
+        0x80,
+        0x80,
+        0x80,
+        0x10,
+      ]),
+      'n2',
+    );
+    expect(quality!.metrics.udpSendSyscallCount, 9007199254740993);
+  });
+
+  test('network quality nested unknown enums remain forward compatible', () {
+    final metrics = wire.ControlPayloadWriter()
+      ..enumeration(56, 99)
+      ..enumeration(57, 99)
+      ..enumeration(58, 99)
+      ..enumeration(59, 99)
+      ..enumeration(60, 99)
+      ..enumeration(61, 99)
+      ..enumeration(62, 99);
+    final queue = wire.ControlPayloadWriter()
+      ..enumeration(1, 99)
+      ..enumeration(12, 99);
+    final pmtu = wire.ControlPayloadWriter()
+      ..enumeration(1, 99)
+      ..enumeration(7, 99);
+    final directDns = wire.ControlPayloadWriter()..enumeration(1, 99);
+    final quality = wire.ControlPayloadWriter()
+      ..enumeration(3, 99)
+      ..message(4, metrics.takeBytes())
+      ..message(5, queue.takeBytes())
+      ..message(6, pmtu.takeBytes())
+      ..message(8, directDns.takeBytes());
+    final response = wire.ControlPayloadWriter()
+      ..string(1, 'u1')
+      ..message(21, quality.takeBytes());
+    final decoded = wire.debugDecodeNetworkQualityFrame(
+      const wire.ControlCodec().frame(response.takeBytes()),
+      'u1',
+    )!;
+
+    expect(decoded.level, NetworkQualityLevel.unknown);
+    expect(decoded.metrics.smoothedRttAvailability, MetricAvailability.unknown);
+    expect(decoded.metrics.minimumRttAvailability, MetricAvailability.unknown);
+    expect(decoded.metrics.rttVarianceAvailability, MetricAvailability.unknown);
+    expect(
+      decoded.metrics.intervalLossAvailability,
+      MetricAvailability.unknown,
+    );
+    expect(
+      decoded.metrics.congestionWindowAvailability,
+      MetricAvailability.unknown,
+    );
+    expect(
+      decoded.metrics.bytesInFlightAvailability,
+      MetricAvailability.unknown,
+    );
+    expect(decoded.metrics.sendRateAvailability, MetricAvailability.unknown);
+    expect(decoded.queues.single.kind, NetworkQueueKind.unknown);
+    expect(decoded.queues.single.availability, MetricAvailability.unknown);
+    expect(decoded.pmtu.availability, MetricAvailability.unknown);
+    expect(
+      decoded.pmtu.effectivePayloadAvailability,
+      MetricAvailability.unknown,
+    );
+    expect(decoded.directDns.mode, DirectDnsMode.unknown);
+  });
+
+  test('connection timeline decodes appended and unknown event values', () {
+    final appended = debugDecodeConnectionTimelineFrame(
+      Uint8List.fromList(<int>[
+        0,
+        0,
+        0,
+        11,
+        0x0a,
+        2,
+        0x74,
+        0x31,
+        0xa2,
+        1,
+        4,
+        0x0a,
+        2,
+        0x20,
+        22,
+      ]),
+      't1',
+    );
+    expect(
+      appended!.events.single.eventType,
+      ConnectionTimelineEventType.migrationStarted,
+    );
+
+    final unknown = debugDecodeConnectionTimelineFrame(
+      Uint8List.fromList(<int>[
+        0,
+        0,
+        0,
+        11,
+        0x0a,
+        2,
+        0x74,
+        0x31,
+        0xa2,
+        1,
+        4,
+        0x0a,
+        2,
+        0x20,
+        99,
+      ]),
+      't1',
+    );
+    expect(
+      unknown!.events.single.eventType,
+      ConnectionTimelineEventType.unknown,
+    );
+
+    final missing = debugDecodeConnectionTimelineFrame(
+      Uint8List.fromList(<int>[
+        0,
+        0,
+        0,
+        9,
+        0x0a,
+        2,
+        0x74,
+        0x31,
+        0xa2,
+        1,
+        2,
+        0x0a,
+        0,
+      ]),
+      't1',
+    );
+    expect(
+      missing!.events.single.eventType,
+      ConnectionTimelineEventType.unknown,
+    );
+  });
+
+  test(
+    'direct DNS profile defaults and unknown mode are backward compatible',
+    () {
+      final profile = UsqueProfile.defaultProfile();
+      final legacy = Map<String, Object?>.from(profile.toMap())
+        ..remove('direct_dns');
+      expect(UsqueProfile.fromMap(legacy).directDns, const DirectDnsSettings());
+      final unknown = Map<String, Object?>.from(profile.toMap())
+        ..['direct_dns'] = <String, Object?>{'mode': 'futureMode'};
+      expect(
+        UsqueProfile.fromMap(unknown).directDns.mode,
+        DirectDnsMode.unknown,
+      );
     },
   );
 
@@ -1585,6 +2000,39 @@ void main() {
             .having((error) => error.message, 'message', 'blocked'),
       ),
     );
+  });
+
+  test('Dart profile codec appends canonical direct DNS field seventeen', () {
+    final profile = UsqueProfile.defaultProfile().copyWith(
+      directDns: const DirectDnsSettings(
+        mode: DirectDnsMode.doh,
+        serverName: 'dns.example.com',
+        dohPath: '/dns-query',
+        bootstrapIps: <String>['192.0.2.53'],
+        port: 443,
+      ),
+    );
+    final payload = debugEncodeProfilePayload(profile);
+    final suffix = <int>[
+      0x8a,
+      0x01,
+      0x2e,
+      0x08,
+      0x02,
+      0x12,
+      0x0f,
+      ...utf8.encode('dns.example.com'),
+      0x1a,
+      0x0a,
+      ...utf8.encode('/dns-query'),
+      0x22,
+      0x0a,
+      ...utf8.encode('192.0.2.53'),
+      0x28,
+      0xbb,
+      0x03,
+    ];
+    expect(payload.sublist(payload.length - suffix.length), suffix);
   });
 
   test('desktop protobuf bridge decodes the authoritative profile catalog', () {

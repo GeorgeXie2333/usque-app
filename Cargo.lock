@@ -2872,6 +2872,7 @@ dependencies = [
  "usque-core",
  "usque-geo",
  "usque-protocol",
+ "uuid",
  "webpki-roots",
  "zeroize",
 ]

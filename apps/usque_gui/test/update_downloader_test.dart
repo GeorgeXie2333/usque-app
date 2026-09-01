@@ -7,6 +7,11 @@ import 'package:usque/services/engine_client.dart';
 import 'package:usque/services/update_downloader.dart';
 
 class _CacheEngine implements EngineClient {
+  @override
+  Future<NetworkQualitySnapshot?> getNetworkQuality() async => null;
+
+  @override
+  Future<EngineCapabilities?> getCapabilities() async => null;
   _CacheEngine(this.path);
 
   final String path;

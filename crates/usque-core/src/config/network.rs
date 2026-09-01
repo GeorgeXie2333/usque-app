@@ -4,8 +4,8 @@ use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    Account, DnsMode, EndpointSettings, FrontendSettings, IpPolicy, Profile, ProxySettings,
-    TransportPolicy,
+    Account, DirectDnsSettings, DnsMode, EndpointSettings, FrontendSettings, IpPolicy, Profile,
+    ProxySettings, TransportPolicy,
 };
 
 /// Device-wide MASQUE, DNS, proxy, and output settings. A Zero Trust account
@@ -26,6 +26,8 @@ pub struct SharedNetworkSettings {
     pub proxy: ProxySettings,
     #[serde(default)]
     pub geo_direct_countries: Vec<String>,
+    #[serde(default)]
+    pub direct_dns: DirectDnsSettings,
 }
 
 impl Default for SharedNetworkSettings {
@@ -52,6 +54,7 @@ impl SharedNetworkSettings {
             auto_connect: profile.auto_connect,
             proxy: profile.proxy.clone(),
             geo_direct_countries: profile.geo_direct_countries.clone(),
+            direct_dns: profile.direct_dns.clone(),
         }
     }
 
@@ -78,10 +81,12 @@ impl SharedNetworkSettings {
             auto_connect: self.auto_connect,
             proxy: self.proxy.clone(),
             geo_direct_countries: self.geo_direct_countries.clone(),
+            direct_dns: self.direct_dns.clone(),
         };
         profile.canonicalize_mode();
         profile.proxy.normalize_auth();
         let _ = profile.canonicalize_geo_direct();
+        profile.canonicalize_direct_dns();
         profile
     }
 

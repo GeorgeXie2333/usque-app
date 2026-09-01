@@ -64,6 +64,14 @@ class ControlCodec {
       ..boolean(1, profile.frontends.tunnel)
       ..boolean(2, profile.frontends.socks5)
       ..boolean(3, profile.frontends.http);
+    final directDns = ControlPayloadWriter()
+      ..enumeration(1, _directDnsModeWireValue(profile.directDns.mode))
+      ..string(2, profile.directDns.serverName)
+      ..string(3, profile.directDns.dohPath);
+    for (final bootstrapIp in profile.directDns.bootstrapIps) {
+      directDns.string(4, bootstrapIp);
+    }
+    directDns.unsigned(5, profile.directDns.port);
     final writer = ControlPayloadWriter()
       ..string(1, profile.id)
       ..string(2, profile.name)
@@ -87,6 +95,7 @@ class ControlCodec {
     for (final country in profile.geoDirectCountries) {
       writer.string(16, country);
     }
+    writer.message(17, directDns.takeBytes());
     return writer.takeBytes();
   }
 
@@ -115,6 +124,8 @@ class ControlCodec {
       List<GeoRulesUpdateResult>? geoRulesUpdate;
       DiagnosticSession? diagnosticSession;
       ConnectionTimeline? connectionTimeline;
+      NetworkQualitySnapshot? networkQuality;
+      EngineCapabilities? capabilities;
       while (!reader.isDone) {
         final field = reader.field();
         switch (field.number) {
@@ -138,6 +149,10 @@ class ControlCodec {
             connectionTimeline = _decodeConnectionTimeline(
               reader.message(field),
             );
+          case 21:
+            networkQuality = _decodeNetworkQuality(reader.message(field));
+          case 15:
+            capabilities = _decodeCapabilities(reader.message(field));
           default:
             reader.skip(field);
         }
@@ -159,6 +174,8 @@ class ControlCodec {
         geoRulesUpdate: geoRulesUpdate,
         diagnosticSession: diagnosticSession,
         connectionTimeline: connectionTimeline,
+        networkQuality: networkQuality,
+        capabilities: capabilities,
       );
     } on FormatException catch (error) {
       throw _invalidIpcResponse(error);
@@ -189,6 +206,8 @@ class ControlCodec {
       EngineSnapshot? snapshot;
       GeoRulesProgress? geoProgress;
       DiagnosticSession? diagnosticSession;
+      NetworkQualitySnapshot? networkQuality;
+      EngineCapabilities? capabilities;
       var diagnosticsChanged = false;
       while (!envelope.isDone) {
         final field = envelope.field();
@@ -226,6 +245,30 @@ class ControlCodec {
           case 20:
             diagnosticsChanged = true;
             envelope.skip(field);
+          case 14:
+            final changed = envelope.message(field);
+            while (!changed.isDone) {
+              final changedField = changed.field();
+              if (changedField.number == 1) {
+                capabilities = _decodeCapabilities(
+                  changed.message(changedField),
+                );
+              } else {
+                changed.skip(changedField);
+              }
+            }
+          case 23:
+            final updated = envelope.message(field);
+            while (!updated.isDone) {
+              final updatedField = updated.field();
+              if (updatedField.number == 1) {
+                networkQuality = _decodeNetworkQuality(
+                  updated.message(updatedField),
+                );
+              } else {
+                updated.skip(updatedField);
+              }
+            }
           default:
             envelope.skip(field);
         }
@@ -235,6 +278,8 @@ class ControlCodec {
         geoProgress: geoProgress,
         diagnosticSession: diagnosticSession,
         diagnosticsChanged: diagnosticsChanged,
+        networkQuality: networkQuality,
+        capabilities: capabilities,
       );
     } on FormatException catch (error) {
       throw _invalidIpcResponse(error);
@@ -263,6 +308,8 @@ class ControlResponse {
     this.geoRulesUpdate,
     this.diagnosticSession,
     this.connectionTimeline,
+    this.networkQuality,
+    this.capabilities,
   });
 
   final EngineSnapshot? snapshot;
@@ -272,6 +319,8 @@ class ControlResponse {
   final List<GeoRulesUpdateResult>? geoRulesUpdate;
   final DiagnosticSession? diagnosticSession;
   final ConnectionTimeline? connectionTimeline;
+  final NetworkQualitySnapshot? networkQuality;
+  final EngineCapabilities? capabilities;
 }
 
 /// Minimal protobuf field writer for control request payloads.
@@ -341,9 +390,45 @@ Uint8List debugEncodeGetStatusFrame(String requestId) {
 }
 
 @visibleForTesting
+Uint8List debugEncodeProfilePayload(UsqueProfile profile) {
+  return const ControlCodec().encodeProfile(profile);
+}
+
+@visibleForTesting
 EngineSnapshot debugDecodeStatusFrame(Uint8List frame, String requestId) {
   return const ControlCodec().decodeResponse(frame, requestId).snapshot ??
       const EngineSnapshot();
+}
+
+@visibleForTesting
+NetworkQualitySnapshot? debugDecodeNetworkQualityFrame(
+  Uint8List frame,
+  String requestId,
+) {
+  return const ControlCodec().decodeResponse(frame, requestId).networkQuality;
+}
+
+@visibleForTesting
+ConnectionTimeline? debugDecodeConnectionTimelineFrame(
+  Uint8List frame,
+  String requestId,
+) {
+  return const ControlCodec()
+      .decodeResponse(frame, requestId)
+      .connectionTimeline;
+}
+
+@visibleForTesting
+EngineSnapshotEvent debugDecodeEventFrame(Uint8List frame) {
+  return const ControlCodec().decodeEvent(frame);
+}
+
+@visibleForTesting
+EngineCapabilities? debugDecodeCapabilitiesFrame(
+  Uint8List frame,
+  String requestId,
+) {
+  return const ControlCodec().decodeResponse(frame, requestId).capabilities;
 }
 
 @visibleForTesting
@@ -469,6 +554,7 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
   var frontends = defaults.frontends;
   var frontendsSeen = false;
   final geoDirectCountries = <String>[];
+  var directDns = defaults.directDns;
 
   while (!reader.isDone) {
     final field = reader.field();
@@ -558,6 +644,8 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
         frontendsSeen = true;
       case 16:
         geoDirectCountries.add(reader.string(field));
+      case 17:
+        directDns = _decodeDirectDnsSettings(reader.message(field));
       default:
         reader.skip(field);
     }
@@ -594,8 +682,55 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
     geoDirectCountries: List<String>.unmodifiable(geoDirectCountries),
     proxy: proxy,
     frontends: frontends,
+    directDns: directDns,
   );
 }
+
+DirectDnsSettings _decodeDirectDnsSettings(_ProtoReader reader) {
+  var mode = DirectDnsMode.physicalSystem;
+  var serverName = '';
+  var dohPath = '';
+  final bootstrapIps = <String>[];
+  var port = 0;
+  while (!reader.isDone) {
+    final field = reader.field();
+    switch (field.number) {
+      case 1:
+        mode = _decodeDirectDnsMode(reader.varint(field));
+      case 2:
+        serverName = reader.string(field);
+      case 3:
+        dohPath = reader.string(field);
+      case 4:
+        bootstrapIps.add(reader.string(field));
+      case 5:
+        port = reader.varint(field);
+      default:
+        reader.skip(field);
+    }
+  }
+  return DirectDnsSettings(
+    mode: mode,
+    serverName: serverName,
+    dohPath: dohPath,
+    bootstrapIps: List<String>.unmodifiable(bootstrapIps),
+    port: port,
+  );
+}
+
+int _directDnsModeWireValue(DirectDnsMode mode) => switch (mode) {
+  DirectDnsMode.unknown => 0,
+  DirectDnsMode.physicalSystem => 1,
+  DirectDnsMode.doh => 2,
+  DirectDnsMode.dot => 3,
+};
+
+DirectDnsMode _decodeDirectDnsMode(int value) => switch (value) {
+  1 => DirectDnsMode.physicalSystem,
+  2 => DirectDnsMode.doh,
+  3 => DirectDnsMode.dot,
+  _ => DirectDnsMode.unknown,
+};
 
 GeoRulesList _decodeGeoRulesList(_ProtoReader reader) {
   final entries = <GeoRulesEntry>[];
@@ -980,7 +1115,7 @@ ConnectionTimelineEvent _decodeConnectionTimelineEvent(_ProtoReader reader) {
   var sequence = 0;
   DateTime? timestamp;
   var elapsedMilliseconds = 0;
-  var eventType = ConnectionTimelineEventType.failed;
+  var eventType = ConnectionTimelineEventType.unknown;
   String? stage;
   String? transport;
   String? addressFamily;
@@ -1002,11 +1137,7 @@ ConnectionTimelineEvent _decodeConnectionTimelineEvent(_ProtoReader reader) {
       case 3:
         elapsedMilliseconds = reader.varint(field);
       case 4:
-        eventType = _decodeIndexedEnum(
-          ConnectionTimelineEventType.values,
-          reader.varint(field),
-          'connection event type',
-        );
+        eventType = _decodeConnectionTimelineEventType(reader.varint(field));
       case 5:
         stage = _emptyToNull(reader.string(field));
       case 6:
@@ -1033,6 +1164,42 @@ ConnectionTimelineEvent _decodeConnectionTimelineEvent(_ProtoReader reader) {
     durationMilliseconds: durationMilliseconds,
     failure: failure,
   );
+}
+
+ConnectionTimelineEventType _decodeConnectionTimelineEventType(int wireValue) {
+  return switch (wireValue) {
+    1 => ConnectionTimelineEventType.attemptStarted,
+    2 => ConnectionTimelineEventType.endpointResolved,
+    3 => ConnectionTimelineEventType.socketConnected,
+    4 => ConnectionTimelineEventType.tlsReady,
+    5 => ConnectionTimelineEventType.quicReady,
+    6 => ConnectionTimelineEventType.masqueAccepted,
+    7 => ConnectionTimelineEventType.peerSettingsReceived,
+    8 => ConnectionTimelineEventType.addressAssigned,
+    9 => ConnectionTimelineEventType.tunnelReady,
+    10 => ConnectionTimelineEventType.firstPacketSent,
+    11 => ConnectionTimelineEventType.firstPacketReceived,
+    12 => ConnectionTimelineEventType.fallbackStarted,
+    13 => ConnectionTimelineEventType.reconnectScheduled,
+    14 => ConnectionTimelineEventType.networkChanged,
+    15 => ConnectionTimelineEventType.recoveryProbeStarted,
+    16 => ConnectionTimelineEventType.recoveryProbeSucceeded,
+    17 => ConnectionTimelineEventType.recoveryProbeFailed,
+    18 => ConnectionTimelineEventType.pathPromoted,
+    19 => ConnectionTimelineEventType.queueSaturated,
+    20 => ConnectionTimelineEventType.disconnected,
+    21 => ConnectionTimelineEventType.failed,
+    22 => ConnectionTimelineEventType.migrationStarted,
+    23 => ConnectionTimelineEventType.migrationPathValidated,
+    24 => ConnectionTimelineEventType.migrationPromoted,
+    25 => ConnectionTimelineEventType.migrationFailed,
+    26 => ConnectionTimelineEventType.pmtuChanged,
+    27 => ConnectionTimelineEventType.pmtuRevalidationStarted,
+    28 => ConnectionTimelineEventType.pmtuRevalidationFailed,
+    29 => ConnectionTimelineEventType.directDnsDegraded,
+    30 => ConnectionTimelineEventType.directDnsRecovered,
+    _ => ConnectionTimelineEventType.unknown,
+  };
 }
 
 ConnectionMetrics _decodeConnectionMetrics(_ProtoReader reader) {
@@ -1096,6 +1263,528 @@ ConnectionMetrics _decodeConnectionMetrics(_ProtoReader reader) {
     lastReconnectCode: lastReconnectCode,
   );
 }
+
+EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
+  var networkQuality = false;
+  var encryptedDirectDns = false;
+  var quicMigration = false;
+  var automaticPmtu = false;
+  while (!reader.isDone) {
+    final field = reader.field();
+    switch (field.number) {
+      case 20:
+        networkQuality = reader.varint(field) != 0;
+      case 21:
+        encryptedDirectDns = reader.varint(field) != 0;
+      case 22:
+        quicMigration = reader.varint(field) != 0;
+      case 23:
+        automaticPmtu = reader.varint(field) != 0;
+      default:
+        reader.skip(field);
+    }
+  }
+  return EngineCapabilities(
+    networkQuality: networkQuality,
+    encryptedDirectDns: encryptedDirectDns,
+    quicMigration: quicMigration,
+    automaticPmtu: automaticPmtu,
+  );
+}
+
+NetworkQualitySnapshot _decodeNetworkQuality(_ProtoReader reader) {
+  DateTime? sampledAt;
+  String? connectionInstanceId;
+  var level = NetworkQualityLevel.unknown;
+  var metrics = const NetworkConnectionMetrics();
+  final queues = <NetworkQueueQuality>[];
+  var pmtu = const PmtuQualityInfo();
+  var migration = const MigrationQualityInfo();
+  var directDns = const DirectDnsQualityInfo();
+  while (!reader.isDone) {
+    final field = reader.field();
+    switch (field.number) {
+      case 1:
+        final milliseconds = reader.varint(field);
+        sampledAt = milliseconds == 0
+            ? null
+            : DateTime.fromMillisecondsSinceEpoch(milliseconds, isUtc: true);
+      case 2:
+        connectionInstanceId = _emptyToNull(reader.string(field));
+      case 3:
+        level = _decodeNetworkQualityLevel(reader.varint(field));
+      case 4:
+        metrics = _decodeNetworkConnectionMetrics(reader.message(field));
+      case 5:
+        queues.add(_decodeNetworkQueueQuality(reader.message(field)));
+      case 6:
+        pmtu = _decodePmtuQuality(reader.message(field));
+      case 7:
+        migration = _decodeMigrationQuality(reader.message(field));
+      case 8:
+        directDns = _decodeDirectDnsQuality(reader.message(field));
+      default:
+        reader.skip(field);
+    }
+  }
+  return NetworkQualitySnapshot(
+    sampledAt: sampledAt,
+    connectionInstanceId: connectionInstanceId,
+    level: level,
+    metrics: metrics,
+    queues: List<NetworkQueueQuality>.unmodifiable(queues),
+    pmtu: pmtu,
+    migration: migration,
+    directDns: directDns,
+  );
+}
+
+NetworkConnectionMetrics _decodeNetworkConnectionMetrics(_ProtoReader reader) {
+  var smoothedRtt = 0;
+  var smoothedRttKnown = false;
+  var minimumRtt = 0;
+  var minimumRttKnown = false;
+  var rttVariance = 0;
+  var rttVarianceKnown = false;
+  var intervalLoss = 0;
+  var intervalLossKnown = false;
+  var congestionWindow = 0;
+  var congestionWindowKnown = false;
+  var bytesInFlight = 0;
+  var bytesInFlightKnown = false;
+  var sendRate = 0;
+  var sendRateKnown = false;
+  var packetsLost = 0;
+  var bytesLost = 0;
+  var tunSinkDrops = 0;
+  var quicDatagramDrops = 0;
+  var queueOldestAge = 0;
+  var queueOldestAgeKnown = false;
+  var currentPmtu = 0;
+  var currentPmtuKnown = false;
+  var migrationAttempts = 0;
+  var migrationSuccesses = 0;
+  var migrationFailures = 0;
+  var lastMigrationDuration = 0;
+  var lastMigrationDurationKnown = false;
+  var udpSendSyscalls = 0;
+  var udpRecvSyscalls = 0;
+  var udpDatagramsSent = 0;
+  var udpDatagramsReceived = 0;
+  var poolHits = 0;
+  var poolMisses = 0;
+  var h2StallCount = 0;
+  var h2StallTotal = 0;
+  var h2StallMax = 0;
+  var h2StreamWindow = 0;
+  var h2ConnectionWindow = 0;
+  var dnsSuccesses = 0;
+  var dnsFailures = 0;
+  var dnsTimeouts = 0;
+  var dnsLastRtt = 0;
+  var dnsLastRttKnown = false;
+  var pmtuChanges = 0;
+  var pmtuRevalidationFailures = 0;
+  var smoothedAvailability = MetricAvailability.unknown;
+  var minimumAvailability = MetricAvailability.unknown;
+  var varianceAvailability = MetricAvailability.unknown;
+  var lossAvailability = MetricAvailability.unknown;
+  var congestionAvailability = MetricAvailability.unknown;
+  var bytesInFlightAvailability = MetricAvailability.unknown;
+  var sendRateAvailability = MetricAvailability.unknown;
+  while (!reader.isDone) {
+    final field = reader.field();
+    switch (field.number) {
+      case 4:
+        smoothedRtt = reader.varint(field);
+      case 5:
+        smoothedRttKnown = reader.varint(field) != 0;
+      case 13:
+        minimumRtt = reader.varint(field);
+      case 14:
+        minimumRttKnown = reader.varint(field) != 0;
+      case 15:
+        rttVariance = reader.varint(field);
+      case 16:
+        rttVarianceKnown = reader.varint(field) != 0;
+      case 17:
+        intervalLoss = reader.varint(field);
+      case 18:
+        intervalLossKnown = reader.varint(field) != 0;
+      case 19:
+        congestionWindow = reader.varint(field);
+      case 20:
+        congestionWindowKnown = reader.varint(field) != 0;
+      case 21:
+        bytesInFlight = reader.varint(field);
+      case 22:
+        bytesInFlightKnown = reader.varint(field) != 0;
+      case 23:
+        sendRate = reader.varint(field);
+      case 24:
+        sendRateKnown = reader.varint(field) != 0;
+      case 25:
+        packetsLost = reader.varint(field);
+      case 26:
+        bytesLost = reader.varint(field);
+      case 27:
+        tunSinkDrops = reader.varint(field);
+      case 28:
+        quicDatagramDrops = reader.varint(field);
+      case 29:
+        queueOldestAge = reader.varint(field);
+      case 30:
+        queueOldestAgeKnown = reader.varint(field) != 0;
+      case 31:
+        currentPmtu = reader.varint(field);
+      case 32:
+        currentPmtuKnown = reader.varint(field) != 0;
+      case 33:
+        migrationAttempts = reader.varint(field);
+      case 34:
+        migrationSuccesses = reader.varint(field);
+      case 35:
+        migrationFailures = reader.varint(field);
+      case 36:
+        lastMigrationDuration = reader.varint(field);
+      case 37:
+        lastMigrationDurationKnown = reader.varint(field) != 0;
+      case 38:
+        udpSendSyscalls = reader.varint(field);
+      case 39:
+        udpRecvSyscalls = reader.varint(field);
+      case 40:
+        udpDatagramsSent = reader.varint(field);
+      case 41:
+        udpDatagramsReceived = reader.varint(field);
+      case 42:
+        poolHits = reader.varint(field);
+      case 43:
+        poolMisses = reader.varint(field);
+      case 44:
+        h2StallCount = reader.varint(field);
+      case 45:
+        h2StallTotal = reader.varint(field);
+      case 46:
+        h2StallMax = reader.varint(field);
+      case 47:
+        h2StreamWindow = reader.varint(field);
+      case 48:
+        h2ConnectionWindow = reader.varint(field);
+      case 49:
+        dnsSuccesses = reader.varint(field);
+      case 50:
+        dnsFailures = reader.varint(field);
+      case 51:
+        dnsTimeouts = reader.varint(field);
+      case 52:
+        dnsLastRtt = reader.varint(field);
+      case 53:
+        dnsLastRttKnown = reader.varint(field) != 0;
+      case 54:
+        pmtuChanges = reader.varint(field);
+      case 55:
+        pmtuRevalidationFailures = reader.varint(field);
+      case 56:
+        smoothedAvailability = _decodeMetricAvailability(reader.varint(field));
+      case 57:
+        minimumAvailability = _decodeMetricAvailability(reader.varint(field));
+      case 58:
+        varianceAvailability = _decodeMetricAvailability(reader.varint(field));
+      case 59:
+        lossAvailability = _decodeMetricAvailability(reader.varint(field));
+      case 60:
+        congestionAvailability = _decodeMetricAvailability(
+          reader.varint(field),
+        );
+      case 61:
+        bytesInFlightAvailability = _decodeMetricAvailability(
+          reader.varint(field),
+        );
+      case 62:
+        sendRateAvailability = _decodeMetricAvailability(reader.varint(field));
+      default:
+        reader.skip(field);
+    }
+  }
+  return NetworkConnectionMetrics(
+    smoothedRttMilliseconds: smoothedRttKnown ? smoothedRtt : null,
+    minimumRttMilliseconds: minimumRttKnown ? minimumRtt : null,
+    rttVarianceMilliseconds: rttVarianceKnown ? rttVariance : null,
+    intervalLossBasisPoints: intervalLossKnown ? intervalLoss : null,
+    congestionWindowBytes: congestionWindowKnown ? congestionWindow : null,
+    bytesInFlight: bytesInFlightKnown ? bytesInFlight : null,
+    sendRateBitsPerSecond: sendRateKnown ? sendRate : null,
+    packetsLost: packetsLost,
+    bytesLost: bytesLost,
+    tunSinkDropCount: tunSinkDrops,
+    quicDatagramDropCount: quicDatagramDrops,
+    queueOldestAgeMilliseconds: queueOldestAgeKnown ? queueOldestAge : null,
+    currentPmtuBytes: currentPmtuKnown ? currentPmtu : null,
+    migrationAttemptCount: migrationAttempts,
+    migrationSuccessCount: migrationSuccesses,
+    migrationFailureCount: migrationFailures,
+    lastMigrationDurationMilliseconds: lastMigrationDurationKnown
+        ? lastMigrationDuration
+        : null,
+    udpSendSyscallCount: udpSendSyscalls,
+    udpRecvSyscallCount: udpRecvSyscalls,
+    udpDatagramSentCount: udpDatagramsSent,
+    udpDatagramReceivedCount: udpDatagramsReceived,
+    packetBufferPoolHitCount: poolHits,
+    packetBufferPoolMissCount: poolMisses,
+    h2FlowControlStallCount: h2StallCount,
+    h2FlowControlStallTotalMilliseconds: h2StallTotal,
+    h2FlowControlStallMaxMilliseconds: h2StallMax,
+    h2StreamReceiveWindowBytes: h2StreamWindow,
+    h2ConnectionReceiveWindowBytes: h2ConnectionWindow,
+    directDnsSuccessCount: dnsSuccesses,
+    directDnsFailureCount: dnsFailures,
+    directDnsTimeoutCount: dnsTimeouts,
+    directDnsLastRttMilliseconds: dnsLastRttKnown ? dnsLastRtt : null,
+    pmtuChangeCount: pmtuChanges,
+    pmtuRevalidationFailureCount: pmtuRevalidationFailures,
+    smoothedRttAvailability: smoothedAvailability,
+    minimumRttAvailability: minimumAvailability,
+    rttVarianceAvailability: varianceAvailability,
+    intervalLossAvailability: lossAvailability,
+    congestionWindowAvailability: congestionAvailability,
+    bytesInFlightAvailability: bytesInFlightAvailability,
+    sendRateAvailability: sendRateAvailability,
+  );
+}
+
+NetworkQueueQuality _decodeNetworkQueueQuality(_ProtoReader reader) {
+  var kind = NetworkQueueKind.unknown;
+  var availability = MetricAvailability.unknown;
+  var currentItems = 0;
+  var capacityItems = 0;
+  var currentBytes = 0;
+  var capacityBytes = 0;
+  var highWaterItems = 0;
+  var highWaterBytes = 0;
+  var dropItems = 0;
+  var dropBytes = 0;
+  var oldestAge = 0;
+  var oldestAgeKnown = false;
+  var enqueueCount = 0;
+  var dequeueCount = 0;
+  var closed = false;
+  var cancelled = false;
+  while (!reader.isDone) {
+    final field = reader.field();
+    switch (field.number) {
+      case 1:
+        kind = _decodeNetworkQueueKind(reader.varint(field));
+      case 2:
+        currentItems = reader.varint(field);
+      case 3:
+        capacityItems = reader.varint(field);
+      case 4:
+        currentBytes = reader.varint(field);
+      case 5:
+        capacityBytes = reader.varint(field);
+      case 6:
+        highWaterItems = reader.varint(field);
+      case 7:
+        highWaterBytes = reader.varint(field);
+      case 8:
+        dropItems = reader.varint(field);
+      case 9:
+        dropBytes = reader.varint(field);
+      case 10:
+        oldestAge = reader.varint(field);
+      case 11:
+        oldestAgeKnown = reader.varint(field) != 0;
+      case 12:
+        availability = _decodeMetricAvailability(reader.varint(field));
+      case 13:
+        enqueueCount = reader.varint(field);
+      case 14:
+        dequeueCount = reader.varint(field);
+      case 15:
+        closed = reader.varint(field) != 0;
+      case 16:
+        cancelled = reader.varint(field) != 0;
+      default:
+        reader.skip(field);
+    }
+  }
+  return NetworkQueueQuality(
+    kind: kind,
+    availability: availability,
+    currentItems: currentItems,
+    capacityItems: capacityItems,
+    currentBytes: currentBytes,
+    capacityBytes: capacityBytes,
+    highWaterItems: highWaterItems,
+    highWaterBytes: highWaterBytes,
+    dropItems: dropItems,
+    dropBytes: dropBytes,
+    oldestAgeMilliseconds: oldestAgeKnown ? oldestAge : null,
+    enqueueCount: enqueueCount,
+    dequeueCount: dequeueCount,
+    closed: closed,
+    cancelled: cancelled,
+  );
+}
+
+PmtuQualityInfo _decodePmtuQuality(_ProtoReader reader) {
+  var availability = MetricAvailability.unknown;
+  var outerPmtu = 0;
+  var effectivePayload = 0;
+  var effectiveAvailability = MetricAvailability.unknown;
+  var phaseCode = '';
+  var changeCount = 0;
+  var revalidationFailures = 0;
+  while (!reader.isDone) {
+    final field = reader.field();
+    switch (field.number) {
+      case 1:
+        availability = _decodeMetricAvailability(reader.varint(field));
+      case 2:
+        outerPmtu = reader.varint(field);
+      case 3:
+        effectivePayload = reader.varint(field);
+      case 4:
+        phaseCode = reader.string(field);
+      case 5:
+        changeCount = reader.varint(field);
+      case 6:
+        revalidationFailures = reader.varint(field);
+      case 7:
+        effectiveAvailability = _decodeMetricAvailability(reader.varint(field));
+      default:
+        reader.skip(field);
+    }
+  }
+  return PmtuQualityInfo(
+    availability: availability,
+    outerPmtuBytes: _availabilityHasValue(availability) ? outerPmtu : null,
+    effectiveConnectIpPayloadBytes: _availabilityHasValue(effectiveAvailability)
+        ? effectivePayload
+        : null,
+    effectivePayloadAvailability: effectiveAvailability,
+    phaseCode: phaseCode,
+    changeCount: changeCount,
+    revalidationFailureCount: revalidationFailures,
+  );
+}
+
+MigrationQualityInfo _decodeMigrationQuality(_ProtoReader reader) {
+  var phaseCode = '';
+  var attempts = 0;
+  var successes = 0;
+  var failures = 0;
+  var lastDuration = 0;
+  var lastDurationKnown = false;
+  var lastReasonCode = '';
+  while (!reader.isDone) {
+    final field = reader.field();
+    switch (field.number) {
+      case 1:
+        phaseCode = reader.string(field);
+      case 2:
+        attempts = reader.varint(field);
+      case 3:
+        successes = reader.varint(field);
+      case 4:
+        failures = reader.varint(field);
+      case 5:
+        lastDuration = reader.varint(field);
+      case 6:
+        lastDurationKnown = reader.varint(field) != 0;
+      case 7:
+        lastReasonCode = reader.string(field);
+      default:
+        reader.skip(field);
+    }
+  }
+  return MigrationQualityInfo(
+    phaseCode: phaseCode,
+    attemptCount: attempts,
+    successCount: successes,
+    failureCount: failures,
+    lastDurationMilliseconds: lastDurationKnown ? lastDuration : null,
+    lastReasonCode: lastReasonCode,
+  );
+}
+
+DirectDnsQualityInfo _decodeDirectDnsQuality(_ProtoReader reader) {
+  var mode = DirectDnsMode.unknown;
+  var phaseCode = '';
+  var successes = 0;
+  var failures = 0;
+  var timeouts = 0;
+  var lastRtt = 0;
+  var lastRttKnown = false;
+  var lastReasonCode = '';
+  while (!reader.isDone) {
+    final field = reader.field();
+    switch (field.number) {
+      case 1:
+        mode = _decodeDirectDnsMode(reader.varint(field));
+      case 2:
+        phaseCode = reader.string(field);
+      case 3:
+        successes = reader.varint(field);
+      case 4:
+        failures = reader.varint(field);
+      case 5:
+        timeouts = reader.varint(field);
+      case 6:
+        lastRtt = reader.varint(field);
+      case 7:
+        lastRttKnown = reader.varint(field) != 0;
+      case 8:
+        lastReasonCode = reader.string(field);
+      default:
+        reader.skip(field);
+    }
+  }
+  return DirectDnsQualityInfo(
+    mode: mode,
+    phaseCode: phaseCode,
+    successCount: successes,
+    failureCount: failures,
+    timeoutCount: timeouts,
+    lastRttMilliseconds: lastRttKnown ? lastRtt : null,
+    lastReasonCode: lastReasonCode,
+  );
+}
+
+MetricAvailability _decodeMetricAvailability(int value) => switch (value) {
+  1 => MetricAvailability.available,
+  2 => MetricAvailability.unsupported,
+  3 => MetricAvailability.notReady,
+  4 => MetricAvailability.stale,
+  _ => MetricAvailability.unknown,
+};
+
+bool _availabilityHasValue(MetricAvailability availability) =>
+    availability == MetricAvailability.available ||
+    availability == MetricAvailability.stale;
+
+NetworkQualityLevel _decodeNetworkQualityLevel(int value) => switch (value) {
+  1 => NetworkQualityLevel.good,
+  2 => NetworkQualityLevel.fair,
+  3 => NetworkQualityLevel.poor,
+  4 => NetworkQualityLevel.limitedData,
+  5 => NetworkQualityLevel.disconnected,
+  _ => NetworkQualityLevel.unknown,
+};
+
+NetworkQueueKind _decodeNetworkQueueKind(int value) => switch (value) {
+  1 => NetworkQueueKind.tunToTransport,
+  2 => NetworkQueueKind.proxyToTransport,
+  3 => NetworkQueueKind.transportOutgoing,
+  4 => NetworkQueueKind.h3DatagramSend,
+  5 => NetworkQueueKind.h3WireSend,
+  6 => NetworkQueueKind.transportToTun,
+  7 => NetworkQueueKind.transportToProxy,
+  8 => NetworkQueueKind.directDns,
+  _ => NetworkQueueKind.unknown,
+};
 
 ProxySettings _decodeProxySettings(
   _ProtoReader reader,
@@ -1336,6 +2025,7 @@ EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
   final activeListeners = <String>[];
   final frontends = <FrontendRuntimeStatus>[];
   TransportFailureInfo? failure;
+  NetworkQualitySnapshot? networkQuality;
   while (!reader.isDone) {
     final field = reader.field();
     switch (field.number) {
@@ -1380,6 +2070,8 @@ EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
         frontends.add(_decodeFrontendStatus(reader.message(field)));
       case 16:
         failure = _decodeTransportFailure(reader.message(field));
+      case 17:
+        networkQuality = _decodeNetworkQuality(reader.message(field));
       default:
         // Includes reserved field 14 (legacy captive-portal countdown).
         reader.skip(field);
@@ -1405,6 +2097,7 @@ EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
     frontends: List<FrontendRuntimeStatus>.unmodifiable(frontends),
     errorCode: failure?.code,
     failure: failure,
+    networkQuality: networkQuality,
   );
 }
 

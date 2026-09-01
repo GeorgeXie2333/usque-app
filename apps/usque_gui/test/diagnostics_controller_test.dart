@@ -12,6 +12,11 @@ import 'package:usque/state/app_controller.dart';
 import 'package:usque/state/diagnostics_controller.dart';
 
 class DiagnosticsEngineStub implements EngineClient {
+  @override
+  Future<NetworkQualitySnapshot?> getNetworkQuality() async => null;
+
+  @override
+  Future<EngineCapabilities?> getCapabilities() async => null;
   DiagnosticSession? recovered;
   ConnectionTimeline timeline = const ConnectionTimeline();
   int startCalls = 0;

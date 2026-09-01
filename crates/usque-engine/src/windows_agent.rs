@@ -654,6 +654,12 @@ impl WindowsVpnRuntime {
         self.monitor.connection_timeline()
     }
 
+    pub(crate) fn subscribe_network_quality(
+        &self,
+    ) -> tokio::sync::watch::Receiver<usque_transport::NetworkQualitySnapshot> {
+        self.monitor.tunnel.subscribe_network_quality()
+    }
+
     pub(crate) fn failure(&self) -> Option<String> {
         self.monitor.failure()
     }

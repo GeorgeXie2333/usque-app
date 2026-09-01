@@ -21,12 +21,16 @@ class EngineException implements Exception {
 class EngineSnapshotEvent {
   const EngineSnapshotEvent({
     this.snapshot,
+    this.networkQuality,
+    this.capabilities,
     this.geoProgress,
     this.diagnosticSession,
     this.diagnosticsChanged = false,
   });
 
   final EngineSnapshot? snapshot;
+  final NetworkQualitySnapshot? networkQuality;
+  final EngineCapabilities? capabilities;
   final GeoRulesProgress? geoProgress;
   final DiagnosticSession? diagnosticSession;
   final bool diagnosticsChanged;
@@ -115,6 +119,11 @@ abstract interface class EngineClient {
 
   Future<EngineSnapshot> snapshot();
 
+  Future<NetworkQualitySnapshot?> getNetworkQuality() async =>
+      (await snapshot()).networkQuality;
+
+  Future<EngineCapabilities?> getCapabilities() async => null;
+
   Future<void> openAlwaysOnVpnSettings();
 
   Future<DiagnosticSession> startDiagnostics(DiagnosticMode mode);
@@ -190,6 +199,13 @@ class MethodChannelEngineClient implements EngineClient {
       );
     });
   }
+
+  @override
+  Future<NetworkQualitySnapshot?> getNetworkQuality() async =>
+      (await snapshot()).networkQuality;
+
+  @override
+  Future<EngineCapabilities?> getCapabilities() async => null;
 
   @override
   Future<ProfileCatalog> importLegacyProfiles(

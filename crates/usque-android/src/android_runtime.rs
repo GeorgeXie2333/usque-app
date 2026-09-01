@@ -627,6 +627,8 @@ async fn run_session(
                             rate(current.bytes_received, last_traffic.bytes_received, seconds);
                         snapshot.uploaded_bytes = current.bytes_sent;
                         snapshot.downloaded_bytes = current.bytes_received;
+                        snapshot.network_quality =
+                            Some(super::network_quality_value(&tunnel.network_quality()));
                     }
                     last_sample = now;
                     last_traffic = current;

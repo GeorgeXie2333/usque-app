@@ -60,6 +60,8 @@ class AppController extends ChangeNotifier {
   LocalePreference localePreference = LocalePreference.system;
   AppSection section = AppSection.home;
   EngineSnapshot snapshot = const EngineSnapshot();
+  NetworkQualitySnapshot? networkQuality;
+  EngineCapabilities? engineCapabilities;
   String? lastError;
   String? lastNotice;
   bool snapshotStreamDegraded = false;
@@ -1251,9 +1253,21 @@ class AppController extends ChangeNotifier {
           : progress;
       _notifyListeners();
     }
+    final nextQuality = event.networkQuality ?? event.snapshot?.networkQuality;
+    final handledNetworkQuality =
+        nextQuality != null && nextQuality != networkQuality;
+    if (handledNetworkQuality) {
+      networkQuality = nextQuality;
+    }
+    final handledCapabilities =
+        event.capabilities != null && event.capabilities != engineCapabilities;
+    if (handledCapabilities) {
+      engineCapabilities = event.capabilities;
+    }
     final next = event.snapshot;
     if (next == null) {
-      if (wasDegraded && !handledGeoProgress) {
+      if ((wasDegraded || handledNetworkQuality || handledCapabilities) &&
+          !handledGeoProgress) {
         _notifyListeners();
       }
       return;

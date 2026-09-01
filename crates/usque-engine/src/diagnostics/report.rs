@@ -180,6 +180,7 @@ fn metrics_to_proto(metrics: &ConnectionMetrics) -> v1::ConnectionMetrics {
             .last_reconnect_code
             .map(|code| code.as_str().to_owned())
             .unwrap_or_default(),
+        ..v1::ConnectionMetrics::default()
     }
 }
 

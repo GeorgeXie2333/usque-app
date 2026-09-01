@@ -34,6 +34,7 @@ pub fn classify_reconfigure(previous: &Profile, next: &Profile) -> ReconfigureCl
         || previous.split_exclusions != next.split_exclusions
         || previous.kill_switch != next.kill_switch
         || previous.geo_direct_countries != next.geo_direct_countries
+        || previous.direct_dns != next.direct_dns
         || previous.frontends.tunnel != next.frontends.tunnel
             && (!previous.geo_direct_countries.is_empty() || !next.geo_direct_countries.is_empty());
     if cold {
@@ -197,6 +198,21 @@ mod tests {
         );
         assert_eq!(
             classify_reconfigure(&vpn, &proxy_only),
+            ReconfigureClass::ColdReconnect
+        );
+    }
+
+    #[test]
+    fn direct_dns_change_is_a_cold_reconnect() {
+        let previous = base();
+        let mut next = previous.clone();
+        next.direct_dns.mode = crate::config::DirectDnsMode::Doh;
+        next.direct_dns.server_name = "dns.example.com".to_owned();
+        next.direct_dns.doh_path = "/dns-query".to_owned();
+        next.direct_dns.bootstrap_ips = vec!["192.0.2.53".parse().unwrap()];
+        next.direct_dns.port = 443;
+        assert_eq!(
+            classify_reconfigure(&previous, &next),
             ReconfigureClass::ColdReconnect
         );
     }
