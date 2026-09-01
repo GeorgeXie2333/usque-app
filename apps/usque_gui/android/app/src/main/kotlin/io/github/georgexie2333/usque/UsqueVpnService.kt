@@ -1594,6 +1594,44 @@ class UsqueVpnService : VpnService() {
     fun getUnderlyingNetworkGeneration(): Long = networkMonitor.generation()
 
     @Keep
+    fun bindSocketToUnderlyingGeneration(
+        descriptor: Int,
+        expectedGeneration: Long,
+        requireVpnProtection: Boolean,
+    ): Int {
+        // JNI result contract: 0 = bound, 1 = stale generation, 2 = rejected.
+        if (descriptor < 0 || expectedGeneration < 0 || destroyed) return 2
+        if (networkMonitor.generation() != expectedGeneration) return 1
+        val network = networkMonitor.networkForGeneration(expectedGeneration) ?: return 1
+        if (requireVpnProtection && !protect(descriptor)) return 2
+        if (networkMonitor.generation() != expectedGeneration) return 1
+        if (destroyed) return 2
+        val duplicate =
+            try {
+                ParcelFileDescriptor.fromFd(descriptor)
+            } catch (_: Exception) {
+                return 2
+            }
+        try {
+            network.bindSocket(duplicate.fileDescriptor)
+        } catch (_: Exception) {
+            return 2
+        } finally {
+            closeQuietly(duplicate)
+        }
+        if (destroyed) return 2
+        return if (
+            networkMonitor.generation() == expectedGeneration &&
+            networkMonitor.networkForGeneration(expectedGeneration)?.networkHandle ==
+            network.networkHandle
+        ) {
+            0
+        } else {
+            1
+        }
+    }
+
+    @Keep
     fun getUnderlyingDnsServers(): Array<String> =
         networkMonitor
             .underlyingDnsServers()

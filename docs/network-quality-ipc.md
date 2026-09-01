@@ -21,6 +21,9 @@ to canonical physical-system direct DNS, preserving schema-12 behavior.
 
 The build advertises `network_quality=true` and `automatic_pmtu=true`.
 Encrypted DNS and migration remain false until their implementation PRs.
+The H3 multi-socket/CID infrastructure is described in
+[h3-path-infrastructure.md](h3-path-infrastructure.md); its presence does not
+enable the migration capability.
 Capabilities describe build/platform support, not current path readiness; H2
 reports PMTU as `Unsupported`, while an H3 path still probing reports
 `NotReady`.

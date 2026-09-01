@@ -47,9 +47,12 @@ use usque_transport::{
     MetricValue, MigrationPhase, MigrationReasonCode, NetworkQualityLevel, NetworkQualitySnapshot,
     PmtuPhase, QueueKind, RuntimePath, TransportError,
 };
+use usque_transport::{
+    DirectEgressLease, DirectProtocol, MasqueTlsIdentity, STALE_GENERATION_REASON, SocketHandle,
+    SocketProtector,
+};
 #[cfg(target_os = "android")]
 use usque_transport::{EndpointPinRefresher, refresh_endpoint_pin_over_protected_socket};
-use usque_transport::{MasqueTlsIdentity, SocketHandle, SocketProtector};
 #[cfg(test)]
 use usque_transport::{NetworkQualitySampler, NetworkQualityTelemetry};
 use zeroize::Zeroizing;
@@ -1691,70 +1694,68 @@ impl AndroidSocketRoutePolicy {
     }
 }
 
-#[cfg(target_os = "android")]
-#[link(name = "android")]
-unsafe extern "C" {
-    fn android_setsocknetwork(network: u64, fd: libc::c_int) -> libc::c_int;
-}
-
-impl SocketProtector for AndroidSocketProtector {
-    fn protect(&self, socket: SocketHandle) -> Result<(), String> {
+impl AndroidSocketProtector {
+    fn bind_socket_for_generation(
+        &self,
+        socket: SocketHandle,
+        expected_generation: u64,
+    ) -> Result<(), String> {
         let descriptor = jint::try_from(socket.value())
             .map_err(|_| "endpoint socket descriptor is out of range".to_owned())?;
-        let (protected, network) = self
+        let expected_generation_jni = jlong::try_from(expected_generation)
+            .map_err(|_| "network generation is out of range".to_owned())?;
+        let require_vpn_protection = if self.policy.requires_vpn_protection() {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        };
+        let status = self
             .java_vm
             .attach_current_thread(|environment| -> jni::errors::Result<_> {
-                let protected = if self.policy.requires_vpn_protection() {
-                    environment
-                        .call_method(
-                            &self.service,
-                            jni_str!("protect"),
-                            jni_sig!("(I)Z"),
-                            &[JValue::Int(descriptor)],
-                        )
-                        .and_then(|value| value.z())?
-                } else {
-                    true
-                };
-
-                #[cfg(target_os = "android")]
-                let network = environment
+                environment
                     .call_method(
                         &self.service,
-                        jni_str!("getUnderlyingNetworkHandle"),
-                        jni_sig!("()J"),
-                        &[],
+                        jni_str!("bindSocketToUnderlyingGeneration"),
+                        jni_sig!("(IJZ)I"),
+                        &[
+                            JValue::Int(descriptor),
+                            JValue::Long(expected_generation_jni),
+                            JValue::Bool(require_vpn_protection),
+                        ],
                     )
-                    .and_then(|value| value.j())?;
-                #[cfg(not(target_os = "android"))]
-                let network = 0;
-
-                Ok((protected, network))
+                    .and_then(|value| value.i())
             })
-            .map_err(|error| format!("attach VpnService protector thread: {error}"))?;
-        if !protected {
-            return Err("VpnService.protect rejected the endpoint socket".to_owned());
+            .map_err(|error| format!("attach exact-generation socket binder thread: {error}"))?;
+        match status {
+            0 => Ok(()),
+            1 => Err(STALE_GENERATION_REASON.to_owned()),
+            _ => Err("Android rejected exact-generation socket binding".to_owned()),
         }
+    }
+}
 
-        #[cfg(target_os = "android")]
-        {
-            if network <= 0 {
-                return Err("Android has no selected non-VPN physical network".to_owned());
-            }
-            // SAFETY: descriptor is a live socket FD; network is a valid
-            // Android Network handle from getUnderlyingNetworkHandle.
-            let result =
-                unsafe { android_setsocknetwork(network as u64, descriptor as libc::c_int) };
-            if result != 0 {
-                return Err(format!(
-                    "bind endpoint socket to Android network failed: errno {}",
-                    result.saturating_neg()
-                ));
-            }
+#[async_trait::async_trait]
+impl SocketProtector for AndroidSocketProtector {
+    fn protect(&self, socket: SocketHandle) -> Result<(), String> {
+        let expected_generation = self.network_generation.load(Ordering::Acquire);
+        self.bind_socket_for_generation(socket, expected_generation)
+    }
+
+    async fn protect_for_target_generation(
+        &self,
+        socket: SocketHandle,
+        _remote: SocketAddr,
+        _protocol: DirectProtocol,
+        expected_generation: u64,
+    ) -> Result<DirectEgressLease, String> {
+        if self.network_generation.load(Ordering::Acquire) != expected_generation {
+            return Err(STALE_GENERATION_REASON.to_owned());
         }
-        #[cfg(not(target_os = "android"))]
-        let _ = network;
-        Ok(())
+        self.bind_socket_for_generation(socket, expected_generation)?;
+        if self.network_generation.load(Ordering::Acquire) != expected_generation {
+            return Err(STALE_GENERATION_REASON.to_owned());
+        }
+        Ok(DirectEgressLease::for_generation(expected_generation))
     }
 
     fn tun_direct_available(&self) -> bool {

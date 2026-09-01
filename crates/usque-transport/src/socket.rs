@@ -3,6 +3,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
+/// Stable reason returned when exact-generation socket setup races a network
+/// change. Callers may retry only by taking a fresh generation snapshot.
+pub const STALE_GENERATION_REASON: &str = "stale_generation";
+
 /// Platform-neutral representation of a socket before it connects to a
 /// MASQUE endpoint.
 ///
@@ -38,13 +42,38 @@ impl DirectProtocol {
 #[derive(Default)]
 pub struct DirectEgressLease {
     _resource: Option<Box<dyn Send + Sync>>,
+    generation: Option<u64>,
 }
 
 impl DirectEgressLease {
     pub fn hold(resource: impl Send + Sync + 'static) -> Self {
         Self {
             _resource: Some(Box::new(resource)),
+            generation: None,
         }
+    }
+
+    pub fn for_generation(generation: u64) -> Self {
+        Self {
+            _resource: None,
+            generation: Some(generation),
+        }
+    }
+
+    pub fn hold_for_generation(resource: impl Send + Sync + 'static, generation: u64) -> Self {
+        Self {
+            _resource: Some(Box::new(resource)),
+            generation: Some(generation),
+        }
+    }
+
+    pub const fn generation(&self) -> Option<u64> {
+        self.generation
+    }
+
+    fn with_generation(mut self, generation: u64) -> Self {
+        self.generation = Some(generation);
+        self
     }
 }
 
@@ -53,6 +82,7 @@ impl std::fmt::Debug for DirectEgressLease {
         formatter
             .debug_struct("DirectEgressLease")
             .field("active", &self._resource.is_some())
+            .field("generation", &self.generation)
             .finish()
     }
 }
@@ -73,6 +103,29 @@ pub trait SocketProtector: Send + Sync {
     ) -> Result<DirectEgressLease, String> {
         self.protect(socket)?;
         Ok(DirectEgressLease::default())
+    }
+
+    /// Protects one exact target on the caller-selected physical-network
+    /// generation. Implementations must never silently bind to a newer
+    /// generation. The default wraps the existing target-aware contract with
+    /// before/after checks and tags the returned lease with the exact value.
+    async fn protect_for_target_generation(
+        &self,
+        socket: SocketHandle,
+        remote: SocketAddr,
+        protocol: DirectProtocol,
+        expected_generation: u64,
+    ) -> Result<DirectEgressLease, String> {
+        let before = self.network_generation().unwrap_or_default();
+        if before != expected_generation {
+            return Err(STALE_GENERATION_REASON.to_owned());
+        }
+        let lease = self.protect_for_target(socket, remote, protocol).await?;
+        let after = self.network_generation().unwrap_or_default();
+        if after != expected_generation {
+            return Err(STALE_GENERATION_REASON.to_owned());
+        }
+        Ok(lease.with_generation(expected_generation))
     }
 
     /// Resolves a GeoSite-selected host using the platform's selected physical
@@ -195,6 +248,45 @@ pub(crate) fn bind_tcp_listener(address: SocketAddr) -> std::io::Result<tokio::n
 mod tests {
     use super::*;
     use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
+    struct LeaseDropFlag(Arc<AtomicBool>);
+
+    impl Drop for LeaseDropFlag {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::Release);
+        }
+    }
+
+    struct GenerationProtector {
+        generation: AtomicU64,
+        advance_during_protect: bool,
+        lease_dropped: Arc<AtomicBool>,
+    }
+
+    #[async_trait]
+    impl SocketProtector for GenerationProtector {
+        fn protect(&self, _socket: SocketHandle) -> Result<(), String> {
+            Ok(())
+        }
+
+        async fn protect_for_target(
+            &self,
+            _socket: SocketHandle,
+            _remote: SocketAddr,
+            _protocol: DirectProtocol,
+        ) -> Result<DirectEgressLease, String> {
+            let lease = DirectEgressLease::hold(LeaseDropFlag(Arc::clone(&self.lease_dropped)));
+            if self.advance_during_protect {
+                self.generation.fetch_add(1, Ordering::AcqRel);
+            }
+            Ok(lease)
+        }
+
+        fn network_generation(&self) -> Option<u64> {
+            Some(self.generation.load(Ordering::Acquire))
+        }
+    }
 
     #[tokio::test]
     async fn ipv4_and_ipv6_loopback_can_share_a_port() {
@@ -218,5 +310,35 @@ mod tests {
         let port = v6.local_addr().expect("IPv6 local addr").port();
         bind_tcp_listener(SocketAddr::from((Ipv4Addr::LOCALHOST, port)))
             .expect("IPv4 loopback must bind after V6-only IPv6 on the same port");
+    }
+
+    #[tokio::test]
+    async fn expected_generation_lease_is_tagged_and_stale_race_releases_it() {
+        let target: SocketAddr = "192.0.2.1:443".parse().unwrap();
+        let stable = GenerationProtector {
+            generation: AtomicU64::new(7),
+            advance_during_protect: false,
+            lease_dropped: Arc::new(AtomicBool::new(false)),
+        };
+        let lease = stable
+            .protect_for_target_generation(SocketHandle(1), target, DirectProtocol::Udp, 7)
+            .await
+            .unwrap();
+        assert_eq!(lease.generation(), Some(7));
+
+        let dropped = Arc::new(AtomicBool::new(false));
+        let racing = GenerationProtector {
+            generation: AtomicU64::new(9),
+            advance_during_protect: true,
+            lease_dropped: Arc::clone(&dropped),
+        };
+        assert_eq!(
+            racing
+                .protect_for_target_generation(SocketHandle(2), target, DirectProtocol::Udp, 9)
+                .await
+                .unwrap_err(),
+            STALE_GENERATION_REASON
+        );
+        assert!(dropped.load(Ordering::Acquire));
     }
 }

@@ -13,6 +13,7 @@ use std::time::Instant;
 
 use tokio::io::Interest;
 use tokio::net::UdpSocket;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio_util::sync::CancellationToken;
 
 use crate::network_quality::NetworkQualityTelemetry;
@@ -27,8 +28,8 @@ pub const UDP_RECEIVE_SLOT_SIZE: usize = 2_048;
 const PORTABLE_RECEIVE_STORAGE_SIZE: usize = UDP_RECEIVE_SLOT_SIZE + 1;
 pub(crate) const UDP_BATCH_SIZE: usize = 32;
 pub(crate) const UDP_ACTOR_DRAIN_LIMIT: usize = 64;
-// Audited for the PR-08 maximum of active, probing, and draining sockets. The
-// current H3 actor owns one socket; the future socket set can share this pool.
+// One shared budget covers active, candidate, and retiring receivers,
+// including buffers retained in their bounded channels.
 const MAX_UDP_SOCKET_COUNT: usize = 3;
 const RECEIVE_POOL_LIMIT: usize = UDP_BATCH_SIZE * MAX_UDP_SOCKET_COUNT * 2;
 const RECEIVE_POOL_BYTE_BUDGET: usize = RECEIVE_POOL_LIMIT * PORTABLE_RECEIVE_STORAGE_SIZE;
@@ -82,12 +83,33 @@ pub struct ReceivedDatagram {
 
 struct UdpBufferPool {
     free: Mutex<VecDeque<Box<[u8; PORTABLE_RECEIVE_STORAGE_SIZE]>>>,
+    slots: Arc<Semaphore>,
+}
+
+#[derive(Clone)]
+pub(crate) struct UdpReceivePool {
+    inner: Arc<UdpBufferPool>,
+}
+
+impl Default for UdpReceivePool {
+    fn default() -> Self {
+        Self {
+            inner: Arc::new(UdpBufferPool::new()),
+        }
+    }
+}
+
+impl UdpReceivePool {
+    pub(crate) fn shares_budget_with(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
 }
 
 impl UdpBufferPool {
     fn new() -> Self {
         Self {
             free: Mutex::new(VecDeque::with_capacity(RECEIVE_POOL_LIMIT)),
+            slots: Arc::new(Semaphore::new(RECEIVE_POOL_LIMIT)),
         }
     }
 
@@ -97,7 +119,14 @@ impl UdpBufferPool {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    fn acquire(self: &Arc<Self>, quality: &NetworkQualityTelemetry) -> PooledUdpBuffer {
+    fn acquire(self: &Arc<Self>, quality: &NetworkQualityTelemetry) -> Option<PooledUdpBuffer> {
+        let permit = match Arc::clone(&self.slots).try_acquire_owned() {
+            Ok(permit) => permit,
+            Err(_) => {
+                quality.record_packet_buffer_pool_miss();
+                return None;
+            }
+        };
         let storage = match self.free().pop_back() {
             Some(storage) => {
                 quality.record_packet_buffer_pool_hit();
@@ -109,11 +138,23 @@ impl UdpBufferPool {
                 Box::new([0; PORTABLE_RECEIVE_STORAGE_SIZE])
             }
         };
-        PooledUdpBuffer {
+        Some(PooledUdpBuffer {
             storage: Some(storage),
             pool: Arc::clone(self),
             quality: quality.clone(),
-        }
+            _permit: permit,
+        })
+    }
+
+    async fn wait_for_capacity(&self, cancel: &CancellationToken) -> io::Result<()> {
+        let permit = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => return Err(cancelled_error()),
+            permit = Arc::clone(&self.slots).acquire_owned() => permit
+                .map_err(|_| io::Error::other("UDP receive buffer pool is closed"))?,
+        };
+        drop(permit);
+        Ok(())
     }
 
     fn recycle(&self, mut storage: Box<[u8; PORTABLE_RECEIVE_STORAGE_SIZE]>) {
@@ -147,6 +188,9 @@ pub struct PooledUdpBuffer {
     storage: Option<Box<[u8; PORTABLE_RECEIVE_STORAGE_SIZE]>>,
     pool: Arc<UdpBufferPool>,
     quality: NetworkQualityTelemetry,
+    // Released after Drop has returned the storage, so a new acquisition can
+    // never allocate while the previous storage is still being recycled.
+    _permit: OwnedSemaphorePermit,
 }
 
 impl PooledUdpBuffer {
@@ -227,7 +271,10 @@ impl RecvBatch {
         self.datagrams.clear();
     }
 
-    pub(super) fn acquire_buffer(&self, quality: &NetworkQualityTelemetry) -> PooledUdpBuffer {
+    pub(super) fn acquire_buffer(
+        &self,
+        quality: &NetworkQualityTelemetry,
+    ) -> Option<PooledUdpBuffer> {
         self.pool.acquire(quality)
     }
 
@@ -299,7 +346,12 @@ impl std::fmt::Debug for UdpBatchIo {
 
 impl UdpBatchIo {
     pub fn new(socket: UdpSocket, quality: NetworkQualityTelemetry) -> io::Result<Self> {
-        Self::with_mode(socket, default_batch_mode(), quality)
+        Self::with_mode_and_pool(
+            socket,
+            default_batch_mode(),
+            quality,
+            UdpReceivePool::default(),
+        )
     }
 
     pub fn with_mode(
@@ -307,13 +359,30 @@ impl UdpBatchIo {
         mode: UdpBatchMode,
         quality: NetworkQualityTelemetry,
     ) -> io::Result<Self> {
+        Self::with_mode_and_pool(socket, mode, quality, UdpReceivePool::default())
+    }
+
+    pub(crate) fn with_receive_pool(
+        socket: UdpSocket,
+        quality: NetworkQualityTelemetry,
+        pool: UdpReceivePool,
+    ) -> io::Result<Self> {
+        Self::with_mode_and_pool(socket, default_batch_mode(), quality, pool)
+    }
+
+    fn with_mode_and_pool(
+        socket: UdpSocket,
+        mode: UdpBatchMode,
+        quality: NetworkQualityTelemetry,
+        pool: UdpReceivePool,
+    ) -> io::Result<Self> {
         let local_address = socket.local_addr()?;
         Ok(Self {
             socket,
             local_address,
             mode: AtomicU8::new(mode as u8),
             fallback_reason: AtomicU8::new(0),
-            pool: Arc::new(UdpBufferPool::new()),
+            pool: pool.inner,
             quality,
         })
     }
@@ -328,6 +397,12 @@ impl UdpBatchIo {
 
     pub fn new_recv_batch(&self) -> RecvBatch {
         RecvBatch::new(Arc::clone(&self.pool))
+    }
+
+    pub(crate) fn receive_pool(&self) -> UdpReceivePool {
+        UdpReceivePool {
+            inner: Arc::clone(&self.pool),
+        }
     }
 
     pub async fn recv_batch(
@@ -354,6 +429,9 @@ impl UdpBatchIo {
             });
             match result {
                 Ok(count) => return Ok(count),
+                Err(error) if is_receive_pool_exhausted(&error) => {
+                    self.pool.wait_for_capacity(cancel).await?;
+                }
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => continue,
                 Err(error) if mode == UdpBatchMode::SendMmsgRecvMmsg => {
                     if let Some(reason) = batch_unavailable_reason(&error) {
@@ -474,6 +552,29 @@ fn address_family(address: SocketAddr) -> &'static str {
 
 fn cancelled_error() -> io::Error {
     io::Error::new(io::ErrorKind::Interrupted, "UDP batch I/O was cancelled")
+}
+
+#[derive(Debug)]
+struct ReceivePoolExhausted;
+
+impl std::fmt::Display for ReceivePoolExhausted {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("UDP receive buffer budget is exhausted")
+    }
+}
+
+impl std::error::Error for ReceivePoolExhausted {}
+
+pub(super) fn receive_pool_exhausted_error() -> io::Error {
+    // This must not be WouldBlock: no socket read was attempted, so Tokio
+    // must retain its readable readiness while we await buffer capacity.
+    io::Error::other(ReceivePoolExhausted)
+}
+
+fn is_receive_pool_exhausted(error: &io::Error) -> bool {
+    error
+        .get_ref()
+        .is_some_and(|inner| inner.is::<ReceivePoolExhausted>())
 }
 
 fn batch_unavailable_reason(error: &io::Error) -> Option<UdpBatchFallbackReason> {
@@ -805,12 +906,95 @@ mod tests {
         .unwrap();
         let pool = Arc::clone(&io.pool);
         let buffers: Vec<_> = (0..UDP_ACTOR_DRAIN_LIMIT)
-            .map(|_| pool.acquire(&quality))
+            .map(|_| pool.acquire(&quality).unwrap())
             .collect();
         assert_eq!(pool.free_count(), 0);
         drop(io);
         drop(buffers);
         assert_eq!(pool.free_count(), UDP_ACTOR_DRAIN_LIMIT);
+    }
+
+    #[tokio::test]
+    async fn shared_receive_pool_backpressures_at_192_live_buffers_without_growth() {
+        let quality = NetworkQualityTelemetry::default();
+        let pool = UdpReceivePool::default();
+        let receiver = UdpBatchIo::with_mode_and_pool(
+            UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+            UdpBatchMode::Portable,
+            quality.clone(),
+            pool.clone(),
+        )
+        .unwrap();
+        let sender = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let mut held: Vec<_> = (0..RECEIVE_POOL_LIMIT)
+            .map(|_| pool.inner.acquire(&quality).unwrap())
+            .collect();
+        assert!(pool.inner.acquire(&quality).is_none());
+        sender
+            .send_to(b"bounded", receiver.local_addr())
+            .await
+            .unwrap();
+        let cancel = CancellationToken::new();
+        let mut output = receiver.new_recv_batch();
+        let mut receive = Box::pin(receiver.recv_batch(&mut output, &cancel));
+        assert!(
+            timeout(Duration::from_millis(10), &mut receive)
+                .await
+                .is_err()
+        );
+
+        drop(held.pop());
+        assert_eq!(
+            timeout(Duration::from_secs(1), receive)
+                .await
+                .unwrap()
+                .unwrap(),
+            1
+        );
+        assert_eq!(output.drain().next().unwrap().payload(), b"bounded");
+        assert_eq!(
+            NetworkQualitySampler::new(quality)
+                .sample()
+                .allocations
+                .fresh_allocations,
+            RECEIVE_POOL_LIMIT as u64
+        );
+        drop(held);
+        assert_eq!(pool.inner.free_count(), RECEIVE_POOL_LIMIT);
+    }
+
+    #[tokio::test]
+    async fn shared_receive_pool_wait_remains_cancellable() {
+        let quality = NetworkQualityTelemetry::default();
+        let receiver = UdpBatchIo::with_mode(
+            UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+            UdpBatchMode::Portable,
+            quality.clone(),
+        )
+        .unwrap();
+        let _held: Vec<_> = (0..RECEIVE_POOL_LIMIT)
+            .map(|_| receiver.pool.acquire(&quality).unwrap())
+            .collect();
+        let sender = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        sender
+            .send_to(b"waiting", receiver.local_addr())
+            .await
+            .unwrap();
+        let cancel = CancellationToken::new();
+        let trigger = cancel.clone();
+        tokio::spawn(async move {
+            tokio::task::yield_now().await;
+            trigger.cancel();
+        });
+        let mut output = receiver.new_recv_batch();
+        let error = timeout(
+            Duration::from_secs(1),
+            receiver.recv_batch(&mut output, &cancel),
+        )
+        .await
+        .unwrap()
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::Interrupted);
     }
 
     #[cfg(target_os = "linux")]

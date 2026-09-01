@@ -14,10 +14,12 @@ mod h3_buffer;
 mod http_proxy;
 mod icmp;
 mod masque_runtime;
+mod migration_barrier;
 mod netstack;
 mod network_quality;
 mod packet_batch;
 mod packet_mux;
+mod path_socket;
 mod pin_refresh;
 mod pmtu;
 mod port_allocator;
@@ -56,7 +58,8 @@ pub use pin_refresh::{EndpointPinRefresher, refresh_endpoint_pin_over_protected_
 pub use proxy::ProxyRuntime;
 pub use queue_metrics::QueueKind;
 pub use socket::{
-    DirectEgressLease, DirectProtocol, NoopSocketProtector, SocketHandle, SocketProtector,
+    DirectEgressLease, DirectProtocol, NoopSocketProtector, STALE_GENERATION_REASON, SocketHandle,
+    SocketProtector,
 };
 pub use socks5::Socks5Runtime;
 pub use split_dns::resolve_physical_host;

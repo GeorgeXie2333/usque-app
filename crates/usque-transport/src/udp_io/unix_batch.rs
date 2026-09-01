@@ -8,7 +8,7 @@ use tokio::net::UdpSocket;
 
 use super::{
     ReceivedDatagram, RecvBatch, SendDatagram, UDP_ACTOR_DRAIN_LIMIT, UDP_BATCH_SIZE,
-    UDP_RECEIVE_SLOT_SIZE, receive_too_large_error,
+    UDP_RECEIVE_SLOT_SIZE, receive_pool_exhausted_error, receive_too_large_error,
 };
 use crate::network_quality::NetworkQualityTelemetry;
 
@@ -19,20 +19,37 @@ pub(super) fn try_recv_batch(
     quality: &NetworkQualityTelemetry,
 ) -> io::Result<usize> {
     while output.len() < UDP_ACTOR_DRAIN_LIMIT {
-        let requested = UDP_BATCH_SIZE.min(UDP_ACTOR_DRAIN_LIMIT - output.len());
+        let maximum = UDP_BATCH_SIZE.min(UDP_ACTOR_DRAIN_LIMIT - output.len());
         let mut buffers: [Option<super::PooledUdpBuffer>; UDP_BATCH_SIZE] =
-            std::array::from_fn(|_| Some(output.acquire_buffer(quality)));
+            std::array::from_fn(|_| None);
+        let mut requested = 0;
+        for slot in buffers.iter_mut().take(maximum) {
+            let Some(buffer) = output.acquire_buffer(quality) else {
+                break;
+            };
+            *slot = Some(buffer);
+            requested += 1;
+        }
+        if requested == 0 {
+            return if output.is_empty() {
+                Err(receive_pool_exhausted_error())
+            } else {
+                Ok(output.len())
+            };
+        }
         let mut addresses: [libc::sockaddr_storage; UDP_BATCH_SIZE] =
             std::array::from_fn(|_| zeroed_sockaddr_storage());
-        let mut iovecs: [libc::iovec; UDP_BATCH_SIZE] = std::array::from_fn(|index| {
-            let buffer = buffers[index]
-                .as_mut()
-                .expect("receive buffer slot is initialized");
-            libc::iovec {
-                iov_base: buffer.batch_storage_mut().as_mut_ptr().cast(),
-                iov_len: UDP_RECEIVE_SLOT_SIZE,
-            }
-        });
+        let mut iovecs: [libc::iovec; UDP_BATCH_SIZE] =
+            std::array::from_fn(|index| match buffers[index].as_mut() {
+                Some(buffer) => libc::iovec {
+                    iov_base: buffer.batch_storage_mut().as_mut_ptr().cast(),
+                    iov_len: UDP_RECEIVE_SLOT_SIZE,
+                },
+                None => libc::iovec {
+                    iov_base: ptr::null_mut(),
+                    iov_len: 0,
+                },
+            });
         let mut messages: [libc::mmsghdr; UDP_BATCH_SIZE] =
             std::array::from_fn(|index| libc::mmsghdr {
                 msg_hdr: libc::msghdr {
@@ -50,7 +67,8 @@ pub(super) fn try_recv_batch(
         // this call. `messages[..requested]`, their one-element iovec entries,
         // sockaddr storage, and boxed receive buffers are initialized, pinned
         // by local ownership, mutually disjoint, and live until `recvmmsg`
-        // returns. Every iovec length is exactly the 2048-byte payload bound.
+        // returns. Every passed iovec length is exactly the 2048-byte payload
+        // bound; unacquired slots beyond `requested` are never passed.
         let received = unsafe {
             libc::recvmmsg(
                 socket.as_raw_fd(),

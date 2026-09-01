@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 use std::future::Future;
+use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket as StdUdpSocket};
 use std::pin::Pin;
 use std::sync::Arc;
@@ -8,6 +9,7 @@ use std::time::{Duration, Instant as StdInstant};
 use boring::ssl::{SslContextBuilder, SslMethod};
 use bytes::Bytes;
 use quiche::h3::NameValue;
+use thiserror::Error;
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -26,18 +28,23 @@ use crate::h2::{
 use crate::h3_buffer::{
     DatagramEncodePool, H3BufferFactory, HTTP_DATAGRAM_BUFFER_CAPACITY, PooledDatagramBuffer,
 };
-use crate::network_quality::{H3MetricsSample, NetworkQualityTelemetry};
+use crate::migration_barrier::MigrationTxBarrier;
+use crate::network_quality::{H3MetricsSample, MigrationReasonCode, NetworkQualityTelemetry};
 use crate::packet_batch::{MAX_PACKET_BATCH_PACKETS, PacketBatch, PacketBatchResult};
+use crate::path_socket::{
+    PathId, PathReceiveEvent, PathSocket, PathSocketRole, PathSocketSet, PathSocketSetError,
+};
 use crate::pmtu::{
     INITIAL_SAFE_UDP_PAYLOAD, PMTUD_MAX_PROBES, PmtuController, PmtuObservation, PmtuPathKey,
     PmtuRevalidationAction, family_udp_payload_ceiling,
 };
 use crate::queue_metrics::{QueueEntry, QueueKind, QueueMetrics};
-use crate::socket::{SocketProtector, noop_socket_protector, socket_handle};
+use crate::socket::{
+    DirectEgressLease, DirectProtocol, STALE_GENERATION_REASON, SocketProtector,
+    noop_socket_protector, socket_handle,
+};
 use crate::telemetry::{ConnectionAttemptTelemetry, ConnectionEventType};
-#[cfg(test)]
-use crate::udp_io::UdpBatchMode;
-use crate::udp_io::{SendDatagram, UDP_ACTOR_DRAIN_LIMIT, UdpBatchIo, is_message_too_long};
+use crate::udp_io::{SendDatagram, UDP_ACTOR_DRAIN_LIMIT, UdpReceivePool, is_message_too_long};
 
 const CONNECT_AUTHORITY: &[u8] = b"cloudflareaccess.com";
 const CONNECT_PATH: &[u8] = b"/";
@@ -58,6 +65,10 @@ const OUTGOING_BATCH_CHANNEL_CAPACITY: usize = 1;
 const MAX_PENDING_WIRE_DATAGRAMS: usize = 64;
 const PACKET_SEND_TIMEOUT: Duration = Duration::from_secs(10);
 const QUALITY_SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
+const SOCKET_PREPARE_ATTEMPTS: usize = 2;
+const ACTIVE_CONNECTION_ID_LIMIT: u64 = 4;
+const SPARE_CONNECTION_ID_TARGET: usize = 3;
+const CID_GENERATION_ATTEMPT_LIMIT: usize = 6;
 
 type H3QuicConnection = quiche::Connection<H3BufferFactory>;
 
@@ -223,6 +234,101 @@ impl Drop for H3Driver {
     }
 }
 
+struct PreparedPathSocket {
+    socket: UdpSocket,
+    local_addr: SocketAddr,
+    peer_addr: SocketAddr,
+    network_generation: u64,
+    egress_lease: DirectEgressLease,
+}
+
+#[derive(Debug, Error)]
+enum SocketPrepareError {
+    #[error("stale_generation")]
+    StaleGeneration,
+    #[error("socket preparation failed: {0}")]
+    Io(#[from] io::Error),
+    #[error("socket protection failed: {0}")]
+    Protection(String),
+}
+
+impl SocketPrepareError {
+    fn into_transport_error(self) -> TransportError {
+        match self {
+            Self::StaleGeneration => TransportError::UnderlyingNetworkChanged,
+            Self::Io(error) => TransportError::Io(error),
+            Self::Protection(error) => TransportError::SocketProtection(error),
+        }
+    }
+}
+
+async fn prepare_initial_udp_socket(
+    target: SocketAddr,
+    protector: &dyn SocketProtector,
+) -> Result<PreparedPathSocket, SocketPrepareError> {
+    for _ in 0..SOCKET_PREPARE_ATTEMPTS {
+        let expected_generation = protector.network_generation().unwrap_or_default();
+        match prepare_udp_for_generation(target, expected_generation, protector).await {
+            Ok(prepared) => return Ok(prepared),
+            Err(SocketPrepareError::StaleGeneration) => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(SocketPrepareError::StaleGeneration)
+}
+
+async fn prepare_udp_for_generation(
+    target: SocketAddr,
+    expected_generation: u64,
+    protector: &dyn SocketProtector,
+) -> Result<PreparedPathSocket, SocketPrepareError> {
+    if protector.network_generation().unwrap_or_default() != expected_generation {
+        return Err(SocketPrepareError::StaleGeneration);
+    }
+    let bind_address = match target {
+        SocketAddr::V4(_) => SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0),
+        SocketAddr::V6(_) => SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0),
+    };
+    let std_socket = StdUdpSocket::bind(bind_address)?;
+    std_socket.set_nonblocking(true)?;
+    let egress_lease = protector
+        .protect_for_target_generation(
+            socket_handle(&std_socket),
+            target,
+            DirectProtocol::Udp,
+            expected_generation,
+        )
+        .await
+        .map_err(|error| {
+            if error == STALE_GENERATION_REASON {
+                SocketPrepareError::StaleGeneration
+            } else {
+                SocketPrepareError::Protection(error)
+            }
+        })?;
+    if protector.network_generation().unwrap_or_default() != expected_generation
+        || egress_lease.generation() != Some(expected_generation)
+    {
+        drop(std_socket);
+        drop(egress_lease);
+        return Err(SocketPrepareError::StaleGeneration);
+    }
+    let socket = UdpSocket::from_std(std_socket)?;
+    let local_addr = socket.local_addr()?;
+    if protector.network_generation().unwrap_or_default() != expected_generation {
+        drop(socket);
+        drop(egress_lease);
+        return Err(SocketPrepareError::StaleGeneration);
+    }
+    Ok(PreparedPathSocket {
+        socket,
+        local_addr,
+        peer_addr: target,
+        network_generation: expected_generation,
+        egress_lease,
+    })
+}
+
 pub async fn connect_h3(
     endpoint: SocketAddr,
     sni: &str,
@@ -282,17 +388,10 @@ async fn connect_h3_once(
     protector: &dyn SocketProtector,
     attempt: Option<&ConnectionAttemptTelemetry>,
 ) -> Result<H3Tunnel, TransportError> {
-    let bind_address = match endpoint {
-        SocketAddr::V4(_) => SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0),
-        SocketAddr::V6(_) => SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0),
-    };
-    let std_socket = StdUdpSocket::bind(bind_address)?;
-    protector
-        .protect(socket_handle(&std_socket))
-        .map_err(TransportError::SocketProtection)?;
-    std_socket.set_nonblocking(true)?;
-    let socket = UdpSocket::from_std(std_socket)?;
-    let local_address = socket.local_addr()?;
+    let prepared = prepare_initial_udp_socket(endpoint, protector)
+        .await
+        .map_err(SocketPrepareError::into_transport_error)?;
+    let local_address = prepared.local_addr;
     if let Some(attempt) = attempt {
         attempt.record(
             ConnectionEventType::SocketConnected,
@@ -339,8 +438,21 @@ async fn connect_h3_once(
     let (incoming_tx, incoming_rx) = mpsc::channel(INCOMING_BATCH_CHANNEL_CAPACITY);
     let (control_tx, control_rx) = watch::channel(PeerNetworkState::default());
     let (startup_tx, startup_rx) = oneshot::channel();
+    let active_path = PathSocket::spawn(
+        PathId::new(0),
+        prepared.local_addr,
+        prepared.peer_addr,
+        prepared.network_generation,
+        PathSocketRole::Active,
+        prepared.socket,
+        prepared.egress_lease,
+        quality.clone(),
+        UdpReceivePool::default(),
+    )?;
+    let path_sockets = PathSocketSet::with_active(active_path)
+        .map_err(|error| TransportError::Http3(error.to_string()))?;
     let task = AbortOnDropHandle::new(tokio::spawn(run_h3_actor(
-        socket,
+        path_sockets,
         connection,
         h3_config,
         outgoing_rx,
@@ -429,7 +541,8 @@ fn quic_config(
     config.set_initial_max_stream_data_uni(1_000_000);
     config.set_initial_max_streams_bidi(16);
     config.set_initial_max_streams_uni(16);
-    config.set_disable_active_migration(true);
+    config.set_disable_active_migration(false);
+    config.set_active_connection_id_limit(ACTIVE_CONNECTION_ID_LIMIT);
     config.enable_dgram(
         true,
         DATAGRAM_RECV_QUEUE_CAPACITY,
@@ -438,6 +551,67 @@ fn quic_config(
     config.set_cc_algorithm(quiche::CongestionControlAlgorithm::CUBIC);
     config.enable_pacing(true);
     Ok((config, pin_state))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CidAvailability {
+    Ready,
+    PeerUnavailable,
+    LocalUnavailable,
+}
+
+fn maintain_connection_ids(
+    connection: &mut H3QuicConnection,
+) -> Result<CidAvailability, TransportError> {
+    while connection.retired_scid_next().is_some() {}
+
+    let target_active = SPARE_CONNECTION_ID_TARGET + 1;
+    let mut attempts = 0usize;
+    while connection.active_scids() < target_active && connection.scids_left() > 0 {
+        if attempts >= CID_GENERATION_ATTEMPT_LIMIT {
+            return Ok(CidAvailability::LocalUnavailable);
+        }
+        attempts += 1;
+        let mut source_id = [0u8; CONNECTION_ID_LENGTH];
+        let mut reset_token = [0u8; 16];
+        boring::rand::rand_bytes(&mut source_id)?;
+        boring::rand::rand_bytes(&mut reset_token)?;
+        match connection.new_scid(
+            &quiche::ConnectionId::from_ref(&source_id),
+            u128::from_be_bytes(reset_token),
+            false,
+        ) {
+            Ok(_) => {}
+            Err(error) => return map_cid_provisioning_error(error),
+        }
+    }
+
+    if connection.available_dcids() == 0 {
+        Ok(CidAvailability::PeerUnavailable)
+    } else if connection.active_scids() <= 1 {
+        Ok(CidAvailability::LocalUnavailable)
+    } else {
+        Ok(CidAvailability::Ready)
+    }
+}
+
+fn map_cid_provisioning_error(error: quiche::Error) -> Result<CidAvailability, TransportError> {
+    match error {
+        quiche::Error::IdLimit | quiche::Error::OutOfIdentifiers => {
+            Ok(CidAvailability::LocalUnavailable)
+        }
+        error => Err(TransportError::Http3(format!(
+            "provision QUIC source connection ID: {error:?}"
+        ))),
+    }
+}
+
+fn publish_cid_availability(quality: &NetworkQualityTelemetry, availability: CidAvailability) {
+    quality.set_migration_availability_reason(match availability {
+        CidAvailability::Ready => None,
+        CidAvailability::PeerUnavailable => Some(MigrationReasonCode::PeerCidUnavailable),
+        CidAvailability::LocalUnavailable => Some(MigrationReasonCode::LocalCidUnavailable),
+    });
 }
 
 #[derive(Debug)]
@@ -475,7 +649,7 @@ impl StartupFailure {
     reason = "H3 entrypoint threads socket, connection, channels, and startup oneshot into the actor"
 )]
 async fn run_h3_actor(
-    socket: UdpSocket,
+    mut path_sockets: PathSocketSet,
     connection: H3QuicConnection,
     h3_config: quiche::h3::Config,
     outgoing_rx: mpsc::Receiver<OutgoingBatch>,
@@ -492,7 +666,7 @@ async fn run_h3_actor(
 ) -> Result<(), TransportError> {
     let mut startup_tx = Some(startup_tx);
     let result = drive_h3_actor(
-        socket,
+        &mut path_sockets,
         connection,
         h3_config,
         outgoing_rx,
@@ -508,6 +682,7 @@ async fn run_h3_actor(
         initial_path,
     )
     .await;
+    path_sockets.shutdown_all().await;
     if let Some(startup_tx) = startup_tx.take() {
         let failure = match &result {
             Ok(()) => {
@@ -525,7 +700,7 @@ async fn run_h3_actor(
     reason = "H3 actor owns the socket, connection, packet channels, control plane, and startup handshake together"
 )]
 async fn drive_h3_actor(
-    socket: UdpSocket,
+    path_sockets: &mut PathSocketSet,
     mut connection: H3QuicConnection,
     h3_config: quiche::h3::Config,
     mut outgoing_rx: mpsc::Receiver<OutgoingBatch>,
@@ -540,7 +715,6 @@ async fn drive_h3_actor(
     family_ceiling: usize,
     initial_path: PmtuPathKey,
 ) -> Result<(), TransportError> {
-    let udp_io = UdpBatchIo::new(socket, quality.clone())?;
     let mut http3 = None;
     let mut request_stream_id = None;
     let mut response_accepted = false;
@@ -552,11 +726,11 @@ async fn drive_h3_actor(
     let mut datagram_entries = VecDeque::with_capacity(DATAGRAM_SEND_QUEUE_CAPACITY);
     let encode_pool = DatagramEncodePool::new(quality.clone());
     let mut free_wire_buffers = Vec::new();
-    let mut receive_batch = udp_io.new_recv_batch();
     let io_cancel = CancellationToken::new();
     let mut incoming_batch = PacketBatch::new();
     let mut inbound_queue_drop_count = 0_u64;
     let mut pmtu = PmtuController::new(initial_path);
+    let migration_tx_barrier = MigrationTxBarrier::default();
     let mut keepalive = interval_at(Instant::now() + KEEPALIVE_INTERVAL, KEEPALIVE_INTERVAL);
     keepalive.set_missed_tick_behavior(MissedTickBehavior::Delay);
     let mut quality_tick = interval_at(
@@ -566,6 +740,9 @@ async fn drive_h3_actor(
     quality_tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
     loop {
+        if connection.is_established() {
+            publish_cid_availability(quality, maintain_connection_ids(&mut connection)?);
+        }
         if connection.is_established() && http3.is_none() {
             if let Some(attempt) = attempt {
                 attempt.record(
@@ -645,7 +822,10 @@ async fn drive_h3_actor(
             )?;
         }
 
-        if ready && let Some(stream_id) = request_stream_id {
+        if ready
+            && migration_tx_barrier.allows_application_injection()
+            && let Some(stream_id) = request_stream_id
+        {
             queue_pending_batch(
                 &mut connection,
                 stream_id,
@@ -691,29 +871,41 @@ async fn drive_h3_actor(
             .is_some_and(|datagram| datagram.bytes.len() <= send_quantum);
 
         tokio::select! {
-            received = udp_io.recv_batch(&mut receive_batch, &io_cancel) => {
-                let received = received?;
-                debug_assert_eq!(received, receive_batch.len());
-                for mut datagram in receive_batch.drain() {
-                    let source = datagram.source;
-                    let destination = datagram.destination;
-                    let dropped = receive_quic_datagram(
-                        &mut connection,
-                        datagram.payload_mut(),
-                        source,
-                        destination,
-                    )?;
-                    record_inbound_queue_drops(dropped, &mut inbound_queue_drop_count);
+            received = path_sockets.recv_any() => {
+                match received {
+                    PathReceiveEvent::Batch { path_id, mut batch }
+                        if path_sockets.contains(path_id) =>
+                    {
+                        for mut datagram in batch.drain() {
+                            let source = datagram.source;
+                            let destination = datagram.destination;
+                            let dropped = receive_quic_datagram(
+                                &mut connection,
+                                datagram.payload_mut(),
+                                source,
+                                destination,
+                            )?;
+                            record_inbound_queue_drops(dropped, &mut inbound_queue_drop_count);
+                        }
+                    }
+                    PathReceiveEvent::Failed { path_id, error }
+                        if path_sockets.contains(path_id) => return Err(error.into()),
+                    PathReceiveEvent::Batch { .. } | PathReceiveEvent::Failed { .. } => {
+                        // A role may have been removed after its bounded receiver
+                        // completed. Stale path events never reach quiche.
+                    }
                 }
             }
-            batch = outgoing_rx.recv(), if ready && pending_batch.is_none() => {
+            batch = outgoing_rx.recv(), if ready
+                && pending_batch.is_none()
+                && migration_tx_barrier.allows_application_injection() => {
                 match batch {
                     Some(batch) => pending_batch = Some(batch),
                     None => return Ok(()),
                 }
             }
             sent = send_due_wire_datagrams(
-                &udp_io,
+                path_sockets,
                 &mut wire_datagrams,
                 &mut free_wire_buffers,
                 send_quantum,
@@ -1289,7 +1481,7 @@ enum WireSendOutcome {
     reason = "the actor send step keeps socket, ordered queues, quantum, telemetry, and cancellation explicit"
 )]
 async fn send_due_wire_datagrams(
-    udp_io: &UdpBatchIo,
+    path_sockets: &PathSocketSet,
     pending: &mut VecDeque<WireDatagram>,
     free_buffers: &mut Vec<Vec<u8>>,
     send_quantum: usize,
@@ -1306,6 +1498,9 @@ async fn send_due_wire_datagrams(
     }
     let source = first.send_info.from;
     let destination = first.send_info.to;
+    let udp_io = path_sockets
+        .io_for_send(source, destination)
+        .map_err(path_socket_routing_error)?;
     let mut sent_bytes = 0usize;
     let empty = SendDatagram {
         payload: &[],
@@ -1356,6 +1551,10 @@ async fn send_due_wire_datagrams(
     }
     complete_wire_sends(pending, free_buffers, sent, wire_queue, quality);
     Ok(WireSendOutcome::Sent)
+}
+
+fn path_socket_routing_error(error: PathSocketSetError) -> TransportError {
+    TransportError::Http3(error.to_string())
 }
 
 fn discard_pending_wire_datagrams(
@@ -1549,7 +1748,10 @@ fn connection_closed_error(connection: &H3QuicConnection) -> TransportError {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+
     use super::*;
+    use usque_core::MasqueKeyPair;
 
     struct DropSignal(Option<oneshot::Sender<()>>);
 
@@ -1559,6 +1761,161 @@ mod tests {
                 let _ = sender.send(());
             }
         }
+    }
+
+    struct LeaseDropCounter(Arc<AtomicUsize>);
+
+    impl Drop for LeaseDropCounter {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::AcqRel);
+        }
+    }
+
+    struct RacingSocketProtector {
+        generation: AtomicU64,
+        calls: AtomicUsize,
+        race_every_attempt: bool,
+        lease_drops: Arc<AtomicUsize>,
+    }
+
+    impl RacingSocketProtector {
+        fn new(race_every_attempt: bool) -> Self {
+            Self {
+                generation: AtomicU64::new(0),
+                calls: AtomicUsize::new(0),
+                race_every_attempt,
+                lease_drops: Arc::new(AtomicUsize::new(0)),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl SocketProtector for RacingSocketProtector {
+        fn protect(&self, _socket: crate::socket::SocketHandle) -> Result<(), String> {
+            Ok(())
+        }
+
+        async fn protect_for_target_generation(
+            &self,
+            _socket: crate::socket::SocketHandle,
+            _remote: SocketAddr,
+            _protocol: DirectProtocol,
+            expected_generation: u64,
+        ) -> Result<DirectEgressLease, String> {
+            let call = self.calls.fetch_add(1, Ordering::AcqRel);
+            if self.race_every_attempt || call == 0 {
+                self.generation.fetch_add(1, Ordering::AcqRel);
+            }
+            Ok(DirectEgressLease::hold_for_generation(
+                LeaseDropCounter(Arc::clone(&self.lease_drops)),
+                expected_generation,
+            ))
+        }
+
+        fn network_generation(&self) -> Option<u64> {
+            Some(self.generation.load(Ordering::Acquire))
+        }
+    }
+
+    fn test_quic_pair() -> (H3QuicConnection, H3QuicConnection, SocketAddr, SocketAddr) {
+        let client_key = MasqueKeyPair::generate();
+        let server_key = MasqueKeyPair::generate();
+        let client_identity = MasqueTlsIdentity::new(
+            client_key.private_sec1_der().unwrap(),
+            &server_key.public_spki_der().unwrap(),
+            Ipv4Addr::new(172, 16, 0, 2),
+            "2606:4700:110:8f13::2".parse().unwrap(),
+        )
+        .unwrap();
+        let server_identity = MasqueTlsIdentity::new(
+            server_key.private_sec1_der().unwrap(),
+            &client_key.public_spki_der().unwrap(),
+            Ipv4Addr::new(172, 16, 0, 3),
+            "2606:4700:110:8f13::3".parse().unwrap(),
+        )
+        .unwrap();
+        let (mut client_config, _) =
+            quic_config(&client_identity, crate::pmtu::IPV4_MAX_UDP_PAYLOAD).unwrap();
+        let (mut server_config, _) =
+            quic_config(&server_identity, crate::pmtu::IPV4_MAX_UDP_PAYLOAD).unwrap();
+        let client_addr: SocketAddr = "127.0.0.1:12340".parse().unwrap();
+        let server_addr: SocketAddr = "127.0.0.1:44330".parse().unwrap();
+        let client_scid = [0xc1; CONNECTION_ID_LENGTH];
+        let server_scid = [0x51; CONNECTION_ID_LENGTH];
+        let client = quiche::connect_with_buffer_factory::<H3BufferFactory>(
+            Some("migration.test"),
+            &quiche::ConnectionId::from_ref(&client_scid),
+            client_addr,
+            server_addr,
+            &mut client_config,
+        )
+        .unwrap();
+        let server = quiche::accept_with_buf_factory::<H3BufferFactory>(
+            &quiche::ConnectionId::from_ref(&server_scid),
+            None,
+            server_addr,
+            client_addr,
+            &mut server_config,
+        )
+        .unwrap();
+        (client, server, client_addr, server_addr)
+    }
+
+    fn transfer_test_flight(
+        source: &mut H3QuicConnection,
+        destination: &mut H3QuicConnection,
+        from: Option<SocketAddr>,
+        to: Option<SocketAddr>,
+    ) -> Result<usize, quiche::Error> {
+        let mut packets = 0;
+        loop {
+            let mut wire = vec![0_u8; 65_535];
+            let (written, send_info) = match source.send_on_path(&mut wire, from, to) {
+                Ok(output) => output,
+                Err(quiche::Error::Done) => break,
+                Err(error) => return Err(error),
+            };
+            if let Some(expected) = from {
+                assert_eq!(send_info.from, expected);
+            }
+            if let Some(expected) = to {
+                assert_eq!(send_info.to, expected);
+            }
+            destination.recv(
+                &mut wire[..written],
+                quiche::RecvInfo {
+                    from: send_info.from,
+                    to: send_info.to,
+                },
+            )?;
+            packets += 1;
+        }
+        Ok(packets)
+    }
+
+    fn advance_test_pair(
+        client: &mut H3QuicConnection,
+        server: &mut H3QuicConnection,
+    ) -> Result<(), quiche::Error> {
+        for _ in 0..64 {
+            let client_packets = transfer_test_flight(client, server, None, None)?;
+            let server_packets = transfer_test_flight(server, client, None, None)?;
+            if client_packets == 0 && server_packets == 0 {
+                return Ok(());
+            }
+        }
+        Err(quiche::Error::InvalidState)
+    }
+
+    fn established_test_pair() -> (H3QuicConnection, H3QuicConnection, SocketAddr, SocketAddr) {
+        let (mut client, mut server, client_addr, server_addr) = test_quic_pair();
+        for _ in 0..8 {
+            advance_test_pair(&mut client, &mut server).unwrap();
+            if client.is_established() && server.is_established() {
+                return (client, server, client_addr, server_addr);
+            }
+        }
+        panic!("locked quiche client/server pair did not establish")
     }
 
     fn ipv4_packet() -> [u8; 20] {
@@ -1681,6 +2038,147 @@ mod tests {
         assert!(encode_http_datagram(&pool, 0, &oversized).is_err());
     }
 
+    #[tokio::test]
+    async fn expected_generation_setup_retries_once_and_releases_the_stale_lease() {
+        let protector = RacingSocketProtector::new(false);
+        let target: SocketAddr = "127.0.0.1:443".parse().unwrap();
+        let prepared = prepare_initial_udp_socket(target, &protector)
+            .await
+            .unwrap();
+
+        assert_eq!(protector.calls.load(Ordering::Acquire), 2);
+        assert_eq!(prepared.network_generation, 1);
+        assert_eq!(prepared.egress_lease.generation(), Some(1));
+        assert_eq!(protector.lease_drops.load(Ordering::Acquire), 1);
+        drop(prepared);
+        assert_eq!(protector.lease_drops.load(Ordering::Acquire), 2);
+    }
+
+    #[tokio::test]
+    async fn expected_generation_setup_stops_after_two_racing_attempts() {
+        let protector = RacingSocketProtector::new(true);
+        let target: SocketAddr = "127.0.0.1:443".parse().unwrap();
+        assert!(matches!(
+            prepare_initial_udp_socket(target, &protector).await,
+            Err(SocketPrepareError::StaleGeneration)
+        ));
+        assert_eq!(
+            protector.calls.load(Ordering::Acquire),
+            SOCKET_PREPARE_ATTEMPTS
+        );
+        assert_eq!(
+            protector.lease_drops.load(Ordering::Acquire),
+            SOCKET_PREPARE_ATTEMPTS
+        );
+    }
+
+    #[test]
+    fn cid_capacity_errors_map_to_the_stable_local_unavailable_reason() {
+        assert_eq!(
+            map_cid_provisioning_error(quiche::Error::OutOfIdentifiers).unwrap(),
+            CidAvailability::LocalUnavailable
+        );
+        assert_eq!(
+            map_cid_provisioning_error(quiche::Error::IdLimit).unwrap(),
+            CidAvailability::LocalUnavailable
+        );
+    }
+
+    #[test]
+    fn cid_retirement_is_replenished_to_three_spares() {
+        let (mut client, mut server, _, _) = established_test_pair();
+        assert_eq!(
+            maintain_connection_ids(&mut client).unwrap(),
+            CidAvailability::PeerUnavailable
+        );
+        assert_eq!(
+            maintain_connection_ids(&mut server).unwrap(),
+            CidAvailability::PeerUnavailable
+        );
+        assert_eq!(client.active_scids(), SPARE_CONNECTION_ID_TARGET + 1);
+        assert_eq!(server.active_scids(), SPARE_CONNECTION_ID_TARGET + 1);
+        advance_test_pair(&mut client, &mut server).unwrap();
+        assert_eq!(
+            maintain_connection_ids(&mut client).unwrap(),
+            CidAvailability::Ready
+        );
+        assert_eq!(
+            maintain_connection_ids(&mut server).unwrap(),
+            CidAvailability::Ready
+        );
+
+        server.retire_dcid(1).unwrap();
+        advance_test_pair(&mut client, &mut server).unwrap();
+        assert_eq!(client.retired_scids(), 1);
+        assert_eq!(client.active_scids(), SPARE_CONNECTION_ID_TARGET);
+
+        assert_eq!(
+            maintain_connection_ids(&mut client).unwrap(),
+            CidAvailability::Ready
+        );
+        assert_eq!(client.retired_scids(), 0);
+        assert_eq!(client.active_scids(), SPARE_CONNECTION_ID_TARGET + 1);
+        advance_test_pair(&mut client, &mut server).unwrap();
+        assert_eq!(server.available_dcids(), SPARE_CONNECTION_ID_TARGET);
+    }
+
+    #[test]
+    fn migration_barrier_keeps_http_datagram_off_candidate_before_promotion() {
+        let (mut client, mut server, active_addr, server_addr) = established_test_pair();
+        assert_eq!(
+            maintain_connection_ids(&mut client).unwrap(),
+            CidAvailability::PeerUnavailable
+        );
+        assert_eq!(
+            maintain_connection_ids(&mut server).unwrap(),
+            CidAvailability::PeerUnavailable
+        );
+        advance_test_pair(&mut client, &mut server).unwrap();
+        assert_eq!(
+            maintain_connection_ids(&mut client).unwrap(),
+            CidAvailability::Ready
+        );
+
+        let marker_packet = ipv4_packet_with_length(64);
+        let encoded = encode_for_test(0, &marker_packet);
+        let expected = encoded.as_ref().to_vec();
+        client.dgram_send(encoded.as_ref()).unwrap();
+        let mut barrier = MigrationTxBarrier::default();
+        let started_at = StdInstant::now();
+        assert!(barrier.begin(started_at));
+        assert!(!barrier.allows_application_injection());
+        assert!(!barrier.candidate_send_allowed());
+
+        let active_packets = transfer_test_flight(
+            &mut client,
+            &mut server,
+            Some(active_addr),
+            Some(server_addr),
+        )
+        .unwrap();
+        assert!(active_packets > 0);
+        assert_eq!(client.dgram_send_queue_len(), 0);
+        assert!(barrier.complete_active_drain(StdInstant::now(), active_packets, true));
+        assert!(barrier.candidate_send_allowed());
+        let received = server.dgram_recv_buf().unwrap();
+        assert_eq!(received.as_ref(), expected);
+        assert!(matches!(server.dgram_recv_buf(), Err(quiche::Error::Done)));
+
+        let candidate_addr: SocketAddr = "127.0.0.1:12341".parse().unwrap();
+        client.probe_path(candidate_addr, server_addr).unwrap();
+        let candidate_packets = transfer_test_flight(
+            &mut client,
+            &mut server,
+            Some(candidate_addr),
+            Some(server_addr),
+        )
+        .unwrap();
+        assert!(candidate_packets > 0);
+        assert!(matches!(server.dgram_recv_buf(), Err(quiche::Error::Done)));
+        barrier.finish();
+        assert!(barrier.allows_application_injection());
+    }
+
     #[test]
     fn inbound_queue_overflow_counts_only_payloads_beyond_the_bound() {
         assert_eq!(inbound_queue_overflow(0, DATAGRAM_RECV_QUEUE_CAPACITY), 0);
@@ -1744,8 +2242,19 @@ mod tests {
         let due = StdInstant::now();
         let future = due + Duration::from_secs(60);
         let quality = NetworkQualityTelemetry::default();
-        let sender =
-            UdpBatchIo::with_mode(sender_socket, UdpBatchMode::Portable, quality.clone()).unwrap();
+        let sender = PathSocket::spawn(
+            PathId::new(0),
+            from,
+            to,
+            0,
+            PathSocketRole::Active,
+            sender_socket,
+            DirectEgressLease::for_generation(0),
+            quality.clone(),
+            UdpReceivePool::default(),
+        )
+        .unwrap();
+        let mut sender = PathSocketSet::with_active(sender).unwrap();
         let cancel = CancellationToken::new();
         let wire_queue = QueueMetrics::new(
             QueueKind::H3WireSend,
@@ -1813,6 +2322,7 @@ mod tests {
         );
         assert_eq!(pending.len(), 1);
         assert_eq!(pending.front().unwrap().bytes, vec![3; 100]);
+        sender.shutdown_all().await;
     }
 
     #[test]

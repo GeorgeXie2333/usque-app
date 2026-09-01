@@ -5,7 +5,7 @@ use tokio::net::UdpSocket;
 
 use super::{
     ReceivedDatagram, RecvBatch, SendDatagram, UDP_ACTOR_DRAIN_LIMIT, UDP_RECEIVE_SLOT_SIZE,
-    is_message_too_long, receive_too_large_error,
+    is_message_too_long, receive_pool_exhausted_error, receive_too_large_error,
 };
 use crate::network_quality::NetworkQualityTelemetry;
 
@@ -16,7 +16,13 @@ pub(super) fn try_recv_batch(
     quality: &NetworkQualityTelemetry,
 ) -> io::Result<usize> {
     while output.len() < UDP_ACTOR_DRAIN_LIMIT {
-        let mut buffer = output.acquire_buffer(quality);
+        let Some(mut buffer) = output.acquire_buffer(quality) else {
+            return if output.is_empty() {
+                Err(receive_pool_exhausted_error())
+            } else {
+                Ok(output.len())
+            };
+        };
         match socket.try_recv_from(buffer.portable_storage_mut()) {
             Ok((length, source)) => {
                 quality.record_udp_recv(1);

@@ -51,6 +51,7 @@ internal class PhysicalNetworkMonitor(
     private val underlyingFamilyMask = AtomicInteger()
     private val underlyingDnsServers = AtomicReference<List<InetAddress>>(emptyList())
     private val networkRestartGeneration = NetworkRestartGeneration()
+    private val generationNetworks = GenerationNetworkHistory<Network>()
     private val networkSelectionTask = Runnable(::selectUnderlyingNetwork)
 
     private val networkCallback =
@@ -113,6 +114,7 @@ internal class PhysicalNetworkMonitor(
         } catch (_: IllegalArgumentException) {
             // The callback may already have been revoked while the process exited.
         }
+        generationNetworks.clear()
     }
 
     fun underlyingNetwork(): Network? = underlyingNetwork.get()
@@ -123,7 +125,13 @@ internal class PhysicalNetworkMonitor(
 
     fun generation(): Long = networkRestartGeneration.get()
 
-    fun bumpGeneration(): Long = networkRestartGeneration.bump()
+    fun bumpGeneration(): Long {
+        val generation = networkRestartGeneration.bump()
+        generationNetworks.record(generation, underlyingNetwork.get())
+        return generation
+    }
+
+    fun networkForGeneration(generation: Long): Network? = generationNetworks.get(generation)
 
     fun scheduleSelection() {
         mainHandler.removeCallbacks(networkSelectionTask)
@@ -224,6 +232,7 @@ internal class PhysicalNetworkMonitor(
                     selectedDnsServers = selectedDnsServers.map(::dnsServerKey),
                 ),
             ) ?: return
+        generationNetworks.record(generation, selectedNetwork)
         listener.onUnderlyingNetworkChanged(selectedNetwork, selectedFamilyMask, generation)
     }
 }
@@ -297,4 +306,38 @@ internal class NetworkRestartGeneration(
      * Bumps and returns the new generation only when [changed] is true; otherwise null.
      */
     fun bumpIfChanged(changed: Boolean): Long? = if (changed) bump() else null
+}
+
+/** Keeps only the exact current and immediately previous generation binding. */
+internal class GenerationNetworkHistory<T> {
+    private val entries = ArrayDeque<Pair<Long, T?>>(2)
+
+    @Synchronized
+    fun record(
+        generation: Long,
+        value: T?,
+    ) {
+        val newest = maxOf(generation, entries.firstOrNull()?.first ?: generation)
+        entries.removeAll { it.first == generation || it.first < newest - 1 }
+        if (generation < newest - 1) return
+        if (generation == newest) {
+            entries.addFirst(generation to value)
+        } else {
+            entries.addLast(generation to value)
+        }
+        while (entries.size > 2) {
+            entries.removeLast()
+        }
+    }
+
+    @Synchronized
+    fun get(generation: Long): T? = entries.firstOrNull { it.first == generation }?.second
+
+    @Synchronized
+    fun clear() {
+        entries.clear()
+    }
+
+    @Synchronized
+    internal fun retainedGenerations(): List<Long> = entries.map { it.first }
 }

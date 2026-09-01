@@ -747,6 +747,13 @@ impl NetworkQualityTelemetry {
         state.migration.last_reason = Some(reason);
     }
 
+    pub fn set_migration_availability_reason(&self, reason: Option<MigrationReasonCode>) {
+        let mut state = self.state_write();
+        if state.migration.phase == MigrationPhase::Idle {
+            state.migration.last_reason = reason;
+        }
+    }
+
     pub fn set_direct_dns_mode(&self, mode: DirectDnsMode) {
         let mut state = self.state_write();
         state.direct_dns.mode = mode;
