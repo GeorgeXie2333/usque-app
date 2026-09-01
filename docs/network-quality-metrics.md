@@ -12,14 +12,17 @@ Every metric carries one of four states:
 - `Available`: a real observation is present.
 - `Unsupported`: the active transport or locked dependency cannot provide it.
 - `NotReady`: the transport supports it but has no valid interval/sample yet.
-- `Stale`: the last observation is retained but is older than three seconds.
+- `Stale`: the last valid observation is retained but the transport has marked
+  it stale. H3 uses the three-second sample age; H2 uses an actual PING timeout.
 
 A numeric zero is therefore never used as a substitute for unsupported,
 not-ready, or stale data. H2 loss, congestion window, bytes in flight, and PMTU
-are `Unsupported`. H2 PING RTT remains `NotReady` until PR-03 supplies real PING
-observations. The locked quiche 0.29.3 `PathStats` exposes RTT, loss, congestion
-window, delivery rate, and PMTU, but not current bytes in flight; that field is
-explicitly `Unsupported` rather than inferred.
+are `Unsupported`. H2 PING RTT is `NotReady` before the first PONG, `Available`
+after a valid PONG, and `Stale` after its adaptive deadline. If the locked h2
+build cannot provide `PingPong`, H2 RTT is explicitly `Unsupported` while the
+tunnel remains usable. The locked quiche 0.29.3 `PathStats` exposes RTT, loss,
+congestion window, delivery rate, and PMTU, but not current bytes in flight;
+that field is explicitly `Unsupported` rather than inferred.
 
 Interval H3 loss uses monotonic deltas:
 
@@ -58,6 +61,27 @@ The H2 ADDRESS_REQUEST rejection path is no longer unbounded. Both its pending
 control deque and writer channel are capped at 64 capsules, with a 256 KiB byte
 budget. Saturation fails closed with `SendQueueFull`.
 
+## HTTP/2 flow control and PING
+
+CONNECT-IP uses an explicit h2 client Builder with a 4 MiB stream receive
+window, an 8 MiB connection receive window, and server push disabled. These
+settings affect only the peer-to-client CONNECT-IP data path. Registration and
+future encrypted-DNS control clients keep independent small default Builders;
+the send-buffer limit is unchanged.
+
+One protocol PING may be outstanding at a time. The interval is five seconds.
+The deadline is five seconds before the first sample, then three times smoothed
+RTT clamped to two through ten seconds. Smoothed RTT and variance use an integer
+EWMA with alpha 1/8; minimum RTT is monotonic for the connection. A timeout
+marks retained RTT stale and increments a bounded counter but never closes the
+tunnel. Three consecutive failures may classify quality as `Poor`; the existing
+connection driver alone decides whether the transport has failed.
+
+Each `reserve_capacity`/`poll_capacity` wait is measured with an actor-local
+monotonic timestamp. A successful wait longer than one millisecond increments
+the unified `capacity_wait` stall count and total/max duration. Errors and task
+cancellation have separate counters and are never counted as successful stalls.
+
 Other pre-existing bounded structures are deliberately not separate quality
 queues:
 
@@ -81,8 +105,8 @@ metrics are unsupported.
   50%, and no queue drop in the retained window.
 - `Fair`: RTT below 150 ms, H3 loss below 2%, every registered queue below 80%,
   and no sustained drop.
-- `Poor`: a threshold is exceeded, drops are sustained, PMTU is degraded, or a
-  new migration failure is observed.
+- `Poor`: a threshold is exceeded, drops are sustained, PMTU is degraded, a new
+  migration failure is observed, or three consecutive H2 PINGs fail.
 - `Disconnected`: there is no current connection instance.
 
 ## Privacy

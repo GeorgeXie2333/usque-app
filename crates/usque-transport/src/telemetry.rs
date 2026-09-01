@@ -10,7 +10,6 @@ use usque_core::{
 use crate::network_quality::{H3MetricsSample, NetworkQualityTelemetry};
 
 pub const CONNECTION_TIMELINE_CAPACITY: usize = 512;
-const H2_DEFAULT_RECEIVE_WINDOW: u32 = 65_535;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConnectionEventType {
@@ -144,6 +143,17 @@ impl ConnectionAttemptTelemetry {
     pub(crate) fn observe_h3(&self, sample: H3MetricsSample) {
         self.telemetry.observe_h3(sample);
     }
+
+    pub(crate) fn observe_h2_rtt(
+        &self,
+        latest: Duration,
+        smoothed: Duration,
+        minimum: Duration,
+        variance: Duration,
+    ) {
+        self.telemetry
+            .observe_h2_rtt(latest, smoothed, minimum, variance);
+    }
 }
 
 struct TelemetryState {
@@ -244,10 +254,6 @@ impl ConnectionTelemetry {
         duration: Duration,
     ) {
         self.quality.begin_connection(transport, family);
-        if transport == Transport::Http2 {
-            self.quality
-                .set_h2_flow_control_windows(H2_DEFAULT_RECEIVE_WINDOW, H2_DEFAULT_RECEIVE_WINDOW);
-        }
         {
             let mut state = self.state();
             state.metrics.last_connect_duration = Some(duration);
@@ -383,6 +389,18 @@ impl ConnectionTelemetry {
         self.quality.observe_h3(sample);
     }
 
+    fn observe_h2_rtt(
+        &self,
+        latest: Duration,
+        smoothed: Duration,
+        minimum: Duration,
+        variance: Duration,
+    ) {
+        self.state().metrics.current_smoothed_rtt = Some(smoothed);
+        self.quality
+            .observe_h2_rtt(latest, smoothed, minimum, variance);
+    }
+
     fn state(&self) -> MutexGuard<'_, TelemetryState> {
         self.inner
             .lock()
@@ -491,6 +509,39 @@ mod tests {
                 .current_smoothed_rtt
                 .is_none()
         );
+    }
+
+    #[test]
+    fn h2_ping_updates_both_timeline_and_network_quality_rtt() {
+        let telemetry = ConnectionTelemetry::new(8);
+        telemetry.record_tunnel_ready(
+            Transport::Http2,
+            AddressFamily::Ipv4,
+            Duration::from_millis(5),
+        );
+        telemetry
+            .network_quality()
+            .configure_h2_connection(4 * 1024 * 1024, 8 * 1024 * 1024, true);
+        let attempt = ConnectionAttemptTelemetry::new(
+            telemetry.clone(),
+            Transport::Http2,
+            AddressFamily::Ipv4,
+        );
+        attempt.observe_h2_rtt(
+            Duration::from_millis(20),
+            Duration::from_millis(18),
+            Duration::from_millis(15),
+            Duration::from_millis(2),
+        );
+
+        assert_eq!(
+            telemetry.snapshot().metrics.current_smoothed_rtt,
+            Some(Duration::from_millis(18))
+        );
+        let quality =
+            crate::network_quality::NetworkQualitySampler::new(telemetry.network_quality())
+                .sample();
+        assert_eq!(quality.rtt.smoothed.value, Some(Duration::from_millis(18)));
     }
 
     #[test]

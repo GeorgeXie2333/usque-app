@@ -1126,7 +1126,7 @@ async fn connect_endpoint(
         tokio::select! {
             result = &mut connecting => {
                 match &result {
-                    Ok(_) => {
+                    Ok(tunnel) => {
                         telemetry.record(
                             ConnectionEventType::AddressAssigned,
                             Some(TransportStage::AddressAssignment),
@@ -1135,6 +1135,7 @@ async fn connect_endpoint(
                             None,
                         );
                         telemetry.record_tunnel_ready(transport, family, started.elapsed());
+                        tunnel.activate_network_quality();
                     }
                     Err(error) => {
                         let failure = error.failure(Some(transport), Some(family));

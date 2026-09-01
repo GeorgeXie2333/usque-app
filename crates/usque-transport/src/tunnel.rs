@@ -28,6 +28,12 @@ impl MasqueTunnel {
         }
     }
 
+    pub(crate) fn activate_network_quality(&self) {
+        if let Self::Http2(tunnel) = self {
+            tunnel.activate_network_quality();
+        }
+    }
+
     pub(crate) fn into_parts(
         self,
     ) -> (

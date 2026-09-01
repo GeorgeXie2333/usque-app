@@ -2957,6 +2957,7 @@ mod tests {
             usque_core::Transport::Http2,
             usque_core::AddressFamily::Ipv4,
         );
+        telemetry.configure_h2_connection(4 * 1024 * 1024, 8 * 1024 * 1024, true);
         telemetry.observe_h2_rtt(
             Duration::from_millis(10),
             Duration::from_millis(12),
@@ -2968,6 +2969,14 @@ mod tests {
 
         assert_eq!(value["level"], "limitedData");
         assert_eq!(value["metrics"]["smoothed_rtt_milliseconds"], 12);
+        assert_eq!(
+            value["metrics"]["h2_stream_receive_window_bytes"],
+            4 * 1024 * 1024
+        );
+        assert_eq!(
+            value["metrics"]["h2_connection_receive_window_bytes"],
+            8 * 1024 * 1024
+        );
         assert_eq!(value["direct_dns"]["last_reason_code"], "timeout");
         let serialized = value.to_string();
         for forbidden in ["127.0.0.1", "example.com", "bootstrap", "scid", "token="] {

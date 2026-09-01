@@ -121,7 +121,10 @@ async fn refresh_at_endpoint(
         ));
     }
 
-    let (mut sender, connection) = h2::client::handshake(tls).await.map_err(refresh_error)?;
+    // Control-plane H2 deliberately keeps the crate's small default receive
+    // windows. The 4/8 MiB CONNECT-IP builder in h2.rs is data-plane only.
+    let builder = h2::client::Builder::new();
+    let (mut sender, connection) = builder.handshake(tls).await.map_err(refresh_error)?;
     let driver = tokio::spawn(connection);
     let result = timeout(CONTROL_REQUEST_TIMEOUT, async {
         sender = sender.ready().await.map_err(refresh_error)?;

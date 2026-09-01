@@ -18,15 +18,16 @@ use boring::x509::{X509, X509NameBuilder};
 #[cfg(test)]
 use bytes::Buf;
 use bytes::{Bytes, BytesMut};
-use h2::{RecvStream, SendStream};
+use h2::{Ping, PingPong, RecvStream, SendStream};
 use http::{Method, Request, StatusCode, Version};
 use p256::SecretKey;
 use p256::pkcs8::EncodePrivateKey;
 use thiserror::Error;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpSocket;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
-use tokio::time::timeout;
+use tokio::time::{Instant, MissedTickBehavior, interval_at, timeout};
 use tokio_util::task::AbortOnDropHandle;
 use usque_core::{
     AddressFamily, EndpointPin, Transport, TransportFailure, TransportFailureCode, TransportStage,
@@ -37,6 +38,7 @@ use zeroize::Zeroizing;
 use crate::connect_ip_control::{
     ConnectIpControlPlane, MAX_PENDING_CONTROL_BYTES, MAX_PENDING_CONTROL_CAPSULES,
 };
+use crate::network_quality::NetworkQualityTelemetry;
 use crate::packet_batch::{PacketBatch, PacketBatchResult};
 use crate::socket::{SocketProtector, noop_socket_protector, socket_handle};
 use crate::telemetry::{ConnectionAttemptTelemetry, ConnectionEventType};
@@ -49,6 +51,26 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 const H2_OUTGOING_CAPACITY: usize = 1_024;
 const H2_PACKET_QUEUE_CAPACITY: usize = 1_024;
 const PACKET_SEND_TIMEOUT: Duration = Duration::from_secs(10);
+const H2_PING_INTERVAL: Duration = Duration::from_secs(5);
+const H2_PING_DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
+const H2_PING_MIN_TIMEOUT: Duration = Duration::from_secs(2);
+const H2_PING_MAX_TIMEOUT: Duration = Duration::from_secs(10);
+const H2_CAPACITY_STALL_THRESHOLD: Duration = Duration::from_millis(1);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct H2FlowControlConfig {
+    stream_receive_window: u32,
+    connection_receive_window: u32,
+}
+
+impl Default for H2FlowControlConfig {
+    fn default() -> Self {
+        Self {
+            stream_receive_window: 4 * 1024 * 1024,
+            connection_receive_window: 8 * 1024 * 1024,
+        }
+    }
+}
 
 /// Secret and enrolled identity material required by a MASQUE TLS session.
 ///
@@ -89,6 +111,9 @@ pub struct H2Tunnel {
     receive: H2ReceiveHalf,
     driver: H2Driver,
     control: watch::Receiver<PeerNetworkState>,
+    flow_control: H2FlowControlConfig,
+    ping_supported: bool,
+    quality: NetworkQualityTelemetry,
 }
 
 impl H2Tunnel {
@@ -105,6 +130,14 @@ impl H2Tunnel {
 
     pub fn control_state(&self) -> PeerNetworkState {
         self.control.borrow().clone()
+    }
+
+    pub(crate) fn activate_network_quality(&self) {
+        self.quality.configure_h2_connection(
+            self.flow_control.stream_receive_window,
+            self.flow_control.connection_receive_window,
+            self.ping_supported,
+        );
     }
 }
 
@@ -406,8 +439,26 @@ pub(crate) async fn connect_h2_with_protector(
         attempt.record(ConnectionEventType::TlsReady, TransportStage::TlsHandshake);
     }
 
-    let (mut sender, connection) = h2::client::handshake(tls).await?;
-    let task = tokio::spawn(connection);
+    let flow_control = H2FlowControlConfig::default();
+    let quality = attempt
+        .map(ConnectionAttemptTelemetry::quality)
+        .unwrap_or_default();
+    let builder = connect_ip_h2_builder(flow_control);
+    let (mut sender, mut connection) = builder.handshake(tls).await?;
+    let ping_pong = connection.ping_pong();
+    let ping_supported = ping_pong.is_some();
+    if !ping_supported && !H2_PING_UNSUPPORTED_REPORTED.swap(true, Ordering::Relaxed) {
+        tracing::warn!(
+            code = "H2_PING_UNSUPPORTED",
+            "the HTTP/2 build does not expose protocol PING observation"
+        );
+    }
+    let task = AbortOnDropHandle::new(spawn_h2_driver(
+        connection,
+        ping_pong,
+        quality.clone(),
+        attempt.cloned(),
+    ));
     sender = sender.ready().await?;
     if let Some(attempt) = attempt {
         attempt.record(
@@ -431,20 +482,199 @@ pub(crate) async fn connect_h2_with_protector(
         );
     }
     let receive = response.into_body();
-    Ok(h2_tunnel_from_streams(stream, receive, task))
+    Ok(h2_tunnel_from_streams(
+        stream,
+        receive,
+        task.detach(),
+        quality,
+        flow_control,
+        ping_supported,
+    ))
+}
+
+static H2_PING_UNSUPPORTED_REPORTED: AtomicBool = AtomicBool::new(false);
+
+fn connect_ip_h2_builder(config: H2FlowControlConfig) -> h2::client::Builder {
+    let mut builder = h2::client::Builder::new();
+    builder
+        .initial_window_size(config.stream_receive_window)
+        .initial_connection_window_size(config.connection_receive_window)
+        .enable_push(false);
+    builder
+}
+
+fn spawn_h2_driver<T>(
+    connection: h2::client::Connection<T, Bytes>,
+    ping_pong: Option<PingPong>,
+    quality: NetworkQualityTelemetry,
+    attempt: Option<ConnectionAttemptTelemetry>,
+) -> JoinHandle<Result<(), h2::Error>>
+where
+    T: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    tokio::spawn(async move {
+        let ping_task = ping_pong.map(|ping_pong| {
+            AbortOnDropHandle::new(tokio::spawn(run_h2_ping(ping_pong, quality, attempt)))
+        });
+        let result = connection.await;
+        drop(ping_task);
+        result
+    })
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct H2RttSample {
+    latest: Duration,
+    smoothed: Duration,
+    minimum: Duration,
+    variance: Duration,
+}
+
+#[derive(Debug, Default)]
+struct H2RttEstimator {
+    smoothed: Option<Duration>,
+    minimum: Option<Duration>,
+    variance: Option<Duration>,
+}
+
+impl H2RttEstimator {
+    fn observe(&mut self, latest: Duration) -> H2RttSample {
+        let previous_smoothed = self.smoothed.unwrap_or(latest);
+        let smoothed = if self.smoothed.is_some() {
+            duration_ewma(previous_smoothed, latest)
+        } else {
+            latest
+        };
+        let deviation = previous_smoothed.abs_diff(latest);
+        let variance = self
+            .variance
+            .map_or(deviation, |previous| duration_ewma(previous, deviation));
+        let minimum = self.minimum.map_or(latest, |minimum| minimum.min(latest));
+        self.smoothed = Some(smoothed);
+        self.minimum = Some(minimum);
+        self.variance = Some(variance);
+        H2RttSample {
+            latest,
+            smoothed,
+            minimum,
+            variance,
+        }
+    }
+
+    fn timeout(&self) -> Duration {
+        self.smoothed.map_or(H2_PING_DEFAULT_TIMEOUT, |smoothed| {
+            smoothed
+                .saturating_mul(3)
+                .clamp(H2_PING_MIN_TIMEOUT, H2_PING_MAX_TIMEOUT)
+        })
+    }
+}
+
+fn duration_ewma(previous: Duration, sample: Duration) -> Duration {
+    let nanos = previous
+        .as_nanos()
+        .saturating_mul(7)
+        .saturating_add(sample.as_nanos())
+        / 8;
+    let seconds = u64::try_from(nanos / 1_000_000_000).unwrap_or(u64::MAX);
+    let subsecond_nanos = u32::try_from(nanos % 1_000_000_000).unwrap_or(u32::MAX);
+    Duration::new(seconds, subsecond_nanos)
+}
+
+struct H2PingTaskGuard(NetworkQualityTelemetry);
+
+impl H2PingTaskGuard {
+    fn new(quality: NetworkQualityTelemetry) -> Self {
+        quality.h2_ping_task_started();
+        Self(quality)
+    }
+}
+
+impl Drop for H2PingTaskGuard {
+    fn drop(&mut self) {
+        self.0.h2_ping_task_finished();
+    }
+}
+
+async fn run_h2_ping(
+    mut ping_pong: PingPong,
+    quality: NetworkQualityTelemetry,
+    attempt: Option<ConnectionAttemptTelemetry>,
+) {
+    let _task = H2PingTaskGuard::new(quality.clone());
+    let mut estimator = H2RttEstimator::default();
+    let mut ticker = interval_at(Instant::now() + H2_PING_INTERVAL, H2_PING_INTERVAL);
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    loop {
+        ticker.tick().await;
+        let started = Instant::now();
+        match h2_ping_with_timeout(ping_pong.ping(Ping::opaque()), estimator.timeout()).await {
+            Ok(Some(_)) => {
+                let sample = estimator.observe(started.elapsed());
+                if let Some(attempt) = &attempt {
+                    attempt.observe_h2_rtt(
+                        sample.latest,
+                        sample.smoothed,
+                        sample.minimum,
+                        sample.variance,
+                    );
+                } else {
+                    quality.observe_h2_rtt(
+                        sample.latest,
+                        sample.smoothed,
+                        sample.minimum,
+                        sample.variance,
+                    );
+                }
+            }
+            Err(_) => {
+                quality.record_h2_ping_error();
+                return;
+            }
+            Ok(None) => {
+                quality.record_h2_ping_timeout();
+                // h2 0.4 permits only one outstanding user PING. The timed-out
+                // future has already sent it, so drain that eventual PONG before
+                // another interval can send a new opaque PING.
+                if std::future::poll_fn(|context| ping_pong.poll_pong(context))
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
+            }
+        }
+    }
+}
+
+async fn h2_ping_with_timeout<F, T, E>(future: F, limit: Duration) -> Result<Option<T>, E>
+where
+    F: Future<Output = Result<T, E>>,
+{
+    match timeout(limit, future).await {
+        Ok(result) => result.map(Some),
+        Err(_) => Ok(None),
+    }
 }
 
 fn h2_tunnel_from_streams(
     send: SendStream<Bytes>,
     receive: RecvStream,
     connection: JoinHandle<Result<(), h2::Error>>,
+    quality: NetworkQualityTelemetry,
+    flow_control: H2FlowControlConfig,
+    ping_supported: bool,
 ) -> H2Tunnel {
     let (control_tx, control_rx) = watch::channel(PeerNetworkState::default());
     let (outgoing_tx, outgoing_rx) = mpsc::channel(H2_OUTGOING_CAPACITY);
     let (rejection_tx, rejection_rx) = mpsc::channel(MAX_PENDING_CONTROL_CAPSULES);
     let rejection_bytes = Arc::new(Semaphore::new(MAX_PENDING_CONTROL_BYTES));
-    let writer =
-        AbortOnDropHandle::new(tokio::spawn(run_h2_writer(send, outgoing_rx, rejection_rx)));
+    let writer = AbortOnDropHandle::new(tokio::spawn(run_h2_writer(
+        send,
+        outgoing_rx,
+        rejection_rx,
+        quality.clone(),
+    )));
     H2Tunnel {
         send: H2SendHalf {
             sender: Some(outgoing_tx),
@@ -461,6 +691,9 @@ fn h2_tunnel_from_streams(
             task: Some(connection),
         },
         control: control_rx,
+        flow_control,
+        ping_supported,
+        quality,
     }
 }
 
@@ -468,6 +701,7 @@ async fn run_h2_writer(
     mut stream: SendStream<Bytes>,
     mut outgoing: mpsc::Receiver<H2Outgoing>,
     mut rejections: mpsc::Receiver<H2Rejection>,
+    quality: NetworkQualityTelemetry,
 ) -> Result<(), TransportError> {
     let mut rejections_open = true;
     loop {
@@ -475,14 +709,16 @@ async fn run_h2_writer(
             biased;
             rejection = rejections.recv(), if rejections_open => {
                 match rejection {
-                    Some(H2Rejection { bytes, .. }) => write_h2_data(&mut stream, bytes).await?,
+                    Some(H2Rejection { bytes, .. }) => {
+                        write_h2_data(&mut stream, bytes, &quality).await?
+                    }
                     None => rejections_open = false,
                 }
             }
             item = outgoing.recv() => {
                 match item {
                     Some(H2Outgoing { bytes, accepted_bytes, completion }) => {
-                        let result = write_h2_data(&mut stream, bytes)
+                        let result = write_h2_data(&mut stream, bytes, &quality)
                             .await
                             .map(|()| accepted_bytes);
                         let _ = completion.send(result);
@@ -500,19 +736,66 @@ async fn run_h2_writer(
 async fn write_h2_data(
     stream: &mut SendStream<Bytes>,
     mut encoded: Bytes,
+    quality: &NetworkQualityTelemetry,
 ) -> Result<(), TransportError> {
     while !encoded.is_empty() {
         stream.reserve_capacity(encoded.len());
-        let capacity = std::future::poll_fn(|context| stream.poll_capacity(context))
-            .await
-            .ok_or(TransportError::TunnelClosed)??;
+        let wait = H2CapacityWait::new(quality);
+        let capacity = match std::future::poll_fn(|context| stream.poll_capacity(context)).await {
+            Some(Ok(capacity)) if capacity > 0 => {
+                wait.succeeded();
+                capacity
+            }
+            Some(Ok(_)) | None => {
+                wait.failed();
+                return Err(TransportError::TunnelClosed);
+            }
+            Some(Err(error)) => {
+                wait.failed();
+                return Err(TransportError::Http2(error));
+            }
+        };
         let length = capacity.min(encoded.len());
-        if length == 0 {
-            return Err(TransportError::TunnelClosed);
-        }
         stream.send_data(encoded.split_to(length), false)?;
     }
     Ok(())
+}
+
+struct H2CapacityWait<'a> {
+    quality: &'a NetworkQualityTelemetry,
+    started: Instant,
+    resolved: bool,
+}
+
+impl<'a> H2CapacityWait<'a> {
+    fn new(quality: &'a NetworkQualityTelemetry) -> Self {
+        Self {
+            quality,
+            started: Instant::now(),
+            resolved: false,
+        }
+    }
+
+    fn succeeded(mut self) {
+        let duration = self.started.elapsed();
+        if duration > H2_CAPACITY_STALL_THRESHOLD {
+            self.quality.record_h2_capacity_stall(duration);
+        }
+        self.resolved = true;
+    }
+
+    fn failed(mut self) {
+        self.quality.record_h2_capacity_wait_error();
+        self.resolved = true;
+    }
+}
+
+impl Drop for H2CapacityWait<'_> {
+    fn drop(&mut self) {
+        if !self.resolved {
+            self.quality.record_h2_capacity_wait_cancelled();
+        }
+    }
 }
 
 #[cfg(test)]
@@ -973,6 +1256,7 @@ impl TransportError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::network_quality::{MetricAvailability, NetworkQualitySampler};
     use usque_core::MasqueKeyPair;
 
     #[test]
@@ -1223,6 +1507,18 @@ mod tests {
         ]
     }
 
+    fn sized_ipv4_packet(length: usize) -> Bytes {
+        assert!((20..=usize::from(u16::MAX)).contains(&length));
+        let mut packet = vec![0_u8; length];
+        packet[0] = 0x45;
+        packet[2..4].copy_from_slice(&(length as u16).to_be_bytes());
+        packet[8] = 64;
+        packet[9] = 17;
+        packet[12..16].copy_from_slice(&[1, 1, 1, 1]);
+        packet[16..20].copy_from_slice(&[8, 8, 8, 8]);
+        Bytes::from(packet)
+    }
+
     fn ipv4_only_assignment() -> ConnectIpCapsule {
         use usque_protocol::{AddressAssign, IpPrefix};
 
@@ -1241,11 +1537,16 @@ mod tests {
         control: watch::Receiver<PeerNetworkState>,
         peer_send: SendStream<Bytes>,
         peer_recv: RecvStream,
+        quality: NetworkQualityTelemetry,
         _client_driver: H2Driver,
         _server: JoinHandle<Result<(), h2::Error>>,
     }
 
     async fn connect_h2_loopback() -> H2Loopback {
+        connect_h2_loopback_with_config(H2FlowControlConfig::default()).await
+    }
+
+    async fn connect_h2_loopback_with_config(config: H2FlowControlConfig) -> H2Loopback {
         use http::Response;
         use tokio::sync::oneshot;
 
@@ -1271,10 +1572,21 @@ mod tests {
             Ok(())
         });
 
-        let (mut sender, connection) = h2::client::handshake(client_io)
+        let quality = NetworkQualityTelemetry::default();
+        quality.begin_connection(Transport::Http2, AddressFamily::Ipv4);
+        let builder = connect_ip_h2_builder(config);
+        let (mut sender, mut connection) = builder
+            .handshake(client_io)
             .await
             .expect("client handshake");
-        let driver = tokio::spawn(connection);
+        let ping_pong = connection.ping_pong();
+        let ping_supported = ping_pong.is_some();
+        let driver = AbortOnDropHandle::new(spawn_h2_driver(
+            connection,
+            ping_pong,
+            quality.clone(),
+            None,
+        ));
         sender = sender.ready().await.expect("client ready");
         let (response, send) = sender
             .send_request(connect_request().expect("CONNECT"), false)
@@ -1283,7 +1595,15 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let receive = response.into_body();
         let (peer_send, peer_recv) = streams_rx.await.expect("server streams");
-        let tunnel = h2_tunnel_from_streams(send, receive, driver);
+        let tunnel = h2_tunnel_from_streams(
+            send,
+            receive,
+            driver.detach(),
+            quality.clone(),
+            config,
+            ping_supported,
+        );
+        tunnel.activate_network_quality();
         let (send, receive, driver, control) = tunnel.into_parts();
         H2Loopback {
             send,
@@ -1291,6 +1611,7 @@ mod tests {
             control,
             peer_send,
             peer_recv,
+            quality,
             _client_driver: driver,
             _server: server,
         }
@@ -1323,6 +1644,321 @@ mod tests {
             buffer.extend_from_slice(&chunk);
             stream.flow_control().release_capacity(length).unwrap();
         }
+    }
+
+    async fn hold_peer_receive_capacity(stream: &mut RecvStream, target: usize) -> usize {
+        let mut received = 0;
+        while received < target {
+            let chunk = stream
+                .data()
+                .await
+                .expect("request body open")
+                .expect("request data");
+            received += chunk.len();
+        }
+        received
+    }
+
+    #[test]
+    fn h2_rtt_ewma_and_adaptive_timeout_are_bounded() {
+        let mut estimator = H2RttEstimator::default();
+        assert_eq!(estimator.timeout(), Duration::from_secs(5));
+
+        let first = estimator.observe(Duration::from_millis(100));
+        assert_eq!(first.smoothed, Duration::from_millis(100));
+        assert_eq!(first.minimum, Duration::from_millis(100));
+        assert_eq!(first.variance, Duration::ZERO);
+        assert_eq!(estimator.timeout(), Duration::from_secs(2));
+
+        let second = estimator.observe(Duration::from_millis(180));
+        assert_eq!(second.smoothed, Duration::from_millis(110));
+        assert_eq!(second.minimum, Duration::from_millis(100));
+        assert_eq!(second.variance, Duration::from_millis(10));
+
+        estimator.smoothed = Some(Duration::from_secs(1));
+        assert_eq!(estimator.timeout(), Duration::from_secs(3));
+        estimator.smoothed = Some(Duration::from_secs(4));
+        assert_eq!(estimator.timeout(), Duration::from_secs(10));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn h2_ping_timeout_uses_the_paused_tokio_clock() {
+        let task = tokio::spawn(h2_ping_with_timeout(
+            std::future::pending::<Result<(), ()>>(),
+            H2_PING_DEFAULT_TIMEOUT,
+        ));
+        tokio::task::yield_now().await;
+        tokio::time::advance(H2_PING_DEFAULT_TIMEOUT - Duration::from_millis(1)).await;
+        assert!(!task.is_finished());
+        tokio::time::advance(Duration::from_millis(1)).await;
+        assert_eq!(task.await.expect("timeout task"), Ok(None));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn h2_ping_becomes_available_on_the_five_second_interval() {
+        let loopback = connect_h2_loopback().await;
+        let quality = loopback.quality.clone();
+        tokio::task::yield_now().await;
+        assert_eq!(quality.active_h2_ping_tasks(), 1);
+
+        tokio::time::advance(H2_PING_INTERVAL).await;
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+        }
+        let snapshot = NetworkQualitySampler::new(quality.clone()).sample();
+        assert_eq!(
+            snapshot.rtt.smoothed.availability,
+            MetricAvailability::Available
+        );
+        assert!(snapshot.rtt.smoothed.value.is_some());
+        assert_eq!(
+            snapshot.loss.interval_basis_points.availability,
+            MetricAvailability::Unsupported
+        );
+        assert_eq!(
+            snapshot.congestion.congestion_window_bytes.availability,
+            MetricAvailability::Unsupported
+        );
+        assert_eq!(
+            snapshot.pmtu.current_bytes.availability,
+            MetricAvailability::Unsupported
+        );
+
+        loopback._client_driver.abort();
+        for _ in 0..4 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(quality.active_h2_ping_tasks(), 0);
+    }
+
+    #[tokio::test]
+    async fn h2_driver_connection_close_releases_the_ping_task() {
+        let loopback = connect_h2_loopback().await;
+        let H2Loopback {
+            quality,
+            _client_driver: driver,
+            _server: server,
+            ..
+        } = loopback;
+        tokio::task::yield_now().await;
+        assert_eq!(quality.active_h2_ping_tasks(), 1);
+
+        server.abort();
+        let _ = timeout(Duration::from_secs(2), driver.wait())
+            .await
+            .expect("client driver notices the closed peer");
+        for _ in 0..4 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(quality.active_h2_ping_tasks(), 0);
+    }
+
+    #[tokio::test]
+    async fn h2_handshake_error_never_starts_a_ping_task() {
+        let quality = NetworkQualityTelemetry::default();
+        let (client_io, server_io) = tokio::io::duplex(64);
+        drop(server_io);
+        let builder = connect_ip_h2_builder(H2FlowControlConfig::default());
+        assert!(builder.handshake::<_, Bytes>(client_io).await.is_err());
+        assert_eq!(quality.active_h2_ping_tasks(), 0);
+    }
+
+    #[tokio::test]
+    async fn h2_tls_error_occurs_before_any_ping_task_exists() {
+        use tokio::io::AsyncWriteExt;
+
+        let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+            .await
+            .expect("bind loopback");
+        let endpoint = listener.local_addr().expect("loopback address");
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            stream.write_all(b"not tls").await.expect("write garbage");
+            stream.shutdown().await.expect("close");
+        });
+        let identity_key = MasqueKeyPair::generate();
+        let endpoint_key = MasqueKeyPair::generate();
+        let identity = MasqueTlsIdentity::new(
+            identity_key.private_sec1_der().unwrap(),
+            &endpoint_key.public_spki_der().unwrap(),
+            Ipv4Addr::new(172, 16, 0, 2),
+            "2606:4700:110:8f13::2".parse().unwrap(),
+        )
+        .unwrap();
+        let telemetry = crate::telemetry::ConnectionTelemetry::default();
+        let attempt =
+            ConnectionAttemptTelemetry::new(telemetry, Transport::Http2, AddressFamily::Ipv4);
+        let quality = attempt.quality();
+
+        let result = timeout(
+            Duration::from_secs(2),
+            connect_h2_with_protector(
+                endpoint,
+                "localhost",
+                &identity,
+                noop_socket_protector().as_ref(),
+                Some(&attempt),
+            ),
+        )
+        .await
+        .expect("TLS failure timed out");
+        assert!(matches!(result, Err(TransportError::TlsHandshake(_))));
+        server.await.expect("loopback server");
+        assert_eq!(quality.active_h2_ping_tasks(), 0);
+    }
+
+    #[tokio::test]
+    async fn h2_large_receive_stream_exceeds_sixteen_mib_without_truncation() {
+        let mut loopback = connect_h2_loopback().await;
+        let packet = sized_ipv4_packet(16 * 1024);
+        let capsule = encode_datagram_capsule(&packet).expect("encode packet");
+        let count = (16 * 1024 * 1024 / capsule.len()) + 2;
+        let total = capsule.len() * count;
+        assert!(total > 16 * 1024 * 1024);
+
+        let peer_send = &mut loopback.peer_send;
+        let receive = &mut loopback.receive;
+        let ((), ()) = timeout(Duration::from_secs(20), async {
+            tokio::join!(
+                async {
+                    for _ in 0..count {
+                        peer_send_all(peer_send, capsule.clone()).await;
+                    }
+                },
+                async {
+                    for _ in 0..count {
+                        let received = receive.receive_packet().await.expect("receive packet");
+                        assert_eq!(received, packet);
+                    }
+                }
+            )
+        })
+        .await
+        .expect("large H2 body timed out");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn h2_delayed_window_update_records_capacity_stall() {
+        let mut loopback = connect_h2_loopback().await;
+        let payload = Bytes::from(vec![0x5a; 256 * 1024]);
+        let payload_len = payload.len();
+        let mut send = loopback.send;
+        let send_task = tokio::spawn(async move { send.send_capsule(payload).await });
+
+        let mut received = hold_peer_receive_capacity(&mut loopback.peer_recv, 65_535).await;
+        tokio::time::advance(Duration::from_millis(2)).await;
+        loopback
+            .peer_recv
+            .flow_control()
+            .release_capacity(received)
+            .expect("release delayed capacity");
+        while received < payload_len {
+            let chunk = loopback
+                .peer_recv
+                .data()
+                .await
+                .expect("request body open")
+                .expect("request data");
+            received += chunk.len();
+            loopback
+                .peer_recv
+                .flow_control()
+                .release_capacity(chunk.len())
+                .expect("release capacity");
+        }
+        send_task.await.expect("writer task").expect("write body");
+
+        let snapshot = NetworkQualitySampler::new(loopback.quality).sample();
+        assert!(snapshot.h2_flow_control.capacity_stall_count >= 1);
+        assert!(snapshot.h2_flow_control.capacity_stall_total > Duration::from_millis(1));
+        assert!(snapshot.h2_flow_control.capacity_stall_max > Duration::from_millis(1));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn h2_cancelled_capacity_wait_is_counted_without_a_stall() {
+        let mut loopback = connect_h2_loopback().await;
+        let quality = loopback.quality.clone();
+        let mut send = loopback.send;
+        let send_task =
+            tokio::spawn(
+                async move { send.send_capsule(Bytes::from(vec![0x5a; 256 * 1024])).await },
+            );
+        hold_peer_receive_capacity(&mut loopback.peer_recv, 65_535).await;
+        tokio::time::advance(Duration::from_millis(2)).await;
+        send_task.abort();
+        let _ = send_task.await;
+        for _ in 0..4 {
+            tokio::task::yield_now().await;
+        }
+
+        let snapshot = NetworkQualitySampler::new(quality).sample();
+        assert_eq!(snapshot.h2_flow_control.capacity_stall_count, 0);
+        assert!(snapshot.h2_flow_control.capacity_wait_cancelled >= 1);
+    }
+
+    #[tokio::test]
+    async fn h2_capacity_error_is_separate_from_successful_stalls() {
+        let mut loopback = connect_h2_loopback().await;
+        let quality = loopback.quality.clone();
+        let mut send = loopback.send;
+        let send_task =
+            tokio::spawn(
+                async move { send.send_capsule(Bytes::from(vec![0x5a; 256 * 1024])).await },
+            );
+        hold_peer_receive_capacity(&mut loopback.peer_recv, 65_535).await;
+        drop(loopback.peer_recv);
+        loopback._server.abort();
+        assert!(
+            timeout(Duration::from_secs(2), send_task)
+                .await
+                .expect("capacity error timed out")
+                .expect("writer task")
+                .is_err()
+        );
+
+        let snapshot = NetworkQualitySampler::new(quality).sample();
+        assert_eq!(snapshot.h2_flow_control.capacity_stall_count, 0);
+        assert!(snapshot.h2_flow_control.capacity_wait_errors >= 1);
+    }
+
+    #[tokio::test]
+    async fn h2_client_disables_server_push() {
+        use http::Response;
+        use tokio::sync::oneshot;
+
+        let (client_io, server_io) = tokio::io::duplex(64 * 1024);
+        let (push_tx, push_rx) = oneshot::channel();
+        let server = tokio::spawn(async move {
+            let mut connection = h2::server::handshake(server_io).await.expect("server");
+            let (_, mut respond) = connection.accept().await.expect("accept").expect("request");
+            let push = Request::builder()
+                .method(Method::GET)
+                .uri("https://cloudflareaccess.com/push")
+                .body(())
+                .expect("push request");
+            let _ = push_tx.send(respond.push_request(push).is_err());
+            respond
+                .send_response(Response::new(()), true)
+                .expect("response");
+            while connection.accept().await.is_some() {}
+            Ok::<(), h2::Error>(())
+        });
+
+        let builder = connect_ip_h2_builder(H2FlowControlConfig::default());
+        let (mut sender, connection) = builder
+            .handshake::<_, Bytes>(client_io)
+            .await
+            .expect("client");
+        let driver = tokio::spawn(connection);
+        sender = sender.ready().await.expect("ready");
+        let (response, _) = sender
+            .send_request(connect_request().expect("CONNECT"), true)
+            .expect("request");
+        assert!(push_rx.await.expect("push result"));
+        assert!(response.await.is_ok());
+        drop(sender);
+        let _ = driver.await;
+        let _ = server.await;
     }
 
     #[tokio::test]

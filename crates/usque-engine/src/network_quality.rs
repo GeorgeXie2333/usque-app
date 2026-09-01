@@ -397,6 +397,7 @@ mod tests {
     fn quality_wire_snapshot_contains_only_sanitized_state() {
         let telemetry = NetworkQualityTelemetry::default();
         let connection = telemetry.begin_connection(Transport::Http2, AddressFamily::Ipv4);
+        telemetry.configure_h2_connection(4 * 1024 * 1024, 8 * 1024 * 1024, true);
         telemetry.observe_h2_rtt(
             Duration::from_millis(10),
             Duration::from_millis(12),
@@ -406,6 +407,17 @@ mod tests {
         telemetry.record_direct_dns_failure(DirectDnsReasonCode::Timeout, true);
         let proto = snapshot_to_proto(&NetworkQualitySampler::new(telemetry).sample());
         assert_eq!(proto.connection_instance_id, connection.0.to_string());
+        let metrics = proto.metrics.as_ref().unwrap();
+        assert_eq!(metrics.h2_stream_receive_window_bytes, 4 * 1024 * 1024);
+        assert_eq!(metrics.h2_connection_receive_window_bytes, 8 * 1024 * 1024);
+        assert_eq!(
+            metrics.interval_loss_availability,
+            v1::MetricAvailability::Unsupported as i32
+        );
+        assert_eq!(
+            metrics.congestion_window_availability,
+            v1::MetricAvailability::Unsupported as i32
+        );
         assert_eq!(
             proto.direct_dns.as_ref().unwrap().last_reason_code,
             "timeout"

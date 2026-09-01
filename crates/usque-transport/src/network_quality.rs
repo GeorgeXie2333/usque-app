@@ -289,6 +289,9 @@ pub struct H2FlowControlQuality {
     pub capacity_stall_max: Duration,
     pub capacity_wait_cancelled: u64,
     pub capacity_wait_errors: u64,
+    pub ping_timeout_count: u64,
+    pub ping_error_count: u64,
+    pub ping_consecutive_failures: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -339,6 +342,8 @@ struct TimedH3Sample {
 
 #[derive(Debug, Clone, Default)]
 struct H2State {
+    ping_supported: Option<bool>,
+    rtt_stale: bool,
     observed_at: Option<Instant>,
     latest_rtt: Option<Duration>,
     smoothed_rtt: Option<Duration>,
@@ -460,6 +465,7 @@ struct NetworkQualityTelemetryInner {
     queues: RwLock<[Arc<QueueMetrics>; 8]>,
     udp_io: UdpIoCounters,
     allocations: AllocationCounters,
+    active_h2_ping_tasks: AtomicU64,
 }
 
 impl std::fmt::Debug for NetworkQualityTelemetry {
@@ -480,6 +486,7 @@ impl Default for NetworkQualityTelemetry {
                 queues: RwLock::new(queues),
                 udp_io: UdpIoCounters::default(),
                 allocations: AllocationCounters::default(),
+                active_h2_ping_tasks: AtomicU64::new(0),
             }),
         }
     }
@@ -578,20 +585,82 @@ impl NetworkQualityTelemetry {
             return;
         }
         state.h2.observed_at = Some(Instant::now());
+        state.h2.ping_supported = Some(true);
+        state.h2.rtt_stale = false;
         state.h2.latest_rtt = Some(latest);
         state.h2.smoothed_rtt = Some(smoothed);
         state.h2.minimum_rtt = Some(minimum);
         state.h2.variance = Some(variance);
+        state.h2.flow_control.ping_consecutive_failures = 0;
     }
 
-    pub fn set_h2_flow_control_windows(&self, stream: u32, connection: u32) {
+    pub fn configure_h2_connection(
+        &self,
+        stream_receive_window: u32,
+        connection_receive_window: u32,
+        ping_supported: bool,
+    ) {
         let mut state = self.state_write();
-        state.h2.flow_control.stream_receive_window_bytes = stream;
-        state.h2.flow_control.connection_receive_window_bytes = connection;
+        if state.transport != Some(Transport::Http2) || state.connection_id.is_none() {
+            return;
+        }
+        state.h2.flow_control.stream_receive_window_bytes = stream_receive_window;
+        state.h2.flow_control.connection_receive_window_bytes = connection_receive_window;
+        state.h2.ping_supported = Some(ping_supported);
+    }
+
+    pub fn record_h2_ping_timeout(&self) {
+        let mut state = self.state_write();
+        if state.transport != Some(Transport::Http2) || state.connection_id.is_none() {
+            return;
+        }
+        state.h2.rtt_stale = true;
+        state.h2.flow_control.ping_timeout_count =
+            state.h2.flow_control.ping_timeout_count.saturating_add(1);
+        state.h2.flow_control.ping_consecutive_failures = state
+            .h2
+            .flow_control
+            .ping_consecutive_failures
+            .saturating_add(1);
+    }
+
+    pub fn record_h2_ping_error(&self) {
+        let mut state = self.state_write();
+        if state.transport != Some(Transport::Http2) || state.connection_id.is_none() {
+            return;
+        }
+        state.h2.rtt_stale = true;
+        state.h2.flow_control.ping_error_count =
+            state.h2.flow_control.ping_error_count.saturating_add(1);
+        state.h2.flow_control.ping_consecutive_failures = state
+            .h2
+            .flow_control
+            .ping_consecutive_failures
+            .saturating_add(1);
+    }
+
+    pub(crate) fn h2_ping_task_started(&self) {
+        self.inner
+            .active_h2_ping_tasks
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn h2_ping_task_finished(&self) {
+        self.inner
+            .active_h2_ping_tasks
+            .fetch_sub(1, Ordering::Relaxed);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn active_h2_ping_tasks(&self) -> u64 {
+        self.inner.active_h2_ping_tasks.load(Ordering::Relaxed)
     }
 
     pub fn record_h2_capacity_stall(&self, duration: Duration) {
         let mut state = self.state_write();
+        if state.transport != Some(Transport::Http2) || state.connection_id.is_none() {
+            return;
+        }
         let flow = &mut state.h2.flow_control;
         flow.capacity_stall_count = flow.capacity_stall_count.saturating_add(1);
         flow.capacity_stall_total = flow.capacity_stall_total.saturating_add(duration);
@@ -600,6 +669,9 @@ impl NetworkQualityTelemetry {
 
     pub fn record_h2_capacity_wait_cancelled(&self) {
         let mut state = self.state_write();
+        if state.transport != Some(Transport::Http2) || state.connection_id.is_none() {
+            return;
+        }
         state.h2.flow_control.capacity_wait_cancelled = state
             .h2
             .flow_control
@@ -609,6 +681,9 @@ impl NetworkQualityTelemetry {
 
     pub fn record_h2_capacity_wait_error(&self) {
         let mut state = self.state_write();
+        if state.transport != Some(Transport::Http2) || state.connection_id.is_none() {
+            return;
+        }
         state.h2.flow_control.capacity_wait_errors =
             state.h2.flow_control.capacity_wait_errors.saturating_add(1);
     }
@@ -972,9 +1047,14 @@ impl NetworkQualitySampler {
                 )
             }
             (Some(_), Some(Transport::Http2)) => {
-                let stale = state.h2.observed_at.is_some_and(|observed| {
-                    sampled_at.saturating_duration_since(observed) > METRIC_STALE_AFTER
-                });
+                if state.h2.ping_supported == Some(false) {
+                    return (
+                        rtt_unsupported(),
+                        loss_unsupported(),
+                        congestion_unsupported(),
+                    );
+                }
+                let stale = state.h2.rtt_stale;
                 let h2_metric = |value: Option<Duration>| match (value, stale) {
                     (Some(value), true) => MetricValue::stale(Some(value)),
                     (Some(value), false) => MetricValue::available(value),
@@ -1061,6 +1141,11 @@ impl NetworkQualitySampler {
             self.history.pop_front();
         }
         self.history.push_back(signal);
+        if snapshot.transport == Some(Transport::Http2)
+            && snapshot.h2_flow_control.ping_consecutive_failures >= 3
+        {
+            return NetworkQualityLevel::Poor;
+        }
         if self.history.len() < QUALITY_MINIMUM_SAMPLES {
             return NetworkQualityLevel::LimitedData;
         }
@@ -1185,6 +1270,15 @@ fn rtt_not_ready() -> RttQuality {
         smoothed: MetricValue::not_ready(),
         minimum: MetricValue::not_ready(),
         variance: MetricValue::not_ready(),
+    }
+}
+
+fn rtt_unsupported() -> RttQuality {
+    RttQuality {
+        latest: MetricValue::unsupported(),
+        smoothed: MetricValue::unsupported(),
+        minimum: MetricValue::unsupported(),
+        variance: MetricValue::unsupported(),
     }
 }
 
@@ -1447,6 +1541,48 @@ mod tests {
                         && queue.oldest_age.availability == MetricAvailability::Unsupported
                 })
         );
+    }
+
+    #[test]
+    fn h2_ping_capability_and_failures_have_explicit_quality_states() {
+        let unsupported = NetworkQualityTelemetry::default();
+        unsupported.begin_connection(Transport::Http2, AddressFamily::Ipv4);
+        unsupported.configure_h2_connection(4 * 1024 * 1024, 8 * 1024 * 1024, false);
+        let snapshot = NetworkQualitySampler::new(unsupported).sample();
+        assert_eq!(
+            snapshot.rtt.smoothed.availability,
+            MetricAvailability::Unsupported
+        );
+        assert_eq!(
+            snapshot.h2_flow_control.stream_receive_window_bytes,
+            4 * 1024 * 1024
+        );
+        assert_eq!(
+            snapshot.h2_flow_control.connection_receive_window_bytes,
+            8 * 1024 * 1024
+        );
+
+        let telemetry = NetworkQualityTelemetry::default();
+        telemetry.begin_connection(Transport::Http2, AddressFamily::Ipv4);
+        telemetry.configure_h2_connection(4 * 1024 * 1024, 8 * 1024 * 1024, true);
+        telemetry.observe_h2_rtt(
+            Duration::from_millis(20),
+            Duration::from_millis(20),
+            Duration::from_millis(20),
+            Duration::ZERO,
+        );
+        telemetry.record_h2_ping_timeout();
+        telemetry.record_h2_ping_timeout();
+        telemetry.record_h2_ping_timeout();
+        let snapshot = NetworkQualitySampler::new(telemetry).sample();
+        assert_eq!(
+            snapshot.rtt.smoothed.availability,
+            MetricAvailability::Stale
+        );
+        assert_eq!(snapshot.rtt.smoothed.value, Some(Duration::from_millis(20)));
+        assert_eq!(snapshot.h2_flow_control.ping_timeout_count, 3);
+        assert_eq!(snapshot.h2_flow_control.ping_consecutive_failures, 3);
+        assert_eq!(snapshot.level, NetworkQualityLevel::Poor);
     }
 
     #[tokio::test(start_paused = true)]
