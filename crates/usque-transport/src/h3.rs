@@ -1,6 +1,5 @@
 use std::collections::VecDeque;
 use std::future::Future;
-use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket as StdUdpSocket};
 use std::pin::Pin;
 use std::sync::Arc;
@@ -14,6 +13,7 @@ use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, MissedTickBehavior, interval_at, sleep_until, timeout};
+use tokio_util::sync::CancellationToken;
 use tokio_util::task::AbortOnDropHandle;
 use usque_core::TransportStage;
 use usque_protocol::{IpDatagram, MAX_CAPSULE_PAYLOAD, PeerNetworkState};
@@ -28,6 +28,9 @@ use crate::packet_batch::{MAX_PACKET_BATCH_PACKETS, PacketBatch, PacketBatchResu
 use crate::queue_metrics::{QueueEntry, QueueKind, QueueMetrics};
 use crate::socket::{SocketProtector, noop_socket_protector, socket_handle};
 use crate::telemetry::{ConnectionAttemptTelemetry, ConnectionEventType};
+#[cfg(test)]
+use crate::udp_io::UdpBatchMode;
+use crate::udp_io::{SendDatagram, UDP_ACTOR_DRAIN_LIMIT, UdpBatchIo};
 
 const CONNECT_AUTHORITY: &[u8] = b"cloudflareaccess.com";
 const CONNECT_PATH: &[u8] = b"/";
@@ -47,7 +50,6 @@ const INCOMING_BATCH_CHANNEL_CAPACITY: usize =
     INBOUND_PACKET_CAPACITY / MAX_PACKET_BATCH_PACKETS - INBOUND_RESERVED_BATCHES;
 const OUTGOING_BATCH_CHANNEL_CAPACITY: usize = 1;
 const MAX_PENDING_WIRE_DATAGRAMS: usize = 64;
-const MAX_SOCKET_DRAIN: usize = 64;
 const PACKET_SEND_TIMEOUT: Duration = Duration::from_secs(10);
 const QUALITY_SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
 
@@ -495,7 +497,7 @@ async fn drive_h3_actor(
     datagram_queue: &Arc<QueueMetrics>,
     wire_queue: &Arc<QueueMetrics>,
 ) -> Result<(), TransportError> {
-    let local_address = socket.local_addr()?;
+    let udp_io = UdpBatchIo::new(socket, quality.clone())?;
     let mut http3 = None;
     let mut request_stream_id = None;
     let mut response_accepted = false;
@@ -506,8 +508,8 @@ async fn drive_h3_actor(
     let mut wire_datagrams = VecDeque::with_capacity(MAX_PENDING_WIRE_DATAGRAMS);
     let mut datagram_entries = VecDeque::with_capacity(DATAGRAM_SEND_QUEUE_CAPACITY);
     let mut free_wire_buffers = Vec::new();
-    quality.record_fresh_allocation();
-    let mut receive_buffer = vec![0u8; 65_535];
+    let mut receive_batch = udp_io.new_recv_batch();
+    let io_cancel = CancellationToken::new();
     let mut incoming_batch = PacketBatch::new();
     let mut inbound_queue_drop_count = 0_u64;
     let mut keepalive = interval_at(Instant::now() + KEEPALIVE_INTERVAL, KEEPALIVE_INTERVAL);
@@ -633,42 +635,24 @@ async fn drive_h3_actor(
         let wire_is_due = wire_datagrams
             .front()
             .is_some_and(|datagram| datagram.send_info.at <= StdInstant::now());
+        let wire_fits_quantum = wire_datagrams
+            .front()
+            .is_some_and(|datagram| datagram.bytes.len() <= send_quantum);
 
         tokio::select! {
-            received = socket.recv_from(&mut receive_buffer) => {
-                let (length, from) = received?;
-                quality.record_udp_recv(1);
-                let dropped = receive_quic_datagram(
-                    &mut connection,
-                    &mut receive_buffer[..length],
-                    from,
-                    local_address,
-                )?;
-                record_inbound_queue_drops(dropped, &mut inbound_queue_drop_count);
-                for _ in 1..MAX_SOCKET_DRAIN {
-                    match socket.try_recv_from(&mut receive_buffer) {
-                        Ok((length, from)) => {
-                            quality.record_udp_recv(1);
-                            let dropped = receive_quic_datagram(
-                                &mut connection,
-                                &mut receive_buffer[..length],
-                                from,
-                                local_address,
-                            )?;
-                            record_inbound_queue_drops(
-                                dropped,
-                                &mut inbound_queue_drop_count,
-                            );
-                        }
-                        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                            quality.record_udp_recv(0);
-                            break;
-                        }
-                        Err(error) => {
-                            quality.record_udp_recv(0);
-                            return Err(error.into());
-                        }
-                    }
+            received = udp_io.recv_batch(&mut receive_batch, &io_cancel) => {
+                let received = received?;
+                debug_assert_eq!(received, receive_batch.len());
+                for mut datagram in receive_batch.drain() {
+                    let source = datagram.source;
+                    let destination = datagram.destination;
+                    let dropped = receive_quic_datagram(
+                        &mut connection,
+                        datagram.payload_mut(),
+                        source,
+                        destination,
+                    )?;
+                    record_inbound_queue_drops(dropped, &mut inbound_queue_drop_count);
                 }
             }
             batch = outgoing_rx.recv(), if ready && pending_batch.is_none() => {
@@ -677,16 +661,16 @@ async fn drive_h3_actor(
                     None => return Ok(()),
                 }
             }
-            writable = socket.writable(), if wire_is_due => {
-                writable?;
-                send_due_wire_datagrams(
-                    &socket,
-                    &mut wire_datagrams,
-                    &mut free_wire_buffers,
-                    send_quantum,
-                    wire_queue,
-                    quality,
-                )?;
+            sent = send_due_wire_datagrams(
+                &udp_io,
+                &mut wire_datagrams,
+                &mut free_wire_buffers,
+                send_quantum,
+                wire_queue,
+                quality,
+                &io_cancel,
+            ), if wire_is_due && wire_fits_quantum => {
+                sent?;
             }
             _ = sleep_until(wire_deadline), if !wire_datagrams.is_empty() && !wire_is_due => {}
             _ = sleep_until(quic_deadline) => connection.on_timeout(),
@@ -921,7 +905,7 @@ fn queue_pending_batch(
         let Some(outgoing) = pending_batch.as_mut() else {
             return Ok(());
         };
-        for _ in 0..MAX_SOCKET_DRAIN {
+        for _ in 0..UDP_ACTOR_DRAIN_LIMIT {
             if connection.is_dgram_send_queue_full() {
                 break;
             }
@@ -1113,64 +1097,89 @@ fn generate_wire_datagrams(
     Ok(())
 }
 
-fn send_due_wire_datagrams(
-    socket: &UdpSocket,
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the actor send step keeps socket, ordered queues, quantum, telemetry, and cancellation explicit"
+)]
+async fn send_due_wire_datagrams(
+    udp_io: &UdpBatchIo,
     pending: &mut VecDeque<WireDatagram>,
     free_buffers: &mut Vec<Vec<u8>>,
     send_quantum: usize,
     wire_queue: &QueueMetrics,
     quality: &NetworkQualityTelemetry,
+    cancel: &CancellationToken,
 ) -> Result<(), TransportError> {
-    if !pending
-        .front()
-        .is_some_and(|datagram| datagram.send_info.at <= StdInstant::now())
-    {
+    let Some(first) = pending.front() else {
+        return Ok(());
+    };
+    let now = StdInstant::now();
+    if first.send_info.at > now {
         return Ok(());
     }
+    let source = first.send_info.from;
+    let destination = first.send_info.to;
     let mut sent_bytes = 0usize;
-    for _ in 0..MAX_SOCKET_DRAIN {
-        let Some(datagram) = pending.front() else {
-            break;
-        };
-        if datagram.send_info.at > StdInstant::now() {
+    let empty = SendDatagram {
+        payload: &[],
+        source,
+        destination,
+        due_at: now,
+    };
+    let mut batch = [empty; UDP_ACTOR_DRAIN_LIMIT];
+    let mut batch_len = 0;
+    for datagram in pending.iter().take(UDP_ACTOR_DRAIN_LIMIT) {
+        if datagram.send_info.at > now
+            || datagram.send_info.from != source
+            || datagram.send_info.to != destination
+        {
             break;
         }
         if sent_bytes.saturating_add(datagram.bytes.len()) > send_quantum {
             break;
         }
-        match socket.try_send_to(&datagram.bytes, datagram.send_info.to) {
-            Ok(sent) if sent == datagram.bytes.len() => {
-                quality.record_udp_send(1);
-                sent_bytes = sent_bytes.saturating_add(sent);
-                let datagram = pending
-                    .pop_front()
-                    .expect("front exists after successful QUIC send");
-                datagram.queue_entry.complete();
-                if let Some(next) = pending.front() {
-                    wire_queue.observe_oldest_entry(&next.queue_entry);
-                }
-                recycle_wire_buffer(free_buffers, datagram.bytes, quality);
-            }
-            Ok(_) => {
-                quality.record_udp_send(0);
-                quality.record_udp_partial_batch();
-                return Err(io::Error::new(
-                    io::ErrorKind::WriteZero,
-                    "UDP socket sent a partial QUIC datagram",
-                )
-                .into());
-            }
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                quality.record_udp_send(0);
-                break;
-            }
-            Err(error) => {
-                quality.record_udp_send(0);
-                return Err(error.into());
-            }
-        }
+        batch[batch_len] = SendDatagram {
+            payload: &datagram.bytes,
+            source: datagram.send_info.from,
+            destination: datagram.send_info.to,
+            due_at: datagram.send_info.at,
+        };
+        batch_len += 1;
+        sent_bytes = sent_bytes.saturating_add(datagram.bytes.len());
     }
+    if batch_len == 0 {
+        return Ok(());
+    }
+    let sent = udp_io.send_batch(&batch[..batch_len], cancel).await?;
+    if sent > batch_len {
+        return Err(TransportError::Http3(
+            "UDP batch backend reported more sends than requested".to_owned(),
+        ));
+    }
+    if sent < batch_len {
+        quality.record_udp_partial_batch();
+    }
+    complete_wire_sends(pending, free_buffers, sent, wire_queue, quality);
     Ok(())
+}
+
+fn complete_wire_sends(
+    pending: &mut VecDeque<WireDatagram>,
+    free_buffers: &mut Vec<Vec<u8>>,
+    sent: usize,
+    wire_queue: &QueueMetrics,
+    quality: &NetworkQualityTelemetry,
+) {
+    for _ in 0..sent {
+        let datagram = pending
+            .pop_front()
+            .expect("UDP batch completion cannot exceed its requested prefix");
+        datagram.queue_entry.complete();
+        recycle_wire_buffer(free_buffers, datagram.bytes, quality);
+    }
+    if let Some(next) = pending.front() {
+        wire_queue.observe_oldest_entry(&next.queue_entry);
+    }
 }
 
 fn take_wire_buffer(free_buffers: &mut Vec<Vec<u8>>, quality: &NetworkQualityTelemetry) -> Vec<u8> {
@@ -1452,12 +1461,15 @@ mod tests {
     #[tokio::test]
     async fn udp_send_drain_respects_send_quantum_and_pacing_deadline() {
         let receiver = UdpSocket::bind("127.0.0.1:0").await.unwrap();
-        let sender = UdpSocket::bind("127.0.0.1:0").await.unwrap();
-        let from = sender.local_addr().unwrap();
+        let sender_socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let from = sender_socket.local_addr().unwrap();
         let to = receiver.local_addr().unwrap();
         let due = StdInstant::now();
         let future = due + Duration::from_secs(60);
         let quality = NetworkQualityTelemetry::default();
+        let sender =
+            UdpBatchIo::with_mode(sender_socket, UdpBatchMode::Portable, quality.clone()).unwrap();
+        let cancel = CancellationToken::new();
         let wire_queue = QueueMetrics::new(
             QueueKind::H3WireSend,
             MAX_PENDING_WIRE_DATAGRAMS,
@@ -1486,9 +1498,17 @@ mod tests {
         ]);
         let mut free = Vec::new();
 
-        sender.writable().await.unwrap();
-        send_due_wire_datagrams(&sender, &mut pending, &mut free, 150, &wire_queue, &quality)
-            .unwrap();
+        send_due_wire_datagrams(
+            &sender,
+            &mut pending,
+            &mut free,
+            150,
+            &wire_queue,
+            &quality,
+            &cancel,
+        )
+        .await
+        .unwrap();
         assert_eq!(pending.len(), 2);
         let mut received = [0u8; 128];
         let length = timeout(Duration::from_secs(1), receiver.recv(&mut received))
@@ -1497,11 +1517,52 @@ mod tests {
             .unwrap();
         assert_eq!(&received[..length], &[1; 100]);
 
-        sender.writable().await.unwrap();
-        send_due_wire_datagrams(&sender, &mut pending, &mut free, 500, &wire_queue, &quality)
-            .unwrap();
+        send_due_wire_datagrams(
+            &sender,
+            &mut pending,
+            &mut free,
+            500,
+            &wire_queue,
+            &quality,
+            &cancel,
+        )
+        .await
+        .unwrap();
         assert_eq!(pending.len(), 1);
         assert_eq!(pending.front().unwrap().bytes, vec![3; 100]);
+    }
+
+    #[test]
+    fn partial_batch_completion_pops_only_zero_one_or_n_sent_items() {
+        let quality = NetworkQualityTelemetry::default();
+        let wire_queue = QueueMetrics::new(QueueKind::H3WireSend, 8, 8_000);
+        let from: SocketAddr = "127.0.0.1:10000".parse().unwrap();
+        let to: SocketAddr = "127.0.0.1:20000".parse().unwrap();
+        let mut pending = VecDeque::new();
+        for marker in 1..=3 {
+            pending.push_back(WireDatagram {
+                bytes: vec![marker; 100],
+                send_info: quiche::SendInfo {
+                    from,
+                    to,
+                    at: StdInstant::now(),
+                },
+                queue_entry: wire_queue.start_entry(100),
+            });
+        }
+        let mut free = Vec::new();
+
+        complete_wire_sends(&mut pending, &mut free, 0, &wire_queue, &quality);
+        assert_eq!(pending.len(), 3);
+        assert_eq!(pending.front().unwrap().bytes[0], 1);
+
+        complete_wire_sends(&mut pending, &mut free, 1, &wire_queue, &quality);
+        assert_eq!(pending.len(), 2);
+        assert_eq!(pending.front().unwrap().bytes[0], 2);
+
+        complete_wire_sends(&mut pending, &mut free, 2, &wire_queue, &quality);
+        assert!(pending.is_empty());
+        assert_eq!(free.len(), 3);
     }
 
     #[tokio::test]

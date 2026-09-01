@@ -27,6 +27,7 @@ mod socks5;
 mod split_dns;
 mod telemetry;
 mod tunnel;
+mod udp_io;
 
 #[cfg(any(test, feature = "fault-injection"))]
 mod fault_injection;
@@ -61,6 +62,10 @@ pub use split_dns::{SPLIT_DNS_IPV4, SPLIT_DNS_IPV6};
 pub use telemetry::{
     CONNECTION_TIMELINE_CAPACITY, ConnectionEvent, ConnectionEventType, ConnectionMetrics,
     ConnectionTelemetry, ConnectionTimelineSnapshot,
+};
+pub use udp_io::{
+    PooledUdpBuffer, ReceivedDatagram, RecvBatch, SendDatagram, UDP_RECEIVE_SLOT_SIZE,
+    UdpBatchFallbackReason, UdpBatchIo, UdpBatchMode,
 };
 pub use usque_protocol::PeerNetworkState;
 
