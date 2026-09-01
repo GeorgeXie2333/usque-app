@@ -23,6 +23,9 @@ use crate::h2::{
     MasqueTlsIdentity, PinState, TransportError, configure_client_identity_and_pin,
     validate_ip_packet,
 };
+use crate::h3_buffer::{
+    DatagramEncodePool, H3BufferFactory, HTTP_DATAGRAM_BUFFER_CAPACITY, PooledDatagramBuffer,
+};
 use crate::network_quality::{H3MetricsSample, NetworkQualityTelemetry};
 use crate::packet_batch::{MAX_PACKET_BATCH_PACKETS, PacketBatch, PacketBatchResult};
 use crate::queue_metrics::{QueueEntry, QueueKind, QueueMetrics};
@@ -52,6 +55,8 @@ const OUTGOING_BATCH_CHANNEL_CAPACITY: usize = 1;
 const MAX_PENDING_WIRE_DATAGRAMS: usize = 64;
 const PACKET_SEND_TIMEOUT: Duration = Duration::from_secs(10);
 const QUALITY_SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
+
+type H3QuicConnection = quiche::Connection<H3BufferFactory>;
 
 /// An established Cloudflare CONNECT-IP stream over HTTP/3 and QUIC.
 pub struct H3Tunnel {
@@ -277,7 +282,7 @@ async fn connect_h3_once(
     let mut source_connection_id = [0u8; CONNECTION_ID_LENGTH];
     boring::rand::rand_bytes(&mut source_connection_id)?;
     let source_connection_id = quiche::ConnectionId::from_ref(&source_connection_id);
-    let connection = quiche::connect(
+    let connection = quiche::connect_with_buffer_factory::<H3BufferFactory>(
         Some(sni),
         &source_connection_id,
         local_address,
@@ -442,7 +447,7 @@ impl StartupFailure {
 )]
 async fn run_h3_actor(
     socket: UdpSocket,
-    connection: quiche::Connection,
+    connection: H3QuicConnection,
     h3_config: quiche::h3::Config,
     outgoing_rx: mpsc::Receiver<OutgoingBatch>,
     incoming_tx: mpsc::Sender<PacketBatch>,
@@ -486,7 +491,7 @@ async fn run_h3_actor(
 )]
 async fn drive_h3_actor(
     socket: UdpSocket,
-    mut connection: quiche::Connection,
+    mut connection: H3QuicConnection,
     h3_config: quiche::h3::Config,
     mut outgoing_rx: mpsc::Receiver<OutgoingBatch>,
     incoming_tx: mpsc::Sender<PacketBatch>,
@@ -507,6 +512,7 @@ async fn drive_h3_actor(
     let mut pending_batch: Option<OutgoingBatch> = None;
     let mut wire_datagrams = VecDeque::with_capacity(MAX_PENDING_WIRE_DATAGRAMS);
     let mut datagram_entries = VecDeque::with_capacity(DATAGRAM_SEND_QUEUE_CAPACITY);
+    let encode_pool = DatagramEncodePool::new(quality.clone());
     let mut free_wire_buffers = Vec::new();
     let mut receive_batch = udp_io.new_recv_batch();
     let io_cancel = CancellationToken::new();
@@ -608,6 +614,7 @@ async fn drive_h3_actor(
                 &mut datagram_entries,
                 datagram_queue,
                 quality,
+                &encode_pool,
             )?;
         }
 
@@ -704,7 +711,7 @@ fn connect_headers() -> Vec<quiche::h3::Header> {
 
 fn process_http3_events(
     http3: &mut quiche::h3::Connection,
-    connection: &mut quiche::Connection,
+    connection: &mut H3QuicConnection,
     request_stream_id: Option<u64>,
     response_accepted: &mut bool,
     control: &mut ConnectIpControlPlane,
@@ -785,7 +792,7 @@ fn process_http3_events(
 
 fn flush_control_capsules(
     http3: &mut quiche::h3::Connection,
-    connection: &mut quiche::Connection,
+    connection: &mut H3QuicConnection,
     stream_id: u64,
     pending: &mut VecDeque<PendingControlCapsule>,
 ) -> Result<(), TransportError> {
@@ -826,7 +833,7 @@ fn response_status(headers: &[quiche::h3::Header]) -> Result<Option<u16>, Transp
 }
 
 fn drain_received_datagrams(
-    connection: &mut quiche::Connection,
+    connection: &mut H3QuicConnection,
     request_stream_id: u64,
     ready: bool,
     incoming_tx: &mpsc::Sender<PacketBatch>,
@@ -855,7 +862,7 @@ fn drain_received_datagrams(
         if !ready {
             continue;
         }
-        let Some(packet) = decode_http_datagram_bytes(request_stream_id, Bytes::from(datagram))?
+        let Some(packet) = decode_http_datagram_bytes(request_stream_id, datagram.into_bytes())?
         else {
             continue;
         };
@@ -893,13 +900,18 @@ fn flush_incoming_batch(
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the H3 queue step keeps connection, ordered accounting, telemetry, and its bounded encode pool explicit"
+)]
 fn queue_pending_batch(
-    connection: &mut quiche::Connection,
+    connection: &mut H3QuicConnection,
     stream_id: u64,
     pending_batch: &mut Option<OutgoingBatch>,
     datagram_entries: &mut VecDeque<QueueEntry>,
     datagram_queue: &Arc<QueueMetrics>,
     quality: &NetworkQualityTelemetry,
+    encode_pool: &DatagramEncodePool,
 ) -> Result<(), TransportError> {
     let completed = {
         let Some(outgoing) = pending_batch.as_mut() else {
@@ -913,15 +925,28 @@ fn queue_pending_batch(
                 break;
             };
             let packet_len = packet.len();
-            let datagram = encode_http_datagram(stream_id, packet)?;
-            let datagram_overhead = datagram.len().saturating_sub(packet_len);
-            let datagram_len = datagram.len();
-            quality.record_fresh_allocation();
+            let datagram_overhead = encoded_varint_len(stream_id / 4)?
+                + encoded_varint_len(usque_protocol::DEFAULT_CONTEXT_ID)?;
+            let maximum_datagram_size = connection.dgram_max_writable_len().ok_or_else(|| {
+                TransportError::Http3("HTTP Datagram writable length became unavailable".to_owned())
+            })?;
+            let maximum_packet_size = maximum_datagram_size.saturating_sub(datagram_overhead);
+            if packet_len > maximum_packet_size {
+                let packet = outgoing
+                    .batch
+                    .pop_front()
+                    .expect("front packet remains until DATAGRAM is rejected");
+                outgoing
+                    .result
+                    .oversized
+                    .push((packet, maximum_packet_size));
+                continue;
+            }
+            let Some(datagram) = encode_http_datagram(encode_pool, stream_id, packet)? else {
+                break;
+            };
+            let datagram_len = datagram.as_ref().len();
             quality.record_datagram_header_copy(datagram_overhead);
-            let maximum_packet_size = connection
-                .dgram_max_writable_len()
-                .map(|maximum| maximum.saturating_sub(datagram_overhead))
-                .unwrap_or_default();
             match connection.dgram_send_buf(datagram) {
                 Ok(()) => {
                     datagram_entries.push_back(datagram_queue.start_entry(datagram_len));
@@ -962,7 +987,7 @@ fn queue_pending_batch(
 }
 
 fn reconcile_datagram_queue(
-    connection: &quiche::Connection,
+    connection: &H3QuicConnection,
     entries: &mut VecDeque<QueueEntry>,
     metrics: &QueueMetrics,
 ) {
@@ -978,7 +1003,7 @@ fn reconcile_datagram_queue(
 }
 
 fn observe_h3_metrics(
-    connection: &quiche::Connection,
+    connection: &H3QuicConnection,
     attempt: &ConnectionAttemptTelemetry,
     datagram_receive_drops: u64,
 ) {
@@ -1011,7 +1036,7 @@ fn usize_to_u64(value: usize) -> u64 {
 }
 
 fn receive_quic_datagram(
-    connection: &mut quiche::Connection,
+    connection: &mut H3QuicConnection,
     datagram: &mut [u8],
     from: SocketAddr,
     to: SocketAddr,
@@ -1057,7 +1082,7 @@ struct WireDatagram {
 }
 
 fn generate_wire_datagrams(
-    connection: &mut quiche::Connection,
+    connection: &mut H3QuicConnection,
     pending: &mut VecDeque<WireDatagram>,
     free_buffers: &mut Vec<Vec<u8>>,
     send_quantum: usize,
@@ -1211,13 +1236,29 @@ fn recycle_wire_buffer(
     }
 }
 
-fn encode_http_datagram(stream_id: u64, packet: &[u8]) -> Result<Vec<u8>, TransportError> {
+fn encode_http_datagram(
+    pool: &DatagramEncodePool,
+    stream_id: u64,
+    packet: &[u8],
+) -> Result<Option<PooledDatagramBuffer>, TransportError> {
     validate_ip_packet(packet)?;
-    let mut encoded = Vec::with_capacity(packet.len() + 16);
-    encode_varint(stream_id / 4, &mut encoded)?;
-    encode_varint(usque_protocol::DEFAULT_CONTEXT_ID, &mut encoded)?;
-    encoded.extend_from_slice(packet);
-    Ok(encoded)
+    let Some(mut encoded) = pool.take() else {
+        return Ok(None);
+    };
+    let required = encoded_varint_len(stream_id / 4)?
+        .saturating_add(encoded_varint_len(usque_protocol::DEFAULT_CONTEXT_ID)?)
+        .saturating_add(packet.len());
+    if required > HTTP_DATAGRAM_BUFFER_CAPACITY {
+        return Err(TransportError::Http3(
+            "HTTP Datagram exceeded the bounded encode buffer".to_owned(),
+        ));
+    }
+    let target = encoded.bytes_mut();
+    debug_assert!(target.is_empty());
+    encode_varint(stream_id / 4, target)?;
+    encode_varint(usque_protocol::DEFAULT_CONTEXT_ID, target)?;
+    target.extend_from_slice(packet);
+    Ok(Some(encoded))
 }
 
 fn decode_http_datagram_bytes(
@@ -1265,13 +1306,7 @@ fn decode_varint(buffer: &[u8]) -> Result<Option<(u64, usize)>, TransportError> 
 }
 
 fn encode_varint(value: u64, target: &mut Vec<u8>) -> Result<(), TransportError> {
-    let length = match value {
-        0..=63 => 1,
-        64..=16_383 => 2,
-        16_384..=1_073_741_823 => 4,
-        1_073_741_824..=4_611_686_018_427_387_903 => 8,
-        _ => return Err(TransportError::InvalidVarint),
-    };
+    let length = encoded_varint_len(value)?;
     let prefix = match length {
         1 => 0,
         2 => 1,
@@ -1290,7 +1325,17 @@ fn encode_varint(value: u64, target: &mut Vec<u8>) -> Result<(), TransportError>
     Ok(())
 }
 
-fn connection_closed_error(connection: &quiche::Connection) -> TransportError {
+fn encoded_varint_len(value: u64) -> Result<usize, TransportError> {
+    Ok(match value {
+        0..=63 => 1,
+        64..=16_383 => 2,
+        16_384..=1_073_741_823 => 4,
+        1_073_741_824..=4_611_686_018_427_387_903 => 8,
+        _ => return Err(TransportError::InvalidVarint),
+    })
+}
+
+fn connection_closed_error(connection: &H3QuicConnection) -> TransportError {
     if let Some(peer_error) = connection.peer_error() {
         let reason = String::from_utf8_lossy(&peer_error.reason);
         if !peer_error.is_app && peer_error.error_code == 0x0a {
@@ -1331,6 +1376,25 @@ mod tests {
         ]
     }
 
+    fn ipv4_packet_with_length(length: usize) -> Vec<u8> {
+        assert!((20..=u16::MAX as usize).contains(&length));
+        let mut packet = vec![0_u8; length];
+        packet[0] = 0x45;
+        packet[2..4].copy_from_slice(&(length as u16).to_be_bytes());
+        packet[8] = 64;
+        packet[9] = 17;
+        packet[12..16].copy_from_slice(&[1, 1, 1, 1]);
+        packet[16..20].copy_from_slice(&[8, 8, 8, 8]);
+        packet
+    }
+
+    fn encode_for_test(stream_id: u64, packet: &[u8]) -> PooledDatagramBuffer {
+        let pool = DatagramEncodePool::new(NetworkQualityTelemetry::default());
+        encode_http_datagram(&pool, stream_id, packet)
+            .unwrap()
+            .expect("test encode pool has capacity")
+    }
+
     #[tokio::test]
     async fn dropping_driver_wait_aborts_the_old_actor() {
         let (started_tx, started_rx) = oneshot::channel();
@@ -1357,14 +1421,17 @@ mod tests {
     #[test]
     fn http_datagram_contains_quarter_stream_and_context_ids() {
         let packet = ipv4_packet();
-        let encoded = encode_http_datagram(8, &packet).unwrap();
-        assert_eq!(decode_varint(&encoded).unwrap(), Some((2, 1)));
-        assert_eq!(decode_varint(&encoded[1..]).unwrap(), Some((0, 1)));
+        let encoded = encode_for_test(8, &packet);
+        assert_eq!(decode_varint(encoded.as_ref()).unwrap(), Some((2, 1)));
+        assert_eq!(decode_varint(&encoded.as_ref()[1..]).unwrap(), Some((0, 1)));
         assert_eq!(
-            decode_http_datagram(8, &encoded).unwrap().unwrap().as_ref(),
+            decode_http_datagram(8, encoded.as_ref())
+                .unwrap()
+                .unwrap()
+                .as_ref(),
             packet
         );
-        assert!(decode_http_datagram(4, &encoded).unwrap().is_none());
+        assert!(decode_http_datagram(4, encoded.as_ref()).unwrap().is_none());
     }
 
     #[test]
@@ -1388,24 +1455,39 @@ mod tests {
             encode_varint(quarter_stream_id, &mut reference).unwrap();
             reference.extend_from_slice(&payload);
 
-            assert_eq!(encode_http_datagram(stream_id, &packet).unwrap(), reference);
+            assert_eq!(encode_for_test(stream_id, &packet).as_ref(), reference);
         }
     }
 
     #[test]
     fn owned_http_datagram_decode_reuses_the_receive_allocation() {
         let packet = ipv4_packet();
-        let encoded = encode_http_datagram(8, &packet).unwrap();
-        let allocation = encoded.as_ptr() as usize;
-        let (_, stream_prefix) = decode_varint(&encoded).unwrap().unwrap();
-        let (_, context_prefix) = decode_varint(&encoded[stream_prefix..]).unwrap().unwrap();
+        let encoded = encode_for_test(8, &packet);
+        let received = PooledDatagramBuffer::from(encoded.as_ref().to_vec()).into_bytes();
+        let allocation = received.as_ptr() as usize;
+        let (_, stream_prefix) = decode_varint(&received).unwrap().unwrap();
+        let (_, context_prefix) = decode_varint(&received[stream_prefix..]).unwrap().unwrap();
         let expected_payload = allocation + stream_prefix + context_prefix;
 
-        let decoded = decode_http_datagram_bytes(8, Bytes::from(encoded))
-            .unwrap()
-            .unwrap();
+        let decoded = decode_http_datagram_bytes(8, received).unwrap().unwrap();
         assert_eq!(decoded.as_ptr() as usize, expected_payload);
         assert_eq!(decoded.as_ref(), packet);
+    }
+
+    #[test]
+    fn encode_pool_handles_maximum_empty_and_oversized_packets() {
+        let pool = DatagramEncodePool::new(NetworkQualityTelemetry::default());
+        assert!(encode_http_datagram(&pool, 0, &[]).is_err());
+
+        let maximum = ipv4_packet_with_length(HTTP_DATAGRAM_BUFFER_CAPACITY - 2);
+        let encoded = encode_http_datagram(&pool, 0, &maximum)
+            .unwrap()
+            .expect("pool has one buffer");
+        assert_eq!(encoded.as_ref().len(), HTTP_DATAGRAM_BUFFER_CAPACITY);
+        drop(encoded);
+
+        let oversized = ipv4_packet_with_length(HTTP_DATAGRAM_BUFFER_CAPACITY - 1);
+        assert!(encode_http_datagram(&pool, 0, &oversized).is_err());
     }
 
     #[test]

@@ -10,6 +10,7 @@ mod dns;
 mod geo_direct;
 mod h2;
 mod h3;
+mod h3_buffer;
 mod http_proxy;
 mod icmp;
 mod masque_runtime;

@@ -1219,7 +1219,7 @@ fn start_packet_pumps(
                                 let send = tokio::select! {
                                     biased;
                                     _ = pump_cancel.cancelled() => return,
-                                    result = tun_io.send_packet(&packet) => result,
+                                    result = tun_io.send_owned_packet(Bytes::from(packet)) => result,
                                 };
                                 if let Err(error) = send {
                                     if !pump_cancel.is_cancelled() {

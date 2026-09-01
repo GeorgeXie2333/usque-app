@@ -44,15 +44,20 @@ pub struct MasqueTunIo {
 }
 
 impl MasqueTunIo {
+    /// Borrowed convenience path for low-frequency callers and tests. Platform
+    /// packet pumps must prefer [`Self::send_owned_packet`].
     pub async fn send_packet(&self, packet: &[u8]) -> Result<(), TransportError> {
         crate::h2::validate_ip_packet(packet)?;
         self.quality.record_borrowed_to_owned_copy(packet.len());
+        self.send_owned_packet(Bytes::copy_from_slice(packet)).await
+    }
+
+    /// Transfers an already-owned packet without allocating or copying it.
+    pub async fn send_owned_packet(&self, packet: Bytes) -> Result<(), TransportError> {
+        crate::h2::validate_ip_packet(&packet)?;
+        let packet_len = packet.len();
         self.outgoing
-            .send_cancellable(
-                Bytes::copy_from_slice(packet),
-                packet.len(),
-                &self.cancellation,
-            )
+            .send_cancellable(packet, packet_len, &self.cancellation)
             .await
             .map_err(|error| match error.kind {
                 TrackedSendErrorKind::Closed
@@ -60,6 +65,10 @@ impl MasqueTunIo {
                 | TrackedSendErrorKind::Full
                 | TrackedSendErrorKind::ByteLimit => TransportError::TunnelClosed,
             })
+    }
+
+    pub fn record_platform_packet_buffer_allocation(&self) {
+        self.quality.record_fresh_allocation();
     }
 
     pub async fn receive_packet(&mut self) -> Result<Bytes, TransportError> {
@@ -492,17 +501,21 @@ impl MasqueRuntime {
         self.tun_sink.send_replace(None);
     }
 
+    /// Borrowed convenience path; steady-state producers should transfer
+    /// ownership with [`Self::send_owned_packet`].
     pub async fn send_packet(&self, packet: &[u8]) -> Result<(), TransportError> {
         crate::h2::validate_ip_packet(packet)?;
         self.quality.record_borrowed_to_owned_copy(packet.len());
+        self.send_owned_packet(Bytes::copy_from_slice(packet)).await
+    }
+
+    pub async fn send_owned_packet(&self, packet: Bytes) -> Result<(), TransportError> {
+        crate::h2::validate_ip_packet(&packet)?;
+        let packet_len = packet.len();
         self.raw_outgoing
             .as_ref()
             .ok_or(TransportError::TunnelClosed)?
-            .send_cancellable(
-                Bytes::copy_from_slice(packet),
-                packet.len(),
-                &self.cancellation,
-            )
+            .send_cancellable(packet, packet_len, &self.cancellation)
             .await
             .map_err(|error| match error.kind {
                 TrackedSendErrorKind::Closed
@@ -1310,6 +1323,37 @@ mod tests {
         assert_eq!(outgoing_rx.recv().await.unwrap().as_ref(), packet);
         second_send.await.unwrap();
         assert_eq!(outgoing_rx.recv().await.unwrap().as_ref(), packet);
+    }
+
+    #[tokio::test]
+    async fn owned_tun_send_preserves_allocation_and_skips_borrowed_copy_metric() {
+        let (io, mut outgoing_rx, _incoming_tx) = test_tun_io(2, 1);
+        let quality = io.quality.clone();
+        let packet = mux_udp_packet(50_000);
+        let allocation = packet.as_ptr();
+
+        io.send_owned_packet(packet).await.unwrap();
+        let received = outgoing_rx.recv().await.unwrap();
+
+        assert_eq!(received.as_ptr(), allocation);
+        assert_eq!(
+            crate::network_quality::NetworkQualitySampler::new(quality)
+                .sample()
+                .allocations
+                .borrowed_to_owned_copy_bytes,
+            0
+        );
+
+        let borrowed = mux_udp_packet(50_001);
+        io.send_packet(&borrowed).await.unwrap();
+        let _ = outgoing_rx.recv().await.unwrap();
+        assert_eq!(
+            crate::network_quality::NetworkQualitySampler::new(io.quality.clone())
+                .sample()
+                .allocations
+                .borrowed_to_owned_copy_bytes,
+            borrowed.len() as u64
+        );
     }
 
     #[tokio::test]

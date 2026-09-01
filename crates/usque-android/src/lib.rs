@@ -2396,6 +2396,8 @@ impl NativeSnapshot {
 
 #[cfg(target_os = "android")]
 mod android_runtime;
+#[cfg(any(test, target_os = "android"))]
+mod tun_read_slab;
 
 fn start_engine(
     tun_file_descriptor: jint,

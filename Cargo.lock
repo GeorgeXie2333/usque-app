@@ -2717,6 +2717,7 @@ name = "usque-android"
 version = "0.2.3"
 dependencies = [
  "async-trait",
+ "bytes",
  "ipnet",
  "jni",
  "libc",

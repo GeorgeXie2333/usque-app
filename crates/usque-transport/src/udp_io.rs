@@ -25,10 +25,13 @@ mod unix_batch;
 /// sentinel byte solely to turn otherwise-silent truncation into a hard error.
 pub const UDP_RECEIVE_SLOT_SIZE: usize = 2_048;
 const PORTABLE_RECEIVE_STORAGE_SIZE: usize = UDP_RECEIVE_SLOT_SIZE + 1;
-#[cfg(any(target_os = "android", target_os = "linux"))]
 pub(crate) const UDP_BATCH_SIZE: usize = 32;
 pub(crate) const UDP_ACTOR_DRAIN_LIMIT: usize = 64;
-const RECEIVE_POOL_LIMIT: usize = UDP_ACTOR_DRAIN_LIMIT;
+// Audited for the PR-08 maximum of active, probing, and draining sockets. The
+// current H3 actor owns one socket; the future socket set can share this pool.
+const MAX_UDP_SOCKET_COUNT: usize = 3;
+const RECEIVE_POOL_LIMIT: usize = UDP_BATCH_SIZE * MAX_UDP_SOCKET_COUNT * 2;
+const RECEIVE_POOL_BYTE_BUDGET: usize = RECEIVE_POOL_LIMIT * PORTABLE_RECEIVE_STORAGE_SIZE;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
@@ -109,6 +112,7 @@ impl UdpBufferPool {
         PooledUdpBuffer {
             storage: Some(storage),
             pool: Arc::clone(self),
+            quality: quality.clone(),
         }
     }
 
@@ -142,6 +146,7 @@ impl Drop for UdpBufferPool {
 pub struct PooledUdpBuffer {
     storage: Option<Box<[u8; PORTABLE_RECEIVE_STORAGE_SIZE]>>,
     pool: Arc<UdpBufferPool>,
+    quality: NetworkQualityTelemetry,
 }
 
 impl PooledUdpBuffer {
@@ -188,6 +193,7 @@ impl Drop for PooledUdpBuffer {
     fn drop(&mut self) {
         if let Some(storage) = self.storage.take() {
             self.pool.recycle(storage);
+            self.quality.record_buffer_recycle();
         }
     }
 }
@@ -286,6 +292,7 @@ impl std::fmt::Debug for UdpBatchIo {
             .debug_struct("UdpBatchIo")
             .field("mode", &self.mode())
             .field("fallback_reason", &self.fallback_reason())
+            .field("receive_pool_byte_budget", &RECEIVE_POOL_BYTE_BUDGET)
             .finish_non_exhaustive()
     }
 }
@@ -777,6 +784,7 @@ mod tests {
 
     #[tokio::test]
     async fn pooled_buffers_are_all_reclaimed_when_the_socket_closes() {
+        assert_eq!(RECEIVE_POOL_LIMIT, 192);
         let quality = NetworkQualityTelemetry::default();
         let io = UdpBatchIo::with_mode(
             UdpSocket::bind("127.0.0.1:0").await.unwrap(),

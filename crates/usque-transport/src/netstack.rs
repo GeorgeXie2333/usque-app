@@ -466,6 +466,8 @@ pub struct ManagedTunnelSender {
 }
 
 impl ManagedTunnelSender {
+    /// Borrowed convenience path for low-frequency callers. Packet pumps use
+    /// [`Self::send_owned_packet`] to retain the source allocation.
     pub async fn send_packet(&self, packet: &[u8]) -> Result<(), TransportError> {
         crate::h2::validate_ip_packet(packet)?;
         self.telemetry
@@ -474,7 +476,7 @@ impl ManagedTunnelSender {
         self.send_owned_packet(Bytes::copy_from_slice(packet)).await
     }
 
-    pub(crate) async fn send_owned_packet(&self, packet: Bytes) -> Result<(), TransportError> {
+    pub async fn send_owned_packet(&self, packet: Bytes) -> Result<(), TransportError> {
         crate::h2::validate_ip_packet(&packet)?;
         let packet_bytes = packet.len();
         let queued = self
@@ -728,6 +730,10 @@ impl ManagedTunnelRuntime {
 
     pub async fn send_packet(&self, packet: &[u8]) -> Result<(), TransportError> {
         self.packet_sender()?.send_packet(packet).await
+    }
+
+    pub async fn send_owned_packet(&self, packet: Bytes) -> Result<(), TransportError> {
+        self.packet_sender()?.send_owned_packet(packet).await
     }
 
     pub fn packet_sender(&self) -> Result<ManagedTunnelSender, TransportError> {

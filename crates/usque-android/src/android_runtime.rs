@@ -20,6 +20,8 @@ use usque_transport::{
     TrafficSnapshot, TransportError,
 };
 
+use crate::tun_read_slab::TunReadSlab;
+
 use super::{
     AndroidEndpointPinRefresher, AndroidSocketProtector, MasqueTlsIdentity, NativeFailure,
     NativeSnapshot, Profile, RECONFIGURE_NEED_ATTACH, RECONFIGURE_NEED_COLD,
@@ -493,6 +495,7 @@ enum SessionDataEvent<TunRead, TunnelReceive> {
     TunRead(TunRead),
     TunnelReceive(TunnelReceive),
     Tick,
+    PreparationError(io::Error),
 }
 
 async fn next_session_data<TunRead, TunnelReceive>(
@@ -510,6 +513,48 @@ async fn next_session_data<TunRead, TunnelReceive>(
     }
 }
 
+type OwnedSessionDataEvent =
+    SessionDataEvent<Option<io::Result<usize>>, Option<Result<bytes::Bytes, TransportError>>>;
+
+async fn next_owned_session_data(
+    packet_slab: &mut TunReadSlab,
+    slot_size: usize,
+    tun: Option<&AsyncFd<TunFd>>,
+    mut tun_io: Option<&mut MasqueTunIo>,
+    tick: impl Future,
+) -> OwnedSessionDataEvent {
+    let allocated = match packet_slab.prepare(slot_size) {
+        Ok(allocated) => allocated,
+        Err(error) => return SessionDataEvent::PreparationError(error),
+    };
+    if allocated && let Some(io) = tun_io.as_deref() {
+        io.record_platform_packet_buffer_allocation();
+    }
+    let tun_read_buffer = packet_slab.read_buffer();
+    next_session_data(
+        async {
+            match tun {
+                Some(tun) => Some(read_packet(tun, tun_read_buffer).await),
+                None => {
+                    std::future::pending::<()>().await;
+                    None
+                }
+            }
+        },
+        async {
+            match tun_io.as_deref_mut() {
+                Some(io) => Some(io.receive_packet().await),
+                None => {
+                    std::future::pending::<()>().await;
+                    None
+                }
+            }
+        },
+        tick,
+    )
+    .await
+}
+
 #[expect(
     clippy::too_many_arguments,
     reason = "session loop owns optional TUN I/O, MASQUE, profile, cancellation, status, and reconfigure commands"
@@ -523,7 +568,7 @@ async fn run_session(
     status: Arc<Mutex<NativeSnapshot>>,
     mut commands: tokio::sync::mpsc::UnboundedReceiver<RuntimeCommand>,
 ) {
-    let mut packet = vec![0u8; 65_535];
+    let mut packet_slab = TunReadSlab::new();
     let mut ticker = interval(Duration::from_secs(1));
     ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let mut last_sample = Instant::now();
@@ -545,27 +590,17 @@ async fn run_session(
                 )
                 .await;
             }
-            event = next_session_data(
-                async {
-                    match tun.as_ref() {
-                        Some(tun) => Some(read_packet(tun, &mut packet).await),
-                        None => {
-                            std::future::pending::<()>().await;
-                            None
-                        }
-                    }
-                },
-                async {
-                    match tun_io.as_mut() {
-                        Some(io) => Some(io.receive_packet().await),
-                        None => {
-                            std::future::pending::<()>().await;
-                            None
-                        }
-                    }
-                },
+            event = next_owned_session_data(
+                &mut packet_slab,
+                usize::from(profile.mtu),
+                tun.as_ref(),
+                tun_io.as_mut(),
                 ticker.tick(),
             ) => match event {
+                SessionDataEvent::PreparationError(error) => {
+                    set_error(&status, format!("prepare Android TUN read: {error}"));
+                    break;
+                }
                 SessionDataEvent::TunRead(read) => {
                     let Some(read) = read else { continue; };
                     let Some(io) = tun_io.as_ref() else { continue; };
@@ -577,10 +612,17 @@ async fn run_session(
                             break;
                         }
                     };
+                    let packet = match packet_slab.take_packet(length) {
+                        Ok(packet) => packet,
+                        Err(error) => {
+                            set_error(&status, format!("own Android TUN packet: {error}"));
+                            break;
+                        }
+                    };
                     let send = tokio::select! {
                         biased;
                         _ = cancellation.cancelled() => None,
-                        result = io.send_packet(&packet[..length]) => Some(result),
+                        result = io.send_owned_packet(packet) => Some(result),
                     };
                     let Some(send) = send else {
                         break;
