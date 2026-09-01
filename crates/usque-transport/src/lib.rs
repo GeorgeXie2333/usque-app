@@ -14,11 +14,13 @@ mod http_proxy;
 mod icmp;
 mod masque_runtime;
 mod netstack;
+mod network_quality;
 mod packet_batch;
 mod packet_mux;
 mod pin_refresh;
 mod port_allocator;
 mod proxy;
+mod queue_metrics;
 mod relay;
 mod socket;
 mod socks5;
@@ -40,8 +42,16 @@ pub use netstack::{
     ManagedTunnelMonitor, ManagedTunnelRuntime, ManagedTunnelSender, ProxyPerformanceSnapshot,
     RuntimeHealth, RuntimePath, TrafficSnapshot,
 };
+pub use network_quality::{
+    AllocationQuality, CongestionQuality, ConnectionInstanceId, DirectDnsMode, DirectDnsPhase,
+    DirectDnsQuality, DirectDnsReasonCode, H2FlowControlQuality, LossQuality, MetricAvailability,
+    MetricValue, MigrationPhase, MigrationQuality, MigrationReasonCode, NetworkQualityLevel,
+    NetworkQualitySampler, NetworkQualitySnapshot, NetworkQualityTelemetry, PmtuPhase, PmtuQuality,
+    QueueQuality, RttQuality, UdpIoQuality, spawn_network_quality_sampler,
+};
 pub use pin_refresh::{EndpointPinRefresher, refresh_endpoint_pin_over_protected_socket};
 pub use proxy::ProxyRuntime;
+pub use queue_metrics::QueueKind;
 pub use socket::{
     DirectEgressLease, DirectProtocol, NoopSocketProtector, SocketHandle, SocketProtector,
 };

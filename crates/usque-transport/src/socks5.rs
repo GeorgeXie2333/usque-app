@@ -140,6 +140,10 @@ impl Socks5Runtime {
         self.stack.performance()
     }
 
+    pub fn network_quality(&self) -> crate::NetworkQualitySnapshot {
+        self.stack.network_quality()
+    }
+
     pub fn failure(&self) -> Option<String> {
         self.stack
             .failure

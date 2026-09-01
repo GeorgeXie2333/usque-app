@@ -7,7 +7,10 @@ use usque_core::{
     AddressFamily, Transport, TransportFailure, TransportFailureCode, TransportStage,
 };
 
+use crate::network_quality::{H3MetricsSample, NetworkQualityTelemetry};
+
 pub const CONNECTION_TIMELINE_CAPACITY: usize = 512;
+const H2_DEFAULT_RECEIVE_WINDOW: u32 = 65_535;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConnectionEventType {
@@ -98,6 +101,7 @@ pub struct ConnectionTelemetry {
     send_queue_high_watermark: Arc<AtomicU64>,
     send_queue_drop_count: Arc<AtomicU64>,
     send_queue_wait_count: Arc<AtomicU64>,
+    quality: NetworkQualityTelemetry,
 }
 
 /// Carries the path identity for one in-flight transport attempt so lower
@@ -131,6 +135,14 @@ impl ConnectionAttemptTelemetry {
             None,
             None,
         );
+    }
+
+    pub(crate) fn quality(&self) -> NetworkQualityTelemetry {
+        self.telemetry.network_quality()
+    }
+
+    pub(crate) fn observe_h3(&self, sample: H3MetricsSample) {
+        self.telemetry.observe_h3(sample);
     }
 }
 
@@ -168,6 +180,7 @@ impl ConnectionTelemetry {
             send_queue_high_watermark: Arc::new(AtomicU64::new(0)),
             send_queue_drop_count: Arc::new(AtomicU64::new(0)),
             send_queue_wait_count: Arc::new(AtomicU64::new(0)),
+            quality: NetworkQualityTelemetry::default(),
         }
     }
 
@@ -186,6 +199,12 @@ impl ConnectionTelemetry {
         duration: Option<Duration>,
         failure: Option<TransportFailure>,
     ) {
+        if matches!(
+            event_type,
+            ConnectionEventType::Disconnected | ConnectionEventType::Failed
+        ) {
+            self.quality.end_connection();
+        }
         let mut state = self.state();
         let event = ConnectionEvent {
             sequence: self.sequence.fetch_add(1, Ordering::Relaxed) + 1,
@@ -224,6 +243,11 @@ impl ConnectionTelemetry {
         family: AddressFamily,
         duration: Duration,
     ) {
+        self.quality.begin_connection(transport, family);
+        if transport == Transport::Http2 {
+            self.quality
+                .set_h2_flow_control_windows(H2_DEFAULT_RECEIVE_WINDOW, H2_DEFAULT_RECEIVE_WINDOW);
+        }
         {
             let mut state = self.state();
             state.metrics.last_connect_duration = Some(duration);
@@ -322,6 +346,7 @@ impl ConnectionTelemetry {
     }
 
     pub fn set_reconnect(&self, count: u32, failure: &TransportFailure) {
+        self.quality.end_connection();
         let mut state = self.state();
         state.metrics.reconnect_count = count;
         state.metrics.last_reconnect_code = Some(failure.code);
@@ -347,6 +372,15 @@ impl ConnectionTelemetry {
             metrics,
             dropped_event_count: state.dropped_event_count,
         }
+    }
+
+    pub fn network_quality(&self) -> NetworkQualityTelemetry {
+        self.quality.clone()
+    }
+
+    fn observe_h3(&self, sample: H3MetricsSample) {
+        self.state().metrics.current_smoothed_rtt = Some(sample.rtt);
+        self.quality.observe_h3(sample);
     }
 
     fn state(&self) -> MutexGuard<'_, TelemetryState> {

@@ -26,8 +26,14 @@ use usque_protocol::{IpAddressRange, IpPrefix, PeerNetworkState};
 use crate::geo_direct::GeoDirectPolicy;
 use crate::h2::{MasqueTlsIdentity, TransportError, connect_h2_with_protector};
 use crate::h3::connect_h3_with_protector;
-use crate::packet_batch::{PACKET_BATCH_CHANNEL_CAPACITY, PacketBatch, PacketBatchResult};
+use crate::network_quality::{NetworkQualitySnapshot, spawn_network_quality_sampler};
+use crate::packet_batch::{
+    MAX_PACKET_BATCH_BYTES, PACKET_BATCH_CHANNEL_CAPACITY, PacketBatch, PacketBatchResult,
+};
 use crate::pin_refresh::EndpointPinRefresher;
+use crate::queue_metrics::{
+    QueueKind, TrackedReceiver, TrackedSendErrorKind, TrackedSender, tracked_channel,
+};
 use crate::socket::SocketProtector;
 use crate::telemetry::{
     ConnectionAttemptTelemetry, ConnectionEventPath, ConnectionEventType, ConnectionTelemetry,
@@ -42,6 +48,7 @@ const STABLE_CONNECTION_RESET: Duration = Duration::from_secs(60);
 const H3_PROBE_INTERVAL: Duration = Duration::from_secs(10 * 60);
 const H3_PROBE_JITTER_PERCENT: u64 = 20;
 const RAW_PACKET_CHANNEL_CAPACITY: usize = 1_024;
+const RAW_PACKET_CHANNEL_BYTE_CAPACITY: usize = RAW_PACKET_CHANNEL_CAPACITY * u16::MAX as usize;
 const PROXY_PACKET_PIPE_CAPACITY: usize = 1_024;
 const PREFERRED_TCP_RECEIVE_BUFFER: usize = 4 * 1024 * 1024;
 const PREFERRED_TCP_TRANSMIT_BUFFER: usize = 1024 * 1024;
@@ -166,6 +173,7 @@ pub(crate) struct PacketStack {
     tcp_buffer_metrics: TcpBufferMetrics,
     health: watch::Receiver<RuntimeHealth>,
     telemetry: ConnectionTelemetry,
+    quality: watch::Receiver<NetworkQualitySnapshot>,
     // Retain a receiver so the supervisor can publish control state even
     // though proxy modes do not currently expose route diagnostics.
     _control: watch::Receiver<PeerNetworkState>,
@@ -206,6 +214,7 @@ impl PacketStack {
                 tcp_buffer_metrics,
                 health: monitor.health.clone(),
                 telemetry: monitor.telemetry.clone(),
+                quality: monitor.quality.clone(),
                 _control: monitor.control.clone(),
                 tasks: vec![stack_task],
             },
@@ -252,7 +261,9 @@ impl PacketStack {
         });
         let (control_tx, control) = watch::channel(PeerNetworkState::default());
         let counters = Arc::new(TrafficCounters::default());
-        let mut tasks = vec![stack_task];
+        let (quality, quality_task) =
+            spawn_network_quality_sampler(telemetry.network_quality(), cancellation.child_token());
+        let mut tasks = vec![stack_task, quality_task];
         tasks.push(tokio::spawn(run_transport_supervisor(
             tunnel,
             endpoint_family,
@@ -296,6 +307,7 @@ impl PacketStack {
             tcp_buffer_metrics,
             health,
             telemetry,
+            quality,
             _control: control,
             tasks,
         })
@@ -331,6 +343,10 @@ impl PacketStack {
             fallback_count: telemetry.metrics.fallback_count,
             network_change_count: telemetry.metrics.network_change_count,
         }
+    }
+
+    pub(crate) fn network_quality(&self) -> NetworkQualitySnapshot {
+        self.quality.borrow().clone()
     }
 
     pub(crate) fn cancel_immediately(&mut self) {
@@ -415,8 +431,8 @@ impl Drop for PacketStack {
 /// here originate from the platform TUN; the transport supervisor validates
 /// them and decrements TTL/hop-limit immediately before encapsulation.
 pub struct ManagedTunnelRuntime {
-    outgoing: Option<mpsc::Sender<Bytes>>,
-    incoming: mpsc::Receiver<PacketBatch>,
+    outgoing: Option<TrackedSender<Bytes>>,
+    incoming: TrackedReceiver<PacketBatch>,
     pending_incoming: PacketBatch,
     cancellation: CancellationToken,
     failure: watch::Receiver<Option<String>>,
@@ -424,6 +440,7 @@ pub struct ManagedTunnelRuntime {
     control: watch::Receiver<PeerNetworkState>,
     counters: Arc<TrafficCounters>,
     telemetry: ConnectionTelemetry,
+    quality: watch::Receiver<NetworkQualitySnapshot>,
     tasks: Vec<JoinHandle<()>>,
 }
 
@@ -439,22 +456,27 @@ pub struct ManagedTunnelMonitor {
     control: watch::Receiver<PeerNetworkState>,
     counters: Arc<TrafficCounters>,
     telemetry: ConnectionTelemetry,
+    quality: watch::Receiver<NetworkQualitySnapshot>,
 }
 
 #[derive(Clone)]
 pub struct ManagedTunnelSender {
-    outgoing: mpsc::Sender<Bytes>,
+    outgoing: TrackedSender<Bytes>,
     telemetry: ConnectionTelemetry,
 }
 
 impl ManagedTunnelSender {
     pub async fn send_packet(&self, packet: &[u8]) -> Result<(), TransportError> {
         crate::h2::validate_ip_packet(packet)?;
+        self.telemetry
+            .network_quality()
+            .record_borrowed_to_owned_copy(packet.len());
         self.send_owned_packet(Bytes::copy_from_slice(packet)).await
     }
 
     pub(crate) async fn send_owned_packet(&self, packet: Bytes) -> Result<(), TransportError> {
         crate::h2::validate_ip_packet(&packet)?;
+        let packet_bytes = packet.len();
         let queued = self
             .outgoing
             .max_capacity()
@@ -463,13 +485,15 @@ impl ManagedTunnelSender {
         if self.outgoing.capacity() == 0 {
             self.telemetry.record_queue_saturated(queued);
         }
-        let permit = self
-            .outgoing
-            .reserve()
+        self.outgoing
+            .send(packet, packet_bytes)
             .await
-            .map_err(|_| TransportError::TunnelClosed)?;
-        permit.send(packet);
-        Ok(())
+            .map_err(|error| match error.kind {
+                TrackedSendErrorKind::Closed
+                | TrackedSendErrorKind::Cancelled
+                | TrackedSendErrorKind::Full
+                | TrackedSendErrorKind::ByteLimit => TransportError::TunnelClosed,
+            })
     }
 }
 
@@ -488,12 +512,15 @@ impl ManagedTunnelMonitor {
             reconnect_count: 0,
         });
         let (_control_tx, control) = watch::channel(PeerNetworkState::default());
+        let telemetry = ConnectionTelemetry::default();
+        let quality = initial_quality_receiver(&telemetry);
         Self {
             failure,
             health,
             control,
             counters: Arc::new(TrafficCounters::default()),
-            telemetry: ConnectionTelemetry::default(),
+            telemetry,
+            quality,
         }
     }
 
@@ -520,15 +547,48 @@ impl ManagedTunnelMonitor {
     pub fn connection_timeline(&self) -> ConnectionTimelineSnapshot {
         self.telemetry.snapshot()
     }
+
+    pub fn network_quality(&self) -> NetworkQualitySnapshot {
+        self.quality.borrow().clone()
+    }
+
+    pub fn subscribe_network_quality(&self) -> watch::Receiver<NetworkQualitySnapshot> {
+        self.quality.clone()
+    }
+
+    pub(crate) fn network_quality_telemetry(&self) -> crate::NetworkQualityTelemetry {
+        self.telemetry.network_quality()
+    }
+}
+
+#[cfg(test)]
+fn initial_quality_receiver(
+    telemetry: &ConnectionTelemetry,
+) -> watch::Receiver<NetworkQualitySnapshot> {
+    let mut sampler = crate::NetworkQualitySampler::new(telemetry.network_quality());
+    watch::channel(sampler.sample()).1
 }
 
 impl ManagedTunnelRuntime {
     #[cfg(test)]
     pub(crate) fn packet_mux_test_channels(
         outgoing_capacity: usize,
-    ) -> (Self, mpsc::Receiver<Bytes>, mpsc::Sender<PacketBatch>) {
-        let (outgoing, outgoing_rx) = mpsc::channel(outgoing_capacity);
-        let (incoming_tx, incoming) = mpsc::channel(PACKET_BATCH_CHANNEL_CAPACITY);
+    ) -> (Self, TrackedReceiver<Bytes>, TrackedSender<PacketBatch>) {
+        let telemetry = ConnectionTelemetry::default();
+        let quality_snapshot = initial_quality_receiver(&telemetry);
+        let quality = telemetry.network_quality();
+        let outgoing_metrics = quality.register_queue(
+            QueueKind::TransportOutgoingPackets,
+            outgoing_capacity,
+            outgoing_capacity * u16::MAX as usize,
+        );
+        let incoming_metrics = quality.register_queue(
+            QueueKind::TransportToTun,
+            PACKET_BATCH_CHANNEL_CAPACITY,
+            PACKET_BATCH_CHANNEL_CAPACITY * MAX_PACKET_BATCH_BYTES,
+        );
+        let (outgoing, outgoing_rx) = tracked_channel(outgoing_metrics);
+        let (incoming_tx, incoming) = tracked_channel(incoming_metrics);
         let (_failure_tx, failure) = watch::channel(None);
         let path = runtime_path(Transport::Http3, AddressFamily::Ipv4);
         let (_health_tx, health) = watch::channel(RuntimeHealth::Connected {
@@ -546,7 +606,8 @@ impl ManagedTunnelRuntime {
                 health,
                 control,
                 counters: Arc::new(TrafficCounters::default()),
-                telemetry: ConnectionTelemetry::default(),
+                telemetry,
+                quality: quality_snapshot,
                 tasks: Vec::new(),
             },
             outgoing_rx,
@@ -588,8 +649,19 @@ impl ManagedTunnelRuntime {
             )
             .await?;
         let path = runtime_path(tunnel.transport(), endpoint_family);
-        let (outgoing, outgoing_rx) = mpsc::channel(RAW_PACKET_CHANNEL_CAPACITY);
-        let (incoming_tx, incoming) = mpsc::channel(PACKET_BATCH_CHANNEL_CAPACITY);
+        let quality = telemetry.network_quality();
+        let outgoing_metrics = quality.register_queue(
+            QueueKind::TransportOutgoingPackets,
+            RAW_PACKET_CHANNEL_CAPACITY,
+            RAW_PACKET_CHANNEL_BYTE_CAPACITY,
+        );
+        let incoming_metrics = quality.register_queue(
+            QueueKind::TransportToTun,
+            PACKET_BATCH_CHANNEL_CAPACITY,
+            PACKET_BATCH_CHANNEL_CAPACITY * MAX_PACKET_BATCH_BYTES,
+        );
+        let (outgoing, outgoing_rx) = tracked_channel(outgoing_metrics);
+        let (incoming_tx, incoming) = tracked_channel(incoming_metrics);
         let cancellation = CancellationToken::new();
         let (failure_tx, failure) = watch::channel(None);
         let (health_tx, health) = watch::channel(RuntimeHealth::Connected {
@@ -598,28 +670,33 @@ impl ManagedTunnelRuntime {
         });
         let (control_tx, control) = watch::channel(PeerNetworkState::default());
         let counters = Arc::new(TrafficCounters::default());
-        let mut tasks = vec![tokio::spawn(run_transport_supervisor(
-            tunnel,
-            endpoint_family,
-            PacketIo::Channel {
-                outgoing: outgoing_rx,
-                incoming: incoming_tx,
-                buffered_outgoing: None,
-            },
-            SupervisorContext {
-                profile: profile.clone(),
-                identity,
-                protector,
-                pin_refresher,
-                pin_refresh_attempted,
-                cancellation: cancellation.clone(),
-                failure_tx: failure_tx.clone(),
-                health_tx,
-                control_tx,
-                counters: Arc::clone(&counters),
-                telemetry: telemetry.clone(),
-            },
-        ))];
+        let (quality_updates, quality_task) =
+            spawn_network_quality_sampler(quality, cancellation.child_token());
+        let mut tasks = vec![
+            quality_task,
+            tokio::spawn(run_transport_supervisor(
+                tunnel,
+                endpoint_family,
+                PacketIo::Channel {
+                    outgoing: outgoing_rx,
+                    incoming: incoming_tx,
+                    buffered_outgoing: None,
+                },
+                SupervisorContext {
+                    profile: profile.clone(),
+                    identity,
+                    protector,
+                    pin_refresher,
+                    pin_refresh_attempted,
+                    cancellation: cancellation.clone(),
+                    failure_tx: failure_tx.clone(),
+                    health_tx,
+                    control_tx,
+                    counters: Arc::clone(&counters),
+                    telemetry: telemetry.clone(),
+                },
+            )),
+        ];
         let watcher_cancel = cancellation.clone();
         let mut terminal_failure = failure_tx.subscribe();
         tasks.push(tokio::spawn(async move {
@@ -644,6 +721,7 @@ impl ManagedTunnelRuntime {
             control,
             counters,
             telemetry,
+            quality: quality_updates,
             tasks,
         })
     }
@@ -717,6 +795,7 @@ impl ManagedTunnelRuntime {
             control: self.control.clone(),
             counters: Arc::clone(&self.counters),
             telemetry: self.telemetry.clone(),
+            quality: self.quality.clone(),
         }
     }
 
@@ -1135,8 +1214,8 @@ enum PacketIo {
         buffered_outgoing: Option<Bytes>,
     },
     Channel {
-        outgoing: mpsc::Receiver<Bytes>,
-        incoming: mpsc::Sender<PacketBatch>,
+        outgoing: TrackedReceiver<Bytes>,
+        incoming: TrackedSender<PacketBatch>,
         buffered_outgoing: Option<Bytes>,
     },
 }
@@ -1301,7 +1380,8 @@ impl PacketIo {
             }
             Self::Channel { incoming, .. } => {
                 let incoming = incoming.clone();
-                Box::pin(async move { incoming.send(batch).await.is_ok() })
+                let bytes = batch.bytes();
+                Box::pin(async move { incoming.send(batch, bytes).await.is_ok() })
             }
         }
     }
@@ -2358,6 +2438,52 @@ mod tests {
         Bytes::from(packet)
     }
 
+    fn test_packet_channel(
+        kind: QueueKind,
+        capacity: usize,
+    ) -> (TrackedSender<Bytes>, TrackedReceiver<Bytes>) {
+        tracked_channel(crate::queue_metrics::QueueMetrics::new(
+            kind,
+            capacity,
+            capacity * u16::MAX as usize,
+        ))
+    }
+
+    fn test_batch_channel(
+        kind: QueueKind,
+        capacity: usize,
+    ) -> (TrackedSender<PacketBatch>, TrackedReceiver<PacketBatch>) {
+        tracked_channel(crate::queue_metrics::QueueMetrics::new(
+            kind,
+            capacity,
+            capacity * MAX_PACKET_BATCH_BYTES,
+        ))
+    }
+
+    fn test_managed_sender(
+        capacity: usize,
+    ) -> (
+        ManagedTunnelSender,
+        TrackedReceiver<Bytes>,
+        ConnectionTelemetry,
+    ) {
+        let telemetry = ConnectionTelemetry::default();
+        let metrics = telemetry.network_quality().register_queue(
+            QueueKind::TransportOutgoingPackets,
+            capacity,
+            capacity * u16::MAX as usize,
+        );
+        let (outgoing, receiver) = tracked_channel(metrics);
+        (
+            ManagedTunnelSender {
+                outgoing,
+                telemetry: telemetry.clone(),
+            },
+            receiver,
+            telemetry,
+        )
+    }
+
     #[test]
     fn forwarding_decrements_ipv4_ttl_and_repairs_checksum() {
         let mut packet = [
@@ -2379,12 +2505,7 @@ mod tests {
 
     #[tokio::test]
     async fn managed_sender_backpressures_instead_of_dropping_or_closing() {
-        let telemetry = ConnectionTelemetry::default();
-        let (outgoing, mut receiver) = mpsc::channel(1);
-        let sender = ManagedTunnelSender {
-            outgoing,
-            telemetry: telemetry.clone(),
-        };
+        let (sender, mut receiver, telemetry) = test_managed_sender(1);
         let first = test_ipv4_packet(1);
         let second = test_ipv4_packet(2);
         sender.send_owned_packet(first.clone()).await.unwrap();
@@ -2410,11 +2531,7 @@ mod tests {
 
     #[tokio::test]
     async fn closing_managed_receiver_releases_a_waiting_sender() {
-        let (outgoing, receiver) = mpsc::channel(1);
-        let sender = ManagedTunnelSender {
-            outgoing,
-            telemetry: ConnectionTelemetry::default(),
-        };
+        let (sender, receiver, _telemetry) = test_managed_sender(1);
         sender.send_owned_packet(test_ipv4_packet(1)).await.unwrap();
         let waiting_sender = sender.clone();
         let waiting =
@@ -2433,10 +2550,12 @@ mod tests {
 
     #[tokio::test]
     async fn packet_io_nonblocking_drain_batches_without_reordering() {
-        let (outgoing_tx, outgoing) = mpsc::channel(130);
-        let (incoming, _incoming_rx) = mpsc::channel(1);
+        let (outgoing_tx, outgoing) = test_packet_channel(QueueKind::TransportOutgoingPackets, 130);
+        let (incoming, _incoming_rx) = test_batch_channel(QueueKind::TransportToTun, 1);
         for sequence in 0..130_u16 {
-            outgoing_tx.try_send(test_ipv4_packet(sequence)).unwrap();
+            let packet = test_ipv4_packet(sequence);
+            let bytes = packet.len();
+            outgoing_tx.try_send(packet, bytes).unwrap();
         }
         drop(outgoing_tx);
         let mut packet_io = PacketIo::Channel {
@@ -2486,12 +2605,11 @@ mod tests {
 
     #[tokio::test]
     async fn pending_incoming_delivery_does_not_mask_cancellation() {
-        let (_outgoing_tx, outgoing) = mpsc::channel(1);
-        let (incoming, mut incoming_rx) = mpsc::channel(1);
-        incoming
-            .send(PacketBatch::single(test_ipv4_packet(1)))
-            .await
-            .unwrap();
+        let (_outgoing_tx, outgoing) = test_packet_channel(QueueKind::TransportOutgoingPackets, 1);
+        let (incoming, mut incoming_rx) = test_batch_channel(QueueKind::TransportToTun, 1);
+        let first_batch = PacketBatch::single(test_ipv4_packet(1));
+        let first_bytes = first_batch.bytes();
+        incoming.send(first_batch, first_bytes).await.unwrap();
         let packet_io = PacketIo::Channel {
             outgoing,
             incoming,

@@ -24,7 +24,7 @@ use p256::SecretKey;
 use p256::pkcs8::EncodePrivateKey;
 use thiserror::Error;
 use tokio::net::TcpSocket;
-use tokio::sync::{mpsc, oneshot, watch};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
 use tokio_util::task::AbortOnDropHandle;
@@ -34,7 +34,9 @@ use usque_core::{
 use usque_protocol::{ConnectIpCapsule, MAX_CAPSULE_PAYLOAD, PeerNetworkState};
 use zeroize::Zeroizing;
 
-use crate::connect_ip_control::ConnectIpControlPlane;
+use crate::connect_ip_control::{
+    ConnectIpControlPlane, MAX_PENDING_CONTROL_BYTES, MAX_PENDING_CONTROL_CAPSULES,
+};
 use crate::packet_batch::{PacketBatch, PacketBatchResult};
 use crate::socket::{SocketProtector, noop_socket_protector, socket_handle};
 use crate::telemetry::{ConnectionAttemptTelemetry, ConnectionEventType};
@@ -110,6 +112,11 @@ struct H2Outgoing {
     bytes: Bytes,
     accepted_bytes: usize,
     completion: oneshot::Sender<Result<usize, TransportError>>,
+}
+
+struct H2Rejection {
+    bytes: Bytes,
+    _byte_permit: OwnedSemaphorePermit,
 }
 
 pub struct H2SendHalf {
@@ -204,7 +211,8 @@ pub struct H2ReceiveHalf {
     stream: RecvStream,
     control: ConnectIpControlPlane,
     packets: VecDeque<Bytes>,
-    rejections: mpsc::UnboundedSender<Bytes>,
+    rejections: mpsc::Sender<H2Rejection>,
+    rejection_bytes: Arc<Semaphore>,
 }
 
 impl H2ReceiveHalf {
@@ -268,9 +276,25 @@ impl H2ReceiveHalf {
     fn flush_pending_rejections(&mut self) -> Result<(), TransportError> {
         while let Some(pending) = self.control.pending.pop_front() {
             let bytes = pending.bytes.slice(pending.offset..);
-            self.rejections
-                .send(bytes)
-                .map_err(|_| TransportError::TunnelClosed)?;
+            if bytes.len() > MAX_PENDING_CONTROL_BYTES {
+                return Err(TransportError::SendQueueFull);
+            }
+            let permits = u32::try_from(bytes.len()).map_err(|_| TransportError::SendQueueFull)?;
+            let byte_permit = Arc::clone(&self.rejection_bytes)
+                .try_acquire_many_owned(permits)
+                .map_err(|_| TransportError::SendQueueFull)?;
+            match self.rejections.try_send(H2Rejection {
+                bytes,
+                _byte_permit: byte_permit,
+            }) {
+                Ok(()) => {}
+                Err(mpsc::error::TrySendError::Full(_)) => {
+                    return Err(TransportError::SendQueueFull);
+                }
+                Err(mpsc::error::TrySendError::Closed(_)) => {
+                    return Err(TransportError::TunnelClosed);
+                }
+            }
         }
         Ok(())
     }
@@ -417,7 +441,8 @@ fn h2_tunnel_from_streams(
 ) -> H2Tunnel {
     let (control_tx, control_rx) = watch::channel(PeerNetworkState::default());
     let (outgoing_tx, outgoing_rx) = mpsc::channel(H2_OUTGOING_CAPACITY);
-    let (rejection_tx, rejection_rx) = mpsc::unbounded_channel();
+    let (rejection_tx, rejection_rx) = mpsc::channel(MAX_PENDING_CONTROL_CAPSULES);
+    let rejection_bytes = Arc::new(Semaphore::new(MAX_PENDING_CONTROL_BYTES));
     let writer =
         AbortOnDropHandle::new(tokio::spawn(run_h2_writer(send, outgoing_rx, rejection_rx)));
     H2Tunnel {
@@ -430,6 +455,7 @@ fn h2_tunnel_from_streams(
             control: ConnectIpControlPlane::new(control_tx),
             packets: VecDeque::new(),
             rejections: rejection_tx,
+            rejection_bytes,
         },
         driver: H2Driver {
             task: Some(connection),
@@ -441,7 +467,7 @@ fn h2_tunnel_from_streams(
 async fn run_h2_writer(
     mut stream: SendStream<Bytes>,
     mut outgoing: mpsc::Receiver<H2Outgoing>,
-    mut rejections: mpsc::UnboundedReceiver<Bytes>,
+    mut rejections: mpsc::Receiver<H2Rejection>,
 ) -> Result<(), TransportError> {
     let mut rejections_open = true;
     loop {
@@ -449,7 +475,7 @@ async fn run_h2_writer(
             biased;
             rejection = rejections.recv(), if rejections_open => {
                 match rejection {
-                    Some(bytes) => write_h2_data(&mut stream, bytes).await?,
+                    Some(H2Rejection { bytes, .. }) => write_h2_data(&mut stream, bytes).await?,
                     None => rejections_open = false,
                 }
             }

@@ -15,6 +15,7 @@ use usque_core::Profile;
 use crate::geo_direct::{GeoDirectPolicy, GeoRoute, bind_direct_udp, connect_direct_ip};
 use crate::h2::TransportError;
 use crate::netstack::{TrafficCounters, bounded_piped, proxy_netstack_config};
+use crate::network_quality::NetworkQualityTelemetry;
 use crate::socket::DirectEgressLease;
 use crate::socket::SocketProtector;
 use crate::split_dns::{
@@ -258,6 +259,7 @@ pub(crate) struct DirectGatewayRouter {
 }
 
 impl DirectGatewayRouter {
+    #[cfg(test)]
     pub(crate) async fn start(
         profile: &Profile,
         policy: Arc<GeoDirectPolicy>,
@@ -265,6 +267,31 @@ impl DirectGatewayRouter {
         counters: Arc<TrafficCounters>,
         tunnel_dns: Option<(Channel, (Ipv4Addr, Ipv6Addr))>,
         parent_cancellation: &CancellationToken,
+    ) -> Result<(Self, mpsc::Receiver<Bytes>), TransportError> {
+        Self::start_with_quality(
+            profile,
+            policy,
+            protector,
+            counters,
+            tunnel_dns,
+            parent_cancellation,
+            NetworkQualityTelemetry::default(),
+        )
+        .await
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the direct gateway owns policy, protection, counters, DNS, cancellation, and quality state"
+    )]
+    pub(crate) async fn start_with_quality(
+        profile: &Profile,
+        policy: Arc<GeoDirectPolicy>,
+        protector: Arc<dyn SocketProtector>,
+        counters: Arc<TrafficCounters>,
+        tunnel_dns: Option<(Channel, (Ipv4Addr, Ipv6Addr))>,
+        parent_cancellation: &CancellationToken,
+        quality: NetworkQualityTelemetry,
     ) -> Result<(Self, mpsc::Receiver<Bytes>), TransportError> {
         let (incoming_tx, incoming_rx) = mpsc::channel(DIRECT_PACKET_CAPACITY);
         let cancellation = parent_cancellation.child_token();
@@ -326,6 +353,7 @@ impl DirectGatewayRouter {
                     &profile.dns_servers,
                     Arc::clone(&policy),
                     Arc::clone(&protector),
+                    quality.clone(),
                 ),
                 &cancellation,
             )

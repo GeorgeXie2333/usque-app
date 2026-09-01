@@ -14,7 +14,9 @@ use ts_netstack_smoltcp::netcore::Channel;
 use ts_netstack_smoltcp::netsock::{TcpListener as StackTcpListener, UdpSocket as StackUdpSocket};
 
 use crate::geo_direct::{GeoDirectPolicy, GeoRoute};
+use crate::network_quality::{DirectDnsMode, DirectDnsReasonCode, NetworkQualityTelemetry};
 use crate::port_allocator::{next_tcp_port, next_udp_port};
+use crate::queue_metrics::{QueueEntry, QueueKind, QueueMetrics};
 use crate::socket::{DirectProtocol, SocketProtector, socket_handle};
 
 pub const SPLIT_DNS_IPV4: Ipv4Addr = Ipv4Addr::new(198, 18, 0, 1);
@@ -199,6 +201,8 @@ struct SplitDnsResolver {
     protector: Arc<dyn SocketProtector>,
     hints: Arc<DnsRouteCache>,
     permits: Arc<Semaphore>,
+    quality: NetworkQualityTelemetry,
+    direct_queue: Arc<QueueMetrics>,
 }
 
 impl SplitDnsResolver {
@@ -212,29 +216,58 @@ impl SplitDnsResolver {
             Ok(route) => route,
             Err(()) => return error_response(query_bytes, RCODE_SERVFAIL),
         };
+        let mut direct_queue_entry: Option<QueueEntry> =
+            (route == QueryRoute::Direct).then(|| self.direct_queue.start_entry(query_bytes.len()));
         let Ok(_permit) = self.permits.clone().try_acquire_owned() else {
+            if route == QueryRoute::Direct {
+                self.quality
+                    .record_direct_dns_failure(DirectDnsReasonCode::QueryFailed, false);
+            }
             return error_response(query_bytes, RCODE_SERVFAIL);
         };
 
-        let response = timeout(DNS_TIMEOUT, async {
+        let started = Instant::now();
+        let timed = timeout(DNS_TIMEOUT, async {
             match route {
                 QueryRoute::Direct => self.query_direct(query_bytes, &query, transport).await,
                 QueryRoute::Tunnel => self.query_tunnel(query_bytes, &query, transport).await,
             }
         })
-        .await
-        .map_err(|_| "complete DNS query timed out".to_owned())
-        .and_then(|result| result);
+        .await;
+        let (response, timed_out) = match timed {
+            Ok(response) => (response, false),
+            Err(_) => (Err("complete DNS query timed out".to_owned()), true),
+        };
         match response {
             Ok(response) => {
                 if self.protector.network_generation() != network_generation {
+                    if route == QueryRoute::Direct {
+                        self.quality
+                            .record_direct_dns_failure(DirectDnsReasonCode::NetworkChanged, false);
+                    }
+                    complete_queue_entry(&mut direct_queue_entry);
                     return error_response(query_bytes, RCODE_SERVFAIL);
                 }
                 self.hints
                     .observe(&response, &query, route, network_generation);
+                if route == QueryRoute::Direct {
+                    self.quality.record_direct_dns_success(started.elapsed());
+                }
+                complete_queue_entry(&mut direct_queue_entry);
                 response
             }
             Err(error) => {
+                if route == QueryRoute::Direct {
+                    self.quality.record_direct_dns_failure(
+                        if timed_out {
+                            DirectDnsReasonCode::Timeout
+                        } else {
+                            DirectDnsReasonCode::QueryFailed
+                        },
+                        timed_out,
+                    );
+                }
+                complete_queue_entry(&mut direct_queue_entry);
                 tracing::debug!(%error, ?route, "Split DNS query failed");
                 error_response(query_bytes, RCODE_SERVFAIL)
             }
@@ -375,6 +408,12 @@ impl SplitDnsResolver {
     }
 }
 
+fn complete_queue_entry(entry: &mut Option<QueueEntry>) {
+    if let Some(entry) = entry.take() {
+        entry.complete();
+    }
+}
+
 pub(crate) struct SplitDnsRuntime {
     pub(crate) hints: Arc<DnsRouteCache>,
     tasks: Vec<JoinHandle<()>>,
@@ -386,6 +425,7 @@ pub(crate) struct SplitDnsConfig {
     tunnel_dns_servers: Vec<IpAddr>,
     policy: Arc<GeoDirectPolicy>,
     protector: Arc<dyn SocketProtector>,
+    quality: NetworkQualityTelemetry,
 }
 
 impl SplitDnsConfig {
@@ -395,6 +435,7 @@ impl SplitDnsConfig {
         tunnel_dns_servers: &[IpAddr],
         policy: Arc<GeoDirectPolicy>,
         protector: Arc<dyn SocketProtector>,
+        quality: NetworkQualityTelemetry,
     ) -> Self {
         Self {
             tunnel_channel,
@@ -402,6 +443,7 @@ impl SplitDnsConfig {
             tunnel_dns_servers: tunnel_dns_servers.to_vec(),
             policy,
             protector,
+            quality,
         }
     }
 }
@@ -436,6 +478,14 @@ impl SplitDnsRuntime {
             .map_err(|error| error.to_string())?;
 
         let hints = Arc::new(DnsRouteCache::default());
+        config
+            .quality
+            .set_direct_dns_mode(DirectDnsMode::PhysicalSystem);
+        let direct_queue = config.quality.register_unordered_queue(
+            QueueKind::DirectDnsRequests,
+            MAX_IN_FLIGHT,
+            MAX_IN_FLIGHT * MAX_TCP_MESSAGE,
+        );
         let resolver = SplitDnsResolver {
             tunnel_channel: config.tunnel_channel,
             assigned_ipv4: config.assigned_addresses.0,
@@ -449,6 +499,8 @@ impl SplitDnsRuntime {
             protector: config.protector,
             hints: Arc::clone(&hints),
             permits: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),
+            quality: config.quality,
+            direct_queue,
         };
         let tasks = vec![
             tokio::spawn(run_udp_server(
