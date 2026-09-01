@@ -977,6 +977,7 @@ async fn connect_happy_eyeballs(
             EndpointCandidate::new(alternate, alternate_family),
             &profile.endpoint.sni,
             identity,
+            usize::from(profile.mtu),
             protector,
             telemetry,
         )
@@ -989,6 +990,7 @@ async fn connect_happy_eyeballs(
         EndpointCandidate::new(preferred, preferred_family),
         &profile.endpoint.sni,
         identity,
+        usize::from(profile.mtu),
         Arc::clone(&protector),
         telemetry,
     );
@@ -1011,6 +1013,7 @@ async fn connect_happy_eyeballs(
         EndpointCandidate::new(alternate, alternate_family),
         &profile.endpoint.sni,
         identity,
+        usize::from(profile.mtu),
         protector,
         telemetry,
     );
@@ -1085,11 +1088,16 @@ impl EndpointCandidate {
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "endpoint connection carries the profile MTU and protected path telemetry explicitly"
+)]
 async fn connect_endpoint(
     transport: Transport,
     target: EndpointCandidate,
     sni: &str,
     identity: &MasqueTlsIdentity,
+    profile_inner_mtu: usize,
     protector: Arc<dyn SocketProtector>,
     telemetry: &ConnectionTelemetry,
 ) -> Result<MasqueTunnel, TransportError> {
@@ -1112,6 +1120,7 @@ async fn connect_endpoint(
                     endpoint,
                     sni,
                     identity,
+                    profile_inner_mtu,
                     protector.as_ref(),
                     Some(&attempt),
                 )

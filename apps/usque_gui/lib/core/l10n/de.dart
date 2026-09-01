@@ -490,6 +490,8 @@ const Map<String, String> kDeCatalog = <String, String>{
   'diag_fail_H3_PROTOCOL_ERROR': 'H3-Protokollfehler',
   'diag_fail_H3_DATAGRAM_UNAVAILABLE': 'H3-Datagramm nicht verfügbar',
   'diag_fail_H3_CONNECTION_CLOSED': 'H3-Verbindung geschlossen',
+  'diag_fail_PMTU_REVALIDATION_EXHAUSTED':
+      'Versuche zur Neuvalidierung der H3-Pfad-MTU ausgeschöpft',
   'diag_fail_H2_TCP_CONNECT_FAILED': 'H2-TCP-Verbindung fehlgeschlagen',
   'diag_fail_H2_TLS_FAILED': 'H2-TLS fehlgeschlagen',
   'diag_fail_H2_STREAM_CLOSED': 'H2-Stream geschlossen',

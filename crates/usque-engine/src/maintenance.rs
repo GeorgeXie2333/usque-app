@@ -660,6 +660,9 @@ const fn connection_event_type_name(event: ConnectionEventType) -> &'static str 
         ConnectionEventType::RecoveryProbeFailed => "recovery_probe_failed",
         ConnectionEventType::PathPromoted => "path_promoted",
         ConnectionEventType::QueueSaturated => "queue_saturated",
+        ConnectionEventType::PmtuChanged => "pmtu_changed",
+        ConnectionEventType::PmtuRevalidationStarted => "pmtu_revalidation_started",
+        ConnectionEventType::PmtuRevalidationFailed => "pmtu_revalidation_failed",
         ConnectionEventType::Disconnected => "disconnected",
         ConnectionEventType::Failed => "failed",
     }

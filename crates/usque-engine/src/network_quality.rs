@@ -52,6 +52,7 @@ pub(crate) fn snapshot_to_proto(snapshot: &NetworkQualitySnapshot) -> v1::Networ
     let (bytes_in_flight, bytes_in_flight_known) = u64_metric(&snapshot.congestion.bytes_in_flight);
     let (send_rate, send_rate_known) = u64_metric(&snapshot.congestion.send_rate_bps);
     let (current_pmtu, current_pmtu_known) = u32_metric(&snapshot.pmtu.current_bytes);
+    let (effective_pmtu_payload, _) = u32_metric(&snapshot.pmtu.effective_connect_ip_payload_bytes);
     let (last_migration_duration, last_migration_duration_known) =
         duration_metric(&snapshot.migration.last_duration);
     let (direct_dns_last_rtt, direct_dns_last_rtt_known) =
@@ -124,6 +125,7 @@ pub(crate) fn snapshot_to_proto(snapshot: &NetworkQualitySnapshot) -> v1::Networ
             direct_dns_last_rtt_known,
             pmtu_change_count: snapshot.pmtu.change_count,
             pmtu_revalidation_failure_count: snapshot.pmtu.revalidation_failure_count,
+            pmtu_send_too_large_count: snapshot.pmtu.send_too_large_count,
             smoothed_rtt_availability: availability(snapshot.rtt.smoothed.availability) as i32,
             min_rtt_availability: availability(snapshot.rtt.minimum.availability) as i32,
             rtt_variance_availability: availability(snapshot.rtt.variance.availability) as i32,
@@ -144,11 +146,17 @@ pub(crate) fn snapshot_to_proto(snapshot: &NetworkQualitySnapshot) -> v1::Networ
         pmtu: Some(v1::PmtuQuality {
             availability: availability(snapshot.pmtu.current_bytes.availability) as i32,
             outer_pmtu_bytes: snapshot.pmtu.current_bytes.value.unwrap_or_default(),
-            effective_connect_ip_payload_bytes: 0,
+            effective_connect_ip_payload_bytes: effective_pmtu_payload,
             phase_code: pmtu_phase(snapshot.pmtu.phase).to_owned(),
             change_count: snapshot.pmtu.change_count,
             revalidation_failure_count: snapshot.pmtu.revalidation_failure_count,
-            effective_payload_availability: v1::MetricAvailability::NotReady as i32,
+            effective_payload_availability: availability(
+                snapshot
+                    .pmtu
+                    .effective_connect_ip_payload_bytes
+                    .availability,
+            ) as i32,
+            send_too_large_count: snapshot.pmtu.send_too_large_count,
         }),
         migration: Some(v1::MigrationQuality {
             phase_code: migration_phase(snapshot.migration.phase).to_owned(),
@@ -418,6 +426,15 @@ mod tests {
             metrics.congestion_window_availability,
             v1::MetricAvailability::Unsupported as i32
         );
+        let pmtu = proto.pmtu.as_ref().unwrap();
+        assert_eq!(
+            pmtu.availability,
+            v1::MetricAvailability::Unsupported as i32
+        );
+        assert_eq!(
+            pmtu.effective_payload_availability,
+            v1::MetricAvailability::Unsupported as i32
+        );
         assert_eq!(
             proto.direct_dns.as_ref().unwrap().last_reason_code,
             "timeout"
@@ -426,6 +443,22 @@ mod tests {
         for forbidden in ["example.com", "127.0.0.1", "bootstrap", "scid", "token="] {
             assert!(!debug.contains(forbidden));
         }
+    }
+
+    #[test]
+    fn h3_probing_pmtu_is_not_ready_on_the_wire() {
+        let telemetry = NetworkQualityTelemetry::default();
+        telemetry.begin_connection(Transport::Http3, AddressFamily::Ipv6);
+        telemetry.observe_pmtu(PmtuPhase::Probing, None, None);
+
+        let proto = snapshot_to_proto(&NetworkQualitySampler::new(telemetry).sample());
+        let pmtu = proto.pmtu.unwrap();
+        assert_eq!(pmtu.phase_code, "probing");
+        assert_eq!(pmtu.availability, v1::MetricAvailability::NotReady as i32);
+        assert_eq!(
+            pmtu.effective_payload_availability,
+            v1::MetricAvailability::NotReady as i32
+        );
     }
 
     #[test]

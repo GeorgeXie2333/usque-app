@@ -481,6 +481,8 @@ const Map<String, String> kIdCatalog = <String, String>{
   'diag_fail_H3_PROTOCOL_ERROR': 'Galat protokol H3',
   'diag_fail_H3_DATAGRAM_UNAVAILABLE': 'Datagram H3 tidak tersedia',
   'diag_fail_H3_CONNECTION_CLOSED': 'Koneksi H3 ditutup',
+  'diag_fail_PMTU_REVALIDATION_EXHAUSTED':
+      'Percobaan validasi ulang MTU jalur H3 habis',
   'diag_fail_H2_TCP_CONNECT_FAILED': 'Koneksi TCP H2 gagal',
   'diag_fail_H2_TLS_FAILED': 'TLS H2 gagal',
   'diag_fail_H2_STREAM_CLOSED': 'Aliran H2 ditutup',

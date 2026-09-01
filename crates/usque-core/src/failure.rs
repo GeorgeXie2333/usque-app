@@ -22,6 +22,7 @@ pub enum TransportFailureCode {
     H3ProtocolError,
     H3DatagramUnavailable,
     H3ConnectionClosed,
+    PmtuRevalidationExhausted,
     H2TcpConnectFailed,
     H2TlsFailed,
     H2StreamClosed,
@@ -59,7 +60,7 @@ pub enum TransportFailureCode {
 }
 
 impl TransportFailureCode {
-    pub const ALL: [Self; 47] = [
+    pub const ALL: [Self; 48] = [
         Self::EngineUnavailable,
         Self::AgentUnreachable,
         Self::VpnServiceUnavailable,
@@ -73,6 +74,7 @@ impl TransportFailureCode {
         Self::H3ProtocolError,
         Self::H3DatagramUnavailable,
         Self::H3ConnectionClosed,
+        Self::PmtuRevalidationExhausted,
         Self::H2TcpConnectFailed,
         Self::H2TlsFailed,
         Self::H2StreamClosed,
@@ -124,6 +126,7 @@ impl TransportFailureCode {
             Self::H3ProtocolError => "H3_PROTOCOL_ERROR",
             Self::H3DatagramUnavailable => "H3_DATAGRAM_UNAVAILABLE",
             Self::H3ConnectionClosed => "H3_CONNECTION_CLOSED",
+            Self::PmtuRevalidationExhausted => "PMTU_REVALIDATION_EXHAUSTED",
             Self::H2TcpConnectFailed => "H2_TCP_CONNECT_FAILED",
             Self::H2TlsFailed => "H2_TLS_FAILED",
             Self::H2StreamClosed => "H2_STREAM_CLOSED",
@@ -169,7 +172,8 @@ impl TransportFailureCode {
             | Self::H3HandshakeTimeout
             | Self::H3ProtocolError
             | Self::H3DatagramUnavailable
-            | Self::H3ConnectionClosed => {
+            | Self::H3ConnectionClosed
+            | Self::PmtuRevalidationExhausted => {
                 FailureMetadata::new(Warning, true, true, FallbackToH2, "try_http2", true)
             }
             Self::PhysicalIpv4Unavailable
@@ -450,6 +454,14 @@ mod tests {
                 "{code}"
             );
         }
+    }
+
+    #[test]
+    fn pmtu_revalidation_exhaustion_has_a_stable_fallback_code() {
+        let code = TransportFailureCode::PmtuRevalidationExhausted;
+        assert_eq!(code.as_str(), "PMTU_REVALIDATION_EXHAUSTED");
+        assert!(code.metadata().fallback_allowed);
+        assert_eq!(code.metadata().action, FailureAction::FallbackToH2);
     }
 
     #[test]

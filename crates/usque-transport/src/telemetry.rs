@@ -32,6 +32,9 @@ pub enum ConnectionEventType {
     RecoveryProbeFailed,
     PathPromoted,
     QueueSaturated,
+    PmtuChanged,
+    PmtuRevalidationStarted,
+    PmtuRevalidationFailed,
     Disconnected,
     Failed,
 }

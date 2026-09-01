@@ -490,6 +490,8 @@ const Map<String, String> kEsCatalog = <String, String>{
   'diag_fail_H3_PROTOCOL_ERROR': 'Error de protocolo H3',
   'diag_fail_H3_DATAGRAM_UNAVAILABLE': 'Datagrama H3 no disponible',
   'diag_fail_H3_CONNECTION_CLOSED': 'Conexión H3 cerrada',
+  'diag_fail_PMTU_REVALIDATION_EXHAUSTED':
+      'Se agotaron los intentos de revalidar la MTU de la ruta H3',
   'diag_fail_H2_TCP_CONNECT_FAILED': 'Falló la conexión TCP H2',
   'diag_fail_H2_TLS_FAILED': 'Falló TLS H2',
   'diag_fail_H2_STREAM_CLOSED': 'Flujo H2 cerrado',

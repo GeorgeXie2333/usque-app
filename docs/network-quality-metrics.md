@@ -24,6 +24,13 @@ tunnel remains usable. The locked quiche 0.29.3 `PathStats` exposes RTT, loss,
 congestion window, delivery rate, and PMTU, but not current bytes in flight;
 that field is explicitly `Unsupported` rather than inferred.
 
+For H3, PMTU remains `NotReady` while quiche is probing and becomes available
+only when `Connection::pmtu()` reports a completed result. The effective
+CONNECT-IP payload is the smaller of the Profile MTU and quiche's real
+DATAGRAM writable length after the encoded quarter-stream/context prefix. A
+result below the IPv6 1280-byte minimum is `Degraded`; it is never advertised
+as a usable IPv6 MTU.
+
 Interval H3 loss uses monotonic deltas:
 
 ```text
@@ -46,8 +53,8 @@ oldest age, close, and cancellation state are process-local numeric data.
 | `TunToTransport` | Platform TUN attach to the packet mux | 1,024 packets; explicit 67,107,840-byte ceiling, which does not tighten the existing valid-IP size bound |
 | `ProxyToTransport` | smoltcp proxy pipe drained by the single packet mux actor | Existing 1,024-packet pipe; logical actor handoff time and bytes are tracked because the locked dependency does not expose its private flume depth |
 | `TransportOutgoingPackets` | Managed runtime into the reconnecting transport supervisor | 1,024 packets and 67,107,840 bytes |
-| `H3DatagramSend` | quiche DATAGRAM send queue | 1,024 datagrams and 1,382,400 bytes; a bounded metadata shadow is reconciled to quiche's public queue length |
-| `H3WireSend` | Pacing-aware QUIC wire deque | 64 datagrams and 86,400 bytes; entries complete only after a full UDP send |
+| `H3DatagramSend` | quiche DATAGRAM send queue | 1,024 datagrams and a family-specific bound: 1,507,328 bytes for IPv4 or 1,486,848 for IPv6; a bounded metadata shadow is reconciled to quiche's public queue length |
+| `H3WireSend` | Pacing-aware QUIC wire deque | 64 datagrams and a family-specific bound: 94,208 bytes for IPv4 or 92,928 for IPv6; entries complete only after a full UDP send |
 | `TransportToTun` | Managed/final TUN batch sink | 16 batches and 4 MiB; a re-attach atomically replaces the old tracked sink |
 | `TransportToProxy` | Packet mux into the smoltcp proxy pipe | Existing 1,024-packet pipe; logical actor handoff time and bytes are tracked for the same locked-dependency reason |
 | `DirectDnsRequests` | Active GeoSite direct DNS queries | 512 requests and 32 MiB; semaphore rejection is a queue drop and returns SERVFAIL |
@@ -81,6 +88,22 @@ Each `reserve_capacity`/`poll_capacity` wait is measured with an actor-local
 monotonic timestamp. A successful wait longer than one millisecond increments
 the unified `capacity_wait` stall count and total/max duration. Errors and task
 cancellation have separate counters and are never counted as successful stalls.
+
+## H3 DPLPMTUD
+
+H3 configures quiche 0.29.3 DPLPMTUD with three attempts per probe size. The
+outer UDP payload ceiling is 1472 bytes for IPv4 and 1452 for IPv6. quiche's
+locked implementation keeps ordinary data at its conservative 1200-byte QUIC
+floor until a probe succeeds; the ceiling is used only as the optimistic probe
+bound. Each active address pair has independent publication and revalidation
+state.
+
+An `EMSGSIZE` drops the already-generated wire queue rather than retrying the
+same packet, records `pmtu_send_too_large_count`, calls `revalidate_pmtu()` once,
+and suppresses sends for one second. Three such triggers inside a ten-second
+window terminate the H3 path with `PMTU_REVALIDATION_EXHAUSTED`, allowing the
+existing safe reconnect/fallback policy to run. No inner or outer datagram is
+truncated.
 
 Other pre-existing bounded structures are deliberately not separate quality
 queues:

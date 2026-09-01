@@ -486,6 +486,8 @@ const Map<String, String> kNlCatalog = <String, String>{
   'diag_fail_H3_PROTOCOL_ERROR': 'H3-protocolfout',
   'diag_fail_H3_DATAGRAM_UNAVAILABLE': 'H3-datagram niet beschikbaar',
   'diag_fail_H3_CONNECTION_CLOSED': 'H3-verbinding gesloten',
+  'diag_fail_PMTU_REVALIDATION_EXHAUSTED':
+      'Pogingen voor hervalidatie van de H3-pad-MTU zijn uitgeput',
   'diag_fail_H2_TCP_CONNECT_FAILED': 'H2-TCP-verbinding mislukt',
   'diag_fail_H2_TLS_FAILED': 'H2-TLS mislukt',
   'diag_fail_H2_STREAM_CLOSED': 'H2-stream gesloten',

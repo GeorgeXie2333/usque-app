@@ -28,12 +28,16 @@ use crate::h3_buffer::{
 };
 use crate::network_quality::{H3MetricsSample, NetworkQualityTelemetry};
 use crate::packet_batch::{MAX_PACKET_BATCH_PACKETS, PacketBatch, PacketBatchResult};
+use crate::pmtu::{
+    INITIAL_SAFE_UDP_PAYLOAD, PMTUD_MAX_PROBES, PmtuController, PmtuObservation, PmtuPathKey,
+    PmtuRevalidationAction, family_udp_payload_ceiling,
+};
 use crate::queue_metrics::{QueueEntry, QueueKind, QueueMetrics};
 use crate::socket::{SocketProtector, noop_socket_protector, socket_handle};
 use crate::telemetry::{ConnectionAttemptTelemetry, ConnectionEventType};
 #[cfg(test)]
 use crate::udp_io::UdpBatchMode;
-use crate::udp_io::{SendDatagram, UDP_ACTOR_DRAIN_LIMIT, UdpBatchIo};
+use crate::udp_io::{SendDatagram, UDP_ACTOR_DRAIN_LIMIT, UdpBatchIo, is_message_too_long};
 
 const CONNECT_AUTHORITY: &[u8] = b"cloudflareaccess.com";
 const CONNECT_PATH: &[u8] = b"/";
@@ -44,7 +48,6 @@ const CONNECTION_ID_LENGTH: usize = 20;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(30);
 const MAX_IDLE_TIMEOUT_MS: u64 = 90_000;
-const MAX_UDP_PAYLOAD_SIZE: usize = 1_350;
 const DATAGRAM_SEND_QUEUE_CAPACITY: usize = 1_024;
 const DATAGRAM_RECV_QUEUE_CAPACITY: usize = MAX_PACKET_BATCH_PACKETS;
 const INBOUND_PACKET_CAPACITY: usize = 1_024;
@@ -229,6 +232,7 @@ pub async fn connect_h3(
         endpoint,
         sni,
         identity,
+        usize::from(usque_core::config::DEFAULT_MTU),
         noop_socket_protector().as_ref(),
         None,
     )
@@ -239,15 +243,32 @@ pub(crate) async fn connect_h3_with_protector(
     endpoint: SocketAddr,
     sni: &str,
     identity: &MasqueTlsIdentity,
+    profile_inner_mtu: usize,
     protector: &dyn SocketProtector,
     attempt: Option<&ConnectionAttemptTelemetry>,
 ) -> Result<H3Tunnel, TransportError> {
-    let first = connect_h3_once(endpoint, sni, identity, protector, attempt).await;
+    let first = connect_h3_once(
+        endpoint,
+        sni,
+        identity,
+        profile_inner_mtu,
+        protector,
+        attempt,
+    )
+    .await;
     match first {
         Err(TransportError::Http3ProtocolViolation(_)) => {
             // The Go oracle retries this specific Cloudflare interoperability
             // failure once. All other failures preserve normal fallback rules.
-            connect_h3_once(endpoint, sni, identity, protector, attempt).await
+            connect_h3_once(
+                endpoint,
+                sni,
+                identity,
+                profile_inner_mtu,
+                protector,
+                attempt,
+            )
+            .await
         }
         result => result,
     }
@@ -257,6 +278,7 @@ async fn connect_h3_once(
     endpoint: SocketAddr,
     sni: &str,
     identity: &MasqueTlsIdentity,
+    profile_inner_mtu: usize,
     protector: &dyn SocketProtector,
     attempt: Option<&ConnectionAttemptTelemetry>,
 ) -> Result<H3Tunnel, TransportError> {
@@ -278,7 +300,8 @@ async fn connect_h3_once(
         );
     }
 
-    let (mut quic_config, pin_state) = quic_config(identity)?;
+    let family_ceiling = family_udp_payload_ceiling(endpoint);
+    let (mut quic_config, pin_state) = quic_config(identity, family_ceiling)?;
     let mut source_connection_id = [0u8; CONNECTION_ID_LENGTH];
     boring::rand::rand_bytes(&mut source_connection_id)?;
     let source_connection_id = quiche::ConnectionId::from_ref(&source_connection_id);
@@ -304,12 +327,12 @@ async fn connect_h3_once(
     let datagram_queue = quality.register_queue(
         QueueKind::H3DatagramSend,
         DATAGRAM_SEND_QUEUE_CAPACITY,
-        DATAGRAM_SEND_QUEUE_CAPACITY * MAX_UDP_PAYLOAD_SIZE,
+        DATAGRAM_SEND_QUEUE_CAPACITY * family_ceiling,
     );
     let wire_queue = quality.register_queue(
         QueueKind::H3WireSend,
         MAX_PENDING_WIRE_DATAGRAMS,
-        MAX_PENDING_WIRE_DATAGRAMS * MAX_UDP_PAYLOAD_SIZE,
+        MAX_PENDING_WIRE_DATAGRAMS * family_ceiling,
     );
 
     let (outgoing_tx, outgoing_rx) = mpsc::channel(OUTGOING_BATCH_CHANNEL_CAPACITY);
@@ -328,6 +351,9 @@ async fn connect_h3_once(
         quality,
         datagram_queue,
         wire_queue,
+        profile_inner_mtu,
+        family_ceiling,
+        PmtuPathKey::new(local_address, endpoint),
     )));
 
     let startup = timeout(CONNECT_TIMEOUT, startup_rx).await;
@@ -383,6 +409,7 @@ async fn connect_h3_once(
 
 fn quic_config(
     identity: &MasqueTlsIdentity,
+    family_ceiling: usize,
 ) -> Result<(quiche::Config, Arc<PinState>), TransportError> {
     let mut tls = SslContextBuilder::new(SslMethod::tls())?;
     let pin_state = configure_client_identity_and_pin(&mut tls, identity)?;
@@ -392,8 +419,10 @@ fn quic_config(
         .set_application_protos(quiche::h3::APPLICATION_PROTOCOL)
         .map_err(|error| TransportError::Http3(format!("configure H3 ALPN: {error:?}")))?;
     config.set_max_idle_timeout(MAX_IDLE_TIMEOUT_MS);
-    config.set_max_recv_udp_payload_size(MAX_UDP_PAYLOAD_SIZE);
-    config.set_max_send_udp_payload_size(MAX_UDP_PAYLOAD_SIZE);
+    config.set_max_recv_udp_payload_size(family_ceiling);
+    config.set_max_send_udp_payload_size(family_ceiling);
+    config.discover_pmtu(true);
+    config.set_pmtud_max_probes(PMTUD_MAX_PROBES);
     config.set_initial_max_data(10_000_000);
     config.set_initial_max_stream_data_bidi_local(1_000_000);
     config.set_initial_max_stream_data_bidi_remote(1_000_000);
@@ -457,6 +486,9 @@ async fn run_h3_actor(
     quality: NetworkQualityTelemetry,
     datagram_queue: Arc<QueueMetrics>,
     wire_queue: Arc<QueueMetrics>,
+    profile_inner_mtu: usize,
+    family_ceiling: usize,
+    initial_path: PmtuPathKey,
 ) -> Result<(), TransportError> {
     let mut startup_tx = Some(startup_tx);
     let result = drive_h3_actor(
@@ -471,6 +503,9 @@ async fn run_h3_actor(
         &quality,
         &datagram_queue,
         &wire_queue,
+        profile_inner_mtu,
+        family_ceiling,
+        initial_path,
     )
     .await;
     if let Some(startup_tx) = startup_tx.take() {
@@ -501,6 +536,9 @@ async fn drive_h3_actor(
     quality: &NetworkQualityTelemetry,
     datagram_queue: &Arc<QueueMetrics>,
     wire_queue: &Arc<QueueMetrics>,
+    profile_inner_mtu: usize,
+    family_ceiling: usize,
+    initial_path: PmtuPathKey,
 ) -> Result<(), TransportError> {
     let udp_io = UdpBatchIo::new(socket, quality.clone())?;
     let mut http3 = None;
@@ -518,6 +556,7 @@ async fn drive_h3_actor(
     let io_cancel = CancellationToken::new();
     let mut incoming_batch = PacketBatch::new();
     let mut inbound_queue_drop_count = 0_u64;
+    let mut pmtu = PmtuController::new(initial_path);
     let mut keepalive = interval_at(Instant::now() + KEEPALIVE_INTERVAL, KEEPALIVE_INTERVAL);
     keepalive.set_missed_tick_behavior(MissedTickBehavior::Delay);
     let mut quality_tick = interval_at(
@@ -615,18 +654,23 @@ async fn drive_h3_actor(
                 datagram_queue,
                 quality,
                 &encode_pool,
+                profile_inner_mtu,
             )?;
         }
 
         let send_quantum = connection.send_quantum();
-        generate_wire_datagrams(
-            &mut connection,
-            &mut wire_datagrams,
-            &mut free_wire_buffers,
-            send_quantum,
-            wire_queue,
-            quality,
-        )?;
+        let pmtu_suppressed_until = pmtu.send_suppressed_until(StdInstant::now());
+        if pmtu_suppressed_until.is_none() {
+            generate_wire_datagrams(
+                &mut connection,
+                &mut wire_datagrams,
+                &mut free_wire_buffers,
+                send_quantum,
+                family_ceiling,
+                wire_queue,
+                quality,
+            )?;
+        }
         reconcile_datagram_queue(&connection, &mut datagram_entries, datagram_queue);
 
         if connection.is_closed() {
@@ -676,10 +720,44 @@ async fn drive_h3_actor(
                 wire_queue,
                 quality,
                 &io_cancel,
-            ), if wire_is_due && wire_fits_quantum => {
-                sent?;
+            ), if wire_is_due && wire_fits_quantum && pmtu_suppressed_until.is_none() => {
+                if sent? == WireSendOutcome::MessageTooLarge {
+                    let Some(path) = connection.path_stats().find(|path| path.active) else {
+                        return Err(TransportError::Http3(
+                            "active QUIC path disappeared after UDP EMSGSIZE".to_owned(),
+                        ));
+                    };
+                    let key = PmtuPathKey::new(path.local_addr, path.peer_addr);
+                    quality.record_pmtu_send_too_large();
+                    match pmtu.on_send_too_large(key, path.pmtu, StdInstant::now()) {
+                        PmtuRevalidationAction::Revalidate(observation) => {
+                            publish_pmtu_observation(quality, observation);
+                            record_pmtu_change_if_needed(attempt, observation);
+                            connection.revalidate_pmtu();
+                            if let Some(attempt) = attempt {
+                                attempt.record(
+                                    ConnectionEventType::PmtuRevalidationStarted,
+                                    TransportStage::PacketSend,
+                                );
+                            }
+                        }
+                        PmtuRevalidationAction::Exhausted(observation) => {
+                            publish_pmtu_observation(quality, observation);
+                            record_pmtu_change_if_needed(attempt, observation);
+                            quality.record_pmtu_revalidation_failure();
+                            if let Some(attempt) = attempt {
+                                attempt.record(
+                                    ConnectionEventType::PmtuRevalidationFailed,
+                                    TransportStage::PacketSend,
+                                );
+                            }
+                            return Err(TransportError::PmtuRevalidationExhausted);
+                        }
+                    }
+                }
             }
             _ = sleep_until(wire_deadline), if !wire_datagrams.is_empty() && !wire_is_due => {}
+            _ = sleep_until(Instant::from_std(pmtu_suppressed_until.unwrap_or_else(StdInstant::now))), if pmtu_suppressed_until.is_some() => {}
             _ = sleep_until(quic_deadline) => connection.on_timeout(),
             _ = keepalive.tick(), if connection.is_established() => {
                 connection
@@ -689,9 +767,15 @@ async fn drive_h3_actor(
                     )))?;
             }
             _ = quality_tick.tick(), if connection.is_established() => {
-                if let Some(attempt) = attempt {
-                    observe_h3_metrics(&connection, attempt, inbound_queue_drop_count);
-                }
+                observe_h3_metrics(
+                    &connection,
+                    &mut pmtu,
+                    attempt,
+                    quality,
+                    request_stream_id,
+                    profile_inner_mtu,
+                    inbound_queue_drop_count,
+                )?;
             }
         }
     }
@@ -912,6 +996,7 @@ fn queue_pending_batch(
     datagram_queue: &Arc<QueueMetrics>,
     quality: &NetworkQualityTelemetry,
     encode_pool: &DatagramEncodePool,
+    profile_inner_mtu: usize,
 ) -> Result<(), TransportError> {
     let completed = {
         let Some(outgoing) = pending_batch.as_mut() else {
@@ -925,12 +1010,8 @@ fn queue_pending_batch(
                 break;
             };
             let packet_len = packet.len();
-            let datagram_overhead = encoded_varint_len(stream_id / 4)?
-                + encoded_varint_len(usque_protocol::DEFAULT_CONTEXT_ID)?;
-            let maximum_datagram_size = connection.dgram_max_writable_len().ok_or_else(|| {
-                TransportError::Http3("HTTP Datagram writable length became unavailable".to_owned())
-            })?;
-            let maximum_packet_size = maximum_datagram_size.saturating_sub(datagram_overhead);
+            let (maximum_packet_size, datagram_overhead) =
+                connect_ip_payload_limit(connection, stream_id, profile_inner_mtu)?;
             if packet_len > maximum_packet_size {
                 let packet = outgoing
                     .batch
@@ -986,6 +1067,30 @@ fn queue_pending_batch(
     Ok(())
 }
 
+fn connect_ip_payload_limit(
+    connection: &H3QuicConnection,
+    stream_id: u64,
+    profile_inner_mtu: usize,
+) -> Result<(usize, usize), TransportError> {
+    let datagram_overhead = encoded_varint_len(stream_id / 4)?
+        + encoded_varint_len(usque_protocol::DEFAULT_CONTEXT_ID)?;
+    let maximum_datagram_size = connection.dgram_max_writable_len().ok_or_else(|| {
+        TransportError::Http3("HTTP Datagram writable length became unavailable".to_owned())
+    })?;
+    Ok((
+        effective_connect_ip_payload(profile_inner_mtu, maximum_datagram_size, datagram_overhead),
+        datagram_overhead,
+    ))
+}
+
+fn effective_connect_ip_payload(
+    profile_inner_mtu: usize,
+    datagram_writable_len: usize,
+    context_overhead: usize,
+) -> usize {
+    profile_inner_mtu.min(datagram_writable_len.saturating_sub(context_overhead))
+}
+
 fn reconcile_datagram_queue(
     connection: &H3QuicConnection,
     entries: &mut VecDeque<QueueEntry>,
@@ -1002,33 +1107,79 @@ fn reconcile_datagram_queue(
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the one-hertz H3 observation keeps path state, negotiated limits, and telemetry explicit"
+)]
 fn observe_h3_metrics(
     connection: &H3QuicConnection,
-    attempt: &ConnectionAttemptTelemetry,
+    pmtu: &mut PmtuController,
+    attempt: Option<&ConnectionAttemptTelemetry>,
+    quality: &NetworkQualityTelemetry,
+    request_stream_id: Option<u64>,
+    profile_inner_mtu: usize,
     datagram_receive_drops: u64,
-) {
+) -> Result<(), TransportError> {
     let Some(path) = connection.path_stats().find(|path| path.active) else {
-        return;
+        return Ok(());
     };
-    attempt.observe_h3(H3MetricsSample {
-        rtt: path.rtt,
-        min_rtt: path.min_rtt,
-        rtt_variance: path.rttvar,
-        congestion_window_bytes: usize_to_u64(path.cwnd),
-        send_rate_bytes_per_second: path.delivery_rate,
-        sent_packets: usize_to_u64(path.sent),
-        received_packets: usize_to_u64(path.recv),
-        lost_packets: usize_to_u64(path.lost),
-        sent_bytes: path.sent_bytes,
-        received_bytes: path.recv_bytes,
-        lost_bytes: path.lost_bytes,
-        pto_count: usize_to_u64(path.total_pto_count),
-        datagrams_sent: usize_to_u64(path.dgram_sent),
-        datagrams_received: usize_to_u64(path.dgram_recv),
-        datagrams_lost: usize_to_u64(path.dgram_lost),
-        datagram_receive_drops,
-        pmtu_bytes: u32::try_from(path.pmtu).unwrap_or(u32::MAX),
-    });
+    let effective_payload = request_stream_id
+        .map(|stream_id| connect_ip_payload_limit(connection, stream_id, profile_inner_mtu))
+        .transpose()?
+        .map(|(payload, _)| payload);
+    let observation = pmtu.observe_active_path(
+        PmtuPathKey::new(path.local_addr, path.peer_addr),
+        connection.pmtu(),
+        path.pmtu,
+        effective_payload,
+    );
+    publish_pmtu_observation(quality, observation);
+    record_pmtu_change_if_needed(attempt, observation);
+
+    if let Some(attempt) = attempt {
+        attempt.observe_h3(H3MetricsSample {
+            rtt: path.rtt,
+            min_rtt: path.min_rtt,
+            rtt_variance: path.rttvar,
+            congestion_window_bytes: usize_to_u64(path.cwnd),
+            send_rate_bytes_per_second: path.delivery_rate,
+            sent_packets: usize_to_u64(path.sent),
+            received_packets: usize_to_u64(path.recv),
+            lost_packets: usize_to_u64(path.lost),
+            sent_bytes: path.sent_bytes,
+            received_bytes: path.recv_bytes,
+            lost_bytes: path.lost_bytes,
+            pto_count: usize_to_u64(path.total_pto_count),
+            datagrams_sent: usize_to_u64(path.dgram_sent),
+            datagrams_received: usize_to_u64(path.dgram_recv),
+            datagrams_lost: usize_to_u64(path.dgram_lost),
+            datagram_receive_drops,
+        });
+    }
+    Ok(())
+}
+
+fn publish_pmtu_observation(quality: &NetworkQualityTelemetry, observation: PmtuObservation) {
+    quality.observe_pmtu(
+        observation.phase,
+        observation
+            .outer_payload_bytes
+            .map(|value| u32::try_from(value).unwrap_or(u32::MAX)),
+        observation
+            .effective_connect_ip_payload_bytes
+            .map(|value| u32::try_from(value).unwrap_or(u32::MAX)),
+    );
+}
+
+fn record_pmtu_change_if_needed(
+    attempt: Option<&ConnectionAttemptTelemetry>,
+    observation: PmtuObservation,
+) {
+    if observation.numeric_changed
+        && let Some(attempt) = attempt
+    {
+        attempt.record(ConnectionEventType::PmtuChanged, TransportStage::PacketSend);
+    }
 }
 
 fn usize_to_u64(value: usize) -> u64 {
@@ -1081,22 +1232,27 @@ struct WireDatagram {
     queue_entry: QueueEntry,
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "wire generation keeps the family ceiling and bounded buffer ownership explicit"
+)]
 fn generate_wire_datagrams(
     connection: &mut H3QuicConnection,
     pending: &mut VecDeque<WireDatagram>,
     free_buffers: &mut Vec<Vec<u8>>,
     send_quantum: usize,
+    wire_payload_capacity: usize,
     wire_queue: &Arc<QueueMetrics>,
     quality: &NetworkQualityTelemetry,
 ) -> Result<(), TransportError> {
-    if send_quantum < MAX_UDP_PAYLOAD_SIZE {
+    if send_quantum < INITIAL_SAFE_UDP_PAYLOAD {
         return Ok(());
     }
     let mut generated_bytes = 0usize;
     while pending.len() < MAX_PENDING_WIRE_DATAGRAMS
-        && generated_bytes.saturating_add(MAX_UDP_PAYLOAD_SIZE) <= send_quantum
+        && generated_bytes.saturating_add(wire_payload_capacity) <= send_quantum
     {
-        let mut bytes = take_wire_buffer(free_buffers, quality);
+        let mut bytes = take_wire_buffer(free_buffers, wire_payload_capacity, quality);
         match connection.send(&mut bytes) {
             Ok((length, send_info)) => {
                 generated_bytes = generated_bytes.saturating_add(length);
@@ -1122,6 +1278,12 @@ fn generate_wire_datagrams(
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WireSendOutcome {
+    Sent,
+    MessageTooLarge,
+}
+
 #[expect(
     clippy::too_many_arguments,
     reason = "the actor send step keeps socket, ordered queues, quantum, telemetry, and cancellation explicit"
@@ -1134,13 +1296,13 @@ async fn send_due_wire_datagrams(
     wire_queue: &QueueMetrics,
     quality: &NetworkQualityTelemetry,
     cancel: &CancellationToken,
-) -> Result<(), TransportError> {
+) -> Result<WireSendOutcome, TransportError> {
     let Some(first) = pending.front() else {
-        return Ok(());
+        return Ok(WireSendOutcome::Sent);
     };
     let now = StdInstant::now();
     if first.send_info.at > now {
-        return Ok(());
+        return Ok(WireSendOutcome::Sent);
     }
     let source = first.send_info.from;
     let destination = first.send_info.to;
@@ -1173,9 +1335,17 @@ async fn send_due_wire_datagrams(
         sent_bytes = sent_bytes.saturating_add(datagram.bytes.len());
     }
     if batch_len == 0 {
-        return Ok(());
+        return Ok(WireSendOutcome::Sent);
     }
-    let sent = udp_io.send_batch(&batch[..batch_len], cancel).await?;
+    let send_result = udp_io.send_batch(&batch[..batch_len], cancel).await;
+    let sent = match send_result {
+        Ok(sent) => sent,
+        Err(error) if is_message_too_long(&error) => {
+            discard_pending_wire_datagrams(pending, free_buffers, wire_queue, quality);
+            return Ok(WireSendOutcome::MessageTooLarge);
+        }
+        Err(error) => return Err(error.into()),
+    };
     if sent > batch_len {
         return Err(TransportError::Http3(
             "UDP batch backend reported more sends than requested".to_owned(),
@@ -1185,7 +1355,20 @@ async fn send_due_wire_datagrams(
         quality.record_udp_partial_batch();
     }
     complete_wire_sends(pending, free_buffers, sent, wire_queue, quality);
-    Ok(())
+    Ok(WireSendOutcome::Sent)
+}
+
+fn discard_pending_wire_datagrams(
+    pending: &mut VecDeque<WireDatagram>,
+    free_buffers: &mut Vec<Vec<u8>>,
+    wire_queue: &QueueMetrics,
+    quality: &NetworkQualityTelemetry,
+) {
+    while let Some(datagram) = pending.pop_front() {
+        datagram.queue_entry.complete();
+        recycle_wire_buffer(free_buffers, datagram.bytes, quality);
+    }
+    debug_assert_eq!(wire_queue.snapshot(Instant::now()).current_items, 0);
 }
 
 fn complete_wire_sends(
@@ -1207,7 +1390,11 @@ fn complete_wire_sends(
     }
 }
 
-fn take_wire_buffer(free_buffers: &mut Vec<Vec<u8>>, quality: &NetworkQualityTelemetry) -> Vec<u8> {
+fn take_wire_buffer(
+    free_buffers: &mut Vec<Vec<u8>>,
+    wire_payload_capacity: usize,
+    quality: &NetworkQualityTelemetry,
+) -> Vec<u8> {
     let mut bytes = match free_buffers.pop() {
         Some(bytes) => {
             quality.record_packet_buffer_pool_hit();
@@ -1217,10 +1404,14 @@ fn take_wire_buffer(free_buffers: &mut Vec<Vec<u8>>, quality: &NetworkQualityTel
         None => {
             quality.record_packet_buffer_pool_miss();
             quality.record_fresh_allocation();
-            Vec::with_capacity(MAX_UDP_PAYLOAD_SIZE)
+            Vec::with_capacity(wire_payload_capacity)
         }
     };
-    bytes.resize(MAX_UDP_PAYLOAD_SIZE, 0);
+    if bytes.capacity() < wire_payload_capacity {
+        quality.record_fresh_allocation();
+        bytes.reserve_exact(wire_payload_capacity - bytes.capacity());
+    }
+    bytes.resize(wire_payload_capacity, 0);
     bytes
 }
 
@@ -1517,25 +1708,29 @@ mod tests {
     }
 
     #[test]
+    fn effective_payload_uses_profile_and_real_writable_bounds() {
+        assert_eq!(effective_connect_ip_payload(1_400, 1_452, 2), 1_400);
+        assert_eq!(effective_connect_ip_payload(9_000, 1_452, 2), 1_450);
+        assert_eq!(effective_connect_ip_payload(1_280, 1, 2), 0);
+    }
+
+    #[test]
     fn wire_datagram_buffers_are_reused_with_a_fixed_bound() {
         let mut free = Vec::new();
         let quality = NetworkQualityTelemetry::default();
-        let first = take_wire_buffer(&mut free, &quality);
-        assert_eq!(first.len(), MAX_UDP_PAYLOAD_SIZE);
+        let capacity = crate::pmtu::IPV4_MAX_UDP_PAYLOAD;
+        let first = take_wire_buffer(&mut free, capacity, &quality);
+        assert_eq!(first.len(), capacity);
         let allocation = first.as_ptr();
         recycle_wire_buffer(&mut free, first, &quality);
 
-        let reused = take_wire_buffer(&mut free, &quality);
-        assert_eq!(reused.len(), MAX_UDP_PAYLOAD_SIZE);
+        let reused = take_wire_buffer(&mut free, capacity, &quality);
+        assert_eq!(reused.len(), capacity);
         assert_eq!(reused.as_ptr(), allocation);
         recycle_wire_buffer(&mut free, reused, &quality);
 
         for _ in 0..=MAX_PENDING_WIRE_DATAGRAMS {
-            recycle_wire_buffer(
-                &mut free,
-                Vec::with_capacity(MAX_UDP_PAYLOAD_SIZE),
-                &quality,
-            );
+            recycle_wire_buffer(&mut free, Vec::with_capacity(capacity), &quality);
         }
         assert_eq!(free.len(), MAX_PENDING_WIRE_DATAGRAMS);
     }
@@ -1555,7 +1750,7 @@ mod tests {
         let wire_queue = QueueMetrics::new(
             QueueKind::H3WireSend,
             MAX_PENDING_WIRE_DATAGRAMS,
-            MAX_PENDING_WIRE_DATAGRAMS * MAX_UDP_PAYLOAD_SIZE,
+            MAX_PENDING_WIRE_DATAGRAMS * crate::pmtu::IPV4_MAX_UDP_PAYLOAD,
         );
         let mut pending = VecDeque::from([
             WireDatagram {
@@ -1580,17 +1775,20 @@ mod tests {
         ]);
         let mut free = Vec::new();
 
-        send_due_wire_datagrams(
-            &sender,
-            &mut pending,
-            &mut free,
-            150,
-            &wire_queue,
-            &quality,
-            &cancel,
-        )
-        .await
-        .unwrap();
+        assert_eq!(
+            send_due_wire_datagrams(
+                &sender,
+                &mut pending,
+                &mut free,
+                150,
+                &wire_queue,
+                &quality,
+                &cancel,
+            )
+            .await
+            .unwrap(),
+            WireSendOutcome::Sent,
+        );
         assert_eq!(pending.len(), 2);
         let mut received = [0u8; 128];
         let length = timeout(Duration::from_secs(1), receiver.recv(&mut received))
@@ -1599,17 +1797,20 @@ mod tests {
             .unwrap();
         assert_eq!(&received[..length], &[1; 100]);
 
-        send_due_wire_datagrams(
-            &sender,
-            &mut pending,
-            &mut free,
-            500,
-            &wire_queue,
-            &quality,
-            &cancel,
-        )
-        .await
-        .unwrap();
+        assert_eq!(
+            send_due_wire_datagrams(
+                &sender,
+                &mut pending,
+                &mut free,
+                500,
+                &wire_queue,
+                &quality,
+                &cancel,
+            )
+            .await
+            .unwrap(),
+            WireSendOutcome::Sent,
+        );
         assert_eq!(pending.len(), 1);
         assert_eq!(pending.front().unwrap().bytes, vec![3; 100]);
     }
@@ -1645,6 +1846,33 @@ mod tests {
         complete_wire_sends(&mut pending, &mut free, 2, &wire_queue, &quality);
         assert!(pending.is_empty());
         assert_eq!(free.len(), 3);
+    }
+
+    #[test]
+    fn emsgsize_discard_path_never_retries_the_same_wire_packet() {
+        let quality = NetworkQualityTelemetry::default();
+        let wire_queue = QueueMetrics::new(QueueKind::H3WireSend, 3, 4_500);
+        let from: SocketAddr = "127.0.0.1:10000".parse().unwrap();
+        let to: SocketAddr = "127.0.0.1:20000".parse().unwrap();
+        let mut pending = VecDeque::new();
+        for marker in 1..=3 {
+            pending.push_back(WireDatagram {
+                bytes: vec![marker; 1_400],
+                send_info: quiche::SendInfo {
+                    from,
+                    to,
+                    at: StdInstant::now(),
+                },
+                queue_entry: wire_queue.start_entry(1_400),
+            });
+        }
+        let mut free = Vec::new();
+
+        discard_pending_wire_datagrams(&mut pending, &mut free, &wire_queue, &quality);
+
+        assert!(pending.is_empty());
+        assert_eq!(free.len(), 3);
+        assert_eq!(wire_queue.snapshot(Instant::now()).current_items, 0);
     }
 
     #[tokio::test]

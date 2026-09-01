@@ -529,7 +529,7 @@ pub(super) fn receive_too_large_error() -> io::Error {
     )
 }
 
-pub(super) fn is_message_too_long(error: &io::Error) -> bool {
+pub(crate) fn is_message_too_long(error: &io::Error) -> bool {
     #[cfg(unix)]
     if error.raw_os_error() == Some(libc::EMSGSIZE) {
         return true;
@@ -581,6 +581,17 @@ mod tests {
         assert_eq!(eligible_send_prefix(&batch, source, now).unwrap(), 2);
         assert_eq!(eligible_send_prefix(&batch[3..], source, now).unwrap(), 0);
         assert!(eligible_send_prefix(&batch, second, now).is_err());
+    }
+
+    #[test]
+    fn platform_message_too_large_error_is_classified_for_pmtu_revalidation() {
+        #[cfg(windows)]
+        let error = io::Error::from_raw_os_error(10_040);
+        #[cfg(unix)]
+        let error = io::Error::from_raw_os_error(libc::EMSGSIZE);
+
+        assert!(is_message_too_long(&error));
+        assert!(!is_message_too_long(&io::Error::from_raw_os_error(22)));
     }
 
     #[test]

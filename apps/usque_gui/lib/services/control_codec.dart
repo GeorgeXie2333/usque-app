@@ -1385,6 +1385,7 @@ NetworkConnectionMetrics _decodeNetworkConnectionMetrics(_ProtoReader reader) {
   var dnsLastRttKnown = false;
   var pmtuChanges = 0;
   var pmtuRevalidationFailures = 0;
+  var pmtuSendTooLarge = 0;
   var smoothedAvailability = MetricAvailability.unknown;
   var minimumAvailability = MetricAvailability.unknown;
   var varianceAvailability = MetricAvailability.unknown;
@@ -1503,6 +1504,8 @@ NetworkConnectionMetrics _decodeNetworkConnectionMetrics(_ProtoReader reader) {
         );
       case 62:
         sendRateAvailability = _decodeMetricAvailability(reader.varint(field));
+      case 63:
+        pmtuSendTooLarge = reader.varint(field);
       default:
         reader.skip(field);
     }
@@ -1544,6 +1547,7 @@ NetworkConnectionMetrics _decodeNetworkConnectionMetrics(_ProtoReader reader) {
     directDnsLastRttMilliseconds: dnsLastRttKnown ? dnsLastRtt : null,
     pmtuChangeCount: pmtuChanges,
     pmtuRevalidationFailureCount: pmtuRevalidationFailures,
+    pmtuSendTooLargeCount: pmtuSendTooLarge,
     smoothedRttAvailability: smoothedAvailability,
     minimumRttAvailability: minimumAvailability,
     rttVarianceAvailability: varianceAvailability,
@@ -1637,6 +1641,7 @@ PmtuQualityInfo _decodePmtuQuality(_ProtoReader reader) {
   var phaseCode = '';
   var changeCount = 0;
   var revalidationFailures = 0;
+  var sendTooLarge = 0;
   while (!reader.isDone) {
     final field = reader.field();
     switch (field.number) {
@@ -1654,6 +1659,8 @@ PmtuQualityInfo _decodePmtuQuality(_ProtoReader reader) {
         revalidationFailures = reader.varint(field);
       case 7:
         effectiveAvailability = _decodeMetricAvailability(reader.varint(field));
+      case 8:
+        sendTooLarge = reader.varint(field);
       default:
         reader.skip(field);
     }
@@ -1668,6 +1675,7 @@ PmtuQualityInfo _decodePmtuQuality(_ProtoReader reader) {
     phaseCode: phaseCode,
     changeCount: changeCount,
     revalidationFailureCount: revalidationFailures,
+    sendTooLargeCount: sendTooLarge,
   );
 }
 

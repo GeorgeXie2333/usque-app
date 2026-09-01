@@ -431,6 +431,7 @@ const Map<String, String> kZhCnCatalog = <String, String>{
   'diag_fail_H3_PROTOCOL_ERROR': 'H3 协议错误',
   'diag_fail_H3_DATAGRAM_UNAVAILABLE': 'H3 数据报不可用',
   'diag_fail_H3_CONNECTION_CLOSED': 'H3 连接已关闭',
+  'diag_fail_PMTU_REVALIDATION_EXHAUSTED': 'H3 路径 MTU 重新验证次数已耗尽',
   'diag_fail_H2_TCP_CONNECT_FAILED': 'H2 TCP 连接失败',
   'diag_fail_H2_TLS_FAILED': 'H2 TLS 失败',
   'diag_fail_H2_STREAM_CLOSED': 'H2 流已关闭',

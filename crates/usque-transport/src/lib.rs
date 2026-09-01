@@ -19,6 +19,7 @@ mod network_quality;
 mod packet_batch;
 mod packet_mux;
 mod pin_refresh;
+mod pmtu;
 mod port_allocator;
 mod proxy;
 mod queue_metrics;

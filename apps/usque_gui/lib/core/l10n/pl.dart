@@ -487,6 +487,8 @@ const Map<String, String> kPlCatalog = <String, String>{
   'diag_fail_H3_PROTOCOL_ERROR': 'Błąd protokołu H3',
   'diag_fail_H3_DATAGRAM_UNAVAILABLE': 'Datagram H3 niedostępny',
   'diag_fail_H3_CONNECTION_CLOSED': 'Połączenie H3 zamknięte',
+  'diag_fail_PMTU_REVALIDATION_EXHAUSTED':
+      'Wyczerpano próby ponownej walidacji MTU ścieżki H3',
   'diag_fail_H2_TCP_CONNECT_FAILED': 'Połączenie TCP H2 nie powiodło się',
   'diag_fail_H2_TLS_FAILED': 'TLS H2 nie powiodło się',
   'diag_fail_H2_STREAM_CLOSED': 'Strumień H2 zamknięty',

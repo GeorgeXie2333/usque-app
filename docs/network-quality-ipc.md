@@ -13,13 +13,17 @@ to canonical physical-system direct DNS, preserving schema-12 behavior.
 - `ControlRequest.get_network_quality = 40`
 - `ControlResponse.network_quality = 21`
 - `EventEnvelope.network_quality_updated = 23`
-- `ConnectionMetrics` quality fields occupy 13 through 62
+- `ConnectionMetrics` quality fields occupy 13 through 63; tag 63 is the
+  bounded H3 `pmtu_send_too_large_count`
+- `PmtuQuality.send_too_large_count = 8`
 - `ConnectionEventType` migration, PMTU, and direct-DNS values occupy 22
   through 30
 
-The build advertises `network_quality=true`. The encrypted-DNS, migration, and
-automatic-PMTU capability flags remain false until their implementation PRs.
-Capabilities describe build/platform support, not current path readiness.
+The build advertises `network_quality=true` and `automatic_pmtu=true`.
+Encrypted DNS and migration remain false until their implementation PRs.
+Capabilities describe build/platform support, not current path readiness; H2
+reports PMTU as `Unsupported`, while an H3 path still probing reports
+`NotReady`.
 
 ## Compatibility and availability
 

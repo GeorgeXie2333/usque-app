@@ -480,6 +480,8 @@ const Map<String, String> kFaCatalog = <String, String>{
   'diag_fail_H3_PROTOCOL_ERROR': 'خطای پروتکل H3',
   'diag_fail_H3_DATAGRAM_UNAVAILABLE': 'داده‌گرام H3 در دسترس نیست',
   'diag_fail_H3_CONNECTION_CLOSED': 'اتصال H3 بسته شد',
+  'diag_fail_PMTU_REVALIDATION_EXHAUSTED':
+      'تلاش‌های اعتبارسنجی مجدد MTU مسیر H3 تمام شد',
   'diag_fail_H2_TCP_CONNECT_FAILED': 'اتصال TCP مربوط به H2 ناموفق بود',
   'diag_fail_H2_TLS_FAILED': 'TLS مربوط به H2 ناموفق بود',
   'diag_fail_H2_STREAM_CLOSED': 'جریان H2 بسته شد',

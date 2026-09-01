@@ -43,7 +43,7 @@ class ReliabilityCatalogueTest(unittest.TestCase):
                 _section(android, "private val FAILURE_CODES", "private val REMEDIATION_KEYS"),
             )
         )
-        self.assertEqual(47, len(rust_codes))
+        self.assertEqual(48, len(rust_codes))
         self.assertSetEqual(rust_codes, chinese_codes)
         self.assertSetEqual(rust_codes, android_codes)
 

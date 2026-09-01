@@ -1101,6 +1101,7 @@ class NetworkConnectionMetrics {
     this.directDnsLastRttMilliseconds,
     this.pmtuChangeCount = 0,
     this.pmtuRevalidationFailureCount = 0,
+    this.pmtuSendTooLargeCount = 0,
     this.smoothedRttAvailability = MetricAvailability.unknown,
     this.minimumRttAvailability = MetricAvailability.unknown,
     this.rttVarianceAvailability = MetricAvailability.unknown,
@@ -1144,6 +1145,7 @@ class NetworkConnectionMetrics {
   final int? directDnsLastRttMilliseconds;
   final int pmtuChangeCount;
   final int pmtuRevalidationFailureCount;
+  final int pmtuSendTooLargeCount;
   final MetricAvailability smoothedRttAvailability;
   final MetricAvailability minimumRttAvailability;
   final MetricAvailability rttVarianceAvailability;
@@ -1187,6 +1189,7 @@ class NetworkConnectionMetrics {
     directDnsLastRttMilliseconds,
     pmtuChangeCount,
     pmtuRevalidationFailureCount,
+    pmtuSendTooLargeCount,
     smoothedRttAvailability,
     minimumRttAvailability,
     rttVarianceAvailability,
@@ -1289,6 +1292,7 @@ class PmtuQualityInfo {
     this.phaseCode = '',
     this.changeCount = 0,
     this.revalidationFailureCount = 0,
+    this.sendTooLargeCount = 0,
   });
 
   final MetricAvailability availability;
@@ -1298,6 +1302,7 @@ class PmtuQualityInfo {
   final String phaseCode;
   final int changeCount;
   final int revalidationFailureCount;
+  final int sendTooLargeCount;
 
   @override
   bool operator ==(Object other) =>
@@ -1310,7 +1315,8 @@ class PmtuQualityInfo {
           effectivePayloadAvailability == other.effectivePayloadAvailability &&
           phaseCode == other.phaseCode &&
           changeCount == other.changeCount &&
-          revalidationFailureCount == other.revalidationFailureCount;
+          revalidationFailureCount == other.revalidationFailureCount &&
+          sendTooLargeCount == other.sendTooLargeCount;
 
   @override
   int get hashCode => Object.hash(
@@ -1321,6 +1327,7 @@ class PmtuQualityInfo {
     phaseCode,
     changeCount,
     revalidationFailureCount,
+    sendTooLargeCount,
   );
 }
 
@@ -1536,6 +1543,7 @@ class NetworkQualitySnapshot {
           metricsMap,
           'pmtu_revalidation_failure_count',
         ),
+        pmtuSendTooLargeCount: _mapInt(metricsMap, 'pmtu_send_too_large_count'),
         smoothedRttAvailability: _enumNameOr(
           MetricAvailability.values,
           metricsMap['smoothed_rtt_availability'],
@@ -1629,6 +1637,7 @@ class NetworkQualitySnapshot {
           pmtuMap,
           'revalidation_failure_count',
         ),
+        sendTooLargeCount: _mapInt(pmtuMap, 'send_too_large_count'),
       ),
       migration: MigrationQualityInfo(
         phaseCode: _mapString(migrationMap, 'phase_code'),

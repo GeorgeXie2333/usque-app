@@ -1099,6 +1099,8 @@ pub enum TransportError {
         "an IP packet is too large for the negotiated HTTP/3 datagram (maximum {maximum_packet_size} bytes)"
     )]
     Http3DatagramTooLarge { maximum_packet_size: usize },
+    #[error("pmtu_revalidation_exhausted")]
+    PmtuRevalidationExhausted,
     #[error("the QUIC path can carry only {0} bytes and violates the IPv6 minimum tunnel MTU")]
     Ipv6MinimumMtuUnavailable(usize),
     #[error("the operating mode is not supported by this proxy data plane")]
@@ -1207,6 +1209,7 @@ impl TransportError {
             }
             Self::Http3ConnectRejected(_) => (Code::H3ProtocolError, Stage::MasqueConnect),
             Self::Http3DatagramUnavailable => (Code::H3DatagramUnavailable, Stage::PeerSettings),
+            Self::PmtuRevalidationExhausted => (Code::PmtuRevalidationExhausted, Stage::PacketSend),
             Self::Http3DatagramTooLarge { .. }
             | Self::Ipv6MinimumMtuUnavailable(_)
             | Self::MalformedIpPacket => (Code::PacketSendFailed, Stage::PacketSend),
@@ -1337,6 +1340,18 @@ mod tests {
             .expect("aggregate failure keeps both transport causes");
         assert_eq!(recorded_h3, &h3);
         assert_eq!(recorded_h2, &h2);
+    }
+
+    #[test]
+    fn pmtu_revalidation_exhaustion_preserves_its_reason_code() {
+        let error = TransportError::PmtuRevalidationExhausted;
+        assert_eq!(error.to_string(), "pmtu_revalidation_exhausted");
+        assert_eq!(
+            error
+                .failure(Some(Transport::Http3), Some(AddressFamily::Ipv4))
+                .code,
+            TransportFailureCode::PmtuRevalidationExhausted
+        );
     }
 
     #[test]

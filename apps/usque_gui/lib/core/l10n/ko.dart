@@ -457,6 +457,7 @@ const Map<String, String> kKoCatalog = <String, String>{
   'diag_fail_H3_PROTOCOL_ERROR': 'H3 프로토콜 오류',
   'diag_fail_H3_DATAGRAM_UNAVAILABLE': 'H3 데이터그램을 사용할 수 없음',
   'diag_fail_H3_CONNECTION_CLOSED': 'H3 연결이 닫힘',
+  'diag_fail_PMTU_REVALIDATION_EXHAUSTED': 'H3 경로 MTU 재검증 횟수 소진',
   'diag_fail_H2_TCP_CONNECT_FAILED': 'H2 TCP 연결 실패',
   'diag_fail_H2_TLS_FAILED': 'H2 TLS 실패',
   'diag_fail_H2_STREAM_CLOSED': 'H2 스트림이 닫힘',

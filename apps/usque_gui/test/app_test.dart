@@ -1785,13 +1785,15 @@ void main() {
       ..enumeration(59, 99)
       ..enumeration(60, 99)
       ..enumeration(61, 99)
-      ..enumeration(62, 99);
+      ..enumeration(62, 99)
+      ..unsigned(63, 7);
     final queue = wire.ControlPayloadWriter()
       ..enumeration(1, 99)
       ..enumeration(12, 99);
     final pmtu = wire.ControlPayloadWriter()
       ..enumeration(1, 99)
-      ..enumeration(7, 99);
+      ..enumeration(7, 99)
+      ..unsigned(8, 7);
     final directDns = wire.ControlPayloadWriter()..enumeration(1, 99);
     final quality = wire.ControlPayloadWriter()
       ..enumeration(3, 99)
@@ -1824,6 +1826,7 @@ void main() {
       MetricAvailability.unknown,
     );
     expect(decoded.metrics.sendRateAvailability, MetricAvailability.unknown);
+    expect(decoded.metrics.pmtuSendTooLargeCount, 7);
     expect(decoded.queues.single.kind, NetworkQueueKind.unknown);
     expect(decoded.queues.single.availability, MetricAvailability.unknown);
     expect(decoded.pmtu.availability, MetricAvailability.unknown);
@@ -1831,6 +1834,7 @@ void main() {
       decoded.pmtu.effectivePayloadAvailability,
       MetricAvailability.unknown,
     );
+    expect(decoded.pmtu.sendTooLargeCount, 7);
     expect(decoded.directDns.mode, DirectDnsMode.unknown);
   });
 

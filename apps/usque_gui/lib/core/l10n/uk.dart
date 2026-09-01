@@ -482,6 +482,8 @@ const Map<String, String> kUkCatalog = <String, String>{
   'diag_fail_H3_PROTOCOL_ERROR': 'Помилка протоколу H3',
   'diag_fail_H3_DATAGRAM_UNAVAILABLE': 'Датаграма H3 недоступна',
   'diag_fail_H3_CONNECTION_CLOSED': 'З’єднання H3 закрито',
+  'diag_fail_PMTU_REVALIDATION_EXHAUSTED':
+      'Вичерпано спроби повторної перевірки MTU шляху H3',
   'diag_fail_H2_TCP_CONNECT_FAILED': 'Збій TCP-з’єднання H2',
   'diag_fail_H2_TLS_FAILED': 'Збій TLS H2',
   'diag_fail_H2_STREAM_CLOSED': 'Потік H2 закрито',

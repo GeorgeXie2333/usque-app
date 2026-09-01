@@ -610,6 +610,7 @@ internal object AndroidMaintenance {
             "H3_PROTOCOL_ERROR",
             "H3_DATAGRAM_UNAVAILABLE",
             "H3_CONNECTION_CLOSED",
+            "PMTU_REVALIDATION_EXHAUSTED",
             "H2_TCP_CONNECT_FAILED",
             "H2_TLS_FAILED",
             "H2_STREAM_CLOSED",

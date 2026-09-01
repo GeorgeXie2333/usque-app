@@ -3432,7 +3432,7 @@ fn current_capabilities() -> v1::Capabilities {
         network_quality: true,
         encrypted_direct_dns: false,
         quic_migration: false,
-        automatic_pmtu: false,
+        automatic_pmtu: true,
     }
 }
 
@@ -4342,7 +4342,7 @@ mod tests {
         assert!(capabilities.network_quality);
         assert!(!capabilities.encrypted_direct_dns);
         assert!(!capabilities.quic_migration);
-        assert!(!capabilities.automatic_pmtu);
+        assert!(capabilities.automatic_pmtu);
     }
 
     #[tokio::test]

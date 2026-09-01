@@ -514,6 +514,7 @@ message ConnectionMetrics {
   MetricAvailability congestion_window_availability = 60;
   MetricAvailability bytes_in_flight_availability = 61;
   MetricAvailability send_rate_availability = 62;
+  uint64 pmtu_send_too_large_count = 63;
 }
 
 enum MetricAvailability {
@@ -572,6 +573,7 @@ message PmtuQuality {
   uint64 change_count = 5;
   uint64 revalidation_failure_count = 6;
   MetricAvailability effective_payload_availability = 7;
+  uint64 send_too_large_count = 8;
 }
 
 message MigrationQuality {

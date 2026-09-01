@@ -2042,6 +2042,8 @@ fn network_quality_value(snapshot: &NetworkQualitySnapshot) -> serde_json::Value
         native_u64_metric(&snapshot.congestion.bytes_in_flight);
     let (send_rate, send_rate_known) = native_u64_metric(&snapshot.congestion.send_rate_bps);
     let (current_pmtu, current_pmtu_known) = native_u32_metric(&snapshot.pmtu.current_bytes);
+    let (effective_pmtu_payload, effective_pmtu_payload_known) =
+        native_u32_metric(&snapshot.pmtu.effective_connect_ip_payload_bytes);
     let (last_migration_duration, last_migration_duration_known) =
         native_duration_metric(&snapshot.migration.last_duration);
     let (direct_dns_last_rtt, direct_dns_last_rtt_known) =
@@ -2104,6 +2106,7 @@ fn network_quality_value(snapshot: &NetworkQualitySnapshot) -> serde_json::Value
                 .then_some(direct_dns_last_rtt),
             "pmtu_change_count": snapshot.pmtu.change_count,
             "pmtu_revalidation_failure_count": snapshot.pmtu.revalidation_failure_count,
+            "pmtu_send_too_large_count": snapshot.pmtu.send_too_large_count,
             "smoothed_rtt_availability": native_availability(snapshot.rtt.smoothed.availability),
             "minimum_rtt_availability": native_availability(snapshot.rtt.minimum.availability),
             "rtt_variance_availability": native_availability(snapshot.rtt.variance.availability),
@@ -2141,11 +2144,15 @@ fn network_quality_value(snapshot: &NetworkQualitySnapshot) -> serde_json::Value
         "pmtu": {
             "availability": native_availability(snapshot.pmtu.current_bytes.availability),
             "outer_pmtu_bytes": snapshot.pmtu.current_bytes.value,
-            "effective_connect_ip_payload_bytes": serde_json::Value::Null,
-            "effective_payload_availability": "notReady",
+            "effective_connect_ip_payload_bytes": effective_pmtu_payload_known
+                .then_some(effective_pmtu_payload),
+            "effective_payload_availability": native_availability(
+                snapshot.pmtu.effective_connect_ip_payload_bytes.availability,
+            ),
             "phase_code": native_pmtu_phase(snapshot.pmtu.phase),
             "change_count": snapshot.pmtu.change_count,
             "revalidation_failure_count": snapshot.pmtu.revalidation_failure_count,
+            "send_too_large_count": snapshot.pmtu.send_too_large_count,
         },
         "migration": {
             "phase_code": native_migration_phase(snapshot.migration.phase),

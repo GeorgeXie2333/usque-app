@@ -129,6 +129,13 @@ fn event_to_proto(event: &ConnectionEvent) -> v1::ConnectionEvent {
             }
             ConnectionEventType::PathPromoted => v1::ConnectionEventType::PathPromoted as i32,
             ConnectionEventType::QueueSaturated => v1::ConnectionEventType::QueueSaturated as i32,
+            ConnectionEventType::PmtuChanged => v1::ConnectionEventType::PmtuChanged as i32,
+            ConnectionEventType::PmtuRevalidationStarted => {
+                v1::ConnectionEventType::PmtuRevalidationStarted as i32
+            }
+            ConnectionEventType::PmtuRevalidationFailed => {
+                v1::ConnectionEventType::PmtuRevalidationFailed as i32
+            }
             ConnectionEventType::Disconnected => v1::ConnectionEventType::Disconnected as i32,
             ConnectionEventType::Failed => v1::ConnectionEventType::Failed as i32,
         },

@@ -479,6 +479,8 @@ const Map<String, String> kViCatalog = <String, String>{
   'diag_fail_H3_PROTOCOL_ERROR': 'Lỗi giao thức H3',
   'diag_fail_H3_DATAGRAM_UNAVAILABLE': 'Datagram H3 không khả dụng',
   'diag_fail_H3_CONNECTION_CLOSED': 'Kết nối H3 đã đóng',
+  'diag_fail_PMTU_REVALIDATION_EXHAUSTED':
+      'Đã dùng hết số lần xác thực lại MTU đường dẫn H3',
   'diag_fail_H2_TCP_CONNECT_FAILED': 'Kết nối TCP H2 thất bại',
   'diag_fail_H2_TLS_FAILED': 'TLS H2 thất bại',
   'diag_fail_H2_STREAM_CLOSED': 'Luồng H2 đã đóng',

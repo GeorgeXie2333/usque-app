@@ -118,8 +118,10 @@ pub enum PmtuPhase {
 pub struct PmtuQuality {
     pub phase: PmtuPhase,
     pub current_bytes: MetricValue<u32>,
+    pub effective_connect_ip_payload_bytes: MetricValue<u32>,
     pub change_count: u64,
     pub revalidation_failure_count: u64,
+    pub send_too_large_count: u64,
     pub last_change_age: MetricValue<Duration>,
 }
 
@@ -331,7 +333,6 @@ pub(crate) struct H3MetricsSample {
     pub datagrams_received: u64,
     pub datagrams_lost: u64,
     pub datagram_receive_drops: u64,
-    pub pmtu_bytes: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -356,8 +357,10 @@ struct H2State {
 struct PmtuState {
     phase: PmtuPhase,
     current_bytes: Option<u32>,
+    effective_connect_ip_payload_bytes: Option<u32>,
     change_count: u64,
     revalidation_failure_count: u64,
+    send_too_large_count: u64,
     last_change: Option<Instant>,
 }
 
@@ -366,8 +369,10 @@ impl Default for PmtuState {
         Self {
             phase: PmtuPhase::Unsupported,
             current_bytes: None,
+            effective_connect_ip_payload_bytes: None,
             change_count: 0,
             revalidation_failure_count: 0,
+            send_too_large_count: 0,
             last_change: None,
         }
     }
@@ -560,13 +565,6 @@ impl NetworkQualityTelemetry {
         if state.transport != Some(Transport::Http3) || state.connection_id.is_none() {
             return;
         }
-        if state.pmtu.current_bytes != Some(sample.pmtu_bytes) {
-            if state.pmtu.current_bytes.is_some() {
-                state.pmtu.change_count = state.pmtu.change_count.saturating_add(1);
-            }
-            state.pmtu.current_bytes = Some(sample.pmtu_bytes);
-            state.pmtu.last_change = Some(now);
-        }
         state.h3 = Some(TimedH3Sample {
             observed_at: now,
             sample,
@@ -690,6 +688,33 @@ impl NetworkQualityTelemetry {
 
     pub fn set_pmtu_phase(&self, phase: PmtuPhase) {
         self.state_write().pmtu.phase = phase;
+    }
+
+    pub fn observe_pmtu(
+        &self,
+        phase: PmtuPhase,
+        current_bytes: Option<u32>,
+        effective_connect_ip_payload_bytes: Option<u32>,
+    ) {
+        let now = Instant::now();
+        let mut state = self.state_write();
+        if state.transport != Some(Transport::Http3) || state.connection_id.is_none() {
+            return;
+        }
+        if state.pmtu.current_bytes != current_bytes {
+            if state.pmtu.current_bytes.is_some() && current_bytes.is_some() {
+                state.pmtu.change_count = state.pmtu.change_count.saturating_add(1);
+            }
+            state.pmtu.current_bytes = current_bytes;
+            state.pmtu.last_change = Some(now);
+        }
+        state.pmtu.phase = phase;
+        state.pmtu.effective_connect_ip_payload_bytes = effective_connect_ip_payload_bytes;
+    }
+
+    pub fn record_pmtu_send_too_large(&self) {
+        let mut state = self.state_write();
+        state.pmtu.send_too_large_count = state.pmtu.send_too_large_count.saturating_add(1);
     }
 
     pub fn record_pmtu_revalidation_failure(&self) {
@@ -1221,11 +1246,22 @@ fn pmtu_quality(state: &QualityState, now: Instant) -> PmtuQuality {
         (Some(Transport::Http3), None) => MetricValue::not_ready(),
         _ => MetricValue::not_ready(),
     };
+    let effective_connect_ip_payload_bytes = match (
+        state.transport,
+        state.pmtu.effective_connect_ip_payload_bytes,
+    ) {
+        (Some(Transport::Http2), _) => MetricValue::unsupported(),
+        (Some(Transport::Http3), Some(value)) => MetricValue::available(value),
+        (Some(Transport::Http3), None) => MetricValue::not_ready(),
+        _ => MetricValue::not_ready(),
+    };
     PmtuQuality {
         phase: state.pmtu.phase,
         current_bytes,
+        effective_connect_ip_payload_bytes,
         change_count: state.pmtu.change_count,
         revalidation_failure_count: state.pmtu.revalidation_failure_count,
+        send_too_large_count: state.pmtu.send_too_large_count,
         last_change_age: state
             .pmtu
             .last_change
@@ -1389,7 +1425,6 @@ mod tests {
             datagrams_received: sent.saturating_sub(lost),
             datagrams_lost: lost,
             datagram_receive_drops: 0,
-            pmtu_bytes: 1_350,
         }
     }
 
@@ -1525,6 +1560,13 @@ mod tests {
             MetricAvailability::Unsupported
         );
         assert_eq!(
+            snapshot
+                .pmtu
+                .effective_connect_ip_payload_bytes
+                .availability,
+            MetricAvailability::Unsupported
+        );
+        assert_eq!(
             snapshot.rtt.smoothed.availability,
             MetricAvailability::NotReady
         );
@@ -1541,6 +1583,35 @@ mod tests {
                         && queue.oldest_age.availability == MetricAvailability::Unsupported
                 })
         );
+    }
+
+    #[test]
+    fn h3_pmtu_is_not_ready_until_discovery_publishes_a_value() {
+        let telemetry = NetworkQualityTelemetry::default();
+        telemetry.begin_connection(Transport::Http3, AddressFamily::Ipv4);
+        let mut sampler = NetworkQualitySampler::new(telemetry.clone());
+
+        telemetry.observe_pmtu(PmtuPhase::Probing, None, None);
+        let probing = sampler.sample();
+        assert_eq!(probing.pmtu.phase, PmtuPhase::Probing);
+        assert_eq!(
+            probing.pmtu.current_bytes.availability,
+            MetricAvailability::NotReady
+        );
+        assert_eq!(
+            probing.pmtu.effective_connect_ip_payload_bytes.availability,
+            MetricAvailability::NotReady
+        );
+
+        telemetry.observe_pmtu(PmtuPhase::Stable, Some(1_472), Some(1_400));
+        telemetry.record_pmtu_send_too_large();
+        let stable = sampler.sample();
+        assert_eq!(stable.pmtu.current_bytes.value, Some(1_472));
+        assert_eq!(
+            stable.pmtu.effective_connect_ip_payload_bytes.value,
+            Some(1_400)
+        );
+        assert_eq!(stable.pmtu.send_too_large_count, 1);
     }
 
     #[test]
