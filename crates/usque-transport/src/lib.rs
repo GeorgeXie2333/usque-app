@@ -42,7 +42,10 @@ mod fault_injection;
 #[cfg(all(feature = "fault-injection", not(debug_assertions), not(test)))]
 compile_error!("fault-injection is restricted to test/debug lab builds");
 
-pub use diagnostic_probe::{NetworkProbeResult, probe_encrypted_dns, probe_h3_handshake};
+pub use diagnostic_probe::{
+    NetworkProbeResult, h3_probe_endpoints, probe_encrypted_dns, probe_h3_handshake,
+    probe_h3_handshake_candidates,
+};
 pub use encrypted_dns::{DirectDnsError, DirectDnsQueryContext, DirectDnsResolver};
 pub use feature_flags::{
     ENCRYPTED_DIRECT_DNS_ENABLED, NetworkFeatureFlags, PRODUCTION_NETWORK_FEATURES,

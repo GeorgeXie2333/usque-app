@@ -413,6 +413,26 @@ impl From<DirectDnsError> for QueryFailure {
     }
 }
 
+async fn doh_handshake<T>(
+    stream: T,
+    endpoint: SocketAddr,
+    deadline: Instant,
+) -> Result<(SendRequest<Bytes>, h2::client::Connection<T, Bytes>), QueryFailure>
+where
+    T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    // TLS already selected a verified bootstrap endpoint. Retain it even if
+    // writing the HTTP/2 preface fails, so the bounded retry can exclude it.
+    timeout_at(deadline, dns_h2_builder().handshake(stream))
+        .await
+        .map_err(|_| DirectDnsError::Timeout)
+        .and_then(|result| result.map_err(|_| DirectDnsError::QueryFailed))
+        .map_err(|error| QueryFailure {
+            error,
+            endpoint: Some(endpoint),
+        })
+}
+
 struct ClosedGuard(Arc<AtomicBool>, Arc<Notify>);
 impl Drop for ClosedGuard {
     fn drop(&mut self) {
@@ -771,9 +791,9 @@ impl EncryptedResolver {
         epoch: &CancellationToken,
         visited: &mut Vec<IpAddr>,
         excluded: Option<IpAddr>,
-    ) -> Result<DohReservation, DirectDnsError> {
+    ) -> Result<DohReservation, QueryFailure> {
         let ResolverPool::Doh(slots) = &self.pool else {
-            return Err(DirectDnsError::Unsupported);
+            return Err(DirectDnsError::Unsupported.into());
         };
         loop {
             let notified = self.changed.notified();
@@ -821,11 +841,7 @@ impl EncryptedResolver {
                 };
                 let (tls, endpoint) = self.connect_bootstrap(context, visited, excluded).await?;
                 let deadline = context.deadline.min(Instant::now() + CONNECT_TIMEOUT);
-                let (sender, connection) =
-                    timeout_at(deadline, dns_h2_builder().handshake::<_, Bytes>(tls))
-                        .await
-                        .map_err(|_| DirectDnsError::Timeout)?
-                        .map_err(|_| DirectDnsError::QueryFailed)?;
+                let (sender, connection) = doh_handshake(tls, endpoint, deadline).await?;
                 self.ensure_current(context)?;
                 let cancellation = epoch.child_token();
                 let stop = cancellation.clone();

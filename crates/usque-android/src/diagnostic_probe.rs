@@ -247,14 +247,9 @@ fn run_probe(
                 Some(identity) => identity,
                 None => return ResultCode::NotApplicable,
             };
-            let endpoint = match profile.ip_policy {
-                IpPolicy::Ipv6Only | IpPolicy::PreferIpv6 => {
-                    SocketAddr::new(profile.endpoint.ipv6.into(), profile.endpoint.port)
-                }
-                _ => SocketAddr::new(profile.endpoint.ipv4.into(), profile.endpoint.port),
-            };
-            usque_transport::probe_h3_handshake(
-                endpoint,
+            let endpoints = usque_transport::h3_probe_endpoints(&profile);
+            usque_transport::probe_h3_handshake_candidates(
+                &endpoints,
                 &profile.endpoint.sni,
                 &identity,
                 protector,

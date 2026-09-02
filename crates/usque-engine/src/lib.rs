@@ -1051,19 +1051,14 @@ impl ControlService {
         .await
         .ok()
         .and_then(Result::ok);
-        let endpoint = match profile.ip_policy {
-            IpPolicy::Ipv6Only | IpPolicy::PreferIpv6 => {
-                SocketAddr::new(IpAddr::V6(profile.endpoint.ipv6), profile.endpoint.port)
-            }
-            _ => SocketAddr::new(IpAddr::V4(profile.endpoint.ipv4), profile.endpoint.port),
-        };
+        let endpoints = usque_transport::h3_probe_endpoints(&profile);
         Some(diagnostics::DiagnosticProbeContext {
             settings: profile.direct_dns.clone(),
             protector,
             runtime_cancel: tokio_util::sync::CancellationToken::new(),
             h3: identity
                 .filter(|_| profile.transport != TransportPolicy::Http2)
-                .map(|identity| (endpoint, profile.endpoint.sni.clone(), identity)),
+                .map(|identity| (endpoints, profile.endpoint.sni.clone(), identity)),
             _lifecycle: Some(lifecycle),
         })
     }

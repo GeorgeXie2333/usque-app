@@ -1735,6 +1735,28 @@ impl AndroidSocketRoutePolicy {
 }
 
 impl AndroidSocketProtector {
+    fn refresh_network_generation(&self) -> Result<u64, String> {
+        let generation = self
+            .java_vm
+            .attach_current_thread(|environment| -> jni::errors::Result<_> {
+                environment
+                    .call_method(
+                        &self.service,
+                        jni_str!("getUnderlyingNetworkGeneration"),
+                        jni_sig!("()J"),
+                        &[],
+                    )
+                    .and_then(|value| value.j())
+            })
+            .map_err(|_| "Android network generation is unavailable".to_owned())?;
+        let generation = u64::try_from(generation)
+            .map_err(|_| "Android network generation is invalid".to_owned())?;
+        Ok(publish_network_generation(
+            &self.network_generation,
+            generation,
+        ))
+    }
+
     fn bind_socket_for_generation(
         &self,
         socket: SocketHandle,
@@ -1768,10 +1790,19 @@ impl AndroidSocketProtector {
             .map_err(|error| format!("attach exact-generation socket binder thread: {error}"))?;
         match status {
             0 => Ok(()),
-            1 => Err(STALE_GENERATION_REASON.to_owned()),
+            1 => {
+                // Keep the current socket rejected, but let the next bounded
+                // attempt observe a notification missed before ENGINE install.
+                let _ = self.refresh_network_generation();
+                Err(STALE_GENERATION_REASON.to_owned())
+            }
             _ => Err("Android rejected exact-generation socket binding".to_owned()),
         }
     }
+}
+
+fn publish_network_generation(cached: &AtomicU64, observed: u64) -> u64 {
+    cached.fetch_max(observed, Ordering::AcqRel).max(observed)
 }
 
 #[async_trait::async_trait]
@@ -2789,6 +2820,24 @@ fn jni_command_abandoned(cancelled: &AtomicBool) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn authoritative_generation_catches_preinstall_notification_and_never_rolls_back() {
+        let captured_before_install = std::sync::atomic::AtomicU64::new(7);
+        assert_eq!(
+            super::publish_network_generation(&captured_before_install, 8),
+            8
+        );
+        // A callback queued before reconciliation cannot overwrite newer data.
+        assert_eq!(
+            super::publish_network_generation(&captured_before_install, 7),
+            8
+        );
+        assert_eq!(
+            super::publish_network_generation(&captured_before_install, 9),
+            9
+        );
+    }
+
     use super::*;
 
     #[test]

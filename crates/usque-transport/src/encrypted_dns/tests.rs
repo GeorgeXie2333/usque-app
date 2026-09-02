@@ -21,6 +21,37 @@ use tokio::time::timeout;
 use super::*;
 use crate::network_quality::NetworkQualitySampler;
 
+#[tokio::test(start_paused = true)]
+async fn doh_preface_failure_retains_the_selected_endpoint_and_releases_io() {
+    let endpoint: SocketAddr = "127.0.0.1:443".parse().unwrap();
+    for peer_closes in [true, false] {
+        let (stream, peer) = tokio::io::duplex(1);
+        let peer = (!peer_closes).then_some(peer);
+        let counts = Arc::new(LeaseCounts::default());
+        counts.active.store(1, Ordering::Release);
+        let stream = LeasedIo::new(
+            stream,
+            DirectEgressLease::hold_for_generation(TestLease(counts.clone()), 7),
+        );
+        let failure = doh_handshake(stream, endpoint, Instant::now() + Duration::from_millis(10))
+            .await
+            .err()
+            .expect("preface failure");
+        assert_eq!(failure.endpoint, Some(endpoint));
+        assert_eq!(
+            failure.error,
+            if peer_closes {
+                DirectDnsError::QueryFailed
+            } else {
+                DirectDnsError::Timeout
+            }
+        );
+        assert_eq!(failure.error.permits_retry(), peer_closes);
+        assert_eq!(counts.active.load(Ordering::Acquire), 0);
+        drop(peer);
+    }
+}
+
 #[tokio::test]
 async fn canonical_fault_catalog_drives_encrypted_dns_failures_and_cleanup() {
     use crate::{FaultKind, FaultScript, ScheduledFault};

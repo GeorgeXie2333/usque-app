@@ -20,7 +20,7 @@ pub(crate) struct DiagnosticProbeContext {
     pub settings: DirectDnsSettings,
     pub protector: Arc<dyn SocketProtector>,
     pub runtime_cancel: CancellationToken,
-    pub h3: Option<(SocketAddr, String, MasqueTlsIdentity)>,
+    pub h3: Option<(Vec<SocketAddr>, String, MasqueTlsIdentity)>,
     pub _lifecycle: Option<tokio::sync::OwnedMutexGuard<()>>,
 }
 
@@ -79,9 +79,9 @@ impl DiagnosticCheck for DeepCheck {
         let operation = async {
             if self.h3 {
                 match &probes.h3 {
-                    Some((endpoint, sni, identity)) => {
-                        usque_transport::probe_h3_handshake(
-                            *endpoint,
+                    Some((endpoints, sni, identity)) => {
+                        usque_transport::probe_h3_handshake_candidates(
+                            endpoints,
                             sni,
                             identity,
                             Arc::clone(&probes.protector),

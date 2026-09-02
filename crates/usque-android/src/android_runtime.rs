@@ -2,10 +2,7 @@ use std::future::Future;
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::path::{Path, PathBuf};
-use std::sync::{
-    Arc, Mutex, OnceLock,
-    atomic::{AtomicBool, Ordering},
-};
+use std::sync::{Arc, Mutex, OnceLock, atomic::AtomicBool};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -144,6 +141,12 @@ fn spawn_runtime(
         }
     };
 
+    // JNI captured an earlier generation before taking ENGINE's lock. Re-read
+    // the authoritative atomic Java generation before any worker can bind;
+    // notifications after this point wait for this same lock and see the handle.
+    if protector.refresh_network_generation().is_err() {
+        return START_PLATFORM_FAILURE;
+    }
     let cancellation = CancellationToken::new();
     let status = Arc::new(Mutex::new(NativeSnapshot::preparing()));
     let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
@@ -295,10 +298,7 @@ pub(super) fn notify_network_changed(generation: u64) {
         return;
     };
     if let Some(handle) = slot.as_ref() {
-        handle
-            .protector
-            .network_generation
-            .store(generation, Ordering::Release);
+        super::publish_network_generation(&handle.protector.network_generation, generation);
     }
 }
 

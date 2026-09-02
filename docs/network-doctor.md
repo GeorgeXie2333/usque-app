@@ -28,6 +28,13 @@ The reserved probe name is constant program behavior, never a user's query.
 
 ## Bounds and lifecycle
 
+Deep H3 checks use the same configured family ordering as normal connections:
+Auto and Prefer IPv6 try IPv6 then IPv4; Prefer IPv4 reverses that order; forced
+single-family policies never try the other family. Only configured endpoints
+with an available (or unknown) family are considered. Checks remain serial with
+at most one live socket, share one 3.8-second deadline, and reserve time for an
+allowed alternate. A cancelled or changed-network check never starts fallback.
+
 Standard targets two seconds, reads current snapshots and local configuration,
 and creates no external connection. It does not reconcile connection state,
 change generation, or apply route, DNS, proxy, firewall or profile mutations.

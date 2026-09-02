@@ -30,6 +30,11 @@ normal name/validity/chain verification and no early data. There is no custom
 CA, certificate-ignore switch or pin override. Test roots exist only in unit
 fixtures. DoH requires negotiated `h2`; DoT does not require HTTP ALPN.
 
+After TLS chooses a bootstrap address, HTTP/2 preface failures retain that
+address for the existing one-retry exclusion policy. The failed stream and
+lease are dropped before retry. The two-address budget, total query deadline,
+and no-retry-on-timeout policy are unchanged.
+
 ## Protocol and semantic validation
 
 DoH uses HTTP/2 POST, HTTPS authority derived from the configured name/port,

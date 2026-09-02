@@ -144,6 +144,14 @@ reason enums only.
 
 ## Validation boundary
 
+Android refreshes its cached generation from the authoritative Java counter
+while holding the runtime-install lock and before starting a worker. A stale
+bind also refreshes that cache without authorizing the rejected socket; the
+next bounded attempt must still bind the exact current generation. Notifications
+and refreshes publish monotonically, so a delayed callback cannot restore an
+older generation. This closes the pre-install lost-notification window without
+weakening protection or creating a device session for validation.
+
 Workstation unit tests cover capacity, active uniqueness, candidate
 supersession, socket-before-lease teardown, exact routing, shared-buffer
 backpressure, generation races, CID replenishment, and the wire-level barrier
