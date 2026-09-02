@@ -200,15 +200,8 @@ impl PmtuController {
         PmtuRevalidationAction::Revalidate(state.observation(previous))
     }
 
-    /// PR-09 calls this hook after promoting a validated path. A new path gets
-    /// fresh state and never inherits the old path's stable PMTU.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "PR-07 freezes the promotion contract before PR-09 wires path migration"
-        )
-    )]
+    /// A promoted path gets fresh state and never inherits the old path's
+    /// stable PMTU.
     pub(crate) fn on_path_promoted(&mut self, key: PmtuPathKey) -> PmtuRevalidationAction {
         self.activate_path(key);
         let state = self.active_state_mut();

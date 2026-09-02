@@ -28,6 +28,7 @@ use crate::h2::{
 use crate::h3_buffer::{
     DatagramEncodePool, H3BufferFactory, HTTP_DATAGRAM_BUFFER_CAPACITY, PooledDatagramBuffer,
 };
+#[cfg(test)]
 use crate::migration_barrier::MigrationTxBarrier;
 use crate::network_quality::{H3MetricsSample, MigrationReasonCode, NetworkQualityTelemetry};
 use crate::packet_batch::{MAX_PACKET_BATCH_PACKETS, PacketBatch, PacketBatchResult};
@@ -45,6 +46,14 @@ use crate::socket::{
 };
 use crate::telemetry::{ConnectionAttemptTelemetry, ConnectionEventType};
 use crate::udp_io::{SendDatagram, UDP_ACTOR_DRAIN_LIMIT, UdpReceivePool, is_message_too_long};
+
+mod migration;
+use migration::{H3_CONTROL_CAPACITY, H3ControlCommand, MigrationActor, MigrationDrive};
+pub use migration::{H3MigrationHandle, H3MigrationResult};
+
+/// Internal build rollback switch. Disabling migration keeps the bounded
+/// active socket infrastructure and restores complete reconnect on changes.
+pub const QUIC_MIGRATION_ENABLED: bool = true;
 
 const CONNECT_AUTHORITY: &[u8] = b"cloudflareaccess.com";
 const CONNECT_PATH: &[u8] = b"/";
@@ -78,6 +87,7 @@ pub struct H3Tunnel {
     receive: H3ReceiveHalf,
     driver: H3Driver,
     control: watch::Receiver<PeerNetworkState>,
+    migration: H3MigrationHandle,
 }
 
 impl H3Tunnel {
@@ -94,6 +104,10 @@ impl H3Tunnel {
 
     pub fn control_state(&self) -> PeerNetworkState {
         self.control.borrow().clone()
+    }
+
+    pub fn migration_handle(&self) -> H3MigrationHandle {
+        self.migration.clone()
     }
 }
 
@@ -339,7 +353,7 @@ pub async fn connect_h3(
         sni,
         identity,
         usize::from(usque_core::config::DEFAULT_MTU),
-        noop_socket_protector().as_ref(),
+        noop_socket_protector(),
         None,
     )
     .await
@@ -350,7 +364,7 @@ pub(crate) async fn connect_h3_with_protector(
     sni: &str,
     identity: &MasqueTlsIdentity,
     profile_inner_mtu: usize,
-    protector: &dyn SocketProtector,
+    protector: Arc<dyn SocketProtector>,
     attempt: Option<&ConnectionAttemptTelemetry>,
 ) -> Result<H3Tunnel, TransportError> {
     let first = connect_h3_once(
@@ -358,7 +372,7 @@ pub(crate) async fn connect_h3_with_protector(
         sni,
         identity,
         profile_inner_mtu,
-        protector,
+        Arc::clone(&protector),
         attempt,
     )
     .await;
@@ -385,13 +399,14 @@ async fn connect_h3_once(
     sni: &str,
     identity: &MasqueTlsIdentity,
     profile_inner_mtu: usize,
-    protector: &dyn SocketProtector,
+    protector: Arc<dyn SocketProtector>,
     attempt: Option<&ConnectionAttemptTelemetry>,
 ) -> Result<H3Tunnel, TransportError> {
-    let prepared = prepare_initial_udp_socket(endpoint, protector)
+    let prepared = prepare_initial_udp_socket(endpoint, protector.as_ref())
         .await
         .map_err(SocketPrepareError::into_transport_error)?;
     let local_address = prepared.local_addr;
+    let initial_generation = prepared.network_generation;
     if let Some(attempt) = attempt {
         attempt.record(
             ConnectionEventType::SocketConnected,
@@ -435,6 +450,7 @@ async fn connect_h3_once(
     );
 
     let (outgoing_tx, outgoing_rx) = mpsc::channel(OUTGOING_BATCH_CHANNEL_CAPACITY);
+    let (migration_tx, migration_rx) = mpsc::channel(H3_CONTROL_CAPACITY);
     let (incoming_tx, incoming_rx) = mpsc::channel(INCOMING_BATCH_CHANNEL_CAPACITY);
     let (control_tx, control_rx) = watch::channel(PeerNetworkState::default());
     let (startup_tx, startup_rx) = oneshot::channel();
@@ -456,6 +472,8 @@ async fn connect_h3_once(
         connection,
         h3_config,
         outgoing_rx,
+        migration_rx,
+        protector,
         incoming_tx,
         control_tx,
         startup_tx,
@@ -482,6 +500,7 @@ async fn connect_h3_once(
                 task: Some(task.detach()),
             },
             control: control_rx,
+            migration: H3MigrationHandle::new(migration_tx, endpoint, initial_generation),
         }),
         Ok(Ok(Err(failure))) => {
             task.abort();
@@ -606,12 +625,18 @@ fn map_cid_provisioning_error(error: quiche::Error) -> Result<CidAvailability, T
     }
 }
 
-fn publish_cid_availability(quality: &NetworkQualityTelemetry, availability: CidAvailability) {
-    quality.set_migration_availability_reason(match availability {
+fn migration_availability_reason(
+    availability: CidAvailability,
+    platform_supported: bool,
+) -> Option<MigrationReasonCode> {
+    if !QUIC_MIGRATION_ENABLED || !platform_supported {
+        return Some(MigrationReasonCode::Unsupported);
+    }
+    match availability {
         CidAvailability::Ready => None,
         CidAvailability::PeerUnavailable => Some(MigrationReasonCode::PeerCidUnavailable),
         CidAvailability::LocalUnavailable => Some(MigrationReasonCode::LocalCidUnavailable),
-    });
+    }
 }
 
 #[derive(Debug)]
@@ -653,6 +678,8 @@ async fn run_h3_actor(
     connection: H3QuicConnection,
     h3_config: quiche::h3::Config,
     outgoing_rx: mpsc::Receiver<OutgoingBatch>,
+    migration_rx: mpsc::Receiver<H3ControlCommand>,
+    protector: Arc<dyn SocketProtector>,
     incoming_tx: mpsc::Sender<PacketBatch>,
     control_tx: watch::Sender<PeerNetworkState>,
     startup_tx: oneshot::Sender<Result<(), StartupFailure>>,
@@ -670,6 +697,8 @@ async fn run_h3_actor(
         connection,
         h3_config,
         outgoing_rx,
+        migration_rx,
+        protector,
         incoming_tx,
         control_tx,
         &mut startup_tx,
@@ -704,6 +733,8 @@ async fn drive_h3_actor(
     mut connection: H3QuicConnection,
     h3_config: quiche::h3::Config,
     mut outgoing_rx: mpsc::Receiver<OutgoingBatch>,
+    mut migration_rx: mpsc::Receiver<H3ControlCommand>,
+    protector: Arc<dyn SocketProtector>,
     incoming_tx: mpsc::Sender<PacketBatch>,
     control_tx: watch::Sender<PeerNetworkState>,
     startup_tx: &mut Option<oneshot::Sender<Result<(), StartupFailure>>>,
@@ -730,7 +761,17 @@ async fn drive_h3_actor(
     let mut incoming_batch = PacketBatch::new();
     let mut inbound_queue_drop_count = 0_u64;
     let mut pmtu = PmtuController::new(initial_path);
-    let migration_tx_barrier = MigrationTxBarrier::default();
+    let migration_platform_supported = protector.network_generation().is_some();
+    let mut migration = MigrationActor::new(
+        protector,
+        quality.clone(),
+        attempt.cloned(),
+        path_sockets
+            .active()
+            .expect("H3 starts with an active socket")
+            .network_generation,
+    );
+    let mut migration_commands_open = true;
     let mut keepalive = interval_at(Instant::now() + KEEPALIVE_INTERVAL, KEEPALIVE_INTERVAL);
     keepalive.set_missed_tick_behavior(MissedTickBehavior::Delay);
     let mut quality_tick = interval_at(
@@ -740,8 +781,34 @@ async fn drive_h3_actor(
     quality_tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
     loop {
+        if ready && migration_commands_open {
+            match migration_rx.try_recv() {
+                Ok(command) => {
+                    migration
+                        .handle_command(command, &mut connection, path_sockets)
+                        .await
+                }
+                Err(mpsc::error::TryRecvError::Disconnected) => migration_commands_open = false,
+                Err(mpsc::error::TryRecvError::Empty) => {}
+            }
+        }
+        migration
+            .tick(MigrationDrive {
+                connection: &mut connection,
+                paths: path_sockets,
+                wire_datagrams: &mut wire_datagrams,
+                free_wire_buffers: &mut free_wire_buffers,
+                wire_queue,
+                pmtu: &mut pmtu,
+                family_ceiling,
+                io_cancel: &io_cancel,
+            })
+            .await?;
         if connection.is_established() {
-            publish_cid_availability(quality, maintain_connection_ids(&mut connection)?);
+            quality.set_migration_availability_reason(migration_availability_reason(
+                maintain_connection_ids(&mut connection)?,
+                migration_platform_supported,
+            ));
         }
         if connection.is_established() && http3.is_none() {
             if let Some(attempt) = attempt {
@@ -823,7 +890,7 @@ async fn drive_h3_actor(
         }
 
         if ready
-            && migration_tx_barrier.allows_application_injection()
+            && migration.allows_application_injection()
             && let Some(stream_id) = request_stream_id
         {
             queue_pending_batch(
@@ -841,6 +908,10 @@ async fn drive_h3_actor(
         let send_quantum = connection.send_quantum();
         let pmtu_suppressed_until = pmtu.send_suppressed_until(StdInstant::now());
         if pmtu_suppressed_until.is_none() {
+            let active = path_sockets
+                .active()
+                .expect("live H3 has an active socket")
+                .binding();
             generate_wire_datagrams(
                 &mut connection,
                 &mut wire_datagrams,
@@ -849,6 +920,7 @@ async fn drive_h3_actor(
                 family_ceiling,
                 wire_queue,
                 quality,
+                active,
             )?;
         }
         reconcile_datagram_queue(&connection, &mut datagram_entries, datagram_queue);
@@ -869,6 +941,8 @@ async fn drive_h3_actor(
         let wire_fits_quantum = wire_datagrams
             .front()
             .is_some_and(|datagram| datagram.bytes.len() <= send_quantum);
+        let migration_wakeup = migration.next_wakeup();
+        let preparing_migration = migration.is_preparing();
 
         tokio::select! {
             received = path_sockets.recv_any() => {
@@ -889,7 +963,11 @@ async fn drive_h3_actor(
                         }
                     }
                     PathReceiveEvent::Failed { path_id, error }
-                        if path_sockets.contains(path_id) => return Err(error.into()),
+                        if path_sockets.contains(path_id) => {
+                        if !migration.handle_receive_failure(path_id, path_sockets).await {
+                            return Err(error.into());
+                        }
+                    }
                     PathReceiveEvent::Batch { .. } | PathReceiveEvent::Failed { .. } => {
                         // A role may have been removed after its bounded receiver
                         // completed. Stale path events never reach quiche.
@@ -898,12 +976,22 @@ async fn drive_h3_actor(
             }
             batch = outgoing_rx.recv(), if ready
                 && pending_batch.is_none()
-                && migration_tx_barrier.allows_application_injection() => {
+                && migration.allows_application_injection() => {
                 match batch {
                     Some(batch) => pending_batch = Some(batch),
                     None => return Ok(()),
                 }
             }
+            command = migration_rx.recv(), if migration_commands_open && ready => {
+                match command {
+                    Some(command) => migration.handle_command(command, &mut connection, path_sockets).await,
+                    None => migration_commands_open = false,
+                }
+            }
+            prepared = migration.wait_prepared(), if preparing_migration => {
+                migration.on_prepared(prepared, path_sockets).await;
+            }
+            _ = sleep_until(migration_wakeup) => {}
             sent = send_due_wire_datagrams(
                 path_sockets,
                 &mut wire_datagrams,
@@ -914,38 +1002,7 @@ async fn drive_h3_actor(
                 &io_cancel,
             ), if wire_is_due && wire_fits_quantum && pmtu_suppressed_until.is_none() => {
                 if sent? == WireSendOutcome::MessageTooLarge {
-                    let Some(path) = connection.path_stats().find(|path| path.active) else {
-                        return Err(TransportError::Http3(
-                            "active QUIC path disappeared after UDP EMSGSIZE".to_owned(),
-                        ));
-                    };
-                    let key = PmtuPathKey::new(path.local_addr, path.peer_addr);
-                    quality.record_pmtu_send_too_large();
-                    match pmtu.on_send_too_large(key, path.pmtu, StdInstant::now()) {
-                        PmtuRevalidationAction::Revalidate(observation) => {
-                            publish_pmtu_observation(quality, observation);
-                            record_pmtu_change_if_needed(attempt, observation);
-                            connection.revalidate_pmtu();
-                            if let Some(attempt) = attempt {
-                                attempt.record(
-                                    ConnectionEventType::PmtuRevalidationStarted,
-                                    TransportStage::PacketSend,
-                                );
-                            }
-                        }
-                        PmtuRevalidationAction::Exhausted(observation) => {
-                            publish_pmtu_observation(quality, observation);
-                            record_pmtu_change_if_needed(attempt, observation);
-                            quality.record_pmtu_revalidation_failure();
-                            if let Some(attempt) = attempt {
-                                attempt.record(
-                                    ConnectionEventType::PmtuRevalidationFailed,
-                                    TransportStage::PacketSend,
-                                );
-                            }
-                            return Err(TransportError::PmtuRevalidationExhausted);
-                        }
-                    }
+                    handle_pmtu_send_too_large(&mut connection, &mut pmtu, attempt, quality)?;
                 }
             }
             _ = sleep_until(wire_deadline), if !wire_datagrams.is_empty() && !wire_is_due => {}
@@ -969,6 +1026,47 @@ async fn drive_h3_actor(
                     inbound_queue_drop_count,
                 )?;
             }
+        }
+    }
+}
+
+fn handle_pmtu_send_too_large(
+    connection: &mut H3QuicConnection,
+    pmtu: &mut PmtuController,
+    attempt: Option<&ConnectionAttemptTelemetry>,
+    quality: &NetworkQualityTelemetry,
+) -> Result<(), TransportError> {
+    let Some(path) = connection.path_stats().find(|path| path.active) else {
+        return Err(TransportError::Http3(
+            "active QUIC path disappeared after UDP EMSGSIZE".to_owned(),
+        ));
+    };
+    let key = PmtuPathKey::new(path.local_addr, path.peer_addr);
+    quality.record_pmtu_send_too_large();
+    match pmtu.on_send_too_large(key, path.pmtu, StdInstant::now()) {
+        PmtuRevalidationAction::Revalidate(observation) => {
+            publish_pmtu_observation(quality, observation);
+            record_pmtu_change_if_needed(attempt, observation);
+            connection.revalidate_pmtu();
+            if let Some(attempt) = attempt {
+                attempt.record(
+                    ConnectionEventType::PmtuRevalidationStarted,
+                    TransportStage::PacketSend,
+                );
+            }
+            Ok(())
+        }
+        PmtuRevalidationAction::Exhausted(observation) => {
+            publish_pmtu_observation(quality, observation);
+            record_pmtu_change_if_needed(attempt, observation);
+            quality.record_pmtu_revalidation_failure();
+            if let Some(attempt) = attempt {
+                attempt.record(
+                    ConnectionEventType::PmtuRevalidationFailed,
+                    TransportStage::PacketSend,
+                );
+            }
+            Err(TransportError::PmtuRevalidationExhausted)
         }
     }
 }
@@ -1436,6 +1534,7 @@ fn generate_wire_datagrams(
     wire_payload_capacity: usize,
     wire_queue: &Arc<QueueMetrics>,
     quality: &NetworkQualityTelemetry,
+    active: crate::path_socket::PathBinding,
 ) -> Result<(), TransportError> {
     if send_quantum < INITIAL_SAFE_UDP_PAYLOAD {
         return Ok(());
@@ -1445,7 +1544,7 @@ fn generate_wire_datagrams(
         && generated_bytes.saturating_add(wire_payload_capacity) <= send_quantum
     {
         let mut bytes = take_wire_buffer(free_buffers, wire_payload_capacity, quality);
-        match connection.send(&mut bytes) {
+        match connection.send_on_path(&mut bytes, Some(active.local_addr), Some(active.peer_addr)) {
             Ok((length, send_info)) => {
                 generated_bytes = generated_bytes.saturating_add(length);
                 bytes.truncate(length);
@@ -1818,6 +1917,16 @@ mod tests {
     }
 
     fn test_quic_pair() -> (H3QuicConnection, H3QuicConnection, SocketAddr, SocketAddr) {
+        test_quic_pair_at(
+            "127.0.0.1:12340".parse().unwrap(),
+            "127.0.0.1:44330".parse().unwrap(),
+        )
+    }
+
+    pub(super) fn test_quic_pair_at(
+        client_addr: SocketAddr,
+        server_addr: SocketAddr,
+    ) -> (H3QuicConnection, H3QuicConnection, SocketAddr, SocketAddr) {
         let client_key = MasqueKeyPair::generate();
         let server_key = MasqueKeyPair::generate();
         let client_identity = MasqueTlsIdentity::new(
@@ -1838,8 +1947,6 @@ mod tests {
             quic_config(&client_identity, crate::pmtu::IPV4_MAX_UDP_PAYLOAD).unwrap();
         let (mut server_config, _) =
             quic_config(&server_identity, crate::pmtu::IPV4_MAX_UDP_PAYLOAD).unwrap();
-        let client_addr: SocketAddr = "127.0.0.1:12340".parse().unwrap();
-        let server_addr: SocketAddr = "127.0.0.1:44330".parse().unwrap();
         let client_scid = [0xc1; CONNECTION_ID_LENGTH];
         let server_scid = [0x51; CONNECTION_ID_LENGTH];
         let client = quiche::connect_with_buffer_factory::<H3BufferFactory>(
@@ -1893,7 +2000,7 @@ mod tests {
         Ok(packets)
     }
 
-    fn advance_test_pair(
+    pub(super) fn advance_test_pair(
         client: &mut H3QuicConnection,
         server: &mut H3QuicConnection,
     ) -> Result<(), quiche::Error> {
@@ -1924,7 +2031,7 @@ mod tests {
         ]
     }
 
-    fn ipv4_packet_with_length(length: usize) -> Vec<u8> {
+    pub(super) fn ipv4_packet_with_length(length: usize) -> Vec<u8> {
         assert!((20..=u16::MAX as usize).contains(&length));
         let mut packet = vec![0_u8; length];
         packet[0] = 0x45;
@@ -1936,7 +2043,7 @@ mod tests {
         packet
     }
 
-    fn encode_for_test(stream_id: u64, packet: &[u8]) -> PooledDatagramBuffer {
+    pub(super) fn encode_for_test(stream_id: u64, packet: &[u8]) -> PooledDatagramBuffer {
         let pool = DatagramEncodePool::new(NetworkQualityTelemetry::default());
         encode_http_datagram(&pool, stream_id, packet)
             .unwrap()
@@ -2069,6 +2176,24 @@ mod tests {
         assert_eq!(
             protector.lease_drops.load(Ordering::Acquire),
             SOCKET_PREPARE_ATTEMPTS
+        );
+    }
+
+    #[test]
+    fn cid_readiness_does_not_claim_platform_migration_support() {
+        for availability in [
+            CidAvailability::Ready,
+            CidAvailability::PeerUnavailable,
+            CidAvailability::LocalUnavailable,
+        ] {
+            assert_eq!(
+                migration_availability_reason(availability, false),
+                Some(MigrationReasonCode::Unsupported)
+            );
+        }
+        assert_eq!(
+            migration_availability_reason(CidAvailability::Ready, true),
+            None
         );
     }
 

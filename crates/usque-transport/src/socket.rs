@@ -1,7 +1,10 @@
 use std::net::{SocketAddr, ToSocketAddrs};
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 
 use async_trait::async_trait;
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 /// Stable reason returned when exact-generation socket setup races a network
 /// change. Callers may retry only by taking a fresh generation snapshot.
@@ -12,7 +15,8 @@ pub const STALE_GENERATION_REASON: &str = "stale_generation";
 ///
 /// Android uses the numeric file descriptor with `VpnService.protect(fd)` so
 /// the tunnel transport cannot route back into its own TUN interface. Windows
-/// and desktop proxy mode use the no-op implementation.
+/// VPN sockets use the Agent's exact-egress lease; desktop proxy mode may use
+/// the no-op implementation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SocketHandle(u64);
 
@@ -87,6 +91,62 @@ impl std::fmt::Debug for DirectEgressLease {
     }
 }
 
+/// Keeps exact-egress authorization attached to a stream through TLS and
+/// protocol-driver ownership. Field order closes the I/O before the lease.
+pub(crate) struct LeasedIo<T> {
+    inner: T,
+    _egress_lease: DirectEgressLease,
+}
+
+impl<T> LeasedIo<T> {
+    pub(crate) fn new(inner: T, egress_lease: DirectEgressLease) -> Self {
+        Self {
+            inner,
+            _egress_lease: egress_lease,
+        }
+    }
+}
+
+impl<T: AsyncRead + Unpin> AsyncRead for LeasedIo<T> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+        buffer: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.get_mut().inner).poll_read(context, buffer)
+    }
+}
+
+impl<T: AsyncWrite + Unpin> AsyncWrite for LeasedIo<T> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+        bytes: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.get_mut().inner).poll_write(context, bytes)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.get_mut().inner).poll_flush(context)
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.get_mut().inner).poll_shutdown(context)
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        self.inner.is_write_vectored()
+    }
+
+    fn poll_write_vectored(
+        self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+        buffers: &[std::io::IoSlice<'_>],
+    ) -> Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.get_mut().inner).poll_write_vectored(context, buffers)
+    }
+}
+
 /// Called immediately after a socket is created and before any endpoint
 /// connection or packet is attempted.
 #[async_trait]
@@ -148,8 +208,9 @@ pub trait SocketProtector: Send + Sync {
     }
 
     /// Monotonically increasing generation for the selected physical network.
-    /// A change tells the transport supervisor to discard the old channel and
-    /// create fresh endpoint sockets without tearing down local proxy listeners.
+    /// H3 first validates a same-family candidate in the existing connection;
+    /// unsupported or failed migration and H2 use complete reconnect without
+    /// tearing down local proxy listeners.
     fn network_generation(&self) -> Option<u64> {
         None
     }
@@ -256,6 +317,57 @@ mod tests {
         fn drop(&mut self) {
             self.0.store(true, Ordering::Release);
         }
+    }
+
+    #[test]
+    fn leased_io_closes_stream_before_releasing_authorization() {
+        struct DropOrder(&'static str, Arc<std::sync::Mutex<Vec<&'static str>>>);
+
+        impl Drop for DropOrder {
+            fn drop(&mut self) {
+                self.1.lock().unwrap().push(self.0);
+            }
+        }
+
+        let order = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let stream = LeasedIo::new(
+            DropOrder("socket", Arc::clone(&order)),
+            DirectEgressLease::hold(DropOrder("lease", Arc::clone(&order))),
+        );
+        drop(stream);
+        assert_eq!(*order.lock().unwrap(), ["socket", "lease"]);
+    }
+
+    #[tokio::test]
+    async fn leased_io_forwards_duplex_io_and_retains_lease_until_drop() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let (client, mut peer) = tokio::io::duplex(64);
+        let dropped = Arc::new(AtomicBool::new(false));
+        let mut client = LeasedIo::new(
+            client,
+            DirectEgressLease::hold(LeaseDropFlag(Arc::clone(&dropped))),
+        );
+        assert!(client.is_write_vectored());
+        assert_eq!(
+            client
+                .write_vectored(&[std::io::IoSlice::new(b"qu"), std::io::IoSlice::new(b"ery")])
+                .await
+                .unwrap(),
+            5
+        );
+        client.flush().await.unwrap();
+        let mut received = [0; 5];
+        peer.read_exact(&mut received).await.unwrap();
+        assert_eq!(&received, b"query");
+        peer.write_all(b"reply").await.unwrap();
+        client.read_exact(&mut received).await.unwrap();
+        assert_eq!(&received, b"reply");
+        client.shutdown().await.unwrap();
+        assert_eq!(peer.read(&mut received).await.unwrap(), 0);
+        assert!(!dropped.load(Ordering::Acquire));
+        drop(client);
+        assert!(dropped.load(Ordering::Acquire));
     }
 
     struct GenerationProtector {

@@ -749,7 +749,7 @@ impl NetworkQualityTelemetry {
 
     pub fn set_migration_availability_reason(&self, reason: Option<MigrationReasonCode>) {
         let mut state = self.state_write();
-        if state.migration.phase == MigrationPhase::Idle {
+        if state.migration.phase == MigrationPhase::Idle && state.migration.attempts == 0 {
             state.migration.last_reason = reason;
         }
     }

@@ -3431,7 +3431,7 @@ fn current_capabilities() -> v1::Capabilities {
         deep_diagnostics: true,
         network_quality: true,
         encrypted_direct_dns: false,
-        quic_migration: false,
+        quic_migration: usque_transport::QUIC_MIGRATION_ENABLED,
         automatic_pmtu: true,
     }
 }
@@ -4341,7 +4341,7 @@ mod tests {
         assert!(!capabilities.architecture.is_empty());
         assert!(capabilities.network_quality);
         assert!(!capabilities.encrypted_direct_dns);
-        assert!(!capabilities.quic_migration);
+        assert!(capabilities.quic_migration);
         assert!(capabilities.automatic_pmtu);
     }
 

@@ -1,11 +1,3 @@
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "PR-08 freezes the validation barrier before PR-09 enables migration cycles"
-    )
-)]
-
 use std::time::{Duration, Instant};
 
 pub(crate) const MIGRATION_DRAIN_BUDGET: Duration = Duration::from_millis(50);

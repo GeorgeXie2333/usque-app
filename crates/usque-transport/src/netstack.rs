@@ -9,7 +9,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use bytes::Bytes;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
-use tokio::time::{Instant, sleep, timeout};
+use tokio::time::{Instant, MissedTickBehavior, interval_at, sleep, timeout};
 use tokio_util::sync::CancellationToken;
 use ts_netstack_smoltcp::netcore::{
     Channel, Config, HasChannel, NetstackControl, TcpBufferMetrics, TcpBufferPolicy, TcpBufferTier,
@@ -25,7 +25,7 @@ use usque_protocol::{IpAddressRange, IpPrefix, PeerNetworkState};
 
 use crate::geo_direct::GeoDirectPolicy;
 use crate::h2::{MasqueTlsIdentity, TransportError, connect_h2_with_protector};
-use crate::h3::connect_h3_with_protector;
+use crate::h3::{H3MigrationResult, connect_h3_with_protector};
 use crate::network_quality::{NetworkQualitySnapshot, spawn_network_quality_sampler};
 use crate::packet_batch::{
     MAX_PACKET_BATCH_BYTES, PACKET_BATCH_CHANNEL_CAPACITY, PacketBatch, PacketBatchResult,
@@ -1121,7 +1121,7 @@ async fn connect_endpoint(
                     sni,
                     identity,
                     profile_inner_mtu,
-                    protector.as_ref(),
+                    Arc::clone(&protector),
                     Some(&attempt),
                 )
                 .await
@@ -1214,6 +1214,11 @@ type ProbeFuture = Pin<
         dyn Future<Output = Result<(MasqueTunnel, AddressFamily), TransportError>> + Send + 'static,
     >,
 >;
+
+struct PendingNetworkMigration {
+    target_generation: u64,
+    completion: Pin<Box<dyn Future<Output = H3MigrationResult> + Send + 'static>>,
+}
 
 enum ActiveOutcome {
     Switch(Box<MasqueTunnel>, AddressFamily),
@@ -1778,6 +1783,12 @@ async fn pump_active_tunnel(
     network_generation: Option<u64>,
 ) -> ActiveOutcome {
     let active_transport = tunnel.transport();
+    let migration_handle = tunnel.migration_handle();
+    let mut active_generation = migration_handle
+        .as_ref()
+        .map(|handle| handle.initial_generation())
+        .or(network_generation);
+    let mut observed_generation = active_generation;
     let (mut send, mut receive, driver, mut control) = tunnel.into_parts();
     let mut peer_state = match control.as_ref() {
         Some(control) => {
@@ -1828,6 +1839,14 @@ async fn pump_active_tunnel(
     let mut pending_send: Option<TimedBatchSendFuture> = None;
     let mut pending_incoming: Option<IncomingDeliveryFuture> = None;
     let mut queued_incoming = VecDeque::new();
+    let mut pending_migration: Option<PendingNetworkMigration> = None;
+    // Keep one persistent interval: rebuilding a sleep future in this busy
+    // select loop would postpone network detection whenever packets arrive.
+    let mut network_tick = interval_at(
+        Instant::now() + Duration::from_millis(100),
+        Duration::from_millis(100),
+    );
+    network_tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
     let outcome = loop {
         if cancellation.is_cancelled() {
@@ -1840,20 +1859,68 @@ async fn pump_active_tunnel(
         }
         tokio::select! {
             _ = cancellation.cancelled() => break ActiveOutcome::Shutdown,
-            _ = wait_for_network_change(&protector, network_generation), if network_generation.is_some() => {
-                telemetry.increment_network_change();
-                let failure = TransportFailure::new(
-                    TransportFailureCode::PhysicalNetworkChanged,
-                    TransportStage::SocketConnect,
-                ).on_path(active_transport, active_path.endpoint_family);
-                telemetry.record(
-                    ConnectionEventType::NetworkChanged,
-                    Some(failure.stage),
-                    ConnectionEventPath::new(failure.transport, failure.address_family),
-                    None,
-                    Some(failure.clone()),
-                );
-                break ActiveOutcome::Reconnect(failure);
+            _ = network_tick.tick(), if observed_generation.is_some() => {
+                let current = protector.network_generation();
+                if current == observed_generation {
+                    continue;
+                }
+                observed_generation = current;
+                record_migration_network_change(telemetry, active_path);
+                let Some(target_generation) = current else {
+                    break ActiveOutcome::Reconnect(network_change_failure(active_path));
+                };
+                let Some(handle) = migration_handle.as_ref() else {
+                    break ActiveOutcome::Reconnect(network_change_failure(active_path));
+                };
+                if !migration_is_eligible(
+                    active_transport,
+                    protector.endpoint_family_available(handle.endpoint()),
+                    active_generation,
+                    target_generation,
+                ) {
+                    break ActiveOutcome::Reconnect(network_change_failure(active_path));
+                }
+                // Replacing this one future closes the older reply receiver.
+                // The actor cancels/releases the superseded candidate before
+                // it prepares the newer generation.
+                pending_migration = Some(PendingNetworkMigration {
+                    target_generation,
+                    completion: handle.start_migration(target_generation),
+                });
+            }
+            result = wait_for_network_migration(&mut pending_migration), if pending_migration.is_some() => {
+                let completed = pending_migration.take().expect("migration completion has a request");
+                let promoted = matches!(result, H3MigrationResult::Promoted { network_generation }
+                    if network_generation == completed.target_generation);
+                if promoted {
+                    active_generation = Some(completed.target_generation);
+                }
+                let current = protector.network_generation();
+                if let Some(target_generation) = current
+                    && target_generation > completed.target_generation
+                    && let Some(handle) = migration_handle.as_ref()
+                    && migration_is_eligible(
+                        active_transport,
+                        protector.endpoint_family_available(handle.endpoint()),
+                        active_generation,
+                        target_generation,
+                    )
+                {
+                    if observed_generation != current {
+                        record_migration_network_change(telemetry, active_path);
+                    }
+                    observed_generation = current;
+                    pending_migration = Some(PendingNetworkMigration {
+                        target_generation,
+                        completion: handle.start_migration(target_generation),
+                    });
+                    continue;
+                }
+                if promoted && current == Some(completed.target_generation) {
+                    observed_generation = current;
+                    continue;
+                }
+                break ActiveOutcome::Reconnect(network_change_failure(active_path));
             }
             result = wait_for_batch_send(&mut pending_send), if pending_send.is_some() => {
                 pending_send.take();
@@ -2109,6 +2176,45 @@ async fn pump_active_tunnel(
     };
     send.close();
     outcome
+}
+
+fn migration_is_eligible(
+    transport: Transport,
+    endpoint_family_available: Option<bool>,
+    active_generation: Option<u64>,
+    target_generation: u64,
+) -> bool {
+    transport == Transport::Http3
+        && endpoint_family_available != Some(false)
+        && active_generation.is_some_and(|generation| target_generation > generation)
+}
+
+fn network_change_failure(path: RuntimePath) -> TransportFailure {
+    TransportFailure::new(
+        TransportFailureCode::PhysicalNetworkChanged,
+        TransportStage::SocketConnect,
+    )
+    .on_path(path.transport, path.endpoint_family)
+}
+
+fn record_migration_network_change(telemetry: &ConnectionTelemetry, path: RuntimePath) {
+    telemetry.increment_network_change();
+    telemetry.record(
+        ConnectionEventType::NetworkChanged,
+        Some(TransportStage::SocketConnect),
+        ConnectionEventPath::known(path.transport, path.endpoint_family),
+        None,
+        None,
+    );
+}
+
+async fn wait_for_network_migration(
+    pending_migration: &mut Option<PendingNetworkMigration>,
+) -> H3MigrationResult {
+    match pending_migration {
+        Some(migration) => migration.completion.as_mut().await,
+        None => std::future::pending().await,
+    }
 }
 
 async fn wait_for_control(
@@ -2436,6 +2542,49 @@ fn ipv4_header_checksum(header: &[u8]) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn migration_policy_keeps_h2_and_cross_family_changes_on_full_reconnect() {
+        assert!(migration_is_eligible(
+            Transport::Http3,
+            Some(true),
+            Some(1),
+            2
+        ));
+        // Unknown platform family metadata is resolved by exact protected
+        // socket setup and QUIC path validation, never by an unprotected send.
+        assert!(migration_is_eligible(Transport::Http3, None, Some(1), 2));
+        assert!(!migration_is_eligible(
+            Transport::Http3,
+            Some(false),
+            Some(1),
+            2
+        ));
+        assert!(!migration_is_eligible(
+            Transport::Http2,
+            Some(true),
+            Some(1),
+            2
+        ));
+        assert!(!migration_is_eligible(
+            Transport::Http3,
+            Some(true),
+            None,
+            2
+        ));
+        assert!(!migration_is_eligible(
+            Transport::Http3,
+            Some(true),
+            Some(2),
+            2
+        ));
+        assert!(!migration_is_eligible(
+            Transport::Http3,
+            Some(true),
+            Some(3),
+            2
+        ));
+    }
     use std::net::{Ipv4Addr, Ipv6Addr};
     use tokio::sync::oneshot;
     use ts_netstack_smoltcp::CreateSocket;

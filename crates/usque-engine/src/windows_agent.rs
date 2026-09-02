@@ -2,10 +2,7 @@ use std::{
     io, mem,
     net::SocketAddr,
     ptr::{self, NonNull},
-    sync::{
-        Arc, RwLock, Weak,
-        atomic::{AtomicU64, Ordering},
-    },
+    sync::{Arc, RwLock, Weak},
     time::Duration,
 };
 
@@ -42,8 +39,9 @@ use usque_platform::packet_ring::{
 use usque_transport::{
     ConnectionTimelineSnapshot, DirectEgressLease, DirectProtocol, EndpointPinRefresher,
     GeoDirectPolicy, ManagedTunnelMonitor, MasqueRuntime, MasqueTlsIdentity, MasqueTunIo,
-    NoopSocketProtector, RuntimeHealth, RuntimePath, SPLIT_DNS_IPV4, SPLIT_DNS_IPV6, SocketHandle,
-    SocketProtector, TrafficSnapshot, TransportError, resolve_physical_host,
+    NoopSocketProtector, RuntimeHealth, RuntimePath, SPLIT_DNS_IPV4, SPLIT_DNS_IPV6,
+    STALE_GENERATION_REASON, SocketHandle, SocketProtector, TrafficSnapshot, TransportError,
+    resolve_physical_host,
 };
 use uuid::Uuid;
 use windows_sys::Win32::{
@@ -80,15 +78,40 @@ const PUMP_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 const DEFAULT_PACKET_RING_CAPACITY: u32 = 4 * 1024 * 1024;
 const PACKET_WAKE_BATCH: usize = 64;
 const PACKET_RING_RETRY_INTERVAL: Duration = Duration::from_millis(1);
-const PHYSICAL_NETWORK_POLL_INTERVAL: Duration = Duration::from_secs(2);
+const PHYSICAL_NETWORK_POLL_INTERVAL: Duration = Duration::from_millis(500);
 
 struct WindowsVpnSocketProtector {
     registration_api: Vec<SocketAddr>,
     agent: WindowsAgentClient,
     operation_id: Uuid,
-    physical_dns: RwLock<Vec<SocketAddr>>,
-    generation: AtomicU64,
-    agent_generation: AtomicU64,
+    physical: RwLock<WindowsPhysicalState>,
+    monitor_cancel: CancellationToken,
+}
+
+struct WindowsPhysicalState {
+    generation: u64,
+    agent_generation: Option<u64>,
+    dns_servers: Vec<SocketAddr>,
+    family_mask: u32,
+}
+
+impl WindowsPhysicalState {
+    fn update(&mut self, snapshot: Option<(u64, Vec<SocketAddr>, u32)>) -> bool {
+        let (agent_generation, dns_servers, family_mask) = match snapshot {
+            Some((generation, servers, mask)) => (Some(generation), servers, mask & 3),
+            None => (None, Vec::new(), 0),
+        };
+        let changed = self.agent_generation != agent_generation
+            || self.dns_servers != dns_servers
+            || self.family_mask != family_mask;
+        if changed {
+            self.generation = self.generation.saturating_add(1);
+            self.agent_generation = agent_generation;
+            self.dns_servers = dns_servers;
+            self.family_mask = family_mask;
+        }
+        changed
+    }
 }
 
 #[async_trait]
@@ -103,13 +126,22 @@ impl SocketProtector for WindowsVpnSocketProtector {
         remote: SocketAddr,
         protocol: DirectProtocol,
     ) -> Result<DirectEgressLease, String> {
-        let (pipe, lease) = self
-            .agent
-            .acquire_direct_egress(self.operation_id, remote, protocol)
+        let generation = self
+            .network_generation()
+            .ok_or_else(|| STALE_GENERATION_REASON.to_owned())?;
+        self.protect_target_generation(socket, remote, protocol, generation)
             .await
-            .map_err(|error| error.to_string())?;
-        bind_socket_to_interface(socket, remote, lease.interface_index)?;
-        Ok(DirectEgressLease::hold(pipe))
+    }
+
+    async fn protect_for_target_generation(
+        &self,
+        socket: SocketHandle,
+        remote: SocketAddr,
+        protocol: DirectProtocol,
+        expected_generation: u64,
+    ) -> Result<DirectEgressLease, String> {
+        self.protect_target_generation(socket, remote, protocol, expected_generation)
+            .await
     }
 
     fn tun_direct_available(&self) -> bool {
@@ -117,13 +149,20 @@ impl SocketProtector for WindowsVpnSocketProtector {
     }
 
     fn network_generation(&self) -> Option<u64> {
-        Some(self.generation.load(Ordering::Acquire))
+        self.physical.read().ok().map(|state| state.generation)
+    }
+
+    fn endpoint_family_available(&self, endpoint: SocketAddr) -> Option<bool> {
+        self.physical.read().ok().map(|state| {
+            state.agent_generation.is_some()
+                && state.family_mask & if endpoint.is_ipv4() { 1 } else { 2 } != 0
+        })
     }
 
     fn physical_dns_servers(&self) -> Vec<SocketAddr> {
-        self.physical_dns
+        self.physical
             .read()
-            .map(|servers| servers.clone())
+            .map(|state| state.dns_servers.clone())
             .unwrap_or_default()
     }
 
@@ -141,66 +180,134 @@ impl SocketProtector for WindowsVpnSocketProtector {
 }
 
 impl WindowsVpnSocketProtector {
-    fn advance_network_generation(&self) {
-        let _ = self
-            .generation
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |generation| {
-                Some(generation.saturating_add(1))
-            });
+    async fn protect_target_generation(
+        &self,
+        socket: SocketHandle,
+        remote: SocketAddr,
+        protocol: DirectProtocol,
+        expected_generation: u64,
+    ) -> Result<DirectEgressLease, String> {
+        let agent_generation = {
+            let state = self
+                .physical
+                .read()
+                .map_err(|_| STALE_GENERATION_REASON.to_owned())?;
+            if state.generation != expected_generation {
+                return Err(STALE_GENERATION_REASON.to_owned());
+            }
+            state
+                .agent_generation
+                .ok_or_else(|| STALE_GENERATION_REASON.to_owned())?
+        };
+        let (pipe, lease) = self
+            .agent
+            .acquire_direct_egress(self.operation_id, remote, protocol, agent_generation)
+            .await
+            .map_err(socket_lease_error)?;
+        self.verify_generation(expected_generation, agent_generation)?;
+        bind_socket_to_interface(socket, remote, lease.interface_index)?;
+        let current = self
+            .agent
+            .get_physical_network_info(self.operation_id)
+            .await
+            .map_err(socket_lease_error)?;
+        self.observe_physical_snapshot(&current);
+        let family_mask = if remote.is_ipv4() { 1 } else { 2 };
+        if current.generation != agent_generation
+            || !current.interfaces.iter().any(|interface| {
+                interface.interface_luid == lease.interface_luid
+                    && interface.interface_index == lease.interface_index
+                    && interface.address_family_mask & family_mask != 0
+            })
+        {
+            return Err(STALE_GENERATION_REASON.to_owned());
+        }
+        self.verify_generation(expected_generation, agent_generation)?;
+        Ok(DirectEgressLease::hold_for_generation(
+            pipe,
+            expected_generation,
+        ))
+    }
+
+    fn verify_generation(&self, expected: u64, agent_generation: u64) -> Result<(), String> {
+        let state = self
+            .physical
+            .read()
+            .map_err(|_| STALE_GENERATION_REASON.to_owned())?;
+        if state.generation != expected || state.agent_generation != Some(agent_generation) {
+            Err(STALE_GENERATION_REASON.to_owned())
+        } else {
+            Ok(())
+        }
+    }
+
+    fn observe_physical_snapshot(&self, info: &PhysicalNetworkInfo) {
+        let snapshot = physical_dns_endpoints(info).ok().map(|servers| {
+            (
+                info.generation,
+                servers,
+                info.interfaces
+                    .iter()
+                    .fold(0, |mask, interface| mask | interface.address_family_mask),
+            )
+        });
+        if let Ok(mut state) = self.physical.write() {
+            state.update(snapshot);
+        }
+    }
+}
+
+impl Drop for WindowsVpnSocketProtector {
+    fn drop(&mut self) {
+        self.monitor_cancel.cancel();
+    }
+}
+
+fn socket_lease_error(error: WindowsVpnError) -> String {
+    match error {
+        WindowsVpnError::Remote { code, .. } if code == "AGENT_STALE_GENERATION" => {
+            STALE_GENERATION_REASON.to_owned()
+        }
+        _ => "Windows exact-generation egress preparation failed".to_owned(),
     }
 }
 
 fn start_physical_network_monitor(protector: &Arc<WindowsVpnSocketProtector>) {
-    let protector = Arc::downgrade(protector);
+    let cancellation = protector.monitor_cancel.clone();
+    let weak_protector = Arc::downgrade(protector);
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(PHYSICAL_NETWORK_POLL_INTERVAL);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         // The initial snapshot was read synchronously during startup.
         ticker.tick().await;
         loop {
-            ticker.tick().await;
-            let Some(protector) = Weak::upgrade(&protector) else {
+            tokio::select! {
+                _ = cancellation.cancelled() => break,
+                _ = ticker.tick() => {}
+            }
+            let Some(protector) = Weak::upgrade(&weak_protector) else {
                 break;
             };
-            let update = protector
-                .agent
-                .get_physical_network_info(protector.operation_id)
-                .await
-                .and_then(|info| physical_dns_endpoints(&info).map(|servers| (info, servers)));
+            let agent = protector.agent.clone();
+            let operation_id = protector.operation_id;
+            drop(protector);
+            let update = tokio::select! {
+                _ = cancellation.cancelled() => break,
+                result = agent.get_physical_network_info(operation_id) => result,
+            };
+            let Some(protector) = Weak::upgrade(&weak_protector) else {
+                break;
+            };
             match update {
-                Ok((info, servers)) => {
-                    let agent_changed = protector
-                        .agent_generation
-                        .swap(info.generation, Ordering::AcqRel)
-                        != info.generation;
-                    let servers_changed = protector
-                        .physical_dns
-                        .write()
-                        .map(|mut current| {
-                            let changed = *current != servers;
-                            if changed {
-                                *current = servers;
-                            }
-                            changed
-                        })
-                        .unwrap_or(false);
-                    if agent_changed || servers_changed {
-                        protector.advance_network_generation();
-                    }
-                }
-                Err(error) => {
-                    let changed = protector
-                        .physical_dns
-                        .write()
-                        .map(|mut servers| {
-                            let changed = !servers.is_empty();
-                            servers.clear();
-                            changed
-                        })
-                        .unwrap_or(false);
-                    if changed {
-                        protector.advance_network_generation();
-                        tracing::warn!(%error, "Windows physical DNS snapshot became unavailable");
+                Ok(info) => protector.observe_physical_snapshot(&info),
+                Err(_) => {
+                    if let Ok(mut state) = protector.physical.write()
+                        && state.update(None)
+                    {
+                        tracing::warn!(
+                            reason_code = "physical_snapshot_unavailable",
+                            "Windows physical network snapshot became unavailable"
+                        );
                     }
                 }
             }
@@ -254,12 +361,17 @@ fn bind_socket_to_interface(
 }
 
 fn physical_dns_endpoints(info: &PhysicalNetworkInfo) -> Result<Vec<SocketAddr>, WindowsVpnError> {
-    if info.generation == 0 {
+    if info.generation == 0 || info.interfaces.is_empty() || info.interfaces.len() > 2 {
         return Err(WindowsVpnError::InvalidPhysicalNetworkInfo);
     }
     let mut output = Vec::new();
     for interface in &info.interfaces {
-        if interface.interface_luid == 0 || interface.interface_index == 0 {
+        if interface.interface_luid == 0
+            || interface.interface_index == 0
+            || interface.address_family_mask == 0
+            || interface.address_family_mask & !3 != 0
+            || interface.dns_servers.len() > 8
+        {
             return Err(WindowsVpnError::InvalidPhysicalNetworkInfo);
         }
         for value in &interface.dns_servers {
@@ -521,7 +633,7 @@ impl WindowsVpnRuntime {
         let geo_enabled = geo_policy.is_enabled();
         let agent = WindowsAgentClient::production();
         let capabilities = agent.get_capabilities().await?;
-        validate_capabilities(&capabilities, profile.kill_switch, geo_enabled)?;
+        validate_capabilities(&capabilities, profile.kill_switch)?;
         let state = agent.get_state().await?;
         let (operation_id, resuming, startup_lease) =
             match agent_v1::AgentPhase::try_from(state.phase) {
@@ -550,29 +662,21 @@ impl WindowsVpnRuntime {
                 }
             };
 
-        let physical_info = if geo_enabled {
-            match agent.get_physical_network_info(operation_id).await {
-                Ok(info) => Some(info),
-                Err(error) => {
-                    abort_startup(
-                        &agent,
-                        operation_id,
-                        resuming,
-                        "PHYSICAL_DNS_SNAPSHOT_FAILED",
-                    )
-                    .await?;
-                    return Err(error);
-                }
+        let physical_info = match agent.get_physical_network_info(operation_id).await {
+            Ok(info) => info,
+            Err(error) => {
+                abort_startup(
+                    &agent,
+                    operation_id,
+                    resuming,
+                    "PHYSICAL_NETWORK_SNAPSHOT_FAILED",
+                )
+                .await?;
+                return Err(error);
             }
-        } else {
-            None
         };
-        let physical_dns = match physical_info
-            .as_ref()
-            .map(physical_dns_endpoints)
-            .transpose()
-        {
-            Ok(servers) => servers.unwrap_or_default(),
+        let physical_dns = match physical_dns_endpoints(&physical_info) {
+            Ok(servers) => servers,
             Err(error) => {
                 abort_startup(
                     &agent,
@@ -588,21 +692,23 @@ impl WindowsVpnRuntime {
             abort_startup(&agent, operation_id, resuming, "PHYSICAL_DNS_UNAVAILABLE").await?;
             return Err(WindowsVpnError::PhysicalDnsUnavailable);
         }
-        let initial_generation = physical_info
-            .as_ref()
-            .map_or(state.journal_generation, |info| info.generation)
-            .max(1);
+        let initial_generation = physical_info.generation;
         let protector = Arc::new(WindowsVpnSocketProtector {
             registration_api,
             agent: agent.clone(),
             operation_id,
-            physical_dns: RwLock::new(physical_dns),
-            generation: AtomicU64::new(initial_generation),
-            agent_generation: AtomicU64::new(initial_generation),
+            physical: RwLock::new(WindowsPhysicalState {
+                generation: initial_generation,
+                agent_generation: Some(initial_generation),
+                dns_servers: physical_dns,
+                family_mask: physical_info
+                    .interfaces
+                    .iter()
+                    .fold(0, |mask, interface| mask | interface.address_family_mask),
+            }),
+            monitor_cancel: CancellationToken::new(),
         });
-        if geo_enabled {
-            start_physical_network_monitor(&protector);
-        }
+        start_physical_network_monitor(&protector);
         let protector: Arc<dyn SocketProtector> = protector;
 
         let tunnel = match MasqueRuntime::start_with_geo_policy(
@@ -706,7 +812,7 @@ impl WindowsVpnRuntime {
             Ok(capabilities) => capabilities,
             Err(error) => return Err((tunnel, error)),
         };
-        if let Err(error) = validate_capabilities(&capabilities, profile.kill_switch, false) {
+        if let Err(error) = validate_capabilities(&capabilities, profile.kill_switch) {
             return Err((tunnel, error));
         }
         let state = match agent.get_state().await {
@@ -1121,7 +1227,6 @@ fn tunnel_plan_from_assignment(
 fn validate_capabilities(
     capabilities: &AgentCapabilities,
     require_kill_switch: bool,
-    require_geo: bool,
 ) -> Result<(), WindowsVpnError> {
     if capabilities.protocol_version != AGENT_PROTOCOL_VERSION {
         return Err(WindowsVpnError::ProtocolVersion(
@@ -1144,11 +1249,14 @@ fn validate_capabilities(
     if require_kill_switch && !capabilities.wfp_kill_switch {
         missing.push("wfp_kill_switch");
     }
-    if require_geo && !capabilities.dynamic_direct_egress {
+    if !capabilities.dynamic_direct_egress {
         missing.push("dynamic_direct_egress");
     }
-    if require_geo && !capabilities.physical_dns_snapshot {
+    if !capabilities.physical_dns_snapshot {
         missing.push("physical_dns_snapshot");
+    }
+    if !capabilities.exact_generation_egress {
+        missing.push("exact_generation_egress");
     }
     if missing.is_empty() {
         Ok(())
@@ -1782,6 +1890,7 @@ impl WindowsAgentClient {
         operation_id: Uuid,
         remote: SocketAddr,
         protocol: DirectProtocol,
+        expected_generation: u64,
     ) -> Result<(NamedPipeClient, AgentDirectEgressLease), WindowsVpnError> {
         let mut pipe = self.open_pipe().await?;
         let response = timeout(
@@ -1792,6 +1901,7 @@ impl WindowsAgentClient {
                     operation_id: operation_id.to_string(),
                     remote_endpoint: remote.to_string(),
                     protocol: u32::from(protocol.iana_number()),
+                    expected_generation,
                 }),
             ),
         )
@@ -1802,7 +1912,9 @@ impl WindowsAgentClient {
                 if lease.remote_endpoint == remote.to_string()
                     && lease.protocol == u32::from(protocol.iana_number())
                     && lease.interface_luid != 0
-                    && lease.interface_index != 0 =>
+                    && lease.interface_index != 0
+                    && lease.network_generation == expected_generation
+                    && lease.network_generation != 0 =>
             {
                 Ok((pipe, lease))
             }
@@ -2397,6 +2509,91 @@ mod tests {
     use usque_core::{AddressFamily, MasqueKeyPair, OperatingMode, Transport};
 
     use super::*;
+
+    #[test]
+    fn physical_generation_and_family_state_advance_together_without_dns_dependency() {
+        let mut state = WindowsPhysicalState {
+            generation: 10,
+            agent_generation: Some(20),
+            dns_servers: Vec::new(),
+            family_mask: 3,
+        };
+        assert!(state.update(Some((21, Vec::new(), 3))));
+        assert_eq!(
+            (state.generation, state.agent_generation, state.family_mask),
+            (11, Some(21), 3)
+        );
+        assert!(!state.update(Some((21, Vec::new(), 3))));
+        assert!(state.update(None));
+        assert_eq!(
+            (state.generation, state.agent_generation, state.family_mask),
+            (12, None, 0)
+        );
+        assert!(!state.update(None));
+        assert!(state.update(Some((21, Vec::new(), 1))));
+        assert_eq!(
+            (state.generation, state.agent_generation, state.family_mask),
+            (13, Some(21), 1)
+        );
+    }
+
+    #[test]
+    fn exact_egress_errors_never_forward_raw_agent_details_to_transport() {
+        assert_eq!(
+            socket_lease_error(WindowsVpnError::Remote {
+                code: "AGENT_STALE_GENERATION".to_owned(),
+                message: "192.0.2.4 private-network".to_owned(),
+                retryable: true,
+            }),
+            STALE_GENERATION_REASON
+        );
+        let error = socket_lease_error(WindowsVpnError::Remote {
+            code: "AGENT_DIRECT_EGRESS_FAILED".to_owned(),
+            message: "192.0.2.4 private-network".to_owned(),
+            retryable: true,
+        });
+        assert!(!error.contains("192.0.2.4") && !error.contains("private-network"));
+    }
+
+    #[test]
+    fn dropping_the_windows_socket_protector_cancels_its_network_monitor() {
+        let cancellation = CancellationToken::new();
+        let protector = WindowsVpnSocketProtector {
+            registration_api: Vec::new(),
+            agent: WindowsAgentClient::production(),
+            operation_id: Uuid::nil(),
+            physical: RwLock::new(WindowsPhysicalState {
+                generation: 1,
+                agent_generation: Some(1),
+                dns_servers: Vec::new(),
+                family_mask: 3,
+            }),
+            monitor_cancel: cancellation.clone(),
+        };
+        drop(protector);
+        assert!(cancellation.is_cancelled());
+    }
+
+    #[test]
+    fn windows_vpn_requires_the_exact_generation_lease_capability() {
+        let mut capabilities = AgentCapabilities {
+            protocol_version: AGENT_PROTOCOL_VERSION,
+            wintun: true,
+            interface_addresses: true,
+            interface_dns: true,
+            shared_packet_ring: true,
+            dynamic_direct_egress: true,
+            physical_dns_snapshot: true,
+            exact_generation_egress: true,
+            ..AgentCapabilities::default()
+        };
+        assert!(validate_capabilities(&capabilities, false).is_ok());
+        capabilities.exact_generation_egress = false;
+        assert!(matches!(
+            validate_capabilities(&capabilities, false),
+            Err(WindowsVpnError::MissingCapabilities(_))
+        ));
+    }
 
     #[test]
     fn packet_pump_transport_failures_keep_the_active_transport_code() {

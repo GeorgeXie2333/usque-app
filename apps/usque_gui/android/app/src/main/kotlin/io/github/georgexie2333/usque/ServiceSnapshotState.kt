@@ -247,6 +247,19 @@ internal class ServiceSnapshotState {
             }
         }
 
+    fun noteUnderlyingNetworkChange(networkPresent: Boolean) {
+        errorCode = null
+        if (!networkPresent) {
+            phase = "reconnecting"
+            warning =
+                "ANDROID_WAITING_FOR_PHYSICAL_NETWORK: waiting for a usable non-VPN network."
+        } else {
+            // Native H3 may keep the same connection through path migration.
+            // Do not predict a reconnect or claim recovery before its snapshot.
+            warning = null
+        }
+    }
+
     /**
      * Platform-free native snapshot fields. Unit tests construct this directly; the service
      * adapts [JSONObject] via [fromNativeJson].

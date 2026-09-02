@@ -40,7 +40,10 @@ use crate::connect_ip_control::{
 };
 use crate::network_quality::NetworkQualityTelemetry;
 use crate::packet_batch::{PacketBatch, PacketBatchResult};
-use crate::socket::{SocketProtector, noop_socket_protector, socket_handle};
+use crate::socket::{
+    DirectProtocol, LeasedIo, STALE_GENERATION_REASON, SocketProtector, noop_socket_protector,
+    socket_handle,
+};
 use crate::telemetry::{ConnectionAttemptTelemetry, ConnectionEventType};
 
 const CONNECT_URI: &str = "https://cloudflareaccess.com/";
@@ -390,18 +393,41 @@ pub(crate) async fn connect_h2_with_protector(
     protector: &dyn SocketProtector,
     attempt: Option<&ConnectionAttemptTelemetry>,
 ) -> Result<H2Tunnel, TransportError> {
+    let expected_generation = protector.network_generation().unwrap_or_default();
     let socket = if endpoint.is_ipv4() {
         TcpSocket::new_v4()
     } else {
         TcpSocket::new_v6()
     }?;
-    protector
-        .protect(socket_handle(&socket))
-        .map_err(TransportError::SocketProtection)?;
+    let egress_lease = protector
+        .protect_for_target_generation(
+            socket_handle(&socket),
+            endpoint,
+            DirectProtocol::Tcp,
+            expected_generation,
+        )
+        .await
+        .map_err(|error| {
+            if error == STALE_GENERATION_REASON {
+                TransportError::UnderlyingNetworkChanged
+            } else {
+                TransportError::SocketProtection(error)
+            }
+        })?;
+    if protector.network_generation().unwrap_or_default() != expected_generation
+        || egress_lease.generation() != Some(expected_generation)
+    {
+        drop(socket);
+        drop(egress_lease);
+        return Err(TransportError::UnderlyingNetworkChanged);
+    }
     let tcp = timeout(CONNECT_TIMEOUT, socket.connect(endpoint))
         .await
         .map_err(|_| TransportError::EndpointTimeout(endpoint))??;
     tcp.set_nodelay(true)?;
+    if protector.network_generation().unwrap_or_default() != expected_generation {
+        return Err(TransportError::UnderlyingNetworkChanged);
+    }
     if let Some(attempt) = attempt {
         attempt.record(
             ConnectionEventType::SocketConnected,
@@ -438,6 +464,10 @@ pub(crate) async fn connect_h2_with_protector(
     if let Some(attempt) = attempt {
         attempt.record(ConnectionEventType::TlsReady, TransportStage::TlsHandshake);
     }
+    if protector.network_generation().unwrap_or_default() != expected_generation {
+        return Err(TransportError::UnderlyingNetworkChanged);
+    }
+    let tls = LeasedIo::new(tls, egress_lease);
 
     let flow_control = H2FlowControlConfig::default();
     let quality = attempt
@@ -1260,7 +1290,98 @@ impl TransportError {
 mod tests {
     use super::*;
     use crate::network_quality::{MetricAvailability, NetworkQualitySampler};
+    use crate::socket::{DirectEgressLease, SocketHandle};
+    use std::sync::atomic::{AtomicU64, AtomicUsize};
     use usque_core::MasqueKeyPair;
+
+    struct TargetLeaseProtector {
+        endpoint: SocketAddr,
+        generation: AtomicU64,
+        advance_during_protect: bool,
+        calls: AtomicUsize,
+        lease_dropped: Arc<AtomicBool>,
+    }
+
+    struct TargetLeaseDrop(Arc<AtomicBool>);
+
+    impl Drop for TargetLeaseDrop {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::Release);
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl SocketProtector for TargetLeaseProtector {
+        fn protect(&self, _socket: SocketHandle) -> Result<(), String> {
+            panic!("H2 must request an exact target lease");
+        }
+
+        async fn protect_for_target(
+            &self,
+            _socket: SocketHandle,
+            remote: SocketAddr,
+            protocol: DirectProtocol,
+        ) -> Result<DirectEgressLease, String> {
+            assert_eq!(remote, self.endpoint);
+            assert_eq!(protocol, DirectProtocol::Tcp);
+            self.calls.fetch_add(1, Ordering::AcqRel);
+            if self.advance_during_protect {
+                self.generation.fetch_add(1, Ordering::AcqRel);
+            }
+            Ok(DirectEgressLease::hold(TargetLeaseDrop(Arc::clone(
+                &self.lease_dropped,
+            ))))
+        }
+
+        fn network_generation(&self) -> Option<u64> {
+            Some(self.generation.load(Ordering::Acquire))
+        }
+    }
+
+    fn loopback_identity() -> MasqueTlsIdentity {
+        let identity_key = MasqueKeyPair::generate();
+        let endpoint_key = MasqueKeyPair::generate();
+        MasqueTlsIdentity::new(
+            identity_key.private_sec1_der().unwrap(),
+            &endpoint_key.public_spki_der().unwrap(),
+            Ipv4Addr::new(172, 16, 0, 2),
+            "2606:4700:110:8f13::2".parse().unwrap(),
+        )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn h2_generation_race_releases_lease_before_any_connection() {
+        let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+            .await
+            .unwrap();
+        let endpoint = listener.local_addr().unwrap();
+        let protector = TargetLeaseProtector {
+            endpoint,
+            generation: AtomicU64::new(7),
+            advance_during_protect: true,
+            calls: AtomicUsize::new(0),
+            lease_dropped: Arc::new(AtomicBool::new(false)),
+        };
+        assert!(matches!(
+            connect_h2_with_protector(
+                endpoint,
+                "localhost",
+                &loopback_identity(),
+                &protector,
+                None
+            )
+            .await,
+            Err(TransportError::UnderlyingNetworkChanged)
+        ));
+        assert_eq!(protector.calls.load(Ordering::Acquire), 1);
+        assert!(protector.lease_dropped.load(Ordering::Acquire));
+        assert!(
+            timeout(Duration::from_millis(25), listener.accept())
+                .await
+                .is_err()
+        );
+    }
 
     #[test]
     fn oracle_sec1_identity_normalizes_for_boringssl() {
@@ -1805,21 +1926,25 @@ mod tests {
             ConnectionAttemptTelemetry::new(telemetry, Transport::Http2, AddressFamily::Ipv4);
         let quality = attempt.quality();
 
+        let protector = TargetLeaseProtector {
+            endpoint,
+            generation: AtomicU64::new(7),
+            advance_during_protect: false,
+            calls: AtomicUsize::new(0),
+            lease_dropped: Arc::new(AtomicBool::new(false)),
+        };
+
         let result = timeout(
             Duration::from_secs(2),
-            connect_h2_with_protector(
-                endpoint,
-                "localhost",
-                &identity,
-                noop_socket_protector().as_ref(),
-                Some(&attempt),
-            ),
+            connect_h2_with_protector(endpoint, "localhost", &identity, &protector, Some(&attempt)),
         )
         .await
         .expect("TLS failure timed out");
         assert!(matches!(result, Err(TransportError::TlsHandshake(_))));
         server.await.expect("loopback server");
         assert_eq!(quality.active_h2_ping_tasks(), 0);
+        assert_eq!(protector.calls.load(Ordering::Acquire), 1);
+        assert!(protector.lease_dropped.load(Ordering::Acquire));
     }
 
     #[tokio::test]

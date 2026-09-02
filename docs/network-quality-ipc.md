@@ -19,11 +19,12 @@ to canonical physical-system direct DNS, preserving schema-12 behavior.
 - `ConnectionEventType` migration, PMTU, and direct-DNS values occupy 22
   through 30
 
-The build advertises `network_quality=true` and `automatic_pmtu=true`.
-Encrypted DNS and migration remain false until their implementation PRs.
-The H3 multi-socket/CID infrastructure is described in
-[h3-path-infrastructure.md](h3-path-infrastructure.md); its presence does not
-enable the migration capability.
+The build advertises `network_quality=true`, `automatic_pmtu=true`, and
+`quic_migration=true`. Encrypted DNS remains false until its implementation PR.
+The H3 migration and multi-socket/CID contract is described in
+[h3-path-infrastructure.md](h3-path-infrastructure.md). A specific connection
+can still report migration unavailable because of family, generation, or CID
+constraints and safely use complete reconnect.
 Capabilities describe build/platform support, not current path readiness; H2
 reports PMTU as `Unsupported`, while an H3 path still probing reports
 `NotReady`.
@@ -37,6 +38,18 @@ unknown values to `unknown`; unknown fields are skipped. A `known=false` flat
 metric is represented as `null` in Dart even if bytes contain a numeric value.
 Detailed messages retain explicit `Available`, `Unsupported`, `NotReady`, or
 `Stale` availability.
+
+The privileged Agent protocol remains version 3 and adds four independent
+append-only fields for exact-generation Windows egress:
+`AgentCapabilities.exact_generation_egress = 12`,
+`PhysicalInterface.address_family_mask = 4`,
+`AcquireDirectEgressRequest.expected_generation = 4`, and
+`DirectEgressLease.network_generation = 5`. The new Engine requires the
+capability before VPN startup. A nonzero expected generation must match;
+`AGENT_STALE_GENERATION` is the fixed retryable error. Zero preserves legacy
+request decoding, but the new Engine never uses it. Wire snapshots verify all
+four tags without reusing old numbers. These privileged metadata fields are
+not copied into network-quality events or diagnostic exports.
 
 The connection instance identifier is a fresh UUIDv4 for the process-local
 connection attempt. It is not a QUIC CID and is not persisted.

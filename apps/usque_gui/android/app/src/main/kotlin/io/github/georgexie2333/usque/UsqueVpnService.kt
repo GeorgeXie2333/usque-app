@@ -1341,14 +1341,7 @@ class UsqueVpnService : VpnService() {
             }
             mainHandler.post {
                 if (nativeRuntimeActive.get() || tunnel.get() != null) {
-                    snapshotState.phase = "reconnecting"
-                    snapshotState.errorCode = null
-                    snapshotState.warning =
-                        if (selectedNetwork == null) {
-                            "ANDROID_WAITING_FOR_PHYSICAL_NETWORK: waiting for a usable non-VPN network."
-                        } else {
-                            "The underlying Android network changed; rebuilding the secure channel."
-                        }
+                    snapshotState.noteUnderlyingNetworkChange(selectedNetwork != null)
                     updateNotification()
                     notifyTileStateChanged()
                     broadcastSnapshot()

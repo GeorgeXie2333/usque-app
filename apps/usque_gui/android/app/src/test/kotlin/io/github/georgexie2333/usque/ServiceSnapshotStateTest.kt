@@ -11,6 +11,21 @@ import org.junit.Test
 class ServiceSnapshotStateTest {
     private fun state(): ServiceSnapshotState = ServiceSnapshotState()
 
+    @Test
+    fun physicalNetworkChangeDefersMigrationOrReconnectChoiceToNative() {
+        val snapshot = state()
+        snapshot.phase = "connected"
+        snapshot.noteUnderlyingNetworkChange(networkPresent = true)
+        assertEquals("connected", snapshot.phase)
+        assertNull(snapshot.warning)
+        snapshot.noteUnderlyingNetworkChange(networkPresent = false)
+        assertEquals("reconnecting", snapshot.phase)
+        assertNotNull(snapshot.warning)
+        snapshot.noteUnderlyingNetworkChange(networkPresent = true)
+        assertEquals("reconnecting", snapshot.phase)
+        assertNull(snapshot.warning)
+    }
+
     private fun platform(
         tunnelOpen: Boolean = true,
         activeMode: String? = "vpn",

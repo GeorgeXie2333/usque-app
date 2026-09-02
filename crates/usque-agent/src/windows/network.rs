@@ -5,9 +5,11 @@
 //! instead of trying to infer what a crashed process may have changed.
 
 use std::{
-    collections::BTreeSet,
+    cmp::Reverse,
+    collections::{BTreeMap, BTreeSet, hash_map::DefaultHasher},
+    hash::{Hash, Hasher},
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
-    ptr,
+    ptr::{self, NonNull},
 };
 
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
@@ -25,11 +27,12 @@ use windows_sys::{
                 CreateIpForwardEntry2, CreateUnicastIpAddressEntry, DNS_INTERFACE_SETTINGS,
                 DNS_INTERFACE_SETTINGS_VERSION1, DNS_SETTING_IPV6, DNS_SETTING_NAMESERVER,
                 DeleteIpForwardEntry2, DeleteUnicastIpAddressEntry, FreeInterfaceDnsSettings,
-                GetBestInterfaceEx, GetBestRoute2, GetInterfaceDnsSettings, GetIpForwardEntry2,
-                GetIpInterfaceEntry, GetUnicastIpAddressEntry, IP_ADDRESS_PREFIX,
-                InitializeIpForwardEntry, InitializeIpInterfaceEntry,
-                InitializeUnicastIpAddressEntry, MIB_IPFORWARD_ROW2, MIB_IPINTERFACE_ROW,
-                MIB_UNICASTIPADDRESS_ROW, SetInterfaceDnsSettings, SetIpInterfaceEntry,
+                FreeMibTable, GetBestInterfaceEx, GetBestRoute2, GetInterfaceDnsSettings,
+                GetIpForwardEntry2, GetIpForwardTable2, GetIpInterfaceEntry,
+                GetUnicastIpAddressEntry, IP_ADDRESS_PREFIX, InitializeIpForwardEntry,
+                InitializeIpInterfaceEntry, InitializeUnicastIpAddressEntry, MIB_IPFORWARD_ROW2,
+                MIB_IPFORWARD_TABLE2, MIB_IPINTERFACE_ROW, MIB_UNICASTIPADDRESS_ROW,
+                SetInterfaceDnsSettings, SetIpInterfaceEntry,
             },
             Ndis::NET_LUID_LH,
         },
@@ -50,12 +53,16 @@ use crate::{
 
 const MAX_DNS_TEXT_UNITS: usize = 16 * 1024;
 const DEFAULT_ROUTE_METRIC: u32 = 0;
+const MAX_OBSERVED_ROUTES: usize = 4_096;
+const MAX_OBSERVED_INTERFACES: usize = 64;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PhysicalInterfaceInfo {
     pub interface_luid: u64,
     pub interface_index: u32,
     pub dns_servers: Vec<IpAddr>,
+    pub address_family_mask: u8,
+    pub route_fingerprint: u64,
 }
 
 /// Reads only numeric link metadata for a physical interface already selected
@@ -75,11 +82,193 @@ pub fn physical_interface_info(interface_luid: u64) -> Result<PhysicalInterfaceI
     let mut dns_servers = get_dns_servers(interface_guid)?;
     dns_servers.sort();
     dns_servers.dedup();
+    dns_servers.truncate(8);
     Ok(PhysicalInterfaceInfo {
         interface_luid,
         interface_index,
         dns_servers,
+        address_family_mask: 0,
+        route_fingerprint: 0,
     })
+}
+
+/// Observes the current route outside this tunnel without changing any route,
+/// interface, or DNS state. Owned endpoint host routes are excluded from the
+/// selection so their old interface cannot mask a newly preferred adapter.
+pub fn current_physical_interface(
+    target: SocketAddr,
+    tunnel_luid: u64,
+    owned_bypasses: &[RouteReceipt],
+) -> Result<PhysicalInterfaceInfo, NetworkError> {
+    require_luid(tunnel_luid)?;
+    let family = if target.is_ipv4() { AF_INET } else { AF_INET6 };
+    let mut table = ptr::null_mut();
+    // SAFETY: `table` is initialized writable pointer storage. The successful
+    // allocation is immediately placed in an RAII owner using FreeMibTable.
+    check("GetIpForwardTable2", unsafe {
+        GetIpForwardTable2(family, &mut table)
+    })?;
+    let table = ObservedRouteTable(NonNull::new(table).ok_or(NetworkError::RouteSnapshotMissing)?);
+    let (route, interface) = select_current_physical_route(
+        table.rows()?,
+        target.ip(),
+        tunnel_luid,
+        owned_bypasses,
+        get_interface,
+    )?
+    .ok_or(NetworkError::NoReachableEndpoint)?;
+    let interface_luid = luid_value(route.InterfaceLuid);
+    let destination = sockaddr_from_ip(target.ip());
+    let mut selected_route = MIB_IPFORWARD_ROW2::default();
+    let mut source = SOCKADDR_INET::default();
+    // SAFETY: the selected LUID is non-zero and all input/output structures
+    // remain initialized and live throughout this read-only synchronous call.
+    check("GetBestRoute2", unsafe {
+        GetBestRoute2(
+            &route.InterfaceLuid,
+            0,
+            ptr::null(),
+            &destination,
+            0,
+            &mut selected_route,
+            &mut source,
+        )
+    })?;
+    if luid_value(selected_route.InterfaceLuid) != interface_luid {
+        return Err(NetworkError::RouteSnapshotChanged);
+    }
+    let (source_ip, source_scope) = ip_from_sockaddr(&source)?;
+    if source_ip.is_unspecified()
+        || source_ip.is_multicast()
+        || source_ip.is_ipv4() != target.is_ipv4()
+    {
+        return Err(NetworkError::RouteSnapshotChanged);
+    }
+    let mut info = physical_interface_info(interface_luid)?;
+    if info.interface_index != interface.InterfaceIndex {
+        return Err(NetworkError::RouteSnapshotChanged);
+    }
+    let mut fingerprint = DefaultHasher::new();
+    interface_luid.hash(&mut fingerprint);
+    info.interface_index.hash(&mut fingerprint);
+    source_ip.hash(&mut fingerprint);
+    source_scope.hash(&mut fingerprint);
+    ip_from_sockaddr(&route.DestinationPrefix.Prefix)?.hash(&mut fingerprint);
+    route.DestinationPrefix.PrefixLength.hash(&mut fingerprint);
+    ip_from_sockaddr(&route.NextHop)?.hash(&mut fingerprint);
+    route.Metric.hash(&mut fingerprint);
+    interface.Metric.hash(&mut fingerprint);
+    interface.NlMtu.hash(&mut fingerprint);
+    info.address_family_mask = if target.is_ipv4() { 1 } else { 2 };
+    info.route_fingerprint = fingerprint.finish();
+    Ok(info)
+}
+
+struct ObservedRouteTable(NonNull<MIB_IPFORWARD_TABLE2>);
+
+impl ObservedRouteTable {
+    fn rows(&self) -> Result<&[MIB_IPFORWARD_ROW2], NetworkError> {
+        // SAFETY: the pointer comes from a successful GetIpForwardTable2 call
+        // and stays owned by this guard for the returned slice lifetime.
+        let count = unsafe { self.0.as_ref().NumEntries as usize };
+        if count > MAX_OBSERVED_ROUTES {
+            return Err(NetworkError::RouteSnapshotTooLarge);
+        }
+        // SAFETY: Windows reports the initialized flexible-array length. The
+        // count is bounded above, the first row has its native alignment, and
+        // the allocation cannot be freed while this immutable slice is used.
+        Ok(unsafe {
+            std::slice::from_raw_parts(ptr::addr_of!((*self.0.as_ptr()).Table).cast(), count)
+        })
+    }
+}
+
+impl Drop for ObservedRouteTable {
+    fn drop(&mut self) {
+        // SAFETY: this guard uniquely owns the allocation returned by IP Helper
+        // and calls the matching deallocator exactly once.
+        unsafe { FreeMibTable(self.0.as_ptr().cast()) };
+    }
+}
+
+fn select_current_physical_route(
+    routes: &[MIB_IPFORWARD_ROW2],
+    target: IpAddr,
+    tunnel_luid: u64,
+    owned_bypasses: &[RouteReceipt],
+    mut lookup_interface: impl FnMut(u64, ADDRESS_FAMILY) -> Result<MIB_IPINTERFACE_ROW, NetworkError>,
+) -> Result<Option<(MIB_IPFORWARD_ROW2, MIB_IPINTERFACE_ROW)>, NetworkError> {
+    if routes.len() > MAX_OBSERVED_ROUTES {
+        return Err(NetworkError::RouteSnapshotTooLarge);
+    }
+    let family = if target.is_ipv4() { AF_INET } else { AF_INET6 };
+    let mut interfaces = BTreeMap::new();
+    let mut selected = None;
+    let mut selected_rank = None;
+    for route in routes {
+        let interface_luid = luid_value(route.InterfaceLuid);
+        if interface_luid == 0
+            || interface_luid == tunnel_luid
+            || route.Loopback
+            || route.ValidLifetime == 0
+        {
+            continue;
+        }
+        let (prefix, _) = ip_from_sockaddr(&route.DestinationPrefix.Prefix)?;
+        let network = IpNet::new(prefix, route.DestinationPrefix.PrefixLength)
+            .map_err(|_| NetworkError::RouteSnapshotChanged)?;
+        if !network.contains(&target) || owned_bypass_matches(route, &network, owned_bypasses)? {
+            continue;
+        }
+        if !interfaces.contains_key(&interface_luid) {
+            if interfaces.len() == MAX_OBSERVED_INTERFACES {
+                return Err(NetworkError::RouteSnapshotTooLarge);
+            }
+            let interface = match lookup_interface(interface_luid, family) {
+                Ok(interface) => Some(interface),
+                Err(error) if error.is_candidate_unavailable() || error.is_interface_churn() => {
+                    None
+                }
+                Err(error) => return Err(error),
+            };
+            interfaces.insert(interface_luid, interface);
+        }
+        let Some(interface) = interfaces.get(&interface_luid).copied().flatten() else {
+            continue;
+        };
+        if !interface.Connected || interface.InterfaceIndex == 0 || interface.NlMtu == 0 {
+            continue;
+        }
+        let rank = (
+            Reverse(network.prefix_len()),
+            u64::from(route.Metric) + u64::from(interface.Metric),
+            interface_luid,
+        );
+        if selected_rank.is_none_or(|previous| rank < previous) {
+            selected_rank = Some(rank);
+            selected = Some((*route, interface));
+        }
+    }
+    Ok(selected)
+}
+
+fn owned_bypass_matches(
+    route: &MIB_IPFORWARD_ROW2,
+    network: &IpNet,
+    bypasses: &[RouteReceipt],
+) -> Result<bool, NetworkError> {
+    let (next_hop, scope) = ip_from_sockaddr(&route.NextHop)?;
+    Ok(bypasses.iter().any(|bypass| {
+        bypass.owned
+            && bypass.interface_luid == luid_value(route.InterfaceLuid)
+            && bypass
+                .destination
+                .parse::<IpNet>()
+                .is_ok_and(|value| value == *network)
+            && bypass.next_hop.unwrap_or_else(|| unspecified(*network)) == next_hop
+            && bypass.next_hop_scope_id == scope
+            && bypass.metric == route.Metric
+    }))
 }
 
 pub fn plan_endpoint_bypass(
@@ -953,6 +1142,12 @@ fn retain_first_error(destination: &mut Option<NetworkError>, result: Result<(),
 
 #[derive(Debug, Error)]
 pub enum NetworkError {
+    #[error("Windows returned no route snapshot allocation")]
+    RouteSnapshotMissing,
+    #[error("the bounded physical route snapshot limit was exceeded")]
+    RouteSnapshotTooLarge,
+    #[error("the physical route snapshot changed during observation")]
+    RouteSnapshotChanged,
     #[error("{operation} failed with Windows error {code}")]
     Windows {
         operation: &'static str,
@@ -1011,6 +1206,121 @@ impl NetworkError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn observed_route(network: &str, interface_luid: u64, metric: u32) -> MIB_IPFORWARD_ROW2 {
+        let network = network.parse::<IpNet>().unwrap();
+        MIB_IPFORWARD_ROW2 {
+            InterfaceLuid: luid(interface_luid),
+            InterfaceIndex: interface_luid as u32,
+            DestinationPrefix: prefix_from_network(network),
+            NextHop: sockaddr_from_ip(unspecified(network)),
+            ValidLifetime: u32::MAX,
+            Metric: metric,
+            ..MIB_IPFORWARD_ROW2::default()
+        }
+    }
+
+    fn observed_interface(interface_luid: u64, family: ADDRESS_FAMILY) -> MIB_IPINTERFACE_ROW {
+        MIB_IPINTERFACE_ROW {
+            Family: family,
+            InterfaceLuid: luid(interface_luid),
+            InterfaceIndex: interface_luid as u32,
+            Connected: true,
+            NlMtu: 1_500,
+            Metric: 10,
+            ..MIB_IPINTERFACE_ROW::default()
+        }
+    }
+
+    #[test]
+    fn physical_route_observation_excludes_tun_owned_bypass_and_disconnected_interfaces() {
+        let mut loopback = observed_route("203.0.113.9/32", 12, 0);
+        loopback.Loopback = true;
+        let routes = [
+            observed_route("128.0.0.0/1", 7, 0),
+            observed_route("203.0.113.9/32", 9, 0),
+            observed_route("0.0.0.0/0", 9, 50),
+            observed_route("0.0.0.0/0", 10, 1),
+            observed_route("203.0.113.9/32", 11, 0),
+            loopback,
+        ];
+        let owned = [RouteReceipt {
+            destination: "203.0.113.9/32".to_owned(),
+            next_hop: None,
+            next_hop_scope_id: 0,
+            interface_luid: 9,
+            metric: 0,
+            owned: true,
+        }];
+        let (selected, _) = select_current_physical_route(
+            &routes,
+            "203.0.113.9".parse().unwrap(),
+            7,
+            &owned,
+            |interface_luid, family| {
+                let mut interface = observed_interface(interface_luid, family);
+                interface.Connected = interface_luid != 11;
+                Ok(interface)
+            },
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(luid_value(selected.InterfaceLuid), 10);
+    }
+
+    #[test]
+    fn physical_route_observation_preserves_preexisting_routes_and_longest_prefix() {
+        let routes = [
+            observed_route("0.0.0.0/0", 10, 0),
+            observed_route("203.0.113.9/32", 9, 100),
+        ];
+        let preexisting = [RouteReceipt {
+            destination: "203.0.113.9/32".to_owned(),
+            next_hop: None,
+            next_hop_scope_id: 0,
+            interface_luid: 9,
+            metric: 100,
+            owned: false,
+        }];
+        let (selected, _) = select_current_physical_route(
+            &routes,
+            "203.0.113.9".parse().unwrap(),
+            7,
+            &preexisting,
+            |interface_luid, family| Ok(observed_interface(interface_luid, family)),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(luid_value(selected.InterfaceLuid), 9);
+    }
+
+    #[test]
+    fn physical_route_observation_has_hard_route_and_interface_limits() {
+        let routes = vec![observed_route("0.0.0.0/0", 9, 0); MAX_OBSERVED_ROUTES + 1];
+        assert!(matches!(
+            select_current_physical_route(
+                &routes,
+                "203.0.113.9".parse().unwrap(),
+                7,
+                &[],
+                |_, _| panic!("oversized snapshot must fail before interface lookup")
+            ),
+            Err(NetworkError::RouteSnapshotTooLarge)
+        ));
+        let routes = (100..100 + MAX_OBSERVED_INTERFACES as u64 + 1)
+            .map(|interface| observed_route("0.0.0.0/0", interface, 1))
+            .collect::<Vec<_>>();
+        assert!(matches!(
+            select_current_physical_route(
+                &routes,
+                "203.0.113.9".parse().unwrap(),
+                7,
+                &[],
+                |interface_luid, family| Ok(observed_interface(interface_luid, family))
+            ),
+            Err(NetworkError::RouteSnapshotTooLarge)
+        ));
+    }
 
     #[test]
     fn sockaddr_round_trips_ipv4_and_ipv6_scope() {

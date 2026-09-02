@@ -146,6 +146,11 @@ mod tests {
     ];
     const AGENT_INSPECT_PLATFORM_V3_FRAME: &[u8] =
         &[0, 0, 0, 9, 0x0a, 2, b'i', b'1', 0x10, 3, 0xca, 0x01, 0];
+    const AGENT_EXACT_EGRESS_V3_FRAME: &[u8] = &[
+        0, 0, 0, 33, 0x0a, 2, b'g', b'1', 0x10, 3, 0xc2, 0x01, 24, 0x0a, 1, b'o', 0x12, 15, b'2',
+        b'0', b'3', b'.', b'0', b'.', b'1', b'1', b'3', b'.', b'9', b':', b'4', b'4', b'3', 0x18,
+        17, 0x20, 7,
+    ];
     const NETWORK_QUALITY_V1_FRAME: &[u8] = &[
         0x00, 0x00, 0x00, 0x41, 0x0a, 0x02, b'n', b'1', 0xaa, 0x01, 0x3a, 0x08, 0xd2, 0x09, 0x12,
         0x02, b'c', b'1', 0x18, 0x01, 0x22, 0x0e, 0x20, 0x2a, 0x28, 0x01, 0x68, 0x15, 0x70, 0x01,
@@ -254,6 +259,7 @@ mod tests {
                     operation_id: "operation".to_owned(),
                     remote_endpoint: "203.0.113.9:53".to_owned(),
                     protocol: 17,
+                    expected_generation: 0,
                 },
             )),
         };
@@ -278,6 +284,44 @@ mod tests {
         };
         let decoded = AgentCapabilities::decode(&*capabilities.encode_to_vec()).unwrap();
         assert!(decoded.dynamic_direct_egress && decoded.physical_dns_snapshot);
+    }
+
+    #[test]
+    fn privileged_exact_generation_fields_are_append_only_wire_snapshots() {
+        let decoded: AgentRequest =
+            decode_frame(Bytes::from_static(AGENT_EXACT_EGRESS_V3_FRAME)).unwrap();
+        assert!(
+            matches!(decoded.payload.as_ref(), Some(agent_request::Payload::AcquireDirectEgress(request))
+            if request.expected_generation == 7 && request.protocol == 17 && request.remote_endpoint == "203.0.113.9:443")
+        );
+        assert_eq!(
+            encode_frame(&decoded).unwrap().as_ref(),
+            AGENT_EXACT_EGRESS_V3_FRAME
+        );
+        assert_eq!(
+            agent_v1::DirectEgressLease {
+                network_generation: 7,
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0x28, 7]
+        );
+        assert_eq!(
+            agent_v1::PhysicalInterface {
+                address_family_mask: 3,
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0x20, 3]
+        );
+        assert_eq!(
+            AgentCapabilities {
+                exact_generation_egress: true,
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0x60, 1]
+        );
     }
 
     #[test]

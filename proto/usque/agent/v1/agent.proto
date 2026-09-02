@@ -42,6 +42,8 @@ message AgentCapabilities {
   // The Agent can snapshot numeric DNS servers from the selected physical
   // interface without exposing DNS payloads or host names.
   bool physical_dns_snapshot = 11;
+  // Exact generation checks and generation-scoped liveness lease keys.
+  bool exact_generation_egress = 12;
 }
 
 message TunnelPlan {
@@ -150,6 +152,8 @@ message PhysicalInterface {
   uint64 interface_luid = 1;
   uint32 interface_index = 2;
   repeated string dns_servers = 3;
+  // Bit 0 = IPv4 and bit 1 = IPv6, from current non-TUN route observation.
+  uint32 address_family_mask = 4;
 }
 
 message PhysicalNetworkInfo {
@@ -165,6 +169,8 @@ message AcquireDirectEgressRequest {
   string remote_endpoint = 2;
   // IANA protocol number. Version 3 accepts TCP (6) and UDP (17).
   uint32 protocol = 3;
+  // Zero preserves the legacy request shape; non-zero must match exactly.
+  uint64 expected_generation = 4;
 }
 
 message DirectEgressLease {
@@ -172,6 +178,7 @@ message DirectEgressLease {
   uint32 interface_index = 2;
   string remote_endpoint = 3;
   uint32 protocol = 4;
+  uint64 network_generation = 5;
 }
 
 message AgentState {

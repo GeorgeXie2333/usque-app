@@ -70,6 +70,7 @@ impl WindowsBackend {
             protocol_version: AGENT_PROTOCOL_VERSION,
             dynamic_direct_egress: true,
             physical_dns_snapshot: true,
+            exact_generation_egress: true,
         }
     }
 }

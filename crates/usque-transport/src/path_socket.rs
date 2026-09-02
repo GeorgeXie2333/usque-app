@@ -1,12 +1,4 @@
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "PR-08 builds candidate and retiring infrastructure before PR-09 enables migration"
-    )
-)]
-
-use std::future::{Future, pending};
+use std::future::pending;
 use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -40,6 +32,14 @@ pub(crate) enum PathSocketRole {
     Retiring,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct PathBinding {
+    pub(crate) path_id: PathId,
+    pub(crate) local_addr: SocketAddr,
+    pub(crate) peer_addr: SocketAddr,
+    pub(crate) network_generation: u64,
+}
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub(crate) enum PathSocketSetError {
     #[error("the path socket role is already occupied")]
@@ -52,10 +52,12 @@ pub(crate) enum PathSocketSetError {
     SendSourceNotFound,
     #[error("the QUIC send peer does not match its path socket")]
     SendPeerMismatch,
-    #[error("the candidate socket could not be prepared")]
-    CandidatePrepare,
     #[error("path sockets must share one receive buffer budget")]
     ReceivePoolMismatch,
+    #[error("a retiring path cannot send packets")]
+    RetiringSendForbidden,
+    #[error("the path socket set is not ready for atomic promotion")]
+    PromotionUnavailable,
 }
 
 struct PathIoLease {
@@ -124,9 +126,9 @@ impl PathSocket {
         let task_cancel = receiver_cancel.clone();
         let task_io = Arc::clone(&io_lease);
         let receiver_running = Arc::new(AtomicBool::new(true));
-        let task_running = Arc::clone(&receiver_running);
+        let task_running = ReceiverRunningGuard(Arc::clone(&receiver_running));
         let receiver_task = tokio::spawn(async move {
-            let _running = ReceiverRunningGuard(task_running);
+            let _running = task_running;
             loop {
                 let mut batch = task_io.io.new_recv_batch();
                 let received = task_io.io.recv_batch(&mut batch, &task_cancel).await;
@@ -169,6 +171,15 @@ impl PathSocket {
             .io
     }
 
+    pub(crate) fn binding(&self) -> PathBinding {
+        PathBinding {
+            path_id: self.path_id,
+            local_addr: self.local_addr,
+            peer_addr: self.peer_addr,
+            network_generation: self.network_generation,
+        }
+    }
+
     async fn receive(&self) -> PathReceiveEvent {
         match self.receiver.lock().await.recv().await {
             Some(Ok(batch)) => PathReceiveEvent::Batch {
@@ -192,6 +203,7 @@ impl PathSocket {
             task.abort();
             let _ = task.await;
         }
+        debug_assert!(!self.receiver_running.load(Ordering::Acquire));
         let receiver = self.receiver.get_mut();
         receiver.close();
         while receiver.try_recv().is_ok() {}
@@ -292,6 +304,9 @@ impl PathSocketSet {
         if path.peer_addr != to {
             return Err(PathSocketSetError::SendPeerMismatch);
         }
+        if path.role == PathSocketRole::Retiring {
+            return Err(PathSocketSetError::RetiringSendForbidden);
+        }
         Ok(path.io())
     }
 
@@ -303,22 +318,42 @@ impl PathSocketSet {
         }
     }
 
-    pub(crate) async fn supersede_candidate<F, Fut>(
-        &mut self,
-        prepare: F,
-    ) -> Result<(), PathSocketSetError>
-    where
-        F: FnOnce() -> Fut,
-        Fut: Future<Output = Result<PathSocket, PathSocketSetError>>,
-    {
+    pub(crate) async fn clear_candidate(&mut self) {
         if let Some(candidate) = self.candidate.take() {
             candidate.shutdown().await;
         }
-        let candidate = prepare().await?;
-        if candidate.role != PathSocketRole::Candidate {
-            return Err(PathSocketSetError::CandidatePrepare);
+    }
+
+    pub(crate) async fn clear_retiring(&mut self) {
+        if let Some(retiring) = self.retiring.take() {
+            retiring.shutdown().await;
         }
-        self.insert(candidate)
+    }
+
+    pub(crate) fn promotion_ready(&self) -> bool {
+        self.active.is_some()
+            && self.retiring.is_none()
+            && self.candidate.as_ref().is_some_and(|path| {
+                !path.receiver_cancel.is_cancelled()
+                    && path.receiver_running.load(Ordering::Acquire)
+                    && path.io_lease.as_ref().is_some_and(|lease| {
+                        lease._egress_lease.generation() == Some(path.network_generation)
+                    })
+            })
+    }
+
+    pub(crate) fn promote_candidate(&mut self) -> Result<PathBinding, PathSocketSetError> {
+        if !self.promotion_ready() {
+            return Err(PathSocketSetError::PromotionUnavailable);
+        }
+        let mut next = self.candidate.take().expect("candidate checked above");
+        let mut previous = self.active.take().expect("active checked above");
+        next.role = PathSocketRole::Active;
+        previous.role = PathSocketRole::Retiring;
+        let binding = next.binding();
+        self.active = Some(next);
+        self.retiring = Some(previous);
+        Ok(binding)
     }
 
     pub(crate) async fn shutdown_all(&mut self) {
@@ -340,9 +375,12 @@ impl PathSocketSet {
             .chain(self.retiring.iter())
     }
 
-    #[cfg(test)]
-    fn candidate(&self) -> Option<&PathSocket> {
+    pub(crate) fn candidate(&self) -> Option<&PathSocket> {
         self.candidate.as_ref()
+    }
+
+    pub(crate) fn retiring(&self) -> Option<&PathSocket> {
+        self.retiring.as_ref()
     }
 }
 
@@ -563,17 +601,15 @@ mod tests {
         let observed_in_prepare = Arc::clone(&observed);
         let drop_count = Arc::clone(&drops);
         let candidate_pool = set.receive_pool();
-        set.supersede_candidate(|| async move {
-            observed_in_prepare.store(drop_count.load(Ordering::Acquire), Ordering::Release);
-            Ok(test_path_in_pool(
-                3,
-                PathSocketRole::Candidate,
-                peer,
-                Arc::clone(&drop_count),
-                candidate_pool,
-            ))
-        })
-        .await
+        set.clear_candidate().await;
+        observed_in_prepare.store(drop_count.load(Ordering::Acquire), Ordering::Release);
+        set.insert(test_path_in_pool(
+            3,
+            PathSocketRole::Candidate,
+            peer,
+            Arc::clone(&drop_count),
+            candidate_pool,
+        ))
         .unwrap();
 
         assert_eq!(observed.load(Ordering::Acquire), 1);
@@ -581,5 +617,36 @@ mod tests {
         assert!(set.candidate().unwrap().receiver_is_running());
         set.shutdown_all().await;
         assert_eq!(drops.load(Ordering::Acquire), 3);
+    }
+
+    #[tokio::test]
+    async fn promotion_swaps_the_complete_binding_and_retiring_never_sends() {
+        let peer: SocketAddr = "127.0.0.1:443".parse().unwrap();
+        let drops = Arc::new(AtomicUsize::new(0));
+        let active = test_path(1, PathSocketRole::Active, peer, Arc::clone(&drops));
+        let old_local = active.local_addr;
+        let mut set = PathSocketSet::with_active(active).unwrap();
+        let candidate = test_path_in_pool(
+            2,
+            PathSocketRole::Candidate,
+            peer,
+            Arc::clone(&drops),
+            set.receive_pool(),
+        );
+        let new_local = candidate.local_addr;
+        set.insert(candidate).unwrap();
+        let promoted = set.promote_candidate().unwrap();
+        assert_eq!(promoted.path_id, PathId::new(2));
+        assert_eq!(promoted.local_addr, new_local);
+        assert_eq!(promoted.network_generation, 2);
+        assert_eq!(set.active().unwrap().role, PathSocketRole::Active);
+        assert_eq!(set.retiring().unwrap().role, PathSocketRole::Retiring);
+        assert!(set.candidate().is_none());
+        assert_eq!(
+            set.io_for_send(old_local, peer).unwrap_err(),
+            PathSocketSetError::RetiringSendForbidden,
+        );
+        set.shutdown_all().await;
+        assert_eq!(drops.load(Ordering::Acquire), 2);
     }
 }

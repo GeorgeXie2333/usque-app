@@ -128,6 +128,16 @@ fn event_to_proto(event: &ConnectionEvent) -> v1::ConnectionEvent {
                 v1::ConnectionEventType::RecoveryProbeFailed as i32
             }
             ConnectionEventType::PathPromoted => v1::ConnectionEventType::PathPromoted as i32,
+            ConnectionEventType::MigrationStarted => {
+                v1::ConnectionEventType::MigrationStarted as i32
+            }
+            ConnectionEventType::MigrationPathValidated => {
+                v1::ConnectionEventType::MigrationPathValidated as i32
+            }
+            ConnectionEventType::MigrationPromoted => {
+                v1::ConnectionEventType::MigrationPromoted as i32
+            }
+            ConnectionEventType::MigrationFailed => v1::ConnectionEventType::MigrationFailed as i32,
             ConnectionEventType::QueueSaturated => v1::ConnectionEventType::QueueSaturated as i32,
             ConnectionEventType::PmtuChanged => v1::ConnectionEventType::PmtuChanged as i32,
             ConnectionEventType::PmtuRevalidationStarted => {
