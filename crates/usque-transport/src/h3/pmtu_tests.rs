@@ -209,6 +209,263 @@ fn hold_client_probe(pair: &mut Pair) -> Vec<Wire> {
     packets
 }
 
+struct BatchQueue {
+    pending: Option<OutgoingBatch>,
+    result: oneshot::Receiver<PacketBatchResult>,
+    entries: VecDeque<QueueEntry>,
+    queue: Arc<QueueMetrics>,
+    quality: NetworkQualityTelemetry,
+    pool: DatagramEncodePool,
+}
+
+impl BatchQueue {
+    fn new(batch: PacketBatch) -> Self {
+        Self::with_automatic(batch, true)
+    }
+
+    fn with_automatic(batch: PacketBatch, automatic_pmtu: bool) -> Self {
+        let quality = NetworkQualityTelemetry::with_features(crate::NetworkFeatureFlags {
+            automatic_pmtu,
+            ..crate::PRODUCTION_NETWORK_FEATURES
+        });
+        let queue = quality.register_queue(QueueKind::H3DatagramSend, 1024, 64 * 1024);
+        let pool = DatagramEncodePool::new(quality.clone());
+        let (completion, result) = oneshot::channel();
+        Self {
+            pending: Some(OutgoingBatch {
+                batch,
+                result: PacketBatchResult::default(),
+                completion,
+            }),
+            result,
+            entries: VecDeque::new(),
+            queue,
+            quality,
+            pool,
+        }
+    }
+
+    fn step(&mut self, connection: &mut H3QuicConnection) {
+        queue_pending_batch(
+            connection,
+            0,
+            &mut self.pending,
+            &mut self.entries,
+            &self.queue,
+            &self.quality,
+            &self.pool,
+            1500,
+        )
+        .unwrap();
+    }
+}
+
+fn ipv6_packet_with_length(length: usize) -> Bytes {
+    let mut packet = vec![0; length];
+    packet[0] = 0x60;
+    packet[4..6].copy_from_slice(&u16::try_from(length - 40).unwrap().to_be_bytes());
+    packet[6] = 59;
+    packet[7] = 64;
+    packet[8..24].copy_from_slice(
+        &"2001:db8::1"
+            .parse::<std::net::Ipv6Addr>()
+            .unwrap()
+            .octets(),
+    );
+    packet[24..40].copy_from_slice(
+        &"2001:db8::2"
+            .parse::<std::net::Ipv6Addr>()
+            .unwrap()
+            .octets(),
+    );
+    validate_ip_packet(&packet).unwrap();
+    Bytes::from(packet)
+}
+
+#[test]
+fn reviewer_ipv6_minimum_waits_for_discovery_instead_of_terminal_ptb() {
+    let mut pair = Pair::new(|_, server| server.discover_pmtu(false));
+    let _unacknowledged_probe = hold_client_probe(&mut pair);
+    let mut queue = BatchQueue::new(PacketBatch::single(ipv6_packet_with_length(1280)));
+    queue.step(&mut pair.client);
+    assert!(matches!(
+        queue.result.try_recv(),
+        Err(oneshot::error::TryRecvError::Empty)
+    ));
+    let pending = queue.pending.as_ref().unwrap();
+    assert_eq!(pending.batch.len(), 1);
+    assert!(pending.result.oversized.is_empty());
+}
+
+#[test]
+fn reviewer_promotion_preserves_pending_candidate_path_response() {
+    let mut pair = Pair::new(|_, _| {});
+    pair.settle();
+    pair.exchange_ids();
+    let candidate: SocketAddr = "127.0.0.1:12341".parse().unwrap();
+    pair.client.probe_path(candidate, pair.server_addr).unwrap();
+    for packet in collect(&mut pair.client, Some(candidate), Some(pair.server_addr)) {
+        deliver(&mut pair.server, packet);
+    }
+    for packet in collect(&mut pair.server, Some(pair.server_addr), Some(candidate)) {
+        deliver(&mut pair.client, packet);
+    }
+    assert_eq!(
+        pair.client.is_path_validated(candidate, pair.server_addr),
+        Ok(true)
+    );
+    assert_eq!(
+        pair.server.is_path_validated(pair.server_addr, candidate),
+        Ok(false)
+    );
+    // Match the actor's pre-promotion barrier: flush the global ACK/control
+    // frames on the old active path before switching application ownership.
+    for packet in collect(
+        &mut pair.client,
+        Some(pair.client_addr),
+        Some(pair.server_addr),
+    ) {
+        deliver(&mut pair.server, packet);
+    }
+    pair.client.migrate_source(candidate).unwrap();
+    pair.client.revalidate_pmtu();
+    for packet in collect(&mut pair.client, Some(candidate), Some(pair.server_addr)) {
+        deliver(&mut pair.server, packet);
+    }
+    // A full-size PMTU probe must not pop and lose the pending PATH_RESPONSE.
+    assert_eq!(
+        pair.server.is_path_validated(pair.server_addr, candidate),
+        Ok(true)
+    );
+}
+
+fn assert_ipv6_waiter_resumes_after_probe_ack(mut pair: Pair) {
+    let probe = hold_client_probe(&mut pair);
+    let ipv6 = ipv6_packet_with_length(1280);
+    let small = Bytes::from(ipv4_packet_with_length(64));
+    let mut batch = PacketBatch::single(ipv6.clone());
+    batch.push_back(small.clone()).unwrap();
+    let mut queue = BatchQueue::new(batch);
+    for _ in 0..4 {
+        queue.step(&mut pair.client);
+        assert!(matches!(
+            queue.result.try_recv(),
+            Err(oneshot::error::TryRecvError::Empty)
+        ));
+        let pending = queue.pending.as_ref().unwrap();
+        assert_eq!(pending.batch.len(), 1);
+        assert_eq!(pending.batch.bytes(), ipv6.len());
+        assert_eq!(pending.result.accepted_bytes, small.len());
+        assert!(pending.result.oversized.is_empty());
+    }
+    for packet in collect(&mut pair.client, None, None) {
+        assert!(packet.bytes.len() <= QUIC_MIN_PAYLOAD);
+        deliver(&mut pair.server, packet);
+    }
+    let received = pair.server.dgram_recv_buf().unwrap();
+    assert_eq!(
+        decode_http_datagram(0, received.as_ref()).unwrap().unwrap(),
+        small
+    );
+    assert_eq!(pair.client.pmtu(), None);
+
+    for packet in probe {
+        deliver(&mut pair.server, packet);
+    }
+    pair.settle();
+    assert_eq!(pair.client.pmtu(), Some(IPV4_MAX_UDP_PAYLOAD));
+    queue.step(&mut pair.client);
+    let result = queue.result.try_recv().unwrap();
+    assert_eq!(result.accepted_bytes, ipv6.len() + small.len());
+    assert!(result.oversized.is_empty());
+    assert!(queue.pending.is_none());
+    for packet in collect(&mut pair.client, None, None) {
+        deliver(&mut pair.server, packet);
+    }
+    let received = pair.server.dgram_recv_buf().unwrap();
+    assert_eq!(
+        decode_http_datagram(0, received.as_ref()).unwrap().unwrap(),
+        ipv6
+    );
+    reconcile_datagram_queue(&pair.client, &mut queue.entries, &queue.queue);
+    assert!(queue.entries.is_empty());
+}
+
+#[test]
+fn ipv6_waiter_preserves_small_packet_progress_until_initial_probe_ack() {
+    assert_ipv6_waiter_resumes_after_probe_ack(Pair::new(|_, server| server.discover_pmtu(false)));
+}
+
+#[test]
+fn ipv6_waiter_resumes_after_pmtu_revalidation() {
+    let mut pair = Pair::new(|_, server| server.discover_pmtu(false));
+    pair.settle();
+    pair.client.revalidate_pmtu();
+    assert_ipv6_waiter_resumes_after_probe_ack(pair);
+}
+
+#[test]
+fn ipv6_waiter_resumes_after_path_promotion() {
+    let mut pair = Pair::new(|_, server| server.discover_pmtu(false));
+    pair.settle();
+    pair.exchange_ids();
+    let candidate: SocketAddr = "127.0.0.1:12341".parse().unwrap();
+    pair.validate_candidate(candidate, IPV4_MAX_UDP_PAYLOAD);
+    pair.client.migrate_source(candidate).unwrap();
+    pair.client.revalidate_pmtu();
+    assert_ipv6_waiter_resumes_after_probe_ack(pair);
+}
+
+#[test]
+fn confirmed_low_pmtu_still_rejects_ipv6_minimum() {
+    let mut pair = Pair::new(|client, server| {
+        client.set_max_send_udp_payload_size(QUIC_MIN_PAYLOAD);
+        server.discover_pmtu(false);
+    });
+    pair.settle();
+    assert_eq!(pair.client.pmtu(), Some(QUIC_MIN_PAYLOAD));
+    let mut queue = BatchQueue::new(PacketBatch::single(ipv6_packet_with_length(1280)));
+    queue.step(&mut pair.client);
+    let result = queue.result.try_recv().unwrap();
+    assert_eq!(result.accepted_bytes, 0);
+    assert_eq!(result.oversized.len(), 1);
+    let (packet, maximum) = &result.oversized[0];
+    assert!(matches!(
+        crate::icmp::packet_too_big(packet, *maximum),
+        Err(TransportError::Ipv6MinimumMtuUnavailable(_))
+    ));
+}
+
+#[test]
+fn fixed_low_payload_does_not_wait_for_disabled_pmtud() {
+    let mut pair = Pair::new(|client, server| {
+        client.discover_pmtu(false);
+        client.set_max_send_udp_payload_size(QUIC_MIN_PAYLOAD);
+        server.discover_pmtu(false);
+    });
+    pair.settle();
+    let mut queue =
+        BatchQueue::with_automatic(PacketBatch::single(ipv6_packet_with_length(1280)), false);
+    queue.step(&mut pair.client);
+    let result = queue.result.try_recv().unwrap();
+    assert_eq!(result.oversized.len(), 1);
+    assert!(queue.pending.is_none());
+}
+
+#[test]
+fn cancelled_ipv6_waiter_releases_the_pending_batch_without_probe_ack() {
+    let mut pair = Pair::new(|_, server| server.discover_pmtu(false));
+    let _probe = hold_client_probe(&mut pair);
+    let mut queue = BatchQueue::new(PacketBatch::single(ipv6_packet_with_length(1280)));
+    queue.step(&mut pair.client);
+    assert!(queue.pending.is_some());
+    queue.result.close();
+    queue.step(&mut pair.client);
+    assert!(queue.pending.is_none());
+    assert!(queue.entries.is_empty());
+    assert_eq!(pair.client.dgram_send_queue_len(), 0);
+}
+
 #[test]
 fn initial_writable_limit_rejects_large_datagram_without_blocking_small() {
     let mut pair = Pair::new(|_, server| server.discover_pmtu(false));

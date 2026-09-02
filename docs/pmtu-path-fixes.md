@@ -22,10 +22,12 @@ QUIC discovery floor is not a new product rollback setting.
 
 ## Implementation boundary
 
-The fix is a pinned local patch of the existing dependency, not a broad
-upgrade. Behavioral changes are confined to its connection/path modules;
+The dependency fix is a pinned local patch of the existing version, not a broad
+upgrade. Its behavioral changes are confined to the connection/path modules;
 one upstream test-comment trailing space is trimmed for the whitespace gate.
-Usque adds test harness support and regression tests. Provenance, license, exact
+Usque also defers transient IPv6 minimum-MTU decisions in the existing bounded
+H3 batch, with cancellation cleanup, test harness support and regressions.
+Provenance, license, exact
 archive hash and removal criteria are in
 [`USQUE-PATCH.md`](../third_party/quiche-0.29.3/USQUE-PATCH.md).
 
@@ -37,6 +39,30 @@ use the existing discard/drop behavior if revalidation lowers the bound.
 Dropping such entries releases their existing owned buffers. Existing path
 validation, anti-amplification, migration-barrier and cleanup rules remain.
 
+## Independent review follow-ups
+
+Two independent reviewers each inspected only the first fix commit,
+`da1fcb96fc1206287fd8ed016b3dca13eb1c92de`. The main agent rechecked both
+findings and reproduced them with two failing in-memory tests before applying
+the follow-up fix:
+
+- **Transient IPv6 minimum MTU:** the new conservative DATAGRAM limit could
+  send a normal 1280-byte IPv6 packet into the existing terminal
+  `Ipv6MinimumMtuUnavailable` path before PMTUD completed. During automatic
+  discovery/revalidation, such packets now stay in the existing bounded batch
+  until capacity is sufficient or discovery confirms the lower limit. Each
+  queue step visits an entry at most once and rotates it behind smaller
+  packets; same-batch small traffic continues. Production's existing ten-second
+  send deadline remains, and cancellation releases the pending batch. A
+  completed inadequate PMTU, or a fixed inadequate cap with PMTUD disabled,
+  still uses the existing rejection/fail-closed behavior.
+- **Pending peer validation response:** a client may finish local validation
+  while still owing the peer a PATH_RESPONSE. After the old-path drain and
+  promotion, a full PMTU probe could consume the entire packet and cause the
+  response to be popped without transmission. Pending validation frames now
+  take priority over PMTU probes; a regression asserts immediate peer
+  validation completion after that exact drain/promotion sequence.
+
 ## Regression evidence
 
 The tests exchange actual QUIC wire buffers entirely in memory, with ephemeral
@@ -45,7 +71,10 @@ loss filters simulate payload limits; they are not adapter/device evidence.
 
 On pristine 0.29.3, the initial eight-test set produced six expected assertion
 failures and two passes (disabled PMTUD and CUBIC invariants). With the patch,
-all eleven tests pass, including three additional boundary checks:
+the first eleven tests passed. Eight follow-up tests cover the two review
+findings, IPv6 resume on initial ACK/revalidation/promotion, same-batch small
+packet progress, confirmed-low/fixed-low rejection and cancellation. All
+nineteen PMTU tests now pass. The original coverage is retained:
 
 - Initial unacknowledged probe: reject the oversized DATAGRAM; deliver the small one.
 - CONNECT-IP batch: preserve oversized inner input for PTB; deliver the small packet and reconcile queue accounting.
@@ -65,9 +94,9 @@ Ordinary validation on 2026-09-03:
 | --- | --- |
 | `cargo fmt --all --check` | Passed |
 | Windows helper, `-Variant x64-v2 -CargoAction clippy` | Locked workspace/all-targets check passed |
-| Windows helper, `-Variant x64-v2 -CargoAction test` | Locked workspace/all-targets tests passed; transport 297 passed |
+| Windows helper, `-Variant x64-v2 -CargoAction test` | Locked workspace/all-targets tests passed; transport 305 passed |
 | Windows helper, `-Variant x64-v2` | Locked Release compile passed; no program launched |
-| Debian WSL, Rust 1.97.1, locked workspace/all-targets Clippy/tests | Passed; transport 300 passed, including the Linux loopback/address-layout branches |
+| Debian WSL, Rust 1.97.1, locked workspace/all-targets Clippy/tests | Passed; transport 308 passed, including the Linux loopback/address-layout branches |
 | Pinned Android helper, `-CargoAction clippy -AbiFilter arm64-v8a` | Passed |
 | Pinned Android helper, `-CargoAction build -AbiFilter all` | arm64-v8a, armeabi-v7a and x86_64 JNI compiled; no APK built |
 | `py -3 tool/check_repository_policy.py` and Git whitespace check | Passed |

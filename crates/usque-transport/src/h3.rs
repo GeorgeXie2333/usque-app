@@ -1343,11 +1343,22 @@ fn queue_pending_batch(
     encode_pool: &DatagramEncodePool,
     profile_inner_mtu: usize,
 ) -> Result<(), TransportError> {
+    if pending_batch
+        .as_ref()
+        .is_some_and(|outgoing| outgoing.completion.is_closed())
+    {
+        // A send timeout/cancellation must release a batch waiting on PMTUD
+        // and let the actor observe a closed producer without waiting for ACKs.
+        pending_batch.take();
+        return Ok(());
+    }
     let completed = {
         let Some(outgoing) = pending_batch.as_mut() else {
             return Ok(());
         };
-        for _ in 0..UDP_ACTOR_DRAIN_LIMIT {
+        // Visit each original entry at most once. Deferred IPv6 entries rotate
+        // behind smaller packets without adding a queue or spinning on them.
+        for _ in 0..outgoing.batch.len().min(UDP_ACTOR_DRAIN_LIMIT) {
             if connection.is_dgram_send_queue_full() {
                 break;
             }
@@ -1358,6 +1369,23 @@ fn queue_pending_batch(
             let (maximum_packet_size, datagram_overhead) =
                 connect_ip_payload_limit(connection, stream_id, profile_inner_mtu)?;
             if packet_len > maximum_packet_size {
+                if quality.features().automatic_pmtu
+                    && connection.pmtu().is_none()
+                    && maximum_packet_size < crate::pmtu::IPV6_MINIMUM_INNER_MTU
+                    && packet.first().is_some_and(|byte| byte >> 4 == 6)
+                {
+                    // A probing floor is not evidence that IPv6's minimum MTU
+                    // is unavailable. Keep the original packet for a later
+                    // probe ACK; a completed low PMTU still uses the existing
+                    // fail-closed PTB/error path below. The caller's send
+                    // deadline and cancellation continue to bound this wait.
+                    let packet = outgoing.batch.pop_front().expect("front packet exists");
+                    assert!(
+                        outgoing.batch.push_back(packet).is_ok(),
+                        "rotating a packet preserves the batch capacity"
+                    );
+                    continue;
+                }
                 let packet = outgoing
                     .batch
                     .pop_front()

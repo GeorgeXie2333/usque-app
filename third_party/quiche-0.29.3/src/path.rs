@@ -381,7 +381,10 @@ impl Path {
         &mut self, hs_confirmed: bool, hs_done: bool, out_len: usize,
         is_closing: bool, frames_empty: bool,
     ) -> bool {
-        if !self.validated() {
+        // Local validation can finish while the peer still awaits our
+        // PATH_RESPONSE. Give path validation frames priority over a full
+        // PMTU probe, which would leave no room for that response.
+        if !self.validated() || self.probing_required() {
             return false;
         }
 

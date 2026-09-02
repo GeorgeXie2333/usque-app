@@ -32,7 +32,9 @@ fixtures are retained. See [COPYING](COPYING) (BSD-2-Clause).
    they do not copy another path's measured MTU.
 2. Require QUIC path validation before PMTU probe sizing/emission and consult
    the actual `send_pid` when emitting a PMTU probe. A response on a candidate
-   path must not consume the old active path's pending probe.
+   path must not consume the old active path's pending probe. Pending
+   PATH_RESPONSE/PATH_CHALLENGE frames take priority even after local path
+   validation, so a full-sized probe cannot displace the peer's response.
 3. Bound `dgram_max_writable_len()` by the active path's current ordinary-send
    PMTU, not its larger probe allowance. Recompute the queued DATAGRAM bound
    after processing losses. The existing too-large-queue-entry discard then

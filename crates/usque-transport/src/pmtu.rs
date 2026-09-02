@@ -10,7 +10,7 @@ pub(crate) const IPV6_MAX_UDP_PAYLOAD: usize = 1_452;
 pub(crate) const PMTUD_MAX_PROBES: u8 = 3;
 
 const MIN_QUIC_UDP_PAYLOAD: usize = 1_200;
-const IPV6_MINIMUM_INNER_MTU: usize = 1_280;
+pub(crate) const IPV6_MINIMUM_INNER_MTU: usize = 1_280;
 const MAX_TRACKED_PATHS: usize = 3;
 const REVALIDATION_WINDOW: Duration = Duration::from_secs(10);
 const SEND_ERROR_SUPPRESSION: Duration = Duration::from_secs(1);
