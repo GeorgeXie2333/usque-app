@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 REPORT_SCHEMA_VERSION = 2
+EVIDENCE_SCHEMA_VERSION = 3
 RELIABILITY_SCHEMA_VERSION = 1
 HEX_40 = re.compile(r"^[0-9a-f]{40}$")
 VERSION = re.compile(r"^[0-9]+(?:\.[0-9]+){1,3}$")
@@ -43,6 +44,7 @@ PERFORMANCE_GATES = {
     "performance.queue_pressure",
     "performance.quic_migration",
 }
+REQUIRED_H2_PROFILES = {"h2-bdp-100ms", "h2-bdp-500ms"}
 REPORT_FIELDS = {
     "schema_version",
     "status",
@@ -378,7 +380,7 @@ def _load_scenarios(path: Path) -> list[dict[str, Any]]:
             raise GateError(f"duplicate performance scenario: {scenario_id}")
         if gate_id not in PERFORMANCE_GATES:
             raise GateError(f"unknown performance gate: {gate_id}")
-        if gate_id in seen_gates:
+        if gate_id in seen_gates and gate_id != "performance.h2_high_bdp":
             raise GateError(f"duplicate performance gate: {gate_id}")
         if scenario["policy"] not in POLICIES:
             raise GateError(f"unknown performance policy: {scenario['policy']}")
@@ -417,6 +419,15 @@ def _load_scenarios(path: Path) -> list[dict[str, Any]]:
     if seen_gates != PERFORMANCE_GATES:
         missing = sorted(PERFORMANCE_GATES - seen_gates)
         raise GateError(f"required performance gates are missing from scenarios: {missing}")
+    h2_scenarios = [s for s in scenarios if s["gate_id"] == "performance.h2_high_bdp"]
+    if (
+        len(h2_scenarios) != 2
+        or any(
+            len(s["network_profile_ids"]) != 1 or s["policy"] != "h2_high_bdp" for s in h2_scenarios
+        )
+        or {s["network_profile_ids"][0] for s in h2_scenarios} != REQUIRED_H2_PROFILES
+    ):
+        raise GateError("H2 high-BDP requires separate single-flow and four-flow scenarios")
     return scenarios
 
 
@@ -881,6 +892,71 @@ def evaluate_pair(
     }
 
 
+def evaluate_gate_reports(
+    baselines: list[dict[str, Any]],
+    candidates: list[dict[str, Any]],
+    scenarios: list[dict[str, Any]],
+    budget: dict[str, Any],
+) -> dict[str, Any]:
+    """Require every scenario for a gate, without selecting the best profile."""
+    required = {scenario["scenario_id"] for scenario in scenarios}
+    if not required or len({scenario["gate_id"] for scenario in scenarios}) != 1:
+        raise GateError("a performance comparison needs exactly one gate")
+    indexed = []
+    for role, reports in (("baseline", baselines), ("candidate", candidates)):
+        if not isinstance(reports, list) or any(not isinstance(report, dict) for report in reports):
+            raise GateError(f"{role} reports must be an array of objects")
+        ids = [report.get("scenario_id") for report in reports]
+        if (
+            any(not isinstance(value, str) for value in ids)
+            or len(set(ids)) != len(ids)
+            or set(ids) != required
+        ):
+            raise GateError(
+                f"{role} reports do not cover every required gate scenario exactly once"
+            )
+        indexed.append(dict(zip(ids, reports, strict=True)))
+    comparisons = [
+        evaluate_pair(
+            indexed[0][scenario["scenario_id"]],
+            indexed[1][scenario["scenario_id"]],
+            scenario,
+            budget,
+        )
+        for scenario in scenarios
+    ]
+    identities = {
+        (report["baseline_commit"], report["candidate_commit"]) for report in baselines + candidates
+    }
+    if len(identities) != 1:
+        raise GateError("gate reports use different baseline/candidate identities")
+    if len(comparisons) == 1:
+        return comparisons[0]
+    status = next(
+        value
+        for value in ("failed", "unstable", "not_run", "passed")
+        if any(result["status"] == value for result in comparisons)
+    )
+    return {
+        "gate_id": scenarios[0]["gate_id"],
+        "status": status,
+        "reason_codes": [
+            f"{scenario['scenario_id']}:{reason}"
+            for scenario, result in zip(scenarios, comparisons, strict=True)
+            for reason in result["reason_codes"]
+        ],
+        "summary": {
+            scenario["scenario_id"]: result.get("summary", {})
+            for scenario, result in zip(scenarios, comparisons, strict=True)
+        },
+        "checks": [
+            {**check, "id": f"{scenario['scenario_id']}:{check['id']}"}
+            for scenario, result in zip(scenarios, comparisons, strict=True)
+            for check in result.get("checks", [])
+        ],
+    }
+
+
 def _evidence_reference(path: Path, output_directory: Path) -> dict[str, str]:
     relative = path.relative_to(output_directory / "evidence").as_posix()
     return {"path": relative, "sha256": sha256_file(path)}
@@ -898,10 +974,13 @@ def evaluate_directory(
     schema_path: Path,
     candidate_manifest: Path,
     candidate_commit: str,
+    baseline_commit: str,
     output_directory: Path,
 ) -> bool:
     if not HEX_40.fullmatch(candidate_commit):
         raise GateError("candidate commit must be a lowercase 40-character SHA")
+    if not HEX_40.fullmatch(baseline_commit):
+        raise GateError("accepted baseline commit must be a lowercase 40-character SHA")
     validate_schema_contract(load_json(schema_path))
     scenarios = _load_scenarios(scenarios_path)
     budget = _load_budget(budget_path)
@@ -922,38 +1001,42 @@ def evaluate_directory(
     manifest_digest = sha256_file(candidate_manifest)
 
     result_entries = []
-    observed_baseline_commit: str | None = None
     evidence_root = output_directory / "evidence" / "performance_lab"
-    for scenario in scenarios:
-        scenario_id = scenario["scenario_id"]
-        baseline = load_json(measurements_directory / f"{scenario_id}-baseline.json")
-        candidate = load_json(measurements_directory / f"{scenario_id}-candidate.json")
-        comparison = evaluate_pair(baseline, candidate, scenario, budget)
-        if candidate["candidate_commit"] != candidate_commit:
-            raise GateError(f"{scenario_id}: candidate commit does not match the release candidate")
-        if observed_baseline_commit is None:
-            observed_baseline_commit = baseline["baseline_commit"]
-        elif observed_baseline_commit != baseline["baseline_commit"]:
-            raise GateError("performance scenarios use different accepted baseline commits")
+    for gate_id in sorted(PERFORMANCE_GATES):
+        gate_scenarios = [scenario for scenario in scenarios if scenario["gate_id"] == gate_id]
+        baselines = [
+            load_json(measurements_directory / f"{scenario['scenario_id']}-baseline.json")
+            for scenario in gate_scenarios
+        ]
+        candidates = [
+            load_json(measurements_directory / f"{scenario['scenario_id']}-candidate.json")
+            for scenario in gate_scenarios
+        ]
+        comparison = evaluate_gate_reports(baselines, candidates, gate_scenarios, budget)
+        for report in baselines + candidates:
+            if report["candidate_commit"] != candidate_commit:
+                raise GateError(f"{gate_id}: candidate commit does not match the release candidate")
+            if report["baseline_commit"] != baseline_commit:
+                raise GateError(f"{gate_id}: baseline commit does not match the accepted baseline")
 
-        gate_slug = scenario["gate_id"].replace(".", "-")
+        gate_slug = gate_id.replace(".", "-")
         raw_path = evidence_root / f"{gate_slug}-raw-samples.json"
         raw_bundle = {
-            "schema_version": REPORT_SCHEMA_VERSION,
-            "gate_id": scenario["gate_id"],
-            "baseline_report": baseline,
-            "candidate_report": candidate,
+            "schema_version": EVIDENCE_SCHEMA_VERSION,
+            "gate_id": gate_id,
+            "baseline_reports": baselines,
+            "candidate_reports": candidates,
         }
         write_json(raw_path, raw_bundle)
-        baseline_digest = sha256_bytes(canonical_json_bytes(baseline))
-        candidate_digest = sha256_bytes(canonical_json_bytes(candidate))
+        baseline_digest = sha256_bytes(canonical_json_bytes(baselines))
+        candidate_digest = sha256_bytes(canonical_json_bytes(candidates))
         comparison.update(
             {
-                "schema_version": REPORT_SCHEMA_VERSION,
-                "baseline_commit": baseline["baseline_commit"],
-                "candidate_commit": candidate["candidate_commit"],
-                "baseline_report_sha256": baseline_digest,
-                "candidate_report_sha256": candidate_digest,
+                "schema_version": EVIDENCE_SCHEMA_VERSION,
+                "baseline_commit": baseline_commit,
+                "candidate_commit": candidate_commit,
+                "baseline_reports_sha256": baseline_digest,
+                "candidate_reports_sha256": candidate_digest,
                 "raw_samples_sha256": sha256_file(raw_path),
             }
         )
@@ -964,7 +1047,7 @@ def evaluate_directory(
             timeline_path,
             {
                 "schema_version": REPORT_SCHEMA_VERSION,
-                "gate_id": scenario["gate_id"],
+                "gate_id": gate_id,
                 "status": comparison["status"],
                 "checks": comparison.get("checks", []),
             },
@@ -974,15 +1057,21 @@ def evaluate_directory(
             platform_path,
             {
                 "schema_version": REPORT_SCHEMA_VERSION,
-                "gate_id": scenario["gate_id"],
-                "platform_class": baseline["platform_class"],
-                "network_profile_id": baseline["environment"]["network_profile_id"],
-                "major_runner": _major_version(
-                    baseline["environment"]["tool_versions"]["runner"], "runner"
-                ),
-                "major_rustc": _major_version(
-                    baseline["environment"]["tool_versions"]["rustc"], "rustc"
-                ),
+                "gate_id": gate_id,
+                "scenarios": [
+                    {
+                        "scenario_id": baseline["scenario_id"],
+                        "platform_class": baseline["platform_class"],
+                        "network_profile_id": baseline["environment"]["network_profile_id"],
+                        "major_runner": _major_version(
+                            baseline["environment"]["tool_versions"]["runner"], "runner"
+                        ),
+                        "major_rustc": _major_version(
+                            baseline["environment"]["tool_versions"]["rustc"], "rustc"
+                        ),
+                    }
+                    for baseline in baselines
+                ],
             },
         )
         junit_path = evidence_root / f"{gate_slug}-junit.xml"
@@ -993,7 +1082,7 @@ def evaluate_directory(
         )
         _write_text_evidence(
             junit_path,
-            f'<testsuite name="{scenario["gate_id"]}" tests="1" failures="{int(bool(failure))}">'
+            f'<testsuite name="{gate_id}" tests="1" failures="{int(bool(failure))}">'
             f'<testcase name="budget">{failure}</testcase></testsuite>',
         )
         evidence = {
@@ -1003,7 +1092,7 @@ def evaluate_directory(
             "performance_report": _evidence_reference(comparison_path, output_directory),
             "raw_samples": _evidence_reference(raw_path, output_directory),
         }
-        result = {"id": scenario["gate_id"], "status": comparison["status"], "evidence": evidence}
+        result = {"id": gate_id, "status": comparison["status"], "evidence": evidence}
         if comparison["status"] != "passed":
             result["reason_code"] = comparison["reason_codes"][0]
         result_entries.append(result)
@@ -1014,7 +1103,7 @@ def evaluate_directory(
         "candidate_manifest_sha256": manifest_digest,
         "environment": {
             "kind": "performance_lab",
-            "version": "performance-report-v2",
+            "version": "performance-evidence-v3",
             "runner_class": "usque-performance-lab",
         },
         "results": result_entries,
@@ -1033,6 +1122,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     evaluate.add_argument("--schema", type=Path, required=True)
     evaluate.add_argument("--candidate-manifest", type=Path, required=True)
     evaluate.add_argument("--candidate-commit", required=True)
+    evaluate.add_argument("--baseline-commit", required=True)
     evaluate.add_argument("--output-directory", type=Path, required=True)
     return parser.parse_args(argv)
 
@@ -1047,6 +1137,7 @@ def main(argv: list[str] | None = None) -> int:
             args.schema,
             args.candidate_manifest,
             args.candidate_commit,
+            args.baseline_commit,
             args.output_directory,
         )
     except GateError as error:

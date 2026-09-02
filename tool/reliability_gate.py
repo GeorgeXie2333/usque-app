@@ -235,13 +235,13 @@ def _validate_performance_evidence(
         "checks",
         "baseline_commit",
         "candidate_commit",
-        "baseline_report_sha256",
-        "candidate_report_sha256",
+        "baseline_reports_sha256",
+        "candidate_reports_sha256",
         "raw_samples_sha256",
     }
     if set(comparison) != comparison_fields:
         raise GateError(f"{report_path}: {gate_id} comparison report fields are invalid")
-    if comparison["schema_version"] != performance_gate.REPORT_SCHEMA_VERSION:
+    if comparison["schema_version"] != performance_gate.EVIDENCE_SCHEMA_VERSION:
         raise GateError(f"{report_path}: {gate_id} comparison report version is invalid")
     if comparison["gate_id"] != gate_id or comparison["status"] != "passed":
         raise GateError(f"{report_path}: {gate_id} comparison report does not prove a pass")
@@ -249,35 +249,45 @@ def _validate_performance_evidence(
         raise GateError(f"{report_path}: {gate_id} comparison used the wrong candidate")
     if comparison["raw_samples_sha256"] != normalized_evidence["raw_samples"]["sha256"]:
         raise GateError(f"{report_path}: {gate_id} raw sample artifact digest is not bound")
-    if set(raw) != {"schema_version", "gate_id", "baseline_report", "candidate_report"}:
+    if set(raw) != {"schema_version", "gate_id", "baseline_reports", "candidate_reports"}:
         raise GateError(f"{report_path}: {gate_id} raw sample bundle fields are invalid")
-    if raw["schema_version"] != performance_gate.REPORT_SCHEMA_VERSION:
+    if raw["schema_version"] != performance_gate.EVIDENCE_SCHEMA_VERSION:
         raise GateError(f"{report_path}: {gate_id} raw sample bundle version is invalid")
     if raw["gate_id"] != gate_id:
         raise GateError(f"{report_path}: {gate_id} raw sample bundle gate does not match")
-    baseline = raw["baseline_report"]
-    candidate = raw["candidate_report"]
-    if not isinstance(baseline, dict) or not isinstance(candidate, dict):
-        raise GateError(f"{report_path}: {gate_id} raw reports must be objects")
-    if comparison["baseline_report_sha256"] != _canonical_json_sha256(baseline):
+    baselines = raw["baseline_reports"]
+    candidates = raw["candidate_reports"]
+    if (
+        not isinstance(baselines, list)
+        or not isinstance(candidates, list)
+        or any(not isinstance(report, dict) for report in baselines + candidates)
+    ):
+        raise GateError(f"{report_path}: {gate_id} raw reports must be arrays of objects")
+    if comparison["baseline_reports_sha256"] != _canonical_json_sha256(baselines):
         raise GateError(f"{report_path}: {gate_id} baseline report digest does not match")
-    if comparison["candidate_report_sha256"] != _canonical_json_sha256(candidate):
+    if comparison["candidate_reports_sha256"] != _canonical_json_sha256(candidates):
         raise GateError(f"{report_path}: {gate_id} candidate report digest does not match")
+    for report in baselines + candidates:
+        if report.get("candidate_commit") != commit:
+            raise GateError(f"{report_path}: {gate_id} raw candidate identity does not match")
+        if report.get("baseline_commit") != comparison["baseline_commit"]:
+            raise GateError(f"{report_path}: {gate_id} raw baseline identity does not match")
 
     try:
         root = Path(__file__).resolve().parent
         performance_gate.validate_schema_contract(
             performance_gate.load_json(root / "schemas" / "performance_report.schema.json")
         )
-        scenarios = {
-            scenario["gate_id"]: scenario
+        scenarios = [
+            scenario
             for scenario in performance_gate._load_scenarios(root / "performance_scenarios.json")
-        }
+            if scenario["gate_id"] == gate_id
+        ]
         budget = performance_gate._load_budget(root / "performance_budget.json")
-        recomputed = performance_gate.evaluate_pair(
-            baseline,
-            candidate,
-            scenarios[gate_id],
+        recomputed = performance_gate.evaluate_gate_reports(
+            baselines,
+            candidates,
+            scenarios,
             budget,
         )
     except (KeyError, performance_gate.GateError) as error:

@@ -102,7 +102,7 @@ compile time. There is no Profile, environment, IPC or remote fault interface.
 Synthetic faults verify cleanup/state logic, not external packet observations
 or performance targets. The seven v2 gates still require actual lab samples.
 
-## Performance report v2
+## Performance samples v2 and evidence bundles v3
 
 `tool/schemas/performance_report.schema.json` is the wire contract. A measured
 baseline or candidate report contains exactly seven ordered raw samples. Units
@@ -135,7 +135,27 @@ The protected job requires repository variable
 `PERFORMANCE_ACCEPTED_BASELINE_COMMIT` to contain a full lowercase commit. It
 runs both baseline and candidate seven times for every entry in
 `tool/performance_scenarios.json`, then the repository evaluator creates the
-bound reliability report. Missing baseline configuration, a malformed report,
+bound reliability report. The evaluator independently receives the accepted
+baseline through required `--baseline-commit`; every raw baseline/candidate
+identity must match that value and the staged candidate. The evidence validator
+also binds every raw report's identities to its comparison and release candidate,
+not only to matching file digests.
+
+H2 high-BDP has two mandatory scenario entries, not two interchangeable profiles:
+`h2-high-bdp` uses `h2-bdp-100ms` (100 Mbps, 100 ms, single flow) and
+`h2-high-bdp-four-flow` uses `h2-bdp-500ms` (500 Mbps, 50 ms, four flows), with
+bidirectional workloads. Each requires its own seven-sample baseline and candidate
+file. There are sixteen input files across eight scenarios but still seven stable
+gate IDs. `performance.h2_high_bdp` passes only if both scenario comparisons pass;
+a missing, failed, unstable, or not-run scenario cannot be represented by the other.
+
+Version-3 evidence bundles contain `baseline_reports` and `candidate_reports`
+arrays covering every required scenario exactly once, plus corresponding array
+digests in the comparison. The validator recomputes the complete grouped gate.
+Raw measurement reports remain schema v2; obsolete singular-report evidence
+bundles cannot prove complete coverage under the new contract.
+
+Missing baseline configuration, a malformed report,
 six or eight samples, instability, a budget failure, or `not_run` makes that
 supplemental job fail. As with the other protected runners, absence or failure
 is not publication success but does not become a publication prerequisite.

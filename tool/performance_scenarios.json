@@ -6,7 +6,17 @@
       "gate_id": "performance.h2_high_bdp",
       "policy": "h2_high_bdp",
       "platform_classes": ["linux-x64", "windows-x64-v2"],
-      "network_profile_ids": ["h2-bdp-100ms", "h2-bdp-500ms"],
+      "network_profile_ids": ["h2-bdp-100ms"],
+      "required_sample_fields": [],
+      "steady_metrics": ["throughput", "latency_p95_us", "cpu_per_bit", "rss_peak_bytes"],
+      "feature_acceptance": true
+    },
+    {
+      "scenario_id": "h2-high-bdp-four-flow",
+      "gate_id": "performance.h2_high_bdp",
+      "policy": "h2_high_bdp",
+      "platform_classes": ["linux-x64", "windows-x64-v2"],
+      "network_profile_ids": ["h2-bdp-500ms"],
       "required_sample_fields": [],
       "steady_metrics": ["throughput", "latency_p95_us", "cpu_per_bit", "rss_peak_bytes"],
       "feature_acceptance": true

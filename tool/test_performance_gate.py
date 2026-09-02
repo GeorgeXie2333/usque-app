@@ -251,14 +251,27 @@ class PerformanceGateTest(unittest.TestCase):
                 SCHEMA,
                 manifest,
                 "b" * 40,
+                "a" * 40,
                 output,
             )
 
             self.assertTrue(passed)
+            with self.assertRaisesRegex(performance_gate.GateError, "accepted baseline"):
+                performance_gate.evaluate_directory(
+                    measurements,
+                    SCENARIOS,
+                    BUDGET,
+                    SCHEMA,
+                    manifest,
+                    "b" * 40,
+                    "c" * 40,
+                    root / "wrong-baseline-output",
+                )
             report = json.loads((output / "report.json").read_text(encoding="utf-8"))
             self.assertEqual(
                 performance_gate.PERFORMANCE_GATES, {item["id"] for item in report["results"]}
             )
+            self.assertEqual(len(report["results"]), 7)
             for result in report["results"]:
                 self.assertEqual("passed", result["status"])
                 for field in ("performance_report", "raw_samples"):
@@ -267,6 +280,56 @@ class PerformanceGateTest(unittest.TestCase):
                     self.assertEqual(
                         reference["sha256"], hashlib.sha256(path.read_bytes()).hexdigest()
                     )
+
+    def test_h2_requires_both_profiles_in_configuration_and_raw_reports(self) -> None:
+        h2 = [
+            scenario
+            for scenario in self.scenarios
+            if scenario["gate_id"] == "performance.h2_high_bdp"
+        ]
+        pairs = [self._passing_reports_for_scenario(scenario) for scenario in h2]
+        baselines, candidates = [pair[0] for pair in pairs], [pair[1] for pair in pairs]
+        with self.assertRaisesRegex(performance_gate.GateError, "every required gate scenario"):
+            performance_gate.evaluate_gate_reports(baselines[:1], candidates[:1], h2, self.budget)
+        for sample in candidates[1]["samples"]:
+            sample["goodput_bps"] = 1
+        result = performance_gate.evaluate_gate_reports(baselines, candidates, h2, self.budget)
+        self.assertEqual(result["status"], "failed")
+        configured = performance_gate.load_json(SCENARIOS)
+        configured["scenarios"] = [
+            scenario
+            for scenario in configured["scenarios"]
+            if scenario["scenario_id"] != h2[1]["scenario_id"]
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "scenarios.json"
+            path.write_text(json.dumps(configured), encoding="utf-8")
+            with self.assertRaisesRegex(
+                performance_gate.GateError, "separate single-flow and four-flow"
+            ):
+                performance_gate._load_scenarios(path)
+
+    def test_evaluator_requires_the_explicit_accepted_baseline_argument(self) -> None:
+        with self.assertRaises(SystemExit):
+            performance_gate.parse_args(
+                [
+                    "evaluate",
+                    "--measurements-directory",
+                    "m",
+                    "--scenarios",
+                    "s",
+                    "--budget",
+                    "b",
+                    "--schema",
+                    "s",
+                    "--candidate-manifest",
+                    "m",
+                    "--candidate-commit",
+                    "b" * 40,
+                    "--output-directory",
+                    "o",
+                ]
+            )
 
     def _passing_reports_for_scenario(self, scenario: dict) -> tuple[dict, dict]:
         baseline = copy.deepcopy(self.baseline)

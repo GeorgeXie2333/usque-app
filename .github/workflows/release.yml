@@ -879,6 +879,7 @@ jobs:
             --schema tool/schemas/performance_report.schema.json \
             --candidate-manifest "$RUNNER_TEMP/candidate/release-manifest.json" \
             --candidate-commit "$GITHUB_SHA" \
+            --baseline-commit "$PERFORMANCE_BASELINE_COMMIT" \
             --output-directory "$RUNNER_TEMP/performance-reliability"
 
       - name: Upload performance gate report

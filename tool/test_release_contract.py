@@ -155,6 +155,10 @@ class ReleaseWorkflowPolicyTests(unittest.TestCase):
         self.assertIn("--schema-version 2", performance)
         self.assertIn("--repetitions 7", performance)
         self.assertIn("tool/performance_gate.py evaluate", performance)
+        evaluator = performance.split("python tool/performance_gate.py evaluate", 1)[1].split(
+            "      - name:", 1
+        )[0]
+        self.assertIn('--baseline-commit "$PERFORMANCE_BASELINE_COMMIT"', evaluator)
         self.assertIn("tool/performance_budget.json", performance)
         self.assertIn("tool/performance_scenarios.json", performance)
         self.assertIn("tool/schemas/performance_report.schema.json", performance)

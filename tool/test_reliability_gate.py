@@ -41,13 +41,8 @@ class ReliabilityGateTest(unittest.TestCase):
             "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         }
 
-    def _performance_evidence(self, gate_id: str) -> dict[str, dict[str, str]]:
+    def _performance_pair(self, scenario: dict) -> tuple[dict, dict]:
         tool = Path(__file__).resolve().parent
-        scenarios = {
-            scenario["gate_id"]: scenario
-            for scenario in performance_gate._load_scenarios(tool / "performance_scenarios.json")
-        }
-        scenario = scenarios[gate_id]
         baseline = performance_gate.load_json(
             tool / "fixtures" / "performance" / "h3-small-dgram-baseline.json"
         )
@@ -97,18 +92,29 @@ class ReliabilityGateTest(unittest.TestCase):
                         "latency_p99_us": 1500,
                     }
                 )
-        comparison = performance_gate.evaluate_pair(
-            baseline,
-            candidate,
-            scenario,
+        return baseline, candidate
+
+    def _performance_evidence(self, gate_id: str) -> dict[str, dict[str, str]]:
+        tool = Path(__file__).resolve().parent
+        scenarios = [
+            scenario
+            for scenario in performance_gate._load_scenarios(tool / "performance_scenarios.json")
+            if scenario["gate_id"] == gate_id
+        ]
+        pairs = [self._performance_pair(scenario) for scenario in scenarios]
+        baselines, candidates = [pair[0] for pair in pairs], [pair[1] for pair in pairs]
+        comparison = performance_gate.evaluate_gate_reports(
+            baselines,
+            candidates,
+            scenarios,
             performance_gate._load_budget(tool / "performance_budget.json"),
         )
         self.assertEqual("passed", comparison["status"])
         raw = {
-            "schema_version": 2,
+            "schema_version": performance_gate.EVIDENCE_SCHEMA_VERSION,
             "gate_id": gate_id,
-            "baseline_report": baseline,
-            "candidate_report": candidate,
+            "baseline_reports": baselines,
+            "candidate_reports": candidates,
         }
         raw_bytes = performance_gate.canonical_json_bytes(raw)
         raw_reference = self._evidence_reference(
@@ -116,14 +122,14 @@ class ReliabilityGateTest(unittest.TestCase):
         )
         comparison.update(
             {
-                "schema_version": 2,
-                "baseline_commit": baseline["baseline_commit"],
-                "candidate_commit": candidate["candidate_commit"],
-                "baseline_report_sha256": hashlib.sha256(
-                    performance_gate.canonical_json_bytes(baseline)
+                "schema_version": performance_gate.EVIDENCE_SCHEMA_VERSION,
+                "baseline_commit": baselines[0]["baseline_commit"],
+                "candidate_commit": candidates[0]["candidate_commit"],
+                "baseline_reports_sha256": hashlib.sha256(
+                    performance_gate.canonical_json_bytes(baselines)
                 ).hexdigest(),
-                "candidate_report_sha256": hashlib.sha256(
-                    performance_gate.canonical_json_bytes(candidate)
+                "candidate_reports_sha256": hashlib.sha256(
+                    performance_gate.canonical_json_bytes(candidates)
                 ).hexdigest(),
                 "raw_samples_sha256": raw_reference["sha256"],
             }
@@ -349,6 +355,68 @@ class ReliabilityGateTest(unittest.TestCase):
         path.write_text(json.dumps(report), encoding="utf-8")
 
         with self.assertRaisesRegex(reliability_gate.GateError, "unknown gate"):
+            reliability_gate.aggregate(
+                self.reports,
+                self.evidence,
+                self.manifest,
+                self.commit,
+                self.root / "out.json",
+                self.root / "matrix.md",
+            )
+
+    def _rewrite_raw_bundle(self, path: Path, mutate) -> None:
+        report = performance_gate.load_json(path)
+        evidence = report["results"][0]["evidence"]
+        raw_path = self.evidence / evidence["raw_samples"]["path"]
+        comparison_path = self.evidence / evidence["performance_report"]["path"]
+        raw = performance_gate.load_json(raw_path)
+        comparison = performance_gate.load_json(comparison_path)
+        mutate(raw)
+        performance_gate.write_json(raw_path, raw)
+        evidence["raw_samples"]["sha256"] = performance_gate.sha256_file(raw_path)
+        for role in ("baseline", "candidate"):
+            comparison[f"{role}_reports_sha256"] = hashlib.sha256(
+                performance_gate.canonical_json_bytes(raw[f"{role}_reports"])
+            ).hexdigest()
+        comparison["raw_samples_sha256"] = evidence["raw_samples"]["sha256"]
+        performance_gate.write_json(comparison_path, comparison)
+        evidence["performance_report"]["sha256"] = performance_gate.sha256_file(comparison_path)
+        performance_gate.write_json(path, report)
+
+    def _assert_raw_identity_is_bound(self, field: str) -> None:
+        path = self._report("performance_lab", {"performance.h3_batch_io"})
+
+        def change_identity(raw):
+            for role in ("baseline", "candidate"):
+                for report in raw[f"{role}_reports"]:
+                    report[field] = "c" * 40
+
+        self._rewrite_raw_bundle(path, change_identity)
+        with self.assertRaisesRegex(reliability_gate.GateError, "raw .* identity"):
+            reliability_gate.aggregate(
+                self.reports,
+                self.evidence,
+                self.manifest,
+                self.commit,
+                self.root / "out.json",
+                self.root / "matrix.md",
+            )
+
+    def test_raw_candidate_identity_is_bound_even_with_consistent_digests(self) -> None:
+        self._assert_raw_identity_is_bound("candidate_commit")
+
+    def test_raw_baseline_identity_is_bound_even_with_consistent_digests(self) -> None:
+        self._assert_raw_identity_is_bound("baseline_commit")
+
+    def test_h2_evidence_requires_both_raw_scenario_pairs(self) -> None:
+        path = self._report("performance_lab", {"performance.h2_high_bdp"})
+
+        def remove_four_flow(raw):
+            for role in ("baseline", "candidate"):
+                raw[f"{role}_reports"].pop()
+
+        self._rewrite_raw_bundle(path, remove_four_flow)
+        with self.assertRaisesRegex(reliability_gate.GateError, "every required gate scenario"):
             reliability_gate.aggregate(
                 self.reports,
                 self.evidence,
