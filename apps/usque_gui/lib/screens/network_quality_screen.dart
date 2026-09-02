@@ -14,17 +14,11 @@ import '../widgets/sparkline.dart';
 import 'diagnostics_screen.dart';
 
 class NetworkQualityScreen extends StatelessWidget {
-  const NetworkQualityScreen({
-    required this.controller,
-    this.active = true,
-    super.key,
-  });
+  const NetworkQualityScreen({required this.controller, super.key});
   final AppController controller;
-  final bool active;
 
   @override
   Widget build(BuildContext context) {
-    if (!active) return const SizedBox.shrink();
     return ListenableBuilder(
       listenable: Listenable.merge(<Listenable>[
         controller,
@@ -103,8 +97,9 @@ class NetworkQualityScreen extends StatelessWidget {
 
     return FocusTraversalGroup(
       policy: ReadingOrderTraversalPolicy(),
-      child: PageFrame(
+      child: SubPage(
         title: s.get('network_quality'),
+        backLabel: s.get('back'),
         subtitle: s.get('nq_subtitle'),
         actions: <Widget>[
           FilledButton.icon(

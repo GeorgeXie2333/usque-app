@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -9,7 +11,6 @@ import '../state/app_controller.dart';
 import '../widgets/animated_index_stack.dart';
 import '../widgets/controller_selector.dart';
 import 'home_screen.dart';
-import 'network_quality_screen.dart';
 import 'profiles_screen.dart';
 import 'proxy_screen.dart';
 import 'settings_screen.dart';
@@ -24,16 +25,26 @@ const EdgeInsets _destinationPadding = EdgeInsets.symmetric(
   horizontal: 8,
 );
 
-class ShellScreen extends StatelessWidget {
+class ShellScreen extends StatefulWidget {
   const ShellScreen({required this.controller, super.key});
 
   final AppController controller;
+
+  @override
+  State<ShellScreen> createState() => _ShellScreenState();
+}
+
+class _ShellScreenState extends State<ShellScreen> {
+  AppController get controller => widget.controller;
+
+  final _destinationKeys = <AppSection, GlobalKey<TooltipState>>{
+    for (final section in AppSection.values) section: GlobalKey<TooltipState>(),
+  };
 
   static const _icons = <AppSection, IconData>{
     AppSection.home: LucideIcons.house,
     AppSection.profiles: LucideIcons.layers3,
     AppSection.proxy: LucideIcons.waypoints,
-    AppSection.networkQuality: LucideIcons.activity,
     AppSection.settings: LucideIcons.settings,
   };
 
@@ -68,34 +79,49 @@ class ShellScreen extends StatelessWidget {
     final next =
         (sections.indexOf(controller.section) + delta + sections.length) %
         sections.length;
-    controller.selectSection(sections[next]);
+    final selected = sections[next];
+    final selectedController = controller;
+    controller.selectSection(selected);
+    if (vertical) {
+      // Selection alone does not reveal destinations in a scrollable rail.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted ||
+            controller != selectedController ||
+            controller.section != selected) {
+          return;
+        }
+        final destinationContext = _destinationKeys[selected]?.currentContext;
+        if (destinationContext == null) return;
+        final destinationFocus = Focus.of(destinationContext);
+        destinationFocus.requestFocus();
+        unawaited(
+          Scrollable.ensureVisible(
+            destinationFocus.context ?? destinationContext,
+          ),
+        );
+      });
+    }
     return KeyEventResult.handled;
   }
 
   @override
   Widget build(BuildContext context) {
-    return ControllerSelector<({AppSection section, bool quality})>(
+    return ControllerSelector<AppSection>(
       controller: controller,
-      selector: (controller) => (
-        section: controller.section,
-        quality: controller.engineCapabilities?.networkQuality ?? false,
-      ),
-      builder: (context, selection) {
-        final section = selection.section;
+      selector: (controller) => controller.section,
+      builder: (context, section) {
         final sections = controller.availableSections;
         final strings = controller.strings;
         final labels = <String>[
           strings.get('nav_home'),
           strings.get('nav_profiles'),
           strings.get('nav_proxy'),
-          if (selection.quality) strings.get('nav_network_quality'),
           strings.get('nav_settings'),
         ];
         final fullLabels = <String>[
           strings.get('home'),
           strings.get('profiles'),
           strings.get('proxy'),
-          if (selection.quality) strings.get('network_quality'),
           strings.get('settings'),
         ];
         final pages = <Widget>[
@@ -130,15 +156,11 @@ class ShellScreen extends StatelessWidget {
             selector: (controller) => controller.activeProfile,
             builder: (context, _) => ProxyScreen(controller: controller),
           ),
-          if (selection.quality)
-            NetworkQualityScreen(
-              controller: controller,
-              active: section == AppSection.networkQuality,
-            ),
           ControllerSelector<
             ({
               ThemePreference theme,
               LocalePreference locale,
+              bool networkQualitySupported,
               bool updateChecksEnabled,
               UpdateCheckResult? updateResult,
               UpdateOperationPhase updatePhase,
@@ -158,6 +180,8 @@ class ShellScreen extends StatelessWidget {
             selector: (controller) => (
               theme: controller.themePreference,
               locale: controller.localePreference,
+              networkQualitySupported:
+                  controller.engineCapabilities?.networkQuality ?? false,
               updateChecksEnabled: controller.updateChecksEnabled,
               updateResult: controller.updateResult,
               updatePhase: controller.updatePhase,
@@ -221,6 +245,7 @@ class ShellScreen extends StatelessWidget {
                                     child: Icon(_icons[sections[index]]),
                                   ),
                                   label: Tooltip(
+                                    key: _destinationKeys[sections[index]],
                                     message: fullLabels[index],
                                     excludeFromSemantics: true,
                                     child: Text(labels[index]),

@@ -82,17 +82,12 @@ class AppController extends ChangeNotifier {
   set engineCapabilities(EngineCapabilities? value) {
     _engineCapabilities = value;
     quality.setEnabled(value?.networkQuality ?? false);
-    if (!(value?.networkQuality ?? false) &&
-        section == AppSection.networkQuality) {
-      section = AppSection.home;
-    }
   }
 
-  List<AppSection> get availableSections => <AppSection>[
+  List<AppSection> get availableSections => const <AppSection>[
     AppSection.home,
     AppSection.profiles,
     AppSection.proxy,
-    if (engineCapabilities?.networkQuality ?? false) AppSection.networkQuality,
     AppSection.settings,
   ];
   String? lastError;
