@@ -65,14 +65,16 @@ impl H3MigrationHandle {
     pub(super) fn new(
         sender: mpsc::Sender<H3ControlCommand>,
         endpoint: SocketAddr,
-        initial_generation: u64,
+        initial_generation: Option<u64>,
         enabled: bool,
     ) -> Self {
         Self {
             sender,
             endpoint,
-            initial_generation,
-            enabled,
+            initial_generation: initial_generation.unwrap_or_default(),
+            // A numeric zero is a valid tracked generation. None means the
+            // platform cannot report network changes, not generation zero.
+            enabled: enabled && initial_generation.is_some(),
         }
     }
 
@@ -1783,9 +1785,28 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn unsupported_generation_never_enables_migration_but_zero_is_valid() {
+        let (sender, commands) = mpsc::channel(H3_CONTROL_CAPACITY);
+        let handle = H3MigrationHandle::new(sender, "127.0.0.1:443".parse().unwrap(), None, true);
+        assert!(!handle.enabled());
+        assert_eq!(
+            handle.migrate(1).await,
+            H3MigrationResult::Failed(MigrationReasonCode::Unsupported)
+        );
+        assert!(commands.is_empty());
+
+        let (sender, _commands) = mpsc::channel(H3_CONTROL_CAPACITY);
+        let tracked =
+            H3MigrationHandle::new(sender, "127.0.0.1:443".parse().unwrap(), Some(0), true);
+        assert!(tracked.enabled());
+        assert_eq!(tracked.initial_generation(), 0);
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn rollback_skips_migration_without_enqueuing_candidate_work() {
         let (sender, commands) = mpsc::channel(H3_CONTROL_CAPACITY);
-        let handle = H3MigrationHandle::new(sender, "127.0.0.1:443".parse().unwrap(), 1, false);
+        let handle =
+            H3MigrationHandle::new(sender, "127.0.0.1:443".parse().unwrap(), Some(1), false);
         assert!(!handle.enabled());
         assert_eq!(
             handle.migrate(2).await,
@@ -1797,7 +1818,8 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn control_channel_is_capacity_one_and_caller_reply_wait_is_three_seconds() {
         let (sender, mut commands) = mpsc::channel(H3_CONTROL_CAPACITY);
-        let handle = H3MigrationHandle::new(sender, "127.0.0.1:443".parse().unwrap(), 1, true);
+        let handle =
+            H3MigrationHandle::new(sender, "127.0.0.1:443".parse().unwrap(), Some(1), true);
         let started = Instant::now();
         assert_eq!(
             handle.migrate(2).await,

@@ -7,8 +7,8 @@ use std::ptr;
 use tokio::net::UdpSocket;
 
 use super::{
-    ReceivedDatagram, RecvBatch, SendDatagram, UDP_ACTOR_DRAIN_LIMIT, UDP_BATCH_SIZE,
-    UDP_RECEIVE_SLOT_SIZE, receive_pool_exhausted_error, receive_too_large_error,
+    ReceiveDrainBudget, ReceivedDatagram, RecvBatch, SendDatagram, UDP_ACTOR_DRAIN_LIMIT,
+    UDP_BATCH_SIZE, UDP_RECEIVE_SLOT_SIZE, receive_pool_exhausted_error,
 };
 use crate::network_quality::NetworkQualityTelemetry;
 
@@ -18,8 +18,9 @@ pub(super) fn try_recv_batch(
     output: &mut RecvBatch,
     quality: &NetworkQualityTelemetry,
 ) -> io::Result<usize> {
-    while output.len() < UDP_ACTOR_DRAIN_LIMIT {
-        let maximum = UDP_BATCH_SIZE.min(UDP_ACTOR_DRAIN_LIMIT - output.len());
+    let mut budget = ReceiveDrainBudget::default();
+    while budget.remaining() > 0 {
+        let maximum = UDP_BATCH_SIZE.min(budget.remaining());
         let mut buffers: [Option<super::PooledUdpBuffer>; UDP_BATCH_SIZE] =
             std::array::from_fn(|_| None);
         let mut requested = 0;
@@ -104,14 +105,13 @@ pub(super) fn try_recv_batch(
             };
         }
         quality.record_udp_recv(received as u64);
-        let mut truncated = false;
         for index in 0..received {
             let message = &messages[index];
-            if message.msg_hdr.msg_flags & libc::MSG_TRUNC != 0
-                || message.msg_len as usize > UDP_RECEIVE_SLOT_SIZE
-            {
-                quality.record_udp_receive_truncation();
-                truncated = true;
+            if !budget.accept(
+                message.msg_len as usize,
+                message.msg_hdr.msg_flags & libc::MSG_TRUNC != 0,
+                quality,
+            ) {
                 continue;
             }
             let source = sockaddr_to_socket_addr(&addresses[index], message.msg_hdr.msg_namelen)?;
@@ -123,9 +123,6 @@ pub(super) fn try_recv_batch(
                 source,
                 destination: local_address,
             });
-        }
-        if truncated {
-            return Err(receive_too_large_error());
         }
         if received < requested {
             break;

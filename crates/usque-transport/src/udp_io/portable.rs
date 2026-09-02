@@ -4,8 +4,8 @@ use std::net::SocketAddr;
 use tokio::net::UdpSocket;
 
 use super::{
-    ReceivedDatagram, RecvBatch, SendDatagram, UDP_ACTOR_DRAIN_LIMIT, UDP_RECEIVE_SLOT_SIZE,
-    is_message_too_long, receive_pool_exhausted_error, receive_too_large_error,
+    ReceiveDrainBudget, ReceivedDatagram, RecvBatch, SendDatagram, UDP_ACTOR_DRAIN_LIMIT,
+    is_message_too_long, receive_pool_exhausted_error,
 };
 use crate::network_quality::NetworkQualityTelemetry;
 
@@ -15,7 +15,8 @@ pub(super) fn try_recv_batch(
     output: &mut RecvBatch,
     quality: &NetworkQualityTelemetry,
 ) -> io::Result<usize> {
-    while output.len() < UDP_ACTOR_DRAIN_LIMIT {
+    let mut budget = ReceiveDrainBudget::default();
+    while budget.remaining() > 0 {
         let Some(mut buffer) = output.acquire_buffer(quality) else {
             return if output.is_empty() {
                 Err(receive_pool_exhausted_error())
@@ -26,9 +27,8 @@ pub(super) fn try_recv_batch(
         match socket.try_recv_from(buffer.portable_storage_mut()) {
             Ok((length, source)) => {
                 quality.record_udp_recv(1);
-                if length > UDP_RECEIVE_SLOT_SIZE {
-                    quality.record_udp_receive_truncation();
-                    return Err(receive_too_large_error());
+                if !budget.accept(length, false, quality) {
+                    continue;
                 }
                 output.push(ReceivedDatagram {
                     buffer,
@@ -38,9 +38,9 @@ pub(super) fn try_recv_batch(
                 });
             }
             Err(error) if is_message_too_long(&error) => {
-                quality.record_udp_recv(0);
-                quality.record_udp_receive_truncation();
-                return Err(receive_too_large_error());
+                // Winsock consumes the datagram even when reporting WSAEMSGSIZE.
+                quality.record_udp_recv(1);
+                budget.accept(0, true, quality);
             }
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                 quality.record_udp_recv(0);

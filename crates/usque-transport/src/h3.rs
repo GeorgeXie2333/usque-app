@@ -406,6 +406,7 @@ async fn connect_h3_once(
         .map_err(SocketPrepareError::into_transport_error)?;
     let local_address = prepared.local_addr;
     let initial_generation = prepared.network_generation;
+    let migration_generation = protector.network_generation().map(|_| initial_generation);
     if let Some(attempt) = attempt {
         attempt.record(
             ConnectionEventType::SocketConnected,
@@ -504,7 +505,7 @@ async fn connect_h3_once(
             migration: H3MigrationHandle::new(
                 migration_tx,
                 endpoint,
-                initial_generation,
+                migration_generation,
                 features.quic_migration,
             ),
         }),

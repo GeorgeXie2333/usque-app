@@ -68,6 +68,13 @@ The H2 ADDRESS_REQUEST rejection path is no longer unbounded. Both its pending
 control deque and writer channel are capped at 64 capsules, with a 256 KiB byte
 budget. Saturation fails closed with `SendQueueFull`.
 
+UDP receive truncation is a per-datagram drop, not a connection failure. Both
+receive backends discard and count payloads above the 2048-byte bound while
+preserving valid datagrams in the same drain. Discarded datagrams count toward
+the 64-datagram actor budget; an all-discarded drain yields before retrying so
+cancellation and other tasks remain responsive. Prefetched channel entries
+retain both item and byte permits until actual consumption.
+
 ## HTTP/2 flow control and PING
 
 CONNECT-IP uses an explicit h2 client Builder with a 4 MiB stream receive

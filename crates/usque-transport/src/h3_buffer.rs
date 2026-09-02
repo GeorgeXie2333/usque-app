@@ -54,6 +54,7 @@ impl DatagramEncodePool {
     pub(crate) fn take(&self) -> Option<PooledDatagramBuffer> {
         if let Some(bytes) = self.inner.free().pop() {
             self.inner.quality.record_packet_buffer_pool_hit();
+            self.inner.quality.record_encode_buffer_reuse();
             return Some(PooledDatagramBuffer {
                 bytes: Some(bytes),
                 pool: Some(Arc::clone(&self.inner)),
@@ -273,6 +274,7 @@ mod tests {
         let snapshot = NetworkQualitySampler::new(quality).sample();
         assert_eq!(snapshot.allocations.packet_buffer_pool_misses, 1);
         assert_eq!(snapshot.allocations.packet_buffer_pool_hits, 1);
+        assert_eq!(snapshot.allocations.encode_buffer_reuses, 1);
         assert_eq!(snapshot.allocations.fresh_allocations, 1);
         assert_eq!(snapshot.allocations.buffer_recycles, 2);
     }

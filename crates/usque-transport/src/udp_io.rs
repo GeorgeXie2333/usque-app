@@ -439,6 +439,9 @@ impl UdpBatchIo {
                 }
             });
             match result {
+                // An all-discarded drain is not a socket failure. Yield before
+                // retrying so cancellation and other actors still make progress.
+                Ok(0) => tokio::task::yield_now().await,
                 Ok(count) => return Ok(count),
                 Err(error) if is_receive_pool_exhausted(&error) => {
                     self.pool.wait_for_capacity(cancel).await?;
@@ -503,19 +506,17 @@ impl UdpBatchIo {
     #[cfg(any(test, feature = "fault-injection"))]
     fn injected_receive(&self) -> Option<io::Result<usize>> {
         use crate::fault_injection::{FaultKind, FaultPoint};
-        Some(Err(
-            match self.quality.take_fault(FaultPoint::UdpReceive)? {
-                FaultKind::RecvMmsgTruncated => {
-                    self.quality.record_udp_receive_truncation();
-                    receive_too_large_error()
-                }
-                FaultKind::BufferPoolExhausted => {
-                    self.quality.record_packet_buffer_pool_miss();
-                    receive_pool_exhausted_error()
-                }
-                _ => io::ErrorKind::WouldBlock.into(),
-            },
-        ))
+        Some(match self.quality.take_fault(FaultPoint::UdpReceive)? {
+            FaultKind::RecvMmsgTruncated => {
+                self.quality.record_udp_receive_truncation();
+                Ok(0)
+            }
+            FaultKind::BufferPoolExhausted => {
+                self.quality.record_packet_buffer_pool_miss();
+                Err(receive_pool_exhausted_error())
+            }
+            _ => Err(io::ErrorKind::WouldBlock.into()),
+        })
     }
 
     #[cfg(any(test, feature = "fault-injection"))]
@@ -682,11 +683,32 @@ pub(crate) fn eligible_send_prefix(
     Ok(count)
 }
 
-pub(super) fn receive_too_large_error() -> io::Error {
-    io::Error::new(
-        io::ErrorKind::InvalidData,
-        "UDP datagram exceeded the 2048-byte receive bound",
-    )
+/// Counts every consumed datagram, including discarded ones. Receive capacity
+/// is a per-datagram boundary, never a reason to terminate the active socket.
+#[derive(Default)]
+pub(super) struct ReceiveDrainBudget {
+    consumed: usize,
+}
+
+impl ReceiveDrainBudget {
+    pub(super) fn remaining(&self) -> usize {
+        UDP_ACTOR_DRAIN_LIMIT.saturating_sub(self.consumed)
+    }
+
+    pub(super) fn accept(
+        &mut self,
+        length: usize,
+        truncated: bool,
+        quality: &NetworkQualityTelemetry,
+    ) -> bool {
+        assert!(self.remaining() > 0, "receive drain budget exceeded");
+        self.consumed += 1;
+        if truncated || length > UDP_RECEIVE_SLOT_SIZE {
+            quality.record_udp_receive_truncation();
+            return false;
+        }
+        true
+    }
 }
 
 pub(crate) fn is_message_too_long(error: &io::Error) -> bool {
@@ -800,10 +822,7 @@ mod tests {
             )
             .unwrap(),
         );
-        assert_eq!(
-            io.injected_receive().unwrap().unwrap_err().kind(),
-            io::ErrorKind::InvalidData
-        );
+        assert_eq!(io.injected_receive().unwrap().unwrap(), 0);
         assert_eq!(
             io.injected_receive().unwrap().unwrap_err().kind(),
             io::ErrorKind::WouldBlock
@@ -978,38 +997,37 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn oversized_receive_is_counted_and_never_silently_truncated() {
+    #[test]
+    fn receive_metadata_drops_oversize_and_preserves_following_valid_datagrams() {
         let quality = NetworkQualityTelemetry::default();
-        let receiver = UdpBatchIo::with_mode(
-            UdpSocket::bind("127.0.0.1:0").await.unwrap(),
-            UdpBatchMode::Portable,
-            quality.clone(),
-        )
-        .unwrap();
-        let sender = UdpSocket::bind("127.0.0.1:0").await.unwrap();
-        sender
-            .send_to(
-                &vec![7_u8; UDP_RECEIVE_SLOT_SIZE + 512],
-                receiver.local_addr(),
-            )
-            .await
-            .unwrap();
-        let mut output = receiver.new_recv_batch();
-
-        let error = receiver
-            .recv_batch(&mut output, &CancellationToken::new())
-            .await
-            .unwrap_err();
-
-        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
-        assert!(output.is_empty());
+        let mut budget = ReceiveDrainBudget::default();
+        assert!(!budget.accept(UDP_RECEIVE_SLOT_SIZE + 1, false, &quality));
+        assert!(!budget.accept(UDP_RECEIVE_SLOT_SIZE, true, &quality));
+        assert!(budget.accept(UDP_RECEIVE_SLOT_SIZE, false, &quality));
+        assert_eq!(budget.remaining(), UDP_ACTOR_DRAIN_LIMIT - 3);
         assert_eq!(
             NetworkQualitySampler::new(quality)
                 .sample()
                 .udp_io
                 .receive_truncations,
-            1
+            2
+        );
+    }
+
+    #[test]
+    fn discarded_receive_metadata_still_exhausts_the_actor_drain_budget() {
+        let quality = NetworkQualityTelemetry::default();
+        let mut budget = ReceiveDrainBudget::default();
+        for _ in 0..UDP_ACTOR_DRAIN_LIMIT {
+            assert!(!budget.accept(0, true, &quality));
+        }
+        assert_eq!(budget.remaining(), 0);
+        assert_eq!(
+            NetworkQualitySampler::new(quality)
+                .sample()
+                .udp_io
+                .receive_truncations,
+            UDP_ACTOR_DRAIN_LIMIT as u64
         );
     }
 

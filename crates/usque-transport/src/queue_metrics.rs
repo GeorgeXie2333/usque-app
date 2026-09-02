@@ -316,6 +316,7 @@ struct TrackedItem<T> {
     value: Option<T>,
     entry: Option<QueueEntry>,
     _byte_permit: OwnedSemaphorePermit,
+    _item_permit: OwnedSemaphorePermit,
 }
 
 impl<T> TrackedItem<T> {
@@ -338,6 +339,7 @@ impl<T> TrackedItem<T> {
 pub struct TrackedSender<T> {
     inner: mpsc::Sender<TrackedItem<T>>,
     byte_budget: Arc<Semaphore>,
+    item_budget: Arc<Semaphore>,
     metrics: Arc<QueueMetrics>,
     lifetime: Arc<TrackedSenderLifetime>,
 }
@@ -357,6 +359,7 @@ impl<T> Clone for TrackedSender<T> {
         Self {
             inner: self.inner.clone(),
             byte_budget: Arc::clone(&self.byte_budget),
+            item_budget: Arc::clone(&self.item_budget),
             metrics: Arc::clone(&self.metrics),
             lifetime: Arc::clone(&self.lifetime),
         }
@@ -403,6 +406,17 @@ impl<T> TrackedSender<T> {
                 });
             }
         };
+        let slot = match Arc::clone(&self.item_budget).try_acquire_owned() {
+            Ok(permit) => permit,
+            Err(error) => {
+                self.metrics.record_rejected(bytes);
+                let kind = match error {
+                    tokio::sync::TryAcquireError::NoPermits => TrackedSendErrorKind::Full,
+                    tokio::sync::TryAcquireError::Closed => TrackedSendErrorKind::Closed,
+                };
+                return Err(TrackedTrySendError { kind, value });
+            }
+        };
         let item_permit = match self.inner.clone().try_reserve_owned() {
             Ok(permit) => permit,
             Err(mpsc::error::TrySendError::Full(_)) => {
@@ -425,12 +439,15 @@ impl<T> TrackedSender<T> {
             value: Some(value),
             entry: Some(self.metrics.start_entry(bytes)),
             _byte_permit: byte_permit,
+            _item_permit: slot,
         });
         Ok(())
     }
 
     pub fn capacity(&self) -> usize {
-        self.inner.capacity()
+        self.inner
+            .capacity()
+            .min(self.item_budget.available_permits())
     }
 
     pub fn max_capacity(&self) -> usize {
@@ -477,6 +494,30 @@ impl<T> TrackedSender<T> {
             }
         };
 
+        // Retain an item permit until consumption, including while the
+        // receiver prefetches an entry out of Tokio's bounded channel.
+        let slot = Arc::clone(&self.item_budget).acquire_owned();
+        tokio::pin!(slot);
+        let slot = if let Some(cancellation) = cancellation {
+            tokio::select! {
+                _ = cancellation.cancelled() => {
+                    self.metrics.record_rejected(bytes);
+                    drop(value);
+                    return Err(TrackedSendError { kind: TrackedSendErrorKind::Cancelled });
+                }
+                permit = &mut slot => permit,
+            }
+        } else {
+            slot.await
+        };
+        let slot = slot.map_err(|_| {
+            self.metrics.mark_closed();
+            self.metrics.record_rejected(bytes);
+            TrackedSendError {
+                kind: TrackedSendErrorKind::Closed,
+            }
+        })?;
+
         let acquire = Arc::clone(&self.byte_budget).acquire_many_owned(permits);
         tokio::pin!(acquire);
         let byte_permit = if let Some(cancellation) = cancellation {
@@ -506,6 +547,7 @@ impl<T> TrackedSender<T> {
             value: Some(value),
             entry: Some(self.metrics.start_entry(bytes)),
             _byte_permit: byte_permit,
+            _item_permit: slot,
         });
         Ok(())
     }
@@ -626,6 +668,7 @@ pub fn tracked_channel<T>(metrics: Arc<QueueMetrics>) -> (TrackedSender<T>, Trac
     );
     let (sender, receiver) = mpsc::channel(item_capacity);
     let byte_budget = Arc::new(Semaphore::new(byte_capacity));
+    let item_budget = Arc::new(Semaphore::new(item_capacity));
     let lifetime = Arc::new(TrackedSenderLifetime {
         metrics: Arc::clone(&metrics),
     });
@@ -633,6 +676,7 @@ pub fn tracked_channel<T>(metrics: Arc<QueueMetrics>) -> (TrackedSender<T>, Trac
         TrackedSender {
             inner: sender,
             byte_budget,
+            item_budget,
             metrics: Arc::clone(&metrics),
             lifetime,
         },
@@ -696,6 +740,41 @@ mod tests {
         assert_eq!(snapshot.drop_items, 1);
         assert_eq!(snapshot.drop_bytes, 5);
         assert!(snapshot.closed);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn prefetched_entry_keeps_its_item_capacity_and_cancellation_releases_reservations() {
+        let metrics = QueueMetrics::new(QueueKind::TunToTransport, 2, 32);
+        let (sender, mut receiver) = tracked_channel(Arc::clone(&metrics));
+        sender.try_send(1_u8, 1).unwrap();
+        sender.try_send(2_u8, 1).unwrap();
+        assert_eq!(receiver.recv().await, Some(1));
+        sender.try_send(3_u8, 1).unwrap();
+        assert_eq!(sender.capacity(), 0);
+        assert_eq!(
+            sender.try_send(4_u8, 1).unwrap_err().kind,
+            TrackedSendErrorKind::Full
+        );
+        let cancel = CancellationToken::new();
+        let pending = sender.send_cancellable(4_u8, 1, &cancel);
+        tokio::pin!(pending);
+        tokio::select! {
+            result = &mut pending => panic!("full queue completed unexpectedly: {result:?}"),
+            _ = tokio::task::yield_now() => {}
+        }
+        cancel.cancel();
+        assert_eq!(
+            pending.await.unwrap_err().kind,
+            TrackedSendErrorKind::Cancelled
+        );
+        assert_eq!(receiver.recv().await, Some(2));
+        sender.send(5_u8, 1).await.unwrap();
+        assert_eq!(receiver.recv().await, Some(3));
+        assert_eq!(receiver.recv().await, Some(5));
+        let snapshot = metrics.snapshot(Instant::now());
+        assert_eq!(snapshot.items_high_water, 2);
+        assert_eq!(snapshot.current_items, 0);
+        assert_eq!(sender.capacity(), 2);
     }
 
     #[tokio::test(start_paused = true)]
