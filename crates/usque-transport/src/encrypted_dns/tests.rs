@@ -21,6 +21,65 @@ use tokio::time::timeout;
 use super::*;
 use crate::network_quality::NetworkQualitySampler;
 
+struct PrefaceWriteFailure(std::io::ErrorKind);
+
+impl tokio::io::AsyncRead for PrefaceWriteFailure {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+        _buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::task::Poll::Pending
+    }
+}
+
+impl tokio::io::AsyncWrite for PrefaceWriteFailure {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+        _buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        std::task::Poll::Ready(Err(self.0.into()))
+    }
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+}
+
+#[tokio::test]
+async fn doh_preface_io_timeout_is_not_reclassified_as_retryable_query_failure() {
+    let endpoint = "127.0.0.1:443".parse().unwrap();
+    for (kind, expected, retry) in [
+        (std::io::ErrorKind::TimedOut, DirectDnsError::Timeout, false),
+        (
+            std::io::ErrorKind::BrokenPipe,
+            DirectDnsError::QueryFailed,
+            true,
+        ),
+    ] {
+        let failure = doh_handshake(
+            PrefaceWriteFailure(kind),
+            endpoint,
+            Instant::now() + Duration::from_secs(1),
+        )
+        .await
+        .err()
+        .expect("preface write error");
+        assert_eq!(failure.endpoint, Some(endpoint));
+        assert_eq!(failure.error, expected);
+        assert_eq!(failure.error.permits_retry(), retry);
+    }
+}
+
 #[tokio::test(start_paused = true)]
 async fn doh_preface_failure_retains_the_selected_endpoint_and_releases_io() {
     let endpoint: SocketAddr = "127.0.0.1:443".parse().unwrap();

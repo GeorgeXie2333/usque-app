@@ -146,9 +146,11 @@ reason enums only.
 
 A failed system-proxy cleanup during VPN-to-proxy detach must not activate
 ordinary host egress, even if Agent rollback subsequently reaches Clean. The
-runtime retains that verified rollback receipt for a retry while keeping the
-strict VPN protector. Host policy activates only when every detach cleanup
-step succeeds and a MASQUE session is available for handoff.
+runtime keeps the strict VPN protector, rejects new hot frontend/system-proxy
+mutations on the closed transaction, and queries the Agent for a fresh Clean
+state on a detach retry. A historical Clean response is never authority for
+later host egress. Host policy activates only when every detach cleanup step
+succeeds and a MASQUE session is available for handoff.
 
 Android refreshes its cached generation from the authoritative Java counter
 while holding the runtime-install lock and before starting a worker. A stale

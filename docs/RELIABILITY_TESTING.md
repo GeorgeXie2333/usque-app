@@ -81,7 +81,7 @@ gate, including if marked passed. Historical PR-00 baseline documentation is
 not an active gate definition. The final [acceptance matrix](network-quality-acceptance.md)
 records ordinary checks separately from unavailable protected measurements.
 
-Each result binds five artifacts: JUnit, timeline, platform diff, a v2
+Each result binds five artifacts: JUnit, timeline, platform diff, a v3
 comparison report, and its raw-sample bundle. The reliability aggregator checks
 both artifact SHA-256 values, verifies the hashes of the embedded baseline and
 candidate reports, and recomputes the comparison from the checked-in scenario

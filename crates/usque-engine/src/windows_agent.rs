@@ -324,6 +324,16 @@ fn validate_proxy_detach_state(state: &AgentState) -> Result<(), WindowsVpnError
     Ok(())
 }
 
+fn require_open_vpn_transaction(open: bool, operation_id: Uuid) -> Result<(), WindowsVpnError> {
+    if !open {
+        return Err(WindowsVpnError::RecoveryRequired {
+            phase: agent_v1::AgentPhase::RecoveryRequired as i32,
+            operation_id: operation_id.to_string(),
+        });
+    }
+    Ok(())
+}
+
 fn socket_lease_error(error: WindowsVpnError) -> String {
     match error {
         WindowsVpnError::Remote { code, .. } if code == "AGENT_STALE_GENERATION" => {
@@ -597,9 +607,6 @@ pub(crate) struct WindowsVpnRuntime {
     tunnel: Option<MasqueRuntime>,
     // Present when this runtime created the VPN-bound MASQUE protector.
     socket_protector: Option<Arc<WindowsVpnSocketProtector>>,
-    // Retained after rollback succeeds even if another cleanup step fails.
-    // A retry may consume this acknowledgement, but it grants no host egress.
-    proxy_detach_state: Option<AgentState>,
 }
 
 #[derive(Clone)]
@@ -867,6 +874,7 @@ impl WindowsVpnRuntime {
         &mut self,
         profile: &Profile,
     ) -> Result<(), WindowsVpnError> {
+        require_open_vpn_transaction(self.transaction_open, self.operation_id)?;
         let tunnel = self
             .tunnel
             .as_mut()
@@ -955,16 +963,15 @@ impl WindowsVpnRuntime {
                     Ok(state)
                 })
         } else {
-            self.proxy_detach_state
-                .clone()
-                .ok_or_else(|| WindowsVpnError::RecoveryRequired {
-                    phase: agent_v1::AgentPhase::RecoveryRequired as i32,
-                    operation_id: self.operation_id.to_string(),
-                })
+            // The previous Clean response is not a lease on future Agent
+            // state. A cleanup retry must obtain a fresh acknowledgement.
+            self.agent.get_state().await.and_then(|state| {
+                validate_proxy_detach_state(&state)?;
+                Ok(state)
+            })
         };
-        if let Ok(state) = &rollback {
+        if rollback.is_ok() {
             self.transaction_open = false;
-            self.proxy_detach_state = Some(state.clone());
         }
         let state = rollback?;
         // Failure retains the Vpn runtime/profile in the caller. Never enable
@@ -983,6 +990,7 @@ impl WindowsVpnRuntime {
         &mut self,
         profile: &Profile,
     ) -> Result<(), WindowsVpnError> {
+        require_open_vpn_transaction(self.transaction_open, self.operation_id)?;
         WindowsSystemProxyGuard::shutdown_slot(&mut self.system_proxy).await?;
         self.system_proxy = if profile.frontends.http && profile.proxy.system_proxy {
             let listener = loopback_http_listener(&self.http_listeners)
@@ -1257,7 +1265,6 @@ async fn bind_agent_session(
         transaction_open: true,
         tunnel: Some(tunnel),
         socket_protector: None,
-        proxy_detach_state: None,
     })
 }
 
@@ -2710,8 +2717,12 @@ mod tests {
         );
         assert_eq!(protector.egress_generation(7), Ok(Some(3)));
         assert!(!protector.monitor_cancel.is_cancelled());
-        // The same validated rollback receipt can be used by a successful
-        // cleanup retry; the failed attempt did not grant proxy mode.
+        // A retry must still present a currently Clean state. A new active
+        // transaction cannot be authorized using an earlier Clean response.
+        state.phase = agent_v1::AgentPhase::Active as i32;
+        assert!(protector.complete_proxy_detach(&state, Ok(())).is_err());
+        assert_eq!(protector.egress_generation(7), Ok(Some(3)));
+        state.phase = agent_v1::AgentPhase::Clean as i32;
         protector.complete_proxy_detach(&state, Ok(())).unwrap();
         assert!(protector.monitor_cancel.is_cancelled());
         assert_eq!(protector.network_generation(), None);
@@ -2723,6 +2734,16 @@ mod tests {
         assert_eq!(protector.egress_generation(0), Ok(None));
         assert!(protector.egress_generation(7).is_err());
         assert!(protector.verify_generation(0, 3).is_err());
+    }
+
+    #[test]
+    fn closed_vpn_transaction_cannot_authorize_new_hot_mutations() {
+        let operation = Uuid::new_v4();
+        assert!(require_open_vpn_transaction(true, operation).is_ok());
+        assert!(matches!(
+            require_open_vpn_transaction(false, operation),
+            Err(WindowsVpnError::RecoveryRequired { .. })
+        ));
     }
 
     #[test]

@@ -426,11 +426,22 @@ where
     timeout_at(deadline, dns_h2_builder().handshake(stream))
         .await
         .map_err(|_| DirectDnsError::Timeout)
-        .and_then(|result| result.map_err(|_| DirectDnsError::QueryFailed))
+        .and_then(|result| result.map_err(doh_handshake_error))
         .map_err(|error| QueryFailure {
             error,
             endpoint: Some(endpoint),
         })
+}
+
+fn doh_handshake_error(error: h2::Error) -> DirectDnsError {
+    if error
+        .get_io()
+        .is_some_and(|error| error.kind() == std::io::ErrorKind::TimedOut)
+    {
+        DirectDnsError::Timeout
+    } else {
+        DirectDnsError::QueryFailed
+    }
 }
 
 struct ClosedGuard(Arc<AtomicBool>, Arc<Notify>);
