@@ -247,6 +247,7 @@ impl PacketStack {
                 &telemetry,
             )
             .await?;
+        tunnel.activate_network_quality();
         let transport = tunnel.transport();
         let initial_path = runtime_path(transport, endpoint_family);
         let (config, tcp_buffer_metrics) = proxy_netstack_config(profile);
@@ -683,6 +684,7 @@ impl ManagedTunnelRuntime {
                 &telemetry,
             )
             .await?;
+        tunnel.activate_network_quality();
         let path = runtime_path(tunnel.transport(), endpoint_family);
         let quality = telemetry.network_quality();
         let outgoing_metrics = quality.register_queue(
@@ -1139,13 +1141,13 @@ async fn connect_endpoint(
         family,
     } = target;
     telemetry.record_attempt(transport, family);
-    let attempt = ConnectionAttemptTelemetry::new(telemetry.clone(), transport, family);
-    attempt.record(
-        ConnectionEventType::EndpointResolved,
-        TransportStage::EndpointResolution,
-    );
     let started = Instant::now();
     for _ in 0..8 {
+        let attempt = ConnectionAttemptTelemetry::new(telemetry.clone(), transport, family);
+        attempt.record(
+            ConnectionEventType::EndpointResolved,
+            TransportStage::EndpointResolution,
+        );
         let network_generation = protector.network_generation();
         let connecting = async {
             match transport {
@@ -1174,7 +1176,7 @@ async fn connect_endpoint(
         tokio::select! {
             result = &mut connecting => {
                 match &result {
-                    Ok(tunnel) => {
+                    Ok(_) => {
                         telemetry.record(
                             ConnectionEventType::AddressAssigned,
                             Some(TransportStage::AddressAssignment),
@@ -1182,8 +1184,6 @@ async fn connect_endpoint(
                             None,
                             None,
                         );
-                        telemetry.record_tunnel_ready(transport, family, started.elapsed());
-                        tunnel.activate_network_quality();
                     }
                     Err(error) => {
                         let failure = error.failure(Some(transport), Some(family));
@@ -1481,6 +1481,7 @@ async fn run_transport_supervisor(
     let mut probe_generation = 0u32;
 
     loop {
+        active_tunnel.activate_network_quality();
         let active_transport = active_tunnel.transport();
         let active_path = runtime_path(active_transport, active_family);
         let _ = health_tx.send(RuntimeHealth::Connected {
@@ -1506,6 +1507,12 @@ async fn run_transport_supervisor(
         )
         .await;
         probe_generation = probe_generation.wrapping_add(1);
+
+        // Candidate failures only add timeline events. The supervisor alone
+        // ends the selected connection when its bearing tunnel stops.
+        if !matches!(&outcome, ActiveOutcome::Switch(..)) {
+            telemetry.network_quality().end_connection();
+        }
 
         match outcome {
             ActiveOutcome::Shutdown => {

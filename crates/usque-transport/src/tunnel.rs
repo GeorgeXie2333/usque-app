@@ -29,8 +29,9 @@ impl MasqueTunnel {
     }
 
     pub(crate) fn activate_network_quality(&self) {
-        if let Self::Http2(tunnel) = self {
-            tunnel.activate_network_quality();
+        match self {
+            Self::Http2(tunnel) => tunnel.activate_network_quality(),
+            Self::Http3(tunnel) => tunnel.activate_network_quality(),
         }
     }
 

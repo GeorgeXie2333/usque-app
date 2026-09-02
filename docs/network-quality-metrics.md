@@ -5,6 +5,14 @@ quality source per managed tunnel. It is sampled at most once per second and is
 cancelled with the tunnel runtime. This internal model does not itself emit IPC,
 write a log, persist history, or upload data.
 
+Each connection attempt has private transport state, UDP/allocation counters,
+and H3 queue metrics. Only selection by the transport supervisor promotes an
+attempt into the sampled source; losing Happy Eyeballs attempts and non-bearing
+recovery probes cannot reset or overwrite the active connection. Runtime queues,
+direct DNS state, and runtime allocation counters remain shared across reconnects.
+One snapshot captures one selected attempt, and a promotion resets interval-loss
+and classification baselines without replacing the runtime's sampler.
+
 ## Availability
 
 Every metric carries one of four states:
@@ -20,9 +28,10 @@ not-ready, or stale data. H2 loss, congestion window, bytes in flight, and PMTU
 are `Unsupported`. H2 PING RTT is `NotReady` before the first PONG, `Available`
 after a valid PONG, and `Stale` after its adaptive deadline. If the locked h2
 build cannot provide `PingPong`, H2 RTT is explicitly `Unsupported` while the
-tunnel remains usable. The locked quiche 0.29.3 `PathStats` exposes RTT, loss,
-congestion window, delivery rate, and PMTU, but not current bytes in flight;
-that field is explicitly `Unsupported` rather than inferred.
+tunnel remains usable. The locked quiche 0.29.3 `PathStats` exposes smoothed RTT,
+minimum RTT, variance, loss, congestion window, delivery rate, and PMTU, but not
+latest RTT or current bytes in flight. Those two fields are explicitly
+`Unsupported`; smoothed RTT is never relabeled as a latest RTT sample.
 
 For H3, PMTU remains `NotReady` while quiche is probing and becomes available
 only when `Connection::pmtu()` reports a completed result. The effective

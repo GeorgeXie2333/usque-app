@@ -211,6 +211,30 @@ pub struct AllocationQuality {
     pub buffer_recycles: u64,
 }
 
+impl AllocationQuality {
+    fn add(&mut self, other: Self) {
+        self.packet_buffer_pool_hits = self
+            .packet_buffer_pool_hits
+            .saturating_add(other.packet_buffer_pool_hits);
+        self.packet_buffer_pool_misses = self
+            .packet_buffer_pool_misses
+            .saturating_add(other.packet_buffer_pool_misses);
+        self.fresh_allocations = self
+            .fresh_allocations
+            .saturating_add(other.fresh_allocations);
+        self.encode_buffer_reuses = self
+            .encode_buffer_reuses
+            .saturating_add(other.encode_buffer_reuses);
+        self.borrowed_to_owned_copy_bytes = self
+            .borrowed_to_owned_copy_bytes
+            .saturating_add(other.borrowed_to_owned_copy_bytes);
+        self.datagram_header_copy_bytes = self
+            .datagram_header_copy_bytes
+            .saturating_add(other.datagram_header_copy_bytes);
+        self.buffer_recycles = self.buffer_recycles.saturating_add(other.buffer_recycles);
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MigrationPhase {
     Idle,
@@ -428,6 +452,9 @@ impl Default for DirectDnsState {
 
 #[derive(Debug, Clone, Default)]
 struct QualityState {
+    // Only the supervisor selects a bearing attempt. Candidates retain their
+    // own state and counters, including while an H2 recovery probe runs.
+    active_attempt: Option<NetworkQualityTelemetry>,
     connection_id: Option<ConnectionInstanceId>,
     transport: Option<Transport>,
     endpoint_family: Option<AddressFamily>,
@@ -545,6 +572,7 @@ impl NetworkQualityTelemetry {
     ) -> ConnectionInstanceId {
         let connection_id = ConnectionInstanceId(Uuid::new_v4());
         let mut state = self.state_write();
+        state.active_attempt = None;
         state.connection_id = Some(connection_id);
         state.transport = Some(transport);
         state.endpoint_family = Some(endpoint_family);
@@ -564,6 +592,7 @@ impl NetworkQualityTelemetry {
 
     pub fn end_connection(&self) {
         let mut state = self.state_write();
+        state.active_attempt = None;
         state.connection_id = None;
         state.transport = None;
         state.endpoint_family = None;
@@ -571,6 +600,47 @@ impl NetworkQualityTelemetry {
         state.h2 = H2State::default();
         state.pmtu = PmtuState::default();
         state.migration.phase = MigrationPhase::Idle;
+    }
+
+    pub(crate) fn new_attempt(&self, transport: Transport, family: AddressFamily) -> Self {
+        let attempt = Self::configured(self.features());
+        #[cfg(any(test, feature = "fault-injection"))]
+        {
+            *attempt.inner.faults.lock().expect("fault mutex poisoned") = self
+                .inner
+                .faults
+                .lock()
+                .expect("fault mutex poisoned")
+                .clone();
+        }
+        attempt.begin_connection(transport, family);
+        attempt
+    }
+
+    pub(crate) fn activate_attempt(&self, attempt: &Self) -> bool {
+        assert!(!Arc::ptr_eq(&self.inner, &attempt.inner));
+        assert!(attempt.state_read().active_attempt.is_none());
+        let mut state = self.state_write();
+        if state
+            .active_attempt
+            .as_ref()
+            .is_some_and(|active| Arc::ptr_eq(&active.inner, &attempt.inner))
+        {
+            return false;
+        }
+        state.active_attempt = Some(attempt.clone());
+        true
+    }
+
+    pub(crate) fn current_smoothed_rtt(&self) -> Option<Duration> {
+        let mut state = self.state_read().clone();
+        if let Some(active) = state.active_attempt.take() {
+            state = active.state_read().clone();
+        }
+        match state.transport? {
+            Transport::Http3 => state.h3.map(|h3| h3.sample.rtt),
+            Transport::Http2 => state.h2.smoothed_rtt,
+        }
     }
 
     pub fn register_queue(
@@ -1007,7 +1077,24 @@ impl NetworkQualitySampler {
 
     pub fn sample(&mut self) -> NetworkQualitySnapshot {
         let sampled_at = Instant::now();
-        let state = self.telemetry.state_read().clone();
+        let mut state = self.telemetry.state_read().clone();
+        // Capture one selected attempt for the entire snapshot: a concurrent
+        // promotion cannot mix its identity with a different attempt's queues.
+        let active = state.active_attempt.take();
+        let mut queue_metrics = self.telemetry.queues_read().clone();
+        let mut allocations = self.telemetry.allocation_snapshot();
+        let udp_io = active.as_ref().unwrap_or(&self.telemetry).udp_snapshot();
+        if let Some(active) = &active {
+            let direct_dns = state.direct_dns;
+            state = active.state_read().clone();
+            state.direct_dns = direct_dns;
+            let attempt_queues = active.queues_read();
+            for kind in [QueueKind::H3DatagramSend, QueueKind::H3WireSend] {
+                let index = queue_index(kind);
+                queue_metrics[index] = Arc::clone(&attempt_queues[index]);
+            }
+            allocations.add(active.allocation_snapshot());
+        }
         let connection_changed = state.connection_id != self.last_connection;
         if connection_changed {
             self.last_connection = state.connection_id;
@@ -1017,9 +1104,7 @@ impl NetworkQualitySampler {
             self.previous_migration_failures = state.migration.failures;
         }
 
-        let queues = self
-            .telemetry
-            .queues_read()
+        let queues = queue_metrics
             .iter()
             .map(|metrics| {
                 QueueQuality::from_snapshot(metrics.snapshot(sampled_at), state.transport)
@@ -1043,8 +1128,8 @@ impl NetworkQualitySampler {
             congestion,
             pmtu,
             queues,
-            udp_io: self.telemetry.udp_snapshot(),
-            allocations: self.telemetry.allocation_snapshot(),
+            udp_io,
+            allocations,
             migration,
             direct_dns,
             h2_flow_control: state.h2.flow_control,
@@ -1061,7 +1146,9 @@ impl NetworkQualitySampler {
         match (state.connection_id, state.transport) {
             (Some(connection_id), Some(Transport::Http3)) => {
                 let Some(h3) = &state.h3 else {
-                    return (rtt_not_ready(), loss_not_ready(), congestion_not_ready());
+                    let mut rtt = rtt_not_ready();
+                    rtt.latest = MetricValue::unsupported();
+                    return (rtt, loss_not_ready(), congestion_not_ready());
                 };
                 let stale =
                     sampled_at.saturating_duration_since(h3.observed_at) > METRIC_STALE_AFTER;
@@ -1076,7 +1163,8 @@ impl NetworkQualitySampler {
                 };
                 (
                     RttQuality {
-                        latest: observed_metric(h3.sample.rtt, stale),
+                        // Public quiche PathStats.rtt is smoothed, not latest.
+                        latest: MetricValue::unsupported(),
                         smoothed: observed_metric(h3.sample.rtt, stale),
                         minimum: h3
                             .sample
@@ -1502,19 +1590,94 @@ mod tests {
         );
     }
 
+    #[test]
+    fn selected_attempt_owns_transport_state_and_queues_until_explicit_promotion() {
+        let runtime = NetworkQualityTelemetry::default();
+        let shared_queue = runtime.register_queue(QueueKind::TransportOutgoingPackets, 8, 800);
+        let _shared_entry = shared_queue.start_entry(100);
+        runtime.record_direct_dns_success(Duration::from_millis(5));
+        runtime.record_borrowed_to_owned_copy(100);
+        let first = runtime.new_attempt(Transport::Http3, AddressFamily::Ipv6);
+        let first_queue = first.register_queue(QueueKind::H3WireSend, 4, 400);
+        let _first_entry = first_queue.start_entry(10);
+        first.observe_h3(h3_sample(100, 0));
+        first.record_udp_send(1);
+        first.record_fresh_allocation();
+        assert!(runtime.activate_attempt(&first));
+        let mut sampler = NetworkQualitySampler::new(runtime.clone());
+        let before = sampler.sample();
+
+        // A later Happy Eyeballs candidate registers the same queue kind and
+        // continues observing after the selected candidate has become ready.
+        let second = runtime.new_attempt(Transport::Http3, AddressFamily::Ipv4);
+        let second_queue = second.register_queue(QueueKind::H3WireSend, 6, 600);
+        let _second_entry = second_queue.start_entry(20);
+        second.observe_h3(h3_sample(50_000, 500));
+        second.record_pmtu_send_too_large();
+        second.record_udp_send(7);
+        second.record_fresh_allocation();
+        second.record_fresh_allocation();
+        let current = sampler.sample();
+        assert_eq!(current.connection_id, before.connection_id);
+        assert_eq!(current.endpoint_family, Some(AddressFamily::Ipv6));
+        assert_eq!(current.udp_io.sent_datagrams, 1);
+        assert_eq!(current.pmtu.send_too_large_count, 0);
+        assert_eq!(current.allocations.fresh_allocations, 1);
+        assert_eq!(current.allocations.borrowed_to_owned_copy_bytes, 100);
+        assert_eq!(current.direct_dns.successes, 1);
+        let queue = |snapshot: &NetworkQualitySnapshot, kind| {
+            snapshot
+                .queues
+                .iter()
+                .find(|queue| queue.kind == kind)
+                .unwrap()
+                .clone()
+        };
+        assert_eq!(queue(&current, QueueKind::H3WireSend).current_bytes, 10);
+        assert_eq!(
+            queue(&current, QueueKind::TransportOutgoingPackets).current_bytes,
+            100
+        );
+
+        assert!(runtime.activate_attempt(&second));
+        // Late cleanup and observations on the old connection stay private.
+        first.end_connection();
+        first.record_udp_send(99);
+        let promoted = sampler.sample();
+        assert_ne!(promoted.connection_id, before.connection_id);
+        assert_eq!(promoted.endpoint_family, Some(AddressFamily::Ipv4));
+        assert_eq!(
+            promoted.loss.interval_basis_points.availability,
+            MetricAvailability::NotReady
+        );
+        assert_eq!(promoted.udp_io.sent_datagrams, 7);
+        assert_eq!(promoted.allocations.fresh_allocations, 2);
+        assert_eq!(queue(&promoted, QueueKind::H3WireSend).current_bytes, 20);
+        assert_eq!(
+            queue(&promoted, QueueKind::TransportOutgoingPackets).current_bytes,
+            100
+        );
+        assert_eq!(promoted.direct_dns.successes, 1);
+        runtime.end_connection();
+        assert_eq!(sampler.sample().connection_id, None);
+    }
+
     #[tokio::test(start_paused = true)]
     async fn stale_metrics_are_explicit_and_keep_the_last_value() {
         let telemetry = NetworkQualityTelemetry::default();
         telemetry.begin_connection(Transport::Http3, AddressFamily::Ipv6);
+        let mut sampler = NetworkQualitySampler::new(telemetry.clone());
+        assert_eq!(sampler.sample().rtt.latest, MetricValue::unsupported());
         telemetry.observe_h3(h3_sample(10, 0));
-        let mut sampler = NetworkQualitySampler::new(telemetry);
         let first = sampler.sample();
+        assert_eq!(first.rtt.latest, MetricValue::unsupported());
         assert_eq!(
             first.rtt.smoothed.availability,
             MetricAvailability::Available
         );
         advance(Duration::from_secs(4)).await;
         let stale = sampler.sample();
+        assert_eq!(stale.rtt.latest, MetricValue::unsupported());
         assert_eq!(stale.rtt.smoothed.availability, MetricAvailability::Stale);
         assert_eq!(stale.rtt.smoothed.value, Some(Duration::from_millis(20)));
     }

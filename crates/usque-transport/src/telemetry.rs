@@ -116,6 +116,8 @@ pub struct ConnectionTelemetry {
 #[derive(Clone)]
 pub(crate) struct ConnectionAttemptTelemetry {
     telemetry: ConnectionTelemetry,
+    quality: NetworkQualityTelemetry,
+    started: Instant,
     transport: Transport,
     family: AddressFamily,
 }
@@ -126,8 +128,11 @@ impl ConnectionAttemptTelemetry {
         transport: Transport,
         family: AddressFamily,
     ) -> Self {
+        let quality = telemetry.quality.new_attempt(transport, family);
         Self {
             telemetry,
+            quality,
+            started: Instant::now(),
             transport,
             family,
         }
@@ -144,11 +149,18 @@ impl ConnectionAttemptTelemetry {
     }
 
     pub(crate) fn quality(&self) -> NetworkQualityTelemetry {
-        self.telemetry.network_quality()
+        self.quality.clone()
+    }
+
+    pub(crate) fn promote(&self) {
+        if self.telemetry.quality.activate_attempt(&self.quality) {
+            self.telemetry
+                .record_tunnel_ready(self.transport, self.family, self.started.elapsed());
+        }
     }
 
     pub(crate) fn observe_h3(&self, sample: H3MetricsSample) {
-        self.telemetry.observe_h3(sample);
+        self.quality.observe_h3(sample);
     }
 
     pub(crate) fn observe_h2_rtt(
@@ -158,7 +170,7 @@ impl ConnectionAttemptTelemetry {
         minimum: Duration,
         variance: Duration,
     ) {
-        self.telemetry
+        self.quality
             .observe_h2_rtt(latest, smoothed, minimum, variance);
     }
 }
@@ -220,10 +232,7 @@ impl ConnectionTelemetry {
         duration: Option<Duration>,
         failure: Option<TransportFailure>,
     ) {
-        if matches!(
-            event_type,
-            ConnectionEventType::Disconnected | ConnectionEventType::Failed
-        ) {
+        if event_type == ConnectionEventType::Disconnected {
             self.quality.end_connection();
         }
         let mut state = self.state();
@@ -264,7 +273,6 @@ impl ConnectionTelemetry {
         family: AddressFamily,
         duration: Duration,
     ) {
-        self.quality.begin_connection(transport, family);
         {
             let mut state = self.state();
             state.metrics.last_connect_duration = Some(duration);
@@ -382,6 +390,7 @@ impl ConnectionTelemetry {
     pub fn snapshot(&self) -> ConnectionTimelineSnapshot {
         let state = self.state();
         let mut metrics = state.metrics.clone();
+        metrics.current_smoothed_rtt = self.quality.current_smoothed_rtt();
         metrics.send_queue_high_watermark = self.send_queue_high_watermark.load(Ordering::Relaxed);
         metrics.send_queue_drop_count = self.send_queue_drop_count.load(Ordering::Relaxed);
         ConnectionTimelineSnapshot {
@@ -393,23 +402,6 @@ impl ConnectionTelemetry {
 
     pub fn network_quality(&self) -> NetworkQualityTelemetry {
         self.quality.clone()
-    }
-
-    fn observe_h3(&self, sample: H3MetricsSample) {
-        self.state().metrics.current_smoothed_rtt = Some(sample.rtt);
-        self.quality.observe_h3(sample);
-    }
-
-    fn observe_h2_rtt(
-        &self,
-        latest: Duration,
-        smoothed: Duration,
-        minimum: Duration,
-        variance: Duration,
-    ) {
-        self.state().metrics.current_smoothed_rtt = Some(smoothed);
-        self.quality
-            .observe_h2_rtt(latest, smoothed, minimum, variance);
     }
 
     fn state(&self) -> MutexGuard<'_, TelemetryState> {
@@ -525,19 +517,15 @@ mod tests {
     #[test]
     fn h2_ping_updates_both_timeline_and_network_quality_rtt() {
         let telemetry = ConnectionTelemetry::new(8);
-        telemetry.record_tunnel_ready(
-            Transport::Http2,
-            AddressFamily::Ipv4,
-            Duration::from_millis(5),
-        );
-        telemetry
-            .network_quality()
-            .configure_h2_connection(4 * 1024 * 1024, 8 * 1024 * 1024, true);
         let attempt = ConnectionAttemptTelemetry::new(
             telemetry.clone(),
             Transport::Http2,
             AddressFamily::Ipv4,
         );
+        attempt
+            .quality()
+            .configure_h2_connection(4 * 1024 * 1024, 8 * 1024 * 1024, true);
+        attempt.promote();
         attempt.observe_h2_rtt(
             Duration::from_millis(20),
             Duration::from_millis(18),
@@ -553,6 +541,59 @@ mod tests {
             crate::network_quality::NetworkQualitySampler::new(telemetry.network_quality())
                 .sample();
         assert_eq!(quality.rtt.smoothed.value, Some(Duration::from_millis(18)));
+    }
+
+    #[test]
+    fn failed_recovery_probe_cannot_clear_or_pollute_the_bearing_h2_connection() {
+        use crate::network_quality::{NetworkQualitySampler, PmtuPhase};
+        let telemetry = ConnectionTelemetry::default();
+        let active = ConnectionAttemptTelemetry::new(
+            telemetry.clone(),
+            Transport::Http2,
+            AddressFamily::Ipv4,
+        );
+        active
+            .quality()
+            .configure_h2_connection(4 * 1024 * 1024, 8 * 1024 * 1024, true);
+        active.observe_h2_rtt(
+            Duration::from_millis(20),
+            Duration::from_millis(18),
+            Duration::from_millis(15),
+            Duration::ZERO,
+        );
+        active.promote();
+        let mut sampler = NetworkQualitySampler::new(telemetry.network_quality());
+        let before = sampler.sample();
+        let probe = ConnectionAttemptTelemetry::new(
+            telemetry.clone(),
+            Transport::Http3,
+            AddressFamily::Ipv6,
+        );
+        probe.quality().record_pmtu_send_too_large();
+        probe.quality().record_pmtu_revalidation_failure();
+        probe.quality().set_pmtu_phase(PmtuPhase::Degraded);
+        probe.record(ConnectionEventType::Failed, TransportStage::QuicHandshake);
+        let after = sampler.sample();
+        assert_eq!(after.connection_id, before.connection_id);
+        assert_eq!(after.transport, Some(Transport::Http2));
+        assert_eq!(after.rtt, before.rtt);
+        assert_eq!(after.pmtu, before.pmtu);
+        assert_eq!(after.h2_flow_control, before.h2_flow_control);
+        assert_eq!(
+            telemetry.snapshot().metrics.current_smoothed_rtt,
+            Some(Duration::from_millis(18))
+        );
+        active.promote();
+        assert_eq!(sampler.sample().connection_id, before.connection_id);
+        assert_eq!(
+            telemetry
+                .snapshot()
+                .events
+                .iter()
+                .filter(|event| event.event_type == ConnectionEventType::TunnelReady)
+                .count(),
+            1
+        );
     }
 
     #[test]

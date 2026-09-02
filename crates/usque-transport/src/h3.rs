@@ -87,6 +87,7 @@ pub struct H3Tunnel {
     driver: H3Driver,
     control: watch::Receiver<PeerNetworkState>,
     migration: H3MigrationHandle,
+    attempt: Option<ConnectionAttemptTelemetry>,
 }
 
 impl H3Tunnel {
@@ -107,6 +108,12 @@ impl H3Tunnel {
 
     pub fn migration_handle(&self) -> H3MigrationHandle {
         self.migration.clone()
+    }
+
+    pub(crate) fn activate_network_quality(&self) {
+        if let Some(attempt) = &self.attempt {
+            attempt.promote();
+        }
     }
 }
 
@@ -508,6 +515,7 @@ async fn connect_h3_once(
                 migration_generation,
                 features.quic_migration,
             ),
+            attempt: attempt.cloned(),
         }),
         Ok(Ok(Err(failure))) => {
             task.abort();

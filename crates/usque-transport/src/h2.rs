@@ -131,6 +131,7 @@ pub struct H2Tunnel {
     flow_control: H2FlowControlConfig,
     ping_supported: bool,
     quality: NetworkQualityTelemetry,
+    attempt: Option<ConnectionAttemptTelemetry>,
 }
 
 impl H2Tunnel {
@@ -155,6 +156,9 @@ impl H2Tunnel {
             self.flow_control.connection_receive_window,
             self.ping_supported,
         );
+        if let Some(attempt) = &self.attempt {
+            attempt.promote();
+        }
     }
 }
 
@@ -526,14 +530,16 @@ pub(crate) async fn connect_h2_with_protector(
         );
     }
     let receive = response.into_body();
-    Ok(h2_tunnel_from_streams(
+    let mut tunnel = h2_tunnel_from_streams(
         stream,
         receive,
         task.detach(),
         quality,
         flow_control,
         ping_supported,
-    ))
+    );
+    tunnel.attempt = attempt.cloned();
+    Ok(tunnel)
 }
 
 static H2_PING_UNSUPPORTED_REPORTED: AtomicBool = AtomicBool::new(false);
@@ -751,6 +757,7 @@ fn h2_tunnel_from_streams(
         flow_control,
         ping_supported,
         quality,
+        attempt: None,
     }
 }
 

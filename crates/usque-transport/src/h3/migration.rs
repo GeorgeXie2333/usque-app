@@ -1106,8 +1106,13 @@ mod tests {
                 );
             }
             let telemetry = ConnectionTelemetry::default();
-            telemetry.record_tunnel_ready(Transport::Http3, AddressFamily::Ipv4, Duration::ZERO);
-            let quality = telemetry.network_quality();
+            let attempt = ConnectionAttemptTelemetry::new(
+                telemetry.clone(),
+                Transport::Http3,
+                AddressFamily::Ipv4,
+            );
+            attempt.promote();
+            let quality = attempt.quality();
             let lease_drops = Arc::new(AtomicUsize::new(0));
             let protector = Arc::new(TestProtector {
                 generation: AtomicU64::new(1),
@@ -1131,16 +1136,7 @@ mod tests {
             )
             .unwrap();
             let paths = PathSocketSet::with_active(active).unwrap();
-            let actor = MigrationActor::new(
-                protector.clone(),
-                quality.clone(),
-                Some(ConnectionAttemptTelemetry::new(
-                    telemetry.clone(),
-                    Transport::Http3,
-                    AddressFamily::Ipv4,
-                )),
-                1,
-            );
+            let actor = MigrationActor::new(protector.clone(), quality.clone(), Some(attempt), 1);
             let wire_queue = quality.register_queue(
                 QueueKind::H3WireSend,
                 MAX_PENDING_WIRE_DATAGRAMS,
@@ -2007,7 +2003,7 @@ mod tests {
         .await
         .unwrap()
         .unwrap();
-        telemetry.record_tunnel_ready(Transport::Http3, AddressFamily::Ipv4, Duration::ZERO);
+        tunnel.activate_network_quality();
         let quality = telemetry.network_quality();
         let connection_id = NetworkQualitySampler::new(quality.clone())
             .sample()
