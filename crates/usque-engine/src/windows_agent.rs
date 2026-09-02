@@ -206,7 +206,12 @@ impl SocketProtector for WindowsVpnSocketProtector {
 impl WindowsVpnSocketProtector {
     /// Only an acknowledged, fully closed Agent transaction may release the
     /// VPN binding policy. A failed rollback must keep exact-egress checks.
-    fn complete_proxy_detach(&self, state: &AgentState) -> Result<(), WindowsVpnError> {
+    fn complete_proxy_detach(
+        &self,
+        state: &AgentState,
+        system_proxy_cleanup: Result<(), WindowsVpnError>,
+    ) -> Result<(), WindowsVpnError> {
+        system_proxy_cleanup?;
         validate_proxy_detach_state(state)?;
         self.proxy_mode.store(true, Ordering::Release);
         self.monitor_cancel.cancel();
@@ -592,6 +597,9 @@ pub(crate) struct WindowsVpnRuntime {
     tunnel: Option<MasqueRuntime>,
     // Present when this runtime created the VPN-bound MASQUE protector.
     socket_protector: Option<Arc<WindowsVpnSocketProtector>>,
+    // Retained after rollback succeeds even if another cleanup step fails.
+    // A retry may consume this acknowledgement, but it grants no host egress.
+    proxy_detach_state: Option<AgentState>,
 }
 
 #[derive(Clone)]
@@ -926,6 +934,9 @@ impl WindowsVpnRuntime {
 
     /// Tear down Wintun/WFP and return the live MASQUE session.
     pub(crate) async fn detach_into_masque(&mut self) -> Result<MasqueRuntime, WindowsVpnError> {
+        if self.tunnel.is_none() {
+            return Err(WindowsVpnError::MissingMasqueRuntime);
+        }
         self.stop_packet_pumps().await;
         if let Some(tunnel) = self.tunnel.as_mut() {
             tunnel.detach_tun();
@@ -940,21 +951,29 @@ impl WindowsVpnRuntime {
                 .rollback(self.operation_id, "HOT_TUNNEL_DETACH")
                 .await
                 .and_then(|state| {
-                    if let Some(protector) = &self.socket_protector {
-                        protector.complete_proxy_detach(&state)?;
-                    } else {
-                        validate_proxy_detach_state(&state)?;
-                    }
-                    Ok(())
+                    validate_proxy_detach_state(&state)?;
+                    Ok(state)
                 })
         } else {
-            Ok(())
+            self.proxy_detach_state
+                .clone()
+                .ok_or_else(|| WindowsVpnError::RecoveryRequired {
+                    phase: agent_v1::AgentPhase::RecoveryRequired as i32,
+                    operation_id: self.operation_id.to_string(),
+                })
         };
-        if rollback.is_ok() {
+        if let Ok(state) = &rollback {
             self.transaction_open = false;
+            self.proxy_detach_state = Some(state.clone());
         }
-        system_proxy_result?;
-        rollback?;
+        let state = rollback?;
+        // Failure retains the Vpn runtime/profile in the caller. Never enable
+        // ordinary host egress unless the complete detach can return success.
+        if let Some(protector) = &self.socket_protector {
+            protector.complete_proxy_detach(&state, system_proxy_result)?;
+        } else {
+            system_proxy_result?;
+        }
         self.tunnel
             .take()
             .ok_or(WindowsVpnError::MissingMasqueRuntime)
@@ -1238,6 +1257,7 @@ async fn bind_agent_session(
         transaction_open: true,
         tunnel: Some(tunnel),
         socket_protector: None,
+        proxy_detach_state: None,
     })
 }
 
@@ -2676,14 +2696,23 @@ mod tests {
             phase: agent_v1::AgentPhase::Active as i32,
             ..AgentState::default()
         };
-        assert!(protector.complete_proxy_detach(&state).is_err());
+        assert!(protector.complete_proxy_detach(&state, Ok(())).is_err());
         assert_eq!(protector.egress_generation(7), Ok(Some(3)));
         assert!(!protector.monitor_cancel.is_cancelled());
         state.phase = agent_v1::AgentPhase::Clean as i32;
         state.packet_session_active = true;
-        assert!(protector.complete_proxy_detach(&state).is_err());
+        assert!(protector.complete_proxy_detach(&state, Ok(())).is_err());
         state.packet_session_active = false;
-        protector.complete_proxy_detach(&state).unwrap();
+        assert!(
+            protector
+                .complete_proxy_detach(&state, Err(WindowsVpnError::MissingSystemProxyListener))
+                .is_err()
+        );
+        assert_eq!(protector.egress_generation(7), Ok(Some(3)));
+        assert!(!protector.monitor_cancel.is_cancelled());
+        // The same validated rollback receipt can be used by a successful
+        // cleanup retry; the failed attempt did not grant proxy mode.
+        protector.complete_proxy_detach(&state, Ok(())).unwrap();
         assert!(protector.monitor_cancel.is_cancelled());
         assert_eq!(protector.network_generation(), None);
         assert_eq!(

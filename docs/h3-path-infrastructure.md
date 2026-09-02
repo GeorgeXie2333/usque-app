@@ -144,6 +144,12 @@ reason enums only.
 
 ## Validation boundary
 
+A failed system-proxy cleanup during VPN-to-proxy detach must not activate
+ordinary host egress, even if Agent rollback subsequently reaches Clean. The
+runtime retains that verified rollback receipt for a retry while keeping the
+strict VPN protector. Host policy activates only when every detach cleanup
+step succeeds and a MASQUE session is available for handoff.
+
 Android refreshes its cached generation from the authoritative Java counter
 while holding the runtime-install lock and before starting a worker. A stale
 bind also refreshes that cache without authorizing the rejected socket; the
