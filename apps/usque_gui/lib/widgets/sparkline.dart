@@ -10,21 +10,27 @@ class Sparkline extends StatelessWidget {
     required this.samples,
     required this.color,
     this.height = 32,
+    this.semanticLabel,
     super.key,
   });
 
-  final List<int> samples;
+  final List<int?> samples;
+  final String? semanticLabel;
   final Color color;
   final double height;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: height,
-      width: double.infinity,
-      child: RepaintBoundary(
-        child: CustomPaint(
-          painter: _SparklinePainter(samples: samples, color: color),
+    return Semantics(
+      label: semanticLabel,
+      image: semanticLabel != null,
+      child: SizedBox(
+        height: height,
+        width: double.infinity,
+        child: RepaintBoundary(
+          child: CustomPaint(
+            painter: _SparklinePainter(samples: samples, color: color),
+          ),
         ),
       ),
     );
@@ -34,7 +40,7 @@ class Sparkline extends StatelessWidget {
 class _SparklinePainter extends CustomPainter {
   _SparklinePainter({required this.samples, required this.color});
 
-  final List<int> samples;
+  final List<int?> samples;
   final Color color;
 
   @override
@@ -54,49 +60,62 @@ class _SparklinePainter extends CustomPainter {
 
     var peak = 0;
     for (final sample in samples) {
-      if (sample > peak) peak = sample;
+      if (sample != null && sample > peak) peak = sample;
     }
-    if (peak <= 0) {
-      return;
-    }
+    if (peak <= 0) peak = 1;
 
     final double step = size.width / (samples.length - 1);
-    final Path line = Path();
+    final segments = <List<Offset>>[];
+    var segment = <Offset>[];
     for (int i = 0; i < samples.length; i += 1) {
-      final double x = i * step;
-      final double y = size.height - (samples[i] / peak) * (size.height - 2);
-      if (i == 0) {
-        line.moveTo(x, y);
-      } else {
-        line.lineTo(x, y);
+      final sample = samples[i];
+      if (sample == null) {
+        if (segment.isNotEmpty) segments.add(segment);
+        segment = <Offset>[];
+        continue;
       }
+      final double x = i * step;
+      final double y = size.height - 1 - (sample / peak) * (size.height - 2);
+      segment.add(Offset(x, y));
     }
+    if (segment.isNotEmpty) segments.add(segment);
 
-    final Path area = Path.from(line)
-      ..lineTo(size.width, size.height)
-      ..lineTo(0, size.height)
-      ..close();
-    canvas.drawPath(
-      area,
-      Paint()
-        ..shader = LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: <Color>[
-            color.withValues(alpha: 0.22),
-            color.withValues(alpha: 0),
-          ],
-        ).createShader(Rect.fromLTWH(0, 0, size.width, size.height)),
-    );
-    canvas.drawPath(
-      line,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.6
-        ..strokeJoin = StrokeJoin.round
-        ..strokeCap = StrokeCap.round
-        ..color = color,
-    );
+    for (final points in segments) {
+      final line = Path()..moveTo(points.first.dx, points.first.dy);
+      for (final point in points.skip(1)) {
+        line.lineTo(point.dx, point.dy);
+      }
+      if (points.length == 1) {
+        canvas.drawCircle(points.first, 1.8, Paint()..color = color);
+        continue;
+      }
+
+      final Path area = Path.from(line)
+        ..lineTo(points.last.dx, size.height)
+        ..lineTo(points.first.dx, size.height)
+        ..close();
+      canvas.drawPath(
+        area,
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: <Color>[
+              color.withValues(alpha: 0.22),
+              color.withValues(alpha: 0),
+            ],
+          ).createShader(Rect.fromLTWH(0, 0, size.width, size.height)),
+      );
+      canvas.drawPath(
+        line,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.6
+          ..strokeJoin = StrokeJoin.round
+          ..strokeCap = StrokeCap.round
+          ..color = color,
+      );
+    }
   }
 
   @override

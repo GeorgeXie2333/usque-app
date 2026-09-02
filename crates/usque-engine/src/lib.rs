@@ -77,7 +77,7 @@ pub struct ControlService {
     store: ConfigStore,
     pub(crate) config: RwLock<AppConfig>,
     pub(crate) state: Arc<Mutex<StateMachine>>,
-    pub(crate) mutation_lock: Mutex<()>,
+    pub(crate) mutation_lock: Arc<Mutex<()>>,
     vault: Arc<dyn SecretVault>,
     pub(crate) data_plane: Arc<Mutex<Option<ActiveDataPlane>>>,
     disconnect_cleanup: Mutex<Option<tokio::task::JoinHandle<Result<(), ControlServiceError>>>>,
@@ -312,7 +312,7 @@ impl ControlService {
             store,
             config: RwLock::new(config),
             state: Arc::new(Mutex::new(StateMachine::default())),
-            mutation_lock: Mutex::new(()),
+            mutation_lock: Arc::new(Mutex::new(())),
             vault,
             data_plane: Arc::new(Mutex::new(None)),
             disconnect_cleanup: Mutex::new(None),
@@ -748,7 +748,7 @@ impl ControlService {
                         ));
                     }
                 };
-                let context = self.diagnostic_context().await;
+                let context = self.diagnostic_context(mode).await;
                 let session = self.diagnostics.start(mode, context).await?;
                 Ok(control_response::Payload::Diagnostics(
                     diagnostics::session_to_proto(&session),
@@ -939,18 +939,35 @@ impl ControlService {
             .unwrap_or_default()
     }
 
-    async fn diagnostic_context(&self) -> diagnostics::DiagnosticContext {
-        let connection = self.status_snapshot().await;
+    async fn diagnostic_context(
+        &self,
+        mode: usque_core::DiagnosticMode,
+    ) -> diagnostics::DiagnosticContext {
+        let captured_at = tokio::time::Instant::now();
+        // Unlike status polling, diagnostics must not reconcile or mutate the
+        // runtime state machine as a side effect of a read-only Standard run.
+        let connection = self.state.lock().await.snapshot().clone();
         let config = self.config.read().await.clone();
         let active_profile = config.active_profile();
         #[cfg(windows)]
-        let platform_state = {
-            windows_agent::inspect_platform_state_if_running()
-                .await
-                .ok()
+        let platform_state = if mode == usque_core::DiagnosticMode::Deep {
+            tokio::time::timeout(
+                std::time::Duration::from_millis(250),
+                windows_agent::inspect_platform_state_if_running(),
+            )
+            .await
+            .ok()
+            .and_then(Result::ok)
+        } else {
+            None
         };
         #[cfg(not(windows))]
         let platform_state = None;
+        let probes = if mode == usque_core::DiagnosticMode::Deep {
+            self.diagnostic_probe_context().await.map(Arc::new)
+        } else {
+            None
+        };
         diagnostics::DiagnosticContext {
             connection,
             configuration_valid: config.validate().is_ok(),
@@ -967,7 +984,93 @@ impl ControlService {
             operating_system: std::env::consts::OS.to_owned(),
             timeline: self.connection_timeline_snapshot().await,
             platform_state,
+            quality: self.network_quality_snapshot(),
+            direct_dns: active_profile
+                .as_ref()
+                .map(|profile| profile.direct_dns.clone())
+                .unwrap_or_default(),
+            probes,
+            captured_at,
         }
+    }
+
+    async fn diagnostic_probe_context(&self) -> Option<diagnostics::DiagnosticProbeContext> {
+        let config = self.config.try_read().ok()?;
+        let profile = config.active_profile()?;
+        drop(config);
+        {
+            let data_plane = self.data_plane.try_lock().ok()?;
+            if let Some(active) = data_plane.as_ref() {
+                let (protector, runtime_cancel) = active.runtime.diagnostic_dns_context()?;
+                return Some(diagnostics::DiagnosticProbeContext {
+                    settings: profile.direct_dns.clone(),
+                    protector,
+                    runtime_cancel,
+                    h3: None,
+                    _lifecycle: None,
+                });
+            }
+        }
+        // Never wait behind a connect/reconfigure. No active path may appear
+        // until the Deep session releases this guard (also on cancellation).
+        let lifecycle = Arc::clone(&self.mutation_lock).try_lock_owned().ok()?;
+        if self.data_plane.try_lock().ok()?.is_some()
+            || self.state.try_lock().ok()?.snapshot().phase != ConnectionPhase::Disconnected
+            || self.disconnect_cleanup.try_lock().ok()?.is_some()
+        {
+            return None;
+        }
+        let protector: Arc<dyn usque_transport::SocketProtector> = Arc::new(NoopSocketProtector);
+        let identity = tokio::time::timeout(
+            std::time::Duration::from_millis(250),
+            self.load_diagnostic_tls_identity(profile.id),
+        )
+        .await
+        .ok()
+        .and_then(Result::ok);
+        let endpoint = match profile.ip_policy {
+            IpPolicy::Ipv6Only | IpPolicy::PreferIpv6 => {
+                SocketAddr::new(IpAddr::V6(profile.endpoint.ipv6), profile.endpoint.port)
+            }
+            _ => SocketAddr::new(IpAddr::V4(profile.endpoint.ipv4), profile.endpoint.port),
+        };
+        Some(diagnostics::DiagnosticProbeContext {
+            settings: profile.direct_dns.clone(),
+            protector,
+            runtime_cancel: tokio_util::sync::CancellationToken::new(),
+            h3: identity
+                .filter(|_| profile.transport != TransportPolicy::Http2)
+                .map(|identity| (endpoint, profile.endpoint.sni.clone(), identity)),
+            _lifecycle: Some(lifecycle),
+        })
+    }
+
+    async fn load_diagnostic_tls_identity(
+        &self,
+        profile_id: Uuid,
+    ) -> Result<MasqueTlsIdentity, ControlServiceError> {
+        // A handshake needs no account token, device identifier or license.
+        let private_key = self
+            .required_secret(profile_id, SecretRecord::MasquePrivateKey)
+            .await?;
+        let pin = self
+            .required_secret(profile_id, SecretRecord::EndpointPin)
+            .await?;
+        let ipv4 = self
+            .required_secret(profile_id, SecretRecord::AssignedIpv4)
+            .await?;
+        let ipv6 = self
+            .required_secret(profile_id, SecretRecord::AssignedIpv6)
+            .await?;
+        let ipv4 = std::str::from_utf8(&ipv4)
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .ok_or(ControlServiceError::InvalidStoredIdentity)?;
+        let ipv6 = std::str::from_utf8(&ipv6)
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .ok_or(ControlServiceError::InvalidStoredIdentity)?;
+        MasqueTlsIdentity::new(private_key, &pin, ipv4, ipv6).map_err(Into::into)
     }
 
     fn emit_geo_progress(&self, progress: GeoProgress) {
@@ -3661,6 +3764,53 @@ mod tests {
     };
 
     use super::*;
+
+    #[tokio::test]
+    async fn standard_doctor_preserves_configuration_runtime_and_generations() {
+        let directory = tempfile::tempdir().unwrap();
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(MemoryVault::default()),
+        )
+        .unwrap();
+        let profile = service.config_snapshot().await.active_profile().unwrap();
+        service
+            .install_test_session(profile, false, 0)
+            .await
+            .unwrap();
+        let before_config = serde_json::to_value(service.config_snapshot().await).unwrap();
+        let before_state = service.state.lock().await.snapshot().clone();
+        let generation = service.session_generation.load(Ordering::Relaxed);
+        let start = tokio::time::Instant::now();
+        let context = service
+            .diagnostic_context(usque_core::DiagnosticMode::Standard)
+            .await;
+        assert!(context.probes.is_none());
+        assert!(context.platform_state.is_none());
+        service
+            .diagnostics
+            .start(usque_core::DiagnosticMode::Standard, context)
+            .await
+            .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            while service.diagnostics.get().await.unwrap().state.is_active() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(start.elapsed() < std::time::Duration::from_secs(2));
+        assert_eq!(
+            serde_json::to_value(service.config_snapshot().await).unwrap(),
+            before_config
+        );
+        assert_eq!(*service.state.lock().await.snapshot(), before_state);
+        assert_eq!(
+            service.session_generation.load(Ordering::Relaxed),
+            generation
+        );
+        assert!(service.data_plane.lock().await.is_some());
+    }
 
     #[test]
     fn runtime_path_updates_are_edge_triggered() {

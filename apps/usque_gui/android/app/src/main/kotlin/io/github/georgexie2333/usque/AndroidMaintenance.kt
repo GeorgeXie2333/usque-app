@@ -278,6 +278,10 @@ internal object AndroidMaintenance {
             if (finding["summary_key"] == expectedSummary) {
                 output.put("summary_key", expectedSummary)
             }
+            (finding["summary_key"] as? String)
+                ?.takeIf(
+                    NETWORK_SUMMARIES::contains,
+                )?.let { output.put("summary_key", it) }
             safeRemediationKey(finding["remediation_key"])?.let { key ->
                 output.put("remediation_key", key)
             }
@@ -425,7 +429,7 @@ internal object AndroidMaintenance {
                 "physical_network"
             }
 
-            "transport" -> {
+            "transport", "quality" -> {
                 "transport"
             }
 
@@ -433,7 +437,7 @@ internal object AndroidMaintenance {
                 "tunnel"
             }
 
-            "protection" -> {
+            "protection", "dns" -> {
                 if (checkId == "protection.recovery_journal") "recovery" else "protection"
             }
 
@@ -459,7 +463,9 @@ internal object AndroidMaintenance {
             EVIDENCE_COUNTER_PREFIXES.any { prefix ->
                 value.removePrefix(prefix).let { suffix ->
                     suffix.length < value.length &&
+                        suffix.isNotEmpty() &&
                         suffix.length <= 20 &&
+                        suffix.toULongOrNull() != null &&
                         suffix.all { character -> character in '0'..'9' }
                 }
             }
@@ -601,6 +607,15 @@ internal object AndroidMaintenance {
             "protection.dns_path",
             "protection.route_ownership",
             "protection.recovery_journal",
+            "quality.rtt",
+            "quality.packet_loss",
+            "quality.queue_pressure",
+            "quality.pmtu",
+            "transport.migration_capability",
+            "dns.direct_encrypted_configuration",
+            "dns.direct_encrypted_runtime_state",
+            "dns.direct_encrypted_reachability",
+            "transport.h3_path_validation_probe",
         )
     private val FAILURE_CODES =
         setOf(
@@ -655,6 +670,10 @@ internal object AndroidMaintenance {
         )
     private val REMEDIATION_KEYS =
         setOf(
+            "nq_profile",
+            "nq_retry",
+            "nq_network",
+            "nq_reconnect",
             "none",
             "retry",
             "try_http2",
@@ -696,7 +715,45 @@ internal object AndroidMaintenance {
             "kill_switch=unknown",
         )
     private val EVIDENCE_COUNTER_PREFIXES =
-        setOf("dns_server_count=", "generation=")
+        setOf(
+            "dns_server_count=",
+            "generation=",
+            "rtt_ms=",
+            "loss_basis_points=",
+            "queue_percent=",
+            "queue_drops=",
+            "pmtu_bytes=",
+            "pmtu_failures=",
+            "migration_failures=",
+            "dns_successes=",
+            "dns_failures=",
+            "dns_timeouts=",
+            "plaintext_fallback=",
+            "probe_ms=",
+        )
+    private val NETWORK_SUMMARIES =
+        setOf(
+            "nq_finding_unavailable",
+            "nq_finding_invalid_configuration",
+            "nq_finding_dns_system",
+            "nq_finding_unsupported",
+            "nq_finding_dns_custom_valid",
+            "nq_finding_stale",
+            "nq_finding_rtt_high",
+            "nq_finding_healthy",
+            "nq_finding_loss_high",
+            "nq_finding_queue_pressure",
+            "nq_finding_pmtu_degraded",
+            "nq_finding_migration_reconnect",
+            "nq_finding_dns_changed",
+            "nq_finding_dns_runtime",
+            "nq_finding_dns_degraded",
+            "nq_finding_probe_unsafe",
+            "nq_finding_probe_success",
+            "nq_finding_probe_cancelled",
+            "nq_finding_probe_timeout",
+            "nq_finding_probe_failed",
+        )
     private val SERVICE_STATES = setOf("running", "stopped", "unknown")
     private val PROCESS_STATES = setOf("reachable", "unreachable", "unknown")
     private val NOTIFICATION_STATES = setOf("active", "inactive", "unknown")

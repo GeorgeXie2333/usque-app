@@ -515,6 +515,9 @@ message ConnectionMetrics {
   MetricAvailability bytes_in_flight_availability = 61;
   MetricAvailability send_rate_availability = 62;
   uint64 pmtu_send_too_large_count = 63;
+  uint64 latest_rtt_ms = 64;
+  bool latest_rtt_known = 65;
+  MetricAvailability latest_rtt_availability = 66;
 }
 
 enum MetricAvailability {

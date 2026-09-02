@@ -207,6 +207,21 @@ impl ActiveRuntime {
         }
     }
 
+    pub(crate) fn diagnostic_dns_context(
+        &self,
+    ) -> Option<(
+        std::sync::Arc<dyn usque_transport::SocketProtector>,
+        tokio_util::sync::CancellationToken,
+    )> {
+        match self {
+            Self::Proxy(runtime) => Some(runtime.runtime.diagnostic_dns_context()),
+            #[cfg(windows)]
+            Self::Vpn(runtime) => runtime.diagnostic_dns_context(),
+            #[cfg(test)]
+            Self::Harness(_) => None,
+        }
+    }
+
     pub(crate) fn failure(&self) -> Option<String> {
         match self {
             Self::Proxy(runtime) => runtime.runtime.failure(),

@@ -205,7 +205,10 @@ class MethodChannelEngineClient implements EngineClient {
       (await snapshot()).networkQuality;
 
   @override
-  Future<EngineCapabilities?> getCapabilities() async => null;
+  Future<EngineCapabilities?> getCapabilities() async {
+    final value = await _invoke<Map<Object?, Object?>>('getCapabilities');
+    return value == null ? null : EngineCapabilities.fromMap(value);
+  }
 
   @override
   Future<ProfileCatalog> importLegacyProfiles(

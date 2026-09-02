@@ -44,6 +44,7 @@ pub(crate) fn snapshot_to_proto(snapshot: &NetworkQualitySnapshot) -> v1::Networ
         .collect::<Vec<_>>();
 
     let (smoothed_rtt, smoothed_rtt_known) = duration_metric(&snapshot.rtt.smoothed);
+    let (latest_rtt, latest_rtt_known) = duration_metric(&snapshot.rtt.latest);
     let (minimum_rtt, minimum_rtt_known) = duration_metric(&snapshot.rtt.minimum);
     let (rtt_variance, rtt_variance_known) = duration_metric(&snapshot.rtt.variance);
     let (interval_loss, interval_loss_known) = u32_metric(&snapshot.loss.interval_basis_points);
@@ -74,6 +75,9 @@ pub(crate) fn snapshot_to_proto(snapshot: &NetworkQualitySnapshot) -> v1::Networ
             .unwrap_or_default(),
         level: quality_level(snapshot.level) as i32,
         metrics: Some(v1::ConnectionMetrics {
+            latest_rtt_ms: latest_rtt,
+            latest_rtt_known,
+            latest_rtt_availability: availability(snapshot.rtt.latest.availability) as i32,
             current_smoothed_rtt_milliseconds: smoothed_rtt,
             current_smoothed_rtt_known: smoothed_rtt_known,
             min_rtt_ms: minimum_rtt,

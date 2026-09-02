@@ -47,6 +47,9 @@ use crate::socket::{
 use crate::telemetry::{ConnectionAttemptTelemetry, ConnectionEventType};
 use crate::udp_io::{SendDatagram, UDP_ACTOR_DRAIN_LIMIT, UdpReceivePool, is_message_too_long};
 
+pub(crate) mod diagnostic;
+#[cfg(test)]
+mod diagnostic_tests;
 mod migration;
 use migration::{H3_CONTROL_CAPACITY, H3ControlCommand, MigrationActor, MigrationDrive};
 pub use migration::{H3MigrationHandle, H3MigrationResult};

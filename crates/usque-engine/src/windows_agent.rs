@@ -769,6 +769,14 @@ impl WindowsVpnRuntime {
         self.monitor.tunnel.subscribe_network_quality()
     }
 
+    pub(crate) fn diagnostic_dns_context(
+        &self,
+    ) -> Option<(Arc<dyn SocketProtector>, CancellationToken)> {
+        self.tunnel
+            .as_ref()
+            .map(MasqueRuntime::diagnostic_dns_context)
+    }
+
     pub(crate) fn failure(&self) -> Option<String> {
         self.monitor.failure()
     }

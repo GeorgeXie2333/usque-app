@@ -23,6 +23,10 @@ pub(crate) struct DiagnosticContext {
     pub operating_system: String,
     pub timeline: ConnectionTimelineSnapshot,
     pub platform_state: Option<PlatformState>,
+    pub quality: usque_transport::NetworkQualitySnapshot,
+    pub direct_dns: usque_core::DirectDnsSettings,
+    pub probes: Option<Arc<super::probes::DiagnosticProbeContext>>,
+    pub captured_at: tokio::time::Instant,
 }
 
 #[async_trait]
@@ -73,6 +77,13 @@ pub(crate) enum PassiveCheckKind {
     DnsPath,
     RouteOwnership,
     RecoveryJournal,
+    QualityRtt,
+    QualityLoss,
+    QualityQueues,
+    QualityPmtu,
+    MigrationCapability,
+    EncryptedDnsConfiguration,
+    EncryptedDnsRuntime,
 }
 
 pub(crate) struct PassiveCheck {
@@ -107,6 +118,13 @@ impl PassiveCheck {
         use PassiveCheckKind as Kind;
 
         match self.kind {
+            Kind::QualityRtt
+            | Kind::QualityLoss
+            | Kind::QualityQueues
+            | Kind::QualityPmtu
+            | Kind::MigrationCapability
+            | Kind::EncryptedDnsConfiguration
+            | Kind::EncryptedDnsRuntime => super::quality::evaluate(self, self.kind, context),
             Kind::ControlChannel => passed(self, "diagnostic_engine_control_ok", ["responsive"]),
             Kind::EventStream => passed(self, "diagnostic_event_stream_ok", ["recoverable"]),
             Kind::Capabilities => passed(self, "diagnostic_capabilities_ok", ["append_only_api"]),
@@ -850,6 +868,10 @@ mod tests {
                 system_proxy_lease: true,
                 ..PlatformState::default()
             }),
+            quality: crate::network_quality::disconnected_snapshot(),
+            direct_dns: usque_core::DirectDnsSettings::default(),
+            probes: None,
+            captured_at: tokio::time::Instant::now(),
         }
     }
 

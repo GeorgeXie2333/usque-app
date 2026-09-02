@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 
 import '../models/app_models.dart';
 import 'l10n/catalogs.dart';
+import 'l10n/network_quality.dart';
 
 class AppStrings {
   AppStrings(LocalePreference preference, {Locale? systemLocale})
@@ -17,6 +18,10 @@ class AppStrings {
       catalogId.startsWith('zh') ? 'zh' : catalogId.split('_').first;
 
   String get(String key) {
+    final quality = catalogId == 'zh_CN'
+        ? kNetworkQualityZhCn
+        : kNetworkQualityEn;
+    if (quality.containsKey(key)) return quality[key]!;
     final values = kCatalogs[catalogId] ?? kEnCatalog;
     return values[key] ?? kEnCatalog[key] ?? key;
   }
@@ -28,6 +33,14 @@ class AppStrings {
 
   @visibleForTesting
   static bool get debugCatalogsAreComplete {
+    if (!setEquals(
+          kNetworkQualityEn.keys.toSet(),
+          kNetworkQualityZhCn.keys.toSet(),
+        ) ||
+        kNetworkQualityEn.values.any((value) => value.trim().isEmpty) ||
+        kNetworkQualityZhCn.values.any((value) => value.trim().isEmpty)) {
+      return false;
+    }
     final englishKeys = kEnCatalog.keys.toSet();
     if (englishKeys.isEmpty || kCatalogs.isEmpty) {
       return false;

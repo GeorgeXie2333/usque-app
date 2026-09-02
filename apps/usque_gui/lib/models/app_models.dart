@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import 'diagnostics_models.dart';
 
-enum AppSection { home, profiles, proxy, settings }
+enum AppSection { home, profiles, proxy, networkQuality, settings }
 
 enum ConnectionPhase {
   disconnected,
@@ -952,16 +952,20 @@ Map<Object?, Object?> _objectMap(Object? value) => value is Map
     : const <Object?, Object?>{};
 
 int _mapInt(Map<Object?, Object?> map, String key) =>
-    (map[key] as num?)?.toInt() ?? 0;
+    _mapNullableInt(map, key) ?? 0;
 
-int? _mapNullableInt(Map<Object?, Object?> map, String key) =>
-    (map[key] as num?)?.toInt();
+int? _mapNullableInt(Map<Object?, Object?> map, String key) {
+  final value = map[key];
+  return value is num && value.isFinite && value >= 0 && value % 1 == 0
+      ? value.toInt()
+      : null;
+}
 
 String _mapString(Map<Object?, Object?> map, String key) =>
-    map[key] as String? ?? '';
+    map[key] is String ? map[key]! as String : '';
 
 T _enumNameOr<T extends Enum>(List<T> values, Object? raw, T fallback) {
-  final name = raw as String?;
+  final name = raw is String ? raw : null;
   if (name == null) return fallback;
   return values.firstWhere(
     (value) => value.name == name,
@@ -1067,6 +1071,8 @@ enum NetworkQueueKind {
 
 class NetworkConnectionMetrics {
   const NetworkConnectionMetrics({
+    this.latestRttMilliseconds,
+    this.latestRttAvailability = MetricAvailability.unknown,
     this.smoothedRttMilliseconds,
     this.minimumRttMilliseconds,
     this.rttVarianceMilliseconds,
@@ -1111,6 +1117,8 @@ class NetworkConnectionMetrics {
     this.sendRateAvailability = MetricAvailability.unknown,
   });
 
+  final int? latestRttMilliseconds;
+  final MetricAvailability latestRttAvailability;
   final int? smoothedRttMilliseconds;
   final int? minimumRttMilliseconds;
   final int? rttVarianceMilliseconds;
@@ -1155,6 +1163,8 @@ class NetworkConnectionMetrics {
   final MetricAvailability sendRateAvailability;
 
   List<Object?> get _values => <Object?>[
+    latestRttMilliseconds,
+    latestRttAvailability,
     smoothedRttMilliseconds,
     minimumRttMilliseconds,
     rttVarianceMilliseconds,
@@ -1442,19 +1452,31 @@ class NetworkQualitySnapshot {
     final sampledAtMilliseconds = _mapInt(map, 'sampled_at_unix_ms');
     final connectionId = _mapString(map, 'connection_instance_id');
     return NetworkQualitySnapshot(
-      sampledAt: sampledAtMilliseconds == 0
+      sampledAt:
+          sampledAtMilliseconds <= 0 || sampledAtMilliseconds > 8640000000000000
           ? null
           : DateTime.fromMillisecondsSinceEpoch(
               sampledAtMilliseconds,
               isUtc: true,
             ),
-      connectionInstanceId: connectionId.isEmpty ? null : connectionId,
+      connectionInstanceId: connectionId.isEmpty || connectionId.length > 64
+          ? null
+          : connectionId,
       level: _enumNameOr(
         NetworkQualityLevel.values,
         map['level'],
         NetworkQualityLevel.unknown,
       ),
       metrics: NetworkConnectionMetrics(
+        latestRttMilliseconds: _mapNullableInt(
+          metricsMap,
+          'latest_rtt_milliseconds',
+        ),
+        latestRttAvailability: _enumNameOr(
+          MetricAvailability.values,
+          metricsMap['latest_rtt_availability'],
+          MetricAvailability.unknown,
+        ),
         smoothedRttMilliseconds: _mapNullableInt(
           metricsMap,
           'smoothed_rtt_milliseconds',
@@ -1581,7 +1603,8 @@ class NetworkQualitySnapshot {
         ),
       ),
       queues: List<NetworkQueueQuality>.unmodifiable(
-        (map['queues'] as List? ?? const <Object?>[])
+        (map['queues'] is List ? map['queues']! as List : const <Object?>[])
+            .take(8)
             .whereType<Map<Object?, Object?>>()
             .map((raw) {
               final queue = Map<Object?, Object?>.from(raw);
@@ -1610,8 +1633,8 @@ class NetworkQualitySnapshot {
                 ),
                 enqueueCount: _mapInt(queue, 'enqueue_count'),
                 dequeueCount: _mapInt(queue, 'dequeue_count'),
-                closed: queue['closed'] as bool? ?? false,
-                cancelled: queue['cancelled'] as bool? ?? false,
+                closed: queue['closed'] == true,
+                cancelled: queue['cancelled'] == true,
               );
             }),
       ),
@@ -1700,6 +1723,14 @@ class EngineCapabilities {
     this.quicMigration = false,
     this.automaticPmtu = false,
   });
+
+  factory EngineCapabilities.fromMap(Map<Object?, Object?> map) =>
+      EngineCapabilities(
+        networkQuality: map['network_quality'] == true,
+        encryptedDirectDns: map['encrypted_direct_dns'] == true,
+        quicMigration: map['quic_migration'] == true,
+        automaticPmtu: map['automatic_pmtu'] == true,
+      );
 
   final bool networkQuality;
   final bool encryptedDirectDns;

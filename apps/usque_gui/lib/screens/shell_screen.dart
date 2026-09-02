@@ -9,6 +9,7 @@ import '../state/app_controller.dart';
 import '../widgets/animated_index_stack.dart';
 import '../widgets/controller_selector.dart';
 import 'home_screen.dart';
+import 'network_quality_screen.dart';
 import 'profiles_screen.dart';
 import 'proxy_screen.dart';
 import 'settings_screen.dart';
@@ -28,12 +29,13 @@ class ShellScreen extends StatelessWidget {
 
   final AppController controller;
 
-  static const List<IconData> _icons = <IconData>[
-    LucideIcons.house,
-    LucideIcons.layers3,
-    LucideIcons.waypoints,
-    LucideIcons.settings,
-  ];
+  static const _icons = <AppSection, IconData>{
+    AppSection.home: LucideIcons.house,
+    AppSection.profiles: LucideIcons.layers3,
+    AppSection.proxy: LucideIcons.waypoints,
+    AppSection.networkQuality: LucideIcons.activity,
+    AppSection.settings: LucideIcons.settings,
+  };
 
   /// Width at which the bottom bar gives way to the side rail.
   static const double _railBreakpoint = 760;
@@ -62,30 +64,38 @@ class ShellScreen extends StatelessWidget {
     if (delta == 0) {
       return KeyEventResult.ignored;
     }
-    final sections = AppSection.values;
+    final sections = controller.availableSections;
     final next =
-        (controller.section.index + delta + sections.length) % sections.length;
+        (sections.indexOf(controller.section) + delta + sections.length) %
+        sections.length;
     controller.selectSection(sections[next]);
     return KeyEventResult.handled;
   }
 
   @override
   Widget build(BuildContext context) {
-    return ControllerSelector<AppSection>(
+    return ControllerSelector<({AppSection section, bool quality})>(
       controller: controller,
-      selector: (controller) => controller.section,
-      builder: (context, section) {
+      selector: (controller) => (
+        section: controller.section,
+        quality: controller.engineCapabilities?.networkQuality ?? false,
+      ),
+      builder: (context, selection) {
+        final section = selection.section;
+        final sections = controller.availableSections;
         final strings = controller.strings;
         final labels = <String>[
           strings.get('nav_home'),
           strings.get('nav_profiles'),
           strings.get('nav_proxy'),
+          if (selection.quality) strings.get('nav_network_quality'),
           strings.get('nav_settings'),
         ];
         final fullLabels = <String>[
           strings.get('home'),
           strings.get('profiles'),
           strings.get('proxy'),
+          if (selection.quality) strings.get('network_quality'),
           strings.get('settings'),
         ];
         final pages = <Widget>[
@@ -120,6 +130,11 @@ class ShellScreen extends StatelessWidget {
             selector: (controller) => controller.activeProfile,
             builder: (context, _) => ProxyScreen(controller: controller),
           ),
+          if (selection.quality)
+            NetworkQualityScreen(
+              controller: controller,
+              active: section == AppSection.networkQuality,
+            ),
           ControllerSelector<
             ({
               ThemePreference theme,
@@ -158,7 +173,9 @@ class ShellScreen extends StatelessWidget {
             builder: (context, _) => SettingsScreen(controller: controller),
           ),
         ];
-        final selected = section.index;
+        final selected = sections
+            .indexOf(section)
+            .clamp(0, sections.length - 1);
 
         return LayoutBuilder(
           builder: (context, constraints) {
@@ -179,8 +196,8 @@ class ShellScreen extends StatelessWidget {
                           minWidth: _railMinWidth,
                           minExtendedWidth: _railMinExtendedWidth,
                           selectedIndex: selected,
-                          onDestinationSelected: (index) => controller
-                              .selectSection(AppSection.values[index]),
+                          onDestinationSelected: (index) =>
+                              controller.selectSection(sections[index]),
                           labelType: extended
                               ? NavigationRailLabelType.none
                               : NavigationRailLabelType.all,
@@ -195,12 +212,12 @@ class ShellScreen extends StatelessWidget {
                                   icon: Tooltip(
                                     message: fullLabels[index],
                                     excludeFromSemantics: true,
-                                    child: Icon(_icons[index]),
+                                    child: Icon(_icons[sections[index]]),
                                   ),
                                   selectedIcon: Tooltip(
                                     message: fullLabels[index],
                                     excludeFromSemantics: true,
-                                    child: Icon(_icons[index]),
+                                    child: Icon(_icons[sections[index]]),
                                   ),
                                   label: Tooltip(
                                     message: fullLabels[index],
@@ -245,13 +262,13 @@ class ShellScreen extends StatelessWidget {
                               _handleNavigationKey(event, vertical: false),
                           child: NavigationBar(
                             selectedIndex: selected,
-                            onDestinationSelected: (index) => controller
-                                .selectSection(AppSection.values[index]),
+                            onDestinationSelected: (index) =>
+                                controller.selectSection(sections[index]),
                             destinations: List<NavigationDestination>.generate(
                               labels.length,
                               (index) => NavigationDestination(
-                                icon: Icon(_icons[index]),
-                                selectedIcon: Icon(_icons[index]),
+                                icon: Icon(_icons[sections[index]]),
+                                selectedIcon: Icon(_icons[sections[index]]),
                                 label: labels[index],
                                 tooltip: fullLabels[index],
                               ),

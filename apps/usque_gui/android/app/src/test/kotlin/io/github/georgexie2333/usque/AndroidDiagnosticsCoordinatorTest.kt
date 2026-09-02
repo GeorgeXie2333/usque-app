@@ -62,7 +62,10 @@ class AndroidDiagnosticsCoordinatorTest {
         assertEquals("DIAGNOSTICS_ALREADY_RUNNING", duplicate.code)
 
         val cancelled = coordinator.cancel("session-one")
-        assertEquals("cancelled", cancelled["state"])
+        assertEquals("cancelling", cancelled["state"])
+        assertThrows(AndroidDiagnosticsCoordinator.DiagnosticsException::class.java) {
+            coordinator.start("deep", snapshot(), true, true, true, true)
+        }
         executor.runAll()
         assertEquals("cancelled", coordinator.current()?.get("state"))
         assertTrue(published.isNotEmpty())
@@ -91,7 +94,7 @@ class AndroidDiagnosticsCoordinatorTest {
         executor.runAll()
         val completed = requireNotNull(coordinator.current())
         assertEquals("completed", completed["state"])
-        assertEquals(30, (completed["findings"] as List<*>).size)
+        assertEquals(39, (completed["findings"] as List<*>).size)
         val exported = completed.toString()
         assertFalse(exported.contains("private-network-name"))
         assertFalse(exported.contains("192.0.2.53"))
@@ -102,7 +105,7 @@ class AndroidDiagnosticsCoordinatorTest {
                 val session = event["diagnostic_session"] as? Map<String, Any?>
                 (session?.get("progress_percent") as? Number)?.toInt()
             }
-        assertTrue(progress.size >= 62)
+        assertTrue(progress.size >= 80)
         assertEquals(progress.sorted(), progress)
         assertEquals(100, progress.last())
     }

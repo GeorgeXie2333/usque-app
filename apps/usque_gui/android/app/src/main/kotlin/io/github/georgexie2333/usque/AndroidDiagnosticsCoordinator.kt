@@ -13,6 +13,10 @@ internal class AndroidDiagnosticsCoordinator(
     private val publish: (Map<String, Any?>) -> Unit = {},
     private val nowMillis: () -> Long = System::currentTimeMillis,
     private val newSessionId: () -> String = { UUID.randomUUID().toString() },
+    private val networkProbe: (
+        String,
+        () -> Boolean,
+    ) -> Map<String, Any?> = { id, _ -> NetworkDiagnosticChecks.probe(id, null) },
 ) {
     class DiagnosticsException(
         val code: String,
@@ -136,7 +140,7 @@ internal class AndroidDiagnosticsCoordinator(
                     "The diagnostic session identifier does not match.",
                 )
             }
-            if (current["state"] !in ACTIVE_STATES) return current.toMap()
+            if (current["state"] !in ACTIVE_STATES || current["state"] == "cancelling") return current.toMap()
             generation += 1
             val findings =
                 (current["findings"] as? List<*>)
@@ -151,8 +155,7 @@ internal class AndroidDiagnosticsCoordinator(
             cancelled =
                 current +
                 mapOf(
-                    "state" to "cancelled",
-                    "completed_at_unix_milliseconds" to nowMillis(),
+                    "state" to "cancelling",
                     "current_check" to null,
                     "progress_percent" to 100,
                     "findings" to findings,
@@ -161,6 +164,19 @@ internal class AndroidDiagnosticsCoordinator(
             session = cancelled
         }
         publishSession(cancelled)
+        // Runs after the active probe worker has released its socket/lease.
+        executor.execute {
+            val terminal =
+                synchronized(lock) {
+                    val current = session ?: return@execute
+                    if (current["session_id"] != sessionId || current["state"] != "cancelling") return@execute
+                    (current + mapOf("state" to "cancelled", "completed_at_unix_milliseconds" to nowMillis())).also {
+                        session =
+                            it
+                    }
+                }
+            publishSession(terminal)
+        }
         return cancelled.toMap()
     }
 
@@ -200,6 +216,8 @@ internal class AndroidDiagnosticsCoordinator(
         nativeReady: Boolean,
     ) {
         val findings = CHECKS.map(::pendingFinding).toMutableList()
+        val started = System.nanoTime()
+        val budgetNanos = if (mode == "deep") 15_000_000_000L else 2_000_000_000L
         for ((index, check) in CHECKS.withIndex()) {
             val running =
                 synchronized(lock) {
@@ -226,15 +244,50 @@ internal class AndroidDiagnosticsCoordinator(
             publishSession(running)
 
             val finding =
-                evaluate(
-                    check = check,
-                    mode = mode,
-                    snapshot = snapshot,
-                    controlReachable = controlReachable,
-                    eventStreamReachable = eventStreamReachable,
-                    nativeLinked = nativeLinked,
-                    nativeReady = nativeReady,
-                )
+                if (System.nanoTime() - started >= budgetNanos) {
+                    NetworkDiagnosticChecks.result(check.id, "failed", "nq_finding_probe_timeout", "nq_retry")
+                } else if (check.id in NetworkDiagnosticChecks.deepIds) {
+                    val dependency =
+                        if (check.id.startsWith(
+                                "dns.",
+                            )
+                        ) {
+                            "dns.direct_encrypted_configuration"
+                        } else {
+                            "engine.configuration"
+                        }
+                    val dependencyReady =
+                        findings.firstOrNull { it["check_id"] == dependency }?.get("status") in
+                            setOf("passed", "warning")
+                    if (mode == "deep" && (!dependencyReady || !controlReachable || !nativeReady)) {
+                        NetworkDiagnosticChecks.result(check.id, "skipped", "diagnostic_dependency_failed")
+                    } else if (mode == "deep") {
+                        networkProbe(check.id) { synchronized(lock) { generation != runGeneration } }
+                    } else {
+                        NetworkDiagnosticChecks.result(check.id, "skipped", "diagnostic_requires_deep_mode")
+                    }
+                } else if (check.id in NetworkDiagnosticChecks.standardIds) {
+                    if (check.id == "dns.direct_encrypted_runtime_state" &&
+                        findings.firstOrNull { it["check_id"] == "dns.direct_encrypted_configuration" }?.get(
+                            "status",
+                        ) !in
+                        setOf("passed", "warning")
+                    ) {
+                        NetworkDiagnosticChecks.result(check.id, "skipped", "diagnostic_dependency_failed")
+                    } else {
+                        NetworkDiagnosticChecks.evaluate(check.id, snapshot, nowMillis())
+                    }
+                } else {
+                    evaluate(
+                        check = check,
+                        mode = mode,
+                        snapshot = snapshot,
+                        controlReachable = controlReachable,
+                        eventStreamReachable = eventStreamReachable,
+                        nativeLinked = nativeLinked,
+                        nativeReady = nativeReady,
+                    )
+                }
             val updated =
                 synchronized(lock) {
                     if (generation != runGeneration || session?.get("session_id") != sessionId) {
@@ -782,6 +835,13 @@ internal class AndroidDiagnosticsCoordinator(
                 Check("protection.dns_path", "protection"),
                 Check("protection.route_ownership", "protection"),
                 Check("protection.recovery_journal", "recovery"),
-            )
+            ) +
+                NetworkDiagnosticChecks.standardIds.map {
+                    Check(
+                        it,
+                        if (it.startsWith("dns.")) "protection" else "transport",
+                    )
+                } +
+                NetworkDiagnosticChecks.deepIds.map { Check(it, "transport") }
     }
 }

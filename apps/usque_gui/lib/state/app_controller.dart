@@ -10,12 +10,17 @@ import '../models/app_models.dart';
 import '../services/engine_client.dart';
 import '../services/update_downloader.dart';
 import 'diagnostics_controller.dart';
+import 'network_quality_controller.dart';
 
 class AppController extends ChangeNotifier {
-  AppController(EngineClient engine, {UpdateDownloader? updateDownloader})
-    : _engine = engine,
-      _updateDownloader = updateDownloader ?? UpdateDownloader(engine),
-      diagnostics = DiagnosticsController(engine);
+  AppController(
+    EngineClient engine, {
+    UpdateDownloader? updateDownloader,
+    NetworkQualityController? qualityController,
+  }) : _engine = engine,
+       _updateDownloader = updateDownloader ?? UpdateDownloader(engine),
+       diagnostics = DiagnosticsController(engine),
+       quality = qualityController ?? NetworkQualityController(engine);
 
   static const int _profileSchemaVersion = 1;
   static const int _maximumProfilePayloadBytes = 1024 * 1024;
@@ -33,6 +38,7 @@ class AppController extends ChangeNotifier {
   final EngineClient _engine;
   final UpdateDownloader _updateDownloader;
   final DiagnosticsController diagnostics;
+  final NetworkQualityController quality;
   SharedPreferences? _preferences;
   Timer? _snapshotTimer;
   Timer? _snapshotReconnectTimer;
@@ -59,9 +65,36 @@ class AppController extends ChangeNotifier {
   ThemePreference themePreference = ThemePreference.system;
   LocalePreference localePreference = LocalePreference.system;
   AppSection section = AppSection.home;
-  EngineSnapshot snapshot = const EngineSnapshot();
-  NetworkQualitySnapshot? networkQuality;
-  EngineCapabilities? engineCapabilities;
+  EngineSnapshot _snapshot = const EngineSnapshot();
+  EngineSnapshot get snapshot => _snapshot;
+  set snapshot(EngineSnapshot value) {
+    _snapshot = value;
+    quality.updateConnection(value);
+  }
+
+  NetworkQualitySnapshot? get networkQuality => quality.latest;
+  set networkQuality(NetworkQualitySnapshot? value) {
+    if (value != null) quality.accept(value);
+  }
+
+  EngineCapabilities? _engineCapabilities;
+  EngineCapabilities? get engineCapabilities => _engineCapabilities;
+  set engineCapabilities(EngineCapabilities? value) {
+    _engineCapabilities = value;
+    quality.setEnabled(value?.networkQuality ?? false);
+    if (!(value?.networkQuality ?? false) &&
+        section == AppSection.networkQuality) {
+      section = AppSection.home;
+    }
+  }
+
+  List<AppSection> get availableSections => <AppSection>[
+    AppSection.home,
+    AppSection.profiles,
+    AppSection.proxy,
+    if (engineCapabilities?.networkQuality ?? false) AppSection.networkQuality,
+    AppSection.settings,
+  ];
   String? lastError;
   String? lastNotice;
   bool snapshotStreamDegraded = false;
@@ -185,6 +218,7 @@ class AppController extends ChangeNotifier {
       unawaited(_subscribeToSnapshotEvents());
     }
     initialized = true;
+    unawaited(_refreshCapabilities());
     _notifyListeners();
     unawaited(diagnostics.restore(silent: true));
     unawaited(refreshSnapshot(silent: true));
@@ -280,8 +314,21 @@ class AppController extends ChangeNotifier {
   }
 
   void selectSection(AppSection value) {
+    if (!availableSections.contains(value)) return;
     section = value;
     _notifyListeners();
+  }
+
+  Future<void> _refreshCapabilities() async {
+    try {
+      final value = await _engine.getCapabilities();
+      if (!_disposed && value != null) {
+        engineCapabilities = value;
+        _notifyListeners();
+      }
+    } on Object {
+      // Older engines have no optional quality surface.
+    }
   }
 
   Future<bool> finishOnboarding({
@@ -1084,9 +1131,13 @@ class AppController extends ChangeNotifier {
   }
 
   void updateNetwork(UsqueProfile updated) {
+    unawaited(saveNetwork(updated));
+  }
+
+  Future<bool> saveNetwork(UsqueProfile updated) {
     if (!profiles.any((profile) => profile.id == updated.id) &&
         updated.id != activeProfileId) {
-      return;
+      return Future<bool>.value(false);
     }
     final normalized = updated.frontends.http
         ? updated
@@ -1114,11 +1165,12 @@ class AppController extends ChangeNotifier {
       autoConnect: normalized.autoConnect,
       bypassCidrs: normalized.bypassCidrs,
       geoDirectCountries: normalized.geoDirectCountries,
+      directDns: normalized.directDns,
       proxy: normalized.proxy,
     );
     _notifyListeners();
     final outgoing = activeProfile;
-    _queueProfileMutation(() {
+    return _queueProfileMutation(() {
       if (outgoing.id == activeProfileId && snapshot.isConnected) {
         return _engine.reconfigureActiveProfile(outgoing);
       }
@@ -1153,10 +1205,13 @@ class AppController extends ChangeNotifier {
     return true;
   }
 
-  void _queueProfileMutation(Future<void> Function() mutation) {
+  Future<bool> _queueProfileMutation(Future<void> Function() mutation) {
+    final outcome = Completer<bool>();
     _profileWriteTail = _profileWriteTail.then((_) async {
+      var succeeded = false;
       try {
         await mutation();
+        succeeded = true;
       } on Object catch (error) {
         lastError = 'Profile changes could not be saved: $error';
         try {
@@ -1175,7 +1230,9 @@ class AppController extends ChangeNotifier {
         }
         _notifyListeners();
       }
+      outcome.complete(succeeded);
     });
+    return outcome.future;
   }
 
   /// Waits for already queued non-secret profile writes. Installers and tests
@@ -1240,6 +1297,7 @@ class AppController extends ChangeNotifier {
     _snapshotReconnectTimer?.cancel();
     _snapshotReconnectTimer = null;
     snapshotStreamDegraded = false;
+    quality.markStreamUnavailable(false);
     _stopPolling();
     diagnostics.handleEngineEvent(event);
     if (wasDegraded) {
@@ -1256,7 +1314,7 @@ class AppController extends ChangeNotifier {
     final nextQuality = event.networkQuality ?? event.snapshot?.networkQuality;
     final handledNetworkQuality =
         nextQuality != null && nextQuality != networkQuality;
-    if (handledNetworkQuality) {
+    if (nextQuality != null) {
       networkQuality = nextQuality;
     }
     final handledCapabilities =
@@ -1282,7 +1340,11 @@ class AppController extends ChangeNotifier {
         : null;
     final errorChanged = nextError != null && nextError != lastError;
     final snapshotChanged = next != snapshot;
-    if (!snapshotChanged && !errorChanged && !wasDegraded) {
+    if (!snapshotChanged &&
+        !errorChanged &&
+        !wasDegraded &&
+        !handledNetworkQuality &&
+        !handledCapabilities) {
       return;
     }
     snapshot = next;
@@ -1311,6 +1373,7 @@ class AppController extends ChangeNotifier {
     final established = _snapshotStreamEstablished;
     if (established) {
       snapshotStreamDegraded = true;
+      quality.markStreamUnavailable(true);
       diagnostics.markEventStreamUnavailable();
     }
     _startPolling(force: true);
@@ -1346,6 +1409,7 @@ class AppController extends ChangeNotifier {
     unawaited(_snapshotSubscription?.cancel());
     _snapshotSubscription = null;
     diagnostics.dispose();
+    quality.dispose();
     unawaited(_profileWriteTail.whenComplete(_engine.dispose));
     super.dispose();
   }

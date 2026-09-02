@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use tokio::task::JoinSet;
-use tokio::time::timeout;
+use tokio::time::{timeout, timeout_at};
 use tokio_util::sync::CancellationToken;
 use usque_core::{DiagnosticCheckStatus, DiagnosticMode};
 
@@ -21,8 +21,19 @@ pub(super) async fn run(
     context: Arc<DiagnosticContext>,
     cancellation: CancellationToken,
 ) {
+    let mode = manager
+        .session_snapshot()
+        .await
+        .map(|session| session.mode)
+        .unwrap_or(DiagnosticMode::Standard);
+    let deadline = context.captured_at
+        + match mode {
+            DiagnosticMode::Standard => Duration::from_secs(2),
+            DiagnosticMode::Deep => Duration::from_secs(15),
+        };
     loop {
         if cancellation.is_cancelled() {
+            drop(context);
             manager.finish(true).await;
             return;
         }
@@ -34,12 +45,28 @@ pub(super) async fn run(
             .iter()
             .map(|finding| (finding.check_id.as_str(), finding.status))
             .collect();
+        if tokio::time::Instant::now() >= deadline {
+            for check in &checks {
+                if statuses
+                    .get(check.id())
+                    .is_some_and(|status| !status.is_terminal())
+                {
+                    manager
+                        .check_completed(timed_out_finding(check.as_ref()))
+                        .await;
+                }
+            }
+            drop(context);
+            manager.finish(false).await;
+            return;
+        }
         let pending: Vec<_> = checks
             .iter()
             .filter(|check| statuses.get(check.id()) == Some(&DiagnosticCheckStatus::Pending))
             .cloned()
             .collect();
         if pending.is_empty() {
+            drop(context);
             manager.finish(false).await;
             return;
         }
@@ -84,41 +111,58 @@ pub(super) async fn run(
                     .check_completed(internal_finding(check.as_ref()))
                     .await;
             }
+            drop(context);
             manager.finish(false).await;
             return;
         }
 
         let mut tasks = JoinSet::new();
+        let mut running = HashMap::new();
         for check in ready {
             manager.check_started(check.id()).await;
             let context = Arc::clone(&context);
             let cancellation = cancellation.clone();
-            tasks.spawn(async move {
+            let running_check = Arc::clone(&check);
+            let handle = tasks.spawn(async move {
                 let started = Instant::now();
-                let result = tokio::select! {
-                    _ = cancellation.cancelled() => cancelled_finding(check.as_ref()),
-                    result = timeout(
-                        check.timeout(),
-                        check.run(context.as_ref(), cancellation.child_token()),
-                    ) => match result {
-                        Ok(finding) => finding,
-                        Err(_) => timed_out_finding(check.as_ref()),
+                let child = cancellation.child_token();
+                let _cancel_on_drop = child.clone().drop_guard();
+                let end = (tokio::time::Instant::now() + check.timeout()).min(deadline);
+                let cleanup_budget = Duration::from_millis(100).min(check.timeout() / 10);
+                let operation = check.run(context.as_ref(), child.clone());
+                tokio::pin!(operation);
+                let (result, interrupted) = tokio::select! {
+                    biased;
+                    _ = cancellation.cancelled() => (cancelled_finding(check.as_ref()), true),
+                    result = timeout_at(end - cleanup_budget, &mut operation) => match result {
+                        Ok(finding) => (finding, false),
+                        Err(_) => (timed_out_finding(check.as_ref()), true),
                     },
                 };
-                (check, result, started.elapsed())
+                if interrupted {
+                    child.cancel();
+                    let _ = timeout(cleanup_budget, &mut operation).await;
+                }
+                (result, started.elapsed())
             });
+            running.insert(handle.id(), running_check);
         }
 
-        while let Some(result) = tasks.join_next().await {
+        while let Some(result) = tasks.join_next_with_id().await {
             match result {
-                Ok((check, mut finding, elapsed)) => {
+                Ok((id, (mut finding, elapsed))) => {
+                    running.remove(&id);
                     finding.duration_milliseconds =
                         Some(elapsed.as_millis().min(u128::from(u64::MAX)) as u64);
                     manager.check_completed(finding).await;
-                    drop(check);
                 }
                 Err(error) => {
-                    tracing::warn!(%error, "diagnostic check task failed");
+                    if let Some(check) = running.remove(&error.id()) {
+                        manager
+                            .check_completed(internal_finding(check.as_ref()))
+                            .await;
+                    }
+                    tracing::warn!("diagnostic check task failed");
                 }
             }
         }

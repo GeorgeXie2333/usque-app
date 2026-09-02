@@ -8,6 +8,7 @@ import '../core/usque_theme.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
+import '../widgets/direct_dns_editor.dart';
 import '../widgets/usque_dialog.dart';
 
 class AdvancedSettingsScreen extends StatefulWidget {
@@ -33,6 +34,10 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   late IpPolicy _ipPolicy;
   late bool _killSwitch;
   late bool _allowLan;
+  late DirectDnsSettings _directDns;
+  final _directDnsKey = GlobalKey<DirectDnsEditorState>();
+  bool _saving = false;
+  String? _saveError;
 
   bool get _zeroTrustEndpointIpsManaged =>
       widget.controller
@@ -67,6 +72,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     _ipPolicy = profile.ipPolicy;
     _killSwitch = profile.killSwitch;
     _allowLan = profile.allowLan;
+    _directDns = profile.directDns;
   }
 
   @override
@@ -95,12 +101,12 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
       backLabel: strings.get('back'),
       actions: <Widget>[
         OutlinedButton.icon(
-          onPressed: _reset,
+          onPressed: _saving ? null : _reset,
           icon: const Icon(LucideIcons.rotateCcw),
           label: Text(strings.get('reset_defaults')),
         ),
         FilledButton.icon(
-          onPressed: _save,
+          onPressed: _saving ? null : _save,
           icon: const Icon(LucideIcons.save),
           label: Text(strings.get('save')),
         ),
@@ -110,6 +116,12 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
+            if (_saveError != null)
+              WarningBanner(
+                title: strings.get('error'),
+                message: _saveError!,
+                danger: true,
+              ),
             WarningBanner(
               title: strings.get('advanced'),
               message: strings.get('advanced_warning'),
@@ -277,6 +289,19 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                     ),
                   ],
                 ),
+                DirectDnsEditor(
+                  key: _directDnsKey,
+                  value: _directDns,
+                  enabled: !_saving,
+                  encryptedAvailable:
+                      widget
+                          .controller
+                          .engineCapabilities
+                          ?.encryptedDirectDns ??
+                      false,
+                  strings: strings,
+                  onChanged: (value) => _directDns = value,
+                ),
               ],
             ),
           ],
@@ -342,13 +367,18 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     return null;
   }
 
-  void _save() {
+  Future<void> _save() async {
     if (!(_formKey.currentState?.validate() ?? false)) {
+      _directDnsKey.currentState?.focusFirstError();
       return;
     }
+    setState(() {
+      _saving = true;
+      _saveError = null;
+    });
     final profile = widget.controller.activeProfile;
     final endpointIpsManaged = _zeroTrustEndpointIpsManaged;
-    widget.controller.updateNetwork(
+    final saved = await widget.controller.saveNetwork(
       profile.copyWith(
         transport: _transport,
         ipPolicy: _ipPolicy,
@@ -365,6 +395,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
         dnsIpv6: _dnsV6.text.trim(),
         killSwitch: _killSwitch,
         allowLan: _allowLan,
+        directDns: _directDns,
         bypassCidrs: _bypass.text
             .split(RegExp(r'\r?\n'))
             .map((line) => line.trim())
@@ -372,6 +403,12 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
             .toList(growable: false),
       ),
     );
+    if (!mounted) return;
+    setState(() {
+      _saving = false;
+      _saveError = saved ? null : widget.controller.lastError;
+    });
+    if (!saved) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(widget.controller.strings.get('saved'))),
     );

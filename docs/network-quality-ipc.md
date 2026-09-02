@@ -13,8 +13,10 @@ to canonical physical-system direct DNS, preserving schema-12 behavior.
 - `ControlRequest.get_network_quality = 40`
 - `ControlResponse.network_quality = 21`
 - `EventEnvelope.network_quality_updated = 23`
-- `ConnectionMetrics` quality fields occupy 13 through 63; tag 63 is the
-  bounded H3 `pmtu_send_too_large_count`
+- `ConnectionMetrics` quality fields occupy 13 through 66; tag 63 is the
+  bounded H3 `pmtu_send_too_large_count`. Tags 64, 65, and 66 are respectively
+  `latest_rtt_ms`, `latest_rtt_known`, and `latest_rtt_availability`. They do
+  not reinterpret the original smoothed RTT fields 4 and 5.
 - `PmtuQuality.send_too_large_count = 8`
 - `ConnectionEventType` migration, PMTU, and direct-DNS values occupy 22
   through 30
@@ -76,3 +78,30 @@ endpoint addresses, QNAMEs, configured bootstrap IPs, server names, SSID/BSSID,
 QUIC source/destination CIDs, tokens, payloads, or raw error text into a quality
 snapshot or event. Direct-DNS configuration itself remains visible only in the
 explicit Profile configuration message where it is required for editing.
+
+## GUI read model and Android bridge
+
+The Quality navigation entry requires the optional build capability. Missing
+capabilities leave old connection controls intact. The process-local controller
+retains at most 300 one-second points and displays an aligned 60-second window.
+New connection IDs reset both history and byte-counter baselines. Paused,
+missing and stale samples stay gaps; closing the app does not persist history.
+At most one refresh is outstanding, and a late reply cannot restore a previous
+connection after disconnect. Timestamps are range checked and queues capped at
+eight in both codecs. Latest/smoothed/minimum RTT are distinct measurements.
+H2 shows protocol PING RTT and receive-window stalls, but no packet-loss or PMTU
+measurement. PMTU limits use exact bytes, not rounded throughput units.
+
+Android forwards a maximum 16 KiB allowlisted quality JSON object across the
+Messenger/MethodChannel boundary. It retains only fixed numeric fields, eight
+known queues, phase/reason enums, and a valid UUIDv4; unknown or malformed values
+do not become fake zero measurements. Native capability responses are real
+build flags, with safe missing-method behavior for an older JNI library.
+
+The custom direct DNS editor has no provider presets or TLS bypass switch.
+Profile validation remains authoritative in the Engine; failed saves restore
+the catalog without switching an encrypted profile to plaintext. If the
+encrypted capability is disabled, custom values remain read-only, and only an
+explicit user selection can switch to physical-system DNS.
+
+See [network-doctor.md](network-doctor.md) for Standard and Deep diagnostics.

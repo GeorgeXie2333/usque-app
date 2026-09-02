@@ -33,6 +33,12 @@ use super::{
 static ENGINE: OnceLock<Mutex<Option<EngineHandle>>> = OnceLock::new();
 static LAST_START_ERROR: OnceLock<Mutex<Option<NativeSnapshot>>> = OnceLock::new();
 
+pub(super) fn is_running() -> bool {
+    ENGINE
+        .get()
+        .is_some_and(|engine| engine.lock().map_or(true, |slot| slot.is_some()))
+}
+
 enum RuntimeCommand {
     Reconfigure {
         profile: Profile,

@@ -12,6 +12,9 @@ import android.os.Message
 import android.os.Messenger
 import android.os.RemoteException
 import io.flutter.plugin.common.MethodChannel
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 /**
  * Binder control plane for [UsqueVpnService]: connection lifecycle, request IDs,
@@ -100,6 +103,7 @@ internal class VpnControlClient(
 
     private val pendingSnapshots = mutableMapOf<Int, MethodChannel.Result>()
     private val pendingDiagnosticProbes = mutableMapOf<Int, (SnapshotProbe) -> Unit>()
+    private var pendingNetworkProbe: Pair<Int, CompletableFuture<String?>>? = null
     private val pendingClearAll = mutableMapOf<Int, MethodChannel.Result>()
     private var nextSnapshotId = 1
     private var endpoint: ControlEndpoint? = null
@@ -265,10 +269,69 @@ internal class VpnControlClient(
             callback(SnapshotProbe(lastSnapshot.toMap(), false))
             return
         }
-        scheduler.postDelayed(snapshotTimeoutMillis, snapshotTimeoutToken(requestId)) {
+        scheduler.postDelayed(minOf(snapshotTimeoutMillis, 750L), snapshotTimeoutToken(requestId)) {
             pendingDiagnosticProbes.remove(requestId)?.invoke(
                 SnapshotProbe(lastSnapshot.toMap(), false),
             )
+        }
+    }
+
+    /** Called only on the existing diagnostic worker, never on the UI thread. */
+    fun runNetworkProbe(
+        checkId: String,
+        cancelled: () -> Boolean,
+    ): Map<String, Any?> {
+        val response = CompletableFuture<String?>()
+        val started = System.nanoTime()
+        scheduler.post {
+            val service = endpoint
+            if (destroyed || cancelled() || service == null || pendingNetworkProbe != null) {
+                response.complete(null)
+            } else {
+                val id = allocateRequestId()
+                pendingNetworkProbe = id to response
+                val kind = if (checkId == "transport.h3_path_validation_probe") "h3" else "dns"
+                if (!service.send(UsqueVpnService.MSG_DIAGNOSTIC_PROBE, id, mapOf("probe_kind" to kind))) {
+                    pendingNetworkProbe = null
+                    response.complete(null)
+                }
+            }
+        }
+
+        fun cancelPending() {
+            scheduler.post {
+                pendingNetworkProbe?.takeIf { it.second === response }?.let { (id, _) ->
+                    endpoint?.send(UsqueVpnService.MSG_CANCEL_DIAGNOSTIC_PROBE, id)
+                }
+            }
+        }
+        try {
+            while (System.nanoTime() - started < 3_850_000_000L && !cancelled()) {
+                try {
+                    return NetworkDiagnosticChecks.probe(checkId, response.get(50, TimeUnit.MILLISECONDS))
+                } catch (
+                    _: TimeoutException,
+                ) {
+                    // bounded wait; recheck session cancellation
+                }
+            }
+            cancelPending()
+            try {
+                response.get(100, TimeUnit.MILLISECONDS)
+            } catch (
+                _: Exception,
+            ) {
+                // native deadline remains authoritative
+            }
+            return NetworkDiagnosticChecks.probe(
+                checkId,
+                if (cancelled()) "{\"code\":\"cancelled\"}" else "{\"code\":\"timeout\"}",
+            )
+        } catch (_: Exception) {
+            cancelPending()
+            return NetworkDiagnosticChecks.probe(checkId, "{\"code\":\"failed\"}")
+        } finally {
+            scheduler.post { if (pendingNetworkProbe?.second === response) pendingNetworkProbe = null }
         }
     }
 
@@ -523,6 +586,11 @@ internal class VpnControlClient(
             callback(SnapshotProbe(lastSnapshot.toMap(), false))
         }
         pendingDiagnosticProbes.clear()
+        pendingNetworkProbe?.let { (id, response) ->
+            endpoint?.send(UsqueVpnService.MSG_CANCEL_DIAGNOSTIC_PROBE, id)
+            response.complete("{\"code\":\"cancelled\"}")
+        }
+        pendingNetworkProbe = null
 
         pendingClearAll.keys.toList().forEach { requestId ->
             scheduler.cancel(clearAllTimeoutToken(requestId))
@@ -710,6 +778,14 @@ internal class VpnControlClient(
         data: Bundle,
     ): Boolean =
         when (what) {
+            UsqueVpnService.MSG_DIAGNOSTIC_PROBE -> {
+                pendingNetworkProbe?.takeIf { it.first == arg1 }?.let { (_, response) ->
+                    pendingNetworkProbe = null
+                    response.complete(data.getString("probe_result"))
+                }
+                true
+            }
+
             UsqueVpnService.MSG_SNAPSHOT -> {
                 val errorCode = data.getString("control_error_code")
                 if (errorCode != null) {
@@ -822,6 +898,15 @@ internal class VpnControlClient(
                 "downloaded_bytes" to bundle.getLong("downloaded_bytes"),
                 "uploaded_bytes" to bundle.getLong("uploaded_bytes"),
                 "reconnect_count" to bundle.getInt("reconnect_count"),
+                "network_quality" to
+                    NetworkQualityFields.decode(bundle.getString(ServiceSnapshotState.WireKeys.NETWORK_QUALITY)),
+                "direct_dns_mode" to
+                    bundle.getString("direct_dns_mode")?.takeIf { it in setOf("physicalSystem", "doh", "dot") },
+                "direct_dns_configuration" to
+                    bundle.getString("direct_dns_configuration")?.takeIf {
+                        it in
+                            setOf("valid", "invalid", "unavailable", "unsupported")
+                    },
                 "active_listeners" to
                     (bundle.getStringArrayList("active_listeners") ?: arrayListOf<String>()),
                 "active_frontends" to

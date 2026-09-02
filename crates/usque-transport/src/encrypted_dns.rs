@@ -270,6 +270,34 @@ impl DirectDnsResolver {
     pub fn is_encrypted(&self) -> bool {
         !matches!(self, Self::PhysicalSystem(_))
     }
+
+    pub(crate) async fn close_probe_pool(&self) -> bool {
+        let inner = match self {
+            Self::Doh(resolver) => &resolver.inner,
+            Self::Dot(resolver) => &resolver.inner,
+            Self::PhysicalSystem(_) => return true,
+        };
+        inner.lifetime.cancel();
+        inner.clear_idle_pool(true);
+        let monitor = inner
+            .monitor
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take();
+        let deadline = Instant::now() + Duration::from_millis(100);
+        if let Some(monitor) = monitor {
+            monitor.abort();
+            if timeout_at(deadline, monitor).await.is_err() {
+                return false;
+            }
+        }
+        timeout_at(
+            deadline,
+            inner.socket_permits.acquire_many(MAX_CONNECTIONS as u32),
+        )
+        .await
+        .is_ok_and(|result| result.is_ok())
+    }
 }
 
 struct PoolEpoch {

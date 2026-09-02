@@ -5,6 +5,7 @@
 //! network configuration.
 
 mod connect_ip_control;
+mod diagnostic_probe;
 mod direct_gateway;
 mod dns;
 mod encrypted_dns;
@@ -37,6 +38,7 @@ mod udp_io;
 #[cfg(any(test, feature = "fault-injection"))]
 mod fault_injection;
 
+pub use diagnostic_probe::{NetworkProbeResult, probe_encrypted_dns, probe_h3_handshake};
 pub use encrypted_dns::{
     DirectDnsError, DirectDnsQueryContext, DirectDnsResolver, ENCRYPTED_DIRECT_DNS_ENABLED,
 };

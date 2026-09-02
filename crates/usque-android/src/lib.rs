@@ -70,6 +70,8 @@ pub const RECONFIGURE_NEED_COLD: i32 = 1;
 pub const RECONFIGURE_NEED_ATTACH: i32 = 2;
 pub const RECONFIGURE_NOT_RUNNING: i32 = -10;
 
+mod diagnostic_probe;
+
 #[derive(Debug)]
 struct JniCode(jint);
 
@@ -103,6 +105,28 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeIsR
 ) -> jboolean {
     with_jni_env(&mut environment, |_| {
         if engine_ready() { JNI_TRUE } else { JNI_FALSE }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCapabilities<
+    'local,
+>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
+) -> jstring {
+    with_jni_env(&mut environment, |environment| {
+        let json = serde_json::json!({
+            "network_quality": engine_ready(),
+            "encrypted_direct_dns": engine_ready() && usque_transport::ENCRYPTED_DIRECT_DNS_ENABLED,
+            "quic_migration": engine_ready() && usque_transport::QUIC_MIGRATION_ENABLED,
+            "automatic_pmtu": engine_ready(),
+        })
+        .to_string();
+        environment
+            .new_string(json)
+            .map(JString::into_raw)
+            .unwrap_or_default()
     })
 }
 
@@ -2033,6 +2057,7 @@ fn network_quality_value(snapshot: &NetworkQualitySnapshot) -> serde_json::Value
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
     let (smoothed_rtt, smoothed_rtt_known) = native_duration_metric(&snapshot.rtt.smoothed);
+    let (latest_rtt, latest_rtt_known) = native_duration_metric(&snapshot.rtt.latest);
     let (minimum_rtt, minimum_rtt_known) = native_duration_metric(&snapshot.rtt.minimum);
     let (rtt_variance, rtt_variance_known) = native_duration_metric(&snapshot.rtt.variance);
     let (interval_loss, interval_loss_known) =
@@ -2064,6 +2089,8 @@ fn network_quality_value(snapshot: &NetworkQualitySnapshot) -> serde_json::Value
             .unwrap_or_default(),
         "level": native_quality_level(snapshot.level),
         "metrics": {
+            "latest_rtt_milliseconds": latest_rtt_known.then_some(latest_rtt),
+            "latest_rtt_availability": native_availability(snapshot.rtt.latest.availability),
             "smoothed_rtt_milliseconds": smoothed_rtt_known.then_some(smoothed_rtt),
             "minimum_rtt_milliseconds": minimum_rtt_known.then_some(minimum_rtt),
             "rtt_variance_milliseconds": rtt_variance_known.then_some(rtt_variance),

@@ -52,6 +52,10 @@ String diagnosticRemediation(AppStrings strings, String key) {
 }
 
 String diagnosticFindingSummary(AppStrings strings, DiagnosticFinding finding) {
+  if (finding.summaryKey.startsWith('nq_finding_')) {
+    final localized = strings.get(finding.summaryKey);
+    if (localized != finding.summaryKey) return localized;
+  }
   return strings.get(switch (finding.status) {
     DiagnosticCheckStatus.passed => 'diag_finding_passed',
     DiagnosticCheckStatus.warning => 'diag_finding_attention',

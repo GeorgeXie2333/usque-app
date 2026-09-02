@@ -371,6 +371,7 @@ mod tests {
         let metrics = snapshot.metrics.as_ref().expect("metrics");
         assert_eq!(metrics.current_smoothed_rtt_milliseconds, 42);
         assert!(metrics.current_smoothed_rtt_known);
+        assert!(!metrics.latest_rtt_known);
         assert_eq!(metrics.min_rtt_ms, 21);
         assert_eq!(
             metrics.smoothed_rtt_availability,
@@ -384,6 +385,26 @@ mod tests {
             encode_frame(&decoded).expect("re-encode").as_ref(),
             NETWORK_QUALITY_V1_FRAME
         );
+    }
+
+    #[test]
+    fn latest_rtt_append_only_tags_are_independent_of_smoothed_rtt() {
+        let metrics = crate::v1::ConnectionMetrics {
+            current_smoothed_rtt_milliseconds: 42,
+            current_smoothed_rtt_known: true,
+            latest_rtt_ms: 7,
+            latest_rtt_known: true,
+            latest_rtt_availability: crate::v1::MetricAvailability::Available as i32,
+            ..Default::default()
+        };
+        let wire = metrics.encode_to_vec();
+        assert_eq!(
+            wire,
+            [0x20, 42, 0x28, 1, 0x80, 4, 7, 0x88, 4, 1, 0x90, 4, 1]
+        );
+        let decoded = crate::v1::ConnectionMetrics::decode(wire.as_slice()).unwrap();
+        assert_eq!(decoded.latest_rtt_ms, 7);
+        assert_eq!(decoded.current_smoothed_rtt_milliseconds, 42);
     }
 
     #[test]

@@ -379,7 +379,35 @@ class _DiagnosticControlPanel extends StatelessWidget {
           children: <Widget>[
             Expanded(
               child: FilledButton.icon(
-                onPressed: busy ? null : () => diagnostics.start(selectedMode),
+                onPressed: busy
+                    ? null
+                    : () async {
+                        if (selectedMode == DiagnosticMode.deep) {
+                          final confirmed = await showDialog<bool>(
+                            context: context,
+                            builder: (context) => UsqueDialog(
+                              icon: LucideIcons.microscope,
+                              title: strings.get('nq_doctor_deep_title'),
+                              content: Text(strings.get('nq_doctor_deep_body')),
+                              actions: <Widget>[
+                                TextButton(
+                                  onPressed: () =>
+                                      Navigator.pop(context, false),
+                                  child: Text(strings.get('cancel')),
+                                ),
+                                FilledButton(
+                                  onPressed: () => Navigator.pop(context, true),
+                                  child: Text(
+                                    strings.get('nq_doctor_deep_run'),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                          if (confirmed != true) return;
+                        }
+                        await diagnostics.start(selectedMode);
+                      },
                 icon: diagnostics.state == DiagnosticsControllerState.starting
                     ? const SizedBox.square(
                         dimension: 17,

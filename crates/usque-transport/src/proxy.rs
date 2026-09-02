@@ -117,6 +117,15 @@ impl ProxyRuntime {
         self.inner().network_quality()
     }
 
+    pub fn diagnostic_dns_context(
+        &self,
+    ) -> (
+        Arc<dyn SocketProtector>,
+        tokio_util::sync::CancellationToken,
+    ) {
+        self.inner().diagnostic_dns_context()
+    }
+
     pub fn subscribe_network_quality(
         &self,
     ) -> tokio::sync::watch::Receiver<NetworkQualitySnapshot> {

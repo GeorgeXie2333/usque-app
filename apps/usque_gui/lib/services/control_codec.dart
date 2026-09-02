@@ -1306,17 +1306,22 @@ NetworkQualitySnapshot _decodeNetworkQuality(_ProtoReader reader) {
     switch (field.number) {
       case 1:
         final milliseconds = reader.varint(field);
-        sampledAt = milliseconds == 0
+        sampledAt = milliseconds <= 0 || milliseconds > 8640000000000000
             ? null
             : DateTime.fromMillisecondsSinceEpoch(milliseconds, isUtc: true);
       case 2:
-        connectionInstanceId = _emptyToNull(reader.string(field));
+        final id = reader.string(field);
+        connectionInstanceId = id.length <= 64 ? _emptyToNull(id) : null;
       case 3:
         level = _decodeNetworkQualityLevel(reader.varint(field));
       case 4:
         metrics = _decodeNetworkConnectionMetrics(reader.message(field));
       case 5:
-        queues.add(_decodeNetworkQueueQuality(reader.message(field)));
+        if (queues.length < 8) {
+          queues.add(_decodeNetworkQueueQuality(reader.message(field)));
+        } else {
+          reader.skip(field);
+        }
       case 6:
         pmtu = _decodePmtuQuality(reader.message(field));
       case 7:
@@ -1340,6 +1345,9 @@ NetworkQualitySnapshot _decodeNetworkQuality(_ProtoReader reader) {
 }
 
 NetworkConnectionMetrics _decodeNetworkConnectionMetrics(_ProtoReader reader) {
+  var latestRtt = 0;
+  var latestRttKnown = false;
+  var latestAvailability = MetricAvailability.unknown;
   var smoothedRtt = 0;
   var smoothedRttKnown = false;
   var minimumRtt = 0;
@@ -1506,11 +1514,19 @@ NetworkConnectionMetrics _decodeNetworkConnectionMetrics(_ProtoReader reader) {
         sendRateAvailability = _decodeMetricAvailability(reader.varint(field));
       case 63:
         pmtuSendTooLarge = reader.varint(field);
+      case 64:
+        latestRtt = reader.varint(field);
+      case 65:
+        latestRttKnown = reader.varint(field) != 0;
+      case 66:
+        latestAvailability = _decodeMetricAvailability(reader.varint(field));
       default:
         reader.skip(field);
     }
   }
   return NetworkConnectionMetrics(
+    latestRttMilliseconds: latestRttKnown ? latestRtt : null,
+    latestRttAvailability: latestAvailability,
     smoothedRttMilliseconds: smoothedRttKnown ? smoothedRtt : null,
     minimumRttMilliseconds: minimumRttKnown ? minimumRtt : null,
     rttVarianceMilliseconds: rttVarianceKnown ? rttVariance : null,

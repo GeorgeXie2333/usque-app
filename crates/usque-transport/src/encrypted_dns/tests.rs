@@ -21,6 +21,59 @@ use tokio::time::timeout;
 use super::*;
 use crate::network_quality::NetworkQualitySampler;
 
+#[tokio::test]
+async fn deep_dns_probes_release_all_pool_sockets_on_success_failure_and_cancellation() {
+    use crate::diagnostic_probe::{NetworkProbeResult, run_dns_probe};
+    for mode in [ConfigMode::Doh, ConfigMode::Dot] {
+        for behavior in [Behavior::Echo, Behavior::BadId] {
+            let harness = Harness::new(mode, behavior).await;
+            let result = run_dns_probe(
+                harness.resolver.clone(),
+                harness.protector.clone(),
+                CancellationToken::new(),
+                harness.cancellation.clone(),
+                Instant::now(),
+            )
+            .await;
+            assert_eq!(
+                matches!(result, NetworkProbeResult::Passed { .. }),
+                matches!(behavior, Behavior::Echo)
+            );
+            assert_eq!(harness.protector.leases.active.load(Ordering::Acquire), 0);
+            assert!(
+                encrypted(&harness.resolver)
+                    .monitor
+                    .lock()
+                    .unwrap()
+                    .is_none()
+            );
+        }
+        let harness = Harness::new(mode, Behavior::Delay(Duration::from_secs(10))).await;
+        let cancellation = CancellationToken::new();
+        let operation = run_dns_probe(
+            harness.resolver.clone(),
+            harness.protector.clone(),
+            cancellation.clone(),
+            harness.cancellation.clone(),
+            Instant::now(),
+        );
+        tokio::pin!(operation);
+        tokio::select! {
+            result = &mut operation => panic!("probe finished before cancellation: {result:?}"),
+            _ = tokio::time::sleep(Duration::from_millis(50)) => cancellation.cancel(),
+        }
+        assert_eq!(operation.await, NetworkProbeResult::Cancelled);
+        assert_eq!(harness.protector.leases.active.load(Ordering::Acquire), 0);
+        assert!(
+            encrypted(&harness.resolver)
+                .monitor
+                .lock()
+                .unwrap()
+                .is_none()
+        );
+    }
+}
+
 #[derive(Default)]
 struct LeaseCounts {
     active: AtomicUsize,

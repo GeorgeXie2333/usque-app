@@ -558,6 +558,13 @@ impl MasqueRuntime {
         self.monitor.network_quality()
     }
 
+    pub fn diagnostic_dns_context(&self) -> (Arc<dyn SocketProtector>, CancellationToken) {
+        (
+            Arc::clone(&self.stack.protector),
+            self.cancellation.child_token(),
+        )
+    }
+
     pub fn subscribe_network_quality(&self) -> watch::Receiver<crate::NetworkQualitySnapshot> {
         self.monitor.subscribe_network_quality()
     }

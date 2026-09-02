@@ -54,6 +54,8 @@ class UsqueVpnService : VpnService() {
         const val MSG_RETRY = 9
         const val MSG_RECONFIGURE = 10
         const val MSG_APPLY_PER_APP = 11
+        const val MSG_DIAGNOSTIC_PROBE = 12
+        const val MSG_CANCEL_DIAGNOSTIC_PROBE = 13
 
         private const val NATIVE_STATUS_INTERVAL_MILLIS = 1_000L
         private const val PHYSICAL_NETWORK_WAIT_MILLIS = 8_000L
@@ -97,6 +99,20 @@ class UsqueVpnService : VpnService() {
     private val flagCache by lazy { FlagSvgCache(this) }
     private val logStore by lazy { AndroidLogStore(this) }
     private val snapshotState = ServiceSnapshotState()
+    private val diagnosticProbes by lazy {
+        ServiceDiagnosticProbes(
+            this,
+            engineExecutor,
+            mainHandler,
+            profile = { activeProfileJson.get() ?: recoveryPreferences.getString(LAST_PROFILE, null) },
+            loadSecret = { id, json -> loadWarpSecret(id, json, readOnly = true) },
+            runtimeBusy = {
+                activeProfileJson.get() != null || nativeRuntimeActive.get() || tunnel.get() != null ||
+                    snapshotState.phase != "disconnected"
+            },
+            vpnProtected = { tunnel.get() != null },
+        )
+    }
     private val notifications by lazy { VpnNotificationController(this) }
     private var lastTilePresentation: QuickSettingsTileState.Presentation? = null
     private val networkMonitor =
@@ -168,6 +184,16 @@ class UsqueVpnService : VpnService() {
 
                     MSG_APPLY_PER_APP -> {
                         applyPerAppFilter(message)
+                        true
+                    }
+
+                    MSG_DIAGNOSTIC_PROBE -> {
+                        diagnosticProbes.start(message)
+                        true
+                    }
+
+                    MSG_CANCEL_DIAGNOSTIC_PROBE -> {
+                        diagnosticProbes.cancel(message.arg1)
                         true
                     }
 
@@ -251,6 +277,7 @@ class UsqueVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        diagnosticProbes.cancel()
         if (!clearAllRequested.get()) {
             logStore.record(AndroidLogStore.Event.SERVICE_DESTROYED, phase = snapshotState.phase)
         }
@@ -280,6 +307,7 @@ class UsqueVpnService : VpnService() {
     // Recovery state must be durable before starting the native connection.
     @SuppressLint("ApplySharedPref", "UseKtx")
     private fun beginConnection(profileJson: String) {
+        diagnosticProbes.cancel()
         if (profileJson.toByteArray(Charsets.UTF_8).size > MAX_PROFILE_BYTES) {
             startForeground(
                 VpnNotificationController.NOTIFICATION_ID,
@@ -963,6 +991,7 @@ class UsqueVpnService : VpnService() {
     private fun loadWarpSecret(
         profileId: String,
         profileJson: String,
+        readOnly: Boolean = false,
     ): ByteArray? {
         val store = SecureIdentityStore(this)
         val encodedRollback =
@@ -992,7 +1021,7 @@ class UsqueVpnService : VpnService() {
                 }
 
                 IdentityReplacementState.None -> {
-                    if (encodedRollback != null) {
+                    if (encodedRollback != null && !readOnly) {
                         runCatching {
                             store.delete(
                                 profileId,
@@ -1245,6 +1274,7 @@ class UsqueVpnService : VpnService() {
         stopService: Boolean,
         request: Message? = null,
     ) {
+        diagnosticProbes.cancel()
         recoveryPreferences.edit().remove(RECOVERY_PROFILE).commit()
         lastTunIdentity.set(null)
         pendingTunRestart = TunRestartDecision.TEARDOWN
@@ -1548,6 +1578,9 @@ class UsqueVpnService : VpnService() {
 
     private fun snapshotBundle(): Bundle =
         snapshotState.toBundle(platformFlags()).apply {
+            val (dnsMode, dnsConfiguration) = diagnosticProbes.configuration()
+            putString("direct_dns_mode", dnsMode)
+            putString("direct_dns_configuration", dnsConfiguration)
             putBoolean(
                 TILE_VPN_ACTIVE,
                 activeProfileJson.get() != null && activeMode.get() == "vpn",
