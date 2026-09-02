@@ -670,6 +670,7 @@ fn migration_availability_reason(
 enum StartupFailure {
     ConnectRejected(u16),
     DatagramUnavailable,
+    PmtuRevalidationExhausted,
     ProtocolViolation(String),
     Other(String),
 }
@@ -679,6 +680,7 @@ impl StartupFailure {
         match error {
             TransportError::Http3ConnectRejected(status) => Self::ConnectRejected(*status),
             TransportError::Http3DatagramUnavailable => Self::DatagramUnavailable,
+            TransportError::PmtuRevalidationExhausted => Self::PmtuRevalidationExhausted,
             TransportError::Http3ProtocolViolation(message) => {
                 Self::ProtocolViolation(message.clone())
             }
@@ -690,6 +692,7 @@ impl StartupFailure {
         match self {
             Self::ConnectRejected(status) => TransportError::Http3ConnectRejected(status),
             Self::DatagramUnavailable => TransportError::Http3DatagramUnavailable,
+            Self::PmtuRevalidationExhausted => TransportError::PmtuRevalidationExhausted,
             Self::ProtocolViolation(message) => TransportError::Http3ProtocolViolation(message),
             Self::Other(message) => TransportError::Http3(message),
         }
@@ -1070,14 +1073,15 @@ fn handle_pmtu_send_too_large(
     };
     let key = PmtuPathKey::new(path.local_addr, path.peer_addr);
     quality.record_pmtu_send_too_large();
-    let action = pmtu.on_send_too_large(key, path.pmtu, StdInstant::now());
+    let action = pmtu.on_send_too_large(key, connection.pmtu(), StdInstant::now());
     #[cfg(any(test, feature = "fault-injection"))]
     let action = if quality
         .take_fault(crate::fault_injection::FaultPoint::Pmtu)
         .is_some()
     {
         match action {
-            PmtuRevalidationAction::Revalidate(mut value)
+            PmtuRevalidationAction::ContinueDiscovery(mut value)
+            | PmtuRevalidationAction::Revalidate(mut value)
             | PmtuRevalidationAction::Exhausted(mut value) => {
                 value.phase = crate::PmtuPhase::Degraded;
                 PmtuRevalidationAction::Exhausted(value)
@@ -1087,6 +1091,10 @@ fn handle_pmtu_send_too_large(
         action
     };
     match action {
+        PmtuRevalidationAction::ContinueDiscovery(observation) => {
+            publish_pmtu_observation(quality, observation);
+            Ok(())
+        }
         PmtuRevalidationAction::Revalidate(observation) => {
             publish_pmtu_observation(quality, observation);
             record_pmtu_change_if_needed(attempt, observation);
@@ -1896,6 +1904,20 @@ mod tests {
 
     use super::*;
     use usque_core::MasqueKeyPair;
+
+    #[test]
+    fn startup_preserves_the_typed_pmtu_exhaustion_failure() {
+        let error =
+            StartupFailure::from_transport_error(&TransportError::PmtuRevalidationExhausted)
+                .into_transport_error();
+        assert!(matches!(error, TransportError::PmtuRevalidationExhausted));
+        let failure = error.failure(Some(usque_core::Transport::Http3), None);
+        assert_eq!(
+            failure.code,
+            usque_core::TransportFailureCode::PmtuRevalidationExhausted
+        );
+        assert!(failure.fallback_allowed);
+    }
 
     struct DropSignal(Option<oneshot::Sender<()>>);
 

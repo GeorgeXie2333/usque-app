@@ -114,12 +114,21 @@ floor until a probe succeeds; the ceiling is used only as the optimistic probe
 bound. Each active address pair has independent publication and revalidation
 state.
 
-An `EMSGSIZE` drops the already-generated wire queue rather than retrying the
-same packet, records `pmtu_send_too_large_count`, calls `revalidate_pmtu()` once,
-and suppresses sends for one second. Three such triggers inside a ten-second
-window terminate the H3 path with `PMTU_REVALIDATION_EXHAUSTED`, allowing the
-existing safe reconnect/fallback policy to run. No inner or outer datagram is
-truncated.
+An `EMSGSIZE` drops the already-generated wire queue, records
+`pmtu_send_too_large_count`, and suppresses sends for one second. If quiche has a
+completed PMTU result, it starts one `revalidate_pmtu()` round; three invalidated
+completed results inside ten seconds terminate the H3 path. While discovery is
+already incomplete, a send error is only a failed size probe: quiche continues
+its existing loss-based search without restarting it. A separate 30-error budget
+covers the locked search's ten bounded sizes with three attempts each, then
+terminates with `PMTU_REVALIDATION_EXHAUSTED`. The typed reason survives startup
+as well as an established driver failure and permits the existing safe fallback.
+No inner or outer datagram is truncated.
+
+During discovery and revalidation both published PMTU numbers are `NotReady`.
+quiche's conservative data-send cap is not exported as a measurement. The last
+validated value is retained only to count real changes when a new completed
+result arrives; newly promoted paths never inherit it.
 
 Other pre-existing bounded structures are deliberately not separate quality
 queues:

@@ -381,6 +381,7 @@ struct H2State {
 struct PmtuState {
     phase: PmtuPhase,
     current_bytes: Option<u32>,
+    last_validated_bytes: Option<u32>,
     effective_connect_ip_payload_bytes: Option<u32>,
     change_count: u64,
     revalidation_failure_count: u64,
@@ -393,6 +394,7 @@ impl Default for PmtuState {
         Self {
             phase: PmtuPhase::Unsupported,
             current_bytes: None,
+            last_validated_bytes: None,
             effective_connect_ip_payload_bytes: None,
             change_count: 0,
             revalidation_failure_count: 0,
@@ -811,13 +813,16 @@ impl NetworkQualityTelemetry {
         if state.transport != Some(Transport::Http3) || state.connection_id.is_none() {
             return;
         }
-        if state.pmtu.current_bytes != current_bytes {
-            if state.pmtu.current_bytes.is_some() && current_bytes.is_some() {
+        if let Some(current) = current_bytes
+            && state.pmtu.last_validated_bytes != Some(current)
+        {
+            if state.pmtu.last_validated_bytes.is_some() {
                 state.pmtu.change_count = state.pmtu.change_count.saturating_add(1);
             }
-            state.pmtu.current_bytes = current_bytes;
+            state.pmtu.last_validated_bytes = Some(current);
             state.pmtu.last_change = Some(now);
         }
+        state.pmtu.current_bytes = current_bytes;
         state.pmtu.phase = phase;
         state.pmtu.effective_connect_ip_payload_bytes = effective_connect_ip_payload_bytes;
     }
@@ -1827,6 +1832,17 @@ mod tests {
             Some(1_400)
         );
         assert_eq!(stable.pmtu.send_too_large_count, 1);
+        telemetry.observe_pmtu(PmtuPhase::Revalidating, None, None);
+        let pending = sampler.sample();
+        assert_eq!(pending.pmtu.current_bytes, MetricValue::not_ready());
+        assert_eq!(
+            pending.pmtu.effective_connect_ip_payload_bytes,
+            MetricValue::not_ready()
+        );
+        telemetry.observe_pmtu(PmtuPhase::Degraded, Some(1_252), Some(1_180));
+        let lower = sampler.sample();
+        assert_eq!(lower.pmtu.change_count, 1);
+        assert_eq!(lower.pmtu.current_bytes, MetricValue::available(1_252));
     }
 
     #[test]

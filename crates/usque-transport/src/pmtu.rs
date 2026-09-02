@@ -14,6 +14,11 @@ const IPV6_MINIMUM_INNER_MTU: usize = 1_280;
 const MAX_TRACKED_PATHS: usize = 3;
 const REVALIDATION_WINDOW: Duration = Duration::from_secs(10);
 const SEND_ERROR_SUPPRESSION: Duration = Duration::from_secs(1);
+// The locked quiche binary search needs at most ten sizes (including 1200)
+// between 1200 and 1472, with three loss attempts per size. Keep discovery
+// bounded without exhausting the separate completed-PMTU revalidation budget.
+const MAX_DISCOVERY_SEND_ERRORS: usize = PMTUD_MAX_PROBES as usize
+    * ((IPV4_MAX_UDP_PAYLOAD - MIN_QUIC_UDP_PAYLOAD).ilog2() as usize + 2);
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct PmtuPathKey {
@@ -37,6 +42,7 @@ pub(crate) struct PmtuObservation {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PmtuRevalidationAction {
+    ContinueDiscovery(PmtuObservation),
     Revalidate(PmtuObservation),
     Exhausted(PmtuObservation),
 }
@@ -49,6 +55,7 @@ struct PathPmtuState {
     effective_connect_ip_payload: Option<usize>,
     send_too_large_count: u64,
     revalidation_triggers: VecDeque<Instant>,
+    discovery_send_errors: usize,
     send_suppressed_until: Option<Instant>,
 }
 
@@ -62,6 +69,7 @@ impl PathPmtuState {
             effective_connect_ip_payload: None,
             send_too_large_count: 0,
             revalidation_triggers: VecDeque::with_capacity(PMTUD_MAX_PROBES as usize),
+            discovery_send_errors: 0,
             send_suppressed_until: None,
         }
     }
@@ -75,16 +83,6 @@ impl PathPmtuState {
                 && self.published_outer_payload.is_some()
                 && previous_outer_payload != self.published_outer_payload,
         }
-    }
-
-    fn conservative_outer_payload(&self, estimated_outer_payload: usize) -> usize {
-        estimated_outer_payload
-            .max(MIN_QUIC_UDP_PAYLOAD)
-            .min(
-                self.published_outer_payload
-                    .unwrap_or(INITIAL_SAFE_UDP_PAYLOAD),
-            )
-            .min(INITIAL_SAFE_UDP_PAYLOAD)
     }
 }
 
@@ -128,13 +126,13 @@ impl PmtuController {
         &mut self,
         key: PmtuPathKey,
         completed_outer_payload: Option<usize>,
-        estimated_outer_payload: usize,
+        _estimated_outer_payload: usize,
         effective_connect_ip_payload: Option<usize>,
     ) -> PmtuObservation {
         self.activate_path(key);
         let automatic = self.automatic;
         let state = self.active_state_mut();
-        let previous = state.published_outer_payload;
+        let previous = state.stable_outer_payload;
         if !automatic {
             state.published_outer_payload = Some(INITIAL_SAFE_UDP_PAYLOAD);
             state.effective_connect_ip_payload = effective_connect_ip_payload;
@@ -171,23 +169,18 @@ impl PmtuController {
                 PmtuPhase::Stable
             };
             state.send_suppressed_until = None;
+            state.discovery_send_errors = 0;
         } else {
+            // quiche still owns a conservative data-send cap while probing.
+            // Neither that estimate nor a stale completed value is a current
+            // measurement, so both numeric publications remain NotReady.
+            state.published_outer_payload = None;
+            state.effective_connect_ip_payload = None;
             match state.phase {
-                PmtuPhase::Stable => {
+                PmtuPhase::Stable | PmtuPhase::Degraded => {
                     state.phase = PmtuPhase::Revalidating;
-                    state.published_outer_payload =
-                        Some(state.conservative_outer_payload(estimated_outer_payload));
-                    state.effective_connect_ip_payload = effective_connect_ip_payload;
                 }
-                PmtuPhase::Revalidating | PmtuPhase::Degraded => {
-                    state.published_outer_payload =
-                        Some(state.conservative_outer_payload(estimated_outer_payload));
-                    state.effective_connect_ip_payload = effective_connect_ip_payload;
-                }
-                PmtuPhase::Probing => {
-                    state.published_outer_payload = None;
-                    state.effective_connect_ip_payload = None;
-                }
+                PmtuPhase::Revalidating | PmtuPhase::Probing => {}
                 PmtuPhase::Unsupported => {
                     debug_assert!(false, "H3 PMTU state cannot become unsupported");
                     state.phase = PmtuPhase::Unknown;
@@ -202,13 +195,13 @@ impl PmtuController {
     pub(crate) fn on_send_too_large(
         &mut self,
         key: PmtuPathKey,
-        estimated_outer_payload: usize,
+        completed_outer_payload: Option<usize>,
         now: Instant,
     ) -> PmtuRevalidationAction {
         self.activate_path(key);
         let automatic = self.automatic;
         let state = self.active_state_mut();
-        let previous = state.published_outer_payload;
+        let previous = state.stable_outer_payload;
         state.send_too_large_count = state.send_too_large_count.saturating_add(1);
         if !automatic {
             state.phase = PmtuPhase::Degraded;
@@ -216,6 +209,26 @@ impl PmtuController {
             state.effective_connect_ip_payload = None;
             return PmtuRevalidationAction::Exhausted(state.observation(previous));
         }
+        state.published_outer_payload = None;
+        state.effective_connect_ip_payload = None;
+        state.send_suppressed_until = Some(now + SEND_ERROR_SUPPRESSION);
+        if completed_outer_payload.is_none() {
+            state.discovery_send_errors = state.discovery_send_errors.saturating_add(1);
+            if state.discovery_send_errors >= MAX_DISCOVERY_SEND_ERRORS {
+                state.phase = PmtuPhase::Degraded;
+                return PmtuRevalidationAction::Exhausted(state.observation(previous));
+            }
+            if state.stable_outer_payload.is_some() || state.phase == PmtuPhase::Revalidating {
+                state.phase = PmtuPhase::Revalidating;
+            } else {
+                state.phase = PmtuPhase::Probing;
+            }
+            // A failed size is one probe in the existing discovery round.
+            // Let quiche's loss inference advance/down-search it; do not
+            // restart discovery or count this as another full revalidation.
+            return PmtuRevalidationAction::ContinueDiscovery(state.observation(previous));
+        }
+        state.discovery_send_errors = 0;
         while state
             .revalidation_triggers
             .front()
@@ -224,9 +237,6 @@ impl PmtuController {
             state.revalidation_triggers.pop_front();
         }
         state.revalidation_triggers.push_back(now);
-        state.published_outer_payload =
-            Some(state.conservative_outer_payload(estimated_outer_payload));
-        state.effective_connect_ip_payload = None;
 
         if state.revalidation_triggers.len() >= PMTUD_MAX_PROBES as usize {
             state.phase = PmtuPhase::Degraded;
@@ -235,7 +245,6 @@ impl PmtuController {
         }
 
         state.phase = PmtuPhase::Revalidating;
-        state.send_suppressed_until = Some(now + SEND_ERROR_SUPPRESSION);
         PmtuRevalidationAction::Revalidate(state.observation(previous))
     }
 
@@ -259,6 +268,8 @@ impl PmtuController {
         };
         state.effective_connect_ip_payload = None;
         state.send_suppressed_until = None;
+        state.discovery_send_errors = 0;
+        state.revalidation_triggers.clear();
         PmtuRevalidationAction::Revalidate(state.observation(previous))
     }
 
@@ -338,7 +349,7 @@ mod tests {
         assert_eq!(promoted.phase, PmtuPhase::Stable);
         assert_eq!(promoted.outer_payload_bytes, Some(1_350));
         assert!(matches!(
-            controller.on_send_too_large(second, 1_350, Instant::now()),
+            controller.on_send_too_large(second, Some(1_350), Instant::now()),
             PmtuRevalidationAction::Exhausted(_)
         ));
     }
@@ -395,13 +406,17 @@ mod tests {
         let now = Instant::now();
 
         let PmtuRevalidationAction::Revalidate(revalidating) =
-            controller.on_send_too_large(key, 1_472, now)
+            controller.on_send_too_large(key, Some(1_472), now)
         else {
             panic!("first send-too-large must revalidate");
         };
         assert_eq!(revalidating.phase, PmtuPhase::Revalidating);
-        assert_eq!(revalidating.outer_payload_bytes, Some(1_350));
-        assert!(revalidating.numeric_changed);
+        assert_eq!(revalidating.outer_payload_bytes, None);
+        assert!(!revalidating.numeric_changed);
+        let pending = controller.observe_active_path(key, None, 1_200, Some(1_190));
+        assert_eq!(pending.phase, PmtuPhase::Revalidating);
+        assert_eq!(pending.outer_payload_bytes, None);
+        assert_eq!(pending.effective_connect_ip_payload_bytes, None);
 
         // IPv4 UDP payload ceilings for 1500- and 1280-byte outer links are
         // respectively 1472 and 1252 bytes.
@@ -428,7 +443,7 @@ mod tests {
     }
 
     #[test]
-    fn emsgsize_revalidation_is_rate_limited_and_exhausts_on_third_failure() {
+    fn three_invalidated_completed_results_exhaust_the_revalidation_window() {
         let key = path("192.0.2.10:1000", "192.0.2.20:443");
         let mut controller = PmtuController::new(key);
         controller.observe_active_path(key, Some(1_472), 1_472, Some(1_400));
@@ -436,7 +451,7 @@ mod tests {
         let start = Instant::now();
 
         assert!(matches!(
-            controller.on_send_too_large(key, 1_472, start),
+            controller.on_send_too_large(key, Some(1_472), start),
             PmtuRevalidationAction::Revalidate(_)
         ));
         assert_eq!(
@@ -444,11 +459,11 @@ mod tests {
             Some(start + SEND_ERROR_SUPPRESSION)
         );
         assert!(matches!(
-            controller.on_send_too_large(key, 1_350, start + Duration::from_secs(1)),
+            controller.on_send_too_large(key, Some(1_350), start + Duration::from_secs(1)),
             PmtuRevalidationAction::Revalidate(_)
         ));
         assert!(matches!(
-            controller.on_send_too_large(key, 1_300, start + Duration::from_secs(2)),
+            controller.on_send_too_large(key, Some(1_300), start + Duration::from_secs(2)),
             PmtuRevalidationAction::Exhausted(_)
         ));
         assert_eq!(controller.path_state(key).unwrap().send_too_large_count, 3);
@@ -463,11 +478,11 @@ mod tests {
         let start = Instant::now();
 
         assert!(matches!(
-            controller.on_send_too_large(key, 1_472, start),
+            controller.on_send_too_large(key, Some(1_472), start),
             PmtuRevalidationAction::Revalidate(_)
         ));
         assert!(matches!(
-            controller.on_send_too_large(key, 1_350, start + REVALIDATION_WINDOW),
+            controller.on_send_too_large(key, Some(1_350), start + REVALIDATION_WINDOW),
             PmtuRevalidationAction::Revalidate(_)
         ));
     }
@@ -486,6 +501,9 @@ mod tests {
         };
         assert_eq!(promoted.phase, PmtuPhase::Revalidating);
         assert_eq!(promoted.outer_payload_bytes, None);
+        let pending = controller.observe_active_path(second, None, 1_200, Some(1_190));
+        assert_eq!(pending.outer_payload_bytes, None);
+        assert_eq!(pending.effective_connect_ip_payload_bytes, None);
         assert_eq!(
             controller.path_state(first).unwrap().stable_outer_payload,
             Some(1_472)
@@ -494,5 +512,58 @@ mod tests {
             controller.path_state(second).unwrap().stable_outer_payload,
             None
         );
+    }
+
+    #[test]
+    fn three_failed_size_probes_allow_downsearch_without_restarting_discovery() {
+        let key = path("192.0.2.10:1000", "192.0.2.20:443");
+        let mut controller = PmtuController::new(key);
+        let start = Instant::now();
+        for index in 0..PMTUD_MAX_PROBES {
+            let now = start + Duration::from_secs(u64::from(index));
+            let PmtuRevalidationAction::ContinueDiscovery(observation) =
+                controller.on_send_too_large(key, None, now)
+            else {
+                panic!("one failed probe is not a full failed revalidation");
+            };
+            assert_eq!(observation.phase, PmtuPhase::Probing);
+            assert_eq!(observation.outer_payload_bytes, None);
+            assert_eq!(
+                controller.send_suppressed_until(now),
+                Some(now + SEND_ERROR_SUPPRESSION)
+            );
+        }
+        assert!(
+            controller
+                .path_state(key)
+                .unwrap()
+                .revalidation_triggers
+                .is_empty()
+        );
+        // The locked search moves from 1472 to midpoint(1200,1472) after
+        // three losses. Its later completed result can now be published.
+        let completed = controller.observe_active_path(key, Some(1_336), 1_336, Some(1_280));
+        assert_eq!(completed.outer_payload_bytes, Some(1_336));
+        assert_eq!(completed.phase, PmtuPhase::Stable);
+        assert_eq!(controller.path_state(key).unwrap().discovery_send_errors, 0);
+    }
+
+    #[test]
+    fn unfinished_discovery_has_a_separate_finite_send_error_budget() {
+        let key = path("192.0.2.10:1000", "192.0.2.20:443");
+        let mut controller = PmtuController::new(key);
+        let start = Instant::now();
+        assert_eq!(MAX_DISCOVERY_SEND_ERRORS, 30);
+        for index in 1..MAX_DISCOVERY_SEND_ERRORS {
+            assert!(matches!(
+                controller.on_send_too_large(key, None, start + Duration::from_secs(index as u64)),
+                PmtuRevalidationAction::ContinueDiscovery(_)
+            ));
+        }
+        assert!(matches!(
+            controller.on_send_too_large(key, None, start + Duration::from_secs(30)),
+            PmtuRevalidationAction::Exhausted(_)
+        ));
+        assert_eq!(controller.path_state(key).unwrap().send_too_large_count, 30);
     }
 }
