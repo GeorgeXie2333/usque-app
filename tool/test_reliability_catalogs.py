@@ -49,9 +49,14 @@ class ReliabilityCatalogueTest(unittest.TestCase):
 
     def test_check_ids_match_engine_android_and_flutter(self) -> None:
         rust = (ROOT / "crates/usque-engine/src/diagnostics/catalog.rs").read_text(encoding="utf-8")
+        rust += (ROOT / "crates/usque-engine/src/diagnostics/probes.rs").read_text(encoding="utf-8")
         android = (
             ROOT
             / "apps/usque_gui/android/app/src/main/kotlin/io/github/georgexie2333/usque/AndroidDiagnosticsCoordinator.kt"
+        ).read_text(encoding="utf-8")
+        android += (
+            ROOT
+            / "apps/usque_gui/android/app/src/main/kotlin/io/github/georgexie2333/usque/NetworkDiagnosticChecks.kt"
         ).read_text(encoding="utf-8")
         android_maintenance = (
             ROOT
@@ -63,7 +68,15 @@ class ReliabilityCatalogueTest(unittest.TestCase):
         chinese_catalog = (ROOT / "apps/usque_gui/lib/core/l10n/zh_cn.dart").read_text(
             encoding="utf-8"
         )
-        pattern = r'"((?:engine|frontend|physical|transport|tunnel|protection)\.[a-z0-9_]+)"'
+        feature_catalog = (ROOT / "apps/usque_gui/lib/core/l10n/network_quality.dart").read_text(
+            encoding="utf-8"
+        )
+        english_catalog += _section(
+            feature_catalog, "const kNetworkQualityEn", "const kNetworkQualityZhCn"
+        )
+        chinese_catalog += feature_catalog[feature_catalog.index("const kNetworkQualityZhCn") :]
+        categories = "engine|frontend|physical|transport|tunnel|protection|quality|dns"
+        pattern = rf'"((?:{categories})\.[a-z0-9_]+)"'
         rust_ids = set(re.findall(pattern, rust))
         android_ids = set(re.findall(pattern, android))
         android_export_ids = set(
@@ -79,10 +92,7 @@ class ReliabilityCatalogueTest(unittest.TestCase):
         expected_catalog_keys = {
             f"diag_check_{check_id.replace('.', '_')}" for check_id in rust_ids
         }
-        catalog_key_pattern = (
-            r"'(diag_check_(?:engine|frontend|physical|transport|tunnel|protection)"
-            r"_[a-z0-9_]+)'\s*:"
-        )
+        catalog_key_pattern = rf"'(diag_check_(?:{categories})_[a-z0-9_]+)'\s*:"
         english_keys = set(
             re.findall(
                 catalog_key_pattern,
@@ -95,7 +105,7 @@ class ReliabilityCatalogueTest(unittest.TestCase):
                 chinese_catalog,
             )
         )
-        self.assertEqual(30, len(rust_ids))
+        self.assertEqual(39, len(rust_ids))
         self.assertSetEqual(rust_ids, android_ids)
         self.assertSetEqual(rust_ids, android_export_ids)
         self.assertSetEqual(expected_catalog_keys, english_keys)
@@ -105,11 +115,16 @@ class ReliabilityCatalogueTest(unittest.TestCase):
         checks = (ROOT / "crates/usque-engine/src/diagnostics/checks.rs").read_text(
             encoding="utf-8"
         )
+        for module in ("quality", "probes"):
+            checks += (ROOT / f"crates/usque-engine/src/diagnostics/{module}.rs").read_text(
+                encoding="utf-8"
+            )
         maintenance = (ROOT / "crates/usque-engine/src/maintenance.rs").read_text(encoding="utf-8")
-        runner_summaries = set(re.findall(r'"(diagnostic_[a-z0-9_]+)"', checks))
+        summary_pattern = r'"((?:diagnostic_|nq_finding_)[a-z0-9_]+)"'
+        runner_summaries = set(re.findall(summary_pattern, checks))
         export_summaries = set(
             re.findall(
-                r'"(diagnostic_[a-z0-9_]+)"',
+                summary_pattern,
                 _section(maintenance, "fn safe_summary_key", "\nfn safe_evidence"),
             )
         )

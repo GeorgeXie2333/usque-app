@@ -466,6 +466,9 @@ pub struct NetworkQualityTelemetry {
 }
 
 struct NetworkQualityTelemetryInner {
+    features: crate::NetworkFeatureFlags,
+    #[cfg(any(test, feature = "fault-injection"))]
+    faults: std::sync::Mutex<Option<crate::fault_injection::NetworkFaults>>,
     state: RwLock<QualityState>,
     queues: RwLock<[Arc<QueueMetrics>; 8]>,
     udp_io: UdpIoCounters,
@@ -483,10 +486,19 @@ impl std::fmt::Debug for NetworkQualityTelemetry {
 
 impl Default for NetworkQualityTelemetry {
     fn default() -> Self {
+        Self::configured(crate::PRODUCTION_NETWORK_FEATURES)
+    }
+}
+
+impl NetworkQualityTelemetry {
+    pub(crate) fn configured(features: crate::NetworkFeatureFlags) -> Self {
         let queues =
             std::array::from_fn(|index| QueueMetrics::unregistered(ALL_QUEUE_KINDS[index]));
         Self {
             inner: Arc::new(NetworkQualityTelemetryInner {
+                features,
+                #[cfg(any(test, feature = "fault-injection"))]
+                faults: std::sync::Mutex::new(None),
                 state: RwLock::new(QualityState::default()),
                 queues: RwLock::new(queues),
                 udp_io: UdpIoCounters::default(),
@@ -498,6 +510,34 @@ impl Default for NetworkQualityTelemetry {
 }
 
 impl NetworkQualityTelemetry {
+    pub fn features(&self) -> crate::NetworkFeatureFlags {
+        self.inner.features
+    }
+
+    #[cfg(any(test, feature = "fault-injection"))]
+    pub fn with_features(features: crate::NetworkFeatureFlags) -> Self {
+        Self::configured(features)
+    }
+
+    #[cfg(any(test, feature = "fault-injection"))]
+    pub fn inject_fault_script(&self, script: crate::fault_injection::FaultScript) {
+        *self.inner.faults.lock().expect("fault mutex poisoned") =
+            Some(crate::fault_injection::NetworkFaults::new(script));
+    }
+
+    #[cfg(any(test, feature = "fault-injection"))]
+    pub(crate) fn take_fault(
+        &self,
+        point: crate::fault_injection::FaultPoint,
+    ) -> Option<crate::fault_injection::FaultKind> {
+        self.inner
+            .faults
+            .lock()
+            .expect("fault mutex poisoned")
+            .as_ref()
+            .and_then(|faults| faults.take(point))
+    }
+
     pub fn begin_connection(
         &self,
         transport: Transport,
@@ -1228,10 +1268,15 @@ pub fn spawn_network_quality_sampler(
     telemetry: NetworkQualityTelemetry,
     cancellation: CancellationToken,
 ) -> (watch::Receiver<NetworkQualitySnapshot>, JoinHandle<()>) {
+    let publish = telemetry.features().network_quality_metrics;
     let mut sampler = NetworkQualitySampler::new(telemetry);
     let initial = sampler.sample();
     let (sender, receiver) = watch::channel(initial);
     let task = tokio::spawn(async move {
+        if !publish {
+            cancellation.cancelled().await;
+            return;
+        }
         let mut interval = interval_at(Instant::now() + SAMPLE_INTERVAL, SAMPLE_INTERVAL);
         interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
         loop {
@@ -1661,6 +1706,30 @@ mod tests {
         assert_eq!(snapshot.h2_flow_control.ping_timeout_count, 3);
         assert_eq!(snapshot.h2_flow_control.ping_consecutive_failures, 3);
         assert_eq!(snapshot.level, NetworkQualityLevel::Poor);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn metrics_rollback_stops_publication_without_disabling_counters() {
+        let telemetry = NetworkQualityTelemetry::with_features(crate::NetworkFeatureFlags {
+            network_quality_metrics: false,
+            ..crate::PRODUCTION_NETWORK_FEATURES
+        });
+        let cancellation = CancellationToken::new();
+        let (receiver, task) =
+            spawn_network_quality_sampler(telemetry.clone(), cancellation.clone());
+        telemetry.record_direct_dns_success(Duration::from_millis(12));
+        advance(SAMPLE_INTERVAL * 5).await;
+        tokio::task::yield_now().await;
+        assert!(!receiver.has_changed().unwrap());
+        assert_eq!(
+            NetworkQualitySampler::new(telemetry)
+                .sample()
+                .direct_dns
+                .successes,
+            1
+        );
+        cancellation.cancel();
+        task.await.unwrap();
     }
 
     #[tokio::test(start_paused = true)]

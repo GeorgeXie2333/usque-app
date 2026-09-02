@@ -104,6 +104,7 @@ internal class VpnControlClient(
     private val pendingSnapshots = mutableMapOf<Int, MethodChannel.Result>()
     private val pendingDiagnosticProbes = mutableMapOf<Int, (SnapshotProbe) -> Unit>()
     private var pendingNetworkProbe: Pair<Int, CompletableFuture<String?>>? = null
+    private var pendingTimeline: Pair<Int, (Map<String, Any?>?) -> Unit>? = null
     private val pendingClearAll = mutableMapOf<Int, MethodChannel.Result>()
     private var nextSnapshotId = 1
     private var endpoint: ControlEndpoint? = null
@@ -128,6 +129,9 @@ internal class VpnControlClient(
 
     val isBound: Boolean
         get() = controlBound
+
+    val isClosed: Boolean
+        get() = destroyed
 
     val hasEndpoint: Boolean
         get() = endpoint != null
@@ -274,6 +278,32 @@ internal class VpnControlClient(
                 SnapshotProbe(lastSnapshot.toMap(), false),
             )
         }
+    }
+
+    /** One on-demand read, one callback, 750 ms; old native/service versions return no timeline. */
+    fun requestTimeline(callback: (Map<String, Any?>?) -> Unit) {
+        val service = endpoint
+        if (destroyed || service == null || pendingTimeline != null) {
+            callback(null)
+            return
+        }
+        val id = allocateRequestId()
+        pendingTimeline = id to callback
+        if (!service.send(UsqueVpnService.MSG_CONNECTION_TIMELINE, id)) {
+            deliverTimelineReply(id, null)
+            return
+        }
+        scheduler.postDelayed(750L, snapshotTimeoutToken(id)) { deliverTimelineReply(id, null) }
+    }
+
+    internal fun deliverTimelineReply(
+        id: Int,
+        raw: String?,
+    ) {
+        val pending = pendingTimeline?.takeIf { it.first == id } ?: return
+        pendingTimeline = null
+        scheduler.cancel(snapshotTimeoutToken(id))
+        pending.second(NativeTimelineFields.decode(raw))
     }
 
     /** Called only on the existing diagnostic worker, never on the UI thread. */
@@ -592,6 +622,12 @@ internal class VpnControlClient(
         }
         pendingNetworkProbe = null
 
+        pendingTimeline?.let { (id, callback) ->
+            pendingTimeline = null
+            scheduler.cancel(snapshotTimeoutToken(id))
+            callback(null)
+        }
+
         pendingClearAll.keys.toList().forEach { requestId ->
             scheduler.cancel(clearAllTimeoutToken(requestId))
         }
@@ -778,6 +814,11 @@ internal class VpnControlClient(
         data: Bundle,
     ): Boolean =
         when (what) {
+            UsqueVpnService.MSG_CONNECTION_TIMELINE -> {
+                deliverTimelineReply(arg1, data.getString("connection_timeline"))
+                true
+            }
+
             UsqueVpnService.MSG_DIAGNOSTIC_PROBE -> {
                 pendingNetworkProbe?.takeIf { it.first == arg1 }?.let { (_, response) ->
                     pendingNetworkProbe = null

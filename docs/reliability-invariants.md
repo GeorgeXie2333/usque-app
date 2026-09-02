@@ -43,3 +43,15 @@ connections: the old connection is quiesced before replacement. Migration
 inside one existing connection follows the three migration invariants above.
 After promotion the old socket may receive delayed QUIC packets during its
 bounded grace period, but cannot send application or control packets.
+
+## Integration and rollback invariants (append-only)
+
+| Identifier | Required property | Automated evidence |
+| --- | --- | --- |
+| `INV-NETWORK-FEATURE-ROLLBACK` | Build-only flags preserve bounded legacy behavior; disabling encrypted DNS rejects custom modes without a plaintext rewrite. | H2 32-combination window test, metrics cancellation, portable UDP, fixed-1350 PMTU, disabled migration, encrypted-capability tests. |
+| `INV-FAULT-INJECTION-LOCAL` | Faults are bounded, instance-local, single-use and absent from production remote/configuration surfaces. | Fault script timing/isolation/limit tests, real H2/UDP/DNS/migration hooks, release compile guard. |
+| `INV-NATIVE-TIMELINE-BOUNDED` | Android reads native timeline on demand with bounded bytes/events/single-flight and sanitized export, preserving old-engine behavior. | Rust timeline privacy/budget test; Kotlin native fields, callback timeout/destroy and export-session tests. |
+
+Detailed ordinary and protected evidence is linked in
+[network-quality acceptance](network-quality-acceptance.md); protected results
+remain `not_run` without infrastructure and do not gate publication.

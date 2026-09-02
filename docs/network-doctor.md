@@ -36,8 +36,11 @@ independent OS observations remain unknown, not false passes.
 
 Deep has a 15-second session budget and four-second per-check ceilings. Socket
 I/O gets 3.8 seconds, leaving cleanup time. DNS and QUIC share one probe resource
-group, not unlimited parallel tasks. Every new socket has an exact-generation
-egress lease/protection contract. Generation changes, cancellation and deadlines
+group, not unlimited parallel tasks. Every new socket has a generation-tagged
+lease contract: active Windows VPN uses Agent/WFP; Android binds the exact
+underlying Network (and protects in VPN mode). Windows proxy and disconnected
+desktop probes use ordinary host networking, with a logical generation-zero
+lease, and cannot prove Agent/WFP egress. Generation changes, cancellation and deadlines
 release sockets, TLS/QUIC state, bounded pools and tasks. DNS uses a dedicated
 short-lived pool and waits for actual socket-permit release; it never clears or
 modifies the live business resolver pool. Its strict trust roots, TLS name
@@ -61,6 +64,16 @@ Standard snapshot round trip is limited to 750 ms. Cancellation remains
 remain optional; unsupported probes are skipped without insecure alternatives.
 
 ## Workstation evidence and protected scope
+
+Android timeline reads use append-only Binder message 14 and an optional JNI
+method. Rust mirrors the bounded native transport timeline in memory at 1 Hz
+and on shutdown; the getter returns at most 256 events and 192 KiB. The UI
+allows one outstanding request for at most 750 ms. Missing/old methods fall
+back to the existing phase timeline; native events and real RTT/fallback/queue
+counters take precedence when present. Late replies and UI destruction cannot
+complete a request twice. The full timeline is never added to regular events.
+Exports use the same enum/numeric allowlist and omit live absolute timestamps;
+the requested diagnostic session is frozen before the asynchronous read.
 
 Ordinary tests cover read-only configuration/state equality, the 15-second
 session budget, dependency ordering, resource-group serialization, cancellation,

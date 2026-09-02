@@ -9,6 +9,7 @@ mod diagnostic_probe;
 mod direct_gateway;
 mod dns;
 mod encrypted_dns;
+mod feature_flags;
 mod geo_direct;
 mod h2;
 mod h3;
@@ -38,17 +39,20 @@ mod udp_io;
 #[cfg(any(test, feature = "fault-injection"))]
 mod fault_injection;
 
+#[cfg(all(feature = "fault-injection", not(debug_assertions), not(test)))]
+compile_error!("fault-injection is restricted to test/debug lab builds");
+
 pub use diagnostic_probe::{NetworkProbeResult, probe_encrypted_dns, probe_h3_handshake};
-pub use encrypted_dns::{
-    DirectDnsError, DirectDnsQueryContext, DirectDnsResolver, ENCRYPTED_DIRECT_DNS_ENABLED,
+pub use encrypted_dns::{DirectDnsError, DirectDnsQueryContext, DirectDnsResolver};
+pub use feature_flags::{
+    ENCRYPTED_DIRECT_DNS_ENABLED, NetworkFeatureFlags, PRODUCTION_NETWORK_FEATURES,
 };
 pub use geo_direct::{GeoDirectClassifier, GeoDirectPolicy, GeoRoute};
 pub use h2::{
     H2Driver, H2ReceiveHalf, H2SendHalf, H2Tunnel, MasqueTlsIdentity, TransportError, connect_h2,
 };
 pub use h3::{
-    H3Driver, H3MigrationHandle, H3MigrationResult, H3ReceiveHalf, H3SendHalf, H3Tunnel,
-    QUIC_MIGRATION_ENABLED, connect_h3,
+    H3Driver, H3MigrationHandle, H3MigrationResult, H3ReceiveHalf, H3SendHalf, H3Tunnel, connect_h3,
 };
 pub use http_proxy::HttpProxyRuntime;
 pub use masque_runtime::{MasqueRuntime, MasqueTunIo};

@@ -76,8 +76,10 @@ limit still applies, independently of encrypted upstream transport.
   after a failed first candidate). Losers release their socket and lease.
 - Exact-generation protection is checked before setup, after bind/protect,
   before/after TLS, before the request and before returning its result. Android
-  uses the exact `Network`; Windows uses the Agent's generation-tagged target
-  lease. Bootstrap never performs a hostname lookup.
+  uses the exact `Network`; Windows VPN uses the Agent's generation-tagged
+  target lease. Windows proxy and disconnected desktop probes use ordinary
+  host networking with a logical generation-zero lease, not Agent/WFP
+  protection. Bootstrap never performs a hostname lookup.
 - A bounded 100 ms generation observer cancels the old pool; every query also
   checks generation synchronously at its boundaries. New-generation requests
   cannot reuse old connections. Profile shutdown rejects new work and cancels
@@ -101,6 +103,22 @@ before connection. It never rewrites the saved mode or silently substitutes
 physical-system DNS. Users may explicitly change the Profile themselves.
 
 ## Privacy and validation limits
+
+### Profile/config schema 13
+
+`AppConfig.shared_network.direct_dns` is hydrated into each account's runtime
+Profile. Old schema-12 configurations and missing protobuf Profile field 17
+canonicalize to System. Shared settings, not per-account endpoint overlays,
+select DNS. `DirectDnsSettings` wire fields 1–5 are mode, server name, DoH path,
+bootstrap IPs, and port; unknown protobuf fields retain compatibility. Android
+uses the equivalent `direct_dns` JSON object. Core validation remains
+authoritative after the editor's validation. Explicit configuration export
+preserves these user values; diagnostic export excludes them.
+
+Android waits for a usable non-VPN network in every mode, but only System
+Split DNS requires its physical DNS metadata. DoH/DoT bootstrap is independent
+of that list. See the deployment-specific [threat model](direct-dns-threat-model.md)
+and [capability rollback](network-quality-rollback.md).
 
 Metrics contain only protocol/mode, fixed phase/reason codes, RTT, counters and
 queue pressure. No QNAME, wire message, configured name, bootstrap/answer IP,

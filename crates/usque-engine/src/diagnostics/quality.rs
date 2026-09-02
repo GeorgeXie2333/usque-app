@@ -179,7 +179,7 @@ pub(super) fn evaluate(
         }
         Kind::MigrationCapability if q.transport != Some(Transport::Http3) => unavailable(),
         Kind::MigrationCapability => {
-            let blocked = !usque_transport::QUIC_MIGRATION_ENABLED
+            let blocked = !usque_transport::PRODUCTION_NETWORK_FEATURES.quic_migration
                 || matches!(
                     q.migration.last_reason,
                     Some(

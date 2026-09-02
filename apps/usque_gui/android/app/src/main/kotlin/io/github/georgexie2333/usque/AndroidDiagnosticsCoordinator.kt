@@ -35,6 +35,11 @@ internal class AndroidDiagnosticsCoordinator(
     private var lastNetworkGeneration: Long? = null
     private var observedNetworkChanges = 0L
     private var droppedTimelineEvents = 0L
+    private var nativeTimeline: Map<String, Any?>? = null
+
+    fun observeNativeTimeline(value: Map<String, Any?>?) {
+        synchronized(lock) { nativeTimeline = value?.toMap() }
+    }
 
     fun observeSnapshot(snapshot: Map<String, Any?>) {
         synchronized(lock) {
@@ -187,6 +192,7 @@ internal class AndroidDiagnosticsCoordinator(
 
     fun timeline(): Map<String, Any?> =
         synchronized(lock) {
+            nativeTimeline?.let { return@synchronized it.toMap() }
             val snapshot = latestSnapshot
             mapOf(
                 "events" to timeline.map(Map<String, Any?>::toMap),

@@ -91,17 +91,36 @@ impl PathPmtuState {
 /// Tracks application-visible PMTU state independently for every bounded H3
 /// path. quiche owns probe generation and loss inference; this controller owns
 /// publication semantics and the send-error circuit breaker.
-#[derive(Default)]
 pub(crate) struct PmtuController {
     paths: Vec<PathPmtuState>,
     active: Option<PmtuPathKey>,
+    automatic: bool,
+}
+
+impl Default for PmtuController {
+    fn default() -> Self {
+        Self {
+            paths: Vec::new(),
+            active: None,
+            automatic: crate::PRODUCTION_NETWORK_FEATURES.automatic_pmtu,
+        }
+    }
 }
 
 impl PmtuController {
+    #[cfg(test)]
     pub(crate) fn new(initial_path: PmtuPathKey) -> Self {
+        Self::with_automatic(
+            initial_path,
+            crate::PRODUCTION_NETWORK_FEATURES.automatic_pmtu,
+        )
+    }
+
+    pub(crate) fn with_automatic(initial_path: PmtuPathKey, automatic: bool) -> Self {
         Self {
             paths: vec![PathPmtuState::new(initial_path)],
             active: Some(initial_path),
+            automatic,
         }
     }
 
@@ -113,8 +132,21 @@ impl PmtuController {
         effective_connect_ip_payload: Option<usize>,
     ) -> PmtuObservation {
         self.activate_path(key);
+        let automatic = self.automatic;
         let state = self.active_state_mut();
         let previous = state.published_outer_payload;
+        if !automatic {
+            state.published_outer_payload = Some(INITIAL_SAFE_UDP_PAYLOAD);
+            state.effective_connect_ip_payload = effective_connect_ip_payload;
+            state.phase = if effective_connect_ip_payload
+                .is_some_and(|payload| payload < IPV6_MINIMUM_INNER_MTU)
+            {
+                PmtuPhase::Degraded
+            } else {
+                PmtuPhase::Stable
+            };
+            return state.observation(previous);
+        }
 
         // Publish one explicit probing observation for every fresh path even
         // when a very fast probe completed before the one-hertz sampler ran.
@@ -174,9 +206,16 @@ impl PmtuController {
         now: Instant,
     ) -> PmtuRevalidationAction {
         self.activate_path(key);
+        let automatic = self.automatic;
         let state = self.active_state_mut();
         let previous = state.published_outer_payload;
         state.send_too_large_count = state.send_too_large_count.saturating_add(1);
+        if !automatic {
+            state.phase = PmtuPhase::Degraded;
+            state.published_outer_payload = Some(INITIAL_SAFE_UDP_PAYLOAD);
+            state.effective_connect_ip_payload = None;
+            return PmtuRevalidationAction::Exhausted(state.observation(previous));
+        }
         while state
             .revalidation_triggers
             .front()
@@ -204,11 +243,20 @@ impl PmtuController {
     /// stable PMTU.
     pub(crate) fn on_path_promoted(&mut self, key: PmtuPathKey) -> PmtuRevalidationAction {
         self.activate_path(key);
+        let automatic = self.automatic;
         let state = self.active_state_mut();
         let previous = state.published_outer_payload;
-        state.phase = PmtuPhase::Revalidating;
+        state.phase = if automatic {
+            PmtuPhase::Revalidating
+        } else {
+            PmtuPhase::Stable
+        };
         state.stable_outer_payload = None;
-        state.published_outer_payload = None;
+        state.published_outer_payload = if automatic {
+            None
+        } else {
+            Some(INITIAL_SAFE_UDP_PAYLOAD)
+        };
         state.effective_connect_ip_payload = None;
         state.send_suppressed_until = None;
         PmtuRevalidationAction::Revalidate(state.observation(previous))
@@ -273,6 +321,26 @@ mod tests {
 
     fn path(local: &str, peer: &str) -> PmtuPathKey {
         PmtuPathKey::new(local.parse().unwrap(), peer.parse().unwrap())
+    }
+
+    #[test]
+    fn rollback_is_fixed_1350_across_paths_and_fails_closed_on_emsgsize() {
+        let first = path("192.0.2.10:1000", "192.0.2.20:443");
+        let second = path("192.0.2.11:1001", "192.0.2.20:443");
+        let mut controller = PmtuController::with_automatic(first, false);
+        let observation = controller.observe_active_path(first, Some(1_472), 1_350, Some(1_280));
+        assert_eq!(observation.phase, PmtuPhase::Stable);
+        assert_eq!(observation.outer_payload_bytes, Some(1_350));
+        let PmtuRevalidationAction::Revalidate(promoted) = controller.on_path_promoted(second)
+        else {
+            panic!("role swap must reset per-path state");
+        };
+        assert_eq!(promoted.phase, PmtuPhase::Stable);
+        assert_eq!(promoted.outer_payload_bytes, Some(1_350));
+        assert!(matches!(
+            controller.on_send_too_large(second, 1_350, Instant::now()),
+            PmtuRevalidationAction::Exhausted(_)
+        ));
     }
 
     #[test]

@@ -54,10 +54,6 @@ mod migration;
 use migration::{H3_CONTROL_CAPACITY, H3ControlCommand, MigrationActor, MigrationDrive};
 pub use migration::{H3MigrationHandle, H3MigrationResult};
 
-/// Internal build rollback switch. Disabling migration keeps the bounded
-/// active socket infrastructure and restores complete reconnect on changes.
-pub const QUIC_MIGRATION_ENABLED: bool = true;
-
 const CONNECT_AUTHORITY: &[u8] = b"cloudflareaccess.com";
 const CONNECT_PATH: &[u8] = b"/";
 const CONNECT_PROTOCOL: &[u8] = b"cf-connect-ip";
@@ -418,7 +414,12 @@ async fn connect_h3_once(
     }
 
     let family_ceiling = family_udp_payload_ceiling(endpoint);
-    let (mut quic_config, pin_state) = quic_config(identity, family_ceiling)?;
+    let quality = attempt
+        .map(ConnectionAttemptTelemetry::quality)
+        .unwrap_or_default();
+    let features = quality.features();
+    let (mut quic_config, pin_state) =
+        quic_config_with_features(identity, family_ceiling, features)?;
     let mut source_connection_id = [0u8; CONNECTION_ID_LENGTH];
     boring::rand::rand_bytes(&mut source_connection_id)?;
     let source_connection_id = quiche::ConnectionId::from_ref(&source_connection_id);
@@ -438,9 +439,6 @@ async fn connect_h3_once(
     h3_config.set_qpack_max_table_capacity(0);
     h3_config.set_qpack_blocked_streams(0);
 
-    let quality = attempt
-        .map(ConnectionAttemptTelemetry::quality)
-        .unwrap_or_default();
     let datagram_queue = quality.register_queue(
         QueueKind::H3DatagramSend,
         DATAGRAM_SEND_QUEUE_CAPACITY,
@@ -503,7 +501,12 @@ async fn connect_h3_once(
                 task: Some(task.detach()),
             },
             control: control_rx,
-            migration: H3MigrationHandle::new(migration_tx, endpoint, initial_generation),
+            migration: H3MigrationHandle::new(
+                migration_tx,
+                endpoint,
+                initial_generation,
+                features.quic_migration,
+            ),
         }),
         Ok(Ok(Err(failure))) => {
             task.abort();
@@ -545,6 +548,14 @@ fn quic_config(
     identity: &MasqueTlsIdentity,
     family_ceiling: usize,
 ) -> Result<(quiche::Config, Arc<PinState>), TransportError> {
+    quic_config_with_features(identity, family_ceiling, crate::PRODUCTION_NETWORK_FEATURES)
+}
+
+fn quic_config_with_features(
+    identity: &MasqueTlsIdentity,
+    family_ceiling: usize,
+    features: crate::NetworkFeatureFlags,
+) -> Result<(quiche::Config, Arc<PinState>), TransportError> {
     let mut tls = SslContextBuilder::new(SslMethod::tls())?;
     let pin_state = configure_client_identity_and_pin(&mut tls, identity)?;
     let mut config = quiche::Config::with_boring_ssl_ctx_builder(quiche::PROTOCOL_VERSION, tls)
@@ -554,8 +565,12 @@ fn quic_config(
         .map_err(|error| TransportError::Http3(format!("configure H3 ALPN: {error:?}")))?;
     config.set_max_idle_timeout(MAX_IDLE_TIMEOUT_MS);
     config.set_max_recv_udp_payload_size(family_ceiling);
-    config.set_max_send_udp_payload_size(family_ceiling);
-    config.discover_pmtu(true);
+    config.set_max_send_udp_payload_size(if features.automatic_pmtu {
+        family_ceiling
+    } else {
+        INITIAL_SAFE_UDP_PAYLOAD
+    });
+    config.discover_pmtu(features.automatic_pmtu);
     config.set_pmtud_max_probes(PMTUD_MAX_PROBES);
     config.set_initial_max_data(10_000_000);
     config.set_initial_max_stream_data_bidi_local(1_000_000);
@@ -563,7 +578,7 @@ fn quic_config(
     config.set_initial_max_stream_data_uni(1_000_000);
     config.set_initial_max_streams_bidi(16);
     config.set_initial_max_streams_uni(16);
-    config.set_disable_active_migration(false);
+    config.set_disable_active_migration(!features.quic_migration);
     config.set_active_connection_id_limit(ACTIVE_CONNECTION_ID_LIMIT);
     config.enable_dgram(
         true,
@@ -632,7 +647,7 @@ fn migration_availability_reason(
     availability: CidAvailability,
     platform_supported: bool,
 ) -> Option<MigrationReasonCode> {
-    if !QUIC_MIGRATION_ENABLED || !platform_supported {
+    if !platform_supported {
         return Some(MigrationReasonCode::Unsupported);
     }
     match availability {
@@ -763,7 +778,7 @@ async fn drive_h3_actor(
     let io_cancel = CancellationToken::new();
     let mut incoming_batch = PacketBatch::new();
     let mut inbound_queue_drop_count = 0_u64;
-    let mut pmtu = PmtuController::new(initial_path);
+    let mut pmtu = PmtuController::with_automatic(initial_path, quality.features().automatic_pmtu);
     let migration_platform_supported = protector.network_generation().is_some();
     let mut migration = MigrationActor::new(
         protector,
@@ -810,7 +825,7 @@ async fn drive_h3_actor(
         if connection.is_established() {
             quality.set_migration_availability_reason(migration_availability_reason(
                 maintain_connection_ids(&mut connection)?,
-                migration_platform_supported,
+                migration_platform_supported && quality.features().quic_migration,
             ));
         }
         if connection.is_established() && http3.is_none() {
@@ -1046,11 +1061,29 @@ fn handle_pmtu_send_too_large(
     };
     let key = PmtuPathKey::new(path.local_addr, path.peer_addr);
     quality.record_pmtu_send_too_large();
-    match pmtu.on_send_too_large(key, path.pmtu, StdInstant::now()) {
+    let action = pmtu.on_send_too_large(key, path.pmtu, StdInstant::now());
+    #[cfg(any(test, feature = "fault-injection"))]
+    let action = if quality
+        .take_fault(crate::fault_injection::FaultPoint::Pmtu)
+        .is_some()
+    {
+        match action {
+            PmtuRevalidationAction::Revalidate(mut value)
+            | PmtuRevalidationAction::Exhausted(mut value) => {
+                value.phase = crate::PmtuPhase::Degraded;
+                PmtuRevalidationAction::Exhausted(value)
+            }
+        }
+    } else {
+        action
+    };
+    match action {
         PmtuRevalidationAction::Revalidate(observation) => {
             publish_pmtu_observation(quality, observation);
             record_pmtu_change_if_needed(attempt, observation);
-            connection.revalidate_pmtu();
+            if quality.features().automatic_pmtu {
+                connection.revalidate_pmtu();
+            }
             if let Some(attempt) = attempt {
                 attempt.record(
                     ConnectionEventType::PmtuRevalidationStarted,

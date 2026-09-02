@@ -56,6 +56,7 @@ class UsqueVpnService : VpnService() {
         const val MSG_APPLY_PER_APP = 11
         const val MSG_DIAGNOSTIC_PROBE = 12
         const val MSG_CANCEL_DIAGNOSTIC_PROBE = 13
+        const val MSG_CONNECTION_TIMELINE = 14
 
         private const val NATIVE_STATUS_INTERVAL_MILLIS = 1_000L
         private const val PHYSICAL_NETWORK_WAIT_MILLIS = 8_000L
@@ -184,6 +185,24 @@ class UsqueVpnService : VpnService() {
 
                     MSG_APPLY_PER_APP -> {
                         applyPerAppFilter(message)
+                        true
+                    }
+
+                    MSG_CONNECTION_TIMELINE -> {
+                        val raw = NativeEngine.connectionTimeline()
+                        val safe = NativeTimelineFields.decode(raw)
+                        val reply =
+                            Message.obtain(null, MSG_CONNECTION_TIMELINE, message.arg1, 0).apply {
+                                data =
+                                    Bundle().apply {
+                                        if (safe != null) putString("connection_timeline", JSONObject(safe).toString())
+                                    }
+                            }
+                        try {
+                            message.replyTo?.send(reply)
+                        } catch (_: RemoteException) {
+                            // caller gone
+                        }
                         true
                     }
 
@@ -833,7 +852,7 @@ class UsqueVpnService : VpnService() {
                     fail(generation, "The bypass route configuration is unsafe: ${safeMessage(error)}")
                     return
                 }
-            if (!awaitPhysicalNetwork(generation, requireDns = profile.splitDnsEnabled)) {
+            if (!awaitPhysicalNetwork(generation, requireDns = profile.requiresPhysicalDns)) {
                 fail(
                     generation,
                     "ANDROID_WAITING_FOR_PHYSICAL_NETWORK",

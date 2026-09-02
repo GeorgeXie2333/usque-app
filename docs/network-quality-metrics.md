@@ -134,6 +134,14 @@ metrics are unsupported.
 
 ## Privacy
 
+The UI retains at most sixty one-second slots and 300 raw points per local
+connection instance. Missing/stale/disconnected samples are gaps, not zero;
+counter baselines reset on a new instance. H2 loss/congestion/PMTU/migration
+are Unsupported, pending H2 PING is NotReady, and three failed PINGs retain the
+last measured RTT as Stale. Metrics are not persistence or upload inputs.
+The internal metrics rollback stops quality publication and its capability,
+not transport work or safety counters. See [rollback](network-quality-rollback.md).
+
 Snapshot types contain only enums, integers, durations, booleans, and a
 process-local random connection instance UUID. They do not contain socket addresses,
 endpoint names, QNAMEs, DNS server names or bootstrap IPs, SSID/BSSID, QUIC

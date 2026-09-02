@@ -70,6 +70,7 @@ pub const RECONFIGURE_NEED_COLD: i32 = 1;
 pub const RECONFIGURE_NEED_ATTACH: i32 = 2;
 pub const RECONFIGURE_NOT_RUNNING: i32 = -10;
 
+mod connection_timeline;
 mod diagnostic_probe;
 
 #[derive(Debug)]
@@ -117,14 +118,29 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCap
 ) -> jstring {
     with_jni_env(&mut environment, |environment| {
         let json = serde_json::json!({
-            "network_quality": engine_ready(),
+            "network_quality": engine_ready() && usque_transport::PRODUCTION_NETWORK_FEATURES.network_quality_metrics,
             "encrypted_direct_dns": engine_ready() && usque_transport::ENCRYPTED_DIRECT_DNS_ENABLED,
-            "quic_migration": engine_ready() && usque_transport::QUIC_MIGRATION_ENABLED,
-            "automatic_pmtu": engine_ready(),
+            "quic_migration": engine_ready() && usque_transport::PRODUCTION_NETWORK_FEATURES.quic_migration,
+            "automatic_pmtu": engine_ready() && usque_transport::PRODUCTION_NETWORK_FEATURES.automatic_pmtu,
         })
         .to_string();
         environment
             .new_string(json)
+            .map(JString::into_raw)
+            .unwrap_or_default()
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeConnectionTimeline<
+    'local,
+>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
+) -> jstring {
+    with_jni_env(&mut environment, |environment| {
+        environment
+            .new_string(connection_timeline::json_snapshot())
             .map(JString::into_raw)
             .unwrap_or_default()
     })

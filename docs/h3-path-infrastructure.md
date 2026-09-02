@@ -5,7 +5,7 @@ The H3 actor owns one `PathSocketSet` and advertises build support through
 change first attempts validation and migration of the existing QUIC connection.
 Unsupported or failed attempts use the existing complete reconnect path.
 There is never a second data-bearing CONNECT-IP session or multipath fan-out.
-The internal `QUIC_MIGRATION_ENABLED` build switch controls both capability
+The internal `PRODUCTION_NETWORK_FEATURES.quic_migration` build switch controls both capability
 advertisement and netstack dispatch. Setting it false retains active socket
 ownership while restoring complete reconnect, without a second socket path.
 

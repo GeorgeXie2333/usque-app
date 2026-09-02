@@ -377,6 +377,11 @@ impl UdpBatchIo {
         pool: UdpReceivePool,
     ) -> io::Result<Self> {
         let local_address = socket.local_addr()?;
+        let mode = if quality.features().udp_batch_io {
+            mode
+        } else {
+            UdpBatchMode::Portable
+        };
         Ok(Self {
             socket,
             local_address,
@@ -418,14 +423,20 @@ impl UdpBatchIo {
                 ready = self.socket.readable() => ready?,
             }
             let mode = self.mode();
-            let result = self.socket.try_io(Interest::READABLE, || match mode {
-                UdpBatchMode::Portable => portable::try_recv_batch(
-                    &self.socket,
-                    self.local_address,
-                    output,
-                    &self.quality,
-                ),
-                UdpBatchMode::SendMmsgRecvMmsg => self.try_recv_batch_unix(output),
+            let result = self.socket.try_io(Interest::READABLE, || {
+                #[cfg(any(test, feature = "fault-injection"))]
+                if let Some(result) = self.injected_receive() {
+                    return result;
+                }
+                match mode {
+                    UdpBatchMode::Portable => portable::try_recv_batch(
+                        &self.socket,
+                        self.local_address,
+                        output,
+                        &self.quality,
+                    ),
+                    UdpBatchMode::SendMmsgRecvMmsg => self.try_recv_batch_unix(output),
+                }
             });
             match result {
                 Ok(count) => return Ok(count),
@@ -462,11 +473,17 @@ impl UdpBatchIo {
                 ready = self.socket.writable() => ready?,
             }
             let mode = self.mode();
-            let result = self.socket.try_io(Interest::WRITABLE, || match mode {
-                UdpBatchMode::Portable => {
-                    portable::try_send_batch(&self.socket, batch, &self.quality)
+            let result = self.socket.try_io(Interest::WRITABLE, || {
+                #[cfg(any(test, feature = "fault-injection"))]
+                if let Some(result) = self.injected_send(batch) {
+                    return result;
                 }
-                UdpBatchMode::SendMmsgRecvMmsg => self.try_send_batch_unix(batch),
+                match mode {
+                    UdpBatchMode::Portable => {
+                        portable::try_send_batch(&self.socket, batch, &self.quality)
+                    }
+                    UdpBatchMode::SendMmsgRecvMmsg => self.try_send_batch_unix(batch),
+                }
             });
             match result {
                 Ok(count) => return Ok(count),
@@ -481,6 +498,48 @@ impl UdpBatchIo {
                 Err(error) => return Err(error),
             }
         }
+    }
+
+    #[cfg(any(test, feature = "fault-injection"))]
+    fn injected_receive(&self) -> Option<io::Result<usize>> {
+        use crate::fault_injection::{FaultKind, FaultPoint};
+        Some(Err(
+            match self.quality.take_fault(FaultPoint::UdpReceive)? {
+                FaultKind::RecvMmsgTruncated => {
+                    self.quality.record_udp_receive_truncation();
+                    receive_too_large_error()
+                }
+                FaultKind::BufferPoolExhausted => {
+                    self.quality.record_packet_buffer_pool_miss();
+                    receive_pool_exhausted_error()
+                }
+                _ => io::ErrorKind::WouldBlock.into(),
+            },
+        ))
+    }
+
+    #[cfg(any(test, feature = "fault-injection"))]
+    fn injected_send(&self, batch: &[SendDatagram<'_>]) -> Option<io::Result<usize>> {
+        use crate::fault_injection::{FaultKind, FaultPoint};
+        Some(match self.quality.take_fault(FaultPoint::UdpSend)? {
+            FaultKind::SendMmsgPartial(limit) => {
+                let length = usize::from(limit).min(batch.len());
+                let result =
+                    portable::try_send_batch(&self.socket, &batch[..length], &self.quality);
+                if result.as_ref().is_ok_and(|sent| *sent < batch.len()) {
+                    self.quality.record_udp_partial_batch();
+                }
+                result
+            }
+            FaultKind::SendMmsgUnsupported => Err(io::ErrorKind::Unsupported.into()),
+            _ => {
+                #[cfg(windows)]
+                let code = 10040;
+                #[cfg(not(windows))]
+                let code = libc::EMSGSIZE;
+                Err(io::Error::from_raw_os_error(code))
+            }
+        })
     }
 
     #[cfg(any(target_os = "android", target_os = "linux"))]
@@ -709,6 +768,131 @@ mod tests {
         assert!(!debug.contains("127.0.0"));
         assert!(!debug.contains("10000"));
         assert!(!debug.contains("20000"));
+    }
+
+    #[tokio::test]
+    async fn canonical_receive_faults_are_typed_and_pool_failure_does_not_allocate() {
+        use crate::{FaultKind, FaultScript, ScheduledFault};
+        let quality = NetworkQualityTelemetry::default();
+        let io = UdpBatchIo::with_mode(
+            UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+            UdpBatchMode::Portable,
+            quality.clone(),
+        )
+        .unwrap();
+        quality.inject_fault_script(
+            FaultScript::new(
+                12,
+                vec![
+                    ScheduledFault {
+                        at: std::time::Duration::ZERO,
+                        fault: FaultKind::RecvMmsgTruncated,
+                    },
+                    ScheduledFault {
+                        at: std::time::Duration::ZERO,
+                        fault: FaultKind::RecvMmsgWouldBlock,
+                    },
+                    ScheduledFault {
+                        at: std::time::Duration::ZERO,
+                        fault: FaultKind::BufferPoolExhausted,
+                    },
+                ],
+            )
+            .unwrap(),
+        );
+        assert_eq!(
+            io.injected_receive().unwrap().unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+        assert_eq!(
+            io.injected_receive().unwrap().unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
+        assert!(is_receive_pool_exhausted(
+            &io.injected_receive().unwrap().unwrap_err()
+        ));
+        assert!(io.injected_receive().is_none());
+        let sample = crate::NetworkQualitySampler::new(quality).sample();
+        assert_eq!(sample.udp_io.receive_truncations, 1);
+        assert_eq!(sample.allocations.packet_buffer_pool_misses, 1);
+        assert_eq!(sample.allocations.fresh_allocations, 0);
+    }
+
+    #[tokio::test]
+    async fn canonical_batch_faults_preserve_unsent_tail_and_stable_fallback() {
+        use crate::{FaultKind, FaultScript, ScheduledFault};
+        let quality = NetworkQualityTelemetry::default();
+        let sender = UdpBatchIo::with_mode(
+            UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+            UdpBatchMode::SendMmsgRecvMmsg,
+            quality.clone(),
+        )
+        .unwrap();
+        let receiver = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        quality.inject_fault_script(
+            FaultScript::new(
+                12,
+                vec![
+                    ScheduledFault {
+                        at: std::time::Duration::ZERO,
+                        fault: FaultKind::SendMmsgPartial(1),
+                    },
+                    ScheduledFault {
+                        at: std::time::Duration::ZERO,
+                        fault: FaultKind::SendMmsgUnsupported,
+                    },
+                    ScheduledFault {
+                        at: std::time::Duration::ZERO,
+                        fault: FaultKind::SendMessageTooLarge,
+                    },
+                ],
+            )
+            .unwrap(),
+        );
+        let payloads = [b"one".as_slice(), b"two", b"three"];
+        let batch: Vec<_> = payloads
+            .iter()
+            .map(|payload| {
+                datagram(
+                    payload,
+                    sender.local_addr(),
+                    receiver.local_addr().unwrap(),
+                    Instant::now(),
+                )
+            })
+            .collect();
+        let cancel = CancellationToken::new();
+        assert_eq!(sender.send_batch(&batch, &cancel).await.unwrap(), 1);
+        // Unsupported changes mode once; the next scripted EMSGSIZE is not
+        // mistaken for unsupported and no tail datagram is reported as sent.
+        assert!(is_message_too_long(
+            &sender.send_batch(&batch[1..], &cancel).await.unwrap_err()
+        ));
+        assert_eq!(sender.mode(), UdpBatchMode::Portable);
+        assert_eq!(sender.send_batch(&batch[1..], &cancel).await.unwrap(), 2);
+        let mut payload = [0; 16];
+        for expected in [b"one".as_slice(), b"two", b"three"] {
+            let length = receiver.recv(&mut payload).await.unwrap();
+            assert_eq!(&payload[..length], expected);
+        }
+        let sample = crate::NetworkQualitySampler::new(quality).sample();
+        assert_eq!(sample.udp_io.batch_fallbacks, 1);
+        assert_eq!(sample.udp_io.partial_batches, 1);
+    }
+
+    #[tokio::test]
+    async fn rollback_forces_portable_even_when_batch_is_requested() {
+        let quality = NetworkQualityTelemetry::with_features(crate::NetworkFeatureFlags {
+            udp_batch_io: false,
+            ..crate::PRODUCTION_NETWORK_FEATURES
+        });
+        let io = UdpBatchIo::with_mode(
+            UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+            UdpBatchMode::SendMmsgRecvMmsg,
+            quality,
+        )
+        .unwrap();
+        assert_eq!(io.mode(), UdpBatchMode::Portable);
     }
 
     #[tokio::test]

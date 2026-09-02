@@ -18,6 +18,7 @@ internal data class AndroidVpnProfile(
     val allowLan: Boolean,
     val bypassCidrs: List<String>,
     val geoDirectCountries: List<String> = emptyList(),
+    val directDnsMode: String = "physicalSystem",
 ) {
     // ipPolicy controls only the physical MASQUE endpoint. CONNECT-IP remains
     // dual-stack regardless of which outer address family carries it.
@@ -36,6 +37,9 @@ internal data class AndroidVpnProfile(
 
     val splitDnsEnabled: Boolean
         get() = geoDirectCountries.isNotEmpty()
+
+    val requiresPhysicalDns: Boolean
+        get() = splitDnsEnabled && directDnsMode == "physicalSystem"
 
     companion object {
         private val profileIdPattern =
@@ -112,6 +116,10 @@ internal data class AndroidVpnProfile(
                     VpnRoutePlanner.isAddressExcluded(server, allowLan, bypassCidrs)
                 },
             ) { "VPN DNS server cannot be covered by a LAN or CIDR bypass" }
+            // Encrypted DNS uses numeric bootstrap, not physical DNS metadata.
+            val directDnsMode =
+                source.optJSONObject("direct_dns")?.optString("mode", "physicalSystem") ?: "physicalSystem"
+            require(directDnsMode in setOf("physicalSystem", "doh", "dot")) { "Invalid direct DNS mode" }
             return AndroidVpnProfile(
                 id = id,
                 name = name,
@@ -124,6 +132,7 @@ internal data class AndroidVpnProfile(
                 allowLan = allowLan,
                 bypassCidrs = bypassCidrs,
                 geoDirectCountries = geoDirectCountries,
+                directDnsMode = directDnsMode,
             )
         }
     }

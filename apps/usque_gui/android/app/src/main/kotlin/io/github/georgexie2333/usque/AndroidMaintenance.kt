@@ -326,7 +326,10 @@ internal object AndroidMaintenance {
         return output
     }
 
-    internal fun sanitizeConnectionTimeline(source: Map<String, Any?>): JSONObject {
+    internal fun sanitizeConnectionTimeline(
+        source: Map<String, Any?>,
+        includeLiveTimestamps: Boolean = false,
+    ): JSONObject {
         val events = JSONArray()
         val rawEvents = source["events"] as? List<*> ?: emptyList<Any?>()
         for (rawEvent in rawEvents.takeLast(MAX_TIMELINE_EVENTS)) {
@@ -339,6 +342,9 @@ internal object AndroidMaintenance {
                         "elapsed_from_attempt_start_milliseconds",
                         safeCounter(event["elapsed_from_attempt_start_milliseconds"]),
                     ).put("event_type", eventType)
+            if (includeLiveTimestamps) {
+                output.put("timestamp_unix_milliseconds", safeCounter(event["timestamp_unix_milliseconds"]))
+            }
             safeEnum(event["stage"], TRANSPORT_STAGES, null)?.let { stage ->
                 output.put("stage", stage)
             }
@@ -358,6 +364,9 @@ internal object AndroidMaintenance {
         }
         val metricsSource = stringMap(source["metrics"]).orEmpty()
         val metrics = JSONObject()
+        if (includeLiveTimestamps) {
+            metrics.put("current_smoothed_rtt_known", metricsSource["current_smoothed_rtt_known"] == true)
+        }
         for (key in DURATION_METRICS) {
             (metricsSource[key] as? Number)?.let { value ->
                 metrics.put(key, safeCounter(value))

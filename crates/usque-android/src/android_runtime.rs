@@ -115,6 +115,7 @@ fn spawn_runtime(
     if slot.is_some() {
         return START_ALREADY_RUNNING;
     }
+    super::connection_timeline::publish(Default::default());
     let tun = match tun_file_descriptor {
         Some(fd) => match duplicate_tun(fd) {
             Ok(tun) => Some(tun),
@@ -663,6 +664,7 @@ async fn run_session(
                     }
                 }
                 SessionDataEvent::Tick => {
+                    super::connection_timeline::publish(tunnel.connection_timeline());
                     update_health(&status, tunnel.health());
                     update_frontends(&status, &tunnel);
                     let now = Instant::now();
@@ -675,8 +677,8 @@ async fn run_session(
                             rate(current.bytes_received, last_traffic.bytes_received, seconds);
                         snapshot.uploaded_bytes = current.bytes_sent;
                         snapshot.downloaded_bytes = current.bytes_received;
-                        snapshot.network_quality =
-                            Some(super::network_quality_value(&tunnel.network_quality()));
+                        snapshot.network_quality = usque_transport::PRODUCTION_NETWORK_FEATURES.network_quality_metrics
+                            .then(|| super::network_quality_value(&tunnel.network_quality()));
                     }
                     last_sample = now;
                     last_traffic = current;
@@ -684,6 +686,7 @@ async fn run_session(
             }
         }
     }
+    super::connection_timeline::publish(tunnel.connection_timeline());
     tunnel.shutdown().await;
 }
 

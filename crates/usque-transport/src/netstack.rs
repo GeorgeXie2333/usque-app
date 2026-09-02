@@ -652,9 +652,27 @@ impl ManagedTunnelRuntime {
         protector: Arc<dyn SocketProtector>,
         pin_refresher: Option<Arc<dyn EndpointPinRefresher>>,
     ) -> Result<Self, TransportError> {
+        Self::start_with_network_features(
+            profile,
+            identity,
+            protector,
+            pin_refresher,
+            crate::PRODUCTION_NETWORK_FEATURES,
+        )
+        .await
+    }
+
+    pub(crate) async fn start_with_network_features(
+        profile: &Profile,
+        identity: MasqueTlsIdentity,
+        protector: Arc<dyn SocketProtector>,
+        pin_refresher: Option<Arc<dyn EndpointPinRefresher>>,
+        features: crate::NetworkFeatureFlags,
+    ) -> Result<Self, TransportError> {
         crate::encrypted_dns::validate_direct_dns_support(&profile.direct_dns)?;
         let identity = Arc::new(identity);
-        let telemetry = ConnectionTelemetry::default();
+        let telemetry =
+            ConnectionTelemetry::with_features(crate::CONNECTION_TIMELINE_CAPACITY, features);
         telemetry.reset_attempt();
         let (tunnel, endpoint_family, identity, pin_refresh_attempted) =
             connect_initial_with_refresh(

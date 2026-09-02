@@ -58,6 +58,7 @@ pub struct H3MigrationHandle {
     sender: mpsc::Sender<H3ControlCommand>,
     endpoint: SocketAddr,
     initial_generation: u64,
+    enabled: bool,
 }
 
 impl H3MigrationHandle {
@@ -65,11 +66,13 @@ impl H3MigrationHandle {
         sender: mpsc::Sender<H3ControlCommand>,
         endpoint: SocketAddr,
         initial_generation: u64,
+        enabled: bool,
     ) -> Self {
         Self {
             sender,
             endpoint,
             initial_generation,
+            enabled,
         }
     }
 
@@ -81,6 +84,10 @@ impl H3MigrationHandle {
         self.initial_generation
     }
 
+    pub(crate) const fn enabled(&self) -> bool {
+        self.enabled
+    }
+
     pub async fn migrate(&self, target_generation: u64) -> H3MigrationResult {
         self.start_migration(target_generation).await
     }
@@ -89,6 +96,9 @@ impl H3MigrationHandle {
         &self,
         target_generation: u64,
     ) -> Pin<Box<dyn Future<Output = H3MigrationResult> + Send + 'static>> {
+        if !self.enabled {
+            return Box::pin(async { H3MigrationResult::Failed(MigrationReasonCode::Unsupported) });
+        }
         let sender = self.sender.clone();
         Box::pin(async move {
             let requested_at = Instant::now();
@@ -257,21 +267,32 @@ impl MigrationActor {
                 .await;
             return;
         };
-        let reason =
-            if !super::QUIC_MIGRATION_ENABLED || self.protector.network_generation().is_none() {
-                Some(MigrationReasonCode::Unsupported)
-            } else if self.protector.endpoint_family_available(active.peer_addr) == Some(false) {
-                Some(MigrationReasonCode::FamilyUnavailable)
-            } else if !connection.is_established() || connection_stopping(connection) {
-                Some(MigrationReasonCode::ConnectionClosed)
-            } else {
-                self.invalid_attempt_reason(now)
-            };
+        let reason = if !self.quality.features().quic_migration
+            || self.protector.network_generation().is_none()
+        {
+            Some(MigrationReasonCode::Unsupported)
+        } else if self.protector.endpoint_family_available(active.peer_addr) == Some(false) {
+            Some(MigrationReasonCode::FamilyUnavailable)
+        } else if !connection.is_established() || connection_stopping(connection) {
+            Some(MigrationReasonCode::ConnectionClosed)
+        } else {
+            self.invalid_attempt_reason(now)
+        };
         if let Some(reason) = reason {
             self.abort(reason, paths).await;
             return;
         }
         let availability = maintain_connection_ids(connection);
+        #[cfg(any(test, feature = "fault-injection"))]
+        let availability = if self
+            .quality
+            .take_fault(crate::fault_injection::FaultPoint::CandidateCid)
+            .is_some()
+        {
+            Ok(CidAvailability::PeerUnavailable)
+        } else {
+            availability
+        };
         let reason = match availability {
             Ok(CidAvailability::Ready) => None,
             Ok(CidAvailability::PeerUnavailable) => Some(MigrationReasonCode::PeerCidUnavailable),
@@ -325,6 +346,17 @@ impl MigrationActor {
             return;
         };
         attempt.preparation.take();
+        #[cfg(any(test, feature = "fault-injection"))]
+        if self
+            .quality
+            .take_fault(crate::fault_injection::FaultPoint::CandidateSetup)
+            .is_some()
+        {
+            drop(prepared);
+            self.abort(MigrationReasonCode::GenerationChangedDuringSetup, paths)
+                .await;
+            return;
+        }
         if let Some(reason) = self.invalid_attempt_reason(Instant::now()) {
             drop(prepared);
             self.abort(reason, paths).await;
@@ -429,6 +461,21 @@ impl MigrationActor {
         let Some(attempt) = self.pending.as_ref() else {
             return Ok(());
         };
+        #[cfg(any(test, feature = "fault-injection"))]
+        if attempt.phase == MigrationPhase::Probing
+            && let Some(fault) = self
+                .quality
+                .take_fault(crate::fault_injection::FaultPoint::CandidateValidation)
+        {
+            let reason = match fault {
+                crate::FaultKind::PathValidationTimeout => {
+                    MigrationReasonCode::PathValidationTimeout
+                }
+                _ => MigrationReasonCode::PathProbeRejected,
+            };
+            self.abort(reason, drive.paths).await;
+            return Ok(());
+        }
         if attempt.phase == MigrationPhase::PreparingSocket
             || now < attempt.next_probe_at
             || drive
@@ -632,12 +679,14 @@ impl MigrationActor {
                 "promoted QUIC path rejected PMTU revalidation".to_owned(),
             ));
         };
-        drive.connection.revalidate_pmtu();
+        if self.quality.features().automatic_pmtu {
+            drive.connection.revalidate_pmtu();
+            self.record(
+                ConnectionEventType::PmtuRevalidationStarted,
+                TransportStage::PacketSend,
+            );
+        }
         publish_pmtu_observation(&self.quality, observation);
-        self.record(
-            ConnectionEventType::PmtuRevalidationStarted,
-            TransportStage::PacketSend,
-        );
         self.retiring_deadline = Some(Instant::now() + RETIRING_GRACE);
         let mut attempt = self
             .pending
@@ -1441,6 +1490,109 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn emsgsize_revalidation_failure_during_migration_releases_candidate_without_promotion() {
+        use crate::{FaultKind, FaultScript, ScheduledFault};
+        let mut harness = Harness::new(true).await;
+        harness.protector.generation.store(2, Ordering::Release);
+        let response = harness.request(2).await;
+        harness.prepare().await;
+        harness.quality.inject_fault_script(
+            FaultScript::new(
+                12,
+                vec![ScheduledFault {
+                    at: Duration::ZERO,
+                    fault: FaultKind::PmtuRevalidationFailure,
+                }],
+            )
+            .unwrap(),
+        );
+        assert!(matches!(
+            crate::h3::handle_pmtu_send_too_large(
+                &mut harness.client,
+                &mut harness.pmtu,
+                None,
+                &harness.quality
+            ),
+            Err(TransportError::PmtuRevalidationExhausted)
+        ));
+        harness
+            .actor
+            .abort(MigrationReasonCode::ConnectionClosed, &mut harness.paths)
+            .await;
+        assert_eq!(
+            migration_reply(response).await,
+            H3MigrationResult::Failed(MigrationReasonCode::ConnectionClosed)
+        );
+        assert_eq!(
+            NetworkQualitySampler::new(harness.quality.clone())
+                .sample()
+                .pmtu
+                .revalidation_failure_count,
+            1
+        );
+        assert_eq!(harness.paths.len(), 1);
+        assert_eq!(harness.close().await, 2);
+    }
+
+    #[tokio::test]
+    async fn canonical_fault_catalog_cleans_candidates_and_retains_active_path() {
+        use crate::{FaultKind, FaultScript, ScheduledFault};
+        for (fault, reason) in [
+            (
+                FaultKind::PeerCidUnavailable,
+                MigrationReasonCode::PeerCidUnavailable,
+            ),
+            (
+                FaultKind::GenerationDuringCandidateSetup,
+                MigrationReasonCode::GenerationChangedDuringSetup,
+            ),
+            (
+                FaultKind::PathValidationTimeout,
+                MigrationReasonCode::PathValidationTimeout,
+            ),
+            (
+                FaultKind::PathValidationRejected,
+                MigrationReasonCode::PathProbeRejected,
+            ),
+        ] {
+            let mut harness = Harness::new(true).await;
+            harness.protector.generation.store(2, Ordering::Release);
+            harness.quality.inject_fault_script(
+                FaultScript::new(
+                    12,
+                    vec![ScheduledFault {
+                        at: Duration::ZERO,
+                        fault,
+                    }],
+                )
+                .unwrap(),
+            );
+            let response = harness.request(2).await;
+            if harness.actor.is_preparing() {
+                harness.prepare().await;
+            }
+            if harness.paths.candidate().is_some() {
+                harness.tick().await;
+            }
+            assert_eq!(
+                migration_reply(response).await,
+                H3MigrationResult::Failed(reason)
+            );
+            assert_eq!(harness.paths.len(), 1);
+            assert_eq!(harness.paths.active().unwrap().network_generation, 1);
+            assert!(harness.paths.retiring().is_none());
+            assert_eq!(
+                harness.close().await,
+                if fault == FaultKind::PeerCidUnavailable {
+                    1
+                } else {
+                    2
+                }
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn protection_failure_and_setup_generation_race_leave_only_active() {
         for race in [false, true] {
             let mut harness = Harness::new(true).await;
@@ -1631,9 +1783,21 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn rollback_skips_migration_without_enqueuing_candidate_work() {
+        let (sender, commands) = mpsc::channel(H3_CONTROL_CAPACITY);
+        let handle = H3MigrationHandle::new(sender, "127.0.0.1:443".parse().unwrap(), 1, false);
+        assert!(!handle.enabled());
+        assert_eq!(
+            handle.migrate(2).await,
+            H3MigrationResult::Failed(MigrationReasonCode::Unsupported)
+        );
+        assert!(commands.is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn control_channel_is_capacity_one_and_caller_reply_wait_is_three_seconds() {
         let (sender, mut commands) = mpsc::channel(H3_CONTROL_CAPACITY);
-        let handle = H3MigrationHandle::new(sender, "127.0.0.1:443".parse().unwrap(), 1);
+        let handle = H3MigrationHandle::new(sender, "127.0.0.1:443".parse().unwrap(), 1, true);
         let started = Instant::now();
         assert_eq!(
             handle.migrate(2).await,

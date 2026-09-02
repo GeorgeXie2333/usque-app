@@ -68,9 +68,23 @@ pub(crate) struct H2FlowControlConfig {
 
 impl Default for H2FlowControlConfig {
     fn default() -> Self {
+        Self::for_features(crate::PRODUCTION_NETWORK_FEATURES)
+    }
+}
+
+impl H2FlowControlConfig {
+    const fn for_features(features: crate::NetworkFeatureFlags) -> Self {
         Self {
-            stream_receive_window: 4 * 1024 * 1024,
-            connection_receive_window: 8 * 1024 * 1024,
+            stream_receive_window: if features.h2_tuned_flow_control {
+                4 * 1024 * 1024
+            } else {
+                65_535
+            },
+            connection_receive_window: if features.h2_tuned_flow_control {
+                8 * 1024 * 1024
+            } else {
+                65_535
+            },
         }
     }
 }
@@ -469,10 +483,10 @@ pub(crate) async fn connect_h2_with_protector(
     }
     let tls = LeasedIo::new(tls, egress_lease);
 
-    let flow_control = H2FlowControlConfig::default();
     let quality = attempt
         .map(ConnectionAttemptTelemetry::quality)
         .unwrap_or_default();
+    let flow_control = H2FlowControlConfig::for_features(quality.features());
     let builder = connect_ip_h2_builder(flow_control);
     let (mut sender, mut connection) = builder.handshake(tls).await?;
     let ping_pong = connection.ping_pong();
@@ -638,6 +652,19 @@ async fn run_h2_ping(
     loop {
         ticker.tick().await;
         let started = Instant::now();
+        #[cfg(any(test, feature = "fault-injection"))]
+        if quality
+            .take_fault(crate::fault_injection::FaultPoint::H2Ping)
+            .is_some()
+        {
+            let _ = h2_ping_with_timeout(
+                std::future::pending::<Result<(), h2::Error>>(),
+                estimator.timeout(),
+            )
+            .await;
+            quality.record_h2_ping_timeout();
+            continue;
+        }
         match h2_ping_with_timeout(ping_pong.ping(Ping::opaque()), estimator.timeout()).await {
             Ok(Some(_)) => {
                 let sample = estimator.observe(started.elapsed());
@@ -771,6 +798,12 @@ async fn write_h2_data(
     while !encoded.is_empty() {
         stream.reserve_capacity(encoded.len());
         let wait = H2CapacityWait::new(quality);
+        #[cfg(any(test, feature = "fault-injection"))]
+        if let Some(crate::FaultKind::H2CapacityWait(delay)) =
+            quality.take_fault(crate::fault_injection::FaultPoint::H2Capacity)
+        {
+            tokio::time::sleep(delay).await;
+        }
         let capacity = match std::future::poll_fn(|context| stream.poll_capacity(context)).await {
             Some(Ok(capacity)) if capacity > 0 => {
                 wait.succeeded();
@@ -1796,6 +1829,36 @@ mod tests {
     }
 
     #[test]
+    fn every_feature_combination_preserves_explicit_h2_window_rollback() {
+        for bits in 0..32 {
+            let features = crate::NetworkFeatureFlags {
+                h2_tuned_flow_control: bits & 1 != 0,
+                network_quality_metrics: bits & 2 != 0,
+                udp_batch_io: bits & 4 != 0,
+                automatic_pmtu: bits & 8 != 0,
+                quic_migration: bits & 16 != 0,
+            };
+            let config = H2FlowControlConfig::for_features(features);
+            assert_eq!(
+                config.stream_receive_window,
+                if features.h2_tuned_flow_control {
+                    4 * 1024 * 1024
+                } else {
+                    65_535
+                }
+            );
+            assert_eq!(
+                config.connection_receive_window,
+                if features.h2_tuned_flow_control {
+                    8 * 1024 * 1024
+                } else {
+                    65_535
+                }
+            );
+        }
+    }
+
+    #[test]
     fn h2_rtt_ewma_and_adaptive_timeout_are_bounded() {
         let mut estimator = H2RttEstimator::default();
         assert_eq!(estimator.timeout(), Duration::from_secs(5));
@@ -1815,6 +1878,61 @@ mod tests {
         assert_eq!(estimator.timeout(), Duration::from_secs(3));
         estimator.smoothed = Some(Duration::from_secs(4));
         assert_eq!(estimator.timeout(), Duration::from_secs(10));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn canonical_h2_ping_and_capacity_faults_are_observed_and_cancelled() {
+        use crate::{FaultKind, FaultScript, ScheduledFault};
+        let mut loopback = connect_h2_loopback_with_config(H2FlowControlConfig::for_features(
+            crate::NetworkFeatureFlags {
+                h2_tuned_flow_control: false,
+                ..crate::PRODUCTION_NETWORK_FEATURES
+            },
+        ))
+        .await;
+        let quality = loopback.quality.clone();
+        quality.inject_fault_script(
+            FaultScript::new(
+                12,
+                vec![
+                    ScheduledFault {
+                        at: Duration::ZERO,
+                        fault: FaultKind::H2PingTimeout,
+                    },
+                    ScheduledFault {
+                        at: Duration::ZERO,
+                        fault: FaultKind::H2CapacityWait(Duration::from_secs(10)),
+                    },
+                ],
+            )
+            .unwrap(),
+        );
+        tokio::task::yield_now().await;
+        tokio::time::advance(H2_PING_INTERVAL).await;
+        tokio::task::yield_now().await;
+        tokio::time::advance(H2_PING_DEFAULT_TIMEOUT).await;
+        tokio::task::yield_now().await;
+        assert_eq!(
+            NetworkQualitySampler::new(quality.clone())
+                .sample()
+                .h2_flow_control
+                .ping_timeout_count,
+            1
+        );
+        {
+            let send = loopback.send.send_capsule(Bytes::from_static(b"test"));
+            tokio::pin!(send);
+            assert!(
+                timeout(Duration::from_millis(100), &mut send)
+                    .await
+                    .is_err()
+            );
+        }
+        drop(loopback);
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(quality.active_h2_ping_tasks(), 0);
     }
 
     #[tokio::test(start_paused = true)]

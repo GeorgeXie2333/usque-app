@@ -333,6 +333,7 @@ impl ControlService {
         self.config.read().await.clone()
     }
 
+    #[cfg(any(windows, test))]
     pub(crate) fn subscribe_network_quality(
         &self,
     ) -> watch::Receiver<usque_transport::NetworkQualitySnapshot> {
@@ -348,6 +349,9 @@ impl ControlService {
         mut source: watch::Receiver<usque_transport::NetworkQualitySnapshot>,
     ) {
         self.network_quality_relay.lock().await.take();
+        if !usque_transport::PRODUCTION_NETWORK_FEATURES.network_quality_metrics {
+            return;
+        }
         self.network_quality_tx
             .send_replace(source.borrow_and_update().clone());
         let destination = self.network_quality_tx.clone();
@@ -370,9 +374,13 @@ impl ControlService {
         snapshot: &ConnectionSnapshot,
     ) -> v1::ConnectionSnapshot {
         let mut proto = snapshot_to_proto(snapshot);
-        proto.network_quality = Some(Box::new(network_quality::snapshot_to_proto(
-            &self.network_quality_snapshot(),
-        )));
+        proto.network_quality = usque_transport::PRODUCTION_NETWORK_FEATURES
+            .network_quality_metrics
+            .then(|| {
+                Box::new(network_quality::snapshot_to_proto(
+                    &self.network_quality_snapshot(),
+                ))
+            });
         proto
     }
 
@@ -3532,10 +3540,10 @@ fn current_capabilities() -> v1::Capabilities {
         diagnostics_sessions: true,
         connection_timeline: true,
         deep_diagnostics: true,
-        network_quality: true,
+        network_quality: usque_transport::PRODUCTION_NETWORK_FEATURES.network_quality_metrics,
         encrypted_direct_dns: usque_transport::ENCRYPTED_DIRECT_DNS_ENABLED,
-        quic_migration: usque_transport::QUIC_MIGRATION_ENABLED,
-        automatic_pmtu: true,
+        quic_migration: usque_transport::PRODUCTION_NETWORK_FEATURES.quic_migration,
+        automatic_pmtu: usque_transport::PRODUCTION_NETWORK_FEATURES.automatic_pmtu,
     }
 }
 

@@ -22,6 +22,81 @@ use super::*;
 use crate::network_quality::NetworkQualitySampler;
 
 #[tokio::test]
+async fn canonical_fault_catalog_drives_encrypted_dns_failures_and_cleanup() {
+    use crate::{FaultKind, FaultScript, ScheduledFault};
+    for (mode, fault, expected) in [
+        (
+            ConfigMode::Doh,
+            FaultKind::DohTlsFailure,
+            DirectDnsError::TlsFailed,
+        ),
+        (
+            ConfigMode::Doh,
+            FaultKind::DohHttpFailure,
+            DirectDnsError::HttpRejected,
+        ),
+        (
+            ConfigMode::Doh,
+            FaultKind::DohBodyFailure,
+            DirectDnsError::InvalidResponse,
+        ),
+        (
+            ConfigMode::Dot,
+            FaultKind::DotPrefixFailure,
+            DirectDnsError::InvalidResponse,
+        ),
+        (
+            ConfigMode::Dot,
+            FaultKind::DotEof,
+            DirectDnsError::QueryFailed,
+        ),
+        (
+            ConfigMode::Dot,
+            FaultKind::DnsPoolCancellation,
+            DirectDnsError::NetworkChanged,
+        ),
+    ] {
+        let harness = Harness::new(mode, Behavior::Echo).await;
+        harness.quality.inject_fault_script(
+            FaultScript::new(
+                12,
+                vec![ScheduledFault {
+                    at: Duration::ZERO,
+                    fault,
+                }],
+            )
+            .unwrap(),
+        );
+        assert_eq!(
+            harness.resolver.query(test_query(12), context()).await,
+            Err(expected),
+            "{fault:?}"
+        );
+        assert!(
+            harness
+                .protector
+                .calls
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|endpoint| endpoint.port() != 53)
+        );
+        harness.stop().await;
+    }
+}
+
+#[test]
+fn encrypted_capability_rollback_rejects_saved_config_without_rewriting_it() {
+    assert!(validate_direct_dns_capability(&DirectDnsSettings::default(), false).is_ok());
+    for mode in [ConfigMode::Doh, ConfigMode::Dot] {
+        let settings = settings(mode, "127.0.0.1:443".parse().unwrap());
+        let before = settings.clone();
+        assert!(validate_direct_dns_capability(&settings, false).is_err());
+        assert_eq!(settings, before);
+    }
+}
+
+#[tokio::test]
 async fn deep_dns_probes_release_all_pool_sockets_on_success_failure_and_cancellation() {
     use crate::diagnostic_probe::{NetworkProbeResult, run_dns_probe};
     for mode in [ConfigMode::Doh, ConfigMode::Dot] {

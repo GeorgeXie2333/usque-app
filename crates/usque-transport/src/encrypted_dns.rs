@@ -34,7 +34,7 @@ use crate::split_dns::{
     physical_wire_query, resolve_encrypted_host, validate_dns_exchange, validate_dns_query,
 };
 
-pub const ENCRYPTED_DIRECT_DNS_ENABLED: bool = true;
+use crate::feature_flags::ENCRYPTED_DIRECT_DNS_ENABLED;
 const MAX_CONNECTIONS: usize = 4;
 const MAX_IN_FLIGHT: usize = 64;
 const H2_REQUESTS_PER_CONNECTION: usize = MAX_IN_FLIGHT / MAX_CONNECTIONS;
@@ -536,6 +536,10 @@ impl EncryptedResolver {
         let result = async {
             validate_dns_query(&query).map_err(|_| DirectDnsError::InvalidQuery)?;
             let epoch = self.query_epoch(context)?;
+            #[cfg(any(test, feature = "fault-injection"))]
+            if self.quality.take_fault(crate::fault_injection::FaultPoint::DnsPool).is_some() {
+                epoch.cancel();
+            }
             tokio::select! {
                 biased;
                 _ = epoch.cancelled() => {
@@ -742,6 +746,14 @@ impl EncryptedResolver {
         self.ensure_current(context)?;
         let name = ServerName::try_from(self.settings.server_name.clone())
             .map_err(|_| DirectDnsError::InvalidConfiguration)?;
+        #[cfg(any(test, feature = "fault-injection"))]
+        if self
+            .quality
+            .take_fault(crate::fault_injection::FaultPoint::DnsTls)
+            .is_some()
+        {
+            return Err(DirectDnsError::TlsFailed);
+        }
         let tls = tokio_rustls::TlsConnector::from(Arc::clone(&self.tls))
             .connect(name, stream)
             .await;
@@ -891,11 +903,27 @@ impl EncryptedResolver {
                 .send_data(query.clone(), true)
                 .map_err(|_| DirectDnsError::QueryFailed)?;
             let response = response.await.map_err(|_| DirectDnsError::QueryFailed)?;
+            #[cfg(any(test, feature = "fault-injection"))]
+            if self
+                .quality
+                .take_fault(crate::fault_injection::FaultPoint::DohHttp)
+                .is_some()
+            {
+                return Err(DirectDnsError::HttpRejected);
+            }
             if response.status() != StatusCode::OK {
                 return Err(DirectDnsError::HttpRejected);
             }
             validate_doh_headers(response.headers())?;
             let mut body = response.into_body();
+            #[cfg(any(test, feature = "fault-injection"))]
+            if self
+                .quality
+                .take_fault(crate::fault_injection::FaultPoint::DohBody)
+                .is_some()
+            {
+                return Err(DirectDnsError::InvalidResponse);
+            }
             let mut bytes = BytesMut::with_capacity(512);
             while let Some(chunk) = body.data().await {
                 let chunk = chunk.map_err(|_| DirectDnsError::QueryFailed)?;
@@ -990,6 +1018,14 @@ impl EncryptedResolver {
                         .flush()
                         .await
                         .map_err(|_| DirectDnsError::QueryFailed)?;
+                    #[cfg(any(test, feature = "fault-injection"))]
+                    if self
+                        .quality
+                        .take_fault(crate::fault_injection::FaultPoint::DotPrefix)
+                        .is_some()
+                    {
+                        return Err(DirectDnsError::InvalidResponse);
+                    }
                     let length = connection
                         .stream
                         .read_u16()
@@ -997,6 +1033,14 @@ impl EncryptedResolver {
                         .map_err(|_| DirectDnsError::QueryFailed)?;
                     if length == 0 {
                         return Err(DirectDnsError::InvalidResponse);
+                    }
+                    #[cfg(any(test, feature = "fault-injection"))]
+                    if self
+                        .quality
+                        .take_fault(crate::fault_injection::FaultPoint::DotBody)
+                        .is_some()
+                    {
+                        return Err(DirectDnsError::QueryFailed);
                     }
                     let mut response = vec![0; usize::from(length)];
                     connection
@@ -1199,12 +1243,19 @@ pub(crate) fn configure_direct_dns(
 pub(crate) fn validate_direct_dns_support(
     settings: &DirectDnsSettings,
 ) -> Result<(), TransportError> {
+    validate_direct_dns_capability(settings, ENCRYPTED_DIRECT_DNS_ENABLED)
+}
+
+fn validate_direct_dns_capability(
+    settings: &DirectDnsSettings,
+    enabled: bool,
+) -> Result<(), TransportError> {
     let mut settings = settings.clone();
     settings.canonicalize();
     settings
         .validate()
         .map_err(|_| TransportError::Dns(DirectDnsError::InvalidConfiguration.to_string()))?;
-    if settings.mode != ConfigMode::PhysicalSystem && !ENCRYPTED_DIRECT_DNS_ENABLED {
+    if settings.mode != ConfigMode::PhysicalSystem && !enabled {
         return Err(TransportError::Dns(DirectDnsError::Unsupported.to_string()));
     }
     Ok(())

@@ -358,6 +358,21 @@ class ReliabilityGateTest(unittest.TestCase):
                 self.root / "matrix.md",
             )
 
+    def test_legacy_performance_alias_cannot_replace_a_v2_gate(self) -> None:
+        path = self._report("performance_lab", {"performance.h3_batch_io"})
+        report = json.loads(path.read_text())
+        report["results"][0]["id"] = "performance.informational_baseline"
+        path.write_text(json.dumps(report), encoding="utf-8")
+        with self.assertRaisesRegex(reliability_gate.GateError, "unknown gate"):
+            reliability_gate.aggregate(
+                self.reports,
+                self.evidence,
+                self.manifest,
+                self.commit,
+                self.root / "out.json",
+                self.root / "matrix.md",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

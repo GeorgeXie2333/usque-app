@@ -35,11 +35,11 @@ impl MasqueTunnel {
     }
 
     pub(crate) fn migration_handle(&self) -> Option<H3MigrationHandle> {
-        if !crate::h3::QUIC_MIGRATION_ENABLED {
-            return None;
-        }
         match self {
-            Self::Http3(tunnel) => Some(tunnel.migration_handle()),
+            Self::Http3(tunnel) => {
+                let handle = tunnel.migration_handle();
+                handle.enabled().then_some(handle)
+            }
             Self::Http2(_) => None,
         }
     }

@@ -76,12 +76,31 @@ The performance-lab report replaces the old
 - `performance.quic_migration`
 - `performance.direct_dns`
 
+There is no compatibility alias: the legacy result is rejected as an unknown
+gate, including if marked passed. Historical PR-00 baseline documentation is
+not an active gate definition. The final [acceptance matrix](network-quality-acceptance.md)
+records ordinary checks separately from unavailable protected measurements.
+
 Each result binds five artifacts: JUnit, timeline, platform diff, a v2
 comparison report, and its raw-sample bundle. The reliability aggregator checks
 both artifact SHA-256 values, verifies the hashes of the embedded baseline and
 candidate reports, and recomputes the comparison from the checked-in scenario
 and budget contracts. A runner-authored summary cannot substitute for raw
 evidence.
+
+## Instance-local fault injection
+
+`usque-transport` extends its existing `FaultScript` (256 events) with H2
+PING/capacity, batch partial/unsupported/truncated/WouldBlock, pool exhaustion,
+CID/candidate setup/validation, EMSGSIZE/PMTU, DoH TLS/HTTP/body, DoT prefix/EOF
+and DNS-pool cancellation points. Each due event is consumed once at the real
+component boundary. Scripts are per telemetry/runtime instance, not global;
+capacity-delay injection is at most ten seconds and partial counts are 1–64.
+Unit tests may inject scripts; explicit `fault-injection` lab builds must
+retain debug assertions. Non-test release builds reject that feature at
+compile time. There is no Profile, environment, IPC or remote fault interface.
+Synthetic faults verify cleanup/state logic, not external packet observations
+or performance targets. The seven v2 gates still require actual lab samples.
 
 ## Performance report v2
 

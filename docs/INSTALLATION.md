@@ -36,7 +36,7 @@ Never disable endpoint pinning, import signing certificates from an unofficial p
 
 Direct-country rules are optional and downloaded separately. Per-country GeoIP data is combined with one global V2Fly GeoSite catalog. Downloads may be started while Usque is disconnected, but they still obey Android Lockdown and any Windows Kill Switch state; a real system block appears as a retryable network failure and never replaces a valid cached ruleset.
 
-With direct-country routing enabled, Usque identifies GeoSite matches before sending DNS. Matching domains use the DNS servers of the current physical network and are visible to that DNS provider; non-matching domains continue through the configured WARP DNS. Applications that encrypt DNS themselves with DoH or DoT do not expose QNAME to Usque, so their destinations fall back to GeoIP classification. This behavior applies to Android VPN and Windows TUN as well as known SOCKS5/HTTP hostnames.
+With direct-country routing enabled, Usque identifies GeoSite matches before sending DNS. System (the default) sends matching domains to the physical DNS provider. An explicit DoH/DoT choice sends them to the configured TLS-authenticated resolver using numeric bootstrap; failures do not fall back to plaintext. Non-matching domains continue through the configured WARP DNS. Application-owned encrypted DNS does not expose QNAME to Usque and is classified by GeoIP. This applies to Android VPN, Windows TUN and known SOCKS5/HTTP hostnames. Desktop proxy mode is not a VPN Kill Switch; its ordinary host-network boundary is documented in the [direct DNS threat model](direct-dns-threat-model.md).
 
 ## Windows
 

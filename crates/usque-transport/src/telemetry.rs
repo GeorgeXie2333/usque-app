@@ -179,6 +179,10 @@ impl Default for ConnectionTelemetry {
 
 impl ConnectionTelemetry {
     pub fn new(capacity: usize) -> Self {
+        Self::with_features(capacity, crate::PRODUCTION_NETWORK_FEATURES)
+    }
+
+    pub(crate) fn with_features(capacity: usize, features: crate::NetworkFeatureFlags) -> Self {
         assert!(
             capacity > 0,
             "connection timeline capacity must be non-zero"
@@ -197,7 +201,7 @@ impl ConnectionTelemetry {
             send_queue_high_watermark: Arc::new(AtomicU64::new(0)),
             send_queue_drop_count: Arc::new(AtomicU64::new(0)),
             send_queue_wait_count: Arc::new(AtomicU64::new(0)),
-            quality: NetworkQualityTelemetry::default(),
+            quality: NetworkQualityTelemetry::configured(features),
         }
     }
 

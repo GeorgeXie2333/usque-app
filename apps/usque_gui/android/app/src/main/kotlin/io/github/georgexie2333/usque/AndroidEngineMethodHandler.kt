@@ -298,7 +298,10 @@ internal class AndroidEngineMethodHandler(
             }
 
             "getConnectionTimeline" -> {
-                result.success(diagnosticsCoordinator.timeline())
+                controlClient.requestTimeline { timeline ->
+                    diagnosticsCoordinator.observeNativeTimeline(timeline)
+                    result.success(diagnosticsCoordinator.timeline())
+                }
             }
 
             "disconnect" -> {
@@ -443,14 +446,23 @@ internal class AndroidEngineMethodHandler(
                         null,
                     )
                 } else {
-                    activityCommands.selectDiagnosticsDestination(
-                        result,
-                        DiagnosticExportPayload(
-                            snapshot = controlClient.lastSnapshot.toMap(),
-                            diagnosticSession = diagnosticsCoordinator.current()?.toMap(),
-                            connectionTimeline = diagnosticsCoordinator.timeline(),
-                        ),
-                    )
+                    val exportSnapshot = controlClient.lastSnapshot.toMap()
+                    val exportSession = diagnosticsCoordinator.current()?.toMap()
+                    controlClient.requestTimeline { timeline ->
+                        diagnosticsCoordinator.observeNativeTimeline(timeline)
+                        if (controlClient.isClosed) {
+                            result.error("ENGINE_IPC_CLOSED", "The Android UI closed before export.", null)
+                        } else {
+                            activityCommands.selectDiagnosticsDestination(
+                                result,
+                                DiagnosticExportPayload(
+                                    snapshot = exportSnapshot,
+                                    diagnosticSession = exportSession,
+                                    connectionTimeline = diagnosticsCoordinator.timeline(),
+                                ),
+                            )
+                        }
+                    }
                 }
             }
 

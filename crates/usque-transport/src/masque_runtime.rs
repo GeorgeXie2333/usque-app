@@ -160,6 +160,45 @@ impl MasqueRuntime {
         pin_refresher: Option<Arc<dyn EndpointPinRefresher>>,
         geo_policy: Arc<GeoDirectPolicy>,
     ) -> Result<Self, TransportError> {
+        Self::start_configured(
+            profile,
+            identity,
+            protector,
+            pin_refresher,
+            geo_policy,
+            crate::PRODUCTION_NETWORK_FEATURES,
+        )
+        .await
+    }
+
+    #[cfg(any(test, feature = "fault-injection"))]
+    pub async fn start_with_features(
+        profile: &Profile,
+        identity: MasqueTlsIdentity,
+        protector: Arc<dyn SocketProtector>,
+        pin_refresher: Option<Arc<dyn EndpointPinRefresher>>,
+        geo_policy: Arc<GeoDirectPolicy>,
+        features: crate::NetworkFeatureFlags,
+    ) -> Result<Self, TransportError> {
+        Self::start_configured(
+            profile,
+            identity,
+            protector,
+            pin_refresher,
+            geo_policy,
+            features,
+        )
+        .await
+    }
+
+    async fn start_configured(
+        profile: &Profile,
+        identity: MasqueTlsIdentity,
+        protector: Arc<dyn SocketProtector>,
+        pin_refresher: Option<Arc<dyn EndpointPinRefresher>>,
+        geo_policy: Arc<GeoDirectPolicy>,
+        features: crate::NetworkFeatureFlags,
+    ) -> Result<Self, TransportError> {
         crate::encrypted_dns::validate_direct_dns_support(&profile.direct_dns)?;
         let credentials = match profile.proxy.listener_credentials() {
             Ok(credentials) => credentials,
@@ -187,11 +226,12 @@ impl MasqueRuntime {
 
         let assigned_ipv4 = identity.assigned_ipv4;
         let assigned_ipv6 = identity.assigned_ipv6;
-        let mut tunnel = ManagedTunnelRuntime::start_with_refresh(
+        let mut tunnel = ManagedTunnelRuntime::start_with_network_features(
             profile,
             identity,
             Arc::clone(&protector),
             pin_refresher,
+            features,
         )
         .await?;
         let monitor = tunnel.monitor();
