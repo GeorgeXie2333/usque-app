@@ -51,6 +51,8 @@ pub(crate) mod diagnostic;
 #[cfg(test)]
 mod diagnostic_tests;
 mod migration;
+#[cfg(test)]
+mod pmtu_tests;
 use migration::{H3_CONTROL_CAPACITY, H3ControlCommand, MigrationActor, MigrationDrive};
 pub use migration::{H3MigrationHandle, H3MigrationResult};
 
@@ -1994,6 +1996,32 @@ mod tests {
         client_addr: SocketAddr,
         server_addr: SocketAddr,
     ) -> (H3QuicConnection, H3QuicConnection, SocketAddr, SocketAddr) {
+        test_quic_pair_with_config(client_addr, server_addr, |_, _| {})
+    }
+
+    pub(super) fn test_quic_pair_with_config(
+        client_addr: SocketAddr,
+        server_addr: SocketAddr,
+        configure: impl FnOnce(&mut quiche::Config, &mut quiche::Config),
+    ) -> (H3QuicConnection, H3QuicConnection, SocketAddr, SocketAddr) {
+        test_quic_pair_with_server_config(
+            client_addr,
+            server_addr,
+            |identity| {
+                quic_config(identity, crate::pmtu::IPV4_MAX_UDP_PAYLOAD)
+                    .unwrap()
+                    .0
+            },
+            configure,
+        )
+    }
+
+    pub(super) fn test_quic_pair_with_server_config(
+        client_addr: SocketAddr,
+        server_addr: SocketAddr,
+        server_config: impl FnOnce(&MasqueTlsIdentity) -> quiche::Config,
+        configure: impl FnOnce(&mut quiche::Config, &mut quiche::Config),
+    ) -> (H3QuicConnection, H3QuicConnection, SocketAddr, SocketAddr) {
         let client_key = MasqueKeyPair::generate();
         let server_key = MasqueKeyPair::generate();
         let client_identity = MasqueTlsIdentity::new(
@@ -2012,8 +2040,8 @@ mod tests {
         .unwrap();
         let (mut client_config, _) =
             quic_config(&client_identity, crate::pmtu::IPV4_MAX_UDP_PAYLOAD).unwrap();
-        let (mut server_config, _) =
-            quic_config(&server_identity, crate::pmtu::IPV4_MAX_UDP_PAYLOAD).unwrap();
+        let mut server_config = server_config(&server_identity);
+        configure(&mut client_config, &mut server_config);
         let client_scid = [0xc1; CONNECTION_ID_LENGTH];
         let server_scid = [0x51; CONNECTION_ID_LENGTH];
         let client = quiche::connect_with_buffer_factory::<H3BufferFactory>(

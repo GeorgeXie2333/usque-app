@@ -1,5 +1,14 @@
 # Network-quality integration acceptance
 
+## Later dependency-contract correction
+
+The historical matrix below describes its original candidate and tests. The
+review of `423d99c` later found runtime-path PMTUD inheritance and DATAGRAM
+admission defects that the original app-level state tests did not cover. See
+[the confirmed issue list and wire-level regression coverage](pmtu-path-fixes.md)
+for the subsequent correction; the historical pass entries are not proof that
+those dependency contracts were already satisfied.
+
 ## Candidate and evidence rules
 
 The sequence begins at `3a032e7a56ed3078c58470790893590edbf2062b`.
