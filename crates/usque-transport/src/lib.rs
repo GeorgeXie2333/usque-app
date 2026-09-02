@@ -7,6 +7,7 @@
 mod connect_ip_control;
 mod direct_gateway;
 mod dns;
+mod encrypted_dns;
 mod geo_direct;
 mod h2;
 mod h3;
@@ -36,6 +37,9 @@ mod udp_io;
 #[cfg(any(test, feature = "fault-injection"))]
 mod fault_injection;
 
+pub use encrypted_dns::{
+    DirectDnsError, DirectDnsQueryContext, DirectDnsResolver, ENCRYPTED_DIRECT_DNS_ENABLED,
+};
 pub use geo_direct::{GeoDirectClassifier, GeoDirectPolicy, GeoRoute};
 pub use h2::{
     H2Driver, H2ReceiveHalf, H2SendHalf, H2Tunnel, MasqueTlsIdentity, TransportError, connect_h2,

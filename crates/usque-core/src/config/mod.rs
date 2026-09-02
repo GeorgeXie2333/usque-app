@@ -657,7 +657,9 @@ fn invalid_direct_dns_bootstrap(address: IpAddr) -> bool {
         IpAddr::V4(address) => {
             address.is_unspecified() || address.is_multicast() || address.is_broadcast()
         }
-        IpAddr::V6(address) => address.is_unspecified() || address.is_multicast(),
+        IpAddr::V6(address) => {
+            address.is_unspecified() || address.is_multicast() || address.is_unicast_link_local()
+        }
     }
 }
 
@@ -741,14 +743,42 @@ pub enum DirectDnsMode {
 pub struct DirectDnsSettings {
     #[serde(default)]
     pub mode: DirectDnsMode,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub server_name: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub doh_path: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bootstrap_ips: Vec<IpAddr>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "direct_dns_port_is_zero")]
     pub port: u16,
+}
+
+fn direct_dns_port_is_zero(port: &u16) -> bool {
+    *port == 0
+}
+
+fn canonical_direct_dns_name(name: &str) -> Option<String> {
+    if name.is_empty()
+        || name.chars().count() > 253
+        || name.chars().any(|character| {
+            character.is_whitespace() || character.is_control() || ":/\\?#@%*[]".contains(character)
+        })
+    {
+        return None;
+    }
+    // Url's IDNA implementation is already used by the control plane. Reject
+    // URL syntax before parsing, then validate the normalized TLS DNS name.
+    let url = reqwest::Url::parse(&format!("https://{name}/")).ok()?;
+    let normalized = url.host_str()?.to_owned();
+    if !valid_dns_name(&normalized)
+        || !matches!(
+            rustls::pki_types::ServerName::try_from(normalized.clone()),
+            Ok(rustls::pki_types::ServerName::DnsName(_))
+        )
+    {
+        return None;
+    }
+    Some(normalized)
 }
 
 impl Default for DirectDnsSettings {
@@ -768,7 +798,9 @@ impl DirectDnsSettings {
         match self.mode {
             DirectDnsMode::PhysicalSystem => *self = Self::default(),
             DirectDnsMode::Doh => {
-                self.server_name = self.server_name.trim().to_ascii_lowercase();
+                if let Some(normalized) = canonical_direct_dns_name(&self.server_name) {
+                    self.server_name = normalized;
+                }
                 if self.doh_path.is_empty() {
                     self.doh_path = "/dns-query".to_owned();
                 }
@@ -777,7 +809,9 @@ impl DirectDnsSettings {
                 }
             }
             DirectDnsMode::Dot => {
-                self.server_name = self.server_name.trim().to_ascii_lowercase();
+                if let Some(normalized) = canonical_direct_dns_name(&self.server_name) {
+                    self.server_name = normalized;
+                }
                 if self.port == 0 {
                     self.port = 853;
                 }
@@ -792,7 +826,7 @@ impl DirectDnsSettings {
             }
             return Ok(());
         }
-        if !valid_dns_name(&self.server_name) {
+        if canonical_direct_dns_name(&self.server_name).is_none() {
             return Err(ConfigError::InvalidDirectDnsServerName);
         }
         if self.port == 0 {
@@ -819,10 +853,15 @@ impl DirectDnsSettings {
         }
         match self.mode {
             DirectDnsMode::Doh => {
-                if self.doh_path.len() > 1024
+                if self.doh_path.len() > 256
                     || !self.doh_path.starts_with('/')
-                    || self.doh_path.chars().any(char::is_whitespace)
-                    || self.doh_path.contains('#')
+                    || self.doh_path.starts_with("//")
+                    || self
+                        .doh_path
+                        .bytes()
+                        .any(|byte| !(33..=126).contains(&byte))
+                    || self.doh_path.contains(['?', '#', '\\'])
+                    || self.doh_path.contains("://")
                 {
                     return Err(ConfigError::InvalidDirectDnsDohPath);
                 }
@@ -1851,7 +1890,7 @@ mod tests {
     fn direct_dns_canonicalization_applies_protocol_defaults() {
         let mut doh = DirectDnsSettings {
             mode: DirectDnsMode::Doh,
-            server_name: " DNS.Example.COM ".to_owned(),
+            server_name: "DNS.Example.COM".to_owned(),
             bootstrap_ips: vec!["192.0.2.53".parse().unwrap()],
             ..DirectDnsSettings::default()
         };
@@ -1870,6 +1909,86 @@ mod tests {
         dot.canonicalize();
         assert_eq!(dot.port, 853);
         assert_eq!(dot.validate(), Ok(()));
+    }
+
+    #[test]
+    fn encrypted_dns_configuration_is_canonical_bounded_and_never_trims_bad_names() {
+        let mut settings = DirectDnsSettings {
+            mode: DirectDnsMode::Doh,
+            server_name: "bücher.example".to_owned(),
+            bootstrap_ips: vec!["10.0.0.53".parse().unwrap()],
+            ..DirectDnsSettings::default()
+        };
+        settings.canonicalize();
+        assert_eq!(settings.server_name, "xn--bcher-kva.example");
+        assert!(settings.validate().is_ok());
+        for name in [
+            "dns.example ",
+            " dns.example",
+            "dns..example",
+            "*.example",
+            "dns.example\r\n",
+            "dns.example/path",
+            "user@dns.example",
+            "dns.example?x",
+            "192.0.2.53",
+        ] {
+            settings.server_name = name.to_owned();
+            settings.canonicalize();
+            assert_eq!(
+                settings.validate(),
+                Err(ConfigError::InvalidDirectDnsServerName),
+                "{name:?}"
+            );
+        }
+        settings.server_name = "dns.example".to_owned();
+        for path in [
+            "https://dns.example/dns-query",
+            "//other/dns-query",
+            "/dns-query?x=1",
+            "/dns-query#x",
+            "/dns\r\nquery",
+            "/dns\\query",
+        ] {
+            settings.doh_path = path.to_owned();
+            assert_eq!(
+                settings.validate(),
+                Err(ConfigError::InvalidDirectDnsDohPath)
+            );
+        }
+        settings.doh_path = format!("/{}", "a".repeat(255));
+        assert!(settings.validate().is_ok());
+        settings.doh_path.push('a');
+        assert_eq!(
+            settings.validate(),
+            Err(ConfigError::InvalidDirectDnsDohPath)
+        );
+        settings.doh_path = "/dns-query".to_owned();
+        for address in [
+            "0.0.0.0",
+            "255.255.255.255",
+            "224.0.0.1",
+            "::",
+            "ff02::1",
+            "fe80::53",
+        ] {
+            settings.bootstrap_ips = vec![address.parse().unwrap()];
+            assert_eq!(
+                settings.validate(),
+                Err(ConfigError::InvalidDirectDnsBootstrapIp)
+            );
+        }
+        settings.bootstrap_ips = vec!["10.0.0.53".parse().unwrap(); 2];
+        assert_eq!(
+            settings.validate(),
+            Err(ConfigError::DuplicateDirectDnsBootstrapIp)
+        );
+        settings.mode = DirectDnsMode::PhysicalSystem;
+        settings.canonicalize();
+        assert_eq!(
+            serde_json::to_value(settings).unwrap(),
+            serde_json::json!({"mode": "physical_system"})
+        );
     }
 
     #[test]

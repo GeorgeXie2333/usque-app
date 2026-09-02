@@ -1062,11 +1062,11 @@ impl ControlService {
                 .ok_or(ControlServiceError::ProfileNotFound(profile_id))?
         };
         self.attach_proxy_auth(&mut profile).await?;
-        if !profile.geo_direct_countries.is_empty()
+        if !usque_transport::ENCRYPTED_DIRECT_DNS_ENABLED
             && profile.direct_dns.mode != ConfigDirectDnsMode::PhysicalSystem
         {
             return Err(ControlServiceError::FeatureUnavailable(
-                "encrypted direct DNS requires the PR-10 runtime",
+                "encrypted direct DNS is unavailable in this build",
             ));
         }
         if profile.frontends.tunnel && !cfg!(windows) {
@@ -3430,7 +3430,7 @@ fn current_capabilities() -> v1::Capabilities {
         connection_timeline: true,
         deep_diagnostics: true,
         network_quality: true,
-        encrypted_direct_dns: false,
+        encrypted_direct_dns: usque_transport::ENCRYPTED_DIRECT_DNS_ENABLED,
         quic_migration: usque_transport::QUIC_MIGRATION_ENABLED,
         automatic_pmtu: true,
     }
@@ -4340,7 +4340,7 @@ mod tests {
         assert_eq!(capabilities.transports, ["h3", "h2"]);
         assert!(!capabilities.architecture.is_empty());
         assert!(capabilities.network_quality);
-        assert!(!capabilities.encrypted_direct_dns);
+        assert!(capabilities.encrypted_direct_dns);
         assert!(capabilities.quic_migration);
         assert!(capabilities.automatic_pmtu);
     }

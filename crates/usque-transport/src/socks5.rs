@@ -645,6 +645,7 @@ async fn send_udp_routed(
     direct: &DirectUdpSockets,
     tunnel: TunnelUdpSockets<'_>,
 ) -> Result<(), String> {
+    let mut resolved_for_tunnel = None;
     let geo_target = match target {
         Target::Address(address) => GeoTarget::Ip(*address),
         Target::Domain(name) => GeoTarget::Host(name),
@@ -656,6 +657,14 @@ async fn send_udp_routed(
         };
         match addresses {
             Ok(addresses) => {
+                if context.protector.direct_dns_resolver().is_some() {
+                    resolved_for_tunnel = Some(
+                        addresses
+                            .iter()
+                            .map(|address| address.ip())
+                            .collect::<Vec<_>>(),
+                    );
+                }
                 let mut failures = Vec::new();
                 for address in addresses.into_iter().take(MAX_TARGET_ADDRESSES) {
                     let remote = SocketAddr::new(address.ip(), port);
@@ -687,22 +696,35 @@ async fn send_udp_routed(
                     }
                 }
                 if !failures.is_empty() {
-                    tracing::debug!(errors = %failures.join("; "), "GEO direct UDP send failed; falling back to tunnel");
+                    tracing::debug!(
+                        reason_code = "direct_send_failed",
+                        "GEO direct UDP send failed; falling back to tunnel"
+                    );
                 }
             }
-            Err(error) => {
-                tracing::debug!(%error, "GEO direct UDP resolution failed; falling back to tunnel");
+            Err(_) => {
+                if context.protector.direct_dns_resolver().is_some() {
+                    return Err("encrypted_direct_dns_failed".to_owned());
+                }
+                tracing::debug!(
+                    reason_code = "direct_resolution_failed",
+                    "GEO direct UDP resolution failed; falling back to tunnel"
+                );
             }
         }
     }
 
-    let addresses = match target {
-        Target::Address(address) => vec![*address],
-        Target::Domain(name) => context
-            .resolver
-            .resolve(name)
-            .await
-            .map_err(|error| error.to_string())?,
+    let addresses = if let Some(addresses) = resolved_for_tunnel {
+        addresses
+    } else {
+        match target {
+            Target::Address(address) => vec![*address],
+            Target::Domain(name) => context
+                .resolver
+                .resolve(name)
+                .await
+                .map_err(|error| error.to_string())?,
+        }
     };
     let remote = addresses
         .into_iter()
@@ -1057,22 +1079,28 @@ async fn connect_remote(
         &context.geo_policy,
         context.protector.as_ref(),
         Arc::clone(&context.counters),
-        geo_target,
-        port,
-        || async {
-            let addresses = match target {
-                Target::Address(address) => vec![*address],
-                Target::Domain(name) => {
-                    context
-                        .resolver
-                        .resolve(name)
-                        .await
-                        .map_err(|error| ConnectFailure {
-                            reply: REPLY_HOST_UNREACHABLE,
-                            message: error.to_string(),
-                        })?
-                }
-            };
+        (geo_target, port),
+        || ConnectFailure {
+            reply: REPLY_HOST_UNREACHABLE,
+            message: "encrypted_direct_dns_failed".to_owned(),
+        },
+        |resolved| async {
+            let addresses =
+                if let Some(addresses) = resolved {
+                    addresses
+                } else {
+                    match target {
+                        Target::Address(address) => vec![*address],
+                        Target::Domain(name) => {
+                            context.resolver.resolve(name).await.map_err(|error| {
+                                ConnectFailure {
+                                    reply: REPLY_HOST_UNREACHABLE,
+                                    message: error.to_string(),
+                                }
+                            })?
+                        }
+                    }
+                };
             connect_tunnel_remote(context, &addresses, port).await
         },
     )

@@ -688,7 +688,10 @@ impl WindowsVpnRuntime {
                 return Err(error);
             }
         };
-        if geo_enabled && physical_dns.is_empty() {
+        if geo_enabled
+            && profile.direct_dns.mode == usque_core::DirectDnsMode::PhysicalSystem
+            && physical_dns.is_empty()
+        {
             abort_startup(&agent, operation_id, resuming, "PHYSICAL_DNS_UNAVAILABLE").await?;
             return Err(WindowsVpnError::PhysicalDnsUnavailable);
         }

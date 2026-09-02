@@ -160,6 +160,7 @@ impl MasqueRuntime {
         pin_refresher: Option<Arc<dyn EndpointPinRefresher>>,
         geo_policy: Arc<GeoDirectPolicy>,
     ) -> Result<Self, TransportError> {
+        crate::encrypted_dns::validate_direct_dns_support(&profile.direct_dns)?;
         let credentials = match profile.proxy.listener_credentials() {
             Ok(credentials) => credentials,
             Err(error) => {
@@ -196,7 +197,6 @@ impl MasqueRuntime {
         let monitor = tunnel.monitor();
         let quality = monitor.network_quality_telemetry();
         let cancellation = CancellationToken::new();
-        let gateway_protector = Arc::clone(&protector);
         let gateway_policy = Arc::clone(&geo_policy);
         let (mut stack, proxy_pipe) = PacketStack::start_detached(
             profile,
@@ -207,6 +207,7 @@ impl MasqueRuntime {
             geo_policy,
         )
         .await?;
+        let gateway_protector = Arc::clone(&stack.protector);
         let (direct_gateway, direct_incoming) = match DirectGatewayRouter::start_with_quality(
             profile,
             gateway_policy,

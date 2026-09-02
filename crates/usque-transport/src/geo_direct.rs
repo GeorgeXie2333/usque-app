@@ -200,13 +200,6 @@ impl<'a> GeoTarget<'a> {
             Self::Ip(ip) => policy.route_ip(ip),
         }
     }
-
-    fn label(self) -> String {
-        match self {
-            Self::Host(host) => host.to_owned(),
-            Self::Ip(ip) => ip.to_string(),
-        }
-    }
 }
 
 /// A TCP stream connected either through the userspace tunnel or directly on
@@ -315,11 +308,17 @@ impl AsyncWrite for RoutedTcpStream {
 enum DirectFallback<T> {
     Direct(TcpStream, DirectEgressLease),
     Fallback(T),
+    EncryptedDnsFailed,
 }
 
-/// Attempts the selected direct path first, then invokes `fallback` for every
-/// direct error. The fallback is intentionally not attempted for an unknown
-/// destination until the policy has chosen the tunnel route.
+enum DirectConnectFailure {
+    Dns,
+    Connect(Vec<IpAddr>),
+}
+
+/// System-mode failures retain the existing tunnel fallback. Encrypted DNS
+/// failure is terminal; after a successful encrypted answer, a data-path
+/// fallback receives those same IPs and must not resolve the name in plaintext.
 async fn connect_with_geo_fallback<T, E, F, Fut>(
     policy: &GeoDirectPolicy,
     protector: &dyn SocketProtector,
@@ -328,42 +327,55 @@ async fn connect_with_geo_fallback<T, E, F, Fut>(
     fallback: F,
 ) -> Result<DirectFallback<T>, E>
 where
-    F: FnOnce() -> Fut,
+    F: FnOnce(Option<Vec<IpAddr>>) -> Fut,
     Fut: Future<Output = Result<T, E>>,
 {
+    let mut resolved = None;
     if target.route(policy) == GeoRoute::Direct {
         match connect_direct(protector, target, port).await {
             Ok((stream, lease)) => return Ok(DirectFallback::Direct(stream, lease)),
-            Err(error) => {
-                let target = target.label();
-                tracing::debug!(%target, %error, "GEO direct TCP connect failed; falling back to tunnel");
+            Err(DirectConnectFailure::Dns) if protector.direct_dns_resolver().is_some() => {
+                return Ok(DirectFallback::EncryptedDnsFailed);
+            }
+            Err(failure) => {
+                if protector.direct_dns_resolver().is_some()
+                    && let DirectConnectFailure::Connect(addresses) = failure
+                {
+                    resolved = Some(addresses);
+                }
+                tracing::debug!(
+                    reason_code = "direct_connect_failed",
+                    "GEO direct TCP connect failed; falling back to tunnel"
+                );
             }
         }
     }
-    fallback().await.map(DirectFallback::Fallback)
+    fallback(resolved).await.map(DirectFallback::Fallback)
 }
 
 pub(crate) async fn connect_routed<E, F, Fut>(
     policy: &GeoDirectPolicy,
     protector: &dyn SocketProtector,
     counters: Arc<TrafficCounters>,
-    target: GeoTarget<'_>,
-    port: u16,
+    destination: (GeoTarget<'_>, u16),
+    encrypted_dns_failure: impl FnOnce() -> E,
     tunnel: F,
 ) -> Result<RoutedTcpStream, E>
 where
-    F: FnOnce() -> Fut,
+    F: FnOnce(Option<Vec<IpAddr>>) -> Fut,
     Fut: Future<Output = Result<StackTcpStream, E>>,
 {
+    let (target, port) = destination;
     connect_with_geo_fallback(policy, protector, target, port, tunnel)
         .await
-        .map(|stream| match stream {
-            DirectFallback::Direct(stream, lease) => RoutedTcpStream::Direct {
+        .and_then(|stream| match stream {
+            DirectFallback::Direct(stream, lease) => Ok(RoutedTcpStream::Direct {
                 stream,
                 counters,
                 _lease: lease,
-            },
-            DirectFallback::Fallback(stream) => RoutedTcpStream::Tunnel(stream),
+            }),
+            DirectFallback::Fallback(stream) => Ok(RoutedTcpStream::Tunnel(stream)),
+            DirectFallback::EncryptedDnsFailed => Err(encrypted_dns_failure()),
         })
 }
 
@@ -371,28 +383,28 @@ async fn connect_direct(
     protector: &dyn SocketProtector,
     target: GeoTarget<'_>,
     port: u16,
-) -> Result<(TcpStream, DirectEgressLease), String> {
+) -> Result<(TcpStream, DirectEgressLease), DirectConnectFailure> {
     let addresses = match target {
-        GeoTarget::Host(host) => protector.resolve_direct(host, port).await?,
+        GeoTarget::Host(host) => protector
+            .resolve_direct(host, port)
+            .await
+            .map_err(|_| DirectConnectFailure::Dns)?,
         GeoTarget::Ip(ip) => vec![SocketAddr::new(ip, port)],
     };
-    let mut failures = Vec::new();
-    for address in addresses.into_iter().take(MAX_DIRECT_ADDRESSES) {
+    let addresses = addresses
+        .into_iter()
+        .take(MAX_DIRECT_ADDRESSES)
+        .filter(|address| !address.ip().is_unspecified() && !address.ip().is_multicast())
+        .collect::<Vec<_>>();
+    for address in &addresses {
         let remote = SocketAddr::new(address.ip(), port);
-        if remote.ip().is_unspecified() || remote.ip().is_multicast() {
-            failures.push(format!("{remote}: unusable address"));
-            continue;
-        }
-        match connect_direct_address(protector, remote).await {
-            Ok(stream) => return Ok(stream),
-            Err(error) => failures.push(format!("{remote}: {error}")),
+        if let Ok(stream) = connect_direct_address(protector, remote).await {
+            return Ok(stream);
         }
     }
-    Err(if failures.is_empty() {
-        "no usable direct target address".to_owned()
-    } else {
-        failures.join("; ")
-    })
+    Err(DirectConnectFailure::Connect(
+        addresses.into_iter().map(|address| address.ip()).collect(),
+    ))
 }
 
 async fn connect_direct_address(
@@ -566,7 +578,7 @@ mod tests {
             &protector,
             GeoTarget::Host("direct.test"),
             address.port(),
-            move || async move {
+            move |_| async move {
                 fallback_observed.store(true, Ordering::SeqCst);
                 Ok(())
             },
@@ -595,7 +607,7 @@ mod tests {
             &protector,
             GeoTarget::Host("direct.test"),
             443,
-            || async { Ok("tunnel") },
+            |_| async { Ok("tunnel") },
         )
         .await;
         assert!(matches!(

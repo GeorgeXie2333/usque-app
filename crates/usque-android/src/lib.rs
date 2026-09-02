@@ -2414,7 +2414,7 @@ fn start_engine(
     geo_cache_dir: PathBuf,
     protector: Arc<AndroidSocketProtector>,
 ) -> jint {
-    if !profile.geo_direct_countries.is_empty()
+    if !usque_transport::ENCRYPTED_DIRECT_DNS_ENABLED
         && profile.direct_dns.mode != DirectDnsMode::PhysicalSystem
     {
         return START_INVALID_PROFILE;
@@ -2448,7 +2448,7 @@ fn start_proxy_engine(
     geo_cache_dir: PathBuf,
     protector: Arc<AndroidSocketProtector>,
 ) -> jint {
-    if !profile.geo_direct_countries.is_empty()
+    if !usque_transport::ENCRYPTED_DIRECT_DNS_ENABLED
         && profile.direct_dns.mode != DirectDnsMode::PhysicalSystem
     {
         return START_INVALID_PROFILE;

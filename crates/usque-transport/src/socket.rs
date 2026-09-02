@@ -194,6 +194,12 @@ pub trait SocketProtector: Send + Sync {
         self.resolve(host, port)
     }
 
+    /// The runtime-owned direct DNS policy, if explicitly configured. None
+    /// preserves the platform's existing physical-system behavior.
+    fn direct_dns_resolver(&self) -> Option<Arc<crate::encrypted_dns::DirectDnsResolver>> {
+        None
+    }
+
     /// Whether protected sockets may intentionally carry TUN-selected direct
     /// flows without re-entering the VPN or weakening a platform kill switch.
     fn tun_direct_available(&self) -> bool {

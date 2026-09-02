@@ -19,8 +19,10 @@ to canonical physical-system direct DNS, preserving schema-12 behavior.
 - `ConnectionEventType` migration, PMTU, and direct-DNS values occupy 22
   through 30
 
-The build advertises `network_quality=true`, `automatic_pmtu=true`, and
-`quic_migration=true`. Encrypted DNS remains false until its implementation PR.
+The build advertises `network_quality=true`, `automatic_pmtu=true`,
+`quic_migration=true`, and `encrypted_direct_dns=true`. Encrypted DNS is used
+only when explicitly selected in the Profile; its runtime/trust/bounds
+contract is in [encrypted-direct-dns.md](encrypted-direct-dns.md).
 The H3 migration and multi-socket/CID contract is described in
 [h3-path-infrastructure.md](h3-path-infrastructure.md). A specific connection
 can still report migration unavailable because of family, generation, or CID

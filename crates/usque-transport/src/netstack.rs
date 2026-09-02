@@ -193,6 +193,13 @@ impl PacketStack {
         protector: Arc<dyn SocketProtector>,
         geo_policy: Arc<GeoDirectPolicy>,
     ) -> Result<(Self, WakingPipe), TransportError> {
+        let cancellation = parent_cancellation.child_token();
+        let protector = crate::encrypted_dns::configure_direct_dns(
+            &profile.direct_dns,
+            protector,
+            monitor.network_quality_telemetry(),
+            &cancellation,
+        )?;
         let (assigned_ipv4, assigned_ipv6) = assigned_addresses;
         let (config, tcp_buffer_metrics) = proxy_netstack_config(profile);
         let (stack, pipe) = bounded_piped(config);
@@ -208,7 +215,7 @@ impl PacketStack {
                 channel,
                 protector,
                 geo_policy,
-                cancellation: parent_cancellation.child_token(),
+                cancellation,
                 failure: monitor.failure.clone(),
                 counters: Arc::clone(&monitor.counters),
                 tcp_buffer_metrics,
@@ -228,6 +235,7 @@ impl PacketStack {
         protector: Arc<dyn SocketProtector>,
         pin_refresher: Option<Arc<dyn EndpointPinRefresher>>,
     ) -> Result<Self, TransportError> {
+        crate::encrypted_dns::validate_direct_dns_support(&profile.direct_dns)?;
         let telemetry = ConnectionTelemetry::default();
         telemetry.reset_attempt();
         let (tunnel, endpoint_family, identity, pin_refresh_attempted) =
@@ -254,6 +262,12 @@ impl PacketStack {
             .map_err(|error| TransportError::Netstack(error.to_string()))?;
 
         let cancellation = CancellationToken::new();
+        let direct_protector = crate::encrypted_dns::configure_direct_dns(
+            &profile.direct_dns,
+            Arc::clone(&protector),
+            telemetry.network_quality(),
+            &cancellation,
+        )?;
         let (failure_tx, failure) = watch::channel(None);
         let (health_tx, health) = watch::channel(RuntimeHealth::Connected {
             path: initial_path,
@@ -299,7 +313,7 @@ impl PacketStack {
 
         Ok(Self {
             channel,
-            protector,
+            protector: direct_protector,
             geo_policy: Arc::new(GeoDirectPolicy::disabled()),
             cancellation,
             failure,
@@ -638,6 +652,7 @@ impl ManagedTunnelRuntime {
         protector: Arc<dyn SocketProtector>,
         pin_refresher: Option<Arc<dyn EndpointPinRefresher>>,
     ) -> Result<Self, TransportError> {
+        crate::encrypted_dns::validate_direct_dns_support(&profile.direct_dns)?;
         let identity = Arc::new(identity);
         let telemetry = ConnectionTelemetry::default();
         telemetry.reset_attempt();
