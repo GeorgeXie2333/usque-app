@@ -554,6 +554,10 @@ class NetworkQualityScreen extends StatelessWidget {
                   _QueueReadout(queue: queue, strings: s),
                 if (lowQueues.isNotEmpty)
                   ExpansionTile(
+                    // Keep expansion state separate from PageFrame's scroll offset.
+                    key: const PageStorageKey<String>(
+                      'network-quality-low-level-queues',
+                    ),
                     title: Text(s.get('nq_queue_details')),
                     children: <Widget>[
                       for (final queue in lowQueues)

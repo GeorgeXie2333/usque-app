@@ -193,6 +193,7 @@ class ShellScreen extends StatelessWidget {
                             _handleNavigationKey(event, vertical: true),
                         child: NavigationRail(
                           extended: extended,
+                          scrollable: true,
                           minWidth: _railMinWidth,
                           minExtendedWidth: _railMinExtendedWidth,
                           selectedIndex: selected,

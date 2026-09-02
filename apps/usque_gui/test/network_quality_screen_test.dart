@@ -15,13 +15,15 @@ Widget host(
   bool dark = false,
   double scale = 1,
   bool shell = false,
+  bool disableAnimations = true,
 }) => MaterialApp(
   theme: dark ? UsqueTheme.dark() : UsqueTheme.light(),
   home: Builder(
     builder: (context) => MediaQuery(
-      data: MediaQuery.of(
-        context,
-      ).copyWith(textScaler: TextScaler.linear(scale), disableAnimations: true),
+      data: MediaQuery.of(context).copyWith(
+        textScaler: TextScaler.linear(scale),
+        disableAnimations: disableAnimations,
+      ),
       child: Scaffold(
         body: shell
             ? ShellScreen(controller: app)
@@ -56,6 +58,146 @@ void main() {
       await loader.load();
     }
   });
+
+  for (final (size, locale, dark, scale, reducedMotion) in const [
+    (Size(375, 900), LocalePreference.simplifiedChinese, false, 1.0, false),
+    (Size(375, 900), LocalePreference.english, true, 2.0, true),
+    (Size(900, 450), LocalePreference.simplifiedChinese, true, 1.0, true),
+    (Size(900, 450), LocalePreference.english, false, 2.0, false),
+  ]) {
+    final variant =
+        '${size.width}x${size.height} ${locale.name} dark=$dark scale=$scale';
+    testWidgets(
+      'quality queue details appear after scrolling disconnected view $variant',
+      (tester) async {
+        await tester.binding.setSurfaceSize(size);
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        final app = qualityApp(
+          QualityEngineStub(),
+          state: 'disconnected',
+          locale: locale,
+        )..selectSection(AppSection.networkQuality);
+        addTearDown(app.dispose);
+        await tester.pumpWidget(
+          host(
+            app,
+            shell: true,
+            dark: dark,
+            scale: scale,
+            disableAnimations: reducedMotion,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final scrollable = find.descendant(
+          of: find.byType(NetworkQualityScreen),
+          matching: find.byType(Scrollable),
+        );
+        await tester.drag(scrollable, const Offset(0, -600));
+        await tester.pumpAndSettle();
+        expect(
+          tester.state<ScrollableState>(scrollable).position.pixels,
+          greaterThan(0),
+        );
+        expect(find.byType(ExpansionTile), findsNothing);
+
+        app.snapshot = EngineSnapshot(
+          phase: ConnectionPhase.connected,
+          transport: 'HTTP/3',
+          addressFamily: 'IPv4',
+          networkQuality: qualityFixture(DateTime.utc(2026, 9, 2, 12)),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(find.byType(ErrorWidget), findsNothing);
+        expect(find.byType(ExpansionTile), findsOneWidget);
+
+        await tester.scrollUntilVisible(
+          find.text(app.strings.get('nq_doctor_evidence')),
+          500,
+          scrollable: scrollable,
+          maxScrolls: 20,
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.text(app.strings.get('nq_doctor_evidence')).hitTestable(),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+
+    testWidgets(
+      'quality queue expansion and scroll restore independently $variant',
+      (tester) async {
+        await tester.binding.setSurfaceSize(size);
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        final app = qualityApp(QualityEngineStub(), locale: locale)
+          ..selectSection(AppSection.networkQuality);
+        addTearDown(app.dispose);
+        await tester.pumpWidget(
+          host(
+            app,
+            shell: true,
+            dark: dark,
+            scale: scale,
+            disableAnimations: reducedMotion,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final scrollable = find.descendant(
+          of: find.byType(NetworkQualityScreen),
+          matching: find.byType(Scrollable),
+        );
+        final details = find.text(app.strings.get('nq_queue_details'));
+        await tester.scrollUntilVisible(details, 500, scrollable: scrollable);
+        await tester.pumpAndSettle();
+        expect(details.hitTestable(), findsOneWidget);
+        await tester.tap(details);
+        await tester.pumpAndSettle();
+        expect(find.text(app.strings.get('nq_h3WireSend')), findsOneWidget);
+        final savedOffset = tester
+            .state<ScrollableState>(scrollable)
+            .position
+            .pixels;
+        expect(savedOffset, greaterThan(0));
+
+        final navigation = find.byType(
+          size.width >= 760 ? NavigationRail : NavigationBar,
+        );
+        final settingsDestination = find.descendant(
+          of: navigation,
+          matching: find.text(app.strings.get('nav_settings')),
+        );
+        await tester.ensureVisible(settingsDestination);
+        await tester.pumpAndSettle();
+        expect(settingsDestination.hitTestable(), findsOneWidget);
+        await tester.tap(settingsDestination);
+        await tester.pumpAndSettle();
+        expect(app.section, AppSection.settings);
+        final qualityDestination = find.descendant(
+          of: navigation,
+          matching: find.text(app.strings.get('nav_network_quality')),
+        );
+        await tester.ensureVisible(qualityDestination);
+        await tester.pumpAndSettle();
+        expect(qualityDestination.hitTestable(), findsOneWidget);
+        await tester.tap(qualityDestination);
+        await tester.pumpAndSettle();
+        expect(app.section, AppSection.networkQuality);
+        expect(tester.takeException(), isNull);
+        expect(find.byType(ErrorWidget), findsNothing);
+        expect(find.text(app.strings.get('nq_h3WireSend')), findsOneWidget);
+        expect(
+          tester.state<ScrollableState>(scrollable).position.pixels,
+          closeTo(savedOffset, 1),
+        );
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+  }
 
   for (final width in <double>[375, 768, 1280, 1920]) {
     for (final locale in <LocalePreference>[
