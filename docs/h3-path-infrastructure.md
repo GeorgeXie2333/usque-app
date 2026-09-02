@@ -70,6 +70,14 @@ and retains it through TLS and driver teardown; the stream closes before the
 authorization is released. Desktop proxy mode without authoritative physical
 generation does not claim current migration readiness.
 
+When a VPN-created runtime is detached into proxy mode, its protection policy
+changes only after the Agent acknowledges a Clean transaction with no active
+packet session. The old physical monitor is canceled and stale VPN-generation
+setup is rejected. Local proxy listeners remain open; one internal reconnect
+may release the old transport's transaction-bound sockets. Subsequent proxy
+connections use ordinary host networking and do not query the released Agent
+operation. A failed or incomplete rollback never authorizes this transition.
+
 ## Migration transmit barrier
 
 `MigrationTxBarrier` pauses new application DATAGRAM injection only during a

@@ -38,7 +38,11 @@ impl DiagnosticCheck for DeepCheck {
         }
     }
     fn category(&self) -> DiagnosticCategory {
-        DiagnosticCategory::Transport
+        if self.h3 {
+            DiagnosticCategory::Transport
+        } else {
+            DiagnosticCategory::Protection
+        }
     }
     fn dependencies(&self) -> &'static [&'static str] {
         if self.h3 {
@@ -151,5 +155,22 @@ impl DiagnosticCheck for DeepCheck {
                 vec![],
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deep_dns_uses_the_same_protection_category_as_android() {
+        assert_eq!(
+            DeepCheck { h3: false }.category(),
+            DiagnosticCategory::Protection
+        );
+        assert_eq!(
+            DeepCheck { h3: true }.category(),
+            DiagnosticCategory::Transport
+        );
     }
 }

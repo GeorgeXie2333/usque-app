@@ -11,6 +11,13 @@ pub(crate) fn disconnected_snapshot() -> NetworkQualitySnapshot {
     NetworkQualitySampler::new(NetworkQualityTelemetry::default()).sample()
 }
 
+pub(crate) fn snapshot_payload(
+    snapshot: &NetworkQualitySnapshot,
+    enabled: bool,
+) -> Option<v1::NetworkQualitySnapshot> {
+    enabled.then(|| snapshot_to_proto(snapshot))
+}
+
 pub(crate) fn snapshot_to_proto(snapshot: &NetworkQualitySnapshot) -> v1::NetworkQualitySnapshot {
     let sampled_at = SystemTime::now()
         .checked_sub(snapshot.sampled_at.elapsed())
@@ -396,6 +403,15 @@ mod tests {
     use usque_core::{AddressFamily, Transport};
 
     use super::*;
+
+    #[test]
+    fn disabled_build_omits_quality_payload_even_with_a_live_source() {
+        let telemetry = NetworkQualityTelemetry::default();
+        telemetry.begin_connection(Transport::Http2, AddressFamily::Ipv4);
+        let snapshot = NetworkQualitySampler::new(telemetry).sample();
+        assert!(snapshot_payload(&snapshot, false).is_none());
+        assert!(snapshot_payload(&snapshot, true).is_some());
+    }
 
     #[test]
     fn disconnected_conversion_has_explicit_availability_and_no_identifiers() {

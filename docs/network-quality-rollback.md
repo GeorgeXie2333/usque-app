@@ -13,7 +13,7 @@ rebuild and the ordinary gates in `CONTRIBUTING.md`.
 | Flag / capability | False behavior | Required regression evidence |
 | --- | --- | --- |
 | `h2_tuned_flow_control` | Explicit Builder, stream and connection windows both 65,535; PING and cancel stay intact | H2 32-combination config and loopback capacity/cancel tests |
-| `network_quality_metrics` | Stop quality events/payload/capability; existing business flow and safety counters remain active | Disabled sampler cancellation/counter test and missing-capability GUI tests |
+| `network_quality_metrics` | Stop quality events/payload/capability; existing business flow and safety counters remain active | Disabled sampler/counter, payload omission, initial/changed/periodic event suppression, and missing-capability GUI tests |
 | `udp_batch_io` | Force portable send/receive even if batch mode was requested | Portable/forced-mode/order/truncation/cancel tests on Windows and Linux |
 | `automatic_pmtu` | Fixed 1350-byte outer send maximum; no discovery or migration-triggered probe; EMSGSIZE safely reconnects | Fixed-1350 across-path and fail-closed error tests; inner MTU/PTB tests |
 | `quic_migration` | No migration handle dispatch; existing full reconnect | Disabled-handle no-candidate test and supervisor generation/reconnect tests |

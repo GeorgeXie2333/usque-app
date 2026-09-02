@@ -33,6 +33,14 @@ Capabilities describe build/platform support, not current path readiness; H2
 reports PMTU as `Unsupported`, while an H3 path still probing reports
 `NotReady`.
 
+A closed runtime quality source publishes a disconnected snapshot. Replacing
+or clearing a source joins its canceled relay before publishing the next
+source, so an old relay cannot overwrite a new connection's readings.
+With the internal quality build capability disabled, state payloads omit the
+quality field, the event stream emits no quality events, and GetNetworkQuality
+returns the existing structured invalid-request response instead of a quality
+payload. Protobuf field numbers remain reserved and unchanged.
+
 ## Compatibility and availability
 
 Rust/prost and the hand-written Dart codec share a checked-in byte fixture.

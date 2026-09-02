@@ -42,8 +42,7 @@ where
     let mut geo_progress = service.subscribe_geo_progress();
     let mut diagnostics = service.subscribe_diagnostics();
     let mut quality_updates = service.subscribe_network_quality();
-    let initial_quality =
-        crate::network_quality::snapshot_to_proto(&quality_updates.borrow_and_update().clone());
+    let initial_quality = service.network_quality_payload();
     let mut quality_gate = NetworkQualityEventGate::new(initial_quality);
 
     loop {
@@ -69,7 +68,7 @@ where
                     write_network_quality_event(&mut stream, &service, snapshot).await?;
                 }
             }
-            changed = quality_updates.changed() => {
+            changed = quality_updates.changed(), if quality_gate.is_enabled() => {
                 if changed.is_err() {
                     return Ok(());
                 }
@@ -117,20 +116,24 @@ where
 }
 
 struct NetworkQualityEventGate {
-    last_observed: v1::NetworkQualitySnapshot,
+    last_observed: Option<v1::NetworkQualitySnapshot>,
     last_sent: Option<v1::NetworkQualitySnapshot>,
     last_sent_at: Option<Instant>,
     pending: Option<v1::NetworkQualitySnapshot>,
 }
 
 impl NetworkQualityEventGate {
-    fn new(initial: v1::NetworkQualitySnapshot) -> Self {
+    fn new(initial: Option<v1::NetworkQualitySnapshot>) -> Self {
         Self {
             last_observed: initial.clone(),
             last_sent: None,
             last_sent_at: None,
-            pending: Some(initial),
+            pending: initial,
         }
+    }
+
+    fn is_enabled(&self) -> bool {
+        self.last_observed.is_some()
     }
 
     fn observe(
@@ -138,8 +141,9 @@ impl NetworkQualityEventGate {
         snapshot: v1::NetworkQualitySnapshot,
         now: Instant,
     ) -> Option<v1::NetworkQualitySnapshot> {
-        let major = crate::network_quality::is_major_change(&self.last_observed, &snapshot);
-        self.last_observed = snapshot.clone();
+        let previous = self.last_observed.as_ref()?;
+        let major = crate::network_quality::is_major_change(previous, &snapshot);
+        self.last_observed = Some(snapshot.clone());
         if self
             .last_sent
             .as_ref()
@@ -334,7 +338,7 @@ mod tests {
     async fn quality_gate_is_one_hertz_and_major_changes_are_due_immediately() {
         let start = Instant::now();
         let initial = quality_snapshot(0, 0);
-        let mut gate = NetworkQualityEventGate::new(initial.clone());
+        let mut gate = NetworkQualityEventGate::new(Some(initial.clone()));
         assert_eq!(gate.take_periodic(start), Some(initial.clone()));
         assert_eq!(gate.observe(initial, start), None);
 
@@ -366,9 +370,19 @@ mod tests {
     }
 
     #[test]
+    fn disabled_quality_gate_never_emits_initial_periodic_or_changed_payloads() {
+        let mut gate = NetworkQualityEventGate::new(None);
+        let now = Instant::now();
+        assert!(!gate.is_enabled());
+        assert_eq!(gate.take_periodic(now), None);
+        assert_eq!(gate.observe(quality_snapshot(1, 1), now), None);
+        assert_eq!(gate.take_periodic(now + Duration::from_secs(5)), None);
+    }
+
+    #[test]
     fn slow_quality_consumer_retains_only_the_latest_snapshot() {
         let start = Instant::now();
-        let mut gate = NetworkQualityEventGate::new(quality_snapshot(0, 0));
+        let mut gate = NetworkQualityEventGate::new(Some(quality_snapshot(0, 0)));
         gate.take_periodic(start).expect("initial snapshot");
         for failures in 1..=10_000 {
             assert_eq!(gate.observe(quality_snapshot(failures, 0), start), None);

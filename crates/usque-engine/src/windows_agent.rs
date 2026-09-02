@@ -2,7 +2,10 @@ use std::{
     io, mem,
     net::SocketAddr,
     ptr::{self, NonNull},
-    sync::{Arc, RwLock, Weak},
+    sync::{
+        Arc, RwLock, Weak,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
@@ -86,6 +89,7 @@ struct WindowsVpnSocketProtector {
     operation_id: Uuid,
     physical: RwLock<WindowsPhysicalState>,
     monitor_cancel: CancellationToken,
+    proxy_mode: AtomicBool,
 }
 
 struct WindowsPhysicalState {
@@ -126,6 +130,11 @@ impl SocketProtector for WindowsVpnSocketProtector {
         remote: SocketAddr,
         protocol: DirectProtocol,
     ) -> Result<DirectEgressLease, String> {
+        if self.proxy_mode.load(Ordering::Acquire) {
+            return NoopSocketProtector
+                .protect_for_target(socket, remote, protocol)
+                .await;
+        }
         let generation = self
             .network_generation()
             .ok_or_else(|| STALE_GENERATION_REASON.to_owned())?;
@@ -145,14 +154,20 @@ impl SocketProtector for WindowsVpnSocketProtector {
     }
 
     fn tun_direct_available(&self) -> bool {
-        true
+        !self.proxy_mode.load(Ordering::Acquire)
     }
 
     fn network_generation(&self) -> Option<u64> {
+        if self.proxy_mode.load(Ordering::Acquire) {
+            return None;
+        }
         self.physical.read().ok().map(|state| state.generation)
     }
 
     fn endpoint_family_available(&self, endpoint: SocketAddr) -> Option<bool> {
+        if self.proxy_mode.load(Ordering::Acquire) {
+            return None;
+        }
         self.physical.read().ok().map(|state| {
             state.agent_generation.is_some()
                 && state.family_mask & if endpoint.is_ipv4() { 1 } else { 2 } != 0
@@ -160,6 +175,9 @@ impl SocketProtector for WindowsVpnSocketProtector {
     }
 
     fn physical_dns_servers(&self) -> Vec<SocketAddr> {
+        if self.proxy_mode.load(Ordering::Acquire) {
+            return Vec::new();
+        }
         self.physical
             .read()
             .map(|state| state.dns_servers.clone())
@@ -167,10 +185,16 @@ impl SocketProtector for WindowsVpnSocketProtector {
     }
 
     async fn resolve_direct(&self, host: &str, port: u16) -> Result<Vec<SocketAddr>, String> {
+        if self.proxy_mode.load(Ordering::Acquire) {
+            return NoopSocketProtector.resolve_direct(host, port).await;
+        }
         resolve_physical_host(self, host, port).await
     }
 
     fn resolve(&self, host: &str, port: u16) -> Result<Vec<SocketAddr>, String> {
+        if self.proxy_mode.load(Ordering::Acquire) {
+            return NoopSocketProtector.resolve(host, port);
+        }
         if host == REGISTRATION_API_HOST && port == REGISTRATION_API_PORT {
             Ok(self.registration_api.clone())
         } else {
@@ -180,6 +204,36 @@ impl SocketProtector for WindowsVpnSocketProtector {
 }
 
 impl WindowsVpnSocketProtector {
+    /// Only an acknowledged, fully closed Agent transaction may release the
+    /// VPN binding policy. A failed rollback must keep exact-egress checks.
+    fn complete_proxy_detach(&self, state: &AgentState) -> Result<(), WindowsVpnError> {
+        validate_proxy_detach_state(state)?;
+        self.proxy_mode.store(true, Ordering::Release);
+        self.monitor_cancel.cancel();
+        Ok(())
+    }
+
+    fn egress_generation(&self, expected: u64) -> Result<Option<u64>, String> {
+        if self.proxy_mode.load(Ordering::Acquire) {
+            return if expected == 0 {
+                Ok(None)
+            } else {
+                Err(STALE_GENERATION_REASON.to_owned())
+            };
+        }
+        let state = self
+            .physical
+            .read()
+            .map_err(|_| STALE_GENERATION_REASON.to_owned())?;
+        if state.generation != expected {
+            return Err(STALE_GENERATION_REASON.to_owned());
+        }
+        state
+            .agent_generation
+            .map(Some)
+            .ok_or_else(|| STALE_GENERATION_REASON.to_owned())
+    }
+
     async fn protect_target_generation(
         &self,
         socket: SocketHandle,
@@ -187,17 +241,10 @@ impl WindowsVpnSocketProtector {
         protocol: DirectProtocol,
         expected_generation: u64,
     ) -> Result<DirectEgressLease, String> {
-        let agent_generation = {
-            let state = self
-                .physical
-                .read()
-                .map_err(|_| STALE_GENERATION_REASON.to_owned())?;
-            if state.generation != expected_generation {
-                return Err(STALE_GENERATION_REASON.to_owned());
-            }
-            state
-                .agent_generation
-                .ok_or_else(|| STALE_GENERATION_REASON.to_owned())?
+        let Some(agent_generation) = self.egress_generation(expected_generation)? else {
+            return NoopSocketProtector
+                .protect_for_target_generation(socket, remote, protocol, expected_generation)
+                .await;
         };
         let (pipe, lease) = self
             .agent
@@ -230,11 +277,7 @@ impl WindowsVpnSocketProtector {
     }
 
     fn verify_generation(&self, expected: u64, agent_generation: u64) -> Result<(), String> {
-        let state = self
-            .physical
-            .read()
-            .map_err(|_| STALE_GENERATION_REASON.to_owned())?;
-        if state.generation != expected || state.agent_generation != Some(agent_generation) {
+        if self.egress_generation(expected)? != Some(agent_generation) {
             Err(STALE_GENERATION_REASON.to_owned())
         } else {
             Ok(())
@@ -242,6 +285,9 @@ impl WindowsVpnSocketProtector {
     }
 
     fn observe_physical_snapshot(&self, info: &PhysicalNetworkInfo) {
+        if self.proxy_mode.load(Ordering::Acquire) {
+            return;
+        }
         let snapshot = physical_dns_endpoints(info).ok().map(|servers| {
             (
                 info.generation,
@@ -261,6 +307,16 @@ impl Drop for WindowsVpnSocketProtector {
     fn drop(&mut self) {
         self.monitor_cancel.cancel();
     }
+}
+
+fn validate_proxy_detach_state(state: &AgentState) -> Result<(), WindowsVpnError> {
+    if state.phase != agent_v1::AgentPhase::Clean as i32 || state.packet_session_active {
+        return Err(WindowsVpnError::RecoveryRequired {
+            phase: state.phase,
+            operation_id: state.operation_id.clone(),
+        });
+    }
+    Ok(())
 }
 
 fn socket_lease_error(error: WindowsVpnError) -> String {
@@ -534,6 +590,8 @@ pub(crate) struct WindowsVpnRuntime {
     system_proxy: Option<WindowsSystemProxyGuard>,
     transaction_open: bool,
     tunnel: Option<MasqueRuntime>,
+    // Present when this runtime created the VPN-bound MASQUE protector.
+    socket_protector: Option<Arc<WindowsVpnSocketProtector>>,
 }
 
 #[derive(Clone)]
@@ -710,14 +768,15 @@ impl WindowsVpnRuntime {
                     .fold(0, |mask, interface| mask | interface.address_family_mask),
             }),
             monitor_cancel: CancellationToken::new(),
+            proxy_mode: AtomicBool::new(false),
         });
         start_physical_network_monitor(&protector);
-        let protector: Arc<dyn SocketProtector> = protector;
+        let transport_protector: Arc<dyn SocketProtector> = protector.clone();
 
         let tunnel = match MasqueRuntime::start_with_geo_policy(
             profile,
             identity,
-            protector,
+            transport_protector,
             Some(pin_refresher),
             geo_policy,
         )
@@ -739,7 +798,10 @@ impl WindowsVpnRuntime {
         )
         .await
         {
-            Ok(runtime) => Ok(runtime),
+            Ok(mut runtime) => {
+                runtime.socket_protector = Some(protector);
+                Ok(runtime)
+            }
             Err((mut tunnel, error)) => {
                 tunnel.shutdown().await;
                 Err(error)
@@ -877,14 +939,22 @@ impl WindowsVpnRuntime {
             self.agent
                 .rollback(self.operation_id, "HOT_TUNNEL_DETACH")
                 .await
+                .and_then(|state| {
+                    if let Some(protector) = &self.socket_protector {
+                        protector.complete_proxy_detach(&state)?;
+                    } else {
+                        validate_proxy_detach_state(&state)?;
+                    }
+                    Ok(())
+                })
         } else {
-            Ok(AgentState::default())
+            Ok(())
         };
         if rollback.is_ok() {
             self.transaction_open = false;
         }
         system_proxy_result?;
-        rollback.map(|_| ())?;
+        rollback?;
         self.tunnel
             .take()
             .ok_or(WindowsVpnError::MissingMasqueRuntime)
@@ -1167,6 +1237,7 @@ async fn bind_agent_session(
         system_proxy,
         transaction_open: true,
         tunnel: Some(tunnel),
+        socket_protector: None,
     })
 }
 
@@ -2580,9 +2651,49 @@ mod tests {
                 family_mask: 3,
             }),
             monitor_cancel: cancellation.clone(),
+            proxy_mode: AtomicBool::new(false),
         };
         drop(protector);
         assert!(cancellation.is_cancelled());
+    }
+
+    #[test]
+    fn proxy_detach_requires_clean_closed_transaction_and_invalidates_old_generations() {
+        let protector = WindowsVpnSocketProtector {
+            registration_api: Vec::new(),
+            agent: WindowsAgentClient::production(),
+            operation_id: Uuid::nil(),
+            physical: RwLock::new(WindowsPhysicalState {
+                generation: 7,
+                agent_generation: Some(3),
+                dns_servers: Vec::new(),
+                family_mask: 3,
+            }),
+            monitor_cancel: CancellationToken::new(),
+            proxy_mode: AtomicBool::new(false),
+        };
+        let mut state = AgentState {
+            phase: agent_v1::AgentPhase::Active as i32,
+            ..AgentState::default()
+        };
+        assert!(protector.complete_proxy_detach(&state).is_err());
+        assert_eq!(protector.egress_generation(7), Ok(Some(3)));
+        assert!(!protector.monitor_cancel.is_cancelled());
+        state.phase = agent_v1::AgentPhase::Clean as i32;
+        state.packet_session_active = true;
+        assert!(protector.complete_proxy_detach(&state).is_err());
+        state.packet_session_active = false;
+        protector.complete_proxy_detach(&state).unwrap();
+        assert!(protector.monitor_cancel.is_cancelled());
+        assert_eq!(protector.network_generation(), None);
+        assert_eq!(
+            protector.endpoint_family_available("127.0.0.1:443".parse().unwrap()),
+            None
+        );
+        assert!(!protector.tun_direct_available());
+        assert_eq!(protector.egress_generation(0), Ok(None));
+        assert!(protector.egress_generation(7).is_err());
+        assert!(protector.verify_generation(0, 3).is_err());
     }
 
     #[test]

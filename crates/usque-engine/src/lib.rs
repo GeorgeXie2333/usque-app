@@ -344,11 +344,22 @@ impl ControlService {
         self.network_quality_tx.borrow().clone()
     }
 
+    pub(crate) fn network_quality_payload(&self) -> Option<v1::NetworkQualitySnapshot> {
+        network_quality::snapshot_payload(
+            &self.network_quality_snapshot(),
+            usque_transport::PRODUCTION_NETWORK_FEATURES.network_quality_metrics,
+        )
+    }
+
     async fn install_network_quality_source(
         &self,
         mut source: watch::Receiver<usque_transport::NetworkQualitySnapshot>,
     ) {
-        self.network_quality_relay.lock().await.take();
+        let mut relay = self.network_quality_relay.lock().await;
+        if let Some(task) = relay.take() {
+            task.abort();
+            let _ = task.await;
+        }
         if !usque_transport::PRODUCTION_NETWORK_FEATURES.network_quality_metrics {
             return;
         }
@@ -359,12 +370,17 @@ impl ControlService {
             while source.changed().await.is_ok() {
                 destination.send_replace(source.borrow_and_update().clone());
             }
+            destination.send_replace(network_quality::disconnected_snapshot());
         });
-        *self.network_quality_relay.lock().await = Some(AbortOnDropHandle::new(task));
+        *relay = Some(AbortOnDropHandle::new(task));
     }
 
     async fn clear_network_quality_source(&self) {
-        self.network_quality_relay.lock().await.take();
+        let mut relay = self.network_quality_relay.lock().await;
+        if let Some(task) = relay.take() {
+            task.abort();
+            let _ = task.await;
+        }
         self.network_quality_tx
             .send_replace(network_quality::disconnected_snapshot());
     }
@@ -374,13 +390,7 @@ impl ControlService {
         snapshot: &ConnectionSnapshot,
     ) -> v1::ConnectionSnapshot {
         let mut proto = snapshot_to_proto(snapshot);
-        proto.network_quality = usque_transport::PRODUCTION_NETWORK_FEATURES
-            .network_quality_metrics
-            .then(|| {
-                Box::new(network_quality::snapshot_to_proto(
-                    &self.network_quality_snapshot(),
-                ))
-            });
+        proto.network_quality = self.network_quality_payload().map(Box::new);
         proto
     }
 
@@ -793,8 +803,13 @@ impl ControlService {
                 )))
             }
             control_request::Payload::GetNetworkQuality(_) => {
+                let snapshot = self.network_quality_payload().ok_or_else(|| {
+                    ControlServiceError::InvalidRequest(
+                        "network quality metrics are unavailable in this build".to_owned(),
+                    )
+                })?;
                 Ok(control_response::Payload::NetworkQuality(Box::new(
-                    network_quality::snapshot_to_proto(&self.network_quality_snapshot()),
+                    snapshot,
                 )))
             }
             control_request::Payload::ListGeoRules(_) => Ok(
@@ -3772,6 +3787,48 @@ mod tests {
     };
 
     use super::*;
+
+    #[tokio::test]
+    async fn closing_or_replacing_quality_sources_cannot_leave_a_stale_connection() {
+        use usque_transport::{NetworkQualitySampler, NetworkQualityTelemetry};
+
+        let directory = tempfile::tempdir().unwrap();
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(MemoryVault::default()),
+        )
+        .unwrap();
+        let live = || {
+            let quality = NetworkQualityTelemetry::default();
+            quality.begin_connection(Transport::Http2, AddressFamily::Ipv4);
+            NetworkQualitySampler::new(quality).sample()
+        };
+        let (old_sender, old_source) = watch::channel(live());
+        service.install_network_quality_source(old_source).await;
+        let next = live();
+        let expected = next.connection_id;
+        let (sender, source) = watch::channel(next);
+        service.install_network_quality_source(source).await;
+        drop(old_sender);
+        tokio::task::yield_now().await;
+        assert_eq!(service.network_quality_snapshot().connection_id, expected);
+
+        let mut updates = service.subscribe_network_quality();
+        drop(sender);
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            while updates.borrow_and_update().connection_id.is_some() {
+                updates.changed().await.unwrap();
+            }
+        })
+        .await
+        .unwrap();
+        assert!(service.network_quality_snapshot().connection_id.is_none());
+
+        let (_sender, source) = watch::channel(live());
+        service.install_network_quality_source(source).await;
+        service.clear_network_quality_source().await;
+        assert!(service.network_quality_snapshot().connection_id.is_none());
+    }
 
     #[tokio::test]
     async fn standard_doctor_preserves_configuration_runtime_and_generations() {
