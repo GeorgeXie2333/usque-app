@@ -25,6 +25,9 @@ CARGO_WORKSPACE_PACKAGE_PATTERN = re.compile(
 CARGO_VERSION_PATTERN = re.compile(r"^version\s*=\s*[\"']([^\"']+)[\"']\s*$", re.MULTILINE)
 FLUTTER_VERSION_PATTERN = re.compile(r"^version:\s*([^\s+]+)\+([0-9]+)\s*$", re.MULTILINE)
 APP_VERSION_PATTERN = re.compile(r"^\s*'app_version':\s*'Usque ([^']+)',\s*$", re.MULTILINE)
+APP_VERSION_KEY_PATTERN = re.compile(r"^\s*['\"]app_version['\"]\s*:", re.MULTILINE)
+LOCALE_IMPORT_LINE_PATTERN = re.compile(r"^[ \t]*import\b[^\r\n]*", re.MULTILINE)
+LOCALE_IMPORT_PATTERN = re.compile(r"^import ['\"]([a-z][a-z0-9_]*\.dart)['\"];[ \t]*$")
 RELEASE_TAG_ENV_PATTERN = re.compile(r"^  RELEASE_TAG:\s*[\"']?([^\"'\s]+)[\"']?\s*$", re.MULTILINE)
 ANDROID_VERSION_CODE_ENV_PATTERN = re.compile(
     r"^  ANDROID_VERSION_CODE:\s*[\"']?([0-9]+)[\"']?\s*$", re.MULTILINE
@@ -220,11 +223,16 @@ def verify_release_version(root: Path, tag: str, android_version_code: int) -> N
         )
 
     locale_directory = root / "apps" / "usque_gui" / "lib" / "core" / "l10n"
-    locale_paths = sorted(
-        path for path in locale_directory.glob("*.dart") if path.name != "catalogs.dart"
-    )
-    if not locale_paths:
-        raise ContractError(f"no locale catalogs found in {locale_directory}")
+    registry_path = locale_directory / "catalogs.dart"
+    # Feature translation tables are not full catalogs. Use the app's registry,
+    # while still rejecting missing files/versions and unsupported import syntax.
+    locale_names = [
+        _single_match(LOCALE_IMPORT_PATTERN, line, "locale catalog import")
+        for line in LOCALE_IMPORT_LINE_PATTERN.findall(_read_text(registry_path))
+    ]
+    if not locale_names or len(set(locale_names)) != len(locale_names):
+        raise ContractError(f"{registry_path} must register distinct locale catalogs")
+    locale_paths = [locale_directory / name for name in sorted(locale_names)]
     invalid_locales = []
     for path in locale_paths:
         versions = APP_VERSION_PATTERN.findall(_read_text(path))
@@ -234,6 +242,13 @@ def verify_release_version(root: Path, tag: str, android_version_code: int) -> N
         raise ContractError(
             "locale app_version values do not match the release: " + ", ".join(invalid_locales)
         )
+
+    # AppStrings consults feature tables before the catalog. They must never
+    # override the version that was just verified, even with the same value.
+    catalog_files = set(locale_names) | {"catalogs.dart"}
+    for path in sorted(locale_directory.glob("*.dart")):
+        if path.name not in catalog_files and APP_VERSION_KEY_PATTERN.search(_read_text(path)):
+            raise ContractError(f"non-catalog translation table defines app_version: {path.name}")
 
     workflow_path = root / ".github" / "workflows" / "release.yml"
     workflow = _read_text(workflow_path)

@@ -80,6 +80,16 @@ flutter analyze --no-pub
 flutter test --no-pub
 ```
 
+Bitmap tests are tagged `golden`. Their checked-in baselines use Windows x64
+and the pinned Flutter SDK: [custom-font rendering varies by host
+platform](https://api.flutter.dev/flutter/flutter_test/matchesGoldenFile.html).
+The command above runs all tests on Windows. On other hosts, run
+`flutter test --no-pub --exclude-tags golden`, then validate the bitmap suite
+on Windows with `flutter test --no-pub --tags golden`. CI requires both the
+Ubuntu widget suite and the Windows golden suite in `CI / gate`; neither is
+optional. Keep exact pixel comparison. Regenerate baselines only on Windows
+with the pinned SDK, review every visual diff, and never update them in CI.
+
 ### Android and Kotlin
 
 ```shell

@@ -171,7 +171,11 @@ class ReleaseVersionContractTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
         (self.root / ".github" / "workflows").mkdir(parents=True)
-        (self.root / "apps" / "usque_gui" / "lib" / "core" / "l10n").mkdir(parents=True)
+        self.locale_directory = self.root / "apps" / "usque_gui" / "lib" / "core" / "l10n"
+        self.locale_directory.mkdir(parents=True)
+        (self.locale_directory / "catalogs.dart").write_text(
+            "import 'en.dart';\nimport 'zh_cn.dart';\n", encoding="utf-8"
+        )
         (self.root / "Cargo.toml").write_text(
             '[workspace]\n[workspace.package]\nversion = "0.2.3"\n',
             encoding="utf-8",
@@ -180,7 +184,7 @@ class ReleaseVersionContractTests(unittest.TestCase):
             "name: usque\nversion: 0.2.3+17\n", encoding="utf-8"
         )
         for name in ("en.dart", "zh_cn.dart"):
-            (self.root / "apps" / "usque_gui" / "lib" / "core" / "l10n" / name).write_text(
+            (self.locale_directory / name).write_text(
                 "const catalog = <String, String>{\n  'app_version': 'Usque 0.2.3',\n};\n",
                 encoding="utf-8",
             )
@@ -201,6 +205,56 @@ class ReleaseVersionContractTests(unittest.TestCase):
 
     def test_accepts_consistent_release_version_surfaces(self) -> None:
         release_contract.verify_release_version(self.root, "v0.2.3", 17)
+
+    def test_accepts_supplemental_feature_translations(self) -> None:
+        (self.locale_directory / "network_quality.dart").write_text(
+            "const quality = <String, String>{\n  'nq_range': 'Range',\n};\n",
+            encoding="utf-8",
+        )
+        release_contract.verify_release_version(self.root, "v0.2.3", 17)
+
+    def test_rejects_supplemental_version_overrides(self) -> None:
+        for version in ("0.2.3", "0.2.1"):
+            with self.subTest(version=version):
+                (self.locale_directory / "network_quality.dart").write_text(
+                    "const quality = <String, String>{\n"
+                    f"  'app_version': 'Usque {version}',\n"
+                    "};\n",
+                    encoding="utf-8",
+                )
+                with self.assertRaisesRegex(release_contract.ContractError, "network_quality.dart"):
+                    release_contract.verify_release_version(self.root, "v0.2.3", 17)
+
+    def test_rejects_missing_or_duplicate_registered_locale_versions(self) -> None:
+        for entries in ("", "  'app_version': 'Usque 0.2.3',\n" * 2):
+            with self.subTest(entries=entries):
+                (self.locale_directory / "en.dart").write_text(
+                    "const catalog = <String, String>{\n" + entries + "};\n", encoding="utf-8"
+                )
+                with self.assertRaisesRegex(release_contract.ContractError, "en.dart"):
+                    release_contract.verify_release_version(self.root, "v0.2.3", 17)
+
+    def test_rejects_missing_registered_locale(self) -> None:
+        (self.locale_directory / "en.dart").unlink()
+        with self.assertRaisesRegex(release_contract.ContractError, "en.dart"):
+            release_contract.verify_release_version(self.root, "v0.2.3", 17)
+
+    def test_rejects_missing_catalog_registry(self) -> None:
+        (self.locale_directory / "catalogs.dart").unlink()
+        with self.assertRaisesRegex(release_contract.ContractError, "catalogs.dart"):
+            release_contract.verify_release_version(self.root, "v0.2.3", 17)
+
+    def test_rejects_empty_duplicate_or_unsupported_catalog_imports(self) -> None:
+        for imports in (
+            "",
+            "import 'en.dart';\nimport 'en.dart';\n",
+            "import '../en.dart';\n",
+            "import 'en.dart';\nimport 'zh_cn.dart' as zh;\n",
+        ):
+            with self.subTest(imports=imports):
+                (self.locale_directory / "catalogs.dart").write_text(imports, encoding="utf-8")
+                with self.assertRaises(release_contract.ContractError):
+                    release_contract.verify_release_version(self.root, "v0.2.3", 17)
 
     def test_rejects_cargo_or_flutter_version_drift(self) -> None:
         (self.root / "Cargo.toml").write_text(

@@ -638,6 +638,6 @@ void main() {
         matchesGoldenFile('goldens/network_quality_$state.png'),
       );
       app.dispose();
-    });
+    }, tags: const <String>['golden']);
   }
 }
