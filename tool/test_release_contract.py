@@ -234,6 +234,18 @@ class ReleaseVersionContractTests(unittest.TestCase):
                 with self.assertRaisesRegex(release_contract.ContractError, "en.dart"):
                     release_contract.verify_release_version(self.root, "v0.2.3", 17)
 
+    def test_rejects_inline_supplemental_version_overrides(self) -> None:
+        for quote in ("'", '"'):
+            with self.subTest(quote=quote):
+                (self.locale_directory / "network_quality.dart").write_text(
+                    "const quality = <String, String>{"
+                    f"{quote}app_version{quote}: {quote}Usque 0.2.1{quote}"
+                    "};\n",
+                    encoding="utf-8",
+                )
+                with self.assertRaisesRegex(release_contract.ContractError, "network_quality.dart"):
+                    release_contract.verify_release_version(self.root, "v0.2.3", 17)
+
     def test_rejects_missing_registered_locale(self) -> None:
         (self.locale_directory / "en.dart").unlink()
         with self.assertRaisesRegex(release_contract.ContractError, "en.dart"):

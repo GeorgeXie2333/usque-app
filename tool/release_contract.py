@@ -25,7 +25,7 @@ CARGO_WORKSPACE_PACKAGE_PATTERN = re.compile(
 CARGO_VERSION_PATTERN = re.compile(r"^version\s*=\s*[\"']([^\"']+)[\"']\s*$", re.MULTILINE)
 FLUTTER_VERSION_PATTERN = re.compile(r"^version:\s*([^\s+]+)\+([0-9]+)\s*$", re.MULTILINE)
 APP_VERSION_PATTERN = re.compile(r"^\s*'app_version':\s*'Usque ([^']+)',\s*$", re.MULTILINE)
-APP_VERSION_KEY_PATTERN = re.compile(r"^\s*['\"]app_version['\"]\s*:", re.MULTILINE)
+APP_VERSION_KEY_PATTERN = re.compile(r"['\"]app_version['\"]\s*:")
 LOCALE_IMPORT_LINE_PATTERN = re.compile(r"^[ \t]*import\b[^\r\n]*", re.MULTILINE)
 LOCALE_IMPORT_PATTERN = re.compile(r"^import ['\"]([a-z][a-z0-9_]*\.dart)['\"];[ \t]*$")
 RELEASE_TAG_ENV_PATTERN = re.compile(r"^  RELEASE_TAG:\s*[\"']?([^\"'\s]+)[\"']?\s*$", re.MULTILINE)
