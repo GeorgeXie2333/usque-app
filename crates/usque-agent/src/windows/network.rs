@@ -27,10 +27,11 @@ use windows_sys::{
                 CreateIpForwardEntry2, CreateUnicastIpAddressEntry, DNS_INTERFACE_SETTINGS,
                 DNS_INTERFACE_SETTINGS_VERSION1, DNS_SETTING_IPV6, DNS_SETTING_NAMESERVER,
                 DeleteIpForwardEntry2, DeleteUnicastIpAddressEntry, FreeInterfaceDnsSettings,
-                FreeMibTable, GetBestInterfaceEx, GetBestRoute2, GetInterfaceDnsSettings,
-                GetIpForwardEntry2, GetIpForwardTable2, GetIpInterfaceEntry,
-                GetUnicastIpAddressEntry, IP_ADDRESS_PREFIX, InitializeIpForwardEntry,
-                InitializeIpInterfaceEntry, InitializeUnicastIpAddressEntry, MIB_IPFORWARD_ROW2,
+                FreeMibTable, GetBestInterfaceEx, GetBestRoute2, GetIfTable2,
+                GetInterfaceDnsSettings, GetIpForwardEntry2, GetIpForwardTable2,
+                GetIpInterfaceEntry, GetUnicastIpAddressEntry, IP_ADDRESS_PREFIX,
+                InitializeIpForwardEntry, InitializeIpInterfaceEntry,
+                InitializeUnicastIpAddressEntry, MIB_IF_ROW2, MIB_IF_TABLE2, MIB_IPFORWARD_ROW2,
                 MIB_IPFORWARD_TABLE2, MIB_IPINTERFACE_ROW, MIB_UNICASTIPADDRESS_ROW,
                 SetInterfaceDnsSettings, SetIpInterfaceEntry,
             },
@@ -47,7 +48,7 @@ use windows_sys::{
 };
 
 use crate::{
-    journal::{AddressReceipt, MutationReceipt, RouteReceipt},
+    journal::{AddressReceipt, MutationReceipt, MutationState, RecoveryJournal, RouteReceipt},
     plan::ValidatedTunnelPlan,
 };
 
@@ -55,6 +56,145 @@ const MAX_DNS_TEXT_UNITS: usize = 16 * 1024;
 const DEFAULT_ROUTE_METRIC: u32 = 0;
 const MAX_OBSERVED_ROUTES: usize = 4_096;
 const MAX_OBSERVED_INTERFACES: usize = 64;
+const MAX_RECOVERY_INTERFACES: usize = 4_096;
+
+/// Uses IP Helper only: opening Wintun itself may enqueue orphan-device
+/// cleanup, so it is not an appropriate read-only startup probe.
+pub fn inspect_adapter_identity(receipt: &MutationReceipt) -> Result<bool, NetworkError> {
+    let mut table = ptr::null_mut();
+    // SAFETY: table is writable output storage; a successful allocation is
+    // owned by the guard and released exactly once with FreeMibTable.
+    check("GetIfTable2", unsafe { GetIfTable2(&mut table) })?;
+    let table = NonNull::new(table).ok_or(NetworkError::InterfaceSnapshot)?;
+    let guard = InterfaceTableGuard(table);
+    // SAFETY: GetIfTable2 initialized this header and its variable-length rows.
+    let count = unsafe { guard.0.as_ref().NumEntries } as usize;
+    if count > MAX_RECOVERY_INTERFACES {
+        return Err(NetworkError::InterfaceSnapshot);
+    }
+    // SAFETY: Windows allocated count MIB_IF_ROW2 rows following the header;
+    // the guard keeps that allocation alive for the complete inspection.
+    let rows = unsafe {
+        std::slice::from_raw_parts(
+            ptr::addr_of!((*guard.0.as_ptr()).Table).cast::<MIB_IF_ROW2>(),
+            count,
+        )
+    };
+    inspect_adapter_rows(receipt, rows)
+}
+
+fn inspect_adapter_rows(
+    receipt: &MutationReceipt,
+    rows: &[MIB_IF_ROW2],
+) -> Result<bool, NetworkError> {
+    let MutationReceipt::WintunAdapter {
+        adapter_name,
+        adapter_guid,
+        interface_luid,
+    } = receipt
+    else {
+        return Err(NetworkError::ReceiptKind("Wintun adapter"));
+    };
+    if adapter_guid.is_nil() {
+        return Err(NetworkError::AdapterIdentity);
+    }
+    let mut found = false;
+    for row in rows {
+        let end = row
+            .Alias
+            .iter()
+            .position(|unit| *unit == 0)
+            .unwrap_or(row.Alias.len());
+        let name_matches = row.Alias[..end]
+            .iter()
+            .copied()
+            .eq(adapter_name.encode_utf16());
+        let guid_matches = uuid_from_guid(row.InterfaceGuid) == *adapter_guid;
+        let actual_luid = luid_value(row.InterfaceLuid);
+        let luid_matches = *interface_luid != 0 && actual_luid == *interface_luid;
+        if guid_matches || name_matches || luid_matches {
+            if !guid_matches
+                || !name_matches
+                || actual_luid == 0
+                || (*interface_luid != 0 && !luid_matches)
+                || found
+            {
+                return Err(NetworkError::AdapterIdentity);
+            }
+            found = true;
+        }
+    }
+    Ok(found)
+}
+
+struct InterfaceTableGuard(NonNull<MIB_IF_TABLE2>);
+
+impl Drop for InterfaceTableGuard {
+    fn drop(&mut self) {
+        // SAFETY: this guard uniquely owns a successful GetIfTable2 allocation.
+        unsafe { FreeMibTable(self.0.as_ptr().cast()) };
+    }
+}
+
+/// Checks expected interface values and exact route keys, without repairing
+/// anything. Missing resources require a new transaction, not blind resume.
+pub fn tunnel_configuration_present(journal: &RecoveryJournal) -> Result<bool, NetworkError> {
+    let plan = journal
+        .plan
+        .as_ref()
+        .ok_or(NetworkError::ReceiptKind("tunnel plan"))?;
+    for step in &journal.steps {
+        if step.state != MutationState::Applied {
+            return Ok(false);
+        }
+        let present = match &step.receipt {
+            MutationReceipt::InterfaceConfiguration {
+                interface_luid,
+                created_addresses,
+                ..
+            } => {
+                for family in [AF_INET, AF_INET6] {
+                    if (family == AF_INET && plan.assigned_ipv4.is_some())
+                        || (family == AF_INET6 && plan.assigned_ipv6.is_some())
+                    {
+                        match interface_mtu(*interface_luid, family) {
+                            Ok(mtu) if mtu == u32::from(plan.mtu) => {}
+                            Ok(_) => return Ok(false),
+                            Err(error) if error.is_interface_churn() => return Ok(false),
+                            Err(error) => return Err(error),
+                        }
+                    }
+                }
+                for address in created_addresses {
+                    if !address_exists(*interface_luid, parse_network(&address.address)?.addr())? {
+                        return Ok(false);
+                    }
+                }
+                true
+            }
+            MutationReceipt::Dns { interface_guid, .. } => {
+                let mut expected = plan.dns_servers.clone();
+                expected.sort();
+                expected.dedup();
+                get_dns_servers(*interface_guid)? == expected
+            }
+            MutationReceipt::EndpointBypass { created }
+            | MutationReceipt::DefaultRoutes { created, .. } => {
+                for receipt in created {
+                    if !route_exists(receipt)? {
+                        return Ok(false);
+                    }
+                }
+                true
+            }
+            _ => true,
+        };
+        if !present {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PhysicalInterfaceInfo {
@@ -1142,6 +1282,10 @@ fn retain_first_error(destination: &mut Option<NetworkError>, result: Result<(),
 
 #[derive(Debug, Error)]
 pub enum NetworkError {
+    #[error("the journaled adapter identity does not match the interface snapshot")]
+    AdapterIdentity,
+    #[error("a bounded interface identity snapshot is unavailable")]
+    InterfaceSnapshot,
     #[error("Windows returned no route snapshot allocation")]
     RouteSnapshotMissing,
     #[error("the bounded physical route snapshot limit was exceeded")]
@@ -1206,6 +1350,44 @@ impl NetworkError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn adapter_probe_distinguishes_absence_from_reused_identity_without_os_calls() {
+        let guid = Uuid::new_v4();
+        let name = "Usque-0123456789ab";
+        let receipt = MutationReceipt::WintunAdapter {
+            adapter_name: name.to_owned(),
+            adapter_guid: guid,
+            interface_luid: 7,
+        };
+        let mut row = MIB_IF_ROW2 {
+            InterfaceGuid: guid_from_uuid(guid),
+            InterfaceLuid: luid(7),
+            ..Default::default()
+        };
+        for (target, unit) in row.Alias.iter_mut().zip(name.encode_utf16()) {
+            *target = unit;
+        }
+        assert!(inspect_adapter_rows(&receipt, &[row]).unwrap());
+        assert!(!inspect_adapter_rows(&receipt, &[]).unwrap());
+        row.InterfaceGuid = guid_from_uuid(Uuid::new_v4());
+        assert!(matches!(
+            inspect_adapter_rows(&receipt, &[row]),
+            Err(NetworkError::AdapterIdentity)
+        ));
+        row.InterfaceGuid = guid_from_uuid(guid);
+        row.InterfaceLuid = luid(8);
+        assert!(matches!(
+            inspect_adapter_rows(&receipt, &[row]),
+            Err(NetworkError::AdapterIdentity)
+        ));
+        row.InterfaceLuid = luid(7);
+        row.Alias[0] = b'X' as u16;
+        assert!(matches!(
+            inspect_adapter_rows(&receipt, &[row]),
+            Err(NetworkError::AdapterIdentity)
+        ));
+    }
 
     fn observed_route(network: &str, interface_luid: u64, metric: u32) -> MIB_IPFORWARD_ROW2 {
         let network = network.parse::<IpNet>().unwrap();

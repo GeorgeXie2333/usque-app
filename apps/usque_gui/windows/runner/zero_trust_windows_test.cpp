@@ -312,8 +312,22 @@ void maintenanceShutdownMessagesAreClassified() {
          "maintenanceShutdownMessagesAreClassified.cancelled");
   Expect(ClassifyMaintenanceShutdownMessage(WM_QUERYENDSESSION, 0,
                                              ENDSESSION_LOGOFF) ==
-             MaintenanceShutdownAction::kNone,
+             MaintenanceShutdownAction::kAllow,
          "maintenanceShutdownMessagesAreClassified.logoff");
+  for (LPARAM flags : {static_cast<LPARAM>(0),
+                       static_cast<LPARAM>(ENDSESSION_LOGOFF),
+                       static_cast<LPARAM>(ENDSESSION_CRITICAL),
+                       static_cast<LPARAM>(ENDSESSION_CLOSEAPP | ENDSESSION_LOGOFF)}) {
+    Expect(ClassifyMaintenanceShutdownMessage(WM_QUERYENDSESSION, 0, flags) ==
+               MaintenanceShutdownAction::kAllow,
+           "sessionEnding.queryDoesNotDisconnect");
+    Expect(ClassifyMaintenanceShutdownMessage(WM_ENDSESSION, FALSE, flags) ==
+               MaintenanceShutdownAction::kNone,
+           "sessionEnding.cancelledDoesNotDisconnect");
+    Expect(ClassifyMaintenanceShutdownMessage(WM_ENDSESSION, TRUE, flags) ==
+               MaintenanceShutdownAction::kCommit,
+           "sessionEnding.confirmedDisconnects");
+  }
   Expect(ClassifyMaintenanceShutdownMessage(WM_CLOSE, 0,
                                              ENDSESSION_CLOSEAPP) ==
              MaintenanceShutdownAction::kNone,

@@ -19,16 +19,17 @@ mod windows_main {
     use tracing::{error, info, warn};
     use tracing_subscriber::EnvFilter;
     use usque_agent::{
-        coordinator::{AgentCoordinator, ORPHANED_TUNNEL_RECOVERY_GRACE},
+        coordinator::{AgentCoordinator, ORPHANED_TUNNEL_RECOVERY_GRACE, TunnelInspection},
         journal::{JournalStore, OperationKind, RecoveryPhase},
         windows::{
             auth::{CallerPolicy, SignerFingerprint},
             backend::WindowsBackend,
             server::{
-                AGENT_PIPE_NAME, AgentService, ServeExit, serve_until_ready, validate_pipe_creation,
+                AGENT_PIPE_NAME, AgentService, ServeExit, ShutdownReason, serve_until_ready,
+                validate_pipe_creation,
             },
             service_config::{
-                NoopServiceStartModeController, ServiceStartModeController,
+                NoopServiceStartModeController, PRESHUTDOWN_TIMEOUT_MS, ServiceStartModeController,
                 WindowsServiceStartModeController,
             },
             state_security::{finalize_uninstall_state, secure_agent_state_path},
@@ -38,15 +39,18 @@ mod windows_main {
     use windows_sys::Win32::{
         Foundation::ERROR_GEN_FAILURE,
         System::Services::{
-            RegisterServiceCtrlHandlerExW, SERVICE_ACCEPT_SHUTDOWN, SERVICE_ACCEPT_STOP,
-            SERVICE_CONTROL_INTERROGATE, SERVICE_CONTROL_SHUTDOWN, SERVICE_CONTROL_STOP,
-            SERVICE_RUNNING, SERVICE_START_PENDING, SERVICE_STATUS, SERVICE_STATUS_HANDLE,
-            SERVICE_STOP_PENDING, SERVICE_STOPPED, SERVICE_TABLE_ENTRYW, SERVICE_WIN32_OWN_PROCESS,
-            SetServiceStatus, StartServiceCtrlDispatcherW,
+            RegisterServiceCtrlHandlerExW, SERVICE_ACCEPT_PRESHUTDOWN, SERVICE_ACCEPT_SHUTDOWN,
+            SERVICE_ACCEPT_STOP, SERVICE_CONTROL_INTERROGATE, SERVICE_CONTROL_PRESHUTDOWN,
+            SERVICE_CONTROL_SHUTDOWN, SERVICE_CONTROL_STOP, SERVICE_RUNNING, SERVICE_START_PENDING,
+            SERVICE_STATUS, SERVICE_STATUS_HANDLE, SERVICE_STOP_PENDING, SERVICE_STOPPED,
+            SERVICE_TABLE_ENTRYW, SERVICE_WIN32_OWN_PROCESS, SetServiceStatus,
+            StartServiceCtrlDispatcherW,
         },
     };
 
     const SERVICE_NAME: &str = "UsqueAgent";
+    // Leave time to publish STOPPED before SCM's 30-second preshutdown limit.
+    const SHUTDOWN_RECOVERY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(25);
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum StartupRecoveryAction {
@@ -138,7 +142,7 @@ mod windows_main {
     struct ServiceRuntimeState {
         status_handle: usize,
         status: SERVICE_STATUS,
-        shutdown: Option<watch::Sender<bool>>,
+        shutdown: Option<watch::Sender<Option<ShutdownReason>>>,
     }
 
     pub fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -168,6 +172,7 @@ mod windows_main {
                     if let Err(error) = tokio::signal::ctrl_c().await {
                         error!(%error, "failed to install Ctrl+C handler");
                     }
+                    ShutdownReason::ServiceStop
                 },
                 || Ok(()),
             ))
@@ -202,7 +207,7 @@ mod windows_main {
 
     async fn run_agent<Ready>(
         arguments: Arguments,
-        shutdown: impl Future<Output = ()>,
+        shutdown: impl Future<Output = ShutdownReason>,
         ready: Ready,
     ) -> Result<(), Box<dyn std::error::Error>>
     where
@@ -293,6 +298,7 @@ mod windows_main {
         } else {
             Arc::new(NoopServiceStartModeController)
         };
+        start_mode.ensure_shutdown_timeout().await?;
         let service = Arc::new(AgentService::with_start_mode_controller(
             Arc::clone(&coordinator),
             capabilities,
@@ -314,7 +320,20 @@ mod windows_main {
             ),
         }
         let state = service.state().await;
-        match startup_recovery_action(state.phase, state.operation_kind) {
+        let action = match startup_recovery_action(state.phase, state.operation_kind) {
+            StartupRecoveryAction::RetainActiveTunnel => {
+                match service.inspect_startup_tunnel().await {
+                    Ok(TunnelInspection::Reattachable) => StartupRecoveryAction::RetainActiveTunnel,
+                    Ok(TunnelInspection::NeedsRecovery) => StartupRecoveryAction::RecoverOnce,
+                    Err(error) => {
+                        error!(%error, "startup resource inspection failed; retaining blocked recovery state");
+                        StartupRecoveryAction::QuarantineRecoveryRequired
+                    }
+                }
+            }
+            action => action,
+        };
+        match action {
             StartupRecoveryAction::None => {}
             StartupRecoveryAction::RecoverOnce => {
                 // A dead local proxy would otherwise strand WinINet clients.
@@ -336,7 +355,6 @@ mod windows_main {
                             %recovery_error,
                             "startup recovery failed; keeping Agent available in recovery-required mode"
                         );
-                        emergency_wfp_cleanup_best_effort("failed startup recovery");
                     }
                 }
             }
@@ -349,11 +367,8 @@ mod windows_main {
                 );
             }
             StartupRecoveryAction::QuarantineRecoveryRequired => {
-                // Never repeat an already failed OS recovery merely because
-                // SCM restarted the process. Remove only stable Usque WFP
-                // objects here; all remaining receipts stay available for a
-                // deliberate recovery attempt and diagnostics.
-                emergency_wfp_cleanup_best_effort("recovery-required startup quarantine");
+                // No network writes merely because SCM restarted the process.
+                // A guarded Engine request can retry this exact failed journal.
                 warn!(
                     phase = ?state.phase,
                     generation = state.generation,
@@ -367,7 +382,9 @@ mod windows_main {
         // leave the Agent configured to start again at the next boot.
         service.synchronize_start_mode().await;
 
-        let startup_orphan = (state.phase == RecoveryPhase::Active
+        let state = service.state().await;
+        let startup_orphan = (action == StartupRecoveryAction::RetainActiveTunnel
+            && state.phase == RecoveryPhase::Active
             && state.operation_kind == Some(OperationKind::Tunnel))
         .then_some(state.operation_id)
         .flatten();
@@ -392,24 +409,40 @@ mod windows_main {
         }
 
         info!(%pipe_name, "starting privileged Agent Named Pipe");
-        match serve_until_ready(service, policy, pipe_name, shutdown, ready).await? {
-            ServeExit::Shutdown => {
+        match serve_until_ready(Arc::clone(&service), policy, pipe_name, shutdown, ready).await? {
+            ServeExit::Shutdown(ShutdownReason::ServiceStop) => {
                 info!("Agent stop requested; persistent recovery state was retained")
+            }
+            ServeExit::Shutdown(ShutdownReason::SystemShutdown) => {
+                // Detach, do not abort, on timeout: a native spawn_blocking call
+                // cannot be cancelled. Its task retains the mutation gate until
+                // it completes or the service process exits. New work is barred.
+                let mut recovery =
+                    tokio::spawn(async move { service.recover_for_shutdown().await });
+                match tokio::time::timeout(SHUTDOWN_RECOVERY_TIMEOUT, &mut recovery).await {
+                    Ok(Ok(Ok(()))) => info!("system shutdown restored Agent network state"),
+                    Ok(Ok(Err(error))) => {
+                        error!(%error, "shutdown recovery incomplete; retained recovery journal");
+                        return Err(error.into());
+                    }
+                    Ok(Err(_)) => {
+                        return Err(io::Error::other(
+                            "shutdown recovery worker failed; retained recovery journal",
+                        )
+                        .into());
+                    }
+                    Err(_) => {
+                        return Err(io::Error::new(
+                            io::ErrorKind::TimedOut,
+                            "shutdown recovery deadline expired; retained recovery journal",
+                        )
+                        .into());
+                    }
+                }
             }
             ServeExit::Idle => info!("Agent exited after the clean idle grace period"),
         }
         Ok(())
-    }
-
-    fn emergency_wfp_cleanup_best_effort(context: &'static str) {
-        match wfp::emergency_remove_kill_switch() {
-            Ok(()) => info!(context, "removed stable Usque WFP resources"),
-            Err(error) => error!(
-                context,
-                %error,
-                "emergency WFP cleanup failed while preserving Agent availability"
-            ),
-        }
     }
 
     fn run_service_dispatcher() -> io::Result<()> {
@@ -451,7 +484,7 @@ mod windows_main {
         if status_handle.is_null() {
             return Err(io::Error::last_os_error().into());
         }
-        let (shutdown_sender, mut shutdown_receiver) = watch::channel(false);
+        let (shutdown_sender, mut shutdown_receiver) = watch::channel(None);
         SERVICE_RUNTIME
             .set(Mutex::new(ServiceRuntimeState {
                 status_handle: status_handle as usize,
@@ -485,17 +518,20 @@ mod windows_main {
                 loop {
                     interval.tick().await;
                     checkpoint = checkpoint.saturating_add(1);
-                    if let Err(error) = advance_start_pending_checkpoint(checkpoint, 15_000) {
-                        error!(%error, "could not refresh the Agent service startup checkpoint");
+                    if let Err(error) = advance_pending_checkpoint(checkpoint, 15_000) {
+                        error!(%error, "could not refresh the Agent service pending checkpoint");
                     }
                 }
             });
             let result = run_agent(
                 arguments,
                 async move {
-                    while !*shutdown_receiver.borrow() {
+                    loop {
+                        if let Some(reason) = *shutdown_receiver.borrow() {
+                            return reason;
+                        }
                         if shutdown_receiver.changed().await.is_err() {
-                            break;
+                            return ShutdownReason::ServiceStop;
                         }
                     }
                 },
@@ -506,6 +542,9 @@ mod windows_main {
             let _ = heartbeat.await;
             result
         });
+        // In-flight native cleanup retains its write-ahead evidence. Do not
+        // let Runtime::drop wait indefinitely beyond the SCM shutdown budget.
+        runtime.shutdown_background();
         report_service_status(
             SERVICE_STOPPED,
             if result.is_ok() { 0 } else { ERROR_GEN_FAILURE },
@@ -522,13 +561,13 @@ mod windows_main {
         _context: *mut c_void,
     ) -> u32 {
         match control {
-            SERVICE_CONTROL_STOP | SERVICE_CONTROL_SHUTDOWN => {
-                let _ = report_service_status(SERVICE_STOP_PENDING, 0, 1, 15_000);
+            SERVICE_CONTROL_STOP | SERVICE_CONTROL_SHUTDOWN | SERVICE_CONTROL_PRESHUTDOWN => {
+                let _ = report_service_status(SERVICE_STOP_PENDING, 0, 1, PRESHUTDOWN_TIMEOUT_MS);
                 if let Some(runtime) = SERVICE_RUNTIME.get()
                     && let Ok(state) = runtime.lock()
                     && let Some(shutdown) = &state.shutdown
                 {
-                    let _ = shutdown.send(true);
+                    let _ = shutdown.send(Some(shutdown_reason(control)));
                 }
             }
             SERVICE_CONTROL_INTERROGATE => {
@@ -537,6 +576,15 @@ mod windows_main {
             _ => {}
         }
         0
+    }
+
+    fn shutdown_reason(control: u32) -> ShutdownReason {
+        match control {
+            SERVICE_CONTROL_PRESHUTDOWN | SERVICE_CONTROL_SHUTDOWN => {
+                ShutdownReason::SystemShutdown
+            }
+            _ => ShutdownReason::ServiceStop,
+        }
     }
 
     fn report_service_status(
@@ -553,7 +601,7 @@ mod windows_main {
             .map_err(|_| io::Error::other("service status lock was poisoned"))?;
         state.status.dwCurrentState = current_state;
         state.status.dwControlsAccepted = if current_state == SERVICE_RUNNING {
-            SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN
+            SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN | SERVICE_ACCEPT_PRESHUTDOWN
         } else {
             0
         };
@@ -563,18 +611,25 @@ mod windows_main {
         set_status(state.status_handle, &state.status)
     }
 
-    fn advance_start_pending_checkpoint(checkpoint: u32, wait_hint: u32) -> io::Result<()> {
+    fn advance_pending_checkpoint(checkpoint: u32, wait_hint: u32) -> io::Result<()> {
         let runtime = SERVICE_RUNTIME
             .get()
             .ok_or_else(|| io::Error::other("service runtime is unavailable"))?;
         let mut state = runtime
             .lock()
             .map_err(|_| io::Error::other("service status lock was poisoned"))?;
-        if state.status.dwCurrentState != SERVICE_START_PENDING {
+        if !matches!(
+            state.status.dwCurrentState,
+            SERVICE_START_PENDING | SERVICE_STOP_PENDING
+        ) {
             return Ok(());
         }
         state.status.dwCheckPoint = checkpoint;
-        state.status.dwWaitHint = wait_hint;
+        state.status.dwWaitHint = if state.status.dwCurrentState == SERVICE_STOP_PENDING {
+            PRESHUTDOWN_TIMEOUT_MS
+        } else {
+            wait_hint
+        };
         set_status(state.status_handle, &state.status)
     }
 
@@ -592,7 +647,8 @@ mod windows_main {
             return Err(io::Error::other("service left start-pending unexpectedly"));
         }
         state.status.dwCurrentState = SERVICE_RUNNING;
-        state.status.dwControlsAccepted = SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN;
+        state.status.dwControlsAccepted =
+            SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN | SERVICE_ACCEPT_PRESHUTDOWN;
         state.status.dwWin32ExitCode = 0;
         state.status.dwCheckPoint = 0;
         state.status.dwWaitHint = 0;
@@ -625,6 +681,23 @@ mod windows_main {
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        #[test]
+        fn system_shutdown_is_distinct_from_maintenance_service_stop() {
+            assert_eq!(
+                shutdown_reason(SERVICE_CONTROL_STOP),
+                ShutdownReason::ServiceStop
+            );
+            assert_eq!(
+                shutdown_reason(SERVICE_CONTROL_SHUTDOWN),
+                ShutdownReason::SystemShutdown
+            );
+            assert_eq!(
+                shutdown_reason(SERVICE_CONTROL_PRESHUTDOWN),
+                ShutdownReason::SystemShutdown
+            );
+            assert!(SHUTDOWN_RECOVERY_TIMEOUT.as_millis() < u128::from(PRESHUTDOWN_TIMEOUT_MS));
+        }
 
         #[test]
         fn recovery_required_tunnel_is_quarantined_without_automatic_retry() {

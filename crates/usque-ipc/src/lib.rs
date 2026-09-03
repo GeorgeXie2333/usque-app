@@ -342,6 +342,41 @@ mod tests {
     }
 
     #[test]
+    fn guarded_recovery_uses_append_only_field_twenty_six_and_capability_thirteen() {
+        let frame: &[u8] = &[
+            0, 0, 0, 14, 0x0a, 2, b'g', b'1', 0x10, 3, 0xd2, 0x01, 5, 0x0a, 1, b'o', 0x10, 7,
+        ];
+        let request: AgentRequest = decode_frame(Bytes::copy_from_slice(frame)).unwrap();
+        assert!(
+            matches!(request.payload.as_ref(), Some(agent_request::Payload::RecoverOrphaned(value))
+            if value.operation_id == "o" && value.expected_journal_generation == 7)
+        );
+        assert_eq!(encode_frame(&request).unwrap().as_ref(), frame);
+        assert_eq!(
+            AgentCapabilities {
+                guarded_recovery: true,
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0x68, 1]
+        );
+        assert!(
+            !AgentCapabilities::decode(&[0x48, 3][..])
+                .unwrap()
+                .guarded_recovery
+        );
+        let legacy = AgentRequest {
+            request_id: "r1".to_owned(),
+            protocol_version: 3,
+            payload: Some(agent_request::Payload::Recover(agent_v1::RecoverRequest {})),
+        };
+        assert_eq!(
+            legacy.encode_to_vec(),
+            [0x0a, 2, b'r', b'1', 0x10, 3, 0x92, 0x01, 0]
+        );
+    }
+
+    #[test]
     fn v1_control_request_wire_snapshot_is_stable() {
         let decoded: ControlRequest =
             decode_frame(Bytes::from_static(GET_STATUS_V1_FRAME)).expect("decode snapshot");

@@ -5,10 +5,7 @@ namespace usque {
 MaintenanceShutdownAction ClassifyMaintenanceShutdownMessage(
     UINT message,
     WPARAM wparam,
-    LPARAM lparam) noexcept {
-  if ((static_cast<ULONG_PTR>(lparam) & ENDSESSION_CLOSEAPP) == 0) {
-    return MaintenanceShutdownAction::kNone;
-  }
+    LPARAM /*lparam*/) noexcept {
   if (message == WM_QUERYENDSESSION) {
     return MaintenanceShutdownAction::kAllow;
   }

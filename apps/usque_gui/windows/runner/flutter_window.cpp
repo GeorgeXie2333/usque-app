@@ -727,8 +727,8 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
 
   switch (usque::ClassifyMaintenanceShutdownMessage(message, wparam, lparam)) {
     case usque::MaintenanceShutdownAction::kAllow:
-      // Restart Manager sends WM_ENDSESSION only after every affected GUI
-      // process accepts this query. Do not start cleanup during the query.
+      // Both Windows shutdown and Restart Manager confirm with WM_ENDSESSION.
+      // Do not start cleanup during the cancellable query.
       return TRUE;
     case usque::MaintenanceShutdownAction::kCommit:
       RequestDisconnectAndExit();

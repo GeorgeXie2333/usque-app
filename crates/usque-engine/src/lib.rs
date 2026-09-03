@@ -2838,6 +2838,8 @@ pub enum ControlServiceError {
     Transport(#[from] TransportError),
     #[error("the Windows platform VPN failed: {0}")]
     PlatformVpn(String),
+    #[error("{message}")]
+    PlatformRecovery { code: &'static str, message: String },
     #[error("Cloudflare terms must be accepted before identity provisioning")]
     TermsNotAccepted,
     #[error("the manually entered WARP Secret is not UTF-8")]
@@ -2936,6 +2938,7 @@ impl ControlServiceError {
             ) => ("PROXY_LISTENER_FAILED", false),
             Self::Transport(_) => ("DATA_PLANE_FAILED", true),
             Self::PlatformVpn(_) => ("PLATFORM_VPN_FAILED", true),
+            Self::PlatformRecovery { code, .. } => (*code, false),
             Self::TermsNotAccepted => ("TERMS_NOT_ACCEPTED", false),
             Self::InvalidManualSecretEncoding | Self::Identity(_) => ("INVALID_WARP_SECRET", false),
             Self::InvalidLicenseEncoding => ("INVALID_LICENSE_KEY", false),
@@ -2998,6 +3001,17 @@ impl ControlServiceError {
     }
 }
 
+fn connection_error_wire_code(code: ErrorCode) -> String {
+    match code {
+        ErrorCode::WindowsRecoveryFailed => "WINDOWS_RECOVERY_FAILED".to_owned(),
+        ErrorCode::WindowsRecoveryTimeout => "WINDOWS_RECOVERY_TIMEOUT".to_owned(),
+        ErrorCode::WindowsRecoveryConflict => "WINDOWS_RECOVERY_CONFLICT".to_owned(),
+        ErrorCode::WindowsRecoveryUnsupported => "WINDOWS_RECOVERY_UNSUPPORTED".to_owned(),
+        // Preserve the pre-existing wire spelling for every other error.
+        code => format!("{code:?}").to_ascii_uppercase(),
+    }
+}
+
 fn connection_error_for(error: &ControlServiceError) -> ConnectionError {
     let code = match error {
         ControlServiceError::MissingCredential(_) => ErrorCode::MissingCredential,
@@ -3014,6 +3028,12 @@ fn connection_error_for(error: &ControlServiceError) -> ConnectionError {
         ControlServiceError::Transport(TransportError::Http3DatagramUnavailable)
         | ControlServiceError::OperatingModeUnavailable(_) => ErrorCode::TransportUnavailable,
         ControlServiceError::PlatformVpn(_) => ErrorCode::PlatformSetupFailed,
+        ControlServiceError::PlatformRecovery { code, .. } => match *code {
+            "WINDOWS_RECOVERY_TIMEOUT" => ErrorCode::WindowsRecoveryTimeout,
+            "WINDOWS_RECOVERY_CONFLICT" => ErrorCode::WindowsRecoveryConflict,
+            "WINDOWS_RECOVERY_UNSUPPORTED" => ErrorCode::WindowsRecoveryUnsupported,
+            _ => ErrorCode::WindowsRecoveryFailed,
+        },
         ControlServiceError::InvalidStoredIdentity
         | ControlServiceError::Transport(
             TransportError::InvalidIdentity
@@ -3033,6 +3053,22 @@ fn connection_error_for(error: &ControlServiceError) -> ConnectionError {
 
 #[cfg(windows)]
 pub(crate) fn map_windows_vpn_error(error: windows_agent::WindowsVpnError) -> ControlServiceError {
+    let recovery_code = match &error {
+        windows_agent::WindowsVpnError::RecoveryFailed
+        | windows_agent::WindowsVpnError::RecoveryRequired { .. } => {
+            Some("WINDOWS_RECOVERY_FAILED")
+        }
+        windows_agent::WindowsVpnError::RecoveryTimeout => Some("WINDOWS_RECOVERY_TIMEOUT"),
+        windows_agent::WindowsVpnError::RecoveryConflict => Some("WINDOWS_RECOVERY_CONFLICT"),
+        windows_agent::WindowsVpnError::RecoveryUnsupported => Some("WINDOWS_RECOVERY_UNSUPPORTED"),
+        _ => None,
+    };
+    if let Some(code) = recovery_code {
+        return ControlServiceError::PlatformRecovery {
+            code,
+            message: error.to_string(),
+        };
+    }
     match error {
         windows_agent::WindowsVpnError::Transport(error) => ControlServiceError::Transport(error),
         windows_agent::WindowsVpnError::Remote { code, .. }
@@ -3597,7 +3633,7 @@ pub(crate) fn snapshot_to_proto(snapshot: &ConnectionSnapshot) -> v1::Connection
         }),
         exit: snapshot.exit.as_ref().map(exit_to_proto),
         error: snapshot.error.as_ref().map(|error| StructuredError {
-            code: format!("{:?}", error.code).to_ascii_uppercase(),
+            code: connection_error_wire_code(error.code),
             message: error.message.clone(),
             retryable: error.retryable,
         }),
@@ -3684,7 +3720,7 @@ fn frontend_status_to_proto(status: &FrontendStatus) -> v1::FrontendStatus {
         },
         listeners: status.listeners.clone(),
         error: status.error.as_ref().map(|error| StructuredError {
-            code: format!("{:?}", error.code).to_ascii_uppercase(),
+            code: connection_error_wire_code(error.code),
             message: error.message.clone(),
             retryable: error.retryable,
         }),

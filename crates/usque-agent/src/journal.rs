@@ -542,11 +542,17 @@ fn valid_adapter_name(value: &str) -> bool {
 #[derive(Debug, Clone)]
 pub struct JournalStore {
     path: PathBuf,
+    #[cfg(test)]
+    fail_clean_save: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl JournalStore {
     pub fn new(path: impl Into<PathBuf>) -> Self {
-        Self { path: path.into() }
+        Self {
+            path: path.into(),
+            #[cfg(test)]
+            fail_clean_save: std::sync::Arc::default(),
+        }
     }
 
     pub fn path(&self) -> &Path {
@@ -579,6 +585,14 @@ impl JournalStore {
             .checked_add(1)
             .ok_or(JournalError::GenerationOverflow)?;
         journal.validate()?;
+        #[cfg(test)]
+        if journal.phase == RecoveryPhase::Clean
+            && self
+                .fail_clean_save
+                .swap(false, std::sync::atomic::Ordering::AcqRel)
+        {
+            return Err(io::Error::other("injected final journal save failure").into());
+        }
         let parent = self
             .path
             .parent()
@@ -595,6 +609,12 @@ impl JournalStore {
         replace_file(temporary.path(), &self.path)?;
         let _ = temporary.keep();
         Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_next_clean_save(&self) {
+        self.fail_clean_save
+            .store(true, std::sync::atomic::Ordering::Release);
     }
 
     /// Removes the durable recovery journal only after it proves that no

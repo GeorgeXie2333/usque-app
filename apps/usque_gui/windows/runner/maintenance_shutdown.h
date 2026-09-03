@@ -11,9 +11,8 @@ enum class MaintenanceShutdownAction {
   kCommit,
 };
 
-// Classifies the Restart Manager messages used when Windows Installer needs
-// Usque to release installed files. Ordinary sign-out and system-shutdown
-// messages remain on the default Win32 path.
+// Classifies confirmed session endings, including Restart Manager maintenance,
+// ordinary shutdown/restart and sign-out. Query/cancellation must not disconnect.
 MaintenanceShutdownAction ClassifyMaintenanceShutdownMessage(
     UINT message,
     WPARAM wparam,

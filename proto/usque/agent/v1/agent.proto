@@ -44,6 +44,9 @@ message AgentCapabilities {
   bool physical_dns_snapshot = 11;
   // Exact generation checks and generation-scoped liveness lease keys.
   bool exact_generation_egress = 12;
+  // Compare-and-recover for an orphaned failed transaction. Never substitute
+  // the unguarded maintenance Recover request when this capability is absent.
+  bool guarded_recovery = 13;
 }
 
 message TunnelPlan {
@@ -71,6 +74,11 @@ message TunnelPlan {
 message GetCapabilitiesRequest {}
 message GetStateRequest {}
 message RecoverRequest {}
+
+message RecoverOrphanedRequest {
+  string operation_id = 1;
+  uint64 expected_journal_generation = 2;
+}
 
 message PrepareTunnelRequest {
   string operation_id = 1;
@@ -226,6 +234,7 @@ message AgentRequest {
     GetPhysicalNetworkInfoRequest get_physical_network_info = 23;
     AcquireDirectEgressRequest acquire_direct_egress = 24;
     InspectPlatformStateRequest inspect_platform_state = 25;
+    RecoverOrphanedRequest recover_orphaned = 26;
   }
 }
 

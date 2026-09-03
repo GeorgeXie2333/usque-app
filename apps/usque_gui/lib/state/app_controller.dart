@@ -69,6 +69,9 @@ class AppController extends ChangeNotifier {
   EngineSnapshot get snapshot => _snapshot;
   set snapshot(EngineSnapshot value) {
     _snapshot = value;
+    if (value.phase == ConnectionPhase.error) {
+      lastError = strings.windowsRecoveryError(value.errorCode) ?? lastError;
+    }
     quality.updateConnection(value);
   }
 
@@ -884,11 +887,14 @@ class AppController extends ChangeNotifier {
       await operation();
       return true;
     } catch (error) {
-      lastError = error is EngineException ? error.message : error.toString();
+      lastError = error is EngineException
+          ? strings.windowsRecoveryError(error.code) ?? error.message
+          : error.toString();
       if (affectsConnection && snapshot.phase != ConnectionPhase.disconnected) {
         snapshot = EngineSnapshot(
           phase: ConnectionPhase.error,
           warning: lastError,
+          errorCode: error is EngineException ? error.code : null,
         );
       }
       return false;
@@ -1328,10 +1334,11 @@ class AppController extends ChangeNotifier {
     final nextError =
         next.phase == ConnectionPhase.error &&
             (next.warning?.trim().isNotEmpty ?? false)
-        ? <String?>[
-            next.errorCode?.trim(),
-            next.warning?.trim(),
-          ].whereType<String>().where((part) => part.isNotEmpty).join(': ')
+        ? strings.windowsRecoveryError(next.errorCode) ??
+              <String?>[
+                next.errorCode?.trim(),
+                next.warning?.trim(),
+              ].whereType<String>().where((part) => part.isNotEmpty).join(': ')
         : null;
     final errorChanged = nextError != null && nextError != lastError;
     final snapshotChanged = next != snapshot;

@@ -54,6 +54,12 @@ pub struct StepOutput {
     pub packet_session: Option<PacketSessionHandles>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TunnelInspection {
+    Reattachable,
+    NeedsRecovery,
+}
+
 #[async_trait]
 pub trait PrivilegedBackend: Send + Sync {
     /// Performs read-only discovery and creates deterministic resource
@@ -80,6 +86,20 @@ pub trait PrivilegedBackend: Send + Sync {
     /// It must be safe for an `Intended` record whose mutation may or may not
     /// have reached Windows before a crash.
     async fn restore_step(&self, receipt: &MutationReceipt) -> Result<(), BackendError>;
+
+    /// Read-only identity check. Missing is safe to recover; an inaccessible
+    /// or reused name/GUID/LUID must return an error, never "missing".
+    async fn inspect_adapter(&self, _receipt: &MutationReceipt) -> Result<bool, BackendError> {
+        Err(BackendError::Unavailable("adapter inspection".to_owned()))
+    }
+
+    /// Read-only verification of the durable resources needed for reattachment.
+    async fn inspect_tunnel(
+        &self,
+        _journal: &RecoveryJournal,
+    ) -> Result<TunnelInspection, BackendError> {
+        Err(BackendError::Unavailable("tunnel inspection".to_owned()))
+    }
 
     /// Recreates only volatile packet-session resources after an Agent or
     /// Engine restart. The adapter receipt must identify the exact already
@@ -161,7 +181,12 @@ where
         let reconciled = (0..journal.steps.len())
             .filter(|index| dependency_satisfied_by_restored_wintun(&journal, *index))
             .collect::<Vec<_>>();
-        if reconciled.is_empty() {
+        if reconciled.is_empty()
+            && !journal
+                .steps
+                .iter()
+                .all(|step| step.state == MutationState::Restored)
+        {
             return Ok(false);
         }
         for index in reconciled {
@@ -196,6 +221,66 @@ where
             return Ok(());
         }
         self.recover_locked(&mut journal).await
+    }
+
+    /// A new service process must not confuse a journaled Active transaction
+    /// with a surviving adapter/network configuration after a Windows reboot.
+    pub async fn inspect_startup_tunnel(&self) -> Result<TunnelInspection, CoordinatorError> {
+        let mut journal = self.journal.lock().await;
+        if journal.phase != RecoveryPhase::Active
+            || journal.operation_kind != Some(OperationKind::Tunnel)
+            || self.packet_session_attached()
+            || self.tunnel_lease_attached()
+        {
+            return Err(CoordinatorError::RecoveryBusy);
+        }
+        match self.backend.inspect_tunnel(&journal).await {
+            Ok(inspection) => Ok(inspection),
+            Err(error) => {
+                // Keep all receipts. Inspection errors must not trigger OS
+                // cleanup or allow a speculative resume of unknown resources.
+                journal.phase = RecoveryPhase::RecoveryRequired;
+                self.store.save(&mut journal)?;
+                Err(error.into())
+            }
+        }
+    }
+
+    /// One authenticated, generation-scoped retry. Unlike maintenance recovery,
+    /// this can never tear down an active or newly replaced transaction.
+    pub async fn recover_orphaned(
+        &self,
+        operation_id: Uuid,
+        expected_generation: u64,
+        caller: &AuthenticatedCaller,
+        before_recovery: impl std::future::Future<Output = ()> + Send,
+    ) -> Result<RecoveryJournal, CoordinatorError> {
+        validate_caller(caller)?;
+        let mut journal = self.journal.lock().await;
+        if journal.operation_id != Some(operation_id) || journal.generation != expected_generation {
+            return Err(CoordinatorError::RecoveryConflict);
+        }
+        if journal.owner_sid.as_deref() != Some(caller.user_sid.as_str()) {
+            return Err(CoordinatorError::OwnerMismatch);
+        }
+        if !matches!(
+            journal.phase,
+            RecoveryPhase::RecoveryRequired | RecoveryPhase::Paused
+        ) || self.packet_session_attached()
+            || self.tunnel_lease_attached()
+        {
+            return Err(CoordinatorError::RecoveryBusy);
+        }
+        for step in &journal.steps {
+            if step.kind == MutationKind::WintunAdapter && step.state != MutationState::Restored {
+                self.backend.inspect_adapter(&step.receipt).await?;
+            }
+        }
+        // The service revokes volatile direct-egress permits here, only after
+        // every guard passed and while this exact journal remains locked.
+        before_recovery.await;
+        self.recover_locked(&mut journal).await?;
+        Ok(journal.clone())
     }
 
     pub async fn prepare(
@@ -962,45 +1047,57 @@ where
         // Persistence failure must never prevent the actual cleanup. A final
         // clean save supersedes this transitional write when recovery succeeds.
         let recovering_save_error = self.store.save(journal).err();
-        if let Err(error) = self.restore_steps_locked(journal).await {
+        let mut failures = self.restore_steps_locked(journal).await;
+        if !failures.is_empty() {
             journal.phase = RecoveryPhase::RecoveryRequired;
             let required_save_error = self.store.save(journal).err();
-            let mut failures = vec![error.to_string()];
             if let Some(save_error) = recovering_save_error {
-                failures.push(format!("persist recovering phase: {save_error}"));
+                failures.push(RecoveryFailure::Persist(None, save_error));
             }
             if let Some(save_error) = required_save_error {
-                failures.push(format!("persist recovery-required phase: {save_error}"));
+                failures.push(RecoveryFailure::Persist(None, save_error));
             }
-            return Err(CoordinatorError::RecoveryFailures(failures.join("; ")));
+            return Err(recovery_error(&failures));
         }
-        let generation = journal.generation;
-        *journal = RecoveryJournal::clean(generation);
-        self.store.save(journal)?;
+        // Publish Clean only after durable replacement succeeds. In particular,
+        // a failed final write must not admit Prepare against an in-memory Clean
+        // while the next process will still load an unfinished transaction.
+        let mut clean = RecoveryJournal::clean(journal.generation);
+        if let Err(error) = self.store.save(&mut clean) {
+            journal.generation = clean.generation;
+            journal.phase = RecoveryPhase::RecoveryRequired;
+            failures.push(RecoveryFailure::Persist(None, error));
+            if let Err(error) = self.store.save(journal) {
+                failures.push(RecoveryFailure::Persist(None, error));
+            }
+            return Err(recovery_error(&failures));
+        }
+        *journal = clean;
         Ok(())
     }
 
-    async fn restore_steps_locked(
-        &self,
-        journal: &mut RecoveryJournal,
-    ) -> Result<(), CoordinatorError> {
-        // The Kill Switch is safety-critical in both directions: while an
-        // active tunnel is running it prevents leaks, but once recovery has
-        // started it must not be left behind merely because an unrelated
-        // address, route, DNS, or adapter cleanup failed. Remove it first,
-        // then best-effort every remaining step in normal reverse order.
-        let mut order = journal
-            .steps
-            .iter()
-            .enumerate()
-            .filter_map(|(index, step)| {
-                (step.kind == MutationKind::KillSwitch && step.state != MutationState::Restored)
-                    .then_some(index)
-            })
-            .collect::<Vec<_>>();
+    async fn restore_steps_locked(&self, journal: &mut RecoveryJournal) -> Vec<RecoveryFailure> {
+        // Quiesce forwarding before changing protection. Once packets are
+        // stopped, remove the Kill Switch before best-effort reverse cleanup
+        // so an unrelated DNS/route failure cannot strand basic connectivity.
+        let mut order = Vec::new();
+        for kind in [MutationKind::PacketSession, MutationKind::KillSwitch] {
+            order.extend(
+                journal
+                    .steps
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, step)| {
+                        (step.kind == kind && step.state != MutationState::Restored)
+                            .then_some(index)
+                    }),
+            );
+        }
         order.extend((0..journal.steps.len()).rev().filter(|index| {
-            journal.steps[*index].kind != MutationKind::KillSwitch
-                && journal.steps[*index].state != MutationState::Restored
+            !matches!(
+                journal.steps[*index].kind,
+                MutationKind::PacketSession | MutationKind::KillSwitch
+            ) && journal.steps[*index].state != MutationState::Restored
         }));
 
         let mut failures = Vec::new();
@@ -1012,7 +1109,7 @@ where
             if dependency_satisfied_by_restored_wintun(journal, index) {
                 journal.steps[index].state = MutationState::Restored;
                 if let Err(error) = self.store.save(journal) {
-                    failures.push(format!("persist {kind:?} recovery: {error}"));
+                    failures.push(RecoveryFailure::Persist(Some(kind), error));
                 }
                 continue;
             }
@@ -1027,18 +1124,58 @@ where
                         self.packet_session_attached.store(false, Ordering::Release);
                     }
                     if let Err(error) = self.store.save(journal) {
-                        failures.push(format!("persist {kind:?} recovery: {error}"));
+                        failures.push(RecoveryFailure::Persist(Some(kind), error));
                     }
                 }
-                Err(error) => failures.push(format!("restore {kind:?}: {error}")),
+                Err(error) => {
+                    failures.push(RecoveryFailure::Restore(kind, error));
+                    if kind == MutationKind::PacketSession {
+                        // A live or indeterminate packet pump must retain WFP.
+                        return failures;
+                    }
+                }
             }
         }
-        if failures.is_empty() {
-            Ok(())
-        } else {
-            Err(CoordinatorError::RecoveryFailures(failures.join("; ")))
+        // Adapter removal occurs late in reverse cleanup. Reconcile again in
+        // THIS pass, then discard only the now-superseded OS-step errors. Never
+        // discard a persistence failure, a route, a proxy, or WFP failure.
+        for index in 0..journal.steps.len() {
+            if dependency_satisfied_by_restored_wintun(journal, index) {
+                let kind = journal.steps[index].kind;
+                journal.steps[index].state = MutationState::Restored;
+                failures.retain(|failure| !matches!(failure, RecoveryFailure::Restore(failed, _) if *failed == kind));
+                if let Err(error) = self.store.save(journal) {
+                    failures.push(RecoveryFailure::Persist(Some(kind), error));
+                }
+            }
         }
+        failures
     }
+}
+
+#[derive(Debug)]
+enum RecoveryFailure {
+    Restore(MutationKind, BackendError),
+    Persist(Option<MutationKind>, JournalError),
+}
+
+fn recovery_error(failures: &[RecoveryFailure]) -> CoordinatorError {
+    let summaries = failures
+        .iter()
+        .map(|failure| match failure {
+            RecoveryFailure::Restore(kind, BackendError::Windows { api, code }) => {
+                format!("restore {kind:?}: {api} (Win32 {code})")
+            }
+            RecoveryFailure::Restore(kind, _) => format!("restore {kind:?}: backend failure"),
+            RecoveryFailure::Persist(kind, JournalError::Io(error)) => {
+                format!("persist {kind:?}: I/O failure ({:?})", error.raw_os_error())
+            }
+            RecoveryFailure::Persist(kind, _) => format!("persist {kind:?}: journal failure"),
+        })
+        .collect::<Vec<_>>();
+    // Only allowlisted step/API names and numeric errors reach logs or IPC.
+    // Raw backend errors can contain addresses, registry values or user paths.
+    CoordinatorError::RecoveryFailures(summaries.join("; "))
 }
 
 fn dependency_satisfied_by_restored_wintun(
@@ -1128,6 +1265,10 @@ fn validate_caller(caller: &AuthenticatedCaller) -> Result<(), CoordinatorError>
 
 #[derive(Debug, Error)]
 pub enum BackendError {
+    #[error("privileged Windows operation {api} failed (Win32 {code})")]
+    Windows { api: &'static str, code: u32 },
+    #[error("the journaled adapter identity could not be verified")]
+    AdapterIdentity,
     #[error("privileged backend operation failed: {0}")]
     Operation(String),
     #[error("privileged backend operation failed: {message}")]
@@ -1155,6 +1296,10 @@ pub enum CoordinatorError {
     InvalidCaller,
     #[error("agent is not clean; recovery is required from phase {0:?}")]
     RecoveryRequired(RecoveryPhase),
+    #[error("the recovery operation or journal generation changed; inspect state again")]
+    RecoveryConflict,
+    #[error("the transaction is active or is not eligible for orphaned recovery")]
+    RecoveryBusy,
     #[error("agent operation ID does not match the active transaction")]
     OperationMismatch,
     #[error("agent operation kind mismatch: expected {expected:?}, got {actual:?}")]
@@ -1198,7 +1343,7 @@ pub enum CoordinatorError {
     },
     #[error("apply failed ({apply}) and recovery also failed ({recovery})")]
     ApplyAndRecovery { apply: String, recovery: String },
-    #[error("one or more recovery operations failed after all cleanup steps were attempted: {0}")]
+    #[error("platform recovery is incomplete: {0}")]
     RecoveryFailures(String),
 }
 
@@ -1225,6 +1370,12 @@ mod tests {
         fail_restore: Mutex<HashSet<MutationKind>>,
         unown_first_created_on_apply: Mutex<HashSet<MutationKind>>,
         deleted_owned_routes: Mutex<Vec<String>>,
+        adapter_guid: Mutex<Option<Uuid>>,
+        inspection: Mutex<Option<TunnelInspection>>,
+        inspection_fails: AtomicBool,
+        block_restore: AtomicBool,
+        restore_entered: tokio::sync::Notify,
+        restore_release: tokio::sync::Notify,
     }
 
     #[async_trait]
@@ -1237,11 +1388,18 @@ mod tests {
             parameter: StepParameter,
         ) -> Result<MutationReceipt, BackendError> {
             Ok(match kind {
-                MutationKind::WintunAdapter => MutationReceipt::WintunAdapter {
-                    adapter_name: format!("Usque-{}", &plan.profile_id.simple().to_string()[..12]),
-                    adapter_guid: Uuid::new_v4(),
-                    interface_luid: 7,
-                },
+                MutationKind::WintunAdapter => {
+                    let adapter_guid = Uuid::new_v4();
+                    *self.adapter_guid.lock().await = Some(adapter_guid);
+                    MutationReceipt::WintunAdapter {
+                        adapter_name: format!(
+                            "Usque-{}",
+                            &plan.profile_id.simple().to_string()[..12]
+                        ),
+                        adapter_guid,
+                        interface_luid: 7,
+                    }
+                }
                 MutationKind::EndpointBypass => MutationReceipt::EndpointBypass {
                     created: plan
                         .endpoint_candidates
@@ -1277,7 +1435,11 @@ mod tests {
                         .collect(),
                 },
                 MutationKind::Dns => MutationReceipt::Dns {
-                    interface_guid: Uuid::new_v4(),
+                    interface_guid: self
+                        .adapter_guid
+                        .lock()
+                        .await
+                        .expect("adapter planned first"),
                     previous_automatic: true,
                     previous_servers: Vec::new(),
                 },
@@ -1369,6 +1531,10 @@ mod tests {
         async fn restore_step(&self, receipt: &MutationReceipt) -> Result<(), BackendError> {
             let kind = receipt.kind();
             self.restored.lock().await.push(kind);
+            if self.block_restore.swap(false, Ordering::AcqRel) {
+                self.restore_entered.notify_one();
+                self.restore_release.notified().await;
+            }
             match receipt {
                 MutationReceipt::EndpointBypass { created }
                 | MutationReceipt::DefaultRoutes { created, .. } => {
@@ -1387,6 +1553,29 @@ mod tests {
                 )));
             }
             Ok(())
+        }
+
+        async fn inspect_adapter(&self, _receipt: &MutationReceipt) -> Result<bool, BackendError> {
+            if self.inspection_fails.load(Ordering::Acquire) {
+                Err(BackendError::AdapterIdentity)
+            } else {
+                Ok(*self.inspection.lock().await != Some(TunnelInspection::NeedsRecovery))
+            }
+        }
+
+        async fn inspect_tunnel(
+            &self,
+            _journal: &RecoveryJournal,
+        ) -> Result<TunnelInspection, BackendError> {
+            if self.inspection_fails.load(Ordering::Acquire) {
+                Err(BackendError::AdapterIdentity)
+            } else {
+                Ok(self
+                    .inspection
+                    .lock()
+                    .await
+                    .unwrap_or(TunnelInspection::Reattachable))
+            }
         }
 
         async fn resume_packet_session(
@@ -1537,6 +1726,408 @@ mod tests {
         (directory, coordinator)
     }
 
+    async fn legacy_recovery_fixture(
+        coordinator: &AgentCoordinator<MockBackend>,
+        pending: &[MutationKind],
+    ) {
+        let mut journal = coordinator.journal.lock().await;
+        journal.phase = RecoveryPhase::RecoveryRequired;
+        for step in &mut journal.steps {
+            step.state = if pending.contains(&step.kind) {
+                MutationState::Applied
+            } else {
+                MutationState::Restored
+            };
+        }
+        coordinator
+            .store
+            .save(&mut journal)
+            .expect("legacy recovery fixture");
+    }
+
+    #[tokio::test]
+    async fn final_clean_save_failure_keeps_memory_and_disk_blocked_until_retry() {
+        let backend = Arc::new(MockBackend::default());
+        let (_directory, coordinator) = coordinator(backend);
+        let operation = Uuid::new_v4();
+        let owner = caller();
+        coordinator
+            .prepare(operation, plan(), owner.clone())
+            .await
+            .unwrap();
+        coordinator.store.fail_next_clean_save();
+        assert!(matches!(
+            coordinator.rollback(operation, &owner).await,
+            Err(CoordinatorError::RecoveryFailures(_))
+        ));
+        let state = coordinator.state().await;
+        assert_eq!(state.phase, RecoveryPhase::RecoveryRequired);
+        assert_eq!(
+            coordinator.store.load_or_clean().unwrap().phase,
+            RecoveryPhase::RecoveryRequired
+        );
+        assert!(
+            state
+                .steps
+                .iter()
+                .all(|step| step.state == MutationState::Restored)
+        );
+        assert!(matches!(
+            coordinator
+                .prepare(Uuid::new_v4(), plan(), owner.clone())
+                .await,
+            Err(CoordinatorError::RecoveryRequired(_))
+        ));
+        let replacement = AuthenticatedCaller {
+            process_id: owner.process_id + 1,
+            ..owner
+        };
+        coordinator
+            .recover_orphaned(
+                operation,
+                state.generation,
+                &replacement,
+                std::future::ready(()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            coordinator.store.load_or_clean().unwrap().phase,
+            RecoveryPhase::Clean
+        );
+    }
+
+    #[tokio::test]
+    async fn all_restored_legacy_journal_is_finalized_without_backend_calls() {
+        let backend = Arc::new(MockBackend::default());
+        let (_directory, coordinator) = coordinator(Arc::clone(&backend));
+        coordinator
+            .prepare(Uuid::new_v4(), plan(), caller())
+            .await
+            .unwrap();
+        legacy_recovery_fixture(&coordinator, &[]).await;
+        assert!(
+            coordinator
+                .reconcile_removed_adapter_dependencies()
+                .await
+                .unwrap()
+        );
+        assert_eq!(coordinator.state().await.phase, RecoveryPhase::Clean);
+        assert!(backend.restored.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn guarded_recovery_rejects_stale_operations_users_and_live_sessions_before_cleanup() {
+        let backend = Arc::new(MockBackend::default());
+        let (_directory, coordinator) = coordinator(Arc::clone(&backend));
+        let operation = Uuid::new_v4();
+        let owner = caller();
+        coordinator
+            .prepare(operation, plan(), owner.clone())
+            .await
+            .unwrap();
+        legacy_recovery_fixture(
+            &coordinator,
+            &[MutationKind::WintunAdapter, MutationKind::Dns],
+        )
+        .await;
+        let generation = coordinator.state().await.generation;
+        let revoked = AtomicBool::new(false);
+        let before = || async {
+            revoked.store(true, Ordering::Release);
+        };
+        assert!(matches!(
+            coordinator
+                .recover_orphaned(Uuid::new_v4(), generation, &owner, before())
+                .await,
+            Err(CoordinatorError::RecoveryConflict)
+        ));
+        assert!(matches!(
+            coordinator
+                .recover_orphaned(operation, generation + 1, &owner, before())
+                .await,
+            Err(CoordinatorError::RecoveryConflict)
+        ));
+        let other = AuthenticatedCaller {
+            user_sid: "S-1-5-21-2000".to_owned(),
+            ..owner.clone()
+        };
+        assert!(matches!(
+            coordinator
+                .recover_orphaned(operation, generation, &other, before())
+                .await,
+            Err(CoordinatorError::OwnerMismatch)
+        ));
+        coordinator
+            .packet_session_attached
+            .store(true, Ordering::Release);
+        assert!(matches!(
+            coordinator
+                .recover_orphaned(operation, generation, &owner, before())
+                .await,
+            Err(CoordinatorError::RecoveryBusy)
+        ));
+        coordinator
+            .packet_session_attached
+            .store(false, Ordering::Release);
+        coordinator
+            .tunnel_lease_attached
+            .store(true, Ordering::Release);
+        assert!(matches!(
+            coordinator
+                .recover_orphaned(operation, generation, &owner, before())
+                .await,
+            Err(CoordinatorError::RecoveryBusy)
+        ));
+        coordinator
+            .tunnel_lease_attached
+            .store(false, Ordering::Release);
+        backend.inspection_fails.store(true, Ordering::Release);
+        assert!(matches!(
+            coordinator
+                .recover_orphaned(operation, generation, &owner, before())
+                .await,
+            Err(CoordinatorError::Backend(BackendError::AdapterIdentity))
+        ));
+        assert!(!revoked.load(Ordering::Acquire));
+        assert!(backend.restored.lock().await.is_empty());
+        assert_eq!(coordinator.state().await.generation, generation);
+    }
+
+    #[tokio::test]
+    async fn guarded_recovery_never_tears_down_a_prepared_or_active_transaction() {
+        let backend = Arc::new(MockBackend::default());
+        let (_directory, coordinator) = coordinator(Arc::clone(&backend));
+        let owner = caller();
+        let operation = Uuid::new_v4();
+        coordinator
+            .prepare(operation, plan(), owner.clone())
+            .await
+            .unwrap();
+        for active in [false, true] {
+            if active {
+                coordinator
+                    .open_packet_session(operation, 1024 * 1024, &owner)
+                    .await
+                    .unwrap();
+                coordinator.commit(operation, &owner).await.unwrap();
+            }
+            let state = coordinator.state().await;
+            assert!(matches!(
+                coordinator
+                    .recover_orphaned(operation, state.generation, &owner, std::future::ready(()))
+                    .await,
+                Err(CoordinatorError::RecoveryBusy)
+            ));
+            assert_eq!(coordinator.state().await, state);
+        }
+        assert!(backend.restored.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn recovery_task_survives_caller_timeout_and_serializes_competing_retry() {
+        let backend = Arc::new(MockBackend::default());
+        let (_directory, coordinator) = coordinator(Arc::clone(&backend));
+        let coordinator = Arc::new(coordinator);
+        let owner = caller();
+        let operation = Uuid::new_v4();
+        coordinator
+            .prepare(operation, plan(), owner.clone())
+            .await
+            .unwrap();
+        legacy_recovery_fixture(
+            &coordinator,
+            &[MutationKind::WintunAdapter, MutationKind::Dns],
+        )
+        .await;
+        let generation = coordinator.state().await.generation;
+        backend.block_restore.store(true, Ordering::Release);
+        let worker = Arc::clone(&coordinator);
+        let first_owner = owner.clone();
+        let first = tokio::spawn(async move {
+            worker
+                .recover_orphaned(operation, generation, &first_owner, std::future::ready(()))
+                .await
+        });
+        backend.restore_entered.notified().await;
+        // Dropping a request's wait handle must not cancel the service-owned job.
+        drop(first);
+        assert!(coordinator.journal.try_lock().is_err());
+        let worker = Arc::clone(&coordinator);
+        let second = tokio::spawn(async move {
+            worker
+                .recover_orphaned(operation, generation, &owner, std::future::ready(()))
+                .await
+        });
+        backend.restore_release.notify_one();
+        assert!(matches!(
+            second.await.unwrap(),
+            Err(CoordinatorError::RecoveryConflict)
+        ));
+        assert_eq!(coordinator.state().await.phase, RecoveryPhase::Clean);
+    }
+
+    #[tokio::test]
+    async fn startup_inspection_preserves_reattachment_but_quarantines_unknown_resources() {
+        let backend = Arc::new(MockBackend::default());
+        let (_directory, original) = coordinator(Arc::clone(&backend));
+        let owner = caller();
+        let operation = Uuid::new_v4();
+        original
+            .prepare(operation, plan(), owner.clone())
+            .await
+            .unwrap();
+        original
+            .open_packet_session(operation, 1024 * 1024, &owner)
+            .await
+            .unwrap();
+        original.commit(operation, &owner).await.unwrap();
+        let restarted =
+            AgentCoordinator::open(original.store.clone(), Arc::clone(&backend)).unwrap();
+        assert_eq!(
+            restarted.inspect_startup_tunnel().await.unwrap(),
+            TunnelInspection::Reattachable
+        );
+        *backend.inspection.lock().await = Some(TunnelInspection::NeedsRecovery);
+        assert_eq!(
+            restarted.inspect_startup_tunnel().await.unwrap(),
+            TunnelInspection::NeedsRecovery
+        );
+        assert!(backend.restored.lock().await.is_empty());
+        backend.inspection_fails.store(true, Ordering::Release);
+        assert!(restarted.inspect_startup_tunnel().await.is_err());
+        assert_eq!(
+            restarted.store.load_or_clean().unwrap().phase,
+            RecoveryPhase::RecoveryRequired
+        );
+        assert!(backend.restored.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn packet_quiescence_failure_does_not_release_protection() {
+        let backend = Arc::new(MockBackend::default());
+        let (_directory, coordinator) = coordinator(Arc::clone(&backend));
+        let owner = caller();
+        let operation = Uuid::new_v4();
+        coordinator
+            .prepare(operation, plan(), owner.clone())
+            .await
+            .unwrap();
+        coordinator
+            .open_packet_session(operation, 1024 * 1024, &owner)
+            .await
+            .unwrap();
+        coordinator.commit(operation, &owner).await.unwrap();
+        backend
+            .fail_restore
+            .lock()
+            .await
+            .insert(MutationKind::PacketSession);
+        assert!(coordinator.recover_stale().await.is_err());
+        assert_eq!(
+            *backend.restored.lock().await,
+            [MutationKind::PacketSession]
+        );
+        assert_eq!(
+            coordinator.state().await.phase,
+            RecoveryPhase::RecoveryRequired
+        );
+    }
+
+    #[test]
+    fn recovery_diagnostics_exclude_raw_backend_and_journal_values() {
+        let failure = recovery_error(&[
+            RecoveryFailure::Restore(
+                MutationKind::Dns,
+                BackendError::Operation("secret=token 192.0.2.9 S-1-5-21-1000".to_owned()),
+            ),
+            RecoveryFailure::Restore(
+                MutationKind::InterfaceConfiguration,
+                BackendError::Windows {
+                    api: "GetIpInterfaceEntry",
+                    code: 5,
+                },
+            ),
+        ])
+        .to_string();
+        assert!(failure.contains("Win32 5") && failure.contains("Dns"));
+        assert!(
+            !failure.contains("token")
+                && !failure.contains("192.0.2.9")
+                && !failure.contains("S-1-")
+        );
+    }
+
+    #[tokio::test]
+    async fn adapter_removal_never_supersedes_wfp_proxy_or_physical_route_failures() {
+        for kind in [
+            MutationKind::KillSwitch,
+            MutationKind::SystemProxy,
+            MutationKind::EndpointBypass,
+            MutationKind::DefaultRoutes,
+        ] {
+            let backend = Arc::new(MockBackend::default());
+            let (_directory, coordinator) = coordinator(Arc::clone(&backend));
+            let owner = caller();
+            let operation = Uuid::new_v4();
+            coordinator
+                .prepare(operation, plan(), owner.clone())
+                .await
+                .unwrap();
+            coordinator
+                .open_packet_session(operation, 1024 * 1024, &owner)
+                .await
+                .unwrap();
+            coordinator.commit(operation, &owner).await.unwrap();
+            coordinator
+                .apply_system_proxy(
+                    operation,
+                    SystemProxySettings {
+                        proxy_uri: "http://127.0.0.1:8080".to_owned(),
+                        bypass_hosts: vec!["<local>".to_owned()],
+                    },
+                    owner.clone(),
+                )
+                .await
+                .unwrap();
+            backend.fail_restore.lock().await.extend([
+                kind,
+                MutationKind::Dns,
+                MutationKind::InterfaceConfiguration,
+            ]);
+            assert!(
+                coordinator.rollback(operation, &owner).await.is_err(),
+                "{kind:?}"
+            );
+            let state = coordinator.state().await;
+            assert_eq!(state.phase, RecoveryPhase::RecoveryRequired);
+            assert_eq!(
+                state
+                    .steps
+                    .iter()
+                    .find(|step| step.kind == kind)
+                    .unwrap()
+                    .state,
+                MutationState::Applied
+            );
+            for completed in [
+                MutationKind::WintunAdapter,
+                MutationKind::Dns,
+                MutationKind::InterfaceConfiguration,
+            ] {
+                assert_eq!(
+                    state
+                        .steps
+                        .iter()
+                        .find(|step| step.kind == completed)
+                        .unwrap()
+                        .state,
+                    MutationState::Restored
+                );
+            }
+        }
+    }
+
     #[tokio::test]
     async fn two_phase_commit_removes_kill_switch_before_reverse_cleanup() {
         let backend = Arc::new(MockBackend::default());
@@ -1574,13 +2165,16 @@ mod tests {
             .expect("rollback");
         let restored = backend.restored.lock().await.clone();
         let applied = backend.applied.lock().await.clone();
-        assert_eq!(restored.first(), Some(&MutationKind::KillSwitch));
+        assert_eq!(
+            &restored[..2],
+            &[MutationKind::PacketSession, MutationKind::KillSwitch]
+        );
         let expected_tail = applied
             .into_iter()
             .rev()
-            .filter(|kind| *kind != MutationKind::KillSwitch)
+            .filter(|kind| !matches!(kind, MutationKind::KillSwitch | MutationKind::PacketSession))
             .collect::<Vec<_>>();
-        assert_eq!(restored[1..], expected_tail);
+        assert_eq!(restored[2..], expected_tail);
         assert_eq!(coordinator.state().await.phase, RecoveryPhase::Clean);
     }
 
@@ -1650,7 +2244,7 @@ mod tests {
         ));
         assert_eq!(coordinator.state().await.phase, RecoveryPhase::Clean);
         assert_eq!(
-            backend.restored.lock().await.first(),
+            backend.restored.lock().await.get(1),
             Some(&MutationKind::KillSwitch)
         );
     }
@@ -1707,14 +2301,17 @@ mod tests {
             .fail_restore
             .lock()
             .await
-            .insert(MutationKind::InterfaceConfiguration);
+            .insert(MutationKind::DefaultRoutes);
 
         assert!(matches!(
             coordinator.rollback(operation, &owner).await,
             Err(CoordinatorError::RecoveryFailures(_))
         ));
         let restored = backend.restored.lock().await.clone();
-        assert_eq!(restored.first(), Some(&MutationKind::KillSwitch));
+        assert_eq!(
+            &restored[..2],
+            &[MutationKind::PacketSession, MutationKind::KillSwitch]
+        );
         assert!(restored.contains(&MutationKind::WintunAdapter));
         let state = coordinator.state().await;
         assert_eq!(state.phase, RecoveryPhase::RecoveryRequired);
@@ -1729,7 +2326,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn removed_wintun_supersedes_its_stale_interface_receipt() {
+    async fn removed_wintun_supersedes_dns_and_interface_failures_in_the_same_pass() {
         let backend = Arc::new(MockBackend::default());
         let (_directory, coordinator) = coordinator(Arc::clone(&backend));
         let operation = Uuid::new_v4();
@@ -1742,21 +2339,16 @@ mod tests {
             .fail_restore
             .lock()
             .await
-            .insert(MutationKind::InterfaceConfiguration);
+            .extend([MutationKind::InterfaceConfiguration, MutationKind::Dns]);
 
-        assert!(matches!(
-            coordinator.rollback(operation, &owner).await,
-            Err(CoordinatorError::RecoveryFailures(_))
-        ));
-        let state = coordinator.state().await;
-        assert_eq!(state.phase, RecoveryPhase::RecoveryRequired);
+        coordinator
+            .rollback(operation, &owner)
+            .await
+            .expect("same-pass reconciliation");
+        assert_eq!(coordinator.state().await.phase, RecoveryPhase::Clean);
         assert_eq!(
-            state
-                .steps
-                .iter()
-                .find(|step| step.kind == MutationKind::WintunAdapter)
-                .map(|step| step.state),
-            Some(MutationState::Restored)
+            coordinator.store.load_or_clean().unwrap().phase,
+            RecoveryPhase::Clean
         );
         let interface_attempts_before = backend
             .restored
@@ -1792,12 +2384,11 @@ mod tests {
             .prepare(operation, plan(), owner.clone())
             .await
             .expect("prepare");
-        backend
-            .fail_restore
-            .lock()
-            .await
-            .insert(MutationKind::InterfaceConfiguration);
-        assert!(coordinator.rollback(operation, &owner).await.is_err());
+        legacy_recovery_fixture(
+            &coordinator,
+            &[MutationKind::InterfaceConfiguration, MutationKind::Dns],
+        )
+        .await;
         let restore_attempts_before = backend.restored.lock().await.len();
 
         assert!(
@@ -1838,7 +2429,10 @@ mod tests {
             Err(CoordinatorError::RecoveryFailures(_))
         ));
         let restored = backend.restored.lock().await.clone();
-        assert_eq!(restored.first(), Some(&MutationKind::KillSwitch));
+        assert_eq!(
+            &restored[..2],
+            &[MutationKind::PacketSession, MutationKind::KillSwitch]
+        );
         assert!(restored.contains(&MutationKind::WintunAdapter));
         assert!(restored.contains(&MutationKind::DefaultRoutes));
     }
@@ -2137,7 +2731,7 @@ mod tests {
                 .expect("current watchdog")
         );
         assert_eq!(
-            backend.restored.lock().await.first(),
+            backend.restored.lock().await.get(1),
             Some(&MutationKind::KillSwitch)
         );
         assert_eq!(coordinator.state().await.phase, RecoveryPhase::Clean);

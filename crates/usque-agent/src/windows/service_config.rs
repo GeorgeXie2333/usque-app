@@ -3,13 +3,16 @@ use std::{io, mem, ptr, sync::Arc};
 use async_trait::async_trait;
 use thiserror::Error;
 use windows_sys::Win32::System::Services::{
-    ChangeServiceConfigW, CloseServiceHandle, OpenSCManagerW, OpenServiceW, QUERY_SERVICE_CONFIGW,
-    QueryServiceConfigW, SC_HANDLE, SC_MANAGER_CONNECT, SERVICE_AUTO_START, SERVICE_CHANGE_CONFIG,
-    SERVICE_DEMAND_START, SERVICE_ERROR, SERVICE_NO_CHANGE, SERVICE_QUERY_CONFIG,
-    SERVICE_START_TYPE,
+    ChangeServiceConfig2W, ChangeServiceConfigW, CloseServiceHandle, OpenSCManagerW, OpenServiceW,
+    QUERY_SERVICE_CONFIGW, QueryServiceConfig2W, QueryServiceConfigW, SC_HANDLE,
+    SC_MANAGER_CONNECT, SERVICE_AUTO_START, SERVICE_CHANGE_CONFIG, SERVICE_CONFIG_PRESHUTDOWN_INFO,
+    SERVICE_DEMAND_START, SERVICE_ERROR, SERVICE_NO_CHANGE, SERVICE_PRESHUTDOWN_INFO,
+    SERVICE_QUERY_CONFIG, SERVICE_START_TYPE,
 };
 
 use crate::journal::RecoveryPhase;
+
+pub const PRESHUTDOWN_TIMEOUT_MS: u32 = 30_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServiceStartMode {
@@ -41,6 +44,10 @@ pub const fn desired_start_mode(phase: RecoveryPhase) -> ServiceStartMode {
 #[async_trait]
 pub trait ServiceStartModeController: Send + Sync {
     async fn ensure_start_mode(&self, mode: ServiceStartMode) -> Result<(), ServiceConfigError>;
+
+    async fn ensure_shutdown_timeout(&self) -> Result<(), ServiceConfigError> {
+        Ok(())
+    }
 }
 
 pub struct WindowsServiceStartModeController {
@@ -63,6 +70,64 @@ impl ServiceStartModeController for WindowsServiceStartModeController {
             .await
             .map_err(|error| ServiceConfigError::Task(error.to_string()))?
     }
+
+    async fn ensure_shutdown_timeout(&self) -> Result<(), ServiceConfigError> {
+        let service_name = Arc::clone(&self.service_name);
+        tokio::task::spawn_blocking(move || ensure_shutdown_timeout_sync(&service_name))
+            .await
+            .map_err(|error| ServiceConfigError::Task(error.to_string()))?
+    }
+}
+
+fn ensure_shutdown_timeout_sync(service_name: &str) -> Result<(), ServiceConfigError> {
+    // SAFETY: null names select the local SCM; the returned handle is checked.
+    let manager = OwnedServiceHandle::new(unsafe {
+        OpenSCManagerW(ptr::null(), ptr::null(), SC_MANAGER_CONNECT)
+    })
+    .map_err(ServiceConfigError::OpenManager)?;
+    let name = wide(service_name);
+    // SAFETY: manager and null-terminated service name remain live for the call.
+    let service = OwnedServiceHandle::new(unsafe {
+        OpenServiceW(
+            manager.0,
+            name.as_ptr(),
+            SERVICE_QUERY_CONFIG | SERVICE_CHANGE_CONFIG,
+        )
+    })
+    .map_err(ServiceConfigError::OpenService)?;
+    let mut config = SERVICE_PRESHUTDOWN_INFO {
+        dwPreshutdownTimeout: 0,
+    };
+    let mut required = 0;
+    // SAFETY: config is aligned writable storage of exactly the documented type.
+    if unsafe {
+        QueryServiceConfig2W(
+            service.0,
+            SERVICE_CONFIG_PRESHUTDOWN_INFO,
+            (&mut config as *mut SERVICE_PRESHUTDOWN_INFO).cast(),
+            mem::size_of::<SERVICE_PRESHUTDOWN_INFO>() as u32,
+            &mut required,
+        )
+    } == 0
+    {
+        return Err(ServiceConfigError::Query(io::Error::last_os_error()));
+    }
+    if config.dwPreshutdownTimeout != PRESHUTDOWN_TIMEOUT_MS {
+        config.dwPreshutdownTimeout = PRESHUTDOWN_TIMEOUT_MS;
+        // SAFETY: only this service's preshutdown setting is changed. No global
+        // shutdown timeout, service dependencies, or networking is modified.
+        if unsafe {
+            ChangeServiceConfig2W(
+                service.0,
+                SERVICE_CONFIG_PRESHUTDOWN_INFO,
+                (&config as *const SERVICE_PRESHUTDOWN_INFO).cast(),
+            )
+        } == 0
+        {
+            return Err(ServiceConfigError::Change(io::Error::last_os_error()));
+        }
+    }
+    Ok(())
 }
 
 pub struct NoopServiceStartModeController;

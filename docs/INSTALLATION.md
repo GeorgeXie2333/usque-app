@@ -62,11 +62,26 @@ no clients or recovery jobs, for 10 seconds.
 
 The service temporarily changes itself to automatic start before Usque records
 or applies privileged network state. This lets the next boot recover an
-interrupted VPN or system-proxy transaction. A lost Engine tunnel lease gets a
-30-second reattachment window; if no Engine returns, the Agent restores Usque
-network state, changes back to demand start, and exits. `RecoveryRequired` is
-the safety exception: the Agent remains available and automatic until an
-explicit recovery succeeds, rather than abandoning privileged network residue.
+interrupted VPN or system-proxy transaction. At startup it verifies the exact
+adapter identity and the network resources needed for reattachment. A surviving
+tunnel, or a lost Engine lease, gets a 30-second reattachment window. Missing
+resources are recovered instead of being treated as a live tunnel. If no Engine
+returns, the Agent restores Usque network state, changes back to demand start,
+and exits.
+
+On confirmed shutdown/restart the Agent stops admitting operations, stops packet
+forwarding, and restores network state within a 30-second service preshutdown
+budget. Ordinary service stops retain the existing maintenance/reattachment
+behavior. Interrupted or failed cleanup keeps its journal for the next start.
+
+`RecoveryRequired` keeps the Agent available and automatic. Starting a connection
+first makes at most one authenticated, operation- and generation-checked recovery
+attempt, before DNS or VPN startup. It never recovers an active session or another
+user's transaction. Failed or timed-out recovery does not start a new tunnel;
+the journal is retained and the app displays a recovery-specific error. Older
+Agents without guarded recovery support require a matching application/Agent
+update, not a fallback to unguarded maintenance recovery. Do not delete the
+recovery journal to bypass an error.
 
 ### Upgrade
 

@@ -31,8 +31,8 @@ use usque_ipc::{
         DirectEgressLease as AgentDirectEgressLease, GetCapabilitiesRequest,
         GetPhysicalNetworkInfoRequest, GetStateRequest, InspectPlatformStateRequest,
         OpenPacketSessionRequest, PacketSessionHandles, PhysicalNetworkInfo, PlatformState,
-        PrepareTunnelRequest, RestoreSystemProxyRequest, ResumeTunnelRequest,
-        RollbackTunnelRequest, agent_request, agent_response,
+        PrepareTunnelRequest, RecoverOrphanedRequest, RestoreSystemProxyRequest,
+        ResumeTunnelRequest, RollbackTunnelRequest, agent_request, agent_response,
     },
     decode_frame, encode_frame,
 };
@@ -75,6 +75,8 @@ const AGENT_PROTOCOL_VERSION: u32 = 3;
 const MAX_AGENT_FRAME_BYTES: usize = 64 * 1024;
 const AGENT_START_TIMEOUT: Duration = Duration::from_secs(30);
 const AGENT_RPC_TIMEOUT: Duration = Duration::from_secs(30);
+const AGENT_RECOVERY_TIMEOUT: Duration = Duration::from_secs(30);
+const AGENT_RECOVERY_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const AGENT_START_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const AGENT_START_RECHECK_INTERVAL: Duration = Duration::from_millis(250);
 const PUMP_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
@@ -525,7 +527,7 @@ impl WindowsSystemProxyGuard {
         let operation_id = match tunnel_operation_id {
             Some(operation_id) => operation_id,
             None => {
-                let state = client.get_state().await?;
+                let state = client.connection_state(&capabilities).await?;
                 if state.phase != agent_v1::AgentPhase::Clean as i32 {
                     return Err(WindowsVpnError::RecoveryRequired {
                         phase: state.phase,
@@ -698,16 +700,15 @@ impl WindowsVpnRuntime {
         pin_refresher: Arc<dyn EndpointPinRefresher>,
         geo_policy: Arc<GeoDirectPolicy>,
     ) -> Result<Self, WindowsVpnError> {
-        // Resolve before the Agent installs the fail-closed WFP policy. The
-        // authenticated refresh client later uses only these exact numeric
-        // addresses, so neither DNS nor arbitrary physical egress is opened
-        // while the tunnel is active.
-        let registration_api = resolve_registration_api().await?;
         let geo_enabled = geo_policy.is_enabled();
         let agent = WindowsAgentClient::production();
         let capabilities = agent.get_capabilities().await?;
         validate_capabilities(&capabilities, profile.kill_switch)?;
-        let state = agent.get_state().await?;
+        // Old DNS/WFP state can itself prevent endpoint resolution. Complete
+        // guarded local recovery before ANY startup DNS or MASQUE operation.
+        let state = agent.connection_state(&capabilities).await?;
+        // Still resolve before installing a new fail-closed policy.
+        let registration_api = resolve_registration_api().await?;
         let (operation_id, resuming, startup_lease) =
             match agent_v1::AgentPhase::try_from(state.phase) {
                 Ok(agent_v1::AgentPhase::Clean) => {
@@ -892,10 +893,6 @@ impl WindowsVpnRuntime {
         profile: &Profile,
         tunnel: MasqueRuntime,
     ) -> Result<Self, (MasqueRuntime, WindowsVpnError)> {
-        let registration_api = match resolve_registration_api().await {
-            Ok(addresses) => addresses,
-            Err(error) => return Err((tunnel, error)),
-        };
         let agent = WindowsAgentClient::production();
         let capabilities = match agent.get_capabilities().await {
             Ok(capabilities) => capabilities,
@@ -904,7 +901,7 @@ impl WindowsVpnRuntime {
         if let Err(error) = validate_capabilities(&capabilities, profile.kill_switch) {
             return Err((tunnel, error));
         }
-        let state = match agent.get_state().await {
+        let state = match agent.connection_state(&capabilities).await {
             Ok(state) => state,
             Err(error) => return Err((tunnel, error)),
         };
@@ -917,6 +914,10 @@ impl WindowsVpnRuntime {
                 },
             ));
         }
+        let registration_api = match resolve_registration_api().await {
+            Ok(addresses) => addresses,
+            Err(error) => return Err((tunnel, error)),
+        };
         let operation_id = Uuid::new_v4();
         let plan = tunnel_plan_from_assignment(
             profile,
@@ -1959,6 +1960,70 @@ impl WindowsAgentClient {
         }
     }
 
+    async fn connection_state(
+        &self,
+        capabilities: &AgentCapabilities,
+    ) -> Result<AgentState, WindowsVpnError> {
+        self.connection_state_with_timeout(capabilities, AGENT_RECOVERY_TIMEOUT)
+            .await
+    }
+
+    async fn connection_state_with_timeout(
+        &self,
+        capabilities: &AgentCapabilities,
+        budget: Duration,
+    ) -> Result<AgentState, WindowsVpnError> {
+        timeout(budget, async {
+            loop {
+                let state = self.get_state().await.map_err(recovery_rpc_error)?;
+                match agent_v1::AgentPhase::try_from(state.phase) {
+                    Ok(agent_v1::AgentPhase::Clean) => {
+                        require_recovered_state(&state)?;
+                        return Ok(state);
+                    }
+                    Ok(agent_v1::AgentPhase::Active) => return Ok(state),
+                    Ok(agent_v1::AgentPhase::RecoveryRequired) => {
+                        if !capabilities.guarded_recovery {
+                            return Err(WindowsVpnError::RecoveryUnsupported);
+                        }
+                        if state.packet_session_active || state.operation_id.is_empty() {
+                            return Err(WindowsVpnError::RecoveryConflict);
+                        }
+                        let recovered = self
+                            .call(agent_request::Payload::RecoverOrphaned(
+                                RecoverOrphanedRequest {
+                                    operation_id: state.operation_id,
+                                    expected_journal_generation: state.journal_generation,
+                                },
+                            ))
+                            .await
+                            .map_err(recovery_rpc_error)?;
+                        let agent_response::Payload::State(recovered) = recovered else {
+                            return Err(WindowsVpnError::RecoveryFailed);
+                        };
+                        require_recovered_state(&recovered)?;
+                        // One attempt only, even if another process changes the
+                        // transaction between the reply and this fresh read.
+                        let current = self.get_state().await.map_err(recovery_rpc_error)?;
+                        require_recovered_state(&current)
+                            .map_err(|_| WindowsVpnError::RecoveryConflict)?;
+                        return Ok(current);
+                    }
+                    Ok(
+                        agent_v1::AgentPhase::Preparing
+                        | agent_v1::AgentPhase::Prepared
+                        | agent_v1::AgentPhase::Recovering,
+                    ) => {
+                        sleep(AGENT_RECOVERY_POLL_INTERVAL).await;
+                    }
+                    _ => return Err(WindowsVpnError::RecoveryConflict),
+                }
+            }
+        })
+        .await
+        .map_err(|_| WindowsVpnError::RecoveryTimeout)?
+    }
+
     async fn inspect_platform_state_if_running(&self) -> Result<PlatformState, WindowsVpnError> {
         // Diagnostics must be read-only. Opening an existing pipe is allowed;
         // unlike `call`, this deliberately never starts or reconfigures the
@@ -2369,6 +2434,42 @@ fn payload_name(payload: &agent_response::Payload) -> &'static str {
     }
 }
 
+fn require_recovered_state(state: &AgentState) -> Result<(), WindowsVpnError> {
+    if state.phase == agent_v1::AgentPhase::Clean as i32
+        && !state.packet_session_active
+        && !state.kill_switch_active
+        && !state.system_proxy_active
+        && state.operation_id.is_empty()
+        && state.profile_id.is_empty()
+    {
+        Ok(())
+    } else {
+        Err(WindowsVpnError::RecoveryFailed)
+    }
+}
+
+fn recovery_rpc_error(error: WindowsVpnError) -> WindowsVpnError {
+    match &error {
+        WindowsVpnError::RpcTimeout => WindowsVpnError::RecoveryTimeout,
+        WindowsVpnError::Remote { code, .. }
+            if matches!(
+                code.as_str(),
+                "AGENT_RECOVERY_CONFLICT"
+                    | "AGENT_RECOVERY_BUSY"
+                    | "AGENT_OWNER_MISMATCH"
+                    | "AGENT_SHUTTING_DOWN"
+            ) =>
+        {
+            WindowsVpnError::RecoveryConflict
+        }
+        WindowsVpnError::Remote { .. } => {
+            tracing::warn!(%error, "guarded Windows platform recovery failed");
+            WindowsVpnError::RecoveryFailed
+        }
+        _ => error,
+    }
+}
+
 struct PacketSessionMapping {
     _mapping: OwnedHandle,
     engine_to_agent_event: OwnedHandle,
@@ -2582,6 +2683,20 @@ pub(crate) enum WindowsVpnError {
         "Windows Agent has persistent recovery state (phase {phase}, operation {operation_id}); explicit recovery is required"
     )]
     RecoveryRequired { phase: i32, operation_id: String },
+    #[error("Windows network recovery did not finish in time; no new VPN transaction was started")]
+    RecoveryTimeout,
+    #[error(
+        "Windows network recovery is incomplete; retry the connection or inspect local diagnostics"
+    )]
+    RecoveryFailed,
+    #[error(
+        "Windows network state changed or belongs to an active session; no automatic recovery was performed"
+    )]
+    RecoveryConflict,
+    #[error(
+        "this Windows Agent cannot safely recover automatically; update the application and Agent together"
+    )]
+    RecoveryUnsupported,
     #[error("Windows Agent rejected the operation ({code}, retryable={retryable}): {message}")]
     Remote {
         code: String,
@@ -2615,6 +2730,278 @@ mod tests {
     };
 
     use tokio::net::windows::named_pipe::ServerOptions;
+
+    fn scripted_recovery_client(
+        script: Vec<AgentResponse>,
+    ) -> (WindowsAgentClient, JoinHandle<Vec<agent_request::Payload>>) {
+        let pipe_name = format!("{AGENT_PIPE_NAME}.test-{}", Uuid::new_v4());
+        let mut next = ServerOptions::new()
+            .first_pipe_instance(true)
+            .create(&pipe_name)
+            .unwrap();
+        let client = WindowsAgentClient::for_test(pipe_name.clone());
+        let task = tokio::spawn(async move {
+            let mut requests = Vec::new();
+            for mut response in script {
+                next.connect().await.unwrap();
+                let mut pipe = next;
+                next = ServerOptions::new().create(&pipe_name).unwrap();
+                let mut header = [0; 4];
+                pipe.read_exact(&mut header).await.unwrap();
+                let mut payload = vec![0; u32::from_be_bytes(header) as usize];
+                pipe.read_exact(&mut payload).await.unwrap();
+                let mut frame = BytesMut::from(header.as_slice());
+                frame.extend_from_slice(&payload);
+                let request: AgentRequest = decode_frame(frame.freeze()).unwrap();
+                assert_eq!(request.protocol_version, AGENT_PROTOCOL_VERSION);
+                response.request_id = request.request_id;
+                requests.push(request.payload.unwrap());
+                pipe.write_all(&encode_frame(&response).unwrap())
+                    .await
+                    .unwrap();
+            }
+            requests
+        });
+        (client, task)
+    }
+
+    fn recovery_state_response(phase: agent_v1::AgentPhase) -> AgentResponse {
+        AgentResponse {
+            payload: Some(agent_response::Payload::State(AgentState {
+                phase: phase as i32,
+                operation_id: if phase == agent_v1::AgentPhase::Clean {
+                    String::new()
+                } else {
+                    "00000000-0000-4000-8000-000000000001".to_owned()
+                },
+                journal_generation: 19,
+                ..Default::default()
+            })),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn guarded_connection_recovery_is_one_compare_and_recover_then_a_fresh_clean_read() {
+        let (client, task) = scripted_recovery_client(vec![
+            recovery_state_response(agent_v1::AgentPhase::RecoveryRequired),
+            recovery_state_response(agent_v1::AgentPhase::Clean),
+            recovery_state_response(agent_v1::AgentPhase::Clean),
+        ]);
+        let capabilities = AgentCapabilities {
+            guarded_recovery: true,
+            ..Default::default()
+        };
+        let state = client.connection_state(&capabilities).await.unwrap();
+        require_recovered_state(&state).unwrap();
+        let requests = task.await.unwrap();
+        assert_eq!(requests.len(), 3);
+        assert!(matches!(&requests[0], agent_request::Payload::GetState(_)));
+        assert!(
+            matches!(&requests[1], agent_request::Payload::RecoverOrphaned(value)
+            if value.operation_id == "00000000-0000-4000-8000-000000000001" && value.expected_journal_generation == 19)
+        );
+        assert!(matches!(&requests[2], agent_request::Payload::GetState(_)));
+    }
+
+    #[tokio::test]
+    async fn legacy_agent_is_never_sent_unguarded_maintenance_recovery() {
+        let (client, task) = scripted_recovery_client(vec![recovery_state_response(
+            agent_v1::AgentPhase::RecoveryRequired,
+        )]);
+        assert!(matches!(
+            client.connection_state(&AgentCapabilities::default()).await,
+            Err(WindowsVpnError::RecoveryUnsupported)
+        ));
+        assert!(matches!(
+            task.await.unwrap().as_slice(),
+            [agent_request::Payload::GetState(_)]
+        ));
+    }
+
+    #[tokio::test]
+    async fn healthy_and_active_transactions_are_not_automatically_recovered() {
+        for phase in [agent_v1::AgentPhase::Clean, agent_v1::AgentPhase::Active] {
+            let (client, task) = scripted_recovery_client(vec![recovery_state_response(phase)]);
+            assert_eq!(
+                client
+                    .connection_state(&AgentCapabilities::default())
+                    .await
+                    .unwrap()
+                    .phase,
+                phase as i32
+            );
+            assert!(matches!(
+                task.await.unwrap().as_slice(),
+                [agent_request::Payload::GetState(_)]
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn initial_clean_state_with_live_resources_is_rejected_without_mutation() {
+        let mut response = recovery_state_response(agent_v1::AgentPhase::Clean);
+        if let Some(agent_response::Payload::State(state)) = response.payload.as_mut() {
+            state.packet_session_active = true;
+        }
+        let (client, task) = scripted_recovery_client(vec![response]);
+        assert!(matches!(
+            client.connection_state(&AgentCapabilities::default()).await,
+            Err(WindowsVpnError::RecoveryFailed)
+        ));
+        assert!(matches!(
+            task.await.unwrap().as_slice(),
+            [agent_request::Payload::GetState(_)]
+        ));
+    }
+
+    #[tokio::test]
+    async fn guarded_recovery_failure_is_not_retried_or_downgraded() {
+        for code in [
+            "AGENT_RECOVERY_FAILED",
+            "AGENT_RECOVERY_CONFLICT",
+            "AGENT_RECOVERY_BUSY",
+            "AGENT_OWNER_MISMATCH",
+        ] {
+            let (client, task) = scripted_recovery_client(vec![
+                recovery_state_response(agent_v1::AgentPhase::RecoveryRequired),
+                AgentResponse {
+                    error: Some(agent_v1::AgentError {
+                        code: code.to_owned(),
+                        message: "test failure".to_owned(),
+                        retryable: false,
+                    }),
+                    ..Default::default()
+                },
+            ]);
+            let result = client
+                .connection_state(&AgentCapabilities {
+                    guarded_recovery: true,
+                    ..Default::default()
+                })
+                .await;
+            if code == "AGENT_RECOVERY_FAILED" {
+                assert!(matches!(result, Err(WindowsVpnError::RecoveryFailed)));
+            } else {
+                assert!(matches!(result, Err(WindowsVpnError::RecoveryConflict)));
+            }
+            let requests = task.await.unwrap();
+            assert_eq!(requests.len(), 2);
+            assert!(matches!(
+                &requests[1],
+                agent_request::Payload::RecoverOrphaned(_)
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn a_new_transaction_after_recovery_is_not_rolled_back() {
+        let (client, task) = scripted_recovery_client(vec![
+            recovery_state_response(agent_v1::AgentPhase::RecoveryRequired),
+            recovery_state_response(agent_v1::AgentPhase::Clean),
+            recovery_state_response(agent_v1::AgentPhase::Active),
+        ]);
+        assert!(matches!(
+            client
+                .connection_state(&AgentCapabilities {
+                    guarded_recovery: true,
+                    ..Default::default()
+                })
+                .await,
+            Err(WindowsVpnError::RecoveryConflict)
+        ));
+        assert_eq!(task.await.unwrap().len(), 3);
+    }
+
+    #[tokio::test]
+    async fn in_progress_recovery_is_waited_for_without_sending_another_mutation() {
+        let (client, task) = scripted_recovery_client(vec![
+            recovery_state_response(agent_v1::AgentPhase::Recovering),
+            recovery_state_response(agent_v1::AgentPhase::Clean),
+        ]);
+        assert_eq!(
+            client
+                .connection_state(&AgentCapabilities::default())
+                .await
+                .unwrap()
+                .phase,
+            agent_v1::AgentPhase::Clean as i32
+        );
+        assert!(
+            task.await
+                .unwrap()
+                .iter()
+                .all(|request| matches!(request, agent_request::Payload::GetState(_)))
+        );
+    }
+
+    #[tokio::test]
+    async fn recovery_deadline_covers_state_queries_not_only_the_mutation_rpc() {
+        let (client, task) = scripted_recovery_client(vec![recovery_state_response(
+            agent_v1::AgentPhase::Recovering,
+        )]);
+        assert!(matches!(
+            client
+                .connection_state_with_timeout(&AgentCapabilities::default(), Duration::ZERO)
+                .await,
+            Err(WindowsVpnError::RecoveryTimeout)
+        ));
+        task.abort();
+        let _ = task.await;
+    }
+
+    #[test]
+    fn a_clean_label_cannot_hide_live_platform_resources() {
+        let clean = AgentState {
+            phase: agent_v1::AgentPhase::Clean as i32,
+            ..Default::default()
+        };
+        require_recovered_state(&clean).unwrap();
+        for state in [
+            AgentState {
+                packet_session_active: true,
+                ..clean.clone()
+            },
+            AgentState {
+                kill_switch_active: true,
+                ..clean.clone()
+            },
+            AgentState {
+                system_proxy_active: true,
+                ..clean.clone()
+            },
+            AgentState {
+                operation_id: "old".to_owned(),
+                ..clean
+            },
+        ] {
+            assert!(require_recovered_state(&state).is_err());
+        }
+    }
+
+    #[test]
+    fn recovery_error_codes_survive_control_replies_and_snapshot_events() {
+        for (error, code) in [
+            (WindowsVpnError::RecoveryFailed, "WINDOWS_RECOVERY_FAILED"),
+            (WindowsVpnError::RecoveryTimeout, "WINDOWS_RECOVERY_TIMEOUT"),
+            (
+                WindowsVpnError::RecoveryConflict,
+                "WINDOWS_RECOVERY_CONFLICT",
+            ),
+            (
+                WindowsVpnError::RecoveryUnsupported,
+                "WINDOWS_RECOVERY_UNSUPPORTED",
+            ),
+        ] {
+            let error = crate::map_windows_vpn_error(error);
+            assert_eq!(error.as_structured_error().code, code);
+            assert!(!error.as_structured_error().retryable);
+            assert_eq!(
+                crate::connection_error_wire_code(crate::connection_error_for(&error).code),
+                code
+            );
+        }
+    }
     use usque_core::{AddressFamily, MasqueKeyPair, OperatingMode, Transport};
 
     use super::*;

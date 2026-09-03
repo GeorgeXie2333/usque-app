@@ -8,7 +8,7 @@ use std::{
     ptr,
     sync::{
         Arc,
-        atomic::{AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     },
     time::Duration,
 };
@@ -40,7 +40,7 @@ use crate::{
     AGENT_PROTOCOL_VERSION, AuthenticatedCaller,
     coordinator::{
         AgentCoordinator, BackendError, CoordinatorError, ORPHANED_TUNNEL_RECOVERY_GRACE,
-        PrivilegedBackend, SystemProxySettings,
+        PrivilegedBackend, SystemProxySettings, TunnelInspection,
     },
     journal::{MutationReceipt, RecoveryJournal, RecoveryPhase, RouteReceipt},
     plan::ValidatedTunnelPlan,
@@ -77,6 +77,7 @@ pub struct AgentService<Backend> {
     activity: Arc<ActivityTracker>,
     direct_egress: Mutex<DirectEgressRegistry>,
     physical_generation: Mutex<PhysicalGenerationState>,
+    stopping: AtomicBool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -184,6 +185,8 @@ impl Drop for ActivityGuard {
 
 #[derive(Debug, thiserror::Error)]
 pub enum AgentLifecycleError {
+    #[error("the Agent is shutting down; no new operation may start")]
+    ShuttingDown,
     #[error("{0}")]
     Coordinator(#[from] CoordinatorError),
     #[error("the Agent could not arm crash recovery before changing Windows state: {0}")]
@@ -219,11 +222,34 @@ where
             activity: Arc::new(ActivityTracker::default()),
             direct_egress: Mutex::new(DirectEgressRegistry::default()),
             physical_generation: Mutex::new(PhysicalGenerationState::default()),
+            stopping: AtomicBool::new(false),
         }
     }
 
     pub async fn state(&self) -> RecoveryJournal {
         self.coordinator.state().await
+    }
+
+    pub fn begin_shutdown(&self) {
+        self.stopping.store(true, Ordering::Release);
+    }
+
+    /// Owned by the service, never by a client pipe. A timeout must not drop
+    /// this future and unlock a still-running native recovery worker.
+    pub async fn recover_for_shutdown(&self) -> Result<(), AgentLifecycleError> {
+        self.begin_shutdown();
+        let _gate = self.mutation_gate.lock().await;
+        self.clear_direct_egress().await;
+        let result = self.coordinator.recover_stale().await;
+        self.reconcile_start_mode_locked().await;
+        result.map_err(AgentLifecycleError::Coordinator)
+    }
+
+    pub async fn inspect_startup_tunnel(&self) -> Result<TunnelInspection, AgentLifecycleError> {
+        self.mutate(MutationPolicy::Cleanup, |coordinator| async move {
+            coordinator.inspect_startup_tunnel().await
+        })
+        .await
     }
 
     async fn physical_network_info(
@@ -313,6 +339,10 @@ where
         expected_generation: u64,
         caller: &AuthenticatedCaller,
     ) -> Result<(agent_v1::DirectEgressLease, DirectEgressKey), ServiceError> {
+        let _gate = self.mutation_gate.lock().await;
+        if self.stopping.load(Ordering::Acquire) {
+            return Err(ServiceError::Lifecycle(AgentLifecycleError::ShuttingDown));
+        }
         if remote.port() == 0
             || remote.ip().is_unspecified()
             || remote.ip().is_multicast()
@@ -448,6 +478,9 @@ where
         ActionFuture: Future<Output = Result<T, CoordinatorError>> + Send,
     {
         let _gate = self.mutation_gate.lock().await;
+        if self.stopping.load(Ordering::Acquire) {
+            return Err(AgentLifecycleError::ShuttingDown);
+        }
         match policy {
             MutationPolicy::Forward => {
                 if let Err(error) = self
@@ -505,6 +538,12 @@ where
     }
 
     async fn handle(&self, request: AgentRequest, caller: &AuthenticatedCaller) -> AgentResponse {
+        if self.stopping.load(Ordering::Acquire) {
+            return error_response(
+                request.request_id,
+                ServiceError::Lifecycle(AgentLifecycleError::ShuttingDown),
+            );
+        }
         if let Err(error) = validate_request_envelope(&request) {
             return error_response(request.request_id, error);
         }
@@ -662,6 +701,28 @@ where
                 self.clear_direct_egress().await;
                 agent_response::Payload::State(state_to_proto(
                     &self.state().await,
+                    self.coordinator.packet_session_attached(),
+                ))
+            }
+            agent_request::Payload::RecoverOrphaned(request) => {
+                let operation_id = parse_operation_id(&request.operation_id)
+                    .map_err(|error| (request_id.clone(), error))?;
+                let caller = caller.clone();
+                let state = self
+                    .mutate(MutationPolicy::Cleanup, |coordinator| async move {
+                        coordinator
+                            .recover_orphaned(
+                                operation_id,
+                                request.expected_journal_generation,
+                                &caller,
+                                self.clear_direct_egress(),
+                            )
+                            .await
+                    })
+                    .await
+                    .map_err(|error| (request_id.clone(), ServiceError::Lifecycle(error)))?;
+                agent_response::Payload::State(state_to_proto(
+                    &state,
                     self.coordinator.packet_session_attached(),
                 ))
             }
@@ -919,8 +980,14 @@ where
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServeExit {
-    Shutdown,
+    Shutdown(ShutdownReason),
     Idle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShutdownReason {
+    ServiceStop,
+    SystemShutdown,
 }
 
 /// Verifies that the fixed Agent pipe name, security descriptor, and first
@@ -943,7 +1010,17 @@ where
     Backend: PrivilegedBackend + 'static,
     Shutdown: Future<Output = ()>,
 {
-    serve_until_ready(service, policy, pipe_name, shutdown, || Ok(())).await
+    serve_until_ready(
+        service,
+        policy,
+        pipe_name,
+        async {
+            shutdown.await;
+            ShutdownReason::ServiceStop
+        },
+        || Ok(()),
+    )
+    .await
 }
 
 pub async fn serve_until_ready<Backend, Shutdown, Ready>(
@@ -955,7 +1032,7 @@ pub async fn serve_until_ready<Backend, Shutdown, Ready>(
 ) -> Result<ServeExit, ServerError>
 where
     Backend: PrivilegedBackend + 'static,
-    Shutdown: Future<Output = ()>,
+    Shutdown: Future<Output = ShutdownReason>,
     Ready: FnOnce() -> io::Result<()>,
 {
     validate_pipe_name(&pipe_name)?;
@@ -967,8 +1044,11 @@ where
     loop {
         tokio::select! {
             biased;
+            reason = &mut shutdown => {
+                service.begin_shutdown();
+                return Ok(ServeExit::Shutdown(reason));
+            },
             result = next.connect() => result?,
-            () = &mut shutdown => return Ok(ServeExit::Shutdown),
             () = &mut idle => return Ok(ServeExit::Idle),
         }
         let connected = next;
@@ -1615,6 +1695,16 @@ impl ServiceError {
             Self::Lifecycle(AgentLifecycleError::StartMode(_)) => {
                 ("SERVICE_START_MODE_UNAVAILABLE", false)
             }
+            Self::Lifecycle(AgentLifecycleError::ShuttingDown) => ("AGENT_SHUTTING_DOWN", false),
+            Self::Lifecycle(AgentLifecycleError::Coordinator(
+                CoordinatorError::RecoveryConflict,
+            )) => ("AGENT_RECOVERY_CONFLICT", false),
+            Self::Lifecycle(AgentLifecycleError::Coordinator(CoordinatorError::RecoveryBusy)) => {
+                ("AGENT_RECOVERY_BUSY", false)
+            }
+            Self::Lifecycle(AgentLifecycleError::Coordinator(
+                CoordinatorError::RecoveryFailures(_),
+            )) => ("AGENT_RECOVERY_FAILED", false),
             Self::Lifecycle(AgentLifecycleError::Coordinator(CoordinatorError::OwnerMismatch)) => {
                 ("AGENT_OWNER_MISMATCH", false)
             }
@@ -1740,6 +1830,121 @@ mod tests {
 
     struct ProxyBackend;
 
+    #[derive(Default)]
+    struct BlockingProxyBackend {
+        entered: Notify,
+        release: Notify,
+    }
+
+    #[async_trait]
+    impl PrivilegedBackend for BlockingProxyBackend {
+        async fn plan_step(
+            &self,
+            kind: MutationKind,
+            plan: &ValidatedTunnelPlan,
+            caller: &AuthenticatedCaller,
+            parameter: StepParameter,
+        ) -> Result<MutationReceipt, BackendError> {
+            ProxyBackend.plan_step(kind, plan, caller, parameter).await
+        }
+
+        async fn apply_step(
+            &self,
+            receipt: MutationReceipt,
+            plan: &ValidatedTunnelPlan,
+            caller: &AuthenticatedCaller,
+        ) -> Result<(MutationReceipt, StepOutput), BackendError> {
+            ProxyBackend.apply_step(receipt, plan, caller).await
+        }
+
+        async fn restore_step(&self, _receipt: &MutationReceipt) -> Result<(), BackendError> {
+            self.entered.notify_one();
+            self.release.notified().await;
+            Ok(())
+        }
+
+        async fn plan_system_proxy(
+            &self,
+            operation_id: Uuid,
+            caller: &AuthenticatedCaller,
+            settings: &SystemProxySettings,
+        ) -> Result<MutationReceipt, BackendError> {
+            ProxyBackend
+                .plan_system_proxy(operation_id, caller, settings)
+                .await
+        }
+
+        async fn apply_system_proxy(
+            &self,
+            receipt: MutationReceipt,
+        ) -> Result<MutationReceipt, BackendError> {
+            ProxyBackend.apply_system_proxy(receipt).await
+        }
+    }
+
+    #[tokio::test]
+    async fn shutdown_timeout_keeps_recovery_owned_and_rejects_new_requests() {
+        let directory = tempfile::tempdir().unwrap();
+        let backend = Arc::new(BlockingProxyBackend::default());
+        let coordinator = Arc::new(
+            AgentCoordinator::open(
+                JournalStore::new(directory.path().join("recovery.json")),
+                Arc::clone(&backend),
+            )
+            .unwrap(),
+        );
+        let caller = AuthenticatedCaller {
+            process_id: 42,
+            user_sid: "S-1-5-21-1000".to_owned(),
+            executable_path: std::path::PathBuf::from(r"C:\Program Files\Usque\usque-engine.exe"),
+            process_handle: None,
+        };
+        coordinator
+            .apply_system_proxy(
+                Uuid::new_v4(),
+                SystemProxySettings {
+                    proxy_uri: "http://127.0.0.1:8080".to_owned(),
+                    bypass_hosts: vec!["<local>".to_owned()],
+                },
+                caller.clone(),
+            )
+            .await
+            .unwrap();
+        let service = Arc::new(AgentService::new(
+            Arc::clone(&coordinator),
+            AgentCapabilities::default(),
+        ));
+        let worker = Arc::clone(&service);
+        let mut task = tokio::spawn(async move { worker.recover_for_shutdown().await });
+        backend.entered.notified().await;
+        assert!(
+            tokio::time::timeout(Duration::ZERO, &mut task)
+                .await
+                .is_err()
+        );
+        assert!(service.mutation_gate.try_lock().is_err());
+        let response = service
+            .handle(
+                AgentRequest {
+                    request_id: "after-shutdown".to_owned(),
+                    protocol_version: AGENT_PROTOCOL_VERSION,
+                    payload: Some(agent_request::Payload::Recover(agent_v1::RecoverRequest {})),
+                },
+                &caller,
+            )
+            .await;
+        assert_eq!(response.error.unwrap().code, "AGENT_SHUTTING_DOWN");
+        backend.release.notify_one();
+        task.await.unwrap().unwrap();
+        assert_eq!(coordinator.state().await.phase, RecoveryPhase::Clean);
+        let result: Result<(), AgentLifecycleError> = service
+            .mutate(MutationPolicy::Forward, |_| async {
+                panic!("forward mutation ran after shutdown")
+            })
+            .await;
+        assert!(matches!(result, Err(AgentLifecycleError::ShuttingDown)));
+    }
+
     struct FailingStartModeController;
 
     #[async_trait]
@@ -1858,6 +2063,7 @@ mod tests {
                 dynamic_direct_egress: false,
                 physical_dns_snapshot: false,
                 exact_generation_egress: false,
+                guarded_recovery: false,
             },
         ));
         let pipe_name = format!("{AGENT_PIPE_NAME}.test-{}", Uuid::new_v4());
