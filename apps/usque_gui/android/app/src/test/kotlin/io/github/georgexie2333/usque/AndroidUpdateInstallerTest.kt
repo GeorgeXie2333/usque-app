@@ -28,11 +28,11 @@ class AndroidUpdateInstallerTest {
         val request =
             AndroidUpdateInstaller.fromArguments(
                 mapOf(
-                    "path" to "/private/cache/usque-v0.2.4-android-arm64-v8a.apk",
-                    "version" to "v0.2.4",
+                    "path" to "/private/cache/usque-v0.2.5-android-arm64-v8a.apk",
+                    "version" to "v0.2.5",
                     "package" to
                         mapOf(
-                            "name" to "usque-v0.2.4-android-arm64-v8a.apk",
+                            "name" to "usque-v0.2.5-android-arm64-v8a.apk",
                             "size" to 4_294_967_296L,
                             "sha256" to "a5".repeat(32),
                             "platform" to "android",
@@ -43,7 +43,7 @@ class AndroidUpdateInstallerTest {
 
         assertEquals(4_294_967_296L, request.size)
         assertEquals("arm64-v8a", request.variant)
-        assertEquals("v0.2.4", request.version)
+        assertEquals("v0.2.5", request.version)
     }
 
     @Test

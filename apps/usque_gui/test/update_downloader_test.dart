@@ -27,7 +27,7 @@ class _CacheEngine implements EngineClient {
 }
 
 UpdatePackage _package(Uri uri, int size) => UpdatePackage(
-  name: 'usque-v0.2.4-android-arm64-v8a.apk',
+  name: 'usque-v0.2.5-android-arm64-v8a.apk',
   downloadUrl: uri.toString(),
   size: size,
   sha256: List<String>.filled(32, 'a5').join(),
@@ -207,9 +207,9 @@ void main() {
     () async {
       final productionDownloader = UpdateDownloader(_CacheEngine(root.path));
       final package = UpdatePackage(
-        name: 'usque-v0.2.4-android-arm64-v8a.apk',
+        name: 'usque-v0.2.5-android-arm64-v8a.apk',
         downloadUrl:
-            'https://attacker.invalid/releases/download/v0.2.4/usque-v0.2.4-android-arm64-v8a.apk',
+            'https://attacker.invalid/releases/download/v0.2.5/usque-v0.2.5-android-arm64-v8a.apk',
         size: 1,
         sha256: List<String>.filled(32, 'a5').join(),
         platform: 'android',

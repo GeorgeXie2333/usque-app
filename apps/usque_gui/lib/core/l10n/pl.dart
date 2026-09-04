@@ -298,7 +298,7 @@ const Map<String, String> kPlCatalog = <String, String>{
       'Stan Usque Engine, eksport dzienników i dane lokalne.',
   'engine_status': 'Stan Usque Engine',
   'version': 'Wersja',
-  'app_version': 'Usque 0.2.3',
+  'app_version': 'Usque 0.2.4',
   'logs': 'Dzienniki lokalne',
   'export_diagnostics': 'Eksportuj pakiet diagnostyczny',
   'diagnostics_saved': 'Pakiet diagnostyczny zapisano w',

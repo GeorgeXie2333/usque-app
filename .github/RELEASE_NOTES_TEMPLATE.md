@@ -6,20 +6,22 @@ immediately below the matching English text.
 
 ## Highlights / 更新亮点
 
-- Usque v0.2.3 is a major bug-fix release focused on eliminating traffic stalls and premature packet loss when sustained traffic fills MASQUE or platform packet queues.
-  <br>Usque v0.2.3 是一个重大 Bug 修复版本，重点解决持续流量填满 MASQUE 或平台数据包队列时出现的流量停滞和过早丢包问题。
-- H3 and H2 now retain bounded packet batches and apply backpressure until capacity returns instead of dropping or failing sends while the transport is still healthy. Closing or cancelling a path also releases blocked senders cleanly.
-  <br>H3 与 H2 现在会保留有界数据包批次，并持续施加背压直至容量恢复，而不会在传输仍然健康时丢弃数据包或令发送失败；关闭或取消路径时也会干净地释放被阻塞的发送方。
-- Windows packet-ring publication and Android tunnel scheduling now process bounded, ordered batches and resume in order after congestion, improving sustained traffic handling without introducing unbounded work.
-  <br>Windows 数据包环发布和 Android 隧道调度现在会处理有界、有序的批次，并在拥塞后按顺序恢复，从而改善持续流量处理且不会引入无界工作量。
-- Drop accounting and transport telemetry now distinguish real bounded-queue overflow from recoverable queue pressure. Pinned Rust dependencies and CI, CodeQL, Java, and SBOM tooling have also been refreshed.
-  <br>丢包计数与传输遥测现在能够区分真实的有界队列溢出和可恢复的队列压力；固定的 Rust 依赖以及 CI、CodeQL、Java 与 SBOM 工具也已更新。
+- Usque v0.2.4 is a feature and reliability release that adds Network Quality, encrypted direct DNS, and more resilient transport and platform lifecycle handling.
+  <br>Usque v0.2.4 是一个功能与可靠性版本，新增网络质量中心、加密直连 DNS，并强化传输与平台生命周期处理。
+- Network Quality provides a local, non-persistent 60-second view of RTT, loss availability, queue pressure, PMTU, migration, and direct DNS. Network Doctor keeps Standard checks read-only and requires explicit authorization for Deep checks.
+  <br>网络质量中心提供本地且不持久化的 60 秒视图，展示 RTT、丢包可用性、队列压力、PMTU、迁移和直连 DNS；Network Doctor 的 Standard 检查保持只读，Deep 检查则需要明确授权。
+- HTTP/3 can now migrate across same-family physical paths and automatically discover the outer-path PMTU. Tuned HTTP/2 flow control, owned packet-buffer reuse, and bounded Android/Linux UDP batching improve resilience and throughput without unbounded queues.
+  <br>HTTP/3 现在可在相同地址族的物理路径间迁移，并自动探测外层路径 PMTU；调优后的 HTTP/2 流控、自有数据包缓冲区复用以及 Android/Linux 有界 UDP 批处理，在不引入无界队列的前提下提升可靠性与吞吐。
+- Direct-country DNS now supports explicit System, DoH, and DoT resolvers with numeric bootstrap and strict TLS. Encrypted resolver failures never silently downgrade to plaintext.
+  <br>直连国家规则的 DNS 现在可明确选择 System、DoH 或 DoT，并使用数字 IP 引导和严格 TLS；加密解析器失败时绝不会静默降级为明文。
+- Windows and Android now bind recovery and direct egress to exact network generations, clean up more consistently across shutdown and detach paths, and recover orphaned VPN state without starting a new tunnel on an unsafe or stale platform state.
+  <br>Windows 与 Android 现在将恢复和直连出口绑定到准确的网络代次，在关机及分离路径中执行更一致的清理，并可恢复孤立的 VPN 状态，避免在不安全或过期的平台状态上启动新隧道。
 
 ### DNS privacy / DNS 隐私
 
-GeoSite-matched DNS queries use the current physical network's DNS and may be visible to that network. Apps that use their own DoH or DoT hide the domain from Usque, so those connections fall back to GeoIP routing.
+GeoSite-matched direct-country queries use the selected direct DNS mode. System (the default) exposes them to the physical DNS provider; DoH or DoT exposes them to the configured encrypted resolver using numeric bootstrap and strict TLS, with no plaintext fallback. Other queries continue through WARP DNS. Apps that use their own encrypted DNS hide the domain from Usque, so those connections fall back to GeoIP routing.
 
-与 GeoSite 匹配的 DNS 查询会使用当前物理网络的 DNS，因此该网络可能看到这些查询。应用自行使用 DoH 或 DoT 时，Usque 无法获知域名，相应连接会回退到 GeoIP 路由。
+与 GeoSite 匹配的直连国家规则查询会使用所选的直连 DNS 模式。System（默认）会将查询暴露给物理 DNS 提供商；DoH 或 DoT 则使用数字 IP 引导和严格 TLS，将查询发送给配置的加密解析器，且不会回退到明文。其他查询继续通过 WARP DNS。应用自行使用加密 DNS 时，Usque 无法获知域名，相应连接会回退到 GeoIP 路由。
 
 ## Usque {{release_tag}} official release / Usque {{release_tag}} 正式版发布
 

@@ -294,7 +294,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'diagnostics_subtitle': 'Usque Engine state, log export, and local data.',
   'engine_status': 'Usque Engine status',
   'version': 'Version',
-  'app_version': 'Usque 0.2.3',
+  'app_version': 'Usque 0.2.4',
   'logs': 'Local logs',
   'export_diagnostics': 'Export diagnostic bundle',
   'diagnostics_saved': 'Diagnostic bundle saved to',

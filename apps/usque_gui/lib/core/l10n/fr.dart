@@ -302,7 +302,7 @@ const Map<String, String> kFrCatalog = <String, String>{
       'État de l’Usque Engine, export des journaux et données locales.',
   'engine_status': 'État de l’Usque Engine',
   'version': 'Version',
-  'app_version': 'Usque 0.2.3',
+  'app_version': 'Usque 0.2.4',
   'logs': 'Journaux locaux',
   'export_diagnostics': 'Exporter l’archive de diagnostics',
   'diagnostics_saved': 'Archive de diagnostics enregistrée dans',
