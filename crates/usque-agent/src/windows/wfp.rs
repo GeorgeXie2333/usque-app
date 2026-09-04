@@ -13,7 +13,7 @@ use std::{
     net::{IpAddr, SocketAddr},
     os::windows::ffi::OsStrExt,
     path::Path,
-    ptr,
+    ptr::{self, NonNull},
 };
 
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
@@ -163,24 +163,15 @@ pub fn kill_switch_present(receipt: &MutationReceipt) -> Result<bool, WfpError> 
         let mut filter = ptr::null_mut();
         // SAFETY: engine and key are live and filter is writable output storage.
         let status = unsafe { FwpmFilterGetByKey0(engine.0, &guid_from_uuid(*key), &mut filter) };
+        let filter = WfpFilterAllocation::new(filter);
         if status == FWP_E_FILTER_NOT_FOUND as u32 {
             return Ok(false);
         }
         check("FwpmFilterGetByKey0", status)?;
-        if filter.is_null() {
+        let Some(filter) = filter else {
             return Ok(false);
-        }
-        // SAFETY: the successful lookup returned a live filter and its owned
-        // provider pointer, both valid until the matching FwpmFreeMemory0.
-        let matches = unsafe {
-            (*filter).flags & FWPM_FILTER_FLAG_PERSISTENT != 0
-                && uuid_from_guid((*filter).subLayerKey) == *sublayer_key
-                && !(*filter).providerKey.is_null()
-                && uuid_from_guid(*(*filter).providerKey) == *provider_key
         };
-        // SAFETY: WFP owns this lookup allocation; release it exactly once.
-        unsafe { FwpmFreeMemory0((&mut filter as *mut *mut FWPM_FILTER0).cast()) };
-        if !matches {
+        if !filter.matches(*provider_key, *sublayer_key) {
             return Ok(false);
         }
     }
@@ -917,6 +908,38 @@ impl Drop for WfpTransaction<'_> {
 }
 
 struct ApplicationId(*mut FWP_BYTE_BLOB);
+
+struct WfpFilterAllocation(NonNull<FWPM_FILTER0>);
+
+impl WfpFilterAllocation {
+    fn new(filter: *mut FWPM_FILTER0) -> Option<Self> {
+        NonNull::new(filter).map(Self)
+    }
+
+    fn matches(&self, provider_key: Uuid, sublayer_key: Uuid) -> bool {
+        // SAFETY: this guard is constructed only from the non-null allocation
+        // returned by FwpmFilterGetByKey0 and keeps it alive for this borrow.
+        let filter = unsafe { self.0.as_ref() };
+        let Some(actual_provider_key) = NonNull::new(filter.providerKey) else {
+            return false;
+        };
+        // SAFETY: providerKey is owned by the live filter allocation and is
+        // valid until this guard calls the matching FwpmFreeMemory0.
+        let actual_provider_key = unsafe { *actual_provider_key.as_ref() };
+        filter.flags & FWPM_FILTER_FLAG_PERSISTENT != 0
+            && uuid_from_guid(filter.subLayerKey) == sublayer_key
+            && uuid_from_guid(actual_provider_key) == provider_key
+    }
+}
+
+impl Drop for WfpFilterAllocation {
+    fn drop(&mut self) {
+        let mut allocation = self.0.as_ptr().cast::<c_void>();
+        // SAFETY: this guard uniquely owns a successful WFP lookup allocation
+        // and releases it exactly once with the documented deallocator.
+        unsafe { FwpmFreeMemory0(&mut allocation) };
+    }
+}
 
 impl ApplicationId {
     fn from_path(path: &Path) -> Result<Self, WfpError> {
