@@ -7,6 +7,8 @@ use std::{
     path::{Path, PathBuf},
     ptr,
     sync::Arc,
+    thread,
+    time::{Duration, Instant},
 };
 
 use sha2::{Digest, Sha256};
@@ -40,6 +42,8 @@ const WINTUN_DLL_NAME: &str = "wintun.dll";
 const WINTUN_MIN_RING_CAPACITY: u32 = 0x20_000;
 const WINTUN_MAX_RING_CAPACITY: u32 = 0x400_0000;
 const WINTUN_MAX_IP_PACKET_SIZE: usize = 0xffff;
+const ADAPTER_REMOVAL_CONFIRM_TIMEOUT: Duration = Duration::from_secs(2);
+const ADAPTER_REMOVAL_CONFIRM_INTERVAL: Duration = Duration::from_millis(25);
 
 #[cfg(target_arch = "x86_64")]
 const EXPECTED_DLL_SHA256: [u8; 32] = [
@@ -265,31 +269,22 @@ impl WintunLibrary {
         // This handle was opened rather than created, so dropping it releases
         // resources but intentionally does not remove the device instance.
         drop(adapter);
-        remove_device_instance(expected_guid)?;
-
-        // Verify the named adapter is no longer available. If the name was
-        // reused concurrently, fail safely rather than targeting the new one.
-        match self.open_adapter(name) {
-            Err(error)
-                if matches!(
-                    error.raw_os_error(),
-                    Some(code) if code == ERROR_NOT_FOUND as i32
-                        || code == ERROR_FILE_NOT_FOUND as i32
-                ) =>
-            {
-                Ok(())
+        if let Err(error) = remove_device_instance(expected_guid) {
+            // SetupAPI can report a stale/invalid devnode after another Wintun
+            // cleanup path has already completed the removal. Accept the API
+            // failure only when a fresh exact-GUID enumeration proves that the
+            // device no longer exists; otherwise preserve the real failure.
+            match device_instance_present(expected_guid) {
+                Ok(false) => return Ok(()),
+                Ok(true) | Err(_) => return Err(error),
             }
-            Ok(adapter) => {
-                let remaining_luid = adapter.luid();
-                drop(adapter);
-                if remaining_luid == actual_luid {
-                    Err(WintunError::AdapterRemovalIncomplete(name.to_owned()))
-                } else {
-                    Err(WintunError::AdapterIdentityMismatch(name.to_owned()))
-                }
-            }
-            Err(error) => Err(error),
         }
+        wait_for_device_instance_removal(
+            name,
+            ADAPTER_REMOVAL_CONFIRM_TIMEOUT,
+            ADAPTER_REMOVAL_CONFIRM_INTERVAL,
+            || device_instance_present(expected_guid),
+        )
     }
 }
 
@@ -531,6 +526,59 @@ fn remove_device_instance(expected_guid: Uuid) -> Result<(), WintunError> {
             ));
         }
         return Ok(());
+    }
+}
+
+fn device_instance_present(expected_guid: Uuid) -> Result<bool, WintunError> {
+    let device_info = DeviceInfoSet::network_adapters()?;
+    let mut index = 0_u32;
+    loop {
+        let mut device = SP_DEVINFO_DATA {
+            cbSize: u32::try_from(mem::size_of::<SP_DEVINFO_DATA>())
+                .expect("SP_DEVINFO_DATA size fits u32"),
+            ..Default::default()
+        };
+        // SAFETY: the device-info set is live and `device` has the required size.
+        if unsafe { SetupDiEnumDeviceInfo(device_info.0, index, &mut device) } == 0 {
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() == Some(ERROR_NO_MORE_ITEMS as i32) {
+                return Ok(false);
+            }
+            return Err(WintunError::Windows("SetupDiEnumDeviceInfo", error));
+        }
+        index = index.saturating_add(1);
+
+        let Some(instance_id) =
+            read_device_registry_string(device_info.0, &device, "NetCfgInstanceId")
+        else {
+            continue;
+        };
+        if parse_registry_guid(&instance_id) == Some(expected_guid) {
+            return Ok(true);
+        }
+    }
+}
+
+fn wait_for_device_instance_removal<Probe>(
+    adapter_name: &str,
+    timeout: Duration,
+    poll_interval: Duration,
+    mut is_present: Probe,
+) -> Result<(), WintunError>
+where
+    Probe: FnMut() -> Result<bool, WintunError>,
+{
+    let deadline = Instant::now() + timeout;
+    loop {
+        if !is_present()? {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err(WintunError::AdapterRemovalIncomplete(
+                adapter_name.to_owned(),
+            ));
+        }
+        thread::sleep(poll_interval);
     }
 }
 
@@ -796,5 +844,45 @@ mod tests {
             Some(expected)
         );
         assert_eq!(parse_registry_guid("not-a-guid"), None);
+    }
+
+    #[test]
+    fn adapter_removal_confirmation_accepts_eventual_exact_device_absence() {
+        let mut observations = [true, true, false].into_iter();
+        wait_for_device_instance_removal(
+            "Usque-0123456789ab",
+            Duration::from_secs(1),
+            Duration::ZERO,
+            || Ok(observations.next().expect("bounded observations")),
+        )
+        .expect("eventual removal");
+        assert!(observations.next().is_none());
+    }
+
+    #[test]
+    fn adapter_removal_confirmation_fails_closed_while_device_remains() {
+        assert!(matches!(
+            wait_for_device_instance_removal(
+                "Usque-0123456789ab",
+                Duration::ZERO,
+                Duration::ZERO,
+                || Ok(true),
+            ),
+            Err(WintunError::AdapterRemovalIncomplete(name))
+                if name == "Usque-0123456789ab"
+        ));
+    }
+
+    #[test]
+    fn adapter_removal_confirmation_preserves_probe_failures() {
+        assert!(matches!(
+            wait_for_device_instance_removal(
+                "Usque-0123456789ab",
+                Duration::from_secs(1),
+                Duration::ZERO,
+                || Err(WintunError::InvalidRecoveryIdentity),
+            ),
+            Err(WintunError::InvalidRecoveryIdentity)
+        ));
     }
 }

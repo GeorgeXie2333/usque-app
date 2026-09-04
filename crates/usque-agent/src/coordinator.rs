@@ -1166,6 +1166,12 @@ fn recovery_error(failures: &[RecoveryFailure]) -> CoordinatorError {
             RecoveryFailure::Restore(kind, BackendError::Windows { api, code }) => {
                 format!("restore {kind:?}: {api} (Win32 {code})")
             }
+            RecoveryFailure::Restore(kind, BackendError::AdapterIdentity) => {
+                format!("restore {kind:?}: adapter identity verification failed")
+            }
+            RecoveryFailure::Restore(kind, BackendError::AdapterRemovalPending) => {
+                format!("restore {kind:?}: adapter removal was not confirmed")
+            }
             RecoveryFailure::Restore(kind, _) => format!("restore {kind:?}: backend failure"),
             RecoveryFailure::Persist(kind, JournalError::Io(error)) => {
                 format!("persist {kind:?}: I/O failure ({:?})", error.raw_os_error())
@@ -1269,6 +1275,8 @@ pub enum BackendError {
     Windows { api: &'static str, code: u32 },
     #[error("the journaled adapter identity could not be verified")]
     AdapterIdentity,
+    #[error("the journaled adapter removal could not be confirmed")]
+    AdapterRemovalPending,
     #[error("privileged backend operation failed: {0}")]
     Operation(String),
     #[error("privileged backend operation failed: {message}")]
@@ -2048,9 +2056,17 @@ mod tests {
                     code: 5,
                 },
             ),
+            RecoveryFailure::Restore(
+                MutationKind::WintunAdapter,
+                BackendError::AdapterRemovalPending,
+            ),
         ])
         .to_string();
-        assert!(failure.contains("Win32 5") && failure.contains("Dns"));
+        assert!(
+            failure.contains("Win32 5")
+                && failure.contains("Dns")
+                && failure.contains("adapter removal was not confirmed")
+        );
         assert!(
             !failure.contains("token")
                 && !failure.contains("192.0.2.9")

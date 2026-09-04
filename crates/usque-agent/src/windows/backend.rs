@@ -509,6 +509,9 @@ fn restore_sync(inner: &BackendInner, receipt: &MutationReceipt) -> Result<(), B
                         api,
                         code: error.raw_os_error().unwrap_or_default() as u32,
                     },
+                    super::wintun::WintunError::AdapterRemovalIncomplete(_) => {
+                        BackendError::AdapterRemovalPending
+                    }
                     _ => BackendError::AdapterIdentity,
                 })?;
             // A missing NAME alone is insufficient: a renamed adapter with the
