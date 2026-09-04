@@ -92,7 +92,21 @@ does not keep the process alive. If an older or unresponsive build cannot honor
 the request, Windows Installer uses its bounded force-shutdown fallback; it does
 not restart that process during the upgrade.
 
-A major upgrade first stops the Agent and restores Usque-owned WFP, route, DNS, system-proxy, and Wintun state. It keeps user profiles, settings, logs, caches, Credential Manager identities, and the recovery journal the new version needs.
+A major upgrade stops the Agent, installs the newer recovery-compatible Agent
+inside the Windows Installer transaction, and then removes the older product.
+The older package's recovery action therefore runs the fixed Agent from the
+stable installation path while it restores Usque-owned WFP, route, DNS,
+system-proxy, and Wintun state. Component reference counting keeps the new
+files and service registration in place when the older product is removed. The
+upgrade keeps user profiles, settings, logs, caches, Credential Manager
+identities, and the recovery journal the new version needs.
+
+This ordering is also the supported bridge from `v0.2.4`, whose Agent could
+mistake asynchronous Wintun device removal for a permanent cleanup failure. A
+user whose `v0.2.4` uninstall failed should install a newer Windows package
+directly, then uninstall that newer version if removal was the original goal.
+Do not work around the failure by deleting the Agent, its recovery journal, or
+Windows network objects manually.
 
 If privileged network state cannot be restored, the upgrade stops with an error. It must not continue with leftover routes, filters, DNS, proxies, or adapters.
 

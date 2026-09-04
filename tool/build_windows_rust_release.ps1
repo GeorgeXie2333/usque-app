@@ -87,6 +87,16 @@ Remove-Item -LiteralPath "Env:PATH" -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath "Env:Path" -ErrorAction SilentlyContinue
 Set-Item -LiteralPath "Env:PATH" -Value $developerPath
 
+# Do not let the Agent resource build guess an x86 resource compiler on the
+# native ARM64 release runner. Use the host tool selected by vcvars*.bat for
+# both architectures, and restore any caller override after Cargo finishes.
+$resourceCompiler = Get-Command rc.exe -ErrorAction SilentlyContinue
+if ($null -eq $resourceCompiler) {
+    throw "The Windows SDK resource compiler was not found for $Variant."
+}
+$previousRcPath = $env:RC_PATH
+$env:RC_PATH = $resourceCompiler.Source
+
 $localProperties = Join-Path $repositoryRoot "apps\usque_gui\android\local.properties"
 $sdkRoot = $null
 $cmakeExecutable = $null
@@ -222,6 +232,7 @@ try {
 }
 finally {
     $env:RUSTFLAGS = $previousRustFlags
+    $env:RC_PATH = $previousRcPath
     Pop-Location
 }
 

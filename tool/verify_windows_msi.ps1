@@ -16,6 +16,10 @@ param(
     [string]$ExpectedDisplayVersion,
 
     [Parameter(Mandatory = $true)]
+    [ValidatePattern("^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$")]
+    [string]$ExpectedAgentFileVersion,
+
+    [Parameter(Mandatory = $true)]
     [ValidatePattern("^[0-9A-Fa-f]{64}$")]
     [string]$SignerSha256
 )
@@ -522,6 +526,19 @@ try {
     Assert-Equal $serviceControl.Wait "1" "service wait policy"
     Assert-Equal $serviceControl.Component "UsqueAgentComponent" "service control component"
 
+    $agentComponent = Assert-OneRow `
+    (Invoke-MsiQuery `
+            -Database $database `
+            -Query "SELECT ``Component``,``ComponentId``,``Directory_``,``KeyPath`` FROM ``Component`` WHERE ``Component``='UsqueAgentComponent'" `
+            -Columns @("Component", "ComponentId", "Directory", "KeyPath")) `
+        "versioned Agent component"
+    Assert-Equal `
+        $agentComponent.ComponentId `
+        "{E8A3C869-B571-4BD6-9CB6-98179A7CA9AF}" `
+        "stable Agent component GUID"
+    Assert-Equal $agentComponent.Directory "INSTALLFOLDER" "Agent component directory"
+    Assert-Equal $agentComponent.KeyPath "UsqueAgentExecutable" "Agent component KeyPath"
+
     $servicePermission = Assert-OneRow `
     (Invoke-MsiQuery `
             -Database $database `
@@ -624,7 +641,7 @@ try {
 
     $sequenceRows = Invoke-MsiQuery `
         -Database $database `
-        -Query "SELECT ``Action``,``Condition``,``Sequence`` FROM ``InstallExecuteSequence`` WHERE ``Action``='RemoveExistingProducts' OR ``Action``='RejectUnsupportedMaintenance' OR ``Action``='StopServices' OR ``Action``='EmergencyRemoveKillSwitch' OR ``Action``='RecoverAgentState' OR ``Action``='PurgeUserData' OR ``Action``='RemoveUserStartupRegistration' OR ``Action``='FinalizeAgentUninstall' OR ``Action``='DeleteServices' OR ``Action``='RemoveFiles' OR ``Action``='InstallServices' OR ``Action``='ValidateAgentStartup' OR ``Action``='StartServices'" `
+        -Query "SELECT ``Action``,``Condition``,``Sequence`` FROM ``InstallExecuteSequence`` WHERE ``Action``='RemoveExistingProducts' OR ``Action``='RejectUnsupportedMaintenance' OR ``Action``='StopServices' OR ``Action``='EmergencyRemoveKillSwitch' OR ``Action``='RecoverAgentState' OR ``Action``='PurgeUserData' OR ``Action``='RemoveUserStartupRegistration' OR ``Action``='FinalizeAgentUninstall' OR ``Action``='DeleteServices' OR ``Action``='RemoveFiles' OR ``Action``='InstallServices' OR ``Action``='ValidateAgentStartup' OR ``Action``='StartServices' OR ``Action``='InstallExecute' OR ``Action``='InstallFinalize'" `
         -Columns @("Action", "Condition", "Sequence")
     $sequences = @{}
     foreach ($row in $sequenceRows) {
@@ -649,7 +666,16 @@ try {
             throw "MSI is missing the $requiredAction execute-sequence row."
         }
     }
-    Assert-Equal $sequences.RemoveExistingProducts.Sequence "1501" "major-upgrade removal sequence"
+    if (
+        -not $sequences.ContainsKey("InstallExecute") -or
+        -not $sequences.ContainsKey("InstallFinalize") -or
+        [int]$sequences.RemoveExistingProducts.Sequence -le
+        [int]$sequences.InstallExecute.Sequence -or
+        [int]$sequences.RemoveExistingProducts.Sequence -ge
+        [int]$sequences.InstallFinalize.Sequence
+    ) {
+        throw "RemoveExistingProducts must run after InstallExecute and before InstallFinalize so the fixed Agent is installed before older-product recovery."
+    }
     Assert-Equal `
         $sequences.RejectUnsupportedMaintenance.Condition `
         'Installed AND NOT REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE' `
@@ -738,8 +764,15 @@ try {
 
     $files = Invoke-MsiQuery `
         -Database $database `
-        -Query "SELECT ``File``,``FileName``,``Component_`` FROM ``File``" `
-        -Columns @("File", "FileName", "Component")
+        -Query "SELECT ``File``,``FileName``,``Component_``,``Version`` FROM ``File``" `
+        -Columns @("File", "FileName", "Component", "Version")
+    $agentFile = Assert-OneRow `
+    @($files | Where-Object { $_.File -eq "UsqueAgentExecutable" }) `
+        "versioned Agent file"
+    Assert-Equal `
+        $agentFile.Version `
+        $ExpectedAgentFileVersion `
+        "bridge-upgrade Agent file version"
     $longNames = @(
         $files | ForEach-Object {
             if ($_.FileName.Contains("|")) {

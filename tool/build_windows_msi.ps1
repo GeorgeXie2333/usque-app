@@ -217,6 +217,31 @@ $outputRoot = (Resolve-Path -LiteralPath $OutputDirectory).Path
 $displayVersion = $Version.TrimStart("v")
 $msiVersion = & (Join-Path $PSScriptRoot "convert_to_msi_version.ps1") `
     -SemVer $Version
+$agentPath = Join-Path $appRoot "usque-agent.exe"
+$agentVersionInfo = (Get-Item -LiteralPath $agentPath).VersionInfo
+$agentFileVersion = if ([string]::IsNullOrWhiteSpace($agentVersionInfo.FileVersion)) {
+    $null
+}
+else {
+    "{0}.{1}.{2}.{3}" -f `
+        $agentVersionInfo.FileMajorPart, `
+        $agentVersionInfo.FileMinorPart, `
+        $agentVersionInfo.FileBuildPart, `
+        $agentVersionInfo.FilePrivatePart
+}
+$expectedAgentFileVersion = "$msiVersion.0"
+if (
+    $null -eq $agentFileVersion -or
+    $agentFileVersion -ne $expectedAgentFileVersion
+) {
+    $actualAgentFileVersion = if ($null -eq $agentFileVersion) {
+        "unversioned"
+    }
+    else {
+        $agentFileVersion
+    }
+    throw "Agent PE FileVersion must match the mapped MSI version. Expected $expectedAgentFileVersion, got $actualAgentFileVersion."
+}
 $outputPath = Join-Path $outputRoot "usque-v$displayVersion-windows-$Variant.msi"
 $intermediatePath = Join-Path $outputRoot "wix-$Variant"
 New-Item -ItemType Directory -Path $intermediatePath -Force | Out-Null
@@ -267,6 +292,7 @@ if (-not (Test-Path -LiteralPath $outputPath -PathType Leaf)) {
     -Variant $Variant `
     -ExpectedMsiVersion $msiVersion `
     -ExpectedDisplayVersion $displayVersion `
+    -ExpectedAgentFileVersion $expectedAgentFileVersion `
     -SignerSha256 $normalizedSigner
 if ($LASTEXITCODE -ne 0) {
     throw "MSI table contract verification failed with exit code $LASTEXITCODE."

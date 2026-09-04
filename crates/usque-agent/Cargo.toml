@@ -6,6 +6,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+build = "build.rs"
 
 [dependencies]
 async-trait.workspace = true
@@ -26,6 +27,9 @@ uuid.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true
+
+[build-dependencies]
+winresource.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

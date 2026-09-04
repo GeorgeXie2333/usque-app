@@ -18,11 +18,17 @@
       package name. Equal-version upgrades are intentional: they let users
       replace a validation build of the same architecture without two products
       owning the same installation directory.
+
+      Install the new product transaction before removing the related product.
+      The fixed, versioned Agent must be present when an older cached MSI runs
+      its fail-closed recovery action. Stable component identities keep shared
+      files and the service registered while the older product is removed. Keep
+      this inside the transaction so either both sides commit or both roll back.
     -->
     <MajorUpgrade
       AllowSameVersionUpgrades="yes"
       DowngradeErrorMessage="A newer version of [ProductName] is already installed."
-      Schedule="afterInstallInitialize" />
+      Schedule="afterInstallExecute" />
 
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
     <ui:WixUI
