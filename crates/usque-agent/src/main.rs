@@ -367,12 +367,14 @@ mod windows_main {
                 );
             }
             StartupRecoveryAction::QuarantineRecoveryRequired => {
-                // No network writes merely because SCM restarted the process.
-                // A guarded Engine request can retry this exact failed journal.
+                // Startup itself never issues an unguarded recovery against a
+                // previously failed journal. The service-owned supervisor is
+                // armed before the pipe becomes ready and revalidates the exact
+                // operation/generation after each bounded backoff delay.
                 warn!(
                     phase = ?state.phase,
                     generation = state.generation,
-                    "Agent recovery remains required; service will stay online without applying network changes"
+                    "Agent recovery remains required; bounded automatic recovery will be scheduled"
                 );
             }
         }
@@ -700,7 +702,7 @@ mod windows_main {
         }
 
         #[test]
-        fn recovery_required_tunnel_is_quarantined_without_automatic_retry() {
+        fn recovery_required_tunnel_is_quarantined_for_the_bounded_supervisor() {
             assert_eq!(
                 startup_recovery_action(
                     RecoveryPhase::RecoveryRequired,

@@ -89,10 +89,48 @@ pub struct ControlService {
     network_quality_tx: watch::Sender<usque_transport::NetworkQualitySnapshot>,
     network_quality_relay: Mutex<Option<AbortOnDropHandle<()>>>,
     session_generation: AtomicU64,
+    #[cfg(windows)]
+    windows_recovery: Mutex<WindowsRecoveryRuntime>,
+    #[cfg(windows)]
+    windows_recovery_notify: tokio::sync::Notify,
+    #[cfg(windows)]
+    windows_recovery_stopping: std::sync::atomic::AtomicBool,
     #[cfg(any(windows, test))]
     event_sequence: AtomicU64,
     #[cfg(test)]
     remote_license_unbinds: Mutex<Vec<Uuid>>,
+}
+
+#[cfg(windows)]
+const WINDOWS_RECOVERY_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
+#[cfg(windows)]
+const WINDOWS_RECOVERY_OBSERVATION_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_secs(90);
+
+#[cfg(windows)]
+#[derive(Debug, Clone)]
+struct WindowsConnectionIntent {
+    generation: u64,
+    profile_id: Uuid,
+    automatic_reconnect_attempted: bool,
+}
+
+#[cfg(windows)]
+#[derive(Debug, Clone)]
+struct WindowsRecoveryWatch {
+    intent_generation: u64,
+    operation_id: String,
+    journal_generation: u64,
+    started_at: Instant,
+    reconnect_after_clean: bool,
+}
+
+#[cfg(windows)]
+#[derive(Debug, Default)]
+struct WindowsRecoveryRuntime {
+    generation: u64,
+    intent: Option<WindowsConnectionIntent>,
+    pending: Option<WindowsRecoveryWatch>,
 }
 
 fn consumer_license_presentation(entitlement: ConsumerEntitlement) -> (v1::LicenseState, String) {
@@ -347,6 +385,12 @@ impl ControlService {
             network_quality_tx,
             network_quality_relay: Mutex::new(None),
             session_generation: AtomicU64::new(0),
+            #[cfg(windows)]
+            windows_recovery: Mutex::new(WindowsRecoveryRuntime::default()),
+            #[cfg(windows)]
+            windows_recovery_notify: tokio::sync::Notify::new(),
+            #[cfg(windows)]
+            windows_recovery_stopping: std::sync::atomic::AtomicBool::new(false),
             #[cfg(any(windows, test))]
             event_sequence: AtomicU64::new(0),
             #[cfg(test)]
@@ -553,6 +597,8 @@ impl ControlService {
     /// Stops forwarding immediately, then waits for privileged platform state
     /// to be restored before the Engine process is allowed to exit.
     pub async fn shutdown(&self) -> Result<(), ControlServiceError> {
+        #[cfg(windows)]
+        self.clear_windows_connection_intent().await;
         let _mutation = self.mutation_lock.lock().await;
         self.disconnect_locked().await?;
         self.await_disconnect_cleanup().await
@@ -852,53 +898,59 @@ impl ControlService {
     }
 
     pub(crate) async fn status_snapshot(&self) -> ConnectionSnapshot {
+        #[cfg(windows)]
+        let platform_recovery_pending = self.windows_recovery.lock().await.pending.is_some();
+        #[cfg(not(windows))]
+        let platform_recovery_pending = false;
         let mut data_plane = self.data_plane.lock().await;
         let mut state = self.state.lock().await;
         if let Some(active) = data_plane.as_mut() {
-            match active.runtime.health() {
-                RuntimeHealth::Connected { path, .. }
-                    if matches!(
-                        state.snapshot().phase,
-                        ConnectionPhase::Connected
-                            | ConnectionPhase::Degraded
-                            | ConnectionPhase::Reconnecting
-                    ) && (state.snapshot().phase == ConnectionPhase::Reconnecting
-                        || runtime_path_changed(state.snapshot(), path)) =>
-                {
-                    if let Err(error) = state.mark_connected(
-                        path.transport,
-                        path.endpoint_family,
-                        path.ipv4_available,
-                        path.ipv6_available,
-                    ) {
-                        state.mark_error(ConnectionError {
-                            code: ErrorCode::Internal,
-                            message: error.to_string(),
-                            retryable: false,
-                        });
-                    }
-                }
-                RuntimeHealth::Reconnecting { failure, .. } => {
-                    if matches!(
-                        state.snapshot().phase,
-                        ConnectionPhase::Connected | ConnectionPhase::Degraded
-                    ) && let Err(error) = state.transition(ConnectionPhase::Reconnecting)
+            if !platform_recovery_pending {
+                match active.runtime.health() {
+                    RuntimeHealth::Connected { path, .. }
+                        if matches!(
+                            state.snapshot().phase,
+                            ConnectionPhase::Connected
+                                | ConnectionPhase::Degraded
+                                | ConnectionPhase::Reconnecting
+                        ) && (state.snapshot().phase == ConnectionPhase::Reconnecting
+                            || runtime_path_changed(state.snapshot(), path)) =>
                     {
-                        state.mark_error(ConnectionError {
-                            code: ErrorCode::Internal,
-                            message: error.to_string(),
-                            retryable: false,
-                        });
-                    } else {
-                        state.update_failure(Some(failure));
+                        if let Err(error) = state.mark_connected(
+                            path.transport,
+                            path.endpoint_family,
+                            path.ipv4_available,
+                            path.ipv6_available,
+                        ) {
+                            state.mark_error(ConnectionError {
+                                code: ErrorCode::Internal,
+                                message: error.to_string(),
+                                retryable: false,
+                            });
+                        }
                     }
+                    RuntimeHealth::Reconnecting { failure, .. } => {
+                        if matches!(
+                            state.snapshot().phase,
+                            ConnectionPhase::Connected | ConnectionPhase::Degraded
+                        ) && let Err(error) = state.transition(ConnectionPhase::Reconnecting)
+                        {
+                            state.mark_error(ConnectionError {
+                                code: ErrorCode::Internal,
+                                message: error.to_string(),
+                                retryable: false,
+                            });
+                        } else {
+                            state.update_failure(Some(failure));
+                        }
+                    }
+                    RuntimeHealth::Failed {
+                        message, failure, ..
+                    } => {
+                        state.mark_failure(failure, message);
+                    }
+                    _ => {}
                 }
-                RuntimeHealth::Failed {
-                    message, failure, ..
-                } => {
-                    state.mark_failure(failure, message);
-                }
-                _ => {}
             }
             state.update_reconnect_count(active.runtime.health().reconnect_count());
             state.update_frontends(active.runtime.frontend_statuses(active.frontends));
@@ -1177,9 +1229,411 @@ impl ControlService {
         self.session_generation.fetch_add(1, Ordering::Relaxed) + 1
     }
 
+    #[cfg(windows)]
+    async fn begin_windows_connection_intent(&self, profile_id: Uuid) -> u64 {
+        let mut recovery = self.windows_recovery.lock().await;
+        let carry_watch = recovery
+            .intent
+            .as_ref()
+            .is_some_and(|intent| intent.profile_id == profile_id);
+        let carried_watch = if carry_watch {
+            recovery.pending.take()
+        } else {
+            None
+        };
+        recovery.generation = recovery.generation.wrapping_add(1).max(1);
+        let generation = recovery.generation;
+        recovery.intent = Some(WindowsConnectionIntent {
+            generation,
+            profile_id,
+            automatic_reconnect_attempted: false,
+        });
+        recovery.pending = carried_watch.map(|mut watch| {
+            watch.intent_generation = generation;
+            watch.started_at = Instant::now();
+            watch.reconnect_after_clean = true;
+            watch
+        });
+        drop(recovery);
+        self.windows_recovery_notify.notify_waiters();
+        generation
+    }
+
+    #[cfg(windows)]
+    async fn clear_windows_connection_intent(&self) {
+        let mut recovery = self.windows_recovery.lock().await;
+        recovery.generation = recovery.generation.wrapping_add(1).max(1);
+        recovery.intent = None;
+        recovery.pending = None;
+        drop(recovery);
+        self.windows_recovery_notify.notify_waiters();
+    }
+
+    #[cfg(windows)]
+    async fn clear_windows_connection_intent_if(&self, generation: u64) {
+        let mut recovery = self.windows_recovery.lock().await;
+        if recovery
+            .intent
+            .as_ref()
+            .is_some_and(|intent| intent.generation == generation)
+        {
+            recovery.generation = recovery.generation.wrapping_add(1).max(1);
+            recovery.intent = None;
+            recovery.pending = None;
+            drop(recovery);
+            self.windows_recovery_notify.notify_waiters();
+        }
+    }
+
+    #[cfg(windows)]
+    async fn enter_windows_automatic_recovery(
+        &self,
+        profile_id: Uuid,
+        operation_id: String,
+        journal_generation: u64,
+    ) -> Result<ConnectionSnapshot, ControlServiceError> {
+        let mut recovery = self.windows_recovery.lock().await;
+        let Some(intent) = recovery
+            .intent
+            .as_ref()
+            .filter(|intent| intent.profile_id == profile_id)
+            .cloned()
+        else {
+            return Err(ControlServiceError::PlatformRecovery {
+                code: "WINDOWS_RECOVERY_CONFLICT",
+                message: "Windows recovery no longer matches the requested connection".to_owned(),
+                retryable: false,
+            });
+        };
+        recovery.pending = Some(WindowsRecoveryWatch {
+            intent_generation: intent.generation,
+            operation_id: operation_id.clone(),
+            journal_generation,
+            started_at: Instant::now(),
+            reconnect_after_clean: !intent.automatic_reconnect_attempted,
+        });
+        drop(recovery);
+
+        let transition = self
+            .state
+            .lock()
+            .await
+            .transition(ConnectionPhase::Reconnecting)
+            .cloned();
+        let snapshot = match transition {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                let mut recovery = self.windows_recovery.lock().await;
+                if recovery.pending.as_ref().is_some_and(|pending| {
+                    pending.intent_generation == intent.generation
+                        && pending.operation_id == operation_id
+                }) {
+                    recovery.pending = None;
+                }
+                return Err(error.into());
+            }
+        };
+        self.windows_recovery_notify.notify_waiters();
+        Ok(snapshot)
+    }
+
+    #[cfg(windows)]
+    async fn finish_windows_recovery_with_error(
+        &self,
+        watch: &WindowsRecoveryWatch,
+        code: &'static str,
+        message: String,
+        retryable: bool,
+    ) {
+        let _mutation = self.mutation_lock.lock().await;
+        let mut recovery = self.windows_recovery.lock().await;
+        if !recovery.pending.as_ref().is_some_and(|pending| {
+            pending.intent_generation == watch.intent_generation
+                && pending.operation_id == watch.operation_id
+        }) {
+            return;
+        }
+        recovery.pending = None;
+        drop(recovery);
+        let error = ControlServiceError::PlatformRecovery {
+            code,
+            message,
+            retryable,
+        };
+        self.mark_connection_error(&error).await;
+        self.windows_recovery_notify.notify_waiters();
+    }
+
+    #[cfg(windows)]
+    async fn reconnect_after_windows_recovery(&self, watch: WindowsRecoveryWatch) {
+        let _mutation = self.mutation_lock.lock().await;
+        let profile_id = {
+            let mut recovery = self.windows_recovery.lock().await;
+            if !recovery.pending.as_ref().is_some_and(|pending| {
+                pending.intent_generation == watch.intent_generation
+                    && pending.operation_id == watch.operation_id
+            }) {
+                return;
+            }
+            let Some(intent) = recovery.intent.as_mut().filter(|intent| {
+                intent.generation == watch.intent_generation
+                    && !intent.automatic_reconnect_attempted
+            }) else {
+                return;
+            };
+            intent.automatic_reconnect_attempted = true;
+            intent.profile_id
+        };
+        if let Err(error) = self.disconnect_locked().await {
+            let mut recovery = self.windows_recovery.lock().await;
+            recovery.pending = None;
+            drop(recovery);
+            self.mark_connection_error(&error).await;
+            self.windows_recovery_notify.notify_waiters();
+            return;
+        }
+        if let Err(error) = self.await_disconnect_cleanup().await {
+            let mut recovery = self.windows_recovery.lock().await;
+            recovery.pending = None;
+            drop(recovery);
+            self.mark_connection_error(&error).await;
+            self.windows_recovery_notify.notify_waiters();
+            return;
+        }
+        {
+            let mut recovery = self.windows_recovery.lock().await;
+            if !recovery.pending.as_ref().is_some_and(|pending| {
+                pending.intent_generation == watch.intent_generation
+                    && pending.operation_id == watch.operation_id
+            }) || !recovery
+                .intent
+                .as_ref()
+                .is_some_and(|intent| intent.generation == watch.intent_generation)
+            {
+                return;
+            }
+            recovery.pending = None;
+        }
+        if let Err(error) = self.connect_locked(profile_id).await {
+            self.mark_connection_error(&error).await;
+        }
+        self.windows_recovery_notify.notify_waiters();
+    }
+
+    #[cfg(windows)]
+    pub async fn run_windows_recovery_monitor(self: Arc<Self>) {
+        loop {
+            if self.windows_recovery_stopping.load(Ordering::Acquire) {
+                return;
+            }
+            let notified = self.windows_recovery_notify.notified();
+            tokio::pin!(notified);
+            let _ = notified.as_mut().enable();
+            let pending = self.windows_recovery.lock().await.pending.clone();
+            let Some(watch) = pending else {
+                notified.await;
+                continue;
+            };
+            let elapsed = watch.started_at.elapsed();
+            if elapsed >= WINDOWS_RECOVERY_OBSERVATION_TIMEOUT {
+                self.finish_windows_recovery_with_error(
+                    &watch,
+                    "WINDOWS_RECOVERY_TIMEOUT",
+                    "Windows automatic recovery did not reach a terminal state within 90 seconds"
+                        .to_owned(),
+                    true,
+                )
+                .await;
+                continue;
+            }
+            let delay = WINDOWS_RECOVERY_POLL_INTERVAL
+                .min(WINDOWS_RECOVERY_OBSERVATION_TIMEOUT.saturating_sub(elapsed));
+            tokio::select! {
+                biased;
+                () = &mut notified => continue,
+                () = tokio::time::sleep(delay) => {}
+            }
+            if self.windows_recovery_stopping.load(Ordering::Acquire) {
+                return;
+            }
+
+            let remaining =
+                WINDOWS_RECOVERY_OBSERVATION_TIMEOUT.saturating_sub(watch.started_at.elapsed());
+            let changed = self.windows_recovery_notify.notified();
+            tokio::pin!(changed);
+            let _ = changed.as_mut().enable();
+            let observed = tokio::select! {
+                biased;
+                () = &mut changed => continue,
+                result = tokio::time::timeout(
+                    remaining,
+                    windows_agent::observe_automatic_recovery(),
+                ) => result,
+            };
+            let observation = match observed {
+                Ok(observation) => observation,
+                Err(_) => {
+                    self.finish_windows_recovery_with_error(
+                        &watch,
+                        "WINDOWS_RECOVERY_TIMEOUT",
+                        "Windows automatic recovery did not reach a terminal state within 90 seconds"
+                            .to_owned(),
+                        true,
+                    )
+                    .await;
+                    continue;
+                }
+            };
+
+            match observation {
+                Ok(windows_agent::AutomaticRecoveryObservation::Clean)
+                    if watch.reconnect_after_clean =>
+                {
+                    self.reconnect_after_windows_recovery(watch).await;
+                }
+                Ok(windows_agent::AutomaticRecoveryObservation::Clean) => {
+                    self.finish_windows_recovery_with_error(
+                        &watch,
+                        "WINDOWS_RECOVERY_EXHAUSTED",
+                        "Windows recovery completed, but the one automatic reconnect attempt was already used"
+                            .to_owned(),
+                        true,
+                    )
+                    .await;
+                }
+                Ok(windows_agent::AutomaticRecoveryObservation::Pending {
+                    operation_id,
+                    journal_generation,
+                }) if operation_id == watch.operation_id => {
+                    let mut recovery = self.windows_recovery.lock().await;
+                    let mut generation_regressed = false;
+                    if let Some(pending) = recovery.pending.as_mut().filter(|pending| {
+                        pending.intent_generation == watch.intent_generation
+                            && pending.operation_id == watch.operation_id
+                    }) {
+                        if journal_generation < pending.journal_generation {
+                            generation_regressed = true;
+                        } else {
+                            pending.journal_generation = journal_generation;
+                        }
+                    }
+                    drop(recovery);
+                    if generation_regressed {
+                        self.finish_windows_recovery_with_error(
+                            &watch,
+                            "WINDOWS_RECOVERY_CONFLICT",
+                            "the Agent recovery journal generation moved backwards".to_owned(),
+                            false,
+                        )
+                        .await;
+                    }
+                }
+                Ok(windows_agent::AutomaticRecoveryObservation::Pending { .. }) => {
+                    self.finish_windows_recovery_with_error(
+                        &watch,
+                        "WINDOWS_RECOVERY_CONFLICT",
+                        "the Agent recovery transaction changed while it was being observed"
+                            .to_owned(),
+                        false,
+                    )
+                    .await;
+                }
+                Ok(windows_agent::AutomaticRecoveryObservation::Exhausted(failure))
+                    if failure.operation_id == watch.operation_id
+                        && failure.journal_generation >= watch.journal_generation =>
+                {
+                    self.finish_windows_recovery_with_error(
+                        &watch,
+                        "WINDOWS_RECOVERY_EXHAUSTED",
+                        failure.message,
+                        true,
+                    )
+                    .await;
+                }
+                Ok(windows_agent::AutomaticRecoveryObservation::Blocked(failure))
+                    if failure.operation_id == watch.operation_id
+                        && failure.journal_generation >= watch.journal_generation =>
+                {
+                    self.finish_windows_recovery_with_error(
+                        &watch,
+                        "WINDOWS_RECOVERY_BLOCKED",
+                        failure.message,
+                        false,
+                    )
+                    .await;
+                }
+                Ok(
+                    windows_agent::AutomaticRecoveryObservation::Exhausted(_)
+                    | windows_agent::AutomaticRecoveryObservation::Blocked(_),
+                ) => {
+                    self.finish_windows_recovery_with_error(
+                        &watch,
+                        "WINDOWS_RECOVERY_CONFLICT",
+                        "the Agent recovery transaction changed before reaching its terminal state"
+                            .to_owned(),
+                        false,
+                    )
+                    .await;
+                }
+                Err(windows_agent::WindowsVpnError::RecoveryUnsupported)
+                | Err(windows_agent::WindowsVpnError::ProtocolVersion(_)) => {
+                    self.finish_windows_recovery_with_error(
+                        &watch,
+                        "WINDOWS_RECOVERY_UNSUPPORTED",
+                        "the installed Agent does not expose a compatible automatic-recovery contract"
+                            .to_owned(),
+                        false,
+                    )
+                    .await;
+                }
+                Err(windows_agent::WindowsVpnError::Remote { code, .. })
+                    if code == "AGENT_SHUTTING_DOWN" =>
+                {
+                    // A service restart opens a new in-memory recovery cycle.
+                    // Keep observing the same durable transaction until the
+                    // bounded Engine deadline rather than surfacing a conflict.
+                }
+                Err(windows_agent::WindowsVpnError::Io(_))
+                | Err(windows_agent::WindowsVpnError::RpcTimeout)
+                | Err(windows_agent::WindowsVpnError::AgentService(
+                    windows_agent::AgentServiceControlError::RequestTimeout
+                    | windows_agent::AgentServiceControlError::Timeout { .. }
+                    | windows_agent::AgentServiceControlError::Stopped { .. },
+                )) => {
+                    // Bounded pipe/service availability failures may clear when
+                    // the Agent restarts. Keep observing until the deadline.
+                }
+                Err(_) => {
+                    self.finish_windows_recovery_with_error(
+                        &watch,
+                        "WINDOWS_RECOVERY_CONFLICT",
+                        "the Agent returned an incompatible automatic-recovery state".to_owned(),
+                        false,
+                    )
+                    .await;
+                }
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    pub fn stop_windows_recovery_monitor(&self) {
+        self.windows_recovery_stopping
+            .store(true, Ordering::Release);
+        self.windows_recovery_notify.notify_waiters();
+    }
+
     async fn connect(&self, profile_id: Uuid) -> Result<ConnectionSnapshot, ControlServiceError> {
         let _mutation = self.mutation_lock.lock().await;
-        self.connect_locked(profile_id).await
+        #[cfg(windows)]
+        let intent_generation = self.begin_windows_connection_intent(profile_id).await;
+        let result = self.connect_locked(profile_id).await;
+        #[cfg(windows)]
+        if result.is_err() {
+            self.clear_windows_connection_intent_if(intent_generation)
+                .await;
+        }
+        result
     }
 
     pub(crate) async fn connect_locked(
@@ -1279,6 +1733,18 @@ impl ControlService {
                 .await
                 {
                     Ok(runtime) => ActiveRuntime::Vpn(Box::new(runtime)),
+                    Err(windows_agent::WindowsVpnError::AutomaticRecoveryPending {
+                        operation_id,
+                        journal_generation,
+                    }) => {
+                        return self
+                            .enter_windows_automatic_recovery(
+                                profile_id,
+                                operation_id,
+                                journal_generation,
+                            )
+                            .await;
+                    }
                     Err(error) => {
                         let error = map_windows_vpn_error(error);
                         self.mark_connection_error(&error).await;
@@ -1317,6 +1783,19 @@ impl ControlService {
                         };
                         match windows_agent::WindowsSystemProxyGuard::start(listener).await {
                             Ok(system_proxy) => Some(system_proxy),
+                            Err(windows_agent::WindowsVpnError::AutomaticRecoveryPending {
+                                operation_id,
+                                journal_generation,
+                            }) => {
+                                runtime.shutdown().await;
+                                return self
+                                    .enter_windows_automatic_recovery(
+                                        profile_id,
+                                        operation_id,
+                                        journal_generation,
+                                    )
+                                    .await;
+                            }
                             Err(error) => {
                                 runtime.shutdown().await;
                                 let error = map_windows_vpn_error(error);
@@ -1463,6 +1942,8 @@ impl ControlService {
     }
 
     async fn disconnect(&self) -> Result<ConnectionSnapshot, ControlServiceError> {
+        #[cfg(windows)]
+        self.clear_windows_connection_intent().await;
         let _mutation = self.mutation_lock.lock().await;
         self.disconnect_locked().await
     }
@@ -1541,7 +2022,80 @@ impl ControlService {
         })?;
 
         #[cfg(windows)]
+        let automatic_recovery_retry = self
+            .state
+            .lock()
+            .await
+            .snapshot()
+            .error
+            .as_ref()
+            .is_some_and(|error| {
+                matches!(
+                    error.code,
+                    ErrorCode::WindowsRecoveryExhausted
+                        | ErrorCode::WindowsRecoveryBlocked
+                        | ErrorCode::WindowsRecoveryTimeout
+                )
+            });
+        #[cfg(windows)]
+        let intent_generation = self.begin_windows_connection_intent(profile_id).await;
+        #[cfg(windows)]
         {
+            let recovery = if automatic_recovery_retry {
+                windows_agent::restart_automatic_recovery_if_needed().await
+            } else {
+                Ok(None)
+            };
+            match recovery {
+                Ok(Some(windows_agent::AutomaticRecoveryObservation::Pending {
+                    operation_id,
+                    journal_generation,
+                })) => {
+                    let result = self
+                        .enter_windows_automatic_recovery(
+                            profile_id,
+                            operation_id,
+                            journal_generation,
+                        )
+                        .await;
+                    if result.is_err() {
+                        self.clear_windows_connection_intent_if(intent_generation)
+                            .await;
+                    }
+                    return result;
+                }
+                Ok(Some(windows_agent::AutomaticRecoveryObservation::Exhausted(failure))) => {
+                    let error = map_windows_vpn_error(
+                        windows_agent::WindowsVpnError::AutomaticRecoveryExhausted {
+                            message: failure.message,
+                        },
+                    );
+                    self.mark_connection_error(&error).await;
+                    self.clear_windows_connection_intent_if(intent_generation)
+                        .await;
+                    return Err(error);
+                }
+                Ok(Some(windows_agent::AutomaticRecoveryObservation::Blocked(failure))) => {
+                    let error = map_windows_vpn_error(
+                        windows_agent::WindowsVpnError::AutomaticRecoveryBlocked {
+                            message: failure.message,
+                        },
+                    );
+                    self.mark_connection_error(&error).await;
+                    self.clear_windows_connection_intent_if(intent_generation)
+                        .await;
+                    return Err(error);
+                }
+                Ok(Some(windows_agent::AutomaticRecoveryObservation::Clean)) | Ok(None) => {}
+                Err(error) => {
+                    let error = map_windows_vpn_error(error);
+                    self.mark_connection_error(&error).await;
+                    self.clear_windows_connection_intent_if(intent_generation)
+                        .await;
+                    return Err(error);
+                }
+            }
+
             let mut data_plane = self.data_plane.lock().await;
             if data_plane
                 .as_ref()
@@ -1553,18 +2107,36 @@ impl ControlService {
                 // The Agent journal remains Active and WFP stays fail-closed.
                 // `connect_locked` detects that transaction and recreates only
                 // MASQUE plus the volatile packet session.
-                return self.connect_locked(profile_id).await;
+                let result = self.connect_locked(profile_id).await;
+                if result.is_err() {
+                    self.clear_windows_connection_intent_if(intent_generation)
+                        .await;
+                }
+                return result;
             }
         }
 
-        self.disconnect_locked().await?;
-        self.connect_locked(profile_id).await
+        if let Err(error) = self.disconnect_locked().await {
+            #[cfg(windows)]
+            self.clear_windows_connection_intent_if(intent_generation)
+                .await;
+            return Err(error);
+        }
+        let result = self.connect_locked(profile_id).await;
+        #[cfg(windows)]
+        if result.is_err() {
+            self.clear_windows_connection_intent_if(intent_generation)
+                .await;
+        }
+        result
     }
 
     async fn clear_all_data(&self, confirmed: bool) -> Result<(), ControlServiceError> {
         if !confirmed {
             return Err(ControlServiceError::ConfirmationRequired);
         }
+        #[cfg(windows)]
+        self.clear_windows_connection_intent().await;
         let _mutation = self.mutation_lock.lock().await;
         self.disconnect_locked().await?;
         self.await_disconnect_cleanup().await?;
@@ -2667,6 +3239,17 @@ impl ControlService {
     }
 
     async fn delete_profile(&self, id: Uuid) -> Result<(), ControlServiceError> {
+        {
+            let config = self.config.read().await;
+            if !config.profiles.iter().any(|profile| profile.id == id) {
+                return Err(ControlServiceError::ProfileNotFound(id));
+            }
+            if config.profiles.len() == 1 {
+                return Err(ControlServiceError::LastProfile);
+            }
+        }
+        #[cfg(windows)]
+        self.clear_windows_connection_intent().await;
         let _mutation = self.mutation_lock.lock().await;
         let mut next = self.config.read().await.clone();
         let Some(index) = next.profiles.iter().position(|profile| profile.id == id) else {
@@ -2688,6 +3271,18 @@ impl ControlService {
     }
 
     async fn set_active_profile(&self, id: Uuid) -> Result<(), ControlServiceError> {
+        if !self
+            .config
+            .read()
+            .await
+            .profiles
+            .iter()
+            .any(|profile| profile.id == id)
+        {
+            return Err(ControlServiceError::ProfileNotFound(id));
+        }
+        #[cfg(windows)]
+        self.clear_windows_connection_intent().await;
         let _mutation = self.mutation_lock.lock().await;
         let mut next = self.config.read().await.clone();
         if !next.profiles.iter().any(|profile| profile.id == id) {
@@ -2909,8 +3504,17 @@ pub enum ControlServiceError {
     Transport(#[from] TransportError),
     #[error("the Windows platform VPN failed: {0}")]
     PlatformVpn(String),
+    #[error("Windows automatic recovery is pending")]
+    PlatformRecoveryPending {
+        operation_id: String,
+        journal_generation: u64,
+    },
     #[error("{message}")]
-    PlatformRecovery { code: &'static str, message: String },
+    PlatformRecovery {
+        code: &'static str,
+        message: String,
+        retryable: bool,
+    },
     #[error("Cloudflare terms must be accepted before identity provisioning")]
     TermsNotAccepted,
     #[error("the manually entered WARP Secret is not UTF-8")]
@@ -3009,7 +3613,10 @@ impl ControlServiceError {
             ) => ("PROXY_LISTENER_FAILED", false),
             Self::Transport(_) => ("DATA_PLANE_FAILED", true),
             Self::PlatformVpn(_) => ("PLATFORM_VPN_FAILED", true),
-            Self::PlatformRecovery { code, .. } => (*code, false),
+            Self::PlatformRecoveryPending { .. } => ("WINDOWS_RECOVERY_PENDING", true),
+            Self::PlatformRecovery {
+                code, retryable, ..
+            } => (*code, *retryable),
             Self::TermsNotAccepted => ("TERMS_NOT_ACCEPTED", false),
             Self::InvalidManualSecretEncoding | Self::Identity(_) => ("INVALID_WARP_SECRET", false),
             Self::InvalidLicenseEncoding => ("INVALID_LICENSE_KEY", false),
@@ -3075,6 +3682,8 @@ impl ControlServiceError {
 fn connection_error_wire_code(code: ErrorCode) -> String {
     match code {
         ErrorCode::WindowsRecoveryFailed => "WINDOWS_RECOVERY_FAILED".to_owned(),
+        ErrorCode::WindowsRecoveryExhausted => "WINDOWS_RECOVERY_EXHAUSTED".to_owned(),
+        ErrorCode::WindowsRecoveryBlocked => "WINDOWS_RECOVERY_BLOCKED".to_owned(),
         ErrorCode::WindowsRecoveryTimeout => "WINDOWS_RECOVERY_TIMEOUT".to_owned(),
         ErrorCode::WindowsRecoveryConflict => "WINDOWS_RECOVERY_CONFLICT".to_owned(),
         ErrorCode::WindowsRecoveryUnsupported => "WINDOWS_RECOVERY_UNSUPPORTED".to_owned(),
@@ -3099,7 +3708,10 @@ fn connection_error_for(error: &ControlServiceError) -> ConnectionError {
         ControlServiceError::Transport(TransportError::Http3DatagramUnavailable)
         | ControlServiceError::OperatingModeUnavailable(_) => ErrorCode::TransportUnavailable,
         ControlServiceError::PlatformVpn(_) => ErrorCode::PlatformSetupFailed,
+        ControlServiceError::PlatformRecoveryPending { .. } => ErrorCode::WindowsRecoveryFailed,
         ControlServiceError::PlatformRecovery { code, .. } => match *code {
+            "WINDOWS_RECOVERY_EXHAUSTED" => ErrorCode::WindowsRecoveryExhausted,
+            "WINDOWS_RECOVERY_BLOCKED" => ErrorCode::WindowsRecoveryBlocked,
             "WINDOWS_RECOVERY_TIMEOUT" => ErrorCode::WindowsRecoveryTimeout,
             "WINDOWS_RECOVERY_CONFLICT" => ErrorCode::WindowsRecoveryConflict,
             "WINDOWS_RECOVERY_UNSUPPORTED" => ErrorCode::WindowsRecoveryUnsupported,
@@ -3124,20 +3736,43 @@ fn connection_error_for(error: &ControlServiceError) -> ConnectionError {
 
 #[cfg(windows)]
 pub(crate) fn map_windows_vpn_error(error: windows_agent::WindowsVpnError) -> ControlServiceError {
-    let recovery_code = match &error {
+    let error = match error {
+        windows_agent::WindowsVpnError::AutomaticRecoveryPending {
+            operation_id,
+            journal_generation,
+        } => {
+            return ControlServiceError::PlatformRecoveryPending {
+                operation_id,
+                journal_generation,
+            };
+        }
+        error => error,
+    };
+    let recovery = match &error {
         windows_agent::WindowsVpnError::RecoveryFailed
         | windows_agent::WindowsVpnError::RecoveryRequired { .. } => {
-            Some("WINDOWS_RECOVERY_FAILED")
+            Some(("WINDOWS_RECOVERY_FAILED", false))
         }
-        windows_agent::WindowsVpnError::RecoveryTimeout => Some("WINDOWS_RECOVERY_TIMEOUT"),
-        windows_agent::WindowsVpnError::RecoveryConflict => Some("WINDOWS_RECOVERY_CONFLICT"),
-        windows_agent::WindowsVpnError::RecoveryUnsupported => Some("WINDOWS_RECOVERY_UNSUPPORTED"),
+        windows_agent::WindowsVpnError::RecoveryTimeout => Some(("WINDOWS_RECOVERY_TIMEOUT", true)),
+        windows_agent::WindowsVpnError::RecoveryConflict => {
+            Some(("WINDOWS_RECOVERY_CONFLICT", false))
+        }
+        windows_agent::WindowsVpnError::RecoveryUnsupported => {
+            Some(("WINDOWS_RECOVERY_UNSUPPORTED", false))
+        }
+        windows_agent::WindowsVpnError::AutomaticRecoveryExhausted { .. } => {
+            Some(("WINDOWS_RECOVERY_EXHAUSTED", true))
+        }
+        windows_agent::WindowsVpnError::AutomaticRecoveryBlocked { .. } => {
+            Some(("WINDOWS_RECOVERY_BLOCKED", false))
+        }
         _ => None,
     };
-    if let Some(code) = recovery_code {
+    if let Some((code, retryable)) = recovery {
         return ControlServiceError::PlatformRecovery {
             code,
             message: error.to_string(),
+            retryable,
         };
     }
     match error {
@@ -3881,6 +4516,9 @@ fn location_to_proto(location: &usque_core::GeoLocation) -> v1::GeoLocation {
 mod tests {
     use std::collections::HashMap;
 
+    #[cfg(windows)]
+    use std::time::Duration;
+
     use async_trait::async_trait;
     use base64::{Engine, engine::general_purpose::STANDARD as BASE64_STANDARD};
     use p256::{
@@ -3889,6 +4527,189 @@ mod tests {
     };
 
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_recovery_observation_is_bounded() {
+        assert_eq!(
+            WINDOWS_RECOVERY_POLL_INTERVAL,
+            std::time::Duration::from_millis(500)
+        );
+        assert_eq!(
+            WINDOWS_RECOVERY_OBSERVATION_TIMEOUT,
+            std::time::Duration::from_secs(90)
+        );
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn explicit_disconnect_cancels_a_pending_windows_reconnect_intent() {
+        let directory = tempfile::tempdir().unwrap();
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(MemoryVault::default()),
+        )
+        .unwrap();
+        let profile = service.config_snapshot().await.active_profile().unwrap();
+        let profile_id = profile.id;
+        service
+            .install_test_session(profile, false, 0)
+            .await
+            .unwrap();
+        service.begin_windows_connection_intent(profile_id).await;
+        let snapshot = service
+            .enter_windows_automatic_recovery(profile_id, "operation".to_owned(), 7)
+            .await
+            .unwrap();
+        assert_eq!(snapshot.phase, ConnectionPhase::Reconnecting);
+        assert!(service.windows_recovery.lock().await.pending.is_some());
+        assert_eq!(
+            service.status_snapshot().await.phase,
+            ConnectionPhase::Reconnecting,
+            "a still-live old runtime must not hide platform recovery"
+        );
+        let previous_intent = service
+            .windows_recovery
+            .lock()
+            .await
+            .intent
+            .as_ref()
+            .unwrap()
+            .generation;
+        assert_eq!(
+            service.connect(profile_id).await.unwrap().phase,
+            ConnectionPhase::Reconnecting
+        );
+        {
+            let recovery = service.windows_recovery.lock().await;
+            let intent = recovery.intent.as_ref().unwrap();
+            let pending = recovery.pending.as_ref().unwrap();
+            assert!(intent.generation > previous_intent);
+            assert_eq!(pending.intent_generation, intent.generation);
+            assert!(pending.reconnect_after_clean);
+        }
+
+        let snapshot = service.disconnect().await.unwrap();
+        service.await_disconnect_cleanup().await.unwrap();
+        assert_eq!(snapshot.phase, ConnectionPhase::Disconnected);
+        let recovery = service.windows_recovery.lock().await;
+        assert!(recovery.intent.is_none());
+        assert!(recovery.pending.is_none());
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn profile_switch_and_delete_cancel_intent_before_waiting_for_mutation_lock() {
+        let directory = tempfile::tempdir().unwrap();
+        let service = Arc::new(
+            ControlService::open_with_vault(
+                ConfigStore::new(directory.path().join("config.json")),
+                Arc::new(MemoryVault::default()),
+            )
+            .unwrap(),
+        );
+        let original = service.config_snapshot().await.active_profile_id.unwrap();
+        let extra = Profile {
+            id: Uuid::new_v4(),
+            name: "Recovery replacement".to_owned(),
+            ..Profile::default()
+        };
+        service.upsert_profile(extra.clone()).await.unwrap();
+
+        service.begin_windows_connection_intent(original).await;
+        let mutation = service.mutation_lock.lock().await;
+        let switch = {
+            let service = Arc::clone(&service);
+            tokio::spawn(async move { service.set_active_profile(extra.id).await })
+        };
+        tokio::time::timeout(Duration::from_millis(100), async {
+            loop {
+                if service.windows_recovery.lock().await.intent.is_none() {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("profile switch must cancel recovery before the mutation lock is available");
+        assert!(!switch.is_finished());
+        drop(mutation);
+        switch.await.unwrap().unwrap();
+
+        service.begin_windows_connection_intent(extra.id).await;
+        let mutation = service.mutation_lock.lock().await;
+        let delete = {
+            let service = Arc::clone(&service);
+            tokio::spawn(async move { service.delete_profile(original).await })
+        };
+        tokio::time::timeout(Duration::from_millis(100), async {
+            loop {
+                if service.windows_recovery.lock().await.intent.is_none() {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("profile deletion must cancel recovery before the mutation lock is available");
+        assert!(!delete.is_finished());
+        drop(mutation);
+        delete.await.unwrap().unwrap();
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn one_intent_never_recursively_arms_a_second_automatic_reconnect() {
+        let directory = tempfile::tempdir().unwrap();
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(MemoryVault::default()),
+        )
+        .unwrap();
+        let profile_id = service.config_snapshot().await.active_profile_id.unwrap();
+        service.begin_windows_connection_intent(profile_id).await;
+        {
+            let mut state = service.state.lock().await;
+            state.transition(ConnectionPhase::Preparing).unwrap();
+            state.transition(ConnectionPhase::ConnectingHttp3).unwrap();
+        }
+        service
+            .enter_windows_automatic_recovery(profile_id, "first".to_owned(), 7)
+            .await
+            .unwrap();
+        {
+            let mut recovery = service.windows_recovery.lock().await;
+            recovery
+                .intent
+                .as_mut()
+                .unwrap()
+                .automatic_reconnect_attempted = true;
+            recovery.pending = None;
+        }
+        {
+            let mut state = service.state.lock().await;
+            state.transition(ConnectionPhase::Preparing).unwrap();
+            state.transition(ConnectionPhase::ConnectingHttp3).unwrap();
+        }
+        assert_eq!(
+            service
+                .enter_windows_automatic_recovery(profile_id, "second".to_owned(), 8)
+                .await
+                .unwrap()
+                .phase,
+            ConnectionPhase::Reconnecting
+        );
+        assert!(
+            !service
+                .windows_recovery
+                .lock()
+                .await
+                .pending
+                .as_ref()
+                .unwrap()
+                .reconnect_after_clean
+        );
+    }
 
     #[tokio::test]
     async fn closing_or_replacing_quality_sources_cannot_leave_a_stale_connection() {

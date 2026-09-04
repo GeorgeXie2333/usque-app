@@ -9,7 +9,7 @@ use usque_core::{
     DiagnosticFinding, DiagnosticMode, FailureSeverity, FrontendKind, FrontendPhase,
     KillSwitchState, Transport, TransportFailure, TransportFailureCode, TransportStage,
 };
-use usque_ipc::agent_v1::PlatformState;
+use usque_ipc::agent_v1::{AutomaticRecoveryPhase, PlatformState};
 use usque_transport::{ConnectionEventType, ConnectionTimelineSnapshot};
 
 #[derive(Clone)]
@@ -541,12 +541,16 @@ impl PassiveCheck {
                     .as_ref()
                     .is_some_and(|state| state.pending_cleanup) =>
             {
-                failed(
+                let mut finding = failed(
                     self,
                     TransportFailureCode::PlatformRecoveryPending,
                     TransportStage::PlatformRecovery,
                     "diagnostic_recovery_journal_pending_cleanup",
-                )
+                );
+                if let Some(state) = context.platform_state.as_ref() {
+                    finding.sanitized_evidence = automatic_recovery_evidence(state);
+                }
+                finding
             }
             Kind::RecoveryJournal if context.platform_state.is_some() => passed(
                 self,
@@ -567,6 +571,30 @@ impl PassiveCheck {
             ),
         }
     }
+}
+
+fn automatic_recovery_evidence(state: &PlatformState) -> Vec<String> {
+    let Some(status) = state.automatic_recovery.as_ref() else {
+        return Vec::new();
+    };
+    let Ok(phase) = AutomaticRecoveryPhase::try_from(status.phase) else {
+        return Vec::new();
+    };
+    if phase == AutomaticRecoveryPhase::Unspecified
+        || status.attempt_limit == 0
+        || status.attempt_limit > 16
+        || status.attempts_completed > status.attempt_limit
+    {
+        return Vec::new();
+    }
+    vec![
+        format!("automatic_recovery_phase={}", phase as i32),
+        format!(
+            "automatic_recovery_attempts_completed={}",
+            status.attempts_completed
+        ),
+        format!("automatic_recovery_attempt_limit={}", status.attempt_limit),
+    ]
 }
 
 #[async_trait]
@@ -895,5 +923,33 @@ mod tests {
                 Some(TransportFailureCode::PlatformRecoveryPending)
             );
         }
+    }
+
+    #[test]
+    fn recovery_diagnostics_expose_only_bounded_automatic_status_numbers() {
+        let mut context = context_with_unknown_platform_state();
+        let platform = context.platform_state.as_mut().unwrap();
+        platform.pending_cleanup = true;
+        platform.automatic_recovery = Some(usque_ipc::agent_v1::AutomaticRecoveryStatus {
+            phase: AutomaticRecoveryPhase::Exhausted as i32,
+            attempts_completed: 3,
+            attempt_limit: 3,
+            terminal_error: Some(usque_ipc::agent_v1::AgentError {
+                code: "AGENT_AUTOMATIC_RECOVERY_EXHAUSTED".to_owned(),
+                message: "must not be copied into evidence".to_owned(),
+                retryable: true,
+            }),
+        });
+
+        let finding = check(PassiveCheckKind::RecoveryJournal).evaluate(&context);
+        assert_eq!(
+            finding.sanitized_evidence,
+            [
+                "automatic_recovery_phase=4",
+                "automatic_recovery_attempts_completed=3",
+                "automatic_recovery_attempt_limit=3",
+            ]
+        );
+        assert!(!format!("{finding:?}").contains("must not be copied"));
     }
 }

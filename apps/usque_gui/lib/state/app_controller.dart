@@ -899,6 +899,7 @@ class AppController extends ChangeNotifier {
           phase: ConnectionPhase.error,
           warning: lastError,
           errorCode: error is EngineException ? error.code : null,
+          errorRetryable: error is EngineException ? error.retryable : null,
         );
       }
       return false;

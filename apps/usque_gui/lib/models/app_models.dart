@@ -1773,6 +1773,7 @@ class EngineSnapshot {
     this.exit = const ExitInfo(),
     this.warning,
     this.errorCode,
+    this.errorRetryable,
     this.failure,
     this.frontends = const <FrontendRuntimeStatus>[],
     this.networkQuality,
@@ -1794,6 +1795,7 @@ class EngineSnapshot {
   final ExitInfo exit;
   final String? warning;
   final String? errorCode;
+  final bool? errorRetryable;
   final TransportFailureInfo? failure;
   final List<FrontendRuntimeStatus> frontends;
   final NetworkQualitySnapshot? networkQuality;
@@ -1847,6 +1849,7 @@ class EngineSnapshot {
       ),
       warning: map['warning'] as String?,
       errorCode: map['error_code'] as String?,
+      errorRetryable: map['error_retryable'] as bool?,
       failure: map['failure'] is Map
           ? TransportFailureInfo.fromMap(
               Map<Object?, Object?>.from(map['failure'] as Map),
@@ -1905,6 +1908,7 @@ class EngineSnapshot {
             exit == other.exit &&
             warning == other.warning &&
             errorCode == other.errorCode &&
+            errorRetryable == other.errorRetryable &&
             failure == other.failure &&
             listEquals(frontends, other.frontends) &&
             networkQuality == other.networkQuality;
@@ -1928,6 +1932,7 @@ class EngineSnapshot {
     exit,
     warning,
     errorCode,
+    errorRetryable,
     failure,
     Object.hashAll(frontends),
     networkQuality,

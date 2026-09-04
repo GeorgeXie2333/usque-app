@@ -17,6 +17,12 @@ class RecoveryErrorEngine extends FakeEngineClient {
       throw EngineException(code, 'Unlocalized technical recovery details');
 }
 
+class PendingRecoveryEngine extends FakeEngineClient {
+  @override
+  Future<EngineSnapshot> retry() async =>
+      const EngineSnapshot(phase: ConnectionPhase.reconnecting);
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -48,6 +54,19 @@ void main() {
         AppStrings(LocalePreference.english).windowsRecoveryError('OTHER'),
         isNull,
       );
+    },
+  );
+
+  test(
+    'pending automatic recovery stays transitional without an error',
+    () async {
+      final controller = AppController(PendingRecoveryEngine());
+      addTearDown(controller.dispose);
+      controller.snapshot = const EngineSnapshot(phase: ConnectionPhase.error);
+      await controller.retry();
+      expect(controller.snapshot.phase, ConnectionPhase.reconnecting);
+      expect(controller.lastError, isNull);
+      expect(controller.busy, isFalse);
     },
   );
 

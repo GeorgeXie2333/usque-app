@@ -1,6 +1,10 @@
 const Map<String, String> kWindowsRecoveryEn = <String, String>{
   'WINDOWS_RECOVERY_FAILED':
       'The previous VPN network state could not be fully restored. No new VPN connection was started. Retry the connection or inspect local diagnostics.',
+  'WINDOWS_RECOVERY_EXHAUSTED':
+      'Windows could not restore the previous VPN network state after three automatic attempts. Retry when ready, or inspect local diagnostics.',
+  'WINDOWS_RECOVERY_BLOCKED':
+      'Automatic repair stopped because the previous Windows network state could not be verified safely. Restart the Agent or update Usque, then inspect local diagnostics.',
   'WINDOWS_RECOVERY_TIMEOUT':
       'Windows network recovery is taking longer than expected. No new VPN connection was started. Wait for recovery to finish before retrying.',
   'WINDOWS_RECOVERY_CONFLICT':
@@ -11,6 +15,10 @@ const Map<String, String> kWindowsRecoveryEn = <String, String>{
 
 const Map<String, String> kWindowsRecoveryZhCn = <String, String>{
   'WINDOWS_RECOVERY_FAILED': '未能完整恢复上次 VPN 的网络状态，尚未建立新 VPN 连接。请重试连接，或查看本地诊断。',
+  'WINDOWS_RECOVERY_EXHAUSTED':
+      'Windows 在三次自动尝试后仍未能恢复上次 VPN 网络状态。请稍后重试，或查看本地诊断。',
+  'WINDOWS_RECOVERY_BLOCKED':
+      '由于无法安全验证上次 Windows 网络状态，自动修复已停止。请重启 Agent 或更新 Usque，然后查看本地诊断。',
   'WINDOWS_RECOVERY_TIMEOUT': 'Windows 网络状态恢复耗时较长，尚未建立新 VPN 连接。请等待恢复完成后再重试。',
   'WINDOWS_RECOVERY_CONFLICT': '网络状态已变化，或仍被其他会话使用。为保护现有连接，已停止自动恢复。',
   'WINDOWS_RECOVERY_UNSUPPORTED':

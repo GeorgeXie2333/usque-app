@@ -76,7 +76,7 @@ mod tests {
     use super::*;
     use crate::agent_v1::{
         AcquireDirectEgressRequest, AcquireTunnelLeaseRequest, AgentCapabilities, AgentRequest,
-        GetCapabilitiesRequest, InspectPlatformStateRequest, PrepareTunnelRequest,
+        AgentState, GetCapabilitiesRequest, InspectPlatformStateRequest, PrepareTunnelRequest,
         ResumeTunnelRequest, TunnelPlan, agent_request,
     };
     use crate::v1::{
@@ -163,6 +163,30 @@ mod tests {
     struct LegacyControlResponse {
         #[prost(string, tag = "1")]
         request_id: String,
+    }
+
+    #[derive(Clone, PartialEq, Message)]
+    struct LegacyAgentEnvelope {
+        #[prost(string, tag = "1")]
+        request_id: String,
+        #[prost(uint32, tag = "2")]
+        protocol_version: u32,
+    }
+
+    #[derive(Clone, PartialEq, Message)]
+    struct LegacyAgentCapabilities {
+        #[prost(uint32, tag = "9")]
+        protocol_version: u32,
+        #[prost(bool, tag = "13")]
+        guarded_recovery: bool,
+    }
+
+    #[derive(Clone, PartialEq, Message)]
+    struct LegacyAgentState {
+        #[prost(enumeration = "agent_v1::AgentPhase", tag = "1")]
+        phase: i32,
+        #[prost(uint64, tag = "7")]
+        journal_generation: u64,
     }
 
     #[test]
@@ -373,6 +397,87 @@ mod tests {
         assert_eq!(
             legacy.encode_to_vec(),
             [0x0a, 2, b'r', b'1', 0x10, 3, 0x92, 0x01, 0]
+        );
+    }
+
+    #[test]
+    fn automatic_recovery_uses_append_only_fields_without_bumping_v3() {
+        let frame: &[u8] = &[
+            0, 0, 0, 14, 0x0a, 2, b'a', b'1', 0x10, 3, 0xda, 0x01, 5, 0x0a, 1, b'o', 0x10, 7,
+        ];
+        let request: AgentRequest = decode_frame(Bytes::copy_from_slice(frame)).unwrap();
+        assert!(
+            matches!(request.payload.as_ref(), Some(agent_request::Payload::RestartAutomaticRecovery(value))
+            if value.operation_id == "o" && value.expected_journal_generation == 7)
+        );
+        assert_eq!(encode_frame(&request).unwrap().as_ref(), frame);
+        let legacy_request = LegacyAgentEnvelope::decode(&frame[4..]).unwrap();
+        assert_eq!(legacy_request.request_id, "a1");
+        assert_eq!(legacy_request.protocol_version, 3);
+        assert_eq!(
+            AgentCapabilities {
+                automatic_recovery: true,
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0x70, 1]
+        );
+        assert!(
+            !AgentCapabilities::decode(&[0x68, 1][..])
+                .unwrap()
+                .automatic_recovery
+        );
+        let legacy_capabilities = LegacyAgentCapabilities::decode(
+            AgentCapabilities {
+                protocol_version: 3,
+                guarded_recovery: true,
+                automatic_recovery: true,
+                ..Default::default()
+            }
+            .encode_to_vec()
+            .as_slice(),
+        )
+        .unwrap();
+        assert_eq!(legacy_capabilities.protocol_version, 3);
+        assert!(legacy_capabilities.guarded_recovery);
+
+        let status = agent_v1::AutomaticRecoveryStatus {
+            phase: agent_v1::AutomaticRecoveryPhase::Exhausted as i32,
+            attempts_completed: 3,
+            attempt_limit: 3,
+            terminal_error: None,
+        };
+        assert_eq!(
+            AgentState {
+                automatic_recovery: Some(status.clone()),
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0x4a, 6, 0x08, 4, 0x10, 3, 0x18, 3]
+        );
+        let legacy_state = LegacyAgentState::decode(
+            AgentState {
+                phase: agent_v1::AgentPhase::RecoveryRequired as i32,
+                journal_generation: 9,
+                automatic_recovery: Some(status.clone()),
+                ..Default::default()
+            }
+            .encode_to_vec()
+            .as_slice(),
+        )
+        .unwrap();
+        assert_eq!(
+            legacy_state.phase,
+            agent_v1::AgentPhase::RecoveryRequired as i32
+        );
+        assert_eq!(legacy_state.journal_generation, 9);
+        assert_eq!(
+            agent_v1::PlatformState {
+                automatic_recovery: Some(status),
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0x8a, 0x01, 6, 0x08, 4, 0x10, 3, 0x18, 3]
         );
     }
 

@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -165,6 +166,10 @@ where
         self.journal.lock().await.clone()
     }
 
+    pub fn try_state(&self) -> Option<RecoveryJournal> {
+        self.journal.try_lock().ok().map(|journal| journal.clone())
+    }
+
     /// Finalizes journal entries whose exact Wintun adapter has already been
     /// removed by an earlier best-effort recovery pass. Interface addresses,
     /// MTU, and DNS state cannot survive removal of that same adapter, so these
@@ -281,6 +286,84 @@ where
         before_recovery.await;
         self.recover_locked(&mut journal).await?;
         Ok(journal.clone())
+    }
+
+    /// One service-owned, generation-scoped recovery attempt.
+    ///
+    /// Unlike `recover_stale`, this revalidates the exact failed transaction
+    /// after every backoff delay. It therefore cannot tear down a replacement
+    /// transaction that became active while the automatic supervisor slept.
+    pub async fn recover_automatic(
+        &self,
+        operation_id: Uuid,
+        expected_generation: u64,
+        before_recovery: impl std::future::Future<Output = ()> + Send,
+    ) -> Result<RecoveryJournal, CoordinatorError> {
+        let mut journal = self.journal.lock().await;
+        if journal.operation_id != Some(operation_id) || journal.generation != expected_generation {
+            return Err(CoordinatorError::RecoveryConflict);
+        }
+        if journal.phase != RecoveryPhase::RecoveryRequired {
+            return Err(CoordinatorError::RecoveryConflict);
+        }
+        if self.packet_session_attached() || self.tunnel_lease_attached() {
+            return Err(CoordinatorError::RecoveryBusy);
+        }
+        for step in &journal.steps {
+            if step.kind == MutationKind::WintunAdapter && step.state != MutationState::Restored {
+                self.backend.inspect_adapter(&step.receipt).await?;
+            }
+        }
+        // Volatile permits are revoked only after all exact-operation and
+        // identity guards passed while the journal remains locked.
+        before_recovery.await;
+        self.recover_locked(&mut journal).await?;
+        Ok(journal.clone())
+    }
+
+    /// Validates a user-requested reset of the in-memory automatic-recovery
+    /// budget without changing Windows or the durable recovery journal.
+    pub async fn validate_automatic_recovery_restart(
+        &self,
+        operation_id: Uuid,
+        expected_generation: u64,
+        caller: &AuthenticatedCaller,
+    ) -> Result<RecoveryJournal, CoordinatorError> {
+        let journal = self.journal.lock().await;
+        self.validate_automatic_recovery_restart_snapshot(
+            &journal,
+            operation_id,
+            expected_generation,
+            caller,
+        )?;
+        Ok(journal.clone())
+    }
+
+    /// Validates the conservative journal snapshot advertised while an
+    /// automatic native recovery call owns the journal lock. This is read-only
+    /// and lets a concurrent Retry request be idempotent instead of waiting for
+    /// (or attempting to cancel) the in-flight cleanup.
+    pub fn validate_automatic_recovery_restart_snapshot(
+        &self,
+        journal: &RecoveryJournal,
+        operation_id: Uuid,
+        expected_generation: u64,
+        caller: &AuthenticatedCaller,
+    ) -> Result<(), CoordinatorError> {
+        validate_caller(caller)?;
+        if journal.operation_id != Some(operation_id) || journal.generation != expected_generation {
+            return Err(CoordinatorError::RecoveryConflict);
+        }
+        if journal.owner_sid.as_deref() != Some(caller.user_sid.as_str()) {
+            return Err(CoordinatorError::OwnerMismatch);
+        }
+        if journal.phase != RecoveryPhase::RecoveryRequired {
+            return Err(CoordinatorError::RecoveryConflict);
+        }
+        if self.packet_session_attached() || self.tunnel_lease_attached() {
+            return Err(CoordinatorError::RecoveryBusy);
+        }
+        Ok(())
     }
 
     pub async fn prepare(
@@ -1159,7 +1242,40 @@ enum RecoveryFailure {
     Persist(Option<MutationKind>, JournalError),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecoveryDisposition {
+    Retryable,
+    Blocked,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecoveryReport {
+    summary: String,
+    disposition: RecoveryDisposition,
+}
+
+impl RecoveryReport {
+    pub const fn disposition(&self) -> RecoveryDisposition {
+        self.disposition
+    }
+
+    pub const fn retryable(&self) -> bool {
+        matches!(self.disposition, RecoveryDisposition::Retryable)
+    }
+}
+
+impl fmt::Display for RecoveryReport {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.summary)
+    }
+}
+
 fn recovery_error(failures: &[RecoveryFailure]) -> CoordinatorError {
+    let disposition = if failures.iter().all(recovery_failure_is_retryable) {
+        RecoveryDisposition::Retryable
+    } else {
+        RecoveryDisposition::Blocked
+    };
     let summaries = failures
         .iter()
         .map(|failure| match failure {
@@ -1181,7 +1297,48 @@ fn recovery_error(failures: &[RecoveryFailure]) -> CoordinatorError {
         .collect::<Vec<_>>();
     // Only allowlisted step/API names and numeric errors reach logs or IPC.
     // Raw backend errors can contain addresses, registry values or user paths.
-    CoordinatorError::RecoveryFailures(summaries.join("; "))
+    CoordinatorError::RecoveryFailures(RecoveryReport {
+        summary: summaries.join("; "),
+        disposition,
+    })
+}
+
+fn recovery_failure_is_retryable(failure: &RecoveryFailure) -> bool {
+    match failure {
+        RecoveryFailure::Restore(_, error) => backend_error_is_retryable(error),
+        RecoveryFailure::Persist(_, error) => journal_error_is_retryable(error),
+    }
+}
+
+fn backend_error_is_retryable(error: &BackendError) -> bool {
+    match error {
+        BackendError::AdapterRemovalPending => true,
+        BackendError::Windows { code, .. } => transient_windows_error(*code),
+        _ => false,
+    }
+}
+
+fn journal_error_is_retryable(error: &JournalError) -> bool {
+    match error {
+        JournalError::Io(error) => {
+            matches!(
+                error.kind(),
+                std::io::ErrorKind::Interrupted
+                    | std::io::ErrorKind::WouldBlock
+                    | std::io::ErrorKind::TimedOut
+                    | std::io::ErrorKind::ResourceBusy
+            ) || error
+                .raw_os_error()
+                .is_some_and(|code| transient_windows_error(code as u32))
+        }
+        _ => false,
+    }
+}
+
+const fn transient_windows_error(code: u32) -> bool {
+    // Stable Win32 values. Keep this allowlist intentionally narrow: unknown
+    // errors stop automatic recovery rather than weakening fail-closed state.
+    matches!(code, 21 | 32 | 33 | 142 | 170 | 1237 | 1460 | 2404)
 }
 
 fn dependency_satisfied_by_restored_wintun(
@@ -1352,7 +1509,44 @@ pub enum CoordinatorError {
     #[error("apply failed ({apply}) and recovery also failed ({recovery})")]
     ApplyAndRecovery { apply: String, recovery: String },
     #[error("platform recovery is incomplete: {0}")]
-    RecoveryFailures(String),
+    RecoveryFailures(RecoveryReport),
+}
+
+impl CoordinatorError {
+    pub fn recovery_disposition(&self) -> RecoveryDisposition {
+        let retryable = match self {
+            Self::RecoveryFailures(report) => return report.disposition(),
+            Self::Backend(error) => backend_error_is_retryable(error),
+            Self::Journal(error) => journal_error_is_retryable(error),
+            _ => false,
+        };
+        if retryable {
+            RecoveryDisposition::Retryable
+        } else {
+            RecoveryDisposition::Blocked
+        }
+    }
+
+    pub fn sanitized_recovery_summary(&self) -> String {
+        match self {
+            Self::RecoveryFailures(report) => report.to_string(),
+            Self::Backend(BackendError::Windows { api, code }) => {
+                format!("platform inspection: {api} (Win32 {code})")
+            }
+            Self::Backend(BackendError::AdapterIdentity) => {
+                "platform inspection: adapter identity verification failed".to_owned()
+            }
+            Self::Backend(BackendError::AdapterRemovalPending) => {
+                "platform inspection: adapter removal was not confirmed".to_owned()
+            }
+            Self::Journal(JournalError::Io(error)) => format!(
+                "platform recovery journal: I/O failure ({:?})",
+                error.raw_os_error()
+            ),
+            Self::Journal(_) => "platform recovery journal: validation failure".to_owned(),
+            _ => "platform recovery: state or backend failure".to_owned(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1840,6 +2034,17 @@ mod tests {
         )
         .await;
         let generation = coordinator.state().await.generation;
+        let mut changed_phase = coordinator.state().await;
+        changed_phase.phase = RecoveryPhase::Prepared;
+        assert!(matches!(
+            coordinator.validate_automatic_recovery_restart_snapshot(
+                &changed_phase,
+                operation,
+                generation,
+                &owner,
+            ),
+            Err(CoordinatorError::RecoveryConflict)
+        ));
         let revoked = AtomicBool::new(false);
         let before = || async {
             revoked.store(true, Ordering::Release);
@@ -1875,6 +2080,12 @@ mod tests {
                 .await,
             Err(CoordinatorError::RecoveryBusy)
         ));
+        assert!(matches!(
+            coordinator
+                .recover_automatic(operation, generation, before())
+                .await,
+            Err(CoordinatorError::RecoveryBusy)
+        ));
         coordinator
             .packet_session_attached
             .store(false, Ordering::Release);
@@ -1887,13 +2098,31 @@ mod tests {
                 .await,
             Err(CoordinatorError::RecoveryBusy)
         ));
+        assert!(matches!(
+            coordinator
+                .recover_automatic(operation, generation, before())
+                .await,
+            Err(CoordinatorError::RecoveryBusy)
+        ));
         coordinator
             .tunnel_lease_attached
             .store(false, Ordering::Release);
+        assert!(matches!(
+            coordinator
+                .recover_automatic(Uuid::new_v4(), generation, before())
+                .await,
+            Err(CoordinatorError::RecoveryConflict)
+        ));
+        assert!(matches!(
+            coordinator
+                .recover_automatic(operation, generation + 1, before())
+                .await,
+            Err(CoordinatorError::RecoveryConflict)
+        ));
         backend.inspection_fails.store(true, Ordering::Release);
         assert!(matches!(
             coordinator
-                .recover_orphaned(operation, generation, &owner, before())
+                .recover_automatic(operation, generation, before())
                 .await,
             Err(CoordinatorError::Backend(BackendError::AdapterIdentity))
         ));
@@ -2071,6 +2300,87 @@ mod tests {
             !failure.contains("token")
                 && !failure.contains("192.0.2.9")
                 && !failure.contains("S-1-")
+        );
+    }
+
+    #[test]
+    fn automatic_recovery_classification_is_an_explicit_allowlist() {
+        for code in [21, 32, 33, 142, 170, 1237, 1460, 2404] {
+            let CoordinatorError::RecoveryFailures(report) =
+                recovery_error(&[RecoveryFailure::Restore(
+                    MutationKind::WintunAdapter,
+                    BackendError::Windows {
+                        api: "AllowlistedApi",
+                        code,
+                    },
+                )])
+            else {
+                panic!("expected recovery report");
+            };
+            assert!(report.retryable(), "Win32 {code}");
+            assert_eq!(
+                CoordinatorError::Backend(BackendError::Windows {
+                    api: "AllowlistedInspection",
+                    code,
+                })
+                .recovery_disposition(),
+                RecoveryDisposition::Retryable,
+                "inspection Win32 {code}"
+            );
+        }
+        for failure in [
+            RecoveryFailure::Restore(MutationKind::WintunAdapter, BackendError::AdapterIdentity),
+            RecoveryFailure::Restore(
+                MutationKind::Dns,
+                BackendError::Windows {
+                    api: "SetInterfaceDnsSettings",
+                    code: 5,
+                },
+            ),
+            RecoveryFailure::Persist(
+                None,
+                JournalError::Io(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "denied",
+                )),
+            ),
+        ] {
+            let CoordinatorError::RecoveryFailures(report) = recovery_error(&[failure]) else {
+                panic!("expected recovery report");
+            };
+            assert_eq!(report.disposition(), RecoveryDisposition::Blocked);
+        }
+        for kind in [
+            std::io::ErrorKind::Interrupted,
+            std::io::ErrorKind::WouldBlock,
+            std::io::ErrorKind::TimedOut,
+            std::io::ErrorKind::ResourceBusy,
+        ] {
+            let CoordinatorError::RecoveryFailures(report) =
+                recovery_error(&[RecoveryFailure::Persist(
+                    None,
+                    JournalError::Io(std::io::Error::from(kind)),
+                )])
+            else {
+                panic!("expected recovery report");
+            };
+            assert!(report.retryable(), "journal I/O kind {kind:?}");
+        }
+        let CoordinatorError::RecoveryFailures(report) = recovery_error(&[
+            RecoveryFailure::Restore(
+                MutationKind::WintunAdapter,
+                BackendError::AdapterRemovalPending,
+            ),
+            RecoveryFailure::Restore(
+                MutationKind::Dns,
+                BackendError::Operation("unknown".to_owned()),
+            ),
+        ]) else {
+            panic!("expected recovery report");
+        };
+        assert!(
+            !report.retryable(),
+            "mixed failures use the strictest class"
         );
     }
 

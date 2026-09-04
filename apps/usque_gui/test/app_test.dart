@@ -868,18 +868,21 @@ void main() {
       'phase': 'error',
       'warning': '127.0.0.1:1080 is already in use',
       'error_code': 'PROXY_LISTEN_FAILED',
+      'error_retryable': true,
       'active_listeners': <String>[],
     });
     final second = EngineSnapshot.fromMap(<Object?, Object?>{
       'phase': 'error',
       'warning': '127.0.0.1:1080 is already in use',
       'error_code': 'PROXY_LISTEN_FAILED',
+      'error_retryable': true,
       'active_listeners': <String>[],
     });
 
     expect(first, second);
     expect(first.hashCode, second.hashCode);
     expect(first.errorCode, 'PROXY_LISTEN_FAILED');
+    expect(first.errorRetryable, isTrue);
   });
 
   test('Android snapshot maps expose the same network quality model', () {
@@ -4466,6 +4469,42 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('blocked Windows recovery exposes diagnostics but not Retry', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+    });
+    final engine = EventEngineClient();
+    engine.current = const EngineSnapshot(
+      phase: ConnectionPhase.error,
+      errorCode: 'WINDOWS_RECOVERY_BLOCKED',
+      errorRetryable: false,
+      warning: 'sanitized',
+    );
+    final controller = AppController(engine);
+    await controller.initialize();
+    addTearDown(controller.dispose);
+    controller.snapshot = const EngineSnapshot(
+      phase: ConnectionPhase.error,
+      errorCode: 'WINDOWS_RECOVERY_BLOCKED',
+      errorRetryable: false,
+      warning: 'sanitized',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: UsqueTheme.light(),
+        home: HomeScreen(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Retry'), findsNothing);
+    expect(find.widgetWithText(OutlinedButton, 'Diagnostics'), findsOneWidget);
+    final ring = tester.widget<ConnectionRing>(find.byType(ConnectionRing));
+    expect(ring.onPressed, isNull);
+  });
 
   test(
     'initialize with auto_connect connects a ready disconnected profile once',

@@ -73,6 +73,7 @@ impl WindowsBackend {
             physical_dns_snapshot: true,
             exact_generation_egress: true,
             guarded_recovery: true,
+            automatic_recovery: true,
         }
     }
 }
@@ -537,7 +538,7 @@ fn restore_sync(inner: &BackendInner, receipt: &MutationReceipt) -> Result<(), B
             wfp::restore_kill_switch(receipt).map_err(wfp_backend_error)
         }
         receipt @ MutationReceipt::SystemProxy { .. } => {
-            system_proxy::restore(receipt).map_err(|error| backend_error(error.to_string()))
+            system_proxy::restore(receipt).map_err(system_proxy_backend_error)
         }
     }
 }
@@ -627,6 +628,16 @@ fn wfp_backend_error(error: wfp::WfpError) -> BackendError {
     }
 }
 
+fn system_proxy_backend_error(error: system_proxy::SystemProxyError) -> BackendError {
+    match error {
+        system_proxy::SystemProxyError::Windows { operation, code } => BackendError::Windows {
+            api: operation,
+            code,
+        },
+        _ => backend_error(error.to_string()),
+    }
+}
+
 fn unavailable(feature: &'static str) -> BackendError {
     BackendError::Unavailable(feature.to_owned())
 }
@@ -660,5 +671,25 @@ mod tests {
         assert!(capabilities.interface_addresses);
         assert!(capabilities.interface_dns);
         assert!(capabilities.wfp_kill_switch);
+        assert!(capabilities.guarded_recovery);
+        assert!(capabilities.automatic_recovery);
+    }
+
+    #[test]
+    fn system_proxy_win32_failures_remain_structured_for_recovery() {
+        assert!(matches!(
+            system_proxy_backend_error(system_proxy::SystemProxyError::Windows {
+                operation: "RegFlushKey",
+                code: 170,
+            }),
+            BackendError::Windows {
+                api: "RegFlushKey",
+                code: 170,
+            }
+        ));
+        assert!(matches!(
+            system_proxy_backend_error(system_proxy::SystemProxyError::OwnerChanged),
+            BackendError::Operation(_)
+        ));
     }
 }

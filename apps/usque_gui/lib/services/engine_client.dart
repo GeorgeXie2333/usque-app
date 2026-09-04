@@ -7,10 +7,11 @@ import '../models/app_models.dart';
 import '../models/diagnostics_models.dart';
 
 class EngineException implements Exception {
-  const EngineException(this.code, this.message);
+  const EngineException(this.code, this.message, {this.retryable = false});
 
   final String code;
   final String message;
+  final bool retryable;
 
   @override
   String toString() => message;

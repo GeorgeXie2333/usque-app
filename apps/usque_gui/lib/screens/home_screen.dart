@@ -263,6 +263,7 @@ class _ErrorSlot extends StatelessWidget {
 typedef _HeroView = ({
   ConnectionPhase phase,
   bool busy,
+  String? errorCode,
   String profileName,
   FrontendSettings frontends,
   bool systemProxy,
@@ -311,6 +312,7 @@ class _ConnectionHero extends StatelessWidget {
       selector: (controller) => (
         phase: controller.snapshot.phase,
         busy: controller.busy,
+        errorCode: controller.snapshot.errorCode,
         profileName: controller.activeProfile.name,
         frontends: controller.activeProfile.frontends,
         systemProxy: controller.activeProfile.proxy.systemProxy,
@@ -357,7 +359,10 @@ class _ConnectionHero extends StatelessWidget {
                 actionLabel: action,
                 semanticLabel: '${strings.get('connection_status')}: $status',
                 size: constraints.maxWidth.clamp(180, 244).toDouble(),
-                onPressed: view.busy
+                onPressed:
+                    view.busy ||
+                        (view.phase == ConnectionPhase.error &&
+                            view.errorCode == 'WINDOWS_RECOVERY_BLOCKED')
                     ? null
                     : () => _connectOrRepairIdentity(context),
               ),
@@ -381,11 +386,12 @@ class _ConnectionHero extends StatelessWidget {
               spacing: 8,
               runSpacing: 8,
               children: <Widget>[
-                OutlinedButton.icon(
-                  onPressed: view.busy ? null : controller.retry,
-                  icon: const Icon(LucideIcons.refreshCw),
-                  label: Text(strings.get('retry')),
-                ),
+                if (view.errorCode != 'WINDOWS_RECOVERY_BLOCKED')
+                  OutlinedButton.icon(
+                    onPressed: view.busy ? null : controller.retry,
+                    icon: const Icon(LucideIcons.refreshCw),
+                    label: Text(strings.get('retry')),
+                  ),
                 OutlinedButton.icon(
                   onPressed: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(

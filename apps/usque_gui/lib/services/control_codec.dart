@@ -164,7 +164,11 @@ class ControlCodec {
         );
       }
       if (error != null) {
-        throw EngineException(error.code, error.message);
+        throw EngineException(
+          error.code,
+          error.message,
+          retryable: error.retryable,
+        );
       }
       return ControlResponse(
         snapshot,
@@ -2018,6 +2022,7 @@ UpdatePackage _decodeUpdatePackage(_ProtoReader reader) {
 _StructuredEngineError _decodeError(_ProtoReader reader) {
   var code = 'ENGINE_ERROR';
   var message = 'The local Engine rejected this operation.';
+  var retryable = false;
   while (!reader.isDone) {
     final field = reader.field();
     switch (field.number) {
@@ -2025,11 +2030,13 @@ _StructuredEngineError _decodeError(_ProtoReader reader) {
         code = reader.string(field);
       case 2:
         message = reader.string(field);
+      case 3:
+        retryable = reader.varint(field) != 0;
       default:
         reader.skip(field);
     }
   }
-  return _StructuredEngineError(code, message);
+  return _StructuredEngineError(code, message, retryable);
 }
 
 EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
@@ -2043,6 +2050,8 @@ EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
   var downloadRate = 0;
   ExitInfo exit = const ExitInfo();
   String? warning;
+  String? errorCode;
+  bool? errorRetryable;
   var reconnectCount = 0;
   String? killSwitchState;
   var platformLockdown = false;
@@ -2081,7 +2090,10 @@ EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
       case 7:
         exit = _decodeExit(reader.message(field));
       case 8:
-        warning = _decodeError(reader.message(field)).message;
+        final error = _decodeError(reader.message(field));
+        warning = error.message;
+        errorCode = error.code;
+        errorRetryable = error.retryable;
       case 9:
         killSwitchState = _decodeKillSwitchState(reader.varint(field));
       case 10:
@@ -2119,7 +2131,8 @@ EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
     platformLockdown: platformLockdown,
     activeListeners: List<String>.unmodifiable(activeListeners),
     frontends: List<FrontendRuntimeStatus>.unmodifiable(frontends),
-    errorCode: failure?.code,
+    errorCode: failure?.code ?? errorCode,
+    errorRetryable: failure?.retryable ?? errorRetryable,
     failure: failure,
     networkQuality: networkQuality,
   );
@@ -2242,10 +2255,11 @@ ConnectionPhase _decodePhase(int value) {
 String? _emptyToNull(String value) => value.isEmpty ? null : value;
 
 class _StructuredEngineError {
-  const _StructuredEngineError(this.code, this.message);
+  const _StructuredEngineError(this.code, this.message, this.retryable);
 
   final String code;
   final String message;
+  final bool retryable;
 }
 
 class _Geo {

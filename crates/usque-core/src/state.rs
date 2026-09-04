@@ -136,6 +136,8 @@ pub enum ErrorCode {
     IpcUnavailable,
     Internal,
     WindowsRecoveryFailed,
+    WindowsRecoveryExhausted,
+    WindowsRecoveryBlocked,
     WindowsRecoveryTimeout,
     WindowsRecoveryConflict,
     WindowsRecoveryUnsupported,
@@ -300,10 +302,10 @@ pub struct FrontendStatus {
 fn can_transition(from: ConnectionPhase, to: ConnectionPhase) -> bool {
     use ConnectionPhase::*;
     match from {
-        Disconnected => matches!(to, Preparing | Disconnected),
+        Disconnected => matches!(to, Preparing | Reconnecting | Disconnected),
         Preparing => matches!(
             to,
-            ConnectingHttp3 | ConnectingHttp2 | Disconnecting | Error
+            ConnectingHttp3 | ConnectingHttp2 | Reconnecting | Disconnecting | Error
         ),
         ConnectingHttp3 => matches!(
             to,
@@ -319,10 +321,19 @@ fn can_transition(from: ConnectionPhase, to: ConnectionPhase) -> bool {
         ),
         Reconnecting => matches!(
             to,
-            ConnectingHttp3 | ConnectingHttp2 | Connected | Degraded | Disconnecting | Error
+            Preparing
+                | ConnectingHttp3
+                | ConnectingHttp2
+                | Connected
+                | Degraded
+                | Disconnecting
+                | Error
         ),
         Disconnecting => matches!(to, Disconnected | Error),
-        Error => matches!(to, Preparing | Disconnecting | Disconnected | Error),
+        Error => matches!(
+            to,
+            Preparing | Reconnecting | Disconnecting | Disconnected | Error
+        ),
     }
 }
 
@@ -366,5 +377,19 @@ mod tests {
     fn cannot_skip_preparation() {
         let mut state = StateMachine::default();
         assert!(state.transition(ConnectionPhase::Connected).is_err());
+    }
+
+    #[test]
+    fn bounded_platform_recovery_can_wait_then_restart_preparation() {
+        let mut state = StateMachine::default();
+        state.transition(ConnectionPhase::Reconnecting).unwrap();
+        state.transition(ConnectionPhase::Preparing).unwrap();
+        state.mark_error(ConnectionError {
+            code: ErrorCode::WindowsRecoveryExhausted,
+            message: "sanitized".to_owned(),
+            retryable: true,
+        });
+        state.transition(ConnectionPhase::Reconnecting).unwrap();
+        assert!(state.snapshot().error.is_none());
     }
 }
