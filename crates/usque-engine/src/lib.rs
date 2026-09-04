@@ -117,6 +117,31 @@ enum ProvisionedIdentity {
     },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum IdentityProvisioningBoundary {
+    /// The profile has never owned identity material and may select its
+    /// provider exactly once during initial provisioning.
+    Unclaimed,
+    Provider(IdentityProvider),
+}
+
+impl IdentityProvisioningBoundary {
+    fn permits_consumer(&self) -> bool {
+        matches!(
+            self,
+            Self::Unclaimed | Self::Provider(IdentityProvider::Consumer)
+        )
+    }
+
+    fn permits_zero_trust(&self, team: &str) -> bool {
+        match self {
+            Self::Unclaimed => true,
+            Self::Provider(IdentityProvider::ZeroTrust { organization }) => organization == team,
+            Self::Provider(IdentityProvider::Consumer) => false,
+        }
+    }
+}
+
 impl ProvisionedIdentity {
     fn consumer(identity: WarpIdentity) -> Self {
         Self::Consumer(identity)
@@ -1702,6 +1727,47 @@ impl ControlService {
         }
     }
 
+    async fn load_identity_provisioning_boundary(
+        &self,
+        profile_id: Uuid,
+    ) -> Result<IdentityProvisioningBoundary, ControlServiceError> {
+        let config = self.config.read().await;
+        let account = config
+            .account(profile_id)
+            .ok_or(ControlServiceError::ProfileNotFound(profile_id))?;
+        let has_binding = config.identity_bindings.contains_key(&profile_id);
+        let has_config_state = account.managed_endpoint_ips.is_some()
+            || config.pending_identity_creations.contains(&profile_id)
+            || config.pending_identity_deletions.contains(&profile_id)
+            || config
+                .pending_identity_local_deletions
+                .contains(&profile_id)
+            || config
+                .pending_identity_replacements
+                .contains_key(&profile_id);
+        drop(config);
+
+        if !has_binding && !has_config_state {
+            let mut has_identity_material = false;
+            for record in SecretRecord::ALL {
+                if record == SecretRecord::ProxyPassword {
+                    continue;
+                }
+                if self.vault.get(profile_id, record).await?.is_some() {
+                    has_identity_material = true;
+                    break;
+                }
+            }
+            if !has_identity_material {
+                return Ok(IdentityProvisioningBoundary::Unclaimed);
+            }
+        }
+
+        self.load_identity_boundary_for_repair(profile_id)
+            .await
+            .map(IdentityProvisioningBoundary::Provider)
+    }
+
     async fn required_secret(
         &self,
         profile_id: Uuid,
@@ -1753,7 +1819,7 @@ impl ControlService {
             .unwrap_or(v1::IdentityProvisioningMethod::Unspecified);
         let options = registration_options(request.device_name, request.locale);
         let client = ConsumerRegistrationClient::new()?;
-        let existing_provider = self.load_identity_boundary_for_repair(profile_id).await?;
+        let existing_boundary = self.load_identity_provisioning_boundary(profile_id).await?;
         let provisioned = match method {
             v1::IdentityProvisioningMethod::Register => {
                 if !license_key.is_empty() {
@@ -1761,11 +1827,15 @@ impl ControlService {
                         "registration provisioning must not contain a License Key".to_owned(),
                     ));
                 }
-                Self::require_consumer_identity(&existing_provider)?;
+                if !existing_boundary.permits_consumer() {
+                    return Err(ControlServiceError::IdentityProviderChangeUnsupported);
+                }
                 ProvisionedIdentity::consumer(client.register(&options).await?)
             }
             v1::IdentityProvisioningMethod::RegisterWithLicense => {
-                Self::require_consumer_identity(&existing_provider)?;
+                if !existing_boundary.permits_consumer() {
+                    return Err(ControlServiceError::IdentityProviderChangeUnsupported);
+                }
                 let license = std::str::from_utf8(&license_key)
                     .map_err(|_| ControlServiceError::InvalidLicenseEncoding)?;
                 ProvisionedIdentity::consumer(
@@ -1782,9 +1852,8 @@ impl ControlService {
                     )
                 })?;
                 let team = normalize_zero_trust_team(&enrollment.team_name)?;
-                match &existing_provider {
-                    IdentityProvider::ZeroTrust { organization } if organization == &team => {}
-                    _ => return Err(ControlServiceError::IdentityProviderChangeUnsupported),
+                if !existing_boundary.permits_zero_trust(&team) {
+                    return Err(ControlServiceError::IdentityProviderChangeUnsupported);
                 }
                 let callback = Zeroizing::new(enrollment.callback_uri);
                 let callback = std::str::from_utf8(&callback)
@@ -1800,7 +1869,9 @@ impl ControlService {
             // Older clients did not send this field. Preserve their existing
             // license-key based Consumer provisioning behavior.
             v1::IdentityProvisioningMethod::Unspecified => {
-                Self::require_consumer_identity(&existing_provider)?;
+                if !existing_boundary.permits_consumer() {
+                    return Err(ControlServiceError::IdentityProviderChangeUnsupported);
+                }
                 if license_key.is_empty() {
                     ProvisionedIdentity::consumer(client.register(&options).await?)
                 } else {
@@ -1818,13 +1889,13 @@ impl ControlService {
         if let Err(error) = self.ensure_profile_exists(profile_id).await {
             return Err(Self::after_zero_trust_registration(error, is_zero_trust));
         }
-        let current_provider = match self.load_identity_boundary_for_repair(profile_id).await {
-            Ok(provider) => provider,
+        let current_boundary = match self.load_identity_provisioning_boundary(profile_id).await {
+            Ok(boundary) => boundary,
             Err(error) => {
                 return Err(Self::after_zero_trust_registration(error, is_zero_trust));
             }
         };
-        if current_provider != existing_provider {
+        if current_boundary != existing_boundary {
             return Err(Self::after_zero_trust_registration(
                 ControlServiceError::IdentityProviderChangeUnsupported,
                 is_zero_trust,
@@ -5493,6 +5564,159 @@ mod tests {
         assert!(!config.contains("access-token-test"));
         assert!(!config.contains("license-test"));
         assert!(!config.contains("private_key"));
+    }
+
+    #[tokio::test]
+    async fn empty_identity_slot_is_unclaimed_until_any_boundary_state_exists() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let vault = Arc::new(MemoryVault::default());
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::clone(&vault) as Arc<dyn SecretVault>,
+        )
+        .expect("service");
+        let profile_id = service.config_snapshot().await.profiles[0].id;
+
+        assert_eq!(
+            service
+                .load_identity_provisioning_boundary(profile_id)
+                .await
+                .unwrap(),
+            IdentityProvisioningBoundary::Unclaimed
+        );
+
+        vault
+            .put(profile_id, SecretRecord::WarpSecret, b"partial")
+            .await
+            .unwrap();
+        assert_eq!(
+            service
+                .load_identity_provisioning_boundary(profile_id)
+                .await
+                .unwrap(),
+            IdentityProvisioningBoundary::Provider(IdentityProvider::Consumer)
+        );
+        vault
+            .delete(profile_id, SecretRecord::WarpSecret)
+            .await
+            .unwrap();
+
+        let mut pending = service.config_snapshot().await;
+        pending.pending_identity_replacements.insert(
+            profile_id,
+            PendingIdentityReplacement {
+                backup_identity_id: None,
+                armed: false,
+            },
+        );
+        service.persist(pending).await.unwrap();
+        assert_eq!(
+            service
+                .load_identity_provisioning_boundary(profile_id)
+                .await
+                .unwrap(),
+            IdentityProvisioningBoundary::Provider(IdentityProvider::Consumer)
+        );
+
+        let provider = IdentityProvider::zero_trust("example-team").unwrap();
+        let mut bound = service.config_snapshot().await;
+        bound.pending_identity_replacements.remove(&profile_id);
+        bound.identity_bindings.insert(profile_id, provider.clone());
+        service.persist(bound).await.unwrap();
+        assert_eq!(
+            service
+                .load_identity_provisioning_boundary(profile_id)
+                .await
+                .unwrap(),
+            IdentityProvisioningBoundary::Provider(provider)
+        );
+    }
+
+    #[tokio::test]
+    async fn unclaimed_identity_slot_can_commit_zero_trust_without_a_new_profile() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(MemoryVault::default()),
+        )
+        .expect("service");
+        let before = service.config_snapshot().await;
+        let profile_id = before.profiles[0].id;
+        let provider = IdentityProvider::zero_trust("example-team").unwrap();
+        let endpoint_ips = ManagedEndpointIps {
+            ipv4: "162.159.197.2".parse().unwrap(),
+            ipv6: "2606:4700:102::2".parse().unwrap(),
+        };
+
+        assert!(
+            service
+                .load_identity_provisioning_boundary(profile_id)
+                .await
+                .unwrap()
+                .permits_zero_trust("example-team")
+        );
+        service
+            .replace_identity_locked(
+                profile_id,
+                test_identity(provider.clone(), None),
+                Some(endpoint_ips.clone()),
+            )
+            .await
+            .unwrap();
+
+        let committed = service.config_snapshot().await;
+        assert_eq!(committed.profiles.len(), 1);
+        assert_eq!(committed.active_profile_id, Some(profile_id));
+        assert_eq!(
+            committed.identity_bindings.get(&profile_id),
+            Some(&provider)
+        );
+        assert_eq!(
+            committed.account(profile_id).unwrap().managed_endpoint_ips,
+            Some(endpoint_ips)
+        );
+        assert_eq!(
+            committed.network.endpoint.port,
+            before.network.endpoint.port
+        );
+        assert_eq!(committed.network.endpoint.sni, before.network.endpoint.sni);
+    }
+
+    #[tokio::test]
+    async fn unclaimed_zero_trust_provisioning_reaches_callback_validation() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(MemoryVault::default()),
+        )
+        .expect("service");
+        let profile_id = service.config_snapshot().await.profiles[0].id;
+
+        let error = service
+            .provision_identity(v1::ProvisionIdentityRequest {
+                profile_id: profile_id.to_string(),
+                terms_accepted: true,
+                method: v1::IdentityProvisioningMethod::RegisterZeroTrust as i32,
+                zero_trust: Some(v1::ZeroTrustEnrollment {
+                    team_name: "example-team".to_owned(),
+                    callback_uri: b"invalid-before-network".to_vec(),
+                }),
+                ..Default::default()
+            })
+            .await
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            ControlServiceError::Registration(RegistrationError::InvalidZeroTrustCallback)
+        ));
+        assert_eq!(
+            service
+                .load_identity_provisioning_boundary(profile_id)
+                .await
+                .unwrap(),
+            IdentityProvisioningBoundary::Unclaimed
+        );
     }
 
     #[tokio::test]

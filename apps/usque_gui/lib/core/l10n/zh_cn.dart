@@ -284,7 +284,8 @@ const Map<String, String> kZhCnCatalog = <String, String>{
   'permissions_title': '系统权限',
   'permissions_body': 'Usque 需要创建 VPN 接口，以及管理路由、DNS、防火墙规则和系统代理。',
   'terms_title': 'Cloudflare 条款',
-  'terms_body': 'Usque 是独立客户端。使用 Consumer WARP 仍须遵守 Cloudflare 适用条款和隐私政策。',
+  'terms_body':
+      'Usque 是独立客户端。使用 Consumer WARP 或实验性 Zero Trust 注册仍须遵守 Cloudflare 适用条款和隐私政策。',
   'terms_accept': '我理解并接受这些条件。',
   'identity_title': '设置 Consumer WARP',
   'register_new': '注册新身份',

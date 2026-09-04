@@ -325,7 +325,7 @@ const Map<String, String> kDeCatalog = <String, String>{
       'Usque benötigt die Berechtigung, eine VPN-Schnittstelle zu erstellen und Routen, DNS, Firewall-Regeln und den Systemproxy zu verwalten.',
   'terms_title': 'Cloudflare-Bedingungen',
   'terms_body':
-      'Usque ist ein unabhängiger Client. Ihre Nutzung von Consumer WARP unterliegt weiterhin den geltenden Bedingungen und der Datenschutzrichtlinie von Cloudflare.',
+      'Usque ist ein unabhängiger Client. Ihre Nutzung von Consumer WARP oder der experimentellen Zero-Trust-Registrierung unterliegt weiterhin den geltenden Bedingungen und der Datenschutzrichtlinie von Cloudflare.',
   'terms_accept': 'Ich verstehe und akzeptiere diese Bedingungen.',
   'identity_title': 'Consumer WARP einrichten',
   'register_new': 'Neue Identität registrieren',

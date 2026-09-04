@@ -151,7 +151,7 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 ## Milestone 4 — Flutter UX
 
 - [x] Responsive Home, Profiles, Proxy, Settings, Advanced, and Diagnostics/About pages.
-- [x] Four-step permissions, terms, and Consumer WARP identity onboarding.
+- [x] Four-step permissions, terms, and Consumer WARP or experimental Zero Trust identity onboarding.
 - [x] White/orange visual system, dark mode, and Lucide-only interface icons.
 - [x] Exact default endpoints, SNI, MTU, DNS, listener addresses, and reset action.
 - [x] Composable VPN/SOCKS5/HTTP outputs, Windows system-proxy dependency, and non-loopback listener warning.

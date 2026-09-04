@@ -1357,7 +1357,7 @@ internal class AndroidEngineMethodHandler(
         if (call.argument<Boolean>("terms_accepted") != true) {
             result.error(
                 "TERMS_NOT_ACCEPTED",
-                "Cloudflare terms must be accepted before Consumer WARP registration.",
+                "Cloudflare terms must be accepted before WARP identity registration.",
                 null,
             )
             return
@@ -1413,15 +1413,18 @@ internal class AndroidEngineMethodHandler(
             var replacementPrepared = false
             var replacementCommitted = false
             try {
-                val provider = storedIdentityProvider(profileId)
-                if (!provider.valid && !provider.repairable) {
+                val provider = identityProvisioningBoundary(profileId)
+                if (provider != null && !provider.valid && !provider.repairable) {
                     throw IllegalStateException("Stored identity metadata is invalid")
                 }
                 if (method == "zeroTrust") {
-                    if (provider.provider != "zeroTrust" || provider.organization != team) {
+                    if (
+                        provider != null &&
+                        (provider.provider != "zeroTrust" || provider.organization != team)
+                    ) {
                         throw UnsupportedOperationException("Identity provider change is unsupported")
                     }
-                } else if (provider.provider != "consumer") {
+                } else if (provider != null && provider.provider != "consumer") {
                     throw UnsupportedOperationException("Identity provider change is unsupported")
                 }
 
@@ -1480,6 +1483,10 @@ internal class AndroidEngineMethodHandler(
                     }
                 }
                 remoteRegistered = true
+
+                if (identityProvisioningBoundary(profileId) != provider) {
+                    throw IllegalStateException("Identity provider boundary changed during registration")
+                }
 
                 if (method == "zeroTrust") {
                     engineBridge.applyProfileCommand(
@@ -1611,7 +1618,7 @@ internal class AndroidEngineMethodHandler(
                 }
                 val code =
                     when {
-                        error is UnsupportedOperationException -> {
+                        error is UnsupportedOperationException && !remoteRegistered -> {
                             "IDENTITY_PROVIDER_CHANGE_UNSUPPORTED"
                         }
 
@@ -1962,19 +1969,28 @@ internal class AndroidEngineMethodHandler(
         }
     }
 
-    private fun loadProfile(profileId: String): JSONObject {
+    private fun loadProfileCatalog(): JSONObject {
         val response =
             engineBridge.applyProfileCommand(
                 profileConfigPath,
                 JSONObject().put("command", "list_profiles").toString(),
             ) ?: throw IllegalStateException("Rust returned no profile catalog")
-        val profiles = JSONObject(response).getJSONArray("profiles")
+        return JSONObject(response)
+    }
+
+    private fun profileFromCatalog(
+        catalog: JSONObject,
+        profileId: String,
+    ): JSONObject {
+        val profiles = catalog.getJSONArray("profiles")
         for (index in 0 until profiles.length()) {
             val profile = profiles.getJSONObject(index)
             if (profile.optString("id") == profileId) return profile
         }
         throw IllegalStateException("Profile does not exist")
     }
+
+    private fun loadProfile(profileId: String): JSONObject = profileFromCatalog(loadProfileCatalog(), profileId)
 
     private fun rollbackCommittedProfile(profileId: String) {
         runCatching {
@@ -2171,6 +2187,45 @@ internal class AndroidEngineMethodHandler(
         if (!provider.valid) {
             throw IllegalStateException("Stored identity metadata is invalid")
         }
+    }
+
+    /**
+     * Returns null only for a profile that has never claimed an identity
+     * provider. Any binding, identity material, or unfinished transaction
+     * preserves the existing provider boundary and prevents conversion.
+     */
+    private fun identityProvisioningBoundary(profileId: String): StoredIdentityProvider? {
+        val catalog = loadProfileCatalog()
+        val profile = profileFromCatalog(catalog, profileId)
+        val binding = profileIdentityBinding(profile)
+        val pending =
+            listOf(
+                "pending_identity_deletions",
+                "pending_identity_creations",
+                "pending_identity_replacements",
+                "armed_identity_replacements",
+            ).any { key ->
+                val values = catalog.optJSONArray(key) ?: return@any false
+                (0 until values.length()).any { index -> values.optString(index) == profileId }
+            }
+        var hasIdentityMaterial = false
+        if (binding == null && !pending) {
+            for (record in SecureIdentityStore.Record.entries) {
+                if (record == SecureIdentityStore.Record.PROXY_PASSWORD) continue
+                var value: ByteArray? = null
+                try {
+                    value = identityStore.get(profileId, record)
+                    if (value != null) {
+                        hasIdentityMaterial = true
+                        break
+                    }
+                } finally {
+                    value?.fill(0)
+                }
+            }
+        }
+        if (binding == null && !pending && !hasIdentityMaterial) return null
+        return storedIdentityProvider(profileId, profile)
     }
 
     private fun storedIdentityProvider(

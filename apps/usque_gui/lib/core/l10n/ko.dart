@@ -304,7 +304,7 @@ const Map<String, String> kKoCatalog = <String, String>{
       'Usque는 VPN 인터페이스를 만들고 경로, DNS, 방화벽 규칙, 시스템 프록시를 관리할 권한이 필요합니다.',
   'terms_title': 'Cloudflare 약관',
   'terms_body':
-      'Usque는 독립 클라이언트입니다. Consumer WARP 사용은 계속해서 Cloudflare의 해당 약관과 개인정보 처리방침의 적용을 받습니다.',
+      'Usque는 독립 클라이언트입니다. Consumer WARP 또는 실험적 Zero Trust 등록 사용은 계속해서 Cloudflare의 해당 약관과 개인정보 처리방침의 적용을 받습니다.',
   'terms_accept': '이 조건을 이해하고 동의합니다.',
   'identity_title': 'Consumer WARP 설정',
   'register_new': '새 신원 등록',

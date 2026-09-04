@@ -324,7 +324,7 @@ const Map<String, String> kEsCatalog = <String, String>{
       'Usque necesita permiso para crear una interfaz VPN y gestionar rutas, DNS, reglas de cortafuegos y el proxy del sistema.',
   'terms_title': 'Términos de Cloudflare',
   'terms_body':
-      'Usque es un cliente independiente. El uso de WARP de consumo sigue sujeto a los términos aplicables y a la política de privacidad de Cloudflare.',
+      'Usque es un cliente independiente. El uso de Consumer WARP o del registro experimental de Zero Trust sigue sujeto a los términos aplicables y a la política de privacidad de Cloudflare.',
   'terms_accept': 'Entiendo y acepto estas condiciones.',
   'identity_title': 'Configurar WARP de consumo',
   'register_new': 'Registrar una identidad nueva',

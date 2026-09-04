@@ -6,7 +6,7 @@ It does not implement organization policy synchronization, device posture, manag
 
 ## Enrollment flow
 
-1. Create a profile and select **Cloudflare Zero Trust (Experimental)**.
+1. During first-run setup, or while creating a profile later, select **Cloudflare Zero Trust (Experimental)**.
 2. Enter the organization's single-label team name.
 3. Accept the existing Cloudflare terms and open `https://<team>.cloudflareaccess.com/warp` in the system browser.
 4. Complete the organization's Access/IdP login.
@@ -17,6 +17,7 @@ The Access assertion is never written to the profile, vault, Android saved state
 
 ## Identity boundaries
 
+- A profile with no provider binding, identity material, or pending identity transaction may select Consumer WARP or Zero Trust during its first provisioning. Once a provider is claimed, the existing provider boundary applies.
 - Consumer profiles cannot be converted to Zero Trust profiles.
 - A Zero Trust profile can sign in again only to the same organization. This refreshes its device registration, credentials, and registration-owned IPv4/IPv6 endpoint addresses without replacing the shared port or SNI. Credential replacement is journaled so an interrupted local commit restores the previous credentials and address pair on the next startup.
 - Provider and organization are mirrored in a versioned, non-secret profile binding. The vault metadata must match it; missing or conflicting metadata is invalid and may only be repaired by signing in to the bound organization. Unbound pre-feature profiles remain legacy Consumer identities.

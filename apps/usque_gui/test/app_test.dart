@@ -54,6 +54,8 @@ class FakeEngineClient implements EngineClient {
   IdentityProvisioningMethod? lastProvisioningMethod;
   String? lastZeroTrustTeam;
   String? lastZeroTrustCallback;
+  String? pendingZeroTrustCallback;
+  int zeroTrustCancelCount = 0;
   bool failProfileIdentityCreation = false;
   bool failProfileUpsert = false;
   final List<String> calls = <String>[];
@@ -351,10 +353,17 @@ class FakeEngineClient implements EngineClient {
   Future<String?> beginZeroTrustLogin(String teamName) async => null;
 
   @override
-  Future<String?> consumeZeroTrustCallback() async => null;
+  Future<String?> consumeZeroTrustCallback() async {
+    final callback = pendingZeroTrustCallback;
+    pendingZeroTrustCallback = null;
+    return callback;
+  }
 
   @override
-  Future<void> cancelZeroTrustLogin() async {}
+  Future<void> cancelZeroTrustLogin() async {
+    zeroTrustCancelCount += 1;
+    pendingZeroTrustCallback = null;
+  }
 
   @override
   Future<PlatformPreferences> platformPreferences() async =>
@@ -651,6 +660,25 @@ class EventEngineClient extends FakeEngineClient {
       }
     }
   }
+}
+
+Future<void> advanceToOnboardingIdentity(WidgetTester tester) async {
+  var continueButton = find.widgetWithText(FilledButton, 'Continue');
+  await tester.ensureVisible(continueButton);
+  await tester.tap(continueButton);
+  await tester.pumpAndSettle();
+  continueButton = find.widgetWithText(FilledButton, 'Continue');
+  await tester.ensureVisible(continueButton);
+  await tester.tap(continueButton);
+  await tester.pumpAndSettle();
+  final terms = find.byType(CheckboxListTile);
+  await tester.ensureVisible(terms);
+  await tester.tap(terms);
+  await tester.pump();
+  continueButton = find.widgetWithText(FilledButton, 'Continue');
+  await tester.ensureVisible(continueButton);
+  await tester.tap(continueButton);
+  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -2798,7 +2826,7 @@ void main() {
     await tester.pump();
     await tester.tap(find.text('Continue'));
     await tester.pumpAndSettle();
-    expect(find.text('Set up Consumer WARP'), findsOneWidget);
+    expect(find.text('Configure WARP identity'), findsOneWidget);
 
     await tester.tap(find.text('Finish setup'));
     await tester.pumpAndSettle();
@@ -2838,6 +2866,288 @@ void main() {
 
     expect(finishButton().onPressed, isNotNull);
   });
+
+  testWidgets('onboarding accepts a manual Zero Trust callback', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1280, 1000);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final engine = FakeEngineClient();
+    await tester.pumpWidget(UsqueBootstrap(engine: engine));
+    await tester.pumpAndSettle();
+    await advanceToOnboardingIdentity(tester);
+
+    await tester.tap(find.text('Cloudflare Zero Trust'));
+    await tester.pumpAndSettle();
+    expect(find.text('Experimental'), findsOneWidget);
+
+    const callback =
+        'com.cloudflare.warp://example-team.cloudflareaccess.com/auth?token=onboarding-test';
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Organization team name'),
+      'Example-Team',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Complete callback URL'),
+      callback,
+    );
+    await tester.pump();
+
+    final finish = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Finish setup'),
+    );
+    expect(finish.onPressed, isNotNull);
+    await tester.tap(find.text('Finish setup'));
+    await tester.pumpAndSettle();
+
+    expect(engine.lastProvisioningMethod, IdentityProvisioningMethod.zeroTrust);
+    expect(engine.lastZeroTrustTeam, 'example-team');
+    expect(engine.lastZeroTrustCallback, callback);
+    expect(find.text('Home'), findsWidgets);
+    expect(find.text('Complete callback URL'), findsNothing);
+    final preferences = await SharedPreferences.getInstance();
+    expect(preferences.getBool('onboarding_complete'), isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('invalid onboarding Zero Trust callback cannot be submitted', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1280, 1000);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final engine = FakeEngineClient();
+    await tester.pumpWidget(UsqueBootstrap(engine: engine));
+    await tester.pumpAndSettle();
+    await advanceToOnboardingIdentity(tester);
+    await tester.tap(find.text('Cloudflare Zero Trust'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Organization team name'),
+      'example-team',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Complete callback URL'),
+      'https://example-team.cloudflareaccess.com/auth?token=x',
+    );
+    await tester.pump();
+
+    expect(
+      find.text(
+        'Use a com.cloudflare.warp Access callback for this organization.',
+      ),
+      findsOneWidget,
+    );
+    final finish = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Finish setup'),
+    );
+    expect(finish.onPressed, isNull);
+    expect(engine.lastProvisioningMethod, isNull);
+    expect(engine.lastZeroTrustCallback, isNull);
+  });
+
+  testWidgets('failed onboarding clears the one-time Zero Trust callback', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1280, 1000);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final engine = FakeEngineClient()..failProfileIdentityCreation = true;
+    final controller = AppController(engine);
+    await controller.initialize();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: UsqueTheme.light(),
+        home: OnboardingScreen(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await advanceToOnboardingIdentity(tester);
+    await tester.tap(find.text('Cloudflare Zero Trust'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Organization team name'),
+      'Example-Team',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Complete callback URL'),
+      'com.cloudflare.warp://example-team.cloudflareaccess.com/auth?token=one-time',
+    );
+    await tester.pump();
+
+    await tester.tap(find.text('Finish setup'));
+    await tester.pumpAndSettle();
+
+    expect(controller.onboardingComplete, isFalse);
+    expect(find.text('Registration failed.'), findsOneWidget);
+    expect(
+      tester
+          .widget<TextField>(
+            find.widgetWithText(TextField, 'Organization team name'),
+          )
+          .controller
+          ?.text,
+      'example-team',
+    );
+    expect(
+      tester
+          .widget<TextField>(
+            find.widgetWithText(TextField, 'Complete callback URL'),
+          )
+          .controller
+          ?.text,
+      isEmpty,
+    );
+    expect(engine.zeroTrustCancelCount, greaterThan(0));
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.widgetWithText(FilledButton, 'Finish setup'),
+          )
+          .onPressed,
+      isNull,
+    );
+  });
+
+  testWidgets('onboarding consumes an automatic Zero Trust callback', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1280, 1000);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final engine = FakeEngineClient();
+    final controller = AppController(engine);
+    await controller.initialize();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: UsqueTheme.light(),
+        home: OnboardingScreen(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await advanceToOnboardingIdentity(tester);
+    await tester.tap(find.text('Cloudflare Zero Trust'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Organization team name'),
+      'example-team',
+    );
+    await tester.pump();
+
+    const callback =
+        'com.cloudflare.warp://example-team.cloudflareaccess.com/auth?token=automatic-test';
+    engine.pendingZeroTrustCallback = callback;
+    controller.noteZeroTrustCallbackArrived();
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Organization callback received securely.'),
+      findsOneWidget,
+    );
+    final callbackField = tester.widget<TextField>(
+      find.widgetWithText(TextField, 'Complete callback URL'),
+    );
+    expect(callbackField.controller?.text, callback);
+    await tester.tap(find.text('Finish setup'));
+    await tester.pumpAndSettle();
+    expect(engine.lastZeroTrustCallback, callback);
+    expect(controller.onboardingComplete, isTrue);
+  });
+
+  testWidgets('switching onboarding identity clears Zero Trust callback', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1280, 1000);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final engine = FakeEngineClient();
+    await tester.pumpWidget(UsqueBootstrap(engine: engine));
+    await tester.pumpAndSettle();
+    await advanceToOnboardingIdentity(tester);
+    await tester.tap(find.text('Cloudflare Zero Trust'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Organization team name'),
+      'example-team',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Complete callback URL'),
+      'com.cloudflare.warp://example-team.cloudflareaccess.com/auth?token=discard-me',
+    );
+    await tester.pump();
+
+    final cancellationsBeforeSwitch = engine.zeroTrustCancelCount;
+    await tester.tap(find.text('Register a new identity'));
+    await tester.pumpAndSettle();
+    expect(engine.zeroTrustCancelCount, greaterThan(cancellationsBeforeSwitch));
+    expect(find.text('Complete callback URL'), findsNothing);
+
+    await tester.tap(find.text('Cloudflare Zero Trust'));
+    await tester.pumpAndSettle();
+    final callbackField = tester.widget<TextField>(
+      find.widgetWithText(TextField, 'Complete callback URL'),
+    );
+    expect(callbackField.controller?.text, isEmpty);
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.widgetWithText(FilledButton, 'Finish setup'),
+          )
+          .onPressed,
+      isNull,
+    );
+  });
+
+  testWidgets(
+    'Zero Trust onboarding remains usable on a narrow large-text UI',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(360, 800);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final controller = AppController(FakeEngineClient());
+      await controller.initialize();
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: UsqueTheme.light(),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(1.4)),
+            child: child!,
+          ),
+          home: OnboardingScreen(controller: controller),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await advanceToOnboardingIdentity(tester);
+      final zeroTrustChoice = find.text('Cloudflare Zero Trust');
+      await tester.ensureVisible(zeroTrustChoice);
+      await tester.tap(zeroTrustChoice);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Experimental'), findsOneWidget);
+      expect(find.text('Organization team name'), findsOneWidget);
+      expect(find.text('Complete callback URL'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   test('connect maps generic failures off the preparing phase', () async {
     SharedPreferences.setMockInitialValues(<String, Object>{

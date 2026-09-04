@@ -317,7 +317,7 @@ const Map<String, String> kIdCatalog = <String, String>{
       'Usque memerlukan izin untuk membuat antarmuka VPN dan mengelola rute, DNS, aturan firewall, dan proksi sistem.',
   'terms_title': 'Ketentuan Cloudflare',
   'terms_body':
-      'Usque adalah klien independen. Penggunaan Consumer WARP Anda tetap tunduk pada ketentuan dan kebijakan privasi Cloudflare yang berlaku.',
+      'Usque adalah klien independen. Penggunaan Consumer WARP atau pendaftaran Zero Trust eksperimental tetap tunduk pada ketentuan dan kebijakan privasi Cloudflare yang berlaku.',
   'terms_accept': 'Saya memahami dan menerima ketentuan ini.',
   'identity_title': 'Siapkan Consumer WARP',
   'register_new': 'Daftarkan identitas baru',

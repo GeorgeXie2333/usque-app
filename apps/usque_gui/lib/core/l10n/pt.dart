@@ -322,7 +322,7 @@ const Map<String, String> kPtCatalog = <String, String>{
       'O Usque precisa de permissão para criar uma interface VPN e gerenciar rotas, DNS, regras de firewall e o proxy do sistema.',
   'terms_title': 'Termos da Cloudflare',
   'terms_body':
-      'O Usque é um cliente independente. Seu uso do Consumer WARP permanece sujeito aos termos e à política de privacidade aplicáveis da Cloudflare.',
+      'O Usque é um cliente independente. Seu uso do Consumer WARP ou do registro experimental do Zero Trust permanece sujeito aos termos e à política de privacidade aplicáveis da Cloudflare.',
   'terms_accept': 'Eu entendo e aceito estas condições.',
   'identity_title': 'Configurar Consumer WARP',
   'register_new': 'Registrar uma nova identidade',

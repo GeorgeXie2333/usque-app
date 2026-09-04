@@ -332,12 +332,16 @@ class AppController extends ChangeNotifier {
   Future<bool> finishOnboarding({
     IdentityProvisioningMethod method = IdentityProvisioningMethod.register,
     String? licenseKey,
+    String? teamName,
+    String? callbackUri,
   }) async {
     return _run(() async {
       await _engine.provisionIdentity(
         activeProfile,
         method: method,
         licenseKey: licenseKey,
+        teamName: teamName,
+        callbackUri: callbackUri,
       );
       await _refreshProfileCatalog();
       onboardingComplete = true;

@@ -3262,6 +3262,65 @@ mod tests {
     }
 
     #[test]
+    fn android_unbound_default_profile_can_claim_zero_trust_during_replacement() {
+        let directory = tempfile::tempdir().unwrap();
+        let config_path = directory.path().join("profiles-v2.json");
+        let profile_id = "8c30b771-9ebd-457a-b67b-bbc74a1ddba6";
+
+        apply_profile_command(
+            config_path.to_str().unwrap(),
+            &serde_json::json!({
+                "command": "begin_identity_replacement",
+                "profile_id": profile_id,
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let armed = apply_profile_command(
+            config_path.to_str().unwrap(),
+            &serde_json::json!({
+                "command": "arm_identity_replacement",
+                "profile_id": profile_id,
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let armed: serde_json::Value = serde_json::from_str(&armed).unwrap();
+        let mut profile = armed["profiles"][0].clone();
+        profile["endpoint_v4"] = serde_json::json!("162.159.197.2");
+        profile["endpoint_v6"] = serde_json::json!("2606:4700:102::2");
+
+        let committed = apply_profile_command(
+            config_path.to_str().unwrap(),
+            &serde_json::json!({
+                "command": "commit_identity_replacement",
+                "profile": profile,
+                "identity_provider": "zero_trust",
+                "organization": "example-team",
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let committed: serde_json::Value = serde_json::from_str(&committed).unwrap();
+
+        assert_eq!(committed["profiles"].as_array().unwrap().len(), 1);
+        assert_eq!(committed["active_profile_id"], profile_id);
+        assert_eq!(committed["profiles"][0]["identity_provider"], "zero_trust");
+        assert_eq!(
+            committed["profiles"][0]["identity_organization"],
+            "example-team"
+        );
+        assert_eq!(committed["profiles"][0]["endpoint_v4"], "162.159.197.2");
+        assert_eq!(committed["profiles"][0]["endpoint_v6"], "2606:4700:102::2");
+        assert!(
+            committed["pending_identity_replacements"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
     fn android_identity_replacement_journal_commits_or_rolls_back_with_the_endpoint() {
         let directory = tempfile::tempdir().unwrap();
         let config_path = directory.path().join("profiles-v2.json");

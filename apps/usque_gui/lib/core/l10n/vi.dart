@@ -316,7 +316,7 @@ const Map<String, String> kViCatalog = <String, String>{
       'Usque cần quyền tạo giao diện VPN và quản lý tuyến, DNS, quy tắc tường lửa và proxy hệ thống.',
   'terms_title': 'Điều khoản Cloudflare',
   'terms_body':
-      'Usque là ứng dụng độc lập. Việc bạn dùng Consumer WARP vẫn tuân theo điều khoản và chính sách quyền riêng tư hiện hành của Cloudflare.',
+      'Usque là ứng dụng độc lập. Việc bạn dùng Consumer WARP hoặc đăng ký Zero Trust thử nghiệm vẫn tuân theo điều khoản và chính sách quyền riêng tư hiện hành của Cloudflare.',
   'terms_accept': 'Tôi hiểu và chấp nhận các điều kiện này.',
   'identity_title': 'Thiết lập Consumer WARP',
   'register_new': 'Đăng ký danh tính mới',

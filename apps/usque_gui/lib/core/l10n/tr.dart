@@ -320,7 +320,7 @@ const Map<String, String> kTrCatalog = <String, String>{
       'Usque’nin bir VPN arabirimi oluşturması ve rotaları, DNS’i, güvenlik duvarı kurallarını ve sistem proxy’sini yönetmesi için izin gerekir.',
   'terms_title': 'Cloudflare koşulları',
   'terms_body':
-      'Usque bağımsız bir istemcidir. Consumer WARP kullanımınız Cloudflare’ın geçerli koşullarına ve gizlilik politikasına tabidir.',
+      'Usque bağımsız bir istemcidir. Consumer WARP veya deneysel Zero Trust kaydı kullanımınız Cloudflare’ın geçerli koşullarına ve gizlilik politikasına tabidir.',
   'terms_accept': 'Bu koşulları anlıyorum ve kabul ediyorum.',
   'identity_title': 'Consumer WARP’ı ayarla',
   'register_new': 'Yeni bir kimlik kaydet',

@@ -323,7 +323,7 @@ const Map<String, String> kPlCatalog = <String, String>{
       'Usque potrzebuje uprawnienia do utworzenia interfejsu VPN oraz zarządzania trasami, DNS, regułami zapory i systemowym proxy.',
   'terms_title': 'Warunki Cloudflare',
   'terms_body':
-      'Usque jest niezależnym klientem. Korzystanie z Consumer WARP nadal podlega obowiązującym warunkom i polityce prywatności Cloudflare.',
+      'Usque jest niezależnym klientem. Korzystanie z Consumer WARP lub eksperymentalnej rejestracji Zero Trust nadal podlega obowiązującym warunkom i polityce prywatności Cloudflare.',
   'terms_accept': 'Rozumiem i akceptuję te warunki.',
   'identity_title': 'Skonfiguruj Consumer WARP',
   'register_new': 'Zarejestruj nową tożsamość',

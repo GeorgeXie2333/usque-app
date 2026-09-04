@@ -302,7 +302,7 @@ const Map<String, String> kJaCatalog = <String, String>{
       'Usque は VPN インターフェイスの作成と、ルート、DNS、ファイアウォールルール、システムプロキシの管理に権限が必要です。',
   'terms_title': 'Cloudflare の利用規約',
   'terms_body':
-      'Usque は独立したクライアントです。Consumer WARP の利用は、引き続き Cloudflare の該当する利用規約とプライバシーポリシーの対象となります。',
+      'Usque は独立したクライアントです。Consumer WARP または試験的な Zero Trust 登録の利用は、引き続き Cloudflare の該当する利用規約とプライバシーポリシーの対象となります。',
   'terms_accept': 'これらの条件を理解し、同意します。',
   'identity_title': 'Consumer WARP をセットアップ',
   'register_new': '新しいアイデンティティを登録',

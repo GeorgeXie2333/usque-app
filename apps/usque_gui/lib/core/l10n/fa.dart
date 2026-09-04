@@ -316,7 +316,7 @@ const Map<String, String> kFaCatalog = <String, String>{
       'Usque برای ایجاد یک رابط VPN و مدیریت مسیرها، DNS، قوانین فایروال و پروکسی سیستم به مجوز نیاز دارد.',
   'terms_title': 'شرایط Cloudflare',
   'terms_body':
-      'Usque یک کلاینت مستقل است. استفادهٔ شما از Consumer WARP همچنان مشمول شرایط و سیاست حریم خصوصی قابل‌اجرای Cloudflare است.',
+      'Usque یک کلاینت مستقل است. استفادهٔ شما از Consumer WARP یا ثبت‌نام آزمایشی Zero Trust همچنان مشمول شرایط و سیاست حریم خصوصی قابل‌اجرای Cloudflare است.',
   'terms_accept': 'این شرایط را می‌فهمم و می‌پذیرم.',
   'identity_title': 'راه‌اندازی Consumer WARP',
   'register_new': 'ثبت هویت جدید',

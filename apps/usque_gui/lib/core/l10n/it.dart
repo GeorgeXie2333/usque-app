@@ -325,7 +325,7 @@ const Map<String, String> kItCatalog = <String, String>{
       'Usque necessita dell’autorizzazione per creare un’interfaccia VPN e gestire route, DNS, regole del firewall e il proxy di sistema.',
   'terms_title': 'Termini Cloudflare',
   'terms_body':
-      'Usque è un client indipendente. L’uso di Consumer WARP resta soggetto ai termini applicabili e all’informativa sulla privacy di Cloudflare.',
+      'Usque è un client indipendente. L’uso di Consumer WARP o della registrazione sperimentale Zero Trust resta soggetto ai termini applicabili e all’informativa sulla privacy di Cloudflare.',
   'terms_accept': 'Ho compreso e accetto queste condizioni.',
   'identity_title': 'Configura Consumer WARP',
   'register_new': 'Registra una nuova identità',

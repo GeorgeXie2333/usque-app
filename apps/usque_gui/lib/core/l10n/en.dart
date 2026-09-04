@@ -318,7 +318,7 @@ const Map<String, String> kEnCatalog = <String, String>{
       'Usque needs permission to create a VPN interface and manage routes, DNS, firewall rules, and the system proxy.',
   'terms_title': 'Cloudflare terms',
   'terms_body':
-      'Usque is an independent client. Your use of Consumer WARP remains subject to Cloudflare’s applicable terms and privacy policy.',
+      'Usque is an independent client. Your use of Consumer WARP or experimental Zero Trust enrollment remains subject to Cloudflare’s applicable terms and privacy policy.',
   'terms_accept': 'I understand and accept these conditions.',
   'identity_title': 'Set up Consumer WARP',
   'register_new': 'Register a new identity',

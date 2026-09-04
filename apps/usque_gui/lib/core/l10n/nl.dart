@@ -321,7 +321,7 @@ const Map<String, String> kNlCatalog = <String, String>{
       'Usque heeft toestemming nodig om een VPN-interface aan te maken en routes, DNS, firewallregels en de systeemproxy te beheren.',
   'terms_title': 'Cloudflare-voorwaarden',
   'terms_body':
-      'Usque is een onafhankelijke client. Uw gebruik van Consumer WARP blijft onderworpen aan de toepasselijke voorwaarden en het privacybeleid van Cloudflare.',
+      'Usque is een onafhankelijke client. Uw gebruik van Consumer WARP of de experimentele Zero Trust-registratie blijft onderworpen aan de toepasselijke voorwaarden en het privacybeleid van Cloudflare.',
   'terms_accept': 'Ik begrijp deze voorwaarden en ga ermee akkoord.',
   'identity_title': 'Consumer WARP instellen',
   'register_new': 'Een nieuwe identiteit registreren',

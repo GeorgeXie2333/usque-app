@@ -327,7 +327,7 @@ const Map<String, String> kFrCatalog = <String, String>{
       'Usque a besoin de l’autorisation de créer une interface VPN et de gérer les routes, le DNS, les règles de pare-feu et le proxy système.',
   'terms_title': 'Conditions Cloudflare',
   'terms_body':
-      'Usque est un client indépendant. Votre utilisation de Consumer WARP reste soumise aux conditions et à la politique de confidentialité applicables de Cloudflare.',
+      'Usque est un client indépendant. Votre utilisation de Consumer WARP ou de l’inscription expérimentale Zero Trust reste soumise aux conditions et à la politique de confidentialité applicables de Cloudflare.',
   'terms_accept': 'Je comprends et j’accepte ces conditions.',
   'identity_title': 'Configurer Consumer WARP',
   'register_new': 'Enregistrer une nouvelle identité',

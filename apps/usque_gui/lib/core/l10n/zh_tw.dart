@@ -283,7 +283,8 @@ const Map<String, String> kZhTwCatalog = <String, String>{
   'permissions_title': '系統權限',
   'permissions_body': 'Usque 需要權限以建立 VPN 介面，並管理路由、DNS、防火牆規則與系統代理。',
   'terms_title': 'Cloudflare 條款',
-  'terms_body': 'Usque 是獨立用戶端。你使用 Consumer WARP 時，仍須遵守 Cloudflare 的適用條款與隱私權政策。',
+  'terms_body':
+      'Usque 是獨立用戶端。你使用 Consumer WARP 或實驗性 Zero Trust 註冊時，仍須遵守 Cloudflare 的適用條款與隱私權政策。',
   'terms_accept': '我了解並接受這些條件。',
   'identity_title': '設定 Consumer WARP',
   'register_new': '註冊新身分',

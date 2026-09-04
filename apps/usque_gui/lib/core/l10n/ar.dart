@@ -314,7 +314,7 @@ const Map<String, String> kArCatalog = <String, String>{
       'يحتاج Usque إلى إذن لإنشاء واجهة VPN وإدارة المسارات وDNS وقواعد جدار الحماية ووكيل النظام.',
   'terms_title': 'شروط Cloudflare',
   'terms_body':
-      'Usque عميل مستقل. يبقى استخدامك لـ Consumer WARP خاضعًا لشروط Cloudflare المعمول بها ولسياسة الخصوصية.',
+      'Usque عميل مستقل. يبقى استخدامك لـ Consumer WARP أو تسجيل Zero Trust التجريبي خاضعًا لشروط Cloudflare المعمول بها ولسياسة الخصوصية.',
   'terms_accept': 'أفهم هذه الشروط وأقبلها.',
   'identity_title': 'إعداد Consumer WARP',
   'register_new': 'تسجيل هوية جديدة',

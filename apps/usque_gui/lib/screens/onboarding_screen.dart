@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -9,6 +10,7 @@ import '../core/usque_theme.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
+import '../widgets/zero_trust_enrollment_editor.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({required this.controller, super.key});
@@ -23,19 +25,22 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   static const int _stepCount = 4;
 
   final TextEditingController _licenseController = TextEditingController();
+  final _zeroTrustKey = GlobalKey<ZeroTrustEnrollmentEditorState>();
   int _step = 0;
 
   /// Direction of the last step change, so a step slides in from the side the
   /// user came from.
   bool _forward = true;
   bool _termsAccepted = false;
-  bool _useLicense = false;
+  IdentityProvisioningMethod _method = IdentityProvisioningMethod.register;
   bool _licenseVisible = false;
+  bool _zeroTrustValid = false;
 
   AppStrings get strings => widget.controller.strings;
 
   @override
   void dispose() {
+    unawaited(widget.controller.cancelZeroTrustLogin());
     _licenseController
       ..clear()
       ..dispose();
@@ -43,10 +48,74 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   void _goTo(int step) {
+    if (_step == _stepCount - 1 &&
+        step != _stepCount - 1 &&
+        _method == IdentityProvisioningMethod.zeroTrust) {
+      final editor = _zeroTrustKey.currentState;
+      if (editor != null) {
+        unawaited(editor.clearSensitive());
+      } else {
+        unawaited(widget.controller.cancelZeroTrustLogin());
+      }
+    }
     setState(() {
       _forward = step > _step;
       _step = step;
+      if (step != _stepCount - 1) _zeroTrustValid = false;
     });
+  }
+
+  void _changeMethod(IdentityProvisioningMethod value) {
+    if (value == _method || widget.controller.busy) return;
+    _licenseController.clear();
+    if (_method == IdentityProvisioningMethod.zeroTrust) {
+      final editor = _zeroTrustKey.currentState;
+      if (editor != null) {
+        unawaited(editor.clearSensitive());
+      } else {
+        unawaited(widget.controller.cancelZeroTrustLogin());
+      }
+    }
+    setState(() {
+      _method = value;
+      _zeroTrustValid = false;
+    });
+  }
+
+  Future<void> _finishSetup() async {
+    if (widget.controller.busy) return;
+    String? licenseKey;
+    ZeroTrustEnrollmentDraft? enrollment;
+    if (_method == IdentityProvisioningMethod.registerWithLicense) {
+      licenseKey = _licenseController.text.trim();
+      if (licenseKey.isEmpty) return;
+    } else if (_method == IdentityProvisioningMethod.zeroTrust) {
+      enrollment = _zeroTrustKey.currentState?.validateAndRead();
+      if (enrollment == null) {
+        if (mounted) setState(() => _zeroTrustValid = false);
+        return;
+      }
+    }
+
+    final success = await widget.controller.finishOnboarding(
+      method: _method,
+      licenseKey: licenseKey,
+      teamName: enrollment?.teamName,
+      callbackUri: enrollment?.callbackUri,
+    );
+    licenseKey = null;
+    enrollment = null;
+    if (!mounted) return;
+    _licenseController.clear();
+    final editor = _zeroTrustKey.currentState;
+    if (editor != null) {
+      await editor.clearSensitive();
+    } else {
+      await widget.controller.cancelZeroTrustLogin();
+    }
+    if (mounted && !success) {
+      setState(() => _zeroTrustValid = false);
+    }
   }
 
   @override
@@ -152,13 +221,21 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       ),
       _ => _IdentityStep(
         strings: strings,
-        useLicense: _useLicense,
+        controller: widget.controller,
+        method: _method,
         licenseVisible: _licenseVisible,
         licenseController: _licenseController,
-        onMethodChanged: (value) => setState(() => _useLicense = value),
+        zeroTrustKey: _zeroTrustKey,
+        onMethodChanged: _changeMethod,
         onVisibilityChanged: () =>
             setState(() => _licenseVisible = !_licenseVisible),
         onLicenseChanged: (_) => setState(() {}),
+        onZeroTrustValidityChanged: (valid) {
+          if (mounted && valid != _zeroTrustValid) {
+            setState(() => _zeroTrustValid = valid);
+          }
+        },
+        onZeroTrustSubmitted: _finishSetup,
       ),
     };
   }
@@ -167,10 +244,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     final isLast = _step == _stepCount - 1;
     final canContinue = switch (_step) {
       2 => _termsAccepted,
-      3 => !_useLicense || _licenseController.text.trim().isNotEmpty,
+      3 => switch (_method) {
+        IdentityProvisioningMethod.register => true,
+        IdentityProvisioningMethod.registerWithLicense =>
+          _licenseController.text.trim().isNotEmpty,
+        IdentityProvisioningMethod.zeroTrust => _zeroTrustValid,
+      },
       _ => true,
     };
-    return Row(
+    return OverflowBar(
+      alignment: MainAxisAlignment.spaceBetween,
+      overflowAlignment: OverflowBarAlignment.end,
+      spacing: 12,
+      overflowSpacing: 12,
       children: <Widget>[
         if (_step > 0)
           OutlinedButton.icon(
@@ -178,7 +264,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             icon: const Icon(LucideIcons.arrowLeft),
             label: Text(strings.get('back')),
           ),
-        const Spacer(),
         FilledButton.icon(
           onPressed: !canContinue || widget.controller.busy
               ? null
@@ -187,16 +272,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     _goTo(_step + 1);
                     return;
                   }
-                  final value = _useLicense
-                      ? _licenseController.text.trim()
-                      : null;
-                  await widget.controller.finishOnboarding(
-                    method: _useLicense
-                        ? IdentityProvisioningMethod.registerWithLicense
-                        : IdentityProvisioningMethod.register,
-                    licenseKey: value,
-                  );
-                  _licenseController.clear();
+                  await _finishSetup();
                 },
           icon: widget.controller.busy
               ? SizedBox(
@@ -575,21 +651,29 @@ class _TermsStep extends StatelessWidget {
 class _IdentityStep extends StatelessWidget {
   const _IdentityStep({
     required this.strings,
-    required this.useLicense,
+    required this.controller,
+    required this.method,
     required this.licenseVisible,
     required this.licenseController,
+    required this.zeroTrustKey,
     required this.onMethodChanged,
     required this.onVisibilityChanged,
     required this.onLicenseChanged,
+    required this.onZeroTrustValidityChanged,
+    required this.onZeroTrustSubmitted,
   });
 
   final AppStrings strings;
-  final bool useLicense;
+  final AppController controller;
+  final IdentityProvisioningMethod method;
   final bool licenseVisible;
   final TextEditingController licenseController;
-  final ValueChanged<bool> onMethodChanged;
+  final GlobalKey<ZeroTrustEnrollmentEditorState> zeroTrustKey;
+  final ValueChanged<IdentityProvisioningMethod> onMethodChanged;
   final VoidCallback onVisibilityChanged;
   final ValueChanged<String> onLicenseChanged;
+  final ValueChanged<bool> onZeroTrustValidityChanged;
+  final VoidCallback onZeroTrustSubmitted;
 
   @override
   Widget build(BuildContext context) {
@@ -598,54 +682,57 @@ class _IdentityStep extends StatelessWidget {
       children: <Widget>[
         _StepHeading(
           icon: LucideIcons.keyRound,
-          title: strings.get('identity_title'),
+          title: strings.get('configure_identity'),
         ),
         const SizedBox(height: 22),
-        SegmentedButton<bool>(
-          segments: <ButtonSegment<bool>>[
-            ButtonSegment<bool>(
-              value: false,
-              icon: const Icon(LucideIcons.userRoundPlus),
-              label: Text(strings.get('register_new')),
-            ),
-            ButtonSegment<bool>(
-              value: true,
-              icon: const Icon(LucideIcons.badgePlus),
-              label: Text(strings.get('use_license_key')),
-            ),
-          ],
-          selected: <bool>{useLicense},
-          onSelectionChanged: (selection) => onMethodChanged(selection.first),
-          showSelectedIcon: false,
+        IdentityProvisioningMethodSelector(
+          strings: strings,
+          value: method,
+          enabled: !controller.busy,
+          onChanged: onMethodChanged,
         ),
         AnimatedSize(
           duration: UsqueMotion.of(context, UsqueMotion.gentle),
           curve: UsqueMotion.emphasized,
           alignment: Alignment.topCenter,
-          child: !useLicense
-              ? const SizedBox(width: double.infinity)
-              : Padding(
-                  padding: const EdgeInsets.only(top: 20),
-                  child: TextField(
-                    controller: licenseController,
-                    obscureText: !licenseVisible,
-                    enableSuggestions: false,
-                    autocorrect: false,
-                    onChanged: onLicenseChanged,
-                    decoration: InputDecoration(
-                      labelText: strings.get('warp_license_key'),
-                      suffixIcon: IconButton(
-                        tooltip: strings.get(
-                          licenseVisible ? 'hide_license' : 'show_license',
-                        ),
-                        onPressed: onVisibilityChanged,
-                        icon: Icon(
-                          licenseVisible ? LucideIcons.eyeOff : LucideIcons.eye,
-                        ),
-                      ),
+          child: switch (method) {
+            IdentityProvisioningMethod.register => const SizedBox(
+              width: double.infinity,
+            ),
+            IdentityProvisioningMethod.registerWithLicense => Padding(
+              padding: const EdgeInsets.only(top: 20),
+              child: TextField(
+                controller: licenseController,
+                enabled: !controller.busy,
+                obscureText: !licenseVisible,
+                enableSuggestions: false,
+                autocorrect: false,
+                onChanged: onLicenseChanged,
+                decoration: InputDecoration(
+                  labelText: strings.get('warp_license_key'),
+                  suffixIcon: IconButton(
+                    tooltip: strings.get(
+                      licenseVisible ? 'hide_license' : 'show_license',
+                    ),
+                    onPressed: onVisibilityChanged,
+                    icon: Icon(
+                      licenseVisible ? LucideIcons.eyeOff : LucideIcons.eye,
                     ),
                   ),
                 ),
+              ),
+            ),
+            IdentityProvisioningMethod.zeroTrust => Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: ZeroTrustEnrollmentEditor(
+                key: zeroTrustKey,
+                controller: controller,
+                enabled: !controller.busy,
+                onValidityChanged: onZeroTrustValidityChanged,
+                onSubmitted: onZeroTrustSubmitted,
+              ),
+            ),
+          },
         ),
       ],
     );

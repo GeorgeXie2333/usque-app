@@ -316,7 +316,7 @@ const Map<String, String> kThCatalog = <String, String>{
       'Usque ต้องมีสิทธิ์สร้างอินเทอร์เฟซ VPN และจัดการเส้นทาง, DNS, กฎไฟร์วอลล์ และพร็อกซีของระบบ',
   'terms_title': 'ข้อกำหนดของ Cloudflare',
   'terms_body':
-      'Usque เป็นไคลเอนต์อิสระ การใช้ Consumer WARP ของคุณยังอยู่ภายใต้ข้อกำหนดและนโยบายความเป็นส่วนตัวที่เกี่ยวข้องของ Cloudflare',
+      'Usque เป็นไคลเอนต์อิสระ การใช้ Consumer WARP หรือการลงทะเบียน Zero Trust แบบทดลองยังอยู่ภายใต้ข้อกำหนดและนโยบายความเป็นส่วนตัวที่เกี่ยวข้องของ Cloudflare',
   'terms_accept': 'เข้าใจและยอมรับเงื่อนไขเหล่านี้',
   'identity_title': 'ตั้งค่า Consumer WARP',
   'register_new': 'ลงทะเบียนตัวตนใหม่',

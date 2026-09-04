@@ -1,18 +1,15 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../core/app_strings.dart';
 import '../core/usque_motion.dart';
 import '../models/app_models.dart';
-import '../services/engine_client.dart';
-import '../services/zero_trust_callback.dart';
 import '../state/app_controller.dart';
 import 'common.dart';
 import 'usque_dialog.dart';
+import 'zero_trust_enrollment_editor.dart';
 
 Future<bool> showProfileIdentityDialog(
   BuildContext context, {
@@ -38,28 +35,19 @@ class _ProfileIdentityDialog extends StatefulWidget {
   State<_ProfileIdentityDialog> createState() => _ProfileIdentityDialogState();
 }
 
-class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog>
-    with WidgetsBindingObserver {
+class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog> {
   late final TextEditingController _nameController;
   late final TextEditingController _licenseController;
-  late final TextEditingController _teamController;
-  late final TextEditingController _callbackController;
   late final FocusNode _nameFocusNode;
   late final FocusNode _licenseFocusNode;
-  late final FocusNode _teamFocusNode;
-  late final FocusNode _callbackFocusNode;
+  final _zeroTrustKey = GlobalKey<ZeroTrustEnrollmentEditorState>();
   late int _step;
   IdentityProvisioningMethod _method = IdentityProvisioningMethod.register;
   String? _nameError;
   String? _licenseError;
-  String? _teamError;
-  String? _callbackError;
   String? _operationError;
   bool _showLicense = false;
   bool _submitting = false;
-  bool _startingLogin = false;
-  bool _callbackReceived = false;
-  int _seenZeroTrustTicket = 0;
 
   AppStrings get _strings => widget.controller.strings;
   bool get _isRepair => widget.profile != null;
@@ -75,52 +63,25 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog>
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
     _step = _isRepair ? 1 : 0;
     if (_isZeroTrustRepair) {
       _method = IdentityProvisioningMethod.zeroTrust;
     }
     _nameController = TextEditingController(text: widget.profile?.name ?? '');
     _licenseController = TextEditingController();
-    _teamController = TextEditingController(
-      text: _isZeroTrustRepair ? _existingStatus?.organization ?? '' : '',
-    );
-    _callbackController = TextEditingController();
     _nameFocusNode = FocusNode();
     _licenseFocusNode = FocusNode();
-    _teamFocusNode = FocusNode();
-    _callbackFocusNode = FocusNode();
-    _seenZeroTrustTicket = widget.controller.zeroTrustCallbackTicket;
-    widget.controller.addListener(_onControllerChanged);
-    if (_isZeroTrustRepair) {
-      unawaited(_consumeAutomaticCallback());
-    }
   }
 
   @override
   void dispose() {
-    widget.controller.removeListener(_onControllerChanged);
-    WidgetsBinding.instance.removeObserver(this);
     unawaited(widget.controller.cancelZeroTrustLogin());
     _licenseController.clear();
-    _callbackController.clear();
     _licenseFocusNode.dispose();
-    _teamFocusNode.dispose();
-    _callbackFocusNode.dispose();
     _nameFocusNode.dispose();
     _licenseController.dispose();
-    _teamController.dispose();
-    _callbackController.dispose();
     _nameController.dispose();
     super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed &&
-        _method == IdentityProvisioningMethod.zeroTrust) {
-      unawaited(_consumeAutomaticCallback());
-    }
   }
 
   void _continueFromName() {
@@ -139,115 +100,33 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog>
     });
   }
 
-  String? _normalizedTeam() =>
-      ZeroTrustCallbackSession.tryNormalizeTeam(_teamController.text);
-
-  void _onControllerChanged() {
-    if (_method != IdentityProvisioningMethod.zeroTrust) return;
-    final ticket = widget.controller.zeroTrustCallbackTicket;
-    if (ticket == _seenZeroTrustTicket) return;
-    _seenZeroTrustTicket = ticket;
-    unawaited(_consumeAutomaticCallback());
-  }
-
-  String? _callbackValidationError({required bool submitting}) {
-    final raw = _callbackController.text;
-    if (raw.length > ZeroTrustCallbackSession.maxCallbackChars) {
-      return _strings.get('zero_trust_callback_invalid');
-    }
-    final callback = raw.trim();
-    if (callback.isEmpty) {
-      return submitting ? _strings.get('zero_trust_callback_required') : null;
-    }
-    final team = _normalizedTeam();
-    if (team == null ||
-        !ZeroTrustCallbackSession.isValidCallback(team, callback)) {
-      return _strings.get('zero_trust_callback_invalid');
-    }
-    return null;
-  }
-
-  Future<void> _fillCallbackFromClipboard() async {
-    if (_startingLogin || _submitting) return;
-    final data = await Clipboard.getData(Clipboard.kTextPlain);
-    var text = data?.text?.trim() ?? '';
-    if (text.length >= 2 && text.startsWith('"') && text.endsWith('"')) {
-      text = text.substring(1, text.length - 1).trim();
-    }
-    if (text.isEmpty) {
-      setState(() {
-        _callbackReceived = false;
-        _callbackError = _strings.get('zero_trust_clipboard_empty');
-      });
-      return;
-    }
-    _callbackController.text = text;
-    setState(() {
-      _callbackReceived = false;
-      _callbackError = _callbackValidationError(submitting: false);
-    });
-  }
-
-  Future<void> _beginZeroTrustLogin() async {
-    if (_startingLogin || _submitting) return;
-    final team = _normalizedTeam();
-    if (team == null) {
-      setState(() => _teamError = _strings.get('zero_trust_team_invalid'));
-      _teamFocusNode.requestFocus();
-      return;
-    }
-    _teamController.text = team;
-    _callbackController.clear();
-    setState(() {
-      _startingLogin = true;
-      _teamError = null;
-      _callbackError = null;
-      _callbackReceived = false;
-      _operationError = null;
-    });
-    try {
-      final loginUrl = await widget.controller.beginZeroTrustLogin(team);
-      final opened = await launchUrl(
-        Uri.parse(loginUrl),
-        mode: LaunchMode.externalApplication,
-      );
-      if (!opened) {
-        throw StateError('The system browser could not be opened.');
-      }
-    } on Object catch (error) {
-      await widget.controller.cancelZeroTrustLogin();
-      if (!mounted) return;
-      setState(() {
-        _operationError = error is EngineException
-            ? error.message
-            : _strings.get('zero_trust_browser_failed');
-      });
-    } finally {
-      if (mounted) setState(() => _startingLogin = false);
-    }
-  }
-
-  Future<void> _consumeAutomaticCallback() async {
-    final team = _normalizedTeam();
-    if (team == null) return;
-    final callback = await widget.controller.consumeZeroTrustCallback();
-    if (!mounted || callback == null || callback.isEmpty) return;
-    if (!ZeroTrustCallbackSession.isValidCallback(team, callback)) {
-      return;
-    }
-    _callbackController.text = callback;
-    setState(() {
-      _callbackReceived = true;
-      _callbackError = null;
-      _operationError = null;
-    });
-  }
-
   Future<void> _cancelDialog() async {
     _licenseController.clear();
-    _callbackController.clear();
-    await widget.controller.cancelZeroTrustLogin();
+    final editor = _zeroTrustKey.currentState;
+    if (editor != null) {
+      await editor.clearSensitive();
+    } else {
+      await widget.controller.cancelZeroTrustLogin();
+    }
     if (mounted) Navigator.of(context).pop(false);
+  }
+
+  void _changeMethod(IdentityProvisioningMethod value) {
+    if (_submitting || value == _method) return;
+    _licenseController.clear();
+    if (_method == IdentityProvisioningMethod.zeroTrust) {
+      final editor = _zeroTrustKey.currentState;
+      if (editor != null) {
+        unawaited(editor.clearSensitive());
+      } else {
+        unawaited(widget.controller.cancelZeroTrustLogin());
+      }
+    }
+    setState(() {
+      _method = value;
+      _licenseError = null;
+      _operationError = null;
+    });
   }
 
   Future<void> _submit() async {
@@ -275,21 +154,10 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog>
       }
     }
     if (_method == IdentityProvisioningMethod.zeroTrust) {
-      teamName = _normalizedTeam();
-      final rawCallback = _callbackController.text;
-      callbackUri = rawCallback.trim();
-      if (teamName == null) {
-        setState(() => _teamError = _strings.get('zero_trust_team_invalid'));
-        _teamFocusNode.requestFocus();
-        return;
-      }
-      final callbackError = _callbackValidationError(submitting: true);
-      if (callbackError != null) {
-        callbackUri = null;
-        setState(() => _callbackError = callbackError);
-        _callbackFocusNode.requestFocus();
-        return;
-      }
+      final enrollment = _zeroTrustKey.currentState?.validateAndRead();
+      if (enrollment == null) return;
+      teamName = enrollment.teamName;
+      callbackUri = enrollment.callbackUri;
     }
 
     setState(() {
@@ -314,9 +182,12 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog>
           );
     licenseKey = null;
     callbackUri = null;
-    _callbackController.clear();
-    _callbackReceived = false;
-    await widget.controller.cancelZeroTrustLogin();
+    final editor = _zeroTrustKey.currentState;
+    if (editor != null) {
+      await editor.clearSensitive();
+    } else {
+      await widget.controller.cancelZeroTrustLogin();
+    }
     if (!mounted) return;
     if (success) {
       Navigator.of(context).pop(true);
@@ -433,77 +304,18 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog>
                 children: <Widget>[
                   Text(_strings.get('zero_trust_repair_same_team')),
                   const SizedBox(height: 6),
-                  _ExperimentalBadge(strings: _strings),
+                  ZeroTrustExperimentalBadge(strings: _strings),
                 ],
               ),
             ),
           )
         else
-          RadioGroup<IdentityProvisioningMethod>(
-            groupValue: _method,
-            onChanged: (value) {
-              if (_submitting || value == null) return;
-              _licenseController.clear();
-              _callbackController.clear();
-              unawaited(widget.controller.cancelZeroTrustLogin());
-              setState(() {
-                _method = value;
-                _licenseError = null;
-                _teamError = null;
-                _callbackError = null;
-                _callbackReceived = false;
-                _operationError = null;
-              });
-              if (value == IdentityProvisioningMethod.zeroTrust) {
-                unawaited(_consumeAutomaticCallback());
-              }
-            },
-            child: Column(
-              children: <Widget>[
-                RadioListTile<IdentityProvisioningMethod>(
-                  value: IdentityProvisioningMethod.register,
-                  contentPadding: MediaQuery.sizeOf(context).width < 600
-                      ? EdgeInsets.zero
-                      : null,
-                  title: Text(_strings.get('register_new')),
-                  secondary: MediaQuery.sizeOf(context).width >= 600
-                      ? const Icon(LucideIcons.userPlus)
-                      : null,
-                ),
-                RadioListTile<IdentityProvisioningMethod>(
-                  value: IdentityProvisioningMethod.registerWithLicense,
-                  contentPadding: MediaQuery.sizeOf(context).width < 600
-                      ? EdgeInsets.zero
-                      : null,
-                  title: Text(_strings.get('use_license_key')),
-                  secondary: MediaQuery.sizeOf(context).width >= 600
-                      ? const Icon(LucideIcons.badgePlus)
-                      : null,
-                ),
-                if (!_isRepair)
-                  RadioListTile<IdentityProvisioningMethod>(
-                    value: IdentityProvisioningMethod.zeroTrust,
-                    contentPadding: MediaQuery.sizeOf(context).width < 600
-                        ? EdgeInsets.zero
-                        : null,
-                    title: Text(_strings.get('zero_trust_title')),
-                    subtitle: Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: <Widget>[
-                          Text(_strings.get('zero_trust_subtitle')),
-                          const SizedBox(height: 6),
-                          _ExperimentalBadge(strings: _strings),
-                        ],
-                      ),
-                    ),
-                    secondary: MediaQuery.sizeOf(context).width >= 600
-                        ? const Icon(LucideIcons.building2)
-                        : null,
-                  ),
-              ],
-            ),
+          IdentityProvisioningMethodSelector(
+            strings: _strings,
+            value: _method,
+            enabled: !_submitting,
+            showZeroTrust: !_isRepair,
+            onChanged: _changeMethod,
           ),
         if (_zeroTrustRepairUnavailable)
           Padding(
@@ -546,96 +358,15 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog>
         if (_method == IdentityProvisioningMethod.zeroTrust &&
             !_zeroTrustRepairUnavailable) ...<Widget>[
           const SizedBox(height: 12),
-          DialogGroup(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                TextField(
-                  controller: _teamController,
-                  focusNode: _teamFocusNode,
-                  readOnly: _isZeroTrustRepair,
-                  autocorrect: false,
-                  enableSuggestions: false,
-                  decoration: InputDecoration(
-                    labelText: _strings.get('zero_trust_team'),
-                    hintText: 'example-team',
-                    errorText: _teamError,
-                    prefixIcon: const Icon(LucideIcons.building2),
-                  ),
-                  onChanged: (_) {
-                    setState(() {
-                      _teamError = null;
-                      _callbackError = _callbackValidationError(
-                        submitting: false,
-                      );
-                    });
-                    if (_callbackController.text.isEmpty) {
-                      unawaited(_consumeAutomaticCallback());
-                    }
-                  },
-                ),
-                const SizedBox(height: 10),
-                FilledButton.tonalIcon(
-                  onPressed: _startingLogin || _submitting
-                      ? null
-                      : _beginZeroTrustLogin,
-                  icon: _startingLogin
-                      ? const SizedBox.square(
-                          dimension: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(LucideIcons.externalLink),
-                  label: Text(_strings.get('zero_trust_open_login')),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  _callbackReceived
-                      ? _strings.get('zero_trust_callback_received')
-                      : _strings.get('zero_trust_manual_callback'),
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                const SizedBox(height: 6),
-                TextField(
-                  controller: _callbackController,
-                  focusNode: _callbackFocusNode,
-                  obscureText: true,
-                  enableSuggestions: false,
-                  autocorrect: false,
-                  decoration: InputDecoration(
-                    labelText: _strings.get('zero_trust_callback'),
-                    errorText: _callbackError,
-                    prefixIcon: const Icon(LucideIcons.link),
-                  ),
-                  onChanged: (_) {
-                    setState(() {
-                      _callbackReceived = false;
-                      _callbackError = _callbackValidationError(
-                        submitting: false,
-                      );
-                    });
-                  },
-                  onSubmitted: (_) => _submit(),
-                ),
-                const SizedBox(height: 8),
-                Align(
-                  alignment: AlignmentDirectional.centerEnd,
-                  child: TextButton.icon(
-                    onPressed: _startingLogin || _submitting
-                        ? null
-                        : _fillCallbackFromClipboard,
-                    icon: const Icon(LucideIcons.clipboardPaste),
-                    label: Text(_strings.get('zero_trust_paste_clipboard')),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  _strings.get('zero_trust_scope_note'),
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
+          ZeroTrustEnrollmentEditor(
+            key: _zeroTrustKey,
+            controller: widget.controller,
+            enabled: !_submitting,
+            initialTeam: _isZeroTrustRepair
+                ? _existingStatus?.organization ?? ''
+                : '',
+            teamReadOnly: _isZeroTrustRepair,
+            onSubmitted: _submit,
           ),
         ],
         BannerSlot(
@@ -652,22 +383,6 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog>
                 ),
         ),
       ],
-    );
-  }
-}
-
-class _ExperimentalBadge extends StatelessWidget {
-  const _ExperimentalBadge({required this.strings});
-
-  final AppStrings strings;
-
-  @override
-  Widget build(BuildContext context) {
-    return StatusPill(
-      label: strings.get('experimental'),
-      tone: StatusTone.warning,
-      dim: true,
-      showIndicator: false,
     );
   }
 }
