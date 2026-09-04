@@ -13,6 +13,9 @@ use usque_protocol::{AddressAssign, CapsuleEffect, ConnectIpCapsule, IpPrefix, P
 
 use crate::h2::TransportError;
 
+pub(crate) const MAX_PENDING_CONTROL_CAPSULES: usize = 64;
+pub(crate) const MAX_PENDING_CONTROL_BYTES: usize = 256 * 1024;
+
 pub(crate) struct PendingControlCapsule {
     pub(crate) bytes: Bytes,
     pub(crate) offset: usize,
@@ -94,6 +97,14 @@ pub(crate) fn apply_connect_ip_capsule(
                 .collect();
             let rejection =
                 ConnectIpCapsule::AddressAssign(AddressAssign { addresses }).encode()?;
+            let pending_bytes = pending.iter().fold(0_usize, |total, item| {
+                total.saturating_add(item.bytes.len().saturating_sub(item.offset))
+            });
+            if pending.len() >= MAX_PENDING_CONTROL_CAPSULES
+                || pending_bytes.saturating_add(rejection.len()) > MAX_PENDING_CONTROL_BYTES
+            {
+                return Err(TransportError::SendQueueFull);
+            }
             pending.push_back(PendingControlCapsule {
                 bytes: rejection,
                 offset: 0,
@@ -197,5 +208,34 @@ mod tests {
         assert_eq!(rejection.addresses[1].prefix_len, 128);
         assert!(!state.assignments_advertised);
         assert!(state.assigned_addresses.is_empty());
+    }
+
+    #[test]
+    fn address_request_rejections_have_item_and_byte_bounds() {
+        let request = ConnectIpCapsule::AddressRequest(AddressRequest {
+            addresses: vec![IpPrefix {
+                request_id: 1,
+                address: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+                prefix_len: 32,
+            }],
+        });
+        let (state_tx, _state_rx) = watch::channel(PeerNetworkState::default());
+        let mut state = PeerNetworkState::default();
+        let mut pending = VecDeque::new();
+        for _ in 0..MAX_PENDING_CONTROL_CAPSULES {
+            apply_connect_ip_capsule(&mut state, &state_tx, &mut pending, &request).unwrap();
+        }
+        assert_eq!(pending.len(), MAX_PENDING_CONTROL_CAPSULES);
+        assert!(matches!(
+            apply_connect_ip_capsule(&mut state, &state_tx, &mut pending, &request),
+            Err(TransportError::SendQueueFull)
+        ));
+        assert!(
+            pending
+                .iter()
+                .map(|item| item.bytes.len().saturating_sub(item.offset))
+                .sum::<usize>()
+                <= MAX_PENDING_CONTROL_BYTES
+        );
     }
 }

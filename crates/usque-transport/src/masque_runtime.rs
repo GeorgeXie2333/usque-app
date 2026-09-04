@@ -17,35 +17,58 @@ use crate::netstack::{
     ManagedTunnelMonitor, ManagedTunnelRuntime, PacketStack, ProxyPerformanceSnapshot,
     RuntimeHealth, RuntimePath, TrafficSnapshot,
 };
-use crate::packet_batch::{PACKET_BATCH_CHANNEL_CAPACITY, PacketBatch};
+use crate::network_quality::NetworkQualityTelemetry;
+use crate::packet_batch::{MAX_PACKET_BATCH_BYTES, PACKET_BATCH_CHANNEL_CAPACITY, PacketBatch};
 use crate::packet_mux::{PacketMuxTable, PacketOrigin};
 use crate::pin_refresh::EndpointPinRefresher;
+use crate::queue_metrics::{
+    QueueKind, TrackedReceiver, TrackedSendErrorKind, TrackedSender, tracked_channel,
+};
 use crate::socket::{SocketProtector, noop_socket_protector};
 use crate::socks5::Socks5Frontend;
 use crate::telemetry::ConnectionTimelineSnapshot;
 
 const PACKET_QUEUE_CAPACITY: usize = 1_024;
+const PACKET_QUEUE_BYTE_CAPACITY: usize = PACKET_QUEUE_CAPACITY * u16::MAX as usize;
 
 /// Exclusive TUN packet I/O for one attach lifetime.
 ///
 /// Dropping this detaches TUN from the mux without closing MASQUE. Inbound
 /// TUN-origin packets are discarded until [`MasqueRuntime::attach_tun`].
 pub struct MasqueTunIo {
-    outgoing: mpsc::Sender<Bytes>,
-    incoming: mpsc::Receiver<PacketBatch>,
+    outgoing: TrackedSender<Bytes>,
+    incoming: TrackedReceiver<PacketBatch>,
     pending_incoming: PacketBatch,
+    cancellation: CancellationToken,
+    quality: NetworkQualityTelemetry,
 }
 
 impl MasqueTunIo {
+    /// Borrowed convenience path for low-frequency callers and tests. Platform
+    /// packet pumps must prefer [`Self::send_owned_packet`].
     pub async fn send_packet(&self, packet: &[u8]) -> Result<(), TransportError> {
         crate::h2::validate_ip_packet(packet)?;
-        let permit = self
-            .outgoing
-            .reserve()
+        self.quality.record_borrowed_to_owned_copy(packet.len());
+        self.send_owned_packet(Bytes::copy_from_slice(packet)).await
+    }
+
+    /// Transfers an already-owned packet without allocating or copying it.
+    pub async fn send_owned_packet(&self, packet: Bytes) -> Result<(), TransportError> {
+        crate::h2::validate_ip_packet(&packet)?;
+        let packet_len = packet.len();
+        self.outgoing
+            .send_cancellable(packet, packet_len, &self.cancellation)
             .await
-            .map_err(|_| TransportError::TunnelClosed)?;
-        permit.send(Bytes::copy_from_slice(packet));
-        Ok(())
+            .map_err(|error| match error.kind {
+                TrackedSendErrorKind::Closed
+                | TrackedSendErrorKind::Cancelled
+                | TrackedSendErrorKind::Full
+                | TrackedSendErrorKind::ByteLimit => TransportError::TunnelClosed,
+            })
+    }
+
+    pub fn record_platform_packet_buffer_allocation(&self) {
+        self.quality.record_fresh_allocation();
     }
 
     pub async fn receive_packet(&mut self) -> Result<Bytes, TransportError> {
@@ -88,9 +111,10 @@ pub struct MasqueRuntime {
     http: Option<HttpProxyFrontend>,
     http_spec: Option<FrontendSpec>,
     listeners: Vec<SocketAddr>,
-    raw_outgoing: Option<mpsc::Sender<Bytes>>,
-    tun_sink: watch::Sender<Option<mpsc::Sender<PacketBatch>>>,
-    _tun_sink_rx: watch::Receiver<Option<mpsc::Sender<PacketBatch>>>,
+    raw_outgoing: Option<TrackedSender<Bytes>>,
+    tun_sink: watch::Sender<Option<TrackedSender<PacketBatch>>>,
+    _tun_sink_rx: watch::Receiver<Option<TrackedSender<PacketBatch>>>,
+    quality: NetworkQualityTelemetry,
     cancellation: CancellationToken,
     mux_task: Option<JoinHandle<()>>,
     assigned_ipv4: Ipv4Addr,
@@ -136,6 +160,46 @@ impl MasqueRuntime {
         pin_refresher: Option<Arc<dyn EndpointPinRefresher>>,
         geo_policy: Arc<GeoDirectPolicy>,
     ) -> Result<Self, TransportError> {
+        Self::start_configured(
+            profile,
+            identity,
+            protector,
+            pin_refresher,
+            geo_policy,
+            crate::PRODUCTION_NETWORK_FEATURES,
+        )
+        .await
+    }
+
+    #[cfg(any(test, feature = "fault-injection"))]
+    pub async fn start_with_features(
+        profile: &Profile,
+        identity: MasqueTlsIdentity,
+        protector: Arc<dyn SocketProtector>,
+        pin_refresher: Option<Arc<dyn EndpointPinRefresher>>,
+        geo_policy: Arc<GeoDirectPolicy>,
+        features: crate::NetworkFeatureFlags,
+    ) -> Result<Self, TransportError> {
+        Self::start_configured(
+            profile,
+            identity,
+            protector,
+            pin_refresher,
+            geo_policy,
+            features,
+        )
+        .await
+    }
+
+    async fn start_configured(
+        profile: &Profile,
+        identity: MasqueTlsIdentity,
+        protector: Arc<dyn SocketProtector>,
+        pin_refresher: Option<Arc<dyn EndpointPinRefresher>>,
+        geo_policy: Arc<GeoDirectPolicy>,
+        features: crate::NetworkFeatureFlags,
+    ) -> Result<Self, TransportError> {
+        crate::encrypted_dns::validate_direct_dns_support(&profile.direct_dns)?;
         let credentials = match profile.proxy.listener_credentials() {
             Ok(credentials) => credentials,
             Err(error) => {
@@ -162,16 +226,17 @@ impl MasqueRuntime {
 
         let assigned_ipv4 = identity.assigned_ipv4;
         let assigned_ipv6 = identity.assigned_ipv6;
-        let mut tunnel = ManagedTunnelRuntime::start_with_refresh(
+        let mut tunnel = ManagedTunnelRuntime::start_with_network_features(
             profile,
             identity,
             Arc::clone(&protector),
             pin_refresher,
+            features,
         )
         .await?;
         let monitor = tunnel.monitor();
+        let quality = monitor.network_quality_telemetry();
         let cancellation = CancellationToken::new();
-        let gateway_protector = Arc::clone(&protector);
         let gateway_policy = Arc::clone(&geo_policy);
         let (mut stack, proxy_pipe) = PacketStack::start_detached(
             profile,
@@ -182,13 +247,15 @@ impl MasqueRuntime {
             geo_policy,
         )
         .await?;
-        let (direct_gateway, direct_incoming) = match DirectGatewayRouter::start(
+        let gateway_protector = Arc::clone(&stack.protector);
+        let (direct_gateway, direct_incoming) = match DirectGatewayRouter::start_with_quality(
             profile,
             gateway_policy,
             gateway_protector,
             Arc::clone(&stack.counters),
             Some((stack.channel.clone(), (assigned_ipv4, assigned_ipv6))),
             &cancellation,
+            quality.clone(),
         )
         .await
         {
@@ -241,10 +308,16 @@ impl MasqueRuntime {
             return Err(TransportError::HttpProxy(message));
         }
 
-        let (raw_outgoing, raw_outgoing_rx) = mpsc::channel(PACKET_QUEUE_CAPACITY);
+        let raw_outgoing_metrics = quality.register_queue(
+            QueueKind::TunToTransport,
+            PACKET_QUEUE_CAPACITY,
+            PACKET_QUEUE_BYTE_CAPACITY,
+        );
+        let (raw_outgoing, raw_outgoing_rx) = tracked_channel(raw_outgoing_metrics);
         let (tun_sink, tun_sink_rx) = watch::channel(None);
         let mux_tun_sink = tun_sink.clone();
         let mux_cancel = cancellation.clone();
+        let mux_quality = quality.clone();
         let mux_task = tokio::spawn(async move {
             run_packet_mux(
                 &mut tunnel,
@@ -253,6 +326,7 @@ impl MasqueRuntime {
                 direct_gateway,
                 mux_tun_sink,
                 &mux_cancel,
+                mux_quality,
             )
             .await;
             tunnel.shutdown().await;
@@ -269,6 +343,7 @@ impl MasqueRuntime {
             raw_outgoing: Some(raw_outgoing),
             tun_sink,
             _tun_sink_rx: tun_sink_rx,
+            quality,
             cancellation,
             mux_task: Some(mux_task),
             assigned_ipv4,
@@ -446,12 +521,19 @@ impl MasqueRuntime {
             .raw_outgoing
             .clone()
             .ok_or(TransportError::TunnelClosed)?;
-        let (incoming_tx, incoming) = mpsc::channel(PACKET_BATCH_CHANNEL_CAPACITY);
+        let incoming_metrics = self.quality.register_queue(
+            QueueKind::TransportToTun,
+            PACKET_BATCH_CHANNEL_CAPACITY,
+            PACKET_BATCH_CHANNEL_CAPACITY * MAX_PACKET_BATCH_BYTES,
+        );
+        let (incoming_tx, incoming) = tracked_channel(incoming_metrics);
         self.tun_sink.send_replace(Some(incoming_tx));
         Ok(MasqueTunIo {
             outgoing,
             incoming,
             pending_incoming: PacketBatch::new(),
+            cancellation: self.cancellation.child_token(),
+            quality: self.quality.clone(),
         })
     }
 
@@ -460,17 +542,28 @@ impl MasqueRuntime {
         self.tun_sink.send_replace(None);
     }
 
+    /// Borrowed convenience path; steady-state producers should transfer
+    /// ownership with [`Self::send_owned_packet`].
     pub async fn send_packet(&self, packet: &[u8]) -> Result<(), TransportError> {
         crate::h2::validate_ip_packet(packet)?;
-        let permit = self
-            .raw_outgoing
+        self.quality.record_borrowed_to_owned_copy(packet.len());
+        self.send_owned_packet(Bytes::copy_from_slice(packet)).await
+    }
+
+    pub async fn send_owned_packet(&self, packet: Bytes) -> Result<(), TransportError> {
+        crate::h2::validate_ip_packet(&packet)?;
+        let packet_len = packet.len();
+        self.raw_outgoing
             .as_ref()
             .ok_or(TransportError::TunnelClosed)?
-            .reserve()
+            .send_cancellable(packet, packet_len, &self.cancellation)
             .await
-            .map_err(|_| TransportError::TunnelClosed)?;
-        permit.send(Bytes::copy_from_slice(packet));
-        Ok(())
+            .map_err(|error| match error.kind {
+                TrackedSendErrorKind::Closed
+                | TrackedSendErrorKind::Cancelled
+                | TrackedSendErrorKind::Full
+                | TrackedSendErrorKind::ByteLimit => TransportError::TunnelClosed,
+            })
     }
 
     pub fn assigned_ipv4(&self) -> Ipv4Addr {
@@ -499,6 +592,21 @@ impl MasqueRuntime {
 
     pub fn connection_timeline(&self) -> ConnectionTimelineSnapshot {
         self.monitor.connection_timeline()
+    }
+
+    pub fn network_quality(&self) -> crate::NetworkQualitySnapshot {
+        self.monitor.network_quality()
+    }
+
+    pub fn diagnostic_dns_context(&self) -> (Arc<dyn SocketProtector>, CancellationToken) {
+        (
+            Arc::clone(&self.stack.protector),
+            self.cancellation.child_token(),
+        )
+    }
+
+    pub fn subscribe_network_quality(&self) -> watch::Receiver<crate::NetworkQualitySnapshot> {
+        self.monitor.subscribe_network_quality()
     }
 
     pub fn performance(&self) -> ProxyPerformanceSnapshot {
@@ -565,13 +673,18 @@ impl Drop for MasqueRuntime {
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the single mux actor owns tunnel, TUN, proxy, direct, sink, cancellation, and metrics boundaries"
+)]
 async fn run_packet_mux(
     tunnel: &mut ManagedTunnelRuntime,
     proxy_pipe: WakingPipe,
-    mut raw_outgoing: mpsc::Receiver<Bytes>,
+    mut raw_outgoing: TrackedReceiver<Bytes>,
     direct_gateway: DirectGatewayMux,
-    tun_sink: watch::Sender<Option<mpsc::Sender<PacketBatch>>>,
+    tun_sink: watch::Sender<Option<TrackedSender<PacketBatch>>>,
     cancellation: &CancellationToken,
+    quality: NetworkQualityTelemetry,
 ) {
     let DirectGatewayMux {
         mut router,
@@ -589,6 +702,16 @@ async fn run_packet_mux(
     let mut direct_incoming_open = true;
     let mut tun_dropped_batches = 0u64;
     let mut tun_dropped_packets = 0u64;
+    let proxy_outgoing = quality.register_queue(
+        QueueKind::ProxyToTransport,
+        PACKET_QUEUE_CAPACITY,
+        PACKET_QUEUE_BYTE_CAPACITY,
+    );
+    let proxy_incoming_metrics = quality.register_queue(
+        QueueKind::TransportToProxy,
+        PACKET_QUEUE_CAPACITY,
+        PACKET_QUEUE_BYTE_CAPACITY,
+    );
 
     loop {
         // Tokio randomizes ready branch order, so the two ingress queues get
@@ -618,6 +741,7 @@ async fn run_packet_mux(
             }
             packet = rx.recv_async() => {
                 let Some(packet) = packet else { break; };
+                let queue_entry = proxy_outgoing.start_entry(packet.len());
                 let mut packet = packet
                     .try_into_mut()
                     .unwrap_or_else(|packet| bytes::BytesMut::from(packet.as_ref()));
@@ -630,6 +754,7 @@ async fn run_packet_mux(
                         }
                     }
                 }
+                queue_entry.complete();
             }
             batch = tunnel.receive_batch() => {
                 let Ok(mut batch) = batch else { break; };
@@ -652,7 +777,11 @@ async fn run_packet_mux(
                                     .expect("one valid packet fits an empty TUN batch");
                             }
                         }
-                        Some(PacketOrigin::Proxy) => proxy_incoming.send_async(&packet).await,
+                        Some(PacketOrigin::Proxy) => {
+                            let queue_entry = proxy_incoming_metrics.start_entry(packet.len());
+                            proxy_incoming.send_async(&packet).await;
+                            queue_entry.complete();
+                        }
                         None => tracing::debug!("dropped an unattributed MASQUE return packet"),
                     }
                 }
@@ -674,6 +803,9 @@ async fn run_packet_mux(
             }
         }
     }
+    if cancellation.is_cancelled() {
+        raw_outgoing.cancel();
+    }
 }
 
 struct DirectGatewayMux {
@@ -686,14 +818,14 @@ struct DirectGatewayMux {
 /// A closed or full TUN sink must not tear the MASQUE mux: SOCKS/HTTP still
 /// need the session.
 fn dispatch_tun_incoming(
-    tun_sink: &watch::Sender<Option<mpsc::Sender<PacketBatch>>>,
+    tun_sink: &watch::Sender<Option<TrackedSender<PacketBatch>>>,
     packet: Bytes,
 ) -> usize {
     dispatch_tun_incoming_batch(tun_sink, PacketBatch::single(packet))
 }
 
 fn dispatch_tun_incoming_batch(
-    tun_sink: &watch::Sender<Option<mpsc::Sender<PacketBatch>>>,
+    tun_sink: &watch::Sender<Option<TrackedSender<PacketBatch>>>,
     batch: PacketBatch,
 ) -> usize {
     if batch.is_empty() {
@@ -703,13 +835,16 @@ fn dispatch_tun_incoming_batch(
     let Some(sink) = sink else {
         return 0;
     };
-    match sink.try_send(batch) {
+    let bytes = batch.bytes();
+    match sink.try_send(batch, bytes) {
         Ok(()) => 0,
-        Err(mpsc::error::TrySendError::Full(batch)) => batch.len(),
-        Err(mpsc::error::TrySendError::Closed(_)) => {
-            tun_sink.send_replace(None);
-            0
-        }
+        Err(error) => match error.kind {
+            TrackedSendErrorKind::Full | TrackedSendErrorKind::ByteLimit => error.value.len(),
+            TrackedSendErrorKind::Closed | TrackedSendErrorKind::Cancelled => {
+                tun_sink.send_replace(None);
+                0
+            }
+        },
     }
 }
 
@@ -812,6 +947,7 @@ impl FrontendSpec {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::queue_metrics::QueueMetrics;
     use std::collections::HashSet;
     use std::sync::{Mutex, OnceLock};
     use std::time::Duration;
@@ -819,6 +955,51 @@ mod tests {
     use tokio::time::timeout;
     use usque_core::FrontendSettings;
     use zeroize::Zeroizing;
+
+    fn tracked_bytes(
+        kind: QueueKind,
+        capacity: usize,
+    ) -> (TrackedSender<Bytes>, TrackedReceiver<Bytes>) {
+        tracked_channel(QueueMetrics::new(
+            kind,
+            capacity,
+            capacity * u16::MAX as usize,
+        ))
+    }
+
+    fn tracked_batches(
+        kind: QueueKind,
+        capacity: usize,
+    ) -> (TrackedSender<PacketBatch>, TrackedReceiver<PacketBatch>) {
+        tracked_channel(QueueMetrics::new(
+            kind,
+            capacity,
+            capacity * MAX_PACKET_BATCH_BYTES,
+        ))
+    }
+
+    fn test_tun_io(
+        outgoing_capacity: usize,
+        incoming_capacity: usize,
+    ) -> (
+        MasqueTunIo,
+        TrackedReceiver<Bytes>,
+        TrackedSender<PacketBatch>,
+    ) {
+        let (outgoing, outgoing_rx) = tracked_bytes(QueueKind::TunToTransport, outgoing_capacity);
+        let (incoming_tx, incoming) = tracked_batches(QueueKind::TransportToTun, incoming_capacity);
+        (
+            MasqueTunIo {
+                outgoing,
+                incoming,
+                pending_incoming: PacketBatch::new(),
+                cancellation: CancellationToken::new(),
+                quality: NetworkQualityTelemetry::default(),
+            },
+            outgoing_rx,
+            incoming_tx,
+        )
+    }
 
     fn mux_udp_packet(source_port: u16) -> Bytes {
         let mut packet = vec![0u8; 28];
@@ -1036,7 +1217,7 @@ mod tests {
     #[tokio::test]
     async fn detached_tun_sink_drops_packets_without_closing_the_channel() {
         let (tun_sink, _rx) = watch::channel(None);
-        let (tx, mut rx) = mpsc::channel(4);
+        let (tx, mut rx) = tracked_batches(QueueKind::TransportToTun, 4);
         tun_sink.send_replace(Some(tx.clone()));
         assert_eq!(
             dispatch_tun_incoming(&tun_sink, Bytes::from_static(b"keep")),
@@ -1067,7 +1248,7 @@ mod tests {
     #[tokio::test]
     async fn saturated_tun_sink_drops_only_payload_and_recovers() {
         let (tun_sink, _watch) = watch::channel(None);
-        let (tx, mut rx) = mpsc::channel(1);
+        let (tx, mut rx) = tracked_batches(QueueKind::TransportToTun, 1);
         tun_sink.send_replace(Some(tx));
         assert_eq!(
             dispatch_tun_incoming(&tun_sink, Bytes::from_static(b"first")),
@@ -1096,12 +1277,14 @@ mod tests {
     async fn packet_mux_survives_inner_backpressure_for_tun_and_proxy_sources() {
         let (mut tunnel, mut inner_rx, managed_incoming) =
             ManagedTunnelRuntime::packet_mux_test_channels(1);
-        let (raw_tx, raw_rx) = mpsc::channel(4);
-        let (_tun_incoming_tx, tun_incoming) = mpsc::channel(1);
+        let (raw_tx, raw_rx) = tracked_bytes(QueueKind::TunToTransport, 4);
+        let (_tun_incoming_tx, tun_incoming) = tracked_batches(QueueKind::TransportToTun, 1);
         let tun_io = MasqueTunIo {
             outgoing: raw_tx,
             incoming: tun_incoming,
             pending_incoming: PacketBatch::new(),
+            cancellation: CancellationToken::new(),
+            quality: NetworkQualityTelemetry::default(),
         };
         let (proxy_pipe, proxy_client) = WakingPipe::bounded(4);
         let WakingPipe {
@@ -1124,6 +1307,7 @@ mod tests {
             incoming: direct_incoming,
         };
         let (tun_sink, _tun_sink_rx) = watch::channel(None);
+        let quality = NetworkQualityTelemetry::default();
         let task_cancellation = cancellation.clone();
         let task = tokio::spawn(async move {
             let _managed_incoming = managed_incoming;
@@ -1134,6 +1318,7 @@ mod tests {
                 direct_gateway,
                 tun_sink,
                 &task_cancellation,
+                quality,
             )
             .await;
         });
@@ -1170,13 +1355,7 @@ mod tests {
 
     #[tokio::test]
     async fn tun_send_queue_saturation_backpressures_and_resumes_in_order() {
-        let (outgoing, mut outgoing_rx) = mpsc::channel(1);
-        let (_incoming_tx, incoming) = mpsc::channel(1);
-        let io = MasqueTunIo {
-            outgoing,
-            incoming,
-            pending_incoming: PacketBatch::new(),
-        };
+        let (io, mut outgoing_rx, _incoming_tx) = test_tun_io(1, 1);
         let packet = [
             0x45, 0, 0, 20, 0, 0, 0, 0, 64, 17, 0, 0, 1, 1, 1, 1, 8, 8, 8, 8,
         ];
@@ -1195,14 +1374,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn owned_tun_send_preserves_allocation_and_skips_borrowed_copy_metric() {
+        let (io, mut outgoing_rx, _incoming_tx) = test_tun_io(2, 1);
+        let quality = io.quality.clone();
+        let packet = mux_udp_packet(50_000);
+        let allocation = packet.as_ptr();
+
+        io.send_owned_packet(packet).await.unwrap();
+        let received = outgoing_rx.recv().await.unwrap();
+
+        assert_eq!(received.as_ptr(), allocation);
+        assert_eq!(
+            crate::network_quality::NetworkQualitySampler::new(quality)
+                .sample()
+                .allocations
+                .borrowed_to_owned_copy_bytes,
+            0
+        );
+
+        let borrowed = mux_udp_packet(50_001);
+        io.send_packet(&borrowed).await.unwrap();
+        let _ = outgoing_rx.recv().await.unwrap();
+        assert_eq!(
+            crate::network_quality::NetworkQualitySampler::new(io.quality.clone())
+                .sample()
+                .allocations
+                .borrowed_to_owned_copy_bytes,
+            borrowed.len() as u64
+        );
+    }
+
+    #[tokio::test]
     async fn closing_tun_send_queue_releases_a_backpressured_sender() {
-        let (outgoing, mut outgoing_rx) = mpsc::channel(1);
-        let (_incoming_tx, incoming) = mpsc::channel(1);
-        let io = MasqueTunIo {
-            outgoing,
-            incoming,
-            pending_incoming: PacketBatch::new(),
-        };
+        let (io, mut outgoing_rx, _incoming_tx) = test_tun_io(1, 1);
         let packet = [
             0x45, 0, 0, 20, 0, 0, 0, 0, 64, 17, 0, 0, 1, 1, 1, 1, 8, 8, 8, 8,
         ];
@@ -1224,13 +1428,7 @@ mod tests {
 
     #[tokio::test]
     async fn cancellation_drops_a_backpressured_tun_send_without_enqueuing_it() {
-        let (outgoing, mut outgoing_rx) = mpsc::channel(1);
-        let (_incoming_tx, incoming) = mpsc::channel(1);
-        let io = MasqueTunIo {
-            outgoing,
-            incoming,
-            pending_incoming: PacketBatch::new(),
-        };
+        let (io, mut outgoing_rx, _incoming_tx) = test_tun_io(1, 1);
         let packet = [
             0x45, 0, 0, 20, 0, 0, 0, 0, 64, 17, 0, 0, 1, 1, 1, 1, 8, 8, 8, 8,
         ];
@@ -1257,16 +1455,13 @@ mod tests {
 
     #[test]
     fn tun_receive_queue_can_be_drained_without_waiting() {
-        let (outgoing, _outgoing_rx) = mpsc::channel(1);
-        let (incoming_tx, incoming) = mpsc::channel(2);
-        let mut io = MasqueTunIo {
-            outgoing,
-            incoming,
-            pending_incoming: PacketBatch::new(),
-        };
+        let (mut io, _outgoing_rx, incoming_tx) = test_tun_io(1, 2);
 
         incoming_tx
-            .try_send(PacketBatch::single(Bytes::from_static(b"packet")))
+            .try_send(
+                PacketBatch::single(Bytes::from_static(b"packet")),
+                b"packet".len(),
+            )
             .expect("queue packet");
         assert_eq!(
             io.try_receive_packet().expect("queued packet"),
@@ -1328,6 +1523,7 @@ mod tests {
             .http
             .then(|| HttpProxyFrontend::prebind(profile).expect("bind HTTP"));
         let monitor = ManagedTunnelMonitor::stub();
+        let quality = monitor.network_quality_telemetry();
         let cancellation = CancellationToken::new();
         let (stack, _pipe) = PacketStack::start_detached(
             profile,
@@ -1374,6 +1570,7 @@ mod tests {
             raw_outgoing: None,
             tun_sink,
             _tun_sink_rx: tun_sink_rx,
+            quality,
             cancellation,
             mux_task: None,
             assigned_ipv4,

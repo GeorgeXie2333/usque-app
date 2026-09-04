@@ -68,6 +68,9 @@ const List<int> _goldenProfileBytes = <int>[
   0x10, 0x01, //   socks5 true
   0x18, 0x01, //   http true
   // }
+  0x8a, 0x01, 0x02, // direct_dns { (field 17, 2 bytes)
+  0x08, 0x01, //   mode PHYSICAL_SYSTEM
+  // }
 ];
 
 void main() {
@@ -148,6 +151,7 @@ void main() {
       expect(catalog.profiles.single.proxy.httpPort, 1);
       expect(catalog.profiles.single.proxy.dnsIpv4, 'j.j');
       expect(catalog.profiles.single.proxy.dnsIpv6, 'k:k');
+      expect(catalog.profiles.single.directDns, const DirectDnsSettings());
       expect(catalog.profiles.single.geoDirectCountries, isEmpty);
     });
 

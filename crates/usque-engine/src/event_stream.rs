@@ -2,7 +2,7 @@ use std::{io, sync::Arc, time::Duration};
 
 use tokio::{
     io::{AsyncWrite, AsyncWriteExt},
-    time::{MissedTickBehavior, interval},
+    time::{Instant, MissedTickBehavior, interval},
 };
 use usque_ipc::{
     encode_frame,
@@ -41,6 +41,9 @@ where
     ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let mut geo_progress = service.subscribe_geo_progress();
     let mut diagnostics = service.subscribe_diagnostics();
+    let mut quality_updates = service.subscribe_network_quality();
+    let initial_quality = service.network_quality_payload();
+    let mut quality_gate = NetworkQualityEventGate::new(initial_quality);
 
     loop {
         tokio::select! {
@@ -61,6 +64,20 @@ where
                     },
                 )
                 .await?;
+                if let Some(snapshot) = quality_gate.take_periodic(Instant::now()) {
+                    write_network_quality_event(&mut stream, &service, snapshot).await?;
+                }
+            }
+            changed = quality_updates.changed(), if quality_gate.is_enabled() => {
+                if changed.is_err() {
+                    return Ok(());
+                }
+                let snapshot = crate::network_quality::snapshot_to_proto(
+                    &quality_updates.borrow_and_update().clone(),
+                );
+                if let Some(snapshot) = quality_gate.observe(snapshot, Instant::now()) {
+                    write_network_quality_event(&mut stream, &service, snapshot).await?;
+                }
             }
             progress = geo_progress.recv() => {
                 match progress {
@@ -96,6 +113,88 @@ where
             }
         }
     }
+}
+
+struct NetworkQualityEventGate {
+    last_observed: Option<v1::NetworkQualitySnapshot>,
+    last_sent: Option<v1::NetworkQualitySnapshot>,
+    last_sent_at: Option<Instant>,
+    pending: Option<v1::NetworkQualitySnapshot>,
+}
+
+impl NetworkQualityEventGate {
+    fn new(initial: Option<v1::NetworkQualitySnapshot>) -> Self {
+        Self {
+            last_observed: initial.clone(),
+            last_sent: None,
+            last_sent_at: None,
+            pending: initial,
+        }
+    }
+
+    fn is_enabled(&self) -> bool {
+        self.last_observed.is_some()
+    }
+
+    fn observe(
+        &mut self,
+        snapshot: v1::NetworkQualitySnapshot,
+        now: Instant,
+    ) -> Option<v1::NetworkQualitySnapshot> {
+        let previous = self.last_observed.as_ref()?;
+        let major = crate::network_quality::is_major_change(previous, &snapshot);
+        self.last_observed = Some(snapshot.clone());
+        if self
+            .last_sent
+            .as_ref()
+            .is_some_and(|last| crate::network_quality::same_content(last, &snapshot))
+        {
+            self.pending = None;
+            return None;
+        }
+        self.pending = Some(snapshot);
+        if major && self.can_send(now) {
+            return self.take_pending(now);
+        }
+        None
+    }
+
+    fn take_periodic(&mut self, now: Instant) -> Option<v1::NetworkQualitySnapshot> {
+        self.can_send(now).then(|| self.take_pending(now)).flatten()
+    }
+
+    fn can_send(&self, now: Instant) -> bool {
+        self.pending.is_some()
+            && self
+                .last_sent_at
+                .is_none_or(|last| now.saturating_duration_since(last) >= SNAPSHOT_INTERVAL)
+    }
+
+    fn take_pending(&mut self, now: Instant) -> Option<v1::NetworkQualitySnapshot> {
+        let snapshot = self.pending.take()?;
+        self.last_sent = Some(snapshot.clone());
+        self.last_sent_at = Some(now);
+        Some(snapshot)
+    }
+}
+
+async fn write_network_quality_event(
+    writer: &mut (impl AsyncWrite + Unpin),
+    service: &ControlService,
+    snapshot: v1::NetworkQualitySnapshot,
+) -> io::Result<()> {
+    write_event(
+        writer,
+        EventEnvelope {
+            sequence: service.next_event_sequence(),
+            payload: Some(event_envelope::Payload::NetworkQualityUpdated(Box::new(
+                v1::NetworkQualityUpdated {
+                    snapshot: Some(Box::new(snapshot)),
+                },
+            ))),
+        },
+    )
+    .await
 }
 
 fn diagnostic_event_payload(event: DiagnosticEvent) -> event_envelope::Payload {
@@ -187,15 +286,19 @@ mod tests {
         ));
 
         let mut previous_sequence = capabilities.sequence;
-        for _ in 0..3 {
-            let state = read_event(&mut client).await.expect("state event");
-            assert!(matches!(
-                state.payload,
-                Some(event_envelope::Payload::StateChanged(_))
-            ));
-            assert!(state.sequence > previous_sequence);
-            previous_sequence = state.sequence;
+        let mut state_count = 0;
+        let mut quality_count = 0;
+        while state_count < 3 {
+            let event = read_event(&mut client).await.expect("stream event");
+            assert!(event.sequence > previous_sequence);
+            previous_sequence = event.sequence;
+            match event.payload {
+                Some(event_envelope::Payload::StateChanged(_)) => state_count += 1,
+                Some(event_envelope::Payload::NetworkQualityUpdated(_)) => quality_count += 1,
+                payload => panic!("unexpected stream payload: {payload:?}"),
+            }
         }
+        assert_eq!(quality_count, 1, "unchanged quality emits only once");
 
         drop(client);
         let error = timeout(Duration::from_secs(2), task)
@@ -209,5 +312,87 @@ mod tests {
                 | io::ErrorKind::ConnectionReset
                 | io::ErrorKind::UnexpectedEof
         ));
+    }
+
+    fn quality_snapshot(failures: u64, pmtu_changes: u64) -> v1::NetworkQualitySnapshot {
+        v1::NetworkQualitySnapshot {
+            level: v1::NetworkQualityLevel::Good as i32,
+            pmtu: Some(v1::PmtuQuality {
+                change_count: pmtu_changes,
+                ..v1::PmtuQuality::default()
+            }),
+            migration: Some(v1::MigrationQuality {
+                phase_code: "idle".to_owned(),
+                ..v1::MigrationQuality::default()
+            }),
+            direct_dns: Some(v1::DirectDnsQuality {
+                phase_code: "system".to_owned(),
+                failure_count: failures,
+                ..v1::DirectDnsQuality::default()
+            }),
+            ..v1::NetworkQualitySnapshot::default()
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn quality_gate_is_one_hertz_and_major_changes_are_due_immediately() {
+        let start = Instant::now();
+        let initial = quality_snapshot(0, 0);
+        let mut gate = NetworkQualityEventGate::new(Some(initial.clone()));
+        assert_eq!(gate.take_periodic(start), Some(initial.clone()));
+        assert_eq!(gate.observe(initial, start), None);
+
+        let mut timestamp_only = quality_snapshot(0, 0);
+        timestamp_only.sampled_at_unix_ms = 999;
+        assert_eq!(gate.observe(timestamp_only, start), None);
+
+        tokio::time::advance(SNAPSHOT_INTERVAL).await;
+        let major = quality_snapshot(0, 1);
+        assert_eq!(gate.observe(major.clone(), Instant::now()), Some(major));
+
+        let ordinary = quality_snapshot(1, 1);
+        assert_eq!(gate.observe(ordinary.clone(), Instant::now()), None);
+        tokio::time::advance(SNAPSHOT_INTERVAL - Duration::from_millis(1)).await;
+        assert_eq!(gate.take_periodic(Instant::now()), None);
+        tokio::time::advance(Duration::from_millis(1)).await;
+        assert_eq!(gate.take_periodic(Instant::now()), Some(ordinary));
+
+        tokio::time::advance(SNAPSHOT_INTERVAL).await;
+        let mut first_drop = quality_snapshot(1, 1);
+        first_drop.queues.push(v1::QueueQuality {
+            drop_items: 1,
+            ..v1::QueueQuality::default()
+        });
+        assert_eq!(
+            gate.observe(first_drop.clone(), Instant::now()),
+            Some(first_drop)
+        );
+    }
+
+    #[test]
+    fn disabled_quality_gate_never_emits_initial_periodic_or_changed_payloads() {
+        let mut gate = NetworkQualityEventGate::new(None);
+        let now = Instant::now();
+        assert!(!gate.is_enabled());
+        assert_eq!(gate.take_periodic(now), None);
+        assert_eq!(gate.observe(quality_snapshot(1, 1), now), None);
+        assert_eq!(gate.take_periodic(now + Duration::from_secs(5)), None);
+    }
+
+    #[test]
+    fn slow_quality_consumer_retains_only_the_latest_snapshot() {
+        let start = Instant::now();
+        let mut gate = NetworkQualityEventGate::new(Some(quality_snapshot(0, 0)));
+        gate.take_periodic(start).expect("initial snapshot");
+        for failures in 1..=10_000 {
+            assert_eq!(gate.observe(quality_snapshot(failures, 0), start), None);
+        }
+        assert_eq!(
+            gate.pending
+                .as_ref()
+                .and_then(|snapshot| snapshot.direct_dns.as_ref())
+                .map(|quality| quality.failure_count),
+            Some(10_000)
+        );
     }
 }

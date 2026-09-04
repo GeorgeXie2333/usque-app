@@ -2,10 +2,7 @@ use std::future::Future;
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::path::{Path, PathBuf};
-use std::sync::{
-    Arc, Mutex, OnceLock,
-    atomic::{AtomicBool, Ordering},
-};
+use std::sync::{Arc, Mutex, OnceLock, atomic::AtomicBool};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -20,6 +17,8 @@ use usque_transport::{
     TrafficSnapshot, TransportError,
 };
 
+use crate::tun_read_slab::TunReadSlab;
+
 use super::{
     AndroidEndpointPinRefresher, AndroidSocketProtector, MasqueTlsIdentity, NativeFailure,
     NativeSnapshot, Profile, RECONFIGURE_NEED_ATTACH, RECONFIGURE_NEED_COLD,
@@ -30,6 +29,12 @@ use super::{
 
 static ENGINE: OnceLock<Mutex<Option<EngineHandle>>> = OnceLock::new();
 static LAST_START_ERROR: OnceLock<Mutex<Option<NativeSnapshot>>> = OnceLock::new();
+
+pub(super) fn is_running() -> bool {
+    ENGINE
+        .get()
+        .is_some_and(|engine| engine.lock().map_or(true, |slot| slot.is_some()))
+}
 
 enum RuntimeCommand {
     Reconfigure {
@@ -107,6 +112,7 @@ fn spawn_runtime(
     if slot.is_some() {
         return START_ALREADY_RUNNING;
     }
+    super::connection_timeline::publish(Default::default());
     let tun = match tun_file_descriptor {
         Some(fd) => match duplicate_tun(fd) {
             Ok(tun) => Some(tun),
@@ -135,6 +141,12 @@ fn spawn_runtime(
         }
     };
 
+    // JNI captured an earlier generation before taking ENGINE's lock. Re-read
+    // the authoritative atomic Java generation before any worker can bind;
+    // notifications after this point wait for this same lock and see the handle.
+    if protector.refresh_network_generation().is_err() {
+        return START_PLATFORM_FAILURE;
+    }
     let cancellation = CancellationToken::new();
     let status = Arc::new(Mutex::new(NativeSnapshot::preparing()));
     let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
@@ -286,10 +298,7 @@ pub(super) fn notify_network_changed(generation: u64) {
         return;
     };
     if let Some(handle) = slot.as_ref() {
-        handle
-            .protector
-            .network_generation
-            .store(generation, Ordering::Release);
+        super::publish_network_generation(&handle.protector.network_generation, generation);
     }
 }
 
@@ -493,6 +502,7 @@ enum SessionDataEvent<TunRead, TunnelReceive> {
     TunRead(TunRead),
     TunnelReceive(TunnelReceive),
     Tick,
+    PreparationError(io::Error),
 }
 
 async fn next_session_data<TunRead, TunnelReceive>(
@@ -510,6 +520,48 @@ async fn next_session_data<TunRead, TunnelReceive>(
     }
 }
 
+type OwnedSessionDataEvent =
+    SessionDataEvent<Option<io::Result<usize>>, Option<Result<bytes::Bytes, TransportError>>>;
+
+async fn next_owned_session_data(
+    packet_slab: &mut TunReadSlab,
+    slot_size: usize,
+    tun: Option<&AsyncFd<TunFd>>,
+    mut tun_io: Option<&mut MasqueTunIo>,
+    tick: impl Future,
+) -> OwnedSessionDataEvent {
+    let allocated = match packet_slab.prepare(slot_size) {
+        Ok(allocated) => allocated,
+        Err(error) => return SessionDataEvent::PreparationError(error),
+    };
+    if allocated && let Some(io) = tun_io.as_deref() {
+        io.record_platform_packet_buffer_allocation();
+    }
+    let tun_read_buffer = packet_slab.read_buffer();
+    next_session_data(
+        async {
+            match tun {
+                Some(tun) => Some(read_packet(tun, tun_read_buffer).await),
+                None => {
+                    std::future::pending::<()>().await;
+                    None
+                }
+            }
+        },
+        async {
+            match tun_io.as_deref_mut() {
+                Some(io) => Some(io.receive_packet().await),
+                None => {
+                    std::future::pending::<()>().await;
+                    None
+                }
+            }
+        },
+        tick,
+    )
+    .await
+}
+
 #[expect(
     clippy::too_many_arguments,
     reason = "session loop owns optional TUN I/O, MASQUE, profile, cancellation, status, and reconfigure commands"
@@ -523,7 +575,7 @@ async fn run_session(
     status: Arc<Mutex<NativeSnapshot>>,
     mut commands: tokio::sync::mpsc::UnboundedReceiver<RuntimeCommand>,
 ) {
-    let mut packet = vec![0u8; 65_535];
+    let mut packet_slab = TunReadSlab::new();
     let mut ticker = interval(Duration::from_secs(1));
     ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let mut last_sample = Instant::now();
@@ -545,27 +597,17 @@ async fn run_session(
                 )
                 .await;
             }
-            event = next_session_data(
-                async {
-                    match tun.as_ref() {
-                        Some(tun) => Some(read_packet(tun, &mut packet).await),
-                        None => {
-                            std::future::pending::<()>().await;
-                            None
-                        }
-                    }
-                },
-                async {
-                    match tun_io.as_mut() {
-                        Some(io) => Some(io.receive_packet().await),
-                        None => {
-                            std::future::pending::<()>().await;
-                            None
-                        }
-                    }
-                },
+            event = next_owned_session_data(
+                &mut packet_slab,
+                usize::from(profile.mtu),
+                tun.as_ref(),
+                tun_io.as_mut(),
                 ticker.tick(),
             ) => match event {
+                SessionDataEvent::PreparationError(error) => {
+                    set_error(&status, format!("prepare Android TUN read: {error}"));
+                    break;
+                }
                 SessionDataEvent::TunRead(read) => {
                     let Some(read) = read else { continue; };
                     let Some(io) = tun_io.as_ref() else { continue; };
@@ -577,10 +619,17 @@ async fn run_session(
                             break;
                         }
                     };
+                    let packet = match packet_slab.take_packet(length) {
+                        Ok(packet) => packet,
+                        Err(error) => {
+                            set_error(&status, format!("own Android TUN packet: {error}"));
+                            break;
+                        }
+                    };
                     let send = tokio::select! {
                         biased;
                         _ = cancellation.cancelled() => None,
-                        result = io.send_packet(&packet[..length]) => Some(result),
+                        result = io.send_owned_packet(packet) => Some(result),
                     };
                     let Some(send) = send else {
                         break;
@@ -615,6 +664,7 @@ async fn run_session(
                     }
                 }
                 SessionDataEvent::Tick => {
+                    super::connection_timeline::publish(tunnel.connection_timeline());
                     update_health(&status, tunnel.health());
                     update_frontends(&status, &tunnel);
                     let now = Instant::now();
@@ -627,6 +677,8 @@ async fn run_session(
                             rate(current.bytes_received, last_traffic.bytes_received, seconds);
                         snapshot.uploaded_bytes = current.bytes_sent;
                         snapshot.downloaded_bytes = current.bytes_received;
+                        snapshot.network_quality = usque_transport::PRODUCTION_NETWORK_FEATURES.network_quality_metrics
+                            .then(|| super::network_quality_value(&tunnel.network_quality()));
                     }
                     last_sample = now;
                     last_traffic = current;
@@ -634,6 +686,7 @@ async fn run_session(
             }
         }
     }
+    super::connection_timeline::publish(tunnel.connection_timeline());
     tunnel.shutdown().await;
 }
 

@@ -22,8 +22,13 @@ fn main() {
     config.boxed(".usque.v1.ControlResponse.payload.status");
     config.boxed(".usque.v1.ControlResponse.payload.profile");
     config.boxed(".usque.v1.ControlResponse.payload.reconfigure");
+    config.boxed(".usque.v1.ControlResponse.payload.connection_timeline");
+    config.boxed(".usque.v1.ControlResponse.payload.network_quality");
     config.boxed(".usque.v1.EventEnvelope.payload.state_changed");
     config.boxed(".usque.v1.EventEnvelope.payload.exit_info_updated");
+    config.boxed(".usque.v1.EventEnvelope.payload.network_quality_updated");
+    config.boxed(".usque.v1.ConnectionSnapshot.network_quality");
+    config.boxed(".usque.v1.NetworkQualityUpdated.snapshot");
     config
         .compile_protos(&[control, agent], &[proto_root])
         .expect("compile protobuf contracts");

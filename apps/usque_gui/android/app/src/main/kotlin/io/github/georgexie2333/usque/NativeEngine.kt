@@ -15,6 +15,75 @@ internal object NativeEngine {
 
     fun isLinked(): Boolean = libraryLoaded
 
+    fun connectionTimeline(): String? =
+        try {
+            if (libraryLoaded) nativeConnectionTimeline() else null
+        } catch (_: UnsatisfiedLinkError) {
+            null
+        }
+
+    private external fun nativeConnectionTimeline(): String?
+
+    fun capabilities(): String? =
+        try {
+            if (libraryLoaded) nativeCapabilities() else null
+        } catch (_: UnsatisfiedLinkError) {
+            null
+        }
+
+    fun validateDiagnosticProfile(profile: String): Boolean? =
+        try {
+            if (libraryLoaded) nativeValidateDiagnosticProfile(profile) else null
+        } catch (_: UnsatisfiedLinkError) {
+            null
+        }
+
+    fun prepareDiagnosticProbe(id: Int): Boolean =
+        try {
+            libraryLoaded && nativePrepareDiagnosticProbe(id)
+        } catch (_: UnsatisfiedLinkError) {
+            false
+        }
+
+    fun cancelDiagnosticProbe(id: Int) {
+        try {
+            if (libraryLoaded) nativeCancelDiagnosticProbe(id)
+        } catch (_: UnsatisfiedLinkError) {
+            // old engine
+        }
+    }
+
+    fun diagnosticProbe(
+        id: Int,
+        kind: String,
+        profile: String,
+        secret: ByteArray,
+        service: UsqueVpnService,
+        vpn: Boolean,
+    ): String? =
+        try {
+            if (libraryLoaded) nativeDiagnosticProbe(id, kind, profile, secret, service, vpn) else null
+        } catch (
+            _: UnsatisfiedLinkError,
+        ) {
+            null
+        }
+
+    private external fun nativeValidateDiagnosticProfile(profile: String): Boolean
+
+    private external fun nativePrepareDiagnosticProbe(id: Int): Boolean
+
+    private external fun nativeCancelDiagnosticProbe(id: Int)
+
+    private external fun nativeDiagnosticProbe(
+        id: Int,
+        kind: String,
+        profile: String,
+        secret: ByteArray,
+        service: UsqueVpnService,
+        vpn: Boolean,
+    ): String?
+
     fun start(
         tunFileDescriptor: Int,
         profileJson: String,
@@ -138,6 +207,8 @@ internal object NativeEngine {
     }
 
     private external fun nativeIsReady(): Boolean
+
+    private external fun nativeCapabilities(): String?
 
     private external fun nativeStart(
         tunFileDescriptor: Int,

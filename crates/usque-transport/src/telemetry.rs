@@ -7,6 +7,8 @@ use usque_core::{
     AddressFamily, Transport, TransportFailure, TransportFailureCode, TransportStage,
 };
 
+use crate::network_quality::{H3MetricsSample, NetworkQualityTelemetry};
+
 pub const CONNECTION_TIMELINE_CAPACITY: usize = 512;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,7 +31,14 @@ pub enum ConnectionEventType {
     RecoveryProbeSucceeded,
     RecoveryProbeFailed,
     PathPromoted,
+    MigrationStarted,
+    MigrationPathValidated,
+    MigrationPromoted,
+    MigrationFailed,
     QueueSaturated,
+    PmtuChanged,
+    PmtuRevalidationStarted,
+    PmtuRevalidationFailed,
     Disconnected,
     Failed,
 }
@@ -98,6 +107,7 @@ pub struct ConnectionTelemetry {
     send_queue_high_watermark: Arc<AtomicU64>,
     send_queue_drop_count: Arc<AtomicU64>,
     send_queue_wait_count: Arc<AtomicU64>,
+    quality: NetworkQualityTelemetry,
 }
 
 /// Carries the path identity for one in-flight transport attempt so lower
@@ -106,6 +116,8 @@ pub struct ConnectionTelemetry {
 #[derive(Clone)]
 pub(crate) struct ConnectionAttemptTelemetry {
     telemetry: ConnectionTelemetry,
+    quality: NetworkQualityTelemetry,
+    started: Instant,
     transport: Transport,
     family: AddressFamily,
 }
@@ -116,8 +128,11 @@ impl ConnectionAttemptTelemetry {
         transport: Transport,
         family: AddressFamily,
     ) -> Self {
+        let quality = telemetry.quality.new_attempt(transport, family);
         Self {
             telemetry,
+            quality,
+            started: Instant::now(),
             transport,
             family,
         }
@@ -131,6 +146,32 @@ impl ConnectionAttemptTelemetry {
             None,
             None,
         );
+    }
+
+    pub(crate) fn quality(&self) -> NetworkQualityTelemetry {
+        self.quality.clone()
+    }
+
+    pub(crate) fn promote(&self) {
+        if self.telemetry.quality.activate_attempt(&self.quality) {
+            self.telemetry
+                .record_tunnel_ready(self.transport, self.family, self.started.elapsed());
+        }
+    }
+
+    pub(crate) fn observe_h3(&self, sample: H3MetricsSample) {
+        self.quality.observe_h3(sample);
+    }
+
+    pub(crate) fn observe_h2_rtt(
+        &self,
+        latest: Duration,
+        smoothed: Duration,
+        minimum: Duration,
+        variance: Duration,
+    ) {
+        self.quality
+            .observe_h2_rtt(latest, smoothed, minimum, variance);
     }
 }
 
@@ -150,6 +191,10 @@ impl Default for ConnectionTelemetry {
 
 impl ConnectionTelemetry {
     pub fn new(capacity: usize) -> Self {
+        Self::with_features(capacity, crate::PRODUCTION_NETWORK_FEATURES)
+    }
+
+    pub(crate) fn with_features(capacity: usize, features: crate::NetworkFeatureFlags) -> Self {
         assert!(
             capacity > 0,
             "connection timeline capacity must be non-zero"
@@ -168,6 +213,7 @@ impl ConnectionTelemetry {
             send_queue_high_watermark: Arc::new(AtomicU64::new(0)),
             send_queue_drop_count: Arc::new(AtomicU64::new(0)),
             send_queue_wait_count: Arc::new(AtomicU64::new(0)),
+            quality: NetworkQualityTelemetry::configured(features),
         }
     }
 
@@ -186,6 +232,9 @@ impl ConnectionTelemetry {
         duration: Option<Duration>,
         failure: Option<TransportFailure>,
     ) {
+        if event_type == ConnectionEventType::Disconnected {
+            self.quality.end_connection();
+        }
         let mut state = self.state();
         let event = ConnectionEvent {
             sequence: self.sequence.fetch_add(1, Ordering::Relaxed) + 1,
@@ -322,6 +371,7 @@ impl ConnectionTelemetry {
     }
 
     pub fn set_reconnect(&self, count: u32, failure: &TransportFailure) {
+        self.quality.end_connection();
         let mut state = self.state();
         state.metrics.reconnect_count = count;
         state.metrics.last_reconnect_code = Some(failure.code);
@@ -340,6 +390,7 @@ impl ConnectionTelemetry {
     pub fn snapshot(&self) -> ConnectionTimelineSnapshot {
         let state = self.state();
         let mut metrics = state.metrics.clone();
+        metrics.current_smoothed_rtt = self.quality.current_smoothed_rtt();
         metrics.send_queue_high_watermark = self.send_queue_high_watermark.load(Ordering::Relaxed);
         metrics.send_queue_drop_count = self.send_queue_drop_count.load(Ordering::Relaxed);
         ConnectionTimelineSnapshot {
@@ -347,6 +398,10 @@ impl ConnectionTelemetry {
             metrics,
             dropped_event_count: state.dropped_event_count,
         }
+    }
+
+    pub fn network_quality(&self) -> NetworkQualityTelemetry {
+        self.quality.clone()
     }
 
     fn state(&self) -> MutexGuard<'_, TelemetryState> {
@@ -456,6 +511,88 @@ mod tests {
                 .metrics
                 .current_smoothed_rtt
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn h2_ping_updates_both_timeline_and_network_quality_rtt() {
+        let telemetry = ConnectionTelemetry::new(8);
+        let attempt = ConnectionAttemptTelemetry::new(
+            telemetry.clone(),
+            Transport::Http2,
+            AddressFamily::Ipv4,
+        );
+        attempt
+            .quality()
+            .configure_h2_connection(4 * 1024 * 1024, 8 * 1024 * 1024, true);
+        attempt.promote();
+        attempt.observe_h2_rtt(
+            Duration::from_millis(20),
+            Duration::from_millis(18),
+            Duration::from_millis(15),
+            Duration::from_millis(2),
+        );
+
+        assert_eq!(
+            telemetry.snapshot().metrics.current_smoothed_rtt,
+            Some(Duration::from_millis(18))
+        );
+        let quality =
+            crate::network_quality::NetworkQualitySampler::new(telemetry.network_quality())
+                .sample();
+        assert_eq!(quality.rtt.smoothed.value, Some(Duration::from_millis(18)));
+    }
+
+    #[test]
+    fn failed_recovery_probe_cannot_clear_or_pollute_the_bearing_h2_connection() {
+        use crate::network_quality::{NetworkQualitySampler, PmtuPhase};
+        let telemetry = ConnectionTelemetry::default();
+        let active = ConnectionAttemptTelemetry::new(
+            telemetry.clone(),
+            Transport::Http2,
+            AddressFamily::Ipv4,
+        );
+        active
+            .quality()
+            .configure_h2_connection(4 * 1024 * 1024, 8 * 1024 * 1024, true);
+        active.observe_h2_rtt(
+            Duration::from_millis(20),
+            Duration::from_millis(18),
+            Duration::from_millis(15),
+            Duration::ZERO,
+        );
+        active.promote();
+        let mut sampler = NetworkQualitySampler::new(telemetry.network_quality());
+        let before = sampler.sample();
+        let probe = ConnectionAttemptTelemetry::new(
+            telemetry.clone(),
+            Transport::Http3,
+            AddressFamily::Ipv6,
+        );
+        probe.quality().record_pmtu_send_too_large();
+        probe.quality().record_pmtu_revalidation_failure();
+        probe.quality().set_pmtu_phase(PmtuPhase::Degraded);
+        probe.record(ConnectionEventType::Failed, TransportStage::QuicHandshake);
+        let after = sampler.sample();
+        assert_eq!(after.connection_id, before.connection_id);
+        assert_eq!(after.transport, Some(Transport::Http2));
+        assert_eq!(after.rtt, before.rtt);
+        assert_eq!(after.pmtu, before.pmtu);
+        assert_eq!(after.h2_flow_control, before.h2_flow_control);
+        assert_eq!(
+            telemetry.snapshot().metrics.current_smoothed_rtt,
+            Some(Duration::from_millis(18))
+        );
+        active.promote();
+        assert_eq!(sampler.sample().connection_id, before.connection_id);
+        assert_eq!(
+            telemetry
+                .snapshot()
+                .events
+                .iter()
+                .filter(|event| event.event_type == ConnectionEventType::TunnelReady)
+                .count(),
+            1
         );
     }
 

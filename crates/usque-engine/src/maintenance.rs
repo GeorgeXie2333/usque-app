@@ -467,6 +467,10 @@ fn safe_remediation_key(value: &str) -> Option<&str> {
     matches!(
         value,
         "none"
+            | "nq_profile"
+            | "nq_retry"
+            | "nq_network"
+            | "nq_reconnect"
             | "retry"
             | "try_http2"
             | "check_physical_network"
@@ -499,6 +503,26 @@ fn safe_summary_key(value: &str) -> Option<&str> {
     matches!(
         value,
         "diagnostic_address_assignment_missing"
+            | "nq_finding_unavailable"
+            | "nq_finding_invalid_configuration"
+            | "nq_finding_dns_system"
+            | "nq_finding_unsupported"
+            | "nq_finding_dns_custom_valid"
+            | "nq_finding_stale"
+            | "nq_finding_rtt_high"
+            | "nq_finding_healthy"
+            | "nq_finding_loss_high"
+            | "nq_finding_queue_pressure"
+            | "nq_finding_pmtu_degraded"
+            | "nq_finding_migration_reconnect"
+            | "nq_finding_dns_changed"
+            | "nq_finding_dns_runtime"
+            | "nq_finding_dns_degraded"
+            | "nq_finding_probe_unsafe"
+            | "nq_finding_probe_success"
+            | "nq_finding_probe_cancelled"
+            | "nq_finding_probe_timeout"
+            | "nq_finding_probe_failed"
             | "diagnostic_address_assignment_unknown"
             | "diagnostic_address_assignment_valid"
             | "diagnostic_cancelled"
@@ -579,6 +603,25 @@ fn safe_summary_key(value: &str) -> Option<&str> {
 }
 
 fn safe_evidence(value: &str) -> bool {
+    if let Some((key, number)) = value.split_once('=') {
+        return matches!(
+            key,
+            "rtt_ms"
+                | "loss_basis_points"
+                | "queue_percent"
+                | "queue_drops"
+                | "pmtu_bytes"
+                | "pmtu_failures"
+                | "migration_failures"
+                | "dns_successes"
+                | "dns_failures"
+                | "dns_timeouts"
+                | "plaintext_fallback"
+                | "probe_ms"
+        ) && !number.is_empty()
+            && number.bytes().all(|byte| byte.is_ascii_digit())
+            && number.parse::<u64>().is_ok();
+    }
     matches!(
         value,
         "responsive"
@@ -607,6 +650,15 @@ fn known_diagnostic_check(value: &str) -> bool {
     matches!(
         value,
         "engine.control_channel"
+            | "quality.rtt"
+            | "quality.packet_loss"
+            | "quality.queue_pressure"
+            | "quality.pmtu"
+            | "transport.migration_capability"
+            | "dns.direct_encrypted_configuration"
+            | "dns.direct_encrypted_runtime_state"
+            | "dns.direct_encrypted_reachability"
+            | "transport.h3_path_validation_probe"
             | "engine.event_stream"
             | "engine.capabilities"
             | "engine.configuration"
@@ -659,7 +711,14 @@ const fn connection_event_type_name(event: ConnectionEventType) -> &'static str 
         ConnectionEventType::RecoveryProbeSucceeded => "recovery_probe_succeeded",
         ConnectionEventType::RecoveryProbeFailed => "recovery_probe_failed",
         ConnectionEventType::PathPromoted => "path_promoted",
+        ConnectionEventType::MigrationStarted => "migration_started",
+        ConnectionEventType::MigrationPathValidated => "migration_path_validated",
+        ConnectionEventType::MigrationPromoted => "migration_promoted",
+        ConnectionEventType::MigrationFailed => "migration_failed",
         ConnectionEventType::QueueSaturated => "queue_saturated",
+        ConnectionEventType::PmtuChanged => "pmtu_changed",
+        ConnectionEventType::PmtuRevalidationStarted => "pmtu_revalidation_started",
+        ConnectionEventType::PmtuRevalidationFailed => "pmtu_revalidation_failed",
         ConnectionEventType::Disconnected => "disconnected",
         ConnectionEventType::Failed => "failed",
     }
@@ -903,6 +962,46 @@ pub enum MaintenanceError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn quality_doctor_export_allowlist_accepts_numbers_but_no_private_text() {
+        for id in [
+            "quality.rtt",
+            "quality.packet_loss",
+            "quality.queue_pressure",
+            "quality.pmtu",
+            "transport.migration_capability",
+            "dns.direct_encrypted_configuration",
+            "dns.direct_encrypted_runtime_state",
+            "dns.direct_encrypted_reachability",
+            "transport.h3_path_validation_probe",
+        ] {
+            assert!(known_diagnostic_check(id));
+        }
+        assert_eq!(
+            safe_summary_key("nq_finding_dns_runtime"),
+            Some("nq_finding_dns_runtime")
+        );
+        assert_eq!(safe_remediation_key("nq_profile"), Some("nq_profile"));
+        for evidence in [
+            "rtt_ms=42",
+            "plaintext_fallback=0",
+            "probe_ms=300",
+            "queue_drops=0",
+        ] {
+            assert!(safe_evidence(evidence));
+        }
+        for evidence in [
+            "resolver=private.example",
+            "rtt_ms=192.0.2.1",
+            "probe_ms=",
+            "queue_drops=-1",
+            "probe_ms=99999999999999999999999",
+            "probe_ms=10\nsecret",
+        ] {
+            assert!(!safe_evidence(evidence));
+        }
+    }
     use usque_core::{
         DiagnosticCategory, DiagnosticCheckStatus, DiagnosticFinding, DiagnosticMode,
         DiagnosticSessionState,

@@ -292,7 +292,7 @@ const Map<String, String> kThCatalog = <String, String>{
       'สถานะ Usque Engine การส่งออกบันทึก และข้อมูลในเครื่อง',
   'engine_status': 'สถานะ Usque Engine',
   'version': 'เวอร์ชัน',
-  'app_version': 'Usque 0.2.3',
+  'app_version': 'Usque 0.2.4',
   'logs': 'บันทึกในเครื่อง',
   'export_diagnostics': 'ส่งออกชุดการวินิจฉัย',
   'diagnostics_saved': 'บันทึกชุดการวินิจฉัยไปที่',
@@ -479,6 +479,8 @@ const Map<String, String> kThCatalog = <String, String>{
   'diag_fail_H3_PROTOCOL_ERROR': 'ข้อผิดพลาดโปรโตคอล H3',
   'diag_fail_H3_DATAGRAM_UNAVAILABLE': 'ดาตาแกรม H3 ไม่พร้อมใช้งาน',
   'diag_fail_H3_CONNECTION_CLOSED': 'การเชื่อมต่อ H3 ปิดแล้ว',
+  'diag_fail_PMTU_REVALIDATION_EXHAUSTED':
+      'ใช้ความพยายามตรวจสอบ MTU ของเส้นทาง H3 ซ้ำครบแล้ว',
   'diag_fail_H2_TCP_CONNECT_FAILED': 'การเชื่อมต่อ TCP H2 ล้มเหลว',
   'diag_fail_H2_TLS_FAILED': 'TLS H2 ล้มเหลว',
   'diag_fail_H2_STREAM_CLOSED': 'สตรีม H2 ปิดแล้ว',

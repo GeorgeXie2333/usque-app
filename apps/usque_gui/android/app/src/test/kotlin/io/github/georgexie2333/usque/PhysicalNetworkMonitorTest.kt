@@ -130,4 +130,42 @@ class PhysicalNetworkMonitorTest {
             )
         assertEquals(PhysicalNetworkSelection(22, FAMILY_IPV4), selected)
     }
+
+    @Test
+    fun generationHistoryKeepsOnlyCurrentAndAdjacentPrevious() {
+        val history = GenerationNetworkHistory<String>()
+        history.record(0, "G0")
+        history.record(1, "G1")
+        assertEquals("G0", history.get(0))
+        assertEquals("G1", history.get(1))
+
+        history.record(2, "G2")
+        assertNull(history.get(0))
+        assertEquals(listOf(2L, 1L), history.retainedGenerations())
+
+        history.clear()
+        assertTrue(history.retainedGenerations().isEmpty())
+    }
+
+    @Test
+    fun absentNetworkStillConsumesItsGenerationSlot() {
+        val history = GenerationNetworkHistory<String>()
+        history.record(0, "G0")
+        history.record(1, null)
+        history.record(2, "G2")
+        assertNull(history.get(0))
+        assertNull(history.get(1))
+        assertEquals("G2", history.get(2))
+        assertEquals(listOf(2L, 1L), history.retainedGenerations())
+    }
+
+    @Test
+    fun lateHistoryRecordCannotRestoreAnExpiredGeneration() {
+        val history = GenerationNetworkHistory<String>()
+        history.record(2, "G2")
+        history.record(1, "G1")
+        history.record(0, "G0")
+        assertEquals(listOf(2L, 1L), history.retainedGenerations())
+        assertNull(history.get(0))
+    }
 }

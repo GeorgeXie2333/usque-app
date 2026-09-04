@@ -1,0 +1,4 @@
+tags:
+  # Bitmap baselines use Windows font rasterization and the pinned Flutter SDK.
+  # CI requires this suite on Windows in addition to the Ubuntu widget suite.
+  golden:

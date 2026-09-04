@@ -2,7 +2,7 @@
 param(
     [ValidateSet("x64-v1", "x64-v2", "arm64")]
     [string]$Variant = "x64-v2",
-    [string]$Version = "0.2.3",
+    [string]$Version = "0.2.4",
     [string]$BuildLabel = "local-validation",
     [string]$FlutterReleaseDirectory = "",
     [string]$OutputDirectory = ""

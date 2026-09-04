@@ -37,6 +37,50 @@ class VpnControlClientTest {
     }
 
     @Test
+    fun timelineRequestIsSingleFlightTimesOutAndIgnoresLateReplies() {
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        var completed = 0
+        client.requestTimeline {
+            assertNull(it)
+            completed++
+        }
+        val id = endpoint.messages.single().requestId
+        client.requestTimeline {
+            assertNull(it)
+            completed++
+        }
+        assertEquals(1, endpoint.messages.size)
+        scheduler.fireAllDelayed()
+        assertEquals(2, completed)
+        client.deliverTimelineReply(id, "{}")
+        assertEquals(2, completed)
+    }
+
+    @Test
+    fun timelineReplyIsDeliveredOnceAndDestroyCancelsPendingRead() {
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        var completed = 0
+        client.requestTimeline {
+            assertNotNull(it)
+            completed++
+        }
+        val id = endpoint.messages.single().requestId
+        client.deliverTimelineReply(id, """{"schema_version":1,"events":[],"metrics":{}}""")
+        scheduler.fireAllDelayed()
+        assertEquals(1, completed)
+        client.requestTimeline {
+            assertNull(it)
+            completed++
+        }
+        client.destroy()
+        assertEquals(2, completed)
+        scheduler.fireAllDelayed()
+        assertEquals(2, completed)
+    }
+
+    @Test
     fun requestSnapshotTimesOutExactlyOnce() {
         val endpoint = RecordingEndpoint()
         client.attachEndpointForTest(endpoint)

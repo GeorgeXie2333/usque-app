@@ -12,10 +12,15 @@ import 'engine_client.dart';
 
 export 'control_codec.dart'
     show
+        debugDecodeConnectionTimelineFrame,
         debugDecodeEventSnapshot,
+        debugDecodeEventFrame,
+        debugDecodeCapabilitiesFrame,
+        debugDecodeNetworkQualityFrame,
         debugDecodeProfileCatalogFrame,
         debugDecodeStatusFrame,
-        debugEncodeGetStatusFrame;
+        debugEncodeGetStatusFrame,
+        debugEncodeProfilePayload;
 
 /// Desktop [EngineClient] that coordinates request serialization, codec, and
 /// transport. Public API, MethodChannel names, named pipes, and protobuf wire
@@ -341,6 +346,22 @@ class DesktopEngineClient implements EngineClient {
     return _serialized(() async {
       final response = await _request(10, Uint8List(0));
       return response.snapshot ?? const EngineSnapshot();
+    });
+  }
+
+  @override
+  Future<NetworkQualitySnapshot?> getNetworkQuality() {
+    return _serialized(() async {
+      final response = await _request(40, Uint8List(0));
+      return response.networkQuality;
+    });
+  }
+
+  @override
+  Future<EngineCapabilities?> getCapabilities() {
+    return _serialized(() async {
+      final response = await _request(24, Uint8List(0));
+      return response.capabilities;
     });
   }
 

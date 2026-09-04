@@ -22,6 +22,7 @@ internal class ServiceSnapshotState {
     var downloadedBytes: Long = 0
     var uploadedBytes: Long = 0
     var reconnectCount: Int = 0
+    var networkQualityJson: String? = null
     var activeListeners: List<String> = emptyList()
     var activeFrontends: List<String> = emptyList()
     var tunnelIpv4Available: Boolean = false
@@ -110,6 +111,7 @@ internal class ServiceSnapshotState {
         val nativeRuntimeActive: Boolean,
         val foregroundNotificationActive: Boolean,
         val pendingCleanup: Boolean,
+        val networkQualityJson: String? = null,
     )
 
     /**
@@ -161,6 +163,7 @@ internal class ServiceSnapshotState {
         const val NATIVE_RUNTIME_STATE = "native_runtime_state"
         const val FOREGROUND_NOTIFICATION_STATE = "foreground_notification_state"
         const val PENDING_CLEANUP = "pending_cleanup"
+        const val NETWORK_QUALITY = "network_quality_json"
     }
 
     /**
@@ -184,6 +187,7 @@ internal class ServiceSnapshotState {
         downloadedBytes = 0
         uploadedBytes = 0
         reconnectCount = 0
+        networkQualityJson = null
         activeListeners = emptyList()
         activeFrontends = emptyList()
         tunnelIpv4Available = false
@@ -247,6 +251,19 @@ internal class ServiceSnapshotState {
             }
         }
 
+    fun noteUnderlyingNetworkChange(networkPresent: Boolean) {
+        errorCode = null
+        if (!networkPresent) {
+            phase = "reconnecting"
+            warning =
+                "ANDROID_WAITING_FOR_PHYSICAL_NETWORK: waiting for a usable non-VPN network."
+        } else {
+            // Native H3 may keep the same connection through path migration.
+            // Do not predict a reconnect or claim recovery before its snapshot.
+            warning = null
+        }
+    }
+
     /**
      * Platform-free native snapshot fields. Unit tests construct this directly; the service
      * adapts [JSONObject] via [fromNativeJson].
@@ -273,6 +290,7 @@ internal class ServiceSnapshotState {
         val exitCountry: String? = null,
         val exitCountryCode: String? = null,
         val exitFlagSvg: String? = null,
+        val networkQualityJson: String? = null,
     )
 
     fun applyNativeSnapshot(source: JSONObject): NativeMergeResult = applyNativeSnapshot(fromNativeJson(source))
@@ -290,6 +308,10 @@ internal class ServiceSnapshotState {
         downloadedBytes = source.downloadedBytes.coerceAtLeast(0)
         uploadedBytes = source.uploadedBytes.coerceAtLeast(0)
         reconnectCount = source.reconnectCount.coerceAtLeast(0)
+        networkQualityJson =
+            source.networkQualityJson?.let { value ->
+                NetworkQualityFields.decode(value)?.let { JSONObject(it).toString() }
+            }
         activeListeners = source.activeListeners
         activeFrontends = source.activeFrontends
         tunnelIpv4Available = source.tunnelIpv4Available
@@ -344,6 +366,7 @@ internal class ServiceSnapshotState {
                 downloadedBytes = source.optLong("downloaded_bytes", 0),
                 uploadedBytes = source.optLong("uploaded_bytes", 0),
                 reconnectCount = source.optInt("reconnect_count", 0),
+                networkQualityJson = NetworkQualityFields.encode(source.optJSONObject("network_quality")),
                 activeListeners =
                     source.optJSONArray("active_listeners")?.let { listeners ->
                         List(listeners.length()) { index -> listeners.getString(index) }
@@ -437,6 +460,7 @@ internal class ServiceSnapshotState {
             nativeRuntimeActive = platform.nativeRuntimeActive,
             foregroundNotificationActive = platform.foregroundNotificationActive,
             pendingCleanup = platform.pendingCleanup,
+            networkQualityJson = networkQualityJson,
         )
 
     /**
@@ -492,12 +516,14 @@ internal class ServiceSnapshotState {
             WireKeys.FOREGROUND_NOTIFICATION_STATE to
                 if (fields.foregroundNotificationActive) "active" else "inactive",
             WireKeys.PENDING_CLEANUP to fields.pendingCleanup,
+            WireKeys.NETWORK_QUALITY to fields.networkQualityJson,
         )
     }
 
     fun toBundle(platform: PlatformFlags): Bundle {
         val entries = wireEntries(platform)
         return Bundle().apply {
+            putString(WireKeys.NETWORK_QUALITY, entries[WireKeys.NETWORK_QUALITY] as String?)
             putString(WireKeys.PHASE, entries[WireKeys.PHASE] as String?)
             putString(WireKeys.WARNING, entries[WireKeys.WARNING] as String?)
             putString(WireKeys.ERROR_CODE, entries[WireKeys.ERROR_CODE] as String?)
@@ -617,6 +643,7 @@ internal class ServiceSnapshotState {
             downloadedBytes,
             uploadedBytes,
             reconnectCount,
+            networkQualityJson,
             activeListeners.joinToString("\u001f"),
             activeFrontends.joinToString("\u001f"),
             tunnelIpv4Available,

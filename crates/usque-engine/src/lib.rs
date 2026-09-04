@@ -17,10 +17,12 @@ use std::{
 
 use ipnet::IpNet;
 use thiserror::Error;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, watch};
+use tokio_util::task::AbortOnDropHandle;
 use usque_core::{
     AddressFamily, AppConfig, ConfigError, ConnectionError, ConnectionPhase, ConnectionSnapshot,
-    ConnectionWarning, ConsumerEntitlement, ConsumerRegistrationClient, DnsMode, EndpointPin,
+    ConnectionWarning, ConsumerEntitlement, ConsumerRegistrationClient,
+    DirectDnsMode as ConfigDirectDnsMode, DirectDnsSettings, DnsMode, EndpointPin,
     EndpointSettings, ErrorCode, ExitInfo, FrontendKind, FrontendPhase, FrontendSettings,
     FrontendStatus, GeoProgress, IdentityMetadata, IdentityProvider, IpPolicy, IpSbProbe,
     KillSwitchState, LockdownState, ManagedEndpointIps, MasqueKeyPair, OperatingMode,
@@ -51,6 +53,7 @@ mod event_stream;
 mod ipc_stream;
 pub mod logging;
 mod maintenance;
+mod network_quality;
 mod sensitive_output;
 
 mod active_runtime;
@@ -74,7 +77,7 @@ pub struct ControlService {
     store: ConfigStore,
     pub(crate) config: RwLock<AppConfig>,
     pub(crate) state: Arc<Mutex<StateMachine>>,
-    pub(crate) mutation_lock: Mutex<()>,
+    pub(crate) mutation_lock: Arc<Mutex<()>>,
     vault: Arc<dyn SecretVault>,
     pub(crate) data_plane: Arc<Mutex<Option<ActiveDataPlane>>>,
     disconnect_cleanup: Mutex<Option<tokio::task::JoinHandle<Result<(), ControlServiceError>>>>,
@@ -83,6 +86,8 @@ pub struct ControlService {
     diagnostics: diagnostics::DiagnosticsManager,
     cache_dir: PathBuf,
     geo_progress_tx: tokio::sync::broadcast::Sender<v1::GeoRulesProgress>,
+    network_quality_tx: watch::Sender<usque_transport::NetworkQualitySnapshot>,
+    network_quality_relay: Mutex<Option<AbortOnDropHandle<()>>>,
     session_generation: AtomicU64,
     #[cfg(any(windows, test))]
     event_sequence: AtomicU64,
@@ -300,19 +305,22 @@ impl ControlService {
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
         let (geo_progress_tx, _) = tokio::sync::broadcast::channel(16);
+        let (network_quality_tx, _) = watch::channel(network_quality::disconnected_snapshot());
         Ok(Self {
             maintenance: maintenance::Maintenance::new(store.path()),
             diagnostics: diagnostics::DiagnosticsManager::new(),
             store,
             config: RwLock::new(config),
             state: Arc::new(Mutex::new(StateMachine::default())),
-            mutation_lock: Mutex::new(()),
+            mutation_lock: Arc::new(Mutex::new(())),
             vault,
             data_plane: Arc::new(Mutex::new(None)),
             disconnect_cleanup: Mutex::new(None),
             exit_probe_task: Mutex::new(None),
             cache_dir,
             geo_progress_tx,
+            network_quality_tx,
+            network_quality_relay: Mutex::new(None),
             session_generation: AtomicU64::new(0),
             #[cfg(any(windows, test))]
             event_sequence: AtomicU64::new(0),
@@ -323,6 +331,67 @@ impl ControlService {
 
     pub async fn config_snapshot(&self) -> AppConfig {
         self.config.read().await.clone()
+    }
+
+    #[cfg(any(windows, test))]
+    pub(crate) fn subscribe_network_quality(
+        &self,
+    ) -> watch::Receiver<usque_transport::NetworkQualitySnapshot> {
+        self.network_quality_tx.subscribe()
+    }
+
+    pub(crate) fn network_quality_snapshot(&self) -> usque_transport::NetworkQualitySnapshot {
+        self.network_quality_tx.borrow().clone()
+    }
+
+    pub(crate) fn network_quality_payload(&self) -> Option<v1::NetworkQualitySnapshot> {
+        network_quality::snapshot_payload(
+            &self.network_quality_snapshot(),
+            usque_transport::PRODUCTION_NETWORK_FEATURES.network_quality_metrics,
+        )
+    }
+
+    async fn install_network_quality_source(
+        &self,
+        mut source: watch::Receiver<usque_transport::NetworkQualitySnapshot>,
+    ) {
+        let mut relay = self.network_quality_relay.lock().await;
+        if let Some(task) = relay.take() {
+            task.abort();
+            let _ = task.await;
+        }
+        if !usque_transport::PRODUCTION_NETWORK_FEATURES.network_quality_metrics {
+            return;
+        }
+        self.network_quality_tx
+            .send_replace(source.borrow_and_update().clone());
+        let destination = self.network_quality_tx.clone();
+        let task = tokio::spawn(async move {
+            while source.changed().await.is_ok() {
+                destination.send_replace(source.borrow_and_update().clone());
+            }
+            destination.send_replace(network_quality::disconnected_snapshot());
+        });
+        *relay = Some(AbortOnDropHandle::new(task));
+    }
+
+    async fn clear_network_quality_source(&self) {
+        let mut relay = self.network_quality_relay.lock().await;
+        if let Some(task) = relay.take() {
+            task.abort();
+            let _ = task.await;
+        }
+        self.network_quality_tx
+            .send_replace(network_quality::disconnected_snapshot());
+    }
+
+    pub(crate) fn snapshot_with_quality_to_proto(
+        &self,
+        snapshot: &ConnectionSnapshot,
+    ) -> v1::ConnectionSnapshot {
+        let mut proto = snapshot_to_proto(snapshot);
+        proto.network_quality = self.network_quality_payload().map(Box::new);
+        proto
     }
 
     /// Move schema-8 per-account proxy passwords into the single shared vault
@@ -408,7 +477,12 @@ impl ControlService {
             state.mark_connected(Transport::Http3, AddressFamily::Ipv4, true, true)?;
             state.update_runtime_metadata(reconnect_count, Vec::new(), Vec::new());
         }
-        let runtime = active_runtime::HarnessRuntime::from_profile(&applied, vpn, reconnect_count);
+        let runtime = ActiveRuntime::Harness(active_runtime::HarnessRuntime::from_profile(
+            &applied,
+            vpn,
+            reconnect_count,
+        ));
+        let quality_source = runtime.subscribe_network_quality();
         let frontends = applied.frontends;
         *self.data_plane.lock().await = Some(ActiveDataPlane {
             profile_id: applied.id,
@@ -419,8 +493,9 @@ impl ControlService {
             last_bytes_sent: 0,
             last_bytes_received: 0,
             last_proxy_performance: ProxyPerformanceSnapshot::default(),
-            runtime: ActiveRuntime::Harness(runtime),
+            runtime,
         });
+        self.install_network_quality_source(quality_source).await;
         self.apply_hot_profile_state(&applied).await;
         Ok(())
     }
@@ -500,7 +575,7 @@ impl ControlService {
             control_request::Payload::GetStatus(_) => {
                 let snapshot = self.status_snapshot().await;
                 Ok(control_response::Payload::Status(Box::new(
-                    snapshot_to_proto(&snapshot),
+                    self.snapshot_with_quality_to_proto(&snapshot),
                 )))
             }
             control_request::Payload::ListProfiles(_) => Ok(
@@ -549,14 +624,14 @@ impl ControlService {
             control_request::Payload::Disconnect(_) => {
                 let snapshot = self.disconnect().await?;
                 Ok(control_response::Payload::Status(Box::new(
-                    snapshot_to_proto(&snapshot),
+                    self.snapshot_with_quality_to_proto(&snapshot),
                 )))
             }
             control_request::Payload::Connect(request) => {
                 let id = parse_profile_id(&request.profile_id)?;
                 let snapshot = self.connect(id).await?;
                 Ok(control_response::Payload::Status(Box::new(
-                    snapshot_to_proto(&snapshot),
+                    self.snapshot_with_quality_to_proto(&snapshot),
                 )))
             }
             control_request::Payload::ProvisionIdentity(request) => {
@@ -623,7 +698,7 @@ impl ControlService {
             control_request::Payload::Retry(_) => {
                 let snapshot = self.retry().await?;
                 Ok(control_response::Payload::Status(Box::new(
-                    snapshot_to_proto(&snapshot),
+                    self.snapshot_with_quality_to_proto(&snapshot),
                 )))
             }
             control_request::Payload::ClearAllData(request) => {
@@ -691,7 +766,7 @@ impl ControlService {
                         ));
                     }
                 };
-                let context = self.diagnostic_context().await;
+                let context = self.diagnostic_context(mode).await;
                 let session = self.diagnostics.start(mode, context).await?;
                 Ok(control_response::Payload::Diagnostics(
                     diagnostics::session_to_proto(&session),
@@ -723,9 +798,19 @@ impl ControlService {
             }
             control_request::Payload::GetConnectionTimeline(_) => {
                 let timeline = self.connection_timeline_snapshot().await;
-                Ok(control_response::Payload::ConnectionTimeline(
+                Ok(control_response::Payload::ConnectionTimeline(Box::new(
                     diagnostics::timeline_to_proto(&timeline),
-                ))
+                )))
+            }
+            control_request::Payload::GetNetworkQuality(_) => {
+                let snapshot = self.network_quality_payload().ok_or_else(|| {
+                    ControlServiceError::InvalidRequest(
+                        "network quality metrics are unavailable in this build".to_owned(),
+                    )
+                })?;
+                Ok(control_response::Payload::NetworkQuality(Box::new(
+                    snapshot,
+                )))
             }
             control_request::Payload::ListGeoRules(_) => Ok(
                 control_response::Payload::GeoRulesList(self.list_geo_rules_locked()?),
@@ -846,7 +931,7 @@ impl ControlService {
 
     #[cfg(any(windows, test))]
     pub(crate) async fn event_snapshot(&self) -> v1::ConnectionSnapshot {
-        snapshot_to_proto(&self.status_snapshot().await)
+        self.snapshot_with_quality_to_proto(&self.status_snapshot().await)
     }
 
     #[cfg(any(windows, test))]
@@ -877,18 +962,35 @@ impl ControlService {
             .unwrap_or_default()
     }
 
-    async fn diagnostic_context(&self) -> diagnostics::DiagnosticContext {
-        let connection = self.status_snapshot().await;
+    async fn diagnostic_context(
+        &self,
+        mode: usque_core::DiagnosticMode,
+    ) -> diagnostics::DiagnosticContext {
+        let captured_at = tokio::time::Instant::now();
+        // Unlike status polling, diagnostics must not reconcile or mutate the
+        // runtime state machine as a side effect of a read-only Standard run.
+        let connection = self.state.lock().await.snapshot().clone();
         let config = self.config.read().await.clone();
         let active_profile = config.active_profile();
         #[cfg(windows)]
-        let platform_state = {
-            windows_agent::inspect_platform_state_if_running()
-                .await
-                .ok()
+        let platform_state = if mode == usque_core::DiagnosticMode::Deep {
+            tokio::time::timeout(
+                std::time::Duration::from_millis(250),
+                windows_agent::inspect_platform_state_if_running(),
+            )
+            .await
+            .ok()
+            .and_then(Result::ok)
+        } else {
+            None
         };
         #[cfg(not(windows))]
         let platform_state = None;
+        let probes = if mode == usque_core::DiagnosticMode::Deep {
+            self.diagnostic_probe_context().await.map(Arc::new)
+        } else {
+            None
+        };
         diagnostics::DiagnosticContext {
             connection,
             configuration_valid: config.validate().is_ok(),
@@ -905,7 +1007,88 @@ impl ControlService {
             operating_system: std::env::consts::OS.to_owned(),
             timeline: self.connection_timeline_snapshot().await,
             platform_state,
+            quality: self.network_quality_snapshot(),
+            direct_dns: active_profile
+                .as_ref()
+                .map(|profile| profile.direct_dns.clone())
+                .unwrap_or_default(),
+            probes,
+            captured_at,
         }
+    }
+
+    async fn diagnostic_probe_context(&self) -> Option<diagnostics::DiagnosticProbeContext> {
+        let config = self.config.try_read().ok()?;
+        let profile = config.active_profile()?;
+        drop(config);
+        {
+            let data_plane = self.data_plane.try_lock().ok()?;
+            if let Some(active) = data_plane.as_ref() {
+                let (protector, runtime_cancel) = active.runtime.diagnostic_dns_context()?;
+                return Some(diagnostics::DiagnosticProbeContext {
+                    settings: profile.direct_dns.clone(),
+                    protector,
+                    runtime_cancel,
+                    h3: None,
+                    _lifecycle: None,
+                });
+            }
+        }
+        // Never wait behind a connect/reconfigure. No active path may appear
+        // until the Deep session releases this guard (also on cancellation).
+        let lifecycle = Arc::clone(&self.mutation_lock).try_lock_owned().ok()?;
+        if self.data_plane.try_lock().ok()?.is_some()
+            || self.state.try_lock().ok()?.snapshot().phase != ConnectionPhase::Disconnected
+            || self.disconnect_cleanup.try_lock().ok()?.is_some()
+        {
+            return None;
+        }
+        let protector: Arc<dyn usque_transport::SocketProtector> = Arc::new(NoopSocketProtector);
+        let identity = tokio::time::timeout(
+            std::time::Duration::from_millis(250),
+            self.load_diagnostic_tls_identity(profile.id),
+        )
+        .await
+        .ok()
+        .and_then(Result::ok);
+        let endpoints = usque_transport::h3_probe_endpoints(&profile);
+        Some(diagnostics::DiagnosticProbeContext {
+            settings: profile.direct_dns.clone(),
+            protector,
+            runtime_cancel: tokio_util::sync::CancellationToken::new(),
+            h3: identity
+                .filter(|_| profile.transport != TransportPolicy::Http2)
+                .map(|identity| (endpoints, profile.endpoint.sni.clone(), identity)),
+            _lifecycle: Some(lifecycle),
+        })
+    }
+
+    async fn load_diagnostic_tls_identity(
+        &self,
+        profile_id: Uuid,
+    ) -> Result<MasqueTlsIdentity, ControlServiceError> {
+        // A handshake needs no account token, device identifier or license.
+        let private_key = self
+            .required_secret(profile_id, SecretRecord::MasquePrivateKey)
+            .await?;
+        let pin = self
+            .required_secret(profile_id, SecretRecord::EndpointPin)
+            .await?;
+        let ipv4 = self
+            .required_secret(profile_id, SecretRecord::AssignedIpv4)
+            .await?;
+        let ipv6 = self
+            .required_secret(profile_id, SecretRecord::AssignedIpv6)
+            .await?;
+        let ipv4 = std::str::from_utf8(&ipv4)
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .ok_or(ControlServiceError::InvalidStoredIdentity)?;
+        let ipv6 = std::str::from_utf8(&ipv6)
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .ok_or(ControlServiceError::InvalidStoredIdentity)?;
+        MasqueTlsIdentity::new(private_key, &pin, ipv4, ipv6).map_err(Into::into)
     }
 
     fn emit_geo_progress(&self, progress: GeoProgress) {
@@ -1000,6 +1183,13 @@ impl ControlService {
                 .ok_or(ControlServiceError::ProfileNotFound(profile_id))?
         };
         self.attach_proxy_auth(&mut profile).await?;
+        if !usque_transport::ENCRYPTED_DIRECT_DNS_ENABLED
+            && profile.direct_dns.mode != ConfigDirectDnsMode::PhysicalSystem
+        {
+            return Err(ControlServiceError::FeatureUnavailable(
+                "encrypted direct DNS is unavailable in this build",
+            ));
+        }
         if profile.frontends.tunnel && !cfg!(windows) {
             return Err(ControlServiceError::OperatingModeUnavailable(profile.mode));
         }
@@ -1200,6 +1390,7 @@ impl ControlService {
             state.snapshot().clone()
         };
         let session_generation = self.next_session_generation();
+        let quality_source = runtime.subscribe_network_quality();
         *self.data_plane.lock().await = Some(ActiveDataPlane {
             profile_id,
             session_generation,
@@ -1211,6 +1402,7 @@ impl ControlService {
             last_proxy_performance: ProxyPerformanceSnapshot::default(),
             runtime,
         });
+        self.install_network_quality_source(quality_source).await;
         // Location is diagnostic: report Connected immediately and fill ip.sb
         // later, matching the Android runtime. Probe failure must not delay or
         // tear down a healthy session.
@@ -1254,6 +1446,7 @@ impl ControlService {
         &self,
     ) -> Result<ConnectionSnapshot, ControlServiceError> {
         self.abort_exit_probe().await;
+        self.clear_network_quality_source().await;
         let mut data_plane = self.data_plane.lock().await;
         let phase = self.state.lock().await.snapshot().phase;
         if phase == ConnectionPhase::Disconnected && data_plane.is_none() {
@@ -1666,7 +1859,7 @@ impl ControlService {
     ) -> Result<(), ControlServiceError> {
         profile
             .validate()
-            .map_err(ControlServiceError::configuration)?;
+            .map_err(ControlServiceError::profile_configuration)?;
         if !provisioning.terms_accepted {
             return Err(ControlServiceError::TermsNotAccepted);
         }
@@ -2314,7 +2507,7 @@ impl ControlService {
     async fn upsert_profile(&self, profile: Profile) -> Result<Profile, ControlServiceError> {
         profile
             .validate()
-            .map_err(ControlServiceError::configuration)?;
+            .map_err(ControlServiceError::profile_configuration)?;
         let _mutation = self.mutation_lock.lock().await;
         self.upsert_profile_locked(profile).await
     }
@@ -2602,7 +2795,7 @@ impl ControlService {
 
     async fn persist(&self, next: AppConfig) -> Result<(), ControlServiceError> {
         next.validate()
-            .map_err(ControlServiceError::configuration)?;
+            .map_err(ControlServiceError::profile_configuration)?;
         let store = self.store.clone();
         let persisted = next.clone();
         tokio::task::spawn_blocking(move || store.save(&persisted))
@@ -2623,6 +2816,8 @@ pub enum ControlServiceError {
     FeatureRemoved(&'static str),
     #[error("invalid profile configuration: {0}")]
     InvalidConfiguration(String),
+    #[error("invalid direct DNS configuration: {message}")]
+    InvalidDirectDnsConfiguration { code: &'static str, message: String },
     #[error("profile does not exist: {0}")]
     ProfileNotFound(Uuid),
     #[error("profile {0} is already connected")]
@@ -2643,6 +2838,8 @@ pub enum ControlServiceError {
     Transport(#[from] TransportError),
     #[error("the Windows platform VPN failed: {0}")]
     PlatformVpn(String),
+    #[error("{message}")]
+    PlatformRecovery { code: &'static str, message: String },
     #[error("Cloudflare terms must be accepted before identity provisioning")]
     TermsNotAccepted,
     #[error("the manually entered WARP Secret is not UTF-8")]
@@ -2690,6 +2887,16 @@ impl ControlServiceError {
         Self::InvalidConfiguration(error.to_string())
     }
 
+    fn profile_configuration(error: ConfigError) -> Self {
+        match error.stable_code() {
+            Some(code) => Self::InvalidDirectDnsConfiguration {
+                code,
+                message: error.to_string(),
+            },
+            None => Self::configuration(error),
+        }
+    }
+
     fn geo_rules(error: impl std::fmt::Display) -> Self {
         Self::GeoRules(error.to_string())
     }
@@ -2701,6 +2908,7 @@ impl ControlServiceError {
     fn as_structured_error(&self) -> StructuredError {
         let (code, retryable) = match self {
             Self::InvalidRequest(_) | Self::InvalidConfiguration(_) => ("INVALID_ARGUMENT", false),
+            Self::InvalidDirectDnsConfiguration { code, .. } => (*code, false),
             Self::InvalidProxyAuth(_) => ("CONFIGURATION_INVALID", false),
             Self::FeatureUnavailable(_) => ("FEATURE_UNAVAILABLE", false),
             Self::FeatureRemoved(_) => ("FEATURE_REMOVED", false),
@@ -2730,6 +2938,7 @@ impl ControlServiceError {
             ) => ("PROXY_LISTENER_FAILED", false),
             Self::Transport(_) => ("DATA_PLANE_FAILED", true),
             Self::PlatformVpn(_) => ("PLATFORM_VPN_FAILED", true),
+            Self::PlatformRecovery { code, .. } => (*code, false),
             Self::TermsNotAccepted => ("TERMS_NOT_ACCEPTED", false),
             Self::InvalidManualSecretEncoding | Self::Identity(_) => ("INVALID_WARP_SECRET", false),
             Self::InvalidLicenseEncoding => ("INVALID_LICENSE_KEY", false),
@@ -2792,6 +3001,17 @@ impl ControlServiceError {
     }
 }
 
+fn connection_error_wire_code(code: ErrorCode) -> String {
+    match code {
+        ErrorCode::WindowsRecoveryFailed => "WINDOWS_RECOVERY_FAILED".to_owned(),
+        ErrorCode::WindowsRecoveryTimeout => "WINDOWS_RECOVERY_TIMEOUT".to_owned(),
+        ErrorCode::WindowsRecoveryConflict => "WINDOWS_RECOVERY_CONFLICT".to_owned(),
+        ErrorCode::WindowsRecoveryUnsupported => "WINDOWS_RECOVERY_UNSUPPORTED".to_owned(),
+        // Preserve the pre-existing wire spelling for every other error.
+        code => format!("{code:?}").to_ascii_uppercase(),
+    }
+}
+
 fn connection_error_for(error: &ControlServiceError) -> ConnectionError {
     let code = match error {
         ControlServiceError::MissingCredential(_) => ErrorCode::MissingCredential,
@@ -2808,6 +3028,12 @@ fn connection_error_for(error: &ControlServiceError) -> ConnectionError {
         ControlServiceError::Transport(TransportError::Http3DatagramUnavailable)
         | ControlServiceError::OperatingModeUnavailable(_) => ErrorCode::TransportUnavailable,
         ControlServiceError::PlatformVpn(_) => ErrorCode::PlatformSetupFailed,
+        ControlServiceError::PlatformRecovery { code, .. } => match *code {
+            "WINDOWS_RECOVERY_TIMEOUT" => ErrorCode::WindowsRecoveryTimeout,
+            "WINDOWS_RECOVERY_CONFLICT" => ErrorCode::WindowsRecoveryConflict,
+            "WINDOWS_RECOVERY_UNSUPPORTED" => ErrorCode::WindowsRecoveryUnsupported,
+            _ => ErrorCode::WindowsRecoveryFailed,
+        },
         ControlServiceError::InvalidStoredIdentity
         | ControlServiceError::Transport(
             TransportError::InvalidIdentity
@@ -2827,6 +3053,22 @@ fn connection_error_for(error: &ControlServiceError) -> ConnectionError {
 
 #[cfg(windows)]
 pub(crate) fn map_windows_vpn_error(error: windows_agent::WindowsVpnError) -> ControlServiceError {
+    let recovery_code = match &error {
+        windows_agent::WindowsVpnError::RecoveryFailed
+        | windows_agent::WindowsVpnError::RecoveryRequired { .. } => {
+            Some("WINDOWS_RECOVERY_FAILED")
+        }
+        windows_agent::WindowsVpnError::RecoveryTimeout => Some("WINDOWS_RECOVERY_TIMEOUT"),
+        windows_agent::WindowsVpnError::RecoveryConflict => Some("WINDOWS_RECOVERY_CONFLICT"),
+        windows_agent::WindowsVpnError::RecoveryUnsupported => Some("WINDOWS_RECOVERY_UNSUPPORTED"),
+        _ => None,
+    };
+    if let Some(code) = recovery_code {
+        return ControlServiceError::PlatformRecovery {
+            code,
+            message: error.to_string(),
+        };
+    }
     match error {
         windows_agent::WindowsVpnError::Transport(error) => ControlServiceError::Transport(error),
         windows_agent::WindowsVpnError::Remote { code, .. }
@@ -2980,6 +3222,48 @@ fn profile_from_proto(source: v1::Profile) -> Result<Profile, ControlServiceErro
                 http: true,
             },
         });
+    let mut direct_dns = match source.direct_dns {
+        None => DirectDnsSettings::default(),
+        Some(settings) => DirectDnsSettings {
+            mode: match settings.mode {
+                value if value == v1::DirectDnsMode::Unspecified as i32 => {
+                    ConfigDirectDnsMode::PhysicalSystem
+                }
+                value if value == v1::DirectDnsMode::PhysicalSystem as i32 => {
+                    ConfigDirectDnsMode::PhysicalSystem
+                }
+                value if value == v1::DirectDnsMode::Doh as i32 => ConfigDirectDnsMode::Doh,
+                value if value == v1::DirectDnsMode::Dot as i32 => ConfigDirectDnsMode::Dot,
+                _ => {
+                    return Err(ControlServiceError::InvalidDirectDnsConfiguration {
+                        code: "DIRECT_DNS_MODE_INVALID",
+                        message: "unknown direct DNS mode".to_owned(),
+                    });
+                }
+            },
+            server_name: settings.server_name,
+            doh_path: settings.doh_path,
+            bootstrap_ips: settings
+                .bootstrap_ips
+                .iter()
+                .map(|value| {
+                    value.parse::<IpAddr>().map_err(|_| {
+                        ControlServiceError::InvalidDirectDnsConfiguration {
+                            code: "DIRECT_DNS_BOOTSTRAP_INVALID",
+                            message: "direct DNS bootstrap IP is invalid".to_owned(),
+                        }
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+            port: u16::try_from(settings.port).map_err(|_| {
+                ControlServiceError::InvalidDirectDnsConfiguration {
+                    code: "DIRECT_DNS_PORT_INVALID",
+                    message: "direct DNS port exceeds 65535".to_owned(),
+                }
+            })?,
+        },
+    };
+    direct_dns.canonicalize();
 
     let mut profile = Profile {
         id: parse_profile_id(&source.id)?,
@@ -3097,6 +3381,7 @@ fn profile_from_proto(source: v1::Profile) -> Result<Profile, ControlServiceErro
             auth_password: None,
         },
         geo_direct_countries: source.geo_direct_countries,
+        direct_dns,
     };
     profile.canonicalize_mode();
     profile
@@ -3104,7 +3389,7 @@ fn profile_from_proto(source: v1::Profile) -> Result<Profile, ControlServiceErro
         .map_err(ControlServiceError::configuration)?;
     profile
         .validate()
-        .map_err(ControlServiceError::configuration)?;
+        .map_err(ControlServiceError::profile_configuration)?;
     Ok(profile)
 }
 
@@ -3172,6 +3457,22 @@ pub(crate) fn profile_to_proto(profile: &Profile) -> v1::Profile {
             http: profile.frontends.http,
         }),
         geo_direct_countries: profile.geo_direct_countries.clone(),
+        direct_dns: Some(v1::DirectDnsSettings {
+            mode: match profile.direct_dns.mode {
+                ConfigDirectDnsMode::PhysicalSystem => v1::DirectDnsMode::PhysicalSystem as i32,
+                ConfigDirectDnsMode::Doh => v1::DirectDnsMode::Doh as i32,
+                ConfigDirectDnsMode::Dot => v1::DirectDnsMode::Dot as i32,
+            },
+            server_name: profile.direct_dns.server_name.clone(),
+            doh_path: profile.direct_dns.doh_path.clone(),
+            bootstrap_ips: profile
+                .direct_dns
+                .bootstrap_ips
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+            port: u32::from(profile.direct_dns.port),
+        }),
     }
 }
 
@@ -3285,6 +3586,10 @@ fn current_capabilities() -> v1::Capabilities {
         diagnostics_sessions: true,
         connection_timeline: true,
         deep_diagnostics: true,
+        network_quality: usque_transport::PRODUCTION_NETWORK_FEATURES.network_quality_metrics,
+        encrypted_direct_dns: usque_transport::ENCRYPTED_DIRECT_DNS_ENABLED,
+        quic_migration: usque_transport::PRODUCTION_NETWORK_FEATURES.quic_migration,
+        automatic_pmtu: usque_transport::PRODUCTION_NETWORK_FEATURES.automatic_pmtu,
     }
 }
 
@@ -3328,7 +3633,7 @@ pub(crate) fn snapshot_to_proto(snapshot: &ConnectionSnapshot) -> v1::Connection
         }),
         exit: snapshot.exit.as_ref().map(exit_to_proto),
         error: snapshot.error.as_ref().map(|error| StructuredError {
-            code: format!("{:?}", error.code).to_ascii_uppercase(),
+            code: connection_error_wire_code(error.code),
             message: error.message.clone(),
             retryable: error.retryable,
         }),
@@ -3360,6 +3665,7 @@ pub(crate) fn snapshot_to_proto(snapshot: &ConnectionSnapshot) -> v1::Connection
             .map(frontend_status_to_proto)
             .collect(),
         failure: snapshot.failure.as_ref().map(transport_failure_to_proto),
+        network_quality: None,
     }
 }
 
@@ -3414,7 +3720,7 @@ fn frontend_status_to_proto(status: &FrontendStatus) -> v1::FrontendStatus {
         },
         listeners: status.listeners.clone(),
         error: status.error.as_ref().map(|error| StructuredError {
-            code: format!("{:?}", error.code).to_ascii_uppercase(),
+            code: connection_error_wire_code(error.code),
             message: error.message.clone(),
             retryable: error.retryable,
         }),
@@ -3512,6 +3818,95 @@ mod tests {
     };
 
     use super::*;
+
+    #[tokio::test]
+    async fn closing_or_replacing_quality_sources_cannot_leave_a_stale_connection() {
+        use usque_transport::{NetworkQualitySampler, NetworkQualityTelemetry};
+
+        let directory = tempfile::tempdir().unwrap();
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(MemoryVault::default()),
+        )
+        .unwrap();
+        let live = || {
+            let quality = NetworkQualityTelemetry::default();
+            quality.begin_connection(Transport::Http2, AddressFamily::Ipv4);
+            NetworkQualitySampler::new(quality).sample()
+        };
+        let (old_sender, old_source) = watch::channel(live());
+        service.install_network_quality_source(old_source).await;
+        let next = live();
+        let expected = next.connection_id;
+        let (sender, source) = watch::channel(next);
+        service.install_network_quality_source(source).await;
+        drop(old_sender);
+        tokio::task::yield_now().await;
+        assert_eq!(service.network_quality_snapshot().connection_id, expected);
+
+        let mut updates = service.subscribe_network_quality();
+        drop(sender);
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            while updates.borrow_and_update().connection_id.is_some() {
+                updates.changed().await.unwrap();
+            }
+        })
+        .await
+        .unwrap();
+        assert!(service.network_quality_snapshot().connection_id.is_none());
+
+        let (_sender, source) = watch::channel(live());
+        service.install_network_quality_source(source).await;
+        service.clear_network_quality_source().await;
+        assert!(service.network_quality_snapshot().connection_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn standard_doctor_preserves_configuration_runtime_and_generations() {
+        let directory = tempfile::tempdir().unwrap();
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(MemoryVault::default()),
+        )
+        .unwrap();
+        let profile = service.config_snapshot().await.active_profile().unwrap();
+        service
+            .install_test_session(profile, false, 0)
+            .await
+            .unwrap();
+        let before_config = serde_json::to_value(service.config_snapshot().await).unwrap();
+        let before_state = service.state.lock().await.snapshot().clone();
+        let generation = service.session_generation.load(Ordering::Relaxed);
+        let start = tokio::time::Instant::now();
+        let context = service
+            .diagnostic_context(usque_core::DiagnosticMode::Standard)
+            .await;
+        assert!(context.probes.is_none());
+        assert!(context.platform_state.is_none());
+        service
+            .diagnostics
+            .start(usque_core::DiagnosticMode::Standard, context)
+            .await
+            .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            while service.diagnostics.get().await.unwrap().state.is_active() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(start.elapsed() < std::time::Duration::from_secs(2));
+        assert_eq!(
+            serde_json::to_value(service.config_snapshot().await).unwrap(),
+            before_config
+        );
+        assert_eq!(*service.state.lock().await.snapshot(), before_state);
+        assert_eq!(
+            service.session_generation.load(Ordering::Relaxed),
+            generation
+        );
+        assert!(service.data_plane.lock().await.is_some());
+    }
 
     #[test]
     fn runtime_path_updates_are_edge_triggered() {
@@ -4190,6 +4585,46 @@ mod tests {
         assert!(capabilities.hot_reconfigure);
         assert_eq!(capabilities.transports, ["h3", "h2"]);
         assert!(!capabilities.architecture.is_empty());
+        assert!(capabilities.network_quality);
+        assert!(capabilities.encrypted_direct_dns);
+        assert!(capabilities.quic_migration);
+        assert!(capabilities.automatic_pmtu);
+    }
+
+    #[tokio::test]
+    async fn network_quality_request_and_status_are_available_while_disconnected() {
+        let directory = tempfile::tempdir().unwrap();
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(MemoryVault::default()),
+        )
+        .unwrap();
+
+        let response = service
+            .handle(request(
+                "quality",
+                control_request::Payload::GetNetworkQuality(v1::GetNetworkQualityRequest {}),
+            ))
+            .await;
+        let Some(control_response::Payload::NetworkQuality(quality)) = response.payload else {
+            panic!("missing network quality response");
+        };
+        assert_eq!(quality.level, v1::NetworkQualityLevel::Disconnected as i32);
+        assert!(quality.connection_instance_id.is_empty());
+
+        let status = service
+            .handle(request(
+                "status",
+                control_request::Payload::GetStatus(v1::GetStatusRequest {}),
+            ))
+            .await;
+        let Some(control_response::Payload::Status(status)) = status.payload else {
+            panic!("missing status response");
+        };
+        assert_eq!(
+            status.network_quality.as_ref().map(|quality| quality.level),
+            Some(v1::NetworkQualityLevel::Disconnected as i32)
+        );
     }
 
     #[tokio::test]
@@ -4526,6 +4961,54 @@ mod tests {
         assert_eq!(
             upsert.error.as_ref().map(|error| error.code.as_str()),
             Some("INVALID_ARGUMENT")
+        );
+    }
+
+    #[test]
+    fn direct_dns_profile_proto_is_canonical_and_missing_is_backward_compatible() {
+        let profile = Profile {
+            direct_dns: DirectDnsSettings {
+                mode: ConfigDirectDnsMode::Doh,
+                server_name: "dns.example.com".to_owned(),
+                doh_path: "/dns-query".to_owned(),
+                bootstrap_ips: vec!["192.0.2.53".parse().unwrap()],
+                port: 443,
+            },
+            ..Profile::default()
+        };
+        let decoded = profile_from_proto(profile_to_proto(&profile)).unwrap();
+        assert_eq!(decoded.direct_dns, profile.direct_dns);
+
+        let mut legacy = profile_to_proto(&Profile::default());
+        legacy.direct_dns = None;
+        assert_eq!(
+            profile_from_proto(legacy).unwrap().direct_dns,
+            DirectDnsSettings::default()
+        );
+    }
+
+    #[test]
+    fn invalid_direct_dns_proto_returns_stable_validation_codes() {
+        let mut unknown = profile_to_proto(&Profile::default());
+        unknown.direct_dns = Some(v1::DirectDnsSettings {
+            mode: 99,
+            ..v1::DirectDnsSettings::default()
+        });
+        let error = profile_from_proto(unknown).unwrap_err();
+        assert_eq!(error.as_structured_error().code, "DIRECT_DNS_MODE_INVALID");
+
+        let mut dot = profile_to_proto(&Profile::default());
+        dot.direct_dns = Some(v1::DirectDnsSettings {
+            mode: v1::DirectDnsMode::Dot as i32,
+            server_name: "dns.example.com".to_owned(),
+            doh_path: "/dns-query".to_owned(),
+            bootstrap_ips: vec!["192.0.2.53".to_owned()],
+            port: 853,
+        });
+        let error = profile_from_proto(dot).unwrap_err();
+        assert_eq!(
+            error.as_structured_error().code,
+            "DIRECT_DNS_DOT_PATH_FORBIDDEN"
         );
     }
 

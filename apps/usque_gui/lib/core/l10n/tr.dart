@@ -296,7 +296,7 @@ const Map<String, String> kTrCatalog = <String, String>{
       'Usque Engine durumu, günlük dışa aktarma ve yerel veriler.',
   'engine_status': 'Usque Engine durumu',
   'version': 'Sürüm',
-  'app_version': 'Usque 0.2.3',
+  'app_version': 'Usque 0.2.4',
   'logs': 'Yerel günlükler',
   'export_diagnostics': 'Tanılama paketini dışa aktar',
   'diagnostics_saved': 'Tanılama paketi şuraya kaydedildi',
@@ -484,6 +484,8 @@ const Map<String, String> kTrCatalog = <String, String>{
   'diag_fail_H3_PROTOCOL_ERROR': 'H3 protokol hatası',
   'diag_fail_H3_DATAGRAM_UNAVAILABLE': 'H3 datagramı kullanılamıyor',
   'diag_fail_H3_CONNECTION_CLOSED': 'H3 bağlantısı kapatıldı',
+  'diag_fail_PMTU_REVALIDATION_EXHAUSTED':
+      'H3 yolu MTU yeniden doğrulama denemeleri tükendi',
   'diag_fail_H2_TCP_CONNECT_FAILED': 'H2 TCP bağlantısı başarısız',
   'diag_fail_H2_TLS_FAILED': 'H2 TLS başarısız',
   'diag_fail_H2_STREAM_CLOSED': 'H2 akışı kapatıldı',

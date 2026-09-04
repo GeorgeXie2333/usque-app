@@ -22,7 +22,7 @@
 Usque is an unofficial GUI client for consumer Cloudflare WARP. Flutter draws the UI. A Rust engine handles MASQUE, CONNECT-IP, DNS, proxies, and connection state. There is no WebView.
 
 > [!IMPORTANT]
-> The current release is **v0.2.3**. Download official packages only from the [GitHub Releases page](https://github.com/GeorgeXie2333/usque-app/releases). Pull Request artifacts, local builds, and untagged binaries are not official.
+> The current release is **v0.2.4**. Download official packages only from the [GitHub Releases page](https://github.com/GeorgeXie2333/usque-app/releases). Pull Request artifacts, local builds, and untagged binaries are not official.
 
 Usque is an independent project. It is not affiliated with, sponsored by, or endorsed by Cloudflare. Cloudflare and WARP are trademarks of Cloudflare, Inc. Use of consumer WARP remains subject to Cloudflare's terms and privacy policy.
 
@@ -43,7 +43,7 @@ Usque is an independent project. It is not affiliated with, sponsored by, or end
 
 ## Release targets
 
-The `v0.2.3` tag on `main` builds and checks these six packages:
+The `v0.2.4` tag on `main` builds and checks these six packages:
 
 | Platform | Package | Minimum OS | Architecture |
 | --- | --- | --- | --- |
@@ -62,6 +62,9 @@ macOS source is in the tree but is not built or released. This release does not 
 - Experimental Cloudflare Zero Trust device enrollment on Windows and Android, limited to using an organization identity with the existing MASQUE Internet tunnel.
 - VPN, SOCKS5, HTTP proxy, and Windows system proxy can run together on one MASQUE channel.
 - HTTP/3 over QUIC, falling back to HTTP/2 over TLS, with IPv4/IPv6 Happy Eyeballs for the physical path.
+- Same-family QUIC path migration, automatic outer-path PMTU discovery, tuned H2 flow control, and bounded Android/Linux UDP batching.
+- A local Network Quality page with RTT, loss/N/A, queues, PMTU, migration, direct DNS and 60-second trends; read-only Standard Doctor and explicitly authorized Deep checks.
+- Explicit System/DoH/DoT direct DNS with numeric bootstrap and strict TLS. Encrypted DNS failures never silently downgrade to plaintext.
 - Full-tunnel VPN, tunneled DNS, Kill Switch, LAN access, and custom CIDR bypass rules.
 - Optional country-based direct routing with separately downloaded per-country GeoIP data and one verified global V2Fly GeoSite catalog. SOCKS5/HTTP, Android VPN, and Windows TUN classify GeoSite names before DNS and use GeoIP when no QNAME is available; unknown destinations stay on MASQUE.
 - SOCKS5 TCP/UDP and HTTP CONNECT/forward; listeners default to loopback.
@@ -69,11 +72,13 @@ macOS source is in the tree but is not built or released. This release does not 
 - Android per-app proxy (include-only): when off, every app uses the VPN; when on, only selected apps do. Newly installed apps stay off the tunnel until selected.
 - Android Quick Settings tile, launcher shortcuts, boot recovery, and TV navigation.
 - Windows tray, single-instance activation, start on boot, and close-to-tray.
-- Local redacted diagnostics. No analytics, telemetry, or automatic upload.
+- Local redacted diagnostics and in-memory quality metrics. No analytics or automatic upload; quality history is not persisted.
 
 Choosing an IPv4 or IPv6 MASQUE endpoint only picks the physical ingress. Either path can carry IPv4 and IPv6 inside CONNECT-IP. Usque keeps one active transport; it does not add bandwidth across paths.
 
-When direct-country routing is enabled, GeoSite-matched domain queries use the DNS servers of the selected physical network and are visible to that DNS provider. Other domain queries keep using the configured WARP DNS through MASQUE. Applications using DoH or DoT hide the QNAME from Usque, so those flows can only be classified by GeoIP. GEO rule downloads are allowed while disconnected, but never bypass Android Lockdown or a surviving Windows Kill Switch.
+When direct-country routing is enabled, GeoSite-matched domain queries use the explicitly selected direct DNS mode. System (the default) exposes them to the physical DNS provider; DoH/DoT exposes them to the configured encrypted resolver, using numeric bootstrap and no plaintext fallback. Other domain queries keep using the configured WARP DNS through MASQUE. Application-owned DoH/DoT hides QNAMEs from Usque and is classified by GeoIP. GEO rule downloads obey Android Lockdown and any surviving Windows Kill Switch even while disconnected.
+
+Migration is same-address-family only, not multipath. H2 loss and PMTU are N/A; automatic outer PMTU never raises the configured TUN MTU. Doctor's local results do not prove zero externally observed leaks. See [DNS privacy and schema](docs/encrypted-direct-dns.md), [Doctor](docs/network-doctor.md), [validation evidence](docs/network-quality-acceptance.md), and the [internal rollback runbook](docs/network-quality-rollback.md).
 
 ## Default network settings
 

@@ -278,6 +278,10 @@ internal object AndroidMaintenance {
             if (finding["summary_key"] == expectedSummary) {
                 output.put("summary_key", expectedSummary)
             }
+            (finding["summary_key"] as? String)
+                ?.takeIf(
+                    NETWORK_SUMMARIES::contains,
+                )?.let { output.put("summary_key", it) }
             safeRemediationKey(finding["remediation_key"])?.let { key ->
                 output.put("remediation_key", key)
             }
@@ -322,7 +326,10 @@ internal object AndroidMaintenance {
         return output
     }
 
-    internal fun sanitizeConnectionTimeline(source: Map<String, Any?>): JSONObject {
+    internal fun sanitizeConnectionTimeline(
+        source: Map<String, Any?>,
+        includeLiveTimestamps: Boolean = false,
+    ): JSONObject {
         val events = JSONArray()
         val rawEvents = source["events"] as? List<*> ?: emptyList<Any?>()
         for (rawEvent in rawEvents.takeLast(MAX_TIMELINE_EVENTS)) {
@@ -335,6 +342,9 @@ internal object AndroidMaintenance {
                         "elapsed_from_attempt_start_milliseconds",
                         safeCounter(event["elapsed_from_attempt_start_milliseconds"]),
                     ).put("event_type", eventType)
+            if (includeLiveTimestamps) {
+                output.put("timestamp_unix_milliseconds", safeCounter(event["timestamp_unix_milliseconds"]))
+            }
             safeEnum(event["stage"], TRANSPORT_STAGES, null)?.let { stage ->
                 output.put("stage", stage)
             }
@@ -354,6 +364,9 @@ internal object AndroidMaintenance {
         }
         val metricsSource = stringMap(source["metrics"]).orEmpty()
         val metrics = JSONObject()
+        if (includeLiveTimestamps) {
+            metrics.put("current_smoothed_rtt_known", metricsSource["current_smoothed_rtt_known"] == true)
+        }
         for (key in DURATION_METRICS) {
             (metricsSource[key] as? Number)?.let { value ->
                 metrics.put(key, safeCounter(value))
@@ -425,7 +438,7 @@ internal object AndroidMaintenance {
                 "physical_network"
             }
 
-            "transport" -> {
+            "transport", "quality" -> {
                 "transport"
             }
 
@@ -433,7 +446,7 @@ internal object AndroidMaintenance {
                 "tunnel"
             }
 
-            "protection" -> {
+            "protection", "dns" -> {
                 if (checkId == "protection.recovery_journal") "recovery" else "protection"
             }
 
@@ -459,7 +472,9 @@ internal object AndroidMaintenance {
             EVIDENCE_COUNTER_PREFIXES.any { prefix ->
                 value.removePrefix(prefix).let { suffix ->
                     suffix.length < value.length &&
+                        suffix.isNotEmpty() &&
                         suffix.length <= 20 &&
+                        suffix.toULongOrNull() != null &&
                         suffix.all { character -> character in '0'..'9' }
                 }
             }
@@ -558,6 +573,13 @@ internal object AndroidMaintenance {
             "recovery_probe_succeeded",
             "recovery_probe_failed",
             "path_promoted",
+            "migration_started",
+            "migration_path_validated",
+            "migration_promoted",
+            "migration_failed",
+            "pmtu_changed",
+            "pmtu_revalidation_started",
+            "pmtu_revalidation_failed",
             "queue_saturated",
             "disconnected",
             "failed",
@@ -594,6 +616,15 @@ internal object AndroidMaintenance {
             "protection.dns_path",
             "protection.route_ownership",
             "protection.recovery_journal",
+            "quality.rtt",
+            "quality.packet_loss",
+            "quality.queue_pressure",
+            "quality.pmtu",
+            "transport.migration_capability",
+            "dns.direct_encrypted_configuration",
+            "dns.direct_encrypted_runtime_state",
+            "dns.direct_encrypted_reachability",
+            "transport.h3_path_validation_probe",
         )
     private val FAILURE_CODES =
         setOf(
@@ -610,6 +641,7 @@ internal object AndroidMaintenance {
             "H3_PROTOCOL_ERROR",
             "H3_DATAGRAM_UNAVAILABLE",
             "H3_CONNECTION_CLOSED",
+            "PMTU_REVALIDATION_EXHAUSTED",
             "H2_TCP_CONNECT_FAILED",
             "H2_TLS_FAILED",
             "H2_STREAM_CLOSED",
@@ -647,6 +679,10 @@ internal object AndroidMaintenance {
         )
     private val REMEDIATION_KEYS =
         setOf(
+            "nq_profile",
+            "nq_retry",
+            "nq_network",
+            "nq_reconnect",
             "none",
             "retry",
             "try_http2",
@@ -688,7 +724,45 @@ internal object AndroidMaintenance {
             "kill_switch=unknown",
         )
     private val EVIDENCE_COUNTER_PREFIXES =
-        setOf("dns_server_count=", "generation=")
+        setOf(
+            "dns_server_count=",
+            "generation=",
+            "rtt_ms=",
+            "loss_basis_points=",
+            "queue_percent=",
+            "queue_drops=",
+            "pmtu_bytes=",
+            "pmtu_failures=",
+            "migration_failures=",
+            "dns_successes=",
+            "dns_failures=",
+            "dns_timeouts=",
+            "plaintext_fallback=",
+            "probe_ms=",
+        )
+    private val NETWORK_SUMMARIES =
+        setOf(
+            "nq_finding_unavailable",
+            "nq_finding_invalid_configuration",
+            "nq_finding_dns_system",
+            "nq_finding_unsupported",
+            "nq_finding_dns_custom_valid",
+            "nq_finding_stale",
+            "nq_finding_rtt_high",
+            "nq_finding_healthy",
+            "nq_finding_loss_high",
+            "nq_finding_queue_pressure",
+            "nq_finding_pmtu_degraded",
+            "nq_finding_migration_reconnect",
+            "nq_finding_dns_changed",
+            "nq_finding_dns_runtime",
+            "nq_finding_dns_degraded",
+            "nq_finding_probe_unsafe",
+            "nq_finding_probe_success",
+            "nq_finding_probe_cancelled",
+            "nq_finding_probe_timeout",
+            "nq_finding_probe_failed",
+        )
     private val SERVICE_STATES = setOf("running", "stopped", "unknown")
     private val PROCESS_STATES = setOf("reachable", "unreachable", "unknown")
     private val NOTIFICATION_STATES = setOf("active", "inactive", "unknown")

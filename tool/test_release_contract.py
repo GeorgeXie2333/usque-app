@@ -12,7 +12,7 @@ class ReleaseContractTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
-        self.tag = "v0.2.3"
+        self.tag = "v0.2.4"
         self.commit = "a" * 40
         for name in release_contract.expected_artifact_names(self.tag):
             (self.root / name).write_bytes(name.encode())
@@ -149,23 +149,43 @@ class ReleaseWorkflowPolicyTests(unittest.TestCase):
         self.assertIn("sha256sum -- *.msi *.apk > SHA256SUMS", publish)
         self.assertIn('wc -l)" -eq 14', publish)
 
+    def test_performance_lab_uses_v2_samples_and_repository_budget_math(self) -> None:
+        performance = self.job("performance-reliability")
+        self.assertIn("PERFORMANCE_ACCEPTED_BASELINE_COMMIT", performance)
+        self.assertIn("--schema-version 2", performance)
+        self.assertIn("--repetitions 7", performance)
+        self.assertIn("tool/performance_gate.py evaluate", performance)
+        evaluator = performance.split("python tool/performance_gate.py evaluate", 1)[1].split(
+            "      - name:", 1
+        )[0]
+        self.assertIn('--baseline-commit "$PERFORMANCE_BASELINE_COMMIT"', evaluator)
+        self.assertIn("tool/performance_budget.json", performance)
+        self.assertIn("tool/performance_scenarios.json", performance)
+        self.assertIn("tool/schemas/performance_report.schema.json", performance)
+        self.assertIn("*-raw-samples.json", performance)
+        self.assertNotIn("Informational controlled performance baseline", performance)
+
 
 class ReleaseVersionContractTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
         (self.root / ".github" / "workflows").mkdir(parents=True)
-        (self.root / "apps" / "usque_gui" / "lib" / "core" / "l10n").mkdir(parents=True)
+        self.locale_directory = self.root / "apps" / "usque_gui" / "lib" / "core" / "l10n"
+        self.locale_directory.mkdir(parents=True)
+        (self.locale_directory / "catalogs.dart").write_text(
+            "import 'en.dart';\nimport 'zh_cn.dart';\n", encoding="utf-8"
+        )
         (self.root / "Cargo.toml").write_text(
-            '[workspace]\n[workspace.package]\nversion = "0.2.3"\n',
+            '[workspace]\n[workspace.package]\nversion = "0.2.4"\n',
             encoding="utf-8",
         )
         (self.root / "apps" / "usque_gui" / "pubspec.yaml").write_text(
-            "name: usque\nversion: 0.2.3+17\n", encoding="utf-8"
+            "name: usque\nversion: 0.2.4+18\n", encoding="utf-8"
         )
         for name in ("en.dart", "zh_cn.dart"):
-            (self.root / "apps" / "usque_gui" / "lib" / "core" / "l10n" / name).write_text(
-                "const catalog = <String, String>{\n  'app_version': 'Usque 0.2.3',\n};\n",
+            (self.locale_directory / name).write_text(
+                "const catalog = <String, String>{\n  'app_version': 'Usque 0.2.4',\n};\n",
                 encoding="utf-8",
             )
         self.workflow_path = self.root / ".github" / "workflows" / "release.yml"
@@ -173,10 +193,10 @@ class ReleaseVersionContractTests(unittest.TestCase):
             "on:\n"
             "  push:\n"
             "    tags:\n"
-            '      - "v0.2.3"\n'
+            '      - "v0.2.4"\n'
             "env:\n"
-            "  RELEASE_TAG: v0.2.3\n"
-            '  ANDROID_VERSION_CODE: "17"\n',
+            "  RELEASE_TAG: v0.2.4\n"
+            '  ANDROID_VERSION_CODE: "18"\n',
             encoding="utf-8",
         )
 
@@ -184,25 +204,87 @@ class ReleaseVersionContractTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def test_accepts_consistent_release_version_surfaces(self) -> None:
-        release_contract.verify_release_version(self.root, "v0.2.3", 17)
+        release_contract.verify_release_version(self.root, "v0.2.4", 18)
+
+    def test_accepts_supplemental_feature_translations(self) -> None:
+        (self.locale_directory / "network_quality.dart").write_text(
+            "const quality = <String, String>{\n  'nq_range': 'Range',\n};\n",
+            encoding="utf-8",
+        )
+        release_contract.verify_release_version(self.root, "v0.2.4", 18)
+
+    def test_rejects_supplemental_version_overrides(self) -> None:
+        for version in ("0.2.4", "0.2.1"):
+            with self.subTest(version=version):
+                (self.locale_directory / "network_quality.dart").write_text(
+                    "const quality = <String, String>{\n"
+                    f"  'app_version': 'Usque {version}',\n"
+                    "};\n",
+                    encoding="utf-8",
+                )
+                with self.assertRaisesRegex(release_contract.ContractError, "network_quality.dart"):
+                    release_contract.verify_release_version(self.root, "v0.2.4", 18)
+
+    def test_rejects_missing_or_duplicate_registered_locale_versions(self) -> None:
+        for entries in ("", "  'app_version': 'Usque 0.2.4',\n" * 2):
+            with self.subTest(entries=entries):
+                (self.locale_directory / "en.dart").write_text(
+                    "const catalog = <String, String>{\n" + entries + "};\n", encoding="utf-8"
+                )
+                with self.assertRaisesRegex(release_contract.ContractError, "en.dart"):
+                    release_contract.verify_release_version(self.root, "v0.2.4", 18)
+
+    def test_rejects_inline_supplemental_version_overrides(self) -> None:
+        for quote in ("'", '"'):
+            with self.subTest(quote=quote):
+                (self.locale_directory / "network_quality.dart").write_text(
+                    "const quality = <String, String>{"
+                    f"{quote}app_version{quote}: {quote}Usque 0.2.1{quote}"
+                    "};\n",
+                    encoding="utf-8",
+                )
+                with self.assertRaisesRegex(release_contract.ContractError, "network_quality.dart"):
+                    release_contract.verify_release_version(self.root, "v0.2.4", 18)
+
+    def test_rejects_missing_registered_locale(self) -> None:
+        (self.locale_directory / "en.dart").unlink()
+        with self.assertRaisesRegex(release_contract.ContractError, "en.dart"):
+            release_contract.verify_release_version(self.root, "v0.2.4", 18)
+
+    def test_rejects_missing_catalog_registry(self) -> None:
+        (self.locale_directory / "catalogs.dart").unlink()
+        with self.assertRaisesRegex(release_contract.ContractError, "catalogs.dart"):
+            release_contract.verify_release_version(self.root, "v0.2.4", 18)
+
+    def test_rejects_empty_duplicate_or_unsupported_catalog_imports(self) -> None:
+        for imports in (
+            "",
+            "import 'en.dart';\nimport 'en.dart';\n",
+            "import '../en.dart';\n",
+            "import 'en.dart';\nimport 'zh_cn.dart' as zh;\n",
+        ):
+            with self.subTest(imports=imports):
+                (self.locale_directory / "catalogs.dart").write_text(imports, encoding="utf-8")
+                with self.assertRaises(release_contract.ContractError):
+                    release_contract.verify_release_version(self.root, "v0.2.4", 18)
 
     def test_rejects_cargo_or_flutter_version_drift(self) -> None:
+        (self.root / "Cargo.toml").write_text(
+            '[workspace]\n[workspace.package]\nversion = "0.2.5"\n',
+            encoding="utf-8",
+        )
+        with self.assertRaises(release_contract.ContractError):
+            release_contract.verify_release_version(self.root, "v0.2.4", 18)
+
         (self.root / "Cargo.toml").write_text(
             '[workspace]\n[workspace.package]\nversion = "0.2.4"\n',
             encoding="utf-8",
         )
-        with self.assertRaises(release_contract.ContractError):
-            release_contract.verify_release_version(self.root, "v0.2.3", 17)
-
-        (self.root / "Cargo.toml").write_text(
-            '[workspace]\n[workspace.package]\nversion = "0.2.3"\n',
-            encoding="utf-8",
-        )
         (self.root / "apps" / "usque_gui" / "pubspec.yaml").write_text(
-            "name: usque\nversion: 0.2.4+17\n", encoding="utf-8"
+            "name: usque\nversion: 0.2.5+18\n", encoding="utf-8"
         )
         with self.assertRaises(release_contract.ContractError):
-            release_contract.verify_release_version(self.root, "v0.2.3", 17)
+            release_contract.verify_release_version(self.root, "v0.2.4", 18)
 
     def test_rejects_locale_or_workflow_version_drift(self) -> None:
         locale = self.root / "apps" / "usque_gui" / "lib" / "core" / "l10n" / "en.dart"
@@ -211,20 +293,20 @@ class ReleaseVersionContractTests(unittest.TestCase):
             encoding="utf-8",
         )
         with self.assertRaises(release_contract.ContractError):
-            release_contract.verify_release_version(self.root, "v0.2.3", 17)
+            release_contract.verify_release_version(self.root, "v0.2.4", 18)
 
         locale.write_text(
-            "const catalog = <String, String>{\n  'app_version': 'Usque 0.2.3',\n};\n",
+            "const catalog = <String, String>{\n  'app_version': 'Usque 0.2.4',\n};\n",
             encoding="utf-8",
         )
         self.workflow_path.write_text(
             self.workflow_path.read_text(encoding="utf-8").replace(
-                "RELEASE_TAG: v0.2.3", "RELEASE_TAG: v0.2.4"
+                "RELEASE_TAG: v0.2.4", "RELEASE_TAG: v0.2.5"
             ),
             encoding="utf-8",
         )
         with self.assertRaises(release_contract.ContractError):
-            release_contract.verify_release_version(self.root, "v0.2.3", 17)
+            release_contract.verify_release_version(self.root, "v0.2.4", 18)
 
 
 if __name__ == "__main__":

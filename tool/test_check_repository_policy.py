@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -56,6 +57,27 @@ class RepositoryPolicyTests(unittest.TestCase):
                 encoding="utf-8",
             )
             self.assertEqual([], validate_action_pins(root))
+
+
+class FlutterGoldenWorkflowTests(unittest.TestCase):
+    def test_exact_windows_goldens_and_ubuntu_widgets_are_both_required(self) -> None:
+        root = Path(__file__).resolve().parent.parent
+        workflow = (root / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        jobs = dict(re.findall(r"(?ms)^  ([\w-]+):\n(.*?)(?=^  [\w-]+:|\Z)", workflow))
+        self.assertIn("runs-on: ubuntu-24.04", jobs["flutter"])
+        self.assertIn("test --no-pub --exclude-tags golden", jobs["flutter"])
+        goldens = jobs["flutter-goldens"]
+        self.assertIn("runs-on: windows-2025", goldens)
+        self.assertIn("rev-parse HEAD) -ne $env:FLUTTER_COMMIT", goldens)
+        self.assertIn("pub get --enforce-lockfile", goldens)
+        self.assertIn("test --no-pub --tags golden", goldens)
+        self.assertNotIn("continue-on-error", goldens)
+        self.assertNotIn("--update-goldens", workflow)
+        gate = jobs["gate"]
+        self.assertIn("      - flutter\n", gate)
+        self.assertIn("      - flutter-goldens\n", gate)
+        self.assertIn("FLUTTER_GOLDENS: ${{ needs.flutter-goldens.result }}", gate)
+        self.assertIn('"$FLUTTER_GOLDENS"', gate)
 
 
 if __name__ == "__main__":

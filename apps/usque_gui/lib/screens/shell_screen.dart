@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -23,17 +25,28 @@ const EdgeInsets _destinationPadding = EdgeInsets.symmetric(
   horizontal: 8,
 );
 
-class ShellScreen extends StatelessWidget {
+class ShellScreen extends StatefulWidget {
   const ShellScreen({required this.controller, super.key});
 
   final AppController controller;
 
-  static const List<IconData> _icons = <IconData>[
-    LucideIcons.house,
-    LucideIcons.layers3,
-    LucideIcons.waypoints,
-    LucideIcons.settings,
-  ];
+  @override
+  State<ShellScreen> createState() => _ShellScreenState();
+}
+
+class _ShellScreenState extends State<ShellScreen> {
+  AppController get controller => widget.controller;
+
+  final _destinationKeys = <AppSection, GlobalKey<TooltipState>>{
+    for (final section in AppSection.values) section: GlobalKey<TooltipState>(),
+  };
+
+  static const _icons = <AppSection, IconData>{
+    AppSection.home: LucideIcons.house,
+    AppSection.profiles: LucideIcons.layers3,
+    AppSection.proxy: LucideIcons.waypoints,
+    AppSection.settings: LucideIcons.settings,
+  };
 
   /// Width at which the bottom bar gives way to the side rail.
   static const double _railBreakpoint = 760;
@@ -62,10 +75,32 @@ class ShellScreen extends StatelessWidget {
     if (delta == 0) {
       return KeyEventResult.ignored;
     }
-    final sections = AppSection.values;
+    final sections = controller.availableSections;
     final next =
-        (controller.section.index + delta + sections.length) % sections.length;
-    controller.selectSection(sections[next]);
+        (sections.indexOf(controller.section) + delta + sections.length) %
+        sections.length;
+    final selected = sections[next];
+    final selectedController = controller;
+    controller.selectSection(selected);
+    if (vertical) {
+      // Selection alone does not reveal destinations in a scrollable rail.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted ||
+            controller != selectedController ||
+            controller.section != selected) {
+          return;
+        }
+        final destinationContext = _destinationKeys[selected]?.currentContext;
+        if (destinationContext == null) return;
+        final destinationFocus = Focus.of(destinationContext);
+        destinationFocus.requestFocus();
+        unawaited(
+          Scrollable.ensureVisible(
+            destinationFocus.context ?? destinationContext,
+          ),
+        );
+      });
+    }
     return KeyEventResult.handled;
   }
 
@@ -75,6 +110,7 @@ class ShellScreen extends StatelessWidget {
       controller: controller,
       selector: (controller) => controller.section,
       builder: (context, section) {
+        final sections = controller.availableSections;
         final strings = controller.strings;
         final labels = <String>[
           strings.get('nav_home'),
@@ -124,6 +160,7 @@ class ShellScreen extends StatelessWidget {
             ({
               ThemePreference theme,
               LocalePreference locale,
+              bool networkQualitySupported,
               bool updateChecksEnabled,
               UpdateCheckResult? updateResult,
               UpdateOperationPhase updatePhase,
@@ -143,6 +180,8 @@ class ShellScreen extends StatelessWidget {
             selector: (controller) => (
               theme: controller.themePreference,
               locale: controller.localePreference,
+              networkQualitySupported:
+                  controller.engineCapabilities?.networkQuality ?? false,
               updateChecksEnabled: controller.updateChecksEnabled,
               updateResult: controller.updateResult,
               updatePhase: controller.updatePhase,
@@ -158,7 +197,9 @@ class ShellScreen extends StatelessWidget {
             builder: (context, _) => SettingsScreen(controller: controller),
           ),
         ];
-        final selected = section.index;
+        final selected = sections
+            .indexOf(section)
+            .clamp(0, sections.length - 1);
 
         return LayoutBuilder(
           builder: (context, constraints) {
@@ -176,11 +217,12 @@ class ShellScreen extends StatelessWidget {
                             _handleNavigationKey(event, vertical: true),
                         child: NavigationRail(
                           extended: extended,
+                          scrollable: true,
                           minWidth: _railMinWidth,
                           minExtendedWidth: _railMinExtendedWidth,
                           selectedIndex: selected,
-                          onDestinationSelected: (index) => controller
-                              .selectSection(AppSection.values[index]),
+                          onDestinationSelected: (index) =>
+                              controller.selectSection(sections[index]),
                           labelType: extended
                               ? NavigationRailLabelType.none
                               : NavigationRailLabelType.all,
@@ -195,14 +237,15 @@ class ShellScreen extends StatelessWidget {
                                   icon: Tooltip(
                                     message: fullLabels[index],
                                     excludeFromSemantics: true,
-                                    child: Icon(_icons[index]),
+                                    child: Icon(_icons[sections[index]]),
                                   ),
                                   selectedIcon: Tooltip(
                                     message: fullLabels[index],
                                     excludeFromSemantics: true,
-                                    child: Icon(_icons[index]),
+                                    child: Icon(_icons[sections[index]]),
                                   ),
                                   label: Tooltip(
+                                    key: _destinationKeys[sections[index]],
                                     message: fullLabels[index],
                                     excludeFromSemantics: true,
                                     child: Text(labels[index]),
@@ -245,13 +288,13 @@ class ShellScreen extends StatelessWidget {
                               _handleNavigationKey(event, vertical: false),
                           child: NavigationBar(
                             selectedIndex: selected,
-                            onDestinationSelected: (index) => controller
-                                .selectSection(AppSection.values[index]),
+                            onDestinationSelected: (index) =>
+                                controller.selectSection(sections[index]),
                             destinations: List<NavigationDestination>.generate(
                               labels.length,
                               (index) => NavigationDestination(
-                                icon: Icon(_icons[index]),
-                                selectedIcon: Icon(_icons[index]),
+                                icon: Icon(_icons[sections[index]]),
+                                selectedIcon: Icon(_icons[sections[index]]),
                                 label: labels[index],
                                 tooltip: fullLabels[index],
                               ),

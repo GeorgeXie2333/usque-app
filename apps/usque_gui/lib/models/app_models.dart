@@ -26,6 +26,86 @@ enum DnsMode { tunnel, localConfigured, system }
 
 enum ProxyDnsMode { remote, localConfigured, system }
 
+enum DirectDnsMode { unknown, physicalSystem, doh, dot }
+
+class DirectDnsSettings {
+  const DirectDnsSettings({
+    this.mode = DirectDnsMode.physicalSystem,
+    this.serverName = '',
+    this.dohPath = '',
+    this.bootstrapIps = const <String>[],
+    this.port = 0,
+  });
+
+  final DirectDnsMode mode;
+  final String serverName;
+  final String dohPath;
+  final List<String> bootstrapIps;
+  final int port;
+
+  DirectDnsSettings copyWith({
+    DirectDnsMode? mode,
+    String? serverName,
+    String? dohPath,
+    List<String>? bootstrapIps,
+    int? port,
+  }) {
+    return DirectDnsSettings(
+      mode: mode ?? this.mode,
+      serverName: serverName ?? this.serverName,
+      dohPath: dohPath ?? this.dohPath,
+      bootstrapIps: bootstrapIps ?? this.bootstrapIps,
+      port: port ?? this.port,
+    );
+  }
+
+  factory DirectDnsSettings.fromMap(Map<String, Object?> map) {
+    final modeName = map['mode'] as String? ?? 'physicalSystem';
+    final mode = DirectDnsMode.values.firstWhere(
+      (value) => value.name == modeName,
+      orElse: () => DirectDnsMode.unknown,
+    );
+    return DirectDnsSettings(
+      mode: mode,
+      serverName: _stringOr(map, 'server_name', ''),
+      dohPath: _stringOr(map, 'doh_path', ''),
+      bootstrapIps: List<String>.unmodifiable(
+        map.containsKey('bootstrap_ips')
+            ? _stringList(map, 'bootstrap_ips')
+            : const <String>[],
+      ),
+      port: (map['port'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  Map<String, Object?> toMap() => <String, Object?>{
+    'mode': mode.name,
+    'server_name': serverName,
+    'doh_path': dohPath,
+    'bootstrap_ips': bootstrapIps,
+    'port': port,
+  };
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is DirectDnsSettings &&
+          mode == other.mode &&
+          serverName == other.serverName &&
+          dohPath == other.dohPath &&
+          listEquals(bootstrapIps, other.bootstrapIps) &&
+          port == other.port;
+
+  @override
+  int get hashCode => Object.hash(
+    mode,
+    serverName,
+    dohPath,
+    Object.hashAll(bootstrapIps),
+    port,
+  );
+}
+
 enum IdentityProvisioningMethod { register, registerWithLicense, zeroTrust }
 
 enum IdentityProvider { consumer, zeroTrust }
@@ -587,6 +667,7 @@ class UsqueProfile {
     this.geoDirectCountries = const <String>[],
     this.proxy = const ProxySettings(),
     this.frontends = const FrontendSettings.windowsDefault(),
+    this.directDns = const DirectDnsSettings(),
   });
 
   static const defaultEndpointIpv4 = '162.159.198.2';
@@ -618,6 +699,7 @@ class UsqueProfile {
   final List<String> geoDirectCountries;
   final ProxySettings proxy;
   final FrontendSettings frontends;
+  final DirectDnsSettings directDns;
 
   factory UsqueProfile.defaultProfile() {
     final android = defaultTargetPlatform == TargetPlatform.android;
@@ -628,6 +710,7 @@ class UsqueProfile {
           ? const FrontendSettings.androidDefault()
           : const FrontendSettings.windowsDefault(),
       proxy: const ProxySettings(),
+      directDns: const DirectDnsSettings(),
     );
   }
 
@@ -656,6 +739,7 @@ class UsqueProfile {
       allowLan: false,
       bypassCidrs: const <String>[],
       proxy: const ProxySettings(),
+      directDns: const DirectDnsSettings(),
     );
   }
 
@@ -680,6 +764,7 @@ class UsqueProfile {
     List<String>? geoDirectCountries,
     ProxySettings? proxy,
     FrontendSettings? frontends,
+    DirectDnsSettings? directDns,
   }) {
     final nextFrontends = frontends ?? this.frontends;
     final nextMode = frontends != null
@@ -706,6 +791,7 @@ class UsqueProfile {
       geoDirectCountries: geoDirectCountries ?? this.geoDirectCountries,
       proxy: proxy ?? this.proxy,
       frontends: nextFrontends,
+      directDns: directDns ?? this.directDns,
     );
   }
 
@@ -731,6 +817,7 @@ class UsqueProfile {
       'geo_direct_countries': geoDirectCountries,
       'proxy': proxy.toMap(),
       'frontends': frontends.toMap(),
+      'direct_dns': directDns.toMap(),
     };
   }
 
@@ -762,6 +849,7 @@ class UsqueProfile {
     }
 
     final frontends = map['frontends'];
+    final directDns = map['direct_dns'];
     final legacyMode = _enumByName(OperatingMode.values, _string(map, 'mode'));
     final migratedFrontends = frontends is Map
         ? FrontendSettings.fromMap(Map<String, Object?>.from(frontends))
@@ -792,6 +880,9 @@ class UsqueProfile {
       geoDirectCountries: List<String>.unmodifiable(geoDirect),
       proxy: ProxySettings.fromMap(Map<String, Object?>.from(proxy)),
       frontends: migratedFrontends,
+      directDns: directDns is Map
+          ? DirectDnsSettings.fromMap(Map<String, Object?>.from(directDns))
+          : const DirectDnsSettings(),
     );
   }
 }
@@ -854,6 +945,32 @@ T _enumByName<T extends Enum>(List<T> values, String name) {
     }
   }
   throw FormatException('Unknown enum value: $name');
+}
+
+Map<Object?, Object?> _objectMap(Object? value) => value is Map
+    ? Map<Object?, Object?>.from(value)
+    : const <Object?, Object?>{};
+
+int _mapInt(Map<Object?, Object?> map, String key) =>
+    _mapNullableInt(map, key) ?? 0;
+
+int? _mapNullableInt(Map<Object?, Object?> map, String key) {
+  final value = map[key];
+  return value is num && value.isFinite && value >= 0 && value % 1 == 0
+      ? value.toInt()
+      : null;
+}
+
+String _mapString(Map<Object?, Object?> map, String key) =>
+    map[key] is String ? map[key]! as String : '';
+
+T _enumNameOr<T extends Enum>(List<T> values, Object? raw, T fallback) {
+  final name = raw is String ? raw : null;
+  if (name == null) return fallback;
+  return values.firstWhere(
+    (value) => value.name == name,
+    orElse: () => fallback,
+  );
 }
 
 class ExitInfo {
@@ -929,6 +1046,715 @@ class FrontendRuntimeStatus {
       Object.hash(kind, phase, Object.hashAll(listeners), errorCode);
 }
 
+enum MetricAvailability { unknown, available, unsupported, notReady, stale }
+
+enum NetworkQualityLevel {
+  unknown,
+  good,
+  fair,
+  poor,
+  limitedData,
+  disconnected,
+}
+
+enum NetworkQueueKind {
+  unknown,
+  tunToTransport,
+  proxyToTransport,
+  transportOutgoing,
+  h3DatagramSend,
+  h3WireSend,
+  transportToTun,
+  transportToProxy,
+  directDns,
+}
+
+class NetworkConnectionMetrics {
+  const NetworkConnectionMetrics({
+    this.latestRttMilliseconds,
+    this.latestRttAvailability = MetricAvailability.unknown,
+    this.smoothedRttMilliseconds,
+    this.minimumRttMilliseconds,
+    this.rttVarianceMilliseconds,
+    this.intervalLossBasisPoints,
+    this.congestionWindowBytes,
+    this.bytesInFlight,
+    this.sendRateBitsPerSecond,
+    this.packetsLost = 0,
+    this.bytesLost = 0,
+    this.tunSinkDropCount = 0,
+    this.quicDatagramDropCount = 0,
+    this.queueOldestAgeMilliseconds,
+    this.currentPmtuBytes,
+    this.migrationAttemptCount = 0,
+    this.migrationSuccessCount = 0,
+    this.migrationFailureCount = 0,
+    this.lastMigrationDurationMilliseconds,
+    this.udpSendSyscallCount = 0,
+    this.udpRecvSyscallCount = 0,
+    this.udpDatagramSentCount = 0,
+    this.udpDatagramReceivedCount = 0,
+    this.packetBufferPoolHitCount = 0,
+    this.packetBufferPoolMissCount = 0,
+    this.h2FlowControlStallCount = 0,
+    this.h2FlowControlStallTotalMilliseconds = 0,
+    this.h2FlowControlStallMaxMilliseconds = 0,
+    this.h2StreamReceiveWindowBytes = 0,
+    this.h2ConnectionReceiveWindowBytes = 0,
+    this.directDnsSuccessCount = 0,
+    this.directDnsFailureCount = 0,
+    this.directDnsTimeoutCount = 0,
+    this.directDnsLastRttMilliseconds,
+    this.pmtuChangeCount = 0,
+    this.pmtuRevalidationFailureCount = 0,
+    this.pmtuSendTooLargeCount = 0,
+    this.smoothedRttAvailability = MetricAvailability.unknown,
+    this.minimumRttAvailability = MetricAvailability.unknown,
+    this.rttVarianceAvailability = MetricAvailability.unknown,
+    this.intervalLossAvailability = MetricAvailability.unknown,
+    this.congestionWindowAvailability = MetricAvailability.unknown,
+    this.bytesInFlightAvailability = MetricAvailability.unknown,
+    this.sendRateAvailability = MetricAvailability.unknown,
+  });
+
+  final int? latestRttMilliseconds;
+  final MetricAvailability latestRttAvailability;
+  final int? smoothedRttMilliseconds;
+  final int? minimumRttMilliseconds;
+  final int? rttVarianceMilliseconds;
+  final int? intervalLossBasisPoints;
+  final int? congestionWindowBytes;
+  final int? bytesInFlight;
+  final int? sendRateBitsPerSecond;
+  final int packetsLost;
+  final int bytesLost;
+  final int tunSinkDropCount;
+  final int quicDatagramDropCount;
+  final int? queueOldestAgeMilliseconds;
+  final int? currentPmtuBytes;
+  final int migrationAttemptCount;
+  final int migrationSuccessCount;
+  final int migrationFailureCount;
+  final int? lastMigrationDurationMilliseconds;
+  final int udpSendSyscallCount;
+  final int udpRecvSyscallCount;
+  final int udpDatagramSentCount;
+  final int udpDatagramReceivedCount;
+  final int packetBufferPoolHitCount;
+  final int packetBufferPoolMissCount;
+  final int h2FlowControlStallCount;
+  final int h2FlowControlStallTotalMilliseconds;
+  final int h2FlowControlStallMaxMilliseconds;
+  final int h2StreamReceiveWindowBytes;
+  final int h2ConnectionReceiveWindowBytes;
+  final int directDnsSuccessCount;
+  final int directDnsFailureCount;
+  final int directDnsTimeoutCount;
+  final int? directDnsLastRttMilliseconds;
+  final int pmtuChangeCount;
+  final int pmtuRevalidationFailureCount;
+  final int pmtuSendTooLargeCount;
+  final MetricAvailability smoothedRttAvailability;
+  final MetricAvailability minimumRttAvailability;
+  final MetricAvailability rttVarianceAvailability;
+  final MetricAvailability intervalLossAvailability;
+  final MetricAvailability congestionWindowAvailability;
+  final MetricAvailability bytesInFlightAvailability;
+  final MetricAvailability sendRateAvailability;
+
+  List<Object?> get _values => <Object?>[
+    latestRttMilliseconds,
+    latestRttAvailability,
+    smoothedRttMilliseconds,
+    minimumRttMilliseconds,
+    rttVarianceMilliseconds,
+    intervalLossBasisPoints,
+    congestionWindowBytes,
+    bytesInFlight,
+    sendRateBitsPerSecond,
+    packetsLost,
+    bytesLost,
+    tunSinkDropCount,
+    quicDatagramDropCount,
+    queueOldestAgeMilliseconds,
+    currentPmtuBytes,
+    migrationAttemptCount,
+    migrationSuccessCount,
+    migrationFailureCount,
+    lastMigrationDurationMilliseconds,
+    udpSendSyscallCount,
+    udpRecvSyscallCount,
+    udpDatagramSentCount,
+    udpDatagramReceivedCount,
+    packetBufferPoolHitCount,
+    packetBufferPoolMissCount,
+    h2FlowControlStallCount,
+    h2FlowControlStallTotalMilliseconds,
+    h2FlowControlStallMaxMilliseconds,
+    h2StreamReceiveWindowBytes,
+    h2ConnectionReceiveWindowBytes,
+    directDnsSuccessCount,
+    directDnsFailureCount,
+    directDnsTimeoutCount,
+    directDnsLastRttMilliseconds,
+    pmtuChangeCount,
+    pmtuRevalidationFailureCount,
+    pmtuSendTooLargeCount,
+    smoothedRttAvailability,
+    minimumRttAvailability,
+    rttVarianceAvailability,
+    intervalLossAvailability,
+    congestionWindowAvailability,
+    bytesInFlightAvailability,
+    sendRateAvailability,
+  ];
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is NetworkConnectionMetrics && listEquals(_values, other._values);
+
+  @override
+  int get hashCode => Object.hashAll(_values);
+}
+
+class NetworkQueueQuality {
+  const NetworkQueueQuality({
+    this.kind = NetworkQueueKind.unknown,
+    this.availability = MetricAvailability.unknown,
+    this.currentItems = 0,
+    this.capacityItems = 0,
+    this.currentBytes = 0,
+    this.capacityBytes = 0,
+    this.highWaterItems = 0,
+    this.highWaterBytes = 0,
+    this.dropItems = 0,
+    this.dropBytes = 0,
+    this.oldestAgeMilliseconds,
+    this.enqueueCount = 0,
+    this.dequeueCount = 0,
+    this.closed = false,
+    this.cancelled = false,
+  });
+
+  final NetworkQueueKind kind;
+  final MetricAvailability availability;
+  final int currentItems;
+  final int capacityItems;
+  final int currentBytes;
+  final int capacityBytes;
+  final int highWaterItems;
+  final int highWaterBytes;
+  final int dropItems;
+  final int dropBytes;
+  final int? oldestAgeMilliseconds;
+  final int enqueueCount;
+  final int dequeueCount;
+  final bool closed;
+  final bool cancelled;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is NetworkQueueQuality &&
+          kind == other.kind &&
+          availability == other.availability &&
+          currentItems == other.currentItems &&
+          capacityItems == other.capacityItems &&
+          currentBytes == other.currentBytes &&
+          capacityBytes == other.capacityBytes &&
+          highWaterItems == other.highWaterItems &&
+          highWaterBytes == other.highWaterBytes &&
+          dropItems == other.dropItems &&
+          dropBytes == other.dropBytes &&
+          oldestAgeMilliseconds == other.oldestAgeMilliseconds &&
+          enqueueCount == other.enqueueCount &&
+          dequeueCount == other.dequeueCount &&
+          closed == other.closed &&
+          cancelled == other.cancelled;
+
+  @override
+  int get hashCode => Object.hashAll(<Object?>[
+    kind,
+    availability,
+    currentItems,
+    capacityItems,
+    currentBytes,
+    capacityBytes,
+    highWaterItems,
+    highWaterBytes,
+    dropItems,
+    dropBytes,
+    oldestAgeMilliseconds,
+    enqueueCount,
+    dequeueCount,
+    closed,
+    cancelled,
+  ]);
+}
+
+class PmtuQualityInfo {
+  const PmtuQualityInfo({
+    this.availability = MetricAvailability.unknown,
+    this.outerPmtuBytes,
+    this.effectiveConnectIpPayloadBytes,
+    this.effectivePayloadAvailability = MetricAvailability.unknown,
+    this.phaseCode = '',
+    this.changeCount = 0,
+    this.revalidationFailureCount = 0,
+    this.sendTooLargeCount = 0,
+  });
+
+  final MetricAvailability availability;
+  final int? outerPmtuBytes;
+  final int? effectiveConnectIpPayloadBytes;
+  final MetricAvailability effectivePayloadAvailability;
+  final String phaseCode;
+  final int changeCount;
+  final int revalidationFailureCount;
+  final int sendTooLargeCount;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PmtuQualityInfo &&
+          availability == other.availability &&
+          outerPmtuBytes == other.outerPmtuBytes &&
+          effectiveConnectIpPayloadBytes ==
+              other.effectiveConnectIpPayloadBytes &&
+          effectivePayloadAvailability == other.effectivePayloadAvailability &&
+          phaseCode == other.phaseCode &&
+          changeCount == other.changeCount &&
+          revalidationFailureCount == other.revalidationFailureCount &&
+          sendTooLargeCount == other.sendTooLargeCount;
+
+  @override
+  int get hashCode => Object.hash(
+    availability,
+    outerPmtuBytes,
+    effectiveConnectIpPayloadBytes,
+    effectivePayloadAvailability,
+    phaseCode,
+    changeCount,
+    revalidationFailureCount,
+    sendTooLargeCount,
+  );
+}
+
+class MigrationQualityInfo {
+  const MigrationQualityInfo({
+    this.phaseCode = '',
+    this.attemptCount = 0,
+    this.successCount = 0,
+    this.failureCount = 0,
+    this.lastDurationMilliseconds,
+    this.lastReasonCode = '',
+  });
+
+  final String phaseCode;
+  final int attemptCount;
+  final int successCount;
+  final int failureCount;
+  final int? lastDurationMilliseconds;
+  final String lastReasonCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is MigrationQualityInfo &&
+          phaseCode == other.phaseCode &&
+          attemptCount == other.attemptCount &&
+          successCount == other.successCount &&
+          failureCount == other.failureCount &&
+          lastDurationMilliseconds == other.lastDurationMilliseconds &&
+          lastReasonCode == other.lastReasonCode;
+
+  @override
+  int get hashCode => Object.hash(
+    phaseCode,
+    attemptCount,
+    successCount,
+    failureCount,
+    lastDurationMilliseconds,
+    lastReasonCode,
+  );
+}
+
+class DirectDnsQualityInfo {
+  const DirectDnsQualityInfo({
+    this.mode = DirectDnsMode.unknown,
+    this.phaseCode = '',
+    this.successCount = 0,
+    this.failureCount = 0,
+    this.timeoutCount = 0,
+    this.lastRttMilliseconds,
+    this.lastReasonCode = '',
+  });
+
+  final DirectDnsMode mode;
+  final String phaseCode;
+  final int successCount;
+  final int failureCount;
+  final int timeoutCount;
+  final int? lastRttMilliseconds;
+  final String lastReasonCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is DirectDnsQualityInfo &&
+          mode == other.mode &&
+          phaseCode == other.phaseCode &&
+          successCount == other.successCount &&
+          failureCount == other.failureCount &&
+          timeoutCount == other.timeoutCount &&
+          lastRttMilliseconds == other.lastRttMilliseconds &&
+          lastReasonCode == other.lastReasonCode;
+
+  @override
+  int get hashCode => Object.hash(
+    mode,
+    phaseCode,
+    successCount,
+    failureCount,
+    timeoutCount,
+    lastRttMilliseconds,
+    lastReasonCode,
+  );
+}
+
+class NetworkQualitySnapshot {
+  const NetworkQualitySnapshot({
+    this.sampledAt,
+    this.connectionInstanceId,
+    this.level = NetworkQualityLevel.unknown,
+    this.metrics = const NetworkConnectionMetrics(),
+    this.queues = const <NetworkQueueQuality>[],
+    this.pmtu = const PmtuQualityInfo(),
+    this.migration = const MigrationQualityInfo(),
+    this.directDns = const DirectDnsQualityInfo(),
+  });
+
+  final DateTime? sampledAt;
+  final String? connectionInstanceId;
+  final NetworkQualityLevel level;
+  final NetworkConnectionMetrics metrics;
+  final List<NetworkQueueQuality> queues;
+  final PmtuQualityInfo pmtu;
+  final MigrationQualityInfo migration;
+  final DirectDnsQualityInfo directDns;
+
+  factory NetworkQualitySnapshot.fromMap(Map<Object?, Object?> map) {
+    final metricsMap = _objectMap(map['metrics']);
+    final pmtuMap = _objectMap(map['pmtu']);
+    final migrationMap = _objectMap(map['migration']);
+    final directDnsMap = _objectMap(map['direct_dns']);
+    final sampledAtMilliseconds = _mapInt(map, 'sampled_at_unix_ms');
+    final connectionId = _mapString(map, 'connection_instance_id');
+    return NetworkQualitySnapshot(
+      sampledAt:
+          sampledAtMilliseconds <= 0 || sampledAtMilliseconds > 8640000000000000
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(
+              sampledAtMilliseconds,
+              isUtc: true,
+            ),
+      connectionInstanceId: connectionId.isEmpty || connectionId.length > 64
+          ? null
+          : connectionId,
+      level: _enumNameOr(
+        NetworkQualityLevel.values,
+        map['level'],
+        NetworkQualityLevel.unknown,
+      ),
+      metrics: NetworkConnectionMetrics(
+        latestRttMilliseconds: _mapNullableInt(
+          metricsMap,
+          'latest_rtt_milliseconds',
+        ),
+        latestRttAvailability: _enumNameOr(
+          MetricAvailability.values,
+          metricsMap['latest_rtt_availability'],
+          MetricAvailability.unknown,
+        ),
+        smoothedRttMilliseconds: _mapNullableInt(
+          metricsMap,
+          'smoothed_rtt_milliseconds',
+        ),
+        minimumRttMilliseconds: _mapNullableInt(
+          metricsMap,
+          'minimum_rtt_milliseconds',
+        ),
+        rttVarianceMilliseconds: _mapNullableInt(
+          metricsMap,
+          'rtt_variance_milliseconds',
+        ),
+        intervalLossBasisPoints: _mapNullableInt(
+          metricsMap,
+          'interval_loss_basis_points',
+        ),
+        congestionWindowBytes: _mapNullableInt(
+          metricsMap,
+          'congestion_window_bytes',
+        ),
+        bytesInFlight: _mapNullableInt(metricsMap, 'bytes_in_flight'),
+        sendRateBitsPerSecond: _mapNullableInt(
+          metricsMap,
+          'send_rate_bits_per_second',
+        ),
+        packetsLost: _mapInt(metricsMap, 'packets_lost'),
+        bytesLost: _mapInt(metricsMap, 'bytes_lost'),
+        tunSinkDropCount: _mapInt(metricsMap, 'tun_sink_drop_count'),
+        quicDatagramDropCount: _mapInt(metricsMap, 'quic_datagram_drop_count'),
+        queueOldestAgeMilliseconds: _mapNullableInt(
+          metricsMap,
+          'queue_oldest_age_milliseconds',
+        ),
+        currentPmtuBytes: _mapNullableInt(metricsMap, 'current_pmtu_bytes'),
+        migrationAttemptCount: _mapInt(metricsMap, 'migration_attempt_count'),
+        migrationSuccessCount: _mapInt(metricsMap, 'migration_success_count'),
+        migrationFailureCount: _mapInt(metricsMap, 'migration_failure_count'),
+        lastMigrationDurationMilliseconds: _mapNullableInt(
+          metricsMap,
+          'last_migration_duration_milliseconds',
+        ),
+        udpSendSyscallCount: _mapInt(metricsMap, 'udp_send_syscall_count'),
+        udpRecvSyscallCount: _mapInt(metricsMap, 'udp_recv_syscall_count'),
+        udpDatagramSentCount: _mapInt(metricsMap, 'udp_datagram_sent_count'),
+        udpDatagramReceivedCount: _mapInt(
+          metricsMap,
+          'udp_datagram_received_count',
+        ),
+        packetBufferPoolHitCount: _mapInt(
+          metricsMap,
+          'packet_buffer_pool_hit_count',
+        ),
+        packetBufferPoolMissCount: _mapInt(
+          metricsMap,
+          'packet_buffer_pool_miss_count',
+        ),
+        h2FlowControlStallCount: _mapInt(
+          metricsMap,
+          'h2_flow_control_stall_count',
+        ),
+        h2FlowControlStallTotalMilliseconds: _mapInt(
+          metricsMap,
+          'h2_flow_control_stall_total_milliseconds',
+        ),
+        h2FlowControlStallMaxMilliseconds: _mapInt(
+          metricsMap,
+          'h2_flow_control_stall_max_milliseconds',
+        ),
+        h2StreamReceiveWindowBytes: _mapInt(
+          metricsMap,
+          'h2_stream_receive_window_bytes',
+        ),
+        h2ConnectionReceiveWindowBytes: _mapInt(
+          metricsMap,
+          'h2_connection_receive_window_bytes',
+        ),
+        directDnsSuccessCount: _mapInt(metricsMap, 'direct_dns_success_count'),
+        directDnsFailureCount: _mapInt(metricsMap, 'direct_dns_failure_count'),
+        directDnsTimeoutCount: _mapInt(metricsMap, 'direct_dns_timeout_count'),
+        directDnsLastRttMilliseconds: _mapNullableInt(
+          metricsMap,
+          'direct_dns_last_rtt_milliseconds',
+        ),
+        pmtuChangeCount: _mapInt(metricsMap, 'pmtu_change_count'),
+        pmtuRevalidationFailureCount: _mapInt(
+          metricsMap,
+          'pmtu_revalidation_failure_count',
+        ),
+        pmtuSendTooLargeCount: _mapInt(metricsMap, 'pmtu_send_too_large_count'),
+        smoothedRttAvailability: _enumNameOr(
+          MetricAvailability.values,
+          metricsMap['smoothed_rtt_availability'],
+          MetricAvailability.unknown,
+        ),
+        minimumRttAvailability: _enumNameOr(
+          MetricAvailability.values,
+          metricsMap['minimum_rtt_availability'],
+          MetricAvailability.unknown,
+        ),
+        rttVarianceAvailability: _enumNameOr(
+          MetricAvailability.values,
+          metricsMap['rtt_variance_availability'],
+          MetricAvailability.unknown,
+        ),
+        intervalLossAvailability: _enumNameOr(
+          MetricAvailability.values,
+          metricsMap['interval_loss_availability'],
+          MetricAvailability.unknown,
+        ),
+        congestionWindowAvailability: _enumNameOr(
+          MetricAvailability.values,
+          metricsMap['congestion_window_availability'],
+          MetricAvailability.unknown,
+        ),
+        bytesInFlightAvailability: _enumNameOr(
+          MetricAvailability.values,
+          metricsMap['bytes_in_flight_availability'],
+          MetricAvailability.unknown,
+        ),
+        sendRateAvailability: _enumNameOr(
+          MetricAvailability.values,
+          metricsMap['send_rate_availability'],
+          MetricAvailability.unknown,
+        ),
+      ),
+      queues: List<NetworkQueueQuality>.unmodifiable(
+        (map['queues'] is List ? map['queues']! as List : const <Object?>[])
+            .take(8)
+            .whereType<Map<Object?, Object?>>()
+            .map((raw) {
+              final queue = Map<Object?, Object?>.from(raw);
+              return NetworkQueueQuality(
+                kind: _enumNameOr(
+                  NetworkQueueKind.values,
+                  queue['kind'],
+                  NetworkQueueKind.unknown,
+                ),
+                availability: _enumNameOr(
+                  MetricAvailability.values,
+                  queue['availability'],
+                  MetricAvailability.unknown,
+                ),
+                currentItems: _mapInt(queue, 'current_items'),
+                capacityItems: _mapInt(queue, 'capacity_items'),
+                currentBytes: _mapInt(queue, 'current_bytes'),
+                capacityBytes: _mapInt(queue, 'capacity_bytes'),
+                highWaterItems: _mapInt(queue, 'high_water_items'),
+                highWaterBytes: _mapInt(queue, 'high_water_bytes'),
+                dropItems: _mapInt(queue, 'drop_items'),
+                dropBytes: _mapInt(queue, 'drop_bytes'),
+                oldestAgeMilliseconds: _mapNullableInt(
+                  queue,
+                  'oldest_age_milliseconds',
+                ),
+                enqueueCount: _mapInt(queue, 'enqueue_count'),
+                dequeueCount: _mapInt(queue, 'dequeue_count'),
+                closed: queue['closed'] == true,
+                cancelled: queue['cancelled'] == true,
+              );
+            }),
+      ),
+      pmtu: PmtuQualityInfo(
+        availability: _enumNameOr(
+          MetricAvailability.values,
+          pmtuMap['availability'],
+          MetricAvailability.unknown,
+        ),
+        outerPmtuBytes: _mapNullableInt(pmtuMap, 'outer_pmtu_bytes'),
+        effectiveConnectIpPayloadBytes: _mapNullableInt(
+          pmtuMap,
+          'effective_connect_ip_payload_bytes',
+        ),
+        effectivePayloadAvailability: _enumNameOr(
+          MetricAvailability.values,
+          pmtuMap['effective_payload_availability'],
+          MetricAvailability.unknown,
+        ),
+        phaseCode: _mapString(pmtuMap, 'phase_code'),
+        changeCount: _mapInt(pmtuMap, 'change_count'),
+        revalidationFailureCount: _mapInt(
+          pmtuMap,
+          'revalidation_failure_count',
+        ),
+        sendTooLargeCount: _mapInt(pmtuMap, 'send_too_large_count'),
+      ),
+      migration: MigrationQualityInfo(
+        phaseCode: _mapString(migrationMap, 'phase_code'),
+        attemptCount: _mapInt(migrationMap, 'attempt_count'),
+        successCount: _mapInt(migrationMap, 'success_count'),
+        failureCount: _mapInt(migrationMap, 'failure_count'),
+        lastDurationMilliseconds: _mapNullableInt(
+          migrationMap,
+          'last_duration_milliseconds',
+        ),
+        lastReasonCode: _mapString(migrationMap, 'last_reason_code'),
+      ),
+      directDns: DirectDnsQualityInfo(
+        mode: _enumNameOr(
+          DirectDnsMode.values,
+          directDnsMap['mode'],
+          DirectDnsMode.unknown,
+        ),
+        phaseCode: _mapString(directDnsMap, 'phase_code'),
+        successCount: _mapInt(directDnsMap, 'success_count'),
+        failureCount: _mapInt(directDnsMap, 'failure_count'),
+        timeoutCount: _mapInt(directDnsMap, 'timeout_count'),
+        lastRttMilliseconds: _mapNullableInt(
+          directDnsMap,
+          'last_rtt_milliseconds',
+        ),
+        lastReasonCode: _mapString(directDnsMap, 'last_reason_code'),
+      ),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is NetworkQualitySnapshot &&
+          connectionInstanceId == other.connectionInstanceId &&
+          level == other.level &&
+          metrics == other.metrics &&
+          listEquals(queues, other.queues) &&
+          pmtu == other.pmtu &&
+          migration == other.migration &&
+          directDns == other.directDns;
+
+  @override
+  int get hashCode => Object.hash(
+    connectionInstanceId,
+    level,
+    metrics,
+    Object.hashAll(queues),
+    pmtu,
+    migration,
+    directDns,
+  );
+}
+
+class EngineCapabilities {
+  const EngineCapabilities({
+    this.networkQuality = false,
+    this.encryptedDirectDns = false,
+    this.quicMigration = false,
+    this.automaticPmtu = false,
+  });
+
+  factory EngineCapabilities.fromMap(Map<Object?, Object?> map) =>
+      EngineCapabilities(
+        networkQuality: map['network_quality'] == true,
+        encryptedDirectDns: map['encrypted_direct_dns'] == true,
+        quicMigration: map['quic_migration'] == true,
+        automaticPmtu: map['automatic_pmtu'] == true,
+      );
+
+  final bool networkQuality;
+  final bool encryptedDirectDns;
+  final bool quicMigration;
+  final bool automaticPmtu;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EngineCapabilities &&
+          networkQuality == other.networkQuality &&
+          encryptedDirectDns == other.encryptedDirectDns &&
+          quicMigration == other.quicMigration &&
+          automaticPmtu == other.automaticPmtu;
+
+  @override
+  int get hashCode => Object.hash(
+    networkQuality,
+    encryptedDirectDns,
+    quicMigration,
+    automaticPmtu,
+  );
+}
+
 class EngineSnapshot {
   const EngineSnapshot({
     this.phase = ConnectionPhase.disconnected,
@@ -949,6 +1775,7 @@ class EngineSnapshot {
     this.errorCode,
     this.failure,
     this.frontends = const <FrontendRuntimeStatus>[],
+    this.networkQuality,
   });
 
   final ConnectionPhase phase;
@@ -969,6 +1796,7 @@ class EngineSnapshot {
   final String? errorCode;
   final TransportFailureInfo? failure;
   final List<FrontendRuntimeStatus> frontends;
+  final NetworkQualitySnapshot? networkQuality;
 
   bool get isConnected =>
       phase == ConnectionPhase.connected || phase == ConnectionPhase.degraded;
@@ -1049,6 +1877,11 @@ class EngineSnapshot {
               })
               .toList(growable: false) ??
           const <FrontendRuntimeStatus>[],
+      networkQuality: map['network_quality'] is Map
+          ? NetworkQualitySnapshot.fromMap(
+              Map<Object?, Object?>.from(map['network_quality'] as Map),
+            )
+          : null,
     );
   }
 
@@ -1073,7 +1906,8 @@ class EngineSnapshot {
             warning == other.warning &&
             errorCode == other.errorCode &&
             failure == other.failure &&
-            listEquals(frontends, other.frontends);
+            listEquals(frontends, other.frontends) &&
+            networkQuality == other.networkQuality;
   }
 
   @override
@@ -1096,5 +1930,6 @@ class EngineSnapshot {
     errorCode,
     failure,
     Object.hashAll(frontends),
+    networkQuality,
   ]);
 }

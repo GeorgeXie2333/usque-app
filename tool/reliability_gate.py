@@ -16,10 +16,12 @@ from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+import performance_gate
+
 SCHEMA_VERSION = 1
 HEX_40 = re.compile(r"^[0-9a-f]{40}$")
 HEX_64 = re.compile(r"^[0-9a-f]{64}$")
-ALLOWED_STATUS = {"passed", "failed", "not_run"}
+ALLOWED_STATUS = {"passed", "failed", "not_run", "unstable"}
 REQUIRED_GATES = {
     "windows.clean_install",
     "windows.coverage_upgrade",
@@ -44,7 +46,13 @@ REQUIRED_GATES = {
     "network.kill_switch_leak",
     "network.route_leak",
     "network.direct_rule_scope",
-    "performance.informational_baseline",
+    "performance.h2_high_bdp",
+    "performance.h3_batch_io",
+    "performance.h3_allocation_rate",
+    "performance.queue_pressure",
+    "performance.pmtu_convergence",
+    "performance.quic_migration",
+    "performance.direct_dns",
 }
 INDEPENDENT_GATES = {
     "network.ipv4_protection",
@@ -74,6 +82,13 @@ RUNNER_CLASS_BY_ENVIRONMENT = {
 }
 MAX_STRUCTURED_EVIDENCE_BYTES = 64 * 1024 * 1024
 MAX_RESTRICTED_PCAP_BYTES = 2 * 1024 * 1024 * 1024
+PERFORMANCE_EVIDENCE_FIELDS = {
+    "junit",
+    "timeline",
+    "platform_diff",
+    "performance_report",
+    "raw_samples",
+}
 
 
 class GateError(ValueError):
@@ -168,6 +183,124 @@ def _evidence_reference(
     return {"path": raw_path, "sha256": expected_digest, "size": size}
 
 
+def _canonical_json_sha256(value: Any) -> str:
+    return hashlib.sha256(performance_gate.canonical_json_bytes(value)).hexdigest()
+
+
+def _performance_evidence_path(evidence_root: Path, reference: dict[str, Any]) -> Path:
+    return evidence_root.joinpath(*PurePosixPath(reference["path"]).parts)
+
+
+def _validate_performance_evidence(
+    report_path: Path,
+    gate_id: str,
+    commit: str,
+    evidence: dict[str, Any],
+    normalized_evidence: dict[str, Any],
+    evidence_root: Path,
+) -> None:
+    if set(evidence) != PERFORMANCE_EVIDENCE_FIELDS:
+        raise GateError(
+            f"{report_path}: {gate_id} performance evidence must contain exactly "
+            + ", ".join(sorted(PERFORMANCE_EVIDENCE_FIELDS))
+        )
+    for field in ("performance_report", "raw_samples"):
+        normalized_evidence[field] = _evidence_reference(
+            report_path,
+            evidence_root,
+            "performance_lab",
+            gate_id,
+            field,
+            evidence.get(field),
+            MAX_STRUCTURED_EVIDENCE_BYTES,
+        )
+
+    comparison_path = _performance_evidence_path(
+        evidence_root, normalized_evidence["performance_report"]
+    )
+    raw_path = _performance_evidence_path(evidence_root, normalized_evidence["raw_samples"])
+    try:
+        comparison = performance_gate.load_json(comparison_path)
+        raw = performance_gate.load_json(raw_path)
+    except performance_gate.GateError as error:
+        raise GateError(
+            f"{report_path}: {gate_id} performance evidence is malformed: {error}"
+        ) from error
+    comparison_fields = {
+        "schema_version",
+        "gate_id",
+        "status",
+        "reason_codes",
+        "summary",
+        "checks",
+        "baseline_commit",
+        "candidate_commit",
+        "baseline_reports_sha256",
+        "candidate_reports_sha256",
+        "raw_samples_sha256",
+    }
+    if set(comparison) != comparison_fields:
+        raise GateError(f"{report_path}: {gate_id} comparison report fields are invalid")
+    if comparison["schema_version"] != performance_gate.EVIDENCE_SCHEMA_VERSION:
+        raise GateError(f"{report_path}: {gate_id} comparison report version is invalid")
+    if comparison["gate_id"] != gate_id or comparison["status"] != "passed":
+        raise GateError(f"{report_path}: {gate_id} comparison report does not prove a pass")
+    if comparison["candidate_commit"] != commit:
+        raise GateError(f"{report_path}: {gate_id} comparison used the wrong candidate")
+    if comparison["raw_samples_sha256"] != normalized_evidence["raw_samples"]["sha256"]:
+        raise GateError(f"{report_path}: {gate_id} raw sample artifact digest is not bound")
+    if set(raw) != {"schema_version", "gate_id", "baseline_reports", "candidate_reports"}:
+        raise GateError(f"{report_path}: {gate_id} raw sample bundle fields are invalid")
+    if raw["schema_version"] != performance_gate.EVIDENCE_SCHEMA_VERSION:
+        raise GateError(f"{report_path}: {gate_id} raw sample bundle version is invalid")
+    if raw["gate_id"] != gate_id:
+        raise GateError(f"{report_path}: {gate_id} raw sample bundle gate does not match")
+    baselines = raw["baseline_reports"]
+    candidates = raw["candidate_reports"]
+    if (
+        not isinstance(baselines, list)
+        or not isinstance(candidates, list)
+        or any(not isinstance(report, dict) for report in baselines + candidates)
+    ):
+        raise GateError(f"{report_path}: {gate_id} raw reports must be arrays of objects")
+    if comparison["baseline_reports_sha256"] != _canonical_json_sha256(baselines):
+        raise GateError(f"{report_path}: {gate_id} baseline report digest does not match")
+    if comparison["candidate_reports_sha256"] != _canonical_json_sha256(candidates):
+        raise GateError(f"{report_path}: {gate_id} candidate report digest does not match")
+    for report in baselines + candidates:
+        if report.get("candidate_commit") != commit:
+            raise GateError(f"{report_path}: {gate_id} raw candidate identity does not match")
+        if report.get("baseline_commit") != comparison["baseline_commit"]:
+            raise GateError(f"{report_path}: {gate_id} raw baseline identity does not match")
+
+    try:
+        root = Path(__file__).resolve().parent
+        performance_gate.validate_schema_contract(
+            performance_gate.load_json(root / "schemas" / "performance_report.schema.json")
+        )
+        scenarios = [
+            scenario
+            for scenario in performance_gate._load_scenarios(root / "performance_scenarios.json")
+            if scenario["gate_id"] == gate_id
+        ]
+        budget = performance_gate._load_budget(root / "performance_budget.json")
+        recomputed = performance_gate.evaluate_gate_reports(
+            baselines,
+            candidates,
+            scenarios,
+            budget,
+        )
+    except (KeyError, performance_gate.GateError) as error:
+        raise GateError(
+            f"{report_path}: {gate_id} raw performance evidence is invalid: {error}"
+        ) from error
+    expected_comparison = {
+        key: comparison[key] for key in ("gate_id", "status", "reason_codes", "summary", "checks")
+    }
+    if recomputed != expected_comparison:
+        raise GateError(f"{report_path}: {gate_id} comparison does not match raw samples")
+
+
 def _validate_report(
     path: Path,
     report: dict[str, Any],
@@ -219,6 +352,15 @@ def _validate_report(
             )
             for name in ("junit", "timeline", "platform_diff")
         }
+        if gate_id.startswith("performance."):
+            _validate_performance_evidence(
+                path,
+                gate_id,
+                commit,
+                evidence,
+                normalized_evidence,
+                evidence_root,
+            )
         if gate_id in INDEPENDENT_GATES:
             if evidence.get("observer") != "external":
                 raise GateError(f"{path}: {gate_id} was not observed independently")

@@ -6,6 +6,25 @@ A checked item means the code is in the tree and its current automated tests pas
 
 ## Architecture
 
+### Network-quality implementation
+
+The PR-00 through PR-12 sequence adds explicit H2 receive windows and PING RTT,
+typed 1 Hz local metrics, strict performance-v2 evaluation, bounded UDP batch
+I/O/owned buffers, automatic outer PMTU, same-family H3 migration, explicit
+encrypted direct DNS, and the Quality/Doctor UI. The final
+[acceptance matrix](network-quality-acceptance.md) maps every planned item to
+its code, deterministic test, documentation, and protected `not_run` status.
+No controlled throughput, allocation, migration-latency or leak claim follows
+from a workstation test. Protected results remain optional for publication.
+
+Five immutable build defaults are centralized in `feature_flags.rs`; normal
+profiles and environment variables cannot change them. See the
+[rollback runbook](network-quality-rollback.md) and
+[DNS threat model](direct-dns-threat-model.md). Android Doctor now reads the
+bounded Rust timeline on demand through JNI/Binder, with an old-engine fallback.
+
+### Platform layout
+
 ```mermaid
 flowchart LR
     UI["Flutter UI<br>no WebView"] -->|"versioned control API"| Engine["Unprivileged Rust Engine"]

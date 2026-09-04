@@ -11,6 +11,21 @@ import org.junit.Test
 class ServiceSnapshotStateTest {
     private fun state(): ServiceSnapshotState = ServiceSnapshotState()
 
+    @Test
+    fun physicalNetworkChangeDefersMigrationOrReconnectChoiceToNative() {
+        val snapshot = state()
+        snapshot.phase = "connected"
+        snapshot.noteUnderlyingNetworkChange(networkPresent = true)
+        assertEquals("connected", snapshot.phase)
+        assertNull(snapshot.warning)
+        snapshot.noteUnderlyingNetworkChange(networkPresent = false)
+        assertEquals("reconnecting", snapshot.phase)
+        assertNotNull(snapshot.warning)
+        snapshot.noteUnderlyingNetworkChange(networkPresent = true)
+        assertEquals("reconnecting", snapshot.phase)
+        assertNull(snapshot.warning)
+    }
+
     private fun platform(
         tunnelOpen: Boolean = true,
         activeMode: String? = "vpn",
@@ -173,11 +188,13 @@ class ServiceSnapshotStateTest {
                 keys.NATIVE_RUNTIME_STATE,
                 keys.FOREGROUND_NOTIFICATION_STATE,
                 keys.PENDING_CLEANUP,
+                keys.NETWORK_QUALITY,
             ),
             wire.keys,
         )
         // Exact snake_case strings MainActivity.snapshotFromBundle reads.
         assertEquals("phase", keys.PHASE)
+        assertEquals("network_quality_json", keys.NETWORK_QUALITY)
         assertEquals("warning", keys.WARNING)
         assertEquals("error_code", keys.ERROR_CODE)
         assertEquals("failure_code", keys.FAILURE_CODE)

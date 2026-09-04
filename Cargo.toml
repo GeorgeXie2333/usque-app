@@ -1,5 +1,7 @@
 [workspace]
 resolver = "2"
+# The frozen dependency keeps upstream formatting and its own test manifest.
+exclude = ["third_party/quiche-0.29.3"]
 members = [
     "crates/usque-agent",
     "crates/usque-android",
@@ -28,7 +30,7 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.2.3"
+version = "0.2.4"
 edition = "2024"
 rust-version = "1.97.1"
 license = "MIT"
@@ -136,6 +138,10 @@ opt-level = 1
 debug = false
 
 [patch.crates-io]
+# Keep per-path PMTUD and DATAGRAM limits consistent with ordinary packetization.
+# Provenance and the narrow patch are documented in the vendored directory.
+quiche = { path = "third_party/quiche-0.29.3" }
+
 # boring-sys 4.22.0 injects Cargo's API-unqualified Android target after the
 # NDK toolchain has selected an API-qualified target. Keep the exact upstream
 # release in-tree with only that Android build-script correction.

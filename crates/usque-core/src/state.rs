@@ -135,6 +135,10 @@ pub enum ErrorCode {
     PlatformSetupFailed,
     IpcUnavailable,
     Internal,
+    WindowsRecoveryFailed,
+    WindowsRecoveryTimeout,
+    WindowsRecoveryConflict,
+    WindowsRecoveryUnsupported,
 }
 
 #[derive(Debug, Clone, Default)]

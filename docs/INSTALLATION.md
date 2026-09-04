@@ -1,15 +1,15 @@
 # Installation and removal
 
-Install only packages from this repository's [GitHub Releases page](https://github.com/GeorgeXie2333/usque-app/releases) for `v0.2.3`.
+Install only packages from this repository's [GitHub Releases page](https://github.com/GeorgeXie2333/usque-app/releases) for `v0.2.4`.
 
 ## Official packages
 
-- `usque-v0.2.3-windows-x64-v2.msi`
-- `usque-v0.2.3-windows-arm64.msi`
-- `usque-v0.2.3-android-arm64-v8a.apk`
-- `usque-v0.2.3-android-x86_64.apk`
-- `usque-v0.2.3-android-armeabi-v7a.apk`
-- `usque-v0.2.3-android-universal.apk`
+- `usque-v0.2.4-windows-x64-v2.msi`
+- `usque-v0.2.4-windows-arm64.msi`
+- `usque-v0.2.4-android-arm64-v8a.apk`
+- `usque-v0.2.4-android-x86_64.apk`
+- `usque-v0.2.4-android-armeabi-v7a.apk`
+- `usque-v0.2.4-android-universal.apk`
 
 The GitHub Release attaches those six packages plus `release-manifest.json`,
 `SHA256SUMS`, and each package's SPDX SBOM. GitHub shows a SHA-256 for each
@@ -36,7 +36,7 @@ Never disable endpoint pinning, import signing certificates from an unofficial p
 
 Direct-country rules are optional and downloaded separately. Per-country GeoIP data is combined with one global V2Fly GeoSite catalog. Downloads may be started while Usque is disconnected, but they still obey Android Lockdown and any Windows Kill Switch state; a real system block appears as a retryable network failure and never replaces a valid cached ruleset.
 
-With direct-country routing enabled, Usque identifies GeoSite matches before sending DNS. Matching domains use the DNS servers of the current physical network and are visible to that DNS provider; non-matching domains continue through the configured WARP DNS. Applications that encrypt DNS themselves with DoH or DoT do not expose QNAME to Usque, so their destinations fall back to GeoIP classification. This behavior applies to Android VPN and Windows TUN as well as known SOCKS5/HTTP hostnames.
+With direct-country routing enabled, Usque identifies GeoSite matches before sending DNS. System (the default) sends matching domains to the physical DNS provider. An explicit DoH/DoT choice sends them to the configured TLS-authenticated resolver using numeric bootstrap; failures do not fall back to plaintext. Non-matching domains continue through the configured WARP DNS. Application-owned encrypted DNS does not expose QNAME to Usque and is classified by GeoIP. This applies to Android VPN, Windows TUN and known SOCKS5/HTTP hostnames. Desktop proxy mode is not a VPN Kill Switch; its ordinary host-network boundary is documented in the [direct DNS threat model](direct-dns-threat-model.md).
 
 ## Windows
 
@@ -62,11 +62,26 @@ no clients or recovery jobs, for 10 seconds.
 
 The service temporarily changes itself to automatic start before Usque records
 or applies privileged network state. This lets the next boot recover an
-interrupted VPN or system-proxy transaction. A lost Engine tunnel lease gets a
-30-second reattachment window; if no Engine returns, the Agent restores Usque
-network state, changes back to demand start, and exits. `RecoveryRequired` is
-the safety exception: the Agent remains available and automatic until an
-explicit recovery succeeds, rather than abandoning privileged network residue.
+interrupted VPN or system-proxy transaction. At startup it verifies the exact
+adapter identity and the network resources needed for reattachment. A surviving
+tunnel, or a lost Engine lease, gets a 30-second reattachment window. Missing
+resources are recovered instead of being treated as a live tunnel. If no Engine
+returns, the Agent restores Usque network state, changes back to demand start,
+and exits.
+
+On confirmed shutdown/restart the Agent stops admitting operations, stops packet
+forwarding, and restores network state within a 30-second service preshutdown
+budget. Ordinary service stops retain the existing maintenance/reattachment
+behavior. Interrupted or failed cleanup keeps its journal for the next start.
+
+`RecoveryRequired` keeps the Agent available and automatic. Starting a connection
+first makes at most one authenticated, operation- and generation-checked recovery
+attempt, before DNS or VPN startup. It never recovers an active session or another
+user's transaction. Failed or timed-out recovery does not start a new tunnel;
+the journal is retained and the app displays a recovery-specific error. Older
+Agents without guarded recovery support require a matching application/Agent
+update, not a fallback to unguarded maintenance recovery. Do not delete the
+recovery journal to bypass an error.
 
 ### Upgrade
 

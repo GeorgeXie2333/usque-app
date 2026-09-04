@@ -128,7 +128,24 @@ fn event_to_proto(event: &ConnectionEvent) -> v1::ConnectionEvent {
                 v1::ConnectionEventType::RecoveryProbeFailed as i32
             }
             ConnectionEventType::PathPromoted => v1::ConnectionEventType::PathPromoted as i32,
+            ConnectionEventType::MigrationStarted => {
+                v1::ConnectionEventType::MigrationStarted as i32
+            }
+            ConnectionEventType::MigrationPathValidated => {
+                v1::ConnectionEventType::MigrationPathValidated as i32
+            }
+            ConnectionEventType::MigrationPromoted => {
+                v1::ConnectionEventType::MigrationPromoted as i32
+            }
+            ConnectionEventType::MigrationFailed => v1::ConnectionEventType::MigrationFailed as i32,
             ConnectionEventType::QueueSaturated => v1::ConnectionEventType::QueueSaturated as i32,
+            ConnectionEventType::PmtuChanged => v1::ConnectionEventType::PmtuChanged as i32,
+            ConnectionEventType::PmtuRevalidationStarted => {
+                v1::ConnectionEventType::PmtuRevalidationStarted as i32
+            }
+            ConnectionEventType::PmtuRevalidationFailed => {
+                v1::ConnectionEventType::PmtuRevalidationFailed as i32
+            }
             ConnectionEventType::Disconnected => v1::ConnectionEventType::Disconnected as i32,
             ConnectionEventType::Failed => v1::ConnectionEventType::Failed as i32,
         },
@@ -180,6 +197,7 @@ fn metrics_to_proto(metrics: &ConnectionMetrics) -> v1::ConnectionMetrics {
             .last_reconnect_code
             .map(|code| code.as_str().to_owned())
             .unwrap_or_default(),
+        ..v1::ConnectionMetrics::default()
     }
 }
 

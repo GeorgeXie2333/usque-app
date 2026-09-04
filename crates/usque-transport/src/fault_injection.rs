@@ -1,10 +1,15 @@
 //! Deterministic, test-only transport fault orchestration.
 //!
-//! Production builds do not include this module unless the explicit
-//! `fault-injection` feature is enabled. The harness never touches real sockets
-//! or platform network state.
+//! Production builds exclude this module. Explicit lab builds must retain debug
+//! assertions. The model harness never touches sockets; instance-local hooks
+//! can drive the real loopback data plane, never platform network mutation.
 
-use std::{collections::VecDeque, net::SocketAddr, time::Duration};
+use std::{
+    collections::VecDeque,
+    net::SocketAddr,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use async_trait::async_trait;
 use usque_core::{
@@ -59,6 +64,97 @@ pub enum FaultKind {
     DisconnectAgentIpc,
     TerminateVpnProcess,
     EndpointPinMismatch,
+    H2PingTimeout,
+    H2CapacityWait(Duration),
+    SendMmsgPartial(u8),
+    SendMmsgUnsupported,
+    RecvMmsgTruncated,
+    RecvMmsgWouldBlock,
+    BufferPoolExhausted,
+    PeerCidUnavailable,
+    PathValidationTimeout,
+    PathValidationRejected,
+    GenerationDuringCandidateSetup,
+    SendMessageTooLarge,
+    PmtuRevalidationFailure,
+    DohTlsFailure,
+    DohHttpFailure,
+    DohBodyFailure,
+    DotPrefixFailure,
+    DotEof,
+    DnsPoolCancellation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FaultPoint {
+    H2Ping,
+    H2Capacity,
+    UdpSend,
+    UdpReceive,
+    CandidateCid,
+    CandidateSetup,
+    CandidateValidation,
+    Pmtu,
+    DnsTls,
+    DohHttp,
+    DohBody,
+    DotPrefix,
+    DotBody,
+    DnsPool,
+}
+
+impl FaultKind {
+    fn point(self) -> Option<FaultPoint> {
+        Some(match self {
+            Self::H2PingTimeout => FaultPoint::H2Ping,
+            Self::H2CapacityWait(_) => FaultPoint::H2Capacity,
+            Self::SendMmsgPartial(_) | Self::SendMmsgUnsupported | Self::SendMessageTooLarge => {
+                FaultPoint::UdpSend
+            }
+            Self::RecvMmsgTruncated | Self::RecvMmsgWouldBlock | Self::BufferPoolExhausted => {
+                FaultPoint::UdpReceive
+            }
+            Self::PeerCidUnavailable => FaultPoint::CandidateCid,
+            Self::GenerationDuringCandidateSetup => FaultPoint::CandidateSetup,
+            Self::PathValidationTimeout | Self::PathValidationRejected => {
+                FaultPoint::CandidateValidation
+            }
+            Self::PmtuRevalidationFailure => FaultPoint::Pmtu,
+            Self::DohTlsFailure => FaultPoint::DnsTls,
+            Self::DohHttpFailure => FaultPoint::DohHttp,
+            Self::DohBodyFailure => FaultPoint::DohBody,
+            Self::DotPrefixFailure => FaultPoint::DotPrefix,
+            Self::DotEof => FaultPoint::DotBody,
+            Self::DnsPoolCancellation => FaultPoint::DnsPool,
+            _ => return None,
+        })
+    }
+}
+
+/// Per-runtime, not global. Each event is consumed at most once; clones share
+/// the same bounded script and Tokio test/lab clock.
+#[derive(Clone, Debug)]
+pub(crate) struct NetworkFaults {
+    started: tokio::time::Instant,
+    events: Arc<Mutex<Vec<ScheduledFault>>>,
+}
+
+impl NetworkFaults {
+    pub(crate) fn new(script: FaultScript) -> Self {
+        Self {
+            started: tokio::time::Instant::now(),
+            events: Arc::new(Mutex::new(script.events)),
+        }
+    }
+
+    pub(crate) fn take(&self, point: FaultPoint) -> Option<FaultKind> {
+        let mut events = self.events.lock().expect("fault script mutex poisoned");
+        let elapsed = self.started.elapsed();
+        let index = events
+            .iter()
+            .position(|event| event.at <= elapsed && event.fault.point() == Some(point))?;
+        Some(events.remove(index).fault)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,6 +175,13 @@ impl FaultScript {
     pub fn new(seed: u64, mut events: Vec<ScheduledFault>) -> Result<Self, &'static str> {
         if events.len() > Self::MAX_EVENTS {
             return Err("fault script exceeds the bounded event capacity");
+        }
+        if events.iter().any(|event| {
+            matches!(event.fault, FaultKind::SendMmsgPartial(0 | 65..=u8::MAX))
+                || matches!(event.fault,
+            FaultKind::H2CapacityWait(delay) if delay > Duration::from_secs(10))
+        }) {
+            return Err("fault exceeds the bounded injection limit");
         }
         events.sort_by_key(|event| event.at);
         Ok(Self { seed, events })
@@ -360,6 +463,48 @@ mod tests {
 
     fn harness(events: Vec<ScheduledFault>) -> FaultHarness {
         FaultHarness::new(FaultScript::new(0x5eed, events).unwrap(), 2).unwrap()
+    }
+
+    #[test]
+    fn new_fault_limits_cannot_create_unbounded_delays_or_invalid_partial_sends() {
+        for fault in [
+            FaultKind::SendMmsgPartial(0),
+            FaultKind::SendMmsgPartial(65),
+            FaultKind::H2CapacityWait(Duration::from_secs(11)),
+        ] {
+            assert!(
+                FaultScript::new(
+                    12,
+                    vec![ScheduledFault {
+                        at: Duration::ZERO,
+                        fault
+                    }]
+                )
+                .is_err()
+            );
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn network_fault_scripts_are_instance_local_timed_and_single_use() {
+        let script = FaultScript::new(
+            12,
+            vec![ScheduledFault {
+                at: Duration::from_secs(1),
+                fault: FaultKind::SendMessageTooLarge,
+            }],
+        )
+        .unwrap();
+        let faults = NetworkFaults::new(script);
+        let separate = NetworkFaults::new(FaultScript::new(13, vec![]).unwrap());
+        assert_eq!(faults.take(FaultPoint::UdpSend), None);
+        tokio::time::advance(Duration::from_secs(1)).await;
+        assert_eq!(
+            faults.clone().take(FaultPoint::UdpSend),
+            Some(FaultKind::SendMessageTooLarge)
+        );
+        assert_eq!(faults.take(FaultPoint::UdpSend), None);
+        assert_eq!(separate.take(FaultPoint::UdpSend), None);
     }
 
     #[test]

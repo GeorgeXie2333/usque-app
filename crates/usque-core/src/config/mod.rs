@@ -19,7 +19,7 @@ mod network;
 pub use account::{Account, ManagedEndpointIps};
 pub use network::SharedNetworkSettings;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 12;
+pub const CURRENT_SCHEMA_VERSION: u32 = 13;
 /// Vault namespace for device-wide proxy-listener secrets. Never a profile id.
 pub const SHARED_NETWORK_SECRET_ID: Uuid =
     Uuid::from_u128(0x9f1c_6b20_5a7e_4d3a_9c11_00c0_ffee_0001);
@@ -37,6 +37,7 @@ pub const MAX_DNS_SERVERS: usize = 8;
 pub const MAX_SPLIT_EXCLUSIONS: usize = 256;
 pub const MAX_PROXY_LISTENERS_PER_PROTOCOL: usize = 16;
 pub const MAX_GEO_DIRECT_COUNTRIES: usize = 32;
+pub const MAX_DIRECT_DNS_BOOTSTRAP_IPS: usize = 8;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PendingIdentityReplacement {
@@ -151,6 +152,7 @@ impl AppConfig {
     pub fn upsert_runtime_profile(&mut self, incoming: Profile) -> Result<Profile, ConfigError> {
         let mut incoming = incoming;
         incoming.canonicalize_geo_direct()?;
+        incoming.canonicalize_direct_dns();
         incoming.validate()?;
         let id = incoming.id;
         let name = incoming.name.clone();
@@ -233,6 +235,7 @@ impl AppConfig {
         if self.profiles.is_empty() {
             return Err(ConfigError::NoProfiles);
         }
+        self.network.direct_dns.validate()?;
         if self.profiles.len() > MAX_PROFILES {
             return Err(ConfigError::TooManyProfiles(self.profiles.len()));
         }
@@ -439,6 +442,10 @@ pub struct Profile {
     /// Uppercase ISO 3166-1 alpha-2 codes sent DIRECT. Empty disables the feature.
     #[serde(default)]
     pub geo_direct_countries: Vec<String>,
+    /// Resolver used only for GeoSite traffic routed directly over the
+    /// physical network. The default preserves the system-resolver behavior.
+    #[serde(default)]
+    pub direct_dns: DirectDnsSettings,
 }
 
 impl Default for Profile {
@@ -460,6 +467,7 @@ impl Default for Profile {
             auto_connect: false,
             proxy: ProxySettings::default(),
             geo_direct_countries: Vec::new(),
+            direct_dns: DirectDnsSettings::default(),
         };
         profile.canonicalize_mode();
         profile
@@ -507,6 +515,7 @@ impl Profile {
             return Err(ConfigError::DuplicateSplitExclusion);
         }
         normalize_geo_direct_countries(&self.geo_direct_countries)?;
+        self.direct_dns.validate()?;
         if self.frontends.tunnel {
             if self.dns_mode == DnsMode::System {
                 return Err(ConfigError::VpnSystemDnsForbidden);
@@ -565,11 +574,16 @@ impl Profile {
         self.split_exclusions.clear();
         self.proxy = ProxySettings::default();
         self.geo_direct_countries.clear();
+        self.direct_dns = DirectDnsSettings::default();
     }
 
     pub fn canonicalize_geo_direct(&mut self) -> Result<(), ConfigError> {
         self.geo_direct_countries = normalize_geo_direct_countries(&self.geo_direct_countries)?;
         Ok(())
+    }
+
+    pub fn canonicalize_direct_dns(&mut self) {
+        self.direct_dns.canonicalize();
     }
 
     pub fn validate_geo_cache(&self, cache_dir: &std::path::Path) -> Result<(), ConfigError> {
@@ -634,6 +648,17 @@ fn invalid_vpn_dns_address(address: IpAddr) -> bool {
                 || address.is_loopback()
                 || address.is_unicast_link_local()
                 || address.is_multicast()
+        }
+    }
+}
+
+fn invalid_direct_dns_bootstrap(address: IpAddr) -> bool {
+    match address {
+        IpAddr::V4(address) => {
+            address.is_unspecified() || address.is_multicast() || address.is_broadcast()
+        }
+        IpAddr::V6(address) => {
+            address.is_unspecified() || address.is_multicast() || address.is_unicast_link_local()
         }
     }
 }
@@ -703,6 +728,151 @@ pub enum DnsMode {
     Tunnel,
     LocalConfigured,
     System,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum DirectDnsMode {
+    #[default]
+    PhysicalSystem,
+    Doh,
+    Dot,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DirectDnsSettings {
+    #[serde(default)]
+    pub mode: DirectDnsMode,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub server_name: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub doh_path: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bootstrap_ips: Vec<IpAddr>,
+    #[serde(default, skip_serializing_if = "direct_dns_port_is_zero")]
+    pub port: u16,
+}
+
+fn direct_dns_port_is_zero(port: &u16) -> bool {
+    *port == 0
+}
+
+fn canonical_direct_dns_name(name: &str) -> Option<String> {
+    if name.is_empty()
+        || name.chars().count() > 253
+        || name.chars().any(|character| {
+            character.is_whitespace() || character.is_control() || ":/\\?#@%*[]".contains(character)
+        })
+    {
+        return None;
+    }
+    // Url's IDNA implementation is already used by the control plane. Reject
+    // URL syntax before parsing, then validate the normalized TLS DNS name.
+    let url = reqwest::Url::parse(&format!("https://{name}/")).ok()?;
+    let normalized = url.host_str()?.to_owned();
+    if !valid_dns_name(&normalized)
+        || !matches!(
+            rustls::pki_types::ServerName::try_from(normalized.clone()),
+            Ok(rustls::pki_types::ServerName::DnsName(_))
+        )
+    {
+        return None;
+    }
+    Some(normalized)
+}
+
+impl Default for DirectDnsSettings {
+    fn default() -> Self {
+        Self {
+            mode: DirectDnsMode::PhysicalSystem,
+            server_name: String::new(),
+            doh_path: String::new(),
+            bootstrap_ips: Vec::new(),
+            port: 0,
+        }
+    }
+}
+
+impl DirectDnsSettings {
+    pub fn canonicalize(&mut self) {
+        match self.mode {
+            DirectDnsMode::PhysicalSystem => *self = Self::default(),
+            DirectDnsMode::Doh => {
+                if let Some(normalized) = canonical_direct_dns_name(&self.server_name) {
+                    self.server_name = normalized;
+                }
+                if self.doh_path.is_empty() {
+                    self.doh_path = "/dns-query".to_owned();
+                }
+                if self.port == 0 {
+                    self.port = 443;
+                }
+            }
+            DirectDnsMode::Dot => {
+                if let Some(normalized) = canonical_direct_dns_name(&self.server_name) {
+                    self.server_name = normalized;
+                }
+                if self.port == 0 {
+                    self.port = 853;
+                }
+            }
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        if self.mode == DirectDnsMode::PhysicalSystem {
+            if self != &Self::default() {
+                return Err(ConfigError::NonCanonicalPhysicalDirectDns);
+            }
+            return Ok(());
+        }
+        if canonical_direct_dns_name(&self.server_name).is_none() {
+            return Err(ConfigError::InvalidDirectDnsServerName);
+        }
+        if self.port == 0 {
+            return Err(ConfigError::InvalidDirectDnsPort);
+        }
+        if self.bootstrap_ips.is_empty() {
+            return Err(ConfigError::MissingDirectDnsBootstrapIp);
+        }
+        if self.bootstrap_ips.len() > MAX_DIRECT_DNS_BOOTSTRAP_IPS {
+            return Err(ConfigError::TooManyDirectDnsBootstrapIps(
+                self.bootstrap_ips.len(),
+            ));
+        }
+        if self.bootstrap_ips.iter().collect::<HashSet<_>>().len() != self.bootstrap_ips.len() {
+            return Err(ConfigError::DuplicateDirectDnsBootstrapIp);
+        }
+        if self
+            .bootstrap_ips
+            .iter()
+            .copied()
+            .any(invalid_direct_dns_bootstrap)
+        {
+            return Err(ConfigError::InvalidDirectDnsBootstrapIp);
+        }
+        match self.mode {
+            DirectDnsMode::Doh => {
+                if self.doh_path.len() > 256
+                    || !self.doh_path.starts_with('/')
+                    || self.doh_path.starts_with("//")
+                    || self
+                        .doh_path
+                        .bytes()
+                        .any(|byte| !(33..=126).contains(&byte))
+                    || self.doh_path.contains(['?', '#', '\\'])
+                    || self.doh_path.contains("://")
+                {
+                    return Err(ConfigError::InvalidDirectDnsDohPath);
+                }
+            }
+            DirectDnsMode::Dot if !self.doh_path.is_empty() => {
+                return Err(ConfigError::DirectDnsDotPathForbidden);
+            }
+            DirectDnsMode::PhysicalSystem | DirectDnsMode::Dot => {}
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1048,6 +1218,26 @@ pub enum ConfigError {
     TooManyDnsServers(usize),
     #[error("duplicate DNS server")]
     DuplicateDnsServer,
+    #[error("physical-system direct DNS settings must use the canonical empty form")]
+    NonCanonicalPhysicalDirectDns,
+    #[error("encrypted direct DNS requires a valid server name")]
+    InvalidDirectDnsServerName,
+    #[error("encrypted direct DNS port must be between 1 and 65535")]
+    InvalidDirectDnsPort,
+    #[error("encrypted direct DNS requires at least one bootstrap IP")]
+    MissingDirectDnsBootstrapIp,
+    #[error(
+        "no more than {MAX_DIRECT_DNS_BOOTSTRAP_IPS} direct DNS bootstrap IPs are allowed, got {0}"
+    )]
+    TooManyDirectDnsBootstrapIps(usize),
+    #[error("duplicate direct DNS bootstrap IP")]
+    DuplicateDirectDnsBootstrapIp,
+    #[error("direct DNS bootstrap IP must be unicast")]
+    InvalidDirectDnsBootstrapIp,
+    #[error("DoH path must be an absolute path without whitespace or a fragment")]
+    InvalidDirectDnsDohPath,
+    #[error("DoT settings cannot contain a DoH path")]
+    DirectDnsDotPathForbidden,
     #[error("VPN mode cannot use the physical system DNS resolver")]
     VpnSystemDnsForbidden,
     #[error("VPN DNS server {0} is not a routable unicast address")]
@@ -1132,6 +1322,23 @@ pub enum ConfigError {
     InvalidPendingIdentityReplacementBackup(Uuid),
     #[error("configuration schema {found} is newer than supported schema {supported}")]
     NewerSchema { found: u32, supported: u32 },
+}
+
+impl ConfigError {
+    pub const fn stable_code(&self) -> Option<&'static str> {
+        match self {
+            Self::NonCanonicalPhysicalDirectDns => Some("DIRECT_DNS_PHYSICAL_NOT_CANONICAL"),
+            Self::InvalidDirectDnsServerName => Some("DIRECT_DNS_SERVER_NAME_INVALID"),
+            Self::InvalidDirectDnsPort => Some("DIRECT_DNS_PORT_INVALID"),
+            Self::MissingDirectDnsBootstrapIp => Some("DIRECT_DNS_BOOTSTRAP_REQUIRED"),
+            Self::TooManyDirectDnsBootstrapIps(_) => Some("DIRECT_DNS_BOOTSTRAP_TOO_MANY"),
+            Self::DuplicateDirectDnsBootstrapIp => Some("DIRECT_DNS_BOOTSTRAP_DUPLICATE"),
+            Self::InvalidDirectDnsBootstrapIp => Some("DIRECT_DNS_BOOTSTRAP_INVALID"),
+            Self::InvalidDirectDnsDohPath => Some("DIRECT_DNS_DOH_PATH_INVALID"),
+            Self::DirectDnsDotPathForbidden => Some("DIRECT_DNS_DOT_PATH_FORBIDDEN"),
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1670,5 +1877,137 @@ mod tests {
         };
         profile.reset_network_defaults();
         assert!(profile.geo_direct_countries.is_empty());
+    }
+
+    #[test]
+    fn direct_dns_defaults_preserve_physical_system_behavior() {
+        let profile = Profile::default();
+        assert_eq!(profile.direct_dns, DirectDnsSettings::default());
+        assert_eq!(profile.direct_dns.validate(), Ok(()));
+    }
+
+    #[test]
+    fn direct_dns_canonicalization_applies_protocol_defaults() {
+        let mut doh = DirectDnsSettings {
+            mode: DirectDnsMode::Doh,
+            server_name: "DNS.Example.COM".to_owned(),
+            bootstrap_ips: vec!["192.0.2.53".parse().unwrap()],
+            ..DirectDnsSettings::default()
+        };
+        doh.canonicalize();
+        assert_eq!(doh.server_name, "dns.example.com");
+        assert_eq!(doh.doh_path, "/dns-query");
+        assert_eq!(doh.port, 443);
+        assert_eq!(doh.validate(), Ok(()));
+
+        let mut dot = DirectDnsSettings {
+            mode: DirectDnsMode::Dot,
+            server_name: "dns.example.com".to_owned(),
+            bootstrap_ips: vec!["2001:db8::53".parse().unwrap()],
+            ..DirectDnsSettings::default()
+        };
+        dot.canonicalize();
+        assert_eq!(dot.port, 853);
+        assert_eq!(dot.validate(), Ok(()));
+    }
+
+    #[test]
+    fn encrypted_dns_configuration_is_canonical_bounded_and_never_trims_bad_names() {
+        let mut settings = DirectDnsSettings {
+            mode: DirectDnsMode::Doh,
+            server_name: "bücher.example".to_owned(),
+            bootstrap_ips: vec!["10.0.0.53".parse().unwrap()],
+            ..DirectDnsSettings::default()
+        };
+        settings.canonicalize();
+        assert_eq!(settings.server_name, "xn--bcher-kva.example");
+        assert!(settings.validate().is_ok());
+        for name in [
+            "dns.example ",
+            " dns.example",
+            "dns..example",
+            "*.example",
+            "dns.example\r\n",
+            "dns.example/path",
+            "user@dns.example",
+            "dns.example?x",
+            "192.0.2.53",
+        ] {
+            settings.server_name = name.to_owned();
+            settings.canonicalize();
+            assert_eq!(
+                settings.validate(),
+                Err(ConfigError::InvalidDirectDnsServerName),
+                "{name:?}"
+            );
+        }
+        settings.server_name = "dns.example".to_owned();
+        for path in [
+            "https://dns.example/dns-query",
+            "//other/dns-query",
+            "/dns-query?x=1",
+            "/dns-query#x",
+            "/dns\r\nquery",
+            "/dns\\query",
+        ] {
+            settings.doh_path = path.to_owned();
+            assert_eq!(
+                settings.validate(),
+                Err(ConfigError::InvalidDirectDnsDohPath)
+            );
+        }
+        settings.doh_path = format!("/{}", "a".repeat(255));
+        assert!(settings.validate().is_ok());
+        settings.doh_path.push('a');
+        assert_eq!(
+            settings.validate(),
+            Err(ConfigError::InvalidDirectDnsDohPath)
+        );
+        settings.doh_path = "/dns-query".to_owned();
+        for address in [
+            "0.0.0.0",
+            "255.255.255.255",
+            "224.0.0.1",
+            "::",
+            "ff02::1",
+            "fe80::53",
+        ] {
+            settings.bootstrap_ips = vec![address.parse().unwrap()];
+            assert_eq!(
+                settings.validate(),
+                Err(ConfigError::InvalidDirectDnsBootstrapIp)
+            );
+        }
+        settings.bootstrap_ips = vec!["10.0.0.53".parse().unwrap(); 2];
+        assert_eq!(
+            settings.validate(),
+            Err(ConfigError::DuplicateDirectDnsBootstrapIp)
+        );
+        settings.mode = DirectDnsMode::PhysicalSystem;
+        settings.canonicalize();
+        assert_eq!(
+            serde_json::to_value(settings).unwrap(),
+            serde_json::json!({"mode": "physical_system"})
+        );
+    }
+
+    #[test]
+    fn invalid_direct_dns_settings_have_stable_codes() {
+        let mut dot = DirectDnsSettings {
+            mode: DirectDnsMode::Dot,
+            server_name: "dns.example.com".to_owned(),
+            doh_path: "/dns-query".to_owned(),
+            bootstrap_ips: vec!["192.0.2.53".parse().unwrap()],
+            port: 853,
+        };
+        let error = dot.validate().unwrap_err();
+        assert_eq!(error, ConfigError::DirectDnsDotPathForbidden);
+        assert_eq!(error.stable_code(), Some("DIRECT_DNS_DOT_PATH_FORBIDDEN"));
+
+        dot.mode = DirectDnsMode::PhysicalSystem;
+        let error = dot.validate().unwrap_err();
+        assert_eq!(error, ConfigError::NonCanonicalPhysicalDirectDns);
+        dot.canonicalize();
+        assert_eq!(dot, DirectDnsSettings::default());
     }
 }

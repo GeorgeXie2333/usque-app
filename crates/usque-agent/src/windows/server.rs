@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeSet, HashMap, VecDeque, hash_map::DefaultHasher},
+    collections::{BTreeMap, HashMap, VecDeque, hash_map::DefaultHasher},
     future::Future,
     hash::{Hash, Hasher},
     io, mem,
@@ -8,13 +8,12 @@ use std::{
     ptr,
     sync::{
         Arc,
-        atomic::{AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     },
     time::Duration,
 };
 
 use bytes::BytesMut;
-use ipnet::IpNet;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::windows::named_pipe::{NamedPipeServer, ServerOptions},
@@ -41,9 +40,9 @@ use crate::{
     AGENT_PROTOCOL_VERSION, AuthenticatedCaller,
     coordinator::{
         AgentCoordinator, BackendError, CoordinatorError, ORPHANED_TUNNEL_RECOVERY_GRACE,
-        PrivilegedBackend, SystemProxySettings,
+        PrivilegedBackend, SystemProxySettings, TunnelInspection,
     },
-    journal::{MutationReceipt, RecoveryJournal, RecoveryPhase},
+    journal::{MutationReceipt, RecoveryJournal, RecoveryPhase, RouteReceipt},
     plan::ValidatedTunnelPlan,
     windows::{
         auth::{AuthenticationError, CallerPolicy, authenticate_named_pipe},
@@ -78,6 +77,7 @@ pub struct AgentService<Backend> {
     activity: Arc<ActivityTracker>,
     direct_egress: Mutex<DirectEgressRegistry>,
     physical_generation: Mutex<PhysicalGenerationState>,
+    stopping: AtomicBool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -86,6 +86,7 @@ struct DirectEgressKey {
     remote: SocketAddr,
     protocol: u8,
     interface_luid: u64,
+    network_generation: u64,
 }
 
 struct DirectEgressEntry {
@@ -96,6 +97,25 @@ struct DirectEgressEntry {
 #[derive(Default)]
 struct DirectEgressRegistry {
     entries: HashMap<DirectEgressKey, DirectEgressEntry>,
+}
+
+impl DirectEgressRegistry {
+    fn invalidate_before(&mut self, generation: u64) {
+        // Snapshot invalidation can run after a concurrent acquisition for
+        // this or a newer generation. Never revoke that newer authorization.
+        self.entries
+            .retain(|key, _| key.network_generation >= generation);
+    }
+
+    fn release(&mut self, key: DirectEgressKey) {
+        let remove = self.entries.get_mut(&key).is_some_and(|entry| {
+            entry.references = entry.references.saturating_sub(1);
+            entry.references == 0
+        });
+        if remove {
+            self.entries.remove(&key);
+        }
+    }
 }
 
 #[derive(Default)]
@@ -165,6 +185,8 @@ impl Drop for ActivityGuard {
 
 #[derive(Debug, thiserror::Error)]
 pub enum AgentLifecycleError {
+    #[error("the Agent is shutting down; no new operation may start")]
+    ShuttingDown,
     #[error("{0}")]
     Coordinator(#[from] CoordinatorError),
     #[error("the Agent could not arm crash recovery before changing Windows state: {0}")]
@@ -200,11 +222,34 @@ where
             activity: Arc::new(ActivityTracker::default()),
             direct_egress: Mutex::new(DirectEgressRegistry::default()),
             physical_generation: Mutex::new(PhysicalGenerationState::default()),
+            stopping: AtomicBool::new(false),
         }
     }
 
     pub async fn state(&self) -> RecoveryJournal {
         self.coordinator.state().await
+    }
+
+    pub fn begin_shutdown(&self) {
+        self.stopping.store(true, Ordering::Release);
+    }
+
+    /// Owned by the service, never by a client pipe. A timeout must not drop
+    /// this future and unlock a still-running native recovery worker.
+    pub async fn recover_for_shutdown(&self) -> Result<(), AgentLifecycleError> {
+        self.begin_shutdown();
+        let _gate = self.mutation_gate.lock().await;
+        self.clear_direct_egress().await;
+        let result = self.coordinator.recover_stale().await;
+        self.reconcile_start_mode_locked().await;
+        result.map_err(AgentLifecycleError::Coordinator)
+    }
+
+    pub async fn inspect_startup_tunnel(&self) -> Result<TunnelInspection, AgentLifecycleError> {
+        self.mutate(MutationPolicy::Cleanup, |coordinator| async move {
+            coordinator.inspect_startup_tunnel().await
+        })
+        .await
     }
 
     async fn physical_network_info(
@@ -213,36 +258,60 @@ where
         caller: &AuthenticatedCaller,
     ) -> Result<agent_v1::PhysicalNetworkInfo, ServiceError> {
         let journal = self.state().await;
-        validate_direct_context(&journal, operation_id, caller, false)?;
-        let mut interfaces = physical_interface_luids(&journal, None)
-            .into_iter()
-            .map(|interface_luid| {
-                network::physical_interface_info(interface_luid)
-                    .map_err(|error| ServiceError::PhysicalNetwork(error.to_string()))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        interfaces.sort_by_key(|interface| interface.interface_luid);
+        let plan = validate_direct_context(&journal, operation_id, caller, false)?;
+        let (tunnel_luid, owned_bypasses) = physical_route_context(&journal)?;
+        // Serialize observation with generation assignment. Native reads do
+        // not await, so an older observation cannot overtake a newer one.
+        let mut state = self.physical_generation.lock().await;
+        let mut selected = BTreeMap::<u64, network::PhysicalInterfaceInfo>::new();
+        for endpoint in &plan.endpoint_candidates {
+            let interface = match network::current_physical_interface(
+                *endpoint,
+                tunnel_luid,
+                &owned_bypasses,
+            ) {
+                Ok(interface) => interface,
+                Err(network::NetworkError::NoReachableEndpoint) => continue,
+                Err(error) => return Err(ServiceError::PhysicalNetwork(error.to_string())),
+            };
+            if let Some(existing) = selected.get_mut(&interface.interface_luid) {
+                if existing.interface_index != interface.interface_index
+                    || existing.dns_servers != interface.dns_servers
+                {
+                    return Err(ServiceError::StaleGeneration);
+                }
+                let mut fingerprint = DefaultHasher::new();
+                existing.route_fingerprint.hash(&mut fingerprint);
+                interface.route_fingerprint.hash(&mut fingerprint);
+                existing.route_fingerprint = fingerprint.finish();
+                existing.address_family_mask |= interface.address_family_mask;
+            } else {
+                selected.insert(interface.interface_luid, interface);
+            }
+        }
+        let interfaces = selected.into_values().collect::<Vec<_>>();
         if interfaces.is_empty() {
             return Err(ServiceError::PhysicalNetwork(
                 "the prepared tunnel has no verified physical interface".to_owned(),
             ));
         }
         let fingerprint = physical_network_fingerprint(&interfaces);
-        let (generation, changed) = {
-            let mut state = self.physical_generation.lock().await;
-            let changed = state.fingerprint.is_some_and(|value| value != fingerprint);
-            if state.fingerprint != Some(fingerprint) {
-                state.fingerprint = Some(fingerprint);
-                state.generation = state
-                    .generation
-                    .saturating_add(1)
-                    .max(journal.generation)
-                    .max(1);
-            }
-            (state.generation, changed)
-        };
+        let changed = state.fingerprint.is_some_and(|value| value != fingerprint);
+        if state.fingerprint != Some(fingerprint) {
+            state.fingerprint = Some(fingerprint);
+            state.generation = state
+                .generation
+                .saturating_add(1)
+                .max(journal.generation)
+                .max(1);
+        }
+        let generation = state.generation;
+        drop(state);
         if changed {
-            self.clear_direct_egress().await;
+            self.direct_egress
+                .lock()
+                .await
+                .invalidate_before(generation);
         }
         Ok(agent_v1::PhysicalNetworkInfo {
             interfaces: interfaces
@@ -255,6 +324,7 @@ where
                         .into_iter()
                         .map(|address| address.to_string())
                         .collect(),
+                    address_family_mask: u32::from(interface.address_family_mask),
                 })
                 .collect(),
             generation,
@@ -266,8 +336,13 @@ where
         operation_id: Uuid,
         remote: SocketAddr,
         protocol: u8,
+        expected_generation: u64,
         caller: &AuthenticatedCaller,
     ) -> Result<(agent_v1::DirectEgressLease, DirectEgressKey), ServiceError> {
+        let _gate = self.mutation_gate.lock().await;
+        if self.stopping.load(Ordering::Acquire) {
+            return Err(ServiceError::Lifecycle(AgentLifecycleError::ShuttingDown));
+        }
         if remote.port() == 0
             || remote.ip().is_unspecified()
             || remote.ip().is_multicast()
@@ -277,24 +352,32 @@ where
         }
         let journal = self.state().await;
         let plan = validate_direct_context(&journal, operation_id, caller, true)?;
-        let interface_luid = physical_interface_luids(&journal, Some(remote.is_ipv6()))
-            .into_iter()
-            .next()
+        let physical = self.physical_network_info(operation_id, caller).await?;
+        validate_expected_generation(expected_generation, physical.generation)?;
+        let family_mask = if remote.is_ipv4() { 1 } else { 2 };
+        let interface = physical
+            .interfaces
+            .iter()
+            .find(|interface| interface.address_family_mask & family_mask != 0)
             .ok_or_else(|| {
                 ServiceError::PhysicalNetwork(format!(
                     "no verified physical interface supports {}",
                     if remote.is_ipv6() { "IPv6" } else { "IPv4" }
                 ))
             })?;
-        let interface = network::physical_interface_info(interface_luid)
-            .map_err(|error| ServiceError::PhysicalNetwork(error.to_string()))?;
+        let interface_luid = interface.interface_luid;
         let key = DirectEgressKey {
             operation_id,
             remote,
             protocol,
             interface_luid,
+            network_generation: physical.generation,
         };
         let mut registry = self.direct_egress.lock().await;
+        validate_expected_generation(
+            physical.generation,
+            self.physical_generation.lock().await.generation,
+        )?;
         if let Some(existing) = registry.entries.get_mut(&key) {
             existing.references = existing
                 .references
@@ -325,26 +408,24 @@ where
                 },
             );
         }
+        if self.physical_generation.lock().await.generation != physical.generation {
+            registry.release(key);
+            return Err(ServiceError::StaleGeneration);
+        }
         Ok((
             agent_v1::DirectEgressLease {
                 interface_luid,
                 interface_index: interface.interface_index,
                 remote_endpoint: remote.to_string(),
                 protocol: u32::from(protocol),
+                network_generation: physical.generation,
             },
             key,
         ))
     }
 
     async fn release_direct_egress(&self, key: DirectEgressKey) {
-        let mut registry = self.direct_egress.lock().await;
-        let remove = registry.entries.get_mut(&key).is_some_and(|entry| {
-            entry.references = entry.references.saturating_sub(1);
-            entry.references == 0
-        });
-        if remove {
-            registry.entries.remove(&key);
-        }
+        self.direct_egress.lock().await.release(key);
     }
 
     async fn clear_direct_egress(&self) {
@@ -397,6 +478,9 @@ where
         ActionFuture: Future<Output = Result<T, CoordinatorError>> + Send,
     {
         let _gate = self.mutation_gate.lock().await;
+        if self.stopping.load(Ordering::Acquire) {
+            return Err(AgentLifecycleError::ShuttingDown);
+        }
         match policy {
             MutationPolicy::Forward => {
                 if let Err(error) = self
@@ -454,6 +538,12 @@ where
     }
 
     async fn handle(&self, request: AgentRequest, caller: &AuthenticatedCaller) -> AgentResponse {
+        if self.stopping.load(Ordering::Acquire) {
+            return error_response(
+                request.request_id,
+                ServiceError::Lifecycle(AgentLifecycleError::ShuttingDown),
+            );
+        }
         if let Err(error) = validate_request_envelope(&request) {
             return error_response(request.request_id, error);
         }
@@ -539,7 +629,13 @@ where
                 let protocol = u8::try_from(request.protocol)
                     .map_err(|_| (request_id.clone(), ServiceError::DirectEgressTarget))?;
                 let (lease, _) = self
-                    .acquire_direct_egress(operation_id, remote, protocol, caller)
+                    .acquire_direct_egress(
+                        operation_id,
+                        remote,
+                        protocol,
+                        request.expected_generation,
+                        caller,
+                    )
                     .await
                     .map_err(|error| (request_id.clone(), error))?;
                 agent_response::Payload::DirectEgressLease(lease)
@@ -605,6 +701,28 @@ where
                 self.clear_direct_egress().await;
                 agent_response::Payload::State(state_to_proto(
                     &self.state().await,
+                    self.coordinator.packet_session_attached(),
+                ))
+            }
+            agent_request::Payload::RecoverOrphaned(request) => {
+                let operation_id = parse_operation_id(&request.operation_id)
+                    .map_err(|error| (request_id.clone(), error))?;
+                let caller = caller.clone();
+                let state = self
+                    .mutate(MutationPolicy::Cleanup, |coordinator| async move {
+                        coordinator
+                            .recover_orphaned(
+                                operation_id,
+                                request.expected_journal_generation,
+                                &caller,
+                                self.clear_direct_egress(),
+                            )
+                            .await
+                    })
+                    .await
+                    .map_err(|error| (request_id.clone(), ServiceError::Lifecycle(error)))?;
+                agent_response::Payload::State(state_to_proto(
+                    &state,
                     self.coordinator.packet_session_attached(),
                 ))
             }
@@ -862,8 +980,14 @@ where
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServeExit {
-    Shutdown,
+    Shutdown(ShutdownReason),
     Idle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShutdownReason {
+    ServiceStop,
+    SystemShutdown,
 }
 
 /// Verifies that the fixed Agent pipe name, security descriptor, and first
@@ -886,7 +1010,17 @@ where
     Backend: PrivilegedBackend + 'static,
     Shutdown: Future<Output = ()>,
 {
-    serve_until_ready(service, policy, pipe_name, shutdown, || Ok(())).await
+    serve_until_ready(
+        service,
+        policy,
+        pipe_name,
+        async {
+            shutdown.await;
+            ShutdownReason::ServiceStop
+        },
+        || Ok(()),
+    )
+    .await
 }
 
 pub async fn serve_until_ready<Backend, Shutdown, Ready>(
@@ -898,7 +1032,7 @@ pub async fn serve_until_ready<Backend, Shutdown, Ready>(
 ) -> Result<ServeExit, ServerError>
 where
     Backend: PrivilegedBackend + 'static,
-    Shutdown: Future<Output = ()>,
+    Shutdown: Future<Output = ShutdownReason>,
     Ready: FnOnce() -> io::Result<()>,
 {
     validate_pipe_name(&pipe_name)?;
@@ -910,8 +1044,11 @@ where
     loop {
         tokio::select! {
             biased;
+            reason = &mut shutdown => {
+                service.begin_shutdown();
+                return Ok(ServeExit::Shutdown(reason));
+            },
             result = next.connect() => result?,
-            () = &mut shutdown => return Ok(ServeExit::Shutdown),
             () = &mut idle => return Ok(ServeExit::Idle),
         }
         let connected = next;
@@ -1093,6 +1230,7 @@ where
                         remote,
                         protocol,
                         interface_luid: lease.interface_luid,
+                        network_generation: lease.network_generation,
                     });
                 }
                 let encoded = encode_frame(&response)?;
@@ -1147,8 +1285,20 @@ fn validate_direct_context<'a>(
     journal.plan.as_ref().ok_or(ServiceError::DirectEgressState)
 }
 
-fn physical_interface_luids(journal: &RecoveryJournal, ipv6: Option<bool>) -> BTreeSet<u64> {
-    journal
+fn physical_route_context(
+    journal: &RecoveryJournal,
+) -> Result<(u64, Vec<RouteReceipt>), ServiceError> {
+    let tunnel_luid = journal
+        .steps
+        .iter()
+        .find_map(|step| match step.receipt {
+            MutationReceipt::WintunAdapter { interface_luid, .. } if interface_luid != 0 => {
+                Some(interface_luid)
+            }
+            _ => None,
+        })
+        .ok_or(ServiceError::DirectEgressState)?;
+    let bypasses = journal
         .steps
         .iter()
         .filter_map(|step| match &step.receipt {
@@ -1156,16 +1306,18 @@ fn physical_interface_luids(journal: &RecoveryJournal, ipv6: Option<bool>) -> BT
             _ => None,
         })
         .flatten()
-        .filter(|route| {
-            ipv6.is_none_or(|ipv6| {
-                route
-                    .destination
-                    .parse::<IpNet>()
-                    .is_ok_and(|network| network.addr().is_ipv6() == ipv6)
-            })
-        })
-        .filter_map(|route| (route.interface_luid != 0).then_some(route.interface_luid))
-        .collect()
+        .filter(|route| route.owned)
+        .cloned()
+        .collect();
+    Ok((tunnel_luid, bypasses))
+}
+
+fn validate_expected_generation(expected: u64, actual: u64) -> Result<(), ServiceError> {
+    if actual == 0 || expected != 0 && expected != actual {
+        Err(ServiceError::StaleGeneration)
+    } else {
+        Ok(())
+    }
 }
 
 fn physical_network_fingerprint(interfaces: &[network::PhysicalInterfaceInfo]) -> u64 {
@@ -1174,6 +1326,8 @@ fn physical_network_fingerprint(interfaces: &[network::PhysicalInterfaceInfo]) -
         interface.interface_luid.hash(&mut hasher);
         interface.interface_index.hash(&mut hasher);
         interface.dns_servers.hash(&mut hasher);
+        interface.address_family_mask.hash(&mut hasher);
+        interface.route_fingerprint.hash(&mut hasher);
     }
     hasher.finish()
 }
@@ -1479,6 +1633,8 @@ impl Drop for SecurityDescriptor {
 
 #[derive(Debug, thiserror::Error)]
 enum ServiceError {
+    #[error("the physical network generation changed during socket preparation")]
+    StaleGeneration,
     #[error("Agent protocol version {0} is unsupported")]
     ProtocolVersion(u32),
     #[error("request_id is missing or malformed")]
@@ -1518,6 +1674,7 @@ enum ServiceError {
 impl ServiceError {
     const fn code(&self) -> (&'static str, bool) {
         match self {
+            Self::StaleGeneration => ("AGENT_STALE_GENERATION", true),
             Self::ProtocolVersion(_) => ("AGENT_PROTOCOL_MISMATCH", false),
             Self::RequestId
             | Self::MissingPayload
@@ -1538,6 +1695,16 @@ impl ServiceError {
             Self::Lifecycle(AgentLifecycleError::StartMode(_)) => {
                 ("SERVICE_START_MODE_UNAVAILABLE", false)
             }
+            Self::Lifecycle(AgentLifecycleError::ShuttingDown) => ("AGENT_SHUTTING_DOWN", false),
+            Self::Lifecycle(AgentLifecycleError::Coordinator(
+                CoordinatorError::RecoveryConflict,
+            )) => ("AGENT_RECOVERY_CONFLICT", false),
+            Self::Lifecycle(AgentLifecycleError::Coordinator(CoordinatorError::RecoveryBusy)) => {
+                ("AGENT_RECOVERY_BUSY", false)
+            }
+            Self::Lifecycle(AgentLifecycleError::Coordinator(
+                CoordinatorError::RecoveryFailures(_),
+            )) => ("AGENT_RECOVERY_FAILED", false),
             Self::Lifecycle(AgentLifecycleError::Coordinator(CoordinatorError::OwnerMismatch)) => {
                 ("AGENT_OWNER_MISMATCH", false)
             }
@@ -1600,6 +1767,58 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn old_generation_lease_release_cannot_remove_a_new_same_target_permit() {
+        let old = DirectEgressKey {
+            operation_id: Uuid::nil(),
+            remote: "203.0.113.9:443".parse().unwrap(),
+            protocol: 17,
+            interface_luid: 9,
+            network_generation: 1,
+        };
+        let new = DirectEgressKey {
+            network_generation: 2,
+            ..old
+        };
+        let mut registry = DirectEgressRegistry::default();
+        registry.entries.insert(
+            old,
+            DirectEgressEntry {
+                references: 1,
+                _permit: None,
+            },
+        );
+        registry.entries.insert(
+            new,
+            DirectEgressEntry {
+                references: 2,
+                _permit: None,
+            },
+        );
+        registry.invalidate_before(2);
+        // A delayed generation-one snapshot cleanup cannot remove generation
+        // two, including a permit inserted before cleanup obtained its lock.
+        registry.invalidate_before(1);
+        assert!(!registry.entries.contains_key(&old));
+        registry.release(old);
+        assert_eq!(registry.entries.get(&new).unwrap().references, 2);
+        registry.release(new);
+        assert_eq!(registry.entries.get(&new).unwrap().references, 1);
+        registry.release(new);
+        assert!(registry.entries.is_empty());
+    }
+
+    #[test]
+    fn exact_egress_generation_mismatch_is_a_stable_retryable_error() {
+        assert!(validate_expected_generation(0, 7).is_ok());
+        assert!(validate_expected_generation(7, 7).is_ok());
+        assert_eq!(
+            validate_expected_generation(7, 8).unwrap_err().code(),
+            ("AGENT_STALE_GENERATION", true)
+        );
+        assert!(validate_expected_generation(0, 0).is_err());
+    }
+
     #[tokio::test]
     async fn startup_pipe_validation_releases_the_first_instance() {
         let pipe_name = format!("{AGENT_PIPE_NAME}.test-{}", Uuid::new_v4());
@@ -1610,6 +1829,121 @@ mod tests {
     struct RejectingBackend;
 
     struct ProxyBackend;
+
+    #[derive(Default)]
+    struct BlockingProxyBackend {
+        entered: Notify,
+        release: Notify,
+    }
+
+    #[async_trait]
+    impl PrivilegedBackend for BlockingProxyBackend {
+        async fn plan_step(
+            &self,
+            kind: MutationKind,
+            plan: &ValidatedTunnelPlan,
+            caller: &AuthenticatedCaller,
+            parameter: StepParameter,
+        ) -> Result<MutationReceipt, BackendError> {
+            ProxyBackend.plan_step(kind, plan, caller, parameter).await
+        }
+
+        async fn apply_step(
+            &self,
+            receipt: MutationReceipt,
+            plan: &ValidatedTunnelPlan,
+            caller: &AuthenticatedCaller,
+        ) -> Result<(MutationReceipt, StepOutput), BackendError> {
+            ProxyBackend.apply_step(receipt, plan, caller).await
+        }
+
+        async fn restore_step(&self, _receipt: &MutationReceipt) -> Result<(), BackendError> {
+            self.entered.notify_one();
+            self.release.notified().await;
+            Ok(())
+        }
+
+        async fn plan_system_proxy(
+            &self,
+            operation_id: Uuid,
+            caller: &AuthenticatedCaller,
+            settings: &SystemProxySettings,
+        ) -> Result<MutationReceipt, BackendError> {
+            ProxyBackend
+                .plan_system_proxy(operation_id, caller, settings)
+                .await
+        }
+
+        async fn apply_system_proxy(
+            &self,
+            receipt: MutationReceipt,
+        ) -> Result<MutationReceipt, BackendError> {
+            ProxyBackend.apply_system_proxy(receipt).await
+        }
+    }
+
+    #[tokio::test]
+    async fn shutdown_timeout_keeps_recovery_owned_and_rejects_new_requests() {
+        let directory = tempfile::tempdir().unwrap();
+        let backend = Arc::new(BlockingProxyBackend::default());
+        let coordinator = Arc::new(
+            AgentCoordinator::open(
+                JournalStore::new(directory.path().join("recovery.json")),
+                Arc::clone(&backend),
+            )
+            .unwrap(),
+        );
+        let caller = AuthenticatedCaller {
+            process_id: 42,
+            user_sid: "S-1-5-21-1000".to_owned(),
+            executable_path: std::path::PathBuf::from(r"C:\Program Files\Usque\usque-engine.exe"),
+            process_handle: None,
+        };
+        coordinator
+            .apply_system_proxy(
+                Uuid::new_v4(),
+                SystemProxySettings {
+                    proxy_uri: "http://127.0.0.1:8080".to_owned(),
+                    bypass_hosts: vec!["<local>".to_owned()],
+                },
+                caller.clone(),
+            )
+            .await
+            .unwrap();
+        let service = Arc::new(AgentService::new(
+            Arc::clone(&coordinator),
+            AgentCapabilities::default(),
+        ));
+        let worker = Arc::clone(&service);
+        let mut task = tokio::spawn(async move { worker.recover_for_shutdown().await });
+        backend.entered.notified().await;
+        assert!(
+            tokio::time::timeout(Duration::ZERO, &mut task)
+                .await
+                .is_err()
+        );
+        assert!(service.mutation_gate.try_lock().is_err());
+        let response = service
+            .handle(
+                AgentRequest {
+                    request_id: "after-shutdown".to_owned(),
+                    protocol_version: AGENT_PROTOCOL_VERSION,
+                    payload: Some(agent_request::Payload::Recover(agent_v1::RecoverRequest {})),
+                },
+                &caller,
+            )
+            .await;
+        assert_eq!(response.error.unwrap().code, "AGENT_SHUTTING_DOWN");
+        backend.release.notify_one();
+        task.await.unwrap().unwrap();
+        assert_eq!(coordinator.state().await.phase, RecoveryPhase::Clean);
+        let result: Result<(), AgentLifecycleError> = service
+            .mutate(MutationPolicy::Forward, |_| async {
+                panic!("forward mutation ran after shutdown")
+            })
+            .await;
+        assert!(matches!(result, Err(AgentLifecycleError::ShuttingDown)));
+    }
 
     struct FailingStartModeController;
 
@@ -1728,6 +2062,8 @@ mod tests {
                 protocol_version: AGENT_PROTOCOL_VERSION,
                 dynamic_direct_egress: false,
                 physical_dns_snapshot: false,
+                exact_generation_egress: false,
+                guarded_recovery: false,
             },
         ));
         let pipe_name = format!("{AGENT_PIPE_NAME}.test-{}", Uuid::new_v4());

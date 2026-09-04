@@ -283,7 +283,47 @@ jobs:
 
       - name: Test
         working-directory: apps/usque_gui
-        run: flutter --suppress-analytics test --no-pub
+        run: flutter --suppress-analytics test --no-pub --exclude-tags golden
+
+  flutter-goldens:
+    name: Flutter golden images (Windows)
+    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    runs-on: windows-2025
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Custom-font rasterization is host-dependent. These reviewed baselines
+      # were generated on Windows; comparison remains exact (no tolerance).
+      - name: Install Flutter from pinned commit
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = "Stop"
+          $flutter = Join-Path $env:RUNNER_TEMP "flutter"
+          git init $flutter
+          git -C $flutter remote add origin https://github.com/flutter/flutter.git
+          $tagRef = "refs/tags/$($env:FLUTTER_VERSION)"
+          git -C $flutter fetch --depth 1 origin "$($tagRef):$($tagRef)"
+          git -C $flutter checkout --detach $tagRef
+          if ((git -C $flutter rev-parse HEAD) -ne $env:FLUTTER_COMMIT) {
+            throw "Flutter revision mismatch."
+          }
+          (Join-Path $flutter "bin") | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Verify Flutter revision
+        run: flutter --suppress-analytics --version
+
+      - name: Resolve locked packages
+        working-directory: apps/usque_gui
+        run: flutter --suppress-analytics pub get --enforce-lockfile
+
+      - name: Compare reviewed golden images
+        working-directory: apps/usque_gui
+        run: flutter --suppress-analytics test --no-pub --tags golden
 
   go-oracle:
     name: Archived Go oracle
@@ -401,12 +441,12 @@ jobs:
       - name: Test fail-closed artifact contract
         run: python -m unittest discover -s tool -p "test_*.py" -v
 
-      - name: Verify v0.2.3 release version contract
+      - name: Verify v0.2.4 release version contract
         run: |
           python tool/release_contract.py verify-version \
             --root . \
-            --tag v0.2.3 \
-            --android-version-code 17
+            --tag v0.2.4 \
+            --android-version-code 18
 
   windows-installer-authoring:
     name: MSI authoring (${{ matrix.arch }})
@@ -442,19 +482,19 @@ jobs:
       - name: Verify MSI version mapping
         shell: pwsh
         run: |
-          $stable = & ./tool/convert_to_msi_version.ps1 -SemVer "v0.2.3"
-          if ($stable -ne "0.2.399") {
+          $stable = & ./tool/convert_to_msi_version.ps1 -SemVer "v0.2.4"
+          if ($stable -ne "0.2.499") {
             throw "Stable MSI version mapping is invalid: $stable"
           }
 
-          $beta = & ./tool/convert_to_msi_version.ps1 -SemVer "0.2.3-beta.3"
-          if ($beta -ne "0.2.303") {
+          $beta = & ./tool/convert_to_msi_version.ps1 -SemVer "0.2.4-beta.3"
+          if ($beta -ne "0.2.403") {
             throw "Beta MSI version mapping is invalid: $beta"
           }
 
           $rejected = $false
           try {
-            & ./tool/convert_to_msi_version.ps1 -SemVer "0.2.3-beta.0"
+            & ./tool/convert_to_msi_version.ps1 -SemVer "0.2.4-beta.0"
           } catch {
             $rejected = $_.Exception.Message -like "Beta ordinal must be*"
           }
@@ -485,8 +525,8 @@ jobs:
             -arch "${{ matrix.arch }}" `
             -ext "WixToolset.UI.wixext/5.0.2" `
             -bindpath "app=$payload" `
-            -define "DisplayVersion=0.2.3" `
-            -define "MsiVersion=0.2.399" `
+            -define "DisplayVersion=0.2.4" `
+            -define "MsiVersion=0.2.499" `
             -define "Variant=${{ matrix.variant }}" `
             -define "SignerSha256=$("0" * 64)" `
             -define "IconPath=$((Resolve-Path "assets/branding/usque-app-icon.ico").Path)" `
@@ -502,8 +542,8 @@ jobs:
           & ./tool/verify_windows_msi.ps1 `
             -MsiPath $output `
             -Variant "${{ matrix.variant }}" `
-            -ExpectedMsiVersion "0.2.399" `
-            -ExpectedDisplayVersion "0.2.3" `
+            -ExpectedMsiVersion "0.2.499" `
+            -ExpectedDisplayVersion "0.2.4" `
             -SignerSha256 ("0" * 64)
 
           # Equal-version validation packages intentionally replace the same
@@ -520,6 +560,7 @@ jobs:
       - tooling-quality
       - android-host
       - flutter
+      - flutter-goldens
       - go-oracle
       - security-audit
       - release-contract
@@ -534,6 +575,7 @@ jobs:
           TOOLING: ${{ needs.tooling-quality.result }}
           ANDROID_HOST: ${{ needs.android-host.result }}
           FLUTTER: ${{ needs.flutter.result }}
+          FLUTTER_GOLDENS: ${{ needs.flutter-goldens.result }}
           GO_ORACLE: ${{ needs.go-oracle.result }}
           SECURITY_AUDIT: ${{ needs.security-audit.result }}
           RELEASE_CONTRACT: ${{ needs.release-contract.result }}
@@ -546,6 +588,7 @@ jobs:
             "$TOOLING" \
             "$ANDROID_HOST" \
             "$FLUTTER" \
+            "$FLUTTER_GOLDENS" \
             "$GO_ORACLE" \
             "$SECURITY_AUDIT" \
             "$RELEASE_CONTRACT" \

@@ -294,7 +294,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'diagnostics_subtitle': 'Usque Engine state, log export, and local data.',
   'engine_status': 'Usque Engine status',
   'version': 'Version',
-  'app_version': 'Usque 0.2.3',
+  'app_version': 'Usque 0.2.4',
   'logs': 'Local logs',
   'export_diagnostics': 'Export diagnostic bundle',
   'diagnostics_saved': 'Diagnostic bundle saved to',
@@ -481,6 +481,8 @@ const Map<String, String> kEnCatalog = <String, String>{
   'diag_fail_H3_PROTOCOL_ERROR': 'H3 protocol error',
   'diag_fail_H3_DATAGRAM_UNAVAILABLE': 'H3 datagram unavailable',
   'diag_fail_H3_CONNECTION_CLOSED': 'H3 connection closed',
+  'diag_fail_PMTU_REVALIDATION_EXHAUSTED':
+      'H3 path MTU revalidation attempts exhausted',
   'diag_fail_H2_TCP_CONNECT_FAILED': 'H2 TCP connect failed',
   'diag_fail_H2_TLS_FAILED': 'H2 TLS failed',
   'diag_fail_H2_STREAM_CLOSED': 'H2 stream closed',

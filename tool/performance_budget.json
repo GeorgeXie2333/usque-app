@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "stability": {
+    "throughput_mad_ratio_max": 0.10,
+    "latency_mad_ratio_max": 0.15
+  },
+  "steady_state": {
+    "throughput_ratio_min": 0.95,
+    "latency_p95_ratio_max": 1.10,
+    "cpu_per_bit_ratio_max": 1.05,
+    "rss_peak_ratio_max": 1.10,
+    "rss_peak_absolute_increase_bytes_max": 33554432,
+    "queue_drop_packets_max": 0,
+    "syscalls_per_datagram_max": 0.50,
+    "allocations_per_inner_packet_ratio_max": 1.05,
+    "pmtu_stable_ms_max": 30000,
+    "send_error_spin_count_max": 0,
+    "migration_interruption_p95_us_max": 1000000,
+    "migration_fallback_completion_us_max": 8000000,
+    "dns_success_rate_min": 0.99,
+    "physical_port_53_packets_max": 0
+  },
+  "feature_acceptance": {
+    "h2_throughput_ratio_min": 1.0,
+    "h2_latency_ratio_max": 1.0,
+    "batch_syscall_ratio_max": 0.50,
+    "batch_cpu_per_bit_ratio_max": 1.03,
+    "allocation_ratio_max": 0.50,
+    "allocation_per_packet_max": 0.25,
+    "pmtu_goodput_ratio_min": 0.95,
+    "migration_interruption_ratio_max": 0.80,
+    "dns_latency_ratio_max": 2.0,
+    "dns_latency_absolute_increase_us_max": 100000
+  }
+}

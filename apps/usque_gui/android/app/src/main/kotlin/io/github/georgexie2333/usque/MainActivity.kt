@@ -24,8 +24,11 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 
 /**
  * Flutter host: channel adapters, VPN permission, and document-picker results.
@@ -43,6 +46,19 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private val identityExecutor = Executors.newSingleThreadExecutor()
+
+    // Doctor cannot queue behind registration or account I/O. Only one active
+    // session and its cancellation completion can occupy this executor.
+    private val diagnosticsExecutor =
+        ThreadPoolExecutor(
+            1,
+            1,
+            0L,
+            TimeUnit.MILLISECONDS,
+            ArrayBlockingQueue(1),
+            { task -> Thread(task, "usque-doctor").apply { isDaemon = true } },
+            ThreadPoolExecutor.AbortPolicy(),
+        )
     private val updateInstallExecutor = Executors.newSingleThreadExecutor()
     private val updateInstallGate = UpdateInstallOperationGate()
     private val identityStore by lazy { SecureIdentityStore(this) }
@@ -312,6 +328,7 @@ class MainActivity : FlutterFragmentActivity() {
                 profileConfigPath = profileConfigPath,
                 identityStore = AndroidEngineMethodHandler.SecureIdentityStoreAdapter(identityStore),
                 identityExecutor = identityExecutor,
+                diagnosticsExecutor = diagnosticsExecutor,
                 mainScheduler = VpnControlClient.HandlerMainScheduler(android.os.Handler(mainLooper)),
                 controlClient = controlClient,
                 activityCommands = activityCommands,
@@ -388,6 +405,7 @@ class MainActivity : FlutterFragmentActivity() {
             controlClient.destroy()
         }
         updateInstallExecutor.shutdownNow()
+        diagnosticsExecutor.shutdownNow()
         identityExecutor.shutdownNow()
         super.onDestroy()
     }

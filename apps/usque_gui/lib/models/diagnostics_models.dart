@@ -368,6 +368,16 @@ enum ConnectionTimelineEventType {
   queueSaturated,
   disconnected,
   failed,
+  migrationStarted,
+  migrationPathValidated,
+  migrationPromoted,
+  migrationFailed,
+  pmtuChanged,
+  pmtuRevalidationStarted,
+  pmtuRevalidationFailed,
+  directDnsDegraded,
+  directDnsRecovered,
+  unknown,
 }
 
 @immutable
@@ -493,7 +503,7 @@ ConnectionTimeline connectionTimelineFromMap(Map<Object?, Object?> map) {
               eventType: _enumByName(
                 ConnectionTimelineEventType.values,
                 event['event_type'] as String?,
-                ConnectionTimelineEventType.failed,
+                ConnectionTimelineEventType.unknown,
               ),
               stage: event['stage'] as String?,
               transport: event['transport'] as String?,

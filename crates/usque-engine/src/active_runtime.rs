@@ -2,9 +2,11 @@ use std::{net::SocketAddr, time::Instant};
 
 use usque_core::{FrontendKind, FrontendPhase, FrontendSettings, FrontendStatus, Profile};
 use usque_transport::{
-    ConnectionTimelineSnapshot, ProxyPerformanceSnapshot, ProxyRuntime, RuntimeHealth, RuntimePath,
-    TrafficSnapshot,
+    ConnectionTimelineSnapshot, NetworkQualitySnapshot, ProxyPerformanceSnapshot, ProxyRuntime,
+    RuntimeHealth, RuntimePath, TrafficSnapshot,
 };
+#[cfg(test)]
+use usque_transport::{NetworkQualitySampler, NetworkQualityTelemetry};
 
 use crate::ControlServiceError;
 
@@ -183,11 +185,38 @@ impl ActiveRuntime {
         }
     }
 
+    pub(crate) fn subscribe_network_quality(
+        &self,
+    ) -> tokio::sync::watch::Receiver<NetworkQualitySnapshot> {
+        match self {
+            Self::Proxy(runtime) => runtime.runtime.subscribe_network_quality(),
+            #[cfg(windows)]
+            Self::Vpn(runtime) => runtime.subscribe_network_quality(),
+            #[cfg(test)]
+            Self::Harness(_) => tokio::sync::watch::channel(harness_network_quality()).1,
+        }
+    }
+
     pub(crate) fn proxy_performance(&self) -> Option<ProxyPerformanceSnapshot> {
         match self {
             Self::Proxy(runtime) => Some(runtime.runtime.performance()),
             #[cfg(windows)]
             Self::Vpn(_) => None,
+            #[cfg(test)]
+            Self::Harness(_) => None,
+        }
+    }
+
+    pub(crate) fn diagnostic_dns_context(
+        &self,
+    ) -> Option<(
+        std::sync::Arc<dyn usque_transport::SocketProtector>,
+        tokio_util::sync::CancellationToken,
+    )> {
+        match self {
+            Self::Proxy(runtime) => Some(runtime.runtime.diagnostic_dns_context()),
+            #[cfg(windows)]
+            Self::Vpn(runtime) => runtime.diagnostic_dns_context(),
             #[cfg(test)]
             Self::Harness(_) => None,
         }
@@ -433,6 +462,16 @@ impl ActiveRuntime {
             ))
         }
     }
+}
+
+#[cfg(test)]
+fn harness_network_quality() -> NetworkQualitySnapshot {
+    let telemetry = NetworkQualityTelemetry::default();
+    telemetry.begin_connection(
+        usque_core::Transport::Http3,
+        usque_core::AddressFamily::Ipv4,
+    );
+    NetworkQualitySampler::new(telemetry).sample()
 }
 
 fn output_status(

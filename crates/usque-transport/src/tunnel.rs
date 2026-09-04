@@ -6,7 +6,7 @@ use usque_core::Transport;
 use usque_protocol::PeerNetworkState;
 
 use crate::h2::{H2Driver, H2ReceiveHalf, H2SendHalf, H2Tunnel, TransportError};
-use crate::h3::{H3Driver, H3ReceiveHalf, H3SendHalf, H3Tunnel};
+use crate::h3::{H3Driver, H3MigrationHandle, H3ReceiveHalf, H3SendHalf, H3Tunnel};
 use crate::packet_batch::{PacketBatch, PacketBatchResult};
 
 pub(crate) type BatchSendFuture =
@@ -25,6 +25,23 @@ impl MasqueTunnel {
         match self {
             Self::Http3(_) => Transport::Http3,
             Self::Http2(_) => Transport::Http2,
+        }
+    }
+
+    pub(crate) fn activate_network_quality(&self) {
+        match self {
+            Self::Http2(tunnel) => tunnel.activate_network_quality(),
+            Self::Http3(tunnel) => tunnel.activate_network_quality(),
+        }
+    }
+
+    pub(crate) fn migration_handle(&self) -> Option<H3MigrationHandle> {
+        match self {
+            Self::Http3(tunnel) => {
+                let handle = tunnel.migration_handle();
+                handle.enabled().then_some(handle)
+            }
+            Self::Http2(_) => None,
         }
     }
 

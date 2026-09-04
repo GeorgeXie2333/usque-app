@@ -141,6 +141,10 @@ impl HttpProxyRuntime {
         snapshot
     }
 
+    pub fn network_quality(&self) -> crate::NetworkQualitySnapshot {
+        self.stack.network_quality()
+    }
+
     pub fn failure(&self) -> Option<String> {
         self.stack
             .failure
@@ -850,16 +854,20 @@ async fn connect_remote(
         &context.geo_policy,
         context.protector.as_ref(),
         Arc::clone(&context.counters),
-        GeoTarget::from_host(host),
-        port,
-        || async {
-            let addresses = match host.parse::<IpAddr>() {
-                Ok(address) => vec![address],
-                Err(_) => context
-                    .resolver
-                    .resolve(host)
-                    .await
-                    .map_err(|error| RemoteConnectError::Failed(error.to_string()))?,
+        (GeoTarget::from_host(host), port),
+        || RemoteConnectError::Failed("encrypted_direct_dns_failed".to_owned()),
+        |resolved| async {
+            let addresses = if let Some(addresses) = resolved {
+                addresses
+            } else {
+                match host.parse::<IpAddr>() {
+                    Ok(address) => vec![address],
+                    Err(_) => context
+                        .resolver
+                        .resolve(host)
+                        .await
+                        .map_err(|error| RemoteConnectError::Failed(error.to_string()))?,
+                }
             };
             connect_tunnel_remote(context, &addresses, port).await
         },

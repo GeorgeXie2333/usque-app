@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "scenarios": [
+    {
+      "scenario_id": "h2-high-bdp",
+      "gate_id": "performance.h2_high_bdp",
+      "policy": "h2_high_bdp",
+      "platform_classes": ["linux-x64", "windows-x64-v2"],
+      "network_profile_ids": ["h2-bdp-100ms"],
+      "required_sample_fields": [],
+      "steady_metrics": ["throughput", "latency_p95_us", "cpu_per_bit", "rss_peak_bytes"],
+      "feature_acceptance": true
+    },
+    {
+      "scenario_id": "h2-high-bdp-four-flow",
+      "gate_id": "performance.h2_high_bdp",
+      "policy": "h2_high_bdp",
+      "platform_classes": ["linux-x64", "windows-x64-v2"],
+      "network_profile_ids": ["h2-bdp-500ms"],
+      "required_sample_fields": [],
+      "steady_metrics": ["throughput", "latency_p95_us", "cpu_per_bit", "rss_peak_bytes"],
+      "feature_acceptance": true
+    },
+    {
+      "scenario_id": "h3-small-dgram",
+      "gate_id": "performance.h3_batch_io",
+      "policy": "h3_batch_io",
+      "platform_classes": ["android-arm64", "linux-x64"],
+      "network_profile_ids": ["h3-small-dgram"],
+      "required_sample_fields": [],
+      "steady_metrics": ["throughput", "latency_p95_us", "cpu_per_bit", "rss_peak_bytes"],
+      "feature_acceptance": true
+    },
+    {
+      "scenario_id": "h3-allocation",
+      "gate_id": "performance.h3_allocation_rate",
+      "policy": "h3_allocation_rate",
+      "platform_classes": ["android-arm64", "linux-x64"],
+      "network_profile_ids": ["h3-allocation"],
+      "required_sample_fields": [],
+      "steady_metrics": ["throughput", "latency_p95_us", "cpu_per_bit", "rss_peak_bytes", "allocations_per_inner_packet"],
+      "feature_acceptance": true
+    },
+    {
+      "scenario_id": "queue-pressure",
+      "gate_id": "performance.queue_pressure",
+      "policy": "queue_pressure",
+      "platform_classes": ["android-arm64", "linux-x64", "windows-x64-v2"],
+      "network_profile_ids": ["queue-reference"],
+      "required_sample_fields": [],
+      "steady_metrics": ["throughput", "latency_p95_us", "cpu_per_bit", "rss_peak_bytes", "queue_drop_packets"],
+      "feature_acceptance": true
+    },
+    {
+      "scenario_id": "pmtu-convergence",
+      "gate_id": "performance.pmtu_convergence",
+      "policy": "pmtu_convergence",
+      "platform_classes": ["android-arm64", "linux-x64", "windows-x64-v2"],
+      "network_profile_ids": ["pmtu-changing-path"],
+      "required_sample_fields": ["pmtu_stable_ms", "send_error_spin_count", "silent_truncation_packets"],
+      "steady_metrics": ["throughput", "latency_p95_us", "cpu_per_bit", "rss_peak_bytes"],
+      "feature_acceptance": true
+    },
+    {
+      "scenario_id": "quic-migration",
+      "gate_id": "performance.quic_migration",
+      "policy": "quic_migration",
+      "platform_classes": ["android-arm64", "linux-x64"],
+      "network_profile_ids": ["same-family-migration"],
+      "required_sample_fields": ["migration_interruption_p95_us", "fallback_completion_us", "full_reconnect_completion_us"],
+      "steady_metrics": ["rss_peak_bytes"],
+      "feature_acceptance": true
+    },
+    {
+      "scenario_id": "direct-dns",
+      "gate_id": "performance.direct_dns",
+      "policy": "direct_dns",
+      "platform_classes": ["android-arm64", "linux-x64", "windows-x64-v2"],
+      "network_profile_ids": ["encrypted-dns-stable"],
+      "required_sample_fields": ["dns_queries", "dns_successes", "physical_port_53_packets", "plaintext_fallback_queries"],
+      "steady_metrics": ["rss_peak_bytes"],
+      "feature_acceptance": true
+    }
+  ]
+}

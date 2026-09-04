@@ -12,8 +12,9 @@ use crate::{
     AGENT_PROTOCOL_VERSION, AuthenticatedCaller,
     coordinator::{
         BackendError, PrivilegedBackend, StepOutput, StepParameter, SystemProxySettings,
+        TunnelInspection,
     },
-    journal::{MutationKind, MutationReceipt},
+    journal::{MutationKind, MutationReceipt, MutationState, RecoveryJournal},
     plan::ValidatedTunnelPlan,
     windows::{
         network,
@@ -70,6 +71,8 @@ impl WindowsBackend {
             protocol_version: AGENT_PROTOCOL_VERSION,
             dynamic_direct_egress: true,
             physical_dns_snapshot: true,
+            exact_generation_egress: true,
+            guarded_recovery: true,
         }
     }
 }
@@ -149,6 +152,25 @@ impl PrivilegedBackend for WindowsBackend {
             .map_err(|error| backend_error(format!("privileged recovery worker failed: {error}")))?
     }
 
+    async fn inspect_adapter(&self, receipt: &MutationReceipt) -> Result<bool, BackendError> {
+        let receipt = receipt.clone();
+        tokio::task::spawn_blocking(move || {
+            network::inspect_adapter_identity(&receipt).map_err(inspection_backend_error)
+        })
+        .await
+        .map_err(|_| backend_error("adapter inspection worker failed"))?
+    }
+
+    async fn inspect_tunnel(
+        &self,
+        journal: &RecoveryJournal,
+    ) -> Result<TunnelInspection, BackendError> {
+        let journal = journal.clone();
+        tokio::task::spawn_blocking(move || inspect_tunnel_sync(&journal))
+            .await
+            .map_err(|_| backend_error("tunnel inspection worker failed"))?
+    }
+
     async fn resume_packet_session(
         &self,
         adapter: &MutationReceipt,
@@ -194,6 +216,53 @@ impl PrivilegedBackend for WindowsBackend {
         .await
         .map_err(|error| backend_error(format!("system-proxy worker failed: {error}")))?
     }
+}
+
+fn inspect_tunnel_sync(journal: &RecoveryJournal) -> Result<TunnelInspection, BackendError> {
+    let plan = journal
+        .plan
+        .as_ref()
+        .ok_or_else(|| backend_error("missing tunnel plan"))?;
+    let adapter = journal
+        .steps
+        .iter()
+        .find(|step| step.kind == MutationKind::WintunAdapter)
+        .ok_or_else(|| backend_error("missing adapter receipt"))?;
+    if !network::inspect_adapter_identity(&adapter.receipt).map_err(inspection_backend_error)? {
+        return Ok(TunnelInspection::NeedsRecovery);
+    }
+    for kind in [
+        MutationKind::WintunAdapter,
+        MutationKind::EndpointBypass,
+        MutationKind::InterfaceConfiguration,
+        MutationKind::Dns,
+        MutationKind::PacketSession,
+        MutationKind::DefaultRoutes,
+    ] {
+        if !journal
+            .steps
+            .iter()
+            .any(|step| step.kind == kind && step.state == MutationState::Applied)
+        {
+            return Ok(TunnelInspection::NeedsRecovery);
+        }
+    }
+    if !network::tunnel_configuration_present(journal).map_err(inspection_backend_error)? {
+        return Ok(TunnelInspection::NeedsRecovery);
+    }
+    if plan.kill_switch {
+        let Some(step) = journal
+            .steps
+            .iter()
+            .find(|step| step.kind == MutationKind::KillSwitch)
+        else {
+            return Ok(TunnelInspection::NeedsRecovery);
+        };
+        if !wfp::kill_switch_present(&step.receipt).map_err(wfp_backend_error)? {
+            return Ok(TunnelInspection::NeedsRecovery);
+        }
+    }
+    Ok(TunnelInspection::Reattachable)
 }
 
 fn apply_sync(
@@ -302,6 +371,11 @@ fn resume_packet_session_sync(
         return Err(backend_error(
             "journal Wintun adapter has an empty interface LUID",
         ));
+    }
+    // Recheck the GUID as well as name/LUID at the actual reattachment point;
+    // the initial service probe may have happened up to one grace period ago.
+    if !network::inspect_adapter_identity(adapter_receipt).map_err(inspection_backend_error)? {
+        return Err(BackendError::AdapterIdentity);
     }
 
     let mut resources = lock_resources(inner)?;
@@ -430,23 +504,34 @@ fn restore_sync(inner: &BackendInner, receipt: &MutationReceipt) -> Result<(), B
             }
             library
                 .remove_adapter_if_present(adapter_name, *adapter_guid, *interface_luid)
-                .map_err(|error| backend_error(error.to_string()))
+                .map_err(|error| match error {
+                    super::wintun::WintunError::Windows(api, error) => BackendError::Windows {
+                        api,
+                        code: error.raw_os_error().unwrap_or_default() as u32,
+                    },
+                    _ => BackendError::AdapterIdentity,
+                })?;
+            // A missing NAME alone is insufficient: a renamed adapter with the
+            // same GUID must not make its still-live DNS/MTU receipts disappear.
+            if network::inspect_adapter_identity(receipt).map_err(inspection_backend_error)? {
+                return Err(BackendError::AdapterIdentity);
+            }
+            Ok(())
         }
         receipt @ MutationReceipt::EndpointBypass { .. } => {
-            network::restore_endpoint_bypass(receipt)
-                .map_err(|error| backend_error(error.to_string()))
+            network::restore_endpoint_bypass(receipt).map_err(network_backend_error)
         }
         receipt @ MutationReceipt::InterfaceConfiguration { .. } => {
-            network::restore_interface_configuration(receipt)
-                .map_err(|error| backend_error(error.to_string()))
+            network::restore_interface_configuration(receipt).map_err(network_backend_error)
         }
         receipt @ MutationReceipt::Dns { .. } => {
-            network::restore_dns(receipt).map_err(|error| backend_error(error.to_string()))
+            network::restore_dns(receipt).map_err(network_backend_error)
         }
-        receipt @ MutationReceipt::DefaultRoutes { .. } => network::restore_default_routes(receipt)
-            .map_err(|error| backend_error(error.to_string())),
+        receipt @ MutationReceipt::DefaultRoutes { .. } => {
+            network::restore_default_routes(receipt).map_err(network_backend_error)
+        }
         receipt @ MutationReceipt::KillSwitch { .. } => {
-            wfp::restore_kill_switch(receipt).map_err(|error| backend_error(error.to_string()))
+            wfp::restore_kill_switch(receipt).map_err(wfp_backend_error)
         }
         receipt @ MutationReceipt::SystemProxy { .. } => {
             system_proxy::restore(receipt).map_err(|error| backend_error(error.to_string()))
@@ -507,9 +592,35 @@ fn backend_error(message: impl Into<String>) -> BackendError {
 
 fn network_backend_error(error: network::NetworkError) -> BackendError {
     match error {
+        network::NetworkError::Windows { operation, code } => BackendError::Windows {
+            api: operation,
+            code,
+        },
+        network::NetworkError::AdapterIdentity => BackendError::AdapterIdentity,
         network::NetworkError::NoReachableEndpoint => BackendError::EndpointUnreachable,
         network::NetworkError::NoReachableControlApi => BackendError::ControlApiUnreachable,
         error => backend_error(error.to_string()),
+    }
+}
+
+fn inspection_backend_error(error: network::NetworkError) -> BackendError {
+    match error {
+        network::NetworkError::Windows { operation, code } => BackendError::Windows {
+            api: operation,
+            code,
+        },
+        network::NetworkError::AdapterIdentity => BackendError::AdapterIdentity,
+        _ => backend_error("network resource inspection could not be verified"),
+    }
+}
+
+fn wfp_backend_error(error: wfp::WfpError) -> BackendError {
+    match error {
+        wfp::WfpError::Windows { operation, code } => BackendError::Windows {
+            api: operation,
+            code,
+        },
+        _ => backend_error("WFP resource could not be verified or restored"),
     }
 }
 

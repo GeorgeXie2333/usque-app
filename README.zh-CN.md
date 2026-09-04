@@ -22,7 +22,7 @@
 Usque 是面向 Cloudflare WARP 个人版（Consumer WARP）的非官方图形客户端。界面由 Flutter 实现；MASQUE、CONNECT-IP、DNS、代理与连接状态由 Rust 引擎处理。项目不使用 WebView。
 
 > [!IMPORTANT]
-> 当前发布版本为 **v0.2.3**。请仅从 [GitHub Releases 页面](https://github.com/GeorgeXie2333/usque-app/releases) 下载正式安装包。Pull Request 构建、本地构建以及未打标签的二进制均非正式发布。
+> 当前发布版本为 **v0.2.4**。请仅从 [GitHub Releases 页面](https://github.com/GeorgeXie2333/usque-app/releases) 下载正式安装包。Pull Request 构建、本地构建以及未打标签的二进制均非正式发布。
 
 Usque 为独立项目，与 Cloudflare 无隶属、赞助或背书关系。Cloudflare 与 WARP 是 Cloudflare, Inc. 的商标。使用个人版 WARP 仍须遵守 Cloudflare 的适用条款与隐私政策。
 
@@ -43,7 +43,7 @@ Usque 为独立项目，与 Cloudflare 无隶属、赞助或背书关系。Cloud
 
 ## 发布范围
 
-`v0.2.3` 由 `main` 上的对应标签构建并校验以下六个安装包：
+`v0.2.4` 由 `main` 上的对应标签构建并校验以下六个安装包：
 
 | 平台 | 安装包 | 最低系统 | 架构 |
 | --- | --- | --- | --- |
@@ -62,15 +62,20 @@ Usque 为独立项目，与 Cloudflare 无隶属、赞助或背书关系。Cloud
 - Windows 与 Android 提供实验性的 Cloudflare Zero Trust 设备注册，仅用于以组织身份复用现有 MASQUE 公网隧道。
 - VPN、SOCKS5、HTTP 代理与 Windows 系统代理可同时启用，共享同一条 MASQUE 通道。
 - 优先使用 HTTP/3（QUIC），失败后回退至 HTTP/2（TLS）；物理入口通过 IPv4/IPv6 Happy Eyeballs 选择。
+- 支持同地址族 QUIC 路径迁移、外层路径 PMTU 自动探测、H2 流控调优，以及 Android/Linux 有界 UDP 批量收发。
+- 本地网络质量中心展示 RTT、丢包或 N/A、队列、PMTU、迁移、直连 DNS 与 60 秒趋势；Standard Doctor 只读，Deep 检查需明确授权。
+- 直连 DNS 可明确选择 System、DoH 或 DoT；加密模式使用数字 IP 引导和严格 TLS，失败不降级到明文。
 - 全隧道 VPN、隧道内 DNS、Kill Switch、局域网访问与自定义 CIDR 绕过。
 - SOCKS5 支持 TCP/UDP，HTTP 支持 CONNECT 与普通转发；代理默认仅监听回环地址。
 - 支持多个配置，同一时间仅一个处于活动状态；身份材料按配置隔离存储。
 - Android 分应用代理（仅包含所选应用）：关闭时全部应用走 VPN；开启后仅勾选的应用走隧道。新安装的应用默认不进入隧道，直至勾选。
 - Android 快捷设置磁贴、启动器快捷方式、开机恢复与电视端导航。
 - Windows 系统托盘、单实例激活、开机启动，以及关闭后最小化到托盘。
-- 诊断信息仅保存在本地并经过脱敏，不含统计分析、遥测或自动上传。
+- 诊断信息仅在本地生成并脱敏；质量指标留在内存，不持久化历史，不进行统计分析或自动上传。
 
 选择 IPv4 或 IPv6 MASQUE 端点仅改变物理入口。任一入口均可在 CONNECT-IP 内承载 IPv4 与 IPv6。Usque 同一时间只保持一条活动传输，不聚合多路径带宽。
+
+迁移仅支持相同外层地址族，不是多路径；H2 的丢包率和 PMTU 显示 N/A，外层 PMTU 探测不会提高 TUN MTU。直连规则命中的域名在默认 System 模式下对物理 DNS 提供商可见，DoH/DoT 模式下对用户指定的加密解析器可见；其余域名继续使用隧道 DNS。此设置不拦截应用自己建立的加密 DNS，也不改变独立的代理 DNS 配置。Doctor 的本地检查不等价于外部抓包证明。详见[DNS 配置及隐私](docs/encrypted-direct-dns.md)、[验收证据](docs/network-quality-acceptance.md)和[内部回滚手册](docs/network-quality-rollback.md)。
 
 ## 默认网络设置
 

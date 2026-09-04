@@ -22,5 +22,36 @@ identifier must not be reused for a different property.
 Pull-request jobs report deterministic in-process evidence. VM, device, and
 independent network-observer gates report `not_run` when their required
 environment is unavailable; they must never translate missing evidence into a
-pass. A release candidate is blocked when any safety invariant fails or lacks
-its required release-level evidence.
+pass. Protected-runner evidence is supplemental and does not gate publication;
+its absence or `failed`/`not_run` state must remain explicit. Any evidence used
+for a candidate must still match its exact identity and isolated environment,
+and forged or mismatched evidence is rejected.
+
+## Network-quality and migration invariants (append-only)
+
+| Identifier | Required property | Evidence |
+| --- | --- | --- |
+| `INV-MIGRATION-CANDIDATE-NO-APP-SEND` | Before validation and promotion, candidate may send only QUIC validation/maintenance/control, never client application DATAGRAM, CONNECT-IP, proxy, or DNS payload. Receive remains connection-scoped. | Locked-quiche barrier and full H3 loopback tests; protected external observer when available. |
+| `INV-MIGRATION-VALIDATED-BEFORE-PROMOTION` | Only an explicitly validated candidate on the current generation can become active. | Actor validation, timeout, generation-race and connection-close tests. |
+| `INV-MIGRATION-ATOMIC-PROMOTION` | Path ID, socket, lease, generation and PMTU state change in one non-awaiting H3 actor section. | Complete-binding promotion and PMTU-once tests. |
+| `INV-PMTU-FAILS-SAFE` | Unknown/decreased PMTU remains conservative; no silent IP truncation, EMSGSIZE spin, or ICMP PTB bypass. | PMTU state-machine, send-error circuit-breaker and packet-size tests. |
+| `INV-DIRECT-DNS-NO-PLAINTEXT-FALLBACK` | DoH/DoT use only their selected encrypted protocol and explicit bootstrap addresses; any failure returns failure/SERVFAIL without system DNS fallback. | Encrypted direct-DNS transport and protected observer evidence are required for that implementation. |
+| `INV-METRICS-LOCAL-AND-SANITIZED` | Quality metrics remain local and contain no QNAME, DNS server, bootstrap IP, SSID/BSSID, endpoint, CID/token or payload. | Typed snapshots, codec and adversarial export tests. |
+
+`INV-OLD-PATH-QUIESCED` keeps its original meaning for replacement QUIC
+connections: the old connection is quiesced before replacement. Migration
+inside one existing connection follows the three migration invariants above.
+After promotion the old socket may receive delayed QUIC packets during its
+bounded grace period, but cannot send application or control packets.
+
+## Integration and rollback invariants (append-only)
+
+| Identifier | Required property | Automated evidence |
+| --- | --- | --- |
+| `INV-NETWORK-FEATURE-ROLLBACK` | Build-only flags preserve bounded legacy behavior; disabling encrypted DNS rejects custom modes without a plaintext rewrite. | H2 32-combination window test, metrics cancellation, portable UDP, fixed-1350 PMTU, disabled migration, encrypted-capability tests. |
+| `INV-FAULT-INJECTION-LOCAL` | Faults are bounded, instance-local, single-use and absent from production remote/configuration surfaces. | Fault script timing/isolation/limit tests, real H2/UDP/DNS/migration hooks, release compile guard. |
+| `INV-NATIVE-TIMELINE-BOUNDED` | Android reads native timeline on demand with bounded bytes/events/single-flight and sanitized export, preserving old-engine behavior. | Rust timeline privacy/budget test; Kotlin native fields, callback timeout/destroy and export-session tests. |
+
+Detailed ordinary and protected evidence is linked in
+[network-quality acceptance](network-quality-acceptance.md); protected results
+remain `not_run` without infrastructure and do not gate publication.

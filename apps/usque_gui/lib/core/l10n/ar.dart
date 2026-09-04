@@ -290,7 +290,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'diagnostics_subtitle': 'حالة محرك Usque وتصدير السجلات والبيانات المحلية.',
   'engine_status': 'حالة محرك Usque',
   'version': 'الإصدار',
-  'app_version': 'Usque 0.2.3',
+  'app_version': 'Usque 0.2.4',
   'logs': 'السجلات المحلية',
   'export_diagnostics': 'تصدير حزمة التشخيص',
   'diagnostics_saved': 'تم حفظ حزمة التشخيص في',
@@ -476,6 +476,8 @@ const Map<String, String> kArCatalog = <String, String>{
   'diag_fail_H3_PROTOCOL_ERROR': 'خطأ بروتوكول H3',
   'diag_fail_H3_DATAGRAM_UNAVAILABLE': 'مخططات بيانات H3 غير متاحة',
   'diag_fail_H3_CONNECTION_CLOSED': 'أُغلق اتصال H3',
+  'diag_fail_PMTU_REVALIDATION_EXHAUSTED':
+      'استُنفدت محاولات إعادة التحقق من MTU لمسار H3',
   'diag_fail_H2_TCP_CONNECT_FAILED': 'فشل اتصال TCP لـ H2',
   'diag_fail_H2_TLS_FAILED': 'فشل TLS لـ H2',
   'diag_fail_H2_STREAM_CLOSED': 'أُغلق تدفق H2',

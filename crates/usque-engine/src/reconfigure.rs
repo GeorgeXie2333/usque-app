@@ -3,7 +3,7 @@ use usque_core::{
 };
 use usque_ipc::v1;
 
-use crate::{ControlService, ControlServiceError, profile_to_proto, snapshot_to_proto};
+use crate::{ControlService, ControlServiceError, profile_to_proto};
 
 impl ControlService {
     pub(crate) async fn reconfigure_active_profile(
@@ -12,7 +12,7 @@ impl ControlService {
     ) -> Result<v1::ReconfigureResult, ControlServiceError> {
         profile
             .validate()
-            .map_err(ControlServiceError::configuration)?;
+            .map_err(ControlServiceError::profile_configuration)?;
         let _mutation = self.mutation_lock.lock().await;
         let active_profile_id = self
             .data_plane
@@ -69,7 +69,7 @@ impl ControlService {
         };
         Ok(v1::ReconfigureResult {
             profile: Some(profile_to_proto(&applied)),
-            snapshot: Some(snapshot_to_proto(&snapshot)),
+            snapshot: Some(self.snapshot_with_quality_to_proto(&snapshot)),
         })
     }
 
@@ -108,7 +108,7 @@ impl ControlService {
         let snapshot = self.status_snapshot().await;
         Ok(v1::ReconfigureResult {
             profile: Some(profile_to_proto(&applied)),
-            snapshot: Some(snapshot_to_proto(&snapshot)),
+            snapshot: Some(self.snapshot_with_quality_to_proto(&snapshot)),
         })
     }
 

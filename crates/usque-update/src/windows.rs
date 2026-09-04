@@ -4,7 +4,7 @@ use std::{
     io::{self, Read},
     os::windows::ffi::OsStrExt,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::{Child, Command, Stdio},
     ptr,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -16,7 +16,8 @@ use usque_platform::windows_authenticode::{AuthenticodeError, verify_same_signer
 use windows_sys::Win32::{
     Foundation::{
         CloseHandle, ERROR_MORE_DATA, ERROR_NO_MORE_ITEMS, ERROR_SUCCESS,
-        ERROR_SUCCESS_REBOOT_INITIATED, ERROR_SUCCESS_REBOOT_REQUIRED, HANDLE, WAIT_FAILED,
+        ERROR_SUCCESS_REBOOT_INITIATED, ERROR_SUCCESS_REBOOT_REQUIRED, HANDLE, HANDLE_FLAG_INHERIT,
+        INVALID_HANDLE_VALUE, SetHandleInformation, WAIT_FAILED, WAIT_TIMEOUT,
     },
     Storage::FileSystem::SYNCHRONIZE,
     System::{
@@ -25,10 +26,9 @@ use windows_sys::Win32::{
             MsiGetSummaryInformationW, MsiOpenDatabaseW, MsiRecordGetStringW,
             MsiSummaryInfoGetPropertyW, MsiViewExecute, MsiViewFetch, PID_TEMPLATE,
         },
+        Console::{GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE},
         SystemInformation::GetSystemDirectoryW,
-        Threading::{
-            INFINITE, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, WaitForSingleObject,
-        },
+        Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, WaitForSingleObject},
     },
     UI::WindowsAndMessaging::{MB_ICONERROR, MB_ICONINFORMATION, MB_OK, MessageBoxW},
 };
@@ -36,6 +36,7 @@ use windows_sys::Win32::{
 const UPGRADE_CODE: &str = "{076CF387-E447-4666-9153-2DA16049A390}";
 const MAX_PACKAGE_SIZE: u64 = 512 * 1024 * 1024;
 const STALE_TEMP_AGE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+const PARENT_EXIT_TIMEOUT_MS: u32 = 60_000;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum Variant {
@@ -210,7 +211,43 @@ fn begin_install(
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    command.spawn()?;
+    drop(spawn_handoff_process(&mut command)?);
+    Ok(())
+}
+
+fn spawn_handoff_process(command: &mut Command) -> Result<Child, UpdateError> {
+    disable_standard_handle_inheritance()?;
+    Ok(command.spawn()?)
+}
+
+fn disable_standard_handle_inheritance() -> Result<(), UpdateError> {
+    // Dart Process.run starts this helper with inheritable pipe handles. Rust's
+    // Command replaces the child's standard streams below, but otherwise lets
+    // every inheritable handle flow into the child. This is a one-shot launcher,
+    // so permanently clear the flags before spawning the handoff process; if a
+    // flag cannot be cleared, fail closed instead of recreating the GUI/helper
+    // wait cycle through a pipe that never reaches EOF.
+    for identifier in [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+        // SAFETY: GetStdHandle returns a borrowed process handle for a constant
+        // standard-stream identifier; no ownership is transferred.
+        let handle = unsafe { GetStdHandle(identifier) };
+        if handle.is_null() || handle == INVALID_HANDLE_VALUE {
+            continue;
+        }
+        clear_handle_inherit_flag(handle)?;
+    }
+    Ok(())
+}
+
+fn clear_handle_inherit_flag(handle: HANDLE) -> Result<(), UpdateError> {
+    // SAFETY: handle is a live borrowed handle in this process. The mask changes
+    // only HANDLE_FLAG_INHERIT and neither closes nor otherwise transfers it.
+    if unsafe { SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0) } == 0 {
+        return Err(UpdateError::Windows(
+            "SetHandleInformation",
+            io::Error::last_os_error(),
+        ));
+    }
     Ok(())
 }
 
@@ -484,8 +521,11 @@ fn wait_for_process(pid: u32) -> Result<(), UpdateError> {
         ));
     }
     let handle = OwnedHandle(handle);
-    // SAFETY: handle remains live and INFINITE has the documented meaning.
-    let status = unsafe { WaitForSingleObject(handle.0, INFINITE) };
+    // SAFETY: handle remains live and the timeout is a finite millisecond count.
+    let status = unsafe { WaitForSingleObject(handle.0, PARENT_EXIT_TIMEOUT_MS) };
+    if status == WAIT_TIMEOUT {
+        return Err(UpdateError::ParentExitTimeout);
+    }
     if status == WAIT_FAILED {
         return Err(UpdateError::Windows(
             "WaitForSingleObject",
@@ -674,6 +714,8 @@ pub enum UpdateError {
     InvalidMsiText,
     #[error("Windows returned a non-UTF-16 system path")]
     InvalidWindowsPath,
+    #[error("the Usque GUI did not exit before the update handoff timed out")]
+    ParentExitTimeout,
     #[error("Windows Installer {0} failed with code {1}")]
     WindowsInstaller(&'static str, u32),
     #[error("Windows {0} failed: {1}")]
@@ -687,6 +729,61 @@ pub enum UpdateError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use windows_sys::Win32::{
+        Foundation::{ERROR_BROKEN_PIPE, GetHandleInformation},
+        Security::SECURITY_ATTRIBUTES,
+        System::{
+            Console::SetStdHandle,
+            Pipes::{CreatePipe, PeekNamedPipe},
+        },
+    };
+
+    const HANDLE_PROBE_STDOUT_HANDLE: &str = "USQUE_UPDATE_TEST_STDOUT_HANDLE";
+    const HANDLE_PROBE_STDERR_HANDLE: &str = "USQUE_UPDATE_TEST_STDERR_HANDLE";
+    const HANDLE_PROBE_HANDOFF_CHILD: &str = "USQUE_UPDATE_TEST_HANDOFF_CHILD";
+    const HANDLE_PROBE_LAUNCHER_EXIT: i32 = 86;
+
+    fn inherited_pipe() -> (OwnedHandle, OwnedHandle) {
+        let attributes = SECURITY_ATTRIBUTES {
+            nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+            lpSecurityDescriptor: ptr::null_mut(),
+            bInheritHandle: 1,
+        };
+        let mut read_handle = ptr::null_mut();
+        let mut write_handle = ptr::null_mut();
+        // SAFETY: both output slots are writable and attributes remain live for
+        // the call. Successful handles are immediately assigned RAII owners.
+        let status = unsafe { CreatePipe(&mut read_handle, &mut write_handle, &attributes, 0) };
+        assert_ne!(status, 0);
+        (OwnedHandle(read_handle), OwnedHandle(write_handle))
+    }
+
+    fn inherited_handle_from_env(name: &str) -> HANDLE {
+        std::env::var_os(name)
+            .expect("inherited handle environment")
+            .to_string_lossy()
+            .parse::<usize>()
+            .expect("inherited handle value") as HANDLE
+    }
+
+    fn assert_pipe_has_no_writer(handle: HANDLE, stream: &str) {
+        // If the handoff child inherited the write side, this succeeds with zero
+        // bytes available. Without a writer it must report a broken pipe.
+        // SAFETY: handle is live. A zero-length peek permits null buffers.
+        let status = unsafe {
+            PeekNamedPipe(
+                handle,
+                ptr::null_mut(),
+                0,
+                ptr::null_mut(),
+                ptr::null_mut(),
+                ptr::null_mut(),
+            )
+        };
+        let error = io::Error::last_os_error();
+        assert_eq!(status, 0, "probe child retained the {stream} pipe writer");
+        assert_eq!(error.raw_os_error(), Some(ERROR_BROKEN_PIPE as i32));
+    }
 
     #[test]
     fn accepts_only_stable_three_part_versions() {
@@ -725,5 +822,93 @@ mod tests {
             path.file_name()
                 .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case("msiexec.exe"))
         );
+    }
+
+    #[test]
+    fn inherited_standard_handle_probe_handoff() {
+        if std::env::var_os(HANDLE_PROBE_HANDOFF_CHILD).is_some() {
+            std::thread::sleep(Duration::from_secs(2));
+        }
+    }
+
+    #[test]
+    fn inherited_standard_handle_probe_launcher() {
+        if std::env::var_os(HANDLE_PROBE_STDOUT_HANDLE).is_none() {
+            return;
+        }
+        let stdout_handle = inherited_handle_from_env(HANDLE_PROBE_STDOUT_HANDLE);
+        let stderr_handle = inherited_handle_from_env(HANDLE_PROBE_STDERR_HANDLE);
+        for handle in [stdout_handle, stderr_handle] {
+            let mut flags = 0;
+            // SAFETY: the parent passed a live inherited handle and flags is writable.
+            let flag_status = unsafe { GetHandleInformation(handle, &mut flags) };
+            assert_ne!(flag_status, 0);
+            assert_ne!(flags & HANDLE_FLAG_INHERIT, 0);
+        }
+        // SAFETY: both handles are live writable pipes inherited specifically for
+        // this single-test launcher process. It exits without restoring them.
+        let stdout_status = unsafe { SetStdHandle(STD_OUTPUT_HANDLE, stdout_handle) };
+        // SAFETY: the same invariants apply to the distinct stderr pipe handle.
+        let stderr_status = unsafe { SetStdHandle(STD_ERROR_HANDLE, stderr_handle) };
+        assert_ne!(stdout_status, 0);
+        assert_ne!(stderr_status, 0);
+
+        let mut command = Command::new(std::env::current_exe().expect("test executable"));
+        command
+            .arg("inherited_standard_handle_probe_handoff")
+            .arg("--nocapture")
+            .env(HANDLE_PROBE_HANDOFF_CHILD, "1")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let mut child = spawn_handoff_process(&mut command).expect("spawn handoff probe");
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(
+            child
+                .try_wait()
+                .expect("query handoff probe child")
+                .is_none(),
+            "handoff probe child exited before inheritance was checked"
+        );
+
+        // The parent distinguishes this intentional launcher exit from a test
+        // harness assertion failure (which uses a different exit code).
+        std::process::exit(HANDLE_PROBE_LAUNCHER_EXIT);
+    }
+
+    #[test]
+    fn handoff_child_does_not_reinherit_callers_standard_pipes() {
+        let (stdout_read, stdout_write) = inherited_pipe();
+        let (stderr_read, stderr_write) = inherited_pipe();
+
+        let status = Command::new(std::env::current_exe().expect("test executable"))
+            .arg("inherited_standard_handle_probe_launcher")
+            .arg("--nocapture")
+            .env(
+                HANDLE_PROBE_STDOUT_HANDLE,
+                (stdout_write.0 as usize).to_string(),
+            )
+            .env(
+                HANDLE_PROBE_STDERR_HANDLE,
+                (stderr_write.0 as usize).to_string(),
+            )
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .expect("run standard-handle probe launcher");
+        assert_eq!(
+            status.code(),
+            Some(HANDLE_PROBE_LAUNCHER_EXIT),
+            "standard-handle probe launcher did not complete its handoff"
+        );
+        drop(stdout_write);
+        drop(stderr_write);
+        assert_pipe_has_no_writer(stdout_read.0, "stdout");
+        assert_pipe_has_no_writer(stderr_read.0, "stderr");
+
+        // The launcher intentionally detaches the short-lived handoff probe.
+        // Let it finish before Cargo may replace the test executable on Windows.
+        std::thread::sleep(Duration::from_secs(2));
     }
 }

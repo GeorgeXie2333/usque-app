@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use usque_core::Profile;
 
+use crate::NetworkQualitySnapshot;
 use crate::geo_direct::GeoDirectPolicy;
 use crate::h2::{MasqueTlsIdentity, TransportError};
 use crate::masque_runtime::MasqueRuntime;
@@ -110,6 +111,25 @@ impl ProxyRuntime {
 
     pub fn connection_timeline(&self) -> ConnectionTimelineSnapshot {
         self.inner().connection_timeline()
+    }
+
+    pub fn network_quality(&self) -> NetworkQualitySnapshot {
+        self.inner().network_quality()
+    }
+
+    pub fn diagnostic_dns_context(
+        &self,
+    ) -> (
+        Arc<dyn SocketProtector>,
+        tokio_util::sync::CancellationToken,
+    ) {
+        self.inner().diagnostic_dns_context()
+    }
+
+    pub fn subscribe_network_quality(
+        &self,
+    ) -> tokio::sync::watch::Receiver<NetworkQualitySnapshot> {
+        self.inner().subscribe_network_quality()
     }
 
     pub fn performance(&self) -> ProxyPerformanceSnapshot {

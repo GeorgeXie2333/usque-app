@@ -23,6 +23,7 @@ internal class AndroidEngineMethodHandler(
     private val maintenanceBridge: MaintenanceBridge,
     private val defaultIdentityProfile: String = DEFAULT_IDENTITY_PROFILE,
     private val warpSecretOkCode: Int = NativeEngine.OK,
+    private val diagnosticsExecutor: Executor = identityExecutor,
 ) {
     companion object {
         const val DEFAULT_IDENTITY_PROFILE = "8c30b771-9ebd-457a-b67b-bbc74a1ddba6"
@@ -30,8 +31,9 @@ internal class AndroidEngineMethodHandler(
 
     private val diagnosticsCoordinator =
         AndroidDiagnosticsCoordinator(
-            executor = identityExecutor,
+            executor = diagnosticsExecutor,
             publish = { event -> mainScheduler.post { activityCommands.publishEngineEvent(event) } },
+            networkProbe = controlClient::runNetworkProbe,
         )
 
     data class DiagnosticExportPayload(
@@ -142,6 +144,8 @@ internal class AndroidEngineMethodHandler(
     interface EngineBridge {
         fun isLinked(): Boolean
 
+        fun capabilities(): String? = null
+
         fun isReady(): Boolean
 
         fun applyProfileCommand(
@@ -175,6 +179,8 @@ internal class AndroidEngineMethodHandler(
 
     private object DefaultEngineBridge : EngineBridge {
         override fun isLinked(): Boolean = NativeEngine.isLinked()
+
+        override fun capabilities(): String? = NativeEngine.capabilities()
 
         override fun isReady(): Boolean = NativeEngine.isReady()
 
@@ -249,6 +255,10 @@ internal class AndroidEngineMethodHandler(
         result: MethodChannel.Result,
     ) {
         when (call.method) {
+            "getCapabilities" -> {
+                result.success(NetworkQualityFields.capabilities(engineBridge.capabilities()))
+            }
+
             "snapshot" -> {
                 controlClient.requestSnapshot(result)
             }
@@ -288,7 +298,10 @@ internal class AndroidEngineMethodHandler(
             }
 
             "getConnectionTimeline" -> {
-                result.success(diagnosticsCoordinator.timeline())
+                controlClient.requestTimeline { timeline ->
+                    diagnosticsCoordinator.observeNativeTimeline(timeline)
+                    result.success(diagnosticsCoordinator.timeline())
+                }
             }
 
             "disconnect" -> {
@@ -433,14 +446,23 @@ internal class AndroidEngineMethodHandler(
                         null,
                     )
                 } else {
-                    activityCommands.selectDiagnosticsDestination(
-                        result,
-                        DiagnosticExportPayload(
-                            snapshot = controlClient.lastSnapshot.toMap(),
-                            diagnosticSession = diagnosticsCoordinator.current()?.toMap(),
-                            connectionTimeline = diagnosticsCoordinator.timeline(),
-                        ),
-                    )
+                    val exportSnapshot = controlClient.lastSnapshot.toMap()
+                    val exportSession = diagnosticsCoordinator.current()?.toMap()
+                    controlClient.requestTimeline { timeline ->
+                        diagnosticsCoordinator.observeNativeTimeline(timeline)
+                        if (controlClient.isClosed) {
+                            result.error("ENGINE_IPC_CLOSED", "The Android UI closed before export.", null)
+                        } else {
+                            activityCommands.selectDiagnosticsDestination(
+                                result,
+                                DiagnosticExportPayload(
+                                    snapshot = exportSnapshot,
+                                    diagnosticSession = exportSession,
+                                    connectionTimeline = diagnosticsCoordinator.timeline(),
+                                ),
+                            )
+                        }
+                    }
                 }
             }
 

@@ -300,7 +300,7 @@ const Map<String, String> kItCatalog = <String, String>{
       'Stato dell’Usque Engine, esportazione dei log e dati locali.',
   'engine_status': 'Stato dell’Usque Engine',
   'version': 'Versione',
-  'app_version': 'Usque 0.2.3',
+  'app_version': 'Usque 0.2.4',
   'logs': 'Log locali',
   'export_diagnostics': 'Esporta pacchetto diagnostico',
   'diagnostics_saved': 'Pacchetto diagnostico salvato in',
@@ -491,6 +491,8 @@ const Map<String, String> kItCatalog = <String, String>{
   'diag_fail_H3_PROTOCOL_ERROR': 'Errore di protocollo H3',
   'diag_fail_H3_DATAGRAM_UNAVAILABLE': 'Datagramma H3 non disponibile',
   'diag_fail_H3_CONNECTION_CLOSED': 'Connessione H3 chiusa',
+  'diag_fail_PMTU_REVALIDATION_EXHAUSTED':
+      'Tentativi di riconvalida MTU del percorso H3 esauriti',
   'diag_fail_H2_TCP_CONNECT_FAILED': 'Connessione TCP H2 non riuscita',
   'diag_fail_H2_TLS_FAILED': 'TLS H2 non riuscito',
   'diag_fail_H2_STREAM_CLOSED': 'Stream H2 chiuso',

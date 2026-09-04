@@ -13,7 +13,7 @@ use std::{
     net::{IpAddr, SocketAddr},
     os::windows::ffi::OsStrExt,
     path::Path,
-    ptr,
+    ptr::{self, NonNull},
 };
 
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
@@ -38,9 +38,10 @@ use windows_sys::{
             FWPM_LAYER_ALE_AUTH_CONNECT_V6, FWPM_PROVIDER_FLAG_PERSISTENT, FWPM_PROVIDER0,
             FWPM_SESSION_FLAG_DYNAMIC, FWPM_SESSION0, FWPM_SUBLAYER_FLAG_PERSISTENT,
             FWPM_SUBLAYER0, FwpmEngineClose0, FwpmEngineOpen0, FwpmFilterAdd0,
-            FwpmFilterDeleteByKey0, FwpmFreeMemory0, FwpmGetAppIdFromFileName0, FwpmProviderAdd0,
-            FwpmProviderDeleteByKey0, FwpmSubLayerAdd0, FwpmSubLayerDeleteByKey0,
-            FwpmTransactionAbort0, FwpmTransactionBegin0, FwpmTransactionCommit0,
+            FwpmFilterDeleteByKey0, FwpmFilterGetByKey0, FwpmFreeMemory0,
+            FwpmGetAppIdFromFileName0, FwpmProviderAdd0, FwpmProviderDeleteByKey0,
+            FwpmSubLayerAdd0, FwpmSubLayerDeleteByKey0, FwpmTransactionAbort0,
+            FwpmTransactionBegin0, FwpmTransactionCommit0,
         },
         Networking::WinSock::{IPPROTO_ICMPV6, IPPROTO_TCP, IPPROTO_UDP},
         System::Rpc::RPC_C_AUTHN_WINNT,
@@ -140,6 +141,41 @@ pub fn restore_kill_switch(receipt: &MutationReceipt) -> Result<(), WfpError> {
         return Err(WfpError::ReceiptKind);
     };
     remove_resources(*provider_key, *sublayer_key, filter_keys.iter().copied())
+}
+
+/// Read-only startup verification. Do not recreate missing persistent policy
+/// while presenting an old transaction as a live tunnel.
+pub fn kill_switch_present(receipt: &MutationReceipt) -> Result<bool, WfpError> {
+    let MutationReceipt::KillSwitch {
+        provider_key,
+        sublayer_key,
+        filter_keys,
+        ..
+    } = receipt
+    else {
+        return Err(WfpError::ReceiptKind);
+    };
+    let engine = WfpEngine::open()?;
+    if filter_keys.is_empty() {
+        return Ok(false);
+    }
+    for key in filter_keys {
+        let mut filter = ptr::null_mut();
+        // SAFETY: engine and key are live and filter is writable output storage.
+        let status = unsafe { FwpmFilterGetByKey0(engine.0, &guid_from_uuid(*key), &mut filter) };
+        let filter = WfpFilterAllocation::new(filter);
+        if status == FWP_E_FILTER_NOT_FOUND as u32 {
+            return Ok(false);
+        }
+        check("FwpmFilterGetByKey0", status)?;
+        let Some(filter) = filter else {
+            return Ok(false);
+        };
+        if !filter.matches(*provider_key, *sublayer_key) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 /// Removes every resource that a current Usque build can create without
@@ -873,6 +909,38 @@ impl Drop for WfpTransaction<'_> {
 
 struct ApplicationId(*mut FWP_BYTE_BLOB);
 
+struct WfpFilterAllocation(NonNull<FWPM_FILTER0>);
+
+impl WfpFilterAllocation {
+    fn new(filter: *mut FWPM_FILTER0) -> Option<Self> {
+        NonNull::new(filter).map(Self)
+    }
+
+    fn matches(&self, provider_key: Uuid, sublayer_key: Uuid) -> bool {
+        // SAFETY: this guard is constructed only from the non-null allocation
+        // returned by FwpmFilterGetByKey0 and keeps it alive for this borrow.
+        let filter = unsafe { self.0.as_ref() };
+        let Some(actual_provider_key) = NonNull::new(filter.providerKey) else {
+            return false;
+        };
+        // SAFETY: providerKey is owned by the live filter allocation and is
+        // valid until this guard calls the matching FwpmFreeMemory0.
+        let actual_provider_key = unsafe { *actual_provider_key.as_ref() };
+        filter.flags & FWPM_FILTER_FLAG_PERSISTENT != 0
+            && uuid_from_guid(filter.subLayerKey) == sublayer_key
+            && uuid_from_guid(actual_provider_key) == provider_key
+    }
+}
+
+impl Drop for WfpFilterAllocation {
+    fn drop(&mut self) {
+        let mut allocation = self.0.as_ptr().cast::<c_void>();
+        // SAFETY: this guard uniquely owns a successful WFP lookup allocation
+        // and releases it exactly once with the documented deallocator.
+        unsafe { FwpmFreeMemory0(&mut allocation) };
+    }
+}
+
 impl ApplicationId {
     fn from_path(path: &Path) -> Result<Self, WfpError> {
         let path = path
@@ -949,6 +1017,10 @@ fn guid_from_uuid(value: Uuid) -> GUID {
         data3,
         data4: *data4,
     }
+}
+
+fn uuid_from_guid(value: GUID) -> Uuid {
+    Uuid::from_fields(value.data1, value.data2, value.data3, &value.data4)
 }
 
 #[derive(Debug, Error)]

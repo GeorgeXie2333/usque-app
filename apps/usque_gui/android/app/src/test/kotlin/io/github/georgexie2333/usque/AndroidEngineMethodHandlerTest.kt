@@ -279,6 +279,13 @@ class AndroidEngineMethodHandlerTest {
     fun exportDiagnosticsDelegatesToActivity() {
         val result = RecordingResult()
         handler.handle(MethodCall("exportDiagnostics", null), result)
+        controlClient.deliverTimelineReply(
+            endpoint.messages
+                .last {
+                    it.first == UsqueVpnService.MSG_CONNECTION_TIMELINE
+                }.second,
+            null,
+        )
         assertEquals(1, activityCommands.diagnosticsCount)
     }
 
@@ -319,7 +326,7 @@ class AndroidEngineMethodHandlerTest {
             MethodCall("exportDiagnostics", mapOf("diagnostic_session_id" to firstSessionId)),
             exportResult,
         )
-        val frozenPayload = requireNotNull(activityCommands.diagnosticsPayload)
+        val timelineRequestId = endpoint.messages.last { it.first == UsqueVpnService.MSG_CONNECTION_TIMELINE }.second
 
         val secondResult = RecordingResult()
         handler.handle(MethodCall("startDiagnostics", mapOf("mode" to "standard")), secondResult)
@@ -332,6 +339,8 @@ class AndroidEngineMethodHandlerTest {
             diagnosticSnapshot(networkGeneration = 2L),
         )
 
+        controlClient.deliverTimelineReply(timelineRequestId, null)
+        val frozenPayload = requireNotNull(activityCommands.diagnosticsPayload)
         assertEquals(1L, frozenPayload.snapshot["network_generation"])
         assertEquals(firstSessionId, frozenPayload.diagnosticSession?.get("session_id"))
         assertEquals(1, activityCommands.diagnosticsCount)

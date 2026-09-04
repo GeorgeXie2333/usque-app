@@ -1,14 +1,22 @@
 use std::net::{SocketAddr, ToSocketAddrs};
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 
 use async_trait::async_trait;
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+
+/// Stable reason returned when exact-generation socket setup races a network
+/// change. Callers may retry only by taking a fresh generation snapshot.
+pub const STALE_GENERATION_REASON: &str = "stale_generation";
 
 /// Platform-neutral representation of a socket before it connects to a
 /// MASQUE endpoint.
 ///
 /// Android uses the numeric file descriptor with `VpnService.protect(fd)` so
 /// the tunnel transport cannot route back into its own TUN interface. Windows
-/// and desktop proxy mode use the no-op implementation.
+/// VPN sockets use the Agent's exact-egress lease; desktop proxy mode may use
+/// the no-op implementation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SocketHandle(u64);
 
@@ -38,13 +46,38 @@ impl DirectProtocol {
 #[derive(Default)]
 pub struct DirectEgressLease {
     _resource: Option<Box<dyn Send + Sync>>,
+    generation: Option<u64>,
 }
 
 impl DirectEgressLease {
     pub fn hold(resource: impl Send + Sync + 'static) -> Self {
         Self {
             _resource: Some(Box::new(resource)),
+            generation: None,
         }
+    }
+
+    pub fn for_generation(generation: u64) -> Self {
+        Self {
+            _resource: None,
+            generation: Some(generation),
+        }
+    }
+
+    pub fn hold_for_generation(resource: impl Send + Sync + 'static, generation: u64) -> Self {
+        Self {
+            _resource: Some(Box::new(resource)),
+            generation: Some(generation),
+        }
+    }
+
+    pub const fn generation(&self) -> Option<u64> {
+        self.generation
+    }
+
+    fn with_generation(mut self, generation: u64) -> Self {
+        self.generation = Some(generation);
+        self
     }
 }
 
@@ -53,7 +86,64 @@ impl std::fmt::Debug for DirectEgressLease {
         formatter
             .debug_struct("DirectEgressLease")
             .field("active", &self._resource.is_some())
+            .field("generation", &self.generation)
             .finish()
+    }
+}
+
+/// Keeps exact-egress authorization attached to a stream through TLS and
+/// protocol-driver ownership. Field order closes the I/O before the lease.
+pub(crate) struct LeasedIo<T> {
+    inner: T,
+    _egress_lease: DirectEgressLease,
+}
+
+impl<T> LeasedIo<T> {
+    pub(crate) fn new(inner: T, egress_lease: DirectEgressLease) -> Self {
+        Self {
+            inner,
+            _egress_lease: egress_lease,
+        }
+    }
+}
+
+impl<T: AsyncRead + Unpin> AsyncRead for LeasedIo<T> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+        buffer: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.get_mut().inner).poll_read(context, buffer)
+    }
+}
+
+impl<T: AsyncWrite + Unpin> AsyncWrite for LeasedIo<T> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+        bytes: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.get_mut().inner).poll_write(context, bytes)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.get_mut().inner).poll_flush(context)
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.get_mut().inner).poll_shutdown(context)
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        self.inner.is_write_vectored()
+    }
+
+    fn poll_write_vectored(
+        self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+        buffers: &[std::io::IoSlice<'_>],
+    ) -> Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.get_mut().inner).poll_write_vectored(context, buffers)
     }
 }
 
@@ -75,10 +165,39 @@ pub trait SocketProtector: Send + Sync {
         Ok(DirectEgressLease::default())
     }
 
+    /// Protects one exact target on the caller-selected physical-network
+    /// generation. Implementations must never silently bind to a newer
+    /// generation. The default wraps the existing target-aware contract with
+    /// before/after checks and tags the returned lease with the exact value.
+    async fn protect_for_target_generation(
+        &self,
+        socket: SocketHandle,
+        remote: SocketAddr,
+        protocol: DirectProtocol,
+        expected_generation: u64,
+    ) -> Result<DirectEgressLease, String> {
+        let before = self.network_generation().unwrap_or_default();
+        if before != expected_generation {
+            return Err(STALE_GENERATION_REASON.to_owned());
+        }
+        let lease = self.protect_for_target(socket, remote, protocol).await?;
+        let after = self.network_generation().unwrap_or_default();
+        if after != expected_generation {
+            return Err(STALE_GENERATION_REASON.to_owned());
+        }
+        Ok(lease.with_generation(expected_generation))
+    }
+
     /// Resolves a GeoSite-selected host using the platform's selected physical
     /// DNS path. Implementations must not fall back to the tunnel resolver.
     async fn resolve_direct(&self, host: &str, port: u16) -> Result<Vec<SocketAddr>, String> {
         self.resolve(host, port)
+    }
+
+    /// The runtime-owned direct DNS policy, if explicitly configured. None
+    /// preserves the platform's existing physical-system behavior.
+    fn direct_dns_resolver(&self) -> Option<Arc<crate::encrypted_dns::DirectDnsResolver>> {
+        None
     }
 
     /// Whether protected sockets may intentionally carry TUN-selected direct
@@ -95,8 +214,9 @@ pub trait SocketProtector: Send + Sync {
     }
 
     /// Monotonically increasing generation for the selected physical network.
-    /// A change tells the transport supervisor to discard the old channel and
-    /// create fresh endpoint sockets without tearing down local proxy listeners.
+    /// H3 first validates a same-family candidate in the existing connection;
+    /// unsupported or failed migration and H2 use complete reconnect without
+    /// tearing down local proxy listeners.
     fn network_generation(&self) -> Option<u64> {
         None
     }
@@ -195,6 +315,96 @@ pub(crate) fn bind_tcp_listener(address: SocketAddr) -> std::io::Result<tokio::n
 mod tests {
     use super::*;
     use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
+    struct LeaseDropFlag(Arc<AtomicBool>);
+
+    impl Drop for LeaseDropFlag {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::Release);
+        }
+    }
+
+    #[test]
+    fn leased_io_closes_stream_before_releasing_authorization() {
+        struct DropOrder(&'static str, Arc<std::sync::Mutex<Vec<&'static str>>>);
+
+        impl Drop for DropOrder {
+            fn drop(&mut self) {
+                self.1.lock().unwrap().push(self.0);
+            }
+        }
+
+        let order = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let stream = LeasedIo::new(
+            DropOrder("socket", Arc::clone(&order)),
+            DirectEgressLease::hold(DropOrder("lease", Arc::clone(&order))),
+        );
+        drop(stream);
+        assert_eq!(*order.lock().unwrap(), ["socket", "lease"]);
+    }
+
+    #[tokio::test]
+    async fn leased_io_forwards_duplex_io_and_retains_lease_until_drop() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let (client, mut peer) = tokio::io::duplex(64);
+        let dropped = Arc::new(AtomicBool::new(false));
+        let mut client = LeasedIo::new(
+            client,
+            DirectEgressLease::hold(LeaseDropFlag(Arc::clone(&dropped))),
+        );
+        assert!(client.is_write_vectored());
+        assert_eq!(
+            client
+                .write_vectored(&[std::io::IoSlice::new(b"qu"), std::io::IoSlice::new(b"ery")])
+                .await
+                .unwrap(),
+            5
+        );
+        client.flush().await.unwrap();
+        let mut received = [0; 5];
+        peer.read_exact(&mut received).await.unwrap();
+        assert_eq!(&received, b"query");
+        peer.write_all(b"reply").await.unwrap();
+        client.read_exact(&mut received).await.unwrap();
+        assert_eq!(&received, b"reply");
+        client.shutdown().await.unwrap();
+        assert_eq!(peer.read(&mut received).await.unwrap(), 0);
+        assert!(!dropped.load(Ordering::Acquire));
+        drop(client);
+        assert!(dropped.load(Ordering::Acquire));
+    }
+
+    struct GenerationProtector {
+        generation: AtomicU64,
+        advance_during_protect: bool,
+        lease_dropped: Arc<AtomicBool>,
+    }
+
+    #[async_trait]
+    impl SocketProtector for GenerationProtector {
+        fn protect(&self, _socket: SocketHandle) -> Result<(), String> {
+            Ok(())
+        }
+
+        async fn protect_for_target(
+            &self,
+            _socket: SocketHandle,
+            _remote: SocketAddr,
+            _protocol: DirectProtocol,
+        ) -> Result<DirectEgressLease, String> {
+            let lease = DirectEgressLease::hold(LeaseDropFlag(Arc::clone(&self.lease_dropped)));
+            if self.advance_during_protect {
+                self.generation.fetch_add(1, Ordering::AcqRel);
+            }
+            Ok(lease)
+        }
+
+        fn network_generation(&self) -> Option<u64> {
+            Some(self.generation.load(Ordering::Acquire))
+        }
+    }
 
     #[tokio::test]
     async fn ipv4_and_ipv6_loopback_can_share_a_port() {
@@ -218,5 +428,35 @@ mod tests {
         let port = v6.local_addr().expect("IPv6 local addr").port();
         bind_tcp_listener(SocketAddr::from((Ipv4Addr::LOCALHOST, port)))
             .expect("IPv4 loopback must bind after V6-only IPv6 on the same port");
+    }
+
+    #[tokio::test]
+    async fn expected_generation_lease_is_tagged_and_stale_race_releases_it() {
+        let target: SocketAddr = "192.0.2.1:443".parse().unwrap();
+        let stable = GenerationProtector {
+            generation: AtomicU64::new(7),
+            advance_during_protect: false,
+            lease_dropped: Arc::new(AtomicBool::new(false)),
+        };
+        let lease = stable
+            .protect_for_target_generation(SocketHandle(1), target, DirectProtocol::Udp, 7)
+            .await
+            .unwrap();
+        assert_eq!(lease.generation(), Some(7));
+
+        let dropped = Arc::new(AtomicBool::new(false));
+        let racing = GenerationProtector {
+            generation: AtomicU64::new(9),
+            advance_during_protect: true,
+            lease_dropped: Arc::clone(&dropped),
+        };
+        assert_eq!(
+            racing
+                .protect_for_target_generation(SocketHandle(2), target, DirectProtocol::Udp, 9)
+                .await
+                .unwrap_err(),
+            STALE_GENERATION_REASON
+        );
+        assert!(dropped.load(Ordering::Acquire));
     }
 }

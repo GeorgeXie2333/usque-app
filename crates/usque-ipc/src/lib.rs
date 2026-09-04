@@ -146,6 +146,24 @@ mod tests {
     ];
     const AGENT_INSPECT_PLATFORM_V3_FRAME: &[u8] =
         &[0, 0, 0, 9, 0x0a, 2, b'i', b'1', 0x10, 3, 0xca, 0x01, 0];
+    const AGENT_EXACT_EGRESS_V3_FRAME: &[u8] = &[
+        0, 0, 0, 33, 0x0a, 2, b'g', b'1', 0x10, 3, 0xc2, 0x01, 24, 0x0a, 1, b'o', 0x12, 15, b'2',
+        b'0', b'3', b'.', b'0', b'.', b'1', b'1', b'3', b'.', b'9', b':', b'4', b'4', b'3', 0x18,
+        17, 0x20, 7,
+    ];
+    const NETWORK_QUALITY_V1_FRAME: &[u8] = &[
+        0x00, 0x00, 0x00, 0x41, 0x0a, 0x02, b'n', b'1', 0xaa, 0x01, 0x3a, 0x08, 0xd2, 0x09, 0x12,
+        0x02, b'c', b'1', 0x18, 0x01, 0x22, 0x0e, 0x20, 0x2a, 0x28, 0x01, 0x68, 0x15, 0x70, 0x01,
+        0xc0, 0x03, 0x01, 0xc8, 0x03, 0x01, 0x2a, 0x1f, 0x08, 0x05, 0x10, 0x02, 0x18, 0x40, 0x20,
+        0x64, 0x28, 0x80, 0xa3, 0x05, 0x30, 0x04, 0x38, 0xc8, 0x01, 0x40, 0x01, 0x48, 0x32, 0x50,
+        0x07, 0x58, 0x01, 0x60, 0x01, 0x68, 0x0a, 0x70, 0x08,
+    ];
+
+    #[derive(Clone, PartialEq, Message)]
+    struct LegacyControlResponse {
+        #[prost(string, tag = "1")]
+        request_id: String,
+    }
 
     #[test]
     fn control_request_round_trips_through_a_bounded_frame() {
@@ -241,6 +259,7 @@ mod tests {
                     operation_id: "operation".to_owned(),
                     remote_endpoint: "203.0.113.9:53".to_owned(),
                     protocol: 17,
+                    expected_generation: 0,
                 },
             )),
         };
@@ -268,6 +287,44 @@ mod tests {
     }
 
     #[test]
+    fn privileged_exact_generation_fields_are_append_only_wire_snapshots() {
+        let decoded: AgentRequest =
+            decode_frame(Bytes::from_static(AGENT_EXACT_EGRESS_V3_FRAME)).unwrap();
+        assert!(
+            matches!(decoded.payload.as_ref(), Some(agent_request::Payload::AcquireDirectEgress(request))
+            if request.expected_generation == 7 && request.protocol == 17 && request.remote_endpoint == "203.0.113.9:443")
+        );
+        assert_eq!(
+            encode_frame(&decoded).unwrap().as_ref(),
+            AGENT_EXACT_EGRESS_V3_FRAME
+        );
+        assert_eq!(
+            agent_v1::DirectEgressLease {
+                network_generation: 7,
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0x28, 7]
+        );
+        assert_eq!(
+            agent_v1::PhysicalInterface {
+                address_family_mask: 3,
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0x20, 3]
+        );
+        assert_eq!(
+            AgentCapabilities {
+                exact_generation_egress: true,
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0x60, 1]
+        );
+    }
+
+    #[test]
     fn privileged_agent_platform_inspection_uses_append_only_field_twenty_five() {
         let decoded: AgentRequest =
             decode_frame(Bytes::from_static(AGENT_INSPECT_PLATFORM_V3_FRAME))
@@ -285,6 +342,41 @@ mod tests {
     }
 
     #[test]
+    fn guarded_recovery_uses_append_only_field_twenty_six_and_capability_thirteen() {
+        let frame: &[u8] = &[
+            0, 0, 0, 14, 0x0a, 2, b'g', b'1', 0x10, 3, 0xd2, 0x01, 5, 0x0a, 1, b'o', 0x10, 7,
+        ];
+        let request: AgentRequest = decode_frame(Bytes::copy_from_slice(frame)).unwrap();
+        assert!(
+            matches!(request.payload.as_ref(), Some(agent_request::Payload::RecoverOrphaned(value))
+            if value.operation_id == "o" && value.expected_journal_generation == 7)
+        );
+        assert_eq!(encode_frame(&request).unwrap().as_ref(), frame);
+        assert_eq!(
+            AgentCapabilities {
+                guarded_recovery: true,
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0x68, 1]
+        );
+        assert!(
+            !AgentCapabilities::decode(&[0x48, 3][..])
+                .unwrap()
+                .guarded_recovery
+        );
+        let legacy = AgentRequest {
+            request_id: "r1".to_owned(),
+            protocol_version: 3,
+            payload: Some(agent_request::Payload::Recover(agent_v1::RecoverRequest {})),
+        };
+        assert_eq!(
+            legacy.encode_to_vec(),
+            [0x0a, 2, b'r', b'1', 0x10, 3, 0x92, 0x01, 0]
+        );
+    }
+
+    #[test]
     fn v1_control_request_wire_snapshot_is_stable() {
         let decoded: ControlRequest =
             decode_frame(Bytes::from_static(GET_STATUS_V1_FRAME)).expect("decode snapshot");
@@ -297,6 +389,76 @@ mod tests {
             encode_frame(&decoded).expect("re-encode").as_ref(),
             GET_STATUS_V1_FRAME
         );
+    }
+
+    #[test]
+    fn network_quality_append_only_wire_fixture_round_trips() {
+        let decoded: crate::v1::ControlResponse =
+            decode_frame(Bytes::from_static(NETWORK_QUALITY_V1_FRAME))
+                .expect("decode network quality fixture");
+        let snapshot = match decoded.payload.as_ref() {
+            Some(crate::v1::control_response::Payload::NetworkQuality(snapshot)) => snapshot,
+            payload => panic!("unexpected payload: {payload:?}"),
+        };
+        assert_eq!(snapshot.sampled_at_unix_ms, 1234);
+        assert_eq!(snapshot.connection_instance_id, "c1");
+        assert_eq!(snapshot.level, crate::v1::NetworkQualityLevel::Good as i32);
+        let metrics = snapshot.metrics.as_ref().expect("metrics");
+        assert_eq!(metrics.current_smoothed_rtt_milliseconds, 42);
+        assert!(metrics.current_smoothed_rtt_known);
+        assert!(!metrics.latest_rtt_known);
+        assert_eq!(metrics.min_rtt_ms, 21);
+        assert_eq!(
+            metrics.smoothed_rtt_availability,
+            crate::v1::MetricAvailability::Available as i32
+        );
+        assert_eq!(snapshot.queues.len(), 1);
+        assert_eq!(snapshot.queues[0].current_bytes, 100);
+        assert_eq!(snapshot.queues[0].drop_items, 1);
+        assert_eq!(snapshot.queues[0].enqueue_count, 10);
+        assert_eq!(
+            encode_frame(&decoded).expect("re-encode").as_ref(),
+            NETWORK_QUALITY_V1_FRAME
+        );
+    }
+
+    #[test]
+    fn latest_rtt_append_only_tags_are_independent_of_smoothed_rtt() {
+        let metrics = crate::v1::ConnectionMetrics {
+            current_smoothed_rtt_milliseconds: 42,
+            current_smoothed_rtt_known: true,
+            latest_rtt_ms: 7,
+            latest_rtt_known: true,
+            latest_rtt_availability: crate::v1::MetricAvailability::Available as i32,
+            ..Default::default()
+        };
+        let wire = metrics.encode_to_vec();
+        assert_eq!(
+            wire,
+            [0x20, 42, 0x28, 1, 0x80, 4, 7, 0x88, 4, 1, 0x90, 4, 1]
+        );
+        let decoded = crate::v1::ConnectionMetrics::decode(wire.as_slice()).unwrap();
+        assert_eq!(decoded.latest_rtt_ms, 7);
+        assert_eq!(decoded.current_smoothed_rtt_milliseconds, 42);
+    }
+
+    #[test]
+    fn legacy_decoder_ignores_the_new_network_quality_response() {
+        let legacy = LegacyControlResponse::decode(&NETWORK_QUALITY_V1_FRAME[4..])
+            .expect("legacy decoder ignores append-only field 21");
+        assert_eq!(legacy.request_id, "n1");
+    }
+
+    #[test]
+    fn unknown_network_quality_enum_is_retained_as_an_unknown_wire_value() {
+        let encoded = crate::v1::NetworkQualitySnapshot {
+            level: 99,
+            ..crate::v1::NetworkQualitySnapshot::default()
+        }
+        .encode_to_vec();
+        let decoded = crate::v1::NetworkQualitySnapshot::decode(encoded.as_slice()).unwrap();
+        assert_eq!(decoded.level, 99);
+        assert!(crate::v1::NetworkQualityLevel::try_from(decoded.level).is_err());
     }
 
     #[test]

@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "iterations": 256,
+  "payload_bytes": 1280,
+  "header_bytes": 2,
+  "results": {
+    "ownership_transfer": {
+      "fresh_buffer_allocations": 1,
+      "downstream_copy_allocations": 0,
+      "total_allocations": 1,
+      "allocations_per_packet": 0.00390625,
+      "copied_bytes": 328192,
+      "copy_bytes_per_packet": 1282
+    },
+    "pooled_staging_copy": {
+      "fresh_buffer_allocations": 1,
+      "downstream_copy_allocations": 256,
+      "total_allocations": 257,
+      "allocations_per_packet": 1.00390625,
+      "copied_bytes": 656384,
+      "copy_bytes_per_packet": 2564
+    }
+  },
+  "selected": "ownership_transfer",
+  "selection_reason_code": "fewer_allocations_and_copy_bytes"
+}

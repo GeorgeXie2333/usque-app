@@ -1,5 +1,7 @@
 mod catalog;
 mod checks;
+mod probes;
+mod quality;
 mod report;
 mod runner;
 
@@ -17,6 +19,7 @@ use usque_core::{
 };
 
 pub(crate) use checks::DiagnosticContext;
+pub(crate) use probes::DiagnosticProbeContext;
 #[cfg(any(windows, test))]
 pub(crate) use report::finding_to_proto;
 pub(crate) use report::{empty_session_to_proto, session_to_proto, timeline_to_proto};
@@ -255,6 +258,7 @@ pub enum DiagnosticsError {
 
 #[cfg(test)]
 mod tests {
+    mod network_tests;
     use std::{future::pending, time::Duration};
 
     use async_trait::async_trait;
@@ -340,6 +344,10 @@ mod tests {
             operating_system: "test".to_owned(),
             timeline: ConnectionTimelineSnapshot::default(),
             platform_state: None,
+            quality: crate::network_quality::disconnected_snapshot(),
+            direct_dns: usque_core::DirectDnsSettings::default(),
+            probes: None,
+            captured_at: tokio::time::Instant::now(),
         }
     }
 

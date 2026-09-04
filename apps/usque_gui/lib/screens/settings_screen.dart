@@ -11,6 +11,7 @@ import '../widgets/usque_dialog.dart';
 import 'advanced_settings_screen.dart';
 import 'diagnostics_screen.dart';
 import 'geo_direct_settings_screen.dart';
+import 'network_quality_screen.dart';
 import 'per_app_proxy_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -190,6 +191,8 @@ class SettingsScreen extends StatelessWidget {
                   _UpdateActions(controller: controller),
                 ],
               ),
+              if (controller.engineCapabilities?.networkQuality ?? false)
+                _NetworkQualityCard(controller: controller),
               _DiagnosticsCard(controller: controller),
               _AdvancedCard(controller: controller),
             ],
@@ -518,6 +521,34 @@ class _GeoDirectCard extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NetworkQualityCard extends StatelessWidget {
+  const _NetworkQualityCard({required this.controller});
+
+  final AppController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = controller.strings;
+    return Panel(
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => NetworkQualityScreen(controller: controller),
+        ),
+      ),
+      child: SectionTitle(
+        icon: LucideIcons.gauge,
+        title: strings.get('network_quality'),
+        subtitle: strings.get('nq_subtitle'),
+        trailing: Icon(
+          LucideIcons.chevronRightDir,
+          size: 20,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
         ),
       ),
     );

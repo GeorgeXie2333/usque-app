@@ -295,7 +295,7 @@ const Map<String, String> kRuCatalog = <String, String>{
       'Состояние Usque Engine, экспорт журналов и локальные данные.',
   'engine_status': 'Состояние Usque Engine',
   'version': 'Версия',
-  'app_version': 'Usque 0.2.3',
+  'app_version': 'Usque 0.2.4',
   'logs': 'Локальные журналы',
   'export_diagnostics': 'Экспортировать диагностический пакет',
   'diagnostics_saved': 'Диагностический пакет сохранён в',
@@ -483,6 +483,8 @@ const Map<String, String> kRuCatalog = <String, String>{
   'diag_fail_H3_PROTOCOL_ERROR': 'Ошибка протокола H3',
   'diag_fail_H3_DATAGRAM_UNAVAILABLE': 'Дейтаграмма H3 недоступна',
   'diag_fail_H3_CONNECTION_CLOSED': 'Соединение H3 закрыто',
+  'diag_fail_PMTU_REVALIDATION_EXHAUSTED':
+      'Исчерпаны попытки повторной проверки MTU пути H3',
   'diag_fail_H2_TCP_CONNECT_FAILED': 'Сбой TCP-соединения H2',
   'diag_fail_H2_TLS_FAILED': 'Сбой TLS H2',
   'diag_fail_H2_STREAM_CLOSED': 'Поток H2 закрыт',

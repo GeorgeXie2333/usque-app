@@ -7,6 +7,26 @@ import org.junit.Test
 
 class AndroidMaintenanceSanitizationTest {
     @Test
+    fun migrationEventsKeepOnlyAllowlistedFields() {
+        val events =
+            listOf("migration_started", "migration_path_validated", "migration_promoted")
+                .mapIndexed { index, event ->
+                    mapOf<String, Any?>(
+                        "sequence" to index + 1,
+                        "elapsed_from_attempt_start_milliseconds" to index,
+                        "event_type" to event,
+                        "stage" to "packet_send",
+                        "connection_id" to "private-cid",
+                        "endpoint" to "192.0.2.9",
+                    )
+                }
+        val sanitized = AndroidMaintenance.sanitizeConnectionTimeline(mapOf("events" to events))
+        assertEquals(3, sanitized.getJSONArray("events").length())
+        assertFalse(sanitized.toString().contains("private-cid"))
+        assertFalse(sanitized.toString().contains("192.0.2.9"))
+    }
+
+    @Test
     fun diagnosticSessionIsRebuiltFromAnAllowlist() {
         val session =
             mapOf<String, Any?>(

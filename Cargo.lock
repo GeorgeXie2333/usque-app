@@ -1703,8 +1703,6 @@ checksum = "95067976aca6421a523e491fce939a3e65249bac4b977adee0ee9771568e8aa3"
 [[package]]
 name = "quiche"
 version = "0.29.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61166d27591eb7cb1310eec2b8fc6ae0e0686e9e4ed742a3ffc6317171175e7d"
 dependencies = [
  "boring",
  "bytes",
@@ -2691,7 +2689,7 @@ dependencies = [
 
 [[package]]
 name = "usque-agent"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2714,9 +2712,10 @@ dependencies = [
 
 [[package]]
 name = "usque-android"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "async-trait",
+ "bytes",
  "ipnet",
  "jni",
  "libc",
@@ -2735,7 +2734,7 @@ dependencies = [
 
 [[package]]
 name = "usque-core"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -2746,6 +2745,7 @@ dependencies = [
  "p256",
  "proptest",
  "reqwest",
+ "rustls",
  "serde",
  "serde_json",
  "sha2",
@@ -2763,7 +2763,7 @@ dependencies = [
 
 [[package]]
 name = "usque-engine"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -2794,7 +2794,7 @@ dependencies = [
 
 [[package]]
 name = "usque-geo"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "bytes",
  "futures",
@@ -2810,7 +2810,7 @@ dependencies = [
 
 [[package]]
 name = "usque-ipc"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "bytes",
  "prost",
@@ -2822,7 +2822,7 @@ dependencies = [
 
 [[package]]
 name = "usque-platform"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "async-trait",
  "security-framework",
@@ -2836,7 +2836,7 @@ dependencies = [
 
 [[package]]
 name = "usque-protocol"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "bytes",
  "proptest",
@@ -2847,7 +2847,7 @@ dependencies = [
 
 [[package]]
 name = "usque-transport"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "async-trait",
  "boring",
@@ -2857,7 +2857,9 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
+ "libc",
  "p256",
+ "proptest",
  "quiche",
  "rustls",
  "serde_json",
@@ -2872,13 +2874,14 @@ dependencies = [
  "usque-core",
  "usque-geo",
  "usque-protocol",
+ "uuid",
  "webpki-roots",
  "zeroize",
 ]
 
 [[package]]
 name = "usque-uninstall"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "thiserror",
  "windows-sys 0.61.2",
@@ -2886,7 +2889,7 @@ dependencies = [
 
 [[package]]
 name = "usque-update"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "clap",
  "sha2",

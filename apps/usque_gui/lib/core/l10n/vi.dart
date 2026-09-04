@@ -292,7 +292,7 @@ const Map<String, String> kViCatalog = <String, String>{
       'Trạng thái Usque Engine, xuất nhật ký và dữ liệu cục bộ.',
   'engine_status': 'Trạng thái Usque Engine',
   'version': 'Phiên bản',
-  'app_version': 'Usque 0.2.3',
+  'app_version': 'Usque 0.2.4',
   'logs': 'Nhật ký cục bộ',
   'export_diagnostics': 'Xuất gói chẩn đoán',
   'diagnostics_saved': 'Đã lưu gói chẩn đoán vào',
@@ -479,6 +479,8 @@ const Map<String, String> kViCatalog = <String, String>{
   'diag_fail_H3_PROTOCOL_ERROR': 'Lỗi giao thức H3',
   'diag_fail_H3_DATAGRAM_UNAVAILABLE': 'Datagram H3 không khả dụng',
   'diag_fail_H3_CONNECTION_CLOSED': 'Kết nối H3 đã đóng',
+  'diag_fail_PMTU_REVALIDATION_EXHAUSTED':
+      'Đã dùng hết số lần xác thực lại MTU đường dẫn H3',
   'diag_fail_H2_TCP_CONNECT_FAILED': 'Kết nối TCP H2 thất bại',
   'diag_fail_H2_TLS_FAILED': 'TLS H2 thất bại',
   'diag_fail_H2_STREAM_CLOSED': 'Luồng H2 đã đóng',

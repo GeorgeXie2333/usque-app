@@ -302,7 +302,7 @@ const Map<String, String> kFrCatalog = <String, String>{
       'État de l’Usque Engine, export des journaux et données locales.',
   'engine_status': 'État de l’Usque Engine',
   'version': 'Version',
-  'app_version': 'Usque 0.2.3',
+  'app_version': 'Usque 0.2.4',
   'logs': 'Journaux locaux',
   'export_diagnostics': 'Exporter l’archive de diagnostics',
   'diagnostics_saved': 'Archive de diagnostics enregistrée dans',
@@ -492,6 +492,8 @@ const Map<String, String> kFrCatalog = <String, String>{
   'diag_fail_H3_PROTOCOL_ERROR': 'Erreur de protocole H3',
   'diag_fail_H3_DATAGRAM_UNAVAILABLE': 'Datagramme H3 indisponible',
   'diag_fail_H3_CONNECTION_CLOSED': 'Connexion H3 fermée',
+  'diag_fail_PMTU_REVALIDATION_EXHAUSTED':
+      'Les tentatives de revalidation de la MTU du chemin H3 sont épuisées',
   'diag_fail_H2_TCP_CONNECT_FAILED': 'Échec de la connexion TCP H2',
   'diag_fail_H2_TLS_FAILED': 'Échec TLS H2',
   'diag_fail_H2_STREAM_CLOSED': 'Flux H2 fermé',
