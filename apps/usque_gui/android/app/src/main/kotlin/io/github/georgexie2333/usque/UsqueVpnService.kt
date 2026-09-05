@@ -16,6 +16,7 @@ import android.os.Message
 import android.os.Messenger
 import android.os.ParcelFileDescriptor
 import android.os.RemoteException
+import android.os.SystemClock
 import android.service.quicksettings.TileService
 import androidx.annotation.Keep
 import androidx.core.content.ContextCompat
@@ -134,6 +135,8 @@ class UsqueVpnService : VpnService() {
         )
 
     @Volatile private var destroyed = false
+    private val statusTaskLock = Any()
+    private var statusTaskGeneration = 0L
     private var statusTask: ScheduledFuture<*>? = null
 
     private val controlMessenger =
@@ -307,8 +310,7 @@ class UsqueVpnService : VpnService() {
         activeProfileJson.set(null)
         activeMode.set(null)
         nativeRuntimeActive.set(false)
-        statusTask?.cancel(false)
-        statusTask = null
+        stopStatusTask()
         eventClients.clear()
         NativeEngine.cancel()
         val descriptor = tunnel.getAndSet(null)
@@ -1302,8 +1304,7 @@ class UsqueVpnService : VpnService() {
         activeProfileJson.set(null)
         val stoppedMode = activeMode.getAndSet(null)
         nativeRuntimeActive.set(false)
-        statusTask?.cancel(false)
-        statusTask = null
+        stopStatusTask()
         NativeEngine.cancel()
         val descriptor = tunnel.getAndSet(null)
         closeQuietly(descriptor)
@@ -1347,8 +1348,7 @@ class UsqueVpnService : VpnService() {
         activeProfileJson.set(null)
         activeMode.set(null)
         nativeRuntimeActive.set(false)
-        statusTask?.cancel(false)
-        statusTask = null
+        stopStatusTask()
         snapshotState.phase = "disconnecting"
         snapshotState.warning = null
         notifyTileStateChanged()
@@ -1411,14 +1411,46 @@ class UsqueVpnService : VpnService() {
         )
 
     private fun ensureStatusTask() {
-        if (statusTask?.isDone == false) return
-        statusTask =
-            statusExecutor.scheduleWithFixedDelay(
-                ::refreshNativeSnapshotInBackground,
-                0,
-                NATIVE_STATUS_INTERVAL_MILLIS,
-                TimeUnit.MILLISECONDS,
-            )
+        synchronized(statusTaskLock) {
+            if (destroyed || statusTask?.isDone == false) return
+            val generation = ++statusTaskGeneration
+            val cadence = StatusSamplingCadence(NATIVE_STATUS_INTERVAL_MILLIS)
+
+            fun scheduleNext(delayMillis: Long) {
+                statusTask =
+                    statusExecutor.schedule(
+                        {
+                            val current =
+                                synchronized(statusTaskLock) {
+                                    !destroyed && generation == statusTaskGeneration
+                                }
+                            if (current) {
+                                if (cadence.takeDue(SystemClock.elapsedRealtime())) {
+                                    refreshNativeSnapshotInBackground()
+                                }
+                                synchronized(statusTaskLock) {
+                                    if (!destroyed && generation == statusTaskGeneration) {
+                                        scheduleNext(cadence.delayUntilNext(SystemClock.elapsedRealtime()))
+                                    }
+                                }
+                            }
+                        },
+                        delayMillis,
+                        TimeUnit.MILLISECONDS,
+                    )
+            }
+            scheduleNext(0)
+        }
+    }
+
+    private fun stopStatusTask() {
+        synchronized(statusTaskLock) {
+            // A task already inside JNI may finish, but cannot queue another
+            // beat after disconnect/destroy or replace a newer task's future.
+            statusTaskGeneration++
+            statusTask?.cancel(false)
+            statusTask = null
+        }
     }
 
     private fun refreshNativeSnapshot() {
@@ -1470,8 +1502,7 @@ class UsqueVpnService : VpnService() {
         }
         if (merge.enteredError) {
             // Keep the TUN open and fail closed until the user retries or disconnects.
-            statusTask?.cancel(false)
-            statusTask = null
+            stopStatusTask()
         }
         if (merge.phaseChanged) {
             logStore.record(

@@ -9,6 +9,7 @@ import 'package:usque/screens/network_quality_screen.dart';
 import 'package:usque/screens/settings_screen.dart';
 import 'package:usque/screens/shell_screen.dart';
 import 'package:usque/state/app_controller.dart';
+import 'package:usque/state/network_quality_controller.dart';
 import 'package:usque/widgets/common.dart';
 
 import 'quality_test_support.dart';
@@ -193,18 +194,32 @@ void main() {
   ) async {
     await tester.binding.setSurfaceSize(const Size(430, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-    final app = qualityApp(QualityEngineStub())
-      ..selectSection(AppSection.settings);
+    var now = DateTime.utc(2026, 9, 2, 12, 0, 59);
+    final engine = QualityEngineStub();
+    final app =
+        AppController(
+            engine,
+            qualityController: NetworkQualityController(
+              engine,
+              now: () => now,
+              autoTick: false,
+            ),
+          )
+          ..localePreference = LocalePreference.english
+          ..engineCapabilities = engine.capabilities
+          ..snapshot = EngineSnapshot(
+            phase: ConnectionPhase.connected,
+            networkQuality: qualityFixture(now, rtt: 44),
+          )
+          ..selectSection(AppSection.settings);
     addTearDown(app.dispose);
     await tester.pumpWidget(host(app, shell: true));
     await tester.pumpAndSettle();
     await _openQualityFromSettings(tester, app);
     expect(find.text('44 ms'), findsOneWidget);
 
-    app.networkQuality = qualityFixture(
-      DateTime.utc(2026, 9, 2, 12, 1),
-      rtt: 123,
-    );
+    now = now.add(const Duration(seconds: 1));
+    app.networkQuality = qualityFixture(now, rtt: 123);
     await tester.pumpAndSettle();
     expect(find.text('123 ms'), findsOneWidget);
     expect(find.text('44 ms'), findsNothing);

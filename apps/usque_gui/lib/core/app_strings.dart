@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import '../models/app_models.dart';
 import 'l10n/catalogs.dart';
 import 'l10n/network_quality.dart';
+import 'l10n/ui_workflow.dart';
 import 'l10n/windows_recovery.dart';
 
 class AppStrings {
@@ -22,6 +23,8 @@ class AppStrings {
       catalogId.startsWith('zh') ? 'zh' : catalogId.split('_').first;
 
   String get(String key) {
+    final workflow = catalogId == 'zh_CN' ? kUiWorkflowZhCn : kUiWorkflowEn;
+    if (workflow.containsKey(key)) return workflow[key]!;
     final quality = catalogId == 'zh_CN'
         ? kNetworkQualityZhCn
         : kNetworkQualityEn;
@@ -37,6 +40,11 @@ class AppStrings {
 
   @visibleForTesting
   static bool get debugCatalogsAreComplete {
+    if (!setEquals(kUiWorkflowEn.keys.toSet(), kUiWorkflowZhCn.keys.toSet()) ||
+        kUiWorkflowEn.values.any((value) => value.trim().isEmpty) ||
+        kUiWorkflowZhCn.values.any((value) => value.trim().isEmpty)) {
+      return false;
+    }
     if (!setEquals(
           kWindowsRecoveryEn.keys.toSet(),
           kWindowsRecoveryZhCn.keys.toSet(),

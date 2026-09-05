@@ -92,6 +92,18 @@ explicit Profile configuration message where it is required for editing.
 The Quality navigation entry requires the optional build capability. Missing
 capabilities leave old connection controls intact. The process-local controller
 retains at most 300 one-second points and displays an aligned 60-second window.
+Windows and Android share this history with both Home layouts. Quality points
+use the source sampling timestamp; byte counters are observed only after a full
+state snapshot has been installed, never from a quality-only event or a repaint
+timer. Source timestamps, not presentation equality, identify repeated samples.
+The one-second grid follows the first source sample's phase, rounding observations
+to the nearest beat to tolerate sub-half-second scheduling jitter. Multiple
+observations in a beat replace that beat; absent beats are not interpolated.
+The live right edge waits for an in-flight beat before calling it missing, then
+continues advancing without events. Counter rates use actual observation time;
+window averages divide total byte deltas by total elapsed time across consecutive
+valid intervals rather than averaging unequal-duration rates. Counter resets,
+clock rollback, pause, or stream outages break the rate baseline.
 New connection IDs reset both history and byte-counter baselines. Paused,
 missing and stale samples stay gaps; closing the app does not persist history.
 At most one refresh is outstanding, and a late reply cannot restore a previous
@@ -99,6 +111,11 @@ connection after disconnect. Timestamps are range checked and queues capped at
 eight in both codecs. Latest/smoothed/minimum RTT are distinct measurements.
 H2 shows protocol PING RTT and receive-window stalls, but no packet-loss or PMTU
 measurement. PMTU limits use exact bytes, not rounded throughput units.
+Full-state fallback polling is also single-flight. A reply predating a newer
+event/control state is discarded. Fresh fallback data can resume chart observations
+without clearing the app's separate event-pipe-degraded indication. Android polls
+on fixed monotonic deadlines with bounded early-tick tolerance and skips catch-up
+work; Windows retains its existing fixed-rate, missed-tick-skipping event stream.
 
 Android forwards a maximum 16 KiB allowlisted quality JSON object across the
 Messenger/MethodChannel boundary. It retains only fixed numeric fields, eight

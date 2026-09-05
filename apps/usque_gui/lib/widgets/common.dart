@@ -12,6 +12,7 @@ class PageFrame extends StatelessWidget {
     required this.child,
     this.subtitle,
     this.header,
+    this.titleWidget,
     this.actions = const <Widget>[],
     super.key,
   });
@@ -20,6 +21,7 @@ class PageFrame extends StatelessWidget {
   final Widget child;
   final String? subtitle;
   final Widget? header;
+  final Widget? titleWidget;
   final List<Widget> actions;
 
   static const double maxContentWidth = 1120;
@@ -27,11 +29,12 @@ class PageFrame extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
+    final double gutter = MediaQuery.sizeOf(context).width < 600 ? 16 : 26;
     return CustomScrollView(
       key: PageStorageKey<String>(title),
       slivers: <Widget>[
         SliverPadding(
-          padding: const EdgeInsets.fromLTRB(26, 26, 26, 18),
+          padding: EdgeInsets.fromLTRB(gutter, gutter, gutter, 18),
           sliver: SliverToBoxAdapter(
             child: Align(
               alignment: Alignment.topCenter,
@@ -49,7 +52,8 @@ class PageFrame extends StatelessWidget {
                           header!,
                           const SizedBox(height: 18),
                         ],
-                        Text(title, style: theme.textTheme.headlineMedium),
+                        titleWidget ??
+                            Text(title, style: theme.textTheme.headlineMedium),
                         if (subtitle != null) ...<Widget>[
                           const SizedBox(height: 6),
                           Text(
@@ -92,7 +96,7 @@ class PageFrame extends StatelessWidget {
           ),
         ),
         SliverPadding(
-          padding: const EdgeInsets.fromLTRB(26, 0, 26, 34),
+          padding: EdgeInsets.fromLTRB(gutter, 0, gutter, 34),
           sliver: SliverToBoxAdapter(
             child: Align(
               alignment: Alignment.topCenter,
@@ -120,6 +124,7 @@ class SubPage extends StatelessWidget {
     required this.child,
     this.subtitle,
     this.actions = const <Widget>[],
+    this.bottomBar,
     super.key,
   });
 
@@ -128,10 +133,12 @@ class SubPage extends StatelessWidget {
   final Widget child;
   final String? subtitle;
   final List<Widget> actions;
+  final Widget? bottomBar;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      bottomNavigationBar: bottomBar,
       body: SafeArea(
         child: PageFrame(
           title: title,
@@ -592,19 +599,22 @@ class BannerSlot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final content = child == null
+        ? const SizedBox(width: double.infinity, height: 0)
+        : Padding(
+            key: const ValueKey<String>('banner'),
+            padding: EdgeInsets.only(bottom: spacing),
+            child: child,
+          );
+    // A zero-duration AnimatedSize can synchronously re-dirty itself when
+    // large text changes the banner's measured height. Reduced motion should
+    // bypass layout animation altogether, not animate with a zero duration.
+    if (UsqueMotion.reduced(context)) return content;
     return AnimatedSize(
       duration: UsqueMotion.of(context, UsqueMotion.gentle),
       curve: UsqueMotion.emphasized,
       alignment: Alignment.topCenter,
-      child: FadeThroughSwitcher(
-        child: child == null
-            ? const SizedBox(width: double.infinity, height: 0)
-            : Padding(
-                key: const ValueKey<String>('banner'),
-                padding: EdgeInsets.only(bottom: spacing),
-                child: child,
-              ),
-      ),
+      child: FadeThroughSwitcher(child: content),
     );
   }
 }
@@ -617,6 +627,7 @@ class ReadoutRow extends StatelessWidget {
     this.icon,
     this.leading,
     this.valueColor,
+    this.stackWhenNarrow = false,
     super.key,
   });
 
@@ -625,6 +636,7 @@ class ReadoutRow extends StatelessWidget {
   final IconData? icon;
   final Widget? leading;
   final Color? valueColor;
+  final bool stackWhenNarrow;
 
   /// Builds a row whose value is plain text.
   static Widget text(
@@ -649,40 +661,66 @@ class ReadoutRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        if (leading != null)
-          SizedBox(width: 22, child: Center(child: leading))
-        else if (icon != null)
-          SizedBox(
-            width: 22,
-            child: Icon(
-              icon,
-              size: 17,
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-        if (leading != null || icon != null) const SizedBox(width: 11),
-        Expanded(
-          child: Text(
-            label,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
+    final leadingWidgets = <Widget>[
+      if (leading != null)
+        SizedBox(width: 22, child: Center(child: leading))
+      else if (icon != null)
+        SizedBox(
+          width: 22,
+          child: Icon(
+            icon,
+            size: 17,
+            color: theme.colorScheme.onSurfaceVariant,
           ),
         ),
-        const SizedBox(width: 14),
-        Flexible(
-          child: Align(alignment: AlignmentDirectional.centerEnd, child: value),
-        ),
-      ],
+      if (leading != null || icon != null) const SizedBox(width: 11),
+    ];
+    final labelText = Text(
+      label,
+      style: theme.textTheme.bodyMedium?.copyWith(
+        color: theme.colorScheme.onSurfaceVariant,
+      ),
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (stackWhenNarrow &&
+            (constraints.maxWidth < 320 ||
+                MediaQuery.textScalerOf(context).scale(14) > 21)) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  ...leadingWidgets,
+                  Expanded(child: labelText),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Align(alignment: AlignmentDirectional.centerEnd, child: value),
+            ],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ...leadingWidgets,
+            Expanded(child: labelText),
+            const SizedBox(width: 14),
+            Flexible(
+              child: Align(
+                alignment: AlignmentDirectional.centerEnd,
+                child: value,
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
 
 /// Selectable machine value in the mono face.
-class MonoValue extends StatelessWidget {
+class MonoValue extends StatefulWidget {
   const MonoValue({
     required this.value,
     this.muted = false,
@@ -695,17 +733,30 @@ class MonoValue extends StatelessWidget {
   final double? size;
 
   @override
+  State<MonoValue> createState() => _MonoValueState();
+}
+
+class _MonoValueState extends State<MonoValue> {
+  // SelectableText has an internal scrollable. Without a storage boundary it
+  // inherits the page/ExpansionTile key, reads a bool as a scroll offset, and
+  // can overwrite its parent's state. Machine values need no persisted offset.
+  final _textStorage = PageStorageBucket();
+
+  @override
   Widget build(BuildContext context) {
-    return SelectableText(
-      value,
-      textAlign: TextAlign.end,
-      style: UsqueTheme.mono(
-        context,
-        size: size,
-        weight: FontWeight.w500,
-        color: muted
-            ? Theme.of(context).colorScheme.onSurfaceVariant
-            : Theme.of(context).colorScheme.onSurface,
+    return PageStorage(
+      bucket: _textStorage,
+      child: SelectableText(
+        widget.value,
+        textAlign: TextAlign.end,
+        style: UsqueTheme.mono(
+          context,
+          size: widget.size,
+          weight: FontWeight.w500,
+          color: widget.muted
+              ? Theme.of(context).colorScheme.onSurfaceVariant
+              : Theme.of(context).colorScheme.onSurface,
+        ),
       ),
     );
   }

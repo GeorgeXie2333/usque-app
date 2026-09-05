@@ -8,6 +8,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/app_strings.dart';
 import '../core/connection_presentation.dart';
+import '../core/frontend_presentation.dart';
 import '../core/usque_motion.dart';
 import '../core/usque_theme.dart';
 import '../models/app_models.dart';
@@ -16,9 +17,11 @@ import '../widgets/common.dart';
 import '../widgets/connection_ring.dart';
 import '../widgets/controller_selector.dart';
 import '../widgets/live_duration.dart';
+import '../widgets/mobile_home_panels.dart';
 import '../widgets/profile_identity_dialog.dart';
 import '../widgets/sparkline.dart';
 import 'diagnostics_screen.dart';
+import 'network_quality_screen.dart';
 
 /// The instrument panel: one connection control, one status readout, and the
 /// live numbers that prove the tunnel is doing something.
@@ -36,43 +39,70 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final AppStrings strings = controller.strings;
+    final viewport = MediaQuery.sizeOf(context);
+    final bool compact =
+        viewport.width < 760 ||
+        defaultTargetPlatform == TargetPlatform.android &&
+            viewport.shortestSide < 600;
     return PageFrame(
       title: strings.get('home'),
-      header: MediaQuery.sizeOf(context).width < 760
-          ? const _NarrowBrandHeader()
-          : null,
+      titleWidget: compact ? const _NarrowBrandHeader() : null,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          _ErrorSlot(controller: controller, strings: strings),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final Widget hero = _ConnectionHero(
-                controller: controller,
-                strings: strings,
-              );
-              final Widget readout = _EngineReadout(
-                controller: controller,
-                strings: strings,
-              );
-              final bool split = constraints.maxWidth >= _splitWidth;
-              final Widget location = _ExitPanel(
-                controller: controller,
-                strings: strings,
-                fillRemaining: split,
-              );
-              if (split) {
-                return _WideHomeSplit(
-                  leading: hero,
-                  trailing: location,
-                  readout: readout,
+          if (!compact) _ErrorSlot(controller: controller, strings: strings),
+          if (compact)
+            PanelStack(
+              spacing: 12 + mobileHomeExpansion(context) * 4,
+              children: [
+                _ConnectionHero(
+                  controller: controller,
+                  strings: strings,
+                  compact: true,
+                ),
+                MobileTrafficPanel(controller: controller),
+                MobileConnectionOverview(
+                  controller: controller,
+                  details: _HomeDetails(
+                    controller: controller,
+                    strings: strings,
+                  ),
+                ),
+              ],
+            )
+          else
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final Widget hero = _ConnectionHero(
+                  controller: controller,
+                  strings: strings,
                 );
-              }
-              return PanelStack(children: <Widget>[hero, readout, location]);
-            },
-          ),
-          const SizedBox(height: 16),
-          _TrafficGrid(controller: controller, strings: strings),
+                final Widget readout = _EngineReadout(
+                  controller: controller,
+                  strings: strings,
+                );
+                final bool split = constraints.maxWidth >= _splitWidth;
+                final Widget location = _ExitPanel(
+                  controller: controller,
+                  strings: strings,
+                  fillRemaining: split,
+                );
+                if (split) {
+                  return _WideHomeSplit(
+                    leading: hero,
+                    trailing: location,
+                    readout: readout,
+                  );
+                }
+                return PanelStack(children: <Widget>[hero, readout, location]);
+              },
+            ),
+          if (!compact) ...[
+            const SizedBox(height: 16),
+            _TrafficGrid(controller: controller, strings: strings),
+            const SizedBox(height: 12),
+            _HomeTools(controller: controller),
+          ],
         ],
       ),
     );
@@ -298,8 +328,25 @@ _OutputPhases _outputPhases(EngineSnapshot snapshot) {
   );
 }
 
+_HeroView _heroView(AppController controller) => (
+  phase: controller.snapshot.phase,
+  busy: controller.busy,
+  errorCode: controller.snapshot.errorCode,
+  profileName: controller.activeProfile.name,
+  frontends: controller.activeProfile.frontends,
+  systemProxy: controller.activeProfile.proxy.systemProxy,
+  geoDirect: controller.activeProfile.geoDirectCountries.join(','),
+  runtime: _outputPhases(controller.snapshot),
+);
+
 class _ConnectionHero extends StatelessWidget {
-  const _ConnectionHero({required this.controller, required this.strings});
+  const _ConnectionHero({
+    required this.controller,
+    required this.strings,
+    this.compact = false,
+  });
+
+  final bool compact;
 
   final AppController controller;
   final AppStrings strings;
@@ -309,109 +356,172 @@ class _ConnectionHero extends StatelessWidget {
     return ControllerSelector<_HeroView>(
       controller: controller,
       active: (controller) => controller.section == AppSection.home,
-      selector: (controller) => (
-        phase: controller.snapshot.phase,
-        busy: controller.busy,
-        errorCode: controller.snapshot.errorCode,
-        profileName: controller.activeProfile.name,
-        frontends: controller.activeProfile.frontends,
-        systemProxy: controller.activeProfile.proxy.systemProxy,
-        geoDirect: controller.activeProfile.geoDirectCountries.join(','),
-        runtime: _outputPhases(controller.snapshot),
-      ),
+      selector: _heroView,
       builder: (context, view) => _buildHero(context, view),
     );
   }
 
   Widget _buildHero(BuildContext context, _HeroView view) {
-    final ThemeData theme = Theme.of(context);
-    final ConnectionPresentation presentation = ConnectionPresentation.of(
-      view.phase,
+    final theme = Theme.of(context);
+    final presentation = ConnectionPresentation.of(view.phase);
+    final status = strings.get(presentation.labelKey);
+    final action = strings.get(presentation.actionKey);
+    final canAct =
+        !view.busy &&
+        !(view.phase == ConnectionPhase.error &&
+            view.errorCode == 'WINDOWS_RECOVERY_BLOCKED');
+    Widget ring(double size) => ConnectionRing(
+      phase: view.phase,
+      busy: view.busy,
+      actionLabel: action,
+      semanticLabel: '${strings.get('connection_status')}: $status',
+      size: size,
+      compactControl: compact,
+      onPressed: canAct ? () => _connectOrRepairIdentity(context) : null,
     );
-    final String status = strings.get(presentation.labelKey);
-    final String action = strings.get(presentation.actionKey);
-
+    Widget account() => Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          strings.get('active_profile'),
+          style: theme.textTheme.labelMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 5),
+        Tooltip(
+          message: view.profileName,
+          child: Text(
+            view.profileName,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.titleLarge,
+          ),
+        ),
+      ],
+    );
+    Widget statusText() => Semantics(
+      liveRegion: true,
+      child: FadeThroughSwitcher(
+        child: Text(
+          status,
+          key: ValueKey(view.phase),
+          textAlign: TextAlign.center,
+          style: theme.textTheme.headlineSmall,
+        ),
+      ),
+    );
+    Widget recovery() => Wrap(
+      alignment: compact ? WrapAlignment.start : WrapAlignment.center,
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        if (view.errorCode != 'WINDOWS_RECOVERY_BLOCKED')
+          OutlinedButton.icon(
+            onPressed: view.busy ? null : controller.retry,
+            icon: const Icon(LucideIcons.refreshCw),
+            label: Text(strings.get('retry')),
+          ),
+        OutlinedButton.icon(
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => DiagnosticsScreen(controller: controller),
+            ),
+          ),
+          icon: const Icon(LucideIcons.activity),
+          label: Text(strings.get('diagnostics')),
+        ),
+      ],
+    );
+    if (compact) {
+      final expansion = mobileHomeExpansion(context);
+      final ringSize = 148 + expansion * 32;
+      return Panel(
+        key: const ValueKey('mobile-connection-card'),
+        padding: EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 12 + expansion * 12,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    strings.get('active_profile'),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: Tooltip(
+                    message: view.profileName,
+                    child: Text(
+                      view.profileName,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.end,
+                      style: theme.textTheme.titleLarge,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Center(child: ring(ringSize)),
+            const SizedBox(height: 6),
+            statusText(),
+            const SizedBox(height: 10),
+            _ErrorSlot(controller: controller, strings: strings),
+            if (presentation.recoverable &&
+                view.errorCode != 'WINDOWS_RECOVERY_BLOCKED') ...[
+              Center(
+                child: OutlinedButton.icon(
+                  onPressed: view.busy ? null : controller.retry,
+                  icon: const Icon(LucideIcons.refreshCw, size: 18),
+                  label: Text(strings.get('retry')),
+                ),
+              ),
+              const SizedBox(height: 10),
+            ],
+            Divider(height: 1, color: UsqueTokens.of(context).hairline),
+            const SizedBox(height: 8),
+            _ProtectionSummary(controller: controller),
+          ],
+        ),
+      );
+    }
     return Panel(
       padding: const EdgeInsets.fromLTRB(24, 22, 24, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          Text(
-            strings.get('active_profile').toUpperCase(),
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-              letterSpacing: 1.1,
-            ),
-          ),
-          const SizedBox(height: 5),
-          Text(
-            view.profileName,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.titleLarge,
-          ),
+        children: [
+          account(),
           const SizedBox(height: 22),
           Center(
             child: LayoutBuilder(
-              builder: (context, constraints) => ConnectionRing(
-                phase: view.phase,
-                busy: view.busy,
-                actionLabel: action,
-                semanticLabel: '${strings.get('connection_status')}: $status',
-                size: constraints.maxWidth.clamp(180, 244).toDouble(),
-                onPressed:
-                    view.busy ||
-                        (view.phase == ConnectionPhase.error &&
-                            view.errorCode == 'WINDOWS_RECOVERY_BLOCKED')
-                    ? null
-                    : () => _connectOrRepairIdentity(context),
-              ),
+              builder: (context, constraints) =>
+                  ring(constraints.maxWidth.clamp(180, 244).toDouble()),
             ),
           ),
           const SizedBox(height: 20),
-          Center(
-            child: FadeThroughSwitcher(
-              child: Text(
-                status,
-                key: ValueKey<ConnectionPhase>(view.phase),
-                textAlign: TextAlign.center,
-                style: theme.textTheme.headlineSmall,
-              ),
-            ),
-          ),
-          if (presentation.recoverable) ...<Widget>[
+          Center(child: statusText()),
+          if (presentation.recoverable) ...[
             const SizedBox(height: 16),
-            Wrap(
-              alignment: WrapAlignment.center,
-              spacing: 8,
-              runSpacing: 8,
-              children: <Widget>[
-                if (view.errorCode != 'WINDOWS_RECOVERY_BLOCKED')
-                  OutlinedButton.icon(
-                    onPressed: view.busy ? null : controller.retry,
-                    icon: const Icon(LucideIcons.refreshCw),
-                    label: Text(strings.get('retry')),
-                  ),
-                OutlinedButton.icon(
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => DiagnosticsScreen(controller: controller),
-                    ),
-                  ),
-                  icon: const Icon(LucideIcons.activity),
-                  label: Text(strings.get('diagnostics')),
-                ),
-              ],
-            ),
+            recovery(),
           ],
           const SizedBox(height: 22),
           Divider(height: 1, color: UsqueTokens.of(context).hairline),
           const SizedBox(height: 18),
           Text(
-            strings.get('outputs').toUpperCase(),
-            style: theme.textTheme.labelSmall?.copyWith(
+            strings.get('outputs'),
+            style: theme.textTheme.labelMedium?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
-              letterSpacing: 1.1,
             ),
           ),
           const SizedBox(height: 12),
@@ -463,27 +573,22 @@ class _FrontendChips extends StatelessWidget {
       );
     }
     final chips = enabled.map((entry) {
-      final FrontendPhase? phase = entry.value;
-      final bool active = phase == FrontendPhase.active;
-      final bool degraded =
-          phase == FrontendPhase.degraded ||
-          phase == FrontendPhase.reconnecting ||
-          phase == FrontendPhase.error;
+      final state = FrontendPresentation.of(
+        configured: true,
+        connection: view.phase,
+        runtime: entry.value,
+      );
+      final name = switch (entry.key) {
+        FrontendKind.tunnel => strings.tunnelOutputLabel(defaultTargetPlatform),
+        FrontendKind.socks5 => 'SOCKS5',
+        FrontendKind.http => 'HTTP',
+        FrontendKind.systemProxy => strings.get('system_proxy'),
+      };
       return StatusPill(
-        label: switch (entry.key) {
-          FrontendKind.tunnel => strings.tunnelOutputLabel(
-            defaultTargetPlatform,
-          ),
-          FrontendKind.socks5 => 'SOCKS5',
-          FrontendKind.http => 'HTTP',
-          FrontendKind.systemProxy => strings.get('system_proxy'),
-        },
-        tone: degraded
-            ? StatusTone.warning
-            : active
-            ? StatusTone.success
-            : StatusTone.neutral,
-        dim: !active && !degraded,
+        label: '$name · ${strings.get(state.labelKey)}',
+        tone: state.tone,
+        icon: state.icon,
+        dim: state.tone == StatusTone.neutral,
       );
     }).toList();
     if (view.geoDirect.isNotEmpty) {
@@ -511,7 +616,13 @@ typedef _ReadoutView = ({
 });
 
 class _EngineReadout extends StatelessWidget {
-  const _EngineReadout({required this.controller, required this.strings});
+  const _EngineReadout({
+    required this.controller,
+    required this.strings,
+    this.includeProtection = true,
+  });
+
+  final bool includeProtection;
 
   final AppController controller;
   final AppStrings strings;
@@ -558,6 +669,7 @@ class _EngineReadout extends StatelessWidget {
           ),
           const SizedBox(height: 20),
           ReadoutRow(
+            stackWhenNarrow: true,
             icon: LucideIcons.cable,
             label: strings.get('protocol'),
             value: view.transport == null
@@ -566,6 +678,7 @@ class _EngineReadout extends StatelessWidget {
           ),
           divider,
           ReadoutRow(
+            stackWhenNarrow: true,
             icon: LucideIcons.network,
             label: strings.get('address_family'),
             value: view.addressFamily == null
@@ -574,18 +687,21 @@ class _EngineReadout extends StatelessWidget {
           ),
           divider,
           ReadoutRow(
+            stackWhenNarrow: true,
             icon: LucideIcons.clock3,
             label: strings.get('duration'),
             value: LiveDuration(since: view.connectedAt),
           ),
-          divider,
-          ReadoutRow.text(
-            context,
-            icon: LucideIcons.shieldCheck,
-            label: strings.get('kill_switch'),
-            value: view.killSwitchLabel,
-          ),
-          if (view.alwaysOn) ...<Widget>[
+          if (includeProtection) ...[
+            divider,
+            ReadoutRow.text(
+              context,
+              icon: LucideIcons.shieldCheck,
+              label: strings.get('kill_switch'),
+              value: view.killSwitchLabel,
+            ),
+          ],
+          if (includeProtection && view.alwaysOn) ...<Widget>[
             divider,
             ReadoutRow.text(
               context,
@@ -594,7 +710,7 @@ class _EngineReadout extends StatelessWidget {
               value: strings.get('on'),
             ),
           ],
-          if (view.platformLockdown) ...<Widget>[
+          if (includeProtection && view.platformLockdown) ...<Widget>[
             divider,
             ReadoutRow.text(
               context,
@@ -609,117 +725,76 @@ class _EngineReadout extends StatelessWidget {
   }
 }
 
-typedef _TrafficView = ({int down, int up, bool live});
-
 class _TrafficGrid extends StatelessWidget {
   const _TrafficGrid({required this.controller, required this.strings});
-
   final AppController controller;
   final AppStrings strings;
 
   @override
-  Widget build(BuildContext context) {
-    return ControllerSelector<_TrafficView>(
-      controller: controller,
-      active: (controller) => controller.section == AppSection.home,
-      selector: (controller) => (
-        down: controller.snapshot.downloadBytesPerSecond,
-        up: controller.snapshot.uploadBytesPerSecond,
-        live: controller.snapshot.isConnected,
+  Widget build(BuildContext context) => ControllerSelector<bool>(
+    controller: controller,
+    selector: (app) => app.section == AppSection.home,
+    builder: (context, active) => ListenableBuilder(
+      listenable: Listenable.merge(
+        active ? [controller, controller.quality] : [],
       ),
-      builder: (context, view) {
-        final UsqueTokens tokens = UsqueTokens.of(context);
-        final Widget download = _MetricCard(
-          icon: LucideIcons.arrowDown,
-          label: strings.get('download'),
-          bytesPerSecond: view.down,
-          color: tokens.inbound,
-          live: view.live,
-        );
-        final Widget upload = _MetricCard(
-          icon: LucideIcons.arrowUp,
-          label: strings.get('upload'),
-          bytesPerSecond: view.up,
-          color: tokens.outbound,
-          live: view.live,
+      builder: (context, _) {
+        final tokens = UsqueTokens.of(context);
+        final snapshot = controller.snapshot;
+        Widget card(bool download) => _MetricCard(
+          controller: controller,
+          icon: download ? LucideIcons.arrowDown : LucideIcons.arrowUp,
+          label: strings.get(download ? 'download' : 'upload'),
+          bytesPerSecond: download
+              ? snapshot.downloadBytesPerSecond
+              : snapshot.uploadBytesPerSecond,
+          color: download ? tokens.inbound : tokens.outbound,
+          samples: !snapshot.isConnected
+              ? const []
+              : controller.quality.trace(
+                  (point) => download
+                      ? point.downloadBytesPerSecond
+                      : point.uploadBytesPerSecond,
+                ),
         );
         return LayoutBuilder(
           builder: (context, constraints) {
             if (constraints.maxWidth >= 560) {
               return Row(
-                children: <Widget>[
-                  Expanded(child: download),
+                children: [
+                  Expanded(child: card(true)),
                   const SizedBox(width: 16),
-                  Expanded(child: upload),
+                  Expanded(child: card(false)),
                 ],
               );
             }
             return Column(
-              children: <Widget>[download, const SizedBox(height: 16), upload],
+              children: [card(true), const SizedBox(height: 16), card(false)],
             );
           },
         );
       },
-    );
-  }
+    ),
+  );
 }
 
-/// One traffic direction: a badge, the current rate, and the recent shape of
-/// that rate.
-class _MetricCard extends StatefulWidget {
+/// Desktop and phone charts share timestamped observations, including zeros
+/// and gaps. Widget rebuilds and unchanged values never alter the history.
+class _MetricCard extends StatelessWidget {
   const _MetricCard({
+    required this.controller,
     required this.icon,
     required this.label,
     required this.bytesPerSecond,
     required this.color,
-    required this.live,
+    required this.samples,
   });
-
+  final AppController controller;
   final IconData icon;
   final String label;
   final int bytesPerSecond;
   final Color color;
-
-  /// History only accumulates while the tunnel is up; a disconnect clears it.
-  final bool live;
-
-  @override
-  State<_MetricCard> createState() => _MetricCardState();
-}
-
-class _MetricCardState extends State<_MetricCard> {
-  static const int _window = 48;
-
-  final List<int> _history = <int>[];
-
-  @override
-  void initState() {
-    super.initState();
-    _record();
-  }
-
-  @override
-  void didUpdateWidget(covariant _MetricCard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (!widget.live) {
-      _history.clear();
-      return;
-    }
-    if (oldWidget.bytesPerSecond != widget.bytesPerSecond || !oldWidget.live) {
-      _record();
-    }
-  }
-
-  void _record() {
-    if (!widget.live) {
-      return;
-    }
-    _history.add(widget.bytesPerSecond);
-    if (_history.length > _window) {
-      _history.removeRange(0, _history.length - _window);
-    }
-  }
-
+  final List<int?> samples;
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
@@ -734,17 +809,15 @@ class _MetricCardState extends State<_MetricCard> {
                 height: 34,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: widget.color.withValues(
-                    alpha: UsqueTokens.of(context).tint,
-                  ),
+                  color: color.withValues(alpha: UsqueTokens.of(context).tint),
                   borderRadius: BorderRadius.circular(UsqueRadii.chip),
                 ),
-                child: Icon(widget.icon, size: 17, color: widget.color),
+                child: Icon(icon, size: 17, color: color),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  widget.label,
+                  label,
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
@@ -752,7 +825,7 @@ class _MetricCardState extends State<_MetricCard> {
               ),
               const SizedBox(width: 10),
               Text(
-                formatRate(widget.bytesPerSecond),
+                formatRate(bytesPerSecond),
                 style: UsqueTheme.mono(
                   context,
                   size: theme.textTheme.titleMedium?.fontSize,
@@ -762,11 +835,160 @@ class _MetricCardState extends State<_MetricCard> {
             ],
           ),
           const SizedBox(height: 14),
-          Sparkline(samples: List<int>.of(_history), color: widget.color),
+          Sparkline(
+            samples: samples,
+            color: color,
+            semanticLabel:
+                '$label · ${controller.strings.get('home_traffic_window')}',
+          ),
         ],
       ),
     );
   }
+}
+
+class _ProtectionSummary extends StatelessWidget {
+  const _ProtectionSummary({required this.controller});
+  final AppController controller;
+  @override
+  Widget build(BuildContext context) =>
+      ControllerSelector<({String key, bool alwaysOn, bool lockdown})>(
+        controller: controller,
+        active: (app) => app.section == AppSection.home,
+        selector: (app) => (
+          key: killSwitchStatusKey(
+            profile: app.activeProfile,
+            snapshot: app.snapshot,
+          ),
+          alwaysOn: app.snapshot.alwaysOn,
+          lockdown: app.snapshot.platformLockdown,
+        ),
+        builder: (context, view) {
+          final strings = controller.strings;
+          return Column(
+            children: [
+              ReadoutRow.text(
+                context,
+                icon: view.key == 'ks_active'
+                    ? LucideIcons.shieldCheck
+                    : view.key == 'ks_error'
+                    ? LucideIcons.shieldAlert
+                    : LucideIcons.shield,
+                label: strings.get('home_kill_switch'),
+                value: strings.get(view.key),
+              ),
+              if (view.alwaysOn) ...[
+                const SizedBox(height: 12),
+                ReadoutRow.text(
+                  context,
+                  icon: LucideIcons.shield,
+                  label: strings.get('always_on'),
+                  value: strings.get('on'),
+                ),
+              ],
+              if (view.lockdown) ...[
+                const SizedBox(height: 12),
+                ReadoutRow.text(
+                  context,
+                  icon: LucideIcons.shieldBan,
+                  label: strings.get('lockdown'),
+                  value: strings.get('on'),
+                ),
+              ],
+            ],
+          );
+        },
+      );
+}
+
+class _HomeTools extends StatelessWidget {
+  const _HomeTools({required this.controller});
+  final AppController controller;
+  @override
+  Widget build(BuildContext context) =>
+      ControllerSelector<({bool quality, bool recovery})>(
+        controller: controller,
+        active: (app) => app.section == AppSection.home,
+        selector: (app) => (
+          quality: app.engineCapabilities?.networkQuality ?? false,
+          recovery: ConnectionPresentation.of(app.snapshot.phase).recoverable,
+        ),
+        builder: (context, view) {
+          final strings = controller.strings;
+          return Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              if (view.quality)
+                OutlinedButton.icon(
+                  key: const ValueKey('home-network-quality'),
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) =>
+                          NetworkQualityScreen(controller: controller),
+                    ),
+                  ),
+                  icon: const Icon(LucideIcons.gauge, size: 18),
+                  label: Text(strings.get('network_quality')),
+                ),
+              if (!view.recovery)
+                TextButton.icon(
+                  key: const ValueKey('home-diagnostics'),
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => DiagnosticsScreen(controller: controller),
+                    ),
+                  ),
+                  icon: const Icon(LucideIcons.activity, size: 18),
+                  label: Text(strings.get('diagnostics')),
+                ),
+            ],
+          );
+        },
+      );
+}
+
+class _HomeDetails extends StatelessWidget {
+  const _HomeDetails({required this.controller, required this.strings});
+  final AppController controller;
+  final AppStrings strings;
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Colors.transparent,
+    child: ExpansionTile(
+      key: const PageStorageKey('home-connection-details'),
+      leading: const Icon(LucideIcons.slidersHorizontal, size: 16),
+      title: Text(
+        strings.get('connection_details'),
+        style: Theme.of(context).textTheme.bodyMedium,
+      ),
+      dense: true,
+      minTileHeight: 48,
+      tilePadding: EdgeInsets.zero,
+      shape: const Border(),
+      collapsedShape: const Border(),
+      children: [
+        _EngineReadout(
+          controller: controller,
+          strings: strings,
+          includeProtection: false,
+        ),
+        const SizedBox(height: 16),
+        _ExitPanel(controller: controller, strings: strings),
+        const SizedBox(height: 16),
+        ControllerSelector<_HeroView>(
+          controller: controller,
+          selector: _heroView,
+          active: (app) => app.section == AppSection.home,
+          builder: (context, view) => SectionPanel(
+            icon: LucideIcons.network,
+            title: strings.get('outputs'),
+            children: [_FrontendChips(view: view, strings: strings)],
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _ExitPanel extends StatelessWidget {
@@ -883,6 +1105,7 @@ class _ExitPanel extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         ReadoutRow(
+          stackWhenNarrow: true,
           leading: flag,
           label: strings.get('location'),
           value: exit.hasLocation
@@ -895,6 +1118,7 @@ class _ExitPanel extends StatelessWidget {
         ),
         divider,
         ReadoutRow(
+          stackWhenNarrow: true,
           icon: LucideIcons.network,
           label: strings.get('ipv4'),
           value: exit.ipv4 == null
@@ -903,6 +1127,7 @@ class _ExitPanel extends StatelessWidget {
         ),
         divider,
         ReadoutRow(
+          stackWhenNarrow: true,
           icon: LucideIcons.network,
           label: strings.get('ipv6'),
           value: exit.ipv6 == null

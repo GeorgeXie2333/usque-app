@@ -150,7 +150,7 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 
 ## Milestone 4 — Flutter UX
 
-- [x] Responsive Home, Profiles, Proxy, Settings, Advanced, and Diagnostics/About pages.
+- [x] Responsive Home, Accounts, Proxy, Settings, Advanced, and Diagnostics/About pages.
 - [x] Four-step permissions, terms, and Consumer WARP or experimental Zero Trust identity onboarding.
 - [x] White/orange visual system, dark mode, and Lucide-only interface icons.
 - [x] Exact default endpoints, SNI, MTU, DNS, listener addresses, and reset action.
@@ -165,7 +165,8 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] Add Windows manual Zero Trust callback entry and an Android process-local, same-team, single-consumption protocol callback.
 - [x] Add Windows clipboard fill, live Access-callback validation, optional current-user HKCU protocol association, and single-instance URI forwarding.
 - [x] Keep identity plaintext hidden while supporting explicit, confirmed Secret export to a user-selected destination.
-- [x] Add per-Profile output toggles, frontend status chips, shared-session totals, WARP License Key management, and platform quick actions.
+- [x] Add shared network-output toggles across accounts, runtime-aware frontend status chips, shared-session totals, WARP License Key management, and platform quick actions.
+- [x] Validate and explicitly apply proxy drafts, report local save outcomes, guard unapplied advanced edits, and keep apply actions visible while scrolling.
 - [x] Apply online output changes through a rollback-capable desktop reconnect or one controlled Android reconnect.
 - [x] Keep the MASQUE session across SOCKS/HTTP listener changes, Windows system-proxy lease changes, and VPN attach/detach when GEO routing is disabled; reconnect when a mode-dependent GEO gateway must be rebuilt; advertise `hot_reconfigure`.
 - [x] Surface real Kill Switch / Always-on / Lockdown state on Home and wire Retry to the existing control retry path.

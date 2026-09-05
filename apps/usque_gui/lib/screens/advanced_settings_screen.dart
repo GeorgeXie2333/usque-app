@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -9,6 +11,8 @@ import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
 import '../widgets/direct_dns_editor.dart';
+import '../widgets/save_changes_bar.dart';
+import '../widgets/unsaved_changes_guard.dart';
 import '../widgets/usque_dialog.dart';
 
 class AdvancedSettingsScreen extends StatefulWidget {
@@ -38,6 +42,39 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   final _directDnsKey = GlobalKey<DirectDnsEditorState>();
   bool _saving = false;
   String? _saveError;
+  bool _loading = false;
+  bool _saved = false;
+  bool _validationAttempted = false;
+  List<Object> _baseline = [];
+  final _fieldKeys = List.generate(
+    8,
+    (_) => GlobalKey<FormFieldState<String>>(),
+  );
+  final _focus = List.generate(8, (_) => FocusNode());
+
+  List<Object> get _values => [
+    _endpointV4.text,
+    _endpointV6.text,
+    _port.text,
+    _sni.text,
+    _dnsV4.text,
+    _dnsV6.text,
+    _mtu.text,
+    _bypass.text,
+    _transport,
+    _ipPolicy,
+    _killSwitch,
+    _allowLan,
+    _directDns,
+  ];
+  bool get _dirty => !listEquals(_values, _baseline);
+  void _edited() {
+    if (_loading || _saving) return;
+    setState(() {
+      _saved = false;
+      _saveError = null;
+    });
+  }
 
   bool get _zeroTrustEndpointIpsManaged =>
       widget.controller
@@ -59,7 +96,8 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     _load(widget.controller.activeProfile);
   }
 
-  void _load(UsqueProfile profile) {
+  void _load(UsqueProfile profile, {bool baseline = true}) {
+    _loading = true;
     _endpointV4.text = profile.endpointIpv4;
     _endpointV6.text = profile.endpointIpv6;
     _port.text = profile.endpointPort.toString();
@@ -73,6 +111,8 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     _killSwitch = profile.killSwitch;
     _allowLan = profile.allowLan;
     _directDns = profile.directDns;
+    if (baseline) _baseline = _values;
+    _loading = false;
   }
 
   @override
@@ -89,222 +129,276 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     ]) {
       controller.dispose();
     }
+    for (final focus in _focus) {
+      focus.dispose();
+    }
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final strings = widget.controller.strings;
-    return SubPage(
-      title: strings.get('advanced'),
-      subtitle: strings.get('advanced_subtitle'),
-      backLabel: strings.get('back'),
-      actions: <Widget>[
-        OutlinedButton.icon(
-          onPressed: _saving ? null : _reset,
-          icon: const Icon(LucideIcons.rotateCcw),
-          label: Text(strings.get('reset_defaults')),
+    return UnsavedChangesGuard(
+      strings: strings,
+      dirty: _dirty,
+      saving: _saving,
+      child: SubPage(
+        title: strings.get('advanced'),
+        subtitle: strings.get('advanced_subtitle'),
+        backLabel: strings.get('back'),
+        actions: <Widget>[
+          OutlinedButton.icon(
+            onPressed: _saving ? null : _reset,
+            icon: const Icon(LucideIcons.rotateCcw),
+            label: Text(strings.get('reset_defaults')),
+          ),
+        ],
+        bottomBar: SaveChangesBar(
+          strings: strings,
+          dirty: _dirty,
+          saving: _saving,
+          saved: _saved,
+          error: _saveError,
+          onSave: _save,
         ),
-        FilledButton.icon(
-          onPressed: _saving ? null : _save,
-          icon: const Icon(LucideIcons.save),
-          label: Text(strings.get('save')),
-        ),
-      ],
-      child: Form(
-        key: _formKey,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            if (_saveError != null)
+        child: Form(
+          key: _formKey,
+          autovalidateMode: _validationAttempted
+              ? AutovalidateMode.onUserInteraction
+              : AutovalidateMode.disabled,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Text(strings.get('shared_network_scope')),
+              const SizedBox(height: 12),
               WarningBanner(
-                title: strings.get('error'),
-                message: _saveError!,
-                danger: true,
+                title: strings.get('advanced'),
+                message: strings.get('advanced_warning'),
               ),
-            WarningBanner(
-              title: strings.get('advanced'),
-              message: strings.get('advanced_warning'),
-            ),
-            const SizedBox(height: 16),
-            PanelStack(
-              children: <Widget>[
-                SectionPanel(
-                  icon: LucideIcons.cable,
-                  title: strings.get('transport'),
-                  gap: 20,
-                  children: <Widget>[
-                    SegmentedButton<TransportPolicy>(
-                      segments: <ButtonSegment<TransportPolicy>>[
-                        ButtonSegment<TransportPolicy>(
-                          value: TransportPolicy.automatic,
-                          label: Text(strings.get('automatic')),
-                        ),
-                        ButtonSegment<TransportPolicy>(
-                          value: TransportPolicy.http3,
-                          label: Text(strings.get('http3')),
-                        ),
-                        ButtonSegment<TransportPolicy>(
-                          value: TransportPolicy.http2,
-                          label: Text(strings.get('http2')),
-                        ),
-                      ],
-                      selected: <TransportPolicy>{_transport},
-                      onSelectionChanged: (selection) =>
-                          setState(() => _transport = selection.first),
-                      showSelectedIcon: false,
-                    ),
-                    const SizedBox(height: 18),
-                    _ResponsiveFields(
-                      children: <Widget>[
-                        TextFormField(
-                          controller: _endpointV4,
-                          readOnly: _zeroTrustEndpointIpsManaged,
-                          decoration: InputDecoration(
-                            labelText: strings.get('endpoint_ipv4'),
+              const SizedBox(height: 16),
+              PanelStack(
+                children: <Widget>[
+                  SectionPanel(
+                    icon: LucideIcons.cable,
+                    title: strings.get('transport'),
+                    gap: 20,
+                    children: <Widget>[
+                      SegmentedButton<TransportPolicy>(
+                        segments: <ButtonSegment<TransportPolicy>>[
+                          ButtonSegment<TransportPolicy>(
+                            value: TransportPolicy.automatic,
+                            label: Text(strings.get('automatic')),
                           ),
-                          validator: (value) =>
-                              _validateIp(value, InternetAddressType.IPv4),
-                        ),
-                        TextFormField(
-                          controller: _endpointV6,
-                          readOnly: _zeroTrustEndpointIpsManaged,
-                          decoration: InputDecoration(
-                            labelText: strings.get('endpoint_ipv6'),
+                          ButtonSegment<TransportPolicy>(
+                            value: TransportPolicy.http3,
+                            label: Text(strings.get('http3')),
                           ),
-                          validator: (value) =>
-                              _validateIp(value, InternetAddressType.IPv6),
-                        ),
-                        TextFormField(
-                          controller: _port,
-                          keyboardType: TextInputType.number,
-                          inputFormatters: <TextInputFormatter>[
-                            FilteringTextInputFormatter.digitsOnly,
-                          ],
-                          decoration: InputDecoration(
-                            labelText: strings.get('port'),
+                          ButtonSegment<TransportPolicy>(
+                            value: TransportPolicy.http2,
+                            label: Text(strings.get('http2')),
                           ),
-                          validator: _validatePort,
-                        ),
-                        TextFormField(
-                          controller: _sni,
-                          keyboardType: TextInputType.url,
-                          decoration: InputDecoration(
-                            labelText: strings.get('sni'),
-                          ),
-                          validator: _validateSni,
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-                SectionPanel(
-                  icon: LucideIcons.network,
-                  title: strings.get('ip_dns'),
-                  gap: 20,
-                  children: <Widget>[
-                    DropdownButtonFormField<IpPolicy>(
-                      initialValue: _ipPolicy,
-                      decoration: InputDecoration(
-                        labelText: strings.get('ip_policy'),
+                        ],
+                        selected: <TransportPolicy>{_transport},
+                        onSelectionChanged: _saving
+                            ? null
+                            : (selection) =>
+                                  setState(() => _transport = selection.first),
+                        showSelectedIcon: false,
                       ),
-                      items: IpPolicy.values
-                          .map(
-                            (value) => DropdownMenuItem<IpPolicy>(
-                              value: value,
-                              child: Text(_ipPolicyLabel(value)),
+                      const SizedBox(height: 18),
+                      _ResponsiveFields(
+                        children: <Widget>[
+                          TextFormField(
+                            key: _fieldKeys[0],
+                            focusNode: _focus[0],
+                            enabled: !_saving,
+                            controller: _endpointV4,
+                            onChanged: (_) => _edited(),
+                            readOnly: _zeroTrustEndpointIpsManaged,
+                            decoration: InputDecoration(
+                              labelText: strings.get('endpoint_ipv4'),
                             ),
-                          )
-                          .toList(growable: false),
-                      onChanged: (value) {
-                        if (value != null) {
-                          setState(() => _ipPolicy = value);
-                        }
-                      },
-                    ),
-                    const SizedBox(height: 14),
-                    _ResponsiveFields(
-                      children: <Widget>[
-                        TextFormField(
-                          controller: _dnsV4,
-                          decoration: InputDecoration(
-                            labelText: strings.get('dns_ipv4'),
+                            validator: (value) =>
+                                _validateIp(value, InternetAddressType.IPv4),
                           ),
-                          validator: (value) =>
-                              _validateIp(value, InternetAddressType.IPv4),
-                        ),
-                        TextFormField(
-                          controller: _dnsV6,
-                          decoration: InputDecoration(
-                            labelText: strings.get('dns_ipv6'),
+                          TextFormField(
+                            key: _fieldKeys[1],
+                            focusNode: _focus[1],
+                            enabled: !_saving,
+                            controller: _endpointV6,
+                            onChanged: (_) => _edited(),
+                            readOnly: _zeroTrustEndpointIpsManaged,
+                            decoration: InputDecoration(
+                              labelText: strings.get('endpoint_ipv6'),
+                            ),
+                            validator: (value) =>
+                                _validateIp(value, InternetAddressType.IPv6),
                           ),
-                          validator: (value) =>
-                              _validateIp(value, InternetAddressType.IPv6),
-                        ),
-                        TextFormField(
-                          controller: _mtu,
-                          keyboardType: TextInputType.number,
-                          inputFormatters: <TextInputFormatter>[
-                            FilteringTextInputFormatter.digitsOnly,
-                          ],
-                          decoration: InputDecoration(
-                            labelText: strings.get('mtu'),
+                          TextFormField(
+                            key: _fieldKeys[2],
+                            focusNode: _focus[2],
+                            enabled: !_saving,
+                            controller: _port,
+                            onChanged: (_) => _edited(),
+                            keyboardType: TextInputType.number,
+                            inputFormatters: <TextInputFormatter>[
+                              FilteringTextInputFormatter.digitsOnly,
+                            ],
+                            decoration: InputDecoration(
+                              labelText: strings.get('port'),
+                            ),
+                            validator: _validatePort,
                           ),
-                          validator: _validateMtu,
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-                SectionPanel(
-                  icon: LucideIcons.shieldCheck,
-                  title: strings.get('routing_protection'),
-                  gap: 10,
-                  children: <Widget>[
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(strings.get('kill_switch')),
-                      subtitle: Text(strings.get('kill_switch_help')),
-                      value: _killSwitch,
-                      onChanged: (value) => setState(() => _killSwitch = value),
-                    ),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(strings.get('allow_lan')),
-                      value: _allowLan,
-                      onChanged: (value) => setState(() => _allowLan = value),
-                    ),
-                    const SizedBox(height: 14),
-                    TextFormField(
-                      controller: _bypass,
-                      minLines: 3,
-                      maxLines: 6,
-                      style: UsqueTheme.mono(context),
-                      decoration: InputDecoration(
-                        labelText: strings.get('bypass_cidrs'),
-                        hintText: strings.get('bypass_hint'),
-                        alignLabelWithHint: true,
+                          TextFormField(
+                            key: _fieldKeys[3],
+                            focusNode: _focus[3],
+                            enabled: !_saving,
+                            controller: _sni,
+                            onChanged: (_) => _edited(),
+                            keyboardType: TextInputType.url,
+                            decoration: InputDecoration(
+                              labelText: strings.get('sni'),
+                            ),
+                            validator: _validateSni,
+                          ),
+                        ],
                       ),
-                      validator: _validateCidrs,
-                    ),
-                  ],
-                ),
-                DirectDnsEditor(
-                  key: _directDnsKey,
-                  value: _directDns,
-                  enabled: !_saving,
-                  encryptedAvailable:
-                      widget
-                          .controller
-                          .engineCapabilities
-                          ?.encryptedDirectDns ??
-                      false,
-                  strings: strings,
-                  onChanged: (value) => _directDns = value,
-                ),
-              ],
-            ),
-          ],
+                    ],
+                  ),
+                  SectionPanel(
+                    icon: LucideIcons.network,
+                    title: strings.get('ip_dns'),
+                    gap: 20,
+                    children: <Widget>[
+                      DropdownButtonFormField<IpPolicy>(
+                        initialValue: _ipPolicy,
+                        isExpanded: true,
+                        decoration: InputDecoration(
+                          labelText: strings.get('ip_policy'),
+                        ),
+                        items: IpPolicy.values
+                            .map(
+                              (value) => DropdownMenuItem<IpPolicy>(
+                                value: value,
+                                child: Text(_ipPolicyLabel(value)),
+                              ),
+                            )
+                            .toList(growable: false),
+                        onChanged: _saving
+                            ? null
+                            : (value) {
+                                if (value != null) {
+                                  setState(() => _ipPolicy = value);
+                                }
+                              },
+                      ),
+                      const SizedBox(height: 14),
+                      _ResponsiveFields(
+                        children: <Widget>[
+                          TextFormField(
+                            key: _fieldKeys[4],
+                            focusNode: _focus[4],
+                            enabled: !_saving,
+                            controller: _dnsV4,
+                            onChanged: (_) => _edited(),
+                            decoration: InputDecoration(
+                              labelText: strings.get('dns_ipv4'),
+                            ),
+                            validator: (value) =>
+                                _validateIp(value, InternetAddressType.IPv4),
+                          ),
+                          TextFormField(
+                            key: _fieldKeys[5],
+                            focusNode: _focus[5],
+                            enabled: !_saving,
+                            controller: _dnsV6,
+                            onChanged: (_) => _edited(),
+                            decoration: InputDecoration(
+                              labelText: strings.get('dns_ipv6'),
+                            ),
+                            validator: (value) =>
+                                _validateIp(value, InternetAddressType.IPv6),
+                          ),
+                          TextFormField(
+                            key: _fieldKeys[6],
+                            focusNode: _focus[6],
+                            enabled: !_saving,
+                            controller: _mtu,
+                            onChanged: (_) => _edited(),
+                            keyboardType: TextInputType.number,
+                            inputFormatters: <TextInputFormatter>[
+                              FilteringTextInputFormatter.digitsOnly,
+                            ],
+                            decoration: InputDecoration(
+                              labelText: strings.get('mtu'),
+                            ),
+                            validator: _validateMtu,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  SectionPanel(
+                    icon: LucideIcons.shieldCheck,
+                    title: strings.get('routing_protection'),
+                    gap: 10,
+                    children: <Widget>[
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(strings.get('kill_switch')),
+                        subtitle: Text(strings.get('kill_switch_help')),
+                        value: _killSwitch,
+                        onChanged: _saving
+                            ? null
+                            : (value) => setState(() => _killSwitch = value),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(strings.get('allow_lan')),
+                        value: _allowLan,
+                        onChanged: _saving
+                            ? null
+                            : (value) => setState(() => _allowLan = value),
+                      ),
+                      const SizedBox(height: 14),
+                      TextFormField(
+                        key: _fieldKeys[7],
+                        focusNode: _focus[7],
+                        enabled: !_saving,
+                        controller: _bypass,
+                        onChanged: (_) => _edited(),
+                        minLines: 3,
+                        maxLines: 6,
+                        style: UsqueTheme.mono(context),
+                        decoration: InputDecoration(
+                          labelText: strings.get('bypass_cidrs'),
+                          hintText: strings.get('bypass_hint'),
+                          alignLabelWithHint: true,
+                        ),
+                        validator: _validateCidrs,
+                      ),
+                    ],
+                  ),
+                  DirectDnsEditor(
+                    key: _directDnsKey,
+                    value: _directDns,
+                    enabled: !_saving,
+                    encryptedAvailable:
+                        widget
+                            .controller
+                            .engineCapabilities
+                            ?.encryptedDirectDns ??
+                        false,
+                    strings: strings,
+                    onChanged: (value) => setState(() {
+                      _directDns = value;
+                      _saved = false;
+                    }),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -368,11 +462,23 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   }
 
   Future<void> _save() async {
+    if (_saving) return;
+    setState(() => _validationAttempted = true);
     if (!(_formKey.currentState?.validate() ?? false)) {
+      setState(() => _saveError = widget.controller.strings.get('form_errors'));
+      for (var i = 0; i < _fieldKeys.length; i++) {
+        if (_fieldKeys[i].currentState?.hasError ?? false) {
+          _focus[i].requestFocus();
+          unawaited(Scrollable.ensureVisible(_fieldKeys[i].currentContext!));
+          return;
+        }
+      }
       _directDnsKey.currentState?.focusFirstError();
       return;
     }
+    FocusScope.of(context).unfocus();
     setState(() {
+      _saved = false;
       _saving = true;
       _saveError = null;
     });
@@ -406,7 +512,11 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     if (!mounted) return;
     setState(() {
       _saving = false;
-      _saveError = saved ? null : widget.controller.lastError;
+      _saveError = saved
+          ? null
+          : widget.controller.strings.get('changes_failed');
+      _saved = saved;
+      if (saved) _baseline = _values;
     });
     if (!saved) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -422,7 +532,14 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
         icon: LucideIcons.rotateCcw,
         title: strings.get('reset_defaults'),
         width: 420,
-        content: Text(strings.get('reset_defaults_body')),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(strings.get('reset_defaults_body')),
+            const SizedBox(height: 12),
+            Text(strings.get('reset_draft_hint')),
+          ],
+        ),
         actions: <Widget>[
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -435,7 +552,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
         ],
       ),
     );
-    if (!(confirmed ?? false)) {
+    if (!mounted || !(confirmed ?? false)) {
       return;
     }
     final current = widget.controller.activeProfile;
@@ -446,8 +563,11 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
         endpointIpv6: current.endpointIpv6,
       );
     }
-    widget.controller.updateNetwork(reset);
-    setState(() => _load(reset));
+    setState(() {
+      _load(reset, baseline: false);
+      _saved = false;
+      _saveError = null;
+    });
   }
 }
 

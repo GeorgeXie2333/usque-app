@@ -2159,14 +2159,18 @@ void main() {
       final ipv6 = find.byKey(const ValueKey<String>('proxy-dns-ipv6'));
       expect(ipv4, findsOneWidget);
       expect(ipv6, findsOneWidget);
-      expect(tester.widget<TextField>(ipv4).controller?.text, '1.1.1.1');
+      expect(tester.widget<TextFormField>(ipv4).controller?.text, '1.1.1.1');
       expect(
-        tester.widget<TextField>(ipv6).controller?.text,
+        tester.widget<TextFormField>(ipv6).controller?.text,
         '2606:4700:4700::1111',
       );
 
       await tester.enterText(ipv4, '9.9.9.9');
       await tester.pump();
+      // Draft changes do not alter live DNS until explicitly applied.
+      expect(controller.activeProfile.proxy.dnsMode, ProxyDnsMode.remote);
+      await tester.tap(find.widgetWithText(FilledButton, '应用修改'));
+      await tester.pumpAndSettle();
       await controller.flushProfileWrites();
 
       expect(
@@ -2433,11 +2437,11 @@ void main() {
     await tester.tap(
       find.descendant(
         of: find.byType(NavigationRail),
-        matching: find.text('Profiles'),
+        matching: find.text('Accounts'),
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('New profile'));
+    await tester.tap(find.text('Add account'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'Organization');
     await tester.tap(find.text('Continue'));
@@ -2478,11 +2482,11 @@ void main() {
     await tester.tap(
       find.descendant(
         of: find.byType(NavigationRail),
-        matching: find.text('Profiles'),
+        matching: find.text('Accounts'),
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('New profile'));
+    await tester.tap(find.text('Add account'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'Organization');
     await tester.tap(find.text('Continue'));
@@ -2587,7 +2591,7 @@ void main() {
       find.widgetWithText(TextFormField, 'SNI'),
       'shared.example.com',
     );
-    final save = find.widgetWithText(FilledButton, 'Save');
+    final save = find.widgetWithText(FilledButton, 'Apply changes');
     await tester.ensureVisible(save);
     await tester.tap(save);
     await tester.pumpAndSettle();
@@ -3306,7 +3310,7 @@ void main() {
         bar.destinations.cast<NavigationDestination>().map(
           (destination) => destination.label,
         ),
-        <String>['Home', 'Profiles', 'Proxy', 'Settings'],
+        <String>['Home', 'Accounts', 'Proxy', 'Settings'],
       );
 
       final homeLabel = find.descendant(
@@ -3352,7 +3356,7 @@ void main() {
       await tester.tap(
         find.descendant(
           of: find.byType(NavigationRail),
-          matching: find.text('Profiles'),
+          matching: find.text('Accounts'),
         ),
       );
       await tester.pumpAndSettle();
@@ -3369,7 +3373,7 @@ void main() {
       }
 
       for (var index = 0; index < 50; index += 1) {
-        await tester.tap(find.text('New profile'));
+        await tester.tap(find.text('Add account'));
         await tester.pumpAndSettle();
         await injectStatus(index);
         await tester.tap(find.text('Cancel'));
@@ -3377,7 +3381,7 @@ void main() {
       }
 
       for (var index = 0; index < 50; index += 1) {
-        await tester.tap(find.text('New profile'));
+        await tester.tap(find.text('Add account'));
         await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField), 'Created $index');
         await tester.tap(find.text('Continue'));
@@ -3433,10 +3437,10 @@ void main() {
       final context = tester.element(find.byType(Scaffold).first);
       expect(Theme.of(context).brightness, Brightness.dark);
 
-      await tester.tap(find.text('配置').first);
+      await tester.tap(find.text('账号').first);
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
-      expect(find.text('新建配置'), findsOneWidget);
+      expect(find.text('添加账号'), findsOneWidget);
     },
   );
 
@@ -3470,7 +3474,7 @@ void main() {
       rail.destinations.map(
         (destination) => (destination.label as Tooltip).message,
       ),
-      <String>['Home', 'Profiles', 'Proxy', 'Settings'],
+      <String>['Home', 'Accounts', 'Proxy', 'Settings'],
     );
     final homeLabel = find.descendant(
       of: railFinder,
@@ -3657,6 +3661,8 @@ void main() {
         (widget) => widget is DropdownButton<ThemePreference>,
       );
       expect(themePicker, findsOneWidget);
+      await tester.ensureVisible(themePicker);
+      await tester.pumpAndSettle();
       expect(tester.getSize(themePicker).height, greaterThanOrEqualTo(48));
       expect(
         tester.getSemantics(themePicker).rect.height,
@@ -3750,6 +3756,7 @@ void main() {
         final install = find.text('Restart and update');
         expect(install, findsOneWidget);
         await tester.ensureVisible(install);
+        await tester.pumpAndSettle();
         await tester.tap(install);
         await tester.pumpAndSettle();
         expect(find.text('Install this update?'), findsOneWidget);
@@ -3815,6 +3822,7 @@ void main() {
       final directCountries = find.text('Countries routed directly');
       expect(directCountries, findsOneWidget);
       await tester.ensureVisible(directCountries);
+      await tester.pumpAndSettle();
       await tester.tap(directCountries);
       await tester.pumpAndSettle();
 
@@ -3834,6 +3842,7 @@ void main() {
       await tester.pumpAndSettle();
       final advanced = find.text('Advanced network settings');
       await tester.ensureVisible(advanced);
+      await tester.pumpAndSettle();
       await tester.tap(advanced);
       await tester.pumpAndSettle();
 
@@ -4645,7 +4654,7 @@ void main() {
     await tester.tap(
       find.descendant(
         of: find.byType(NavigationRail),
-        matching: find.text('Profiles'),
+        matching: find.text('Accounts'),
       ),
     );
     await tester.pumpAndSettle();
@@ -4678,8 +4687,8 @@ void main() {
 
     await tester.tap(find.byTooltip('Edit').first);
     await tester.pumpAndSettle();
-    expect(find.text('Edit profile'), findsOneWidget);
-    expect(find.text('Profile name'), findsOneWidget);
+    expect(find.text('Rename account'), findsOneWidget);
+    expect(find.text('Account name'), findsOneWidget);
     expect(find.widgetWithText(SwitchListTile, 'SOCKS5'), findsNothing);
     expect(find.widgetWithText(SwitchListTile, 'VPN (TUN)'), findsNothing);
     expect(
@@ -4731,7 +4740,7 @@ void main() {
     await tester.tap(
       find.descendant(
         of: find.byType(NavigationRail),
-        matching: find.text('Profiles'),
+        matching: find.text('Accounts'),
       ),
     );
     await tester.pumpAndSettle();
@@ -4767,7 +4776,7 @@ void main() {
     await tester.tap(
       find.descendant(
         of: find.byType(NavigationRail),
-        matching: find.text('Profiles'),
+        matching: find.text('Accounts'),
       ),
     );
     await tester.pumpAndSettle();
@@ -4802,7 +4811,7 @@ void main() {
 
       await tester.pumpWidget(UsqueBootstrap(engine: engine));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Profiles').last);
+      await tester.tap(find.text('Accounts').last);
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
