@@ -9,6 +9,65 @@ use crate::pmtu::{IPV4_MAX_UDP_PAYLOAD, IPV6_MAX_UDP_PAYLOAD};
 const QUIC_MIN_PAYLOAD: usize = 1200;
 const FLIGHT_BOUND: usize = 256;
 
+#[test]
+fn sustained_silent_large_packet_loss_starts_runtime_revalidation() {
+    let mut pair = Pair::new(|_, server| server.discover_pmtu(false));
+    pair.settle();
+    assert_eq!(pair.client.pmtu(), Some(IPV4_MAX_UDP_PAYLOAD));
+    let mut dropped = 0;
+    let mut delivered_small = 0;
+    let mut delivered_large = 0;
+    let quality = NetworkQualityTelemetry::default();
+    let mut pmtu = PmtuController::new(PmtuPathKey::new(pair.client_addr, pair.server_addr));
+    let now = StdInstant::now();
+    check_pmtu_blackhole(&mut pair.client, &mut pmtu, None, &quality, now);
+    for round in 0..20 {
+        for size in [1280, 64] {
+            let mut packet = ipv4_packet_with_length(size);
+            packet[20] = round;
+            pair.client
+                .dgram_send_buf(crate::h3::tests::encode_for_test(0, &packet))
+                .unwrap();
+            for wire in collect(&mut pair.client, None, None) {
+                if wire.bytes.len() > 1300 {
+                    dropped += 1;
+                } else {
+                    deliver(&mut pair.server, wire);
+                }
+            }
+        }
+        std::thread::sleep(Duration::from_millis(5));
+        pair.server.on_timeout();
+        for wire in collect(&mut pair.server, None, None) {
+            deliver(&mut pair.client, wire);
+        }
+        pair.client.on_timeout();
+        while let Ok(datagram) = pair.server.dgram_recv_buf() {
+            let packet = decode_http_datagram(0, datagram.as_ref()).unwrap().unwrap();
+            if packet.len() == 64 {
+                delivered_small += 1;
+            } else {
+                delivered_large += 1;
+            }
+        }
+        check_pmtu_blackhole(
+            &mut pair.client,
+            &mut pmtu,
+            None,
+            &quality,
+            now + Duration::from_millis((u64::from(round) + 1) * 100),
+        );
+    }
+    assert!(dropped >= 3);
+    assert!(pair.client.stats().lost >= 3);
+    assert!(delivered_small >= 3);
+    assert_eq!(delivered_large, 0);
+    assert!(!pair.client.is_closed());
+    // Runtime observation, not the test, initiates this new search.
+    assert!(pair.client.dgram_max_writable_len().unwrap() <= QUIC_MIN_PAYLOAD);
+    assert_eq!(pair.client.pmtu(), None);
+}
+
 struct Wire {
     bytes: Vec<u8>,
     from: SocketAddr,

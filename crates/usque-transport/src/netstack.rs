@@ -41,6 +41,9 @@ use crate::telemetry::{
 };
 use crate::tunnel::{BatchSendFuture, MasqueTunnel};
 
+#[cfg(test)]
+mod shutdown_tests;
+
 const HAPPY_EYEBALLS_DELAY: Duration = Duration::from_millis(250);
 const STACK_COMMAND_CAPACITY: usize = 256;
 const PACKET_SEND_TIMEOUT: Duration = Duration::from_secs(10);
@@ -1485,6 +1488,7 @@ async fn run_transport_supervisor(
     let mut reconnect_count = 0u32;
     let mut backoff_index = 0usize;
     let mut probe_generation = 0u32;
+    let mut recovery_policy = crate::recovery_policy::AutoRecoveryPolicy::default();
 
     loop {
         active_tunnel.activate_network_quality();
@@ -1644,6 +1648,24 @@ async fn run_transport_supervisor(
             }
             ActiveOutcome::Reconnect(mut failure) => {
                 control_tx.send_replace(PeerNetworkState::default());
+                if profile.transport == TransportPolicy::Auto
+                    && active_transport == Transport::Http3
+                    && recovery_policy.record_failure(
+                        &failure,
+                        protector.network_generation(),
+                        stable_since.elapsed(),
+                        Instant::now(),
+                    )
+                {
+                    telemetry.increment_fallback();
+                    telemetry.record(
+                        ConnectionEventType::FallbackStarted,
+                        Some(failure.stage),
+                        ConnectionEventPath::new(failure.transport, failure.address_family),
+                        None,
+                        Some(failure.clone()),
+                    );
+                }
                 if stable_since.elapsed() >= STABLE_CONNECTION_RESET {
                     backoff_index = 0;
                 }
@@ -1683,8 +1705,18 @@ async fn run_transport_supervisor(
                         return;
                     }
 
+                    // Clone only the attempt policy. The user's explicit H3/H2
+                    // choice, identity, exact egress protection, and saved
+                    // profile are never changed. A new generation clears this
+                    // preference; normal H2->H3 recovery probes remain active.
+                    let mut reconnect_profile = profile.clone();
+                    reconnect_profile.transport = recovery_policy.reconnect_transport(
+                        profile.transport,
+                        protector.network_generation(),
+                        Instant::now(),
+                    );
                     match connect_while_dropping_packets(
-                        &profile,
+                        &reconnect_profile,
                         Arc::clone(&identity),
                         Arc::clone(&protector),
                         &mut packet_io,
@@ -2016,6 +2048,13 @@ async fn pump_active_tunnel(
                     }
                     Ok(Err(error)) => {
                         tracing::debug!(%error, "active MASQUE packet send failed");
+                        if active_transport == Transport::Http3
+                            && matches!(error, TransportError::TunnelClosed)
+                        {
+                            break wait_for_h3_driver_shutdown(
+                                driver_wait.as_mut(), cancellation, active_path,
+                            ).await;
+                        }
                         break ActiveOutcome::Reconnect(error.failure(
                             Some(active_transport),
                             Some(active_path.endpoint_family),
@@ -2088,6 +2127,13 @@ async fn pump_active_tunnel(
                     }
                     Err(error) => {
                         tracing::debug!(%error, "active MASQUE packet receive failed");
+                        if active_transport == Transport::Http3
+                            && matches!(error, TransportError::TunnelClosed)
+                        {
+                            break wait_for_h3_driver_shutdown(
+                                driver_wait.as_mut(), cancellation, active_path,
+                            ).await;
+                        }
                         break ActiveOutcome::Reconnect(error.failure(
                             Some(active_transport),
                             Some(active_path.endpoint_family),
@@ -2096,23 +2142,7 @@ async fn pump_active_tunnel(
                 }
             }
             result = &mut driver_wait => {
-                let failure = match result {
-                    Ok(()) => TransportFailure::new(
-                        match active_transport {
-                            Transport::Http3 => TransportFailureCode::H3ConnectionClosed,
-                            Transport::Http2 => TransportFailureCode::H2StreamClosed,
-                        },
-                        TransportStage::PacketReceive,
-                    ).on_path(active_transport, active_path.endpoint_family),
-                    Err(error) => {
-                        tracing::debug!(%error, "MASQUE transport driver stopped");
-                        error.failure(
-                            Some(active_transport),
-                            Some(active_path.endpoint_family),
-                        )
-                    }
-                };
-                break ActiveOutcome::Reconnect(failure);
+                break driver_shutdown_outcome(result, active_path);
             }
             changed = wait_for_control(&mut control), if control.is_some() => {
                 match changed {
@@ -2150,6 +2180,11 @@ async fn pump_active_tunnel(
                         });
                     }
                     Err(()) => {
+                        if active_transport == Transport::Http3 {
+                            break wait_for_h3_driver_shutdown(
+                                driver_wait.as_mut(), cancellation, active_path,
+                            ).await;
+                        }
                         break ActiveOutcome::Reconnect(
                             TransportFailure::new(
                                 TransportFailureCode::ConnectIpRejected,
@@ -2222,6 +2257,55 @@ async fn pump_active_tunnel(
     };
     send.close();
     outcome
+}
+
+/// H3 drops its packet/control channels before asynchronous path cleanup has
+/// finished. Those closures are not the cause of failure: join the same driver
+/// future used by the pump to retain PMTU, authentication and protection errors.
+/// No further packets are injected while closing, and cancellation still wins.
+async fn wait_for_h3_driver_shutdown(
+    driver_wait: impl Future<Output = Result<(), TransportError>>,
+    cancellation: &CancellationToken,
+    active_path: RuntimePath,
+) -> ActiveOutcome {
+    tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => ActiveOutcome::Shutdown,
+        result = timeout(PACKET_SEND_TIMEOUT, driver_wait) => {
+            match result {
+                Ok(result) => driver_shutdown_outcome(result, active_path),
+                // Reuse the existing 10-second packet-operation budget. A
+                // stuck cleanup is not evidence of a fallback-eligible H3
+                // network failure; dropping the pump aborts its owned driver.
+                Err(_) => ActiveOutcome::Reconnect(
+                    TransportFailure::new(
+                        TransportFailureCode::PacketReceiveStalled,
+                        TransportStage::PacketReceive,
+                    ).on_path(active_path.transport, active_path.endpoint_family),
+                ),
+            }
+        }
+    }
+}
+
+fn driver_shutdown_outcome(
+    result: Result<(), TransportError>,
+    active_path: RuntimePath,
+) -> ActiveOutcome {
+    let failure = match result {
+        Ok(()) => TransportError::TunnelClosed.failure(
+            Some(active_path.transport),
+            Some(active_path.endpoint_family),
+        ),
+        Err(error) => {
+            tracing::debug!(%error, "MASQUE transport driver stopped");
+            error.failure(
+                Some(active_path.transport),
+                Some(active_path.endpoint_family),
+            )
+        }
+    };
+    ActiveOutcome::Reconnect(failure)
 }
 
 fn migration_is_eligible(
@@ -2635,7 +2719,7 @@ mod tests {
     use tokio::sync::oneshot;
     use ts_netstack_smoltcp::CreateSocket;
 
-    fn test_ipv4_packet(sequence: u16) -> Bytes {
+    pub(super) fn test_ipv4_packet(sequence: u16) -> Bytes {
         let mut packet = vec![0u8; 20];
         packet[0] = 0x45;
         packet[2..4].copy_from_slice(&20_u16.to_be_bytes());
@@ -2649,7 +2733,7 @@ mod tests {
         Bytes::from(packet)
     }
 
-    fn test_packet_channel(
+    pub(super) fn test_packet_channel(
         kind: QueueKind,
         capacity: usize,
     ) -> (TrackedSender<Bytes>, TrackedReceiver<Bytes>) {
@@ -2660,7 +2744,7 @@ mod tests {
         ))
     }
 
-    fn test_batch_channel(
+    pub(super) fn test_batch_channel(
         kind: QueueKind,
         capacity: usize,
     ) -> (TrackedSender<PacketBatch>, TrackedReceiver<PacketBatch>) {

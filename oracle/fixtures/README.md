@@ -6,6 +6,9 @@ assigned customer address, or live packet capture.
 
 - `defaults.json` freezes the first-beta endpoint and listener defaults.
 - `h2-connect.json` freezes the Cloudflare HTTP/2 CONNECT request shape.
+- `h3-connect.json` records the HTTP/3 extended CONNECT header shape used by
+  the frozen oracle; transport parameters and deprecated settings are outside
+  this fixture's scope.
 - `capsules.json` freezes small, non-identifying capsule byte sequences used by
   both the Go-oracle comparison tests and the Rust codecs.
 

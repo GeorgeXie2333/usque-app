@@ -36,8 +36,8 @@ use crate::path_socket::{
     PathId, PathReceiveEvent, PathSocket, PathSocketRole, PathSocketSet, PathSocketSetError,
 };
 use crate::pmtu::{
-    INITIAL_SAFE_UDP_PAYLOAD, PMTUD_MAX_PROBES, PmtuController, PmtuObservation, PmtuPathKey,
-    PmtuRevalidationAction, family_udp_payload_ceiling,
+    INITIAL_SAFE_UDP_PAYLOAD, PMTUD_MAX_PROBES, PmtuController, PmtuLossSample, PmtuObservation,
+    PmtuPathKey, PmtuRevalidationAction, family_udp_payload_ceiling,
 };
 use crate::queue_metrics::{QueueEntry, QueueKind, QueueMetrics};
 use crate::socket::{
@@ -53,6 +53,8 @@ mod diagnostic_tests;
 mod migration;
 #[cfg(test)]
 mod pmtu_tests;
+#[cfg(test)]
+pub(crate) mod regression_tests;
 use migration::{H3_CONTROL_CAPACITY, H3ControlCommand, MigrationActor, MigrationDrive};
 pub use migration::{H3MigrationHandle, H3MigrationResult};
 
@@ -75,6 +77,7 @@ const OUTGOING_BATCH_CHANNEL_CAPACITY: usize = 1;
 const MAX_PENDING_WIRE_DATAGRAMS: usize = 64;
 const PACKET_SEND_TIMEOUT: Duration = Duration::from_secs(10);
 const QUALITY_SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
+const GOAWAY_DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
 const SOCKET_PREPARE_ATTEMPTS: usize = 2;
 const ACTIVE_CONNECTION_ID_LIMIT: u64 = 4;
 const SPARE_CONNECTION_ID_TARGET: usize = 3;
@@ -312,6 +315,7 @@ async fn prepare_udp_for_generation(
         SocketAddr::V6(_) => SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0),
     };
     let std_socket = StdUdpSocket::bind(bind_address)?;
+    crate::udp_options::configure_quic_socket(&std_socket)?;
     std_socket.set_nonblocking(true)?;
     let egress_lease = protector
         .protect_for_target_generation(
@@ -781,6 +785,7 @@ async fn drive_h3_actor(
     let mut http3 = None;
     let mut request_stream_id = None;
     let mut response_accepted = false;
+    let mut goaway = GoAwayState::default();
     let mut peer_settings_recorded = false;
     let mut ready = false;
     let mut control = ConnectIpControlPlane::new(control_tx);
@@ -813,6 +818,7 @@ async fn drive_h3_actor(
     quality_tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
     loop {
+        goaway.check_deadline(Instant::now())?;
         if ready && migration_commands_open {
             match migration_rx.try_recv() {
                 Ok(command) => {
@@ -864,6 +870,7 @@ async fn drive_h3_actor(
                 request_stream_id,
                 &mut response_accepted,
                 &mut control,
+                &mut goaway,
             )?;
             if !response_was_accepted
                 && response_accepted
@@ -985,11 +992,13 @@ async fn drive_h3_actor(
                         for mut datagram in batch.drain() {
                             let source = datagram.source;
                             let destination = datagram.destination;
-                            let dropped = receive_quic_datagram(
+                            let dropped = receive_and_drain_quic_datagram(
                                 &mut connection,
                                 datagram.payload_mut(),
-                                source,
-                                destination,
+                                quiche::RecvInfo { from: source, to: destination },
+                                request_stream_id.filter(|_| ready),
+                                &incoming_tx,
+                                &mut incoming_batch,
                             )?;
                             record_inbound_queue_drops(dropped, &mut inbound_queue_drop_count);
                         }
@@ -1024,6 +1033,12 @@ async fn drive_h3_actor(
                 migration.on_prepared(prepared, path_sockets).await;
             }
             _ = sleep_until(migration_wakeup) => {}
+            _ = sleep_until(goaway.deadline.unwrap_or(migration_wakeup)), if goaway.deadline.is_some() => {}
+            permit = incoming_tx.reserve(), if ready && !incoming_batch.is_empty() => {
+                permit.map_err(|_| TransportError::TunnelClosed)?
+                    .send(std::mem::take(&mut incoming_batch));
+            }
+            _ = incoming_tx.closed() => return Err(TransportError::TunnelClosed),
             sent = send_due_wire_datagrams(
                 path_sockets,
                 &mut wire_datagrams,
@@ -1049,7 +1064,7 @@ async fn drive_h3_actor(
             }
             _ = quality_tick.tick(), if connection.is_established() => {
                 observe_h3_metrics(
-                    &connection,
+                    &mut connection,
                     &mut pmtu,
                     attempt,
                     quality,
@@ -1138,12 +1153,42 @@ fn connect_headers() -> Vec<quiche::h3::Header> {
     ]
 }
 
+#[derive(Default)]
+struct GoAwayState {
+    deadline: Option<Instant>,
+}
+
+impl GoAwayState {
+    fn receive(
+        &mut self,
+        first_rejected_stream: u64,
+        request_stream: Option<u64>,
+        now: Instant,
+    ) -> Result<(), TransportError> {
+        if request_stream.is_none_or(|stream| stream >= first_rejected_stream) {
+            return Err(TransportError::TunnelClosed);
+        }
+        // quiche validates decreasing IDs. Repeated GOAWAY cannot extend the
+        // grace period, and this single CONNECT session never opens a new stream.
+        self.deadline.get_or_insert(now + GOAWAY_DRAIN_TIMEOUT);
+        Ok(())
+    }
+
+    fn check_deadline(&self, now: Instant) -> Result<(), TransportError> {
+        if self.deadline.is_some_and(|deadline| now >= deadline) {
+            return Err(TransportError::TunnelClosed);
+        }
+        Ok(())
+    }
+}
+
 fn process_http3_events(
     http3: &mut quiche::h3::Connection,
     connection: &mut H3QuicConnection,
     request_stream_id: Option<u64>,
     response_accepted: &mut bool,
     control: &mut ConnectIpControlPlane,
+    goaway: &mut GoAwayState,
 ) -> Result<(), TransportError> {
     let mut body = [0u8; 4_096];
     loop {
@@ -1201,8 +1246,8 @@ fn process_http3_events(
                     "CONNECT-IP stream reset with code {code}"
                 )));
             }
-            Ok((_stream_id, quiche::h3::Event::GoAway)) => {
-                return Err(TransportError::Http3("peer sent HTTP/3 GOAWAY".to_owned()));
+            Ok((first_rejected_stream, quiche::h3::Event::GoAway)) => {
+                goaway.receive(first_rejected_stream, request_stream_id, Instant::now())?;
             }
             Ok((_stream_id, quiche::h3::Event::PriorityUpdate))
             | Ok((_stream_id, quiche::h3::Event::Headers { .. }))
@@ -1268,7 +1313,25 @@ fn drain_received_datagrams(
     incoming_tx: &mpsc::Sender<PacketBatch>,
     incoming_batch: &mut PacketBatch,
 ) -> Result<(), TransportError> {
-    if ready && !flush_incoming_batch(incoming_tx, incoming_batch)? {
+    drain_received_datagrams_buffered(
+        connection,
+        request_stream_id,
+        ready,
+        incoming_tx,
+        incoming_batch,
+        true,
+    )
+}
+
+fn drain_received_datagrams_buffered(
+    connection: &mut H3QuicConnection,
+    request_stream_id: u64,
+    ready: bool,
+    incoming_tx: &mpsc::Sender<PacketBatch>,
+    incoming_batch: &mut PacketBatch,
+    flush_tail: bool,
+) -> Result<(), TransportError> {
+    if ready && flush_tail && !flush_incoming_batch(incoming_tx, incoming_batch)? {
         return Ok(());
     }
     while let Some(front_len) = connection.dgram_recv_front_len() {
@@ -1306,7 +1369,7 @@ fn drain_received_datagrams(
             })?;
         }
     }
-    if ready {
+    if ready && flush_tail {
         let _ = flush_incoming_batch(incoming_tx, incoming_batch)?;
     }
     Ok(())
@@ -1485,7 +1548,7 @@ fn reconcile_datagram_queue(
     reason = "the one-hertz H3 observation keeps path state, negotiated limits, and telemetry explicit"
 )]
 fn observe_h3_metrics(
-    connection: &H3QuicConnection,
+    connection: &mut H3QuicConnection,
     pmtu: &mut PmtuController,
     attempt: Option<&ConnectionAttemptTelemetry>,
     quality: &NetworkQualityTelemetry,
@@ -1493,6 +1556,7 @@ fn observe_h3_metrics(
     profile_inner_mtu: usize,
     datagram_receive_drops: u64,
 ) -> Result<(), TransportError> {
+    check_pmtu_blackhole(connection, pmtu, attempt, quality, StdInstant::now());
     let Some(path) = connection.path_stats().find(|path| path.active) else {
         return Ok(());
     };
@@ -1532,6 +1596,40 @@ fn observe_h3_metrics(
     Ok(())
 }
 
+fn check_pmtu_blackhole(
+    connection: &mut H3QuicConnection,
+    pmtu: &mut PmtuController,
+    attempt: Option<&ConnectionAttemptTelemetry>,
+    quality: &NetworkQualityTelemetry,
+    now: StdInstant,
+) {
+    let Some(path) = connection.path_stats().find(|path| path.active) else {
+        return;
+    };
+    let sample = PmtuLossSample {
+        sent: path.sent,
+        lost: path.lost,
+        lost_datagrams: path.dgram_lost,
+        pto_count: path.total_pto_count,
+        rtt: path.rtt,
+    };
+    if let Some(observation) = pmtu.on_loss_sample(
+        PmtuPathKey::new(path.local_addr, path.peer_addr),
+        connection.pmtu(),
+        sample,
+        now,
+    ) {
+        connection.revalidate_pmtu();
+        publish_pmtu_observation(quality, observation);
+        if let Some(attempt) = attempt {
+            attempt.record(
+                ConnectionEventType::PmtuRevalidationStarted,
+                TransportStage::PacketSend,
+            );
+        }
+    }
+}
+
 fn publish_pmtu_observation(quality: &NetworkQualityTelemetry, observation: PmtuObservation) {
     quality.observe_pmtu(
         observation.phase,
@@ -1557,6 +1655,34 @@ fn record_pmtu_change_if_needed(
 
 fn usize_to_u64(value: usize) -> u64 {
     u64::try_from(value).unwrap_or(u64::MAX)
+}
+
+fn receive_and_drain_quic_datagram(
+    connection: &mut H3QuicConnection,
+    datagram: &mut [u8],
+    info: quiche::RecvInfo,
+    ready_stream_id: Option<u64>,
+    incoming_tx: &mpsc::Sender<PacketBatch>,
+    incoming_batch: &mut PacketBatch,
+) -> Result<usize, TransportError> {
+    let dropped = receive_quic_datagram(connection, datagram, info.from, info.to)?;
+    // One wire packet may carry many HTTP DATAGRAMs. Drain between wire packets,
+    // not just between UDP batches, without enlarging any receive budget.
+    if let Some(stream_id) = ready_stream_id {
+        // Keep partially filled application batches across wire packets. One
+        // channel item per tiny wire packet would waste the 1024-packet budget.
+        // Before ready, let the actor process response headers first: a 2xx and
+        // the first DATAGRAM may legitimately arrive in the same UDP batch.
+        drain_received_datagrams_buffered(
+            connection,
+            stream_id,
+            true,
+            incoming_tx,
+            incoming_batch,
+            false,
+        )?;
+    }
+    Ok(dropped)
 }
 
 fn receive_quic_datagram(
@@ -2137,7 +2263,8 @@ mod tests {
         Err(quiche::Error::InvalidState)
     }
 
-    fn established_test_pair() -> (H3QuicConnection, H3QuicConnection, SocketAddr, SocketAddr) {
+    pub(super) fn established_test_pair()
+    -> (H3QuicConnection, H3QuicConnection, SocketAddr, SocketAddr) {
         let (mut client, mut server, client_addr, server_addr) = test_quic_pair();
         for _ in 0..8 {
             advance_test_pair(&mut client, &mut server).unwrap();
@@ -2658,6 +2785,8 @@ mod tests {
 
     #[test]
     fn connect_headers_match_the_cloudflare_oracle() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../../oracle/fixtures/h3-connect.json")).unwrap();
         let headers = connect_headers();
         let find = |name: &[u8]| {
             headers
@@ -2670,6 +2799,14 @@ mod tests {
         assert_eq!(find(b":protocol"), Some(CONNECT_PROTOCOL));
         assert_eq!(find(CAPSULE_PROTOCOL_HEADER), Some(CAPSULE_PROTOCOL_VALUE));
         assert_eq!(find(b"user-agent"), Some(b"".as_slice()));
+        let expected = fixture["headers"].as_object().unwrap();
+        assert_eq!(headers.len(), expected.len());
+        for (name, value) in expected {
+            assert_eq!(
+                find(name.as_bytes()),
+                Some(value.as_str().unwrap().as_bytes())
+            );
+        }
     }
 
     #[test]

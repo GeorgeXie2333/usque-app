@@ -28,6 +28,7 @@ mod pmtu;
 mod port_allocator;
 mod proxy;
 mod queue_metrics;
+mod recovery_policy;
 mod relay;
 mod socket;
 mod socks5;
@@ -35,6 +36,7 @@ mod split_dns;
 mod telemetry;
 mod tunnel;
 mod udp_io;
+mod udp_options;
 
 #[cfg(any(test, feature = "fault-injection"))]
 mod fault_injection;

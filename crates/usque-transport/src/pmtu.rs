@@ -14,6 +14,10 @@ pub(crate) const IPV6_MINIMUM_INNER_MTU: usize = 1_280;
 const MAX_TRACKED_PATHS: usize = 3;
 const REVALIDATION_WINDOW: Duration = Duration::from_secs(10);
 const SEND_ERROR_SUPPRESSION: Duration = Duration::from_secs(1);
+const LOSS_WINDOW_MINIMUM: Duration = Duration::from_secs(2);
+const LOSS_SAMPLE_MAX_GAP: Duration = Duration::from_secs(5);
+const LOSS_REVALIDATION_COOLDOWN: Duration = Duration::from_secs(30);
+const MINIMUM_SUSPECT_LOSSES: usize = 3;
 // The locked quiche binary search needs at most ten sizes (including 1200)
 // between 1200 and 1472, with three loss attempts per size. Keep discovery
 // bounded without exhausting the separate completed-PMTU revalidation budget.
@@ -47,6 +51,33 @@ pub(crate) enum PmtuRevalidationAction {
     Exhausted(PmtuObservation),
 }
 
+/// Cumulative active-path counters, not peer-supplied packet contents. Loss is
+/// only a reason to re-probe: the probe ACKs still determine the usable size.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct PmtuLossSample {
+    pub(crate) sent: usize,
+    pub(crate) lost: usize,
+    pub(crate) lost_datagrams: usize,
+    pub(crate) pto_count: usize,
+    pub(crate) rtt: Duration,
+}
+
+struct LossWindow {
+    started: Instant,
+    last_observed: Instant,
+    baseline: PmtuLossSample,
+}
+
+impl LossWindow {
+    fn new(now: Instant, baseline: PmtuLossSample) -> Self {
+        Self {
+            started: now,
+            last_observed: now,
+            baseline,
+        }
+    }
+}
+
 struct PathPmtuState {
     key: PmtuPathKey,
     phase: PmtuPhase,
@@ -57,6 +88,8 @@ struct PathPmtuState {
     revalidation_triggers: VecDeque<Instant>,
     discovery_send_errors: usize,
     send_suppressed_until: Option<Instant>,
+    loss_window: Option<LossWindow>,
+    loss_revalidation_not_before: Option<Instant>,
 }
 
 impl PathPmtuState {
@@ -71,6 +104,8 @@ impl PathPmtuState {
             revalidation_triggers: VecDeque::with_capacity(PMTUD_MAX_PROBES as usize),
             discovery_send_errors: 0,
             send_suppressed_until: None,
+            loss_window: None,
+            loss_revalidation_not_before: None,
         }
     }
 
@@ -202,6 +237,8 @@ impl PmtuController {
         let automatic = self.automatic;
         let state = self.active_state_mut();
         let previous = state.stable_outer_payload;
+        state.loss_window = None;
+        state.loss_revalidation_not_before = Some(now + LOSS_REVALIDATION_COOLDOWN);
         state.send_too_large_count = state.send_too_large_count.saturating_add(1);
         if !automatic {
             state.phase = PmtuPhase::Degraded;
@@ -248,6 +285,72 @@ impl PmtuController {
         PmtuRevalidationAction::Revalidate(state.observation(previous))
     }
 
+    /// Revalidate only a completed PMTU after sustained material DATAGRAM loss.
+    /// Sparse/random loss, probe-only loss, idle/suspended sampling, counter
+    /// reset, and an in-progress search never restart discovery. A cooldown
+    /// bounds false-positive probes without overriding congestion control.
+    pub(crate) fn on_loss_sample(
+        &mut self,
+        key: PmtuPathKey,
+        completed_outer_payload: Option<usize>,
+        sample: PmtuLossSample,
+        now: Instant,
+    ) -> Option<PmtuObservation> {
+        self.activate_path(key);
+        let automatic = self.automatic;
+        let state = self.active_state_mut();
+        if !automatic || completed_outer_payload.is_none_or(|size| size <= MIN_QUIC_UDP_PAYLOAD) {
+            state.loss_window = None;
+            return None;
+        }
+        if state
+            .loss_revalidation_not_before
+            .is_some_and(|deadline| now < deadline)
+        {
+            state.loss_window = None;
+            return None;
+        }
+        let Some(window) = state.loss_window.as_mut() else {
+            state.loss_window = Some(LossWindow::new(now, sample));
+            return None;
+        };
+        let continuous = now
+            .checked_duration_since(window.last_observed)
+            .is_some_and(|gap| gap <= LOSS_SAMPLE_MAX_GAP);
+        if !continuous
+            || sample.sent < window.baseline.sent
+            || sample.lost < window.baseline.lost
+            || sample.lost_datagrams < window.baseline.lost_datagrams
+            || sample.pto_count < window.baseline.pto_count
+        {
+            *window = LossWindow::new(now, sample);
+            return None;
+        }
+        window.last_observed = now;
+        if now.duration_since(window.started)
+            < LOSS_WINDOW_MINIMUM.max(sample.rtt.saturating_mul(3))
+        {
+            return None;
+        }
+        let sent = sample.sent - window.baseline.sent;
+        let lost = sample.lost - window.baseline.lost;
+        let datagrams_lost = sample.lost_datagrams - window.baseline.lost_datagrams;
+        let pto = sample.pto_count - window.baseline.pto_count;
+        *window = LossWindow::new(now, sample);
+        if lost < MINIMUM_SUSPECT_LOSSES
+            || datagrams_lost == 0
+            || (lost.saturating_mul(4) < sent && pto < 2)
+        {
+            return None;
+        }
+        state.loss_window = None;
+        state.loss_revalidation_not_before = Some(now + LOSS_REVALIDATION_COOLDOWN);
+        state.phase = PmtuPhase::Revalidating;
+        state.published_outer_payload = None;
+        state.effective_connect_ip_payload = None;
+        Some(state.observation(state.stable_outer_payload))
+    }
+
     /// A promoted path gets fresh state and never inherits the old path's
     /// stable PMTU.
     pub(crate) fn on_path_promoted(&mut self, key: PmtuPathKey) -> PmtuRevalidationAction {
@@ -270,6 +373,8 @@ impl PmtuController {
         state.send_suppressed_until = None;
         state.discovery_send_errors = 0;
         state.revalidation_triggers.clear();
+        state.loss_window = None;
+        state.loss_revalidation_not_before = None;
         PmtuRevalidationAction::Revalidate(state.observation(previous))
     }
 
@@ -329,6 +434,195 @@ pub(crate) const fn family_udp_payload_ceiling(endpoint: SocketAddr) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn loss_sample(
+        sent: usize,
+        lost: usize,
+        lost_datagrams: usize,
+        pto_count: usize,
+    ) -> PmtuLossSample {
+        PmtuLossSample {
+            sent,
+            lost,
+            lost_datagrams,
+            pto_count,
+            rtt: Duration::from_millis(50),
+        }
+    }
+
+    #[test]
+    fn sustained_datagram_loss_revalidates_with_a_cooldown() {
+        let key = path("192.0.2.10:1000", "192.0.2.20:443");
+        let mut controller = PmtuController::new(key);
+        let now = Instant::now();
+        assert!(
+            controller
+                .on_loss_sample(key, Some(1472), loss_sample(0, 0, 0, 0), now)
+                .is_none()
+        );
+        assert!(
+            controller
+                .on_loss_sample(
+                    key,
+                    Some(1472),
+                    loss_sample(10, 2, 2, 0),
+                    now + Duration::from_secs(1)
+                )
+                .is_none()
+        );
+        let observation = controller
+            .on_loss_sample(
+                key,
+                Some(1472),
+                loss_sample(20, 5, 5, 0),
+                now + Duration::from_secs(2),
+            )
+            .unwrap();
+        assert_eq!(observation.phase, PmtuPhase::Revalidating);
+        assert_eq!(observation.outer_payload_bytes, None);
+        for seconds in 3..32 {
+            assert!(
+                controller
+                    .on_loss_sample(
+                        key,
+                        Some(1472),
+                        loss_sample(100, 80, 80, 20),
+                        now + Duration::from_secs(seconds)
+                    )
+                    .is_none()
+            );
+        }
+        assert!(
+            controller
+                .on_loss_sample(
+                    key,
+                    Some(1472),
+                    loss_sample(100, 80, 80, 20),
+                    now + Duration::from_secs(32)
+                )
+                .is_none()
+        );
+        assert!(
+            controller
+                .on_loss_sample(
+                    key,
+                    Some(1472),
+                    loss_sample(120, 90, 90, 22),
+                    now + Duration::from_secs(34)
+                )
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn random_loss_probe_loss_and_rollback_do_not_trigger_blackhole_revalidation() {
+        let key = path("192.0.2.10:1000", "192.0.2.20:443");
+        let now = Instant::now();
+        for sample in [
+            loss_sample(100, 3, 3, 0),
+            loss_sample(10, 5, 0, 2),
+            loss_sample(10, 2, 2, 2),
+            loss_sample(0, 0, 0, 0),
+        ] {
+            let mut controller = PmtuController::new(key);
+            controller.on_loss_sample(key, Some(1472), PmtuLossSample::default(), now);
+            assert!(
+                controller
+                    .on_loss_sample(key, Some(1472), sample, now + Duration::from_secs(2))
+                    .is_none()
+            );
+        }
+        for (automatic, completed) in [(false, Some(1472)), (true, None), (true, Some(1200))] {
+            let mut controller = PmtuController::with_automatic(key, automatic);
+            controller.on_loss_sample(key, completed, PmtuLossSample::default(), now);
+            assert!(
+                controller
+                    .on_loss_sample(
+                        key,
+                        completed,
+                        loss_sample(20, 10, 10, 2),
+                        now + Duration::from_secs(2)
+                    )
+                    .is_none()
+            );
+        }
+    }
+
+    #[test]
+    fn blackhole_window_resets_on_sleep_counter_reset_and_promotion() {
+        let key = path("192.0.2.10:1000", "192.0.2.20:443");
+        let now = Instant::now();
+        let mut controller = PmtuController::new(key);
+        controller.on_loss_sample(key, Some(1472), loss_sample(10, 0, 0, 0), now);
+        assert!(
+            controller
+                .on_loss_sample(
+                    key,
+                    Some(1472),
+                    loss_sample(0, 0, 0, 0),
+                    now + Duration::from_secs(1)
+                )
+                .is_none()
+        );
+        assert!(
+            controller
+                .on_loss_sample(
+                    key,
+                    Some(1472),
+                    loss_sample(20, 10, 10, 2),
+                    now + Duration::from_secs(30)
+                )
+                .is_none()
+        );
+        controller.on_path_promoted(key);
+        assert!(
+            controller
+                .on_loss_sample(
+                    key,
+                    Some(1472),
+                    loss_sample(30, 20, 20, 3),
+                    now + Duration::from_secs(32)
+                )
+                .is_none()
+        );
+        assert!(
+            controller
+                .on_loss_sample(
+                    key,
+                    Some(1472),
+                    loss_sample(40, 30, 30, 4),
+                    now + Duration::from_secs(34)
+                )
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn high_rtt_requires_three_round_trips_of_observation() {
+        let key = path("192.0.2.10:1000", "192.0.2.20:443");
+        let now = Instant::now();
+        let mut controller = PmtuController::new(key);
+        controller.on_loss_sample(key, Some(1472), PmtuLossSample::default(), now);
+        let sample = PmtuLossSample {
+            rtt: Duration::from_secs(2),
+            ..loss_sample(20, 10, 10, 2)
+        };
+        assert!(
+            controller
+                .on_loss_sample(key, Some(1472), sample, now + Duration::from_secs(2))
+                .is_none()
+        );
+        assert!(
+            controller
+                .on_loss_sample(key, Some(1472), sample, now + Duration::from_secs(4))
+                .is_none()
+        );
+        assert!(
+            controller
+                .on_loss_sample(key, Some(1472), sample, now + Duration::from_secs(6))
+                .is_some()
+        );
+    }
 
     fn path(local: &str, peer: &str) -> PmtuPathKey {
         PmtuPathKey::new(local.parse().unwrap(), peer.parse().unwrap())
