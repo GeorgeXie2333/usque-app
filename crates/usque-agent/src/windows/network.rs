@@ -8,6 +8,7 @@ use std::{
     cmp::Reverse,
     collections::{BTreeMap, BTreeSet, hash_map::DefaultHasher},
     hash::{Hash, Hasher},
+    mem,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     ptr::{self, NonNull},
 };
@@ -18,30 +19,32 @@ use uuid::Uuid;
 use windows_sys::{
     Win32::{
         Foundation::{
-            ERROR_ALREADY_EXISTS, ERROR_FILE_NOT_FOUND, ERROR_HOST_UNREACHABLE,
-            ERROR_NETWORK_UNREACHABLE, ERROR_NO_NETWORK, ERROR_NOT_FOUND, ERROR_NOT_SUPPORTED,
-            ERROR_OBJECT_ALREADY_EXISTS, ERROR_PROTOCOL_UNREACHABLE, NO_ERROR, WIN32_ERROR,
+            ERROR_ALREADY_EXISTS, ERROR_BUFFER_OVERFLOW, ERROR_FILE_NOT_FOUND,
+            ERROR_HOST_UNREACHABLE, ERROR_NETWORK_UNREACHABLE, ERROR_NO_NETWORK, ERROR_NOT_FOUND,
+            ERROR_NOT_SUPPORTED, ERROR_OBJECT_ALREADY_EXISTS, ERROR_PROTOCOL_UNREACHABLE, NO_ERROR,
+            WIN32_ERROR,
         },
         NetworkManagement::{
             IpHelper::{
                 CreateIpForwardEntry2, CreateUnicastIpAddressEntry, DNS_INTERFACE_SETTINGS,
                 DNS_INTERFACE_SETTINGS_VERSION1, DNS_SETTING_IPV6, DNS_SETTING_NAMESERVER,
                 DeleteIpForwardEntry2, DeleteUnicastIpAddressEntry, FreeInterfaceDnsSettings,
-                FreeMibTable, GetBestInterfaceEx, GetBestRoute2, GetIfTable2,
-                GetInterfaceDnsSettings, GetIpForwardEntry2, GetIpForwardTable2,
-                GetIpInterfaceEntry, GetUnicastIpAddressEntry, IP_ADDRESS_PREFIX,
-                InitializeIpForwardEntry, InitializeIpInterfaceEntry,
-                InitializeUnicastIpAddressEntry, MIB_IF_ROW2, MIB_IF_TABLE2, MIB_IPFORWARD_ROW2,
-                MIB_IPFORWARD_TABLE2, MIB_IPINTERFACE_ROW, MIB_UNICASTIPADDRESS_ROW,
-                SetInterfaceDnsSettings, SetIpInterfaceEntry,
+                FreeMibTable, GAA_FLAG_SKIP_ANYCAST, GAA_FLAG_SKIP_MULTICAST,
+                GAA_FLAG_SKIP_UNICAST, GetAdaptersAddresses, GetBestInterfaceEx, GetBestRoute2,
+                GetIfTable2, GetInterfaceDnsSettings, GetIpForwardEntry2, GetIpForwardTable2,
+                GetIpInterfaceEntry, GetUnicastIpAddressEntry, IP_ADAPTER_ADDRESSES_LH,
+                IP_ADAPTER_DNS_SERVER_ADDRESS_XP, IP_ADDRESS_PREFIX, InitializeIpForwardEntry,
+                InitializeIpInterfaceEntry, InitializeUnicastIpAddressEntry, MIB_IF_ROW2,
+                MIB_IF_TABLE2, MIB_IPFORWARD_ROW2, MIB_IPFORWARD_TABLE2, MIB_IPINTERFACE_ROW,
+                MIB_UNICASTIPADDRESS_ROW, SetInterfaceDnsSettings, SetIpInterfaceEntry,
             },
             Ndis::NET_LUID_LH,
         },
         Networking::WinSock::{
-            ADDRESS_FAMILY, AF_INET, AF_INET6, IN_ADDR, IN_ADDR_0, IN_ADDR_0_0, IN6_ADDR,
-            IN6_ADDR_0, IpDadStatePreferred, IpPrefixOriginManual, IpSuffixOriginManual,
+            ADDRESS_FAMILY, AF_INET, AF_INET6, AF_UNSPEC, IN_ADDR, IN_ADDR_0, IN_ADDR_0_0,
+            IN6_ADDR, IN6_ADDR_0, IpDadStatePreferred, IpPrefixOriginManual, IpSuffixOriginManual,
             MIB_IPPROTO_NETMGMT, SOCKADDR, SOCKADDR_IN, SOCKADDR_IN6, SOCKADDR_IN6_0,
-            SOCKADDR_INET,
+            SOCKADDR_INET, SOCKET_ADDRESS,
         },
     },
     core::GUID,
@@ -57,6 +60,8 @@ const DEFAULT_ROUTE_METRIC: u32 = 0;
 const MAX_OBSERVED_ROUTES: usize = 4_096;
 const MAX_OBSERVED_INTERFACES: usize = 64;
 const MAX_RECOVERY_INTERFACES: usize = 4_096;
+const MAX_ADAPTER_SNAPSHOT_BYTES: usize = 4 * 1024 * 1024;
+const MAX_ADAPTER_DNS_SERVERS: usize = 64;
 
 /// Uses IP Helper only: opening Wintun itself may enqueue orphan-device
 /// cleanup, so it is not an appropriate read-only startup probe.
@@ -112,7 +117,10 @@ fn inspect_adapter_rows(
         let guid_matches = uuid_from_guid(row.InterfaceGuid) == *adapter_guid;
         let actual_luid = luid_value(row.InterfaceLuid);
         let luid_matches = *interface_luid != 0 && actual_luid == *interface_luid;
-        if guid_matches || name_matches || luid_matches {
+        // LUID indices may be freed and assigned to a different adapter. A
+        // numeric-only match is not the journaled device. Callers must still
+        // confirm exact PnP absence and must not write through the retired LUID.
+        if guid_matches || name_matches {
             if !guid_matches
                 || !name_matches
                 || actual_luid == 0
@@ -176,7 +184,7 @@ pub fn tunnel_configuration_present(journal: &RecoveryJournal) -> Result<bool, N
                 let mut expected = plan.dns_servers.clone();
                 expected.sort();
                 expected.dedup();
-                get_dns_servers(*interface_guid)? == expected
+                get_configured_dns_servers(*interface_guid)? == expected
             }
             MutationReceipt::EndpointBypass { created }
             | MutationReceipt::DefaultRoutes { created, .. } => {
@@ -218,8 +226,7 @@ pub fn physical_interface_info(interface_luid: u64) -> Result<PhysicalInterfaceI
             &mut interface_index,
         )
     })?;
-    let interface_guid = interface_guid(interface_luid)?;
-    let mut dns_servers = get_dns_servers(interface_guid)?;
+    let mut dns_servers = effective_dns_servers(interface_luid)?;
     dns_servers.sort();
     dns_servers.dedup();
     dns_servers.truncate(8);
@@ -606,7 +613,7 @@ pub fn plan_dns(
     _plan: &ValidatedTunnelPlan,
 ) -> Result<MutationReceipt, NetworkError> {
     let interface_guid = interface_guid(interface_luid)?;
-    let previous_servers = get_dns_servers(interface_guid)?;
+    let previous_servers = get_configured_dns_servers(interface_guid)?;
     Ok(MutationReceipt::Dns {
         interface_guid,
         previous_automatic: previous_servers.is_empty(),
@@ -707,16 +714,63 @@ pub fn apply_default_routes(receipt: &mut MutationReceipt) -> Result<(), Network
     Ok(())
 }
 
-pub fn restore_default_routes(receipt: &MutationReceipt) -> Result<(), NetworkError> {
+pub fn restore_default_routes(
+    receipt: &MutationReceipt,
+    adapter: &MutationReceipt,
+) -> Result<(), NetworkError> {
     let MutationReceipt::DefaultRoutes { created, replaced } = receipt else {
         return Err(NetworkError::ReceiptKind("default routes"));
     };
+    let MutationReceipt::WintunAdapter { interface_luid, .. } = adapter else {
+        return Err(NetworkError::AdapterIdentity);
+    };
+    require_luid(*interface_luid)?;
+    let retired_luid = (!inspect_adapter_identity(adapter)?).then_some(*interface_luid);
+    restore_routes_guarded(
+        created,
+        replaced,
+        retired_luid,
+        route_exists,
+        restore_route,
+        create_route,
+    )
+}
+
+fn restore_routes_guarded(
+    created: &[RouteReceipt],
+    replaced: &[RouteReceipt],
+    retired_luid: Option<u64>,
+    mut exists: impl FnMut(&RouteReceipt) -> Result<bool, NetworkError>,
+    mut remove: impl FnMut(&RouteReceipt) -> Result<(), NetworkError>,
+    mut create: impl FnMut(&RouteReceipt) -> Result<(), NetworkError>,
+) -> Result<(), NetworkError> {
     let mut first_error = None;
     for route in created.iter().rev() {
-        retain_first_error(&mut first_error, restore_route(route));
+        let result = if !route.owned {
+            Ok(())
+        } else if retired_luid == Some(route.interface_luid) {
+            // Absence of the adapter does NOT prove absence of a route. If a
+            // replacement interface now has the same route key, ownership is
+            // ambiguous: preserve it and the receipt, never delete by LUID.
+            exists(route).and_then(|present| {
+                if present {
+                    Err(NetworkError::AdapterIdentity)
+                } else {
+                    Ok(())
+                }
+            })
+        } else {
+            remove(route)
+        };
+        retain_first_error(&mut first_error, result);
     }
     for route in replaced {
-        retain_first_error(&mut first_error, create_route(route));
+        let result = if retired_luid == Some(route.interface_luid) {
+            Err(NetworkError::AdapterIdentity)
+        } else {
+            create(route)
+        };
+        retain_first_error(&mut first_error, result);
     }
     first_error.map_or(Ok(()), Err)
 }
@@ -1024,7 +1078,145 @@ fn interface_guid(interface_luid: u64) -> Result<Uuid, NetworkError> {
     Ok(uuid_from_guid(guid))
 }
 
-fn get_dns_servers(interface_guid: Uuid) -> Result<Vec<IpAddr>, NetworkError> {
+/// Effective DNS includes DHCP-assigned servers. Do NOT use this for rollback:
+/// persisting effective DHCP values as static settings changes the user's mode.
+fn effective_dns_servers(interface_luid: u64) -> Result<Vec<IpAddr>, NetworkError> {
+    let mut bytes = 15_000_u32;
+    for _ in 0..3 {
+        let mut snapshot = AdapterAddressSnapshot::new(bytes as usize)?;
+        let head = snapshot
+            .words
+            .as_mut_ptr()
+            .cast::<IP_ADAPTER_ADDRESSES_LH>();
+        bytes = u32::try_from(snapshot.words.len() * mem::size_of::<u64>())
+            .map_err(|_| NetworkError::InterfaceSnapshot)?;
+        // SAFETY: the zeroed allocation is large enough for `bytes`, has the
+        // native structure's alignment, and cannot move during this call.
+        // No SKIP_DNS_SERVER flag: we need the effective per-interface list.
+        let status = unsafe {
+            GetAdaptersAddresses(
+                u32::from(AF_UNSPEC),
+                GAA_FLAG_SKIP_UNICAST | GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST,
+                ptr::null(),
+                head,
+                &mut bytes,
+            )
+        };
+        if status == ERROR_BUFFER_OVERFLOW {
+            continue;
+        }
+        check("GetAdaptersAddresses", status)?;
+        return snapshot.dns_servers(head, interface_luid);
+    }
+    Err(NetworkError::RouteSnapshotChanged)
+}
+
+/// Owns the native linked lists. Every pointer/length is checked against this
+/// bounded, stable allocation before dereferencing; cycles are bounded too.
+struct AdapterAddressSnapshot {
+    words: Vec<u64>,
+}
+
+impl AdapterAddressSnapshot {
+    fn new(bytes: usize) -> Result<Self, NetworkError> {
+        const { assert!(mem::align_of::<IP_ADAPTER_ADDRESSES_LH>() <= mem::align_of::<u64>()) };
+        if bytes == 0 || bytes > MAX_ADAPTER_SNAPSHOT_BYTES {
+            return Err(NetworkError::InterfaceSnapshot);
+        }
+        Ok(Self {
+            words: vec![0; bytes.div_ceil(mem::size_of::<u64>())],
+        })
+    }
+
+    fn read<T: Copy>(&self, pointer: *const T) -> Result<T, NetworkError> {
+        let start = self.words.as_ptr() as usize;
+        let offset = (pointer as usize)
+            .checked_sub(start)
+            .ok_or(NetworkError::InterfaceSnapshot)?;
+        if offset
+            .checked_add(mem::size_of::<T>())
+            .is_none_or(|end| end > self.words.len() * mem::size_of::<u64>())
+        {
+            return Err(NetworkError::InterfaceSnapshot);
+        }
+        // SAFETY: the complete value lies within the live initialized native
+        // buffer. Only Copy Win32 integer/pointer structures are read here;
+        // read_unaligned also handles SOCKET_ADDRESS's variable-size targets.
+        Ok(unsafe { pointer.read_unaligned() })
+    }
+
+    fn dns_servers(
+        &self,
+        mut next: *const IP_ADAPTER_ADDRESSES_LH,
+        interface_luid: u64,
+    ) -> Result<Vec<IpAddr>, NetworkError> {
+        require_luid(interface_luid)?;
+        let mut selected = None;
+        for _ in 0..MAX_RECOVERY_INTERFACES {
+            if next.is_null() {
+                return selected.ok_or(NetworkError::RouteSnapshotChanged);
+            }
+            if self.read(next.cast::<u32>())? < mem::size_of::<IP_ADAPTER_ADDRESSES_LH>() as u32 {
+                return Err(NetworkError::InterfaceSnapshot);
+            }
+            let adapter = self.read(next)?;
+            if luid_value(adapter.Luid) == interface_luid {
+                if selected.is_some() {
+                    return Err(NetworkError::InterfaceSnapshot);
+                }
+                selected = Some(self.dns_list(adapter.FirstDnsServerAddress)?);
+            }
+            next = adapter.Next;
+        }
+        Err(NetworkError::InterfaceSnapshot)
+    }
+
+    fn dns_list(
+        &self,
+        mut next: *const IP_ADAPTER_DNS_SERVER_ADDRESS_XP,
+    ) -> Result<Vec<IpAddr>, NetworkError> {
+        let mut addresses = Vec::new();
+        for _ in 0..=MAX_ADAPTER_DNS_SERVERS {
+            if next.is_null() {
+                return Ok(addresses);
+            }
+            if addresses.len() == MAX_ADAPTER_DNS_SERVERS
+                || self.read(next.cast::<u32>())?
+                    < mem::size_of::<IP_ADAPTER_DNS_SERVER_ADDRESS_XP>() as u32
+            {
+                return Err(NetworkError::InterfaceSnapshot);
+            }
+            let server = self.read(next)?;
+            addresses.push(self.dns_address(server.Address)?);
+            next = server.Next;
+        }
+        Err(NetworkError::InterfaceSnapshot)
+    }
+
+    fn dns_address(&self, address: SOCKET_ADDRESS) -> Result<IpAddr, NetworkError> {
+        if address.iSockaddrLength < mem::size_of::<ADDRESS_FAMILY>() as i32 {
+            return Err(NetworkError::InterfaceSnapshot);
+        }
+        let family = self.read(address.lpSockaddr.cast::<ADDRESS_FAMILY>())?;
+        let socket = match family {
+            AF_INET if address.iSockaddrLength >= mem::size_of::<SOCKADDR_IN>() as i32 => {
+                SOCKADDR_INET {
+                    Ipv4: self.read(address.lpSockaddr.cast::<SOCKADDR_IN>())?,
+                }
+            }
+            AF_INET6 if address.iSockaddrLength >= mem::size_of::<SOCKADDR_IN6>() as i32 => {
+                SOCKADDR_INET {
+                    Ipv6: self.read(address.lpSockaddr.cast::<SOCKADDR_IN6>())?,
+                }
+            }
+            _ => return Err(NetworkError::InterfaceSnapshot),
+        };
+        ip_from_sockaddr(&socket).map(|(address, _)| address)
+    }
+}
+
+/// Static settings only: an empty list must remain automatic on rollback.
+fn get_configured_dns_servers(interface_guid: Uuid) -> Result<Vec<IpAddr>, NetworkError> {
     let mut servers = get_dns_servers_for_family(interface_guid, false)?;
     servers.extend(get_dns_servers_for_family(interface_guid, true)?);
     servers.sort();
@@ -1352,6 +1544,186 @@ mod tests {
     use super::*;
 
     #[test]
+    fn retired_tun_routes_are_verified_individually_and_never_deleted_on_a_replacement() {
+        let tunnel = RouteReceipt {
+            interface_luid: 7,
+            ..fake_route("0.0.0.0/0".parse().unwrap())
+        };
+        let physical = RouteReceipt {
+            interface_luid: 9,
+            ..fake_route("192.0.2.0/24".parse().unwrap())
+        };
+        for route_survives in [false, true] {
+            let mut removed = Vec::new();
+            let mut inspected = Vec::new();
+            let result = restore_routes_guarded(
+                &[physical.clone(), tunnel.clone()],
+                &[],
+                Some(7),
+                |route| {
+                    inspected.push(route.interface_luid);
+                    Ok(route_survives)
+                },
+                |route| {
+                    removed.push(route.interface_luid);
+                    Ok(())
+                },
+                |_| panic!("no replaced routes"),
+            );
+            assert_eq!(inspected, [7]);
+            assert_eq!(
+                removed,
+                [9],
+                "physical exclusions still require explicit cleanup"
+            );
+            assert_eq!(result.is_err(), route_survives);
+        }
+        assert!(
+            restore_routes_guarded(
+                std::slice::from_ref(&tunnel),
+                &[],
+                Some(7),
+                |_| Err(NetworkError::windows("GetIpForwardEntry2", 5)),
+                |_| panic!("unknown route ownership"),
+                |_| panic!("no replaced routes"),
+            )
+            .is_err()
+        );
+        assert!(
+            restore_routes_guarded(
+                &[],
+                &[tunnel],
+                Some(7),
+                |_| panic!("no created routes"),
+                |_| panic!("no created routes"),
+                |_| panic!("must not recreate on a reused LUID"),
+            )
+            .is_err()
+        );
+    }
+
+    fn fixture_write<T: Copy>(
+        snapshot: &mut AdapterAddressSnapshot,
+        offset: usize,
+        value: T,
+    ) -> *mut T {
+        assert!(offset + mem::size_of::<T>() <= snapshot.words.len() * mem::size_of::<u64>());
+        let pointer = snapshot
+            .words
+            .as_mut_ptr()
+            .cast::<u8>()
+            .wrapping_add(offset)
+            .cast::<T>();
+        // SAFETY: the test-owned buffer was bounds-checked above and remains
+        // allocated at the same address throughout every fixture observation.
+        unsafe { pointer.write_unaligned(value) };
+        pointer
+    }
+
+    fn effective_dns_fixture() -> (AdapterAddressSnapshot, *mut IP_ADAPTER_ADDRESSES_LH) {
+        let mut snapshot = AdapterAddressSnapshot::new(4096).unwrap();
+        let ipv4 = sockaddr_from_ip("192.0.2.53".parse().unwrap());
+        let ipv6 = sockaddr_from_ip("fe80::53".parse().unwrap());
+        let ipv4 = fixture_write(&mut snapshot, 2176, ipv4);
+        let ipv6 = fixture_write(&mut snapshot, 2240, ipv6);
+        let mut second = IP_ADAPTER_DNS_SERVER_ADDRESS_XP {
+            Address: SOCKET_ADDRESS {
+                lpSockaddr: ipv6.cast(),
+                iSockaddrLength: mem::size_of::<SOCKADDR_IN6>() as i32,
+            },
+            ..Default::default()
+        };
+        second.Anonymous.Alignment = mem::size_of_val(&second) as u64;
+        let second = fixture_write(&mut snapshot, 2112, second);
+        let mut first = IP_ADAPTER_DNS_SERVER_ADDRESS_XP {
+            Next: second,
+            Address: SOCKET_ADDRESS {
+                lpSockaddr: ipv4.cast(),
+                iSockaddrLength: mem::size_of::<SOCKADDR_IN>() as i32,
+            },
+            ..Default::default()
+        };
+        first.Anonymous.Alignment = mem::size_of_val(&first) as u64;
+        let first = fixture_write(&mut snapshot, 2048, first);
+        let mut other = IP_ADAPTER_ADDRESSES_LH {
+            Luid: luid(9),
+            ..Default::default()
+        };
+        other.Anonymous1.Alignment = mem::size_of_val(&other) as u64;
+        let other = fixture_write(&mut snapshot, 1024, other);
+        let mut adapter = IP_ADAPTER_ADDRESSES_LH {
+            Luid: luid(7),
+            Next: other,
+            FirstDnsServerAddress: first,
+            ..Default::default()
+        };
+        adapter.Anonymous1.Alignment = mem::size_of_val(&adapter) as u64;
+        adapter.Anonymous2.Flags = 4; // IP_ADAPTER_DHCP_ENABLED; no static DNS configuration.
+        let head = fixture_write(&mut snapshot, 0, adapter);
+        (snapshot, head)
+    }
+
+    #[test]
+    fn effective_dns_snapshot_includes_dhcp_ipv4_and_ipv6_on_only_the_selected_adapter() {
+        let (snapshot, head) = effective_dns_fixture();
+        assert_eq!(
+            snapshot.dns_servers(head, 7).unwrap(),
+            vec![
+                "192.0.2.53".parse::<IpAddr>().unwrap(),
+                "fe80::53".parse().unwrap(),
+            ]
+        );
+        assert!(snapshot.dns_servers(head, 9).unwrap().is_empty());
+        assert!(
+            snapshot.dns_servers(head, 10).is_err(),
+            "missing interface is not empty DNS"
+        );
+        assert!(
+            parse_dns_servers("").unwrap().is_empty(),
+            "automatic rollback stays automatic"
+        );
+    }
+
+    #[test]
+    fn effective_dns_snapshot_rejects_cycles_truncation_and_duplicate_luids() {
+        for case in 0..6 {
+            let (mut snapshot, head) = effective_dns_fixture();
+            let mut adapter = snapshot.read(head).unwrap();
+            match case {
+                0 => {
+                    adapter.Next = head;
+                    fixture_write(&mut snapshot, 0, adapter);
+                }
+                1 => {
+                    adapter.Anonymous1.Alignment = 4;
+                    fixture_write(&mut snapshot, 0, adapter);
+                }
+                2 => {
+                    let mut other = snapshot.read(adapter.Next).unwrap();
+                    other.Luid = luid(7);
+                    fixture_write(&mut snapshot, 1024, other);
+                }
+                3..=5 => {
+                    let mut server = snapshot.read(adapter.FirstDnsServerAddress).unwrap();
+                    if case == 3 {
+                        server.Next = adapter.FirstDnsServerAddress;
+                    }
+                    if case == 4 {
+                        server.Address.iSockaddrLength = 1;
+                    }
+                    if case == 5 {
+                        server.Address.lpSockaddr = ptr::null_mut();
+                    }
+                    fixture_write(&mut snapshot, 2048, server);
+                }
+                _ => unreachable!(),
+            }
+            assert!(snapshot.dns_servers(head, 7).is_err(), "case {case}");
+        }
+        assert!(AdapterAddressSnapshot::new(MAX_ADAPTER_SNAPSHOT_BYTES + 1).is_err());
+    }
+
+    #[test]
     fn adapter_probe_distinguishes_absence_from_reused_identity_without_os_calls() {
         let guid = Uuid::new_v4();
         let name = "Usque-0123456789ab";
@@ -1387,6 +1759,10 @@ mod tests {
             inspect_adapter_rows(&receipt, &[row]),
             Err(NetworkError::AdapterIdentity)
         ));
+        // Freed LUIDs may be reused by another VPN. Different GUID AND name
+        // must not be mistaken for a conflicting instance of our old adapter.
+        row.InterfaceGuid = guid_from_uuid(Uuid::new_v4());
+        assert!(!inspect_adapter_rows(&receipt, &[row]).unwrap());
     }
 
     fn observed_route(network: &str, interface_luid: u64, metric: u32) -> MIB_IPFORWARD_ROW2 {

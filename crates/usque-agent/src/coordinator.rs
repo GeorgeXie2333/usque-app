@@ -88,8 +88,19 @@ pub trait PrivilegedBackend: Send + Sync {
     /// have reached Windows before a crash.
     async fn restore_step(&self, receipt: &MutationReceipt) -> Result<(), BackendError>;
 
+    /// Supplies durable adapter identity to LUID-based rollback. A Windows
+    /// backend must never modify a replacement interface through a reused LUID.
+    async fn restore_step_with_adapter(
+        &self,
+        receipt: &MutationReceipt,
+        _adapter: Option<&MutationReceipt>,
+    ) -> Result<(), BackendError> {
+        self.restore_step(receipt).await
+    }
+
     /// Read-only identity check. Missing is safe to recover; an inaccessible
-    /// or reused name/GUID/LUID must return an error, never "missing".
+    /// or reused name/GUID must return an error, never "missing". A numeric-only
+    /// LUID reuse is not identity; absence requires an exact device check too.
     async fn inspect_adapter(&self, _receipt: &MutationReceipt) -> Result<bool, BackendError> {
         Err(BackendError::Unavailable("adapter inspection".to_owned()))
     }
@@ -1183,6 +1194,11 @@ where
             ) && journal.steps[*index].state != MutationState::Restored
         }));
 
+        let adapter = journal
+            .steps
+            .iter()
+            .find(|step| step.kind == MutationKind::WintunAdapter)
+            .map(|step| step.receipt.clone());
         let mut failures = Vec::new();
         for index in order {
             if journal.steps[index].state == MutationState::Restored {
@@ -1198,7 +1214,7 @@ where
             }
             match self
                 .backend
-                .restore_step(&journal.steps[index].receipt)
+                .restore_step_with_adapter(&journal.steps[index].receipt, adapter.as_ref())
                 .await
             {
                 Ok(()) => {
@@ -1568,6 +1584,7 @@ mod tests {
     struct MockBackend {
         applied: Mutex<Vec<MutationKind>>,
         restored: Mutex<Vec<MutationKind>>,
+        restore_identities: Mutex<Vec<(MutationKind, Option<MutationReceipt>)>>,
         fail_apply: Mutex<HashSet<MutationKind>>,
         fail_restore: Mutex<HashSet<MutationKind>>,
         unown_first_created_on_apply: Mutex<HashSet<MutationKind>>,
@@ -1755,6 +1772,18 @@ mod tests {
                 )));
             }
             Ok(())
+        }
+
+        async fn restore_step_with_adapter(
+            &self,
+            receipt: &MutationReceipt,
+            adapter: Option<&MutationReceipt>,
+        ) -> Result<(), BackendError> {
+            self.restore_identities
+                .lock()
+                .await
+                .push((receipt.kind(), adapter.cloned()));
+            self.restore_step(receipt).await
         }
 
         async fn inspect_adapter(&self, _receipt: &MutationReceipt) -> Result<bool, BackendError> {
@@ -2661,6 +2690,15 @@ mod tests {
             .prepare(operation, plan(), owner.clone())
             .await
             .expect("prepare");
+        let adapter = coordinator
+            .state()
+            .await
+            .steps
+            .iter()
+            .find(|step| step.kind == MutationKind::WintunAdapter)
+            .unwrap()
+            .receipt
+            .clone();
         backend
             .fail_restore
             .lock()
@@ -2698,6 +2736,18 @@ mod tests {
             .filter(|kind| **kind == MutationKind::InterfaceConfiguration)
             .count();
         assert_eq!(interface_attempts_after, interface_attempts_before);
+        for kind in [MutationKind::InterfaceConfiguration, MutationKind::Dns] {
+            assert!(
+                backend
+                    .restore_identities
+                    .lock()
+                    .await
+                    .iter()
+                    .any(|(restored, identity)| *restored == kind
+                        && identity.as_ref() == Some(&adapter)),
+                "rollback must retain adapter identity for {kind:?}"
+            );
+        }
     }
 
     #[tokio::test]

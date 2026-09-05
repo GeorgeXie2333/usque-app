@@ -17,26 +17,23 @@ use uuid::Uuid;
 use windows_sys::{
     Win32::{
         Devices::DeviceAndDriverInstallation::{
-            DI_REMOVEDEVICE_GLOBAL, DICS_FLAG_GLOBAL, DIF_REMOVE, DIREG_DRV, GUID_DEVCLASS_NET,
-            HDEVINFO, SP_CLASSINSTALL_HEADER, SP_DEVINFO_DATA, SP_REMOVEDEVICE_PARAMS,
+            DI_REMOVEDEVICE_GLOBAL, DIF_REMOVE, GUID_DEVCLASS_NET, HDEVINFO,
+            SP_CLASSINSTALL_HEADER, SP_DEVINFO_DATA, SP_REMOVEDEVICE_PARAMS,
             SetupDiCallClassInstaller, SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInfo,
-            SetupDiGetClassDevsW, SetupDiOpenDevRegKey, SetupDiSetClassInstallParamsW,
+            SetupDiGetClassDevsW, SetupDiGetDeviceInstanceIdW, SetupDiSetClassInstallParamsW,
         },
-        Foundation::{
-            ERROR_FILE_NOT_FOUND, ERROR_NO_MORE_ITEMS, ERROR_NOT_FOUND, ERROR_SUCCESS, FreeLibrary,
-            HANDLE, HMODULE, INVALID_HANDLE_VALUE,
-        },
-        NetworkManagement::{IpHelper::ConvertInterfaceLuidToGuid, Ndis::NET_LUID_LH},
-        System::{
-            LibraryLoader::{
-                GetProcAddress, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR, LOAD_LIBRARY_SEARCH_SYSTEM32,
-                LoadLibraryExW,
-            },
-            Registry::{HKEY, KEY_QUERY_VALUE, RRF_RT_REG_SZ, RegCloseKey, RegGetValueW},
+        Foundation::{ERROR_NO_MORE_ITEMS, FreeLibrary, HANDLE, HMODULE, INVALID_HANDLE_VALUE},
+        NetworkManagement::Ndis::NET_LUID_LH,
+        System::LibraryLoader::{
+            GetProcAddress, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR, LOAD_LIBRARY_SEARCH_SYSTEM32,
+            LoadLibraryExW,
         },
     },
     core::GUID,
 };
+
+use super::network;
+use crate::journal::MutationReceipt;
 
 const WINTUN_DLL_NAME: &str = "wintun.dll";
 const WINTUN_MIN_RING_CAPACITY: u32 = 0x20_000;
@@ -216,76 +213,6 @@ impl WintunLibrary {
             Ok(version)
         }
     }
-
-    /// Removes the exact journal-owned adapter after a process crash.
-    ///
-    /// `WintunCloseAdapter` removes adapters only when the handle came from
-    /// `WintunCreateAdapter`. A fresh recovery process can obtain only an
-    /// `WintunOpenAdapter` handle, so closing that handle is not sufficient.
-    /// Verify the journaled name, interface GUID, and (when known) LUID before
-    /// asking SetupAPI to remove the matching device instance.
-    pub fn remove_adapter_if_present(
-        self: &Arc<Self>,
-        name: &str,
-        expected_guid: Uuid,
-        expected_luid: u64,
-    ) -> Result<(), WintunError> {
-        if expected_guid.is_nil() {
-            return Err(WintunError::InvalidRecoveryIdentity);
-        }
-        let adapter = match self.open_adapter(name) {
-            Ok(adapter) => adapter,
-            Err(error)
-                if matches!(
-                    error.raw_os_error(),
-                    Some(code) if code == ERROR_NOT_FOUND as i32
-                        || code == ERROR_FILE_NOT_FOUND as i32
-                ) =>
-            {
-                return Ok(());
-            }
-            Err(error) => return Err(error),
-        };
-
-        let actual_luid = adapter.luid();
-        if actual_luid == 0 || expected_luid != 0 && actual_luid != expected_luid {
-            return Err(WintunError::AdapterIdentityMismatch(name.to_owned()));
-        }
-        let mut luid = NET_LUID_LH::default();
-        luid.Value = actual_luid;
-        let mut actual_guid = GUID::default();
-        // SAFETY: both structures are initialized and remain live for the call.
-        let status = unsafe { ConvertInterfaceLuidToGuid(&luid, &mut actual_guid) };
-        if status != ERROR_SUCCESS {
-            return Err(WintunError::Windows(
-                "ConvertInterfaceLuidToGuid",
-                io::Error::from_raw_os_error(status as i32),
-            ));
-        }
-        if !guid_equals(&actual_guid, &GUID::from_u128(expected_guid.as_u128())) {
-            return Err(WintunError::AdapterIdentityMismatch(name.to_owned()));
-        }
-
-        // This handle was opened rather than created, so dropping it releases
-        // resources but intentionally does not remove the device instance.
-        drop(adapter);
-        if let Err(error) = remove_device_instance(expected_guid) {
-            // SetupAPI can report a stale/invalid devnode after another Wintun
-            // cleanup path has already completed the removal. Accept the API
-            // failure only when a fresh exact-GUID enumeration proves that the
-            // device no longer exists; otherwise preserve the real failure.
-            match device_instance_present(expected_guid) {
-                Ok(false) => return Ok(()),
-                Ok(true) | Err(_) => return Err(error),
-            }
-        }
-        wait_for_device_instance_removal(
-            name,
-            ADAPTER_REMOVAL_CONFIRM_TIMEOUT,
-            ADAPTER_REMOVAL_CONFIRM_INTERVAL,
-            || device_instance_present(expected_guid),
-        )
-    }
 }
 
 impl Drop for WintunLibrary {
@@ -463,100 +390,163 @@ impl Drop for WintunSession {
     }
 }
 
+/// Recovery never opens Wintun: OpenAdapter/CloseAdapter can enqueue unrelated
+/// orphan cleanup. The journal stores the RequestedGUID passed to pinned
+/// Wintun 0.14.1, which uses it as SWD\Wintun's software-device instance ID.
+pub fn remove_adapter_if_present(receipt: &MutationReceipt) -> Result<(), WintunError> {
+    let MutationReceipt::WintunAdapter {
+        adapter_name,
+        adapter_guid,
+        ..
+    } = receipt
+    else {
+        return Err(WintunError::InvalidRecoveryIdentity);
+    };
+    wide_name(adapter_name)?;
+    // Reject a renamed/replaced live interface BEFORE any SetupAPI mutation.
+    interface_instance_present(receipt)?;
+    let removal = remove_device_instance(*adapter_guid);
+    let confirmation = wait_for_device_instance_removal(
+        adapter_name,
+        ADAPTER_REMOVAL_CONFIRM_TIMEOUT,
+        ADAPTER_REMOVAL_CONFIRM_INTERVAL,
+        || adapter_resources_present(receipt),
+    );
+    match (removal, confirmation) {
+        (_, Ok(())) => Ok(()),
+        (Err(error), Err(_)) | (Ok(()), Err(error)) => Err(error),
+    }
+}
+
+/// False means BOTH exact PnP and IP Helper absence, never a missing name,
+/// stale LUID, or an unreadable registry value. This function is read-only.
+pub fn adapter_resources_present(receipt: &MutationReceipt) -> Result<bool, WintunError> {
+    adapter_resources_present_with(receipt, interface_instance_present, device_instance_present)
+}
+
+fn adapter_resources_present_with(
+    receipt: &MutationReceipt,
+    inspect_interface: impl FnOnce(&MutationReceipt) -> Result<bool, WintunError>,
+    inspect_device: impl FnOnce(Uuid) -> Result<bool, WintunError>,
+) -> Result<bool, WintunError> {
+    let MutationReceipt::WintunAdapter { adapter_guid, .. } = receipt else {
+        return Err(WintunError::InvalidRecoveryIdentity);
+    };
+    let interface = inspect_interface(receipt)?;
+    let device = inspect_device(*adapter_guid)?;
+    Ok(interface || device)
+}
+
+fn interface_instance_present(receipt: &MutationReceipt) -> Result<bool, WintunError> {
+    network::inspect_adapter_identity(receipt).map_err(|error| match error {
+        network::NetworkError::Windows { operation, code } => {
+            WintunError::Windows(operation, io::Error::from_raw_os_error(code as i32))
+        }
+        _ => WintunError::InvalidRecoveryIdentity,
+    })
+}
+
 fn remove_device_instance(expected_guid: Uuid) -> Result<(), WintunError> {
+    let Some((device_info, device)) = find_device_instance(expected_guid)? else {
+        return Ok(());
+    };
+    let parameters = SP_REMOVEDEVICE_PARAMS {
+        ClassInstallHeader: SP_CLASSINSTALL_HEADER {
+            cbSize: u32::try_from(mem::size_of::<SP_CLASSINSTALL_HEADER>())
+                .expect("SP_CLASSINSTALL_HEADER size fits u32"),
+            InstallFunction: DIF_REMOVE,
+        },
+        Scope: DI_REMOVEDEVICE_GLOBAL,
+        HwProfile: 0,
+    };
+    // SAFETY: this set/device pair names the exact journaled software device.
+    // The class-install buffer has the required DIF_REMOVE size and layout.
+    if unsafe {
+        SetupDiSetClassInstallParamsW(
+            device_info.0,
+            &device,
+            &parameters.ClassInstallHeader,
+            u32::try_from(mem::size_of::<SP_REMOVEDEVICE_PARAMS>())
+                .expect("SP_REMOVEDEVICE_PARAMS size fits u32"),
+        )
+    } == 0
+    {
+        return Err(WintunError::Windows(
+            "SetupDiSetClassInstallParamsW",
+            io::Error::last_os_error(),
+        ));
+    }
+    // SAFETY: the parameters above select global removal of this exact device.
+    if unsafe { SetupDiCallClassInstaller(DIF_REMOVE, device_info.0, &device) } == 0 {
+        return Err(WintunError::Windows(
+            "SetupDiCallClassInstaller(DIF_REMOVE)",
+            io::Error::last_os_error(),
+        ));
+    }
+    Ok(())
+}
+
+pub(super) fn device_instance_present(expected_guid: Uuid) -> Result<bool, WintunError> {
+    find_device_instance(expected_guid).map(|device| device.is_some())
+}
+
+fn find_device_instance(
+    expected_guid: Uuid,
+) -> Result<Option<(DeviceInfoSet, SP_DEVINFO_DATA)>, WintunError> {
+    if expected_guid.is_nil() {
+        return Err(WintunError::InvalidRecoveryIdentity);
+    }
     let device_info = DeviceInfoSet::network_adapters()?;
-    let mut index = 0_u32;
-    loop {
+    for index in 0..4_096 {
         let mut device = SP_DEVINFO_DATA {
             cbSize: u32::try_from(mem::size_of::<SP_DEVINFO_DATA>())
                 .expect("SP_DEVINFO_DATA size fits u32"),
             ..Default::default()
         };
-        // SAFETY: the device-info set is live and `device` has the required size.
+        // SAFETY: the device set is live; the output has its required size.
         if unsafe { SetupDiEnumDeviceInfo(device_info.0, index, &mut device) } == 0 {
             let error = io::Error::last_os_error();
             if error.raw_os_error() == Some(ERROR_NO_MORE_ITEMS as i32) {
-                return Ok(());
+                return Ok(None);
             }
             return Err(WintunError::Windows("SetupDiEnumDeviceInfo", error));
         }
-        index = index.saturating_add(1);
-
-        let Some(instance_id) =
-            read_device_registry_string(device_info.0, &device, "NetCfgInstanceId")
-        else {
-            continue;
-        };
-        if parse_registry_guid(&instance_id) != Some(expected_guid) {
-            continue;
-        }
-
-        let parameters = SP_REMOVEDEVICE_PARAMS {
-            ClassInstallHeader: SP_CLASSINSTALL_HEADER {
-                cbSize: u32::try_from(mem::size_of::<SP_CLASSINSTALL_HEADER>())
-                    .expect("SP_CLASSINSTALL_HEADER size fits u32"),
-                InstallFunction: DIF_REMOVE,
-            },
-            Scope: DI_REMOVEDEVICE_GLOBAL,
-            HwProfile: 0,
-        };
-        // SAFETY: the set/device pair came from SetupAPI and the class-install
-        // buffer has the exact structure and byte size required for DIF_REMOVE.
+        // MAX_DEVICE_ID_LEN is 200 UTF-16 units, including the terminator.
+        let mut id = [0_u16; 200];
+        // SAFETY: the set/device pair was enumerated above and the writable
+        // buffer length exactly matches its declared capacity.
         if unsafe {
-            SetupDiSetClassInstallParamsW(
+            SetupDiGetDeviceInstanceIdW(
                 device_info.0,
                 &device,
-                &parameters.ClassInstallHeader,
-                u32::try_from(mem::size_of::<SP_REMOVEDEVICE_PARAMS>())
-                    .expect("SP_REMOVEDEVICE_PARAMS size fits u32"),
+                id.as_mut_ptr(),
+                id.len() as u32,
+                ptr::null_mut(),
             )
         } == 0
         {
             return Err(WintunError::Windows(
-                "SetupDiSetClassInstallParamsW",
+                "SetupDiGetDeviceInstanceIdW",
                 io::Error::last_os_error(),
             ));
         }
-        // SAFETY: class-install parameters above describe a global removal for
-        // this exact device information element.
-        if unsafe { SetupDiCallClassInstaller(DIF_REMOVE, device_info.0, &device) } == 0 {
-            return Err(WintunError::Windows(
-                "SetupDiCallClassInstaller(DIF_REMOVE)",
-                io::Error::last_os_error(),
-            ));
+        if device_instance_matches(expected_guid, &id)? {
+            return Ok(Some((device_info, device)));
         }
-        return Ok(());
     }
+    Err(WintunError::InvalidRecoveryIdentity)
 }
 
-fn device_instance_present(expected_guid: Uuid) -> Result<bool, WintunError> {
-    let device_info = DeviceInfoSet::network_adapters()?;
-    let mut index = 0_u32;
-    loop {
-        let mut device = SP_DEVINFO_DATA {
-            cbSize: u32::try_from(mem::size_of::<SP_DEVINFO_DATA>())
-                .expect("SP_DEVINFO_DATA size fits u32"),
-            ..Default::default()
-        };
-        // SAFETY: the device-info set is live and `device` has the required size.
-        if unsafe { SetupDiEnumDeviceInfo(device_info.0, index, &mut device) } == 0 {
-            let error = io::Error::last_os_error();
-            if error.raw_os_error() == Some(ERROR_NO_MORE_ITEMS as i32) {
-                return Ok(false);
-            }
-            return Err(WintunError::Windows("SetupDiEnumDeviceInfo", error));
-        }
-        index = index.saturating_add(1);
-
-        let Some(instance_id) =
-            read_device_registry_string(device_info.0, &device, "NetCfgInstanceId")
-        else {
-            continue;
-        };
-        if parse_registry_guid(&instance_id) == Some(expected_guid) {
-            return Ok(true);
-        }
+fn device_instance_matches(expected_guid: Uuid, id: &[u16]) -> Result<bool, WintunError> {
+    if expected_guid.is_nil() {
+        return Err(WintunError::InvalidRecoveryIdentity);
     }
+    let end = id
+        .iter()
+        .position(|unit| *unit == 0)
+        .ok_or(WintunError::InvalidRecoveryIdentity)?;
+    let id = String::from_utf16(&id[..end]).map_err(|_| WintunError::InvalidRecoveryIdentity)?;
+    Ok(id.eq_ignore_ascii_case(&format!(r"SWD\Wintun\{{{expected_guid}}}")))
 }
 
 fn wait_for_device_instance_removal<Probe>(
@@ -580,85 +570,6 @@ where
         }
         thread::sleep(poll_interval);
     }
-}
-
-fn read_device_registry_string(
-    device_info: HDEVINFO,
-    device: &SP_DEVINFO_DATA,
-    value_name: &str,
-) -> Option<String> {
-    // SAFETY: the set/device pair came from SetupAPI. Read-only driver-key
-    // access is sufficient for NetCfgInstanceId.
-    let key = unsafe {
-        SetupDiOpenDevRegKey(
-            device_info,
-            device,
-            DICS_FLAG_GLOBAL,
-            0,
-            DIREG_DRV,
-            KEY_QUERY_VALUE,
-        )
-    };
-    if ptr::eq(key, INVALID_HANDLE_VALUE) {
-        return None;
-    }
-    let key = RegistryKey(key);
-    let name = value_name
-        .encode_utf16()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
-    let mut byte_count = 0_u32;
-    // SAFETY: key and value name are valid; the first call requests size only.
-    let status = unsafe {
-        RegGetValueW(
-            key.0,
-            ptr::null(),
-            name.as_ptr(),
-            RRF_RT_REG_SZ,
-            ptr::null_mut(),
-            ptr::null_mut(),
-            &mut byte_count,
-        )
-    };
-    if status != ERROR_SUCCESS
-        || byte_count == 0
-        || byte_count > 512
-        || !byte_count.is_multiple_of(2)
-    {
-        return None;
-    }
-    let mut value = vec![0_u16; byte_count as usize / 2];
-    // SAFETY: the UTF-16 buffer has exactly the byte count returned above.
-    let status = unsafe {
-        RegGetValueW(
-            key.0,
-            ptr::null(),
-            name.as_ptr(),
-            RRF_RT_REG_SZ,
-            ptr::null_mut(),
-            value.as_mut_ptr().cast(),
-            &mut byte_count,
-        )
-    };
-    if status != ERROR_SUCCESS {
-        return None;
-    }
-    let length = value
-        .iter()
-        .position(|unit| *unit == 0)
-        .unwrap_or(value.len());
-    String::from_utf16(&value[..length]).ok()
-}
-
-fn parse_registry_guid(value: &str) -> Option<Uuid> {
-    Uuid::parse_str(value.trim().trim_start_matches('{').trim_end_matches('}')).ok()
-}
-
-fn guid_equals(left: &GUID, right: &GUID) -> bool {
-    left.data1 == right.data1
-        && left.data2 == right.data2
-        && left.data3 == right.data3
-        && left.data4 == right.data4
 }
 
 struct DeviceInfoSet(HDEVINFO);
@@ -686,17 +597,6 @@ impl Drop for DeviceInfoSet {
         // SAFETY: this wrapper uniquely owns the SetupAPI device-info set.
         unsafe {
             SetupDiDestroyDeviceInfoList(self.0);
-        }
-    }
-}
-
-struct RegistryKey(HKEY);
-
-impl Drop for RegistryKey {
-    fn drop(&mut self) {
-        // SAFETY: this wrapper uniquely owns the registry handle.
-        unsafe {
-            RegCloseKey(self.0);
         }
     }
 }
@@ -793,6 +693,44 @@ impl WintunError {
 mod tests {
     use super::*;
 
+    #[test]
+    fn removal_waits_for_both_pnp_and_ip_helper_without_reopening_wintun() {
+        let receipt = MutationReceipt::WintunAdapter {
+            adapter_name: "Usque-0123456789ab".to_owned(),
+            adapter_guid: Uuid::new_v4(),
+            interface_luid: 7,
+        };
+        // PnP has disappeared but IP Helper still has its old row. This is
+        // pending removal, not a permanent identity conflict or early success.
+        let mut observations = [(true, true), (true, false), (false, false)].into_iter();
+        wait_for_device_instance_removal(
+            "Usque-0123456789ab",
+            Duration::from_secs(1),
+            Duration::ZERO,
+            || {
+                let (interface, device) = observations.next().expect("bounded probe");
+                adapter_resources_present_with(&receipt, |_| Ok(interface), |_| Ok(device))
+            },
+        )
+        .unwrap();
+        assert!(observations.next().is_none());
+        assert!(
+            adapter_resources_present_with(&receipt, |_| Ok(false), |_| Ok(true)).unwrap(),
+            "a disabled/partial device still exists"
+        );
+        assert!(
+            adapter_resources_present_with(
+                &receipt,
+                |_| Ok(false),
+                |_| Err(WintunError::Windows(
+                    "PnP probe",
+                    io::Error::from_raw_os_error(5)
+                ))
+            )
+            .is_err()
+        );
+    }
+
     fn official_dll() -> PathBuf {
         let architecture = if cfg!(target_arch = "aarch64") {
             "arm64"
@@ -837,13 +775,24 @@ mod tests {
     }
 
     #[test]
-    fn windows_registry_guid_parser_is_strict_but_accepts_braces_and_case() {
+    fn exact_software_device_identity_is_required_without_registry_reads() {
         let expected = Uuid::parse_str("d2f0aa15-fb6b-4d89-8fa9-58cf825086f9").expect("guid");
-        assert_eq!(
-            parse_registry_guid(" {D2F0AA15-FB6B-4D89-8FA9-58CF825086F9} "),
-            Some(expected)
-        );
-        assert_eq!(parse_registry_guid("not-a-guid"), None);
+        for (id, matches) in [
+            (r"SWD\WINTUN\{D2F0AA15-FB6B-4D89-8FA9-58CF825086F9}", true),
+            (r"swd\wintun\{d2f0aa15-fb6b-4d89-8fa9-58cf825086f9}", true),
+            (r"SWD\OTHER\{D2F0AA15-FB6B-4D89-8FA9-58CF825086F9}", false),
+            (r"SWD\WINTUN\{00000000-0000-4000-8000-000000000002}", false),
+            (
+                r"SWD\WINTUN\{D2F0AA15-FB6B-4D89-8FA9-58CF825086F9}\extra",
+                false,
+            ),
+        ] {
+            let id = id.encode_utf16().chain(Some(0)).collect::<Vec<_>>();
+            assert_eq!(device_instance_matches(expected, &id).unwrap(), matches);
+        }
+        assert!(device_instance_matches(expected, &[0xd800, 0]).is_err());
+        assert!(device_instance_matches(expected, &[b'x' as u16]).is_err());
+        assert!(device_instance_matches(Uuid::nil(), &[0]).is_err());
     }
 
     #[test]
@@ -884,5 +833,19 @@ mod tests {
             ),
             Err(WintunError::InvalidRecoveryIdentity)
         ));
+        for code in [5, 13, 170] {
+            let result = wait_for_device_instance_removal(
+                "Usque-0123456789ab",
+                Duration::ZERO,
+                Duration::ZERO,
+                || {
+                    Err(WintunError::Windows(
+                        "SetupDiGetDeviceInstanceIdW",
+                        io::Error::from_raw_os_error(code),
+                    ))
+                },
+            );
+            assert_eq!(result.unwrap_err().raw_os_error(), Some(code));
+        }
     }
 }

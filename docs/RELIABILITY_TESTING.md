@@ -15,6 +15,49 @@ microbenchmark correctness tests. Shared-runner wall-clock timings are never
 treated as performance truth. These jobs do not require a public endpoint and
 do not change host routes, DNS, firewall, proxy, or TUN state.
 
+## Windows Geo DNS and orphaned TUN regression coverage
+
+Windows physical DNS discovery uses `GetAdaptersAddresses` for effective
+per-interface servers, including DHCP. `GetInterfaceDnsSettings` remains a
+separate static-configuration snapshot for rollback; DHCP values must not be
+persisted as static DNS. Bounded native-buffer fixtures cover IPv4/IPv6,
+missing interfaces, malformed pointers/lengths, cycles and duplicate LUIDs.
+
+Recovery retains journal schema v2 and its existing operation/owner/generation
+guards. The adapter GUID is the RequestedGUID passed to pinned Wintun 0.14.1;
+its exact `SWD\Wintun\{GUID}` device-instance identity is checked using SetupAPI,
+including non-present devices. Recovery does not call `WintunOpenAdapter` as
+an existence probe. A registry-read failure is no longer convertible into
+device absence. Both PnP and IP Helper must confirm absence before adapter
+cleanup succeeds; lingering rows remain pending, and query/identity failures
+retain recovery evidence.
+
+A released LUID can identify another VPN's adapter. DNS/address/MTU rollback
+therefore receives the original adapter identity and never writes through an
+unverified retired LUID. Default-route receipts are handled individually:
+physical exclusions still require explicit cleanup, and a route still present
+on a reused tunnel LUID remains a conflict rather than being deleted. Adapter
+removal cannot supersede route, WFP, proxy or persistence failures.
+
+Engine startup failures retain both the original typed error and any rollback
+error. A compound failure uses the existing recovery error channel with no
+transport fallback. New startup log fields and displayed compound summaries
+contain allowlisted stage/error codes only, not remote messages, credentials,
+adapter identifiers or network addresses. The Agent's existing sanitized
+step/API/Win32 recovery diagnostics remain available locally. No automatic
+diagnostic upload is added.
+
+Run Windows deterministic tests with the pinned build helper in
+`CONTRIBUTING.md`; the existing Windows x64-v2 Build job also runs these tests.
+The Ubuntu Rust CI job does not execute `cfg(windows)` tests.
+These fixtures are not lifecycle or leak evidence. In a snapshot VM, cover
+DHCP/static DNS, Geo off/CN, Kill Switch and system proxy, reattachment,
+reboot/full shutdown/Fast Startup, abrupt termination and a second VPN reusing
+a freed LUID. Verify first connection, rollback and old phase-7 journals; use
+the independent observer for leak claims. Those isolated scenarios are
+`not_run` for this workstation change. They remain supplemental, not a new
+publication prerequisite.
+
 ## Protected release runners
 
 After the exact signed candidate has been staged, the public release workflow

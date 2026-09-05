@@ -761,35 +761,40 @@ impl WindowsVpnRuntime {
         let physical_info = match agent.get_physical_network_info(operation_id).await {
             Ok(info) => info,
             Err(error) => {
-                abort_startup(
+                return Err(fail_startup(
                     &agent,
                     operation_id,
                     resuming,
                     "PHYSICAL_NETWORK_SNAPSHOT_FAILED",
+                    error,
                 )
-                .await?;
-                return Err(error);
+                .await);
             }
         };
         let physical_dns = match physical_dns_endpoints(&physical_info) {
             Ok(servers) => servers,
             Err(error) => {
-                abort_startup(
+                return Err(fail_startup(
                     &agent,
                     operation_id,
                     resuming,
                     "PHYSICAL_DNS_SNAPSHOT_INVALID",
+                    error,
                 )
-                .await?;
-                return Err(error);
+                .await);
             }
         };
-        if geo_enabled
-            && profile.direct_dns.mode == usque_core::DirectDnsMode::PhysicalSystem
-            && physical_dns.is_empty()
+        if let Err(error) =
+            validate_physical_dns(geo_enabled, profile.direct_dns.mode, &physical_dns)
         {
-            abort_startup(&agent, operation_id, resuming, "PHYSICAL_DNS_UNAVAILABLE").await?;
-            return Err(WindowsVpnError::PhysicalDnsUnavailable);
+            return Err(fail_startup(
+                &agent,
+                operation_id,
+                resuming,
+                "PHYSICAL_DNS_UNAVAILABLE",
+                error,
+            )
+            .await);
         }
         let initial_generation = physical_info.generation;
         let protector = Arc::new(WindowsVpnSocketProtector {
@@ -822,8 +827,14 @@ impl WindowsVpnRuntime {
         {
             Ok(tunnel) => tunnel,
             Err(error) => {
-                abort_startup(&agent, operation_id, resuming, "TRANSPORT_START_FAILED").await?;
-                return Err(error.into());
+                return Err(fail_startup(
+                    &agent,
+                    operation_id,
+                    resuming,
+                    "TRANSPORT_START_FAILED",
+                    error.into(),
+                )
+                .await);
             }
         };
         match bind_agent_session(
@@ -1117,6 +1128,49 @@ async fn rollback_startup(
     agent.rollback(operation_id, reason).await.map(|_| ())
 }
 
+fn validate_physical_dns(
+    geo_enabled: bool,
+    mode: usque_core::DirectDnsMode,
+    servers: &[SocketAddr],
+) -> Result<(), WindowsVpnError> {
+    if geo_enabled && mode == usque_core::DirectDnsMode::PhysicalSystem && servers.is_empty() {
+        Err(WindowsVpnError::PhysicalDnsUnavailable)
+    } else {
+        Ok(())
+    }
+}
+
+async fn fail_startup(
+    agent: &WindowsAgentClient,
+    operation_id: Uuid,
+    resuming: bool,
+    stage: &'static str,
+    startup: WindowsVpnError,
+) -> WindowsVpnError {
+    // Keep the FIRST failure even if cleanup times out or fails. These codes
+    // are allowlisted constants, not remote messages, addresses or identities.
+    tracing::warn!(
+        reason_code = stage,
+        error_code = startup.diagnostic_code(),
+        "Windows VPN startup failed; attempting rollback"
+    );
+    match abort_startup(agent, operation_id, resuming, stage).await {
+        Ok(()) => startup,
+        Err(recovery) => {
+            tracing::warn!(
+                reason_code = stage,
+                error_code = recovery.diagnostic_code(),
+                "Windows VPN startup rollback remains incomplete"
+            );
+            WindowsVpnError::StartupAndRecovery {
+                stage,
+                startup: Box::new(startup),
+                recovery: Box::new(recovery),
+            }
+        }
+    }
+}
+
 async fn abort_startup(
     agent: &WindowsAgentClient,
     operation_id: Uuid,
@@ -1156,8 +1210,15 @@ async fn bind_agent_session(
     let tun_io = match tunnel.attach_tun() {
         Ok(tun_io) => tun_io,
         Err(error) => {
-            let _ = abort_startup(&agent, operation_id, resuming, "TUN_ATTACH_FAILED").await;
-            return Err((tunnel, error.into()));
+            let error = fail_startup(
+                &agent,
+                operation_id,
+                resuming,
+                "TUN_ATTACH_FAILED",
+                error.into(),
+            )
+            .await;
+            return Err((tunnel, error));
         }
     };
     let handles = if resuming {
@@ -1171,7 +1232,14 @@ async fn bind_agent_session(
         Ok(handles) => handles,
         Err(error) => {
             tunnel.detach_tun();
-            let _ = abort_startup(&agent, operation_id, resuming, "PACKET_SESSION_FAILED").await;
+            let error = fail_startup(
+                &agent,
+                operation_id,
+                resuming,
+                "PACKET_SESSION_FAILED",
+                error,
+            )
+            .await;
             return Err((tunnel, error));
         }
     };
@@ -1179,7 +1247,14 @@ async fn bind_agent_session(
         Ok(mapping) => Arc::new(mapping),
         Err(error) => {
             tunnel.detach_tun();
-            let _ = abort_startup(&agent, operation_id, resuming, "PACKET_MAPPING_FAILED").await;
+            let error = fail_startup(
+                &agent,
+                operation_id,
+                resuming,
+                "PACKET_MAPPING_FAILED",
+                error,
+            )
+            .await;
             return Err((tunnel, error));
         }
     };
@@ -1204,7 +1279,7 @@ async fn bind_agent_session(
         cancellation.cancel();
         stop_tasks(tasks).await;
         tunnel.detach_tun();
-        let _ = abort_startup(&agent, operation_id, resuming, "COMMIT_FAILED").await;
+        let error = fail_startup(&agent, operation_id, resuming, "COMMIT_FAILED", error).await;
         return Err((tunnel, error));
     }
 
@@ -1219,7 +1294,14 @@ async fn bind_agent_session(
             cancellation.cancel();
             stop_tasks(tasks).await;
             tunnel.detach_tun();
-            let _ = abort_startup(&agent, operation_id, resuming, "LIVENESS_LEASE_FAILED").await;
+            let error = fail_startup(
+                &agent,
+                operation_id,
+                resuming,
+                "LIVENESS_LEASE_FAILED",
+                error,
+            )
+            .await;
             return Err((tunnel, error));
         }
     };
@@ -1237,14 +1319,15 @@ async fn bind_agent_session(
             cancellation.cancel();
             stop_tasks(tasks).await;
             tunnel.detach_tun();
-            let _ = abort_startup(
+            let error = fail_startup(
                 &agent,
                 operation_id,
                 resuming,
                 "SYSTEM_PROXY_LISTENER_MISSING",
+                WindowsVpnError::MissingSystemProxyListener,
             )
             .await;
-            return Err((tunnel, WindowsVpnError::MissingSystemProxyListener));
+            return Err((tunnel, error));
         };
         match WindowsSystemProxyGuard::start_for_tunnel(listener, operation_id).await {
             Ok(guard) => Some(guard),
@@ -1253,8 +1336,14 @@ async fn bind_agent_session(
                 cancellation.cancel();
                 stop_tasks(tasks).await;
                 tunnel.detach_tun();
-                let _ = abort_startup(&agent, operation_id, resuming, "SYSTEM_PROXY_APPLY_FAILED")
-                    .await;
+                let error = fail_startup(
+                    &agent,
+                    operation_id,
+                    resuming,
+                    "SYSTEM_PROXY_APPLY_FAILED",
+                    error,
+                )
+                .await;
                 return Err((tunnel, error));
             }
         }
@@ -2851,6 +2940,14 @@ pub(crate) enum WindowsVpnError {
     InvalidPhysicalNetworkInfo,
     #[error("the selected physical network has no usable DNS server for Split DNS")]
     PhysicalDnsUnavailable,
+    #[error("Windows VPN startup failed ({stage}: {primary_code}); rollback also failed ({recovery_code}); network recovery is required",
+        primary_code = .startup.diagnostic_code(), recovery_code = .recovery.diagnostic_code())]
+    StartupAndRecovery {
+        stage: &'static str,
+        #[source]
+        startup: Box<WindowsVpnError>,
+        recovery: Box<WindowsVpnError>,
+    },
     #[error("Windows Agent returned a mismatched direct-egress lease")]
     InvalidDirectEgressLease,
     #[error(
@@ -2912,6 +3009,27 @@ pub(crate) enum WindowsVpnError {
     MissingMasqueRuntime,
 }
 
+impl WindowsVpnError {
+    fn diagnostic_code(&self) -> &'static str {
+        match self {
+            Self::PhysicalDnsUnavailable => "PHYSICAL_DNS_UNAVAILABLE",
+            Self::InvalidPhysicalNetworkInfo => "PHYSICAL_NETWORK_SNAPSHOT_INVALID",
+            Self::RpcTimeout | Self::RecoveryTimeout => "WINDOWS_RECOVERY_TIMEOUT",
+            Self::Transport(error) => error.failure(None, None).code.as_str(),
+            Self::Remote { code, .. } => match code.as_str() {
+                "AGENT_RECOVERY_FAILED" => "AGENT_RECOVERY_FAILED",
+                "AGENT_RECOVERY_BUSY" => "AGENT_RECOVERY_BUSY",
+                "AGENT_RECOVERY_CONFLICT" => "AGENT_RECOVERY_CONFLICT",
+                "AGENT_OWNER_MISMATCH" => "AGENT_OWNER_MISMATCH",
+                _ => "AGENT_OPERATION_FAILED",
+            },
+            Self::Io(_) | Self::AgentService(_) => "AGENT_UNREACHABLE",
+            Self::StartupAndRecovery { .. } => "WINDOWS_RECOVERY_FAILED",
+            _ => "WINDOWS_VPN_STARTUP_FAILED",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -2923,6 +3041,124 @@ mod tests {
     };
 
     use tokio::net::windows::named_pipe::ServerOptions;
+
+    #[test]
+    fn geo_startup_accepts_effective_dhcp_dns_but_rejects_an_empty_physical_snapshot() {
+        use usque_core::DirectDnsMode;
+        let servers = ["192.0.2.53:53".parse().unwrap()];
+        assert!(validate_physical_dns(true, DirectDnsMode::PhysicalSystem, &servers).is_ok());
+        assert!(matches!(
+            validate_physical_dns(true, DirectDnsMode::PhysicalSystem, &[]),
+            Err(WindowsVpnError::PhysicalDnsUnavailable)
+        ));
+        assert!(validate_physical_dns(false, DirectDnsMode::PhysicalSystem, &[]).is_ok());
+        assert!(validate_physical_dns(true, DirectDnsMode::Doh, &[]).is_ok());
+    }
+
+    #[tokio::test]
+    async fn startup_failure_keeps_the_original_cause_when_rollback_also_fails() {
+        let (client, task) = scripted_recovery_client(vec![AgentResponse {
+            error: Some(agent_v1::AgentError {
+                code: "AGENT_RECOVERY_FAILED".to_owned(),
+                message: "private diagnostic fixture".to_owned(),
+                retryable: false,
+            }),
+            ..Default::default()
+        }]);
+        let error = fail_startup(
+            &client,
+            Uuid::new_v4(),
+            false,
+            "PHYSICAL_DNS_UNAVAILABLE",
+            WindowsVpnError::PhysicalDnsUnavailable,
+        )
+        .await;
+        let WindowsVpnError::StartupAndRecovery {
+            startup, recovery, ..
+        } = &error
+        else {
+            panic!("both causes required")
+        };
+        assert!(matches!(
+            startup.as_ref(),
+            WindowsVpnError::PhysicalDnsUnavailable
+        ));
+        assert!(
+            matches!(recovery.as_ref(), WindowsVpnError::Remote { code, .. } if code == "AGENT_RECOVERY_FAILED")
+        );
+        assert!(error.to_string().contains("PHYSICAL_DNS_UNAVAILABLE"));
+        assert!(error.to_string().contains("AGENT_RECOVERY_FAILED"));
+        assert!(!error.to_string().contains("private diagnostic fixture"));
+        assert!(
+            matches!(task.await.unwrap().as_slice(), [agent_request::Payload::RollbackTunnel(request)] if request.reason_code == "PHYSICAL_DNS_UNAVAILABLE")
+        );
+        assert!(matches!(
+            crate::map_windows_vpn_error(error),
+            crate::ControlServiceError::PlatformRecovery {
+                code: "WINDOWS_RECOVERY_FAILED",
+                retryable: false,
+                ..
+            }
+        ));
+    }
+
+    #[tokio::test]
+    async fn successful_startup_rollback_preserves_the_original_error() {
+        let (client, task) =
+            scripted_recovery_client(vec![recovery_state_response(agent_v1::AgentPhase::Clean)]);
+        let error = fail_startup(
+            &client,
+            Uuid::new_v4(),
+            false,
+            "PHYSICAL_DNS_UNAVAILABLE",
+            WindowsVpnError::PhysicalDnsUnavailable,
+        )
+        .await;
+        assert!(matches!(error, WindowsVpnError::PhysicalDnsUnavailable));
+        assert_eq!(task.await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_reattachment_failure_never_rolls_back_the_active_tunnel() {
+        let (client, task) = scripted_recovery_client(vec![]);
+        let error = fail_startup(
+            &client,
+            Uuid::new_v4(),
+            true,
+            "TRANSPORT_START_FAILED",
+            WindowsVpnError::Transport(TransportError::ConnectTimeout),
+        )
+        .await;
+        assert!(matches!(
+            error,
+            WindowsVpnError::Transport(TransportError::ConnectTimeout)
+        ));
+        assert!(task.await.unwrap().is_empty());
+    }
+
+    #[test]
+    fn compound_startup_errors_hide_sensitive_details_and_never_allow_transport_fallback() {
+        let error = WindowsVpnError::StartupAndRecovery {
+            stage: "TRANSPORT_START_FAILED",
+            startup: Box::new(WindowsVpnError::Transport(TransportError::Dns(
+                "private.example 203.0.113.7 token-fixture".to_owned(),
+            ))),
+            recovery: Box::new(WindowsVpnError::RpcTimeout),
+        };
+        let text = error.to_string();
+        assert!(text.contains("PHYSICAL_DNS_UNAVAILABLE"));
+        assert!(text.contains("WINDOWS_RECOVERY_TIMEOUT"));
+        for private in ["private.example", "203.0.113.7", "token-fixture"] {
+            assert!(!text.contains(private));
+        }
+        assert!(matches!(
+            crate::map_windows_vpn_error(error),
+            crate::ControlServiceError::PlatformRecovery {
+                retryable: false,
+                ..
+            }
+        ));
+    }
 
     fn scripted_recovery_client(
         script: Vec<AgentResponse>,

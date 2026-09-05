@@ -3750,6 +3750,7 @@ pub(crate) fn map_windows_vpn_error(error: windows_agent::WindowsVpnError) -> Co
     };
     let recovery = match &error {
         windows_agent::WindowsVpnError::RecoveryFailed
+        | windows_agent::WindowsVpnError::StartupAndRecovery { .. }
         | windows_agent::WindowsVpnError::RecoveryRequired { .. } => {
             Some(("WINDOWS_RECOVERY_FAILED", false))
         }

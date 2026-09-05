@@ -134,6 +134,13 @@ jobs:
         shell: pwsh
         run: ./tool/build_windows_rust_release.ps1 -Variant "${{ matrix.variant }}" -CargoAction clippy
 
+      # These deterministic tests do not create a TUN or mutate host networking.
+      # The Ubuntu CI suite cannot execute cfg(windows) DNS/recovery tests.
+      - name: Test Windows workspace through pinned helper
+        if: matrix.variant == 'x64-v2'
+        shell: pwsh
+        run: ./tool/build_windows_rust_release.ps1 -Variant "${{ matrix.variant }}" -CargoAction test
+
       - name: Build Windows engine and Agent through pinned helper
         shell: pwsh
         run: ./tool/build_windows_rust_release.ps1 -Variant "${{ matrix.variant }}"
