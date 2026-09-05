@@ -144,6 +144,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
       saving: _saving,
       child: SubPage(
         title: strings.get('advanced'),
+        contentWidth: 880,
         subtitle: strings.get('advanced_subtitle'),
         backLabel: strings.get('back'),
         actions: <Widget>[
@@ -177,8 +178,9 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
               ),
               const SizedBox(height: 16),
               PanelStack(
+                spacing: 32,
                 children: <Widget>[
-                  SectionPanel(
+                  ContentSection(
                     icon: LucideIcons.cable,
                     title: strings.get('transport'),
                     gap: 20,
@@ -265,7 +267,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                       ),
                     ],
                   ),
-                  SectionPanel(
+                  ContentSection(
                     icon: LucideIcons.network,
                     title: strings.get('ip_dns'),
                     gap: 20,
@@ -338,7 +340,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                       ),
                     ],
                   ),
-                  SectionPanel(
+                  ContentSection(
                     icon: LucideIcons.shieldCheck,
                     title: strings.get('routing_protection'),
                     gap: 10,

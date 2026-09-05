@@ -42,7 +42,10 @@ Future<void> _openQualityFromSettings(
   double scale = 1,
   bool disableAnimations = true,
 }) async {
-  final card = find.widgetWithText(Panel, app.strings.get('network_quality'));
+  final card = find.widgetWithText(
+    ActionRow,
+    app.strings.get('network_quality'),
+  );
   expect(card, findsOneWidget);
   await tester.ensureVisible(card);
   await tester.pumpAndSettle();
@@ -121,25 +124,25 @@ void main() {
           );
 
           final qualityCard = find.widgetWithText(
-            Panel,
+            ActionRow,
             app.strings.get('network_quality'),
           );
           final diagnosticsCard = find.widgetWithText(
-            Panel,
+            ActionRow,
             app.strings.get('diagnostics'),
           );
           expect(qualityCard, findsOneWidget);
           expect(diagnosticsCard, findsOneWidget);
-          final qualityTitle = tester.widget<SectionTitle>(
+          final qualityTitle = tester.widget<ContentHeading>(
             find.descendant(
               of: qualityCard,
-              matching: find.byType(SectionTitle),
+              matching: find.byType(ContentHeading),
             ),
           );
-          final diagnosticsTitle = tester.widget<SectionTitle>(
+          final diagnosticsTitle = tester.widget<ContentHeading>(
             find.descendant(
               of: diagnosticsCard,
-              matching: find.byType(SectionTitle),
+              matching: find.byType(ContentHeading),
             ),
           );
           expect(qualityTitle.icon, LucideIcons.gauge);
@@ -238,7 +241,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(SettingsScreen), findsOneWidget);
     expect(
-      find.widgetWithText(Panel, app.strings.get('network_quality')),
+      find.widgetWithText(ActionRow, app.strings.get('network_quality')),
       findsNothing,
     );
     expect(app.availableSections, hasLength(4));
@@ -519,7 +522,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(app.section, AppSection.settings);
       final qualityCard = find.widgetWithText(
-        Panel,
+        ActionRow,
         app.strings.get('network_quality'),
       );
       expect(qualityCard, findsOneWidget);

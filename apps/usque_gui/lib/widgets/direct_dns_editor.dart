@@ -168,7 +168,7 @@ class DirectDnsEditorState extends State<DirectDnsEditor> {
     final s = widget.strings;
     final custom = _mode != DirectDnsMode.physicalSystem;
     final editable = widget.enabled && widget.encryptedAvailable;
-    return SectionPanel(
+    return ContentSection(
       icon: LucideIcons.shieldCheck,
       title: s.get('nq_direct_dns'),
       children: <Widget>[

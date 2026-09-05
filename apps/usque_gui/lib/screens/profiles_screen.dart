@@ -27,11 +27,10 @@ class ProfilesScreen extends StatelessWidget {
           label: Text(strings.get('new_profile')),
         ),
       ],
-      child: PanelStack(
-        spacing: 14,
+      child: ContentList(
         children: controller.profiles
             .map(
-              (profile) => _ProfileCard(
+              (profile) => _ProfileRow(
                 profile: profile,
                 active: profile.id == controller.activeProfileId,
                 identityState: controller.identityState(profile.id),
@@ -418,8 +417,8 @@ class _IdentityManagementDialogState extends State<_IdentityManagementDialog> {
   }
 }
 
-class _ProfileCard extends StatelessWidget {
-  const _ProfileCard({
+class _ProfileRow extends StatelessWidget {
+  const _ProfileRow({
     required this.profile,
     required this.active,
     required this.identityState,
@@ -447,141 +446,147 @@ class _ProfileCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final UsqueTokens tokens = UsqueTokens.of(context);
     final bool identityReady = identityState == ProfileIdentityState.ready;
-    return Panel(
-      accent: active ? tokens.brand : null,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final compact = constraints.maxWidth < 620;
-          final identityTag = _ProfileTag(
-            icon: identityStatus.provider == IdentityProvider.zeroTrust
-                ? LucideIcons.building2
-                : identityStatus.licenseState == LicenseState.warpPlus
-                ? LucideIcons.badgeCheck
-                : identityReady
-                ? LucideIcons.user
-                : LucideIcons.triangleAlert,
-            tone: identityReady ? null : tokens.caution,
-            label: _accountIdentityLabel(identityStatus, strings),
-          );
-          final activePill = active
-              ? StatusPill(
-                  label: strings.get('active'),
-                  tone: StatusTone.success,
-                )
-              : null;
-          final actions = Wrap(
-            spacing: 6,
-            children: <Widget>[
-              if (!active)
-                TextButton.icon(
-                  onPressed: onActivate,
-                  icon: const Icon(LucideIcons.check, size: 18),
-                  label: Text(strings.get('set_active')),
-                ),
-              if (identityState != ProfileIdentityState.ready)
-                TextButton.icon(
-                  onPressed: onConfigureIdentity,
-                  icon: const Icon(LucideIcons.keyRound, size: 18),
-                  label: Text(strings.get('configure_identity')),
-                ),
-              if (identityState == ProfileIdentityState.ready)
+    return Semantics(
+      selected: active,
+      container: true,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        decoration: BoxDecoration(
+          color: active
+              ? Theme.of(
+                  context,
+                ).colorScheme.primary.withValues(alpha: tokens.tint * 0.55)
+              : null,
+          border: BorderDirectional(
+            start: BorderSide(
+              width: 3,
+              color: active
+                  ? Theme.of(context).colorScheme.primary
+                  : Colors.transparent,
+            ),
+          ),
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact =
+                constraints.maxWidth < 620 ||
+                MediaQuery.textScalerOf(context).scale(14) > 21;
+            final identityTag = _ProfileTag(
+              icon: identityStatus.provider == IdentityProvider.zeroTrust
+                  ? LucideIcons.building2
+                  : identityStatus.licenseState == LicenseState.warpPlus
+                  ? LucideIcons.badgeCheck
+                  : identityReady
+                  ? LucideIcons.user
+                  : LucideIcons.triangleAlert,
+              tone: identityReady ? null : tokens.caution,
+              label: _accountIdentityLabel(identityStatus, strings),
+            );
+            final activePill = active
+                ? InlineStatus(
+                    label: strings.get('active'),
+                    tone: StatusTone.success,
+                  )
+                : null;
+            final actions = Wrap(
+              spacing: 6,
+              children: <Widget>[
+                if (!active)
+                  TextButton.icon(
+                    onPressed: onActivate,
+                    icon: const Icon(LucideIcons.check, size: 18),
+                    label: Text(strings.get('set_active')),
+                  ),
+                if (identityState != ProfileIdentityState.ready)
+                  TextButton.icon(
+                    onPressed: onConfigureIdentity,
+                    icon: const Icon(LucideIcons.keyRound, size: 18),
+                    label: Text(strings.get('configure_identity')),
+                  ),
+                if (identityState == ProfileIdentityState.ready)
+                  IconButton(
+                    tooltip: strings.get('identity_and_license'),
+                    onPressed: onManageIdentity,
+                    icon: Icon(
+                      identityStatus.licenseState == LicenseState.warpPlus
+                          ? LucideIcons.badgeCheck
+                          : LucideIcons.keyRound,
+                    ),
+                  ),
                 IconButton(
-                  tooltip: strings.get('identity_and_license'),
-                  onPressed: onManageIdentity,
-                  icon: Icon(
-                    identityStatus.licenseState == LicenseState.warpPlus
-                        ? LucideIcons.badgeCheck
-                        : LucideIcons.keyRound,
-                  ),
+                  tooltip: strings.get('edit'),
+                  onPressed: onEdit,
+                  icon: const Icon(LucideIcons.pencil),
                 ),
-              IconButton(
-                tooltip: strings.get('edit'),
-                onPressed: onEdit,
-                icon: const Icon(LucideIcons.pencil),
-              ),
-              IconButton(
-                tooltip: strings.get('delete'),
-                onPressed: onDelete,
-                icon: const Icon(LucideIcons.trash2),
-              ),
-            ],
-          );
-          final name = Text(
-            profile.name,
-            maxLines: compact ? 2 : 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.titleLarge,
-          );
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              Row(
-                crossAxisAlignment: compact
-                    ? CrossAxisAlignment.start
-                    : CrossAxisAlignment.center,
-                children: <Widget>[
-                  Container(
-                    width: 40,
-                    height: 40,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color:
-                          (active
-                                  ? tokens.brand
-                                  : Theme.of(
-                                      context,
-                                    ).colorScheme.onSurfaceVariant)
-                              .withValues(alpha: tokens.tint),
-                      borderRadius: BorderRadius.circular(UsqueRadii.control),
-                    ),
-                    child: Icon(
-                      LucideIcons.layers3,
-                      size: 19,
-                      color: active
-                          ? tokens.brand
-                          : Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                  const SizedBox(width: 13),
-                  Expanded(
-                    child: compact
-                        ? Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: <Widget>[
-                              name,
-                              const SizedBox(height: 8),
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 6,
-                                children: <Widget>[identityTag, ?activePill],
-                              ),
-                            ],
-                          )
-                        : name,
-                  ),
-                  if (!compact) ...<Widget>[
-                    const SizedBox(width: 10),
-                    identityTag,
-                    if (activePill != null) const SizedBox(width: 8),
-                    ?activePill,
-                    const SizedBox(width: 10),
-                    actions,
-                  ],
-                ],
-              ),
-              if (compact) ...<Widget>[
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  child: Divider(height: 1, color: tokens.hairline),
-                ),
-                Align(
-                  alignment: AlignmentDirectional.centerEnd,
-                  child: actions,
+                IconButton(
+                  tooltip: strings.get('delete'),
+                  onPressed: onDelete,
+                  icon: const Icon(LucideIcons.trash2),
                 ),
               ],
-            ],
-          );
-        },
+            );
+            final name = Text(
+              profile.name,
+              maxLines: compact ? 2 : 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.titleLarge,
+            );
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Row(
+                  crossAxisAlignment: compact
+                      ? CrossAxisAlignment.start
+                      : CrossAxisAlignment.center,
+                  children: <Widget>[
+                    Icon(
+                      active ? LucideIcons.circleCheck : LucideIcons.layers3,
+                      size: 24,
+                      color: active
+                          ? Theme.of(context).colorScheme.primary
+                          : Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 13),
+                    Expanded(
+                      child: compact
+                          ? Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: <Widget>[
+                                name,
+                                const SizedBox(height: 8),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 6,
+                                  children: <Widget>[identityTag, ?activePill],
+                                ),
+                              ],
+                            )
+                          : name,
+                    ),
+                    if (!compact) ...<Widget>[
+                      const SizedBox(width: 10),
+                      identityTag,
+                      if (activePill != null) const SizedBox(width: 8),
+                      ?activePill,
+                      const SizedBox(width: 10),
+                      actions,
+                    ],
+                  ],
+                ),
+                if (compact) ...<Widget>[
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    child: Divider(height: 1, color: tokens.hairline),
+                  ),
+                  Align(
+                    alignment: AlignmentDirectional.centerEnd,
+                    child: actions,
+                  ),
+                ],
+              ],
+            );
+          },
+        ),
       ),
     );
   }
@@ -617,31 +622,10 @@ class _ProfileTag extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final Color foreground = tone ?? theme.colorScheme.onSurfaceVariant;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(UsqueRadii.pill),
-        border: Border.all(
-          color: tone == null
-              ? UsqueTokens.of(context).hairline
-              : tone!.withValues(alpha: 0.4),
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Icon(icon, size: 14, color: foreground),
-            const SizedBox(width: 7),
-            Text(
-              label,
-              style: theme.textTheme.labelMedium?.copyWith(color: foreground),
-            ),
-          ],
-        ),
-      ),
+    return InlineStatus(
+      label: label,
+      tone: tone == null ? StatusTone.neutral : StatusTone.warning,
+      icon: icon,
     );
   }
 }

@@ -67,6 +67,58 @@ Sparkline _trace(WidgetTester tester, String direction) =>
 
 void main() {
   testWidgets(
+    'desktop traffic caption follows paused and unavailable history',
+    (tester) async {
+      final fixture = _Fixture()
+        ..sample(0)
+        ..sample(1)
+        ..sample(2);
+      await _show(tester, fixture, size: const Size(1280, 900));
+      Sparkline download() =>
+          tester.widget<Sparkline>(find.byType(Sparkline).first);
+      void expectCaption(String key) =>
+          expect(find.text(fixture.app.strings.get(key)), findsOneWidget);
+
+      expectCaption('home_traffic_window');
+      final frozen = List<int?>.of(download().samples);
+      fixture.quality.togglePaused();
+      await tester.pump();
+      expectCaption('nq_paused');
+      expect(find.text('Last 60 seconds'), findsNothing);
+
+      // A later engine event must not relabel the frozen window as live.
+      fixture.sample(123);
+      await tester.pump();
+      expectCaption('nq_paused');
+      expect(download().samples, frozen);
+      expect(download().semanticLabel, contains('Charts paused'));
+
+      fixture.quality.togglePaused();
+      await tester.pump();
+      expectCaption('home_traffic_waiting');
+      fixture.sample(124);
+      fixture.sample(125);
+      await tester.pump();
+      expectCaption('home_traffic_window');
+
+      fixture.now = fixture.now.add(const Duration(seconds: 4));
+      fixture.quality.markStreamUnavailable(true);
+      await tester.pump();
+      expectCaption('home_traffic_stale');
+      expect(download().semanticLabel, contains('Samples delayed'));
+
+      fixture.app.engineCapabilities = const EngineCapabilities();
+      await tester.pump();
+      expectCaption('home_traffic_unavailable');
+      fixture.app.snapshot = const EngineSnapshot();
+      await tester.pump();
+      expectCaption('home_traffic_idle');
+      expect(fixture.engine.qualityRequests, 0);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
+
+  testWidgets(
     'connected Android home details keep selectable values bounded',
     (tester) async {
       final fixture = _Fixture()..sample(1);
@@ -235,36 +287,39 @@ void main() {
     variant: TargetPlatformVariant.only(TargetPlatform.android),
   );
 
-  testWidgets('mobile home has three cards and a centered connection control', (
-    tester,
-  ) async {
-    final fixture = _Fixture()
-      ..sample(0)
-      ..sample(1)
-      ..sample(2);
-    await _show(tester, fixture);
-    expect(find.byType(Panel), findsNWidgets(3));
-    final ring = tester.getRect(find.byType(ConnectionRing));
-    expect(ring.center.dx, closeTo(375 / 2, 0.1));
-    expect(find.text('Singapore'), findsOneWidget);
-    expect(find.text('Protocol · HTTP/3 · IPv4'), findsOneWidget);
-    expect(find.text('198.51.100.10'), findsNothing);
-    expect(
-      tester.widget<LiveDuration>(find.byType(LiveDuration)).since,
-      fixture.since,
-    );
-    final protectionPanel = find.ancestor(
-      of: find.text('Kill Switch'),
-      matching: find.byType(Panel),
-    );
-    expect(tester.getRect(protectionPanel).contains(ring.center), isTrue);
-    for (final key in ['home-network-quality', 'home-diagnostics']) {
-      final button = find.byKey(ValueKey(key));
-      expect(tester.widget(button), isA<OutlinedButton>());
-      expect(tester.getSize(button).height, greaterThanOrEqualTo(48));
-    }
-    expect(tester.takeException(), isNull);
-  });
+  testWidgets(
+    'mobile home has open sections and a centered connection control',
+    (tester) async {
+      final fixture = _Fixture()
+        ..sample(0)
+        ..sample(1)
+        ..sample(2);
+      await _show(tester, fixture);
+      expect(find.byType(Panel), findsNothing);
+      expect(find.byType(StatusPill), findsNothing);
+      expect(find.byType(ContentSection), findsNWidgets(3));
+      final ring = tester.getRect(find.byType(ConnectionRing));
+      expect(ring.center.dx, closeTo(375 / 2, 0.1));
+      expect(find.text('Singapore'), findsOneWidget);
+      expect(find.text('Protocol · HTTP/3 · IPv4'), findsOneWidget);
+      expect(find.text('198.51.100.10'), findsNothing);
+      expect(
+        tester.widget<LiveDuration>(find.byType(LiveDuration)).since,
+        fixture.since,
+      );
+      final protectionPanel = find.ancestor(
+        of: find.text('Kill Switch'),
+        matching: find.byKey(const ValueKey('mobile-connection-section')),
+      );
+      expect(tester.getRect(protectionPanel).contains(ring.center), isTrue);
+      for (final key in ['home-network-quality', 'home-diagnostics']) {
+        final button = find.byKey(ValueKey(key));
+        expect(tester.widget(button), isA<OutlinedButton>());
+        expect(tester.getSize(button).height, greaterThanOrEqualTo(48));
+      }
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets(
     'traffic curves use timestamped samples including unchanged rates',

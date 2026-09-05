@@ -193,6 +193,7 @@ class _ProxyScreenState extends State<ProxyScreen> {
         Expanded(
           child: PageFrame(
             title: strings.get('proxy'),
+            contentWidth: 880,
             subtitle: strings.get('proxy_subtitle'),
             child: Form(
               key: _formKey,
@@ -225,10 +226,11 @@ class _ProxyScreenState extends State<ProxyScreen> {
                         : null,
                   ),
                   PanelStack(
+                    spacing: 32,
                     children: [
                       _listenerPanel(profile, socks5: true),
                       _listenerPanel(profile, socks5: false),
-                      SectionPanel(
+                      ContentSection(
                         icon: LucideIcons.server,
                         title: strings.get('proxy_dns_mode'),
                         subtitle: strings.get('proxy_dns_subtitle'),
@@ -388,7 +390,7 @@ class _ProxyScreenState extends State<ProxyScreen> {
       connection: snapshot.phase,
       runtime: runtime,
     );
-    final pill = StatusPill(
+    final pill = InlineStatus(
       label: strings.get(state.labelKey),
       tone: state.tone,
       icon: state.icon,
@@ -396,7 +398,7 @@ class _ProxyScreenState extends State<ProxyScreen> {
     final compact =
         MediaQuery.sizeOf(context).width < 760 ||
         MediaQuery.textScalerOf(context).scale(14) > 21;
-    return SectionPanel(
+    return ContentSection(
       icon: socks5 ? LucideIcons.route : LucideIcons.globe2,
       title: strings.get(socks5 ? 'socks_listener' : 'http_listener'),
       subtitle: strings.get(
@@ -479,7 +481,7 @@ class _AuthPanelState extends State<_AuthPanel> {
   @override
   Widget build(BuildContext context) {
     final strings = widget.controller.strings;
-    return SectionPanel(
+    return ContentSection(
       icon: LucideIcons.keyRound,
       title: strings.get('proxy_auth'),
       subtitle: strings.get('proxy_auth_help'),

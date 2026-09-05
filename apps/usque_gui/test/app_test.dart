@@ -3885,7 +3885,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(controller.section, AppSection.settings);
 
-      final diagnosticsCard = find.widgetWithText(Panel, 'Diagnostics');
+      final diagnosticsCard = find.widgetWithText(ActionRow, 'Diagnostics');
       expect(diagnosticsCard, findsOneWidget);
       await tester.ensureVisible(diagnosticsCard);
       await tester.pumpAndSettle();
@@ -3945,7 +3945,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    final diagnosticsCard = find.widgetWithText(Panel, 'Diagnostics');
+    final diagnosticsCard = find.widgetWithText(ActionRow, 'Diagnostics');
     await tester.ensureVisible(diagnosticsCard);
     await tester.pumpAndSettle();
     await tester.tap(diagnosticsCard);
@@ -3980,7 +3980,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    final diagnosticsCard = find.widgetWithText(Panel, 'Diagnostics');
+    final diagnosticsCard = find.widgetWithText(ActionRow, 'Diagnostics');
     await tester.ensureVisible(diagnosticsCard);
     await tester.pumpAndSettle();
     await tester.tap(diagnosticsCard);
@@ -4022,7 +4022,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    final diagnosticsCard = find.widgetWithText(Panel, 'Diagnostics');
+    final diagnosticsCard = find.widgetWithText(ActionRow, 'Diagnostics');
     await tester.ensureVisible(diagnosticsCard);
     await tester.pumpAndSettle();
     await tester.tap(diagnosticsCard);
@@ -4398,13 +4398,18 @@ void main() {
       final Rect heroRect = tester.getRect(
         find.ancestor(
           of: find.byType(ConnectionRing),
-          matching: find.byType(Panel),
+          matching: find.byType(ContentSection),
         ),
       );
       final Rect locationRect = tester.getRect(
-        find.ancestor(of: find.text('Location'), matching: find.byType(Panel)),
+        find.ancestor(
+          of: find.text('Location'),
+          matching: find.byType(ContentSection),
+        ),
       );
-      expect(locationRect.bottom, closeTo(heroRect.bottom, 2));
+      expect(locationRect.left, greaterThan(heroRect.right));
+      expect(downloadOrigin.dy, greaterThan(locationRect.bottom));
+      expect(find.byType(Panel), findsNothing);
 
       controller.snapshot = const EngineSnapshot(
         phase: ConnectionPhase.connected,
@@ -4638,7 +4643,7 @@ void main() {
     }
   });
 
-  testWidgets('profile cards show account identity instead of output tags', (
+  testWidgets('profile rows show account identity instead of output tags', (
     tester,
   ) async {
     tester.view.devicePixelRatio = 1;
@@ -4701,7 +4706,7 @@ void main() {
     expect(find.text('Personal'), findsOneWidget);
   });
 
-  testWidgets('profile cards show WARP+ and Zero Trust identity tags', (
+  testWidgets('profile rows show WARP+ and Zero Trust identity tags', (
     tester,
   ) async {
     tester.view.devicePixelRatio = 1;
@@ -4751,9 +4756,7 @@ void main() {
     expect(find.text('example-team · Experimental'), findsNothing);
   });
 
-  testWidgets('profile cards show WARP Free from license state', (
-    tester,
-  ) async {
+  testWidgets('profile rows show WARP Free from license state', (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(1280, 900);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -4786,7 +4789,7 @@ void main() {
   });
 
   testWidgets(
-    'narrow profile cards give the name its own row above identity tags',
+    'narrow profile rows give the name its own row above identity tags',
     (tester) async {
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = const Size(430, 900);

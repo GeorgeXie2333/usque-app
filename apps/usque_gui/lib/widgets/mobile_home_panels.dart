@@ -11,13 +11,32 @@ import 'controller_selector.dart';
 import 'live_duration.dart';
 import 'sparkline.dart';
 
-/// Share a small, bounded amount of breathing room across all three cards on
+/// Share a small, bounded amount of breathing room across the home sections on
 /// tall phones. Large text and short viewports keep the compact spacing.
 double mobileHomeExpansion(BuildContext context) {
   final media = MediaQuery.of(context);
   if (media.textScaler.scale(14) > 21) return 0;
   final usableHeight = media.size.height - media.viewPadding.vertical;
   return ((usableHeight - 812) / 120).clamp(0, 1).toDouble();
+}
+
+/// Both home layouts describe the same observed history, not just its capacity.
+String homeTrafficNoteKey(
+  AppController controller, {
+  required bool hasSamples,
+}) {
+  final quality = controller.quality;
+  return !controller.snapshot.isConnected
+      ? 'home_traffic_idle'
+      : !quality.enabled
+      ? 'home_traffic_unavailable'
+      : quality.paused
+      ? 'nq_paused'
+      : !hasSamples
+      ? 'home_traffic_waiting'
+      : quality.stale
+      ? 'home_traffic_stale'
+      : 'home_traffic_window';
 }
 
 /// Uses the existing timestamped read model; this view neither samples on
@@ -52,20 +71,10 @@ class MobileTrafficPanel extends StatelessWidget {
         (down.any((value) => value != null) ||
             up.any((value) => value != null));
     final note = strings.get(
-      !connected
-          ? 'home_traffic_idle'
-          : !quality.enabled
-          ? 'home_traffic_unavailable'
-          : quality.paused
-          ? 'nq_paused'
-          : !hasSamples
-          ? 'home_traffic_waiting'
-          : quality.stale
-          ? 'home_traffic_stale'
-          : 'home_traffic_window',
+      homeTrafficNoteKey(controller, hasSamples: hasSamples),
     );
-    return Panel(
-      padding: const EdgeInsets.all(16),
+    return ContentSection(
+      padding: EdgeInsets.zero,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -149,7 +158,7 @@ class MobileTrafficPanel extends StatelessWidget {
                         download ? 'home-download-trace' : 'home-upload-trace',
                       ),
                       samples: samples,
-                      height: 24 + mobileHomeExpansion(context) * 12,
+                      height: 32 + mobileHomeExpansion(context) * 12,
                       color: color,
                       semanticLabel: summary,
                     ),
@@ -233,8 +242,8 @@ class MobileConnectionOverview extends StatelessWidget {
       view.transport,
       view.family,
     ].whereType<String>().where((value) => value.isNotEmpty).join(' · ');
-    return Panel(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+    return ContentSection(
+      padding: EdgeInsets.zero,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -311,8 +320,8 @@ class MobileConnectionOverview extends StatelessWidget {
                         Text(strings.get('channel_only_warning'))
                       else
                         Wrap(
-                          spacing: 6,
-                          runSpacing: 6,
+                          spacing: 16,
+                          runSpacing: 8,
                           children: [
                             if (view.outputs.tunnel)
                               _output(
@@ -385,8 +394,11 @@ class MobileConnectionOverview extends StatelessWidget {
     );
   }
 
-  Widget _output(String label) =>
-      StatusPill(label: label, tone: StatusTone.neutral, showIndicator: false);
+  Widget _output(String label) => InlineStatus(
+    label: label,
+    tone: StatusTone.neutral,
+    showIndicator: false,
+  );
 }
 
 class _OverviewFact extends StatelessWidget {

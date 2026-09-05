@@ -107,6 +107,7 @@ class _PerAppProxyScreenState extends State<PerAppProxyScreen> {
     final strings = widget.controller.strings;
     final visible = _visible;
     return SubPage(
+      contentWidth: 880,
       title: strings.get('per_app_proxy'),
       subtitle: strings.get('per_app_proxy_help'),
       backLabel: strings.get('back'),
@@ -138,7 +139,7 @@ class _PerAppProxyScreenState extends State<PerAppProxyScreen> {
           ),
           PanelStack(
             children: <Widget>[
-              Panel(
+              ContentSection(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: <Widget>[
@@ -166,22 +167,21 @@ class _PerAppProxyScreenState extends State<PerAppProxyScreen> {
                       onChanged: (value) => setState(() => _showSystem = value),
                     ),
                     const SizedBox(height: 4),
-                    Row(
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: <Widget>[
-                        Expanded(
-                          child: Text(
-                            strings
-                                .get('per_app_selected_count')
-                                .replaceAll('{count}', '${_selected.length}'),
-                            style: Theme.of(context).textTheme.bodyMedium
-                                ?.copyWith(
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.onSurfaceVariant,
-                                ),
-                          ),
+                        Text(
+                          strings
+                              .get('per_app_selected_count')
+                              .replaceAll('{count}', '${_selected.length}'),
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
                         ),
-                        const SizedBox(width: 12),
+                        const SizedBox(height: 8),
                         Wrap(
                           spacing: 8,
                           children: <Widget>[
@@ -227,7 +227,7 @@ class _PerAppProxyScreenState extends State<PerAppProxyScreen> {
                   ],
                 ),
               ),
-              Panel(
+              ContentSection(
                 padding: EdgeInsets.zero,
                 child: _buildAppList(context, visible),
               ),
@@ -251,7 +251,7 @@ class _PerAppProxyScreenState extends State<PerAppProxyScreen> {
               child: CircularProgressIndicator(strokeWidth: 2),
             ),
             const SizedBox(width: 12),
-            Text(strings.get('per_app_loading')),
+            Expanded(child: Text(strings.get('per_app_loading'))),
           ],
         ),
       );

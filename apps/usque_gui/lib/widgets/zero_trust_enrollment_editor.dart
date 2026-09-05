@@ -475,10 +475,9 @@ class ZeroTrustExperimentalBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StatusPill(
+    return InlineStatus(
       label: strings.get('experimental'),
       tone: StatusTone.warning,
-      dim: true,
       showIndicator: false,
     );
   }

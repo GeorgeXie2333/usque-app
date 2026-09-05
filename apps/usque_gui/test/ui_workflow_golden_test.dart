@@ -4,10 +4,15 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/screens/advanced_settings_screen.dart';
+import 'package:usque/screens/diagnostics_screen.dart';
+import 'package:usque/screens/onboarding_screen.dart';
 import 'package:usque/state/app_controller.dart';
 import 'package:usque/state/network_quality_controller.dart';
+import 'package:usque/widgets/common.dart';
+import 'package:usque/widgets/usque_dialog.dart';
 
 import 'quality_test_support.dart' show qualityFixture;
 import 'ui_workflow_test.dart' show WorkflowEngine, workflowHost;
@@ -70,6 +75,7 @@ void main() {
           ]) {
             for (final section in [
               AppSection.home,
+              AppSection.profiles,
               AppSection.proxy,
               AppSection.settings,
             ]) {
@@ -228,6 +234,46 @@ void main() {
           zh: true,
           connected: false,
         ),
+        (
+          name: 'home_desktop_light',
+          size: const Size(1280, 900),
+          section: AppSection.home,
+          dark: false,
+          zh: true,
+          connected: true,
+        ),
+        (
+          name: 'proxy_desktop_dark',
+          size: const Size(1280, 900),
+          section: AppSection.proxy,
+          dark: true,
+          zh: false,
+          connected: false,
+        ),
+        (
+          name: 'settings_phone_dark',
+          size: const Size(375, 812),
+          section: AppSection.settings,
+          dark: true,
+          zh: false,
+          connected: false,
+        ),
+        (
+          name: 'profiles_phone',
+          size: const Size(375, 812),
+          section: AppSection.profiles,
+          dark: false,
+          zh: true,
+          connected: false,
+        ),
+        (
+          name: 'profiles_desktop',
+          size: const Size(1280, 900),
+          section: AppSection.profiles,
+          dark: true,
+          zh: false,
+          connected: false,
+        ),
       ]) {
     testWidgets('workflow golden ${scene.name}', (tester) async {
       tester.view.devicePixelRatio = 1;
@@ -255,8 +301,17 @@ void main() {
             ..engineCapabilities = const EngineCapabilities(
               networkQuality: true,
             );
+      if (scene.section == AppSection.profiles) {
+        final active = app.activeProfile;
+        app.profiles = [
+          active,
+          active.copyWith(id: 'work', name: scene.zh ? '工作账号' : 'Work'),
+          active.copyWith(id: 'travel', name: scene.zh ? '旅行账号' : 'Travel'),
+        ];
+      }
       app.profileIdentityStates = {
-        app.activeProfileId: ProfileIdentityState.ready,
+        for (final profile in app.profiles)
+          profile.id: ProfileIdentityState.ready,
       };
       if (scene.connected) {
         app.snapshot = const EngineSnapshot(
@@ -294,7 +349,8 @@ void main() {
         );
         app.lastError = '暂时无法连接，请检查网络后重试。';
       }
-      if (scene.name.startsWith('home_phone_connected')) {
+      if (scene.connected &&
+          !scene.name.startsWith('home_phone_details_expanded')) {
         var downloaded = 0;
         var uploaded = 0;
         // Synthetic engine samples, not a UI-generated curve. The rendered
@@ -367,7 +423,8 @@ void main() {
           final port = find
               .byWidgetPredicate(
                 (widget) =>
-                    widget is TextField && widget.decoration?.labelText == '端口',
+                    widget is TextField &&
+                    widget.decoration?.labelText == app.strings.get('port'),
               )
               .first;
           await tester.enterText(port, '9090');
@@ -385,5 +442,81 @@ void main() {
         debugDefaultTargetPlatformOverride = null;
       }
     }, tags: 'golden');
+  }
+  for (final phone in [true, false]) {
+    for (final page in ['onboarding', 'diagnostics', 'dialog']) {
+      final name = '${page}_${phone ? 'phone_light' : 'desktop_dark'}';
+      testWidgets('native golden $name', (tester) async {
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = phone
+            ? const Size(375, 812)
+            : const Size(1280, 900);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        addTearDown(tester.view.resetPhysicalSize);
+        debugDefaultTargetPlatformOverride = phone
+            ? TargetPlatform.android
+            : TargetPlatform.windows;
+        final app = AppController(WorkflowEngine())
+          ..localePreference = phone
+              ? LocalePreference.simplifiedChinese
+              : LocalePreference.english
+          ..engineCapabilities = const EngineCapabilities(networkQuality: true);
+        try {
+          final boundary = GlobalKey();
+          final child = switch (page) {
+            'onboarding' => OnboardingScreen(controller: app),
+            'diagnostics' => DiagnosticsScreen(controller: app),
+            _ => Scaffold(
+              body: UsqueDialog(
+                icon: LucideIcons.pencil,
+                title: app.strings.get('edit'),
+                subtitle: app.activeProfile.name,
+                content: DialogGroup(
+                  child: TextFormField(
+                    initialValue: 'Default',
+                    decoration: InputDecoration(
+                      labelText: app.strings.get('profiles'),
+                    ),
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () {},
+                    child: Text(app.strings.get('cancel')),
+                  ),
+                  FilledButton(
+                    onPressed: () {},
+                    child: Text(app.strings.get('save_changes')),
+                  ),
+                ],
+              ),
+            ),
+          };
+          await tester.pumpWidget(
+            RepaintBoundary(
+              key: boundary,
+              child: workflowHost(app, dark: !phone, home: child),
+            ),
+          );
+          await tester.runAsync(
+            () => precacheImage(
+              const AssetImage('assets/branding/usque-ui-icon.png'),
+              tester.element(find.byType(MaterialApp)),
+            ),
+          );
+          await tester.pumpAndSettle();
+          expect(find.byType(StatusPill), findsNothing);
+          expect(tester.takeException(), isNull);
+          await expectLater(
+            find.byKey(boundary),
+            matchesGoldenFile('goldens/$name.png'),
+          );
+          await tester.pumpWidget(const SizedBox.shrink());
+        } finally {
+          app.dispose();
+          debugDefaultTargetPlatformOverride = null;
+        }
+      }, tags: 'golden');
+    }
   }
 }

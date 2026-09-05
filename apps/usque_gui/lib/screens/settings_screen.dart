@@ -26,6 +26,7 @@ class SettingsScreen extends StatelessWidget {
     final bool windows = defaultTargetPlatform == TargetPlatform.windows;
     return PageFrame(
       title: strings.get('settings'),
+      contentWidth: 880,
       subtitle: strings.get('settings_subtitle'),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -50,17 +51,21 @@ class SettingsScreen extends StatelessWidget {
                   ),
           ),
           PanelStack(
-            spacing: 28,
+            spacing: 32,
             children: <Widget>[
               _SettingsGroup(
                 title: strings.get('connection_protection_group'),
                 children: [
                   if (controller.engineCapabilities?.networkQuality ?? false)
-                    _NetworkQualityCard(controller: controller),
-                  _DiagnosticsCard(controller: controller),
+                    _NetworkQualityRow(controller: controller),
+                  _DiagnosticsRow(controller: controller),
                   _NetworkOutputsPanel(controller: controller),
                   if (android)
-                    Panel(
+                    ContentSection(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 16,
+                      ),
                       child: ListTile(
                         contentPadding: EdgeInsets.zero,
                         leading: const Icon(LucideIcons.shield),
@@ -73,16 +78,16 @@ class SettingsScreen extends StatelessWidget {
                         onTap: controller.openAlwaysOnVpnSettings,
                       ),
                     ),
-                  _AdvancedCard(controller: controller),
+                  _AdvancedRow(controller: controller),
                 ],
               ),
               _SettingsGroup(
                 title: strings.get('proxy_routing_group'),
                 children: [
                   _NetworkOutputsPanel(controller: controller, proxyOnly: true),
-                  Panel(
+                  ActionRow(
                     onTap: () => controller.selectSection(AppSection.proxy),
-                    child: SectionTitle(
+                    child: ContentHeading(
                       icon: LucideIcons.slidersHorizontal,
                       title: strings.get('proxy'),
                       subtitle: strings.get('proxy_settings_link'),
@@ -92,9 +97,13 @@ class SettingsScreen extends StatelessWidget {
                       ),
                     ),
                   ),
-                  _GeoDirectCard(controller: controller),
+                  _GeoDirectRow(controller: controller),
                   if (android)
-                    Panel(
+                    ContentSection(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 16,
+                      ),
                       child: ListTile(
                         contentPadding: EdgeInsets.zero,
                         leading: const Icon(LucideIcons.layers3),
@@ -126,7 +135,11 @@ class SettingsScreen extends StatelessWidget {
               _SettingsGroup(
                 title: strings.get('application_group'),
                 children: [
-                  SectionPanel(
+                  ContentSection(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 16,
+                    ),
                     icon: LucideIcons.paintbrush,
                     title: strings.get('appearance'),
                     gap: 20,
@@ -159,7 +172,11 @@ class SettingsScreen extends StatelessWidget {
                       ),
                     ],
                   ),
-                  SectionPanel(
+                  ContentSection(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 16,
+                    ),
                     icon: LucideIcons.monitorCog,
                     title: strings.get('system_integration'),
                     gap: 10,
@@ -212,7 +229,11 @@ class SettingsScreen extends StatelessWidget {
                       ],
                     ],
                   ),
-                  SectionPanel(
+                  ContentSection(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 16,
+                    ),
                     icon: LucideIcons.refreshCw,
                     title: strings.get('updates'),
                     gap: 10,
@@ -254,7 +275,7 @@ class _SettingsGroup extends StatelessWidget {
         child: Text(title, style: Theme.of(context).textTheme.headlineSmall),
       ),
       const SizedBox(height: 12),
-      PanelStack(children: children),
+      ContentList(children: children),
     ],
   );
 }
@@ -473,7 +494,8 @@ class _NetworkOutputsPanel extends StatelessWidget {
     final profile = controller.activeProfile;
     final frontends = profile.frontends;
     final bool windows = defaultTargetPlatform == TargetPlatform.windows;
-    return SectionPanel(
+    return ContentSection(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 16),
       icon: LucideIcons.share2,
       title: strings.get(proxyOnly ? 'proxy' : 'outputs'),
       subtitle: strings.get('shared_network_scope'),
@@ -544,8 +566,8 @@ class _NetworkOutputsPanel extends StatelessWidget {
   }
 }
 
-class _GeoDirectCard extends StatelessWidget {
-  const _GeoDirectCard({required this.controller});
+class _GeoDirectRow extends StatelessWidget {
+  const _GeoDirectRow({required this.controller});
 
   final AppController controller;
 
@@ -554,13 +576,13 @@ class _GeoDirectCard extends StatelessWidget {
     final enabled = controller.activeProfile.geoDirectCountries;
     final preview = enabled.take(4).join(' · ');
     final remaining = enabled.length - 4;
-    return Panel(
+    return ActionRow(
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => GeoDirectSettingsScreen(controller: controller),
         ),
       ),
-      child: SectionTitle(
+      child: ContentHeading(
         icon: LucideIcons.route,
         title: controller.strings.get('geo_direct'),
         subtitle: enabled.isEmpty
@@ -593,21 +615,21 @@ class _GeoDirectCard extends StatelessWidget {
   }
 }
 
-class _NetworkQualityCard extends StatelessWidget {
-  const _NetworkQualityCard({required this.controller});
+class _NetworkQualityRow extends StatelessWidget {
+  const _NetworkQualityRow({required this.controller});
 
   final AppController controller;
 
   @override
   Widget build(BuildContext context) {
     final strings = controller.strings;
-    return Panel(
+    return ActionRow(
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => NetworkQualityScreen(controller: controller),
         ),
       ),
-      child: SectionTitle(
+      child: ContentHeading(
         icon: LucideIcons.gauge,
         title: strings.get('network_quality'),
         subtitle: strings.get('nq_subtitle'),
@@ -621,21 +643,21 @@ class _NetworkQualityCard extends StatelessWidget {
   }
 }
 
-class _DiagnosticsCard extends StatelessWidget {
-  const _DiagnosticsCard({required this.controller});
+class _DiagnosticsRow extends StatelessWidget {
+  const _DiagnosticsRow({required this.controller});
 
   final AppController controller;
 
   @override
   Widget build(BuildContext context) {
     final strings = controller.strings;
-    return Panel(
+    return ActionRow(
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => DiagnosticsScreen(controller: controller),
         ),
       ),
-      child: SectionTitle(
+      child: ContentHeading(
         icon: LucideIcons.activity,
         title: strings.get('diagnostics'),
         subtitle: strings.get('diagnostics_subtitle'),
@@ -650,21 +672,21 @@ class _DiagnosticsCard extends StatelessWidget {
 }
 
 /// The one door out of Settings, so the whole plate is the target.
-class _AdvancedCard extends StatelessWidget {
-  const _AdvancedCard({required this.controller});
+class _AdvancedRow extends StatelessWidget {
+  const _AdvancedRow({required this.controller});
 
   final AppController controller;
 
   @override
   Widget build(BuildContext context) {
     final strings = controller.strings;
-    return Panel(
+    return ActionRow(
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => AdvancedSettingsScreen(controller: controller),
         ),
       ),
-      child: SectionTitle(
+      child: ContentHeading(
         icon: LucideIcons.slidersHorizontal,
         title: strings.get('advanced'),
         subtitle: strings.get('advanced_subtitle'),

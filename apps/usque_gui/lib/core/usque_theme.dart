@@ -511,7 +511,7 @@ class UsqueTheme {
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          minimumSize: const Size(44, 44),
+          minimumSize: const Size(48, 48),
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
           textStyle: text.labelLarge,
           shape: RoundedRectangleBorder(
@@ -521,7 +521,7 @@ class UsqueTheme {
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          minimumSize: const Size(44, 44),
+          minimumSize: const Size(48, 48),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           textStyle: text.labelLarge,
           foregroundColor: scheme.onSurface,
@@ -533,7 +533,7 @@ class UsqueTheme {
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
-          minimumSize: const Size(44, 44),
+          minimumSize: const Size(48, 48),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           textStyle: text.labelLarge,
           shape: RoundedRectangleBorder(

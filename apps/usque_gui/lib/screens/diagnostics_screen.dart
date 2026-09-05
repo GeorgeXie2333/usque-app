@@ -128,6 +128,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                   : null,
             ),
             PanelStack(
+              spacing: 32,
               children: <Widget>[
                 _DiagnosticControlPanel(
                   controller: controller,
@@ -164,11 +165,11 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                   controller: controller,
                   onExport: () => _confirmAndExport(context),
                 ),
-                SectionPanel(
+                ContentSection(
                   icon: LucideIcons.info,
                   title: 'Usque',
                   subtitle: strings.get('unofficial'),
-                  trailing: StatusPill(
+                  trailing: InlineStatus(
                     label: strings.get(presentation.labelKey),
                     tone: presentation.tone,
                     icon: controller.snapshot.isConnected
@@ -332,11 +333,11 @@ class _DiagnosticControlPanel extends StatelessWidget {
     final canRequestCancel =
         diagnostics.isActive ||
         diagnostics.state == DiagnosticsControllerState.starting;
-    return SectionPanel(
+    return ContentSection(
       icon: LucideIcons.stethoscope,
       title: strings.get('diag_run_title'),
       subtitle: strings.get('diag_run_subtitle'),
-      trailing: StatusPill(
+      trailing: InlineStatus(
         label: strings.get(presentation.labelKey),
         tone: presentation.tone,
         icon: controller.snapshot.isConnected
@@ -450,10 +451,10 @@ class _SessionProgressPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final strings = controller.strings;
     final summary = session.summary;
-    return SectionPanel(
+    return ContentSection(
       icon: LucideIcons.radio,
       title: strings.get('diag_session'),
-      trailing: StatusPill(
+      trailing: InlineStatus(
         label: diagnosticSessionStateLabel(strings, session.state),
         tone: _sessionTone(session.state),
         icon: session.isActive
@@ -488,28 +489,28 @@ class _SessionProgressPanel extends StatelessWidget {
           spacing: 8,
           runSpacing: 8,
           children: <Widget>[
-            StatusPill(
+            InlineStatus(
               label: strings
                   .get('diag_summary_passed')
                   .replaceAll('{count}', '${summary.passed}'),
               tone: StatusTone.success,
               icon: LucideIcons.circleCheck,
             ),
-            StatusPill(
+            InlineStatus(
               label: strings
                   .get('diag_summary_warnings')
                   .replaceAll('{count}', '${summary.warnings}'),
               tone: StatusTone.warning,
               icon: LucideIcons.triangleAlert,
             ),
-            StatusPill(
+            InlineStatus(
               label: strings
                   .get('diag_summary_failed')
                   .replaceAll('{count}', '${summary.failed}'),
               tone: StatusTone.danger,
               icon: LucideIcons.circleX,
             ),
-            StatusPill(
+            InlineStatus(
               label: strings
                   .get('diag_summary_skipped')
                   .replaceAll('{count}', '${summary.skipped}'),
@@ -534,7 +535,7 @@ class _ChecksPanel extends StatelessWidget {
     final strings = controller.strings;
     final findings = session?.findings ?? const <DiagnosticFinding>[];
     if (findings.isEmpty) {
-      return SectionPanel(
+      return ContentSection(
         icon: LucideIcons.listChecks,
         title: strings.get('diag_check_results'),
         children: <Widget>[
@@ -554,7 +555,7 @@ class _ChecksPanel extends StatelessWidget {
           .toList(growable: false);
       if (categoryFindings.isEmpty) continue;
       groups.add(
-        SectionPanel(
+        ContentSection(
           icon: _categoryIcon(category),
           title: diagnosticCategoryLabel(strings, category),
           gap: 8,
@@ -579,7 +580,7 @@ class _TimelinePanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final strings = controller.strings;
-    return SectionPanel(
+    return ContentSection(
       icon: LucideIcons.gitCommitVertical,
       title: strings.get('diag_timeline'),
       subtitle: strings.get('diag_timeline_subtitle'),
@@ -603,7 +604,7 @@ class _ExportPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final strings = controller.strings;
     final diagnostics = controller.diagnostics;
-    return SectionPanel(
+    return ContentSection(
       icon: LucideIcons.logs,
       title: strings.get('logs'),
       subtitle: strings.get('diag_logs_subtitle'),

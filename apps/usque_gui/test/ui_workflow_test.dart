@@ -216,7 +216,10 @@ void main() {
         section: AppSection.settings,
         size: const Size(375, 812),
       );
-      final advanced = find.widgetWithText(Panel, app.strings.get('advanced'));
+      final advanced = find.widgetWithText(
+        ActionRow,
+        app.strings.get('advanced'),
+      );
       await tester.ensureVisible(advanced);
       await tester.pumpAndSettle();
       await tester.tap(advanced);

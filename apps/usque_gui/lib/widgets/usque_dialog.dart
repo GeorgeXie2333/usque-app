@@ -4,9 +4,8 @@ import '../core/usque_theme.dart';
 
 /// The one dialog shape in the app.
 ///
-/// Material centres the icon above the title; Usque puts it in a tinted tile on
-/// the leading edge instead, so a dialog reads like every other panel: a marked
-/// header, a hairline rule, then the work.
+/// A quiet leading icon and aligned title keep the content primary. Destructive
+/// operations retain their semantic danger color and explicit confirmation.
 class UsqueDialog extends StatelessWidget {
   const UsqueDialog({
     required this.icon,
@@ -41,21 +40,15 @@ class UsqueDialog extends StatelessWidget {
     final Color accent = danger ? tokens.danger : theme.colorScheme.primary;
 
     return AlertDialog(
-      titlePadding: const EdgeInsets.fromLTRB(22, 22, 22, 0),
-      contentPadding: const EdgeInsets.fromLTRB(22, 18, 22, 0),
-      actionsPadding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+      titlePadding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+      contentPadding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+      actionsPadding: const EdgeInsets.fromLTRB(16, 24, 16, 16),
       title: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Container(
-            width: 38,
-            height: 38,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: accent.withValues(alpha: tokens.tint),
-              borderRadius: BorderRadius.circular(UsqueRadii.chip),
-            ),
-            child: Icon(icon, size: 19, color: accent),
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Icon(icon, size: 24, color: accent),
           ),
           const SizedBox(width: 13),
           Expanded(
@@ -86,11 +79,11 @@ class UsqueDialog extends StatelessWidget {
   }
 }
 
-/// Hairline group used inside dialogs to fence off a set of related fields.
+/// Related dialog fields use spacing, not a nested card surface.
 class DialogGroup extends StatelessWidget {
   const DialogGroup({
     required this.child,
-    this.padding = const EdgeInsets.all(14),
+    this.padding = const EdgeInsets.symmetric(vertical: 16),
     super.key,
   });
 
@@ -98,16 +91,5 @@ class DialogGroup extends StatelessWidget {
   final EdgeInsetsGeometry padding;
 
   @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    return Material(
-      color: theme.colorScheme.surfaceContainerLow,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(UsqueRadii.card),
-        side: BorderSide(color: UsqueTokens.of(context).hairline),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Padding(padding: padding, child: child),
-    );
-  }
+  Widget build(BuildContext context) => Padding(padding: padding, child: child);
 }

@@ -543,19 +543,8 @@ class _StepHeading extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        Container(
-          width: 46,
-          height: 46,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: theme.colorScheme.primary.withValues(
-              alpha: UsqueTokens.of(context).tint,
-            ),
-            borderRadius: BorderRadius.circular(UsqueRadii.control),
-          ),
-          child: Icon(icon, color: theme.colorScheme.primary, size: 22),
-        ),
-        const SizedBox(height: 22),
+        Icon(icon, color: theme.colorScheme.primary, size: 28),
+        const SizedBox(height: 24),
         Text(title, style: theme.textTheme.headlineMedium),
         if (body case final body?) ...<Widget>[
           const SizedBox(height: 12),
@@ -633,7 +622,7 @@ class _TermsStep extends StatelessWidget {
           body: strings.get('terms_body'),
         ),
         const SizedBox(height: 18),
-        Panel(
+        ContentSection(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
           child: CheckboxListTile(
             contentPadding: const EdgeInsets.symmetric(horizontal: 8),
