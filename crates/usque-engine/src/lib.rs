@@ -2116,12 +2116,13 @@ impl ControlService {
             }
         }
 
-        if let Err(error) = self.disconnect_locked().await {
-            #[cfg(windows)]
+        let disconnected = self.disconnect_locked().await;
+        #[cfg(windows)]
+        if disconnected.is_err() {
             self.clear_windows_connection_intent_if(intent_generation)
                 .await;
-            return Err(error);
         }
+        disconnected?;
         let result = self.connect_locked(profile_id).await;
         #[cfg(windows)]
         if result.is_err() {
