@@ -18,6 +18,11 @@ to canonical physical-system direct DNS, preserving schema-12 behavior.
   `latest_rtt_ms`, `latest_rtt_known`, and `latest_rtt_availability`. They do
   not reinterpret the original smoothed RTT fields 4 and 5.
 - `PmtuQuality.send_too_large_count = 8`
+- `NetworkQualitySnapshot.samples = 9` carries at most 16 source observations.
+  `NetworkQualitySample` tags 1-7 are sequence, UTC sampling timestamp,
+  connection-local monotonic milliseconds, optional cumulative downloaded and
+  uploaded bytes, optional available RTT milliseconds, and optional available
+  interval loss basis points. Optional zero is a measurement; absence is not.
 - `ConnectionEventType` migration, PMTU, and direct-DNS values occupy 22
   through 30
 
@@ -71,9 +76,15 @@ connection attempt. It is not a QUIC CID and is not persisted.
 The transport publishes only its latest snapshot through a Tokio watch
 channel. The Engine relay and each GUI event stream also retain only one latest
 pending snapshot, so a slow client cannot create an event backlog.
+Each latest snapshot includes the source's bounded 16-observation ring, so
+independent 1 Hz readers can coalesce deliveries without discarding the samples
+between them. The ring contains no synthetic catch-up samples. Sequence and
+monotonic origin reset with the connection-instance UUID. Counters are read by
+the same transport sampler that captures RTT/loss, not by the GUI or JNI reader.
 
-Identical quality snapshots are not emitted. Ordinary changes are emitted no
-more than once per second. A migration phase change, PMTU change, direct-DNS
+Identical quality snapshots (including their sample ring) are not emitted.
+New observations with unchanged numeric values are still distinct. Ordinary
+changes are emitted no more than once per second. A migration phase change, PMTU change, direct-DNS
 degraded/recovered transition, or first queue drop is eligible immediately
 when the same one-second output window is available; that send resets the next
 periodic window.
@@ -92,18 +103,22 @@ explicit Profile configuration message where it is required for editing.
 The Quality navigation entry requires the optional build capability. Missing
 capabilities leave old connection controls intact. The process-local controller
 retains at most 300 one-second points and displays an aligned 60-second window.
-Windows and Android share this history with both Home layouts. Quality points
-use the source sampling timestamp; byte counters are observed only after a full
-state snapshot has been installed, never from a quality-only event or a repaint
-timer. Source timestamps, not presentation equality, identify repeated samples.
-The one-second grid follows the first source sample's phase, rounding observations
-to the nearest beat to tolerate sub-half-second scheduling jitter. Multiple
-observations in a beat replace that beat; absent beats are not interpolated.
-The live right edge waits for an in-flight beat before calling it missing, then
-continues advancing without events. Counter rates use actual observation time;
+Windows and Android share this history with both Home layouts. New engines send
+source observations with monotonic timestamps and sequence numbers. The GUI
+deduplicates the ring and computes byte rates from those source counters/times,
+including when delivered by a quality-only event. Cached state counters and
+repaint timers never create source observations. Consecutive sequence numbers,
+valid monotonic intervals and nondecreasing counters are required for a rate.
+The display grid is separate from the rate calculation and follows the source
+monotonic origin. Absent beats are not interpolated. The right edge shows the
+latest complete frame while the next delivery is in flight, then advances when
+delivery stops. Pause freezes the exact displayed window, including under delay.
+Old engines without the sample ring retain full-state-only counter observation;
+its receipt clock has its own phase, independent of RTT/source delivery latency.
+Counter rates use actual source time (receipt time for legacy engines);
 window averages divide total byte deltas by total elapsed time across consecutive
 valid intervals rather than averaging unequal-duration rates. Counter resets,
-clock rollback, pause, or stream outages break the rate baseline.
+clock rollback, pause, reconnecting state, or stream outages break the rate baseline.
 New connection IDs reset both history and byte-counter baselines. Paused,
 missing and stale samples stay gaps; closing the app does not persist history.
 At most one refresh is outstanding, and a late reply cannot restore a previous
@@ -119,8 +134,8 @@ work; Windows retains its existing fixed-rate, missed-tick-skipping event stream
 
 Android forwards a maximum 16 KiB allowlisted quality JSON object across the
 Messenger/MethodChannel boundary. It retains only fixed numeric fields, eight
-known queues, phase/reason enums, and a valid UUIDv4; unknown or malformed values
-do not become fake zero measurements. Native capability responses are real
+known queues, at most 16 numeric source samples, phase/reason enums, and a valid
+UUIDv4; unknown or malformed values do not become fake zero measurements. Native capability responses are real
 build flags, with safe missing-method behavior for an older JNI library.
 
 The custom direct DNS editor has no provider presets or TLS bypass switch.

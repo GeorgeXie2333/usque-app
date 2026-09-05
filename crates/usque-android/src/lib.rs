@@ -2129,7 +2129,19 @@ fn network_quality_value(snapshot: &NetworkQualitySnapshot) -> serde_json::Value
         .map(native_duration_milliseconds);
 
     serde_json::json!({
-        "sampled_at_unix_ms": native_duration_milliseconds(sampled_at),
+        "sampled_at_unix_ms": snapshot.samples.last().map_or_else(
+            || native_duration_milliseconds(sampled_at),
+            |sample| sample.sampled_at_unix_ms,
+        ),
+        "samples": snapshot.samples.iter().map(|sample| serde_json::json!({
+            "sequence": sample.sequence,
+            "sampled_at_unix_ms": sample.sampled_at_unix_ms,
+            "monotonic_millis": sample.monotonic_millis,
+            "downloaded_bytes": sample.downloaded_bytes,
+            "uploaded_bytes": sample.uploaded_bytes,
+            "rtt_ms": sample.rtt_ms,
+            "loss_basis_points": sample.loss_basis_points,
+        })).collect::<Vec<_>>(),
         "connection_instance_id": snapshot
             .connection_id
             .map(|connection| connection.0.to_string())
@@ -3070,6 +3082,14 @@ mod tests {
         let value = network_quality_value(&NetworkQualitySampler::new(telemetry).sample());
 
         assert_eq!(value["level"], "limitedData");
+        assert_eq!(value["samples"][0]["sequence"], 1);
+        assert_eq!(
+            value["samples"][0]["sampled_at_unix_ms"],
+            value["sampled_at_unix_ms"]
+        );
+        assert_eq!(value["samples"][0]["rtt_ms"], 10);
+        assert!(value["samples"][0]["downloaded_bytes"].is_null());
+        assert!(value["samples"][0]["loss_basis_points"].is_null());
         assert_eq!(value["metrics"]["smoothed_rtt_milliseconds"], 12);
         assert_eq!(
             value["metrics"]["h2_stream_receive_window_bytes"],

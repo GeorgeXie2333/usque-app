@@ -21,7 +21,7 @@ class NetworkQualityController extends ChangeNotifier {
   final EngineClient _engine;
   final DateTime Function() _now;
   final bool autoTick;
-  final _quality = SplayTreeMap<int, NetworkQualitySnapshot>();
+  final _quality = SplayTreeMap<int, ({int? rtt, int? loss})>();
   final _counters = SplayTreeMap<int, _CounterReading>();
   final _retiredIds = ListQueue<String>();
   Timer? _timer;
@@ -31,7 +31,14 @@ class NetworkQualityController extends ChangeNotifier {
   bool _streamUnavailable = false;
   DateTime? _receivedAt;
   DateTime? _origin;
+  DateTime? _counterOrigin;
+  DateTime? _acceptAfter;
+  int _counterStartSlot = 0;
+  int _lastSourceSequence = 0;
+  int? _lastSourceMonotonic;
+  bool _sourceHistoryActive = false;
   DateTime? _pausedAt;
+  int? _pausedSlot;
   DateTime? _lastSnapshotAt;
   EngineSnapshot? _lastSnapshot;
   String? _connectionId;
@@ -66,25 +73,11 @@ class NetworkQualityController extends ChangeNotifier {
     final slots = <int>{..._quality.keys, ..._counters.keys}.toList()..sort();
     return List.unmodifiable(
       slots.map((slot) {
-        final metrics = _quality[slot]?.metrics;
+        final metrics = _quality[slot];
         return NetworkQualityPoint(
           at: _origin!.add(Duration(seconds: slot)),
-          rttMilliseconds: metrics == null
-              ? null
-              : availableMetric(
-                      metrics.latestRttMilliseconds,
-                      metrics.latestRttAvailability,
-                    ) ??
-                    availableMetric(
-                      metrics.smoothedRttMilliseconds,
-                      metrics.smoothedRttAvailability,
-                    ),
-          lossBasisPoints: metrics == null
-              ? null
-              : availableMetric(
-                  metrics.intervalLossBasisPoints,
-                  metrics.intervalLossAvailability,
-                ),
+          rttMilliseconds: metrics?.rtt,
+          lossBasisPoints: metrics?.loss,
           downloadBytesPerSecond: _intervalRate(slot, true),
           uploadBytesPerSecond: _intervalRate(slot, false),
         );
@@ -100,8 +93,8 @@ class NetworkQualityController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// A full state event is the only source of byte-counter observations.
-  /// Quality-only desktop events/refresh replies must not resample old counters.
+  /// Legacy state counters are sampled only from full state events. Source
+  /// history already owns its counters, including in quality-only replies.
   void updateConnection(EngineSnapshot value) {
     if (_disposed) return;
     final now = _now();
@@ -127,14 +120,24 @@ class NetworkQualityController extends ChangeNotifier {
         _clear(); // Wall-clock rollback cannot form a negative rate interval.
       }
       if (value.networkQuality case final quality?) _acceptQuality(quality);
-      if (!paused &&
+      if (!_sourceHistoryActive &&
+          !paused &&
           value.isConnected &&
           !stale &&
           _origin != null &&
           (value != _lastSnapshot ||
               value.networkQuality?.sampledAt !=
                   _lastSnapshot?.networkQuality?.sampledAt)) {
-        final slot = _slot(now);
+        // Legacy engines lack source counter timestamps. Give the receipt
+        // stream its own phase so a fixed delivery delay cannot straddle the
+        // quality stream's half-second boundary.
+        if (_counterOrigin == null) {
+          _counterOrigin = now;
+          _counterStartSlot = _slot(sourceAt ?? now);
+        }
+        final slot =
+            _counterStartSlot +
+            (now.difference(_counterOrigin!).inMicroseconds / 1000000).round();
         _counters[slot] = _CounterReading(
           now,
           value.downloadedBytes,
@@ -145,7 +148,10 @@ class NetworkQualityController extends ChangeNotifier {
       }
       _lastSnapshot = value;
       _lastSnapshotAt = now;
-      if (!value.isConnected) _counterEpoch++;
+      if (!value.isConnected) {
+        _counterEpoch++;
+        _acceptAfter = now;
+      }
     }
     _syncTimer();
     notifyListeners();
@@ -187,21 +193,92 @@ class NetworkQualityController extends ChangeNotifier {
     // to report the event pipe as degraded. It does not heal the pipe itself.
     _streamUnavailable = false;
     if (_enabled && !paused && connection.isConnected && !_streamUnavailable) {
+      if (value.samples.isNotEmpty) {
+        _acceptSourceSamples(value);
+        return;
+      }
+      if (_sourceHistoryActive) return;
       _origin ??= at;
-      _quality[_slot(at)] = value;
+      _quality[_slot(at)] = (
+        rtt:
+            availableMetric(
+              value.metrics.latestRttMilliseconds,
+              value.metrics.latestRttAvailability,
+            ) ??
+            availableMetric(
+              value.metrics.smoothedRttMilliseconds,
+              value.metrics.smoothedRttAvailability,
+            ),
+        loss: availableMetric(
+          value.metrics.intervalLossBasisPoints,
+          value.metrics.intervalLossAvailability,
+        ),
+      );
       _trim();
     }
+  }
+
+  void _acceptSourceSamples(NetworkQualitySnapshot value) {
+    _sourceHistoryActive = true;
+    // The compact history crosses coalescing boundaries intact. Duplicate
+    // frames are immutable; no timer or cached full snapshot adds a reading.
+    for (final sample in value.samples.take(16)) {
+      if (sample.sequence <= _lastSourceSequence ||
+          sample.sequence <= 0 ||
+          sample.monotonicMillis < 0 ||
+          sample.monotonicMillis > 8640000000000000 ||
+          (_lastSourceMonotonic != null &&
+              sample.monotonicMillis <= _lastSourceMonotonic!) ||
+          sample.sampledAt.isAfter(value.sampledAt!) ||
+          value.sampledAt!.difference(sample.sampledAt) >
+              const Duration(seconds: 30)) {
+        continue;
+      }
+      _lastSourceSequence = sample.sequence;
+      _lastSourceMonotonic = sample.monotonicMillis;
+      if (_acceptAfter != null && !sample.sampledAt.isAfter(_acceptAfter!)) {
+        continue;
+      }
+      _origin ??= sample.sampledAt.subtract(
+        Duration(milliseconds: sample.monotonicMillis),
+      );
+      final slot = (sample.monotonicMillis / 1000).round();
+      _quality[slot] = (
+        rtt: sample.rttMilliseconds,
+        loss: sample.lossBasisPoints,
+      );
+      final down = sample.downloadedBytes;
+      final up = sample.uploadedBytes;
+      if (down != null && up != null && down >= 0 && up >= 0) {
+        _counters[slot] = _CounterReading(
+          // Rates use source monotonic elapsed time, independent of delivery
+          // batching, wall-clock corrections and presentation slot rounding.
+          DateTime.fromMillisecondsSinceEpoch(
+            sample.monotonicMillis,
+            isUtc: true,
+          ),
+          down,
+          up,
+          _counterEpoch,
+          sequence: sample.sequence,
+        );
+      }
+    }
+    _trim();
   }
 
   void markStreamUnavailable(bool value) {
     if (_disposed || value == _streamUnavailable) return;
     _streamUnavailable = value;
+    if (value) _acceptAfter = _now();
     _counterEpoch++; // Do not compute an interval across a known stream outage.
     notifyListeners();
   }
 
   void togglePaused() {
+    _pausedSlot = paused || _origin == null ? null : _windowLastSlot;
     _pausedAt = paused ? null : _now();
+    if (!paused) _acceptAfter = _now();
     _counterEpoch++;
     _lastSnapshot = null;
     notifyListeners();
@@ -220,16 +297,22 @@ class NetworkQualityController extends ChangeNotifier {
     _quality.clear();
     _counters.clear();
     _origin = null;
+    _counterOrigin = null;
+    _acceptAfter = null;
+    _counterStartSlot = 0;
+    _lastSourceSequence = 0;
+    _lastSourceMonotonic = null;
+    _sourceHistoryActive = false;
     _receivedAt = null;
     _lastSnapshot = null;
     _lastSnapshotAt = null;
     _connectionId = null;
     _pausedAt = null;
+    _pausedSlot = null;
   }
 
-  // Slots follow the first source sample's phase, not arbitrary wall-clock
-  // boundaries. +/- <500 ms jitter maps to the same 1 Hz beat; missing beats
-  // stay absent. Repeated observations replace one slot, never interpolate.
+  // Presentation only. Source rates use monotonic sample timestamps; legacy
+  // receipt counters have an independent phase. Never interpolate absent beats.
   int _slot(DateTime at) =>
       (at.difference(_origin!).inMicroseconds / 1000000).round();
 
@@ -241,7 +324,17 @@ class NetworkQualityController extends ChangeNotifier {
   }
 
   int get _windowLastSlot {
+    if (paused && _pausedSlot != null) return _pausedSlot!;
     final newest = math.max(_quality.lastKey() ?? 0, _counters.lastKey() ?? 0);
+    // Render the most recent complete source frame while the next delivery is
+    // in flight. Transport latency is not a missing future measurement.
+    if (_sourceHistoryActive &&
+        !stale &&
+        _receivedAt != null &&
+        windowEnd.difference(_receivedAt!) <
+            const Duration(milliseconds: 1500)) {
+      return newest;
+    }
     // An in-flight current beat is not yet a missing sample. After a complete
     // beat passes, advance the window even with no events so real gaps appear.
     return math.max(newest, _slot(windowEnd) - 1);
@@ -251,6 +344,7 @@ class NetworkQualityController extends ChangeNotifier {
     final a = _counters[slot - 1];
     final b = _counters[slot];
     if (a == null || b == null || a.epoch != b.epoch) return false;
+    if (a.sequence != null && b.sequence != a.sequence! + 1) return false;
     final elapsed = b.at.difference(a.at).inMicroseconds;
     return a.down >= 0 &&
         a.up >= 0 &&
@@ -344,9 +438,16 @@ class NetworkQualityController extends ChangeNotifier {
 }
 
 class _CounterReading {
-  const _CounterReading(this.at, this.down, this.up, this.epoch);
+  const _CounterReading(
+    this.at,
+    this.down,
+    this.up,
+    this.epoch, {
+    this.sequence,
+  });
   final DateTime at;
   final int down;
   final int up;
   final int epoch;
+  final int? sequence;
 }

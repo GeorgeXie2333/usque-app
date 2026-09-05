@@ -11,6 +11,37 @@ import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicInteger
 
 class NetworkQualityFieldsTest {
+    @Test fun sourceSamplesAreBoundedAndPreserveUnknownVersusZero() {
+        val samples =
+            JSONArray(
+                (1..30).map { sequence ->
+                    JSONObject()
+                        .put("sequence", sequence)
+                        .put("sampled_at_unix_ms", 1000L * sequence)
+                        .put("monotonic_millis", 1000L * (sequence - 1))
+                        .put("downloaded_bytes", 0)
+                        .put("uploaded_bytes", -1)
+                        .put("rtt_ms", 42)
+                        .put("loss_basis_points", 10001)
+                        .put("endpoint", "private.example")
+                },
+            )
+        val encoded = requireNotNull(NetworkQualityFields.encode(JSONObject().put("samples", samples)))
+        assertTrue(encoded.toByteArray(Charsets.UTF_8).size <= NetworkQualityFields.MAX_JSON_BYTES)
+        assertFalse(encoded.contains("private.example"))
+        val decoded = requireNotNull(NetworkQualityFields.decode(encoded))["samples"] as List<*>
+        assertEquals(16, decoded.size)
+        val first = decoded.first() as Map<*, *>
+        assertEquals(1L, first["sequence"])
+        assertEquals(0L, first["monotonic_millis"])
+        assertEquals(0L, first["downloaded_bytes"])
+        assertNull(first["uploaded_bytes"])
+        assertNull(first["loss_basis_points"])
+        samples.getJSONObject(0).put("sequence", 0)
+        val sanitized = requireNotNull(NetworkQualityFields.encode(JSONObject().put("samples", samples)))
+        assertEquals(15, (requireNotNull(NetworkQualityFields.decode(sanitized))["samples"] as List<*>).size)
+    }
+
     @Test fun qualityBridgeIsBoundedTypedAndOmitsUnknownPrivateFields() {
         val source =
             JSONObject()

@@ -26,7 +26,7 @@ use usque_protocol::{IpAddressRange, IpPrefix, PeerNetworkState};
 use crate::geo_direct::GeoDirectPolicy;
 use crate::h2::{MasqueTlsIdentity, TransportError, connect_h2_with_protector};
 use crate::h3::{H3MigrationResult, connect_h3_with_protector};
-use crate::network_quality::{NetworkQualitySnapshot, spawn_network_quality_sampler};
+use crate::network_quality::{NetworkQualitySnapshot, spawn_network_quality_sampler_with_counters};
 use crate::packet_batch::{
     MAX_PACKET_BATCH_BYTES, PACKET_BATCH_CHANNEL_CAPACITY, PacketBatch, PacketBatchResult,
 };
@@ -276,8 +276,11 @@ impl PacketStack {
         });
         let (control_tx, control) = watch::channel(PeerNetworkState::default());
         let counters = Arc::new(TrafficCounters::default());
-        let (quality, quality_task) =
-            spawn_network_quality_sampler(telemetry.network_quality(), cancellation.child_token());
+        let (quality, quality_task) = spawn_network_quality_sampler_with_counters(
+            telemetry.network_quality(),
+            Arc::clone(&counters),
+            cancellation.child_token(),
+        );
         let mut tasks = vec![stack_task, quality_task];
         tasks.push(tokio::spawn(run_transport_supervisor(
             tunnel,
@@ -707,8 +710,11 @@ impl ManagedTunnelRuntime {
         });
         let (control_tx, control) = watch::channel(PeerNetworkState::default());
         let counters = Arc::new(TrafficCounters::default());
-        let (quality_updates, quality_task) =
-            spawn_network_quality_sampler(quality, cancellation.child_token());
+        let (quality_updates, quality_task) = spawn_network_quality_sampler_with_counters(
+            quality,
+            Arc::clone(&counters),
+            cancellation.child_token(),
+        );
         let mut tasks = vec![
             quality_task,
             tokio::spawn(run_transport_supervisor(

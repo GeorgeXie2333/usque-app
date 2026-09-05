@@ -152,7 +152,28 @@ internal object NetworkQualityFields {
         val pmtu = source.optJSONObject("pmtu")
         val migration = source.optJSONObject("migration")
         val dns = source.optJSONObject("direct_dns")
+        val samples = source.optJSONArray("samples")
+        val sampleOutput =
+            (0 until minOf(samples?.length() ?: 0, 16)).mapNotNull { index ->
+                val sample = samples?.optJSONObject(index) ?: return@mapNotNull null
+                val sequence = number(sample, "sequence") ?: return@mapNotNull null
+                val at = number(sample, "sampled_at_unix_ms") ?: return@mapNotNull null
+                val monotonic = number(sample, "monotonic_millis") ?: return@mapNotNull null
+                if (sequence <= 0 || at <= 0 || at > 8_640_000_000_000_000L ||
+                    monotonic > 8_640_000_000_000_000L
+                ) {
+                    return@mapNotNull null
+                }
+                numbers(sample, setOf("downloaded_bytes", "uploaded_bytes", "rtt_ms")) +
+                    mapOf(
+                        "sequence" to sequence,
+                        "sampled_at_unix_ms" to at,
+                        "monotonic_millis" to monotonic,
+                        "loss_basis_points" to number(sample, "loss_basis_points")?.takeIf { it <= 10_000 },
+                    )
+            }
         return mapOf(
+            "samples" to sampleOutput,
             "sampled_at_unix_ms" to number(source, "sampled_at_unix_ms"),
             "connection_instance_id" to (source.opt("connection_instance_id") as? String)?.takeIf(instanceId::matches),
             "level" to token(source, "level", levels, "unknown"),

@@ -67,8 +67,8 @@ pub use network_quality::{
     AllocationQuality, CongestionQuality, ConnectionInstanceId, DirectDnsMode, DirectDnsPhase,
     DirectDnsQuality, DirectDnsReasonCode, H2FlowControlQuality, LossQuality, MetricAvailability,
     MetricValue, MigrationPhase, MigrationQuality, MigrationReasonCode, NetworkQualityLevel,
-    NetworkQualitySampler, NetworkQualitySnapshot, NetworkQualityTelemetry, PmtuPhase, PmtuQuality,
-    QueueQuality, RttQuality, UdpIoQuality, spawn_network_quality_sampler,
+    NetworkQualitySample, NetworkQualitySampler, NetworkQualitySnapshot, NetworkQualityTelemetry,
+    PmtuPhase, PmtuQuality, QueueQuality, RttQuality, UdpIoQuality, spawn_network_quality_sampler,
 };
 pub use pin_refresh::{EndpointPinRefresher, refresh_endpoint_pin_over_protected_socket};
 pub use proxy::ProxyRuntime;

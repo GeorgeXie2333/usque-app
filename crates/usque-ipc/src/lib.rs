@@ -548,6 +548,32 @@ mod tests {
     }
 
     #[test]
+    fn source_sample_append_only_wire_preserves_optional_zero() {
+        let sample = crate::v1::NetworkQualitySample {
+            sequence: 1,
+            sampled_at_unix_ms: 1234,
+            downloaded_bytes: Some(0),
+            rtt_ms: Some(42),
+            ..Default::default()
+        };
+        // Shared with Flutter source_sampling_test.dart.
+        let wire = [8, 1, 16, 210, 9, 32, 0, 48, 42];
+        assert_eq!(sample.encode_to_vec(), wire);
+        assert_eq!(
+            crate::v1::NetworkQualitySample::decode(wire.as_slice()).unwrap(),
+            sample
+        );
+        let snapshot = crate::v1::NetworkQualitySnapshot {
+            samples: vec![sample],
+            ..Default::default()
+        };
+        assert_eq!(
+            snapshot.encode_to_vec(),
+            [vec![74, 9], wire.to_vec()].concat()
+        );
+    }
+
+    #[test]
     fn legacy_decoder_ignores_the_new_network_quality_response() {
         let legacy = LegacyControlResponse::decode(&NETWORK_QUALITY_V1_FRAME[4..])
             .expect("legacy decoder ignores append-only field 21");

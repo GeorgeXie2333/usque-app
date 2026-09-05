@@ -75,7 +75,23 @@ pub(crate) fn snapshot_to_proto(snapshot: &NetworkQualitySnapshot) -> v1::Networ
         .saturating_add(metric_raw_u64(&snapshot.loss.datagram_receive_drops));
 
     v1::NetworkQualitySnapshot {
-        sampled_at_unix_ms: duration_milliseconds(sampled_at),
+        sampled_at_unix_ms: snapshot.samples.last().map_or_else(
+            || duration_milliseconds(sampled_at),
+            |sample| sample.sampled_at_unix_ms,
+        ),
+        samples: snapshot
+            .samples
+            .iter()
+            .map(|sample| v1::NetworkQualitySample {
+                sequence: sample.sequence,
+                sampled_at_unix_ms: sample.sampled_at_unix_ms,
+                monotonic_millis: sample.monotonic_millis,
+                downloaded_bytes: sample.downloaded_bytes,
+                uploaded_bytes: sample.uploaded_bytes,
+                rtt_ms: sample.rtt_ms,
+                loss_basis_points: sample.loss_basis_points,
+            })
+            .collect(),
         connection_instance_id: snapshot
             .connection_id
             .map(|connection| connection.0.to_string())
@@ -439,6 +455,15 @@ mod tests {
         telemetry.record_direct_dns_failure(DirectDnsReasonCode::Timeout, true);
         let proto = snapshot_to_proto(&NetworkQualitySampler::new(telemetry).sample());
         assert_eq!(proto.connection_instance_id, connection.0.to_string());
+        assert_eq!(proto.samples.len(), 1);
+        assert_eq!(proto.samples[0].sequence, 1);
+        assert_eq!(
+            proto.samples[0].sampled_at_unix_ms,
+            proto.sampled_at_unix_ms
+        );
+        assert_eq!(proto.samples[0].rtt_ms, Some(10));
+        assert_eq!(proto.samples[0].loss_basis_points, None);
+        assert_eq!(proto.samples[0].downloaded_bytes, None);
         let metrics = proto.metrics.as_ref().unwrap();
         assert_eq!(metrics.h2_stream_receive_window_bytes, 4 * 1024 * 1024);
         assert_eq!(metrics.h2_connection_receive_window_bytes, 8 * 1024 * 1024);

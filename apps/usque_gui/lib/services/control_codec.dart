@@ -1302,6 +1302,8 @@ NetworkQualitySnapshot _decodeNetworkQuality(_ProtoReader reader) {
   var level = NetworkQualityLevel.unknown;
   var metrics = const NetworkConnectionMetrics();
   final queues = <NetworkQueueQuality>[];
+  final samples = <NetworkQualitySample>[];
+  var sampleCount = 0;
   var pmtu = const PmtuQualityInfo();
   var migration = const MigrationQualityInfo();
   var directDns = const DirectDnsQualityInfo();
@@ -1332,6 +1334,13 @@ NetworkQualitySnapshot _decodeNetworkQuality(_ProtoReader reader) {
         migration = _decodeMigrationQuality(reader.message(field));
       case 8:
         directDns = _decodeDirectDnsQuality(reader.message(field));
+      case 9:
+        if (sampleCount++ < 16) {
+          final sample = _decodeNetworkQualitySample(reader.message(field));
+          if (sample != null) samples.add(sample);
+        } else {
+          reader.skip(field);
+        }
       default:
         reader.skip(field);
     }
@@ -1345,7 +1354,32 @@ NetworkQualitySnapshot _decodeNetworkQuality(_ProtoReader reader) {
     pmtu: pmtu,
     migration: migration,
     directDns: directDns,
+    samples: List.unmodifiable(samples),
   );
+}
+
+NetworkQualitySample? _decodeNetworkQualitySample(_ProtoReader reader) {
+  const keys = <int, String>{
+    1: 'sequence',
+    2: 'sampled_at_unix_ms',
+    3: 'monotonic_millis',
+    4: 'downloaded_bytes',
+    5: 'uploaded_bytes',
+    6: 'rtt_ms',
+    7: 'loss_basis_points',
+  };
+  // Proto3 omits the zero monotonic origin; optional metrics retain presence.
+  final values = <Object?, Object?>{'monotonic_millis': 0};
+  while (!reader.isDone) {
+    final field = reader.field();
+    final key = keys[field.number];
+    if (key == null) {
+      reader.skip(field);
+    } else {
+      values[key] = reader.varint(field);
+    }
+  }
+  return NetworkQualitySample.fromMap(values);
 }
 
 NetworkConnectionMetrics _decodeNetworkConnectionMetrics(_ProtoReader reader) {

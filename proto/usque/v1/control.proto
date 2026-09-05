@@ -609,6 +609,19 @@ message NetworkQualitySnapshot {
   PmtuQuality pmtu = 6;
   MigrationQuality migration = 7;
   DirectDnsQuality direct_dns = 8;
+  // At most 16 real source observations; not interpolated or persisted.
+  repeated NetworkQualitySample samples = 9;
+}
+
+message NetworkQualitySample {
+  // Sequence and monotonic clock reset with connection_instance_id.
+  uint64 sequence = 1;
+  uint64 sampled_at_unix_ms = 2;
+  uint64 monotonic_millis = 3;
+  optional uint64 downloaded_bytes = 4;
+  optional uint64 uploaded_bytes = 5;
+  optional uint64 rtt_ms = 6;
+  optional uint32 loss_basis_points = 7;
 }
 
 message NetworkQualityUpdated {
