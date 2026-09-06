@@ -172,6 +172,59 @@ class MethodChannelEngineClient implements EngineClient {
     'io.github.georgexie2333.usque/engine_events',
   );
 
+  static EngineSnapshot _snapshotFromMap(Map<Object?, Object?>? value) {
+    final map = value ?? const <Object?, Object?>{};
+    // Android sends typed listener kinds and separate platform TUN evidence,
+    // not the desktop protocol's structured frontend records. Normalize both
+    // method replies and pushed events here without consulting profile intent.
+    // Preserve explicit records if a future Android producer supplies them.
+    if (map.containsKey('frontends') ||
+        map['platform_state_observed'] != true ||
+        map['vpn_service_state'] != 'running' ||
+        map['vpn_process_state'] != 'reachable' ||
+        map['native_runtime_state'] != 'running' ||
+        map['pending_cleanup'] == true) {
+      return EngineSnapshot.fromMap(map);
+    }
+    final phase = switch (map['phase']) {
+      'connected' => FrontendPhase.active,
+      'degraded' => FrontendPhase.degraded,
+      'reconnecting' => FrontendPhase.reconnecting,
+      'preparing' ||
+      'connectingH3' ||
+      'connectingH2' => FrontendPhase.preparing,
+      'disconnected' || 'disconnecting' => FrontendPhase.disabled,
+      'error' => FrontendPhase.error,
+      _ => null,
+    };
+    if (phase == null) {
+      return EngineSnapshot.fromMap(map);
+    }
+    final frontends = <Map<String, Object>>[];
+    void add(FrontendKind kind, bool active) {
+      frontends.add({
+        'kind': kind.name,
+        'phase': (active ? phase : FrontendPhase.disabled).name,
+      });
+    }
+
+    final tunFdValid = map['tun_fd_valid'];
+    // Missing or contradictory observations remain unknown. Tunnel address
+    // availability describes the upstream transport, not a local VPN interface.
+    if (tunFdValid is bool && map['tun_interface_present'] == tunFdValid) {
+      add(FrontendKind.tunnel, tunFdValid);
+    }
+    final activeFrontends = map['active_frontends'];
+    if (activeFrontends is List &&
+        activeFrontends.every((kind) => kind is String)) {
+      add(FrontendKind.socks5, activeFrontends.contains('socks5'));
+      add(FrontendKind.http, activeFrontends.contains('http'));
+    }
+    // The shared active_listeners list cannot reliably identify each protocol;
+    // do not guess by configured/default ports or copy it onto every output.
+    return EngineSnapshot.fromMap({...map, 'frontends': frontends});
+  }
+
   @override
   bool get supportsSnapshotEvents => true;
 
@@ -187,7 +240,7 @@ class MethodChannelEngineClient implements EngineClient {
       final map = Map<Object?, Object?>.from(value);
       final progress = map['geo_progress'];
       return EngineSnapshotEvent(
-        snapshot: map.containsKey('phase') ? EngineSnapshot.fromMap(map) : null,
+        snapshot: map.containsKey('phase') ? _snapshotFromMap(map) : null,
         geoProgress: progress is Map
             ? geoRulesProgressFromMap(Map<Object?, Object?>.from(progress))
             : null,
@@ -450,25 +503,25 @@ class MethodChannelEngineClient implements EngineClient {
       'connect',
       profile.toMap(),
     );
-    return EngineSnapshot.fromMap(result ?? const <Object?, Object?>{});
+    return _snapshotFromMap(result);
   }
 
   @override
   Future<EngineSnapshot> disconnect() async {
     final result = await _invoke<Map<Object?, Object?>>('disconnect');
-    return EngineSnapshot.fromMap(result ?? const <Object?, Object?>{});
+    return _snapshotFromMap(result);
   }
 
   @override
   Future<EngineSnapshot> retry() async {
     final result = await _invoke<Map<Object?, Object?>>('retry');
-    return EngineSnapshot.fromMap(result ?? const <Object?, Object?>{});
+    return _snapshotFromMap(result);
   }
 
   @override
   Future<EngineSnapshot> snapshot() async {
     final result = await _invoke<Map<Object?, Object?>>('snapshot');
-    return EngineSnapshot.fromMap(result ?? const <Object?, Object?>{});
+    return _snapshotFromMap(result);
   }
 
   @override
