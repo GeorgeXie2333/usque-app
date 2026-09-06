@@ -851,19 +851,15 @@ where
             if registry.entries.len() >= MAX_DYNAMIC_DIRECT_TARGETS {
                 return Err(ServiceError::DirectEgressLimit);
             }
-            let permit = if plan.kill_switch {
-                Some(
-                    wfp::acquire_dynamic_permit(
-                        remote,
-                        protocol,
-                        interface_luid,
-                        &caller.executable_path,
-                    )
-                    .map_err(|error| ServiceError::DirectEgress(error.to_string()))?,
+            let permit = acquire_egress_permit(plan, journal.phase, remote, protocol, || {
+                wfp::acquire_dynamic_permit(
+                    remote,
+                    protocol,
+                    interface_luid,
+                    &caller.executable_path,
                 )
-            } else {
-                None
-            };
+                .map_err(ServiceError::DirectEgress)
+            })?;
             registry.entries.insert(
                 key,
                 DirectEgressEntry {
@@ -1726,6 +1722,33 @@ where
     result
 }
 
+fn acquire_egress_permit<Permit>(
+    plan: &ValidatedTunnelPlan,
+    phase: RecoveryPhase,
+    remote: SocketAddr,
+    protocol: u8,
+    install: impl FnOnce() -> Result<Permit, ServiceError>,
+) -> Result<Option<Permit>, ServiceError> {
+    if !matches!(phase, RecoveryPhase::Prepared | RecoveryPhase::Active) {
+        return Err(ServiceError::DirectEgressState);
+    }
+    // Prepared has no WFP provider/sublayer yet. Only the exact bootstrap
+    // endpoints may cross commit without a dynamic permit: commit installs
+    // persistent Engine-scoped permits from this same allowlist. Physical
+    // interface binding, generation checks and pipe ownership still apply.
+    if wfp::is_bootstrap_endpoint(plan, remote, protocol) {
+        return Ok(None);
+    }
+    if phase == RecoveryPhase::Prepared {
+        return Err(ServiceError::DirectEgressNotReady);
+    }
+    if plan.kill_switch {
+        install().map(Some)
+    } else {
+        Ok(None)
+    }
+}
+
 fn validate_direct_context<'a>(
     journal: &'a RecoveryJournal,
     operation_id: Uuid,
@@ -2130,12 +2153,14 @@ enum ServiceError {
     DirectEgressOwner,
     #[error("direct egress target must be a numeric unicast TCP/UDP endpoint")]
     DirectEgressTarget,
+    #[error("only planned tunnel and control endpoints may acquire egress before tunnel commit")]
+    DirectEgressNotReady,
     #[error("this pipe already owns a direct-egress lease")]
     DirectEgressLeaseAlreadyAcquired,
     #[error("the dynamic direct-egress target limit was reached")]
     DirectEgressLimit,
     #[error("could not install dynamic direct-egress policy: {0}")]
-    DirectEgress(String),
+    DirectEgress(wfp::WfpError),
     #[error("automatic recovery is blocked and cannot be restarted safely")]
     AutomaticRecoveryBlocked,
     #[error("automatic recovery is not supported by this Agent")]
@@ -2161,10 +2186,20 @@ impl ServiceError {
                 ("AGENT_INVALID_DIRECT_EGRESS", false)
             }
             Self::DirectEgressState => ("AGENT_DIRECT_EGRESS_UNAVAILABLE", true),
+            Self::DirectEgressNotReady => ("AGENT_DIRECT_EGRESS_NOT_READY", true),
             Self::DirectEgressLimit => ("AGENT_DIRECT_EGRESS_LIMIT", true),
-            Self::PhysicalNetwork(_) | Self::DirectEgress(_) => {
-                ("AGENT_DIRECT_EGRESS_FAILED", true)
+            Self::PhysicalNetwork(_) => ("AGENT_PHYSICAL_NETWORK_UNAVAILABLE", true),
+            Self::DirectEgress(wfp::WfpError::Windows { code, .. })
+                if *code == windows_sys::Win32::Foundation::FWP_E_PROVIDER_NOT_FOUND as u32 =>
+            {
+                ("AGENT_WFP_PROVIDER_NOT_FOUND", true)
             }
+            Self::DirectEgress(wfp::WfpError::Windows { code, .. })
+                if *code == windows_sys::Win32::Foundation::FWP_E_SUBLAYER_NOT_FOUND as u32 =>
+            {
+                ("AGENT_WFP_SUBLAYER_NOT_FOUND", true)
+            }
+            Self::DirectEgress(_) => ("AGENT_DIRECT_EGRESS_FAILED", true),
             Self::AutomaticRecoveryBlocked => ("AGENT_AUTOMATIC_RECOVERY_BLOCKED", false),
             Self::AutomaticRecoveryUnsupported => ("AGENT_AUTOMATIC_RECOVERY_UNSUPPORTED", false),
             Self::Lifecycle(AgentLifecycleError::StartMode(_)) => {
@@ -2243,6 +2278,147 @@ mod tests {
     };
 
     use super::*;
+
+    fn egress_plan() -> ValidatedTunnelPlan {
+        ValidatedTunnelPlan::try_from(agent_v1::TunnelPlan {
+            profile_id: Uuid::new_v4().to_string(),
+            endpoint: "192.0.2.1:443".to_owned(),
+            endpoint_candidates: vec!["192.0.2.1:443".to_owned(), "[2001:db8::1]:443".to_owned()],
+            control_api_candidates: vec!["198.51.100.1:443".to_owned()],
+            mtu: 1280,
+            dns_servers: vec!["1.1.1.1".to_owned()],
+            kill_switch: true,
+            assigned_ipv4: "172.16.0.2/32".to_owned(),
+            assigned_ipv6: "2001:db8:1::2/128".to_owned(),
+            ..Default::default()
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn bootstrap_egress_never_requires_wfp_objects_before_or_after_commit() {
+        let plan = egress_plan();
+        for phase in [RecoveryPhase::Prepared, RecoveryPhase::Active] {
+            for (remote, protocol) in [
+                ("192.0.2.1:443", 17),
+                ("192.0.2.1:443", 6),
+                ("[2001:db8::1]:443", 17),
+                ("[2001:db8::1]:443", 6),
+                ("198.51.100.1:443", 6),
+            ] {
+                let permit = acquire_egress_permit::<()>(
+                    &plan,
+                    phase,
+                    remote.parse().unwrap(),
+                    protocol,
+                    || panic!("bootstrap must not open a dynamic WFP session"),
+                )
+                .unwrap();
+                assert!(
+                    permit.is_none(),
+                    "a held bootstrap lease must survive commit"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn prepared_egress_rejects_non_bootstrap_targets_even_without_kill_switch() {
+        let mut plan = egress_plan();
+        for kill_switch in [true, false] {
+            plan.kill_switch = kill_switch;
+            for (remote, protocol) in [
+                ("192.0.2.1:8443", 6),
+                ("192.0.2.2:443", 17),
+                ("198.51.100.1:443", 17),
+                ("[2001:db8::2]:443", 17),
+                ("1.1.1.1:53", 17),
+            ] {
+                let error = acquire_egress_permit::<()>(
+                    &plan,
+                    RecoveryPhase::Prepared,
+                    remote.parse().unwrap(),
+                    protocol,
+                    || panic!("uncommitted user traffic must not install a permit"),
+                )
+                .unwrap_err();
+                assert_eq!(error.code(), ("AGENT_DIRECT_EGRESS_NOT_READY", true));
+            }
+        }
+    }
+
+    #[test]
+    fn active_direct_egress_requires_successful_dynamic_policy() {
+        let mut plan = egress_plan();
+        let remote = "203.0.113.9:443".parse().unwrap();
+        let calls = AtomicUsize::new(0);
+        let permit = acquire_egress_permit(&plan, RecoveryPhase::Active, remote, 6, || {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Ok(42)
+        })
+        .unwrap();
+        assert_eq!(permit, Some(42));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        let error = acquire_egress_permit::<()>(&plan, RecoveryPhase::Active, remote, 6, || {
+            Err(ServiceError::DirectEgress(wfp::WfpError::EmptyEngineHandle))
+        })
+        .unwrap_err();
+        assert_eq!(error.code(), ("AGENT_DIRECT_EGRESS_FAILED", true));
+
+        plan.kill_switch = false;
+        assert!(
+            acquire_egress_permit::<()>(&plan, RecoveryPhase::Active, remote, 6, || {
+                panic!("disabled Kill Switch must not mutate WFP")
+            })
+            .unwrap()
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn closed_or_recovering_transactions_cannot_authorize_bootstrap_egress() {
+        let plan = egress_plan();
+        for phase in [
+            RecoveryPhase::Clean,
+            RecoveryPhase::Preparing,
+            RecoveryPhase::Paused,
+            RecoveryPhase::Recovering,
+            RecoveryPhase::RecoveryRequired,
+        ] {
+            let error = acquire_egress_permit::<()>(&plan, phase, plan.endpoint, 17, || {
+                panic!("invalid phases must not install a permit")
+            })
+            .unwrap_err();
+            assert_eq!(error.code(), ("AGENT_DIRECT_EGRESS_UNAVAILABLE", true));
+        }
+    }
+
+    #[test]
+    fn egress_errors_distinguish_physical_network_and_missing_wfp_dependencies() {
+        for (native, code) in [
+            (
+                windows_sys::Win32::Foundation::FWP_E_PROVIDER_NOT_FOUND,
+                "AGENT_WFP_PROVIDER_NOT_FOUND",
+            ),
+            (
+                windows_sys::Win32::Foundation::FWP_E_SUBLAYER_NOT_FOUND,
+                "AGENT_WFP_SUBLAYER_NOT_FOUND",
+            ),
+        ] {
+            let error = ServiceError::DirectEgress(wfp::WfpError::Windows {
+                operation: "FwpmFilterAdd0",
+                code: native as u32,
+            });
+            let response = error_response("test".to_owned(), error);
+            let error = response.error.unwrap();
+            assert_eq!(error.code, code);
+            assert!(error.retryable);
+        }
+        assert_eq!(
+            ServiceError::PhysicalNetwork("private network fixture".to_owned()).code(),
+            ("AGENT_PHYSICAL_NETWORK_UNAVAILABLE", true)
+        );
+    }
 
     #[test]
     fn automatic_recovery_budget_and_backoff_are_bounded() {

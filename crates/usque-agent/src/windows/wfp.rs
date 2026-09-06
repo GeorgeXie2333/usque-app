@@ -299,6 +299,44 @@ fn build_rules(
     Ok(rules)
 }
 
+// Keep bootstrap authorization and the persistent rules installed at commit
+// on the same allowlist. A bootstrap lease can outlive the Prepared phase.
+fn bootstrap_endpoints(
+    plan: &ValidatedTunnelPlan,
+) -> impl Iterator<Item = (SocketAddr, u8, &'static str)> + '_ {
+    plan.endpoint_candidates
+        .iter()
+        .flat_map(|endpoint| {
+            [
+                (*endpoint, IPPROTO_UDP as u8, "Engine H3 endpoint"),
+                (*endpoint, IPPROTO_TCP as u8, "Engine H2 endpoint"),
+            ]
+        })
+        .chain(plan.control_api_candidates.iter().map(|endpoint| {
+            (
+                *endpoint,
+                IPPROTO_TCP as u8,
+                "Engine authenticated control API",
+            )
+        }))
+        .filter(|(endpoint, _, _)| {
+            if endpoint.is_ipv4() {
+                plan.assigned_ipv4.is_some()
+            } else {
+                plan.assigned_ipv6.is_some()
+            }
+        })
+}
+
+pub(super) fn is_bootstrap_endpoint(
+    plan: &ValidatedTunnelPlan,
+    remote: SocketAddr,
+    protocol: u8,
+) -> bool {
+    bootstrap_endpoints(plan)
+        .any(|(endpoint, allowed_protocol, _)| endpoint == remote && allowed_protocol == protocol)
+}
+
 fn add_family_rules(
     rules: &mut Vec<FilterRule>,
     family: AddressFamily,
@@ -313,42 +351,17 @@ fn add_family_rules(
         vec![ConditionSpec::InterfaceLuid(interface_luid)],
     ));
 
-    for endpoint in plan
-        .endpoint_candidates
-        .iter()
-        .filter(|endpoint| family_matches(family, endpoint.ip()))
-    {
-        let endpoint_network = host_network(endpoint.ip());
-        for (protocol, label) in [
-            (IPPROTO_UDP as u8, "Engine H3 endpoint"),
-            (IPPROTO_TCP as u8, "Engine H2 endpoint"),
-        ] {
-            rules.push(permit(
-                family,
-                &format!("{label} {}", endpoint.ip()),
-                vec![
-                    ConditionSpec::ApplicationId,
-                    ConditionSpec::RemoteNetwork(endpoint_network),
-                    ConditionSpec::RemotePort(endpoint.port()),
-                    ConditionSpec::Protocol(protocol),
-                ],
-            ));
-        }
-    }
-
-    for endpoint in plan
-        .control_api_candidates
-        .iter()
-        .filter(|endpoint| family_matches(family, endpoint.ip()))
+    for (endpoint, protocol, label) in
+        bootstrap_endpoints(plan).filter(|(endpoint, _, _)| family_matches(family, endpoint.ip()))
     {
         rules.push(permit(
             family,
-            &format!("Engine authenticated control API {}", endpoint.ip()),
+            &format!("{label} {}", endpoint.ip()),
             vec![
                 ConditionSpec::ApplicationId,
                 ConditionSpec::RemoteNetwork(host_network(endpoint.ip())),
                 ConditionSpec::RemotePort(endpoint.port()),
-                ConditionSpec::Protocol(IPPROTO_TCP as u8),
+                ConditionSpec::Protocol(protocol),
             ],
         ));
     }
@@ -1143,6 +1156,56 @@ mod tests {
                     Ipv4Addr::new(198, 51, 100, 10).into()
                 )))
         );
+    }
+
+    #[test]
+    fn every_bootstrap_lease_is_covered_by_an_exact_committed_engine_permit() {
+        let mut plan = plan(Ipv4Addr::new(192, 0, 2, 1).into(), false);
+        plan.endpoint_candidates
+            .push("[2001:db8::1]:443".parse().unwrap());
+        plan.control_api_candidates
+            .push("[2001:db8::2]:443".parse().unwrap());
+        let rules = build_rules(&plan, 42).unwrap();
+        let endpoints = bootstrap_endpoints(&plan).collect::<Vec<_>>();
+        assert_eq!(endpoints.len(), 6);
+        for (endpoint, protocol, _) in endpoints {
+            assert!(is_bootstrap_endpoint(&plan, endpoint, protocol));
+            assert!(rules.iter().any(|rule| {
+                rule.action == RuleAction::Permit
+                    && family_matches(rule.family, endpoint.ip())
+                    && rule.conditions
+                        == vec![
+                            ConditionSpec::ApplicationId,
+                            ConditionSpec::RemoteNetwork(host_network(endpoint.ip())),
+                            ConditionSpec::RemotePort(endpoint.port()),
+                            ConditionSpec::Protocol(protocol),
+                        ]
+            }));
+        }
+        for (endpoint, protocol) in [
+            ("192.0.2.1:8443", 6),
+            ("192.0.2.2:443", 17),
+            ("198.51.100.10:443", 17),
+            ("[2001:db8::2]:443", 17),
+            ("192.0.2.1:443", 1),
+        ] {
+            assert!(!is_bootstrap_endpoint(
+                &plan,
+                endpoint.parse().unwrap(),
+                protocol
+            ));
+        }
+        plan.assigned_ipv6 = None;
+        assert!(!is_bootstrap_endpoint(
+            &plan,
+            "[2001:db8::1]:443".parse().unwrap(),
+            17
+        ));
+        assert!(!is_bootstrap_endpoint(
+            &plan,
+            "[2001:db8::2]:443".parse().unwrap(),
+            6
+        ));
     }
 
     #[test]

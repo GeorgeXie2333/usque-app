@@ -58,6 +58,29 @@ the independent observer for leak claims. Those isolated scenarios are
 `not_run` for this workstation change. They remain supplemental, not a new
 publication prerequisite.
 
+## Windows bootstrap egress and Kill Switch ordering
+
+The Prepared phase has no WFP provider or sublayer. It authorizes only the
+planned MASQUE TCP/UDP endpoints and TCP registration API endpoints; physical
+interface binding, exact network-generation checks and authenticated pipe
+ownership still apply. Those same endpoints have persistent Engine-scoped
+permits at commit, so bootstrap socket leases remain valid across activation
+without creating dynamic filters. Other direct targets are rejected before
+commit and require a dynamic permit while the active Kill Switch is enabled.
+
+Deterministic Windows tests cover the shared bootstrap/committed allowlist,
+IPv4/IPv6 and port/protocol restrictions, pre-commit rejection, active permit
+failure propagation, invalid phases and sanitized egress error codes/stages.
+They do not call native WFP mutation APIs. No journal schema, protobuf field,
+terminal block rule or dynamic-session cleanup contract changes.
+
+In a snapshot VM with an independent management channel, additionally validate
+clean-state cold connections with Kill Switch on/off, H2/H3 and IPv4/IPv6;
+registration pin refresh; held endpoint sockets across commit; and startup
+failure followed by rollback and retry. Use the independent network observer
+to verify post-commit direct traffic, permit revocation and no unexpected
+physical packets. Missing protected infrastructure means `not_run`, not a pass.
+
 ## Protected release runners
 
 After the exact signed candidate has been staged, the public release workflow

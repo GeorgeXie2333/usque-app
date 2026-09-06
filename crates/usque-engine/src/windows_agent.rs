@@ -279,14 +279,14 @@ impl WindowsVpnSocketProtector {
             .agent
             .acquire_direct_egress(self.operation_id, remote, protocol, agent_generation)
             .await
-            .map_err(socket_lease_error)?;
+            .map_err(|error| socket_lease_error("ACQUIRE_DIRECT_EGRESS", error))?;
         self.verify_generation(expected_generation, agent_generation)?;
         bind_socket_to_interface(socket, remote, lease.interface_index)?;
         let current = self
             .agent
             .get_physical_network_info(self.operation_id)
             .await
-            .map_err(socket_lease_error)?;
+            .map_err(|error| socket_lease_error("VERIFY_PHYSICAL_NETWORK", error))?;
         self.observe_physical_snapshot(&current);
         let family_mask = if remote.is_ipv4() { 1 } else { 2 };
         if current.generation != agent_generation
@@ -358,13 +358,27 @@ fn require_open_vpn_transaction(open: bool, operation_id: Uuid) -> Result<(), Wi
     Ok(())
 }
 
-fn socket_lease_error(error: WindowsVpnError) -> String {
-    match error {
-        WindowsVpnError::Remote { code, .. } if code == "AGENT_STALE_GENERATION" => {
-            STALE_GENERATION_REASON.to_owned()
-        }
-        _ => "Windows exact-generation egress preparation failed".to_owned(),
+fn socket_lease_error(stage: &'static str, error: WindowsVpnError) -> String {
+    if matches!(&error, WindowsVpnError::Remote { code, .. } if code == "AGENT_STALE_GENERATION") {
+        return STALE_GENERATION_REASON.to_owned();
     }
+    let code = match &error {
+        WindowsVpnError::RpcTimeout => "AGENT_RPC_TIMEOUT",
+        WindowsVpnError::InvalidDirectEgressLease => "AGENT_INVALID_DIRECT_EGRESS_LEASE",
+        WindowsVpnError::Frame(_)
+        | WindowsVpnError::FrameTooLarge(_)
+        | WindowsVpnError::ResponseIdMismatch
+        | WindowsVpnError::MissingResponse
+        | WindowsVpnError::UnexpectedResponse(_) => "AGENT_INVALID_RESPONSE",
+        _ => error.diagnostic_code(),
+    };
+    // Never log raw Agent messages, I/O details, addresses or caller identity.
+    tracing::warn!(
+        reason_code = stage,
+        error_code = code,
+        "Windows exact-generation egress preparation failed"
+    );
+    format!("Windows exact-generation egress preparation failed ({stage}: {code})")
 }
 
 fn start_physical_network_monitor(protector: &Arc<WindowsVpnSocketProtector>) {
@@ -3021,6 +3035,16 @@ impl WindowsVpnError {
                 "AGENT_RECOVERY_BUSY" => "AGENT_RECOVERY_BUSY",
                 "AGENT_RECOVERY_CONFLICT" => "AGENT_RECOVERY_CONFLICT",
                 "AGENT_OWNER_MISMATCH" => "AGENT_OWNER_MISMATCH",
+                "AGENT_DIRECT_EGRESS_FAILED" => "AGENT_DIRECT_EGRESS_FAILED",
+                "AGENT_DIRECT_EGRESS_UNAVAILABLE" => "AGENT_DIRECT_EGRESS_UNAVAILABLE",
+                "AGENT_DIRECT_EGRESS_NOT_READY" => "AGENT_DIRECT_EGRESS_NOT_READY",
+                "AGENT_DIRECT_EGRESS_LIMIT" => "AGENT_DIRECT_EGRESS_LIMIT",
+                "AGENT_INVALID_DIRECT_EGRESS" => "AGENT_INVALID_DIRECT_EGRESS",
+                "AGENT_PHYSICAL_NETWORK_UNAVAILABLE" => "AGENT_PHYSICAL_NETWORK_UNAVAILABLE",
+                "AGENT_WFP_PROVIDER_NOT_FOUND" => "AGENT_WFP_PROVIDER_NOT_FOUND",
+                "AGENT_WFP_SUBLAYER_NOT_FOUND" => "AGENT_WFP_SUBLAYER_NOT_FOUND",
+                "AGENT_PROTOCOL_MISMATCH" => "AGENT_PROTOCOL_MISMATCH",
+                "AGENT_SHUTTING_DOWN" => "AGENT_SHUTTING_DOWN",
                 _ => "AGENT_OPERATION_FAILED",
             },
             Self::Io(_) | Self::AgentService(_) => "AGENT_UNREACHABLE",
@@ -3655,19 +3679,102 @@ mod tests {
     #[test]
     fn exact_egress_errors_never_forward_raw_agent_details_to_transport() {
         assert_eq!(
-            socket_lease_error(WindowsVpnError::Remote {
-                code: "AGENT_STALE_GENERATION".to_owned(),
-                message: "192.0.2.4 private-network".to_owned(),
-                retryable: true,
-            }),
+            socket_lease_error(
+                "ACQUIRE_DIRECT_EGRESS",
+                WindowsVpnError::Remote {
+                    code: "AGENT_STALE_GENERATION".to_owned(),
+                    message: "192.0.2.4 private-network".to_owned(),
+                    retryable: true,
+                }
+            ),
             STALE_GENERATION_REASON
         );
-        let error = socket_lease_error(WindowsVpnError::Remote {
-            code: "AGENT_DIRECT_EGRESS_FAILED".to_owned(),
-            message: "192.0.2.4 private-network".to_owned(),
-            retryable: true,
-        });
+        let error = socket_lease_error(
+            "ACQUIRE_DIRECT_EGRESS",
+            WindowsVpnError::Remote {
+                code: "AGENT_DIRECT_EGRESS_FAILED".to_owned(),
+                message: "192.0.2.4 private-network".to_owned(),
+                retryable: true,
+            },
+        );
+        assert!(error.contains("ACQUIRE_DIRECT_EGRESS: AGENT_DIRECT_EGRESS_FAILED"));
         assert!(!error.contains("192.0.2.4") && !error.contains("private-network"));
+    }
+
+    #[test]
+    fn egress_diagnostics_preserve_only_allowlisted_codes_and_local_stages() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = directory.path().join("config.json");
+        let writer = crate::logging::LogWriterFactory::open(&config).unwrap();
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .json()
+            .with_writer(writer)
+            .finish();
+        tracing::subscriber::with_default(subscriber, || {
+            for code in [
+                "AGENT_OWNER_MISMATCH",
+                "AGENT_DIRECT_EGRESS_FAILED",
+                "AGENT_DIRECT_EGRESS_NOT_READY",
+                "AGENT_DIRECT_EGRESS_UNAVAILABLE",
+                "AGENT_DIRECT_EGRESS_LIMIT",
+                "AGENT_INVALID_DIRECT_EGRESS",
+                "AGENT_PHYSICAL_NETWORK_UNAVAILABLE",
+                "AGENT_WFP_PROVIDER_NOT_FOUND",
+                "AGENT_WFP_SUBLAYER_NOT_FOUND",
+                "AGENT_PROTOCOL_MISMATCH",
+                "AGENT_SHUTTING_DOWN",
+                "private-code-fixture",
+            ] {
+                let text = socket_lease_error(
+                    "ACQUIRE_DIRECT_EGRESS",
+                    WindowsVpnError::Remote {
+                        code: code.to_owned(),
+                        message: "192.0.2.4 private-network token-fixture".to_owned(),
+                        retryable: true,
+                    },
+                );
+                let expected = if code == "private-code-fixture" {
+                    "AGENT_OPERATION_FAILED"
+                } else {
+                    code
+                };
+                assert!(text.contains(&format!("ACQUIRE_DIRECT_EGRESS: {expected}")));
+                assert!(!text.contains("192.0.2.4") && !text.contains("private-"));
+            }
+            for (error, code) in [
+                (WindowsVpnError::RpcTimeout, "AGENT_RPC_TIMEOUT"),
+                (
+                    WindowsVpnError::InvalidDirectEgressLease,
+                    "AGENT_INVALID_DIRECT_EGRESS_LEASE",
+                ),
+                (
+                    WindowsVpnError::ResponseIdMismatch,
+                    "AGENT_INVALID_RESPONSE",
+                ),
+                (
+                    WindowsVpnError::Io(io::Error::other("private-io-fixture")),
+                    "AGENT_UNREACHABLE",
+                ),
+            ] {
+                let text = socket_lease_error("VERIFY_PHYSICAL_NETWORK", error);
+                assert!(text.contains(&format!("VERIFY_PHYSICAL_NETWORK: {code}")));
+                assert!(!text.contains("private-"));
+            }
+        });
+        let log = std::fs::read_to_string(directory.path().join("logs/engine.jsonl")).unwrap();
+        assert!(log.contains("AGENT_WFP_SUBLAYER_NOT_FOUND"));
+        assert!(log.contains("ACQUIRE_DIRECT_EGRESS"));
+        assert!(log.contains("VERIFY_PHYSICAL_NETWORK"));
+        for private in [
+            "192.0.2.4",
+            "private-network",
+            "token-fixture",
+            "private-code-fixture",
+            "private-io-fixture",
+        ] {
+            assert!(!log.contains(private));
+        }
     }
 
     #[test]
