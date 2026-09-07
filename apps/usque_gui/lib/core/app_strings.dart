@@ -16,8 +16,19 @@ class AppStrings {
 
   final String catalogId;
 
-  String? windowsRecoveryError(String? code) =>
-      (catalogId == 'zh_CN' ? kWindowsRecoveryZhCn : kWindowsRecoveryEn)[code];
+  String? windowsRecoveryError(String? code, {String? details}) {
+    final message = (catalogId == 'zh_CN'
+        ? kWindowsRecoveryZhCn
+        : kWindowsRecoveryEn)[code];
+    if (message == null || !(details?.contains('Wintun') ?? false)) {
+      return message;
+    }
+    // Show only localized step context, never raw Agent diagnostics or paths.
+    final adapter = catalogId == 'zh_CN'
+        ? kWindowsAdapterCleanupZhCn
+        : kWindowsAdapterCleanupEn;
+    return '$message\n$adapter';
+  }
 
   String get languageCode =>
       catalogId.startsWith('zh') ? 'zh' : catalogId.split('_').first;

@@ -73,7 +73,12 @@ class AppController extends ChangeNotifier {
     _snapshotRevision++;
     _snapshot = value;
     if (value.phase == ConnectionPhase.error) {
-      lastError = strings.windowsRecoveryError(value.errorCode) ?? lastError;
+      lastError =
+          strings.windowsRecoveryError(
+            value.errorCode,
+            details: value.warning,
+          ) ??
+          lastError;
     }
     quality.updateConnection(value);
   }
@@ -904,7 +909,8 @@ class AppController extends ChangeNotifier {
       return true;
     } catch (error) {
       lastError = error is EngineException
-          ? strings.windowsRecoveryError(error.code) ?? error.message
+          ? strings.windowsRecoveryError(error.code, details: error.message) ??
+                error.message
           : error.toString();
       if (affectsConnection && snapshot.phase != ConnectionPhase.disconnected) {
         snapshot = EngineSnapshot(
@@ -1356,7 +1362,7 @@ class AppController extends ChangeNotifier {
     final nextError =
         next.phase == ConnectionPhase.error &&
             (next.warning?.trim().isNotEmpty ?? false)
-        ? strings.windowsRecoveryError(next.errorCode) ??
+        ? strings.windowsRecoveryError(next.errorCode, details: next.warning) ??
               <String?>[
                 next.errorCode?.trim(),
                 next.warning?.trim(),

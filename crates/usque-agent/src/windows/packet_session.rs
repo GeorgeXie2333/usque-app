@@ -19,7 +19,10 @@ use windows_sys::Win32::{
             CreateFileMappingW, FILE_MAP_ALL_ACCESS, MEMORY_MAPPED_VIEW_ADDRESS, MapViewOfFile,
             PAGE_READWRITE, UnmapViewOfFile,
         },
-        Threading::{CreateEventW, GetCurrentProcess, INFINITE, SetEvent, WaitForMultipleObjects},
+        Threading::{
+            CreateEventW, GetCurrentProcess, INFINITE, SetEvent, WaitForMultipleObjects,
+            WaitForSingleObject,
+        },
     },
 };
 
@@ -248,10 +251,18 @@ fn run_packet_pump(
         match wait {
             value if value == WAIT_OBJECT_0 => return Ok(()),
             value if value == WAIT_OBJECT_0 + 1 => {
+                let mut drained = 0;
                 while mapping
                     .ring()
                     .try_pop_into(PacketDirection::EngineToAgent, &mut engine_packet)?
                 {
+                    if drained == PACKET_WAKE_BATCH {
+                        if shutdown_requested(mapping)? {
+                            return Ok(());
+                        }
+                        drained = 0;
+                    }
+                    drained += 1;
                     match session.send(&engine_packet) {
                         Ok(()) => {}
                         Err(error) if error.raw_os_error() == Some(111) => {
@@ -292,6 +303,9 @@ fn drain_wintun_packets(
                     packet_count += 1;
                     if packet_count == PACKET_WAKE_BATCH || published_bytes >= wake_bytes {
                         signal_agent_packets(mapping, &mut published)?;
+                        if shutdown_requested(mapping)? {
+                            break Ok(());
+                        }
                         packet_count = 0;
                         published_bytes = 0;
                     }
@@ -321,6 +335,17 @@ fn signal_agent_packets(
     }
     *published = false;
     Ok(())
+}
+
+fn shutdown_requested(mapping: &PacketMapping) -> Result<bool, PacketSessionError> {
+    // SAFETY: the mapping owns the event for the entire read-only zero-timeout wait.
+    let result = unsafe { WaitForSingleObject(mapping.shutdown_event(), 0) };
+    match result {
+        WAIT_OBJECT_0 => Ok(true),
+        windows_sys::Win32::Foundation::WAIT_TIMEOUT => Ok(false),
+        WAIT_FAILED => Err(last_error("WaitForSingleObject(shutdown)")),
+        value => Err(PacketSessionError::UnexpectedWait(value)),
+    }
 }
 
 fn create_event(manual_reset: bool) -> Result<OwnedHandle, PacketSessionError> {
@@ -512,6 +537,10 @@ mod tests {
         let duplicate_agent_event =
             OwnedHandle(handles.agent_to_engine_event_handle as usize as HANDLE);
         let duplicate_shutdown = OwnedHandle(handles.shutdown_event_handle as usize as HANDLE);
+        assert!(!shutdown_requested(&mapping).unwrap());
+        // SAFETY: this test owns the live shutdown event; no driver is opened.
+        assert_ne!(unsafe { SetEvent(duplicate_shutdown.0) }, 0);
+        assert!(shutdown_requested(&mapping).unwrap());
         let bytes = SharedPacketRing::mapped_bytes(handles.ring_capacity).expect("bytes");
         // SAFETY: duplicated mapping handle is valid in this test process.
         let view = unsafe { MapViewOfFile(duplicate_mapping.0, FILE_MAP_ALL_ACCESS, 0, 0, bytes) };

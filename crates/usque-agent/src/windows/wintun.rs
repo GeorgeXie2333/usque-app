@@ -34,13 +34,17 @@ use windows_sys::{
 
 use super::network;
 use crate::journal::MutationReceipt;
+use crate::recovery_diagnostics::{
+    AdapterRemovalDiagnostic, RecoveryApi, RemovalFailure, RemovalStage,
+};
 
 const WINTUN_DLL_NAME: &str = "wintun.dll";
 const WINTUN_MIN_RING_CAPACITY: u32 = 0x20_000;
 const WINTUN_MAX_RING_CAPACITY: u32 = 0x400_0000;
 const WINTUN_MAX_IP_PACKET_SIZE: usize = 0xffff;
-const ADAPTER_REMOVAL_CONFIRM_TIMEOUT: Duration = Duration::from_secs(2);
-const ADAPTER_REMOVAL_CONFIRM_INTERVAL: Duration = Duration::from_millis(25);
+const ADAPTER_REMOVAL_CONFIRM_TIMEOUT: Duration = Duration::from_secs(10);
+const ADAPTER_REMOVAL_CLOSE_GRACE: Duration = Duration::from_secs(2);
+const ADAPTER_REMOVAL_CONFIRM_INTERVAL: Duration = Duration::from_millis(100);
 
 #[cfg(target_arch = "x86_64")]
 const EXPECTED_DLL_SHA256: [u8; 32] = [
@@ -393,7 +397,40 @@ impl Drop for WintunSession {
 /// Recovery never opens Wintun: OpenAdapter/CloseAdapter can enqueue unrelated
 /// orphan cleanup. The journal stores the RequestedGUID passed to pinned
 /// Wintun 0.14.1, which uses it as SWD\Wintun's software-device instance ID.
-pub fn remove_adapter_if_present(receipt: &MutationReceipt) -> Result<(), WintunError> {
+#[derive(Debug, Default)]
+pub struct AdapterRemovalState {
+    request_accepted: bool,
+}
+
+struct AdapterObservation {
+    interface_present: Option<bool>,
+    device_present: Option<bool>,
+    error: Option<WintunError>,
+}
+
+impl AdapterObservation {
+    fn absent(&self) -> bool {
+        self.error.is_none()
+            && self.interface_present == Some(false)
+            && self.device_present == Some(false)
+    }
+}
+
+fn observe_adapter(receipt: &MutationReceipt, guid: Uuid) -> AdapterObservation {
+    // Observe both independently so an error is never reported as absence.
+    let interface = interface_instance_present(receipt);
+    let device = device_instance_present(guid);
+    AdapterObservation {
+        interface_present: interface.as_ref().ok().copied(),
+        device_present: device.as_ref().ok().copied(),
+        error: interface.err().or_else(|| device.err()),
+    }
+}
+
+pub fn remove_adapter_if_present(
+    receipt: &MutationReceipt,
+    state: &mut AdapterRemovalState,
+) -> Result<(), WintunError> {
     let MutationReceipt::WintunAdapter {
         adapter_name,
         adapter_guid,
@@ -403,27 +440,142 @@ pub fn remove_adapter_if_present(receipt: &MutationReceipt) -> Result<(), Wintun
         return Err(WintunError::InvalidRecoveryIdentity);
     };
     wide_name(adapter_name)?;
-    // Reject a renamed/replaced live interface BEFORE any SetupAPI mutation.
-    interface_instance_present(receipt)?;
-    let removal = remove_device_instance(*adapter_guid);
-    let confirmation = wait_for_device_instance_removal(
-        adapter_name,
+    let started = Instant::now();
+    remove_adapter_observed(
+        state,
         ADAPTER_REMOVAL_CONFIRM_TIMEOUT,
-        ADAPTER_REMOVAL_CONFIRM_INTERVAL,
-        || adapter_resources_present(receipt),
-    );
-    match (removal, confirmation) {
-        (_, Ok(())) => Ok(()),
-        (Err(error), Err(_)) | (Ok(()), Err(error)) => Err(error),
+        || observe_adapter(receipt, *adapter_guid),
+        || remove_device_instance(*adapter_guid),
+        || started.elapsed(),
+        || thread::sleep(ADAPTER_REMOVAL_CONFIRM_INTERVAL),
+    )
+}
+
+fn remove_adapter_observed(
+    state: &mut AdapterRemovalState,
+    timeout: Duration,
+    mut observe: impl FnMut() -> AdapterObservation,
+    mut remove: impl FnMut() -> Result<bool, WintunError>,
+    mut elapsed: impl FnMut() -> Duration,
+    mut wait: impl FnMut(),
+) -> Result<(), WintunError> {
+    loop {
+        let mut observation = observe();
+        if observation.absent() {
+            state.request_accepted = false;
+            return Ok(());
+        }
+        if let Some(error) = observation.error.take() {
+            return Err(removal_failure(
+                state,
+                &observation,
+                RemovalStage::Observe,
+                elapsed(),
+                Some(error),
+            ));
+        }
+        // WintunCloseAdapter starts asynchronous removal. Give it a bounded
+        // observation window before requesting exact-device uninstallation.
+        // A successful request is retained across automatic recovery passes;
+        // waiting for PnP must not repeatedly issue DIF_REMOVE.
+        if !state.request_accepted
+            && observation.device_present == Some(true)
+            && elapsed() >= ADAPTER_REMOVAL_CLOSE_GRACE
+        {
+            match remove() {
+                Ok(accepted) => state.request_accepted = accepted,
+                Err(error) => {
+                    let after = observe();
+                    if after.absent() {
+                        state.request_accepted = false;
+                        return Ok(());
+                    }
+                    return Err(removal_failure(
+                        state,
+                        &after,
+                        RemovalStage::Request,
+                        elapsed(),
+                        Some(error),
+                    ));
+                }
+            }
+            observation = observe();
+            if observation.absent() {
+                state.request_accepted = false;
+                return Ok(());
+            }
+            if let Some(error) = observation.error.take() {
+                return Err(removal_failure(
+                    state,
+                    &observation,
+                    RemovalStage::Confirm,
+                    elapsed(),
+                    Some(error),
+                ));
+            }
+        }
+        if elapsed() >= timeout {
+            return Err(removal_failure(
+                state,
+                &observation,
+                RemovalStage::Confirm,
+                elapsed(),
+                None,
+            ));
+        }
+        wait();
     }
+}
+
+fn removal_failure(
+    state: &AdapterRemovalState,
+    observation: &AdapterObservation,
+    stage: RemovalStage,
+    elapsed: Duration,
+    error: Option<WintunError>,
+) -> WintunError {
+    let (failure, api, win32_code) = match error {
+        Some(WintunError::Windows(api, error)) => (
+            RemovalFailure::Native,
+            Some(RecoveryApi::from_name(api)),
+            error.raw_os_error().map(|value| value as u32),
+        ),
+        Some(_) => (RemovalFailure::Identity, None, None),
+        None => (RemovalFailure::Pending, None, None),
+    };
+    WintunError::Removal(AdapterRemovalDiagnostic {
+        stage,
+        failure,
+        api,
+        win32_code,
+        interface_present: observation.interface_present,
+        device_present: observation.device_present,
+        request_accepted: state.request_accepted,
+        elapsed_ms: elapsed.as_millis().min(u128::from(u64::MAX)) as u64,
+    })
 }
 
 /// False means BOTH exact PnP and IP Helper absence, never a missing name,
 /// stale LUID, or an unreadable registry value. This function is read-only.
 pub fn adapter_resources_present(receipt: &MutationReceipt) -> Result<bool, WintunError> {
-    adapter_resources_present_with(receipt, interface_instance_present, device_instance_present)
+    let MutationReceipt::WintunAdapter { adapter_guid, .. } = receipt else {
+        return Err(WintunError::InvalidRecoveryIdentity);
+    };
+    let started = Instant::now();
+    let mut observation = observe_adapter(receipt, *adapter_guid);
+    if let Some(error) = observation.error.take() {
+        return Err(removal_failure(
+            &AdapterRemovalState::default(),
+            &observation,
+            RemovalStage::Observe,
+            started.elapsed(),
+            Some(error),
+        ));
+    }
+    Ok(!observation.absent())
 }
 
+#[cfg(test)]
 fn adapter_resources_present_with(
     receipt: &MutationReceipt,
     inspect_interface: impl FnOnce(&MutationReceipt) -> Result<bool, WintunError>,
@@ -446,9 +598,9 @@ fn interface_instance_present(receipt: &MutationReceipt) -> Result<bool, WintunE
     })
 }
 
-fn remove_device_instance(expected_guid: Uuid) -> Result<(), WintunError> {
+fn remove_device_instance(expected_guid: Uuid) -> Result<bool, WintunError> {
     let Some((device_info, device)) = find_device_instance(expected_guid)? else {
-        return Ok(());
+        return Ok(false);
     };
     let parameters = SP_REMOVEDEVICE_PARAMS {
         ClassInstallHeader: SP_CLASSINSTALL_HEADER {
@@ -483,7 +635,7 @@ fn remove_device_instance(expected_guid: Uuid) -> Result<(), WintunError> {
             io::Error::last_os_error(),
         ));
     }
-    Ok(())
+    Ok(true)
 }
 
 pub(super) fn device_instance_present(expected_guid: Uuid) -> Result<bool, WintunError> {
@@ -549,6 +701,7 @@ fn device_instance_matches(expected_guid: Uuid, id: &[u16]) -> Result<bool, Wint
     Ok(id.eq_ignore_ascii_case(&format!(r"SWD\Wintun\{{{expected_guid}}}")))
 }
 
+#[cfg(test)]
 fn wait_for_device_instance_removal<Probe>(
     adapter_name: &str,
     timeout: Duration,
@@ -654,6 +807,8 @@ fn name_to_string(name: &[u16]) -> String {
 
 #[derive(Debug, Error)]
 pub enum WintunError {
+    #[error("{0}")]
+    Removal(AdapterRemovalDiagnostic),
     #[error("Wintun DLL path must be an absolute path ending in wintun.dll: {0}")]
     InvalidPath(PathBuf),
     #[error("Wintun DLL SHA-256 does not match the pinned official 0.14.1 binary")]
@@ -692,6 +847,156 @@ impl WintunError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn observation(interface: bool, device: bool) -> AdapterObservation {
+        AdapterObservation {
+            interface_present: Some(interface),
+            device_present: Some(device),
+            error: None,
+        }
+    }
+
+    #[test]
+    fn absent_adapter_is_idempotent_without_a_removal_request() {
+        remove_adapter_observed(
+            &mut AdapterRemovalState::default(),
+            Duration::from_secs(10),
+            || observation(false, false),
+            || panic!("must not remove an absent device"),
+            || Duration::ZERO,
+            || panic!("must not wait"),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn asynchronous_close_can_finish_during_observation_without_dif_remove() {
+        let clock = std::cell::Cell::new(Duration::ZERO);
+        remove_adapter_observed(
+            &mut AdapterRemovalState::default(),
+            Duration::from_secs(10),
+            || observation(clock.get() < Duration::from_secs(1), false),
+            || panic!("PnP is already absent"),
+            || clock.get(),
+            || clock.set(clock.get() + Duration::from_millis(100)),
+        )
+        .unwrap();
+        assert_eq!(clock.get(), Duration::from_secs(1));
+    }
+
+    #[test]
+    fn accepted_removal_is_not_reissued_across_bounded_recovery_passes() {
+        let mut state = AdapterRemovalState::default();
+        let calls = std::cell::Cell::new(0);
+        for _ in 0..2 {
+            let clock = std::cell::Cell::new(Duration::ZERO);
+            let error = remove_adapter_observed(
+                &mut state,
+                Duration::from_secs(10),
+                || observation(false, true),
+                || {
+                    calls.set(calls.get() + 1);
+                    Ok(true)
+                },
+                || clock.get(),
+                || clock.set(clock.get() + Duration::from_secs(1)),
+            )
+            .unwrap_err();
+            let WintunError::Removal(diagnostic) = error else {
+                panic!("typed pending required")
+            };
+            assert_eq!(diagnostic.failure, RemovalFailure::Pending);
+            assert_eq!(diagnostic.interface_present, Some(false));
+            assert_eq!(diagnostic.device_present, Some(true));
+            assert!(diagnostic.request_accepted);
+            assert_eq!(diagnostic.elapsed_ms, 10_000);
+        }
+        assert_eq!(calls.get(), 1);
+        remove_adapter_observed(
+            &mut state,
+            Duration::from_secs(10),
+            || observation(false, false),
+            || panic!("already removed"),
+            || Duration::ZERO,
+            || panic!("already removed"),
+        )
+        .unwrap();
+        assert!(!state.request_accepted);
+    }
+
+    #[test]
+    fn disappearance_after_a_failed_request_is_still_successful_cleanup() {
+        let mut snapshots = [observation(true, true), observation(false, false)].into_iter();
+        remove_adapter_observed(
+            &mut AdapterRemovalState::default(),
+            Duration::from_secs(10),
+            || snapshots.next().unwrap(),
+            || {
+                Err(WintunError::Windows(
+                    "SetupDiCallClassInstaller(DIF_REMOVE)",
+                    io::Error::from_raw_os_error(170),
+                ))
+            },
+            || Duration::from_secs(2),
+            || panic!("absence was proved"),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn probe_errors_and_identity_conflicts_never_authorize_removal() {
+        for native in [false, true] {
+            let error = remove_adapter_observed(
+                &mut AdapterRemovalState::default(),
+                Duration::from_secs(10),
+                || AdapterObservation {
+                    interface_present: None,
+                    device_present: Some(false),
+                    error: Some(if native {
+                        WintunError::Windows("GetIfTable2", io::Error::from_raw_os_error(5))
+                    } else {
+                        WintunError::InvalidRecoveryIdentity
+                    }),
+                },
+                || panic!("unverified identity must not be deleted"),
+                || Duration::ZERO,
+                || panic!("must fail closed"),
+            )
+            .unwrap_err();
+            let WintunError::Removal(diagnostic) = error else {
+                panic!("typed failure required")
+            };
+            assert_eq!(diagnostic.interface_present, None);
+            assert_eq!(diagnostic.device_present, Some(false));
+            assert_eq!(diagnostic.win32_code, native.then_some(5));
+            assert!(!diagnostic.request_accepted);
+        }
+    }
+
+    #[test]
+    fn failed_native_removal_keeps_its_api_code_and_observation() {
+        let error = remove_adapter_observed(
+            &mut AdapterRemovalState::default(),
+            Duration::from_secs(10),
+            || observation(false, true),
+            || {
+                Err(WintunError::Windows(
+                    "SetupDiCallClassInstaller(DIF_REMOVE)",
+                    io::Error::from_raw_os_error(5),
+                ))
+            },
+            || Duration::from_secs(2),
+            || panic!("must report the real error"),
+        )
+        .unwrap_err();
+        let WintunError::Removal(diagnostic) = error else {
+            panic!("typed failure required")
+        };
+        assert_eq!(diagnostic.stage, RemovalStage::Request);
+        assert_eq!(diagnostic.failure, RemovalFailure::Native);
+        assert_eq!(diagnostic.api, Some(RecoveryApi::SetupDiCallClassInstaller));
+        assert_eq!(diagnostic.win32_code, Some(5));
+    }
 
     #[test]
     fn removal_waits_for_both_pnp_and_ip_helper_without_reopening_wintun() {

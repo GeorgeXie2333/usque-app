@@ -381,6 +381,59 @@ fn socket_lease_error(stage: &'static str, error: WindowsVpnError) -> String {
     format!("Windows exact-generation egress preparation failed ({stage}: {code})")
 }
 
+pub(crate) fn log_recovery_error(error: &crate::ControlServiceError) {
+    if let crate::ControlServiceError::PlatformRecovery {
+        code,
+        message,
+        retryable,
+    } = error
+    {
+        let adapter = sanitized_adapter_recovery_detail(message);
+        tracing::warn!(error_code = *code, retryable, adapter_cleanup = ?adapter,
+            "Windows network recovery did not complete");
+    }
+}
+
+fn sanitized_adapter_recovery_detail(message: &str) -> Option<String> {
+    let (_, detail) = message.split_once("restore WintunAdapter: ")?;
+    let mut safe = Vec::new();
+    for token in detail.split(';').next()?.split_whitespace().take(16) {
+        let Some((key, value)) = token.split_once('=') else {
+            continue;
+        };
+        let accepted = match key {
+            "stage" => matches!(value, "Observe" | "Request" | "Confirm"),
+            "failure" => matches!(value, "Pending" | "Identity" | "Native"),
+            "interface" | "device" => matches!(value, "None" | "Some(true)" | "Some(false)"),
+            "request_accepted" => matches!(value, "true" | "false"),
+            "elapsed_ms" => value.parse::<u64>().is_ok(),
+            "win32" => {
+                value == "None"
+                    || value
+                        .strip_prefix("Some(")
+                        .and_then(|s| s.strip_suffix(')'))
+                        .is_some_and(|s| s.parse::<u32>().is_ok())
+            }
+            "api" => matches!(
+                value,
+                "None"
+                    | "Some(GetIfTable2)"
+                    | "Some(SetupDiGetClassDevsW)"
+                    | "Some(SetupDiEnumDeviceInfo)"
+                    | "Some(SetupDiGetDeviceInstanceIdW)"
+                    | "Some(SetupDiSetClassInstallParamsW)"
+                    | "Some(SetupDiCallClassInstaller)"
+                    | "Some(Other)"
+            ),
+            _ => false,
+        };
+        if accepted {
+            safe.push(token);
+        }
+    }
+    Some(format!("WintunAdapter {}", safe.join(" ")))
+}
+
 fn start_physical_network_monitor(protector: &Arc<WindowsVpnSocketProtector>) {
     let cancellation = protector.monitor_cancel.clone();
     let weak_protector = Arc::downgrade(protector);
@@ -1089,6 +1142,13 @@ impl WindowsVpnRuntime {
         // restore routes, DNS, WFP, and the adapter, but no user packet may
         // remain attached to MASQUE while that cleanup is in progress.
         self.cancel_immediately();
+        self.stop_packet_pumps().await;
+        // Join/cancel all MASQUE, proxy and GEO producers before asking the
+        // Agent to roll back. Otherwise a stopped TUN consumer still receives
+        // packets and direct-egress leases can outlive platform cleanup.
+        if let Some(mut tunnel) = self.tunnel.take() {
+            tunnel.shutdown().await;
+        }
         let system_proxy_result = match self.system_proxy.as_mut() {
             Some(system_proxy) => system_proxy.shutdown().await,
             None => Ok(()),
@@ -1103,15 +1163,21 @@ impl WindowsVpnRuntime {
         if rollback.is_ok() {
             self.transaction_open = false;
         }
-        self.stop_packet_pumps().await;
-        if let Some(mut tunnel) = self.tunnel.take() {
-            tunnel.shutdown().await;
-        }
         system_proxy_result?;
         rollback.map(|_| ())
     }
 
     pub(crate) fn cancel_immediately(&mut self) {
+        if let Some(tunnel) = self.tunnel.as_mut() {
+            tunnel.cancel_immediately();
+        }
+        if let Some(protector) = self.socket_protector.as_ref() {
+            protector.monitor_cancel.cancel();
+        }
+        self.cancel_packet_pumps();
+    }
+
+    fn cancel_packet_pumps(&mut self) {
         self.mapping.signal_shutdown();
         self.cancellation.cancel();
         for task in &self.tasks {
@@ -1120,7 +1186,8 @@ impl WindowsVpnRuntime {
     }
 
     async fn stop_packet_pumps(&mut self) {
-        self.cancel_immediately();
+        // Hot TUN detach must keep the shared MASQUE/proxy runtime alive.
+        self.cancel_packet_pumps();
         stop_tasks(std::mem::take(&mut self.tasks)).await;
     }
 }
@@ -3065,6 +3132,19 @@ mod tests {
     };
 
     use tokio::net::windows::named_pipe::ServerOptions;
+
+    #[test]
+    fn adapter_recovery_details_keep_only_typed_observations_and_numeric_errors() {
+        let detail = sanitized_adapter_recovery_detail(
+            "automatic recovery exhausted after 3 attempts: restore WintunAdapter: adapter_cleanup stage=Confirm failure=Pending interface=Some(false) device=Some(true) request_accepted=true elapsed_ms=10000 api=None win32=None private-token 192.0.2.1").unwrap();
+        assert!(detail.contains("interface=Some(false)") && detail.contains("device=Some(true)"));
+        assert!(detail.contains("elapsed_ms=10000"));
+        assert!(!detail.contains("private-token") && !detail.contains("192.0.2.1"));
+        let hostile = sanitized_adapter_recovery_detail(
+            "restore WintunAdapter: api=Some(private-token) win32=Some(192.0.2.1) elapsed_ms=private-path stage=secret failure=secret").unwrap();
+        assert_eq!(hostile, "WintunAdapter ");
+        assert!(sanitized_adapter_recovery_detail("private text without a step").is_none());
+    }
 
     #[test]
     fn geo_startup_accepts_effective_dhcp_dns_but_rejects_an_empty_physical_snapshot() {

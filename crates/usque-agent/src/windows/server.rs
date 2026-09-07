@@ -662,6 +662,24 @@ where
             .validate_automatic_recovery_restart(operation_id, expected_generation, caller)
             .await
             .map_err(|error| ServiceError::Lifecycle(AgentLifecycleError::Coordinator(error)))?;
+        let exhausted = {
+            let runtime = self.automatic_recovery.lock().await;
+            runtime.stage == AutomaticRecoveryStage::Exhausted
+                && runtime.operation_id == Some(operation_id)
+        };
+        if exhausted
+            && let Some(clean) = self
+                .coordinator
+                .reconcile_absent_adapter_on_retry(operation_id, expected_generation, caller)
+                .await
+                .map_err(|error| ServiceError::Lifecycle(AgentLifecycleError::Coordinator(error)))?
+        {
+            *self.automatic_recovery.lock().await = AutomaticRecoveryRuntime::default();
+            self.reconcile_start_mode_locked().await;
+            self.automatic_recovery_notify.notify_waiters();
+            self.activity.changed();
+            return Ok(clean);
+        }
         let mut runtime = self.automatic_recovery.lock().await;
         let changed = match runtime.stage {
             AutomaticRecoveryStage::Blocked if runtime.operation_id == Some(operation_id) => {
@@ -703,8 +721,10 @@ where
     pub async fn recover_for_shutdown(&self) -> Result<(), AgentLifecycleError> {
         self.begin_shutdown();
         let _gate = self.mutation_gate.lock().await;
-        self.clear_direct_egress().await;
-        let result = self.coordinator.recover_stale().await;
+        let result = self
+            .coordinator
+            .recover_stale_with_egress(self.clear_direct_egress())
+            .await;
         self.reconcile_start_mode_locked().await;
         result.map_err(AgentLifecycleError::Coordinator)
     }
@@ -903,7 +923,9 @@ where
 
     pub async fn recover_stale(&self) -> Result<(), AgentLifecycleError> {
         self.mutate(MutationPolicy::Cleanup, |coordinator| async move {
-            coordinator.recover_stale().await
+            coordinator
+                .recover_stale_with_egress(self.clear_direct_egress())
+                .await
         })
         .await
     }
@@ -1132,12 +1154,13 @@ where
                     .map_err(|error| (request_id.clone(), error))?;
                 let caller = caller.clone();
                 let state = self
-                    .mutate(MutationPolicy::Cleanup, move |coordinator| async move {
-                        coordinator.rollback(operation_id, &caller).await
+                    .mutate(MutationPolicy::Cleanup, |coordinator| async move {
+                        coordinator
+                            .rollback_with_egress(operation_id, &caller, self.clear_direct_egress())
+                            .await
                     })
                     .await
                     .map_err(|error| (request_id.clone(), ServiceError::Lifecycle(error)))?;
-                self.clear_direct_egress().await;
                 agent_response::Payload::State(self.proto_state(&state).await)
             }
             agent_request::Payload::Recover(_) => {

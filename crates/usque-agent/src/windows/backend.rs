@@ -31,6 +31,7 @@ pub struct WindowsBackend {
 
 struct BackendInner {
     resources: Mutex<WindowsResources>,
+    removal: Mutex<Option<(Uuid, wintun::AdapterRemovalState)>>,
 }
 
 #[derive(Default)]
@@ -48,6 +49,7 @@ impl WindowsBackend {
             WintunLibrary::load(wintun_path).map_err(|error| backend_error(error.to_string()))?;
         Ok(Self {
             inner: Arc::new(BackendInner {
+                removal: Mutex::new(None),
                 resources: Mutex::new(WindowsResources {
                     library: Some(library),
                     adapter: None,
@@ -494,7 +496,11 @@ fn restore_sync(
             }
             Ok(())
         }
-        MutationReceipt::WintunAdapter { adapter_name, .. } => {
+        MutationReceipt::WintunAdapter {
+            adapter_name,
+            adapter_guid,
+            ..
+        } => {
             if !valid_recovery_adapter_name(adapter_name) {
                 return Err(backend_error("journal Wintun adapter name is invalid"));
             }
@@ -509,7 +515,25 @@ fn restore_sync(
             if let Some(adapter) = adapter {
                 drop(adapter);
             }
-            wintun::remove_adapter_if_present(receipt).map_err(wintun_backend_error)
+            let mut removal = inner
+                .removal
+                .lock()
+                .map_err(|_| backend_error("adapter removal state lock failed"))?;
+            if removal
+                .as_ref()
+                .is_none_or(|(guid, _)| guid != adapter_guid)
+            {
+                *removal = Some((*adapter_guid, wintun::AdapterRemovalState::default()));
+            }
+            let result = wintun::remove_adapter_if_present(
+                receipt,
+                &mut removal.as_mut().expect("initialized removal state").1,
+            )
+            .map_err(wintun_backend_error);
+            if result.is_ok() {
+                *removal = None;
+            }
+            result
         }
         receipt @ MutationReceipt::EndpointBypass { .. } => {
             network::restore_endpoint_bypass(receipt).map_err(network_backend_error)
@@ -603,6 +627,7 @@ fn validate_adapter_dependency(
 
 fn wintun_backend_error(error: wintun::WintunError) -> BackendError {
     match error {
+        wintun::WintunError::Removal(diagnostic) => BackendError::AdapterRemoval(diagnostic),
         wintun::WintunError::Windows(api, error) => BackendError::Windows {
             api,
             code: error.raw_os_error().unwrap_or_default() as u32,

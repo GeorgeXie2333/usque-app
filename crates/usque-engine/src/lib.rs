@@ -630,11 +630,15 @@ impl ControlService {
                 error: None,
                 payload: Some(payload),
             },
-            Err(error) => ControlResponse {
-                request_id,
-                error: Some(error.as_structured_error()),
-                payload: None,
-            },
+            Err(error) => {
+                #[cfg(windows)]
+                windows_agent::log_recovery_error(&error);
+                ControlResponse {
+                    request_id,
+                    error: Some(error.as_structured_error()),
+                    payload: None,
+                }
+            }
         }
     }
 
@@ -2353,6 +2357,8 @@ impl ControlService {
     }
 
     async fn mark_connection_error(&self, error: &ControlServiceError) {
+        #[cfg(windows)]
+        windows_agent::log_recovery_error(error);
         let mut state = self.state.lock().await;
         if let ControlServiceError::Transport(transport) = error {
             state.mark_failure(

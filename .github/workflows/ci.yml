@@ -548,6 +548,16 @@ jobs:
             -ExpectedAgentFileVersion "0.14.1.0" `
             -SignerSha256 ("0" * 64)
 
+          # Mutate only temporary copies of the inert MSI. No install, service,
+          # recovery, route, or WFP operation is executed by these tests.
+          & ./tool/test_windows_msi_replacement.ps1 `
+            -MsiPath $output `
+            -Variant "${{ matrix.variant }}" `
+            -ExpectedMsiVersion "0.2.499" `
+            -ExpectedDisplayVersion "0.2.4" `
+            -ExpectedAgentFileVersion "0.14.1.0" `
+            -SignerSha256 ("0" * 64)
+
           # Equal-version validation packages intentionally replace the same
           # product; only the corresponding ICE61 warning is suppressed.
           dotnet tool run wix -- msi validate -sice ICE61 $output

@@ -101,6 +101,14 @@ files and service registration in place when the older product is removed. The
 upgrade keeps user profiles, settings, logs, caches, Credential Manager
 identities, and the recovery journal the new version needs.
 
+Same-version replacements use an explicit payload overwrite policy
+(`REINSTALLMODE=amus`) before file costing. This replaces equal-version and
+unversioned application files together, instead of leaving an older Agent or
+GUI beside a new Engine. All installed files must remain under the private
+Usque installation directory; user data is not part of that payload. Product
+downgrades are still rejected, and repair/modify/patch operations remain
+unsupported. The setting is not a request to run an MSI repair.
+
 This ordering is also the supported bridge from `v0.2.4`, whose Agent could
 mistake asynchronous Wintun device removal for a permanent cleanup failure. A
 user whose `v0.2.4` uninstall failed should install a newer Windows package
