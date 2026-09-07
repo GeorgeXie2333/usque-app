@@ -1995,7 +1995,10 @@ mod tests {
                 endpoint,
                 "migration.test",
                 &client_identity,
-                1_400,
+                crate::h3::H3ConnectSettings {
+                    inner_mtu: 1_400,
+                    congestion_control: usque_core::CongestionControlAlgorithm::default(),
+                },
                 protector.clone(),
                 Some(&attempt),
             ),

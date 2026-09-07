@@ -10,6 +10,40 @@ const QUIC_MIN_PAYLOAD: usize = 1200;
 const FLIGHT_BOUND: usize = 256;
 
 #[test]
+fn every_selected_algorithm_preserves_handshake_datagram_pmtu_migration_and_close() {
+    for algorithm in usque_core::CongestionControlAlgorithm::ALL {
+        let mut pair = Pair::new(|client, server| {
+            client.set_cc_algorithm(quiche_congestion_control(algorithm));
+            client.enable_pacing(false);
+            server.enable_pacing(false);
+        });
+        pair.settle();
+        assert!(pair.client.is_established(), "{}", algorithm.as_str());
+        assert_eq!(pair.client.pmtu(), Some(IPV4_MAX_UDP_PAYLOAD));
+        pair.exchange_ids();
+        let candidate = "127.0.0.1:12341".parse().unwrap();
+        pair.validate_candidate(candidate, IPV4_MAX_UDP_PAYLOAD);
+        pair.client.migrate(candidate, pair.server_addr).unwrap();
+        pair.client_addr = candidate;
+        pair.settle();
+        let packet = ipv4_packet_with_length(64);
+        pair.client
+            .dgram_send_buf(crate::h3::tests::encode_for_test(0, &packet))
+            .unwrap();
+        pair.settle();
+        let received = pair.server.dgram_recv_buf().unwrap();
+        assert_eq!(
+            decode_http_datagram(0, received.as_ref()).unwrap().unwrap(),
+            packet
+        );
+        assert!(pair.client.dgram_max_writable_len().unwrap() <= IPV4_MAX_UDP_PAYLOAD);
+        pair.client.close(true, 0, b"done").unwrap();
+        pair.settle();
+        assert!(pair.server.is_draining() || pair.server.is_closed());
+    }
+}
+
+#[test]
 fn sustained_silent_large_packet_loss_starts_runtime_revalidation() {
     let mut pair = Pair::new(|_, server| server.discover_pmtu(false));
     pair.settle();

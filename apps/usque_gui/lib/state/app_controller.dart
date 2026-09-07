@@ -915,6 +915,7 @@ class AppController extends ChangeNotifier {
       if (affectsConnection && snapshot.phase != ConnectionPhase.disconnected) {
         snapshot = EngineSnapshot(
           phase: ConnectionPhase.error,
+          sessionCongestionControl: snapshot.sessionCongestionControl,
           warning: lastError,
           errorCode: error is EngineException ? error.code : null,
           errorRetryable: error is EngineException ? error.retryable : null,
@@ -1171,6 +1172,7 @@ class AppController extends ChangeNotifier {
     sharedNetwork = sharedNetwork.copyWith(
       frontends: normalized.frontends,
       transport: normalized.transport,
+      congestionControl: normalized.congestionControl,
       ipPolicy: normalized.ipPolicy,
       endpointIpv4: zeroTrust
           ? sharedNetwork.endpointIpv4

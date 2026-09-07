@@ -4,8 +4,8 @@ use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    Account, DirectDnsSettings, DnsMode, EndpointSettings, FrontendSettings, IpPolicy, Profile,
-    ProxySettings, TransportPolicy,
+    Account, CongestionControlAlgorithm, DirectDnsSettings, DnsMode, EndpointSettings,
+    FrontendSettings, IpPolicy, Profile, ProxySettings, TransportPolicy,
 };
 
 /// Device-wide MASQUE, DNS, proxy, and output settings. A Zero Trust account
@@ -14,6 +14,8 @@ use super::{
 pub struct SharedNetworkSettings {
     pub frontends: FrontendSettings,
     pub transport: TransportPolicy,
+    #[serde(default)]
+    pub congestion_control: CongestionControlAlgorithm,
     pub endpoint: EndpointSettings,
     pub ip_policy: IpPolicy,
     pub mtu: u16,
@@ -43,6 +45,7 @@ impl SharedNetworkSettings {
         Self {
             frontends: profile.frontends,
             transport: profile.transport,
+            congestion_control: profile.congestion_control,
             endpoint: profile.endpoint.clone(),
             ip_policy: profile.ip_policy,
             mtu: profile.mtu,
@@ -70,6 +73,7 @@ impl SharedNetworkSettings {
             mode: super::OperatingMode::Vpn,
             frontends: self.frontends,
             transport: self.transport,
+            congestion_control: self.congestion_control,
             endpoint,
             ip_policy: self.ip_policy,
             mtu: self.mtu,

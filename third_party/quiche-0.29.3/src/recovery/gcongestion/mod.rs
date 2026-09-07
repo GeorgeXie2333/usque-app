@@ -26,12 +26,17 @@
 
 mod bbr;
 mod bbr2;
+mod bbr3;
+mod sender;
 pub mod pacer;
 mod recovery;
 
 use std::fmt::Debug;
 use std::str::FromStr;
 use std::time::Instant;
+use self::bbr2::BBRv2;
+use self::bbr3::BBRv3;
+use self::sender::BbrSender;
 
 pub use self::recovery::GRecovery;
 use crate::recovery::bandwidth::Bandwidth;
@@ -51,6 +56,7 @@ pub struct Acked {
     pub(super) time_sent: Instant,
 }
 
+#[enum_dispatch::enum_dispatch]
 pub(super) trait CongestionControl: Debug {
     /// Returns the name of the current state of the congestion control state
     /// machine. Used to annotate qlogs after state transitions.

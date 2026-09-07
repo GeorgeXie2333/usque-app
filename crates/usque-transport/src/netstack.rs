@@ -1022,6 +1022,7 @@ async fn connect_happy_eyeballs(
             &profile.endpoint.sni,
             identity,
             usize::from(profile.mtu),
+            profile.congestion_control,
             protector,
             telemetry,
         )
@@ -1035,6 +1036,7 @@ async fn connect_happy_eyeballs(
         &profile.endpoint.sni,
         identity,
         usize::from(profile.mtu),
+        profile.congestion_control,
         Arc::clone(&protector),
         telemetry,
     );
@@ -1058,6 +1060,7 @@ async fn connect_happy_eyeballs(
         &profile.endpoint.sni,
         identity,
         usize::from(profile.mtu),
+        profile.congestion_control,
         protector,
         telemetry,
     );
@@ -1142,6 +1145,7 @@ async fn connect_endpoint(
     sni: &str,
     identity: &MasqueTlsIdentity,
     profile_inner_mtu: usize,
+    congestion_control: usque_core::CongestionControlAlgorithm,
     protector: Arc<dyn SocketProtector>,
     telemetry: &ConnectionTelemetry,
 ) -> Result<MasqueTunnel, TransportError> {
@@ -1164,7 +1168,10 @@ async fn connect_endpoint(
                     endpoint,
                     sni,
                     identity,
-                    profile_inner_mtu,
+                    crate::h3::H3ConnectSettings {
+                        inner_mtu: profile_inner_mtu,
+                        congestion_control,
+                    },
                     Arc::clone(&protector),
                     Some(&attempt),
                 )

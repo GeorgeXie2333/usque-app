@@ -140,6 +140,7 @@ debug = false
 
 [patch.crates-io]
 # Keep per-path PMTUD and DATAGRAM limits consistent with ordinary packetization.
+# Also retain the independent, explicitly selected BBRv3 recovery implementation.
 # Provenance and the narrow patch are documented in the vendored directory.
 quiche = { path = "third_party/quiche-0.29.3" }
 

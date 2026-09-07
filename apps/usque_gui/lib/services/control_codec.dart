@@ -96,6 +96,10 @@ class ControlCodec {
       writer.string(16, country);
     }
     writer.message(17, directDns.takeBytes());
+    writer.enumeration(
+      18,
+      _congestionControlWireValue(profile.congestionControl),
+    );
     return writer.takeBytes();
   }
 
@@ -542,6 +546,7 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
   var name = defaults.name;
   var mode = defaults.mode;
   var transport = defaults.transport;
+  var congestionControl = defaults.congestionControl;
   var ipPolicy = defaults.ipPolicy;
   var endpointIpv4 = defaults.endpointIpv4;
   var endpointIpv6 = defaults.endpointIpv6;
@@ -650,6 +655,11 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
         geoDirectCountries.add(reader.string(field));
       case 17:
         directDns = _decodeDirectDnsSettings(reader.message(field));
+      case 18:
+        final value = reader.varint(field);
+        congestionControl = value == 0
+            ? CongestionControlAlgorithm.cubic
+            : _decodeCongestionControl(value);
       default:
         reader.skip(field);
     }
@@ -666,6 +676,7 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
     name: name,
     mode: mode,
     transport: transport,
+    congestionControl: congestionControl,
     ipPolicy: ipPolicy,
     endpointIpv4: endpointIpv4,
     endpointIpv6: endpointIpv6,
@@ -1269,6 +1280,7 @@ ConnectionMetrics _decodeConnectionMetrics(_ProtoReader reader) {
 }
 
 EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
+  final congestionAlgorithms = <CongestionControlAlgorithm>[];
   var networkQuality = false;
   var encryptedDirectDns = false;
   var quicMigration = false;
@@ -1284,11 +1296,26 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
         quicMigration = reader.varint(field) != 0;
       case 23:
         automaticPmtu = reader.varint(field) != 0;
+      case 24:
+        final values = field.wireType == 2 ? reader.message(field) : null;
+        if (values != null && values.isDone) break;
+        do {
+          final value = values == null
+              ? reader.varint(field)
+              : values._varint();
+          if (value >= 1 && value <= 4) {
+            final algorithm = _decodeCongestionControl(value);
+            if (!congestionAlgorithms.contains(algorithm)) {
+              congestionAlgorithms.add(algorithm);
+            }
+          }
+        } while (values != null && !values.isDone);
       default:
         reader.skip(field);
     }
   }
   return EngineCapabilities(
+    h3CongestionControlAlgorithms: List.unmodifiable(congestionAlgorithms),
     networkQuality: networkQuality,
     encryptedDirectDns: encryptedDirectDns,
     quicMigration: quicMigration,
@@ -2074,6 +2101,7 @@ _StructuredEngineError _decodeError(_ProtoReader reader) {
 }
 
 EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
+  CongestionControlAlgorithm? sessionCongestionControl;
   var phase = ConnectionPhase.error;
   String? transport;
   String? family;
@@ -2142,6 +2170,11 @@ EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
         failure = _decodeTransportFailure(reader.message(field));
       case 17:
         networkQuality = _decodeNetworkQuality(reader.message(field));
+      case 18:
+        final value = reader.varint(field);
+        sessionCongestionControl = value >= 1 && value <= 4
+            ? _decodeCongestionControl(value)
+            : null;
       default:
         // Includes reserved field 14 (legacy captive-portal countdown).
         reader.skip(field);
@@ -2149,6 +2182,7 @@ EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
   }
   return EngineSnapshot(
     phase: phase,
+    sessionCongestionControl: sessionCongestionControl,
     transport: transport,
     addressFamily: family,
     connectedAt: connectedSeconds == 0
@@ -2181,6 +2215,23 @@ String? _decodeKillSwitchState(int value) {
     _ => null,
   };
 }
+
+int _congestionControlWireValue(CongestionControlAlgorithm algorithm) =>
+    switch (algorithm) {
+      CongestionControlAlgorithm.cubic => 1,
+      CongestionControlAlgorithm.reno => 2,
+      CongestionControlAlgorithm.bbr => 3,
+      CongestionControlAlgorithm.bbr3 => 4,
+    };
+
+CongestionControlAlgorithm _decodeCongestionControl(int value) =>
+    switch (value) {
+      1 => CongestionControlAlgorithm.cubic,
+      2 => CongestionControlAlgorithm.reno,
+      3 => CongestionControlAlgorithm.bbr,
+      4 => CongestionControlAlgorithm.bbr3,
+      _ => throw const FormatException('Unknown congestion control algorithm'),
+    };
 
 FrontendRuntimeStatus _decodeFrontendStatus(_ProtoReader reader) {
   var kind = FrontendKind.tunnel;

@@ -256,7 +256,11 @@ internal class AndroidEngineMethodHandler(
     ) {
         when (call.method) {
             "getCapabilities" -> {
-                result.success(NetworkQualityFields.capabilities(engineBridge.capabilities()))
+                val native = engineBridge.capabilities()
+                result.success(
+                    NetworkQualityFields.capabilities(native) +
+                        mapOf("h3_congestion_control_algorithms" to CongestionControlSettings.capabilities(native)),
+                )
             }
 
             "snapshot" -> {

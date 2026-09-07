@@ -122,6 +122,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCap
             "encrypted_direct_dns": engine_ready() && usque_transport::ENCRYPTED_DIRECT_DNS_ENABLED,
             "quic_migration": engine_ready() && usque_transport::PRODUCTION_NETWORK_FEATURES.quic_migration,
             "automatic_pmtu": engine_ready() && usque_transport::PRODUCTION_NETWORK_FEATURES.automatic_pmtu,
+            "h3_congestion_control_algorithms": if engine_ready() { usque_core::CongestionControlAlgorithm::ALL.to_vec() } else { Vec::new() },
         })
         .to_string();
         environment
@@ -808,6 +809,8 @@ struct AndroidProfile {
     #[serde(default)]
     frontends: Option<AndroidFrontends>,
     transport: String,
+    #[serde(default)]
+    congestion_control: usque_core::CongestionControlAlgorithm,
     ip_policy: String,
     endpoint_v4: String,
     endpoint_v6: String,
@@ -967,6 +970,7 @@ fn android_profile_to_core(source: AndroidProfile) -> Result<Profile, String> {
         mode,
         frontends,
         transport,
+        congestion_control: source.congestion_control,
         endpoint: EndpointSettings {
             ipv4: parse_value(&source.endpoint_v4, "endpoint IPv4")?,
             ipv6: parse_value(&source.endpoint_v6, "endpoint IPv6")?,
@@ -1589,6 +1593,7 @@ fn android_profile_value(
             TransportPolicy::Http3 => "http3",
             TransportPolicy::Http2 => "http2",
         },
+        "congestion_control": profile.congestion_control,
         "ip_policy": match profile.ip_policy {
             IpPolicy::Auto => "automatic",
             IpPolicy::PreferIpv4 => "preferIpv4",
@@ -2415,6 +2420,8 @@ fn native_direct_dns_reason(value: DirectDnsReasonCode) -> &'static str {
 
 #[derive(Debug, Clone, Serialize)]
 struct NativeSnapshot {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    session_congestion_control: Option<usque_core::CongestionControlAlgorithm>,
     phase: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     warning: Option<String>,
@@ -2455,6 +2462,7 @@ impl NativeSnapshot {
     fn disconnected() -> Self {
         Self {
             phase: "disconnected".to_owned(),
+            session_congestion_control: None,
             warning: None,
             error_code: None,
             failure: None,
@@ -3062,6 +3070,31 @@ mod tests {
             exported["direct_dns"]["bootstrap_ips"],
             serde_json::json!(["192.0.2.53"])
         );
+    }
+
+    #[test]
+    fn android_congestion_selection_round_trips_and_rejects_unknown_values() {
+        for algorithm in usque_core::CongestionControlAlgorithm::ALL {
+            let profile = Profile {
+                congestion_control: algorithm,
+                ..Profile::default()
+            };
+            let mut json = android_profile_value(&profile, None, false);
+            assert_eq!(json["congestion_control"], algorithm.as_str());
+            let source: AndroidProfile = serde_json::from_value(json.clone()).unwrap();
+            assert_eq!(
+                android_profile_to_core(source).unwrap().congestion_control,
+                algorithm
+            );
+            json.as_object_mut().unwrap().remove("congestion_control");
+            let legacy: AndroidProfile = serde_json::from_value(json.clone()).unwrap();
+            assert_eq!(
+                legacy.congestion_control,
+                usque_core::CongestionControlAlgorithm::Cubic
+            );
+            json["congestion_control"] = serde_json::json!("unknown");
+            assert!(serde_json::from_value::<AndroidProfile>(json).is_err());
+        }
     }
 
     #[test]

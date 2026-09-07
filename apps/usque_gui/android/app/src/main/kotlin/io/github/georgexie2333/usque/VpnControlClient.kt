@@ -955,6 +955,10 @@ internal class VpnControlClient(
                         bundle.getStringArrayList(ServiceSnapshotState.WireKeys.ACTIVE_FRONTENDS)
                             ?: arrayListOf<String>()
                     ),
+                "session_congestion_control" to
+                    CongestionControlSettings.token(
+                        bundle.getString(ServiceSnapshotState.WireKeys.SESSION_CONGESTION_CONTROL),
+                    ),
                 "tunnel_ipv4_available" to
                     bundle.getBoolean(ServiceSnapshotState.WireKeys.TUNNEL_IPV4_AVAILABLE),
                 "tunnel_ipv6_available" to

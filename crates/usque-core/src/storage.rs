@@ -348,6 +348,10 @@ fn migrate_app_config(config: &mut AppConfig) {
         config.network.direct_dns = DirectDnsSettings::default();
         config.schema_version = 13;
     }
+    if config.schema_version < 14 {
+        // The field's serde default preserves CUBIC for pre-selection configs.
+        config.schema_version = 14;
+    }
 }
 
 #[cfg(not(windows))]
@@ -865,5 +869,39 @@ mod tests {
             error,
             StoreError::Config(ConfigError::GeoDirectCountryNotDownloaded(_))
         ));
+    }
+
+    #[test]
+    fn schema_thirteen_defaults_to_cubic_and_preserves_shared_selection() {
+        use crate::CongestionControlAlgorithm as Algorithm;
+        let directory = tempfile::tempdir().unwrap();
+        let store = ConfigStore::new(directory.path().join("config.json"));
+        let mut legacy = serde_json::to_value(AppConfig::default()).unwrap();
+        legacy["schema_version"] = serde_json::json!(13);
+        legacy["network"]
+            .as_object_mut()
+            .unwrap()
+            .remove("congestion_control");
+        fs::write(store.path(), serde_json::to_vec(&legacy).unwrap()).unwrap();
+        let mut config = store.load().unwrap();
+        assert_eq!(config.schema_version, 14);
+        assert_eq!(config.network.congestion_control, Algorithm::Cubic);
+        assert!(store.backup_path().exists());
+        for algorithm in Algorithm::ALL {
+            config.network.congestion_control = algorithm;
+            store.save(&config).unwrap();
+            let loaded = store.load().unwrap();
+            assert_eq!(loaded.network.congestion_control, algorithm);
+            assert!(
+                loaded
+                    .runtime_profiles()
+                    .iter()
+                    .all(|profile| profile.congestion_control == algorithm)
+            );
+        }
+        config.network.reset_user_defaults();
+        assert_eq!(config.network.congestion_control, Algorithm::Cubic);
+        legacy["network"]["congestion_control"] = serde_json::json!("future_algorithm");
+        assert!(serde_json::from_value::<AppConfig>(legacy).is_err());
     }
 }

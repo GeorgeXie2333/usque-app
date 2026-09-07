@@ -42,6 +42,8 @@ use crate::recovery::MAX_PTO_PROBES_COUNT;
 use crate::recovery::PACKET_REORDER_TIME_THRESHOLD;
 
 use super::bbr2::BBRv2;
+use super::bbr3::BBRv3;
+use super::sender::BbrSender;
 use super::pacer::Pacer;
 use super::Acked;
 use super::Lost;
@@ -513,13 +515,19 @@ impl GRecovery {
 
     pub fn new(recovery_config: &RecoveryConfig) -> Option<Self> {
         let cc = match recovery_config.cc_algorithm {
-            CongestionControlAlgorithm::Bbr2Gcongestion => BBRv2::new(
+            CongestionControlAlgorithm::Bbr2Gcongestion => BbrSender::V2(BBRv2::new(
                 recovery_config.initial_congestion_window_packets,
                 MAX_WINDOW_PACKETS,
                 recovery_config.max_send_udp_payload_size,
                 recovery_config.initial_rtt,
                 recovery_config.custom_bbr_params.as_ref(),
-            ),
+            )),
+            CongestionControlAlgorithm::Bbr3 => BbrSender::V3(BBRv3::new(
+                recovery_config.initial_congestion_window_packets,
+                MAX_WINDOW_PACKETS,
+                recovery_config.max_send_udp_payload_size,
+                recovery_config.initial_rtt,
+            )),
             _ => return None,
         };
 
@@ -828,6 +836,7 @@ impl RecoveryOps for GRecovery {
         )?;
 
         self.lost_spurious_count += spurious_losses;
+        self.pacer.acknowledge_spurious_losses(peer_sent_ack_ranges, now);
         if let Some(thresh) = spurious_pkt_thresh {
             self.loss_thresh.on_spurious_loss(thresh);
         }
@@ -1228,6 +1237,7 @@ impl RecoveryOps for GRecovery {
     }
 
     fn send_quantum(&self) -> usize {
+        if let Some(quantum) = self.pacer.send_quantum() { return quantum; }
         let pacing_rate = self
             .pacer
             .pacing_rate(self.bytes_in_flight.get(), &self.rtt_stats);

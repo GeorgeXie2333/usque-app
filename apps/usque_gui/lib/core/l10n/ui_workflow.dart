@@ -1,6 +1,12 @@
 // Shared workflow copy follows the English/Simplified Chinese supplemental
 // catalog convention used by network quality. Other locales fall back to English.
 const Map<String, String> kUiWorkflowEn = <String, String>{
+  'cc_label': 'HTTP/3 congestion control',
+  'cc_help': 'Applies on your next manual connection.',
+  'cc_upgrade': 'Engine update required.',
+  'cc_h2': 'HTTP/2 uses system TCP.',
+  'cc_saved': 'Saved',
+  'cc_pending': 'Pending next manual connection.',
   'save_changes': 'Apply changes',
   'saving_changes': 'Applying changes…',
   'unsaved_changes': 'Unapplied changes',
@@ -51,6 +57,12 @@ const Map<String, String> kUiWorkflowEn = <String, String>{
 };
 
 const Map<String, String> kUiWorkflowZhCn = <String, String>{
+  'cc_label': 'HTTP/3 拥塞控制算法',
+  'cc_help': '下次手动连接生效。',
+  'cc_upgrade': '需要升级引擎。',
+  'cc_h2': 'HTTP/2 使用系统 TCP。',
+  'cc_saved': '已保存',
+  'cc_pending': '待下次手动连接生效。',
   'save_changes': '应用修改',
   'saving_changes': '正在应用修改…',
   'unsaved_changes': '有未应用的修改',

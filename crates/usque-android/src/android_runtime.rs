@@ -148,7 +148,9 @@ fn spawn_runtime(
         return START_PLATFORM_FAILURE;
     }
     let cancellation = CancellationToken::new();
-    let status = Arc::new(Mutex::new(NativeSnapshot::preparing()));
+    let mut initial_status = NativeSnapshot::preparing();
+    initial_status.session_congestion_control = Some(profile.congestion_control);
+    let status = Arc::new(Mutex::new(initial_status));
     let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
     let (command_tx, command_rx) = tokio::sync::mpsc::unbounded_channel();
     let thread_cancel = cancellation.clone();
@@ -704,6 +706,8 @@ async fn handle_runtime_command(
             reply,
             cancelled,
         } => {
+            // Store updates are next-session preferences, not live CC changes.
+            next.congestion_control = profile.congestion_control;
             if super::jni_command_abandoned(&cancelled) {
                 let _ = reply.send(START_PLATFORM_FAILURE);
                 return;
@@ -712,6 +716,7 @@ async fn handle_runtime_command(
                 next.proxy.auth_password = profile.proxy.auth_password.clone();
             }
             let code = match classify_reconfigure(profile, &next) {
+                ReconfigureClass::PersistOnly => RECONFIGURE_OK,
                 ReconfigureClass::Reject => START_INVALID_PROFILE,
                 ReconfigureClass::ColdReconnect => RECONFIGURE_NEED_COLD,
                 ReconfigureClass::HotSystemProxy => {
@@ -750,6 +755,7 @@ async fn handle_runtime_command(
             reply,
             cancelled,
         } => {
+            next.congestion_control = profile.congestion_control;
             if super::jni_command_abandoned(&cancelled) {
                 let _ = reply.send(START_PLATFORM_FAILURE);
                 return;

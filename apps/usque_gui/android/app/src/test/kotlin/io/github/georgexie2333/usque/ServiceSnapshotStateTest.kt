@@ -189,12 +189,15 @@ class ServiceSnapshotStateTest {
                 keys.FOREGROUND_NOTIFICATION_STATE,
                 keys.PENDING_CLEANUP,
                 keys.NETWORK_QUALITY,
+                keys.SESSION_CONGESTION_CONTROL,
             ),
             wire.keys,
         )
         // Exact snake_case strings MainActivity.snapshotFromBundle reads.
         assertEquals("phase", keys.PHASE)
         assertEquals("network_quality_json", keys.NETWORK_QUALITY)
+        assertEquals("session_congestion_control", keys.SESSION_CONGESTION_CONTROL)
+        assertNull(wire[keys.SESSION_CONGESTION_CONTROL])
         assertEquals("warning", keys.WARNING)
         assertEquals("error_code", keys.ERROR_CODE)
         assertEquals("failure_code", keys.FAILURE_CODE)

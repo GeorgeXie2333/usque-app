@@ -327,7 +327,12 @@ class UsqueVpnService : VpnService() {
 
     // Recovery state must be durable before starting the native connection.
     @SuppressLint("ApplySharedPref", "UseKtx")
-    private fun beginConnection(profileJson: String) {
+    private fun beginConnection(
+        requestedProfileJson: String,
+        desiredProfileJson: String = requestedProfileJson,
+        newSession: Boolean = true,
+    ) {
+        var profileJson = requestedProfileJson
         diagnosticProbes.cancel()
         if (profileJson.toByteArray(Charsets.UTF_8).size > MAX_PROFILE_BYTES) {
             startForeground(
@@ -341,6 +346,12 @@ class UsqueVpnService : VpnService() {
         }
         val (mode, tunnelEnabled) =
             try {
+                if (newSession) {
+                    val configPath = File(noBackupFilesDir, "usque_config/profiles-v2.json").absolutePath
+                    val catalog =
+                        requireNotNull(NativeEngine.applyProfileCommand(configPath, """{"command":"list_profiles"}"""))
+                    profileJson = CongestionControlSettings.fromCatalog(profileJson, catalog)
+                }
                 val source = JSONObject(profileJson)
                 val tunnelEnabled = VpnReconfigure.tunnelFrontendEnabled(source)
                 if (tunnelEnabled) {
@@ -364,7 +375,7 @@ class UsqueVpnService : VpnService() {
             !recoveryPreferences
                 .edit()
                 .putString(RECOVERY_PROFILE, profileJson)
-                .putString(LAST_PROFILE, profileJson)
+                .putString(LAST_PROFILE, if (newSession) profileJson else desiredProfileJson)
                 .commit()
         ) {
             startForeground(
@@ -451,13 +462,15 @@ class UsqueVpnService : VpnService() {
 
     @SuppressLint("ApplySharedPref", "UseKtx")
     private fun reconfigureConnection(request: Message) {
-        val profileJson = request.data.getString(EXTRA_PROFILE_JSON).orEmpty()
+        val desiredProfileJson = request.data.getString(EXTRA_PROFILE_JSON).orEmpty()
+        var profileJson = desiredProfileJson
         if (profileJson.isEmpty() || profileJson.toByteArray(Charsets.UTF_8).size > MAX_PROFILE_BYTES) {
             replyControlError(request, "INVALID_ARGUMENT", "The reconfigure profile is malformed.")
             return
         }
         val mode =
             try {
+                profileJson = CongestionControlSettings.forCurrentSession(desiredProfileJson, activeProfileJson.get())
                 val source = JSONObject(profileJson)
                 val tunnelEnabled = VpnReconfigure.tunnelFrontendEnabled(source)
                 if (tunnelEnabled) {
@@ -475,7 +488,7 @@ class UsqueVpnService : VpnService() {
             !recoveryPreferences
                 .edit()
                 .putString(RECOVERY_PROFILE, profileJson)
-                .putString(LAST_PROFILE, profileJson)
+                .putString(LAST_PROFILE, desiredProfileJson)
                 .commit()
         ) {
             replyControlError(
@@ -491,7 +504,7 @@ class UsqueVpnService : VpnService() {
         activeMode.set(mode)
 
         if (!nativeRuntimeActive.get()) {
-            beginConnection(profileJson)
+            beginConnection(profileJson, desiredProfileJson, newSession = false)
             request.let(::replyWithSnapshot)
             return
         }
@@ -526,7 +539,7 @@ class UsqueVpnService : VpnService() {
                 NativeEngine.RECONFIGURE_NEED_COLD -> {
                     mainHandler.post {
                         if (isCurrent(generation)) {
-                            beginConnection(profileJson)
+                            beginConnection(profileJson, desiredProfileJson, newSession = false)
                         }
                         replyWithSnapshot(request)
                     }
@@ -1285,7 +1298,11 @@ class UsqueVpnService : VpnService() {
             request.let(::replyWithSnapshot)
             return
         }
-        beginConnection(profileJson)
+        beginConnection(
+            profileJson,
+            recoveryPreferences.getString(LAST_PROFILE, null) ?: profileJson,
+            newSession = false,
+        )
         request.let(::replyWithSnapshot)
     }
 

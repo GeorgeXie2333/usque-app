@@ -5,6 +5,8 @@ use crate::config::Profile;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReconfigureClass {
+    /// Only persisted, next-session settings changed (or no runtime change).
+    PersistOnly,
     /// Profile id or identity-bound endpoint changed; refuse.
     Reject,
     /// Tear down MASQUE and reconnect with rollback.
@@ -22,6 +24,12 @@ pub enum ReconfigureClass {
 pub fn classify_reconfigure(previous: &Profile, next: &Profile) -> ReconfigureClass {
     if previous.id != next.id {
         return ReconfigureClass::Reject;
+    }
+
+    let mut runtime_next = next.clone();
+    runtime_next.congestion_control = previous.congestion_control;
+    if previous == &runtime_next {
+        return ReconfigureClass::PersistOnly;
     }
 
     let cold = previous.transport != next.transport
@@ -87,6 +95,29 @@ mod tests {
 
     fn base() -> Profile {
         Profile::default()
+    }
+
+    #[test]
+    fn congestion_selection_is_deferred_even_with_other_runtime_changes() {
+        let previous = base();
+        for algorithm in crate::CongestionControlAlgorithm::ALL {
+            let mut next = previous.clone();
+            next.congestion_control = algorithm;
+            assert_eq!(
+                classify_reconfigure(&previous, &next),
+                ReconfigureClass::PersistOnly
+            );
+            next.proxy.socks5_listeners[0].set_port(1081);
+            assert_eq!(
+                classify_reconfigure(&previous, &next),
+                ReconfigureClass::HotFrontends
+            );
+            next.mtu += 1;
+            assert_eq!(
+                classify_reconfigure(&previous, &next),
+                ReconfigureClass::ColdReconnect
+            );
+        }
     }
 
     #[test]

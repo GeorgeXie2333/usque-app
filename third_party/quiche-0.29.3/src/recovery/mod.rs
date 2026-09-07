@@ -374,6 +374,8 @@ pub enum CongestionControlAlgorithm {
     /// BBRv2 congestion control algorithm implementation from gcongestion
     /// branch. `bbr2_gcongestion` in a string form.
     Bbr2Gcongestion = 4,
+    /// Independent BBRv3 implementation of draft-ietf-ccwg-bbr-06.
+    Bbr3 = 5,
 }
 
 impl FromStr for CongestionControlAlgorithm {
@@ -389,6 +391,7 @@ impl FromStr for CongestionControlAlgorithm {
             "bbr" => Ok(CongestionControlAlgorithm::Bbr2Gcongestion),
             "bbr2" => Ok(CongestionControlAlgorithm::Bbr2Gcongestion),
             "bbr2_gcongestion" => Ok(CongestionControlAlgorithm::Bbr2Gcongestion),
+            "bbr3" => Ok(CongestionControlAlgorithm::Bbr3),
             _ => Err(crate::Error::CongestionControl),
         }
     }

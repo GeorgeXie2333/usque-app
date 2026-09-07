@@ -20,6 +20,16 @@ enum OperatingMode { vpn, socks5, httpProxy }
 
 enum TransportPolicy { automatic, http3, http2 }
 
+enum CongestionControlAlgorithm {
+  cubic('cubic'),
+  reno('reno'),
+  bbr('BBRv2'),
+  bbr3('BBRv3');
+
+  const CongestionControlAlgorithm(this.label);
+  final String label;
+}
+
 enum IpPolicy { automatic, preferIpv4, preferIpv6, ipv4Only, ipv6Only }
 
 enum DnsMode { tunnel, localConfigured, system }
@@ -651,6 +661,7 @@ class UsqueProfile {
     required this.name,
     this.mode = OperatingMode.vpn,
     this.transport = TransportPolicy.automatic,
+    this.congestionControl = CongestionControlAlgorithm.cubic,
     this.ipPolicy = IpPolicy.automatic,
     this.endpointIpv4 = defaultEndpointIpv4,
     this.endpointIpv6 = defaultEndpointIpv6,
@@ -683,6 +694,7 @@ class UsqueProfile {
   final String name;
   final OperatingMode mode;
   final TransportPolicy transport;
+  final CongestionControlAlgorithm congestionControl;
   final IpPolicy ipPolicy;
   final String endpointIpv4;
   final String endpointIpv6;
@@ -726,6 +738,7 @@ class UsqueProfile {
 
   UsqueProfile resetAdvancedDefaults() {
     return copyWith(
+      congestionControl: CongestionControlAlgorithm.cubic,
       transport: TransportPolicy.automatic,
       ipPolicy: IpPolicy.automatic,
       endpointIpv4: defaultEndpointIpv4,
@@ -748,6 +761,7 @@ class UsqueProfile {
     String? name,
     OperatingMode? mode,
     TransportPolicy? transport,
+    CongestionControlAlgorithm? congestionControl,
     IpPolicy? ipPolicy,
     String? endpointIpv4,
     String? endpointIpv6,
@@ -775,6 +789,7 @@ class UsqueProfile {
       name: name ?? this.name,
       mode: nextMode,
       transport: transport ?? this.transport,
+      congestionControl: congestionControl ?? this.congestionControl,
       ipPolicy: ipPolicy ?? this.ipPolicy,
       endpointIpv4: endpointIpv4 ?? this.endpointIpv4,
       endpointIpv6: endpointIpv6 ?? this.endpointIpv6,
@@ -801,6 +816,7 @@ class UsqueProfile {
       'name': name,
       'mode': modeFromFrontends(frontends).name,
       'transport': transport.name,
+      'congestion_control': congestionControl.name,
       'ip_policy': ipPolicy.name,
       'endpoint_v4': endpointIpv4,
       'endpoint_v6': endpointIpv6,
@@ -864,6 +880,12 @@ class UsqueProfile {
       name: name,
       mode: modeFromFrontends(migratedFrontends),
       transport: _enumByName(TransportPolicy.values, _string(map, 'transport')),
+      congestionControl: map.containsKey('congestion_control')
+          ? _enumByName(
+              CongestionControlAlgorithm.values,
+              _string(map, 'congestion_control'),
+            )
+          : CongestionControlAlgorithm.cubic,
       ipPolicy: _enumByName(IpPolicy.values, _string(map, 'ip_policy')),
       endpointIpv4: _string(map, 'endpoint_v4'),
       endpointIpv6: _string(map, 'endpoint_v6'),
@@ -1779,6 +1801,7 @@ class NetworkQualitySnapshot {
 
 class EngineCapabilities {
   const EngineCapabilities({
+    this.h3CongestionControlAlgorithms = const <CongestionControlAlgorithm>[],
     this.networkQuality = false,
     this.encryptedDirectDns = false,
     this.quicMigration = false,
@@ -1787,6 +1810,15 @@ class EngineCapabilities {
 
   factory EngineCapabilities.fromMap(Map<Object?, Object?> map) =>
       EngineCapabilities(
+        h3CongestionControlAlgorithms: CongestionControlAlgorithm.values
+            .where(
+              (algorithm) =>
+                  (map['h3_congestion_control_algorithms'] as List?)?.contains(
+                    algorithm.name,
+                  ) ??
+                  false,
+            )
+            .toList(growable: false),
         networkQuality: map['network_quality'] == true,
         encryptedDirectDns: map['encrypted_direct_dns'] == true,
         quicMigration: map['quic_migration'] == true,
@@ -1794,6 +1826,7 @@ class EngineCapabilities {
       );
 
   final bool networkQuality;
+  final List<CongestionControlAlgorithm> h3CongestionControlAlgorithms;
   final bool encryptedDirectDns;
   final bool quicMigration;
   final bool automaticPmtu;
@@ -1802,6 +1835,10 @@ class EngineCapabilities {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is EngineCapabilities &&
+          listEquals(
+            h3CongestionControlAlgorithms,
+            other.h3CongestionControlAlgorithms,
+          ) &&
           networkQuality == other.networkQuality &&
           encryptedDirectDns == other.encryptedDirectDns &&
           quicMigration == other.quicMigration &&
@@ -1809,6 +1846,7 @@ class EngineCapabilities {
 
   @override
   int get hashCode => Object.hash(
+    Object.hashAll(h3CongestionControlAlgorithms),
     networkQuality,
     encryptedDirectDns,
     quicMigration,
@@ -1818,6 +1856,7 @@ class EngineCapabilities {
 
 class EngineSnapshot {
   const EngineSnapshot({
+    this.sessionCongestionControl,
     this.phase = ConnectionPhase.disconnected,
     this.transport,
     this.addressFamily,
@@ -1841,6 +1880,7 @@ class EngineSnapshot {
   });
 
   final ConnectionPhase phase;
+  final CongestionControlAlgorithm? sessionCongestionControl;
   final String? transport;
   final String? addressFamily;
   final DateTime? connectedAt;
@@ -1882,6 +1922,11 @@ class EngineSnapshot {
     final connectedAt = map['connected_at'] as String?;
     return EngineSnapshot(
       phase: parsePhase(map['phase'] as String?),
+      sessionCongestionControl: CongestionControlAlgorithm.values
+          .where(
+            (algorithm) => algorithm.name == map['session_congestion_control'],
+          )
+          .firstOrNull,
       transport: map['transport'] as String?,
       addressFamily: map['address_family'] as String?,
       connectedAt: connectedAt == null ? null : DateTime.tryParse(connectedAt),
@@ -1953,6 +1998,7 @@ class EngineSnapshot {
   bool operator ==(Object other) {
     return identical(this, other) ||
         other is EngineSnapshot &&
+            sessionCongestionControl == other.sessionCongestionControl &&
             phase == other.phase &&
             transport == other.transport &&
             addressFamily == other.addressFamily &&
@@ -1977,6 +2023,7 @@ class EngineSnapshot {
 
   @override
   int get hashCode => Object.hashAll(<Object?>[
+    sessionCongestionControl,
     phase,
     transport,
     addressFamily,

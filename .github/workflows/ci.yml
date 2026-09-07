@@ -79,6 +79,11 @@ jobs:
       - name: Test
         run: cargo test --workspace --all-targets --locked
 
+      - name: Test pinned quiche recovery and BBRv3 independently
+        run: |
+          cargo test --manifest-path third_party/quiche-0.29.3/Cargo.toml --locked --lib
+          cargo test --manifest-path third_party/quiche-0.29.3/Cargo.toml --locked --lib --features qlog recovery::gcongestion::bbr3::
+
   tooling-quality:
     name: Multi-language tooling quality
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}

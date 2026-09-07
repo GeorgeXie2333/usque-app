@@ -34,6 +34,14 @@ impl ControlService {
 
         let class = classify_reconfigure(&previous, &profile);
         match class {
+            ReconfigureClass::PersistOnly => {
+                let applied = self.upsert_profile_locked(profile).await?;
+                let snapshot = self.status_snapshot().await;
+                return Ok(v1::ReconfigureResult {
+                    profile: Some(profile_to_proto(&applied)),
+                    snapshot: Some(self.snapshot_with_quality_to_proto(&snapshot)),
+                });
+            }
             ReconfigureClass::Reject => {
                 return Err(ControlServiceError::InvalidRequest(
                     "the connected Active Profile cannot be replaced by a different profile"
@@ -84,7 +92,9 @@ impl ControlService {
             ReconfigureClass::HotFrontends => self.hot_reconfigure_frontends(&applied).await,
             ReconfigureClass::HotSystemProxy => self.hot_apply_system_proxy(&applied).await,
             ReconfigureClass::HotTunnelAttach => self.hot_tunnel_attach(&applied).await,
-            ReconfigureClass::Reject | ReconfigureClass::ColdReconnect => {
+            ReconfigureClass::Reject
+            | ReconfigureClass::ColdReconnect
+            | ReconfigureClass::PersistOnly => {
                 unreachable!("commit_hot is only for in-place classes")
             }
         };

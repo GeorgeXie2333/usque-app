@@ -71,6 +71,7 @@ const List<int> _goldenProfileBytes = <int>[
   0x8a, 0x01, 0x02, // direct_dns { (field 17, 2 bytes)
   0x08, 0x01, //   mode PHYSICAL_SYSTEM
   // }
+  0x90, 0x01, 0x01, // congestion_control CUBIC (field 18)
 ];
 
 void main() {

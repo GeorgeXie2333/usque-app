@@ -181,6 +181,60 @@ void main() {
     tags: 'golden',
   );
 
+  for (final chinese in [false, true]) {
+    testWidgets('congestion selector ${chinese ? 'Chinese TV' : 'phone'}', (
+      tester,
+    ) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = chinese
+          ? const Size(1280, 900)
+          : const Size(375, 812);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      final app = AppController(WorkflowEngine())
+        ..localePreference = chinese
+            ? LocalePreference.simplifiedChinese
+            : LocalePreference.english
+        ..engineCapabilities = const EngineCapabilities(
+          h3CongestionControlAlgorithms: CongestionControlAlgorithm.values,
+        )
+        ..snapshot = const EngineSnapshot(
+          phase: ConnectionPhase.connected,
+          transport: 'h3',
+          sessionCongestionControl: CongestionControlAlgorithm.cubic,
+        );
+      addTearDown(app.dispose);
+      app.sharedNetwork = app.sharedNetwork.copyWith(
+        congestionControl: CongestionControlAlgorithm.bbr3,
+      );
+      final boundary = GlobalKey();
+      await tester.pumpWidget(
+        RepaintBoundary(
+          key: boundary,
+          child: workflowHost(
+            app,
+            dark: chinese,
+            scale: chinese ? 2 : 1,
+            home: AdvancedSettingsScreen(controller: app),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await Scrollable.ensureVisible(
+        tester.element(find.byKey(const ValueKey('congestion-control'))),
+        alignment: 0.15,
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await expectLater(
+        find.byKey(boundary),
+        matchesGoldenFile(
+          'goldens/congestion_${chinese ? 'tv_dark' : 'phone_light'}.png',
+        ),
+      );
+    }, tags: 'golden');
+  }
+
   testWidgets(
     'workflow remains usable with real fonts, large text and landscape',
     (tester) async {

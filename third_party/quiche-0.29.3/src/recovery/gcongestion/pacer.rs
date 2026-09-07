@@ -30,7 +30,7 @@
 
 use std::time::Instant;
 
-use crate::recovery::gcongestion::bbr2::BBRv2;
+use super::sender::BbrSender;
 use crate::recovery::gcongestion::Bandwidth;
 use crate::recovery::gcongestion::CongestionControl;
 use crate::recovery::rtt::RttStats;
@@ -63,7 +63,7 @@ pub struct Pacer {
     /// Should this [`Pacer`] be making any release decisions?
     enabled: bool,
     /// Underlying sender
-    sender: BBRv2,
+    sender: BbrSender,
     /// The maximum rate the [`Pacer`] will use.
     max_pacing_rate: Option<Bandwidth>,
     /// Number of unpaced packets to be sent before packets are delayed.
@@ -84,7 +84,7 @@ impl Pacer {
     /// implementation, and an optional throttling as specified by
     /// `max_pacing_rate`.
     pub(crate) fn new(
-        enabled: bool, congestion: BBRv2, max_pacing_rate: Option<Bandwidth>,
+        enabled: bool, congestion: BbrSender, max_pacing_rate: Option<Bandwidth>,
     ) -> Self {
         Pacer {
             enabled,
@@ -111,6 +111,12 @@ impl Pacer {
             time: self.ideal_next_packet_send_time,
             allow_burst,
         }
+    }
+
+    pub(super) fn send_quantum(&self) -> Option<usize> { self.sender.send_quantum() }
+
+    pub(super) fn acknowledge_spurious_losses(&mut self, ranges: &crate::recovery::RangeSet, now: Instant) {
+        self.sender.acknowledge_spurious_losses(ranges, now);
     }
 
     #[cfg(feature = "qlog")]

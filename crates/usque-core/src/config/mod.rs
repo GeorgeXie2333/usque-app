@@ -14,12 +14,14 @@ use zeroize::Zeroizing;
 use crate::identity::IdentityProvider;
 
 mod account;
+mod congestion;
 mod network;
 
 pub use account::{Account, ManagedEndpointIps};
+pub use congestion::CongestionControlAlgorithm;
 pub use network::SharedNetworkSettings;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 13;
+pub const CURRENT_SCHEMA_VERSION: u32 = 14;
 /// Vault namespace for device-wide proxy-listener secrets. Never a profile id.
 pub const SHARED_NETWORK_SECRET_ID: Uuid =
     Uuid::from_u128(0x9f1c_6b20_5a7e_4d3a_9c11_00c0_ffee_0001);
@@ -427,6 +429,8 @@ pub struct Profile {
     #[serde(default)]
     pub frontends: FrontendSettings,
     pub transport: TransportPolicy,
+    #[serde(default)]
+    pub congestion_control: CongestionControlAlgorithm,
     pub endpoint: EndpointSettings,
     /// Selects the physical address family used to reach the MASQUE endpoint.
     /// It never restricts IPv4 or IPv6 payloads carried inside CONNECT-IP.
@@ -456,6 +460,7 @@ impl Default for Profile {
             mode: OperatingMode::legacy_platform_default(),
             frontends: FrontendSettings::default(),
             transport: TransportPolicy::Auto,
+            congestion_control: CongestionControlAlgorithm::default(),
             endpoint: EndpointSettings::default(),
             ip_policy: IpPolicy::Auto,
             mtu: DEFAULT_MTU,

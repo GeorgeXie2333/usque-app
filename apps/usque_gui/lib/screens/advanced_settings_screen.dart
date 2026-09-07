@@ -35,6 +35,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   late final TextEditingController _dnsV6;
   late final TextEditingController _bypass;
   late TransportPolicy _transport;
+  late CongestionControlAlgorithm _congestionControl;
   late IpPolicy _ipPolicy;
   late bool _killSwitch;
   late bool _allowLan;
@@ -62,6 +63,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     _mtu.text,
     _bypass.text,
     _transport,
+    _congestionControl,
     _ipPolicy,
     _killSwitch,
     _allowLan,
@@ -107,6 +109,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     _dnsV6.text = profile.dnsIpv6;
     _bypass.text = profile.bypassCidrs.join('\n');
     _transport = profile.transport;
+    _congestionControl = profile.congestionControl;
     _ipPolicy = profile.ipPolicy;
     _killSwitch = profile.killSwitch;
     _allowLan = profile.allowLan;
@@ -154,13 +157,23 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
             label: Text(strings.get('reset_defaults')),
           ),
         ],
-        bottomBar: SaveChangesBar(
-          strings: strings,
-          dirty: _dirty,
-          saving: _saving,
-          saved: _saved,
-          error: _saveError,
-          onSave: _save,
+        bottomBar: AnimatedBuilder(
+          animation: widget.controller,
+          builder: (context, _) => SaveChangesBar(
+            strings: strings,
+            dirty: _dirty,
+            saving: _saving,
+            saved: _saved,
+            savedLabel: strings.get('cc_saved'),
+            idleHint:
+                widget.controller.snapshot.sessionCongestionControl != null &&
+                    widget.controller.snapshot.sessionCongestionControl !=
+                        widget.controller.sharedNetwork.congestionControl
+                ? strings.get('cc_saved')
+                : null,
+            error: _saveError,
+            onSave: _save,
+          ),
         ),
         child: Form(
           key: _formKey,
@@ -265,6 +278,8 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                           ),
                         ],
                       ),
+                      const SizedBox(height: 18),
+                      _congestionControlField(),
                     ],
                   ),
                   ContentSection(
@@ -434,6 +449,81 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     return mtu == null || mtu < 1280 || mtu > 9000 ? '1280–9000' : null;
   }
 
+  Widget _congestionControlField() => AnimatedBuilder(
+    animation: widget.controller,
+    builder: (context, _) {
+      final controller = widget.controller;
+      final strings = controller.strings;
+      final algorithms =
+          controller.engineCapabilities?.h3CongestionControlAlgorithms ??
+          const <CongestionControlAlgorithm>[];
+      final session = controller.snapshot.sessionCongestionControl;
+      final pending =
+          session != null &&
+          session != controller.sharedNetwork.congestionControl;
+      final h2 =
+          _transport == TransportPolicy.http2 ||
+          const [
+            'h2',
+            'http2',
+            'http/2',
+          ].contains(controller.snapshot.transport?.toLowerCase());
+      final hint = algorithms.isEmpty
+          ? strings.get('cc_upgrade')
+          : h2
+          ? strings.get('cc_h2')
+          : pending
+          ? strings.get('cc_pending')
+          : strings.get('cc_help');
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          DropdownButtonFormField<CongestionControlAlgorithm>(
+            key: const ValueKey('congestion-control'),
+            initialValue: _congestionControl,
+            isExpanded: true,
+            decoration: InputDecoration(labelText: strings.get('cc_label')),
+            items:
+                const [
+                      CongestionControlAlgorithm.cubic,
+                      CongestionControlAlgorithm.bbr,
+                      CongestionControlAlgorithm.bbr3,
+                      CongestionControlAlgorithm.reno,
+                    ]
+                    .map(
+                      (algorithm) => DropdownMenuItem(
+                        value: algorithm,
+                        enabled: algorithms.contains(algorithm),
+                        child: Text(algorithm.label),
+                      ),
+                    )
+                    .toList(),
+            onChanged:
+                _saving ||
+                    _transport == TransportPolicy.http2 ||
+                    algorithms.isEmpty
+                ? null
+                : (value) {
+                    if (value == null) return;
+                    setState(() => _congestionControl = value);
+                    _edited();
+                  },
+          ),
+          const SizedBox(height: 8),
+          Semantics(
+            liveRegion: true,
+            child: Text(
+              hint,
+              key: pending && !h2 && algorithms.isNotEmpty
+                  ? const ValueKey('congestion-control-pending')
+                  : null,
+            ),
+          ),
+        ],
+      );
+    },
+  );
+
   String? _validateSni(String? value) {
     final normalized = value?.trim() ?? '';
     final valid = RegExp(
@@ -489,6 +579,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     final saved = await widget.controller.saveNetwork(
       profile.copyWith(
         transport: _transport,
+        congestionControl: _congestionControl,
         ipPolicy: _ipPolicy,
         endpointIpv4: endpointIpsManaged
             ? profile.endpointIpv4

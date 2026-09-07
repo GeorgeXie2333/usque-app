@@ -364,18 +364,27 @@ pub async fn connect_h3(
         endpoint,
         sni,
         identity,
-        usize::from(usque_core::config::DEFAULT_MTU),
+        H3ConnectSettings {
+            inner_mtu: usize::from(usque_core::config::DEFAULT_MTU),
+            congestion_control: usque_core::CongestionControlAlgorithm::default(),
+        },
         noop_socket_protector(),
         None,
     )
     .await
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct H3ConnectSettings {
+    pub inner_mtu: usize,
+    pub congestion_control: usque_core::CongestionControlAlgorithm,
+}
+
 pub(crate) async fn connect_h3_with_protector(
     endpoint: SocketAddr,
     sni: &str,
     identity: &MasqueTlsIdentity,
-    profile_inner_mtu: usize,
+    settings: H3ConnectSettings,
     protector: Arc<dyn SocketProtector>,
     attempt: Option<&ConnectionAttemptTelemetry>,
 ) -> Result<H3Tunnel, TransportError> {
@@ -383,7 +392,7 @@ pub(crate) async fn connect_h3_with_protector(
         endpoint,
         sni,
         identity,
-        profile_inner_mtu,
+        settings,
         Arc::clone(&protector),
         attempt,
     )
@@ -392,15 +401,7 @@ pub(crate) async fn connect_h3_with_protector(
         Err(TransportError::Http3ProtocolViolation(_)) => {
             // The Go oracle retries this specific Cloudflare interoperability
             // failure once. All other failures preserve normal fallback rules.
-            connect_h3_once(
-                endpoint,
-                sni,
-                identity,
-                profile_inner_mtu,
-                protector,
-                attempt,
-            )
-            .await
+            connect_h3_once(endpoint, sni, identity, settings, protector, attempt).await
         }
         result => result,
     }
@@ -410,10 +411,14 @@ async fn connect_h3_once(
     endpoint: SocketAddr,
     sni: &str,
     identity: &MasqueTlsIdentity,
-    profile_inner_mtu: usize,
+    settings: H3ConnectSettings,
     protector: Arc<dyn SocketProtector>,
     attempt: Option<&ConnectionAttemptTelemetry>,
 ) -> Result<H3Tunnel, TransportError> {
+    let H3ConnectSettings {
+        inner_mtu: profile_inner_mtu,
+        congestion_control,
+    } = settings;
     let prepared = prepare_initial_udp_socket(endpoint, protector.as_ref())
         .await
         .map_err(SocketPrepareError::into_transport_error)?;
@@ -433,7 +438,7 @@ async fn connect_h3_once(
         .unwrap_or_default();
     let features = quality.features();
     let (mut quic_config, pin_state) =
-        quic_config_with_features(identity, family_ceiling, features)?;
+        quic_config_with_features(identity, family_ceiling, features, congestion_control)?;
     let mut source_connection_id = [0u8; CONNECTION_ID_LENGTH];
     boring::rand::rand_bytes(&mut source_connection_id)?;
     let source_connection_id = quiche::ConnectionId::from_ref(&source_connection_id);
@@ -563,13 +568,19 @@ fn quic_config(
     identity: &MasqueTlsIdentity,
     family_ceiling: usize,
 ) -> Result<(quiche::Config, Arc<PinState>), TransportError> {
-    quic_config_with_features(identity, family_ceiling, crate::PRODUCTION_NETWORK_FEATURES)
+    quic_config_with_features(
+        identity,
+        family_ceiling,
+        crate::PRODUCTION_NETWORK_FEATURES,
+        usque_core::CongestionControlAlgorithm::default(),
+    )
 }
 
 fn quic_config_with_features(
     identity: &MasqueTlsIdentity,
     family_ceiling: usize,
     features: crate::NetworkFeatureFlags,
+    congestion_control: usque_core::CongestionControlAlgorithm,
 ) -> Result<(quiche::Config, Arc<PinState>), TransportError> {
     let mut tls = SslContextBuilder::new(SslMethod::tls())?;
     let pin_state = configure_client_identity_and_pin(&mut tls, identity)?;
@@ -600,9 +611,21 @@ fn quic_config_with_features(
         DATAGRAM_RECV_QUEUE_CAPACITY,
         DATAGRAM_SEND_QUEUE_CAPACITY,
     );
-    config.set_cc_algorithm(quiche::CongestionControlAlgorithm::CUBIC);
+    config.set_cc_algorithm(quiche_congestion_control(congestion_control));
     config.enable_pacing(true);
     Ok((config, pin_state))
+}
+
+fn quiche_congestion_control(
+    algorithm: usque_core::CongestionControlAlgorithm,
+) -> quiche::CongestionControlAlgorithm {
+    use usque_core::CongestionControlAlgorithm as Algorithm;
+    match algorithm {
+        Algorithm::Cubic => quiche::CongestionControlAlgorithm::CUBIC,
+        Algorithm::Reno => quiche::CongestionControlAlgorithm::Reno,
+        Algorithm::Bbr => quiche::CongestionControlAlgorithm::Bbr2Gcongestion,
+        Algorithm::Bbr3 => quiche::CongestionControlAlgorithm::Bbr3,
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

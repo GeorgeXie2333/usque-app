@@ -64,6 +64,8 @@ use active_runtime::{ActiveDataPlane, ActiveProxyRuntime, ActiveRuntime};
 #[cfg(windows)]
 mod windows_agent;
 
+mod congestion;
+
 #[cfg(target_os = "macos")]
 pub mod macos_ipc;
 
@@ -89,6 +91,8 @@ pub struct ControlService {
     network_quality_tx: watch::Sender<usque_transport::NetworkQualitySnapshot>,
     network_quality_relay: Mutex<Option<AbortOnDropHandle<()>>>,
     session_generation: AtomicU64,
+    /// Survives internal reconnects, but is reset by a new user connection.
+    session_congestion_control: Mutex<Option<(Uuid, usque_core::CongestionControlAlgorithm)>>,
     #[cfg(windows)]
     windows_recovery: Mutex<WindowsRecoveryRuntime>,
     #[cfg(windows)]
@@ -385,6 +389,7 @@ impl ControlService {
             network_quality_tx,
             network_quality_relay: Mutex::new(None),
             session_generation: AtomicU64::new(0),
+            session_congestion_control: Mutex::new(None),
             #[cfg(windows)]
             windows_recovery: Mutex::new(WindowsRecoveryRuntime::default()),
             #[cfg(windows)]
@@ -539,12 +544,15 @@ impl ControlService {
     ) -> Result<(), ControlServiceError> {
         let _mutation = self.mutation_lock.lock().await;
         let applied = self.upsert_profile_locked(profile.clone()).await?;
+        *self.session_congestion_control.lock().await =
+            Some((applied.id, applied.congestion_control));
         {
             let mut state = self.state.lock().await;
             state.transition(ConnectionPhase::Preparing)?;
             state.transition(ConnectionPhase::ConnectingHttp3)?;
             state.mark_connected(Transport::Http3, AddressFamily::Ipv4, true, true)?;
             state.update_runtime_metadata(reconnect_count, Vec::new(), Vec::new());
+            state.update_session_congestion_control(Some(applied.congestion_control));
         }
         let runtime = ActiveRuntime::Harness(active_runtime::HarnessRuntime::from_profile(
             &applied,
@@ -1629,6 +1637,9 @@ impl ControlService {
 
     async fn connect(&self, profile_id: Uuid) -> Result<ConnectionSnapshot, ControlServiceError> {
         let _mutation = self.mutation_lock.lock().await;
+        if self.data_plane.lock().await.is_none() {
+            *self.session_congestion_control.lock().await = None;
+        }
         #[cfg(windows)]
         let intent_generation = self.begin_windows_connection_intent(profile_id).await;
         let result = self.connect_locked(profile_id).await;
@@ -1666,6 +1677,21 @@ impl ControlService {
                 .ok_or(ControlServiceError::ProfileNotFound(profile_id))?
         };
         self.attach_proxy_auth(&mut profile).await?;
+        {
+            let mut session = self.session_congestion_control.lock().await;
+            let algorithm = match *session {
+                Some((id, algorithm)) if id == profile_id => algorithm,
+                _ => {
+                    *session = Some((profile_id, profile.congestion_control));
+                    profile.congestion_control
+                }
+            };
+            profile.congestion_control = algorithm;
+            self.state
+                .lock()
+                .await
+                .update_session_congestion_control(Some(algorithm));
+        }
         if !usque_transport::ENCRYPTED_DIRECT_DNS_ENABLED
             && profile.direct_dns.mode != ConfigDirectDnsMode::PhysicalSystem
         {
@@ -1949,6 +1975,7 @@ impl ControlService {
         #[cfg(windows)]
         self.clear_windows_connection_intent().await;
         let _mutation = self.mutation_lock.lock().await;
+        *self.session_congestion_control.lock().await = None;
         self.disconnect_locked().await
     }
 
@@ -2011,6 +2038,7 @@ impl ControlService {
 
     async fn retry(&self) -> Result<ConnectionSnapshot, ControlServiceError> {
         let _mutation = self.mutation_lock.lock().await;
+        *self.session_congestion_control.lock().await = None;
         let connected_profile = self
             .data_plane
             .lock()
@@ -3893,6 +3921,7 @@ fn parse_profile_id(value: &str) -> Result<Uuid, ControlServiceError> {
 
 fn profile_from_proto(source: v1::Profile) -> Result<Profile, ControlServiceError> {
     let defaults = Profile::default();
+    let congestion_control = congestion::from_proto(source.congestion_control)?;
     let endpoint = source.endpoint.ok_or_else(|| {
         ControlServiceError::InvalidRequest("profile endpoint is missing".to_owned())
     })?;
@@ -3995,6 +4024,7 @@ fn profile_from_proto(source: v1::Profile) -> Result<Profile, ControlServiceErro
                 ));
             }
         },
+        congestion_control,
         endpoint: EndpointSettings {
             ipv4: endpoint
                 .ipv4
@@ -4120,6 +4150,7 @@ fn parse_listeners(values: &[String]) -> Result<Vec<SocketAddr>, ControlServiceE
 
 pub(crate) fn profile_to_proto(profile: &Profile) -> v1::Profile {
     v1::Profile {
+        congestion_control: congestion::to_proto(profile.congestion_control),
         id: profile.id.to_string(),
         name: profile.name.clone(),
         mode: match profile.mode {
@@ -4281,6 +4312,10 @@ fn proxy_to_proto(proxy: &ProxySettings) -> v1::ProxySettings {
 
 fn current_capabilities() -> v1::Capabilities {
     v1::Capabilities {
+        h3_congestion_control_algorithms: usque_core::CongestionControlAlgorithm::ALL
+            .into_iter()
+            .map(congestion::to_proto)
+            .collect(),
         vpn: cfg!(windows),
         socks5: true,
         http_proxy: true,
@@ -4309,6 +4344,10 @@ fn current_capabilities() -> v1::Capabilities {
 
 pub(crate) fn snapshot_to_proto(snapshot: &ConnectionSnapshot) -> v1::ConnectionSnapshot {
     v1::ConnectionSnapshot {
+        session_congestion_control: snapshot
+            .session_congestion_control
+            .map(congestion::to_proto)
+            .unwrap_or_default(),
         phase: match snapshot.phase {
             ConnectionPhase::Disconnected => v1::ConnectionPhase::Disconnected as i32,
             ConnectionPhase::Preparing => v1::ConnectionPhase::Preparing as i32,
@@ -7268,6 +7307,144 @@ mod tests {
                 response.error
             ),
         }
+    }
+
+    #[test]
+    fn congestion_proto_defaults_and_round_trips_are_explicit() {
+        for algorithm in usque_core::CongestionControlAlgorithm::ALL {
+            let profile = Profile {
+                congestion_control: algorithm,
+                ..Profile::default()
+            };
+            assert_eq!(
+                profile_from_proto(profile_to_proto(&profile))
+                    .unwrap()
+                    .congestion_control,
+                algorithm
+            );
+        }
+        let mut legacy = profile_to_proto(&Profile::default());
+        legacy.congestion_control = 0;
+        assert_eq!(
+            profile_from_proto(legacy.clone())
+                .unwrap()
+                .congestion_control,
+            usque_core::CongestionControlAlgorithm::Cubic
+        );
+        legacy.congestion_control = 99;
+        assert!(profile_from_proto(legacy).is_err());
+        assert_eq!(
+            current_capabilities().h3_congestion_control_algorithms,
+            [1, 2, 3, 4]
+        );
+        assert_eq!(
+            snapshot_to_proto(&ConnectionSnapshot::default()).session_congestion_control,
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn congestion_save_is_persist_only_and_hot_frontends_keep_session_selection() {
+        use usque_core::CongestionControlAlgorithm as Algorithm;
+        let directory = tempfile::tempdir().unwrap();
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(MemoryVault::default()),
+        )
+        .unwrap();
+        let profile = service.config_snapshot().await.active_profile().unwrap();
+        service
+            .install_test_session(profile.clone(), false, 7)
+            .await
+            .unwrap();
+        let before = service.test_harness_counts().await;
+        let mut next = profile.clone();
+        next.congestion_control = Algorithm::Bbr3;
+        let result = service
+            .reconfigure_active_profile(next.clone())
+            .await
+            .unwrap();
+        assert_eq!(service.test_harness_counts().await, before);
+        assert_eq!(result.profile.unwrap().congestion_control, 4);
+        assert_eq!(result.snapshot.unwrap().session_congestion_control, 1);
+        assert_eq!(
+            service.config_snapshot().await.network.congestion_control,
+            Algorithm::Bbr3
+        );
+        next.proxy.socks5_listeners[0].set_port(1081);
+        service.reconfigure_active_profile(next).await.unwrap();
+        assert_eq!(
+            service
+                .state
+                .lock()
+                .await
+                .snapshot()
+                .session_congestion_control,
+            Some(Algorithm::Cubic)
+        );
+        assert_eq!(
+            *service.session_congestion_control.lock().await,
+            Some((profile.id, Algorithm::Cubic))
+        );
+        service.reconfigure_active_profile(profile).await.unwrap();
+        assert_eq!(
+            service.config_snapshot().await.network.congestion_control,
+            Algorithm::Cubic
+        );
+    }
+
+    #[tokio::test]
+    async fn manual_retry_captures_saved_congestion_control_before_connecting() {
+        use usque_core::CongestionControlAlgorithm as Algorithm;
+        let directory = tempfile::tempdir().unwrap();
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(MemoryVault::default()),
+        )
+        .unwrap();
+        let mut profile = service.config_snapshot().await.active_profile().unwrap();
+        // Harness only, no TUN; the empty vault stops the subsequent connection
+        // at credential validation before any socket or platform operation.
+        profile.frontends.tunnel = false;
+        profile.canonicalize_mode();
+        service
+            .install_test_session(profile.clone(), false, 3)
+            .await
+            .unwrap();
+        profile.congestion_control = Algorithm::Bbr3;
+        service
+            .reconfigure_active_profile(profile.clone())
+            .await
+            .unwrap();
+        assert_eq!(
+            service
+                .state
+                .lock()
+                .await
+                .snapshot()
+                .session_congestion_control,
+            Some(Algorithm::Cubic)
+        );
+        assert!(matches!(
+            service.retry().await,
+            Err(ControlServiceError::MissingCredential(_))
+        ));
+        assert_eq!(
+            *service.session_congestion_control.lock().await,
+            Some((profile.id, Algorithm::Bbr3))
+        );
+        service.disconnect().await.unwrap();
+        assert!(service.session_congestion_control.lock().await.is_none());
+        profile.congestion_control = Algorithm::Reno;
+        service.upsert_profile(profile.clone()).await.unwrap();
+        assert!(matches!(
+            service.connect(profile.id).await,
+            Err(ControlServiceError::MissingCredential(_))
+        ));
+        assert_eq!(
+            *service.session_congestion_control.lock().await,
+            Some((profile.id, Algorithm::Reno))
+        );
     }
 
     #[tokio::test]

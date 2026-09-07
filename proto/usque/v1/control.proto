@@ -43,6 +43,15 @@ enum IpPolicy {
   IP_POLICY_IPV6_ONLY = 5;
 }
 
+// Client-side HTTP/3 only. BBR names quiche's BBRv2 implementation.
+enum CongestionControlAlgorithm {
+  CONGESTION_CONTROL_ALGORITHM_UNSPECIFIED = 0;
+  CONGESTION_CONTROL_ALGORITHM_CUBIC = 1;
+  CONGESTION_CONTROL_ALGORITHM_RENO = 2;
+  CONGESTION_CONTROL_ALGORITHM_BBR = 3;
+  CONGESTION_CONTROL_ALGORITHM_BBR3 = 4;
+}
+
 enum DnsMode {
   DNS_MODE_UNSPECIFIED = 0;
   DNS_MODE_TUNNEL = 1;
@@ -176,6 +185,7 @@ message Profile {
   FrontendSettings frontends = 15;
   repeated string geo_direct_countries = 16;
   DirectDnsSettings direct_dns = 17;
+  CongestionControlAlgorithm congestion_control = 18;
 }
 
 message Statistics {
@@ -259,6 +269,7 @@ message Capabilities {
   bool encrypted_direct_dns = 21;
   bool quic_migration = 22;
   bool automatic_pmtu = 23;
+  repeated CongestionControlAlgorithm h3_congestion_control_algorithms = 24;
 }
 
 message FrontendStatus {
@@ -287,6 +298,7 @@ message ConnectionSnapshot {
   repeated FrontendStatus frontends = 15;
   TransportFailure failure = 16;
   NetworkQualitySnapshot network_quality = 17;
+  CongestionControlAlgorithm session_congestion_control = 18;
 }
 
 message Empty {}

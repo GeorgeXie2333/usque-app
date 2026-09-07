@@ -205,15 +205,36 @@ try {
     }
 }
 finally {
+    $cleanupErrors = [Collections.Generic.List[string]]::new()
     if (-not [string]::IsNullOrWhiteSpace($certificateThumbprint)) {
-        foreach ($store in @("My", "TrustedPeople", "TrustedPublisher")) {
+        foreach ($store in @("TrustedPeople", "TrustedPublisher", "My")) {
             $certificatePath = "Cert:\CurrentUser\$store\$certificateThumbprint"
-            if (Test-Path -LiteralPath $certificatePath) {
-                Remove-Item -LiteralPath $certificatePath -Force
+            try {
+                if (Test-Path -LiteralPath $certificatePath) {
+                    if ($store -eq "My") {
+                        # Removing the certificate alone leaves the ephemeral
+                        # private key behind. Delete only this run's key.
+                        Remove-Item -LiteralPath $certificatePath -DeleteKey -Force
+                    }
+                    else {
+                        Remove-Item -LiteralPath $certificatePath -Force
+                    }
+                }
+            }
+            catch {
+                $cleanupErrors.Add("Could not remove the local validation identity from $store.")
             }
         }
     }
-    if (Test-Path -LiteralPath $stagingRoot) {
-        Remove-Item -LiteralPath $stagingRoot -Recurse -Force
+    try {
+        if (Test-Path -LiteralPath $stagingRoot) {
+            Remove-Item -LiteralPath $stagingRoot -Recurse -Force
+        }
+    }
+    catch {
+        $cleanupErrors.Add("Could not remove the local signing staging directory.")
+    }
+    if ($cleanupErrors.Count -gt 0) {
+        throw ($cleanupErrors -join " ")
     }
 }
