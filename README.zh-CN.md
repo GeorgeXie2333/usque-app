@@ -36,7 +36,7 @@ Usque 为独立项目，与 Cloudflare 无隶属、赞助或背书关系。Cloud
     </td>
     <td align="center" valign="top">
       <p><strong>Android</strong></p>
-      <img src="assets/screenshots/usque-android-home.png" alt="Usque Android 主界面" width="280">
+      <img src="assets/screenshots/usque-android-home.jpg" alt="Usque Android 主界面" width="280">
     </td>
   </tr>
 </table>

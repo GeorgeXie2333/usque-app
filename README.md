@@ -36,7 +36,7 @@ Usque is an independent project. It is not affiliated with, sponsored by, or end
     </td>
     <td align="center" valign="top">
       <p><strong>Android</strong></p>
-      <img src="assets/screenshots/usque-android-home.png" alt="Usque Home on Android" width="280">
+      <img src="assets/screenshots/usque-android-home.jpg" alt="Usque Home on Android" width="280">
     </td>
   </tr>
 </table>
