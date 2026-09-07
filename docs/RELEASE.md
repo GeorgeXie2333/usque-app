@@ -1,6 +1,22 @@
-# How v0.2.4 is published
+# Release process
 
-`v0.2.4` is built by the tag workflow on the current `main` commit. The `v0.2.4` tag is maintainer-only. Signing and publish jobs run in GitHub Environments that need approval. If a required file, signature input, or CI result is missing, the workflow fails. A local MSI or APK cannot replace a failed Actions build.
+This is a maintainer reference for the checked-in release workflow, not a
+record that the current checkout has been published. The authoritative
+executable contracts are [release.yml](../.github/workflows/release.yml) and
+[release_contract.py](../tool/release_contract.py).
+
+The workflow currently accepts only `v0.2.4` and requires that tag to point at
+the current `main` commit when its gate runs. The tag is maintainer-only.
+Signing and publish jobs run in GitHub Environments that need approval. If a
+required file, signing input, or CI result is missing, the workflow fails. A
+local MSI or APK cannot replace a failed Actions build.
+
+Source changes after that tag are not part of the original v0.2.4 release.
+In particular, the newer-Agent-first Windows upgrade sequence below was added
+later. Read a release's tagged documentation for its original behavior and
+its notes for delivered fixes. This guide does not authorize moving or reusing
+a published tag; a subsequent release needs a separately reviewed version and
+workflow update and the existing approval gates.
 
 Which signatures count as official, how fingerprints are published, and what happens if a key is lost or leaked are in [CODE_SIGNING.md](CODE_SIGNING.md). Repository rules around this workflow are in [GITHUB_GOVERNANCE.md](GITHUB_GOVERNANCE.md).
 
@@ -84,6 +100,12 @@ non-blocking; its environments, evidence contract, and privacy boundary are
 documented in [RELIABILITY_TESTING.md](RELIABILITY_TESTING.md).
 
 ## Windows package rules
+
+These rules describe the current authoring and verification code. The Agent
+file-version check and late related-product removal sequence include changes
+after the original v0.2.4 tag; they must not be presented as properties already
+verified in that package. User-facing applicability is recorded in
+[Installation and removal](INSTALLATION.md#version-scope).
 
 WiX is locked through `.config/dotnet-tools.json`. Windows Installer has no SemVer prerelease field, so `tool/build_windows_msi.ps1` maps a release as:
 

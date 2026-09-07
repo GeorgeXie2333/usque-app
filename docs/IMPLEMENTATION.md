@@ -1,8 +1,21 @@
 # Usque implementation progress
 
-This is the Windows and Android / Android TV checklist. macOS source is kept for later work and is not built, packaged, or tested for the current release.
+This is the source-tree checklist for Windows and Android / Android TV, not a
+release changelog or a test-run report. A development branch can contain work
+not present in the latest package. macOS source is kept for later work and is
+not built, packaged, or tested for the current release.
 
-A checked item means the code is in the tree and its current automated tests pass. An unchecked item is unfinished, or only valid in an isolated environment that CI does not run.
+- A checked implementation item means code or test infrastructure is in the
+  tree. It does not certify that every test passed at the reader's commit or
+  that a protected runner exercised it.
+- An unchecked item means implementation or the stated validation is still
+  outstanding. Missing isolated-environment evidence must remain explicit.
+- Use the exact commit's CI results and candidate-bound reports for execution
+  evidence. Historical test counts and baselines are not current results.
+
+The [documentation index](README.md) separates current contracts from historical
+records. [Reliability testing](RELIABILITY_TESTING.md) defines environments and
+evidence requirements; [Release process](RELEASE.md) defines publication.
 
 ## Architecture
 
@@ -62,7 +75,7 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] Model strict endpoint-pin requirements and structured failures.
 - [x] Implement IP.SB dual-stack and geo-location probing interfaces.
 - [x] Add log redaction for secret fields and values.
-- [x] Implement Consumer WARP registration, WARP License Key registration, and manual Secret parsing with zeroized temporary buffers.
+- [x] Implement Consumer WARP and WARP License Key registration; retain Secret parsing for stored identities with zeroized temporary buffers. New Secret import is removed from the UI and rejected by the provisioning API.
 - [x] Add experimental Zero Trust Access callback exchange, secure provider metadata plus a non-secret profile binding, registered endpoint discovery, and rollback-safe profile commits.
 - [x] Port the Abobo7 P-256 Endpoint Pin semantics and authenticated one-shot refresh.
 - [x] Implement bounded RFC 9484 ADDRESS_ASSIGN, ADDRESS_REQUEST, and ROUTE_ADVERTISEMENT codecs.
@@ -125,7 +138,7 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] Fail closed before creating the VPN if the Rust data channel is unavailable.
 - [x] Wire arm64-v8a, x86_64, and armeabi-v7a Rust targets into the Gradle release build and produce a universal APK.
 - [x] Transfer connection snapshots from `:vpn` to the UI over a bounded-time Binder request.
-- [x] Validate manually entered WARP Secrets in Rust before encrypting them with Android Keystore.
+- [x] Validate serialized WARP identity material in Rust for Android secure storage and startup. Retained parsers do not enable new Secret imports.
 - [x] Stream native events/counters from `:vpn` through Binder callbacks and Flutter `EventChannel`.
 - [x] Automatic Consumer registration through Rust before Android Keystore persistence.
 - [x] Export a saved Secret through Android SAF after explicit confirmation, without revealing it in the UI or diagnostics.
@@ -192,11 +205,17 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] SHA-256, SPDX SBOM attestations, provenance, commit, and certificate fingerprint.
 - [ ] Expand clean-machine installation and removal coverage beyond the current protected matrix to every supported artifact and OS/architecture combination.
 
-The release workflow fails if a Windows or Android artifact, signing input,
-architecture check, required CI result, manifest, SBOM, attestation, protected
-runner report, or matching evidence is missing, failed, `not_run`, or bound to
-the wrong candidate. A local binary cannot replace a failed GitHub Actions
-artifact. The current protected matrix is mandatory; broader per-artifact
-clean-machine coverage and numeric Go-oracle performance thresholds remain open.
+The release workflow requires the declared Windows and Android packages,
+signing inputs, architecture checks, successful required CI, manifest, SBOMs,
+and attestations for the exact candidate. A local binary cannot replace a
+failed GitHub Actions artifact.
+
+Protected Windows, Android, network-observer, and performance runs are opt-in
+supplemental validation, not publication prerequisites. Missing infrastructure
+or a `failed`/`not_run` result never becomes a pass and does not block
+publication. Any report presented as evidence must still pass exact-candidate,
+isolation, integrity, and completeness checks; forged or mismatched evidence
+is rejected. Broader per-artifact clean-machine coverage and numeric
+Go-oracle comparison targets remain outstanding.
 
 How the current stable tag is built and published is in [RELEASE.md](RELEASE.md).

@@ -1,8 +1,22 @@
 # Installation and removal
 
-Install only packages from this repository's [GitHub Releases page](https://github.com/GeorgeXie2333/usque-app/releases) for `v0.2.4`.
+Install only packages from this repository's
+[GitHub Releases page](https://github.com/GeorgeXie2333/usque-app/releases).
 
-## Official packages
+## Version scope
+
+This guide follows the source checkout. On a development branch it can describe
+changes not yet available in an official package. For an installed release,
+read its release notes and this guide at the matching Git tag.
+
+The package names below show the workflow's currently pinned `v0.2.4` version.
+The Windows upgrade bridge and complete same-version payload replacement
+described under **Upgrade** were added after the original `v0.2.4` tag. They
+are source-tree behavior, not guarantees about that original MSI. This guide
+does not establish that a newer package containing those fixes has been
+published; check its release notes before relying on them.
+
+## Official package names (v0.2.4)
 
 - `usque-v0.2.4-windows-x64-v2.msi`
 - `usque-v0.2.4-windows-arm64.msi`
@@ -85,6 +99,12 @@ recovery journal to bypass an error.
 
 ### Upgrade
 
+> [!IMPORTANT]
+> The newer-Agent-first upgrade ordering and `REINSTALLMODE=amus` policy below
+> describe post-v0.2.4 source changes. Only rely on them in an official release
+> whose notes include those fixes. Do not install an unchanged v0.2.4 package
+> expecting the new behavior, or substitute a local validation package.
+
 A running Usque process is asked to disconnect and exit through Windows Restart
 Manager before any installed files are replaced. Usque treats that maintenance
 request differently from an ordinary window close, so the close-to-tray setting
@@ -111,8 +131,11 @@ unsupported. The setting is not a request to run an MSI repair.
 
 This ordering is also the supported bridge from `v0.2.4`, whose Agent could
 mistake asynchronous Wintun device removal for a permanent cleanup failure. A
-user whose `v0.2.4` uninstall failed should install a newer Windows package
-directly, then uninstall that newer version if removal was the original goal.
+user whose `v0.2.4` uninstall failed should use an official newer Windows
+package containing this bridge once one is available, then uninstall that
+newer version if removal was the original goal. Until then, report the failure
+with sanitized diagnostics; the presence of this source fix is not a download
+or installation recommendation for development artifacts.
 Do not work around the failure by deleting the Agent, its recovery journal, or
 Windows network objects manually.
 
@@ -162,7 +185,12 @@ Android asks for VPN consent only when VPN output is first enabled. SOCKS5 and H
 
 **Per-app proxy** is an Android app setting, not part of a Profile. When it is off, every app uses the VPN tunnel. When it is on, only the apps you check use the tunnel; newly installed apps stay off the tunnel until you select them. Select all checks the apps currently visible in the picker — it does not turn the filter off. Usque itself is never listed. If Always-on VPN and **Block connections without VPN** are enabled, apps you did not select are blocked instead of going around the tunnel. The filter applies only while VPN output is on.
 
-Uninstalling the app removes its Android Keystore entries and private data the way Android usually does. Export a WARP Secret before uninstalling if you want to keep that identity. Secrets never appear in diagnostics or ordinary settings backups.
+Uninstalling the app removes its Android Keystore entries and private data the
+way Android usually does. You can explicitly export a Consumer WARP Secret
+before uninstalling to retain a separate record, but Usque no longer accepts
+new Secret imports. Do not assume the export can restore that identity in
+Usque after reinstalling. Secrets never appear in diagnostics or ordinary
+settings backups.
 
 ## Updates
 

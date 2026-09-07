@@ -11,18 +11,14 @@
   <a href="https://github.com/GeorgeXie2333/usque-app/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/GeorgeXie2333/usque-app/actions/workflows/ci.yml/badge.svg?branch=main"></a>
   <a href="https://github.com/GeorgeXie2333/usque-app/actions/workflows/build.yml"><img alt="Build" src="https://github.com/GeorgeXie2333/usque-app/actions/workflows/build.yml/badge.svg"></a>
   <a href="LICENSE.md"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-F48120.svg"></a>
-  <img alt="Rust 1.97.1" src="https://img.shields.io/badge/Rust-1.97.1-dea584.svg?logo=rust&logoColor=white">
-  <img alt="Flutter 3.44.7" src="https://img.shields.io/badge/Flutter-3.44.7-02569B.svg?logo=flutter&logoColor=white">
-  <img alt="Windows 10 22H2 或更高版本" src="https://img.shields.io/badge/Windows-10%2022H2%2B-2F2F2F.svg">
-  <img alt="Android 8 或更高版本" src="https://img.shields.io/badge/Android-8.0%2B-2F2F2F.svg">
 </p>
 
 # Usque
 
-Usque 是面向 Cloudflare WARP 个人版（Consumer WARP）的非官方图形客户端。界面由 Flutter 实现；MASQUE、CONNECT-IP、DNS、代理与连接状态由 Rust 引擎处理。项目不使用 WebView。
+Usque 是面向 Windows 和 Android / Android TV 的非官方 Cloudflare WARP 客户端。它将系统 VPN、SOCKS5 和 HTTP 代理整合在原生 Flutter 界面中，由 Rust MASQUE 引擎提供网络能力，不使用 WebView。
 
 > [!IMPORTANT]
-> 当前发布版本为 **v0.2.4**。请仅从 [GitHub Releases 页面](https://github.com/GeorgeXie2333/usque-app/releases) 下载正式安装包。Pull Request 构建、本地构建以及未打标签的二进制均非正式发布。
+> 请仅从 [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) 下载正式安装包。Pull Request 构建、本地构建及未打标签的二进制均非正式发布。开发分支文档可能包含尚未发布的改动；请以安装包对应的发布说明和标签下文档为准。
 
 Usque 为独立项目，与 Cloudflare 无隶属、赞助或背书关系。Cloudflare 与 WARP 是 Cloudflare, Inc. 的商标。使用个人版 WARP 仍须遵守 Cloudflare 的适用条款与隐私政策。
 
@@ -41,100 +37,89 @@ Usque 为独立项目，与 Cloudflare 无隶属、赞助或背书关系。Cloud
   </tr>
 </table>
 
-## 发布范围
+## 下载与安装
 
-`v0.2.4` 由 `main` 上的对应标签构建并校验以下六个安装包：
+发布流程生成六个安装包：
 
-| 平台 | 安装包 | 最低系统 | 架构 |
-| --- | --- | --- | --- |
-| Windows | MSI | Windows 10 22H2，Build 19045 | x64-v2 |
-| Windows | MSI | Windows 10 22H2，Build 19045 | ARM64 |
-| Android / Android TV | 分 ABI 安装包 | Android 8.0，API 26 | ARMv8（`arm64-v8a`） |
-| Android / Android TV | 分 ABI 安装包 | Android 8.0，API 26 | x64（`x86_64`） |
-| Android / Android TV | 分 ABI 安装包 | Android 8.0，API 26 | ARMv7（`armeabi-v7a`） |
-| Android / Android TV | 通用安装包 | Android 8.0，API 26 | 上述三种 Android ABI |
+| 平台 | 最低系统 | 安装包 |
+| --- | --- | --- |
+| Windows | Windows 10 22H2，Build 19045 | x64-v2 MSI 或 ARM64 MSI |
+| Android / Android TV | Android 8.0，API 26 | arm64-v8a、x86_64 或 armeabi-v7a APK |
+| Android / Android TV | Android 8.0，API 26 | 包含上述三种 ABI 的通用 APK |
 
-仓库保留 macOS 源码，但不参与当前构建与发布。本版本不提供 iOS、生产级 Zero Trust 支持、应用商店分发、公开命令行，也不支持多路径带宽聚合。源码构建包含下述受发布门槛约束的 Zero Trust 组织注册实验功能。
+请选择与设备架构匹配的安装包。无法确定 Android ABI 时，可使用体积更大的通用 APK。安装前，将软件包 SHA-256 与 `SHA256SUMS` 及 GitHub 显示的资源摘要比对，再核验发布说明中的签名者指纹。任何一项不一致都应停止安装。
+
+1.0 之前的安装包使用项目自行管理的固定自签名证书。Windows 可能显示“未知发布者”警告；Android 安装包不通过 Google Play 分发。不要通过关闭杀毒软件、防火墙或导入非官方安装包提供的证书来绕过警告。
+
+升级、卸载、恢复及 Android 开发者验证说明见[安装指南](docs/INSTALLATION.md)，官方签名身份见[代码签名策略](docs/CODE_SIGNING.md)。更新下载需要用户确认，安装通过平台安装程序完成，不会无人值守地自动安装。
+
+## 首次连接
+
+1. 安装已核验的正式包并打开 Usque。
+2. 完成首次启动的权限与条款步骤。注册个人版 WARP 身份，也可选择使用 WARP License Key 注册。目前不支持新导入 WARP Secret。
+3. 选择需要的输出，在主页连接。Android 首次启用 VPN 输出时会请求 VPN 授权；仅使用 SOCKS5 / HTTP 时无需此授权。
+
+| 输出 | 用途 |
+| --- | --- |
+| VPN/TUN | 将系统流量送入隧道，并遵循绕过规则和 Android 分应用设置。 |
+| SOCKS5 | 提供本地 TCP/UDP 代理，默认使用远程 DNS。 |
+| HTTP 代理 | 提供 HTTP CONNECT 和普通 HTTP 转发。 |
+| Windows 系统代理 | 将 Windows 指向本地 HTTP 监听地址，需启用 HTTP 输出。 |
+
+两个平台均默认启用 VPN、SOCKS5 和 HTTP；Windows 系统代理默认关闭。各输出共享一条 MASQUE 传输，可同时使用；关闭全部输出时只保留传输。身份材料按账户独立存储，同一时间仅一个账户活动；网络设置由所有账户共享。
 
 ## 主要功能
 
-- 支持个人版 WARP 注册、WARP License Key 注册，以及 WARP Secret 的导入与导出。
-- Windows 与 Android 提供实验性的 Cloudflare Zero Trust 设备注册，仅用于以组织身份复用现有 MASQUE 公网隧道。
-- VPN、SOCKS5、HTTP 代理与 Windows 系统代理可同时启用，共享同一条 MASQUE 通道。
-- 优先使用 HTTP/3（QUIC），失败后回退至 HTTP/2（TLS）；物理入口通过 IPv4/IPv6 Happy Eyeballs 选择。
-- 支持同地址族 QUIC 路径迁移、外层路径 PMTU 自动探测、H2 流控调优，以及 Android/Linux 有界 UDP 批量收发。
-- 本地网络质量中心展示 RTT、丢包或 N/A、队列、PMTU、迁移、直连 DNS 与 60 秒趋势；Standard Doctor 只读，Deep 检查需明确授权。
-- 直连 DNS 可明确选择 System、DoH 或 DoT；加密模式使用数字 IP 引导和严格 TLS，失败不降级到明文。
-- 全隧道 VPN、隧道内 DNS、Kill Switch、局域网访问与自定义 CIDR 绕过。
-- SOCKS5 支持 TCP/UDP，HTTP 支持 CONNECT 与普通转发；代理默认仅监听回环地址。
-- 支持多个配置，同一时间仅一个处于活动状态；身份材料按配置隔离存储。
-- Android 分应用代理（仅包含所选应用）：关闭时全部应用走 VPN；开启后仅勾选的应用走隧道。新安装的应用默认不进入隧道，直至勾选。
-- Android 快捷设置磁贴、启动器快捷方式、开机恢复与电视端导航。
-- Windows 系统托盘、单实例激活、开机启动，以及关闭后最小化到托盘。
-- 诊断信息仅在本地生成并脱敏；质量指标留在内存，不持久化历史，不进行统计分析或自动上传。
+- 个人版 WARP 账户、可选的 License Key 注册，以及经明确确认后导出到指定文件的 Secret。导出不代表 Usque 提供重新导入或恢复流程。
+- 自动选择 HTTP/3（QUIC），并支持 HTTP/2（TLS）回退和物理路径的 IPv4/IPv6 Happy Eyeballs。H3 支持同地址族路径迁移及外层路径 PMTU 自动探测。
+- 全隧道 VPN、隧道内 DNS、Kill Switch、局域网访问和自定义 CIDR 绕过规则。
+- 可选的按国家直连：单独下载各国 GeoIP 数据和一份经过校验的全局 V2Fly GeoSite 目录。有域名时使用 GeoSite，无法看到域名时使用 GeoIP；未知目标仍走 MASQUE。
+- 本地网络质量中心展示 RTT、丢包可用性、队列、PMTU、迁移、直连 DNS 和 60 秒趋势。Network Doctor 提供只读的 Standard 检查及需明确授权的 Deep 检查。
+- Windows 托盘、单实例、开机启动和关闭后最小化到托盘；Android 快捷设置磁贴、启动器快捷方式、开机恢复和电视导航。支持英文、简体中文以及浅色、深色主题。
 
-选择 IPv4 或 IPv6 MASQUE 端点仅改变物理入口。任一入口均可在 CONNECT-IP 内承载 IPv4 与 IPv6。Usque 同一时间只保持一条活动传输，不聚合多路径带宽。
+Android 分应用代理是应用级的“仅包含所选应用”设置，不属于某个账户。关闭时全部应用走 VPN；开启后仅勾选的应用走隧道，新安装的应用需手动勾选。启用 Android 的“阻止未使用 VPN 的连接”后，未勾选的应用会被阻断，而不是绕过隧道。
 
-迁移仅支持相同外层地址族，不是多路径；H2 的丢包率和 PMTU 显示 N/A，外层 PMTU 探测不会提高 TUN MTU。直连规则命中的域名在默认 System 模式下对物理 DNS 提供商可见，DoH/DoT 模式下对用户指定的加密解析器可见；其余域名继续使用隧道 DNS。此设置不拦截应用自己建立的加密 DNS，也不改变独立的代理 DNS 配置。Doctor 的本地检查不等价于外部抓包证明。详见[DNS 配置及隐私](docs/encrypted-direct-dns.md)、[验收证据](docs/network-quality-acceptance.md)和[内部回滚手册](docs/network-quality-rollback.md)。
+## 隐私与限制
+
+- 端点固定是强制策略，不提供不安全的 TLS 模式。身份材料保存在 Windows 凭据管理器或 Android Keystore 中。Windows 界面与引擎以非特权方式运行，由独立 Agent 管理特权网络状态；Android 使用独立的 `:vpn` 进程。
+- 代理默认仅监听回环地址。非回环监听没有认证，并会显示警告。仅代理模式不提供系统级 VPN Kill Switch。
+- 诊断仅在本地生成并脱敏，不进行统计分析或自动上传；质量历史只保留在内存中。日志默认为 INFO，最多保留 7 天或 20 MiB。不要将凭据或原始诊断包放入公开 Issue；漏洞请通过 [SECURITY.md](SECURITY.md) 私密报告。
+- Android 应用内 Kill Switch 无法在 VPN 进程被杀死后继续提供保护。此场景需同时启用系统“始终开启的 VPN”和“阻止未使用 VPN 的连接”，详见 [Android 安装说明](docs/INSTALLATION.md#android-and-android-tv)。
+
+按国家直连的 DNS 可明确选择 **System**（默认）、**DoH** 或 **DoT**。System 会将匹配域名暴露给物理 DNS 提供商；DoH/DoT 则使用数字 IP 引导和严格 TLS，将查询发送给指定的加密解析器，失败不回退到明文。其他 VPN 查询继续通过 WARP DNS；代理 DNS 设置保持独立。应用自行建立的加密 DNS 会隐藏域名，此时使用 GeoIP 分类。断开连接时，规则下载仍遵循 Android Lockdown 和残留的 Windows Kill Switch。详见[直连 DNS](docs/encrypted-direct-dns.md)。
+
+Usque 只保留一条承载数据的传输，不聚合多路径带宽。任一物理入口地址族均可在 CONNECT-IP 内承载 IPv4 和 IPv6。迁移仅限同地址族；自动 PMTU 不会提高配置的 TUN MTU，H2 的丢包率和 PMTU 显示 N/A。Doctor 结果不能证明外部观察到的零泄漏或实测性能提升。受保护环境验证不是发布前提，但缺失或失败的证据绝不计为通过。
+
+Zero Trust 注册仍属**实验性功能**，仅用于以组织身份使用现有 MASQUE 公网隧道，不代表生产级 Cloudflare One Client 兼容。使用前请阅读[支持范围与验证要求](docs/ZERO_TRUST_EXPERIMENTAL.md)。仓库保留 macOS 源码，但不构建或发布；当前发布范围也不包括 iOS、应用商店分发或公开命令行。
 
 ## 默认网络设置
 
 | 设置 | 默认值 |
 | --- | --- |
-| 端点 IPv4 | `162.159.198.2` |
-| 端点 IPv6 | `2606:4700:103::2` |
-| 端口 | `443` |
-| SNI | `speed.cloudflare.com` |
+| 个人版端点 IPv4 | `162.159.198.2` |
+| 个人版端点 IPv6 | `2606:4700:103::2` |
+| 端口 / SNI | `443` / `speed.cloudflare.com` |
 | 传输 | 自动：先 HTTP/3，再 HTTP/2 |
-| MTU | `1280` |
+| TUN MTU | `1280` |
 | 备用 DNS | `1.1.1.1`、`2606:4700:4700::1111` |
 | SOCKS5 | `127.0.0.1:1080`、`[::1]:1080` |
 | HTTP 代理 | `127.0.0.1:8080`、`[::1]:8080` |
 
-上述默认值可修改，也可一键恢复。非回环代理监听不提供认证，并始终显示安全警告。
+代理地址、端口和 DNS 的编辑在应用前只是草稿；高级设置中的重置只把默认值加载到草稿，不会立即应用。Zero Trust 端点地址由注册返回，不可编辑。
 
-## 获取与安装
+## 文档与开发
 
-请从 [GitHub Releases 页面](https://github.com/GeorgeXie2333/usque-app/releases) 下载 Usque。请优先选择与设备 ABI 匹配的 APK。通用安装包同时包含 ARMv8、x64 与 ARMv7 原生库，体积更大，仅建议在无法确定设备架构时使用。GitHub 会为每个资源显示 SHA-256；安装前请核对摘要与已公布的签名者指纹。
+从[文档索引](docs/README.md)选择需要的内容。技术文档目前以英文为主。
 
-- 1.0 之前的 Windows 安装包使用固定自签名身份。接受系统警告前，请核对已公布的 SHA-256 与证书指纹。
-- 1.0 之前的 Android 安装包使用项目自行管理的固定自签名证书，不通过 Google Play 分发。软件包名称 `io.github.georgexie2333.usque` 与当前官方 Release 证书已完成 [Android 开发者验证](https://developer.android.com/developer-verification)。此注册验证开发者身份与签名密钥所有权，不代表 Google Play 分发或应用内容审核，仍可能需要手动安装或使用 ADB。
-- v1.0.0 的签名变更将作为独立版本发布。
-- 发布流程会编译并签名六个安装包，同时在 GitHub Release 附带 `release-manifest.json`、`SHA256SUMS` 与逐包 SPDX SBOM。受保护的 Windows、Android、网络观察器和性能实验室运行属于可选的补充验证；缺失或失败的受保护运行绝不会计为通过，也不会阻止发布。受限抓包与原始实验数据仅保留在 CI 中。
-- 启用自动检查后，Usque 会在每次进程启动后检查一次。仅在用户确认后才下载已验证的稳定版本；Windows 将其交给已签名的被动更新器，Android 则打开系统软件包安装器。手动检查始终获取实时发布数据。
-- Windows 卸载会在系统设置中要求确认，随后恢复 Usque 修改过的网络状态；用户可选择删除当前用户的本地数据。
-
-安装包校验、升级、卸载与恢复见[安装说明（英文）](docs/INSTALLATION.md)。
-
-## 可组合输出
-
-一个配置可同时启用多种输出。它们共享一条已固定端点的 MASQUE 传输与包复用。
-
-| 输出 | 说明 |
+| 需要了解 | 阅读文档 |
 | --- | --- |
-| VPN/TUN | 创建系统隧道，并管理路由、DNS 与 Kill Switch。 |
-| SOCKS5 | 支持 TCP 与 UDP，默认使用远程 DNS。 |
-| HTTP 代理 | 支持 CONNECT 与普通 HTTP 转发。 |
-| Windows 系统代理 | 依赖 HTTP 输出，将系统代理指向本地监听地址。 |
+| 安装、更新、卸载与恢复 | [安装指南](docs/INSTALLATION.md) |
+| 本地网络质量检查 | [Network Doctor](docs/network-doctor.md) |
+| 安全地构建和测试改动 | [贡献指南](CONTRIBUTING.md) |
+| 实现与验证状态 | [实现进度](docs/IMPLEMENTATION.md) |
+| 维护正式发布 | [发布流程](docs/RELEASE.md) |
 
-Windows 默认启用 VPN（TUN）、SOCKS5 与 HTTP，系统代理默认关闭。Android 默认启用 VPN、SOCKS5 与 HTTP。分应用代理是 Android 应用设置，不属于某个配置：开启后仅勾选的应用走 VPN。允许关闭全部输出，仅保留传输。
-
-## 安全与隐私
-
-- 端点固定为强制策略，界面不提供不安全的 TLS 模式。
-- Secret、私钥、令牌、设备标识、许可证与端点固定信息存储于 Windows 凭据管理器或 Android Keystore。
-- 导出 Secret 须经确认，且仅写入用户指定的位置。
-- Windows 引擎不以特权运行；由最小权限 Agent 管理 TUN、路由、DNS、防火墙与系统代理。
-- Android 使用 `VpnService`，并在独立的 `:vpn` 进程中运行。
-- 日志级别默认为 INFO，最多保留 7 天或 20 MiB。
-
-报告漏洞前请阅读 [SECURITY.md](SECURITY.md)（英文）。请勿在公开 Issue 中提交凭据或未经脱敏的诊断信息。正式包的签名规则见[代码签名策略（英文）](docs/CODE_SIGNING.md)。
-
-## 构建与贡献
-
-本项目固定使用 Rust `1.97.1`、Flutter `3.44.7`、Android NDK `29.0.14206865` 以及仓库内的打包工具。开发环境、检查命令与 Pull Request 要求见 [CONTRIBUTING.md](CONTRIBUTING.md)（英文）。
-
-实现进度见[实现进度（英文）](docs/IMPLEMENTATION.md)，签名与发布流程见[发布说明（英文）](docs/RELEASE.md)。
+请遵循贡献指南中的固定工具链和按改动范围划分的检查。仅编译构建和确定性测试可在开发机进行；安装开发包或测试 VPN 生命周期必须使用规定的隔离环境。构建成功不等于完成安装、泄漏或性能验证。
 
 ## 上游与许可
 

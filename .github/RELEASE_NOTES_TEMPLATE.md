@@ -10,8 +10,8 @@ immediately below the matching English text.
   <br>Usque v0.2.4 是一个功能与可靠性版本，新增网络质量中心、加密直连 DNS，并强化传输与平台生命周期处理。
 - Network Quality provides a local, non-persistent 60-second view of RTT, loss availability, queue pressure, PMTU, migration, and direct DNS. Network Doctor keeps Standard checks read-only and requires explicit authorization for Deep checks.
   <br>网络质量中心提供本地且不持久化的 60 秒视图，展示 RTT、丢包可用性、队列压力、PMTU、迁移和直连 DNS；Network Doctor 的 Standard 检查保持只读，Deep 检查则需要明确授权。
-- HTTP/3 can now migrate across same-family physical paths and automatically discover the outer-path PMTU. Tuned HTTP/2 flow control, owned packet-buffer reuse, and bounded Android/Linux UDP batching improve resilience and throughput without unbounded queues.
-  <br>HTTP/3 现在可在相同地址族的物理路径间迁移，并自动探测外层路径 PMTU；调优后的 HTTP/2 流控、自有数据包缓冲区复用以及 Android/Linux 有界 UDP 批处理，在不引入无界队列的前提下提升可靠性与吞吐。
+- HTTP/3 can now migrate across same-family physical paths and automatically discover the outer-path PMTU. This release also adds tuned HTTP/2 flow control, owned packet-buffer reuse, and bounded Android/Linux UDP batching. These are implementation changes, not a claim of measured throughput gains.
+  <br>HTTP/3 现在可在相同地址族的物理路径间迁移，并自动探测外层路径 PMTU；此版本还加入 HTTP/2 流控调优、自有数据包缓冲区复用和 Android/Linux 有界 UDP 批处理。这些是实现层面的改动，不代表已经测得吞吐提升。
 - Direct-country DNS now supports explicit System, DoH, and DoT resolvers with numeric bootstrap and strict TLS. Encrypted resolver failures never silently downgrade to plaintext.
   <br>直连国家规则的 DNS 现在可明确选择 System、DoH 或 DoT，并使用数字 IP 引导和严格 TLS；加密解析器失败时绝不会静默降级为明文。
 - Windows and Android now bind recovery and direct egress to exact network generations, clean up more consistently across shutdown and detach paths, and recover orphaned VPN state without starting a new tunnel on an unsafe or stale platform state.
