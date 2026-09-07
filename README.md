@@ -39,7 +39,7 @@ Usque is an independent project. It is not affiliated with, sponsored by, or end
 
 ## Download and install
 
-The release workflow produces six packages:
+The release target is **v0.2.5**, a feature and reliability release for Windows and Android. Its tag workflow produces six packages:
 
 | Platform | Minimum OS | Packages |
 | --- | --- | --- |

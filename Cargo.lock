@@ -2689,7 +2689,7 @@ dependencies = [
 
 [[package]]
 name = "usque-agent"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2713,7 +2713,7 @@ dependencies = [
 
 [[package]]
 name = "usque-android"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2735,7 +2735,7 @@ dependencies = [
 
 [[package]]
 name = "usque-core"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -2764,7 +2764,7 @@ dependencies = [
 
 [[package]]
 name = "usque-engine"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -2795,7 +2795,7 @@ dependencies = [
 
 [[package]]
 name = "usque-geo"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "bytes",
  "futures",
@@ -2811,7 +2811,7 @@ dependencies = [
 
 [[package]]
 name = "usque-ipc"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "bytes",
  "prost",
@@ -2823,7 +2823,7 @@ dependencies = [
 
 [[package]]
 name = "usque-platform"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "async-trait",
  "security-framework",
@@ -2837,7 +2837,7 @@ dependencies = [
 
 [[package]]
 name = "usque-protocol"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "bytes",
  "proptest",
@@ -2848,7 +2848,7 @@ dependencies = [
 
 [[package]]
 name = "usque-transport"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "async-trait",
  "boring",
@@ -2883,7 +2883,7 @@ dependencies = [
 
 [[package]]
 name = "usque-uninstall"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "thiserror",
  "windows-sys 0.61.2",
@@ -2891,7 +2891,7 @@ dependencies = [
 
 [[package]]
 name = "usque-update"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "clap",
  "sha2",

@@ -9,21 +9,21 @@ This guide follows the source checkout. On a development branch it can describe
 changes not yet available in an official package. For an installed release,
 read its release notes and this guide at the matching Git tag.
 
-The package names below show the workflow's currently pinned `v0.2.4` version.
-The Windows upgrade bridge and complete same-version payload replacement
-described under **Upgrade** were added after the original `v0.2.4` tag. They
-are source-tree behavior, not guarantees about that original MSI. This guide
-does not establish that a newer package containing those fixes has been
-published; check its release notes before relying on them.
+The package names below show the workflow's currently pinned `v0.2.5` version.
+This release includes the Windows upgrade bridge and complete same-version
+payload replacement described under **Upgrade**. Those fixes are not present
+in the original `v0.2.4` MSI. Use only packages published by the approved
+v0.2.5 tag workflow; a source checkout alone is not proof of publication or
+of isolated upgrade testing.
 
-## Official package names (v0.2.4)
+## Official package names (v0.2.5)
 
-- `usque-v0.2.4-windows-x64-v2.msi`
-- `usque-v0.2.4-windows-arm64.msi`
-- `usque-v0.2.4-android-arm64-v8a.apk`
-- `usque-v0.2.4-android-x86_64.apk`
-- `usque-v0.2.4-android-armeabi-v7a.apk`
-- `usque-v0.2.4-android-universal.apk`
+- `usque-v0.2.5-windows-x64-v2.msi`
+- `usque-v0.2.5-windows-arm64.msi`
+- `usque-v0.2.5-android-arm64-v8a.apk`
+- `usque-v0.2.5-android-x86_64.apk`
+- `usque-v0.2.5-android-armeabi-v7a.apk`
+- `usque-v0.2.5-android-universal.apk`
 
 The GitHub Release attaches those six packages plus `release-manifest.json`,
 `SHA256SUMS`, and each package's SPDX SBOM. GitHub shows a SHA-256 for each
@@ -101,9 +101,9 @@ recovery journal to bypass an error.
 
 > [!IMPORTANT]
 > The newer-Agent-first upgrade ordering and `REINSTALLMODE=amus` policy below
-> describe post-v0.2.4 source changes. Only rely on them in an official release
-> whose notes include those fixes. Do not install an unchanged v0.2.4 package
-> expecting the new behavior, or substitute a local validation package.
+> are included in v0.2.5. Do not install an unchanged v0.2.4 package expecting
+> the new behavior, or substitute a local validation package. Compile-only
+> and MSI table checks do not establish real upgrade or recovery results.
 
 A running Usque process is asked to disconnect and exit through Windows Restart
 Manager before any installed files are replaced. Usque treats that maintenance
@@ -131,11 +131,11 @@ unsupported. The setting is not a request to run an MSI repair.
 
 This ordering is also the supported bridge from `v0.2.4`, whose Agent could
 mistake asynchronous Wintun device removal for a permanent cleanup failure. A
-user whose `v0.2.4` uninstall failed should use an official newer Windows
-package containing this bridge once one is available, then uninstall that
-newer version if removal was the original goal. Until then, report the failure
-with sanitized diagnostics; the presence of this source fix is not a download
-or installation recommendation for development artifacts.
+user whose `v0.2.4` uninstall failed should use a verified official `v0.2.5`
+Windows package containing this bridge, then uninstall the newer version if
+removal was the original goal. If recovery still fails, stop and report the
+failure with sanitized diagnostics; development artifacts are not substitutes
+for the official package.
 Do not work around the failure by deleting the Agent, its recovery journal, or
 Windows network objects manually.
 

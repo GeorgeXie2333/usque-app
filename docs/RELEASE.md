@@ -5,24 +5,25 @@ record that the current checkout has been published. The authoritative
 executable contracts are [release.yml](../.github/workflows/release.yml) and
 [release_contract.py](../tool/release_contract.py).
 
-The workflow currently accepts only `v0.2.4` and requires that tag to point at
+The workflow currently accepts only `v0.2.5` and requires that tag to point at
 the current `main` commit when its gate runs. The tag is maintainer-only.
 Signing and publish jobs run in GitHub Environments that need approval. If a
 required file, signing input, or CI result is missing, the workflow fails. A
 local MSI or APK cannot replace a failed Actions build.
 
-Source changes after that tag are not part of the original v0.2.4 release.
-In particular, the newer-Agent-first Windows upgrade sequence below was added
-later. Read a release's tagged documentation for its original behavior and
-its notes for delivered fixes. This guide does not authorize moving or reusing
-a published tag; a subsequent release needs a separately reviewed version and
-workflow update and the existing approval gates.
+The v0.2.5 candidate includes the newer-Agent-first Windows upgrade sequence
+and complete payload replacement described below. These fixes are not part of
+the original v0.2.4 release. Read each release's tagged documentation and notes
+for its delivered behavior. This guide does not authorize moving or reusing a
+published tag; a subsequent release needs a separately reviewed version and
+workflow update and the existing approval gates. Static and compile-only
+checks are not evidence of a successful real-machine upgrade.
 
 Which signatures count as official, how fingerprints are published, and what happens if a key is lost or leaked are in [CODE_SIGNING.md](CODE_SIGNING.md). Repository rules around this workflow are in [GITHUB_GOVERNANCE.md](GITHUB_GOVERNANCE.md).
 
 ## Before signing starts
 
-- The tag must be `v0.2.4` and must point at the current `main` commit.
+- The tag must be `v0.2.5` and must point at the current `main` commit.
 - That commit must already have a successful `ci.yml` push run, including `CI / gate`.
 - `release-signing` and `release-publish` both require approval.
 - Android Developer Console must show `io.github.georgexie2333.usque` and the certificate fingerprint in `ANDROID_SIGNER_SHA256` as **Registered**.
@@ -85,12 +86,12 @@ unrendered or partially rendered body.
 
 Primary files:
 
-- `usque-v0.2.4-windows-x64-v2.msi`
-- `usque-v0.2.4-windows-arm64.msi`
-- `usque-v0.2.4-android-arm64-v8a.apk`
-- `usque-v0.2.4-android-x86_64.apk`
-- `usque-v0.2.4-android-armeabi-v7a.apk`
-- `usque-v0.2.4-android-universal.apk`
+- `usque-v0.2.5-windows-x64-v2.msi`
+- `usque-v0.2.5-windows-arm64.msi`
+- `usque-v0.2.5-android-arm64-v8a.apk`
+- `usque-v0.2.5-android-x86_64.apk`
+- `usque-v0.2.5-android-armeabi-v7a.apk`
+- `usque-v0.2.5-android-universal.apk`
 
 In addition to the six install packages, the public release includes
 `release-manifest.json`, `SHA256SUMS`, and each package's SPDX SBOM. A public
@@ -101,10 +102,10 @@ documented in [RELIABILITY_TESTING.md](RELIABILITY_TESTING.md).
 
 ## Windows package rules
 
-These rules describe the current authoring and verification code. The Agent
-file-version check and late related-product removal sequence include changes
-after the original v0.2.4 tag; they must not be presented as properties already
-verified in that package. User-facing applicability is recorded in
+These rules describe the v0.2.5 authoring and verification code. The Agent
+file-version check and late related-product removal sequence were added after
+the original v0.2.4 tag; they must not be presented as properties already
+verified in that older package. User-facing applicability is recorded in
 [Installation and removal](INSTALLATION.md#version-scope).
 
 WiX is locked through `.config/dotnet-tools.json`. Windows Installer has no SemVer prerelease field, so `tool/build_windows_msi.ps1` maps a release as:
@@ -114,7 +115,7 @@ MSI build = SemVer patch * 100 + beta ordinal
 stable ordinal = 99
 ```
 
-Stable `v0.2.4` is therefore MSI ProductVersion `0.2.499`. The real SemVer stays in ProductName and the filenames. The Agent embeds the same mapped value as its four-part PE file version (for example, `0.2.499.0`), and packaging rejects an unversioned or mismatched Agent. Equal-version major upgrades are enabled so a validation build can replace the same product instead of installing a second copy under `Program Files\Usque`. WiX validation suppresses only ICE61, which assumes upgrades must raise the version; every other standard ICE check stays on.
+Stable `v0.2.5` is therefore MSI ProductVersion `0.2.599`. The real SemVer stays in ProductName and the filenames. The Agent embeds the same mapped value as its four-part PE file version (`0.2.599.0`), and packaging rejects an unversioned or mismatched Agent. Equal-version major upgrades are enabled so a validation build can replace the same product instead of installing a second copy under `Program Files\Usque`. WiX validation suppresses only ICE61, which assumes upgrades must raise the version; every other standard ICE check stays on.
 
 `RemoveExistingProducts` runs after `InstallExecute` and before
 `InstallFinalize`. This transactionally installs the fixed, versioned Agent

@@ -42,4 +42,4 @@ Details are in [RELEASE.md](RELEASE.md):
 
 - A fork pull request gets a read-only token, cannot read secrets, and cannot upload an installable package.
 - Dependency Review runs on public pull requests.
-- The README treats only files from the `v0.2.4` GitHub Release as official.
+- Only packages published by the approved tag workflow are official; the current release target is `v0.2.5`.
