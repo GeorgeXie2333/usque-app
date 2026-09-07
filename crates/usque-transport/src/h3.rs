@@ -1768,15 +1768,23 @@ fn generate_wire_datagrams(
     quality: &NetworkQualityTelemetry,
     active: crate::path_socket::PathBinding,
 ) -> Result<(), TransportError> {
-    if send_quantum < INITIAL_SAFE_UDP_PAYLOAD {
-        return Ok(());
-    }
     let mut generated_bytes = 0usize;
-    while pending.len() < MAX_PENDING_WIRE_DATAGRAMS
-        && generated_bytes.saturating_add(wire_payload_capacity) <= send_quantum
-    {
+    while pending.len() < MAX_PENDING_WIRE_DATAGRAMS {
+        // The allocation ceiling is not the next packet's required size.
+        // BBRv2 can budget one 1200-byte QUIC packet during the handshake or
+        // PMTU search. Requiring the full family ceiling (or the 1350-byte
+        // non-PMTUD fallback) would leave that flight permanently unsent.
+        let packet_capacity =
+            wire_payload_capacity.min(send_quantum.saturating_sub(generated_bytes));
+        if packet_capacity < quiche::MIN_CLIENT_INITIAL_LEN {
+            break;
+        }
         let mut bytes = take_wire_buffer(free_buffers, wire_payload_capacity, quality);
-        match connection.send_on_path(&mut bytes, Some(active.local_addr), Some(active.peer_addr)) {
+        match connection.send_on_path(
+            &mut bytes[..packet_capacity],
+            Some(active.local_addr),
+            Some(active.peer_addr),
+        ) {
             Ok((length, send_info)) => {
                 generated_bytes = generated_bytes.saturating_add(length);
                 bytes.truncate(length);
@@ -2721,6 +2729,98 @@ mod tests {
         assert_eq!(pending.len(), 1);
         assert_eq!(pending.front().unwrap().bytes, vec![3; 100]);
         sender.shutdown_all().await;
+    }
+
+    #[test]
+    fn actor_completes_handshake_with_every_algorithm_and_family_ceiling() {
+        for algorithm in usque_core::CongestionControlAlgorithm::ALL {
+            for (from, to, ceiling) in [
+                (
+                    "127.0.0.1:12340",
+                    "127.0.0.1:44330",
+                    crate::pmtu::IPV4_MAX_UDP_PAYLOAD,
+                ),
+                (
+                    "[::1]:12340",
+                    "[::1]:44330",
+                    crate::pmtu::IPV6_MAX_UDP_PAYLOAD,
+                ),
+            ] {
+                let (mut client, mut server, from, to) = test_quic_pair_with_config(
+                    from.parse().unwrap(),
+                    to.parse().unwrap(),
+                    |client, server| {
+                        client.set_cc_algorithm(quiche_congestion_control(algorithm));
+                        client.set_max_send_udp_payload_size(ceiling);
+                        client.set_max_ack_delay(0);
+                        server.set_max_ack_delay(0);
+                        server.set_max_recv_udp_payload_size(1200);
+                    },
+                );
+                let quality = NetworkQualityTelemetry::default();
+                let metrics = QueueMetrics::new(
+                    QueueKind::H3WireSend,
+                    MAX_PENDING_WIRE_DATAGRAMS,
+                    MAX_PENDING_WIRE_DATAGRAMS * ceiling,
+                );
+                let mut pending = VecDeque::new();
+                let mut free = Vec::new();
+                let mut minimum_quantum = usize::MAX;
+                for flight in 0..32 {
+                    if client.is_established() {
+                        client.dgram_send(b"probe").unwrap();
+                    }
+                    let quantum = client.send_quantum();
+                    minimum_quantum = minimum_quantum.min(quantum);
+                    generate_wire_datagrams(
+                        &mut client,
+                        &mut pending,
+                        &mut free,
+                        quantum,
+                        ceiling,
+                        &metrics,
+                        &quality,
+                        crate::path_socket::PathBinding {
+                            path_id: PathId::new(0),
+                            local_addr: from,
+                            peer_addr: to,
+                            network_generation: 0,
+                        },
+                    )
+                    .unwrap();
+                    assert!(
+                        pending
+                            .iter()
+                            .map(|packet| packet.bytes.len())
+                            .sum::<usize>()
+                            <= quantum
+                    );
+                    while let Some(mut packet) = pending.pop_front() {
+                        assert!(packet.bytes.len() <= ceiling);
+                        server
+                            .recv(&mut packet.bytes, quiche::RecvInfo { from, to })
+                            .unwrap();
+                        packet.queue_entry.complete();
+                        recycle_wire_buffer(&mut free, packet.bytes, &quality);
+                    }
+                    if flight == 0 {
+                        // Model a WAN RTT. A near-zero in-memory RTT inflates
+                        // BBRv2's send quantum and hides the one-packet case.
+                        std::thread::sleep(Duration::from_millis(200));
+                    }
+                    transfer_test_flight(&mut server, &mut client, None, None).unwrap();
+                }
+                assert!(
+                    client.is_established() && server.is_established(),
+                    "{} with ceiling {ceiling} stalled at quantum {minimum_quantum}",
+                    algorithm.as_str()
+                );
+                if algorithm == usque_core::CongestionControlAlgorithm::Bbr {
+                    assert!(minimum_quantum < ceiling);
+                }
+                assert_eq!(server.dgram_recv_buf().unwrap().as_ref(), b"probe");
+            }
+        }
     }
 
     #[test]

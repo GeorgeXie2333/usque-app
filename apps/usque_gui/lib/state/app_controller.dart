@@ -1169,6 +1169,7 @@ class AppController extends ChangeNotifier {
         : updated.copyWith(proxy: updated.proxy.copyWith(systemProxy: false));
     final zeroTrust =
         identityStatus(updated.id).provider == IdentityProvider.zeroTrust;
+    final previous = activeProfile;
     sharedNetwork = sharedNetwork.copyWith(
       frontends: normalized.frontends,
       transport: normalized.transport,
@@ -1196,8 +1197,22 @@ class AppController extends ChangeNotifier {
     );
     _notifyListeners();
     final outgoing = activeProfile;
+    // This setting belongs to the next manual session. Persist it without
+    // waiting for the active Android runtime (which may be reconnecting).
+    // Compare the full normalized profile so mixed edits keep their usual
+    // reconfigure path, including proxy, DNS and identity-bound settings.
+    final congestionOnly =
+        outgoing.congestionControl != previous.congestionControl &&
+        jsonEncode(
+              outgoing
+                  .copyWith(congestionControl: previous.congestionControl)
+                  .toMap(),
+            ) ==
+            jsonEncode(previous.toMap());
     return _queueProfileMutation(() {
-      if (outgoing.id == activeProfileId && snapshot.isConnected) {
+      if (!congestionOnly &&
+          outgoing.id == activeProfileId &&
+          snapshot.isConnected) {
         return _engine.reconfigureActiveProfile(outgoing);
       }
       return _engine.upsertProfile(outgoing);

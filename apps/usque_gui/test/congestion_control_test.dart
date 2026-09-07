@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,6 +13,18 @@ import 'app_test.dart' show FakeEngineClient;
 import 'ui_workflow_test.dart' show workflowHost;
 
 const codec = ControlCodec();
+
+class CongestionSaveEngine extends FakeEngineClient {
+  int reconfigurations = 0;
+  final runtimeReconfigure = Completer<void>();
+
+  @override
+  Future<void> reconfigureActiveProfile(UsqueProfile profile) async {
+    reconfigurations++;
+    await runtimeReconfigure.future;
+    await super.reconfigureActiveProfile(profile);
+  }
+}
 
 Uint8List response(int field, Uint8List payload) => codec.frame(
   (ControlPayloadWriter()
@@ -168,6 +182,8 @@ void main() {
     bool supported = true,
     bool h2 = false,
     bool chinese = false,
+    ConnectionPhase phase = ConnectionPhase.connected,
+    bool pushed = false,
     double scale = 1,
     Size size = const Size(1280, 900),
   }) async {
@@ -185,7 +201,7 @@ void main() {
             : const [],
       )
       ..snapshot = EngineSnapshot(
-        phase: ConnectionPhase.connected,
+        phase: phase,
         transport: h2 ? 'h2' : 'h3',
         sessionCongestionControl: CongestionControlAlgorithm.cubic,
       );
@@ -200,12 +216,127 @@ void main() {
         app,
         dark: chinese,
         scale: scale,
-        home: AdvancedSettingsScreen(controller: app),
+        home: pushed
+            ? Builder(
+                builder: (context) => Scaffold(
+                  body: TextButton(
+                    onPressed: () => Navigator.of(context).push<void>(
+                      MaterialPageRoute(
+                        builder: (_) => AdvancedSettingsScreen(controller: app),
+                      ),
+                    ),
+                    child: const Text('Open advanced'),
+                  ),
+                ),
+              )
+            : AdvancedSettingsScreen(controller: app),
       ),
     );
     await tester.pumpAndSettle();
+    if (pushed) {
+      await tester.tap(find.text('Open advanced'));
+      await tester.pumpAndSettle();
+    }
     return app;
   }
+
+  for (final phase in [
+    ConnectionPhase.connectingH3,
+    ConnectionPhase.connected,
+    ConnectionPhase.reconnecting,
+  ]) {
+    testWidgets(
+      'algorithm-only save and back do not wait for runtime in $phase',
+      (tester) async {
+        final engine = CongestionSaveEngine();
+        final app = await screen(tester, engine, phase: phase, pushed: true);
+        addTearDown(() {
+          if (!engine.runtimeReconfigure.isCompleted) {
+            engine.runtimeReconfigure.complete();
+          }
+        });
+        await tester.tap(find.byKey(const ValueKey('congestion-control')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('BBRv3').last);
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(FilledButton, 'Apply changes'));
+        await tester.pump();
+        expect(engine.reconfigurations, 0);
+        await tester.pumpAndSettle();
+        expect(
+          app.sharedNetwork.congestionControl,
+          CongestionControlAlgorithm.bbr3,
+        );
+        expect(app.snapshot.phase, phase);
+        expect(
+          app.snapshot.sessionCongestionControl,
+          CongestionControlAlgorithm.cubic,
+        );
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+        expect(find.byType(AdvancedSettingsScreen), findsNothing);
+        expect(find.text('Open advanced'), findsOneWidget);
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.android),
+    );
+  }
+
+  testWidgets(
+    'connecting draft can be discarded with Android back',
+    (tester) async {
+      final engine = CongestionSaveEngine();
+      final app = await screen(
+        tester,
+        engine,
+        phase: ConnectionPhase.connectingH3,
+        pushed: true,
+        size: const Size(375, 812),
+      );
+      final selector = find.byKey(const ValueKey('congestion-control'));
+      await tester.ensureVisible(selector);
+      await tester.pumpAndSettle();
+      await tester.tap(selector);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('BBRv3').last);
+      await tester.pumpAndSettle();
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Discard changes'));
+      await tester.pumpAndSettle();
+      expect(find.byType(AdvancedSettingsScreen), findsNothing);
+      expect(
+        app.sharedNetwork.congestionControl,
+        CongestionControlAlgorithm.cubic,
+      );
+      expect(engine.reconfigurations, 0);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
+
+  test('mixed algorithm and runtime edits still reconfigure', () async {
+    final engine = CongestionSaveEngine();
+    final app = AppController(engine)
+      ..snapshot = const EngineSnapshot(
+        phase: ConnectionPhase.connected,
+        sessionCongestionControl: CongestionControlAlgorithm.cubic,
+      );
+    addTearDown(app.dispose);
+    engine.runtimeReconfigure.complete();
+    expect(
+      await app.saveNetwork(
+        app.activeProfile.copyWith(
+          congestionControl: CongestionControlAlgorithm.bbr3,
+          sni: 'changed.example',
+        ),
+      ),
+      isTrue,
+    );
+    expect(engine.reconfigurations, 1);
+    expect(
+      app.snapshot.sessionCongestionControl,
+      CongestionControlAlgorithm.cubic,
+    );
+  });
 
   for (final size in [const Size(375, 812), const Size(1280, 900)]) {
     testWidgets('selector is below SNI with concise labels at $size', (
