@@ -43,6 +43,7 @@ class HomeScreen extends StatelessWidget {
             viewport.shortestSide < 600;
     return PageFrame(
       title: strings.get('home'),
+      showHeading: defaultTargetPlatform != TargetPlatform.windows || compact,
       titleWidget: compact ? const _NarrowBrandHeader() : null,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -799,6 +800,7 @@ class _HomeTools extends StatelessWidget {
         ),
         builder: (context, view) {
           final strings = controller.strings;
+          final style = homeToolButtonStyle(context);
           return Wrap(
             spacing: 8,
             runSpacing: 8,
@@ -806,24 +808,26 @@ class _HomeTools extends StatelessWidget {
               if (view.quality)
                 OutlinedButton.icon(
                   key: const ValueKey('home-network-quality'),
+                  style: style,
                   onPressed: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(
                       builder: (_) =>
                           NetworkQualityScreen(controller: controller),
                     ),
                   ),
-                  icon: const Icon(LucideIcons.gauge, size: 18),
+                  icon: const Icon(LucideIcons.gauge, size: 16),
                   label: Text(strings.get('network_quality')),
                 ),
               if (!view.recovery)
-                TextButton.icon(
+                OutlinedButton.icon(
                   key: const ValueKey('home-diagnostics'),
+                  style: style,
                   onPressed: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(
                       builder: (_) => DiagnosticsScreen(controller: controller),
                     ),
                   ),
-                  icon: const Icon(LucideIcons.activity, size: 18),
+                  icon: const Icon(LucideIcons.activity, size: 16),
                   label: Text(strings.get('diagnostics')),
                 ),
             ],

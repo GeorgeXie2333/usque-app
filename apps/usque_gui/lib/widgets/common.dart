@@ -13,6 +13,7 @@ class PageFrame extends StatelessWidget {
     this.subtitle,
     this.header,
     this.titleWidget,
+    this.showHeading = true,
     this.contentWidth = maxContentWidth,
     this.actions = const <Widget>[],
     super.key,
@@ -23,6 +24,9 @@ class PageFrame extends StatelessWidget {
   final String? subtitle;
   final Widget? header;
   final Widget? titleWidget;
+
+  /// Hide the visual header while retaining the page's scroll-storage identity.
+  final bool showHeading;
   final double contentWidth;
   final List<Widget> actions;
 
@@ -37,74 +41,87 @@ class PageFrame extends StatelessWidget {
       child: CustomScrollView(
         key: PageStorageKey<String>(title),
         slivers: <Widget>[
-          SliverPadding(
-            padding: EdgeInsets.fromLTRB(gutter, gutter, gutter, 18),
-            sliver: SliverToBoxAdapter(
-              child: Align(
-                alignment: Alignment.topCenter,
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(maxWidth: contentWidth),
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      // A bare Column would shrink-wrap and the Align above
-                      // would centre the whole heading, so every branch below
-                      // has to claim the full row.
-                      final Widget heading = Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: <Widget>[
-                          if (header != null) ...<Widget>[
-                            header!,
-                            const SizedBox(height: 18),
-                          ],
-                          titleWidget ??
-                              Text(
-                                title,
-                                style: theme.textTheme.headlineMedium,
-                              ),
-                          if (subtitle != null) ...<Widget>[
-                            const SizedBox(height: 6),
-                            Text(
-                              subtitle!,
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ],
-                        ],
-                      );
-                      if (actions.isEmpty) {
-                        return SizedBox(width: double.infinity, child: heading);
-                      }
-                      // Below this width the title and its actions stop being a
-                      // row: the buttons drop under the heading instead of
-                      // squeezing it.
-                      if (constraints.maxWidth < 560 ||
-                          MediaQuery.textScalerOf(context).scale(14) > 21) {
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
+          if (showHeading)
+            SliverPadding(
+              padding: EdgeInsets.fromLTRB(gutter, gutter, gutter, 18),
+              sliver: SliverToBoxAdapter(
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: contentWidth),
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        // A bare Column would shrink-wrap and the Align above
+                        // would centre the whole heading, so every branch below
+                        // has to claim the full row.
+                        final Widget heading = Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: <Widget>[
-                            heading,
-                            const SizedBox(height: 16),
+                            if (header != null) ...<Widget>[
+                              header!,
+                              const SizedBox(height: 18),
+                            ],
+                            titleWidget ??
+                                Text(
+                                  title,
+                                  style: theme.textTheme.headlineMedium,
+                                ),
+                            if (subtitle != null) ...<Widget>[
+                              const SizedBox(height: 6),
+                              Text(
+                                subtitle!,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ],
+                        );
+                        if (actions.isEmpty) {
+                          return SizedBox(
+                            width: double.infinity,
+                            child: heading,
+                          );
+                        }
+                        // Below this width the title and its actions stop being a
+                        // row: the buttons drop under the heading instead of
+                        // squeezing it.
+                        if (constraints.maxWidth < 560 ||
+                            MediaQuery.textScalerOf(context).scale(14) > 21) {
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: <Widget>[
+                              heading,
+                              const SizedBox(height: 16),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: actions,
+                              ),
+                            ],
+                          );
+                        }
+                        return Row(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: <Widget>[
+                            Expanded(child: heading),
+                            const SizedBox(width: 16),
                             Wrap(spacing: 8, runSpacing: 8, children: actions),
                           ],
                         );
-                      }
-                      return Row(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: <Widget>[
-                          Expanded(child: heading),
-                          const SizedBox(width: 16),
-                          Wrap(spacing: 8, runSpacing: 8, children: actions),
-                        ],
-                      );
-                    },
+                      },
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
           SliverPadding(
-            padding: EdgeInsets.fromLTRB(gutter, 0, gutter, 34),
+            padding: EdgeInsets.fromLTRB(
+              gutter,
+              showHeading ? 0 : gutter,
+              gutter,
+              34,
+            ),
             sliver: SliverToBoxAdapter(
               child: Align(
                 alignment: Alignment.topCenter,

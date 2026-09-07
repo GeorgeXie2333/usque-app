@@ -11,6 +11,14 @@ import 'controller_selector.dart';
 import 'live_duration.dart';
 import 'sparkline.dart';
 
+/// Shared appearance for the home shortcuts; each layout controls their width.
+ButtonStyle homeToolButtonStyle(BuildContext context) =>
+    OutlinedButton.styleFrom(
+      minimumSize: const Size(0, 48),
+      padding: const EdgeInsets.all(10),
+      foregroundColor: Theme.of(context).colorScheme.onSurface,
+    );
+
 /// Share a small, bounded amount of breathing room across the home sections on
 /// tall phones. Large text and short viewports keep the compact spacing.
 double mobileHomeExpansion(BuildContext context) {
@@ -339,14 +347,7 @@ class MobileConnectionOverview extends StatelessWidget {
           const SizedBox(height: 12),
           LayoutBuilder(
             builder: (context, constraints) {
-              final style = OutlinedButton.styleFrom(
-                minimumSize: const Size(0, 48),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 10,
-                ),
-                foregroundColor: theme.colorScheme.onSurface,
-              );
+              final style = homeToolButtonStyle(context);
               final quality = OutlinedButton.icon(
                 key: const ValueKey('home-network-quality'),
                 style: style,

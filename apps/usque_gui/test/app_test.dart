@@ -4469,7 +4469,12 @@ void main() {
       await tester.tap(find.text('Retry'));
       await tester.pumpAndSettle();
       expect(engine.calls, contains('retry'));
-      expect(find.widgetWithText(OutlinedButton, 'Diagnostics'), findsNothing);
+      expect(find.text('Retry'), findsNothing);
+      expect(find.byKey(const ValueKey('home-diagnostics')), findsOneWidget);
+      expect(
+        find.widgetWithText(OutlinedButton, 'Diagnostics'),
+        findsOneWidget,
+      );
 
       controller.snapshot = const EngineSnapshot(
         phase: ConnectionPhase.degraded,
@@ -4480,6 +4485,7 @@ void main() {
         find.widgetWithText(OutlinedButton, 'Diagnostics'),
         findsOneWidget,
       );
+      expect(find.byKey(const ValueKey('home-diagnostics')), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );

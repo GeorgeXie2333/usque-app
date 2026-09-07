@@ -8,6 +8,7 @@ import 'package:usque/models/app_models.dart';
 import 'package:usque/screens/advanced_settings_screen.dart';
 import 'package:usque/screens/diagnostics_screen.dart';
 import 'package:usque/screens/geo_direct_settings_screen.dart';
+import 'package:usque/screens/home_screen.dart';
 import 'package:usque/screens/network_quality_screen.dart';
 import 'package:usque/screens/onboarding_screen.dart';
 import 'package:usque/screens/per_app_proxy_screen.dart';
@@ -22,6 +23,98 @@ Widget _host(Widget child, {bool dark = false}) => MaterialApp(
 );
 
 void main() {
+  testWidgets(
+    'Windows home hides the content heading and retains navigation',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1280, 900);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      final app = AppController(WorkflowEngine())
+        ..localePreference = LocalePreference.simplifiedChinese;
+      addTearDown(app.dispose);
+      await tester.pumpWidget(workflowHost(app));
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(of: find.byType(HomeScreen), matching: find.text('首页')),
+        findsNothing,
+      );
+      expect(
+        find.descendant(
+          of: find.byType(NavigationRail),
+          matching: find.text('首页'),
+        ),
+        findsOneWidget,
+      );
+      expect(tester.getTopLeft(find.byType(ContentSection).first).dy, 32);
+      app.selectSection(AppSection.settings);
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(of: find.byType(PageFrame), matching: find.text('设置')),
+        findsOneWidget,
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
+
+  testWidgets(
+    'home tool buttons share the mobile outline style and open their pages',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      for (final dark in [false, true]) {
+        for (final size in [const Size(1280, 900), const Size(375, 812)]) {
+          tester.view.physicalSize = size;
+          final app = AppController(WorkflowEngine())
+            ..localePreference = LocalePreference.english
+            ..engineCapabilities = const EngineCapabilities(
+              networkQuality: true,
+            );
+          try {
+            await tester.pumpWidget(workflowHost(app, dark: dark));
+            await tester.pumpAndSettle();
+            for (final key in ['home-network-quality', 'home-diagnostics']) {
+              final finder = find.byKey(ValueKey(key));
+              expect(tester.widget(finder), isA<OutlinedButton>());
+              final button = tester.widget<OutlinedButton>(finder);
+              final states = <WidgetState>{};
+              expect(
+                button.style?.minimumSize?.resolve(states),
+                const Size(0, 48),
+              );
+              expect(
+                button.style?.padding?.resolve(states),
+                const EdgeInsets.all(10),
+              );
+              expect(
+                button.style?.foregroundColor?.resolve(states),
+                Theme.of(tester.element(finder)).colorScheme.onSurface,
+              );
+              expect(tester.getSize(finder).height, greaterThanOrEqualTo(48));
+              await tester.ensureVisible(finder);
+              await tester.pumpAndSettle();
+              await tester.tap(finder);
+              await tester.pumpAndSettle();
+              final page = key == 'home-diagnostics'
+                  ? find.byType(DiagnosticsScreen)
+                  : find.byType(NetworkQualityScreen);
+              expect(page, findsOneWidget);
+              Navigator.of(tester.element(page)).pop();
+              await tester.pumpAndSettle();
+            }
+            expect(tester.takeException(), isNull);
+            await tester.pumpWidget(const SizedBox.shrink());
+          } finally {
+            app.dispose();
+          }
+        }
+      }
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
+
   testWidgets(
     'action rows have stable focus, keyboard, D-pad and tap feedback',
     (tester) async {
