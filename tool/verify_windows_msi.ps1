@@ -16,6 +16,10 @@ param(
     [string]$ExpectedDisplayVersion,
 
     [Parameter(Mandatory = $true)]
+    [ValidatePattern("^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$")]
+    [string]$ExpectedAgentFileVersion,
+
+    [Parameter(Mandatory = $true)]
     [ValidatePattern("^[0-9A-Fa-f]{64}$")]
     [string]$SignerSha256
 )
@@ -91,12 +95,15 @@ function Invoke-MsiQuery {
 function Assert-OneRow {
     param(
         [Parameter(Mandatory = $true)]
+        [AllowNull()]
+        [AllowEmptyCollection()]
         [object[]]$Rows,
         [Parameter(Mandatory = $true)]
         [string]$Description
     )
-    if ($Rows.Count -ne 1) {
-        throw "$Description must have exactly one MSI table row; found $($Rows.Count)."
+    $rowCount = if ($null -eq $Rows) { 0 } else { $Rows.Count }
+    if ($rowCount -ne 1) {
+        throw "$Description must have exactly one MSI table row; found $rowCount."
     }
     return $Rows[0]
 }
@@ -220,6 +227,47 @@ try {
     Assert-Equal $propertyMap.MSIRMSHUTDOWN "1" "forced Restart Manager fallback"
     Assert-Equal $propertyMap.MSIDISABLERMRESTART "1" "Restart Manager relaunch suppression"
     Assert-Equal $propertyMap.USQUE_UPDATE_VARIANT $Variant "in-app update variant"
+    if ($propertyMap.ContainsKey("REINSTALLMODE")) {
+        throw "Payload overwrite mode must be scoped to new-install sequences, not the Property table."
+    }
+    if ($propertyMap.ContainsKey("REINSTALL")) {
+        throw "MSI must not enable unsupported repair through a REINSTALL property."
+    }
+
+    $overwriteAction = Assert-OneRow `
+    (Invoke-MsiQuery `
+            -Database $database `
+            -Query "SELECT ``Action``,``Type``,``Source``,``Target`` FROM ``CustomAction`` WHERE ``Action``='SetPayloadReinstallMode'" `
+            -Columns @("Action", "Type", "Source", "Target")) `
+        "payload overwrite CustomAction"
+    Assert-Equal $overwriteAction.Type "51" "payload overwrite custom action type"
+    Assert-Equal $overwriteAction.Source "REINSTALLMODE" "payload overwrite property"
+    Assert-Equal $overwriteAction.Target "amus" "payload overwrite enforced mode"
+
+    foreach ($sequenceTable in @("InstallUISequence", "InstallExecuteSequence")) {
+        $overwriteSequence = Assert-OneRow `
+        (Invoke-MsiQuery `
+                -Database $database `
+                -Query "SELECT ``Condition``,``Sequence`` FROM ``$sequenceTable`` WHERE ``Action``='SetPayloadReinstallMode'" `
+                -Columns @("Condition", "Sequence")) `
+            "payload overwrite $sequenceTable"
+        $costInitialize = Assert-OneRow `
+        (Invoke-MsiQuery `
+                -Database $database `
+                -Query "SELECT ``Sequence`` FROM ``$sequenceTable`` WHERE ``Action``='CostInitialize'" `
+                -Columns @("Sequence")) `
+            "CostInitialize $sequenceTable"
+        Assert-Equal `
+            $overwriteSequence.Condition `
+            'NOT Installed AND NOT REMOVE~="ALL"' `
+            "payload overwrite new-install condition"
+        if (
+            [int]$overwriteSequence.Sequence -le 0 -or
+            [int]$overwriteSequence.Sequence -ge [int]$costInitialize.Sequence
+        ) {
+            throw "Payload overwrite policy must be enforced before CostInitialize in $sequenceTable."
+        }
+    }
     if (
         $propertyMap.ContainsKey("USQUE_REMOVE_USER_DATA") -and
         -not [string]::IsNullOrEmpty([string]$propertyMap.USQUE_REMOVE_USER_DATA)
@@ -522,6 +570,19 @@ try {
     Assert-Equal $serviceControl.Wait "1" "service wait policy"
     Assert-Equal $serviceControl.Component "UsqueAgentComponent" "service control component"
 
+    $agentComponent = Assert-OneRow `
+    (Invoke-MsiQuery `
+            -Database $database `
+            -Query "SELECT ``Component``,``ComponentId``,``Directory_``,``KeyPath`` FROM ``Component`` WHERE ``Component``='UsqueAgentComponent'" `
+            -Columns @("Component", "ComponentId", "Directory", "KeyPath")) `
+        "versioned Agent component"
+    Assert-Equal `
+        $agentComponent.ComponentId `
+        "{E8A3C869-B571-4BD6-9CB6-98179A7CA9AF}" `
+        "stable Agent component GUID"
+    Assert-Equal $agentComponent.Directory "INSTALLFOLDER" "Agent component directory"
+    Assert-Equal $agentComponent.KeyPath "UsqueAgentExecutable" "Agent component KeyPath"
+
     $servicePermission = Assert-OneRow `
     (Invoke-MsiQuery `
             -Database $database `
@@ -624,7 +685,7 @@ try {
 
     $sequenceRows = Invoke-MsiQuery `
         -Database $database `
-        -Query "SELECT ``Action``,``Condition``,``Sequence`` FROM ``InstallExecuteSequence`` WHERE ``Action``='RemoveExistingProducts' OR ``Action``='RejectUnsupportedMaintenance' OR ``Action``='StopServices' OR ``Action``='EmergencyRemoveKillSwitch' OR ``Action``='RecoverAgentState' OR ``Action``='PurgeUserData' OR ``Action``='RemoveUserStartupRegistration' OR ``Action``='FinalizeAgentUninstall' OR ``Action``='DeleteServices' OR ``Action``='RemoveFiles' OR ``Action``='InstallServices' OR ``Action``='ValidateAgentStartup' OR ``Action``='StartServices'" `
+        -Query "SELECT ``Action``,``Condition``,``Sequence`` FROM ``InstallExecuteSequence`` WHERE ``Action``='RemoveExistingProducts' OR ``Action``='RejectUnsupportedMaintenance' OR ``Action``='StopServices' OR ``Action``='EmergencyRemoveKillSwitch' OR ``Action``='RecoverAgentState' OR ``Action``='PurgeUserData' OR ``Action``='RemoveUserStartupRegistration' OR ``Action``='FinalizeAgentUninstall' OR ``Action``='DeleteServices' OR ``Action``='RemoveFiles' OR ``Action``='InstallServices' OR ``Action``='ValidateAgentStartup' OR ``Action``='StartServices' OR ``Action``='InstallExecute' OR ``Action``='InstallFinalize'" `
         -Columns @("Action", "Condition", "Sequence")
     $sequences = @{}
     foreach ($row in $sequenceRows) {
@@ -649,7 +710,16 @@ try {
             throw "MSI is missing the $requiredAction execute-sequence row."
         }
     }
-    Assert-Equal $sequences.RemoveExistingProducts.Sequence "1501" "major-upgrade removal sequence"
+    if (
+        -not $sequences.ContainsKey("InstallExecute") -or
+        -not $sequences.ContainsKey("InstallFinalize") -or
+        [int]$sequences.RemoveExistingProducts.Sequence -le
+        [int]$sequences.InstallExecute.Sequence -or
+        [int]$sequences.RemoveExistingProducts.Sequence -ge
+        [int]$sequences.InstallFinalize.Sequence
+    ) {
+        throw "RemoveExistingProducts must run after InstallExecute and before InstallFinalize so the fixed Agent is installed before older-product recovery."
+    }
     Assert-Equal `
         $sequences.RejectUnsupportedMaintenance.Condition `
         'Installed AND NOT REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE' `
@@ -738,8 +808,15 @@ try {
 
     $files = Invoke-MsiQuery `
         -Database $database `
-        -Query "SELECT ``File``,``FileName``,``Component_`` FROM ``File``" `
-        -Columns @("File", "FileName", "Component")
+        -Query "SELECT ``File``,``FileName``,``Component_``,``Version`` FROM ``File``" `
+        -Columns @("File", "FileName", "Component", "Version")
+    $agentFile = Assert-OneRow `
+    @($files | Where-Object { $_.File -eq "UsqueAgentExecutable" }) `
+        "versioned Agent file"
+    Assert-Equal `
+        $agentFile.Version `
+        $ExpectedAgentFileVersion `
+        "bridge-upgrade Agent file version"
     $longNames = @(
         $files | ForEach-Object {
             if ($_.FileName.Contains("|")) {
@@ -771,11 +848,47 @@ try {
 
     $components = Invoke-MsiQuery `
         -Database $database `
-        -Query "SELECT ``Component``,``Attributes`` FROM ``Component``" `
-        -Columns @("Component", "Attributes")
+        -Query "SELECT ``Component``,``Attributes``,``Directory_`` FROM ``Component``" `
+        -Columns @("Component", "Attributes", "Directory")
+    $componentMap = @{}
     foreach ($component in $components) {
+        $componentMap[$component.Component] = $component
         if (([int]$component.Attributes -band 256) -eq 0) {
             throw "Component $($component.Component) is not marked 64-bit."
+        }
+    }
+
+    # REINSTALLMODE=amus is safe only for private program payload. Keep this
+    # bound to the compiled File/Component/Directory tables, including harvested
+    # Flutter assets; do not rely only on the authoring's named EXE components.
+    $directories = Invoke-MsiQuery `
+        -Database $database `
+        -Query "SELECT ``Directory``,``Directory_Parent`` FROM ``Directory``" `
+        -Columns @("Directory", "Parent")
+    $directoryMap = @{}
+    foreach ($directory in $directories) {
+        $directoryMap[$directory.Directory] = $directory.Parent
+    }
+    foreach ($file in $files) {
+        if (-not $componentMap.ContainsKey($file.Component)) {
+            throw "Payload file $($file.File) has no component."
+        }
+        $component = $componentMap[$file.Component]
+        if (([int]$component.Attributes -band 128) -ne 0) {
+            throw "Payload component $($component.Component) must not use NeverOverwrite."
+        }
+        $directoryId = [string]$component.Directory
+        $visited = @{}
+        while ($directoryId -ne "INSTALLFOLDER") {
+            if (
+                [string]::IsNullOrEmpty($directoryId) -or
+                $visited.ContainsKey($directoryId) -or
+                -not $directoryMap.ContainsKey($directoryId)
+            ) {
+                throw "Payload file $($file.File) must remain below INSTALLFOLDER."
+            }
+            $visited[$directoryId] = $true
+            $directoryId = [string]$directoryMap[$directoryId]
         }
     }
 }

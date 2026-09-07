@@ -164,7 +164,11 @@ class ControlCodec {
         );
       }
       if (error != null) {
-        throw EngineException(error.code, error.message);
+        throw EngineException(
+          error.code,
+          error.message,
+          retryable: error.retryable,
+        );
       }
       return ControlResponse(
         snapshot,
@@ -1298,6 +1302,8 @@ NetworkQualitySnapshot _decodeNetworkQuality(_ProtoReader reader) {
   var level = NetworkQualityLevel.unknown;
   var metrics = const NetworkConnectionMetrics();
   final queues = <NetworkQueueQuality>[];
+  final samples = <NetworkQualitySample>[];
+  var sampleCount = 0;
   var pmtu = const PmtuQualityInfo();
   var migration = const MigrationQualityInfo();
   var directDns = const DirectDnsQualityInfo();
@@ -1328,6 +1334,13 @@ NetworkQualitySnapshot _decodeNetworkQuality(_ProtoReader reader) {
         migration = _decodeMigrationQuality(reader.message(field));
       case 8:
         directDns = _decodeDirectDnsQuality(reader.message(field));
+      case 9:
+        if (sampleCount++ < 16) {
+          final sample = _decodeNetworkQualitySample(reader.message(field));
+          if (sample != null) samples.add(sample);
+        } else {
+          reader.skip(field);
+        }
       default:
         reader.skip(field);
     }
@@ -1341,7 +1354,32 @@ NetworkQualitySnapshot _decodeNetworkQuality(_ProtoReader reader) {
     pmtu: pmtu,
     migration: migration,
     directDns: directDns,
+    samples: List.unmodifiable(samples),
   );
+}
+
+NetworkQualitySample? _decodeNetworkQualitySample(_ProtoReader reader) {
+  const keys = <int, String>{
+    1: 'sequence',
+    2: 'sampled_at_unix_ms',
+    3: 'monotonic_millis',
+    4: 'downloaded_bytes',
+    5: 'uploaded_bytes',
+    6: 'rtt_ms',
+    7: 'loss_basis_points',
+  };
+  // Proto3 omits the zero monotonic origin; optional metrics retain presence.
+  final values = <Object?, Object?>{'monotonic_millis': 0};
+  while (!reader.isDone) {
+    final field = reader.field();
+    final key = keys[field.number];
+    if (key == null) {
+      reader.skip(field);
+    } else {
+      values[key] = reader.varint(field);
+    }
+  }
+  return NetworkQualitySample.fromMap(values);
 }
 
 NetworkConnectionMetrics _decodeNetworkConnectionMetrics(_ProtoReader reader) {
@@ -2018,6 +2056,7 @@ UpdatePackage _decodeUpdatePackage(_ProtoReader reader) {
 _StructuredEngineError _decodeError(_ProtoReader reader) {
   var code = 'ENGINE_ERROR';
   var message = 'The local Engine rejected this operation.';
+  var retryable = false;
   while (!reader.isDone) {
     final field = reader.field();
     switch (field.number) {
@@ -2025,11 +2064,13 @@ _StructuredEngineError _decodeError(_ProtoReader reader) {
         code = reader.string(field);
       case 2:
         message = reader.string(field);
+      case 3:
+        retryable = reader.varint(field) != 0;
       default:
         reader.skip(field);
     }
   }
-  return _StructuredEngineError(code, message);
+  return _StructuredEngineError(code, message, retryable);
 }
 
 EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
@@ -2043,6 +2084,8 @@ EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
   var downloadRate = 0;
   ExitInfo exit = const ExitInfo();
   String? warning;
+  String? errorCode;
+  bool? errorRetryable;
   var reconnectCount = 0;
   String? killSwitchState;
   var platformLockdown = false;
@@ -2081,7 +2124,10 @@ EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
       case 7:
         exit = _decodeExit(reader.message(field));
       case 8:
-        warning = _decodeError(reader.message(field)).message;
+        final error = _decodeError(reader.message(field));
+        warning = error.message;
+        errorCode = error.code;
+        errorRetryable = error.retryable;
       case 9:
         killSwitchState = _decodeKillSwitchState(reader.varint(field));
       case 10:
@@ -2119,7 +2165,8 @@ EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
     platformLockdown: platformLockdown,
     activeListeners: List<String>.unmodifiable(activeListeners),
     frontends: List<FrontendRuntimeStatus>.unmodifiable(frontends),
-    errorCode: failure?.code,
+    errorCode: failure?.code ?? errorCode,
+    errorRetryable: failure?.retryable ?? errorRetryable,
     failure: failure,
     networkQuality: networkQuality,
   );
@@ -2242,10 +2289,11 @@ ConnectionPhase _decodePhase(int value) {
 String? _emptyToNull(String value) => value.isEmpty ? null : value;
 
 class _StructuredEngineError {
-  const _StructuredEngineError(this.code, this.message);
+  const _StructuredEngineError(this.code, this.message, this.retryable);
 
   final String code;
   final String message;
+  final bool retryable;
 }
 
 class _Geo {

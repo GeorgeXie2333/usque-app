@@ -11,6 +11,7 @@
 
 #include "engine_ipc.h"
 #include "maintenance_shutdown.h"
+#include "window_geometry.h"
 #include "zero_trust_callback.h"
 #include "zero_trust_protocol.h"
 
@@ -22,6 +23,39 @@ void Expect(bool condition, const char* name) {
   if (condition) return;
   std::fprintf(stderr, "FAIL %s\n", name);
   ++g_failures;
+}
+
+void initialWindowStaysWithinMonitorWorkArea() {
+  const RECT desired{10, 10, 10 + usque::kDefaultWindowWidth,
+                     10 + usque::kDefaultWindowHeight};
+  const RECT large = usque::FitWindowBounds(desired, {0, 0, 1920, 1032});
+  Expect(::EqualRect(&desired, &large), "windowBounds.largeMonitorUnchanged");
+
+  const RECT high_dpi =
+      usque::FitWindowBounds({12, 12, 1512, 1062}, {0, 0, 1920, 1032});
+  Expect(high_dpi.left == 12 && high_dpi.top == 0 &&
+             high_dpi.right == 1512 && high_dpi.bottom == 1032,
+         "windowBounds.scaledHeightFitsAboveTaskbar");
+
+  const RECT small_monitor = usque::FitWindowBounds(desired, {0, 0, 1024, 728});
+  Expect(small_monitor.left == 0 && small_monitor.top == 0 &&
+             small_monitor.right == 1024 && small_monitor.bottom == 728,
+         "windowBounds.smallMonitorClampsBothDimensions");
+
+  const RECT secondary =
+      usque::FitWindowBounds({-100, 500, 1100, 1340}, {-1920, 40, 0, 1040});
+  Expect(secondary.left == -1200 && secondary.top == 200 &&
+             secondary.right == 0 && secondary.bottom == 1040,
+         "windowBounds.negativeMonitorOrigin");
+
+  const RECT minimum =
+      usque::FitWindowBounds({0, 0, 1040, 1200}, {0, 0, 1920, 1032});
+  Expect(minimum.right - minimum.left == 1040 &&
+             minimum.bottom - minimum.top == 1032,
+         "windowBounds.minimumTrackingSizeFitsHighDpiWorkArea");
+
+  const RECT unavailable = usque::FitWindowBounds(desired, {0, 0, 0, 0});
+  Expect(::EqualRect(&desired, &unavailable), "windowBounds.invalidWorkAreaFallback");
 }
 
 void matchingCallbackIsConsumedOnlyOnce() {
@@ -337,6 +371,7 @@ void maintenanceShutdownMessagesAreClassified() {
 }  // namespace
 
 int main() {
+  initialWindowStaysWithinMonitorWorkArea();
   matchingCallbackIsConsumedOnlyOnce();
   callbackRequiresAnActiveSameTeamLogin();
   cancellationAndProcessReplacementDiscardState();

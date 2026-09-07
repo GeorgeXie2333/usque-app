@@ -1,12 +1,29 @@
-# How v0.2.4 is published
+# Release process
 
-`v0.2.4` is built by the tag workflow on the current `main` commit. The `v0.2.4` tag is maintainer-only. Signing and publish jobs run in GitHub Environments that need approval. If a required file, signature input, or CI result is missing, the workflow fails. A local MSI or APK cannot replace a failed Actions build.
+This is a maintainer reference for the checked-in release workflow, not a
+record that the current checkout has been published. The authoritative
+executable contracts are [release.yml](../.github/workflows/release.yml) and
+[release_contract.py](../tool/release_contract.py).
+
+The workflow currently accepts only `v0.2.5` and requires that tag to point at
+the current `main` commit when its gate runs. The tag is maintainer-only.
+Signing and publish jobs run in GitHub Environments that need approval. If a
+required file, signing input, or CI result is missing, the workflow fails. A
+local MSI or APK cannot replace a failed Actions build.
+
+The v0.2.5 candidate includes the newer-Agent-first Windows upgrade sequence
+and complete payload replacement described below. These fixes are not part of
+the original v0.2.4 release. Read each release's tagged documentation and notes
+for its delivered behavior. This guide does not authorize moving or reusing a
+published tag; a subsequent release needs a separately reviewed version and
+workflow update and the existing approval gates. Static and compile-only
+checks are not evidence of a successful real-machine upgrade.
 
 Which signatures count as official, how fingerprints are published, and what happens if a key is lost or leaked are in [CODE_SIGNING.md](CODE_SIGNING.md). Repository rules around this workflow are in [GITHUB_GOVERNANCE.md](GITHUB_GOVERNANCE.md).
 
 ## Before signing starts
 
-- The tag must be `v0.2.4` and must point at the current `main` commit.
+- The tag must be `v0.2.5` and must point at the current `main` commit.
 - That commit must already have a successful `ci.yml` push run, including `CI / gate`.
 - `release-signing` and `release-publish` both require approval.
 - Android Developer Console must show `io.github.georgexie2333.usque` and the certificate fingerprint in `ANDROID_SIGNER_SHA256` as **Registered**.
@@ -69,12 +86,12 @@ unrendered or partially rendered body.
 
 Primary files:
 
-- `usque-v0.2.4-windows-x64-v2.msi`
-- `usque-v0.2.4-windows-arm64.msi`
-- `usque-v0.2.4-android-arm64-v8a.apk`
-- `usque-v0.2.4-android-x86_64.apk`
-- `usque-v0.2.4-android-armeabi-v7a.apk`
-- `usque-v0.2.4-android-universal.apk`
+- `usque-v0.2.5-windows-x64-v2.msi`
+- `usque-v0.2.5-windows-arm64.msi`
+- `usque-v0.2.5-android-arm64-v8a.apk`
+- `usque-v0.2.5-android-x86_64.apk`
+- `usque-v0.2.5-android-armeabi-v7a.apk`
+- `usque-v0.2.5-android-universal.apk`
 
 In addition to the six install packages, the public release includes
 `release-manifest.json`, `SHA256SUMS`, and each package's SPDX SBOM. A public
@@ -85,6 +102,12 @@ documented in [RELIABILITY_TESTING.md](RELIABILITY_TESTING.md).
 
 ## Windows package rules
 
+These rules describe the v0.2.5 authoring and verification code. The Agent
+file-version check and late related-product removal sequence were added after
+the original v0.2.4 tag; they must not be presented as properties already
+verified in that older package. User-facing applicability is recorded in
+[Installation and removal](INSTALLATION.md#version-scope).
+
 WiX is locked through `.config/dotnet-tools.json`. Windows Installer has no SemVer prerelease field, so `tool/build_windows_msi.ps1` maps a release as:
 
 ```text
@@ -92,7 +115,17 @@ MSI build = SemVer patch * 100 + beta ordinal
 stable ordinal = 99
 ```
 
-Stable `v0.2.4` is therefore MSI ProductVersion `0.2.499`. The real SemVer stays in ProductName and the filenames. Equal-version major upgrades are enabled so a validation build can replace the same product instead of installing a second copy under `Program Files\Usque`. WiX validation suppresses only ICE61, which assumes upgrades must raise the version; every other standard ICE check stays on.
+Stable `v0.2.5` is therefore MSI ProductVersion `0.2.599`. The real SemVer stays in ProductName and the filenames. The Agent embeds the same mapped value as its four-part PE file version (`0.2.599.0`), and packaging rejects an unversioned or mismatched Agent. Equal-version major upgrades are enabled so a validation build can replace the same product instead of installing a second copy under `Program Files\Usque`. WiX validation suppresses only ICE61, which assumes upgrades must raise the version; every other standard ICE check stays on.
+
+`RemoveExistingProducts` runs after `InstallExecute` and before
+`InstallFinalize`. This transactionally installs the fixed, versioned Agent
+before a cached older MSI invokes its fail-closed `--recover-state` action. It
+is the compatibility bridge for installed `v0.2.4` packages affected by the
+asynchronous Wintun-removal check. Keep the Agent's component GUID, KeyPath,
+installation path, recovery CLI, and supported journal schema compatible across
+this late-removal upgrade. Do not restore early related-product removal while a
+supported client may upgrade directly from `v0.2.4`; otherwise that client
+would execute the broken Agent before the replacement file exists.
 
 The Agent is installed as demand-start and is not started by the MSI. Its
 `MsiLockPermissionsEx` descriptor gives `SYSTEM` and Administrators full service
@@ -116,7 +149,7 @@ process is force-closed only after Restart Manager's bounded graceful timeout,
 and sets `MSIDISABLERMRESTART=1` so an old process is never relaunched after an
 uninstall or in the middle of a major upgrade.
 
-The build rejects unsigned project EXE/DLL files, a signer mismatch, PDBs, reparse points, a modified Wintun DLL, a missing `usque-update.exe`, a wrong service command/start type/DACL, an advertised shortcut, a missing maintenance guard, a wrong uninstall action/condition sequence, a 32-bit component, or an ICE failure. The signed update helper reuses the Agent's offline Authenticode verifier and additionally checks the MSI SHA-256, UpgradeCode, mapped stable ProductVersion, summary architecture, and `USQUE_UPDATE_VARIANT` property before starting Windows Installer. True uninstall runs emergency WFP cleanup, journal recovery, optional current-user data cleanup, and clean-state finalization after the service stops and before its binary is removed. A major upgrade runs the first two actions but skips user-data cleanup and clean-state finalization so the replacement service keeps user state and the machine-state directory. The installer UI exposes `INSTALLFOLDER` and stores the chosen path in the 64-bit machine registry for the next major upgrade.
+The build rejects unsigned project EXE/DLL files, a signer mismatch, an unversioned or version-mismatched Agent, PDBs, reparse points, a modified Wintun DLL, a missing `usque-update.exe`, a wrong service command/start type/DACL, an advertised shortcut, a missing maintenance guard, an early related-product removal sequence, a wrong uninstall action/condition sequence, a 32-bit component, or an ICE failure. The signed update helper reuses the Agent's offline Authenticode verifier and additionally checks the MSI SHA-256, UpgradeCode, mapped stable ProductVersion, summary architecture, and `USQUE_UPDATE_VARIANT` property before starting Windows Installer. True uninstall runs emergency WFP cleanup, journal recovery, optional current-user data cleanup, and clean-state finalization after the service stops and before its binary is removed. A major upgrade runs the first two actions but skips user-data cleanup and clean-state finalization so the replacement service keeps user state and the machine-state directory. The installer UI exposes `INSTALLFOLDER` and stores the chosen path in the 64-bit machine registry for the next major upgrade.
 
 Uninstall keeps the current user's profiles, preferences, logs, caches, and Credential Manager records by default. Settings does not host the MSI wizard, so the package hides the Windows Installer ARP entry (`ARPSYSTEMCOMPONENT`) and registers `usque-uninstall.exe` as the visible uninstall command. That helper asks for confirmation and, only if requested, passes `USQUE_REMOVE_USER_DATA=1` into `msiexec`. Deletion covers only that user's Usque directories and credential namespace. Silent uninstall (`QuietUninstallString` / `msiexec /x /qn`) keeps data unless `USQUE_REMOVE_USER_DATA=1` is set. The shared Wintun driver package is not removed.
 

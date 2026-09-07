@@ -7,6 +7,7 @@
 pub mod coordinator;
 pub mod journal;
 pub mod plan;
+pub mod recovery_diagnostics;
 
 #[cfg(windows)]
 pub mod windows;

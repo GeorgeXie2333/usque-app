@@ -22,6 +22,7 @@ class ConnectionRing extends StatefulWidget {
     required this.onPressed,
     this.size = 232,
     this.semanticLabel,
+    this.compactControl = false,
     super.key,
   });
 
@@ -31,6 +32,7 @@ class ConnectionRing extends StatefulWidget {
   final VoidCallback? onPressed;
   final double size;
   final String? semanticLabel;
+  final bool compactControl;
 
   @override
   State<ConnectionRing> createState() => _ConnectionRingState();
@@ -142,7 +144,7 @@ class _ConnectionRingState extends State<ConnectionRing>
               ),
             ),
             _PowerButton(
-              diameter: widget.size * 0.47,
+              diameter: widget.size * (widget.compactControl ? 0.68 : 0.47),
               label: widget.actionLabel,
               busy: widget.busy,
               engaged: _presentation.engaged,

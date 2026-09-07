@@ -26,6 +26,7 @@ class SettingsScreen extends StatelessWidget {
     final bool windows = defaultTargetPlatform == TargetPlatform.windows;
     return PageFrame(
       title: strings.get('settings'),
+      contentWidth: 880,
       subtitle: strings.get('settings_subtitle'),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -50,157 +51,233 @@ class SettingsScreen extends StatelessWidget {
                   ),
           ),
           PanelStack(
+            spacing: 32,
             children: <Widget>[
-              SectionPanel(
-                icon: LucideIcons.paintbrush,
-                title: strings.get('appearance'),
-                gap: 20,
-                children: <Widget>[
-                  _SettingRow(
-                    icon: LucideIcons.sunMoon,
-                    title: strings.get('theme'),
-                    control: _Picker<ThemePreference>(
-                      value: controller.themePreference,
-                      values: ThemePreference.values,
-                      onChanged: controller.setTheme,
-                      labelOf: (value) => strings.get(switch (value) {
-                        ThemePreference.system => 'theme_system',
-                        ThemePreference.light => 'theme_light',
-                        ThemePreference.dark => 'theme_dark',
-                      }),
+              _SettingsGroup(
+                title: strings.get('connection_protection_group'),
+                children: [
+                  if (controller.engineCapabilities?.networkQuality ?? false)
+                    _NetworkQualityRow(controller: controller),
+                  _DiagnosticsRow(controller: controller),
+                  _NetworkOutputsPanel(controller: controller),
+                  if (android)
+                    ContentSection(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 16,
+                      ),
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(LucideIcons.shield),
+                        title: Text(strings.get('always_on_vpn')),
+                        subtitle: Text(strings.get('always_on_vpn_help')),
+                        trailing: const Icon(
+                          LucideIcons.chevronRightDir,
+                          size: 18,
+                        ),
+                        onTap: controller.openAlwaysOnVpnSettings,
+                      ),
                     ),
-                  ),
-                  const _RowDivider(),
-                  _SettingRow(
-                    icon: LucideIcons.languages,
-                    title: strings.get('language'),
-                    control: _Picker<LocalePreference>(
-                      value: controller.localePreference,
-                      values: LocalePreference.pickerOrder,
-                      onChanged: controller.setLocale,
-                      labelOf: (value) => strings.get(value.languageLabelKey),
-                    ),
-                  ),
+                  _AdvancedRow(controller: controller),
                 ],
               ),
-              _NetworkOutputsPanel(controller: controller),
-              _GeoDirectCard(controller: controller),
-              SectionPanel(
-                icon: LucideIcons.monitorCog,
-                title: strings.get('system_integration'),
-                gap: 10,
-                children: <Widget>[
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    secondary: const Icon(LucideIcons.power),
-                    title: Text(strings.get('start_on_boot')),
-                    subtitle: android
-                        ? Text(strings.get('start_on_boot_android'))
-                        : null,
-                    value: controller.startOnBoot,
-                    onChanged: controller.setStartOnBoot,
+              _SettingsGroup(
+                title: strings.get('proxy_routing_group'),
+                children: [
+                  _NetworkOutputsPanel(controller: controller, proxyOnly: true),
+                  ActionRow(
+                    onTap: () => controller.selectSection(AppSection.proxy),
+                    child: ContentHeading(
+                      icon: LucideIcons.slidersHorizontal,
+                      title: strings.get('proxy'),
+                      subtitle: strings.get('proxy_settings_link'),
+                      trailing: const Icon(
+                        LucideIcons.chevronRightDir,
+                        size: 20,
+                      ),
+                    ),
                   ),
-                  if (windows) ...<Widget>[
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      secondary: const Icon(LucideIcons.panelTopClose),
-                      title: Text(strings.get('close_to_tray')),
-                      value: controller.closeToTray,
-                      onChanged: controller.setCloseToTray,
-                    ),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      secondary: const Icon(LucideIcons.link),
-                      title: Text(
-                        strings.get('zero_trust_protocol_association'),
+                  _GeoDirectRow(controller: controller),
+                  if (android)
+                    ContentSection(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 16,
                       ),
-                      subtitle: Text(
-                        strings.get('zero_trust_protocol_association_help'),
-                      ),
-                      value: controller.warpProtocolAssociation,
-                      onChanged: controller.setWarpProtocolAssociation,
-                    ),
-                  ],
-                  if (android) ...<Widget>[
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(LucideIcons.panelTop),
-                      title: Text(strings.get('add_quick_settings_tile')),
-                      subtitle: Text(
-                        strings.get('add_quick_settings_tile_help'),
-                      ),
-                      trailing: const Icon(
-                        LucideIcons.chevronRightDir,
-                        size: 18,
-                      ),
-                      onTap: controller.requestAddQuickSettingsTile,
-                    ),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(LucideIcons.shield),
-                      title: Text(strings.get('always_on_vpn')),
-                      subtitle: Text(strings.get('always_on_vpn_help')),
-                      trailing: const Icon(
-                        LucideIcons.chevronRightDir,
-                        size: 18,
-                      ),
-                      onTap: controller.openAlwaysOnVpnSettings,
-                    ),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(LucideIcons.layers3),
-                      title: Text(strings.get('per_app_proxy')),
-                      subtitle: Text(
-                        controller.perAppProxy.enabled
-                            ? strings
-                                  .get('per_app_proxy_on')
-                                  .replaceAll(
-                                    '{count}',
-                                    '${controller.perAppProxy.packageNames.length}',
-                                  )
-                            : strings.get('per_app_proxy_off'),
-                      ),
-                      trailing: const Icon(
-                        LucideIcons.chevronRightDir,
-                        size: 18,
-                      ),
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) =>
-                              PerAppProxyScreen(controller: controller),
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(LucideIcons.layers3),
+                        title: Text(strings.get('per_app_proxy')),
+                        subtitle: Text(
+                          controller.perAppProxy.enabled
+                              ? strings
+                                    .get('per_app_proxy_on')
+                                    .replaceAll(
+                                      '{count}',
+                                      '${controller.perAppProxy.packageNames.length}',
+                                    )
+                              : strings.get('per_app_proxy_off'),
+                        ),
+                        trailing: const Icon(
+                          LucideIcons.chevronRightDir,
+                          size: 18,
+                        ),
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) =>
+                                PerAppProxyScreen(controller: controller),
+                          ),
                         ),
                       ),
                     ),
-                  ],
                 ],
               ),
-              SectionPanel(
-                icon: LucideIcons.refreshCw,
-                title: strings.get('updates'),
-                gap: 10,
-                children: <Widget>[
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    secondary: const Icon(LucideIcons.bell),
-                    title: Text(strings.get('check_updates')),
-                    subtitle: Text(strings.get('update_startup_description')),
-                    value: controller.updateChecksEnabled,
-                    onChanged: controller.setUpdateChecks,
+              _SettingsGroup(
+                title: strings.get('application_group'),
+                children: [
+                  ContentSection(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 16,
+                    ),
+                    icon: LucideIcons.paintbrush,
+                    title: strings.get('appearance'),
+                    gap: 20,
+                    children: <Widget>[
+                      _SettingRow(
+                        icon: LucideIcons.sunMoon,
+                        title: strings.get('theme'),
+                        control: _Picker<ThemePreference>(
+                          value: controller.themePreference,
+                          values: ThemePreference.values,
+                          onChanged: controller.setTheme,
+                          labelOf: (value) => strings.get(switch (value) {
+                            ThemePreference.system => 'theme_system',
+                            ThemePreference.light => 'theme_light',
+                            ThemePreference.dark => 'theme_dark',
+                          }),
+                        ),
+                      ),
+                      const _RowDivider(),
+                      _SettingRow(
+                        icon: LucideIcons.languages,
+                        title: strings.get('language'),
+                        control: _Picker<LocalePreference>(
+                          value: controller.localePreference,
+                          values: LocalePreference.pickerOrder,
+                          onChanged: controller.setLocale,
+                          labelOf: (value) =>
+                              strings.get(value.languageLabelKey),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 6),
-                  _UpdateActions(controller: controller),
+                  ContentSection(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 16,
+                    ),
+                    icon: LucideIcons.monitorCog,
+                    title: strings.get('system_integration'),
+                    gap: 10,
+                    children: <Widget>[
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        secondary: const Icon(LucideIcons.power),
+                        title: Text(strings.get('start_on_boot')),
+                        subtitle: android
+                            ? Text(strings.get('start_on_boot_android'))
+                            : null,
+                        value: controller.startOnBoot,
+                        onChanged: controller.setStartOnBoot,
+                      ),
+                      if (windows) ...<Widget>[
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          secondary: const Icon(LucideIcons.panelTopClose),
+                          title: Text(strings.get('close_to_tray')),
+                          value: controller.closeToTray,
+                          onChanged: controller.setCloseToTray,
+                        ),
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          secondary: const Icon(LucideIcons.link),
+                          title: Text(
+                            strings.get('zero_trust_protocol_association'),
+                          ),
+                          subtitle: Text(
+                            strings.get('zero_trust_protocol_association_help'),
+                          ),
+                          value: controller.warpProtocolAssociation,
+                          onChanged: controller.setWarpProtocolAssociation,
+                        ),
+                      ],
+                      if (android) ...<Widget>[
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(LucideIcons.panelTop),
+                          title: Text(strings.get('add_quick_settings_tile')),
+                          subtitle: Text(
+                            strings.get('add_quick_settings_tile_help'),
+                          ),
+                          trailing: const Icon(
+                            LucideIcons.chevronRightDir,
+                            size: 18,
+                          ),
+                          onTap: controller.requestAddQuickSettingsTile,
+                        ),
+                      ],
+                    ],
+                  ),
+                  ContentSection(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 16,
+                    ),
+                    icon: LucideIcons.refreshCw,
+                    title: strings.get('updates'),
+                    gap: 10,
+                    children: <Widget>[
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        secondary: const Icon(LucideIcons.bell),
+                        title: Text(strings.get('check_updates')),
+                        subtitle: Text(
+                          strings.get('update_startup_description'),
+                        ),
+                        value: controller.updateChecksEnabled,
+                        onChanged: controller.setUpdateChecks,
+                      ),
+                      const SizedBox(height: 6),
+                      _UpdateActions(controller: controller),
+                    ],
+                  ),
                 ],
               ),
-              if (controller.engineCapabilities?.networkQuality ?? false)
-                _NetworkQualityCard(controller: controller),
-              _DiagnosticsCard(controller: controller),
-              _AdvancedCard(controller: controller),
             ],
           ),
         ],
       ),
     );
   }
+}
+
+class _SettingsGroup extends StatelessWidget {
+  const _SettingsGroup({required this.title, required this.children});
+  final String title;
+  final List<Widget> children;
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Semantics(
+        header: true,
+        child: Text(title, style: Theme.of(context).textTheme.headlineSmall),
+      ),
+      const SizedBox(height: 12),
+      ContentList(children: children),
+    ],
+  );
 }
 
 class _UpdateActions extends StatelessWidget {
@@ -402,7 +479,12 @@ String _formatUpdateBytes(int bytes) {
 }
 
 class _NetworkOutputsPanel extends StatelessWidget {
-  const _NetworkOutputsPanel({required this.controller});
+  const _NetworkOutputsPanel({
+    required this.controller,
+    this.proxyOnly = false,
+  });
+
+  final bool proxyOnly;
 
   final AppController controller;
 
@@ -412,39 +494,44 @@ class _NetworkOutputsPanel extends StatelessWidget {
     final profile = controller.activeProfile;
     final frontends = profile.frontends;
     final bool windows = defaultTargetPlatform == TargetPlatform.windows;
-    return SectionPanel(
+    return ContentSection(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 16),
       icon: LucideIcons.share2,
-      title: strings.get('outputs'),
+      title: strings.get(proxyOnly ? 'proxy' : 'outputs'),
+      subtitle: strings.get('shared_network_scope'),
       gap: 10,
       children: <Widget>[
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          secondary: const Icon(LucideIcons.shield),
-          title: Text(strings.tunnelOutputLabel(defaultTargetPlatform)),
-          value: frontends.tunnel,
-          onChanged: (value) => controller.updateNetwork(
-            profile.copyWith(frontends: frontends.copyWith(tunnel: value)),
+        if (!proxyOnly)
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            secondary: const Icon(LucideIcons.shield),
+            title: Text(strings.tunnelOutputLabel(defaultTargetPlatform)),
+            value: frontends.tunnel,
+            onChanged: (value) => controller.updateNetwork(
+              profile.copyWith(frontends: frontends.copyWith(tunnel: value)),
+            ),
           ),
-        ),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          secondary: const Icon(LucideIcons.network),
-          title: const Text('SOCKS5'),
-          value: frontends.socks5,
-          onChanged: (value) => controller.updateNetwork(
-            profile.copyWith(frontends: frontends.copyWith(socks5: value)),
+        if (proxyOnly)
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            secondary: const Icon(LucideIcons.network),
+            title: const Text('SOCKS5'),
+            value: frontends.socks5,
+            onChanged: (value) => controller.updateNetwork(
+              profile.copyWith(frontends: frontends.copyWith(socks5: value)),
+            ),
           ),
-        ),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          secondary: const Icon(LucideIcons.globe2),
-          title: const Text('HTTP'),
-          value: frontends.http,
-          onChanged: (value) => controller.updateNetwork(
-            profile.copyWith(frontends: frontends.copyWith(http: value)),
+        if (proxyOnly)
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            secondary: const Icon(LucideIcons.globe2),
+            title: const Text('HTTP'),
+            value: frontends.http,
+            onChanged: (value) => controller.updateNetwork(
+              profile.copyWith(frontends: frontends.copyWith(http: value)),
+            ),
           ),
-        ),
-        if (windows)
+        if (proxyOnly && windows)
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             secondary: const Icon(LucideIcons.link),
@@ -458,15 +545,16 @@ class _NetworkOutputsPanel extends StatelessWidget {
                   )
                 : null,
           ),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          secondary: const Icon(LucideIcons.zap),
-          title: Text(strings.get('auto_connect')),
-          value: profile.autoConnect,
-          onChanged: (value) =>
-              controller.updateNetwork(profile.copyWith(autoConnect: value)),
-        ),
-        if (!frontends.any) ...<Widget>[
+        if (!proxyOnly)
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            secondary: const Icon(LucideIcons.zap),
+            title: Text(strings.get('auto_connect')),
+            value: profile.autoConnect,
+            onChanged: (value) =>
+                controller.updateNetwork(profile.copyWith(autoConnect: value)),
+          ),
+        if (!proxyOnly && !frontends.any) ...<Widget>[
           const SizedBox(height: 8),
           WarningBanner(
             title: strings.get('channel_only'),
@@ -478,8 +566,8 @@ class _NetworkOutputsPanel extends StatelessWidget {
   }
 }
 
-class _GeoDirectCard extends StatelessWidget {
-  const _GeoDirectCard({required this.controller});
+class _GeoDirectRow extends StatelessWidget {
+  const _GeoDirectRow({required this.controller});
 
   final AppController controller;
 
@@ -488,13 +576,13 @@ class _GeoDirectCard extends StatelessWidget {
     final enabled = controller.activeProfile.geoDirectCountries;
     final preview = enabled.take(4).join(' · ');
     final remaining = enabled.length - 4;
-    return Panel(
+    return ActionRow(
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => GeoDirectSettingsScreen(controller: controller),
         ),
       ),
-      child: SectionTitle(
+      child: ContentHeading(
         icon: LucideIcons.route,
         title: controller.strings.get('geo_direct'),
         subtitle: enabled.isEmpty
@@ -527,21 +615,21 @@ class _GeoDirectCard extends StatelessWidget {
   }
 }
 
-class _NetworkQualityCard extends StatelessWidget {
-  const _NetworkQualityCard({required this.controller});
+class _NetworkQualityRow extends StatelessWidget {
+  const _NetworkQualityRow({required this.controller});
 
   final AppController controller;
 
   @override
   Widget build(BuildContext context) {
     final strings = controller.strings;
-    return Panel(
+    return ActionRow(
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => NetworkQualityScreen(controller: controller),
         ),
       ),
-      child: SectionTitle(
+      child: ContentHeading(
         icon: LucideIcons.gauge,
         title: strings.get('network_quality'),
         subtitle: strings.get('nq_subtitle'),
@@ -555,21 +643,21 @@ class _NetworkQualityCard extends StatelessWidget {
   }
 }
 
-class _DiagnosticsCard extends StatelessWidget {
-  const _DiagnosticsCard({required this.controller});
+class _DiagnosticsRow extends StatelessWidget {
+  const _DiagnosticsRow({required this.controller});
 
   final AppController controller;
 
   @override
   Widget build(BuildContext context) {
     final strings = controller.strings;
-    return Panel(
+    return ActionRow(
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => DiagnosticsScreen(controller: controller),
         ),
       ),
-      child: SectionTitle(
+      child: ContentHeading(
         icon: LucideIcons.activity,
         title: strings.get('diagnostics'),
         subtitle: strings.get('diagnostics_subtitle'),
@@ -584,21 +672,21 @@ class _DiagnosticsCard extends StatelessWidget {
 }
 
 /// The one door out of Settings, so the whole plate is the target.
-class _AdvancedCard extends StatelessWidget {
-  const _AdvancedCard({required this.controller});
+class _AdvancedRow extends StatelessWidget {
+  const _AdvancedRow({required this.controller});
 
   final AppController controller;
 
   @override
   Widget build(BuildContext context) {
     final strings = controller.strings;
-    return Panel(
+    return ActionRow(
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => AdvancedSettingsScreen(controller: controller),
         ),
       ),
-      child: SectionTitle(
+      child: ContentHeading(
         icon: LucideIcons.slidersHorizontal,
         title: strings.get('advanced'),
         subtitle: strings.get('advanced_subtitle'),

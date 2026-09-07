@@ -1423,6 +1423,52 @@ class DirectDnsQualityInfo {
   );
 }
 
+/// One real source observation. Null counters/metrics are not zero readings.
+class NetworkQualitySample {
+  const NetworkQualitySample({
+    required this.sequence,
+    required this.sampledAt,
+    required this.monotonicMillis,
+    this.downloadedBytes,
+    this.uploadedBytes,
+    this.rttMilliseconds,
+    this.lossBasisPoints,
+  });
+
+  final int sequence;
+  final DateTime sampledAt;
+  final int monotonicMillis;
+  final int? downloadedBytes;
+  final int? uploadedBytes;
+  final int? rttMilliseconds;
+  final int? lossBasisPoints;
+
+  static NetworkQualitySample? fromMap(Map<Object?, Object?> map) {
+    final sequence = _mapNullableInt(map, 'sequence');
+    final at = _mapNullableInt(map, 'sampled_at_unix_ms');
+    final monotonic = _mapNullableInt(map, 'monotonic_millis');
+    if (sequence == null ||
+        sequence <= 0 ||
+        at == null ||
+        at <= 0 ||
+        at > 8640000000000000 ||
+        monotonic == null ||
+        monotonic > 8640000000000000) {
+      return null;
+    }
+    final loss = _mapNullableInt(map, 'loss_basis_points');
+    return NetworkQualitySample(
+      sequence: sequence,
+      sampledAt: DateTime.fromMillisecondsSinceEpoch(at, isUtc: true),
+      monotonicMillis: monotonic,
+      downloadedBytes: _mapNullableInt(map, 'downloaded_bytes'),
+      uploadedBytes: _mapNullableInt(map, 'uploaded_bytes'),
+      rttMilliseconds: _mapNullableInt(map, 'rtt_ms'),
+      lossBasisPoints: loss != null && loss <= 10000 ? loss : null,
+    );
+  }
+}
+
 class NetworkQualitySnapshot {
   const NetworkQualitySnapshot({
     this.sampledAt,
@@ -1433,6 +1479,7 @@ class NetworkQualitySnapshot {
     this.pmtu = const PmtuQualityInfo(),
     this.migration = const MigrationQualityInfo(),
     this.directDns = const DirectDnsQualityInfo(),
+    this.samples = const <NetworkQualitySample>[],
   });
 
   final DateTime? sampledAt;
@@ -1443,6 +1490,7 @@ class NetworkQualitySnapshot {
   final PmtuQualityInfo pmtu;
   final MigrationQualityInfo migration;
   final DirectDnsQualityInfo directDns;
+  final List<NetworkQualitySample> samples;
 
   factory NetworkQualitySnapshot.fromMap(Map<Object?, Object?> map) {
     final metricsMap = _objectMap(map['metrics']);
@@ -1452,6 +1500,19 @@ class NetworkQualitySnapshot {
     final sampledAtMilliseconds = _mapInt(map, 'sampled_at_unix_ms');
     final connectionId = _mapString(map, 'connection_instance_id');
     return NetworkQualitySnapshot(
+      samples: List.unmodifiable(
+        (map['samples'] is List<Object?>
+                ? map['samples'] as List<Object?>
+                : const <Object?>[])
+            .take(16)
+            .whereType<Map<Object?, Object?>>()
+            .map(
+              (value) => NetworkQualitySample.fromMap(
+                Map<Object?, Object?>.from(value),
+              ),
+            )
+            .whereType<NetworkQualitySample>(),
+      ),
       sampledAt:
           sampledAtMilliseconds <= 0 || sampledAtMilliseconds > 8640000000000000
           ? null
@@ -1773,6 +1834,7 @@ class EngineSnapshot {
     this.exit = const ExitInfo(),
     this.warning,
     this.errorCode,
+    this.errorRetryable,
     this.failure,
     this.frontends = const <FrontendRuntimeStatus>[],
     this.networkQuality,
@@ -1794,6 +1856,7 @@ class EngineSnapshot {
   final ExitInfo exit;
   final String? warning;
   final String? errorCode;
+  final bool? errorRetryable;
   final TransportFailureInfo? failure;
   final List<FrontendRuntimeStatus> frontends;
   final NetworkQualitySnapshot? networkQuality;
@@ -1847,6 +1910,7 @@ class EngineSnapshot {
       ),
       warning: map['warning'] as String?,
       errorCode: map['error_code'] as String?,
+      errorRetryable: map['error_retryable'] as bool?,
       failure: map['failure'] is Map
           ? TransportFailureInfo.fromMap(
               Map<Object?, Object?>.from(map['failure'] as Map),
@@ -1905,6 +1969,7 @@ class EngineSnapshot {
             exit == other.exit &&
             warning == other.warning &&
             errorCode == other.errorCode &&
+            errorRetryable == other.errorRetryable &&
             failure == other.failure &&
             listEquals(frontends, other.frontends) &&
             networkQuality == other.networkQuality;
@@ -1928,6 +1993,7 @@ class EngineSnapshot {
     exit,
     warning,
     errorCode,
+    errorRetryable,
     failure,
     Object.hashAll(frontends),
     networkQuality,

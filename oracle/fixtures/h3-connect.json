@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "source": "oracle/go/api/masque.go ConnectTunnel and connectTunnelHTTP3",
+  "scope": "CONNECT request headers only; not QUIC transport parameters or deprecated settings",
+  "headers": {
+    ":method": "CONNECT",
+    ":scheme": "https",
+    ":authority": "cloudflareaccess.com",
+    ":path": "/",
+    ":protocol": "cf-connect-ip",
+    "user-agent": "",
+    "capsule-protocol": "?1"
+  }
+}

@@ -20,6 +20,15 @@ enum AgentPhase {
   AGENT_PHASE_RECOVERY_REQUIRED = 7;
 }
 
+enum AutomaticRecoveryPhase {
+  AUTOMATIC_RECOVERY_PHASE_UNSPECIFIED = 0;
+  AUTOMATIC_RECOVERY_PHASE_INACTIVE = 1;
+  AUTOMATIC_RECOVERY_PHASE_WAITING = 2;
+  AUTOMATIC_RECOVERY_PHASE_RUNNING = 3;
+  AUTOMATIC_RECOVERY_PHASE_EXHAUSTED = 4;
+  AUTOMATIC_RECOVERY_PHASE_BLOCKED = 5;
+}
+
 message AgentError {
   string code = 1;
   string message = 2;
@@ -47,6 +56,9 @@ message AgentCapabilities {
   // Compare-and-recover for an orphaned failed transaction. Never substitute
   // the unguarded maintenance Recover request when this capability is absent.
   bool guarded_recovery = 13;
+  // The Agent can run bounded, exact-operation recovery retries without an
+  // Engine connection and expose their sanitized in-memory status.
+  bool automatic_recovery = 14;
 }
 
 message TunnelPlan {
@@ -76,6 +88,11 @@ message GetStateRequest {}
 message RecoverRequest {}
 
 message RecoverOrphanedRequest {
+  string operation_id = 1;
+  uint64 expected_journal_generation = 2;
+}
+
+message RestartAutomaticRecoveryRequest {
   string operation_id = 1;
   uint64 expected_journal_generation = 2;
 }
@@ -154,6 +171,7 @@ message PlatformState {
   string recovery_journal_state = 14;
   bool pending_cleanup = 15;
   uint64 journal_generation = 16;
+  AutomaticRecoveryStatus automatic_recovery = 17;
 }
 
 message PhysicalInterface {
@@ -198,6 +216,16 @@ message AgentState {
   bool packet_session_active = 6;
   uint64 journal_generation = 7;
   repeated string warnings = 8;
+  AutomaticRecoveryStatus automatic_recovery = 9;
+}
+
+message AutomaticRecoveryStatus {
+  AutomaticRecoveryPhase phase = 1;
+  uint32 attempts_completed = 2;
+  uint32 attempt_limit = 3;
+  // Present only for EXHAUSTED or BLOCKED. Intermediate errors remain local
+  // to the Agent so user interfaces do not surface failures while healing.
+  AgentError terminal_error = 4;
 }
 
 // HANDLE values are duplicated into the authenticated Engine process before
@@ -235,6 +263,7 @@ message AgentRequest {
     AcquireDirectEgressRequest acquire_direct_egress = 24;
     InspectPlatformStateRequest inspect_platform_state = 25;
     RecoverOrphanedRequest recover_orphaned = 26;
+    RestartAutomaticRecoveryRequest restart_automatic_recovery = 27;
   }
 }
 

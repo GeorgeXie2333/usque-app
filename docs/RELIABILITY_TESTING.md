@@ -15,7 +15,133 @@ microbenchmark correctness tests. Shared-runner wall-clock timings are never
 treated as performance truth. These jobs do not require a public endpoint and
 do not change host routes, DNS, firewall, proxy, or TUN state.
 
+## Windows Geo DNS and orphaned TUN regression coverage
+
+Windows physical DNS discovery uses `GetAdaptersAddresses` for effective
+per-interface servers, including DHCP. `GetInterfaceDnsSettings` remains a
+separate static-configuration snapshot for rollback; DHCP values must not be
+persisted as static DNS. Bounded native-buffer fixtures cover IPv4/IPv6,
+missing interfaces, malformed pointers/lengths, cycles and duplicate LUIDs.
+
+Recovery retains journal schema v2 and its existing operation/owner/generation
+guards. The adapter GUID is the RequestedGUID passed to pinned Wintun 0.14.1;
+its exact `SWD\Wintun\{GUID}` device-instance identity is checked using SetupAPI,
+including non-present devices. Recovery does not call `WintunOpenAdapter` as
+an existence probe. A registry-read failure is no longer convertible into
+device absence. Both PnP and IP Helper must confirm absence before adapter
+cleanup succeeds; lingering rows remain pending, and query/identity failures
+retain recovery evidence.
+
+A released LUID can identify another VPN's adapter. DNS/address/MTU rollback
+therefore receives the original adapter identity and never writes through an
+unverified retired LUID. Default-route receipts are handled individually:
+physical exclusions still require explicit cleanup, and a route still present
+on a reused tunnel LUID remains a conflict rather than being deleted. Adapter
+removal cannot supersede route, WFP, proxy or persistence failures.
+
+Engine startup failures retain both the original typed error and any rollback
+error. A compound failure uses the existing recovery error channel with no
+transport fallback. New startup log fields and displayed compound summaries
+contain allowlisted stage/error codes only, not remote messages, credentials,
+adapter identifiers or network addresses. The Agent's existing sanitized
+step/API/Win32 recovery diagnostics remain available locally. No automatic
+diagnostic upload is added.
+
+Run Windows deterministic tests with the pinned build helper in
+`CONTRIBUTING.md`; the existing Windows x64-v2 Build job also runs these tests.
+The Ubuntu Rust CI job does not execute `cfg(windows)` tests.
+These fixtures are not lifecycle or leak evidence. In a snapshot VM, cover
+DHCP/static DNS, Geo off/CN, Kill Switch and system proxy, reattachment,
+reboot/full shutdown/Fast Startup, abrupt termination and a second VPN reusing
+a freed LUID. Verify first connection, rollback and old phase-7 journals; use
+the independent observer for leak claims. Those isolated scenarios are
+`not_run` for this workstation change. They remain supplemental, not a new
+publication prerequisite.
+
+## Windows bootstrap egress and Kill Switch ordering
+
+The Prepared phase has no WFP provider or sublayer. It authorizes only the
+planned MASQUE TCP/UDP endpoints and TCP registration API endpoints; physical
+interface binding, exact network-generation checks and authenticated pipe
+ownership still apply. Those same endpoints have persistent Engine-scoped
+permits at commit, so bootstrap socket leases remain valid across activation
+without creating dynamic filters. Other direct targets are rejected before
+commit and require a dynamic permit while the active Kill Switch is enabled.
+
+Deterministic Windows tests cover the shared bootstrap/committed allowlist,
+IPv4/IPv6 and port/protocol restrictions, pre-commit rejection, active permit
+failure propagation, invalid phases and sanitized egress error codes/stages.
+They do not call native WFP mutation APIs. No journal schema, protobuf field,
+terminal block rule or dynamic-session cleanup contract changes.
+
+In a snapshot VM with an independent management channel, additionally validate
+clean-state cold connections with Kill Switch on/off, H2/H3 and IPv4/IPv6;
+registration pin refresh; held endpoint sockets across commit; and startup
+failure followed by rollback and retry. Use the independent network observer
+to verify post-commit direct traffic, permit revocation and no unexpected
+physical packets. Missing protected infrastructure means `not_run`, not a pass.
+
+## Windows Wintun cleanup lifecycle
+
+Cold reconfiguration stops MASQUE, proxy and GEO producers as well as the
+Windows packet consumers before platform rollback. Hot TUN detach retains its
+separate platform-only stop path. Agent packet drains check shutdown after
+bounded batches even when the input ring never becomes empty. Authenticated
+rollback revokes dynamic egress only after packet-session quiescence and before
+removing persistent WFP resources; failed quiescence retains protection.
+
+Wintun removal first observes the exact journaled interface and PnP identity.
+Both must be absent before cleanup succeeds. Closing a handle gets a two-second
+observation grace; an exact-device removal request then has a ten-second total
+observation window per pass. Successful requests are retained per adapter GUID
+in the running Agent, so later automatic passes observe rather than repeatedly
+issuing DIF_REMOVE. These are observation bounds, not a claim that Windows
+native calls can be forcibly cancelled. Inspection errors remain unknown,
+never absence. A request error followed by verified absence is idempotent
+success. A fresh Agent may safely retry the exact journaled device.
+
+After automatic recovery is exhausted, an authenticated manual Retry first
+rechecks the operation, generation, caller and absence of live sessions. If
+the adapter is the only unfinished step and both resources are now absent,
+it completes only the journal save. No remaining route, DNS, WFP or proxy
+receipt may be skipped; a failed save retains RecoveryRequired.
+
+The Agent writes bounded, non-authoritative `recovery-events-v1.jsonl` beside
+its protected journal (at most 1 MiB). It records step results, durations,
+allowlisted API names, numeric errors and optional device/interface observations,
+not raw messages, receipts, addresses or identities. Logging failure never
+prevents cleanup. True uninstall removes this known diagnostic file only after
+the authoritative journal is clean. Engine logs mirror allowlisted adapter
+failure details, while the UI shows localized cleanup context without raw data.
+
+Deterministic tests cover delayed absence, accepted-request reuse, native
+failure followed by absence, failed probes/identity checks, cleanup ordering,
+retry guards, failed clean saves, bounded diagnostic persistence and UI privacy.
+In the snapshot VM, additionally test direct-country off/on/off, repeated
+country changes, high-rate traffic during disconnect, process exit during
+recovery and coexistence with another Wintun VPN. Verify exact-device removal,
+no orphan sessions, preservation of unrelated adapters and no unexpected
+physical packets with the independent observer. Those scenarios remain
+`not_run` on a workstation; unit results do not prove native removal.
+
 ## Protected release runners
+
+Windows same-version MSI coverage includes compile-only, inert authoring
+fixtures for x64 and ARM64. `tool/test_windows_msi_replacement.ps1` verifies a
+valid fixture and rejects copies with an unscoped/weakened overwrite mode,
+missing UI/execute or late execute action, unsafe action condition, repair opt-in,
+NeverOverwrite component, or payload outside INSTALLFOLDER. It edits only
+temporary MSI databases and never installs them or runs their custom actions.
+
+Real same-version upgrade acceptance additionally needs the snapshot VM and
+independent management channel: install candidate A, then candidate B with the
+same SemVer but changed GUI/Agent/Engine bytes and signing identity. Compare
+the SHA-256 of every installed payload file with B, confirm the service signer
+pin matches B, and verify only B remains registered. Repeat with quiet install,
+an incoming `REINSTALLMODE=omus`, an intentionally modified unversioned Engine,
+connected maintenance shutdown, and injected installation/recovery failure.
+Rollback must restore A's matching files and registration; profiles and secrets
+must survive. These scenarios are `not_run` without isolated infrastructure.
 
 After the exact signed candidate has been staged, the public release workflow
 selects four explicitly labelled self-hosted runners only when repository

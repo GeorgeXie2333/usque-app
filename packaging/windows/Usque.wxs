@@ -18,11 +18,30 @@
       package name. Equal-version upgrades are intentional: they let users
       replace a validation build of the same architecture without two products
       owning the same installation directory.
+
+      Install the new product transaction before removing the related product.
+      The fixed, versioned Agent must be present when an older cached MSI runs
+      its fail-closed recovery action. Stable component identities keep shared
+      files and the service registered while the older product is removed. Keep
+      this inside the transaction so either both sides commit or both roll back.
     -->
     <MajorUpgrade
       AllowSameVersionUpgrades="yes"
       DowngradeErrorMessage="A newer version of [ProductName] is already installed."
-      Schedule="afterInstallInitialize" />
+      Schedule="afterInstallExecute" />
+
+    <!--
+      AllowSameVersionUpgrades affects product detection, not file replacement.
+      Every File in this package is private application payload, never user
+      data or a shared system DLL. Replace that payload as a unit, including
+      equal-version binaries and unversioned files, so a new signer/Engine
+      cannot be combined with an old Agent or GUI. Product downgrades remain
+      blocked. Do not set REINSTALL: repair/modify/patch stays unsupported.
+    -->
+    <CustomAction
+      Id="SetPayloadReinstallMode"
+      Property="REINSTALLMODE"
+      Value="amus" />
 
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
     <ui:WixUI
@@ -346,7 +365,19 @@
     <CustomAction
       Id="RejectUnsupportedMaintenance"
       Error="Repair, modify, and patch operations are not supported because Usque may own crash-recovery network state. Uninstall and reinstall Usque, or install a newer release instead." />
+    <InstallUISequence>
+      <Custom
+        Action="SetPayloadReinstallMode"
+        Before="CostInitialize"
+        Condition='NOT Installed AND NOT REMOVE~="ALL"' />
+    </InstallUISequence>
     <InstallExecuteSequence>
+      <!-- Enforce the same overwrite policy for quiet and interactive installs
+           before file costing, even if the caller supplied another mode. -->
+      <Custom
+        Action="SetPayloadReinstallMode"
+        Before="CostInitialize"
+        Condition='NOT Installed AND NOT REMOVE~="ALL"' />
       <Custom
         Action="RejectUnsupportedMaintenance"
         Before="StopServices"

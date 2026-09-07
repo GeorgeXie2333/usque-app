@@ -356,6 +356,89 @@ class AndroidEngineMethodHandlerTest {
     }
 
     @Test
+    fun firstRunZeroTrustProvisioningClaimsTheEmptyDefaultProfile() {
+        val result = RecordingResult()
+        handler.handle(
+            MethodCall(
+                "provisionIdentity",
+                mapOf(
+                    "profile_id" to "p1",
+                    "method" to "zeroTrust",
+                    "team_name" to "example-team",
+                    "callback_uri" to
+                        "com.cloudflare.warp://example-team.cloudflareaccess.com/auth?token=test",
+                    "terms_accepted" to true,
+                ),
+            ),
+            result,
+        )
+
+        assertNull(result.errorCode)
+        assertEquals(1, engineBridge.zeroTrustRegistrationCount)
+        val commands = engineBridge.commands.map(::JSONObject)
+        val commit = commands.first { it.optString("command") == "commit_identity_replacement" }
+        assertEquals("zero_trust", commit.getString("identity_provider"))
+        assertEquals("example-team", commit.getString("organization"))
+        assertEquals("p1", commit.getJSONObject("profile").getString("id"))
+        assertEquals(
+            "162.159.197.2",
+            commit.getJSONObject("profile").getString("endpoint_v4"),
+        )
+        assertTrue(
+            identityStore
+                .get("p1", SecureIdentityStore.Record.WARP_SECRET)!!
+                .contentEquals("secret".toByteArray()),
+        )
+    }
+
+    @Test
+    fun firstRunZeroTrustProvisioningRejectsPartialOrPendingIdentityState() {
+        identityStore.put(
+            "p1",
+            SecureIdentityStore.Record.LICENSE,
+            "orphaned-license".toByteArray(),
+        )
+        val partial = RecordingResult()
+        handler.handle(
+            MethodCall(
+                "provisionIdentity",
+                mapOf(
+                    "profile_id" to "p1",
+                    "method" to "zeroTrust",
+                    "team_name" to "example-team",
+                    "callback_uri" to
+                        "com.cloudflare.warp://example-team.cloudflareaccess.com/auth?token=test",
+                    "terms_accepted" to true,
+                ),
+            ),
+            partial,
+        )
+        assertEquals("IDENTITY_PROVIDER_CHANGE_UNSUPPORTED", partial.errorCode)
+        assertEquals(0, engineBridge.zeroTrustRegistrationCount)
+
+        identityStore.delete("p1", SecureIdentityStore.Record.LICENSE)
+        engineBridge.profileCatalogJson =
+            """{"profiles":[{"id":"p1"}],"pending_identity_replacements":["p1"]}"""
+        val pending = RecordingResult()
+        handler.handle(
+            MethodCall(
+                "provisionIdentity",
+                mapOf(
+                    "profile_id" to "p1",
+                    "method" to "zeroTrust",
+                    "team_name" to "example-team",
+                    "callback_uri" to
+                        "com.cloudflare.warp://example-team.cloudflareaccess.com/auth?token=test",
+                    "terms_accepted" to true,
+                ),
+            ),
+            pending,
+        )
+        assertEquals("IDENTITY_PROVIDER_CHANGE_UNSUPPORTED", pending.errorCode)
+        assertEquals(0, engineBridge.zeroTrustRegistrationCount)
+    }
+
+    @Test
     fun zeroTrustRepairRestoresTheOldSecretWhenMetadataStorageFails() {
         val oldSecret = "old-secret".toByteArray()
         identityStore.put(
@@ -1354,6 +1437,7 @@ class AndroidEngineMethodHandlerTest {
         var ready = true
         var linked = true
         var zeroTrustFailure: IOException? = null
+        var zeroTrustRegistrationCount = 0
         var consumerLicenseFailure: IOException? = null
         var profileCatalogJson = """{"profiles":[{"id":"p1"}]}"""
         val commands = mutableListOf<String>()
@@ -1385,6 +1469,7 @@ class AndroidEngineMethodHandlerTest {
             team: String,
             callbackUri: String,
         ): ByteArray? {
+            zeroTrustRegistrationCount += 1
             zeroTrustFailure?.let { throw it }
             return """
                 {

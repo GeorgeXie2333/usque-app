@@ -41,6 +41,8 @@ class AppController extends ChangeNotifier {
   final NetworkQualityController quality;
   SharedPreferences? _preferences;
   Timer? _snapshotTimer;
+  Future<void>? _snapshotRefresh;
+  int _snapshotRevision = 0;
   Timer? _snapshotReconnectTimer;
   StreamSubscription<EngineSnapshotEvent>? _snapshotSubscription;
   Future<void> _profileWriteTail = Future<void>.value();
@@ -68,9 +70,15 @@ class AppController extends ChangeNotifier {
   EngineSnapshot _snapshot = const EngineSnapshot();
   EngineSnapshot get snapshot => _snapshot;
   set snapshot(EngineSnapshot value) {
+    _snapshotRevision++;
     _snapshot = value;
     if (value.phase == ConnectionPhase.error) {
-      lastError = strings.windowsRecoveryError(value.errorCode) ?? lastError;
+      lastError =
+          strings.windowsRecoveryError(
+            value.errorCode,
+            details: value.warning,
+          ) ??
+          lastError;
     }
     quality.updateConnection(value);
   }
@@ -332,12 +340,16 @@ class AppController extends ChangeNotifier {
   Future<bool> finishOnboarding({
     IdentityProvisioningMethod method = IdentityProvisioningMethod.register,
     String? licenseKey,
+    String? teamName,
+    String? callbackUri,
   }) async {
     return _run(() async {
       await _engine.provisionIdentity(
         activeProfile,
         method: method,
         licenseKey: licenseKey,
+        teamName: teamName,
+        callbackUri: callbackUri,
       );
       await _refreshProfileCatalog();
       onboardingComplete = true;
@@ -401,10 +413,19 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  Future<void> refreshSnapshot({bool silent = false}) async {
+  Future<void> refreshSnapshot({bool silent = false}) {
+    if (_disposed) return Future<void>.value();
+    return _snapshotRefresh ??= _refreshSnapshotOnce(silent: silent)
+        .whenComplete(() {
+          _snapshotRefresh = null;
+        });
+  }
+
+  Future<void> _refreshSnapshotOnce({required bool silent}) async {
+    final revision = _snapshotRevision;
     try {
       final next = await _engine.snapshot();
-      if (_disposed) {
+      if (_disposed || revision != _snapshotRevision) {
         return;
       }
       snapshot = next;
@@ -413,7 +434,7 @@ class AppController extends ChangeNotifier {
       }
       _notifyListeners();
     } on EngineException catch (error) {
-      if (!silent && !_disposed) {
+      if (!silent && !_disposed && revision == _snapshotRevision) {
         lastError = error.message;
         _notifyListeners();
       }
@@ -888,13 +909,15 @@ class AppController extends ChangeNotifier {
       return true;
     } catch (error) {
       lastError = error is EngineException
-          ? strings.windowsRecoveryError(error.code) ?? error.message
+          ? strings.windowsRecoveryError(error.code, details: error.message) ??
+                error.message
           : error.toString();
       if (affectsConnection && snapshot.phase != ConnectionPhase.disconnected) {
         snapshot = EngineSnapshot(
           phase: ConnectionPhase.error,
           warning: lastError,
           errorCode: error is EngineException ? error.code : null,
+          errorRetryable: error is EngineException ? error.retryable : null,
         );
       }
       return false;
@@ -1292,6 +1315,9 @@ class AppController extends ChangeNotifier {
     if (_disposed || generation != _snapshotSubscriptionGeneration) {
       return;
     }
+    if (event.snapshot != null || event.networkQuality != null) {
+      _snapshotRevision++;
+    }
     _snapshotStreamEstablished = true;
     final wasDegraded = snapshotStreamDegraded;
     _snapshotReconnectAttempt = 0;
@@ -1314,8 +1340,10 @@ class AppController extends ChangeNotifier {
     }
     final nextQuality = event.networkQuality ?? event.snapshot?.networkQuality;
     final handledNetworkQuality =
-        nextQuality != null && nextQuality != networkQuality;
-    if (nextQuality != null) {
+        nextQuality != null &&
+        (nextQuality != networkQuality ||
+            nextQuality.sampledAt != networkQuality?.sampledAt);
+    if (nextQuality != null && event.snapshot == null) {
       networkQuality = nextQuality;
     }
     final handledCapabilities =
@@ -1334,14 +1362,19 @@ class AppController extends ChangeNotifier {
     final nextError =
         next.phase == ConnectionPhase.error &&
             (next.warning?.trim().isNotEmpty ?? false)
-        ? strings.windowsRecoveryError(next.errorCode) ??
+        ? strings.windowsRecoveryError(next.errorCode, details: next.warning) ??
               <String?>[
                 next.errorCode?.trim(),
                 next.warning?.trim(),
               ].whereType<String>().where((part) => part.isNotEmpty).join(': ')
         : null;
     final errorChanged = nextError != null && nextError != lastError;
-    final snapshotChanged = next != snapshot;
+    // Presentation equality intentionally ignores quality timestamps. The
+    // observation stream must still ingest an unchanged, newly sampled frame,
+    // even when its quality-only companion arrived before this full snapshot.
+    final snapshotChanged =
+        next != snapshot ||
+        next.networkQuality?.sampledAt != snapshot.networkQuality?.sampledAt;
     if (!snapshotChanged &&
         !errorChanged &&
         !wasDegraded &&

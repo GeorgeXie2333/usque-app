@@ -2129,7 +2129,19 @@ fn network_quality_value(snapshot: &NetworkQualitySnapshot) -> serde_json::Value
         .map(native_duration_milliseconds);
 
     serde_json::json!({
-        "sampled_at_unix_ms": native_duration_milliseconds(sampled_at),
+        "sampled_at_unix_ms": snapshot.samples.last().map_or_else(
+            || native_duration_milliseconds(sampled_at),
+            |sample| sample.sampled_at_unix_ms,
+        ),
+        "samples": snapshot.samples.iter().map(|sample| serde_json::json!({
+            "sequence": sample.sequence,
+            "sampled_at_unix_ms": sample.sampled_at_unix_ms,
+            "monotonic_millis": sample.monotonic_millis,
+            "downloaded_bytes": sample.downloaded_bytes,
+            "uploaded_bytes": sample.uploaded_bytes,
+            "rtt_ms": sample.rtt_ms,
+            "loss_basis_points": sample.loss_basis_points,
+        })).collect::<Vec<_>>(),
         "connection_instance_id": snapshot
             .connection_id
             .map(|connection| connection.0.to_string())
@@ -3070,6 +3082,14 @@ mod tests {
         let value = network_quality_value(&NetworkQualitySampler::new(telemetry).sample());
 
         assert_eq!(value["level"], "limitedData");
+        assert_eq!(value["samples"][0]["sequence"], 1);
+        assert_eq!(
+            value["samples"][0]["sampled_at_unix_ms"],
+            value["sampled_at_unix_ms"]
+        );
+        assert_eq!(value["samples"][0]["rtt_ms"], 10);
+        assert!(value["samples"][0]["downloaded_bytes"].is_null());
+        assert!(value["samples"][0]["loss_basis_points"].is_null());
         assert_eq!(value["metrics"]["smoothed_rtt_milliseconds"], 12);
         assert_eq!(
             value["metrics"]["h2_stream_receive_window_bytes"],
@@ -3259,6 +3279,65 @@ mod tests {
             .to_string(),
         );
         assert!(conversion.is_err());
+    }
+
+    #[test]
+    fn android_unbound_default_profile_can_claim_zero_trust_during_replacement() {
+        let directory = tempfile::tempdir().unwrap();
+        let config_path = directory.path().join("profiles-v2.json");
+        let profile_id = "8c30b771-9ebd-457a-b67b-bbc74a1ddba6";
+
+        apply_profile_command(
+            config_path.to_str().unwrap(),
+            &serde_json::json!({
+                "command": "begin_identity_replacement",
+                "profile_id": profile_id,
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let armed = apply_profile_command(
+            config_path.to_str().unwrap(),
+            &serde_json::json!({
+                "command": "arm_identity_replacement",
+                "profile_id": profile_id,
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let armed: serde_json::Value = serde_json::from_str(&armed).unwrap();
+        let mut profile = armed["profiles"][0].clone();
+        profile["endpoint_v4"] = serde_json::json!("162.159.197.2");
+        profile["endpoint_v6"] = serde_json::json!("2606:4700:102::2");
+
+        let committed = apply_profile_command(
+            config_path.to_str().unwrap(),
+            &serde_json::json!({
+                "command": "commit_identity_replacement",
+                "profile": profile,
+                "identity_provider": "zero_trust",
+                "organization": "example-team",
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let committed: serde_json::Value = serde_json::from_str(&committed).unwrap();
+
+        assert_eq!(committed["profiles"].as_array().unwrap().len(), 1);
+        assert_eq!(committed["active_profile_id"], profile_id);
+        assert_eq!(committed["profiles"][0]["identity_provider"], "zero_trust");
+        assert_eq!(
+            committed["profiles"][0]["identity_organization"],
+            "example-team"
+        );
+        assert_eq!(committed["profiles"][0]["endpoint_v4"], "162.159.197.2");
+        assert_eq!(committed["profiles"][0]["endpoint_v6"], "2606:4700:102::2");
+        assert!(
+            committed["pending_identity_replacements"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

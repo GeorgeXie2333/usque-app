@@ -586,7 +586,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -966,9 +966,9 @@ dependencies = [
 
 [[package]]
 name = "hyper"
-version = "1.11.0"
+version = "1.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d22053281f852e11534f5198498373cbb59295120a20771d90f7ed1897490a72"
+checksum = "27b501faa50e7a26c3d3560ca625132f4078a17771f4810baf70475ae48cbe43"
 dependencies = [
  "atomic-waker",
  "bytes",
@@ -1406,7 +1406,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1779,7 +1779,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1989,7 +1989,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2368,7 +2368,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2689,7 +2689,7 @@ dependencies = [
 
 [[package]]
 name = "usque-agent"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2708,11 +2708,12 @@ dependencies = [
  "usque-platform",
  "uuid",
  "windows-sys 0.61.2",
+ "winresource",
 ]
 
 [[package]]
 name = "usque-android"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2734,7 +2735,7 @@ dependencies = [
 
 [[package]]
 name = "usque-core"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -2763,7 +2764,7 @@ dependencies = [
 
 [[package]]
 name = "usque-engine"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -2794,7 +2795,7 @@ dependencies = [
 
 [[package]]
 name = "usque-geo"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "bytes",
  "futures",
@@ -2810,7 +2811,7 @@ dependencies = [
 
 [[package]]
 name = "usque-ipc"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "bytes",
  "prost",
@@ -2822,7 +2823,7 @@ dependencies = [
 
 [[package]]
 name = "usque-platform"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "async-trait",
  "security-framework",
@@ -2836,7 +2837,7 @@ dependencies = [
 
 [[package]]
 name = "usque-protocol"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "bytes",
  "proptest",
@@ -2847,7 +2848,7 @@ dependencies = [
 
 [[package]]
 name = "usque-transport"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "async-trait",
  "boring",
@@ -2876,12 +2877,13 @@ dependencies = [
  "usque-protocol",
  "uuid",
  "webpki-roots",
+ "windows-sys 0.61.2",
  "zeroize",
 ]
 
 [[package]]
 name = "usque-uninstall"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "thiserror",
  "windows-sys 0.61.2",
@@ -2889,7 +2891,7 @@ dependencies = [
 
 [[package]]
 name = "usque-update"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "clap",
  "sha2",
@@ -2927,6 +2929,12 @@ name = "valuable"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
+
+[[package]]
+name = "version_check"
+version = "0.9.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "wait-timeout"
@@ -3090,7 +3098,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3248,6 +3256,15 @@ name = "windows_x86_64_msvc"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
+
+[[package]]
+name = "winresource"
+version = "0.1.31"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0986a8b1d586b7d3e4fe3d9ea39fb451ae22869dcea4aa109d287a374d866087"
+dependencies = [
+ "version_check",
+]
 
 [[package]]
 name = "wit-bindgen"

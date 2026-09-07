@@ -6,16 +6,18 @@ immediately below the matching English text.
 
 ## Highlights / 更新亮点
 
-- Usque v0.2.4 is a feature and reliability release that adds Network Quality, encrypted direct DNS, and more resilient transport and platform lifecycle handling.
-  <br>Usque v0.2.4 是一个功能与可靠性版本，新增网络质量中心、加密直连 DNS，并强化传输与平台生命周期处理。
-- Network Quality provides a local, non-persistent 60-second view of RTT, loss availability, queue pressure, PMTU, migration, and direct DNS. Network Doctor keeps Standard checks read-only and requires explicit authorization for Deep checks.
-  <br>网络质量中心提供本地且不持久化的 60 秒视图，展示 RTT、丢包可用性、队列压力、PMTU、迁移和直连 DNS；Network Doctor 的 Standard 检查保持只读，Deep 检查则需要明确授权。
-- HTTP/3 can now migrate across same-family physical paths and automatically discover the outer-path PMTU. Tuned HTTP/2 flow control, owned packet-buffer reuse, and bounded Android/Linux UDP batching improve resilience and throughput without unbounded queues.
-  <br>HTTP/3 现在可在相同地址族的物理路径间迁移，并自动探测外层路径 PMTU；调优后的 HTTP/2 流控、自有数据包缓冲区复用以及 Android/Linux 有界 UDP 批处理，在不引入无界队列的前提下提升可靠性与吞吐。
-- Direct-country DNS now supports explicit System, DoH, and DoT resolvers with numeric bootstrap and strict TLS. Encrypted resolver failures never silently downgrade to plaintext.
-  <br>直连国家规则的 DNS 现在可明确选择 System、DoH 或 DoT，并使用数字 IP 引导和严格 TLS；加密解析器失败时绝不会静默降级为明文。
-- Windows and Android now bind recovery and direct egress to exact network generations, clean up more consistently across shutdown and detach paths, and recover orphaned VPN state without starting a new tunnel on an unsafe or stale platform state.
-  <br>Windows 与 Android 现在将恢复和直连出口绑定到准确的网络代次，在关机及分离路径中执行更一致的清理，并可恢复孤立的 VPN 状态，避免在不安全或过期的平台状态上启动新隧道。
+- Usque v0.2.5 is a feature and reliability release that improves Windows upgrades and recovery, adds Zero Trust onboarding, and refines the Windows and Android experience.
+  <br>Usque v0.2.5 是一个功能与可靠性版本，改进 Windows 升级与恢复，新增 Zero Trust 首次配置流程，并优化 Windows 与 Android 使用体验。
+- Windows upgrades now install the versioned, recovery-compatible Agent before removing the older product, providing a compatibility bridge from v0.2.4. Complete payload replacement avoids mixing old and new application files, while asynchronous Wintun-removal confirmation and idempotent adapter recovery address cleanup failures.
+  <br>Windows 升级现在先安装带版本信息且兼容恢复流程的新版 Agent，再移除旧产品，为 v0.2.4 提供升级兼容桥接。完整载荷替换避免新旧应用文件混用，异步 Wintun 移除确认和幂等适配器恢复则修复清理失败问题。
+- Windows adds bounded, operation- and generation-checked automatic recovery, corrects physical DNS discovery, and authorizes bootstrap egress before committing the Kill Switch. Unrestored or conflicting platform state remains a hard stop for a new tunnel.
+  <br>Windows 新增次数受限且核对操作与代次的自动恢复，修正物理 DNS 发现，并在提交 Kill Switch 前授权引导出口。平台状态未恢复或存在冲突时仍禁止启动新隧道。
+- HTTP/3 receive, cancellation, recovery, and PMTU handling have been hardened. Network Quality retains real source samples across coalesced delivery, with coordinated Windows and Android sampling and corrected Android output status. These are implementation fixes, not measured throughput claims.
+  <br>HTTP/3 接收、取消、恢复及 PMTU 处理得到强化。网络质量中心在合并投递时保留真实源样本，协调 Windows 与 Android 的采样，并修正 Android 输出状态。这些是实现修复，不代表已经测得吞吐提升。
+- Zero Trust enrollment is available during onboarding. Native Windows and Android layouts now use clearer open sections, improved account and proxy workflows, unsaved-change handling, and Windows window sizing that respects the display work area. Zero Trust remains experimental.
+  <br>首次配置流程新增 Zero Trust 注册。Windows 与 Android 原生布局采用更清晰的开放分区，改进账户及代理配置流程和未保存修改处理，并让 Windows 窗口尺寸适应显示器工作区。Zero Trust 仍为实验性功能。
+- Dependency, release-tooling, guide, and screenshot updates accompany these changes. Real installation, upgrade, VPN recovery, leak, and performance validation requires isolated environments; compile-only and MSI table checks must not be presented as those runtime results.
+  <br>此版本还更新依赖、发布工具、指南和截图。真实安装、升级、VPN 恢复、泄漏及性能验证需要隔离环境；编译与 MSI 表检查不得被表述为这些运行时验证结果。
 
 ### DNS privacy / DNS 隐私
 

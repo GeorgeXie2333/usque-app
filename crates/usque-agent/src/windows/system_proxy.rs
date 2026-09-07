@@ -481,7 +481,9 @@ fn notify_settings_changed() -> Result<(), SystemProxyError> {
         )
     } == 0
     {
-        return Err(SystemProxyError::Registry(io::Error::last_os_error()));
+        return Err(SystemProxyError::last_windows_error(
+            "InternetSetOptionW(SETTINGS_CHANGED)",
+        ));
     }
     // SAFETY: same contract as above.
     if unsafe {
@@ -493,7 +495,9 @@ fn notify_settings_changed() -> Result<(), SystemProxyError> {
         )
     } == 0
     {
-        return Err(SystemProxyError::Registry(io::Error::last_os_error()));
+        return Err(SystemProxyError::last_windows_error(
+            "InternetSetOptionW(REFRESH)",
+        ));
     }
     Ok(())
 }
@@ -506,10 +510,10 @@ fn win32_status(status: u32, operation: &'static str) -> Result<(), SystemProxyE
     if status == ERROR_SUCCESS {
         Ok(())
     } else {
-        Err(SystemProxyError::Registry(io::Error::other(format!(
-            "{operation}: {}",
-            io::Error::from_raw_os_error(status as i32)
-        ))))
+        Err(SystemProxyError::Windows {
+            operation,
+            code: status,
+        })
     }
 }
 
@@ -541,8 +545,21 @@ pub enum SystemProxyError {
     UnexpectedRegistryType(String),
     #[error("registry value exceeds the safety limit: {0} bytes")]
     RegistryValueTooLarge(u32),
+    #[error("{operation} failed with Windows error {code}")]
+    Windows { operation: &'static str, code: u32 },
     #[error("Windows system-proxy registry operation failed: {0}")]
     Registry(#[from] io::Error),
+}
+
+impl SystemProxyError {
+    fn last_windows_error(operation: &'static str) -> Self {
+        Self::Windows {
+            operation,
+            code: io::Error::last_os_error()
+                .raw_os_error()
+                .unwrap_or_default() as u32,
+        }
+    }
 }
 
 #[cfg(test)]

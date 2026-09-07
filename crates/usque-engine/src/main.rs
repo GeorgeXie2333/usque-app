@@ -106,6 +106,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!(%pipe_name, "starting current-user Named Pipe control service");
         info!(%event_pipe_name, "starting current-user Named Pipe event service");
         let service = Arc::new(service);
+        let recovery_monitor = tokio::spawn(Arc::clone(&service).run_windows_recovery_monitor());
         tokio::select! {
             result = usque_engine::windows_ipc::serve(Arc::clone(&service), pipe_name) => result?,
             result = usque_engine::windows_ipc::serve_events(
@@ -120,6 +121,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         if let Err(error) = service.shutdown().await {
             warn!(%error, "engine shutdown could not fully restore platform state");
+        }
+        service.stop_windows_recovery_monitor();
+        if let Err(error) = recovery_monitor.await {
+            warn!(%error, "Windows recovery monitor stopped unexpectedly");
         }
     }
 

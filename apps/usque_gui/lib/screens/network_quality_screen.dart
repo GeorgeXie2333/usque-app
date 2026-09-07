@@ -130,7 +130,7 @@ class NetworkQualityScreen extends StatelessWidget {
                 title: s.get('nq_unsupported'),
                 message: s.get('nq_capability_missing'),
               ),
-            Panel(
+            ContentSection(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
@@ -139,7 +139,7 @@ class NetworkQualityScreen extends StatelessWidget {
                     runSpacing: 10,
                     crossAxisAlignment: WrapCrossAlignment.center,
                     children: <Widget>[
-                      StatusPill(
+                      InlineStatus(
                         label: s.get('nq_$level'),
                         tone: switch (level) {
                           'good' => StatusTone.success,
@@ -228,9 +228,9 @@ class NetworkQualityScreen extends StatelessWidget {
                 ),
               ],
             ),
-            _QualityGrid(
+            _QualitySections(
               children: <Widget>[
-                _QualityPanel(
+                _QualitySection(
                   title: s.get('nq_rtt'),
                   icon: LucideIcons.timer,
                   children: <Widget>[
@@ -272,7 +272,7 @@ class NetworkQualityScreen extends StatelessWidget {
                     ),
                   ],
                 ),
-                _QualityPanel(
+                _QualitySection(
                   title: s.get('nq_throughput'),
                   icon: LucideIcons.gauge,
                   children: <Widget>[
@@ -320,7 +320,7 @@ class NetworkQualityScreen extends StatelessWidget {
                     ),
                   ],
                 ),
-                _QualityPanel(
+                _QualitySection(
                   title: s.get('nq_loss'),
                   icon: LucideIcons.chartNoAxesCombined,
                   children: <Widget>[
@@ -349,7 +349,7 @@ class NetworkQualityScreen extends StatelessWidget {
                     ),
                   ],
                 ),
-                _QualityPanel(
+                _QualitySection(
                   title: s.get(h2 ? 'nq_h2_window' : 'nq_congestion'),
                   icon: LucideIcons.waves,
                   children: <Widget>[
@@ -415,9 +415,9 @@ class NetworkQualityScreen extends StatelessWidget {
                 ),
               ],
             ),
-            _QualityGrid(
+            _QualitySections(
               children: <Widget>[
-                _QualityPanel(
+                _QualitySection(
                   title: s.get('nq_pmtu'),
                   icon: LucideIcons.scanLine,
                   children: <Widget>[
@@ -454,7 +454,7 @@ class NetworkQualityScreen extends StatelessWidget {
                     ),
                   ],
                 ),
-                _QualityPanel(
+                _QualitySection(
                   title: s.get('nq_migration'),
                   icon: LucideIcons.route,
                   children: <Widget>[
@@ -490,7 +490,7 @@ class NetworkQualityScreen extends StatelessWidget {
                     ),
                   ],
                 ),
-                _QualityPanel(
+                _QualitySection(
                   title: s.get('nq_direct_dns'),
                   icon: LucideIcons.shieldCheck,
                   children: <Widget>[
@@ -540,7 +540,7 @@ class NetworkQualityScreen extends StatelessWidget {
                 ),
               ],
             ),
-            _QualityPanel(
+            _QualitySection(
               title: s.get('nq_queues'),
               icon: LucideIcons.layers3,
               children: <Widget>[
@@ -611,28 +611,23 @@ String _reason(AppStrings strings, String value) {
   );
 }
 
-class _QualityGrid extends StatelessWidget {
-  const _QualityGrid({required this.children});
+class _QualitySections extends StatelessWidget {
+  const _QualitySections({required this.children});
   final List<Widget> children;
   @override
-  Widget build(BuildContext context) => LayoutBuilder(
-    builder: (context, constraints) {
-      final scale = MediaQuery.textScalerOf(context).scale(16) / 16;
-      final columns = constraints.maxWidth >= 700 * scale ? 2 : 1;
-      final width = (constraints.maxWidth - (columns - 1) * 16) / columns;
-      return Wrap(
-        spacing: 16,
-        runSpacing: 16,
-        children: <Widget>[
-          for (final child in children) SizedBox(width: width, child: child),
-        ],
-      );
-    },
+  Widget build(BuildContext context) => ContentList(
+    children: [
+      for (final child in children)
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 24),
+          child: child,
+        ),
+    ],
   );
 }
 
-class _QualityPanel extends StatelessWidget {
-  const _QualityPanel({
+class _QualitySection extends StatelessWidget {
+  const _QualitySection({
     required this.title,
     required this.icon,
     required this.children,
@@ -641,7 +636,7 @@ class _QualityPanel extends StatelessWidget {
   final IconData icon;
   final List<Widget> children;
   @override
-  Widget build(BuildContext context) => Panel(
+  Widget build(BuildContext context) => ContentSection(
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[

@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import '../models/app_models.dart';
 import 'l10n/catalogs.dart';
 import 'l10n/network_quality.dart';
+import 'l10n/ui_workflow.dart';
 import 'l10n/windows_recovery.dart';
 
 class AppStrings {
@@ -15,13 +16,26 @@ class AppStrings {
 
   final String catalogId;
 
-  String? windowsRecoveryError(String? code) =>
-      (catalogId == 'zh_CN' ? kWindowsRecoveryZhCn : kWindowsRecoveryEn)[code];
+  String? windowsRecoveryError(String? code, {String? details}) {
+    final message = (catalogId == 'zh_CN'
+        ? kWindowsRecoveryZhCn
+        : kWindowsRecoveryEn)[code];
+    if (message == null || !(details?.contains('Wintun') ?? false)) {
+      return message;
+    }
+    // Show only localized step context, never raw Agent diagnostics or paths.
+    final adapter = catalogId == 'zh_CN'
+        ? kWindowsAdapterCleanupZhCn
+        : kWindowsAdapterCleanupEn;
+    return '$message\n$adapter';
+  }
 
   String get languageCode =>
       catalogId.startsWith('zh') ? 'zh' : catalogId.split('_').first;
 
   String get(String key) {
+    final workflow = catalogId == 'zh_CN' ? kUiWorkflowZhCn : kUiWorkflowEn;
+    if (workflow.containsKey(key)) return workflow[key]!;
     final quality = catalogId == 'zh_CN'
         ? kNetworkQualityZhCn
         : kNetworkQualityEn;
@@ -37,6 +51,11 @@ class AppStrings {
 
   @visibleForTesting
   static bool get debugCatalogsAreComplete {
+    if (!setEquals(kUiWorkflowEn.keys.toSet(), kUiWorkflowZhCn.keys.toSet()) ||
+        kUiWorkflowEn.values.any((value) => value.trim().isEmpty) ||
+        kUiWorkflowZhCn.values.any((value) => value.trim().isEmpty)) {
+      return false;
+    }
     if (!setEquals(
           kWindowsRecoveryEn.keys.toSet(),
           kWindowsRecoveryZhCn.keys.toSet(),

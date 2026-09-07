@@ -89,6 +89,33 @@ impl ControlService {
             }
         };
         if let Err(error) = applied_result {
+            #[cfg(windows)]
+            if let ControlServiceError::PlatformRecoveryPending {
+                operation_id,
+                journal_generation,
+            } = &error
+            {
+                self.begin_windows_connection_intent(applied.id).await;
+                let snapshot = match self
+                    .enter_windows_automatic_recovery(
+                        applied.id,
+                        operation_id.clone(),
+                        *journal_generation,
+                    )
+                    .await
+                {
+                    Ok(snapshot) => snapshot,
+                    Err(error) => {
+                        self.clear_windows_connection_intent().await;
+                        let _ = self.upsert_profile_locked(previous).await;
+                        return Err(error);
+                    }
+                };
+                return Ok(v1::ReconfigureResult {
+                    profile: Some(profile_to_proto(&applied)),
+                    snapshot: Some(self.snapshot_with_quality_to_proto(&snapshot)),
+                });
+            }
             let detach_committed = class == ReconfigureClass::HotTunnelAttach
                 && !applied.frontends.tunnel
                 && self

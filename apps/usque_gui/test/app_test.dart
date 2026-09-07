@@ -54,6 +54,8 @@ class FakeEngineClient implements EngineClient {
   IdentityProvisioningMethod? lastProvisioningMethod;
   String? lastZeroTrustTeam;
   String? lastZeroTrustCallback;
+  String? pendingZeroTrustCallback;
+  int zeroTrustCancelCount = 0;
   bool failProfileIdentityCreation = false;
   bool failProfileUpsert = false;
   final List<String> calls = <String>[];
@@ -351,10 +353,17 @@ class FakeEngineClient implements EngineClient {
   Future<String?> beginZeroTrustLogin(String teamName) async => null;
 
   @override
-  Future<String?> consumeZeroTrustCallback() async => null;
+  Future<String?> consumeZeroTrustCallback() async {
+    final callback = pendingZeroTrustCallback;
+    pendingZeroTrustCallback = null;
+    return callback;
+  }
 
   @override
-  Future<void> cancelZeroTrustLogin() async {}
+  Future<void> cancelZeroTrustLogin() async {
+    zeroTrustCancelCount += 1;
+    pendingZeroTrustCallback = null;
+  }
 
   @override
   Future<PlatformPreferences> platformPreferences() async =>
@@ -653,6 +662,25 @@ class EventEngineClient extends FakeEngineClient {
   }
 }
 
+Future<void> advanceToOnboardingIdentity(WidgetTester tester) async {
+  var continueButton = find.widgetWithText(FilledButton, 'Continue');
+  await tester.ensureVisible(continueButton);
+  await tester.tap(continueButton);
+  await tester.pumpAndSettle();
+  continueButton = find.widgetWithText(FilledButton, 'Continue');
+  await tester.ensureVisible(continueButton);
+  await tester.tap(continueButton);
+  await tester.pumpAndSettle();
+  final terms = find.byType(CheckboxListTile);
+  await tester.ensureVisible(terms);
+  await tester.tap(terms);
+  await tester.pump();
+  continueButton = find.widgetWithText(FilledButton, 'Continue');
+  await tester.ensureVisible(continueButton);
+  await tester.tap(continueButton);
+  await tester.pumpAndSettle();
+}
+
 void main() {
   test(
     'cold process startup checks exactly once after initialization',
@@ -768,14 +796,14 @@ void main() {
     final downloader = RecordingUpdateDownloader(engine);
     final controller = AppController(engine, updateDownloader: downloader);
     await controller.initialize();
-    const path = 'test-update-cache/usque-v0.2.5-android-arm64-v8a.apk';
+    const path = 'test-update-cache/usque-v0.2.6-android-arm64-v8a.apk';
     controller.updateResult = const UpdateCheckResult(
       available: true,
-      version: 'v0.2.5',
+      version: 'v0.2.6',
       package: UpdatePackage(
-        name: 'usque-v0.2.5-android-arm64-v8a.apk',
+        name: 'usque-v0.2.6-android-arm64-v8a.apk',
         downloadUrl:
-            'https://github.com/GeorgeXie2333/usque-app/releases/download/v0.2.5/usque-v0.2.5-android-arm64-v8a.apk',
+            'https://github.com/GeorgeXie2333/usque-app/releases/download/v0.2.6/usque-v0.2.6-android-arm64-v8a.apk',
         size: 1024,
         sha256:
             'a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5',
@@ -840,18 +868,21 @@ void main() {
       'phase': 'error',
       'warning': '127.0.0.1:1080 is already in use',
       'error_code': 'PROXY_LISTEN_FAILED',
+      'error_retryable': true,
       'active_listeners': <String>[],
     });
     final second = EngineSnapshot.fromMap(<Object?, Object?>{
       'phase': 'error',
       'warning': '127.0.0.1:1080 is already in use',
       'error_code': 'PROXY_LISTEN_FAILED',
+      'error_retryable': true,
       'active_listeners': <String>[],
     });
 
     expect(first, second);
     expect(first.hashCode, second.hashCode);
     expect(first.errorCode, 'PROXY_LISTEN_FAILED');
+    expect(first.errorRetryable, isTrue);
   });
 
   test('Android snapshot maps expose the same network quality model', () {
@@ -2128,14 +2159,18 @@ void main() {
       final ipv6 = find.byKey(const ValueKey<String>('proxy-dns-ipv6'));
       expect(ipv4, findsOneWidget);
       expect(ipv6, findsOneWidget);
-      expect(tester.widget<TextField>(ipv4).controller?.text, '1.1.1.1');
+      expect(tester.widget<TextFormField>(ipv4).controller?.text, '1.1.1.1');
       expect(
-        tester.widget<TextField>(ipv6).controller?.text,
+        tester.widget<TextFormField>(ipv6).controller?.text,
         '2606:4700:4700::1111',
       );
 
       await tester.enterText(ipv4, '9.9.9.9');
       await tester.pump();
+      // Draft changes do not alter live DNS until explicitly applied.
+      expect(controller.activeProfile.proxy.dnsMode, ProxyDnsMode.remote);
+      await tester.tap(find.widgetWithText(FilledButton, '应用修改'));
+      await tester.pumpAndSettle();
       await controller.flushProfileWrites();
 
       expect(
@@ -2402,11 +2437,11 @@ void main() {
     await tester.tap(
       find.descendant(
         of: find.byType(NavigationRail),
-        matching: find.text('Profiles'),
+        matching: find.text('Accounts'),
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('New profile'));
+    await tester.tap(find.text('Add account'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'Organization');
     await tester.tap(find.text('Continue'));
@@ -2447,11 +2482,11 @@ void main() {
     await tester.tap(
       find.descendant(
         of: find.byType(NavigationRail),
-        matching: find.text('Profiles'),
+        matching: find.text('Accounts'),
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('New profile'));
+    await tester.tap(find.text('Add account'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'Organization');
     await tester.tap(find.text('Continue'));
@@ -2556,7 +2591,7 @@ void main() {
       find.widgetWithText(TextFormField, 'SNI'),
       'shared.example.com',
     );
-    final save = find.widgetWithText(FilledButton, 'Save');
+    final save = find.widgetWithText(FilledButton, 'Apply changes');
     await tester.ensureVisible(save);
     await tester.tap(save);
     await tester.pumpAndSettle();
@@ -2798,7 +2833,7 @@ void main() {
     await tester.pump();
     await tester.tap(find.text('Continue'));
     await tester.pumpAndSettle();
-    expect(find.text('Set up Consumer WARP'), findsOneWidget);
+    expect(find.text('Configure WARP identity'), findsOneWidget);
 
     await tester.tap(find.text('Finish setup'));
     await tester.pumpAndSettle();
@@ -2838,6 +2873,288 @@ void main() {
 
     expect(finishButton().onPressed, isNotNull);
   });
+
+  testWidgets('onboarding accepts a manual Zero Trust callback', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1280, 1000);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final engine = FakeEngineClient();
+    await tester.pumpWidget(UsqueBootstrap(engine: engine));
+    await tester.pumpAndSettle();
+    await advanceToOnboardingIdentity(tester);
+
+    await tester.tap(find.text('Cloudflare Zero Trust'));
+    await tester.pumpAndSettle();
+    expect(find.text('Experimental'), findsOneWidget);
+
+    const callback =
+        'com.cloudflare.warp://example-team.cloudflareaccess.com/auth?token=onboarding-test';
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Organization team name'),
+      'Example-Team',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Complete callback URL'),
+      callback,
+    );
+    await tester.pump();
+
+    final finish = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Finish setup'),
+    );
+    expect(finish.onPressed, isNotNull);
+    await tester.tap(find.text('Finish setup'));
+    await tester.pumpAndSettle();
+
+    expect(engine.lastProvisioningMethod, IdentityProvisioningMethod.zeroTrust);
+    expect(engine.lastZeroTrustTeam, 'example-team');
+    expect(engine.lastZeroTrustCallback, callback);
+    expect(find.text('Home'), findsWidgets);
+    expect(find.text('Complete callback URL'), findsNothing);
+    final preferences = await SharedPreferences.getInstance();
+    expect(preferences.getBool('onboarding_complete'), isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('invalid onboarding Zero Trust callback cannot be submitted', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1280, 1000);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final engine = FakeEngineClient();
+    await tester.pumpWidget(UsqueBootstrap(engine: engine));
+    await tester.pumpAndSettle();
+    await advanceToOnboardingIdentity(tester);
+    await tester.tap(find.text('Cloudflare Zero Trust'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Organization team name'),
+      'example-team',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Complete callback URL'),
+      'https://example-team.cloudflareaccess.com/auth?token=x',
+    );
+    await tester.pump();
+
+    expect(
+      find.text(
+        'Use a com.cloudflare.warp Access callback for this organization.',
+      ),
+      findsOneWidget,
+    );
+    final finish = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Finish setup'),
+    );
+    expect(finish.onPressed, isNull);
+    expect(engine.lastProvisioningMethod, isNull);
+    expect(engine.lastZeroTrustCallback, isNull);
+  });
+
+  testWidgets('failed onboarding clears the one-time Zero Trust callback', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1280, 1000);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final engine = FakeEngineClient()..failProfileIdentityCreation = true;
+    final controller = AppController(engine);
+    await controller.initialize();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: UsqueTheme.light(),
+        home: OnboardingScreen(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await advanceToOnboardingIdentity(tester);
+    await tester.tap(find.text('Cloudflare Zero Trust'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Organization team name'),
+      'Example-Team',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Complete callback URL'),
+      'com.cloudflare.warp://example-team.cloudflareaccess.com/auth?token=one-time',
+    );
+    await tester.pump();
+
+    await tester.tap(find.text('Finish setup'));
+    await tester.pumpAndSettle();
+
+    expect(controller.onboardingComplete, isFalse);
+    expect(find.text('Registration failed.'), findsOneWidget);
+    expect(
+      tester
+          .widget<TextField>(
+            find.widgetWithText(TextField, 'Organization team name'),
+          )
+          .controller
+          ?.text,
+      'example-team',
+    );
+    expect(
+      tester
+          .widget<TextField>(
+            find.widgetWithText(TextField, 'Complete callback URL'),
+          )
+          .controller
+          ?.text,
+      isEmpty,
+    );
+    expect(engine.zeroTrustCancelCount, greaterThan(0));
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.widgetWithText(FilledButton, 'Finish setup'),
+          )
+          .onPressed,
+      isNull,
+    );
+  });
+
+  testWidgets('onboarding consumes an automatic Zero Trust callback', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1280, 1000);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final engine = FakeEngineClient();
+    final controller = AppController(engine);
+    await controller.initialize();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: UsqueTheme.light(),
+        home: OnboardingScreen(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await advanceToOnboardingIdentity(tester);
+    await tester.tap(find.text('Cloudflare Zero Trust'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Organization team name'),
+      'example-team',
+    );
+    await tester.pump();
+
+    const callback =
+        'com.cloudflare.warp://example-team.cloudflareaccess.com/auth?token=automatic-test';
+    engine.pendingZeroTrustCallback = callback;
+    controller.noteZeroTrustCallbackArrived();
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Organization callback received securely.'),
+      findsOneWidget,
+    );
+    final callbackField = tester.widget<TextField>(
+      find.widgetWithText(TextField, 'Complete callback URL'),
+    );
+    expect(callbackField.controller?.text, callback);
+    await tester.tap(find.text('Finish setup'));
+    await tester.pumpAndSettle();
+    expect(engine.lastZeroTrustCallback, callback);
+    expect(controller.onboardingComplete, isTrue);
+  });
+
+  testWidgets('switching onboarding identity clears Zero Trust callback', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1280, 1000);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final engine = FakeEngineClient();
+    await tester.pumpWidget(UsqueBootstrap(engine: engine));
+    await tester.pumpAndSettle();
+    await advanceToOnboardingIdentity(tester);
+    await tester.tap(find.text('Cloudflare Zero Trust'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Organization team name'),
+      'example-team',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Complete callback URL'),
+      'com.cloudflare.warp://example-team.cloudflareaccess.com/auth?token=discard-me',
+    );
+    await tester.pump();
+
+    final cancellationsBeforeSwitch = engine.zeroTrustCancelCount;
+    await tester.tap(find.text('Register a new identity'));
+    await tester.pumpAndSettle();
+    expect(engine.zeroTrustCancelCount, greaterThan(cancellationsBeforeSwitch));
+    expect(find.text('Complete callback URL'), findsNothing);
+
+    await tester.tap(find.text('Cloudflare Zero Trust'));
+    await tester.pumpAndSettle();
+    final callbackField = tester.widget<TextField>(
+      find.widgetWithText(TextField, 'Complete callback URL'),
+    );
+    expect(callbackField.controller?.text, isEmpty);
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.widgetWithText(FilledButton, 'Finish setup'),
+          )
+          .onPressed,
+      isNull,
+    );
+  });
+
+  testWidgets(
+    'Zero Trust onboarding remains usable on a narrow large-text UI',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(360, 800);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final controller = AppController(FakeEngineClient());
+      await controller.initialize();
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: UsqueTheme.light(),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(1.4)),
+            child: child!,
+          ),
+          home: OnboardingScreen(controller: controller),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await advanceToOnboardingIdentity(tester);
+      final zeroTrustChoice = find.text('Cloudflare Zero Trust');
+      await tester.ensureVisible(zeroTrustChoice);
+      await tester.tap(zeroTrustChoice);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Experimental'), findsOneWidget);
+      expect(find.text('Organization team name'), findsOneWidget);
+      expect(find.text('Complete callback URL'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   test('connect maps generic failures off the preparing phase', () async {
     SharedPreferences.setMockInitialValues(<String, Object>{
@@ -2993,7 +3310,7 @@ void main() {
         bar.destinations.cast<NavigationDestination>().map(
           (destination) => destination.label,
         ),
-        <String>['Home', 'Profiles', 'Proxy', 'Settings'],
+        <String>['Home', 'Accounts', 'Proxy', 'Settings'],
       );
 
       final homeLabel = find.descendant(
@@ -3039,7 +3356,7 @@ void main() {
       await tester.tap(
         find.descendant(
           of: find.byType(NavigationRail),
-          matching: find.text('Profiles'),
+          matching: find.text('Accounts'),
         ),
       );
       await tester.pumpAndSettle();
@@ -3056,7 +3373,7 @@ void main() {
       }
 
       for (var index = 0; index < 50; index += 1) {
-        await tester.tap(find.text('New profile'));
+        await tester.tap(find.text('Add account'));
         await tester.pumpAndSettle();
         await injectStatus(index);
         await tester.tap(find.text('Cancel'));
@@ -3064,7 +3381,7 @@ void main() {
       }
 
       for (var index = 0; index < 50; index += 1) {
-        await tester.tap(find.text('New profile'));
+        await tester.tap(find.text('Add account'));
         await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField), 'Created $index');
         await tester.tap(find.text('Continue'));
@@ -3120,10 +3437,10 @@ void main() {
       final context = tester.element(find.byType(Scaffold).first);
       expect(Theme.of(context).brightness, Brightness.dark);
 
-      await tester.tap(find.text('配置').first);
+      await tester.tap(find.text('账号').first);
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
-      expect(find.text('新建配置'), findsOneWidget);
+      expect(find.text('添加账号'), findsOneWidget);
     },
   );
 
@@ -3157,7 +3474,7 @@ void main() {
       rail.destinations.map(
         (destination) => (destination.label as Tooltip).message,
       ),
-      <String>['Home', 'Profiles', 'Proxy', 'Settings'],
+      <String>['Home', 'Accounts', 'Proxy', 'Settings'],
     );
     final homeLabel = find.descendant(
       of: railFinder,
@@ -3344,6 +3661,8 @@ void main() {
         (widget) => widget is DropdownButton<ThemePreference>,
       );
       expect(themePicker, findsOneWidget);
+      await tester.ensureVisible(themePicker);
+      await tester.pumpAndSettle();
       expect(tester.getSize(themePicker).height, greaterThanOrEqualTo(48));
       expect(
         tester.getSemantics(themePicker).rect.height,
@@ -3395,13 +3714,13 @@ void main() {
         addTearDown(controller.dispose);
         controller.updateResult = const UpdateCheckResult(
           available: true,
-          version: 'v0.2.5',
+          version: 'v0.2.6',
           releaseUrl:
-              'https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.2.5',
+              'https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.2.6',
           package: UpdatePackage(
-            name: 'usque-v0.2.5-windows-x64-v2.msi',
+            name: 'usque-v0.2.6-windows-x64-v2.msi',
             downloadUrl:
-                'https://github.com/GeorgeXie2333/usque-app/releases/download/v0.2.5/usque-v0.2.5-windows-x64-v2.msi',
+                'https://github.com/GeorgeXie2333/usque-app/releases/download/v0.2.6/usque-v0.2.6-windows-x64-v2.msi',
             size: 20 * 1024 * 1024,
             sha256:
                 'a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5',
@@ -3419,7 +3738,7 @@ void main() {
         );
 
         await tester.pumpWidget(app());
-        expect(find.text('v0.2.5  •  x64-v2  •  20.0 MiB'), findsOneWidget);
+        expect(find.text('v0.2.6  •  x64-v2  •  20.0 MiB'), findsOneWidget);
         expect(find.byType(LinearProgressIndicator), findsOneWidget);
         expect(find.text('5.0 MiB / 20.0 MiB'), findsOneWidget);
         expect(find.text('Cancel'), findsOneWidget);
@@ -3437,6 +3756,7 @@ void main() {
         final install = find.text('Restart and update');
         expect(install, findsOneWidget);
         await tester.ensureVisible(install);
+        await tester.pumpAndSettle();
         await tester.tap(install);
         await tester.pumpAndSettle();
         expect(find.text('Install this update?'), findsOneWidget);
@@ -3502,6 +3822,7 @@ void main() {
       final directCountries = find.text('Countries routed directly');
       expect(directCountries, findsOneWidget);
       await tester.ensureVisible(directCountries);
+      await tester.pumpAndSettle();
       await tester.tap(directCountries);
       await tester.pumpAndSettle();
 
@@ -3521,6 +3842,7 @@ void main() {
       await tester.pumpAndSettle();
       final advanced = find.text('Advanced network settings');
       await tester.ensureVisible(advanced);
+      await tester.pumpAndSettle();
       await tester.tap(advanced);
       await tester.pumpAndSettle();
 
@@ -3563,7 +3885,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(controller.section, AppSection.settings);
 
-      final diagnosticsCard = find.widgetWithText(Panel, 'Diagnostics');
+      final diagnosticsCard = find.widgetWithText(ActionRow, 'Diagnostics');
       expect(diagnosticsCard, findsOneWidget);
       await tester.ensureVisible(diagnosticsCard);
       await tester.pumpAndSettle();
@@ -3623,7 +3945,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    final diagnosticsCard = find.widgetWithText(Panel, 'Diagnostics');
+    final diagnosticsCard = find.widgetWithText(ActionRow, 'Diagnostics');
     await tester.ensureVisible(diagnosticsCard);
     await tester.pumpAndSettle();
     await tester.tap(diagnosticsCard);
@@ -3658,7 +3980,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    final diagnosticsCard = find.widgetWithText(Panel, 'Diagnostics');
+    final diagnosticsCard = find.widgetWithText(ActionRow, 'Diagnostics');
     await tester.ensureVisible(diagnosticsCard);
     await tester.pumpAndSettle();
     await tester.tap(diagnosticsCard);
@@ -3700,7 +4022,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    final diagnosticsCard = find.widgetWithText(Panel, 'Diagnostics');
+    final diagnosticsCard = find.widgetWithText(ActionRow, 'Diagnostics');
     await tester.ensureVisible(diagnosticsCard);
     await tester.pumpAndSettle();
     await tester.tap(diagnosticsCard);
@@ -4076,13 +4398,18 @@ void main() {
       final Rect heroRect = tester.getRect(
         find.ancestor(
           of: find.byType(ConnectionRing),
-          matching: find.byType(Panel),
+          matching: find.byType(ContentSection),
         ),
       );
       final Rect locationRect = tester.getRect(
-        find.ancestor(of: find.text('Location'), matching: find.byType(Panel)),
+        find.ancestor(
+          of: find.text('Location'),
+          matching: find.byType(ContentSection),
+        ),
       );
-      expect(locationRect.bottom, closeTo(heroRect.bottom, 2));
+      expect(locationRect.left, greaterThan(heroRect.right));
+      expect(downloadOrigin.dy, greaterThan(locationRect.bottom));
+      expect(find.byType(Panel), findsNothing);
 
       controller.snapshot = const EngineSnapshot(
         phase: ConnectionPhase.connected,
@@ -4142,7 +4469,12 @@ void main() {
       await tester.tap(find.text('Retry'));
       await tester.pumpAndSettle();
       expect(engine.calls, contains('retry'));
-      expect(find.widgetWithText(OutlinedButton, 'Diagnostics'), findsNothing);
+      expect(find.text('Retry'), findsNothing);
+      expect(find.byKey(const ValueKey('home-diagnostics')), findsOneWidget);
+      expect(
+        find.widgetWithText(OutlinedButton, 'Diagnostics'),
+        findsOneWidget,
+      );
 
       controller.snapshot = const EngineSnapshot(
         phase: ConnectionPhase.degraded,
@@ -4153,9 +4485,46 @@ void main() {
         find.widgetWithText(OutlinedButton, 'Diagnostics'),
         findsOneWidget,
       );
+      expect(find.byKey(const ValueKey('home-diagnostics')), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('blocked Windows recovery exposes diagnostics but not Retry', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+    });
+    final engine = EventEngineClient();
+    engine.current = const EngineSnapshot(
+      phase: ConnectionPhase.error,
+      errorCode: 'WINDOWS_RECOVERY_BLOCKED',
+      errorRetryable: false,
+      warning: 'sanitized',
+    );
+    final controller = AppController(engine);
+    await controller.initialize();
+    addTearDown(controller.dispose);
+    controller.snapshot = const EngineSnapshot(
+      phase: ConnectionPhase.error,
+      errorCode: 'WINDOWS_RECOVERY_BLOCKED',
+      errorRetryable: false,
+      warning: 'sanitized',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: UsqueTheme.light(),
+        home: HomeScreen(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Retry'), findsNothing);
+    expect(find.widgetWithText(OutlinedButton, 'Diagnostics'), findsOneWidget);
+    final ring = tester.widget<ConnectionRing>(find.byType(ConnectionRing));
+    expect(ring.onPressed, isNull);
+  });
 
   test(
     'initialize with auto_connect connects a ready disconnected profile once',
@@ -4280,7 +4649,7 @@ void main() {
     }
   });
 
-  testWidgets('profile cards show account identity instead of output tags', (
+  testWidgets('profile rows show account identity instead of output tags', (
     tester,
   ) async {
     tester.view.devicePixelRatio = 1;
@@ -4296,7 +4665,7 @@ void main() {
     await tester.tap(
       find.descendant(
         of: find.byType(NavigationRail),
-        matching: find.text('Profiles'),
+        matching: find.text('Accounts'),
       ),
     );
     await tester.pumpAndSettle();
@@ -4329,8 +4698,8 @@ void main() {
 
     await tester.tap(find.byTooltip('Edit').first);
     await tester.pumpAndSettle();
-    expect(find.text('Edit profile'), findsOneWidget);
-    expect(find.text('Profile name'), findsOneWidget);
+    expect(find.text('Rename account'), findsOneWidget);
+    expect(find.text('Account name'), findsOneWidget);
     expect(find.widgetWithText(SwitchListTile, 'SOCKS5'), findsNothing);
     expect(find.widgetWithText(SwitchListTile, 'VPN (TUN)'), findsNothing);
     expect(
@@ -4343,7 +4712,7 @@ void main() {
     expect(find.text('Personal'), findsOneWidget);
   });
 
-  testWidgets('profile cards show WARP+ and Zero Trust identity tags', (
+  testWidgets('profile rows show WARP+ and Zero Trust identity tags', (
     tester,
   ) async {
     tester.view.devicePixelRatio = 1;
@@ -4382,7 +4751,7 @@ void main() {
     await tester.tap(
       find.descendant(
         of: find.byType(NavigationRail),
-        matching: find.text('Profiles'),
+        matching: find.text('Accounts'),
       ),
     );
     await tester.pumpAndSettle();
@@ -4393,9 +4762,7 @@ void main() {
     expect(find.text('example-team · Experimental'), findsNothing);
   });
 
-  testWidgets('profile cards show WARP Free from license state', (
-    tester,
-  ) async {
+  testWidgets('profile rows show WARP Free from license state', (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(1280, 900);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -4418,7 +4785,7 @@ void main() {
     await tester.tap(
       find.descendant(
         of: find.byType(NavigationRail),
-        matching: find.text('Profiles'),
+        matching: find.text('Accounts'),
       ),
     );
     await tester.pumpAndSettle();
@@ -4428,7 +4795,7 @@ void main() {
   });
 
   testWidgets(
-    'narrow profile cards give the name its own row above identity tags',
+    'narrow profile rows give the name its own row above identity tags',
     (tester) async {
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = const Size(430, 900);
@@ -4453,7 +4820,7 @@ void main() {
 
       await tester.pumpWidget(UsqueBootstrap(engine: engine));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Profiles').last);
+      await tester.tap(find.text('Accounts').last);
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);

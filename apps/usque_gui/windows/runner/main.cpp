@@ -9,6 +9,7 @@
 
 #include "flutter_window.h"
 #include "utils.h"
+#include "window_geometry.h"
 #include "zero_trust_callback.h"
 
 namespace {
@@ -116,8 +117,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   FlutterWindow window(project, start_hidden);
   Win32Window::Point origin(10, 10);
-  // The caption is drawn by Flutter, so this is the usable client size.
-  Win32Window::Size size(1200, 760);
+  // Reserve space for both Home and the Flutter-drawn caption.
+  Win32Window::Size size(usque::kDefaultWindowWidth, usque::kDefaultWindowHeight);
   if (!window.Create(L"Usque", origin, size)) {
     ::CloseHandle(instance_mutex);
     return EXIT_FAILURE;

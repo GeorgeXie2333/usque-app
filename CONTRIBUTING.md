@@ -37,7 +37,20 @@ If you change privileged networking or the installer and cannot run the isolated
 - Ruff `0.16.0`, PSScriptAnalyzer `1.25.0`, Buf `1.72.0`, actionlint `1.7.12`
 - WiX `5.0.2` via the checked-in .NET tool manifest
 
-Flutter and Android SDK paths come from `apps/usque_gui/android/local.properties`. Do not commit that file, signing material, generated JNI libraries, build directories, logs, diagnostics, or release artifacts. Official signing rules are in [docs/CODE_SIGNING.md](docs/CODE_SIGNING.md).
+Flutter and Android SDK paths come from `apps/usque_gui/android/local.properties`
+(`flutter.sdk` and `sdk.dir`). Use that Flutter SDK's `bin` directory for the
+`flutter` and `dart` commands below; do not assume a global installation is
+correct. Verify `flutter --version` against the version and full commit pinned
+in [CI](.github/workflows/ci.yml) before resolving packages. On a new machine,
+install the pinned SDKs and create this local path file first. Use PowerShell 7
+for the PowerShell helpers. The Windows helper additionally needs Visual Studio
+C++ Build Tools and the Windows SDK; it selects the native build environment.
+
+Toolchain manifests, Gradle configuration, and build helpers are authoritative
+for versions and executable behavior. Do not commit `local.properties`, signing
+material, generated JNI libraries, build directories, logs, diagnostics, or
+release artifacts. Official signing rules are in
+[docs/CODE_SIGNING.md](docs/CODE_SIGNING.md).
 
 ## Branches, commits, and pull requests
 
@@ -52,13 +65,47 @@ Accepted types: `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `build`, `ci`
 
 ## Required checks by change scope
 
-If several languages change, prefer the aggregate script. It only checks; it does not rewrite files:
+Run every applicable section, starting each code block at the repository root
+unless it specifies another directory. Record exact commands, results, and
+anything not run. The [CI](.github/workflows/ci.yml) and compile-only
+[Build](.github/workflows/build.yml) workflows define the hosted gates.
+
+### Markdown-only changes
+
+```shell
+python tool/check_repository_policy.py
+git diff --check
+```
+
+Use a verified Python 3.10+ executable if `python` is not on PATH. The policy
+check covers first-party local link targets, UTF-8, and repository rules; it
+does not validate external URLs, heading anchors, or the truth of documentation.
+Review those separately. Check release-note template edits with the renderer's
+tests as well:
+
+```shell
+python -m unittest discover -s tool -p "test_release_contract.py" -v
+```
+
+### Aggregate source checks
+
+For multi-language changes, the aggregate script collects format and static
+checks without rewriting files:
 
 ```shell
 pwsh -NoProfile -File tool/check_source.ps1
 ```
 
+It does **not** replace Rust, Flutter, Kotlin, Python, or Go tests, Android Rust
+Clippy, or platform builds. Run those separately when applicable. On Windows,
+initialize the supported native environment with the Windows Rust helper in
+the same PowerShell session before running the aggregate script.
+
 ### Rust
+
+On Windows, use the helper-based Clippy and test commands in **Windows Rust
+and MSI authoring** below instead of plain Cargo in a fresh shell. The format
+check applies on every host.
 
 ```shell
 cargo fmt --all --check
@@ -90,7 +137,17 @@ Ubuntu widget suite and the Windows golden suite in `CI / gate`; neither is
 optional. Keep exact pixel comparison. Regenerate baselines only on Windows
 with the pinned SDK, review every visual diff, and never update them in CI.
 
-### Android and Kotlin
+### Android Rust and Kotlin
+
+First run the Android-target Rust check from the repository root. The helper
+requires the pinned NDK and SDK CMake installation, uses locked dependencies,
+and checks the arm64-v8a library without copying JNI output:
+
+```powershell
+& ./tool/build_android_rust.ps1 -AbiFilter arm64-v8a -CargoAction clippy
+```
+
+Then run the Flutter configuration and Kotlin checks from the repository root:
 
 ```shell
 cd apps/usque_gui
@@ -101,6 +158,14 @@ cd android
 ./gradlew --no-daemon :app:ktlintCheck
 ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug
 ```
+
+On Windows, use `.\gradlew.bat` in place of `./gradlew`. The arm64 Rust check
+does not establish three-ABI build coverage. Full JNI builds use the same
+helper with `-CargoAction build -AbiFilter all`; generated `jniLibs` must not
+be committed. Release APK builds require an explicit request and the ephemeral
+build-only signing procedure in [Build](.github/workflows/build.yml), never
+official signing material on a development host. Do not install a release APK
+on a personal or shared device to validate it.
 
 Kotlin compiler warnings and Android lint warnings are errors. ktlint is pinned through `org.jlleitschuh.gradle.ktlint` `14.2.0` and ktlint `1.8.0`.
 
@@ -150,12 +215,36 @@ Pin external Actions to a full commit SHA and put the human release in a trailin
 Do not run a plain `cargo build --release` in a fresh Windows shell. Use the helper so MSVC, Ninja, CMake, and libclang are set up:
 
 ```powershell
-& .\tool\build_windows_rust_release.ps1 -Variant x64-v2
-& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction test
 & .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction clippy
+& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction test
+& .\tool\build_windows_rust_release.ps1 -Variant x64-v2
 ```
 
 Why the helper exists is in [AGENTS.md](AGENTS.md). For MSI work, restore the pinned .NET tool and follow the CI fixture build. Table and ICE validation are safe; installing the MSI is not.
+
+### Windows Flutter and runner
+
+For Flutter or Windows-runner changes, run the Windows Rust gates above and
+the complete sequence below on Windows with the pinned Flutter SDK. Do not
+substitute a build-only command for format, analysis, and tests:
+
+```powershell
+Set-Location apps/usque_gui
+flutter pub get --enforce-lockfile
+dart format --output=none --set-exit-if-changed lib test
+flutter analyze --no-pub
+flutter test --no-pub
+& ../../tool/prepare_windows_plugin_junctions.ps1 -FlutterProject .
+flutter build windows --release --no-pub
+```
+
+The plugin-junction helper is part of the checked-in Windows build sequence.
+Application assembly and binary inspection are defined in
+[Build](.github/workflows/build.yml). This is compile-only validation: it does
+not install an MSI, launch VPN mode, or demonstrate cleanup or leak behavior.
+Create a local validation MSI only when explicitly requested and only after
+fresh Rust and Flutter artifacts pass their applicable checks. Follow the
+packaging safety boundary in [AGENTS.md](AGENTS.md).
 
 ### Go oracle snapshot
 

@@ -26,12 +26,17 @@ class DiagnosticFindingCard extends StatelessWidget {
     final remediation = failure?.remediationKey.isNotEmpty == true
         ? failure!.remediationKey
         : finding.remediationKey;
+    final emphasized =
+        finding.status == DiagnosticCheckStatus.warning ||
+        finding.status == DiagnosticCheckStatus.failed;
     return Container(
       margin: const EdgeInsetsDirectional.fromSTEB(46, 0, 12, 12),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: tokens.tint * 0.55),
-        border: Border.all(color: color.withValues(alpha: 0.32)),
+        color: emphasized ? color.withValues(alpha: tokens.tint * 0.55) : null,
+        border: emphasized
+            ? Border.all(color: color.withValues(alpha: 0.32))
+            : null,
         borderRadius: BorderRadius.circular(UsqueRadii.control),
       ),
       child: Column(
@@ -127,10 +132,8 @@ class DiagnosticFindingCard extends StatelessWidget {
               runSpacing: 6,
               children: finding.sanitizedEvidence
                   .map(
-                    (value) => Chip(
-                      visualDensity: VisualDensity.compact,
-                      label: Text(value),
-                    ),
+                    (value) =>
+                        Text(value, style: UsqueTheme.mono(context, size: 12)),
                   )
                   .toList(growable: false),
             ),
@@ -169,16 +172,9 @@ class _Fact extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
-      decoration: BoxDecoration(
-        border: Border.all(color: UsqueTokens.of(context).hairline),
-        borderRadius: BorderRadius.circular(UsqueRadii.chip),
-      ),
-      child: Text(
-        '$label · $value',
-        style: Theme.of(context).textTheme.labelSmall,
-      ),
+    return Text(
+      '$label · $value',
+      style: Theme.of(context).textTheme.bodySmall,
     );
   }
 }

@@ -1,15 +1,29 @@
 # Installation and removal
 
-Install only packages from this repository's [GitHub Releases page](https://github.com/GeorgeXie2333/usque-app/releases) for `v0.2.4`.
+Install only packages from this repository's
+[GitHub Releases page](https://github.com/GeorgeXie2333/usque-app/releases).
 
-## Official packages
+## Version scope
 
-- `usque-v0.2.4-windows-x64-v2.msi`
-- `usque-v0.2.4-windows-arm64.msi`
-- `usque-v0.2.4-android-arm64-v8a.apk`
-- `usque-v0.2.4-android-x86_64.apk`
-- `usque-v0.2.4-android-armeabi-v7a.apk`
-- `usque-v0.2.4-android-universal.apk`
+This guide follows the source checkout. On a development branch it can describe
+changes not yet available in an official package. For an installed release,
+read its release notes and this guide at the matching Git tag.
+
+The package names below show the workflow's currently pinned `v0.2.5` version.
+This release includes the Windows upgrade bridge and complete same-version
+payload replacement described under **Upgrade**. Those fixes are not present
+in the original `v0.2.4` MSI. Use only packages published by the approved
+v0.2.5 tag workflow; a source checkout alone is not proof of publication or
+of isolated upgrade testing.
+
+## Official package names (v0.2.5)
+
+- `usque-v0.2.5-windows-x64-v2.msi`
+- `usque-v0.2.5-windows-arm64.msi`
+- `usque-v0.2.5-android-arm64-v8a.apk`
+- `usque-v0.2.5-android-x86_64.apk`
+- `usque-v0.2.5-android-armeabi-v7a.apk`
+- `usque-v0.2.5-android-universal.apk`
 
 The GitHub Release attaches those six packages plus `release-manifest.json`,
 `SHA256SUMS`, and each package's SPDX SBOM. GitHub shows a SHA-256 for each
@@ -85,6 +99,12 @@ recovery journal to bypass an error.
 
 ### Upgrade
 
+> [!IMPORTANT]
+> The newer-Agent-first upgrade ordering and `REINSTALLMODE=amus` policy below
+> are included in v0.2.5. Do not install an unchanged v0.2.4 package expecting
+> the new behavior, or substitute a local validation package. Compile-only
+> and MSI table checks do not establish real upgrade or recovery results.
+
 A running Usque process is asked to disconnect and exit through Windows Restart
 Manager before any installed files are replaced. Usque treats that maintenance
 request differently from an ordinary window close, so the close-to-tray setting
@@ -92,7 +112,32 @@ does not keep the process alive. If an older or unresponsive build cannot honor
 the request, Windows Installer uses its bounded force-shutdown fallback; it does
 not restart that process during the upgrade.
 
-A major upgrade first stops the Agent and restores Usque-owned WFP, route, DNS, system-proxy, and Wintun state. It keeps user profiles, settings, logs, caches, Credential Manager identities, and the recovery journal the new version needs.
+A major upgrade stops the Agent, installs the newer recovery-compatible Agent
+inside the Windows Installer transaction, and then removes the older product.
+The older package's recovery action therefore runs the fixed Agent from the
+stable installation path while it restores Usque-owned WFP, route, DNS,
+system-proxy, and Wintun state. Component reference counting keeps the new
+files and service registration in place when the older product is removed. The
+upgrade keeps user profiles, settings, logs, caches, Credential Manager
+identities, and the recovery journal the new version needs.
+
+Same-version replacements use an explicit payload overwrite policy
+(`REINSTALLMODE=amus`) before file costing. This replaces equal-version and
+unversioned application files together, instead of leaving an older Agent or
+GUI beside a new Engine. All installed files must remain under the private
+Usque installation directory; user data is not part of that payload. Product
+downgrades are still rejected, and repair/modify/patch operations remain
+unsupported. The setting is not a request to run an MSI repair.
+
+This ordering is also the supported bridge from `v0.2.4`, whose Agent could
+mistake asynchronous Wintun device removal for a permanent cleanup failure. A
+user whose `v0.2.4` uninstall failed should use a verified official `v0.2.5`
+Windows package containing this bridge, then uninstall the newer version if
+removal was the original goal. If recovery still fails, stop and report the
+failure with sanitized diagnostics; development artifacts are not substitutes
+for the official package.
+Do not work around the failure by deleting the Agent, its recovery journal, or
+Windows network objects manually.
 
 If privileged network state cannot be restored, the upgrade stops with an error. It must not continue with leftover routes, filters, DNS, proxies, or adapters.
 
@@ -140,7 +185,12 @@ Android asks for VPN consent only when VPN output is first enabled. SOCKS5 and H
 
 **Per-app proxy** is an Android app setting, not part of a Profile. When it is off, every app uses the VPN tunnel. When it is on, only the apps you check use the tunnel; newly installed apps stay off the tunnel until you select them. Select all checks the apps currently visible in the picker — it does not turn the filter off. Usque itself is never listed. If Always-on VPN and **Block connections without VPN** are enabled, apps you did not select are blocked instead of going around the tunnel. The filter applies only while VPN output is on.
 
-Uninstalling the app removes its Android Keystore entries and private data the way Android usually does. Export a WARP Secret before uninstalling if you want to keep that identity. Secrets never appear in diagnostics or ordinary settings backups.
+Uninstalling the app removes its Android Keystore entries and private data the
+way Android usually does. You can explicitly export a Consumer WARP Secret
+before uninstalling to retain a separate record, but Usque no longer accepts
+new Secret imports. Do not assume the export can restore that identity in
+Usque after reinstalling. Secrets never appear in diagnostics or ordinary
+settings backups.
 
 ## Updates
 

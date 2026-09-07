@@ -28,6 +28,7 @@ mod pmtu;
 mod port_allocator;
 mod proxy;
 mod queue_metrics;
+mod recovery_policy;
 mod relay;
 mod socket;
 mod socks5;
@@ -35,6 +36,7 @@ mod split_dns;
 mod telemetry;
 mod tunnel;
 mod udp_io;
+mod udp_options;
 
 #[cfg(any(test, feature = "fault-injection"))]
 mod fault_injection;
@@ -67,8 +69,8 @@ pub use network_quality::{
     AllocationQuality, CongestionQuality, ConnectionInstanceId, DirectDnsMode, DirectDnsPhase,
     DirectDnsQuality, DirectDnsReasonCode, H2FlowControlQuality, LossQuality, MetricAvailability,
     MetricValue, MigrationPhase, MigrationQuality, MigrationReasonCode, NetworkQualityLevel,
-    NetworkQualitySampler, NetworkQualitySnapshot, NetworkQualityTelemetry, PmtuPhase, PmtuQuality,
-    QueueQuality, RttQuality, UdpIoQuality, spawn_network_quality_sampler,
+    NetworkQualitySample, NetworkQualitySampler, NetworkQualitySnapshot, NetworkQualityTelemetry,
+    PmtuPhase, PmtuQuality, QueueQuality, RttQuality, UdpIoQuality, spawn_network_quality_sampler,
 };
 pub use pin_refresh::{EndpointPinRefresher, refresh_endpoint_pin_over_protected_socket};
 pub use proxy::ProxyRuntime;

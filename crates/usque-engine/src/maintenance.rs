@@ -618,6 +618,9 @@ fn safe_evidence(value: &str) -> bool {
                 | "dns_timeouts"
                 | "plaintext_fallback"
                 | "probe_ms"
+                | "automatic_recovery_phase"
+                | "automatic_recovery_attempts_completed"
+                | "automatic_recovery_attempt_limit"
         ) && !number.is_empty()
             && number.bytes().all(|byte| byte.is_ascii_digit())
             && number.parse::<u64>().is_ok();

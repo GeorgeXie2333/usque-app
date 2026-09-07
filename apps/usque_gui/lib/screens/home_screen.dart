@@ -1,13 +1,11 @@
-import 'dart:math' as math;
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/app_strings.dart';
 import '../core/connection_presentation.dart';
+import '../core/frontend_presentation.dart';
 import '../core/usque_motion.dart';
 import '../core/usque_theme.dart';
 import '../models/app_models.dart';
@@ -16,9 +14,11 @@ import '../widgets/common.dart';
 import '../widgets/connection_ring.dart';
 import '../widgets/controller_selector.dart';
 import '../widgets/live_duration.dart';
+import '../widgets/mobile_home_panels.dart';
 import '../widgets/profile_identity_dialog.dart';
 import '../widgets/sparkline.dart';
 import 'diagnostics_screen.dart';
+import 'network_quality_screen.dart';
 
 /// The instrument panel: one connection control, one status readout, and the
 /// live numbers that prove the tunnel is doing something.
@@ -36,177 +36,89 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final AppStrings strings = controller.strings;
+    final viewport = MediaQuery.sizeOf(context);
+    final bool compact =
+        viewport.width < 760 ||
+        defaultTargetPlatform == TargetPlatform.android &&
+            viewport.shortestSide < 600;
     return PageFrame(
       title: strings.get('home'),
-      header: MediaQuery.sizeOf(context).width < 760
-          ? const _NarrowBrandHeader()
-          : null,
+      showHeading: defaultTargetPlatform != TargetPlatform.windows || compact,
+      titleWidget: compact ? const _NarrowBrandHeader() : null,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          _ErrorSlot(controller: controller, strings: strings),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final Widget hero = _ConnectionHero(
-                controller: controller,
-                strings: strings,
-              );
-              final Widget readout = _EngineReadout(
-                controller: controller,
-                strings: strings,
-              );
-              final bool split = constraints.maxWidth >= _splitWidth;
-              final Widget location = _ExitPanel(
-                controller: controller,
-                strings: strings,
-                fillRemaining: split,
-              );
-              if (split) {
-                return _WideHomeSplit(
-                  leading: hero,
-                  trailing: location,
-                  readout: readout,
+          if (!compact) _ErrorSlot(controller: controller, strings: strings),
+          if (compact)
+            PanelStack(
+              spacing: 24 + mobileHomeExpansion(context) * 8,
+              children: [
+                _ConnectionHero(
+                  controller: controller,
+                  strings: strings,
+                  compact: true,
+                ),
+                MobileTrafficPanel(controller: controller),
+                MobileConnectionOverview(
+                  controller: controller,
+                  details: _HomeDetails(
+                    controller: controller,
+                    strings: strings,
+                  ),
+                ),
+              ],
+            )
+          else
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final Widget hero = _ConnectionHero(
+                  controller: controller,
+                  strings: strings,
                 );
-              }
-              return PanelStack(children: <Widget>[hero, readout, location]);
-            },
-          ),
-          const SizedBox(height: 16),
-          _TrafficGrid(controller: controller, strings: strings),
+                final Widget readout = _EngineReadout(
+                  controller: controller,
+                  strings: strings,
+                );
+                final bool split =
+                    constraints.maxWidth >= _splitWidth &&
+                    MediaQuery.textScalerOf(context).scale(14) <= 21;
+                final Widget location = _ExitPanel(
+                  controller: controller,
+                  strings: strings,
+                );
+                if (split) {
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(flex: 5, child: hero),
+                      const SizedBox(width: 48),
+                      Expanded(
+                        flex: 4,
+                        child: PanelStack(
+                          spacing: 32,
+                          children: [readout, location],
+                        ),
+                      ),
+                    ],
+                  );
+                }
+                return PanelStack(
+                  spacing: 32,
+                  children: [hero, readout, location],
+                );
+              },
+            ),
+          if (!compact) ...[
+            const SizedBox(height: 32),
+            Divider(height: 1, color: UsqueTokens.of(context).hairline),
+            const SizedBox(height: 24),
+            _TrafficGrid(controller: controller, strings: strings),
+            const SizedBox(height: 12),
+            _HomeTools(controller: controller),
+          ],
         ],
       ),
     );
-  }
-}
-
-/// Wide home: the connection hero sets the row height, and the location panel
-/// fills whatever remains under engine status so the right column does not
-/// leave a gap of page canvas. If the location readout is taller than that
-/// remainder, the row grows instead of overflowing.
-class _WideHomeSplit extends MultiChildRenderObjectWidget {
-  _WideHomeSplit({
-    required Widget leading,
-    required Widget readout,
-    required Widget trailing,
-  }) : super(children: <Widget>[leading, readout, trailing]);
-
-  @override
-  RenderObject createRenderObject(BuildContext context) {
-    return _RenderWideHomeSplit(textDirection: Directionality.of(context));
-  }
-
-  @override
-  void updateRenderObject(
-    BuildContext context,
-    covariant _RenderWideHomeSplit renderObject,
-  ) {
-    renderObject.textDirection = Directionality.of(context);
-  }
-}
-
-class _WideHomeSplitParentData extends ContainerBoxParentData<RenderBox> {}
-
-class _RenderWideHomeSplit extends RenderBox
-    with
-        ContainerRenderObjectMixin<RenderBox, _WideHomeSplitParentData>,
-        RenderBoxContainerDefaultsMixin<RenderBox, _WideHomeSplitParentData> {
-  _RenderWideHomeSplit({required this._textDirection});
-
-  static const double _gap = 16;
-  static const double _leadingShare = 5 / 9;
-
-  TextDirection _textDirection;
-  TextDirection get textDirection => _textDirection;
-  set textDirection(TextDirection value) {
-    if (_textDirection == value) {
-      return;
-    }
-    _textDirection = value;
-    markNeedsLayout();
-  }
-
-  @override
-  void setupParentData(RenderBox child) {
-    if (child.parentData is! _WideHomeSplitParentData) {
-      child.parentData = _WideHomeSplitParentData();
-    }
-  }
-
-  @override
-  void performLayout() {
-    final RenderBox leading = firstChild!;
-    final RenderBox readout = childAfter(leading)!;
-    final RenderBox trailing = childAfter(readout)!;
-
-    final double maxWidth = constraints.maxWidth;
-    final double inner = math.max(0, maxWidth - _gap);
-    final double leadingWidth = inner * _leadingShare;
-    final double trailingWidth = inner - leadingWidth;
-    final double maxHeight = constraints.maxHeight;
-
-    leading.layout(
-      BoxConstraints(maxWidth: leadingWidth, maxHeight: maxHeight),
-      parentUsesSize: true,
-    );
-    readout.layout(
-      BoxConstraints(maxWidth: trailingWidth, maxHeight: maxHeight),
-      parentUsesSize: true,
-    );
-
-    final double remaining = math.max(
-      0,
-      leading.size.height - readout.size.height - _gap,
-    );
-    trailing.layout(
-      BoxConstraints(
-        minWidth: trailingWidth,
-        maxWidth: trailingWidth,
-        maxHeight: maxHeight,
-      ),
-      parentUsesSize: true,
-    );
-    if (trailing.size.height < remaining) {
-      trailing.layout(
-        BoxConstraints.tightFor(width: trailingWidth, height: remaining),
-        parentUsesSize: true,
-      );
-    }
-
-    size = constraints.constrain(
-      Size(
-        maxWidth,
-        math.max(
-          leading.size.height,
-          readout.size.height + _gap + trailing.size.height,
-        ),
-      ),
-    );
-
-    final bool ltr = _textDirection == TextDirection.ltr;
-    final double leadingX = ltr ? 0 : trailingWidth + _gap;
-    final double trailingX = ltr ? leadingWidth + _gap : 0;
-    (leading.parentData! as _WideHomeSplitParentData).offset = Offset(
-      leadingX,
-      0,
-    );
-    (readout.parentData! as _WideHomeSplitParentData).offset = Offset(
-      trailingX,
-      0,
-    );
-    (trailing.parentData! as _WideHomeSplitParentData).offset = Offset(
-      trailingX,
-      readout.size.height + _gap,
-    );
-  }
-
-  @override
-  void paint(PaintingContext context, Offset offset) {
-    defaultPaint(context, offset);
-  }
-
-  @override
-  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) {
-    return defaultHitTestChildren(result, position: position);
   }
 }
 
@@ -263,6 +175,7 @@ class _ErrorSlot extends StatelessWidget {
 typedef _HeroView = ({
   ConnectionPhase phase,
   bool busy,
+  String? errorCode,
   String profileName,
   FrontendSettings frontends,
   bool systemProxy,
@@ -297,8 +210,25 @@ _OutputPhases _outputPhases(EngineSnapshot snapshot) {
   );
 }
 
+_HeroView _heroView(AppController controller) => (
+  phase: controller.snapshot.phase,
+  busy: controller.busy,
+  errorCode: controller.snapshot.errorCode,
+  profileName: controller.activeProfile.name,
+  frontends: controller.activeProfile.frontends,
+  systemProxy: controller.activeProfile.proxy.systemProxy,
+  geoDirect: controller.activeProfile.geoDirectCountries.join(','),
+  runtime: _outputPhases(controller.snapshot),
+);
+
 class _ConnectionHero extends StatelessWidget {
-  const _ConnectionHero({required this.controller, required this.strings});
+  const _ConnectionHero({
+    required this.controller,
+    required this.strings,
+    this.compact = false,
+  });
+
+  final bool compact;
 
   final AppController controller;
   final AppStrings strings;
@@ -308,108 +238,176 @@ class _ConnectionHero extends StatelessWidget {
     return ControllerSelector<_HeroView>(
       controller: controller,
       active: (controller) => controller.section == AppSection.home,
-      selector: (controller) => (
-        phase: controller.snapshot.phase,
-        busy: controller.busy,
-        profileName: controller.activeProfile.name,
-        frontends: controller.activeProfile.frontends,
-        systemProxy: controller.activeProfile.proxy.systemProxy,
-        geoDirect: controller.activeProfile.geoDirectCountries.join(','),
-        runtime: _outputPhases(controller.snapshot),
-      ),
+      selector: _heroView,
       builder: (context, view) => _buildHero(context, view),
     );
   }
 
   Widget _buildHero(BuildContext context, _HeroView view) {
-    final ThemeData theme = Theme.of(context);
-    final ConnectionPresentation presentation = ConnectionPresentation.of(
-      view.phase,
+    final theme = Theme.of(context);
+    final presentation = ConnectionPresentation.of(view.phase);
+    final status = strings.get(presentation.labelKey);
+    final action = strings.get(presentation.actionKey);
+    final canAct =
+        !view.busy &&
+        !(view.phase == ConnectionPhase.error &&
+            view.errorCode == 'WINDOWS_RECOVERY_BLOCKED');
+    Widget ring(double size) => ConnectionRing(
+      phase: view.phase,
+      busy: view.busy,
+      actionLabel: action,
+      semanticLabel: '${strings.get('connection_status')}: $status',
+      size: size,
+      compactControl: compact,
+      onPressed: canAct ? () => _connectOrRepairIdentity(context) : null,
     );
-    final String status = strings.get(presentation.labelKey);
-    final String action = strings.get(presentation.actionKey);
-
-    return Panel(
-      padding: const EdgeInsets.fromLTRB(24, 22, 24, 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          Text(
-            strings.get('active_profile').toUpperCase(),
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-              letterSpacing: 1.1,
-            ),
+    Widget account() => Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          strings.get('active_profile'),
+          style: theme.textTheme.labelMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
           ),
-          const SizedBox(height: 5),
-          Text(
+        ),
+        const SizedBox(height: 5),
+        Tooltip(
+          message: view.profileName,
+          child: Text(
             view.profileName,
-            maxLines: 1,
+            maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: theme.textTheme.titleLarge,
           ),
-          const SizedBox(height: 22),
-          Center(
-            child: LayoutBuilder(
-              builder: (context, constraints) => ConnectionRing(
-                phase: view.phase,
-                busy: view.busy,
-                actionLabel: action,
-                semanticLabel: '${strings.get('connection_status')}: $status',
-                size: constraints.maxWidth.clamp(180, 244).toDouble(),
-                onPressed: view.busy
-                    ? null
-                    : () => _connectOrRepairIdentity(context),
-              ),
+        ),
+      ],
+    );
+    Widget statusText() => Semantics(
+      liveRegion: true,
+      child: FadeThroughSwitcher(
+        child: Text(
+          status,
+          key: ValueKey(view.phase),
+          textAlign: TextAlign.center,
+          style: theme.textTheme.headlineSmall,
+        ),
+      ),
+    );
+    Widget recovery() => Wrap(
+      alignment: compact ? WrapAlignment.start : WrapAlignment.center,
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        if (view.errorCode != 'WINDOWS_RECOVERY_BLOCKED')
+          OutlinedButton.icon(
+            onPressed: view.busy ? null : controller.retry,
+            icon: const Icon(LucideIcons.refreshCw),
+            label: Text(strings.get('retry')),
+          ),
+        OutlinedButton.icon(
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => DiagnosticsScreen(controller: controller),
             ),
           ),
-          const SizedBox(height: 20),
-          Center(
-            child: FadeThroughSwitcher(
-              child: Text(
-                status,
-                key: ValueKey<ConnectionPhase>(view.phase),
-                textAlign: TextAlign.center,
-                style: theme.textTheme.headlineSmall,
-              ),
-            ),
-          ),
-          if (presentation.recoverable) ...<Widget>[
-            const SizedBox(height: 16),
-            Wrap(
-              alignment: WrapAlignment.center,
-              spacing: 8,
-              runSpacing: 8,
-              children: <Widget>[
-                OutlinedButton.icon(
-                  onPressed: view.busy ? null : controller.retry,
-                  icon: const Icon(LucideIcons.refreshCw),
-                  label: Text(strings.get('retry')),
-                ),
-                OutlinedButton.icon(
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => DiagnosticsScreen(controller: controller),
+          icon: const Icon(LucideIcons.activity),
+          label: Text(strings.get('diagnostics')),
+        ),
+      ],
+    );
+    if (compact) {
+      final expansion = mobileHomeExpansion(context);
+      final ringSize = 148 + expansion * 32;
+      return ContentSection(
+        key: const ValueKey('mobile-connection-section'),
+        padding: EdgeInsets.symmetric(
+          horizontal: 0,
+          vertical: 12 + expansion * 12,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    strings.get('active_profile'),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
-                  icon: const Icon(LucideIcons.activity),
-                  label: Text(strings.get('diagnostics')),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: Tooltip(
+                    message: view.profileName,
+                    child: Text(
+                      view.profileName,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.end,
+                      style: theme.textTheme.titleLarge,
+                    ),
+                  ),
                 ),
               ],
             ),
+            const SizedBox(height: 8),
+            Center(child: ring(ringSize)),
+            const SizedBox(height: 6),
+            statusText(),
+            const SizedBox(height: 10),
+            _ErrorSlot(controller: controller, strings: strings),
+            if (presentation.recoverable &&
+                view.errorCode != 'WINDOWS_RECOVERY_BLOCKED') ...[
+              Center(
+                child: OutlinedButton.icon(
+                  onPressed: view.busy ? null : controller.retry,
+                  icon: const Icon(LucideIcons.refreshCw, size: 18),
+                  label: Text(strings.get('retry')),
+                ),
+              ),
+              const SizedBox(height: 10),
+            ],
+            Divider(height: 1, color: UsqueTokens.of(context).hairline),
+            const SizedBox(height: 8),
+            _ProtectionSummary(controller: controller),
+          ],
+        ),
+      );
+    }
+    return ContentSection(
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          account(),
+          const SizedBox(height: 22),
+          Center(
+            child: LayoutBuilder(
+              builder: (context, constraints) =>
+                  ring(constraints.maxWidth.clamp(180, 244).toDouble()),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Center(child: statusText()),
+          if (presentation.recoverable) ...[
+            const SizedBox(height: 16),
+            recovery(),
           ],
           const SizedBox(height: 22),
           Divider(height: 1, color: UsqueTokens.of(context).hairline),
           const SizedBox(height: 18),
           Text(
-            strings.get('outputs').toUpperCase(),
-            style: theme.textTheme.labelSmall?.copyWith(
+            strings.get('outputs'),
+            style: theme.textTheme.labelMedium?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
-              letterSpacing: 1.1,
             ),
           ),
           const SizedBox(height: 12),
-          _FrontendChips(view: view, strings: strings),
+          _FrontendStatuses(view: view, strings: strings),
         ],
       ),
     );
@@ -433,8 +431,8 @@ class _ConnectionHero extends StatelessWidget {
   }
 }
 
-class _FrontendChips extends StatelessWidget {
-  const _FrontendChips({required this.view, required this.strings});
+class _FrontendStatuses extends StatelessWidget {
+  const _FrontendStatuses({required this.view, required this.strings});
 
   final _HeroView view;
   final AppStrings strings;
@@ -457,34 +455,28 @@ class _FrontendChips extends StatelessWidget {
       );
     }
     final chips = enabled.map((entry) {
-      final FrontendPhase? phase = entry.value;
-      final bool active = phase == FrontendPhase.active;
-      final bool degraded =
-          phase == FrontendPhase.degraded ||
-          phase == FrontendPhase.reconnecting ||
-          phase == FrontendPhase.error;
-      return StatusPill(
-        label: switch (entry.key) {
-          FrontendKind.tunnel => strings.tunnelOutputLabel(
-            defaultTargetPlatform,
-          ),
-          FrontendKind.socks5 => 'SOCKS5',
-          FrontendKind.http => 'HTTP',
-          FrontendKind.systemProxy => strings.get('system_proxy'),
-        },
-        tone: degraded
-            ? StatusTone.warning
-            : active
-            ? StatusTone.success
-            : StatusTone.neutral,
-        dim: !active && !degraded,
+      final state = FrontendPresentation.of(
+        configured: true,
+        connection: view.phase,
+        runtime: entry.value,
+      );
+      final name = switch (entry.key) {
+        FrontendKind.tunnel => strings.tunnelOutputLabel(defaultTargetPlatform),
+        FrontendKind.socks5 => 'SOCKS5',
+        FrontendKind.http => 'HTTP',
+        FrontendKind.systemProxy => strings.get('system_proxy'),
+      };
+      return InlineStatus(
+        label: '$name · ${strings.get(state.labelKey)}',
+        tone: state.tone,
+        icon: state.icon,
       );
     }).toList();
     if (view.geoDirect.isNotEmpty) {
       final codes = view.geoDirect.split(',');
       final label = codes.contains('CN') ? 'CN' : codes.first;
       chips.add(
-        StatusPill(
+        InlineStatus(
           icon: LucideIcons.globe,
           label: strings.get('geo_chip').replaceAll('{current}', label),
           tone: StatusTone.neutral,
@@ -505,7 +497,13 @@ typedef _ReadoutView = ({
 });
 
 class _EngineReadout extends StatelessWidget {
-  const _EngineReadout({required this.controller, required this.strings});
+  const _EngineReadout({
+    required this.controller,
+    required this.strings,
+    this.includeProtection = true,
+  });
+
+  final bool includeProtection;
 
   final AppController controller;
   final AppStrings strings;
@@ -542,16 +540,17 @@ class _EngineReadout extends StatelessWidget {
       child: Divider(height: 1, color: hairline),
     );
 
-    return Panel(
+    return ContentSection(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          SectionTitle(
+          ContentHeading(
             icon: LucideIcons.activity,
             title: strings.get('engine_status'),
           ),
           const SizedBox(height: 20),
           ReadoutRow(
+            stackWhenNarrow: true,
             icon: LucideIcons.cable,
             label: strings.get('protocol'),
             value: view.transport == null
@@ -560,6 +559,7 @@ class _EngineReadout extends StatelessWidget {
           ),
           divider,
           ReadoutRow(
+            stackWhenNarrow: true,
             icon: LucideIcons.network,
             label: strings.get('address_family'),
             value: view.addressFamily == null
@@ -568,18 +568,21 @@ class _EngineReadout extends StatelessWidget {
           ),
           divider,
           ReadoutRow(
+            stackWhenNarrow: true,
             icon: LucideIcons.clock3,
             label: strings.get('duration'),
             value: LiveDuration(since: view.connectedAt),
           ),
-          divider,
-          ReadoutRow.text(
-            context,
-            icon: LucideIcons.shieldCheck,
-            label: strings.get('kill_switch'),
-            value: view.killSwitchLabel,
-          ),
-          if (view.alwaysOn) ...<Widget>[
+          if (includeProtection) ...[
+            divider,
+            ReadoutRow.text(
+              context,
+              icon: LucideIcons.shieldCheck,
+              label: strings.get('kill_switch'),
+              value: view.killSwitchLabel,
+            ),
+          ],
+          if (includeProtection && view.alwaysOn) ...<Widget>[
             divider,
             ReadoutRow.text(
               context,
@@ -588,7 +591,7 @@ class _EngineReadout extends StatelessWidget {
               value: strings.get('on'),
             ),
           ],
-          if (view.platformLockdown) ...<Widget>[
+          if (includeProtection && view.platformLockdown) ...<Widget>[
             divider,
             ReadoutRow.text(
               context,
@@ -603,142 +606,104 @@ class _EngineReadout extends StatelessWidget {
   }
 }
 
-typedef _TrafficView = ({int down, int up, bool live});
-
 class _TrafficGrid extends StatelessWidget {
   const _TrafficGrid({required this.controller, required this.strings});
-
   final AppController controller;
   final AppStrings strings;
 
   @override
-  Widget build(BuildContext context) {
-    return ControllerSelector<_TrafficView>(
-      controller: controller,
-      active: (controller) => controller.section == AppSection.home,
-      selector: (controller) => (
-        down: controller.snapshot.downloadBytesPerSecond,
-        up: controller.snapshot.uploadBytesPerSecond,
-        live: controller.snapshot.isConnected,
+  Widget build(BuildContext context) => ControllerSelector<bool>(
+    controller: controller,
+    selector: (app) => app.section == AppSection.home,
+    builder: (context, active) => ListenableBuilder(
+      listenable: Listenable.merge(
+        active ? [controller, controller.quality] : [],
       ),
-      builder: (context, view) {
-        final UsqueTokens tokens = UsqueTokens.of(context);
-        final Widget download = _MetricCard(
-          icon: LucideIcons.arrowDown,
-          label: strings.get('download'),
-          bytesPerSecond: view.down,
-          color: tokens.inbound,
-          live: view.live,
+      builder: (context, _) {
+        final tokens = UsqueTokens.of(context);
+        final snapshot = controller.snapshot;
+        final quality = controller.quality;
+        final down = snapshot.isConnected
+            ? quality.trace((point) => point.downloadBytesPerSecond)
+            : const <int?>[];
+        final up = snapshot.isConnected
+            ? quality.trace((point) => point.uploadBytesPerSecond)
+            : const <int?>[];
+        final note = strings.get(
+          homeTrafficNoteKey(
+            controller,
+            hasSamples:
+                down.any((value) => value != null) ||
+                up.any((value) => value != null),
+          ),
         );
-        final Widget upload = _MetricCard(
-          icon: LucideIcons.arrowUp,
-          label: strings.get('upload'),
-          bytesPerSecond: view.up,
-          color: tokens.outbound,
-          live: view.live,
+        Widget card(bool download) => _TrafficReadout(
+          note: note,
+          icon: download ? LucideIcons.arrowDown : LucideIcons.arrowUp,
+          label: strings.get(download ? 'download' : 'upload'),
+          bytesPerSecond: download
+              ? snapshot.downloadBytesPerSecond
+              : snapshot.uploadBytesPerSecond,
+          color: download ? tokens.inbound : tokens.outbound,
+          samples: download ? down : up,
         );
-        return LayoutBuilder(
-          builder: (context, constraints) {
-            if (constraints.maxWidth >= 560) {
-              return Row(
-                children: <Widget>[
-                  Expanded(child: download),
-                  const SizedBox(width: 16),
-                  Expanded(child: upload),
-                ],
+        return ContentSection(
+          title: strings.get('home_traffic'),
+          trailing: Text(note, style: Theme.of(context).textTheme.bodySmall),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              if (constraints.maxWidth >= 560 &&
+                  MediaQuery.textScalerOf(context).scale(14) <= 21) {
+                return Row(
+                  children: [
+                    Expanded(child: card(true)),
+                    const SizedBox(width: 16),
+                    Expanded(child: card(false)),
+                  ],
+                );
+              }
+              return Column(
+                children: [card(true), const SizedBox(height: 16), card(false)],
               );
-            }
-            return Column(
-              children: <Widget>[download, const SizedBox(height: 16), upload],
-            );
-          },
+            },
+          ),
         );
       },
-    );
-  }
+    ),
+  );
 }
 
-/// One traffic direction: a badge, the current rate, and the recent shape of
-/// that rate.
-class _MetricCard extends StatefulWidget {
-  const _MetricCard({
+/// Desktop and phone charts share timestamped observations, including zeros
+/// and gaps. Widget rebuilds and unchanged values never alter the history.
+class _TrafficReadout extends StatelessWidget {
+  const _TrafficReadout({
+    required this.note,
     required this.icon,
     required this.label,
     required this.bytesPerSecond,
     required this.color,
-    required this.live,
+    required this.samples,
   });
-
+  final String note;
   final IconData icon;
   final String label;
   final int bytesPerSecond;
   final Color color;
-
-  /// History only accumulates while the tunnel is up; a disconnect clears it.
-  final bool live;
-
-  @override
-  State<_MetricCard> createState() => _MetricCardState();
-}
-
-class _MetricCardState extends State<_MetricCard> {
-  static const int _window = 48;
-
-  final List<int> _history = <int>[];
-
-  @override
-  void initState() {
-    super.initState();
-    _record();
-  }
-
-  @override
-  void didUpdateWidget(covariant _MetricCard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (!widget.live) {
-      _history.clear();
-      return;
-    }
-    if (oldWidget.bytesPerSecond != widget.bytesPerSecond || !oldWidget.live) {
-      _record();
-    }
-  }
-
-  void _record() {
-    if (!widget.live) {
-      return;
-    }
-    _history.add(widget.bytesPerSecond);
-    if (_history.length > _window) {
-      _history.removeRange(0, _history.length - _window);
-    }
-  }
-
+  final List<int?> samples;
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    return Panel(
+    return ContentSection(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           Row(
             children: <Widget>[
-              Container(
-                width: 34,
-                height: 34,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: widget.color.withValues(
-                    alpha: UsqueTokens.of(context).tint,
-                  ),
-                  borderRadius: BorderRadius.circular(UsqueRadii.chip),
-                ),
-                child: Icon(widget.icon, size: 17, color: widget.color),
-              ),
+              Icon(icon, size: 20, color: color),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  widget.label,
+                  label,
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
@@ -746,7 +711,7 @@ class _MetricCardState extends State<_MetricCard> {
               ),
               const SizedBox(width: 10),
               Text(
-                formatRate(widget.bytesPerSecond),
+                formatRate(bytesPerSecond),
                 style: UsqueTheme.mono(
                   context,
                   size: theme.textTheme.titleMedium?.fontSize,
@@ -756,26 +721,169 @@ class _MetricCardState extends State<_MetricCard> {
             ],
           ),
           const SizedBox(height: 14),
-          Sparkline(samples: List<int>.of(_history), color: widget.color),
+          Sparkline(
+            samples: samples,
+            color: color,
+            semanticLabel: '$label · $note',
+          ),
         ],
       ),
     );
   }
 }
 
+class _ProtectionSummary extends StatelessWidget {
+  const _ProtectionSummary({required this.controller});
+  final AppController controller;
+  @override
+  Widget build(BuildContext context) =>
+      ControllerSelector<({String key, bool alwaysOn, bool lockdown})>(
+        controller: controller,
+        active: (app) => app.section == AppSection.home,
+        selector: (app) => (
+          key: killSwitchStatusKey(
+            profile: app.activeProfile,
+            snapshot: app.snapshot,
+          ),
+          alwaysOn: app.snapshot.alwaysOn,
+          lockdown: app.snapshot.platformLockdown,
+        ),
+        builder: (context, view) {
+          final strings = controller.strings;
+          return Column(
+            children: [
+              ReadoutRow.text(
+                context,
+                icon: view.key == 'ks_active'
+                    ? LucideIcons.shieldCheck
+                    : view.key == 'ks_error'
+                    ? LucideIcons.shieldAlert
+                    : LucideIcons.shield,
+                label: strings.get('home_kill_switch'),
+                value: strings.get(view.key),
+              ),
+              if (view.alwaysOn) ...[
+                const SizedBox(height: 12),
+                ReadoutRow.text(
+                  context,
+                  icon: LucideIcons.shield,
+                  label: strings.get('always_on'),
+                  value: strings.get('on'),
+                ),
+              ],
+              if (view.lockdown) ...[
+                const SizedBox(height: 12),
+                ReadoutRow.text(
+                  context,
+                  icon: LucideIcons.shieldBan,
+                  label: strings.get('lockdown'),
+                  value: strings.get('on'),
+                ),
+              ],
+            ],
+          );
+        },
+      );
+}
+
+class _HomeTools extends StatelessWidget {
+  const _HomeTools({required this.controller});
+  final AppController controller;
+  @override
+  Widget build(BuildContext context) =>
+      ControllerSelector<({bool quality, bool recovery})>(
+        controller: controller,
+        active: (app) => app.section == AppSection.home,
+        selector: (app) => (
+          quality: app.engineCapabilities?.networkQuality ?? false,
+          recovery: ConnectionPresentation.of(app.snapshot.phase).recoverable,
+        ),
+        builder: (context, view) {
+          final strings = controller.strings;
+          final style = homeToolButtonStyle(context);
+          return Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              if (view.quality)
+                OutlinedButton.icon(
+                  key: const ValueKey('home-network-quality'),
+                  style: style,
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) =>
+                          NetworkQualityScreen(controller: controller),
+                    ),
+                  ),
+                  icon: const Icon(LucideIcons.gauge, size: 16),
+                  label: Text(strings.get('network_quality')),
+                ),
+              if (!view.recovery)
+                OutlinedButton.icon(
+                  key: const ValueKey('home-diagnostics'),
+                  style: style,
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => DiagnosticsScreen(controller: controller),
+                    ),
+                  ),
+                  icon: const Icon(LucideIcons.activity, size: 16),
+                  label: Text(strings.get('diagnostics')),
+                ),
+            ],
+          );
+        },
+      );
+}
+
+class _HomeDetails extends StatelessWidget {
+  const _HomeDetails({required this.controller, required this.strings});
+  final AppController controller;
+  final AppStrings strings;
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Colors.transparent,
+    child: ExpansionTile(
+      key: const PageStorageKey('home-connection-details'),
+      leading: const Icon(LucideIcons.slidersHorizontal, size: 16),
+      title: Text(
+        strings.get('connection_details'),
+        style: Theme.of(context).textTheme.bodyMedium,
+      ),
+      dense: true,
+      minTileHeight: 48,
+      tilePadding: EdgeInsets.zero,
+      shape: const Border(),
+      collapsedShape: const Border(),
+      children: [
+        _EngineReadout(
+          controller: controller,
+          strings: strings,
+          includeProtection: false,
+        ),
+        const SizedBox(height: 16),
+        _ExitPanel(controller: controller, strings: strings),
+        const SizedBox(height: 16),
+        ControllerSelector<_HeroView>(
+          controller: controller,
+          selector: _heroView,
+          active: (app) => app.section == AppSection.home,
+          builder: (context, view) => ContentSection(
+            icon: LucideIcons.network,
+            title: strings.get('outputs'),
+            children: [_FrontendStatuses(view: view, strings: strings)],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 class _ExitPanel extends StatelessWidget {
-  const _ExitPanel({
-    required this.controller,
-    required this.strings,
-    this.fillRemaining = false,
-  });
+  const _ExitPanel({required this.controller, required this.strings});
 
   final AppController controller;
   final AppStrings strings;
-
-  /// True when the panel sits in the wide right column and should stretch to
-  /// the connection hero's height.
-  final bool fillRemaining;
 
   @override
   Widget build(BuildContext context) {
@@ -791,49 +899,25 @@ class _ExitPanel extends StatelessWidget {
     );
   }
 
-  Widget _buildExit(BuildContext context, ExitInfo exit, bool connected) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final bool expandBody = fillRemaining && constraints.hasBoundedHeight;
-        final Widget body = FadeThroughSwitcher(
-          alignment: connected ? Alignment.topLeft : Alignment.center,
+  Widget _buildExit(BuildContext context, ExitInfo exit, bool connected) =>
+      ContentSection(
+        icon: LucideIcons.globe2,
+        title: strings.get('location'),
+        subtitle: connected ? 'ip.sb' : null,
+        child: FadeThroughSwitcher(
+          alignment: Alignment.topCenter,
           child: connected
               ? KeyedSubtree(
                   key: const ValueKey<String>('exit'),
-                  child: expandBody
-                      ? Align(
-                          alignment: Alignment.topCenter,
-                          child: _exitReadout(context, exit),
-                        )
-                      : _exitReadout(context, exit),
+                  child: _exitReadout(context, exit),
                 )
-              : KeyedSubtree(
+              : Padding(
                   key: const ValueKey<String>('idle'),
-                  child: expandBody
-                      ? Center(child: _waitingToConnect(context))
-                      : Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 28),
-                          child: Center(child: _waitingToConnect(context)),
-                        ),
+                  padding: const EdgeInsets.symmetric(vertical: 24),
+                  child: _waitingToConnect(context),
                 ),
-        );
-        return Panel(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              SectionTitle(
-                icon: LucideIcons.globe2,
-                title: strings.get('location'),
-                subtitle: connected ? 'ip.sb' : null,
-              ),
-              const SizedBox(height: 20),
-              if (expandBody) Expanded(child: body) else body,
-            ],
-          ),
-        );
-      },
-    );
-  }
+        ),
+      );
 
   Widget _waitingToConnect(BuildContext context) {
     final ThemeData theme = Theme.of(context);
@@ -877,6 +961,7 @@ class _ExitPanel extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         ReadoutRow(
+          stackWhenNarrow: true,
           leading: flag,
           label: strings.get('location'),
           value: exit.hasLocation
@@ -889,6 +974,7 @@ class _ExitPanel extends StatelessWidget {
         ),
         divider,
         ReadoutRow(
+          stackWhenNarrow: true,
           icon: LucideIcons.network,
           label: strings.get('ipv4'),
           value: exit.ipv4 == null
@@ -897,6 +983,7 @@ class _ExitPanel extends StatelessWidget {
         ),
         divider,
         ReadoutRow(
+          stackWhenNarrow: true,
           icon: LucideIcons.network,
           label: strings.get('ipv6'),
           value: exit.ipv6 == null

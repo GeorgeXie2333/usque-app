@@ -115,6 +115,27 @@ void main() {
       expect(snapshot.phase, ConnectionPhase.disconnected);
     });
 
+    test('snapshot preserves structured recovery code and retryability', () {
+      final error = ControlPayloadWriter()
+        ..string(1, 'WINDOWS_RECOVERY_EXHAUSTED')
+        ..string(2, 'sanitized')
+        ..boolean(3, true);
+      final snapshotBody = ControlPayloadWriter()
+        ..enumeration(1, 10)
+        ..message(8, error.takeBytes());
+      final responseBody = ControlPayloadWriter()
+        ..string(1, 'r1')
+        ..message(11, snapshotBody.takeBytes());
+      final snapshot = debugDecodeStatusFrame(
+        codec.frame(responseBody.takeBytes()),
+        'r1',
+      );
+      expect(snapshot.phase, ConnectionPhase.error);
+      expect(snapshot.errorCode, 'WINDOWS_RECOVERY_EXHAUSTED');
+      expect(snapshot.errorRetryable, isTrue);
+      expect(snapshot.warning, 'sanitized');
+    });
+
     test('buildRequestFrame is stable for empty GetStatus payload', () {
       final frame = codec.buildRequestFrame(
         requestId: 'r1',
@@ -603,6 +624,35 @@ void main() {
         client.dispose();
       },
     );
+
+    test('structured engine retryability reaches EngineException', () async {
+      const codec = ControlCodec();
+      final error = ControlPayloadWriter()
+        ..string(1, 'WINDOWS_RECOVERY_EXHAUSTED')
+        ..string(2, 'sanitized')
+        ..boolean(3, true);
+      final response = ControlPayloadWriter()
+        ..string(1, 'r1')
+        ..message(2, error.takeBytes());
+      final transport = DesktopEngineTransport.forTest(
+        exchange: (_) async => codec.frame(response.takeBytes()),
+        requestIdFactory: () => 'r1',
+      );
+      final client = DesktopEngineClient.forTest(transport: transport);
+      await expectLater(
+        client.snapshot(),
+        throwsA(
+          isA<EngineException>()
+              .having(
+                (error) => error.code,
+                'code',
+                'WINDOWS_RECOVERY_EXHAUSTED',
+              )
+              .having((error) => error.retryable, 'retryable', isTrue),
+        ),
+      );
+      client.dispose();
+    });
 
     test('transport exchange failures map to ENGINE_IPC_UNAVAILABLE', () async {
       final transport = DesktopEngineTransport.forTest(

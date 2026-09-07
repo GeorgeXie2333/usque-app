@@ -52,6 +52,7 @@ class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
       builder: (context, _) {
         final strings = widget.controller.strings;
         return SubPage(
+          contentWidth: 880,
           title: strings.get('geo_direct'),
           backLabel: strings.get('back'),
           actions: <Widget>[
@@ -83,7 +84,7 @@ class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
                         onDismiss: widget.controller.clearNotice,
                       ),
               ),
-              Panel(child: _buildRulesPanel(context)),
+              ContentSection(child: _buildRulesPanel(context)),
             ],
           ),
         );

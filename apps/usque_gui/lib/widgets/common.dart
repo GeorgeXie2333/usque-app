@@ -12,6 +12,9 @@ class PageFrame extends StatelessWidget {
     required this.child,
     this.subtitle,
     this.header,
+    this.titleWidget,
+    this.showHeading = true,
+    this.contentWidth = maxContentWidth,
     this.actions = const <Widget>[],
     super.key,
   });
@@ -20,6 +23,11 @@ class PageFrame extends StatelessWidget {
   final Widget child;
   final String? subtitle;
   final Widget? header;
+  final Widget? titleWidget;
+
+  /// Hide the visual header while retaining the page's scroll-storage identity.
+  final bool showHeading;
+  final double contentWidth;
   final List<Widget> actions;
 
   static const double maxContentWidth = 1120;
@@ -27,83 +35,105 @@ class PageFrame extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    return CustomScrollView(
-      key: PageStorageKey<String>(title),
-      slivers: <Widget>[
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(26, 26, 26, 18),
-          sliver: SliverToBoxAdapter(
-            child: Align(
-              alignment: Alignment.topCenter,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: maxContentWidth),
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    // A bare Column would shrink-wrap and the Align above
-                    // would centre the whole heading, so every branch below
-                    // has to claim the full row.
-                    final Widget heading = Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        if (header != null) ...<Widget>[
-                          header!,
-                          const SizedBox(height: 18),
-                        ],
-                        Text(title, style: theme.textTheme.headlineMedium),
-                        if (subtitle != null) ...<Widget>[
-                          const SizedBox(height: 6),
-                          Text(
-                            subtitle!,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ],
-                    );
-                    if (actions.isEmpty) {
-                      return SizedBox(width: double.infinity, child: heading);
-                    }
-                    // Below this width the title and its actions stop being a
-                    // row: the buttons drop under the heading instead of
-                    // squeezing it.
-                    if (constraints.maxWidth < 560) {
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: <Widget>[
-                          heading,
-                          const SizedBox(height: 16),
-                          Wrap(spacing: 8, runSpacing: 8, children: actions),
-                        ],
-                      );
-                    }
-                    return Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: <Widget>[
-                        Expanded(child: heading),
-                        const SizedBox(width: 16),
-                        Wrap(spacing: 8, runSpacing: 8, children: actions),
-                      ],
-                    );
-                  },
+    final double gutter = MediaQuery.sizeOf(context).width < 600 ? 16 : 32;
+    return Material(
+      color: UsqueTokens.of(context).canvas,
+      child: CustomScrollView(
+        key: PageStorageKey<String>(title),
+        slivers: <Widget>[
+          if (showHeading)
+            SliverPadding(
+              padding: EdgeInsets.fromLTRB(gutter, gutter, gutter, 18),
+              sliver: SliverToBoxAdapter(
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: contentWidth),
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        // A bare Column would shrink-wrap and the Align above
+                        // would centre the whole heading, so every branch below
+                        // has to claim the full row.
+                        final Widget heading = Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            if (header != null) ...<Widget>[
+                              header!,
+                              const SizedBox(height: 18),
+                            ],
+                            titleWidget ??
+                                Text(
+                                  title,
+                                  style: theme.textTheme.headlineMedium,
+                                ),
+                            if (subtitle != null) ...<Widget>[
+                              const SizedBox(height: 6),
+                              Text(
+                                subtitle!,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ],
+                        );
+                        if (actions.isEmpty) {
+                          return SizedBox(
+                            width: double.infinity,
+                            child: heading,
+                          );
+                        }
+                        // Below this width the title and its actions stop being a
+                        // row: the buttons drop under the heading instead of
+                        // squeezing it.
+                        if (constraints.maxWidth < 560 ||
+                            MediaQuery.textScalerOf(context).scale(14) > 21) {
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: <Widget>[
+                              heading,
+                              const SizedBox(height: 16),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: actions,
+                              ),
+                            ],
+                          );
+                        }
+                        return Row(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: <Widget>[
+                            Expanded(child: heading),
+                            const SizedBox(width: 16),
+                            Wrap(spacing: 8, runSpacing: 8, children: actions),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          SliverPadding(
+            padding: EdgeInsets.fromLTRB(
+              gutter,
+              showHeading ? 0 : gutter,
+              gutter,
+              34,
+            ),
+            sliver: SliverToBoxAdapter(
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: contentWidth),
+                  child: child,
                 ),
               ),
             ),
           ),
-        ),
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(26, 0, 26, 34),
-          sliver: SliverToBoxAdapter(
-            child: Align(
-              alignment: Alignment.topCenter,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: maxContentWidth),
-                child: child,
-              ),
-            ),
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -120,6 +150,8 @@ class SubPage extends StatelessWidget {
     required this.child,
     this.subtitle,
     this.actions = const <Widget>[],
+    this.bottomBar,
+    this.contentWidth = PageFrame.maxContentWidth,
     super.key,
   });
 
@@ -128,12 +160,16 @@ class SubPage extends StatelessWidget {
   final Widget child;
   final String? subtitle;
   final List<Widget> actions;
+  final Widget? bottomBar;
+  final double contentWidth;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      bottomNavigationBar: bottomBar,
       body: SafeArea(
         child: PageFrame(
+          contentWidth: contentWidth,
           title: title,
           subtitle: subtitle,
           actions: actions,
@@ -179,6 +215,255 @@ class PanelStack extends StatelessWidget {
       ],
     );
   }
+}
+
+/// An open content region. Grouping comes from its heading and spacing, never
+/// from a background, outline or elevation. Alerts and dialogs still use their
+/// own explicit surfaces; this does not change [Panel]'s behavior.
+class ContentSection extends StatelessWidget {
+  const ContentSection({
+    this.title,
+    this.icon,
+    this.subtitle,
+    this.trailing,
+    this.children = const <Widget>[],
+    this.child,
+    this.gap = 16,
+    this.padding = EdgeInsets.zero,
+    super.key,
+  }) : assert(child == null || children.length == 0);
+
+  final String? title;
+  final IconData? icon;
+  final String? subtitle;
+  final Widget? trailing;
+  final List<Widget> children;
+  final Widget? child;
+  final double gap;
+  final EdgeInsetsGeometry padding;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: padding,
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (title != null) ...[
+          ContentHeading(
+            title: title!,
+            icon: icon,
+            subtitle: subtitle,
+            trailing: trailing,
+          ),
+          if (child != null || children.isNotEmpty) SizedBox(height: gap),
+        ],
+        if (child != null) child! else ...children,
+      ],
+    ),
+  );
+}
+
+/// Quiet, unboxed section heading. At large text sizes the trailing status
+/// moves below the title instead of squeezing either piece of information.
+class ContentHeading extends StatelessWidget {
+  const ContentHeading({
+    required this.title,
+    this.icon,
+    this.subtitle,
+    this.trailing,
+    super.key,
+  });
+
+  final String title;
+  final IconData? icon;
+  final String? subtitle;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final heading = Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (icon != null) ...[
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Icon(
+              icon,
+              size: 20,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(width: 12),
+        ],
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Semantics(
+                header: true,
+                child: Text(title, style: theme.textTheme.titleMedium),
+              ),
+              if (subtitle != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  subtitle!,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+    if (trailing == null) return heading;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (trailing is! Icon &&
+            (constraints.maxWidth < 360 ||
+                MediaQuery.textScalerOf(context).scale(14) > 21)) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [heading, const SizedBox(height: 8), trailing!],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: heading),
+            const SizedBox(width: 16),
+            if (trailing is Icon)
+              trailing!
+            else
+              Flexible(
+                child: Align(
+                  alignment: AlignmentDirectional.centerEnd,
+                  child: trailing!,
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// A continuous list, with separators only between neighboring entries.
+class ContentList extends StatelessWidget {
+  const ContentList({required this.children, super.key});
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      for (var index = 0; index < children.length; index++) ...[
+        if (index > 0)
+          Divider(height: 1, color: UsqueTokens.of(context).hairline),
+        children[index],
+      ],
+    ],
+  );
+}
+
+/// A navigation/action row, not an information card. Material activation
+/// handles touch, Enter/Space and D-pad; focus never changes layout bounds.
+class ActionRow extends StatefulWidget {
+  const ActionRow({
+    required this.child,
+    required this.onTap,
+    this.padding = const EdgeInsets.symmetric(horizontal: 8, vertical: 16),
+    super.key,
+  });
+  final Widget child;
+  final VoidCallback? onTap;
+  final EdgeInsetsGeometry padding;
+
+  @override
+  State<ActionRow> createState() => _ActionRowState();
+}
+
+class _ActionRowState extends State<ActionRow> {
+  bool _focused = false;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    enabled: widget.onTap != null,
+    child: Material(
+      color: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(UsqueRadii.chip),
+        side: BorderSide(
+          width: 2,
+          color: _focused
+              ? Theme.of(context).colorScheme.primary
+              : Colors.transparent,
+        ),
+      ),
+      child: InkWell(
+        onTap: widget.onTap,
+        onFocusChange: (focused) => setState(() => _focused = focused),
+        borderRadius: BorderRadius.circular(UsqueRadii.chip),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 56),
+          child: Padding(padding: widget.padding, child: widget.child),
+        ),
+      ),
+    ),
+  );
+}
+
+/// Status without a badge surface. The explicit label carries its meaning;
+/// color and the optional icon are supplementary, not the only indication.
+class InlineStatus extends StatelessWidget {
+  const InlineStatus({
+    required this.label,
+    required this.tone,
+    this.icon,
+    this.showIndicator = true,
+    super.key,
+  });
+  final String label;
+  final StatusTone tone;
+  final IconData? icon;
+  final bool showIndicator;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      if (showIndicator) ...[
+        ExcludeSemantics(
+          child: Icon(
+            icon ??
+                switch (tone) {
+                  StatusTone.success => LucideIcons.circleCheck,
+                  StatusTone.warning => LucideIcons.triangleAlert,
+                  StatusTone.danger => LucideIcons.circleX,
+                  StatusTone.brand => LucideIcons.info,
+                  StatusTone.neutral => LucideIcons.circleDot,
+                },
+            size: 16,
+            color: statusToneColor(context, tone),
+          ),
+        ),
+        const SizedBox(width: 8),
+      ],
+      Flexible(
+        child: Text(
+          label,
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+            color: Theme.of(context).colorScheme.onSurface,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    ],
+  );
 }
 
 /// A hairline instrument plate. The border warms slightly under the pointer so
@@ -592,19 +877,22 @@ class BannerSlot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final content = child == null
+        ? const SizedBox(width: double.infinity, height: 0)
+        : Padding(
+            key: const ValueKey<String>('banner'),
+            padding: EdgeInsets.only(bottom: spacing),
+            child: child,
+          );
+    // A zero-duration AnimatedSize can synchronously re-dirty itself when
+    // large text changes the banner's measured height. Reduced motion should
+    // bypass layout animation altogether, not animate with a zero duration.
+    if (UsqueMotion.reduced(context)) return content;
     return AnimatedSize(
       duration: UsqueMotion.of(context, UsqueMotion.gentle),
       curve: UsqueMotion.emphasized,
       alignment: Alignment.topCenter,
-      child: FadeThroughSwitcher(
-        child: child == null
-            ? const SizedBox(width: double.infinity, height: 0)
-            : Padding(
-                key: const ValueKey<String>('banner'),
-                padding: EdgeInsets.only(bottom: spacing),
-                child: child,
-              ),
-      ),
+      child: FadeThroughSwitcher(child: content),
     );
   }
 }
@@ -617,6 +905,7 @@ class ReadoutRow extends StatelessWidget {
     this.icon,
     this.leading,
     this.valueColor,
+    this.stackWhenNarrow = false,
     super.key,
   });
 
@@ -625,6 +914,7 @@ class ReadoutRow extends StatelessWidget {
   final IconData? icon;
   final Widget? leading;
   final Color? valueColor;
+  final bool stackWhenNarrow;
 
   /// Builds a row whose value is plain text.
   static Widget text(
@@ -649,40 +939,66 @@ class ReadoutRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        if (leading != null)
-          SizedBox(width: 22, child: Center(child: leading))
-        else if (icon != null)
-          SizedBox(
-            width: 22,
-            child: Icon(
-              icon,
-              size: 17,
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-        if (leading != null || icon != null) const SizedBox(width: 11),
-        Expanded(
-          child: Text(
-            label,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
+    final leadingWidgets = <Widget>[
+      if (leading != null)
+        SizedBox(width: 22, child: Center(child: leading))
+      else if (icon != null)
+        SizedBox(
+          width: 22,
+          child: Icon(
+            icon,
+            size: 17,
+            color: theme.colorScheme.onSurfaceVariant,
           ),
         ),
-        const SizedBox(width: 14),
-        Flexible(
-          child: Align(alignment: AlignmentDirectional.centerEnd, child: value),
-        ),
-      ],
+      if (leading != null || icon != null) const SizedBox(width: 11),
+    ];
+    final labelText = Text(
+      label,
+      style: theme.textTheme.bodyMedium?.copyWith(
+        color: theme.colorScheme.onSurfaceVariant,
+      ),
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (stackWhenNarrow &&
+            (constraints.maxWidth < 320 ||
+                MediaQuery.textScalerOf(context).scale(14) > 21)) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  ...leadingWidgets,
+                  Expanded(child: labelText),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Align(alignment: AlignmentDirectional.centerEnd, child: value),
+            ],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ...leadingWidgets,
+            Expanded(child: labelText),
+            const SizedBox(width: 14),
+            Flexible(
+              child: Align(
+                alignment: AlignmentDirectional.centerEnd,
+                child: value,
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
 
 /// Selectable machine value in the mono face.
-class MonoValue extends StatelessWidget {
+class MonoValue extends StatefulWidget {
   const MonoValue({
     required this.value,
     this.muted = false,
@@ -695,17 +1011,30 @@ class MonoValue extends StatelessWidget {
   final double? size;
 
   @override
+  State<MonoValue> createState() => _MonoValueState();
+}
+
+class _MonoValueState extends State<MonoValue> {
+  // SelectableText has an internal scrollable. Without a storage boundary it
+  // inherits the page/ExpansionTile key, reads a bool as a scroll offset, and
+  // can overwrite its parent's state. Machine values need no persisted offset.
+  final _textStorage = PageStorageBucket();
+
+  @override
   Widget build(BuildContext context) {
-    return SelectableText(
-      value,
-      textAlign: TextAlign.end,
-      style: UsqueTheme.mono(
-        context,
-        size: size,
-        weight: FontWeight.w500,
-        color: muted
-            ? Theme.of(context).colorScheme.onSurfaceVariant
-            : Theme.of(context).colorScheme.onSurface,
+    return PageStorage(
+      bucket: _textStorage,
+      child: SelectableText(
+        widget.value,
+        textAlign: TextAlign.end,
+        style: UsqueTheme.mono(
+          context,
+          size: widget.size,
+          weight: FontWeight.w500,
+          color: widget.muted
+              ? Theme.of(context).colorScheme.onSurfaceVariant
+              : Theme.of(context).colorScheme.onSurface,
+        ),
       ),
     );
   }

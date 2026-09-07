@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
@@ -16,6 +16,7 @@ const METRIC_STALE_AFTER: Duration = Duration::from_secs(3);
 const QUALITY_HISTORY_SAMPLES: usize = 30;
 const QUALITY_MINIMUM_SAMPLES: usize = 5;
 const SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
+const DELIVERY_HISTORY_SAMPLES: usize = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MetricAvailability {
@@ -337,6 +338,19 @@ pub struct NetworkQualitySnapshot {
     pub migration: MigrationQuality,
     pub direct_dns: DirectDnsQuality,
     pub h2_flow_control: H2FlowControlQuality,
+    pub samples: Vec<NetworkQualitySample>,
+}
+
+/// Bounded delivery history sampled once at the source, never by IPC polling.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NetworkQualitySample {
+    pub sequence: u64,
+    pub sampled_at_unix_ms: u64,
+    pub monotonic_millis: u64,
+    pub downloaded_bytes: Option<u64>,
+    pub uploaded_bytes: Option<u64>,
+    pub rtt_ms: Option<u64>,
+    pub loss_basis_points: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1048,6 +1062,10 @@ pub struct NetworkQualitySampler {
     history: VecDeque<QualitySignal>,
     previous_queue_drops: u64,
     previous_migration_failures: u64,
+    counters: Option<Arc<crate::netstack::TrafficCounters>>,
+    delivery_history: VecDeque<NetworkQualitySample>,
+    clock_origin: Option<Instant>,
+    sequence: u64,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1077,6 +1095,10 @@ impl NetworkQualitySampler {
             history: VecDeque::with_capacity(QUALITY_HISTORY_SAMPLES),
             previous_queue_drops: 0,
             previous_migration_failures: 0,
+            counters: None,
+            delivery_history: VecDeque::with_capacity(DELIVERY_HISTORY_SAMPLES),
+            clock_origin: None,
+            sequence: 0,
         }
     }
 
@@ -1107,6 +1129,9 @@ impl NetworkQualitySampler {
             self.last_interval_loss = None;
             self.history.clear();
             self.previous_migration_failures = state.migration.failures;
+            self.delivery_history.clear();
+            self.clock_origin = None;
+            self.sequence = 0;
         }
 
         let queues = queue_metrics
@@ -1138,8 +1163,34 @@ impl NetworkQualitySampler {
             migration,
             direct_dns,
             h2_flow_control: state.h2.flow_control,
+            samples: Vec::new(),
         };
         snapshot.level = self.classify(&snapshot);
+        if snapshot.connection_id.is_some() {
+            let origin = *self.clock_origin.get_or_insert(sampled_at);
+            self.sequence = self.sequence.saturating_add(1);
+            let traffic = self.counters.as_ref().map(|counters| counters.snapshot());
+            self.delivery_history.push_back(NetworkQualitySample {
+                sequence: self.sequence,
+                sampled_at_unix_ms: millis(
+                    SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap_or_default(),
+                ),
+                monotonic_millis: millis(sampled_at.saturating_duration_since(origin)),
+                downloaded_bytes: traffic.map(|value| value.bytes_received),
+                uploaded_bytes: traffic.map(|value| value.bytes_sent),
+                rtt_ms: available_value(&snapshot.rtt.latest)
+                    .or_else(|| available_value(&snapshot.rtt.smoothed))
+                    .copied()
+                    .map(millis),
+                loss_basis_points: available_value(&snapshot.loss.interval_basis_points).copied(),
+            });
+            while self.delivery_history.len() > DELIVERY_HISTORY_SAMPLES {
+                self.delivery_history.pop_front();
+            }
+            snapshot.samples = self.delivery_history.iter().cloned().collect();
+        }
         snapshot
     }
 
@@ -1362,7 +1413,29 @@ pub fn spawn_network_quality_sampler(
     cancellation: CancellationToken,
 ) -> (watch::Receiver<NetworkQualitySnapshot>, JoinHandle<()>) {
     let publish = telemetry.features().network_quality_metrics;
+    spawn_sampler(NetworkQualitySampler::new(telemetry), publish, cancellation)
+}
+
+pub(crate) fn spawn_network_quality_sampler_with_counters(
+    telemetry: NetworkQualityTelemetry,
+    counters: Arc<crate::netstack::TrafficCounters>,
+    cancellation: CancellationToken,
+) -> (watch::Receiver<NetworkQualitySnapshot>, JoinHandle<()>) {
+    let publish = telemetry.features().network_quality_metrics;
     let mut sampler = NetworkQualitySampler::new(telemetry);
+    sampler.counters = Some(counters);
+    spawn_sampler(sampler, publish, cancellation)
+}
+
+fn millis(duration: Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+}
+
+fn spawn_sampler(
+    mut sampler: NetworkQualitySampler,
+    publish: bool,
+    cancellation: CancellationToken,
+) -> (watch::Receiver<NetworkQualitySnapshot>, JoinHandle<()>) {
     let initial = sampler.sample();
     let (sender, receiver) = watch::channel(initial);
     let task = tokio::spawn(async move {
@@ -1593,6 +1666,46 @@ mod tests {
             sampler.sample().loss.interval_basis_points.availability,
             MetricAvailability::NotReady
         );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn source_history_retains_coalesced_beats_and_resets_on_connection_change() {
+        let telemetry = NetworkQualityTelemetry::default();
+        telemetry.begin_connection(Transport::Http2, AddressFamily::Ipv4);
+        let counters = Arc::new(crate::netstack::TrafficCounters::default());
+        let mut sampler = NetworkQualitySampler::new(telemetry.clone());
+        sampler.counters = Some(Arc::clone(&counters));
+        let mut delivered = std::collections::BTreeSet::new();
+        let mut last = sampler.sample();
+        delivered.insert(1);
+        for index in 1..80 {
+            advance(Duration::from_millis(1000)).await;
+            counters.record_received(2000);
+            counters.record_sent(1000);
+            last = sampler.sample();
+            // Both Android and Windows may observe only the newest watch value.
+            if index % 5 != 2 {
+                delivered.extend(last.samples.iter().map(|sample| sample.sequence));
+            }
+        }
+        assert_eq!(delivered, (1..=80).collect());
+        assert_eq!(last.samples.len(), DELIVERY_HISTORY_SAMPLES);
+        let point = last.samples.last().unwrap();
+        assert_eq!(point.monotonic_millis, 79000);
+        assert_eq!(point.downloaded_bytes, Some(158000));
+        assert_eq!(point.uploaded_bytes, Some(79000));
+        assert_eq!(point.rtt_ms, None);
+        assert_eq!(point.loss_basis_points, None);
+        // A source stall is one later observation, not fabricated catch-up data.
+        advance(Duration::from_secs(10)).await;
+        let after_stall = sampler.sample();
+        assert_eq!(after_stall.samples.last().unwrap().sequence, 81);
+        assert_eq!(after_stall.samples.last().unwrap().monotonic_millis, 89000);
+        telemetry.begin_connection(Transport::Http3, AddressFamily::Ipv6);
+        let next = sampler.sample();
+        assert_eq!(next.samples.len(), 1);
+        assert_eq!(next.samples[0].sequence, 1);
+        assert_eq!(next.samples[0].monotonic_millis, 0);
     }
 
     #[test]

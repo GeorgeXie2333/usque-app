@@ -64,6 +64,18 @@ pub fn finalize_uninstall_state(journal_path: &Path) -> Result<(), StateSecurity
     let agent_directory = journal_path
         .parent()
         .ok_or_else(|| StateSecurityError::InvalidPath(journal_path.to_path_buf()))?;
+    let evidence = agent_directory.join(crate::recovery_diagnostics::RECOVERY_LOG_NAME);
+    match fs::symlink_metadata(&evidence) {
+        Ok(metadata)
+            if metadata.is_file()
+                && metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT == 0 =>
+        {
+            fs::remove_file(&evidence)?;
+        }
+        Ok(_) => return Err(StateSecurityError::UnsafeEntry(evidence)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
     if agent_directory
         .file_name()
         .is_some_and(|name| name.eq_ignore_ascii_case("agent"))
