@@ -4,6 +4,7 @@
 #include <flutter_windows.h>
 
 #include "resource.h"
+#include "window_geometry.h"
 
 namespace {
 
@@ -134,10 +135,18 @@ bool Win32Window::Create(const std::wstring& title,
   UINT dpi = FlutterDesktopGetDpiForMonitor(monitor);
   double scale_factor = dpi / 96.0;
 
+  RECT bounds{Scale(origin.x, scale_factor), Scale(origin.y, scale_factor), 0, 0};
+  bounds.right = bounds.left + Scale(size.width, scale_factor);
+  bounds.bottom = bounds.top + Scale(size.height, scale_factor);
+  MONITORINFO monitor_info{sizeof(MONITORINFO)};
+  if (::GetMonitorInfoW(monitor, &monitor_info)) {
+    bounds = usque::FitWindowBounds(bounds, monitor_info.rcWork);
+  }
+
   HWND window = CreateWindow(
       window_class, title.c_str(), WS_OVERLAPPEDWINDOW,
-      Scale(origin.x, scale_factor), Scale(origin.y, scale_factor),
-      Scale(size.width, scale_factor), Scale(size.height, scale_factor),
+      bounds.left, bounds.top, bounds.right - bounds.left,
+      bounds.bottom - bounds.top,
       nullptr, nullptr, GetModuleHandle(nullptr), this);
 
   if (!window) {

@@ -9,10 +9,13 @@ import 'package:usque/models/app_models.dart';
 import 'package:usque/screens/advanced_settings_screen.dart';
 import 'package:usque/screens/diagnostics_screen.dart';
 import 'package:usque/screens/onboarding_screen.dart';
+import 'package:usque/screens/shell_screen.dart';
 import 'package:usque/state/app_controller.dart';
 import 'package:usque/state/network_quality_controller.dart';
+import 'package:usque/state/window_frame.dart';
 import 'package:usque/widgets/common.dart';
 import 'package:usque/widgets/usque_dialog.dart';
+import 'package:usque/widgets/window_titlebar.dart';
 
 import 'quality_test_support.dart' show qualityFixture;
 import 'ui_workflow_test.dart' show WorkflowEngine, workflowHost;
@@ -51,6 +54,132 @@ void main() {
           .load();
     }
   });
+
+  testWidgets(
+    'Windows startup size fits Home including the native caption',
+    (tester) async {
+      // Read the runner's actual defaults so a larger test-only viewport cannot
+      // hide a regression in the shipped startup window.
+      final geometry = File(
+        'windows/runner/window_geometry.h',
+      ).readAsStringSync();
+      double dimension(String name) => double.parse(
+        RegExp('$name = (\\d+);').firstMatch(geometry)!.group(1)!,
+      );
+      final size = Size(
+        dimension('kDefaultWindowWidth'),
+        dimension('kDefaultWindowHeight'),
+      );
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(WindowFrame.instance.debugReset);
+      WindowFrame.instance.debugEnable();
+      for (final dpi in [1.0, 1.25, 1.5, 2.0]) {
+        tester.view.devicePixelRatio = dpi;
+        tester.view.physicalSize = size * dpi;
+        for (final connected in [false, true]) {
+          for (final zh in [false, true]) {
+            final app = AppController(WorkflowEngine())
+              ..localePreference = zh
+                  ? LocalePreference.simplifiedChinese
+                  : LocalePreference.english
+              ..engineCapabilities = const EngineCapabilities(
+                networkQuality: true,
+              );
+            if (connected) {
+              app.snapshot = const EngineSnapshot(
+                phase: ConnectionPhase.connected,
+                transport: 'HTTP/3',
+                addressFamily: 'IPv4',
+                killSwitchState: 'active',
+                frontends: [
+                  FrontendRuntimeStatus(
+                    kind: FrontendKind.tunnel,
+                    phase: FrontendPhase.active,
+                  ),
+                  FrontendRuntimeStatus(
+                    kind: FrontendKind.socks5,
+                    phase: FrontendPhase.active,
+                  ),
+                  FrontendRuntimeStatus(
+                    kind: FrontendKind.http,
+                    phase: FrontendPhase.active,
+                  ),
+                ],
+                exit: ExitInfo(
+                  country: 'Singapore',
+                  ipv4: '198.51.100.10',
+                  ipv6: '2001:db8:1234:5678:abcd:ef01:2345:6789',
+                ),
+              );
+            }
+            try {
+              final boundary = GlobalKey();
+              await tester.pumpWidget(
+                RepaintBoundary(
+                  key: boundary,
+                  child: workflowHost(
+                    app,
+                    dark: !zh,
+                    home: WindowFrameScaffold(
+                      strings: app.strings,
+                      phase: app.snapshot.phase,
+                      child: ShellScreen(controller: app),
+                    ),
+                  ),
+                ),
+              );
+              await tester.pumpAndSettle();
+              final reason = '$size dpi=$dpi connected=$connected zh=$zh';
+              expect(tester.getSize(find.byType(WindowTitleBar)).height, 40);
+              final scrollable = find
+                  .descendant(
+                    of: find.byType(PageFrame),
+                    matching: find.byType(Scrollable),
+                  )
+                  .first;
+              expect(
+                tester
+                    .state<ScrollableState>(scrollable)
+                    .position
+                    .maxScrollExtent,
+                0,
+                reason: reason,
+              );
+              for (final key in ['home-network-quality', 'home-diagnostics']) {
+                final button = find.byKey(ValueKey(key));
+                expect(button.hitTestable(), findsOneWidget, reason: reason);
+                expect(
+                  tester.getRect(button).bottom,
+                  lessThanOrEqualTo(size.height - 16),
+                  reason: reason,
+                );
+              }
+              expect(tester.takeException(), isNull, reason: reason);
+              if (dpi == 1.25 && !connected && zh) {
+                await tester.runAsync(
+                  () => precacheImage(
+                    const AssetImage('assets/branding/usque-ui-icon.png'),
+                    tester.element(find.byType(MaterialApp)),
+                  ),
+                );
+                await tester.pumpAndSettle();
+                await expectLater(
+                  find.byKey(boundary),
+                  matchesGoldenFile('goldens/home_windows_default_idle.png'),
+                );
+              }
+              await tester.pumpWidget(const SizedBox.shrink());
+            } finally {
+              app.dispose();
+            }
+          }
+        }
+      }
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+    tags: 'golden',
+  );
 
   testWidgets(
     'workflow remains usable with real fonts, large text and landscape',

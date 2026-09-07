@@ -1,4 +1,5 @@
 #include "window_frame.h"
+#include "window_geometry.h"
 
 #include <commctrl.h>
 #include <dwmapi.h>
@@ -336,6 +337,16 @@ std::optional<LRESULT> HandleCustomFrameMessage(HWND window, UINT message,
       auto* info = reinterpret_cast<MINMAXINFO*>(lparam);
       info->ptMinTrackSize.x = ScaleForDpi(kMinimumWindowWidth, dpi);
       info->ptMinTrackSize.y = ScaleForDpi(kMinimumWindowHeight, dpi);
+      MONITORINFO monitor_info{sizeof(MONITORINFO)};
+      if (::GetMonitorInfoW(
+              ::MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST),
+              &monitor_info)) {
+        const RECT minimum = FitWindowBounds(
+            {0, 0, info->ptMinTrackSize.x, info->ptMinTrackSize.y},
+            monitor_info.rcWork);
+        info->ptMinTrackSize.x = minimum.right - minimum.left;
+        info->ptMinTrackSize.y = minimum.bottom - minimum.top;
+      }
       return 0;
     }
     case WM_NCHITTEST: {
