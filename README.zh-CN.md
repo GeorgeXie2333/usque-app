@@ -70,6 +70,8 @@ Usque 为独立项目，与 Cloudflare 无隶属、赞助或背书关系。Cloud
 
 ## 主要功能
 
+- 可选启用[实验性 L4 代理模式](docs/L4_PROXY.md)：通过 H3 上的 TCP CONNECT 支持 SOCKS5、HTTP 及 Windows/Android TUN，提供 DNS 转换，并根据身份派生 Consumer/Zero Trust SNI。Auto 模式仍不包含 L4。
+
 - 个人版 WARP 账户、可选的 License Key 注册，以及经明确确认后导出到指定文件的 Secret。导出不代表 Usque 提供重新导入或恢复流程。
 - 自动选择 HTTP/3（QUIC），并支持 HTTP/2（TLS）回退和物理路径的 IPv4/IPv6 Happy Eyeballs。H3 支持同地址族路径迁移及外层路径 PMTU 自动探测。
 - 全隧道 VPN、隧道内 DNS、Kill Switch、局域网访问和自定义 CIDR 绕过规则。
@@ -88,7 +90,7 @@ Android 分应用代理是应用级的“仅包含所选应用”设置，不属
 
 按国家直连的 DNS 可明确选择 **System**（默认）、**DoH** 或 **DoT**。System 会将匹配域名暴露给物理 DNS 提供商；DoH/DoT 则使用数字 IP 引导和严格 TLS，将查询发送给指定的加密解析器，失败不回退到明文。其他 VPN 查询继续通过 WARP DNS；代理 DNS 设置保持独立。应用自行建立的加密 DNS 会隐藏域名，此时使用 GeoIP 分类。断开连接时，规则下载仍遵循 Android Lockdown 和残留的 Windows Kill Switch。详见[直连 DNS](docs/encrypted-direct-dns.md)。
 
-Usque 只保留一条承载数据的传输，不聚合多路径带宽。任一物理入口地址族均可在 CONNECT-IP 内承载 IPv4 和 IPv6。迁移仅限同地址族；自动 PMTU 不会提高配置的 TUN MTU，H2 的丢包率和 PMTU 显示 N/A。Doctor 结果不能证明外部观察到的零泄漏或实测性能提升。受保护环境验证不是发布前提，但缺失或失败的证据绝不计为通过。
+Usque 同一时间只选择一种数据面，不聚合多路径带宽。L4 在收到 GOAWAY 后，可能短暂保留一个用于完成已有流的旧 QUIC 会话。任一物理入口地址族均可在 CONNECT-IP 内承载 IPv4 和 IPv6。迁移仅限同地址族；自动 PMTU 不会提高配置的 TUN MTU，H2 的丢包率和 PMTU 显示 N/A。Doctor 结果不能证明外部观察到的零泄漏或实测性能提升。受保护环境验证不是发布前提，但缺失或失败的证据绝不计为通过。
 
 Zero Trust 注册仍属**实验性功能**，仅用于以组织身份使用现有 MASQUE 公网隧道，不代表生产级 Cloudflare One Client 兼容。使用前请阅读[支持范围与验证要求](docs/ZERO_TRUST_EXPERIMENTAL.md)。仓库保留 macOS 源码，但不构建或发布；当前发布范围也不包括 iOS、应用商店分发或公开命令行。
 
@@ -100,12 +102,15 @@ Zero Trust 注册仍属**实验性功能**，仅用于以组织身份使用现�
 | 个人版端点 IPv6 | `2606:4700:103::2` |
 | 端口 / SNI | `443` / `speed.cloudflare.com` |
 | 传输 | 自动：先 HTTP/3，再 HTTP/2 |
+| HTTP/3 拥塞控制 | `cubic`；可选择 BBRv2、实验性 BBRv3 和 `reno` |
 | TUN MTU | `1280` |
 | 备用 DNS | `1.1.1.1`、`2606:4700:4700::1111` |
 | SOCKS5 | `127.0.0.1:1080`、`[::1]:1080` |
 | HTTP 代理 | `127.0.0.1:8080`、`[::1]:8080` |
 
 代理地址、端口和 DNS 的编辑在应用前只是草稿；高级设置中的重置只把默认值加载到草稿，不会立即应用。Zero Trust 端点地址由注册返回，不可编辑。
+
+拥塞控制的更改会保存，并在下一次手动连接或重试时生效，不影响当前会话及其自动重连。HTTP/2 使用系统 TCP。详见 [HTTP/3 拥塞控制](docs/congestion-control.md)。
 
 ## 文档与开发
 
