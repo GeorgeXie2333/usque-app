@@ -1,5 +1,25 @@
-// Shared workflow copy follows the English/Simplified Chinese supplemental
-// catalog convention used by network quality. Other locales fall back to English.
+import 'features_ar.dart';
+import 'features_de.dart';
+import 'features_es.dart';
+import 'features_fa.dart';
+import 'features_fr.dart';
+import 'features_id.dart';
+import 'features_it.dart';
+import 'features_ja.dart';
+import 'features_ko.dart';
+import 'features_nl.dart';
+import 'features_pl.dart';
+import 'features_pt.dart';
+import 'features_ru.dart';
+import 'features_th.dart';
+import 'features_tr.dart';
+import 'features_uk.dart';
+import 'features_vi.dart';
+import 'features_zh_hk.dart';
+import 'features_zh_tw.dart';
+
+// Shared workflow copy is keyed by AppStrings catalog id. Missing ids fall
+// back to English. Companion locale maps live in features_*.dart.
 const Map<String, String> kUiWorkflowEn = <String, String>{
   'cc_label': 'HTTP/3 congestion control',
   'cc_help': 'Applies on your next manual connection.',
@@ -107,3 +127,28 @@ const Map<String, String> kUiWorkflowZhCn = <String, String>{
   'proxy_auth_separate': '凭据需单独点击“保存凭据”，不随网络修改一起提交。',
   'reset_draft_hint': '默认值将填入表单，点击“应用修改”后才会生效。',
 };
+
+const Map<String, Map<String, String>> kUiWorkflowCatalogs =
+    <String, Map<String, String>>{
+      'en': kUiWorkflowEn,
+      'zh_CN': kUiWorkflowZhCn,
+      'zh_HK': kUiWorkflowZhHk,
+      'zh_TW': kUiWorkflowZhTw,
+      'ja': kUiWorkflowJa,
+      'ko': kUiWorkflowKo,
+      'es': kUiWorkflowEs,
+      'pt': kUiWorkflowPt,
+      'fr': kUiWorkflowFr,
+      'nl': kUiWorkflowNl,
+      'tr': kUiWorkflowTr,
+      'ru': kUiWorkflowRu,
+      'fa': kUiWorkflowFa,
+      'ar': kUiWorkflowAr,
+      'de': kUiWorkflowDe,
+      'id': kUiWorkflowId,
+      'it': kUiWorkflowIt,
+      'pl': kUiWorkflowPl,
+      'th': kUiWorkflowTh,
+      'uk': kUiWorkflowUk,
+      'vi': kUiWorkflowVi,
+    };

@@ -17,16 +17,14 @@ class AppStrings {
   final String catalogId;
 
   String? windowsRecoveryError(String? code, {String? details}) {
-    final message = (catalogId == 'zh_CN'
-        ? kWindowsRecoveryZhCn
-        : kWindowsRecoveryEn)[code];
+    final message =
+        (kWindowsRecoveryCatalogs[catalogId] ?? kWindowsRecoveryEn)[code];
     if (message == null || !(details?.contains('Wintun') ?? false)) {
       return message;
     }
     // Show only localized step context, never raw Agent diagnostics or paths.
-    final adapter = catalogId == 'zh_CN'
-        ? kWindowsAdapterCleanupZhCn
-        : kWindowsAdapterCleanupEn;
+    final adapter =
+        kWindowsAdapterCleanupCatalogs[catalogId] ?? kWindowsAdapterCleanupEn;
     return '$message\n$adapter';
   }
 
@@ -34,11 +32,9 @@ class AppStrings {
       catalogId.startsWith('zh') ? 'zh' : catalogId.split('_').first;
 
   String get(String key) {
-    final workflow = catalogId == 'zh_CN' ? kUiWorkflowZhCn : kUiWorkflowEn;
+    final workflow = kUiWorkflowCatalogs[catalogId] ?? kUiWorkflowEn;
     if (workflow.containsKey(key)) return workflow[key]!;
-    final quality = catalogId == 'zh_CN'
-        ? kNetworkQualityZhCn
-        : kNetworkQualityEn;
+    final quality = kNetworkQualityCatalogs[catalogId] ?? kNetworkQualityEn;
     if (quality.containsKey(key)) return quality[key]!;
     final values = kCatalogs[catalogId] ?? kEnCatalog;
     return values[key] ?? kEnCatalog[key] ?? key;
@@ -49,27 +45,30 @@ class AppStrings {
       ? get('vpn_mode')
       : get('tunnel_output');
 
+  /// Feature-table keys whose English value may be reused (protocol/product).
+  @visibleForTesting
+  static const Set<String> kFeatureEnglishAllowlist = <String>{
+    'nq_doh',
+    'nq_dot',
+    'nq_bytes',
+    'nq_stream_window',
+    'home_kill_switch',
+  };
+
   @visibleForTesting
   static bool get debugCatalogsAreComplete {
-    if (!setEquals(kUiWorkflowEn.keys.toSet(), kUiWorkflowZhCn.keys.toSet()) ||
-        kUiWorkflowEn.values.any((value) => value.trim().isEmpty) ||
-        kUiWorkflowZhCn.values.any((value) => value.trim().isEmpty)) {
+    if (!_featureTablesComplete(kUiWorkflowCatalogs, kUiWorkflowEn) ||
+        !_featureTablesComplete(kWindowsRecoveryCatalogs, kWindowsRecoveryEn) ||
+        !_featureTablesComplete(kNetworkQualityCatalogs, kNetworkQualityEn)) {
       return false;
     }
     if (!setEquals(
-          kWindowsRecoveryEn.keys.toSet(),
-          kWindowsRecoveryZhCn.keys.toSet(),
+          kWindowsAdapterCleanupCatalogs.keys.toSet(),
+          kCatalogs.keys.toSet(),
         ) ||
-        kWindowsRecoveryEn.values.any((value) => value.trim().isEmpty) ||
-        kWindowsRecoveryZhCn.values.any((value) => value.trim().isEmpty)) {
-      return false;
-    }
-    if (!setEquals(
-          kNetworkQualityEn.keys.toSet(),
-          kNetworkQualityZhCn.keys.toSet(),
-        ) ||
-        kNetworkQualityEn.values.any((value) => value.trim().isEmpty) ||
-        kNetworkQualityZhCn.values.any((value) => value.trim().isEmpty)) {
+        kWindowsAdapterCleanupCatalogs.values.any(
+          (value) => value.trim().isEmpty,
+        )) {
       return false;
     }
     final englishKeys = kEnCatalog.keys.toSet();
@@ -112,17 +111,102 @@ class AppStrings {
     return leftovers;
   }
 
+  /// Feature-table entries whose value still matches English.
+  ///
+  /// Returns `catalogId.key` labels, plus `catalogId.adapter_cleanup`.
+  @visibleForTesting
+  static List<String> debugUntranslatedFeatureKeys() {
+    final leftovers = <String>[];
+    void scan(
+      Map<String, Map<String, String>> tables,
+      Map<String, String> english,
+    ) {
+      for (final catalogEntry in tables.entries) {
+        if (catalogEntry.key == 'en') {
+          continue;
+        }
+        for (final key in english.keys) {
+          if (kFeatureEnglishAllowlist.contains(key)) {
+            continue;
+          }
+          final value = catalogEntry.value[key];
+          final expected = english[key];
+          if (expected == null || value == null) {
+            continue;
+          }
+          if (value == expected) {
+            leftovers.add('${catalogEntry.key}.$key');
+          }
+        }
+      }
+    }
+
+    scan(kUiWorkflowCatalogs, kUiWorkflowEn);
+    scan(kNetworkQualityCatalogs, kNetworkQualityEn);
+    scan(kWindowsRecoveryCatalogs, kWindowsRecoveryEn);
+    for (final catalogEntry in kWindowsAdapterCleanupCatalogs.entries) {
+      if (catalogEntry.key == 'en') {
+        continue;
+      }
+      if (catalogEntry.value == kWindowsAdapterCleanupEn) {
+        leftovers.add('${catalogEntry.key}.adapter_cleanup');
+      }
+    }
+    leftovers.sort();
+    return leftovers;
+  }
+
   @visibleForTesting
   static bool get debugPlaceholdersArePreserved {
-    for (final key in kEnCatalog.keys) {
-      final english = kEnCatalog[key]!;
+    if (!_placeholdersPreserved(kEnCatalog, kCatalogs.values) ||
+        !_placeholdersPreserved(kUiWorkflowEn, kUiWorkflowCatalogs.values) ||
+        !_placeholdersPreserved(
+          kNetworkQualityEn,
+          kNetworkQualityCatalogs.values,
+        ) ||
+        !_placeholdersPreserved(
+          kWindowsRecoveryEn,
+          kWindowsRecoveryCatalogs.values,
+        )) {
+      return false;
+    }
+    return true;
+  }
+
+  static bool _featureTablesComplete(
+    Map<String, Map<String, String>> tables,
+    Map<String, String> english,
+  ) {
+    if (!setEquals(tables.keys.toSet(), kCatalogs.keys.toSet())) {
+      return false;
+    }
+    final englishKeys = english.keys.toSet();
+    if (englishKeys.isEmpty) {
+      return false;
+    }
+    for (final table in tables.values) {
+      if (!setEquals(table.keys.toSet(), englishKeys)) {
+        return false;
+      }
+      if (table.values.any((value) => value.trim().isEmpty)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  static bool _placeholdersPreserved(
+    Map<String, String> english,
+    Iterable<Map<String, String>> catalogs,
+  ) {
+    for (final key in english.keys) {
       final required = kPlaceholderTokens
-          .where(english.contains)
+          .where(english[key]!.contains)
           .toList(growable: false);
       if (required.isEmpty) {
         continue;
       }
-      for (final catalog in kCatalogs.values) {
+      for (final catalog in catalogs) {
         final value = catalog[key] ?? '';
         if (required.any((token) => !value.contains(token))) {
           return false;

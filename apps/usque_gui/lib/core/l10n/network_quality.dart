@@ -1,5 +1,28 @@
-/// This feature ships in English and Simplified Chinese; other locales use
-/// the same explicit English fallback as AppStrings' existing lookup policy.
+import 'features_ar.dart';
+import 'features_de.dart';
+import 'features_es.dart';
+import 'features_fa.dart';
+import 'features_fr.dart';
+import 'features_id.dart';
+import 'features_it.dart';
+import 'features_ja.dart';
+import 'features_ko.dart';
+import 'features_nl.dart';
+import 'features_pl.dart';
+import 'features_pt.dart';
+import 'features_ru.dart';
+import 'features_th.dart';
+import 'features_tr.dart';
+import 'features_uk.dart';
+import 'features_vi.dart';
+import 'features_zh_hk.dart';
+import 'features_zh_tw.dart';
+
+/// Network-quality copy is keyed by AppStrings catalog id. Missing ids fall
+/// back to English. Companion locale maps live in features_*.dart.
+///
+/// Keep [kNetworkQualityEn] immediately before [kNetworkQualityZhCn] so
+/// reliability catalog tests can slice those two maps.
 const kNetworkQualityEn = <String, String>{
   'nq_range': 'Range',
   'nq_bytes': 'Bytes',
@@ -63,7 +86,7 @@ const kNetworkQualityEn = <String, String>{
   'nq_live': 'Live',
   'nq_stale': 'Stale readings',
   'nq_updated': 'Last sample',
-  'nq_seconds': 's ago',
+  'nq_seconds': '{count} s ago',
   'nq_good': 'Good',
   'nq_fair': 'Fair',
   'nq_poor': 'Poor',
@@ -251,7 +274,7 @@ const kNetworkQualityZhCn = <String, String>{
   'nq_live': '实时',
   'nq_stale': '读数已过期',
   'nq_updated': '最近采样',
-  'nq_seconds': '秒前',
+  'nq_seconds': '{count} 秒前',
   'nq_good': '良好',
   'nq_fair': '一般',
   'nq_poor': '较差',
@@ -372,3 +395,28 @@ const kNetworkQualityZhCn = <String, String>{
   'nq_doctor_deep_run': '运行深度检查',
   'nq_doctor_evidence': '本地检查仅描述配置与已观测状态，不等于外部抓包证明绝无 DNS 泄漏。',
 };
+
+const Map<String, Map<String, String>> kNetworkQualityCatalogs =
+    <String, Map<String, String>>{
+      'en': kNetworkQualityEn,
+      'zh_CN': kNetworkQualityZhCn,
+      'zh_HK': kNetworkQualityZhHk,
+      'zh_TW': kNetworkQualityZhTw,
+      'ja': kNetworkQualityJa,
+      'ko': kNetworkQualityKo,
+      'es': kNetworkQualityEs,
+      'pt': kNetworkQualityPt,
+      'fr': kNetworkQualityFr,
+      'nl': kNetworkQualityNl,
+      'tr': kNetworkQualityTr,
+      'ru': kNetworkQualityRu,
+      'fa': kNetworkQualityFa,
+      'ar': kNetworkQualityAr,
+      'de': kNetworkQualityDe,
+      'id': kNetworkQualityId,
+      'it': kNetworkQualityIt,
+      'pl': kNetworkQualityPl,
+      'th': kNetworkQualityTh,
+      'uk': kNetworkQualityUk,
+      'vi': kNetworkQualityVi,
+    };

@@ -192,7 +192,7 @@ class NetworkQualityScreen extends StatelessWidget {
                         ? s.get('nq_empty')
                         : state.stale
                         ? s.get('nq_stale_help')
-                        : '${s.get('nq_updated')}: ${state.sampleAge?.inSeconds ?? 0} ${s.get('nq_seconds')}',
+                        : '${s.get('nq_updated')}: ${s.get('nq_seconds').replaceAll('{count}', '${state.sampleAge?.inSeconds ?? 0}')}',
                   ),
                   const SizedBox(height: 8),
                   Text(

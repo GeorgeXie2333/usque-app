@@ -1385,6 +1385,13 @@ void main() {
   });
 
   test(
+    'non-English feature tables translate workflow, quality, and recovery',
+    () {
+      expect(AppStrings.debugUntranslatedFeatureKeys(), isEmpty);
+    },
+  );
+
+  test(
     'diagnostics helpers resolve English, Chinese, Japanese, and German',
     () {
       expect(

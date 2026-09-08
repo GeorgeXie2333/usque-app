@@ -1,3 +1,26 @@
+import 'features_ar.dart';
+import 'features_de.dart';
+import 'features_es.dart';
+import 'features_fa.dart';
+import 'features_fr.dart';
+import 'features_id.dart';
+import 'features_it.dart';
+import 'features_ja.dart';
+import 'features_ko.dart';
+import 'features_nl.dart';
+import 'features_pl.dart';
+import 'features_pt.dart';
+import 'features_ru.dart';
+import 'features_th.dart';
+import 'features_tr.dart';
+import 'features_uk.dart';
+import 'features_vi.dart';
+import 'features_zh_hk.dart';
+import 'features_zh_tw.dart';
+
+// Windows recovery copy is keyed by AppStrings catalog id. Missing ids fall
+// back to English. Companion locale maps live in features_*.dart.
+
 const String kWindowsAdapterCleanupEn =
     'The previous Wintun adapter could not be removed or its removal could not be verified. No new VPN connection has started.';
 const String kWindowsAdapterCleanupZhCn =
@@ -28,4 +51,53 @@ const Map<String, String> kWindowsRecoveryZhCn = <String, String>{
   'WINDOWS_RECOVERY_CONFLICT': '网络状态已变化，或仍被其他会话使用。为保护现有连接，已停止自动恢复。',
   'WINDOWS_RECOVERY_UNSUPPORTED':
       '当前 Windows Agent 不支持安全的自动恢复。请同时更新应用和 Agent 后重试。',
+};
+
+const Map<String, Map<String, String>> kWindowsRecoveryCatalogs =
+    <String, Map<String, String>>{
+      'en': kWindowsRecoveryEn,
+      'zh_CN': kWindowsRecoveryZhCn,
+      'zh_HK': kWindowsRecoveryZhHk,
+      'zh_TW': kWindowsRecoveryZhTw,
+      'ja': kWindowsRecoveryJa,
+      'ko': kWindowsRecoveryKo,
+      'es': kWindowsRecoveryEs,
+      'pt': kWindowsRecoveryPt,
+      'fr': kWindowsRecoveryFr,
+      'nl': kWindowsRecoveryNl,
+      'tr': kWindowsRecoveryTr,
+      'ru': kWindowsRecoveryRu,
+      'fa': kWindowsRecoveryFa,
+      'ar': kWindowsRecoveryAr,
+      'de': kWindowsRecoveryDe,
+      'id': kWindowsRecoveryId,
+      'it': kWindowsRecoveryIt,
+      'pl': kWindowsRecoveryPl,
+      'th': kWindowsRecoveryTh,
+      'uk': kWindowsRecoveryUk,
+      'vi': kWindowsRecoveryVi,
+    };
+
+const Map<String, String> kWindowsAdapterCleanupCatalogs = <String, String>{
+  'en': kWindowsAdapterCleanupEn,
+  'zh_CN': kWindowsAdapterCleanupZhCn,
+  'zh_HK': kWindowsAdapterCleanupZhHk,
+  'zh_TW': kWindowsAdapterCleanupZhTw,
+  'ja': kWindowsAdapterCleanupJa,
+  'ko': kWindowsAdapterCleanupKo,
+  'es': kWindowsAdapterCleanupEs,
+  'pt': kWindowsAdapterCleanupPt,
+  'fr': kWindowsAdapterCleanupFr,
+  'nl': kWindowsAdapterCleanupNl,
+  'tr': kWindowsAdapterCleanupTr,
+  'ru': kWindowsAdapterCleanupRu,
+  'fa': kWindowsAdapterCleanupFa,
+  'ar': kWindowsAdapterCleanupAr,
+  'de': kWindowsAdapterCleanupDe,
+  'id': kWindowsAdapterCleanupId,
+  'it': kWindowsAdapterCleanupIt,
+  'pl': kWindowsAdapterCleanupPl,
+  'th': kWindowsAdapterCleanupTh,
+  'uk': kWindowsAdapterCleanupUk,
+  'vi': kWindowsAdapterCleanupVi,
 };
