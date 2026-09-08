@@ -13,7 +13,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'proxy': 'Proxy',
   'proxy_subtitle': 'Listener locali e DNS condivisi da tutti gli account.',
   'settings': 'Impostazioni',
-  'settings_subtitle': 'Comportamento dell’app su questo dispositivo.',
+  'settings_subtitle': 'Impostazioni di connessione, proxy e applicazione.',
   'diagnostics': 'Diagnostica',
   'nav_home': 'Inizio',
   'nav_profiles': 'Account',
@@ -87,7 +87,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'zero_trust_repair_same_team':
       'Accedere di nuovo alla stessa organizzazione per aggiornare la registrazione di questo dispositivo.',
   'zero_trust_metadata_missing':
-      'Manca il collegamento dell’organizzazione salvato. Per sicurezza, questo profilo non può essere riparato sul posto; creare un nuovo profilo Zero Trust.',
+      'Manca il collegamento dell’organizzazione salvato. Per sicurezza, questa voce account non può essere riparata direttamente; aggiungere un nuovo account Zero Trust.',
   'zero_trust_endpoint_managed':
       'Questo endpoint è gestito dalla registrazione del dispositivo Zero Trust e non può essere modificato qui.',
   'experimental': 'Sperimentale',
@@ -101,15 +101,15 @@ const Map<String, String> kItCatalog = <String, String>{
   'set_active': 'Imposta come attivo',
   'edit': 'Modifica',
   'delete': 'Elimina',
-  'delete_profile': 'Rimuovere account?',
+  'delete_profile': 'Rimuovere l’account?',
   'delete_profile_body':
-      'Questa operazione rimuove le impostazioni non segrete di questo profilo. I dati di identità archiviati non vengono eliminati.',
+      'Questa operazione rimuove le impostazioni non segrete di questo account. I dati di identità archiviati non vengono eliminati.',
   'delete_zero_trust_profile_body':
-      'Questa operazione elimina solo il profilo locale e le credenziali. Chiedere a un amministratore dell’organizzazione di rimuovere la registrazione residua del dispositivo in Zero Trust.',
+      'Questa operazione elimina solo l’account locale e le credenziali. Chiedere a un amministratore dell’organizzazione di rimuovere la registrazione residua del dispositivo in Zero Trust.',
   'license_not_applicable': 'Licenza non applicabile · Sperimentale',
   'zero_trust_reauthenticate': 'Accedi di nuovo a questa organizzazione',
   'zero_trust_admin_cleanup_note':
-      'La rimozione di questo profilo non revoca il dispositivo nella dashboard Zero Trust.',
+      'La rimozione di questo account non revoca il dispositivo nella dashboard Zero Trust.',
   'mode': 'Modalità di connessione',
   'vpn_mode': 'VPN',
   'socks_mode': 'SOCKS5',
@@ -198,7 +198,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'already_latest': 'Questa installazione è già aggiornata.',
   'open_release': 'Apri la pagina della versione',
   'update_startup_description':
-      'Usque esegue un controllo dopo l’avvio. Tornare all’app non avvia un nuovo controllo. «Controlla ora» invia sempre una richiesta in tempo reale.',
+      'Usque esegue un controllo dopo l’avvio. Tornare all’app non avvia un nuovo controllo. «Controlla ora» richiede sempre le informazioni sulla release più recente.',
   'update_checking': 'Ricerca di un aggiornamento…',
   'update_downloading': 'Download del pacchetto di aggiornamento verificato…',
   'update_verifying': 'Verifica del pacchetto di aggiornamento…',
@@ -310,9 +310,9 @@ const Map<String, String> kItCatalog = <String, String>{
   'license': 'Licenza',
   'clear_all_data': 'Cancella tutti i dati',
   'clear_all_data_help':
-      'Disconnette e rimuove in modo permanente da questo dispositivo ogni profilo, identità Consumer WARP, preferenza, cache e record diagnostico locale.',
+      'Disconnette e rimuove in modo permanente da questo dispositivo ogni account, identità Consumer WARP, preferenza, cache e record diagnostico locale.',
   'clear_all_data_confirm':
-      'Questa operazione non può essere annullata. Usque si disconnetterà prima, cancellerà tutte le identità e i profili salvati e tornerà alla configurazione iniziale.',
+      'Questa operazione non può essere annullata. Usque si disconnetterà prima, cancellerà tutte le identità e gli account salvati e tornerà alla configurazione iniziale.',
   'clear_all_data_complete':
       'Tutti i dati locali di Usque sono stati cancellati.',
   'unofficial':
@@ -340,7 +340,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'permission_note':
       'Il sistema operativo può mostrare una conferma aggiuntiva al primo collegamento.',
   'setup_failed': 'Impossibile completare la configurazione',
-  'profile_required': 'Mantenere almeno un profilo.',
+  'profile_required': 'Mantenere almeno un account.',
   'socks_capabilities': 'TCP e UDP',
   'http_capabilities': 'CONNECT e inoltro ordinario',
   'geo_direct': 'Paesi con instradamento diretto',
@@ -519,7 +519,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'diag_fail_ROUTE_RESTORE_INCOMPLETE': 'Ripristino rotte incompleto',
   'diag_fail_DNS_RESTORE_INCOMPLETE': 'Ripristino DNS incompleto',
   'diag_fail_SYSTEM_PROXY_STALE':
-      'Stato del proxy di sistema di Usque non ripristinato',
+      'Stato del proxy di sistema di Usque non rimosso',
   'diag_fail_PLATFORM_RECOVERY_PENDING':
       'In attesa del ripristino dello stato di rete della piattaforma',
   'diag_fail_PACKET_SEND_FAILED': 'Invio pacchetto non riuscito',

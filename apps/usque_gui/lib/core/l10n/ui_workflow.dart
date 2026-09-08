@@ -79,7 +79,7 @@ const Map<String, String> kUiWorkflowEn = <String, String>{
 const Map<String, String> kUiWorkflowZhCn = <String, String>{
   'cc_label': 'HTTP/3 拥塞控制算法',
   'cc_help': '下次手动连接生效。',
-  'cc_upgrade': '需要升级引擎。',
+  'cc_upgrade': '需要更新 Engine。',
   'cc_h2': 'HTTP/2 使用系统 TCP。',
   'cc_saved': '已保存',
   'cc_pending': '待下次手动连接生效。',
@@ -111,7 +111,7 @@ const Map<String, String> kUiWorkflowZhCn = <String, String>{
   'connection_details': '连接详情',
   'home_overview': '连接概览',
   'home_exit_region': '出口地区',
-  'home_kill_switch': '断线保护',
+  'home_kill_switch': 'Kill Switch',
   'home_traffic': '实时流量',
   'home_traffic_window': '最近 60 秒',
   'home_traffic_idle': '连接后开始采样',

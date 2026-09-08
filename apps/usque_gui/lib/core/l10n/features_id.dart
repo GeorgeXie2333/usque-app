@@ -117,7 +117,7 @@ const Map<String, String> kNetworkQualityId = <String, String>{
   'nq_subtitle': 'Baca koneksinya, bukan hanya kecepatannya.',
   'nq_local_only':
       'Pengukuran hanya di perangkat ini. Tidak ada yang diunggah.',
-  'nq_doctor': 'Jalankan Dokter Jaringan',
+  'nq_doctor': 'Jalankan Network Doctor',
   'nq_doctor_help':
       'Pemeriksaan standar hanya membaca status lokal. Tidak membuka koneksi eksternal atau mengubah setelan Anda.',
   'nq_live': 'Langsung',

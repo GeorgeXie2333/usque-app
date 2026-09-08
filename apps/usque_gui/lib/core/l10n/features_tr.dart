@@ -115,7 +115,7 @@ const kNetworkQualityTr = <String, String>{
   'network_quality': 'Ağ kalitesi',
   'nq_subtitle': 'Yalnızca hıza değil, bağlantıya bakın.',
   'nq_local_only': 'Yalnızca yerel ölçümler. Hiçbir şey yüklenmez.',
-  'nq_doctor': 'Ağ Doktorunu çalıştır',
+  'nq_doctor': 'Ağ tanılmasını çalıştır',
   'nq_doctor_help':
       'Standart denetimler yalnızca yerel durumu okur. Dış bağlantı açmaz ve ayarlarınızı değiştirmez.',
   'nq_live': 'Canlı',

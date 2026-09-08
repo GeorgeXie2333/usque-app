@@ -92,7 +92,7 @@ const Map<String, String> kNetworkQualityZhHk = <String, String>{
   'network_quality': '網絡質素',
   'nq_subtitle': '了解連線狀況，而不只看速度。',
   'nq_local_only': '量度只保存在本機，不會上載。',
-  'nq_doctor': '執行網絡醫生',
+  'nq_doctor': '執行網絡診斷',
   'nq_doctor_help': '標準檢查只讀取本機狀態，不新建外部連線，亦不修改設定。',
   'nq_live': '實況',
   'nq_stale': '讀數已過時',
@@ -215,7 +215,7 @@ const Map<String, String> kNetworkQualityZhHk = <String, String>{
   'nq_doctor_deep_title': '執行深度網絡檢查？',
   'nq_doctor_deep_body':
       '深度檢查可能向你設定的解析器發送測試 DNS 查詢，並驗證受保護的 QUIC '
-      '路徑。最長 15 秒，可取消；不會建立第二條業務通道，亦不會修改 DNS、路由、設定檔或傳輸協定。',
+      '路徑。最長 15 秒，可取消；不會建立第二條業務通道，亦不會修改 DNS、路由、帳戶或傳輸協定。',
   'nq_doctor_deep_run': '執行深度檢查',
   'nq_doctor_evidence': '本機檢查只描述設定與已觀測狀態，不等於外部擷包證明絕無 DNS 外洩。',
 };
@@ -233,4 +233,4 @@ const Map<String, String> kWindowsRecoveryZhHk = <String, String>{
 };
 
 const String kWindowsAdapterCleanupZhHk =
-    '舊 Wintun 虛擬網絡介面卡尚未完成清理，或無法確認已移除；尚未建立新 VPN 連線。';
+    '舊 Wintun 介面卡無法移除，或無法核實已移除；尚未建立新 VPN 連線。';

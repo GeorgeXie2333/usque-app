@@ -74,9 +74,9 @@ const Map<String, String> kNetworkQualityVi = <String, String>{
   'nq_finding_dns_system':
       'Đang chọn DNS hệ thống vật lý; kiểm tra DNS mã hóa không áp dụng.',
   'nq_finding_unsupported':
-      'Engine này không có DNS mã hóa; không cho phép dự phòng văn bản thuần.',
+      'Engine này không có DNS mã hóa; không cho phép dự phòng DNS không mã hóa (plaintext).',
   'nq_finding_dns_custom_valid':
-      'Cấu hình DNS mã hóa tùy chỉnh hợp lệ. Đã tắt dự phòng văn bản thuần.',
+      'Cấu hình DNS mã hóa tùy chỉnh hợp lệ. Đã tắt dự phòng DNS không mã hóa (plaintext).',
   'nq_finding_stale': 'Số liệu đã cũ hoặc mạng vật lý đã đổi.',
   'nq_finding_rtt_high': 'Thời gian khứ hồi đo được đang cao.',
   'nq_finding_healthy': 'Phép đo cục bộ hiện có nằm trong phạm vi kỳ vọng.',
@@ -109,7 +109,7 @@ const Map<String, String> kNetworkQualityVi = <String, String>{
   'network_quality': 'Chất lượng mạng',
   'nq_subtitle': 'Đọc kết nối, không chỉ tốc độ.',
   'nq_local_only': 'Chỉ đo cục bộ. Không tải gì lên.',
-  'nq_doctor': 'Chạy bác sĩ mạng',
+  'nq_doctor': 'Chạy Network Doctor',
   'nq_doctor_help':
       'Kiểm tra chuẩn chỉ đọc trạng thái cục bộ. Chúng không mở kết nối ngoài hay đổi cài đặt của bạn.',
   'nq_live': 'Trực tiếp',
@@ -232,7 +232,7 @@ const Map<String, String> kNetworkQualityVi = <String, String>{
   'nq_dns_bootstrap_help':
       'Nhập 1–8 địa chỉ IP dạng số, mỗi dòng một địa chỉ. Không tra cứu tên máy.',
   'nq_dns_no_fallback':
-      'Nếu DNS trực tiếp mã hóa thất bại, truy vấn thất bại. Không bao giờ quay về DNS hệ thống hoặc văn bản thuần.',
+      'Nếu DNS trực tiếp mã hóa thất bại, truy vấn thất bại. Không bao giờ quay về DNS hệ thống hoặc DNS không mã hóa (plaintext).',
   'nq_dns_system_privacy':
       'DNS hệ thống vật lý có thể lộ tên truy vấn trực tiếp cho nhà cung cấp DNS của mạng vật lý.',
   'nq_dns_scope':
@@ -249,7 +249,7 @@ const Map<String, String> kNetworkQualityVi = <String, String>{
   'nq_dns_invalid_mode': 'Chọn chế độ DNS được hỗ trợ.',
   'nq_doctor_deep_title': 'Chạy kiểm tra mạng sâu?',
   'nq_doctor_deep_body':
-      'Kiểm tra sâu có thể gửi truy vấn DNS thử tới bộ phân giải đã cấu hình và xác thực một đường QUIC được bảo vệ. Kéo dài tối đa 15 giây, có thể hủy, không bao giờ tạo đường hầm dữ liệu thứ hai và không bao giờ đổi DNS, tuyến, hồ sơ hay truyền tải của bạn.',
+      'Kiểm tra sâu có thể gửi truy vấn DNS thử tới bộ phân giải đã cấu hình và xác thực một đường QUIC được bảo vệ. Kéo dài tối đa 15 giây, có thể hủy, không bao giờ tạo đường hầm dữ liệu thứ hai và không bao giờ đổi DNS, tuyến, tài khoản hay truyền tải của bạn.',
   'nq_doctor_deep_run': 'Chạy kiểm tra sâu',
   'nq_doctor_evidence':
       'Kiểm tra cục bộ mô tả cấu hình và trạng thái quan sát được. Chúng không phải bằng chứng bên ngoài là không rò DNS.',

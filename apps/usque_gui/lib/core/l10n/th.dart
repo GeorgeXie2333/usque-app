@@ -13,7 +13,7 @@ const Map<String, String> kThCatalog = <String, String>{
   'proxy': 'พร็อกซี',
   'proxy_subtitle': 'ตัวรับฟังภายในเครื่องและ DNS ใช้ร่วมกันทุกบัญชี',
   'settings': 'การตั้งค่า',
-  'settings_subtitle': 'พฤติกรรมของแอปบนอุปกรณ์นี้',
+  'settings_subtitle': 'การตั้งค่าการเชื่อมต่อ พร็อกซี และแอป',
   'diagnostics': 'การวินิจฉัย',
   'nav_home': 'หน้าหลัก',
   'nav_profiles': 'บัญชี',
@@ -82,7 +82,7 @@ const Map<String, String> kThCatalog = <String, String>{
   'zero_trust_repair_same_team':
       'ลงชื่อเข้าใช้องค์กรเดิมอีกครั้งเพื่อรีเฟรชการลงทะเบียนอุปกรณ์นี้',
   'zero_trust_metadata_missing':
-      'ไม่พบการผูกองค์กรที่บันทึกไว้ เพื่อความปลอดภัย จึงไม่สามารถซ่อมโปรไฟล์นี้ในที่เดิมได้ ให้สร้างโปรไฟล์ Zero Trust ใหม่',
+      'ไม่พบการผูกองค์กรที่บันทึกไว้ เพื่อความปลอดภัย จึงซ่อมรายการบัญชีนี้แทนที่เดิมไม่ได้ ให้เพิ่มบัญชี Zero Trust ใหม่',
   'zero_trust_endpoint_managed':
       'ปลายทางนี้จัดการโดยการลงทะเบียนอุปกรณ์ Zero Trust และแก้ไขที่นี่ไม่ได้',
   'experimental': 'ทดลองใช้',
@@ -98,13 +98,13 @@ const Map<String, String> kThCatalog = <String, String>{
   'delete': 'ลบ',
   'delete_profile': 'ลบบัญชีหรือไม่?',
   'delete_profile_body':
-      'จะลบการตั้งค่าที่ไม่เป็นความลับของโปรไฟล์นี้ ข้อมูลตัวตนที่เก็บไว้จะไม่ถูกลบ',
+      'จะลบการตั้งค่าที่ไม่เป็นความลับของรายการบัญชีนี้ ข้อมูลตัวตนที่เก็บไว้จะไม่ถูกลบ',
   'delete_zero_trust_profile_body':
-      'จะลบเฉพาะโปรไฟล์และข้อมูลรับรองในเครื่อง ขอให้ผู้ดูแลองค์กรลบการลงทะเบียนอุปกรณ์ที่เหลือใน Zero Trust',
+      'จะลบเฉพาะรายการบัญชีและข้อมูลรับรองในเครื่อง ขอให้ผู้ดูแลองค์กรลบการลงทะเบียนอุปกรณ์ที่เหลือใน Zero Trust',
   'license_not_applicable': 'License ใช้ไม่ได้ · ทดลองใช้',
   'zero_trust_reauthenticate': 'ลงชื่อเข้าใช้องค์กรนี้อีกครั้ง',
   'zero_trust_admin_cleanup_note':
-      'การลบโปรไฟล์นี้ไม่ได้เพิกถอนอุปกรณ์ในแดชบอร์ด Zero Trust',
+      'การลบรายการบัญชีนี้ไม่ได้เพิกถอนอุปกรณ์ในแดชบอร์ด Zero Trust',
   'mode': 'โหมดการเชื่อมต่อ',
   'vpn_mode': 'VPN',
   'socks_mode': 'SOCKS5',
@@ -192,7 +192,7 @@ const Map<String, String> kThCatalog = <String, String>{
   'already_latest': 'การติดตั้งนี้เป็นรุ่นล่าสุดแล้ว',
   'open_release': 'เปิดหน้ารุ่น',
   'update_startup_description':
-      'ตรวจสอบหนึ่งครั้งหลังเริ่ม Usque การกลับมาที่แอปจะไม่ตรวจสอบซ้ำ การตรวจทันทีจะส่งคำขอแบบเรียลไทม์เสมอ',
+      'ตรวจสอบหนึ่งครั้งหลังเริ่ม Usque การกลับมาที่แอปจะไม่ตรวจซ้ำ «ตรวจตอนนี้» จะขอข้อมูลรุ่นล่าสุดเสมอ',
   'update_checking': 'กำลังตรวจสอบการอัปเดต…',
   'update_downloading': 'กำลังดาวน์โหลดแพ็กเกจอัปเดตที่ตรวจสอบแล้ว…',
   'update_verifying': 'กำลังตรวจสอบแพ็กเกจอัปเดต…',
@@ -302,9 +302,9 @@ const Map<String, String> kThCatalog = <String, String>{
   'license': 'ใบอนุญาต',
   'clear_all_data': 'ล้างข้อมูลทั้งหมด',
   'clear_all_data_help':
-      'ตัดการเชื่อมต่อแล้วลบโปรไฟล์ ตัวตน Consumer WARP ค่ากำหนด แคช และบันทึกการวินิจฉัยในเครื่องทั้งหมดออกจากอุปกรณ์นี้อย่างถาวร',
+      'ตัดการเชื่อมต่อแล้วลบบัญชี ตัวตน Consumer WARP ค่ากำหนด แคช และบันทึกการวินิจฉัยในเครื่องทั้งหมดออกจากอุปกรณ์นี้อย่างถาวร',
   'clear_all_data_confirm':
-      'ไม่สามารถย้อนกลับได้ Usque จะตัดการเชื่อมต่อก่อน ลบตัวตนและโปรไฟล์ที่บันทึกไว้ทั้งหมด แล้วกลับไปตั้งค่าเริ่มต้น',
+      'ไม่สามารถย้อนกลับได้ Usque จะตัดการเชื่อมต่อก่อน ลบตัวตนและบัญชีที่บันทึกไว้ทั้งหมด แล้วกลับไปตั้งค่าเริ่มต้น',
   'clear_all_data_complete': 'ล้างข้อมูล Usque ในเครื่องทั้งหมดแล้ว',
   'unofficial':
       'ไคลเอนต์ที่ไม่เป็นทางการ ที่ใช้กับ Cloudflare WARP ได้ ไม่มีส่วนเกี่ยวข้องหรือการรับรองจาก Cloudflare',
@@ -331,7 +331,7 @@ const Map<String, String> kThCatalog = <String, String>{
   'permission_note':
       'ระบบปฏิบัติการอาจแสดงการยืนยันเพิ่มเติมเมื่อคุณเชื่อมต่อครั้งแรก',
   'setup_failed': 'ตั้งค่าไม่สำเร็จ',
-  'profile_required': 'คงโปรไฟล์ไว้อย่างน้อยหนึ่งรายการ',
+  'profile_required': 'คงบัญชีไว้อย่างน้อยหนึ่งรายการ',
   'socks_capabilities': 'TCP และ UDP',
   'http_capabilities': 'CONNECT และการส่งต่อทั่วไป',
   'geo_direct': 'ประเทศที่กำหนดเส้นทางโดยตรง',
@@ -503,7 +503,7 @@ const Map<String, String> kThCatalog = <String, String>{
   'diag_fail_SYSTEM_PROXY_STATE_MISMATCH': 'สถานะพร็อกซีระบบไม่ตรงกัน',
   'diag_fail_ROUTE_RESTORE_INCOMPLETE': 'การคืนค่าเส้นทางไม่ครบ',
   'diag_fail_DNS_RESTORE_INCOMPLETE': 'การคืนค่า DNS ไม่ครบ',
-  'diag_fail_SYSTEM_PROXY_STALE': 'สถานะพร็อกซีระบบของ Usque ที่ตกค้าง',
+  'diag_fail_SYSTEM_PROXY_STALE': 'ยังไม่ได้ล้างสถานะพร็อกซีระบบของ Usque',
   'diag_fail_PLATFORM_RECOVERY_PENDING':
       'กำลังรอการกู้คืนสถานะเครือข่ายของแพลตฟอร์ม',
   'diag_fail_PACKET_SEND_FAILED': 'การส่งแพ็กเก็ตล้มเหลว',

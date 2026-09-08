@@ -14,7 +14,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'proxy_subtitle':
       'Lokalne nasłuchiwanie i DNS są wspólne dla wszystkich kont.',
   'settings': 'Ustawienia',
-  'settings_subtitle': 'Zachowanie aplikacji na tym urządzeniu.',
+  'settings_subtitle': 'Ustawienia połączenia, proxy i aplikacji.',
   'diagnostics': 'Diagnostyka',
   'nav_home': 'Główna',
   'nav_profiles': 'Konta',
@@ -87,7 +87,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'zero_trust_repair_same_team':
       'Zaloguj się ponownie do tej samej organizacji, aby odświeżyć rejestrację tego urządzenia.',
   'zero_trust_metadata_missing':
-      'Brak zapisanego powiązania z organizacją. Ze względów bezpieczeństwa tego profilu nie można naprawić na miejscu; utwórz nowy profil Zero Trust.',
+      'Brak zapisanego powiązania z organizacją. Ze względów bezpieczeństwa tego wpisu konta nie można naprawić na miejscu; dodaj nowe konto Zero Trust.',
   'zero_trust_endpoint_managed':
       'Ten punkt końcowy jest zarządzany przez rejestrację urządzenia Zero Trust i nie można go tutaj edytować.',
   'experimental': 'Eksperymentalne',
@@ -103,13 +103,13 @@ const Map<String, String> kPlCatalog = <String, String>{
   'delete': 'Usuń',
   'delete_profile': 'Usunąć konto?',
   'delete_profile_body':
-      'Spowoduje to usunięcie niesekretnych ustawień tego profilu. Zapisane dane tożsamości nie zostaną usunięte.',
+      'Spowoduje to usunięcie niesekretnych ustawień tego wpisu konta. Zapisane dane tożsamości nie zostaną usunięte.',
   'delete_zero_trust_profile_body':
-      'Usuwa tylko lokalny profil i poświadczenia. Poproś administratora organizacji o usunięcie pozostałej rejestracji urządzenia w Zero Trust.',
+      'Usuwa tylko lokalny wpis konta i poświadczenia. Poproś administratora organizacji o usunięcie pozostałej rejestracji urządzenia w Zero Trust.',
   'license_not_applicable': 'Licencja nie dotyczy · Eksperymentalne',
   'zero_trust_reauthenticate': 'Zaloguj się ponownie do tej organizacji',
   'zero_trust_admin_cleanup_note':
-      'Usunięcie tego profilu nie wyrejestrowuje urządzenia w panelu Zero Trust.',
+      'Usunięcie tego wpisu konta nie odwołuje urządzenia w panelu Zero Trust.',
   'mode': 'Tryb połączenia',
   'vpn_mode': 'VPN',
   'socks_mode': 'SOCKS5',
@@ -135,7 +135,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'system_proxy': 'Konfiguruj systemowe proxy',
   'output_disabled_in_profile': 'Wyłączone w Ustawieniach',
   'auto_connect': 'Łącz automatycznie bieżące konto przy uruchomieniu',
-  'lan_warning': 'Proxy udostępnione w sieci lokalnej',
+  'lan_warning': 'Proxy wystawione na sieć lokalną',
   'lan_warning_body':
       'Usque nie dodaje uwierzytelniania nazwą użytkownika i hasłem. Każdy, kto dotrze do tego nasłuchu, może go użyć.',
   'lan_warning_body_authenticated':
@@ -197,7 +197,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'already_latest': 'Ta instalacja jest już aktualna.',
   'open_release': 'Otwórz stronę wydania',
   'update_startup_description':
-      'Sprawdzenie wykonywane jest raz po uruchomieniu Usque; powrót do aplikacji nie uruchamia go ponownie. Sprawdzenie natychmiastowe zawsze pobiera dane na żywo.',
+      'Sprawdzenie wykonywane jest raz po uruchomieniu Usque; powrót do aplikacji nie uruchamia go ponownie. „Sprawdź teraz” zawsze pobiera najnowsze informacje o wydaniu.',
   'update_checking': 'Sprawdzanie aktualizacji…',
   'update_downloading': 'Pobieranie zweryfikowanego pakietu aktualizacji…',
   'update_verifying': 'Weryfikowanie pakietu aktualizacji…',
@@ -309,9 +309,9 @@ const Map<String, String> kPlCatalog = <String, String>{
   'license': 'Licencja',
   'clear_all_data': 'Wyczyść wszystkie dane',
   'clear_all_data_help':
-      'Rozłącz i trwale usuń z tego urządzenia wszystkie profile, tożsamości Consumer WARP, preferencje, pamięć podręczną i lokalne zapisy diagnostyczne.',
+      'Rozłącz i trwale usuń z tego urządzenia wszystkie konta, tożsamości Consumer WARP, preferencje, pamięć podręczną i lokalne zapisy diagnostyczne.',
   'clear_all_data_confirm':
-      'Tego nie można cofnąć. Usque najpierw się rozłączy, usunie wszystkie zapisane tożsamości i profile oraz wróci do konfiguracji początkowej.',
+      'Tego nie można cofnąć. Usque najpierw się rozłączy, usunie wszystkie zapisane tożsamości i konta oraz wróci do konfiguracji początkowej.',
   'clear_all_data_complete':
       'Wszystkie lokalne dane Usque zostały wyczyszczone.',
   'unofficial':
@@ -339,7 +339,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'permission_note':
       'System operacyjny może wyświetlić dodatkowe potwierdzenie przy pierwszym połączeniu.',
   'setup_failed': 'Nie udało się ukończyć konfiguracji',
-  'profile_required': 'Zachowaj co najmniej jeden profil.',
+  'profile_required': 'Zachowaj co najmniej jedno konto.',
   'socks_capabilities': 'TCP i UDP',
   'http_capabilities': 'CONNECT i zwykłe przekazywanie',
   'geo_direct': 'Kraje kierowane bezpośrednio',
@@ -516,7 +516,8 @@ const Map<String, String> kPlCatalog = <String, String>{
       'Stan proxy systemowego jest niezgodny',
   'diag_fail_ROUTE_RESTORE_INCOMPLETE': 'Przywracanie tras niekompletne',
   'diag_fail_DNS_RESTORE_INCOMPLETE': 'Przywracanie DNS niekompletne',
-  'diag_fail_SYSTEM_PROXY_STALE': 'Pozostały stan systemowego proxy Usque',
+  'diag_fail_SYSTEM_PROXY_STALE':
+      'Nie wyczyszczono stanu systemowego proxy Usque',
   'diag_fail_PLATFORM_RECOVERY_PENDING':
       'Oczekiwanie na przywrócenie stanu sieci platformy',
   'diag_fail_PACKET_SEND_FAILED': 'Wysyłanie pakietu nie powiodło się',

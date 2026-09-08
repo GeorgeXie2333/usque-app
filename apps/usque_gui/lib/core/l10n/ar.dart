@@ -13,7 +13,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'proxy': 'الوكيل',
   'proxy_subtitle': 'المستمعات المحلية وDNS مشتركة بين جميع الحسابات.',
   'settings': 'الإعدادات',
-  'settings_subtitle': 'سلوك التطبيق على هذا الجهاز.',
+  'settings_subtitle': 'إعدادات الاتصال والوكيل والتطبيق.',
   'diagnostics': 'التشخيص',
   'nav_home': 'رئيسية',
   'nav_profiles': 'حسابات',
@@ -44,7 +44,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'ipv6': 'IPv6',
   'not_available': 'غير متاح',
   'location_disconnected': 'في انتظار الاتصال',
-  'engine_unavailable': 'محرك Usque الأصلي غير متوفر في هذا الإصدار بعد.',
+  'engine_unavailable': 'Usque Engine الأصلي غير متوفر في هذه البنية بعد.',
   'dismiss': 'تجاهل',
   'new_profile': 'إضافة حساب',
   'profile_name': 'اسم الحساب',
@@ -82,7 +82,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'zero_trust_repair_same_team':
       'سجّل الدخول مجددًا إلى المؤسسة نفسها لتحديث تسجيل هذا الجهاز.',
   'zero_trust_metadata_missing':
-      'ربط المؤسسة المحفوظ مفقود. لأسباب أمنية، لا يمكن إصلاح ملف التعريف هذا في مكانه؛ أنشئ ملف تعريف Zero Trust جديدًا.',
+      'ربط المؤسسة المحفوظ مفقود. لأسباب أمنية، لا يمكن إصلاح قيد الحساب هذا في مكانه؛ أضف حساب Zero Trust جديدًا.',
   'zero_trust_endpoint_managed':
       'تُدار نقطة النهاية هذه بواسطة تسجيل جهاز Zero Trust ولا يمكن تعديلها هنا.',
   'experimental': 'تجريبي',
@@ -98,13 +98,13 @@ const Map<String, String> kArCatalog = <String, String>{
   'delete': 'حذف',
   'delete_profile': 'إزالة الحساب؟',
   'delete_profile_body':
-      'يزيل هذا الإعدادات غير السرية لملف التعريف هذا. بيانات الهوية المخزَّنة لا تُحذف.',
+      'يزيل هذا الإعدادات غير السرية لقيد الحساب هذا. بيانات الهوية المخزَّنة لا تُحذف.',
   'delete_zero_trust_profile_body':
-      'يحذف هذا ملف التعريف المحلي وبيانات الاعتماد فقط. اطلب من مسؤول المؤسسة إزالة تسجيل الجهاز المتبقي في Zero Trust.',
+      'يحذف هذا قيد الحساب المحلي وبيانات الاعتماد فقط. اطلب من مسؤول المؤسسة إزالة تسجيل الجهاز المتبقي في Zero Trust.',
   'license_not_applicable': 'الترخيص غير منطبق · تجريبي',
   'zero_trust_reauthenticate': 'تسجيل الدخول مجددًا إلى هذه المؤسسة',
   'zero_trust_admin_cleanup_note':
-      'إزالة ملف التعريف هذا لا تلغي تسجيل الجهاز في لوحة تحكم Zero Trust.',
+      'إزالة قيد الحساب هذا لا تلغي تسجيل الجهاز في لوحة تحكم Zero Trust.',
   'mode': 'وضع الاتصال',
   'vpn_mode': 'VPN',
   'socks_mode': 'SOCKS5',
@@ -300,9 +300,9 @@ const Map<String, String> kArCatalog = <String, String>{
   'license': 'الترخيص',
   'clear_all_data': 'مسح جميع البيانات',
   'clear_all_data_help':
-      'اقطع الاتصال وأزل نهائيًا كل ملف تعريف، وهوية Consumer WARP، وتفضيل، وذاكرة مؤقتة، وسجل تشخيص محلي من هذا الجهاز.',
+      'اقطع الاتصال وأزل نهائيًا كل حساب، وهوية Consumer WARP، وتفضيل، وذاكرة مؤقتة، وسجل تشخيص محلي من هذا الجهاز.',
   'clear_all_data_confirm':
-      'لا يمكن التراجع عن هذا. سيقطع Usque الاتصال أولًا، ويمحو جميع الهويات وملفات التعريف المحفوظة، ويعود إلى الإعداد الأولي.',
+      'لا يمكن التراجع عن هذا. سيقطع Usque الاتصال أولًا، ويمحو جميع الهويات والحسابات المحفوظة، ويعود إلى الإعداد الأولي.',
   'clear_all_data_complete': 'تم مسح جميع بيانات Usque المحلية.',
   'unofficial':
       'عميل غير رسمي متوافق مع Cloudflare WARP. غير مرتبط بـ Cloudflare ولا يحظى بتأييده.',
@@ -329,7 +329,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'permission_note':
       'قد يعرض نظام التشغيل تأكيدًا إضافيًا عند الاتصال لأول مرة.',
   'setup_failed': 'تعذّر إكمال الإعداد',
-  'profile_required': 'أبقِ ملف تعريف واحدًا على الأقل.',
+  'profile_required': 'أبقِ حسابًا واحدًا على الأقل.',
   'socks_capabilities': 'TCP وUDP',
   'http_capabilities': 'CONNECT وإعادة التوجيه العادية',
   'geo_direct': 'البلدان الموجَّهة مباشرةً',

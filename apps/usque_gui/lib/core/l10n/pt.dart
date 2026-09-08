@@ -14,7 +14,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'proxy_subtitle':
       'Listeners locais e DNS compartilhados por todas as contas.',
   'settings': 'Configurações',
-  'settings_subtitle': 'Comportamento do aplicativo neste dispositivo.',
+  'settings_subtitle': 'Configurações de conexão, proxy e aplicativo.',
   'diagnostics': 'Diagnósticos',
   'nav_home': 'Início',
   'nav_profiles': 'Contas',
@@ -87,7 +87,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'zero_trust_repair_same_team':
       'Entre novamente na mesma organização para atualizar o registro deste dispositivo.',
   'zero_trust_metadata_missing':
-      'A vinculação da organização salva está ausente. Por segurança, este perfil não pode ser reparado no local; crie um novo perfil Zero Trust.',
+      'A vinculação da organização salva está ausente. Por segurança, esta entrada de conta não pode ser reparada no local; adicione uma nova conta Zero Trust.',
   'zero_trust_endpoint_managed':
       'Este endpoint é gerenciado pelo registro de dispositivo do Zero Trust e não pode ser editado aqui.',
   'experimental': 'Experimental',
@@ -103,13 +103,13 @@ const Map<String, String> kPtCatalog = <String, String>{
   'delete': 'Excluir',
   'delete_profile': 'Remover conta?',
   'delete_profile_body':
-      'Isso remove as configurações não secretas deste perfil. Os dados de identidade armazenados não são excluídos.',
+      'Isso remove as configurações não secretas desta conta. Os dados de identidade armazenados não são excluídos.',
   'delete_zero_trust_profile_body':
-      'Isso exclui apenas o perfil local e as credenciais. Peça a um administrador da organização que remova o registro residual do dispositivo no Zero Trust.',
+      'Isso exclui apenas a conta local e as credenciais. Peça a um administrador da organização que remova o registro residual do dispositivo no Zero Trust.',
   'license_not_applicable': 'Licença não aplicável · Experimental',
   'zero_trust_reauthenticate': 'Entre novamente nesta organização',
   'zero_trust_admin_cleanup_note':
-      'Remover este perfil não revoga o dispositivo no painel do Zero Trust.',
+      'Remover esta conta não revoga o dispositivo no painel do Zero Trust.',
   'mode': 'Modo de conexão',
   'vpn_mode': 'VPN',
   'socks_mode': 'SOCKS5',
@@ -198,7 +198,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'already_latest': 'Esta instalação já está atualizada.',
   'open_release': 'Abrir página da versão',
   'update_startup_description':
-      'O Usque verifica uma vez após iniciar. Ao voltar para o aplicativo, não há uma nova verificação. Verificar agora sempre faz uma solicitação em tempo real.',
+      'O Usque verifica uma vez após iniciar. Ao voltar para o aplicativo, não há uma nova verificação. Verificar agora sempre solicita as informações da versão mais recente.',
   'update_checking': 'Procurando uma atualização…',
   'update_downloading': 'Baixando o pacote de atualização verificado…',
   'update_verifying': 'Verificando o pacote de atualização…',
@@ -309,9 +309,9 @@ const Map<String, String> kPtCatalog = <String, String>{
   'license': 'Licença',
   'clear_all_data': 'Limpar todos os dados',
   'clear_all_data_help':
-      'Desconecte e remova permanentemente todos os perfis, identidades Consumer WARP, preferências, cache e registros de diagnóstico locais deste dispositivo.',
+      'Desconecte e remova permanentemente todas as contas, identidades Consumer WARP, preferências, cache e registros de diagnóstico locais deste dispositivo.',
   'clear_all_data_confirm':
-      'Isso não pode ser desfeito. O Usque desconectará primeiro, apagará todas as identidades e perfis salvos e retornará à configuração inicial.',
+      'Isso não pode ser desfeito. O Usque desconectará primeiro, apagará todas as identidades e contas salvas e retornará à configuração inicial.',
   'clear_all_data_complete': 'Todos os dados locais do Usque foram limpos.',
   'unofficial':
       'Cliente não oficial compatível com Cloudflare WARP. Não é afiliado nem endossado pela Cloudflare.',
@@ -338,7 +338,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'permission_note':
       'O sistema operacional pode exibir uma confirmação adicional na primeira conexão.',
   'setup_failed': 'Não foi possível concluir a configuração',
-  'profile_required': 'Mantenha pelo menos um perfil.',
+  'profile_required': 'Mantenha pelo menos uma conta.',
   'socks_capabilities': 'TCP e UDP',
   'http_capabilities': 'CONNECT e encaminhamento comum',
   'geo_direct': 'Países com roteamento direto',
@@ -512,7 +512,8 @@ const Map<String, String> kPtCatalog = <String, String>{
       'Estado do proxy do sistema não confere',
   'diag_fail_ROUTE_RESTORE_INCOMPLETE': 'Restauração de rotas incompleta',
   'diag_fail_DNS_RESTORE_INCOMPLETE': 'Restauração de DNS incompleta',
-  'diag_fail_SYSTEM_PROXY_STALE': 'Estado do proxy do Usque não foi limpo',
+  'diag_fail_SYSTEM_PROXY_STALE':
+      'O estado do proxy do sistema do Usque não foi limpo',
   'diag_fail_PLATFORM_RECOVERY_PENDING':
       'Aguardando a restauração do estado de rede da plataforma',
   'diag_fail_PACKET_SEND_FAILED': 'Falha no envio de pacote',

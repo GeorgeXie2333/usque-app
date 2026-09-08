@@ -14,7 +14,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'proxy_subtitle':
       'Trình lắng nghe cục bộ và DNS dùng chung cho mọi tài khoản.',
   'settings': 'Cài đặt',
-  'settings_subtitle': 'Hành vi ứng dụng trên thiết bị này.',
+  'settings_subtitle': 'Cài đặt kết nối, proxy và ứng dụng.',
   'diagnostics': 'Chẩn đoán',
   'nav_home': 'Trang chủ',
   'nav_profiles': 'Tài khoản',
@@ -83,7 +83,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'zero_trust_repair_same_team':
       'Đăng nhập lại vào cùng tổ chức để làm mới đăng ký thiết bị này.',
   'zero_trust_metadata_missing':
-      'Liên kết tổ chức đã lưu bị thiếu. Để an toàn, không thể sửa hồ sơ này tại chỗ; hãy tạo hồ sơ Zero Trust mới.',
+      'Liên kết tổ chức đã lưu bị thiếu. Để an toàn, không thể sửa mục tài khoản này tại chỗ; hãy thêm tài khoản Zero Trust mới.',
   'zero_trust_endpoint_managed':
       'Endpoint này do đăng ký thiết bị Zero Trust quản lý và không thể chỉnh sửa ở đây.',
   'experimental': 'Thử nghiệm',
@@ -99,13 +99,13 @@ const Map<String, String> kViCatalog = <String, String>{
   'delete': 'Xóa',
   'delete_profile': 'Xóa tài khoản?',
   'delete_profile_body':
-      'Thao tác này gỡ các cài đặt không bí mật của hồ sơ. Dữ liệu danh tính đã lưu không bị xóa.',
+      'Thao tác này gỡ các cài đặt không bí mật của mục tài khoản này. Dữ liệu danh tính đã lưu không bị xóa.',
   'delete_zero_trust_profile_body':
-      'Chỉ xóa hồ sơ và thông tin xác thực cục bộ. Hãy nhờ quản trị viên tổ chức gỡ đăng ký thiết bị còn lại trong Zero Trust.',
+      'Chỉ xóa mục tài khoản cục bộ và thông tin xác thực. Hãy nhờ quản trị viên tổ chức gỡ đăng ký thiết bị còn lại trong Zero Trust.',
   'license_not_applicable': 'Giấy phép không áp dụng · Thử nghiệm',
   'zero_trust_reauthenticate': 'Đăng nhập lại vào tổ chức này',
   'zero_trust_admin_cleanup_note':
-      'Xóa hồ sơ này không thu hồi thiết bị trên bảng điều khiển Zero Trust.',
+      'Xóa mục tài khoản này không thu hồi thiết bị trên bảng điều khiển Zero Trust.',
   'mode': 'Chế độ kết nối',
   'vpn_mode': 'VPN',
   'socks_mode': 'SOCKS5',
@@ -193,7 +193,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'already_latest': 'Bản cài đặt này đã là phiên bản mới nhất.',
   'open_release': 'Mở trang phát hành',
   'update_startup_description':
-      'Kiểm tra một lần sau khi Usque khởi động; quay lại ứng dụng không kiểm tra lại. Kiểm tra ngay luôn gửi yêu cầu theo thời gian thực.',
+      'Kiểm tra một lần sau khi Usque khởi động; quay lại ứng dụng không kiểm tra lại. Kiểm tra ngay luôn yêu cầu thông tin bản phát hành mới nhất.',
   'update_checking': 'Đang kiểm tra bản cập nhật…',
   'update_downloading': 'Đang tải gói cập nhật đã xác minh…',
   'update_verifying': 'Đang xác minh gói cập nhật…',
@@ -248,14 +248,14 @@ const Map<String, String> kViCatalog = <String, String>{
   'lockdown': 'Chặn khi không có VPN',
   'not_used_proxy': 'Không dùng ở chế độ proxy',
   'kill_switch_help':
-      'Chặn lưu lượng khi đang kết nối, kết nối lại hoặc khôi phục sau lỗi Usque Engine. Trên Android, hiệu lực kéo dài khi dịch vụ VPN đang chạy; hãy bật VPN luôn bật và Chặn kết nối khi không có VPN trong cài đặt hệ thống để được bảo vệ sau khi ứng dụng bị đóng.',
+      'Chặn lưu lượng khi đang kết nối, kết nối lại hoặc khôi phục sau lỗi Usque Engine. Trên Android, hiệu lực kéo dài khi dịch vụ VPN đang chạy; hãy bật VPN luôn bật và Chặn kết nối khi không có VPN trong cài đặt hệ thống để được bảo vệ sau khi ứng dụng bị buộc dừng.',
   'start_on_boot_android':
       'Khởi chạy Usque sau khi khởi động lại. Đồng thời bật tự kết nối khi khởi động.',
   'add_quick_settings_tile_help':
       'Ghim ô Usque trên Android 13 trở lên. Trên phiên bản cũ hơn, thêm từ Cài đặt nhanh.',
   'always_on_vpn': 'Mở cài đặt VPN luôn bật',
   'always_on_vpn_help':
-      'Bật VPN luôn bật và Chặn kết nối khi không có VPN để chống rò sau khi ứng dụng bị đóng.',
+      'Bật VPN luôn bật và Chặn kết nối khi không có VPN để chống rò rỉ sau khi ứng dụng bị buộc dừng.',
   'per_app_proxy': 'Proxy theo ứng dụng',
   'per_app_proxy_off': 'Mọi ứng dụng dùng VPN',
   'per_app_proxy_on': 'Đang proxy {count} ứng dụng',
@@ -303,9 +303,9 @@ const Map<String, String> kViCatalog = <String, String>{
   'license': 'Giấy phép',
   'clear_all_data': 'Xóa toàn bộ dữ liệu',
   'clear_all_data_help':
-      'Ngắt kết nối và xóa vĩnh viễn mọi hồ sơ, danh tính Consumer WARP, tùy chọn, bộ nhớ đệm và bản ghi chẩn đoán cục bộ khỏi thiết bị này.',
+      'Ngắt kết nối và xóa vĩnh viễn mọi tài khoản, danh tính Consumer WARP, tùy chọn, bộ nhớ đệm và bản ghi chẩn đoán cục bộ khỏi thiết bị này.',
   'clear_all_data_confirm':
-      'Không thể hoàn tác. Usque sẽ ngắt kết nối trước, xóa mọi danh tính và hồ sơ đã lưu, rồi quay về thiết lập ban đầu.',
+      'Không thể hoàn tác. Usque sẽ ngắt kết nối trước, xóa mọi danh tính và tài khoản đã lưu, rồi quay về thiết lập ban đầu.',
   'clear_all_data_complete': 'Đã xóa toàn bộ dữ liệu Usque cục bộ.',
   'unofficial':
       'Ứng dụng không chính thức tương thích với Cloudflare WARP. Không liên kết với hoặc được Cloudflare xác nhận.',
@@ -332,7 +332,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'permission_note':
       'Hệ điều hành có thể hiện thêm xác nhận khi bạn kết nối lần đầu.',
   'setup_failed': 'Không thể hoàn tất thiết lập',
-  'profile_required': 'Giữ ít nhất một hồ sơ.',
+  'profile_required': 'Giữ ít nhất một tài khoản.',
   'socks_capabilities': 'TCP và UDP',
   'http_capabilities': 'CONNECT và chuyển tiếp thông thường',
   'geo_direct': 'Quốc gia được định tuyến trực tiếp',
@@ -455,7 +455,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'diag_check_transport_h2_tcp': 'TCP HTTP/2',
   'diag_check_transport_h2_tls': 'TLS HTTP/2',
   'diag_check_transport_h2_connect': 'CONNECT-IP HTTP/2',
-  'diag_check_transport_endpoint_pin': 'Pin điểm cuối',
+  'diag_check_transport_endpoint_pin': 'Endpoint pin',
   'diag_check_transport_fallback_policy': 'Chính sách đường dự phòng',
   'diag_check_tunnel_address_assignment': 'Gán địa chỉ đường hầm',
   'diag_check_tunnel_routes': 'Tuyến đường hầm',
@@ -488,7 +488,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'diag_fail_H2_CONNECT_REJECTED': 'CONNECT H2 bị từ chối',
   'diag_fail_H2_GOAWAY': 'H2 nhận GOAWAY',
   'diag_fail_ALL_TRANSPORTS_FAILED': 'HTTP/3 và HTTP/2 đều thất bại',
-  'diag_fail_ENDPOINT_PIN_MISMATCH': 'Pin điểm cuối không khớp',
+  'diag_fail_ENDPOINT_PIN_MISMATCH': 'Endpoint pin không khớp',
   'diag_fail_IDENTITY_INVALID': 'Danh tính không hợp lệ',
   'diag_fail_AUTHENTICATION_FAILED': 'Xác thực thất bại',
   'diag_fail_CONFIGURATION_INVALID': 'Cấu hình không hợp lệ',
@@ -505,7 +505,8 @@ const Map<String, String> kViCatalog = <String, String>{
       'Trạng thái proxy hệ thống không khớp',
   'diag_fail_ROUTE_RESTORE_INCOMPLETE': 'Khôi phục tuyến chưa đủ',
   'diag_fail_DNS_RESTORE_INCOMPLETE': 'Khôi phục DNS chưa đủ',
-  'diag_fail_SYSTEM_PROXY_STALE': 'Trạng thái proxy hệ thống Usque còn sót lại',
+  'diag_fail_SYSTEM_PROXY_STALE':
+      'Trạng thái proxy hệ thống của Usque chưa được dọn',
   'diag_fail_PLATFORM_RECOVERY_PENDING':
       'Đang chờ khôi phục trạng thái mạng nền tảng',
   'diag_fail_PACKET_SEND_FAILED': 'Gửi gói thất bại',

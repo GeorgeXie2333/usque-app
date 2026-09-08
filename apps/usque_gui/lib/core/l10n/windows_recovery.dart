@@ -24,7 +24,7 @@ import 'features_zh_tw.dart';
 const String kWindowsAdapterCleanupEn =
     'The previous Wintun adapter could not be removed or its removal could not be verified. No new VPN connection has started.';
 const String kWindowsAdapterCleanupZhCn =
-    '旧 Wintun 虚拟网卡尚未完成清理，或无法确认已移除；尚未建立新 VPN 连接。';
+    '未能移除旧的 Wintun 适配器，或无法确认已移除。尚未建立新的 VPN 连接。';
 
 const Map<String, String> kWindowsRecoveryEn = <String, String>{
   'WINDOWS_RECOVERY_FAILED':

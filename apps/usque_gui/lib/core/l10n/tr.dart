@@ -14,7 +14,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'proxy': 'Proxy',
   'proxy_subtitle': 'Tüm hesapların paylaştığı yerel dinleyiciler ve DNS.',
   'settings': 'Ayarlar',
-  'settings_subtitle': 'Bu cihazdaki uygulama davranışı.',
+  'settings_subtitle': 'Bağlantı, proxy ve uygulama ayarları.',
   'diagnostics': 'Tanılama',
   'nav_home': 'Ana sayfa',
   'nav_profiles': 'Hesaplar',
@@ -84,7 +84,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'zero_trust_repair_same_team':
       'Bu cihaz kaydını yenilemek için aynı kuruluşa yeniden oturum açın.',
   'zero_trust_metadata_missing':
-      'Kayıtlı kuruluş bağlaması eksik. Güvenlik nedeniyle bu profil yerinde onarılamaz; yeni bir Zero Trust profili oluşturun.',
+      'Kayıtlı kuruluş bağlaması eksik. Güvenlik nedeniyle bu hesap kaydı yerinde onarılamaz; yeni bir Zero Trust hesabı ekleyin.',
   'zero_trust_endpoint_managed':
       'Bu uç nokta, Zero Trust cihaz kaydı tarafından yönetilir ve burada düzenlenemez.',
   'experimental': 'Deneysel',
@@ -100,13 +100,13 @@ const Map<String, String> kTrCatalog = <String, String>{
   'delete': 'Sil',
   'delete_profile': 'Hesap kaldırılsın mı?',
   'delete_profile_body':
-      'Bu işlem, bu profilin gizli olmayan ayarlarını kaldırır. Saklanan kimlik verileri silinmez.',
+      'Bu işlem, bu hesap kaydının gizli olmayan ayarlarını kaldırır. Saklanan kimlik verileri silinmez.',
   'delete_zero_trust_profile_body':
-      'Bu işlem yalnızca yerel profili ve kimlik bilgilerini siler. Kalan cihaz kaydını Zero Trust içinde kaldırması için bir kuruluş yöneticisine başvurun.',
+      'Bu işlem yalnızca yerel hesap kaydını ve kimlik bilgilerini siler. Kalan cihaz kaydını Zero Trust içinde kaldırması için bir kuruluş yöneticisine başvurun.',
   'license_not_applicable': 'Lisans uygulanamaz · Deneysel',
   'zero_trust_reauthenticate': 'Bu kuruluşa yeniden oturum açın',
   'zero_trust_admin_cleanup_note':
-      'Bu profili kaldırmak, cihazın Zero Trust yönetim panelindeki kaydını iptal etmez.',
+      'Bu hesap kaydını kaldırmak, cihazın Zero Trust yönetim panelindeki kaydını iptal etmez.',
   'mode': 'Bağlantı modu',
   'vpn_mode': 'VPN',
   'socks_mode': 'SOCKS5',
@@ -196,7 +196,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'already_latest': 'Bu kurulum zaten güncel.',
   'open_release': 'Sürüm sayfasını aç',
   'update_startup_description':
-      'Usque başlatıldıktan sonra bir kez denetlenir; uygulamaya dönmek yeniden denetim başlatmaz. Anında denetim isteği gerçek zamanlı olarak gönderir.',
+      'Usque başlatıldıktan sonra bir kez denetlenir; uygulamaya dönmek yeniden denetim başlatmaz. «Şimdi denetle» her zaman en son sürüm bilgilerini ister.',
   'update_checking': 'Güncelleme denetleniyor…',
   'update_downloading': 'Doğrulanmış güncelleme paketi indiriliyor…',
   'update_verifying': 'Güncelleme paketi doğrulanıyor…',
@@ -306,9 +306,9 @@ const Map<String, String> kTrCatalog = <String, String>{
   'license': 'Lisans',
   'clear_all_data': 'Tüm verileri temizle',
   'clear_all_data_help':
-      'Bağlantıyı kesin ve bu cihazdaki her Profili, Consumer WARP kimliğini, tercihi, önbelleği ve yerel tanılama kaydını kalıcı olarak kaldırın.',
+      'Bağlantıyı kesin ve bu cihazdaki her hesabı, Consumer WARP kimliğini, tercihi, önbelleği ve yerel tanılama kaydını kalıcı olarak kaldırın.',
   'clear_all_data_confirm':
-      'Bu işlem geri alınamaz. Usque önce bağlantıyı kesecek, kayıtlı tüm kimlikleri ve Profilleri silecek ve ilk kuruluma dönecektir.',
+      'Bu işlem geri alınamaz. Usque önce bağlantıyı kesecek, kayıtlı tüm kimlikleri ve hesapları silecek ve ilk kuruluma dönecektir.',
   'clear_all_data_complete': 'Tüm yerel Usque verileri temizlendi.',
   'unofficial':
       'Cloudflare WARP ile uyumlu, resmi olmayan bir istemci. Cloudflare ile bağlantılı değildir ve Cloudflare tarafından onaylanmamıştır.',
@@ -335,7 +335,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'permission_note':
       'İlk bağlandığınızda işletim sistemi ek bir onay gösterebilir.',
   'setup_failed': 'Kurulum tamamlanamadı',
-  'profile_required': 'En az bir profil bulundurun.',
+  'profile_required': 'En az bir hesap bulundurun.',
   'socks_capabilities': 'TCP ve UDP',
   'http_capabilities': 'CONNECT ve olağan iletme',
   'geo_direct': 'Doğrudan yönlendirilen ülkeler',
@@ -509,7 +509,7 @@ const Map<String, String> kTrCatalog = <String, String>{
       'Sistem proxy’sinin durumu eşleşmiyor',
   'diag_fail_ROUTE_RESTORE_INCOMPLETE': 'Rota geri yükleme tamamlanmadı',
   'diag_fail_DNS_RESTORE_INCOMPLETE': 'DNS geri yükleme eksik',
-  'diag_fail_SYSTEM_PROXY_STALE': 'Usque sistem proxy’sinin kalıntı durumu',
+  'diag_fail_SYSTEM_PROXY_STALE': 'Usque sistem proxy durumu temizlenmedi',
   'diag_fail_PLATFORM_RECOVERY_PENDING':
       'Platform ağ durumunun geri yüklenmesi bekleniyor',
   'diag_fail_PACKET_SEND_FAILED': 'Paket gönderme başarısız',

@@ -139,7 +139,7 @@ const Map<String, String> kNetworkQualityFr = <String, String>{
   'network_quality': 'Qualité du réseau',
   'nq_subtitle': 'Observez la connexion, pas seulement le débit.',
   'nq_local_only': 'Mesures locales uniquement. Rien n’est envoyé.',
-  'nq_doctor': 'Lancer le docteur réseau',
+  'nq_doctor': 'Lancer le diagnostic réseau',
   'nq_doctor_help':
       'Les contrôles standard ne lisent que l’état local. Ils n’ouvrent pas de '
       'connexions externes et ne modifient pas vos paramètres.',

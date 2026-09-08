@@ -131,7 +131,7 @@ const Map<String, String> kNetworkQualityPt = <String, String>{
   'network_quality': 'Qualidade da rede',
   'nq_subtitle': 'Leia a conexão, não só a velocidade.',
   'nq_local_only': 'Somente medições locais. Nada é enviado.',
-  'nq_doctor': 'Executar o doutor de rede',
+  'nq_doctor': 'Executar o diagnóstico de rede',
   'nq_doctor_help':
       'As verificações padrão leem somente o estado local. Elas não abrem '
       'conexões externas nem alteram suas configurações.',

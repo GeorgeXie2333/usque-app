@@ -138,7 +138,7 @@ const Map<String, String> kNetworkQualityNl = <String, String>{
   'network_quality': 'Netwerkkwaliteit',
   'nq_subtitle': 'Bekijk de verbinding, niet alleen de snelheid.',
   'nq_local_only': 'Alleen lokale metingen. Er wordt niets geüpload.',
-  'nq_doctor': 'Netwerkdokter uitvoeren',
+  'nq_doctor': 'Netwerkcontrole uitvoeren',
   'nq_doctor_help':
       'Standaardcontroles lezen alleen de lokale status. Ze openen geen '
       'externe verbindingen en wijzigen uw instellingen niet.',

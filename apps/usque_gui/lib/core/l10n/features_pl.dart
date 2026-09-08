@@ -133,7 +133,7 @@ const Map<String, String> kNetworkQualityPl = <String, String>{
   'network_quality': 'Jakość sieci',
   'nq_subtitle': 'Odczytaj połączenie, nie tylko prędkość.',
   'nq_local_only': 'Tylko pomiary lokalne. Nic nie jest wysyłane.',
-  'nq_doctor': 'Uruchom doktora sieci',
+  'nq_doctor': 'Uruchom diagnostę sieci',
   'nq_doctor_help':
       'Sprawdzenia standardowe odczytują tylko stan lokalny. Nie otwierają '
       'połączeń zewnętrznych ani nie zmieniają ustawień.',

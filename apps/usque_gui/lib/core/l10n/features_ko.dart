@@ -95,7 +95,7 @@ const Map<String, String> kNetworkQualityKo = <String, String>{
   'network_quality': '네트워크 품질',
   'nq_subtitle': '속도만이 아니라 연결 자체를 확인합니다.',
   'nq_local_only': '측정값은 기기에만 남습니다. 업로드되지 않습니다.',
-  'nq_doctor': '네트워크 닥터 실행',
+  'nq_doctor': '네트워크 진단 실행',
   'nq_doctor_help': '표준 검사는 로컬 상태만 읽습니다. 외부 연결을 열거나 설정을 바꾸지 않습니다.',
   'nq_live': '실시간',
   'nq_stale': '오래된 측정값',
@@ -208,7 +208,7 @@ const Map<String, String> kNetworkQualityKo = <String, String>{
   'nq_dns_bootstrap_help':
       '숫자 IP 주소를 1–8개, 한 줄에 하나씩 입력하세요. 호스트 이름 조회는 사용하지 않습니다.',
   'nq_dns_no_fallback':
-      '암호화된 직접 DNS가 실패하면 쿼리가 실패합니다. 시스템 DNS나 평문 DNS로 폴백하지 않습니다.',
+      '암호화된 직접 DNS가 실패하면 쿼리가 실패합니다. 시스템 DNS나 평문 DNS로 절대 폴백하지 않습니다.',
   'nq_dns_system_privacy':
       '물리 시스템 DNS는 직접 쿼리 이름을 물리 네트워크 DNS 제공자에게 노출할 수 있습니다.',
   'nq_dns_scope': 'Geo로 선택한 직접 쿼리에만 사용됩니다. 터널 DNS는 그대로입니다.',
@@ -225,7 +225,7 @@ const Map<String, String> kNetworkQualityKo = <String, String>{
   'nq_doctor_deep_body':
       '심층 검사는 구성한 리졸버에 DNS 테스트 쿼리를 보내고 보호된 QUIC 경로를 '
       '검증할 수 있습니다. 최대 15초이며 취소할 수 있고, 데이터를 실어 나르는 '
-      '두 번째 터널을 만들지 않으며 DNS, 경로, 프로필, 전송을 바꾸지 않습니다.',
+      '두 번째 터널을 만들지 않으며 DNS, 경로, 계정, 전송을 절대 바꾸지 않습니다.',
   'nq_doctor_deep_run': '심층 검사 실행',
   'nq_doctor_evidence': '로컬 검사는 구성과 관측 상태를 설명할 뿐, DNS 누출이 없다는 외부 증명이 아닙니다.',
 };

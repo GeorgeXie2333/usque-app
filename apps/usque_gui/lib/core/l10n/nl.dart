@@ -13,7 +13,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'proxy': 'Proxy',
   'proxy_subtitle': 'Lokale listeners en DNS gedeeld door alle accounts.',
   'settings': 'Instellingen',
-  'settings_subtitle': 'App-gedrag op dit apparaat.',
+  'settings_subtitle': 'Verbindings-, proxy- en applicatie-instellingen.',
   'diagnostics': 'Diagnostiek',
   'nav_home': 'Start',
   'nav_profiles': 'Accounts',
@@ -84,7 +84,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'zero_trust_repair_same_team':
       'Meld u opnieuw aan bij dezelfde organisatie om deze apparaatregistratie te vernieuwen.',
   'zero_trust_metadata_missing':
-      'De opgeslagen organisatiebinding ontbreekt. Uit veiligheidsoverwegingen kan dit profiel niet ter plaatse worden hersteld; maak een nieuw Zero Trust-profiel aan.',
+      'De opgeslagen organisatiebinding ontbreekt. Uit veiligheidsoverwegingen kan dit account niet ter plaatse worden hersteld; voeg een nieuw Zero Trust-account toe.',
   'zero_trust_endpoint_managed':
       'Dit eindpunt wordt beheerd door de Zero Trust-apparaatregistratie en kan hier niet worden bewerkt.',
   'experimental': 'Experimenteel',
@@ -100,13 +100,13 @@ const Map<String, String> kNlCatalog = <String, String>{
   'delete': 'Verwijderen',
   'delete_profile': 'Account verwijderen?',
   'delete_profile_body':
-      'Hiermee worden de niet-geheime instellingen van dit profiel verwijderd. Opgeslagen identiteitsgegevens worden niet verwijderd.',
+      'Hiermee worden de niet-geheime instellingen van dit account verwijderd. Opgeslagen identiteitsgegevens worden niet verwijderd.',
   'delete_zero_trust_profile_body':
-      'Hiermee worden alleen het lokale profiel en de inloggegevens verwijderd. Vraag een organisatiebeheerder om de resterende apparaatregistratie in Zero Trust te verwijderen.',
+      'Hiermee worden alleen het lokale account en de inloggegevens verwijderd. Vraag een organisatiebeheerder om de resterende apparaatregistratie in Zero Trust te verwijderen.',
   'license_not_applicable': 'Licentie niet van toepassing · Experimenteel',
   'zero_trust_reauthenticate': 'Opnieuw aanmelden bij deze organisatie',
   'zero_trust_admin_cleanup_note':
-      'Het verwijderen van dit profiel trekt het apparaat in het Zero Trust-dashboard niet in.',
+      'Het verwijderen van dit account trekt de apparaatregistratie in het Zero Trust-dashboard niet in.',
   'mode': 'Verbindingsmodus',
   'vpn_mode': 'VPN',
   'socks_mode': 'SOCKS5',
@@ -128,7 +128,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'proxy_dns_system': 'Systeem-DNS',
   'dns_leak_warning': 'Lokale DNS kan opgevraagde namen prijsgeven',
   'dns_leak_warning_body':
-      'Aangepaste of systeem-DNS wordt buiten het externe proxypad omgezet. Gebruik DNS op afstand, tenzij u deze blootstelling uitdrukkelijk accepteert.',
+      'Aangepaste of systeem-DNS wordt buiten het proxypad via de tunnel omgezet. Gebruik DNS op afstand, tenzij u deze blootstelling uitdrukkelijk accepteert.',
   'system_proxy': 'Systeemproxy configureren',
   'output_disabled_in_profile': 'Uitgeschakeld in Instellingen',
   'auto_connect': 'Het huidige account bij het starten automatisch verbinden',
@@ -195,7 +195,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'already_latest': 'Deze installatie is al up-to-date.',
   'open_release': 'Releasepagina openen',
   'update_startup_description':
-      'Usque controleert één keer na het starten. Wanneer u naar de app terugkeert, wordt niet opnieuw gecontroleerd. Met “Nu controleren” wordt altijd een live aanvraag uitgevoerd.',
+      'Usque controleert één keer na het starten. Wanneer u naar de app terugkeert, wordt niet opnieuw gecontroleerd. “Nu controleren” vraagt altijd de nieuwste release-informatie op.',
   'update_checking': 'Controleren op een update…',
   'update_downloading': 'Geverifieerd updatepakket downloaden…',
   'update_verifying': 'Updatepakket verifiëren…',
@@ -307,9 +307,9 @@ const Map<String, String> kNlCatalog = <String, String>{
   'license': 'Licentie',
   'clear_all_data': 'Alle gegevens wissen',
   'clear_all_data_help':
-      'Verbreek de verbinding en verwijder permanent alle profielen, Consumer WARP-identiteiten, voorkeuren, cache en lokale diagnostische records van dit apparaat.',
+      'Verbreek de verbinding en verwijder permanent alle accounts, Consumer WARP-identiteiten, voorkeuren, cache en lokale diagnostische records van dit apparaat.',
   'clear_all_data_confirm':
-      'Dit kan niet ongedaan worden gemaakt. Usque verbreekt eerst de verbinding, wist alle opgeslagen identiteiten en profielen, en keert terug naar de eerste instelling.',
+      'Dit kan niet ongedaan worden gemaakt. Usque verbreekt eerst de verbinding, wist alle opgeslagen identiteiten en accounts, en keert terug naar de eerste instelling.',
   'clear_all_data_complete': 'Alle lokale Usque-gegevens zijn gewist.',
   'unofficial':
       'Onofficiële client die compatibel is met Cloudflare WARP. Niet gelieerd aan of goedgekeurd door Cloudflare.',
@@ -336,7 +336,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'permission_note':
       'Het besturingssysteem kan een extra bevestiging tonen wanneer u voor het eerst verbindt.',
   'setup_failed': 'Instellen kon niet worden voltooid',
-  'profile_required': 'Behoud ten minste één profiel.',
+  'profile_required': 'Behoud ten minste één account.',
   'socks_capabilities': 'TCP en UDP',
   'http_capabilities': 'CONNECT en gewone doorsturing',
   'geo_direct': 'Landen met directe routering',

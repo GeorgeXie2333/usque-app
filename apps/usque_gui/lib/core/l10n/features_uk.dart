@@ -137,7 +137,7 @@ const kNetworkQualityUk = <String, String>{
   'network_quality': 'Якість мережі',
   'nq_subtitle': 'Дивіться на зʼєднання, а не лише на швидкість.',
   'nq_local_only': 'Лише місцеві вимірювання. Нічого не вивантажується.',
-  'nq_doctor': 'Запустити мережевого лікаря',
+  'nq_doctor': 'Запустити мережеву діагностику',
   'nq_doctor_help':
       'Звичайні перевірки читають лише місцевий стан. Вони не '
       'відкривають зовнішніх зʼєднань і не змінюють налаштувань.',
@@ -152,7 +152,7 @@ const kNetworkQualityUk = <String, String>{
   'nq_disconnected': 'Відʼєднано',
   'nq_connecting': 'Зʼєднання',
   'nq_connected': 'Зʼєднано',
-  'nq_unavailable': 'Немає в наявності',
+  'nq_unavailable': 'Недоступно',
   'nq_not_ready': 'Ще не готово',
   'nq_unsupported': 'Підтримки немає',
   'nq_capability_missing':

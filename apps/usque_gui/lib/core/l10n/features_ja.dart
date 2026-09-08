@@ -81,7 +81,7 @@ const Map<String, String> kNetworkQualityJa = <String, String>{
   'nq_finding_dns_degraded':
       '暗号化 DNS が低下しています。失敗した直接クエリはシステム DNS にフォールバックしません。',
   'nq_finding_probe_unsafe':
-      '探査をスキップしました。必要な安全な状態または保存済みアイデンティティがありません。稼働中のトンネルを複製することはありません。',
+      'プローブをスキップしました。必要な安全な状態、または保存済みアイデンティティがありません。稼働中のトンネルを複製することはありません。',
   'nq_finding_probe_success': '認証済みの探査が完了しました。これは外部パケット漏洩テストではありません。',
   'nq_finding_probe_cancelled': '探査をキャンセルし、クリーンアップを要求しました。',
   'nq_finding_probe_timeout': '制限時間内に探査が完了しませんでした。',
@@ -94,7 +94,7 @@ const Map<String, String> kNetworkQualityJa = <String, String>{
   'network_quality': 'ネットワーク品質',
   'nq_subtitle': '速度だけでなく、接続そのものを読み取ります。',
   'nq_local_only': '測定は端末内のみです。アップロードはしません。',
-  'nq_doctor': 'ネットワークドクターを実行',
+  'nq_doctor': 'ネットワーク診断を実行',
   'nq_doctor_help': '標準検査はローカル状態のみを読み取ります。外部接続を開いたり、設定を変更したりしません。',
   'nq_live': 'ライブ',
   'nq_stale': '古い測定値',
@@ -222,7 +222,7 @@ const Map<String, String> kNetworkQualityJa = <String, String>{
   'nq_doctor_deep_body':
       '詳細検査では、設定したリゾルバーへ DNS テストクエリを送り、保護された QUIC '
       '経路を検証する場合があります。最長 15 秒で、キャンセルできます。データ転送用の '
-      '2 本目のトンネルは作らず、DNS、ルート、プロファイル、トランスポートも変更しません。',
+      '2 本目のトンネルは作らず、DNS、ルート、アカウント、トランスポートも変更しません。',
   'nq_doctor_deep_run': '詳細検査を実行',
   'nq_doctor_evidence': 'ローカル検査は設定と観測状態を説明するだけであり、DNS 漏洩がゼロであることの外部証明ではありません。',
 };
