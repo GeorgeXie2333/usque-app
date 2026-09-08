@@ -407,6 +407,13 @@ class AppController extends ChangeNotifier {
     });
   }
 
+  void _requireDataPlaneCapability(UsqueProfile profile) {
+    if (profile.dataPlane == DataPlaneMode.l4Proxy &&
+        !(engineCapabilities?.l4Available ?? false)) {
+      throw EngineException('L4_UNSUPPORTED', strings.get('l4_unsupported'));
+    }
+  }
+
   Future<void> connectOrDisconnect() async {
     final intent = ++_connectionIntent;
     if (snapshot.isConnected || snapshot.isTransitional) {
@@ -434,6 +441,7 @@ class AppController extends ChangeNotifier {
       }
       await flushProfileWrites();
       if (intent != _connectionIntent) return;
+      _requireDataPlaneCapability(activeProfile);
       snapshot = await _engine.connect(activeProfile);
     });
     if (success && (snapshot.isConnected || snapshot.isTransitional)) {
@@ -448,6 +456,7 @@ class AppController extends ChangeNotifier {
     final success = await _run(() async {
       await flushProfileWrites();
       if (intent != _connectionIntent) return;
+      _requireDataPlaneCapability(activeProfile);
       snapshot = await _engine.retry();
     });
     if (success && (snapshot.isConnected || snapshot.isTransitional)) {
@@ -568,6 +577,7 @@ class AppController extends ChangeNotifier {
         await _refreshProfileCatalog();
       } finally {
         if (reconnect) {
+          _requireDataPlaneCapability(activeProfile);
           snapshot = await _engine.connect(activeProfile);
           _notifyListeners();
         }
@@ -588,6 +598,7 @@ class AppController extends ChangeNotifier {
         await _refreshProfileCatalog();
       } finally {
         if (reconnect) {
+          _requireDataPlaneCapability(activeProfile);
           snapshot = await _engine.connect(activeProfile);
           _notifyListeners();
         }
@@ -976,6 +987,8 @@ class AppController extends ChangeNotifier {
         snapshot = EngineSnapshot(
           phase: ConnectionPhase.error,
           sessionCongestionControl: snapshot.sessionCongestionControl,
+          dataPlane: snapshot.dataPlane,
+          l4: snapshot.l4,
           warning: lastError,
           errorCode: error is EngineException ? error.code : null,
           errorRetryable: error is EngineException ? error.retryable : null,
@@ -1175,6 +1188,7 @@ class AppController extends ChangeNotifier {
       } finally {
         final safeToReconnect = !mutationCommitted || refreshedCatalog;
         if (reconnect && safeToReconnect) {
+          _requireDataPlaneCapability(activeProfile);
           snapshot = await _engine.connect(activeProfile);
           _notifyListeners();
         }
@@ -1225,6 +1239,12 @@ class AppController extends ChangeNotifier {
     List<String>? changedFields,
   }) {
     if (updated.id != activeProfileId) return Future.value(false);
+    if (updated.dataPlane == DataPlaneMode.l4Proxy &&
+        !(engineCapabilities?.l4Available ?? false)) {
+      lastError = strings.get('l4_unsupported');
+      _notifyListeners();
+      return Future.value(false);
+    }
     return networkSettings.save(
       updated,
       changedFields ?? networkSettingsChangedFields(activeProfile, updated),

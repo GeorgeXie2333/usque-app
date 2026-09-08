@@ -1,6 +1,12 @@
 /// Arabic UI catalog.
 const Map<String, String> kArCatalog = <String, String>{
   'app_name': 'Usque',
+  'diag_fail_L4_SESSION_UNAVAILABLE': 'جلسة L4 غير متاحة',
+  'diag_fail_L4_PROTOCOL_ERROR': 'خطأ في بروتوكول L4',
+  'diag_fail_L4_CONNECT_REJECTED': 'رُفض L4 CONNECT',
+  'diag_fail_L4_CONNECT_TIMEOUT': 'انتهت مهلة L4 CONNECT',
+  'diag_fail_L4_RESOURCE_EXHAUSTED': 'نفدت ميزانية موارد L4',
+  'diag_fail_L4_DNS_FAILED': 'فشل استعلام DNS عبر L4',
   'window_minimize': 'تصغير',
   'window_maximize': 'تكبير',
   'window_restore': 'استعادة الحجم',

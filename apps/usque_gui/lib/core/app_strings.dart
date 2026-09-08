@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 
 import '../models/app_models.dart';
 import 'l10n/catalogs.dart';
+import 'l10n/l4.dart';
 import 'l10n/network_quality.dart';
 import 'l10n/network_settings.dart';
 import 'l10n/ui_workflow.dart';
@@ -33,6 +34,8 @@ class AppStrings {
       catalogId.startsWith('zh') ? 'zh' : catalogId.split('_').first;
 
   String get(String key) {
+    final l4 = catalogId == 'zh_CN' ? kL4ZhCn : kL4En;
+    if (l4.containsKey(key)) return l4[key]!;
     final settings = catalogId == 'zh_CN'
         ? kNetworkSettingsZh
         : kNetworkSettingsEn;

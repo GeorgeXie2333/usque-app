@@ -206,7 +206,10 @@ fn run_probe(
         return Some(ResultCode::NotApplicable);
     }
     if kind == "h3"
-        && (android_runtime::is_running() || vpn || profile.transport == TransportPolicy::Http2)
+        && (android_runtime::is_running()
+            || vpn
+            || (profile.data_plane == usque_core::DataPlaneMode::ConnectIp
+                && profile.transport == TransportPolicy::Http2))
     {
         return Some(ResultCode::NotApplicable);
     }
@@ -248,9 +251,17 @@ fn run_probe(
                 None => return ResultCode::NotApplicable,
             };
             let endpoints = usque_transport::h3_probe_endpoints(&profile);
+            let sni = if profile.data_plane == usque_core::DataPlaneMode::L4Proxy {
+                let Some(sni) = identity.l4_server_name() else {
+                    return ResultCode::NotApplicable;
+                };
+                sni
+            } else {
+                &profile.endpoint.sni
+            };
             usque_transport::probe_h3_handshake_candidates(
                 &endpoints,
-                &profile.endpoint.sni,
+                sni,
                 &identity,
                 protector,
                 cancellation,

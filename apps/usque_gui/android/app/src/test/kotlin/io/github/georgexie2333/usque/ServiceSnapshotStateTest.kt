@@ -190,6 +190,8 @@ class ServiceSnapshotStateTest {
                 keys.PENDING_CLEANUP,
                 keys.NETWORK_QUALITY,
                 keys.SESSION_CONGESTION_CONTROL,
+                keys.DATA_PLANE,
+                keys.L4,
             ),
             wire.keys,
         )
@@ -197,6 +199,8 @@ class ServiceSnapshotStateTest {
         assertEquals("phase", keys.PHASE)
         assertEquals("network_quality_json", keys.NETWORK_QUALITY)
         assertEquals("session_congestion_control", keys.SESSION_CONGESTION_CONTROL)
+        assertEquals("data_plane", keys.DATA_PLANE)
+        assertEquals("l4_json", keys.L4)
         assertNull(wire[keys.SESSION_CONGESTION_CONTROL])
         assertEquals("warning", keys.WARNING)
         assertEquals("error_code", keys.ERROR_CODE)

@@ -70,6 +70,10 @@ VPN, SOCKS5, and HTTP are enabled by default on both platforms; Windows system p
 
 ## Features
 
+- Opt-in [experimental L4 proxy mode](docs/L4_PROXY.md): TCP CONNECT over H3
+  for SOCKS5, HTTP and Windows/Android TUN, with DNS conversion and
+  identity-derived Consumer/Zero Trust SNI. Auto still excludes L4.
+
 - Consumer WARP accounts, optional License Key registration, and explicit, confirmed Secret export to a file you choose. Export does not provide an import/restore workflow in Usque.
 - Auto HTTP/3 (QUIC) with HTTP/2 (TLS) fallback and IPv4/IPv6 Happy Eyeballs for the physical path. H3 supports same-family path migration and automatic outer-path PMTU discovery.
 - Full-tunnel VPN, tunneled DNS, Kill Switch, LAN access, and custom CIDR bypass rules.
@@ -88,7 +92,7 @@ Android per-app proxy is an app-wide include-only setting, not an account settin
 
 Direct-country DNS is an explicit choice: **System** (default), **DoH**, or **DoT**. System exposes matching domains to the physical DNS provider; DoH/DoT exposes them to your chosen encrypted resolver, with numeric bootstrap, strict TLS, and no plaintext fallback. Other VPN queries continue through WARP DNS; proxy DNS settings remain separate. Application-owned encrypted DNS hides names from Usque, so classification uses GeoIP. Rule downloads still obey Android Lockdown and any surviving Windows Kill Switch while disconnected. See [Direct DNS](docs/encrypted-direct-dns.md).
 
-There is only one data-bearing transport, not multipath bandwidth aggregation. Either physical endpoint family can carry IPv4 and IPv6 inside CONNECT-IP. Migration is same-family only; automatic PMTU does not raise the configured TUN MTU, and H2 loss and PMTU are N/A. Doctor results do not prove zero externally observed leaks or measured performance gains. Protected-runner validation is optional for publication; missing or failed evidence is never a pass.
+There is one selected data plane, not multipath bandwidth aggregation. L4 may briefly keep a draining QUIC session during GOAWAY. Either physical endpoint family can carry IPv4 and IPv6 inside CONNECT-IP. Migration is same-family only; automatic PMTU does not raise the configured TUN MTU, and H2 loss and PMTU are N/A. Doctor results do not prove zero externally observed leaks or measured performance gains. Protected-runner validation is optional for publication; missing or failed evidence is never a pass.
 
 Zero Trust enrollment is **experimental**, limited to an organization identity using the existing MASQUE Internet tunnel. It is not production-supported Cloudflare One Client compatibility. Read its [scope and validation requirements](docs/ZERO_TRUST_EXPERIMENTAL.md) before using it. macOS source is retained but not built or released; iOS, store distribution, and a public CLI are outside the current release scope.
 

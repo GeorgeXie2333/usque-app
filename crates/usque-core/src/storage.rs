@@ -386,6 +386,11 @@ fn migrate_app_config(config: &mut AppConfig) {
         // The field's serde default preserves CUBIC for pre-selection configs.
         config.schema_version = 14;
     }
+    if config.schema_version < 15 {
+        // Migration never opts an existing account into an experimental path.
+        config.network.data_plane = crate::DataPlaneMode::ConnectIp;
+        config.schema_version = 15;
+    }
 }
 
 #[cfg(not(windows))]
@@ -964,7 +969,7 @@ mod tests {
             .remove("congestion_control");
         fs::write(store.path(), serde_json::to_vec(&legacy).unwrap()).unwrap();
         let mut config = store.load().unwrap();
-        assert_eq!(config.schema_version, 14);
+        assert_eq!(config.schema_version, CURRENT_SCHEMA_VERSION);
         assert_eq!(config.network.congestion_control, Algorithm::Cubic);
         assert!(store.backup_path().exists());
         for algorithm in Algorithm::ALL {
@@ -982,6 +987,31 @@ mod tests {
         config.network.reset_user_defaults();
         assert_eq!(config.network.congestion_control, Algorithm::Cubic);
         legacy["network"]["congestion_control"] = serde_json::json!("future_algorithm");
+        assert!(serde_json::from_value::<AppConfig>(legacy).is_err());
+    }
+
+    #[test]
+    fn schema_fourteen_keeps_connect_ip_and_saved_transport_and_sni() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ConfigStore::new(directory.path().join("config.json"));
+        let mut config = AppConfig::default();
+        config.network.transport = crate::TransportPolicy::Http2;
+        config.network.endpoint.sni = "legacy.example.com".to_owned();
+        let mut legacy = serde_json::to_value(config).unwrap();
+        legacy["schema_version"] = serde_json::json!(14);
+        legacy["network"]
+            .as_object_mut()
+            .unwrap()
+            .remove("data_plane");
+        fs::write(store.path(), serde_json::to_vec(&legacy).unwrap()).unwrap();
+        let loaded = store.load().unwrap();
+        assert_eq!(loaded.schema_version, 15);
+        for profile in loaded.runtime_profiles() {
+            assert_eq!(profile.data_plane, crate::DataPlaneMode::ConnectIp);
+            assert_eq!(profile.transport, crate::TransportPolicy::Http2);
+            assert_eq!(profile.endpoint.sni, "legacy.example.com");
+        }
+        legacy["network"]["data_plane"] = serde_json::json!("future_mode");
         assert!(serde_json::from_value::<AppConfig>(legacy).is_err());
     }
 }

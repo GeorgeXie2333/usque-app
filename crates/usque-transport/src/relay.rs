@@ -12,6 +12,17 @@ where
     A: AsyncRead + AsyncWrite + Unpin,
     B: AsyncRead + AsyncWrite + Unpin,
 {
-    tokio::io::copy_bidirectional_with_sizes(left, right, RELAY_BUFFER_SIZE, RELAY_BUFFER_SIZE)
-        .await
+    copy_bidirectional_with_buffer(left, right, RELAY_BUFFER_SIZE).await
+}
+
+pub(crate) async fn copy_bidirectional_with_buffer<A, B>(
+    left: &mut A,
+    right: &mut B,
+    buffer_size: usize,
+) -> std::io::Result<(u64, u64)>
+where
+    A: AsyncRead + AsyncWrite + Unpin,
+    B: AsyncRead + AsyncWrite + Unpin,
+{
+    tokio::io::copy_bidirectional_with_sizes(left, right, buffer_size, buffer_size).await
 }

@@ -100,6 +100,7 @@ class ControlCodec {
       18,
       _congestionControlWireValue(profile.congestionControl),
     );
+    writer.enumeration(19, profile.dataPlane.index + 1);
     return writer.takeBytes();
   }
 
@@ -556,6 +557,7 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
   var name = defaults.name;
   var mode = defaults.mode;
   var transport = defaults.transport;
+  var dataPlane = defaults.dataPlane;
   var congestionControl = defaults.congestionControl;
   var ipPolicy = defaults.ipPolicy;
   var endpointIpv4 = defaults.endpointIpv4;
@@ -670,6 +672,11 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
         congestionControl = value == 0
             ? CongestionControlAlgorithm.cubic
             : _decodeCongestionControl(value);
+      case 19:
+        final value = reader.varint(field);
+        dataPlane = value == 0
+            ? DataPlaneMode.connectIp
+            : _decodeIndexedEnum(DataPlaneMode.values, value, 'data plane');
       default:
         reader.skip(field);
     }
@@ -686,6 +693,7 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
     name: name,
     mode: mode,
     transport: transport,
+    dataPlane: dataPlane,
     congestionControl: congestionControl,
     ipPolicy: ipPolicy,
     endpointIpv4: endpointIpv4,
@@ -1291,6 +1299,9 @@ ConnectionMetrics _decodeConnectionMetrics(_ProtoReader reader) {
 
 EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
   var networkSettingsApplication = false;
+  var l4Tcp = false;
+  var l4TunTcp = false;
+  var l4DnsConversion = false;
   final congestionAlgorithms = <CongestionControlAlgorithm>[];
   var networkQuality = false;
   var encryptedDirectDns = false;
@@ -1301,6 +1312,12 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
     switch (field.number) {
       case 25:
         networkSettingsApplication = reader.varint(field) != 0;
+      case 26:
+        l4Tcp = reader.varint(field) != 0;
+      case 27:
+        l4TunTcp = reader.varint(field) != 0;
+      case 28:
+        l4DnsConversion = reader.varint(field) != 0;
       case 20:
         networkQuality = reader.varint(field) != 0;
       case 21:
@@ -1329,6 +1346,9 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
   }
   return EngineCapabilities(
     networkSettingsApplication: networkSettingsApplication,
+    l4Tcp: l4Tcp,
+    l4TunTcp: l4TunTcp,
+    l4DnsConversion: l4DnsConversion,
     h3CongestionControlAlgorithms: List.unmodifiable(congestionAlgorithms),
     networkQuality: networkQuality,
     encryptedDirectDns: encryptedDirectDns,
@@ -2165,6 +2185,8 @@ _StructuredEngineError _decodeError(_ProtoReader reader) {
 
 EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
   CongestionControlAlgorithm? sessionCongestionControl;
+  DataPlaneMode? dataPlane;
+  L4Snapshot? l4;
   var phase = ConnectionPhase.error;
   String? transport;
   String? family;
@@ -2238,6 +2260,14 @@ EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
         sessionCongestionControl = value >= 1 && value <= 4
             ? _decodeCongestionControl(value)
             : null;
+      case 19:
+        dataPlane = switch (reader.varint(field)) {
+          1 => DataPlaneMode.connectIp,
+          2 => DataPlaneMode.l4Proxy,
+          _ => null,
+        };
+      case 20:
+        l4 = _decodeL4Snapshot(reader.message(field));
       default:
         // Includes reserved field 14 (legacy captive-portal countdown).
         reader.skip(field);
@@ -2246,6 +2276,8 @@ EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
   return EngineSnapshot(
     phase: phase,
     sessionCongestionControl: sessionCongestionControl,
+    dataPlane: dataPlane,
+    l4: l4,
     transport: transport,
     addressFamily: family,
     connectedAt: connectedSeconds == 0
@@ -2267,6 +2299,45 @@ EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
     failure: failure,
     networkQuality: networkQuality,
   );
+}
+
+L4Snapshot _decodeL4Snapshot(_ProtoReader reader) {
+  const fields = <int, String>{
+    1: 'connect_verified',
+    2: 'sessions',
+    3: 'draining_sessions',
+    4: 'active_flows',
+    5: 'pending_flows',
+    6: 'connect_successes',
+    7: 'connect_failures',
+    8: 'connect_timeouts',
+    9: 'buffer_bytes',
+    10: 'budget_rejections',
+    11: 'send_backpressure',
+    12: 'receive_backpressure',
+    13: 'udp_rejected',
+    14: 'dns_successes',
+    15: 'dns_failures',
+    16: 'dns_timeouts',
+    17: 'migration_preserved_flows',
+    18: 'reconnect_terminated_flows',
+    19: 'tun_flows',
+    20: 'half_open_flows',
+    21: 'connect_latency_us',
+    22: 'unsupported_packets',
+  };
+  final values = <Object?, Object?>{};
+  while (!reader.isDone) {
+    final field = reader.field();
+    final key = fields[field.number];
+    if (key == null) {
+      reader.skip(field);
+    } else {
+      final value = reader.varint(field);
+      values[key] = field.number == 1 ? value != 0 : value;
+    }
+  }
+  return L4Snapshot.fromMap(values);
 }
 
 String? _decodeKillSwitchState(int value) {

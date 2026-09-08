@@ -60,7 +60,7 @@ void main() {
         algorithm,
       );
       final encoded = codec.encodeProfile(profile);
-      expect(encoded.sublist(encoded.length - 3), [
+      expect(encoded.sublist(encoded.length - 6, encoded.length - 3), [
         0x90,
         0x01,
         algorithm.index + 1,
@@ -79,7 +79,7 @@ void main() {
     );
     final encoded = codec.encodeProfile(UsqueProfile.defaultProfile());
     expect(
-      decodeProfile(encoded.sublist(0, encoded.length - 3)).congestionControl,
+      decodeProfile(encoded.sublist(0, encoded.length - 6)).congestionControl,
       CongestionControlAlgorithm.cubic,
     );
     for (final value in ['bbr2', 'BBR3', 'unknown', null, 4]) {

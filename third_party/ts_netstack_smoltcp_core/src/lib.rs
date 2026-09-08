@@ -240,6 +240,24 @@ impl Netstack {
 
                 if let Err(resp) = resp.send(otherwise) {
                     tracing::debug!(resp = ?resp.0, "response channel closed");
+                    // Ownership never reached the caller. Reclaim one-shot
+                    // listeners/accepted streams just as an explicit drop would.
+                    match resp.0 {
+                        Response::TcpListen(tcp::listen::Response::Listening { handle }) => {
+                            drop(
+                                self.process_tcp_listen(
+                                    tcp::listen::Command::Close { handle },
+                                    None,
+                                ),
+                            );
+                        }
+                        Response::TcpListen(tcp::listen::Response::Accepted { handle, .. }) => {
+                            drop(
+                                self.process_tcp_stream(tcp::stream::Command::Abort, Some(handle)),
+                            );
+                        }
+                        _ => {}
+                    }
                 }
             }
         }

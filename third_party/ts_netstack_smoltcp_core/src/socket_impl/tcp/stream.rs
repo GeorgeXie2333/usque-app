@@ -17,6 +17,15 @@ impl Netstack {
         cmd: TcpStreamCommand,
         handle: Option<SocketHandle>,
     ) -> Response {
+        // A cancelled/aborted owner can race a queued Close or I/O request.
+        if let Some(handle) = handle
+            && !self
+                .socket_set
+                .iter()
+                .any(|(candidate, _)| candidate == handle)
+        {
+            return Response::Error(Error::invalid_socket_state());
+        }
         match cmd {
             TcpStreamCommand::Connect {
                 remote_endpoint,
@@ -105,13 +114,19 @@ impl Netstack {
                 }
             }
 
-            TcpStreamCommand::Close => {
+            TcpStreamCommand::Close | TcpStreamCommand::Abort => {
                 let handle = handle.unwrap();
 
                 let sock = self.socket_set.get_mut::<tcp::Socket>(handle);
-                sock.close();
+                if matches!(cmd, TcpStreamCommand::Abort) {
+                    sock.abort();
+                } else {
+                    sock.close();
+                }
 
-                self.pending_tcp_closes.push(handle);
+                if !self.pending_tcp_closes.contains(&handle) {
+                    self.pending_tcp_closes.push(handle);
+                }
 
                 Response::Ok
             }
@@ -123,12 +138,19 @@ impl Netstack {
     pub(crate) fn drain_tcp_closes(&mut self) {
         let pending = core::mem::take(&mut self.pending_tcp_closes);
         for handle in pending {
+            if !self
+                .socket_set
+                .iter()
+                .any(|(candidate, _)| candidate == handle)
+            {
+                continue;
+            }
             let state = {
                 let sock = self.socket_set.get::<tcp::Socket>(handle);
                 sock.state()
             };
 
-            let should_remove = state == tcp::State::Closed;
+            let should_remove = state == tcp::State::Closed && !self.owned_by_once_listener(handle);
             if should_remove {
                 self.socket_set.remove(handle);
                 self.release_tcp_buffer_allocation(handle);

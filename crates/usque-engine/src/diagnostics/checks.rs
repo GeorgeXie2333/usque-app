@@ -263,6 +263,16 @@ impl PassiveCheck {
                     "changed"
                 }],
             ),
+            Kind::H3Connect
+                if context.connection.data_plane == Some(usque_core::DataPlaneMode::L4Proxy)
+                    && !context
+                        .connection
+                        .l4
+                        .as_ref()
+                        .is_some_and(|l4| l4.connect_verified) =>
+            {
+                skipped(self, "diagnostic_h3_not_tested", "no_application_traffic")
+            }
             Kind::H3Connect if context.connection.transport == Some(Transport::Http3) => {
                 passed(self, "diagnostic_h3_connected", ["active_path"])
             }
@@ -282,6 +292,11 @@ impl PassiveCheck {
                 "diagnostic_h3_not_tested",
                 "active_probe_requires_disconnected_deep_mode",
             ),
+            Kind::H3Datagram
+                if context.connection.data_plane == Some(usque_core::DataPlaneMode::L4Proxy) =>
+            {
+                skipped(self, "diagnostic_h3_datagram_not_tested", "not_applicable")
+            }
             Kind::H3Datagram if context.connection.transport == Some(Transport::Http3) => {
                 passed(self, "diagnostic_h3_datagram_available", ["active_path"])
             }
@@ -324,13 +339,16 @@ impl PassiveCheck {
                 "no_transport_handshake",
             ),
             Kind::FallbackPolicy => {
-                let invalid = context.timeline.events.iter().any(|event| {
-                    event.event_type == ConnectionEventType::FallbackStarted
-                        && event
-                            .failure
-                            .as_ref()
-                            .is_some_and(|failure| !failure.fallback_allowed)
-                });
+                let invalid = (context.connection.data_plane
+                    == Some(usque_core::DataPlaneMode::L4Proxy)
+                    && context.connection.transport == Some(Transport::Http2))
+                    || context.timeline.events.iter().any(|event| {
+                        event.event_type == ConnectionEventType::FallbackStarted
+                            && event
+                                .failure
+                                .as_ref()
+                                .is_some_and(|failure| !failure.fallback_allowed)
+                    });
                 if invalid {
                     failed(
                         self,
@@ -341,6 +359,15 @@ impl PassiveCheck {
                 } else {
                     passed(self, "diagnostic_fallback_policy_valid", ["typed_matrix"])
                 }
+            }
+            Kind::AddressAssignment
+                if context.connection.data_plane == Some(usque_core::DataPlaneMode::L4Proxy) =>
+            {
+                skipped(
+                    self,
+                    "diagnostic_address_assignment_unknown",
+                    "not_applicable",
+                )
             }
             Kind::AddressAssignment
                 if connected_or_reconnecting(&context.connection)
@@ -385,6 +412,21 @@ impl PassiveCheck {
                 skipped(self, "diagnostic_tunnel_dns_unknown", "no_active_tunnel")
             }
             Kind::TunnelDns => skipped(self, "diagnostic_tunnel_dns_disabled", "not_configured"),
+            Kind::FirstPacket
+                if context.connection.data_plane == Some(usque_core::DataPlaneMode::L4Proxy) =>
+            {
+                if context.connection.statistics.bytes_sent != 0
+                    && context.connection.statistics.bytes_received != 0
+                {
+                    passed(self, "diagnostic_first_packet_observed", ["bidirectional"])
+                } else {
+                    skipped(
+                        self,
+                        "diagnostic_first_packet_unknown",
+                        "no_application_traffic",
+                    )
+                }
+            }
             Kind::FirstPacket
                 if context.connection.statistics.bytes_sent > 0
                     && context.connection.statistics.bytes_received > 0 =>
@@ -854,6 +896,30 @@ mod tests {
     use usque_core::{FrontendStatus, Statistics};
 
     use super::*;
+
+    #[tokio::test]
+    async fn l4_does_not_claim_connect_ip_negotiation_or_unverified_connect_success() {
+        let mut context = context_with_unknown_platform_state();
+        context.connection.data_plane = Some(usque_core::DataPlaneMode::L4Proxy);
+        context.connection.transport = Some(Transport::Http3);
+        context.connection.l4 = Some(usque_core::L4Snapshot::default());
+        for kind in [
+            PassiveCheckKind::H3Connect,
+            PassiveCheckKind::H3Datagram,
+            PassiveCheckKind::AddressAssignment,
+        ] {
+            let result = check(kind).run(&context, CancellationToken::new()).await;
+            assert_eq!(result.status, DiagnosticCheckStatus::Skipped);
+        }
+        context.connection.l4.as_mut().unwrap().connect_verified = true;
+        assert_eq!(
+            check(PassiveCheckKind::H3Connect)
+                .run(&context, CancellationToken::new())
+                .await
+                .status,
+            DiagnosticCheckStatus::Passed
+        );
+    }
 
     fn check(kind: PassiveCheckKind) -> PassiveCheck {
         PassiveCheck::new(

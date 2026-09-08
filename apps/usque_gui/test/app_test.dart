@@ -2112,6 +2112,9 @@ void main() {
       0x90,
       0x01,
       0x01,
+      0x98,
+      0x01,
+      0x01,
     ];
     expect(payload.sublist(payload.length - suffix.length), suffix);
   });

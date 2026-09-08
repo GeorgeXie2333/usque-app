@@ -1,6 +1,12 @@
 /// Polish UI catalog.
 const Map<String, String> kPlCatalog = <String, String>{
   'app_name': 'Usque',
+  'diag_fail_L4_SESSION_UNAVAILABLE': 'Sesja L4 jest niedostępna',
+  'diag_fail_L4_PROTOCOL_ERROR': 'Błąd protokołu L4',
+  'diag_fail_L4_CONNECT_REJECTED': 'Odrzucono L4 CONNECT',
+  'diag_fail_L4_CONNECT_TIMEOUT': 'Przekroczono limit czasu L4 CONNECT',
+  'diag_fail_L4_RESOURCE_EXHAUSTED': 'Wyczerpano budżet zasobów L4',
+  'diag_fail_L4_DNS_FAILED': 'Zapytanie DNS L4 nie powiodło się',
   'window_minimize': 'Minimalizuj',
   'window_maximize': 'Maksymalizuj',
   'window_restore': 'Przywróć rozmiar okna',

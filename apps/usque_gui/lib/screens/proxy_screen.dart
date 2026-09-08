@@ -237,8 +237,14 @@ class _ProxyScreenState extends State<ProxyScreen> {
                   ),
                   BannerSlot(
                     child:
-                        _dnsMode != ProxyDnsMode.remote ||
-                            profile.proxy.dnsMode != ProxyDnsMode.remote
+                        const {
+                              ProxyDnsMode.localConfigured,
+                              ProxyDnsMode.system,
+                            }.contains(_dnsMode) ||
+                            const {
+                              ProxyDnsMode.localConfigured,
+                              ProxyDnsMode.system,
+                            }.contains(profile.proxy.dnsMode)
                         ? WarningBanner(
                             title: strings.get('dns_leak_warning'),
                             message: strings.get('dns_leak_warning_body'),
@@ -253,7 +259,11 @@ class _ProxyScreenState extends State<ProxyScreen> {
                       ContentSection(
                         icon: LucideIcons.server,
                         title: strings.get('proxy_dns_mode'),
-                        subtitle: strings.get('proxy_dns_subtitle'),
+                        subtitle: strings.get(
+                          profile.dataPlane == DataPlaneMode.l4Proxy
+                              ? 'l4_explanation'
+                              : 'proxy_dns_subtitle',
+                        ),
                         children: [
                           DropdownButtonFormField<ProxyDnsMode>(
                             key: const ValueKey<String>('proxy-dns-mode'),
@@ -263,6 +273,12 @@ class _ProxyScreenState extends State<ProxyScreen> {
                               labelText: strings.get('proxy_dns_mode'),
                             ),
                             items: ProxyDnsMode.values
+                                .where(
+                                  (mode) =>
+                                      mode != ProxyDnsMode.edgeResolved ||
+                                      profile.dataPlane ==
+                                          DataPlaneMode.l4Proxy,
+                                )
                                 .map(
                                   (mode) => DropdownMenuItem(
                                     value: mode,
@@ -274,6 +290,8 @@ class _ProxyScreenState extends State<ProxyScreen> {
                                           'proxy_dns_configured',
                                         ProxyDnsMode.system =>
                                           'proxy_dns_system',
+                                        ProxyDnsMode.edgeResolved =>
+                                          'proxy_dns_edge_resolved',
                                       }),
                                       overflow: TextOverflow.ellipsis,
                                     ),

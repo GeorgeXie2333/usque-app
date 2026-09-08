@@ -363,6 +363,7 @@ async fn full_actor_wakes_immediately_on_returned_receive_capacity() {
         1280,
         1472,
         PmtuPathKey::new(client_address, peer_address),
+        None,
     )));
     let (commands_tx, commands_rx) = mpsc::channel(1);
     let cancel_peer = CancellationToken::new();

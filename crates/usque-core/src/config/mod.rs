@@ -15,13 +15,15 @@ use crate::identity::IdentityProvider;
 
 mod account;
 mod congestion;
+mod data_plane;
 mod network;
 
 pub use account::{Account, ManagedEndpointIps};
 pub use congestion::CongestionControlAlgorithm;
+pub use data_plane::{CONSUMER_L4_SNI, DataPlaneMode, ZERO_TRUST_L4_SNI, l4_server_name};
 pub use network::SharedNetworkSettings;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 14;
+pub const CURRENT_SCHEMA_VERSION: u32 = 15;
 /// Vault namespace for device-wide proxy-listener secrets. Never a profile id.
 pub const SHARED_NETWORK_SECRET_ID: Uuid =
     Uuid::from_u128(0x9f1c_6b20_5a7e_4d3a_9c11_00c0_ffee_0001);
@@ -430,6 +432,8 @@ pub struct Profile {
     pub frontends: FrontendSettings,
     pub transport: TransportPolicy,
     #[serde(default)]
+    pub data_plane: DataPlaneMode,
+    #[serde(default)]
     pub congestion_control: CongestionControlAlgorithm,
     pub endpoint: EndpointSettings,
     /// Selects the physical address family used to reach the MASQUE endpoint.
@@ -460,6 +464,7 @@ impl Default for Profile {
             mode: OperatingMode::legacy_platform_default(),
             frontends: FrontendSettings::default(),
             transport: TransportPolicy::Auto,
+            data_plane: DataPlaneMode::ConnectIp,
             congestion_control: CongestionControlAlgorithm::default(),
             endpoint: EndpointSettings::default(),
             ip_policy: IpPolicy::Auto,
@@ -545,6 +550,11 @@ impl Profile {
             }
         }
         self.proxy.validate()?;
+        if self.proxy.dns_mode == ProxyDnsMode::EdgeResolved
+            && self.data_plane != DataPlaneMode::L4Proxy
+        {
+            return Err(ConfigError::EdgeDnsRequiresL4);
+        }
         if self.frontends.socks5 && self.proxy.socks5_listeners.is_empty() {
             return Err(ConfigError::MissingSocks5Listener);
         }
@@ -570,6 +580,7 @@ impl Profile {
         self.frontends = FrontendSettings::default();
         self.canonicalize_mode();
         self.transport = TransportPolicy::Auto;
+        self.data_plane = DataPlaneMode::ConnectIp;
         self.endpoint = EndpointSettings::default();
         self.ip_policy = IpPolicy::Auto;
         self.mtu = DEFAULT_MTU;
@@ -1088,6 +1099,8 @@ pub enum ProxyDnsMode {
     Remote,
     LocalConfigured,
     System,
+    /// Pass a proxy hostname to the L4 CONNECT server without local resolution.
+    EdgeResolved,
 }
 
 /// SOCKS5 RFC 1929 / HTTP Basic credentials for a local listener.
@@ -1207,6 +1220,8 @@ fn valid_dns_name(value: &str) -> bool {
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ConfigError {
+    #[error("edge-resolved proxy DNS requires the L4 data plane")]
+    EdgeDnsRequiresL4,
     #[error("profile name must contain 1 to 64 visible characters")]
     InvalidProfileName,
     #[error("SNI is not a valid DNS name: {0}")]

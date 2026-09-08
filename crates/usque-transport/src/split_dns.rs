@@ -39,6 +39,18 @@ const HINT_PRUNE_INTERVAL: Duration = Duration::from_secs(30);
 const RCODE_FORMERR: u16 = 1;
 const RCODE_SERVFAIL: u16 = 2;
 
+pub(crate) fn validate_query_bytes(bytes: &[u8]) -> Result<(), String> {
+    parse_query(bytes)
+        .map(|_| ())
+        .map_err(|_| "invalid DNS query".to_owned())
+}
+
+pub(crate) fn validate_response_bytes(query: &[u8], response: &[u8]) -> Result<(), String> {
+    let query = parse_query(query).map_err(|_| "invalid DNS query".to_owned())?;
+    validate_response(&query, response)?;
+    response_hints(response, &query).map(|_| ())
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum QueryTransport {
     Udp,
@@ -194,8 +206,9 @@ fn prune_hints(table: &mut HintTable, now: Instant) {
 }
 
 #[derive(Clone)]
-struct SplitDnsResolver {
-    tunnel_channel: Channel,
+pub(crate) struct SplitDnsResolver {
+    tunnel_channel: Option<Channel>,
+    stream_dns: Option<Arc<crate::dns_stream::StreamDns>>,
     assigned_ipv4: Ipv4Addr,
     assigned_ipv6: Ipv6Addr,
     tunnel_servers: Vec<SocketAddr>,
@@ -209,6 +222,45 @@ struct SplitDnsResolver {
 }
 
 impl SplitDnsResolver {
+    pub(crate) fn for_l4(
+        dns: Arc<crate::dns_stream::StreamDns>,
+        servers: &[IpAddr],
+        policy: Arc<GeoDirectPolicy>,
+        protector: Arc<dyn SocketProtector>,
+        quality: NetworkQualityTelemetry,
+    ) -> Self {
+        Self {
+            tunnel_channel: None,
+            stream_dns: Some(dns),
+            assigned_ipv4: Ipv4Addr::UNSPECIFIED,
+            assigned_ipv6: Ipv6Addr::UNSPECIFIED,
+            tunnel_servers: servers.iter().map(|ip| SocketAddr::new(*ip, 53)).collect(),
+            policy,
+            protector,
+            hints: Arc::new(DnsRouteCache::default()),
+            permits: Arc::new(Semaphore::new(80)),
+            service_tasks: Arc::new(Semaphore::new(80)),
+            quality,
+            direct_queue: None,
+        }
+    }
+
+    pub(crate) fn hints(&self) -> Arc<DnsRouteCache> {
+        self.hints.clone()
+    }
+
+    pub(crate) async fn handle_l4(&self, query: &[u8], udp: bool) -> Vec<u8> {
+        self.handle(
+            query,
+            if udp {
+                QueryTransport::Udp
+            } else {
+                QueryTransport::Tcp
+            },
+        )
+        .await
+    }
+
     async fn handle(&self, query_bytes: &[u8], transport: QueryTransport) -> Vec<u8> {
         let network_generation = self.protector.network_generation();
         let query = match parse_query(query_bytes) {
@@ -407,6 +459,12 @@ impl SplitDnsResolver {
     }
 
     async fn tunnel_udp(&self, server: SocketAddr, query: &[u8]) -> Result<Vec<u8>, String> {
+        if let Some(dns) = &self.stream_dns {
+            return dns
+                .query(server, query, tokio::time::Instant::now() + DNS_TIMEOUT)
+                .await
+                .map_err(|e| e.to_string());
+        }
         let local = SocketAddr::new(
             if server.is_ipv4() {
                 IpAddr::V4(self.assigned_ipv4)
@@ -417,6 +475,8 @@ impl SplitDnsResolver {
         );
         let socket = self
             .tunnel_channel
+            .as_ref()
+            .ok_or_else(|| "DNS transport unavailable".to_owned())?
             .udp_bind(local)
             .await
             .map_err(|error| error.to_string())?;
@@ -435,6 +495,12 @@ impl SplitDnsResolver {
     }
 
     async fn tunnel_tcp(&self, server: SocketAddr, query: &[u8]) -> Result<Vec<u8>, String> {
+        if let Some(dns) = &self.stream_dns {
+            return dns
+                .query(server, query, tokio::time::Instant::now() + DNS_TIMEOUT)
+                .await
+                .map_err(|e| e.to_string());
+        }
         let local = SocketAddr::new(
             if server.is_ipv4() {
                 IpAddr::V4(self.assigned_ipv4)
@@ -443,7 +509,11 @@ impl SplitDnsResolver {
             },
             next_tcp_port(),
         );
-        let stream = timeout(DNS_TIMEOUT, self.tunnel_channel.tcp_connect(local, server))
+        let channel = self
+            .tunnel_channel
+            .as_ref()
+            .ok_or_else(|| "DNS transport unavailable".to_owned())?;
+        let stream = timeout(DNS_TIMEOUT, channel.tcp_connect(local, server))
             .await
             .map_err(|_| "connect timed out".to_owned())?
             .map_err(|error| error.to_string())?;
@@ -535,7 +605,8 @@ impl SplitDnsRuntime {
             ))
         };
         let resolver = SplitDnsResolver {
-            tunnel_channel: config.tunnel_channel,
+            tunnel_channel: Some(config.tunnel_channel),
+            stream_dns: None,
             assigned_ipv4: config.assigned_addresses.0,
             assigned_ipv6: config.assigned_addresses.1,
             tunnel_servers: config
@@ -1319,6 +1390,46 @@ fn truncated_response(query: &[u8]) -> Vec<u8> {
     response
 }
 
+pub(crate) fn l4_dns_error(query: &[u8]) -> Vec<u8> {
+    error_response(query, RCODE_SERVFAIL)
+}
+
+pub(crate) fn limit_udp_response(query: &[u8], response: Vec<u8>, payload_limit: usize) -> Vec<u8> {
+    let mut advertised = 512usize;
+    if let Ok(parsed) = parse_query(query) {
+        let mut offset = parsed.question_end;
+        let preceding = read_u16(query, 6)
+            .unwrap_or_default()
+            .saturating_add(read_u16(query, 8).unwrap_or_default());
+        for _ in 0..preceding.min(MAX_RESOURCE_RECORDS as u16) {
+            match skip_resource_record(query, offset) {
+                Ok(next) => offset = next,
+                Err(_) => break,
+            }
+        }
+        for _ in 0..read_u16(query, 10)
+            .unwrap_or_default()
+            .min(MAX_RESOURCE_RECORDS as u16)
+        {
+            let Ok(end) = skip_dns_name(query, offset) else {
+                break;
+            };
+            if read_u16(query, end).ok() == Some(41) {
+                advertised = usize::from(read_u16(query, end + 2).unwrap_or(512)).max(512);
+            }
+            match skip_resource_record(query, offset) {
+                Ok(next) => offset = next,
+                Err(_) => break,
+            }
+        }
+    }
+    if response.len() > advertised.min(payload_limit).min(MAX_UDP_MESSAGE) {
+        truncated_response(query)
+    } else {
+        response
+    }
+}
+
 fn read_u16(packet: &[u8], offset: usize) -> Result<u16, String> {
     let bytes = packet
         .get(offset..offset + 2)
@@ -1365,7 +1476,8 @@ pub(crate) mod tests {
         let (stack, _pipe) =
             crate::netstack::bounded_piped(ts_netstack_smoltcp::netcore::Config::default());
         let resolver = SplitDnsResolver {
-            tunnel_channel: stack.command_channel(),
+            tunnel_channel: Some(stack.command_channel()),
+            stream_dns: None,
             assigned_ipv4: Ipv4Addr::new(172, 16, 0, 2),
             assigned_ipv6: "2001:db8::2".parse().unwrap(),
             tunnel_servers: Vec::new(),

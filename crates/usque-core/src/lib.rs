@@ -5,6 +5,7 @@ pub mod exit_probe;
 pub mod failure;
 pub mod geo_rules;
 pub mod identity;
+pub mod l4;
 pub mod network_settings;
 pub mod reconfigure;
 pub mod redaction;
@@ -14,12 +15,12 @@ pub mod storage;
 pub mod update;
 
 pub use config::{
-    Account, AppConfig, AppPreferences, ConfigError, CongestionControlAlgorithm,
-    DEFAULT_PROFILE_ID, DirectDnsMode, DirectDnsSettings, DnsMode, EndpointSettings,
+    Account, AppConfig, AppPreferences, CONSUMER_L4_SNI, ConfigError, CongestionControlAlgorithm,
+    DEFAULT_PROFILE_ID, DataPlaneMode, DirectDnsMode, DirectDnsSettings, DnsMode, EndpointSettings,
     FrontendSettings, IpPolicy, LogLevel, MAX_GEO_DIRECT_COUNTRIES, ManagedEndpointIps,
     OperatingMode, PendingIdentityReplacement, Profile, ProxyAuthCredentials, ProxyDnsMode,
     ProxySettings, SHARED_NETWORK_SECRET_ID, SharedNetworkSettings, TransportPolicy,
-    validate_proxy_password, validate_proxy_username,
+    ZERO_TRUST_L4_SNI, l4_server_name, validate_proxy_password, validate_proxy_username,
 };
 pub use connector::{
     ConnectedPath, ConnectionAttempt, ConnectionOrchestrator, ConnectorError, TransportConnector,
@@ -41,6 +42,7 @@ pub use identity::{
     ConsumerEntitlement, EndpointPin, IdentityError, IdentityMetadata, IdentityProvider,
     MasqueKeyPair, WarpIdentity, parse_manual_warp_secret,
 };
+pub use l4::L4Snapshot;
 pub use reconfigure::{ReconfigureClass, classify_reconfigure};
 pub use registration::{
     ConsumerRegistrationClient, EndpointPinRefresh, PreparedEndpointPinRefresh,

@@ -315,6 +315,8 @@ fn connection_summary(snapshot: &ConnectionSnapshot) -> serde_json::Value {
         "phase": snapshot.phase,
         "changed_at": snapshot.changed_at,
         "transport": snapshot.transport,
+        "data_plane": snapshot.data_plane,
+        "l4": snapshot.l4,
         "address_family": snapshot.address_family,
         "ipv4_available": snapshot.ipv4_available,
         "ipv6_available": snapshot.ipv6_available,

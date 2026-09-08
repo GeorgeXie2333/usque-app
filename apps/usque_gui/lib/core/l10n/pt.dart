@@ -1,6 +1,12 @@
 /// Portuguese (Brazil) UI catalog.
 const Map<String, String> kPtCatalog = <String, String>{
   'app_name': 'Usque',
+  'diag_fail_L4_SESSION_UNAVAILABLE': 'Sessão L4 indisponível',
+  'diag_fail_L4_PROTOCOL_ERROR': 'Erro de protocolo L4',
+  'diag_fail_L4_CONNECT_REJECTED': 'L4 CONNECT rejeitado',
+  'diag_fail_L4_CONNECT_TIMEOUT': 'Tempo de L4 CONNECT esgotado',
+  'diag_fail_L4_RESOURCE_EXHAUSTED': 'Limite de recursos L4 esgotado',
+  'diag_fail_L4_DNS_FAILED': 'Falha na consulta DNS L4',
   'window_minimize': 'Minimizar',
   'window_maximize': 'Maximizar',
   'window_restore': 'Restaurar tamanho da janela',

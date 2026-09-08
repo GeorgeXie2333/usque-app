@@ -1,6 +1,12 @@
 /// Ukrainian UI catalog.
 const Map<String, String> kUkCatalog = <String, String>{
   'app_name': 'Usque',
+  'diag_fail_L4_SESSION_UNAVAILABLE': 'Сеанс L4 недоступний',
+  'diag_fail_L4_PROTOCOL_ERROR': 'Помилка протоколу L4',
+  'diag_fail_L4_CONNECT_REJECTED': 'L4 CONNECT відхилено',
+  'diag_fail_L4_CONNECT_TIMEOUT': 'Час очікування L4 CONNECT вичерпано',
+  'diag_fail_L4_RESOURCE_EXHAUSTED': 'Ліміт ресурсів L4 вичерпано',
+  'diag_fail_L4_DNS_FAILED': 'Помилка DNS-запиту L4',
   'window_minimize': 'Згорнути',
   'window_maximize': 'Розгорнути',
   'window_restore': 'Відновити розмір вікна',

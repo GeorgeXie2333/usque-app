@@ -1,6 +1,12 @@
 /// Simplified Chinese UI catalog.
 const Map<String, String> kZhCnCatalog = <String, String>{
   'app_name': 'Usque',
+  'diag_fail_L4_SESSION_UNAVAILABLE': 'L4 会话不可用',
+  'diag_fail_L4_PROTOCOL_ERROR': 'L4 协议错误',
+  'diag_fail_L4_CONNECT_REJECTED': 'L4 CONNECT 被拒绝',
+  'diag_fail_L4_CONNECT_TIMEOUT': 'L4 CONNECT 超时',
+  'diag_fail_L4_RESOURCE_EXHAUSTED': 'L4 资源预算已耗尽',
+  'diag_fail_L4_DNS_FAILED': 'L4 DNS 查询失败',
   'window_minimize': '最小化',
   'window_maximize': '最大化',
   'window_restore': '恢复窗口大小',

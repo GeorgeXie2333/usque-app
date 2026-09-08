@@ -1024,6 +1024,8 @@ internal class VpnControlClient(
                 "error_code" to bundle.getString("error_code"),
                 "failure" to failure,
                 "transport" to bundle.getString("transport"),
+                "data_plane" to L4StatusFields.mode(bundle.getString(ServiceSnapshotState.WireKeys.DATA_PLANE)),
+                "l4" to L4StatusFields.decode(bundle.getString(ServiceSnapshotState.WireKeys.L4)),
                 "address_family" to bundle.getString("address_family"),
                 "connected_at" to bundle.getString("connected_at"),
                 "download_bytes_per_second" to bundle.getLong("download_bytes_per_second"),

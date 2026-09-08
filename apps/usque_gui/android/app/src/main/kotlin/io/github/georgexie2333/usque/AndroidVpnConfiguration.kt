@@ -19,6 +19,7 @@ internal data class AndroidVpnProfile(
     val bypassCidrs: List<String>,
     val geoDirectCountries: List<String> = emptyList(),
     val directDnsMode: String = "physicalSystem",
+    val dataPlane: String = "connect_ip",
 ) {
     // ipPolicy controls only the physical MASQUE endpoint. CONNECT-IP remains
     // dual-stack regardless of which outer address family carries it.
@@ -36,10 +37,10 @@ internal data class AndroidVpnProfile(
             }
 
     val splitDnsEnabled: Boolean
-        get() = geoDirectCountries.isNotEmpty()
+        get() = geoDirectCountries.isNotEmpty() || dataPlane == "l4_proxy"
 
     val requiresPhysicalDns: Boolean
-        get() = splitDnsEnabled && directDnsMode == "physicalSystem"
+        get() = geoDirectCountries.isNotEmpty() && directDnsMode == "physicalSystem"
 
     companion object {
         private val profileIdPattern =
@@ -53,6 +54,8 @@ internal data class AndroidVpnProfile(
                 "Android profile exceeds the safety limit"
             }
             val source = JSONObject(profileJson)
+            val dataPlane = source.optString("data_plane", "connect_ip")
+            require(dataPlane in setOf("connect_ip", "l4_proxy")) { "Invalid data plane" }
             val id = source.requiredString("id", 64)
             require(profileIdPattern.matches(id)) { "Invalid profile ID" }
             val name = source.requiredString("name", 64)
@@ -126,6 +129,7 @@ internal data class AndroidVpnProfile(
                 ipPolicy = ipPolicy,
                 mtu = mtu,
                 dnsMode = dnsMode,
+                dataPlane = dataPlane,
                 dnsIpv4 = dnsIpv4,
                 dnsIpv6 = dnsIpv6,
                 killSwitch = source.getBoolean("kill_switch"),

@@ -64,6 +64,8 @@ pub enum Command {
     /// immediately -- the netstack does not wait to respond until the state machine
     /// finishes closing gracefully (this occurs in the background).
     Close,
+    /// Abort a connection. Callers must not replay already accepted bytes.
+    Abort,
 }
 
 impl Debug for Command {
@@ -80,6 +82,7 @@ impl Debug for Command {
             Self::Recv { max_len } => f.debug_struct("Recv").field("max_len", max_len).finish(),
             Self::Send { buf } => f.debug_struct("Send").field("buf_len", &buf.len()).finish(),
             Self::Close => f.write_str("Close"),
+            Self::Abort => f.write_str("Abort"),
         }
     }
 }

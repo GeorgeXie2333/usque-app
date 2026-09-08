@@ -1,6 +1,12 @@
 /// French UI catalog.
 const Map<String, String> kFrCatalog = <String, String>{
   'app_name': 'Usque',
+  'diag_fail_L4_SESSION_UNAVAILABLE': 'Session L4 indisponible',
+  'diag_fail_L4_PROTOCOL_ERROR': 'Erreur de protocole L4',
+  'diag_fail_L4_CONNECT_REJECTED': 'L4 CONNECT refusé',
+  'diag_fail_L4_CONNECT_TIMEOUT': 'Délai L4 CONNECT dépassé',
+  'diag_fail_L4_RESOURCE_EXHAUSTED': 'Budget de ressources L4 épuisé',
+  'diag_fail_L4_DNS_FAILED': 'Échec de la requête DNS L4',
   'window_minimize': 'Réduire',
   'window_maximize': 'Agrandir',
   'window_restore': 'Restaurer la taille de la fenêtre',

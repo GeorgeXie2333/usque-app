@@ -72,6 +72,7 @@ const List<int> _goldenProfileBytes = <int>[
   0x08, 0x01, //   mode PHYSICAL_SYSTEM
   // }
   0x90, 0x01, 0x01, // congestion_control CUBIC (field 18)
+  0x98, 0x01, 0x01, // data_plane CONNECT_IP (appended field 19)
 ];
 
 void main() {

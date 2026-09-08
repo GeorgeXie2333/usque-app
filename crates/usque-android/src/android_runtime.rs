@@ -13,8 +13,8 @@ use usque_core::{AddressFamily, IpSbProbe, Transport, WarpIdentity};
 use usque_core::{ReconfigureClass, classify_reconfigure};
 use usque_geo::CountryCode;
 use usque_transport::{
-    EndpointPinRefresher, GeoDirectPolicy, MasqueRuntime, MasqueTunIo, RuntimeHealth, RuntimePath,
-    TrafficSnapshot, TransportError,
+    DataPlaneRuntime, EndpointPinRefresher, GeoDirectPolicy, RuntimeHealth, RuntimePath,
+    TrafficSnapshot, TransportError, TunPacketIo,
 };
 
 use crate::tun_read_slab::TunReadSlab;
@@ -150,6 +150,7 @@ fn spawn_runtime(
     let cancellation = CancellationToken::new();
     let mut initial_status = NativeSnapshot::preparing();
     initial_status.session_congestion_control = Some(profile.congestion_control);
+    initial_status.data_plane = Some(profile.data_plane);
     let status = Arc::new(Mutex::new(initial_status));
     let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
     let (command_tx, command_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -425,7 +426,7 @@ async fn run(
         None => None,
     };
     let mut tunnel = {
-        let startup = MasqueRuntime::start_with_geo_policy(
+        let startup = DataPlaneRuntime::start_with_geo_policy(
             &profile,
             identity,
             protector,
@@ -472,7 +473,7 @@ async fn run(
 
 fn spawn_exit_probe(
     status: &Arc<Mutex<NativeSnapshot>>,
-    tunnel: &MasqueRuntime,
+    tunnel: &DataPlaneRuntime,
     profile: &Profile,
     has_tun: bool,
 ) {
@@ -529,7 +530,7 @@ async fn next_owned_session_data(
     packet_slab: &mut TunReadSlab,
     slot_size: usize,
     tun: Option<&AsyncFd<TunFd>>,
-    mut tun_io: Option<&mut MasqueTunIo>,
+    mut tun_io: Option<&mut TunPacketIo>,
     tick: impl Future,
 ) -> OwnedSessionDataEvent {
     let allocated = match packet_slab.prepare(slot_size) {
@@ -570,8 +571,8 @@ async fn next_owned_session_data(
 )]
 async fn run_session(
     mut tun: Option<AsyncFd<TunFd>>,
-    mut tun_io: Option<MasqueTunIo>,
-    mut tunnel: MasqueRuntime,
+    mut tun_io: Option<TunPacketIo>,
+    mut tunnel: DataPlaneRuntime,
     mut profile: Profile,
     cancellation: CancellationToken,
     status: Arc<Mutex<NativeSnapshot>>,
@@ -673,6 +674,8 @@ async fn run_session(
                     let current = tunnel.statistics();
                     let seconds = now.duration_since(last_sample).as_secs_f64().max(0.001);
                     if let Ok(mut snapshot) = status.lock() {
+                        snapshot.data_plane = Some(tunnel.mode());
+                        snapshot.l4 = tunnel.l4_snapshot();
                         snapshot.upload_bytes_per_second =
                             rate(current.bytes_sent, last_traffic.bytes_sent, seconds);
                         snapshot.download_bytes_per_second =
@@ -694,10 +697,10 @@ async fn run_session(
 
 async fn handle_runtime_command(
     command: RuntimeCommand,
-    tunnel: &mut MasqueRuntime,
+    tunnel: &mut DataPlaneRuntime,
     profile: &mut Profile,
     tun: &mut Option<AsyncFd<TunFd>>,
-    tun_io: &mut Option<MasqueTunIo>,
+    tun_io: &mut Option<TunPacketIo>,
     status: &Arc<Mutex<NativeSnapshot>>,
 ) {
     match command {
@@ -824,9 +827,9 @@ async fn handle_runtime_command(
 }
 
 fn detach_tun_locked(
-    tunnel: &mut MasqueRuntime,
+    tunnel: &mut DataPlaneRuntime,
     tun: &mut Option<AsyncFd<TunFd>>,
-    tun_io: &mut Option<MasqueTunIo>,
+    tun_io: &mut Option<TunPacketIo>,
 ) {
     *tun_io = None;
     tunnel.detach_tun();
@@ -911,11 +914,13 @@ fn update_health(status: &Arc<Mutex<NativeSnapshot>>, health: RuntimeHealth) {
     }
 }
 
-fn update_frontends(status: &Arc<Mutex<NativeSnapshot>>, tunnel: &MasqueRuntime) {
+fn update_frontends(status: &Arc<Mutex<NativeSnapshot>>, tunnel: &DataPlaneRuntime) {
     let Ok(mut snapshot) = status.lock() else {
         return;
     };
     snapshot.active_listeners = tunnel.listeners().iter().map(ToString::to_string).collect();
+    snapshot.data_plane = Some(tunnel.mode());
+    snapshot.l4 = tunnel.l4_snapshot();
     snapshot.active_frontends.clear();
     if !tunnel.socks5_listeners().is_empty() {
         snapshot.active_frontends.push("socks5".to_owned());

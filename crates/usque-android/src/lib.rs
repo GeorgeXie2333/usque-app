@@ -119,6 +119,9 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCap
     with_jni_env(&mut environment, |environment| {
         let json = serde_json::json!({
             "network_settings_application": engine_ready(),
+            "l4_tcp": engine_ready(),
+            "l4_tun_tcp": engine_ready(),
+            "l4_dns_conversion": engine_ready(),
             "network_quality": engine_ready() && usque_transport::PRODUCTION_NETWORK_FEATURES.network_quality_metrics,
             "encrypted_direct_dns": engine_ready() && usque_transport::ENCRYPTED_DIRECT_DNS_ENABLED,
             "quic_migration": engine_ready() && usque_transport::PRODUCTION_NETWORK_FEATURES.quic_migration,
@@ -838,6 +841,8 @@ fn identity_metadata(secret: &[u8]) -> Result<IdentityMetadata, String> {
 
 #[derive(Debug, Deserialize)]
 struct AndroidProfile {
+    #[serde(default)]
+    data_plane: usque_core::DataPlaneMode,
     id: String,
     name: String,
     mode: String,
@@ -953,6 +958,7 @@ fn android_profile_to_core(source: AndroidProfile) -> Result<Profile, String> {
         "remote" => ProxyDnsMode::Remote,
         "localConfigured" => ProxyDnsMode::LocalConfigured,
         "system" => ProxyDnsMode::System,
+        "edgeResolved" => ProxyDnsMode::EdgeResolved,
         _ => return Err("invalid Android proxy DNS mode".to_owned()),
     };
     let direct_dns_mode = match source.direct_dns.mode.as_str() {
@@ -1001,6 +1007,7 @@ fn android_profile_to_core(source: AndroidProfile) -> Result<Profile, String> {
     let http_ipv6: IpAddr = parse_value(&source.proxy.http_ipv6, "HTTP IPv6 listener")?;
     let mut profile = Profile {
         id: parse_value(&source.id, "profile ID")?,
+        data_plane: source.data_plane,
         name: source.name,
         mode,
         frontends,
@@ -1638,6 +1645,7 @@ fn android_profile_value(
             TransportPolicy::Http2 => "http2",
         },
         "congestion_control": profile.congestion_control,
+        "data_plane": profile.data_plane,
         "ip_policy": match profile.ip_policy {
             IpPolicy::Auto => "automatic",
             IpPolicy::PreferIpv4 => "preferIpv4",
@@ -1703,6 +1711,7 @@ fn android_profile_value(
                 ProxyDnsMode::Remote => "remote",
                 ProxyDnsMode::LocalConfigured => "localConfigured",
                 ProxyDnsMode::System => "system",
+                ProxyDnsMode::EdgeResolved => "edgeResolved",
             },
             "dns_v4": profile
                 .proxy
@@ -2465,6 +2474,10 @@ fn native_direct_dns_reason(value: DirectDnsReasonCode) -> &'static str {
 #[derive(Debug, Clone, Serialize)]
 struct NativeSnapshot {
     #[serde(skip_serializing_if = "Option::is_none")]
+    data_plane: Option<usque_core::DataPlaneMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    l4: Option<usque_core::L4Snapshot>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     session_congestion_control: Option<usque_core::CongestionControlAlgorithm>,
     phase: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2505,6 +2518,8 @@ struct NativeSnapshot {
 impl NativeSnapshot {
     fn disconnected() -> Self {
         Self {
+            data_plane: None,
+            l4: None,
             phase: "disconnected".to_owned(),
             session_congestion_control: None,
             warning: None,

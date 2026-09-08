@@ -1,6 +1,12 @@
 /// Dutch UI catalog.
 const Map<String, String> kNlCatalog = <String, String>{
   'app_name': 'Usque',
+  'diag_fail_L4_SESSION_UNAVAILABLE': 'L4-sessie niet beschikbaar',
+  'diag_fail_L4_PROTOCOL_ERROR': 'L4-protocolfout',
+  'diag_fail_L4_CONNECT_REJECTED': 'L4 CONNECT geweigerd',
+  'diag_fail_L4_CONNECT_TIMEOUT': 'Time-out bij L4 CONNECT',
+  'diag_fail_L4_RESOURCE_EXHAUSTED': 'L4-resourcebudget uitgeput',
+  'diag_fail_L4_DNS_FAILED': 'L4-DNS-query mislukt',
   'window_minimize': 'Minimaliseren',
   'window_maximize': 'Maximaliseren',
   'window_restore': 'Venstergrootte herstellen',

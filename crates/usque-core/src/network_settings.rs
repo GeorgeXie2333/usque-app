@@ -16,6 +16,7 @@ macro_rules! network_fields {
             "frontends.socks5" => frontends.socks5,
             "frontends.http" => frontends.http,
             "transport" => transport,
+            "data_plane" => data_plane,
             "congestion_control" => congestion_control,
             "endpoint.ipv4" => endpoint.ipv4,
             "endpoint.ipv6" => endpoint.ipv6,

@@ -60,7 +60,16 @@ internal object AndroidMaintenance {
             JSONObject()
                 .put("phase", safeEnum(snapshot["phase"], CONNECTION_PHASES, "unknown"))
                 .put("transport", safeEnum(snapshot["transport"], setOf("h2", "h3"), null))
+                .put("data_plane", L4StatusFields.mode(snapshot["data_plane"]))
                 .put(
+                    "l4",
+                    L4StatusFields
+                        .decode(
+                            (snapshot["l4"] as? Map<*, *>)?.let {
+                                JSONObject(it).toString()
+                            },
+                        )?.let { JSONObject(it) },
+                ).put(
                     "address_family",
                     safeEnum(snapshot["address_family"], setOf("ipv4", "ipv6", "dual"), null),
                 ).put("reconnect_count", safeCounter(snapshot["reconnect_count"]))
@@ -676,6 +685,12 @@ internal object AndroidMaintenance {
             "DIAGNOSTIC_CANCELLED",
             "DIAGNOSTIC_DEPENDENCY_FAILED",
             "INTERNAL",
+            "L4_SESSION_UNAVAILABLE",
+            "L4_PROTOCOL_ERROR",
+            "L4_CONNECT_REJECTED",
+            "L4_CONNECT_TIMEOUT",
+            "L4_RESOURCE_EXHAUSTED",
+            "L4_DNS_FAILED",
         )
     private val REMEDIATION_KEYS =
         setOf(

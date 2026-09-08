@@ -1,6 +1,12 @@
 /// Thai UI catalog.
 const Map<String, String> kThCatalog = <String, String>{
   'app_name': 'Usque',
+  'diag_fail_L4_SESSION_UNAVAILABLE': 'เซสชัน L4 ไม่พร้อมใช้งาน',
+  'diag_fail_L4_PROTOCOL_ERROR': 'ข้อผิดพลาดโปรโตคอล L4',
+  'diag_fail_L4_CONNECT_REJECTED': 'L4 CONNECT ถูกปฏิเสธ',
+  'diag_fail_L4_CONNECT_TIMEOUT': 'L4 CONNECT หมดเวลา',
+  'diag_fail_L4_RESOURCE_EXHAUSTED': 'ทรัพยากร L4 ถึงขีดจำกัด',
+  'diag_fail_L4_DNS_FAILED': 'การสอบถาม DNS ของ L4 ล้มเหลว',
   'window_minimize': 'ย่อเล็กสุด',
   'window_maximize': 'ขยายใหญ่สุด',
   'window_restore': 'คืนขนาดหน้าต่าง',

@@ -1,6 +1,12 @@
 /// Italian UI catalog.
 const Map<String, String> kItCatalog = <String, String>{
   'app_name': 'Usque',
+  'diag_fail_L4_SESSION_UNAVAILABLE': 'Sessione L4 non disponibile',
+  'diag_fail_L4_PROTOCOL_ERROR': 'Errore del protocollo L4',
+  'diag_fail_L4_CONNECT_REJECTED': 'L4 CONNECT rifiutato',
+  'diag_fail_L4_CONNECT_TIMEOUT': 'Timeout di L4 CONNECT',
+  'diag_fail_L4_RESOURCE_EXHAUSTED': 'Budget delle risorse L4 esaurito',
+  'diag_fail_L4_DNS_FAILED': 'Query DNS L4 non riuscita',
   'window_minimize': 'Riduci a icona',
   'window_maximize': 'Ingrandisci',
   'window_restore': 'Ripristina dimensioni della finestra',

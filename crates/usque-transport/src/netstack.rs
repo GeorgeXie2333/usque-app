@@ -416,7 +416,14 @@ pub(crate) fn proxy_netstack_config(profile: &Profile) -> (Config, TcpBufferMetr
 }
 
 pub(crate) fn bounded_piped(config: Config) -> (Netstack<WakingPipeDev>, WakingPipe) {
-    let (stack_pipe, remote_pipe) = WakingPipe::bounded(PROXY_PACKET_PIPE_CAPACITY);
+    bounded_piped_with_capacity(config, PROXY_PACKET_PIPE_CAPACITY)
+}
+
+pub(crate) fn bounded_piped_with_capacity(
+    config: Config,
+    capacity: usize,
+) -> (Netstack<WakingPipeDev>, WakingPipe) {
+    let (stack_pipe, remote_pipe) = WakingPipe::bounded(capacity);
     let device = WakingPipeDev {
         pipe: stack_pipe,
         mtu: config.mtu,
@@ -521,6 +528,22 @@ impl ManagedTunnelSender {
 }
 
 impl ManagedTunnelMonitor {
+    pub(crate) fn for_streams(
+        health: watch::Receiver<RuntimeHealth>,
+        counters: Arc<TrafficCounters>,
+        telemetry: ConnectionTelemetry,
+        quality: watch::Receiver<NetworkQualitySnapshot>,
+    ) -> Self {
+        Self {
+            failure: watch::channel(None).1,
+            health,
+            control: watch::channel(PeerNetworkState::default()).1,
+            counters,
+            telemetry,
+            quality,
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn stub() -> Self {
         let path = RuntimePath {
@@ -925,6 +948,9 @@ async fn connect_with_policy(
     protector: Arc<dyn SocketProtector>,
     telemetry: &ConnectionTelemetry,
 ) -> Result<(MasqueTunnel, AddressFamily), TransportError> {
+    if profile.data_plane != usque_core::DataPlaneMode::ConnectIp {
+        return Err(TransportError::UnsupportedOperatingMode);
+    }
     match profile.transport {
         TransportPolicy::Http3 => {
             connect_happy_eyeballs(profile, identity, Transport::Http3, protector, telemetry).await

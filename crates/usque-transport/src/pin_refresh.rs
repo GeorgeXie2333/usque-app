@@ -34,7 +34,7 @@ pub trait EndpointPinRefresher: Send + Sync {
 
 impl MasqueTlsIdentity {
     pub fn from_warp_identity(identity: &WarpIdentity) -> Result<Self, TransportError> {
-        Self::new(
+        let mut transport = Self::new(
             identity
                 .key_pair
                 .private_sec1_der()
@@ -42,7 +42,9 @@ impl MasqueTlsIdentity {
             identity.endpoint_pin.spki_der(),
             identity.assigned_ipv4,
             identity.assigned_ipv6,
-        )
+        )?;
+        transport.provider = Some(identity.provider().clone());
+        Ok(transport)
     }
 }
 

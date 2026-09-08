@@ -32,7 +32,10 @@ pub fn classify_reconfigure(previous: &Profile, next: &Profile) -> ReconfigureCl
         return ReconfigureClass::PersistOnly;
     }
 
-    let cold = previous.transport != next.transport
+    let cold = previous.data_plane != next.data_plane
+        || previous.data_plane == crate::DataPlaneMode::L4Proxy
+            && previous.frontends.tunnel != next.frontends.tunnel
+        || previous.transport != next.transport
         || previous.endpoint != next.endpoint
         || previous.ip_policy != next.ip_policy
         || previous.mtu != next.mtu
@@ -182,6 +185,33 @@ mod tests {
         assert_eq!(
             classify_reconfigure(&previous, &next),
             ReconfigureClass::Reject
+        );
+    }
+
+    #[test]
+    fn l4_is_independent_and_tun_toggle_is_cold_but_frontends_remain_hot() {
+        let previous = base();
+        let mut l4 = previous.clone();
+        l4.data_plane = crate::DataPlaneMode::L4Proxy;
+        assert_eq!(
+            classify_reconfigure(&previous, &l4),
+            ReconfigureClass::ColdReconnect
+        );
+        assert_eq!(
+            classify_reconfigure(&l4, &previous),
+            ReconfigureClass::ColdReconnect
+        );
+        let mut next = l4.clone();
+        next.frontends.tunnel = !l4.frontends.tunnel;
+        assert_eq!(
+            classify_reconfigure(&l4, &next),
+            ReconfigureClass::ColdReconnect
+        );
+        next = l4.clone();
+        next.proxy.socks5_listeners[0].set_port(1081);
+        assert_eq!(
+            classify_reconfigure(&l4, &next),
+            ReconfigureClass::HotFrontends
         );
     }
 

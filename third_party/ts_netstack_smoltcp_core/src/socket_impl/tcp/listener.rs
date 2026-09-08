@@ -15,6 +15,129 @@ use crate::{
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ListenerHandle(usize);
 
+#[cfg(test)]
+mod l4_tests {
+    use super::*;
+    use crate::{Config, Request, TcpBufferMetrics, TcpBufferPolicy, TcpBufferTier};
+
+    fn bounded_stack() -> (Netstack, TcpBufferMetrics) {
+        let metrics = TcpBufferMetrics::default();
+        let config = Config {
+            tcp_listener_budgeted: true,
+            tcp_nagle_enabled: false,
+            tcp_buffer_metrics: Some(metrics.clone()),
+            tcp_buffer_policy: Some(TcpBufferPolicy {
+                preferred: TcpBufferTier {
+                    receive: 65536,
+                    transmit: 65536,
+                },
+                fallback: TcpBufferTier {
+                    receive: 16384,
+                    transmit: 16384,
+                },
+                preferred_budget: 131072,
+                total_budget: 163840,
+            }),
+            ..Config::default()
+        };
+        (
+            Netstack::new(config, smoltcp::time::Instant::from_millis(0)),
+            metrics,
+        )
+    }
+
+    #[test]
+    fn one_shot_listeners_share_the_socket_budget_and_close_reclaims_it() {
+        let (mut stack, metrics) = bounded_stack();
+        let listen = |stack: &mut Netstack, port| {
+            stack.process_tcp_listen(
+                TcpListenCommand::ListenOnce {
+                    local_endpoint: ([127, 0, 0, 1], port).into(),
+                },
+                None,
+            )
+        };
+        let Response::TcpListen(TcpListenResponse::Listening { handle: first }) =
+            listen(&mut stack, 10001)
+        else {
+            panic!("first listener");
+        };
+        let Response::TcpListen(TcpListenResponse::Listening { handle: second }) =
+            listen(&mut stack, 10002)
+        else {
+            panic!("fallback listener");
+        };
+        assert_eq!(metrics.snapshot().preferred_sockets, 1);
+        assert_eq!(metrics.snapshot().fallback_sockets, 1);
+        assert!(matches!(listen(&mut stack, 10003), Response::Error(_)));
+        assert_eq!(stack.socket_set.iter().count(), 2);
+        drop(stack.process_tcp_listen(TcpListenCommand::Close { handle: first }, None));
+        drop(stack.process_tcp_listen(TcpListenCommand::Close { handle: second }, None));
+        stack.drain_tcp_closes();
+        assert_eq!(stack.socket_set.iter().count(), 0);
+        assert_eq!(metrics.snapshot().total_bytes, 0);
+    }
+
+    #[test]
+    fn cancelled_listen_response_cannot_orphan_an_allocated_socket() {
+        let (mut stack, metrics) = bounded_stack();
+        let (sender, receiver) = crate::flume::bounded(1);
+        drop(receiver);
+        stack.process_one_cmd(Request {
+            handle: None,
+            command: TcpListenCommand::ListenOnce {
+                local_endpoint: ([127, 0, 0, 1], 10001).into(),
+            }
+            .into(),
+            resp: sender,
+        });
+        stack.drain_tcp_closes();
+        assert!(stack.tcp_listeners.is_empty());
+        assert_eq!(metrics.snapshot().total_bytes, 0);
+    }
+
+    #[test]
+    fn accepted_owner_prevents_slot_reuse_and_late_close_cannot_abort_new_socket() {
+        let (mut stack, metrics) = bounded_stack();
+        let listen = |stack: &mut Netstack, port| {
+            let Response::TcpListen(TcpListenResponse::Listening { handle }) = stack
+                .process_tcp_listen(
+                    TcpListenCommand::ListenOnce {
+                        local_endpoint: ([127, 0, 0, 1], port).into(),
+                    },
+                    None,
+                )
+            else {
+                panic!("listener allocation");
+            };
+            handle
+        };
+        let first = listen(&mut stack, 10001);
+        let owner = stack.tcp_listeners.get_mut(&first).unwrap();
+        owner.transferred = true;
+        let old_slot = owner.current_socket_handle;
+        drop(stack.process_tcp_stream(crate::tcp::stream::Command::Close, Some(old_slot)));
+        stack.drain_tcp_closes();
+        assert_eq!(metrics.snapshot().total_bytes, 131072);
+        let second = listen(&mut stack, 10002);
+        assert_ne!(stack.tcp_listeners[&second].current_socket_handle, old_slot);
+        drop(stack.process_tcp_listen(TcpListenCommand::Close { handle: first }, None));
+        stack.drain_tcp_closes();
+        let third = listen(&mut stack, 10003);
+        drop(stack.process_tcp_listen(TcpListenCommand::Close { handle: first }, None));
+        let new_slot = stack.tcp_listeners[&third].current_socket_handle;
+        assert_eq!(
+            stack.socket_set.get::<tcp::Socket>(new_slot).state(),
+            tcp::State::Listen
+        );
+        for handle in [second, third] {
+            drop(stack.process_tcp_listen(TcpListenCommand::Close { handle }, None));
+        }
+        stack.drain_tcp_closes();
+        assert_eq!(metrics.snapshot().total_bytes, 0);
+    }
+}
+
 /// State for a particular TCP listener, supporting the abstraction of a single persistent
 /// listener object that can spin off connections by calling `accept`.
 ///
@@ -23,6 +146,9 @@ pub struct ListenerHandle(usize);
 /// connection. But once it's `ESTABLISHED`, you need to create a new `LISTENING` socket in
 /// order to accept a new connection.
 pub struct TcpListenerState {
+    once: bool,
+    transferred: bool,
+    suspended: bool,
     /// The local endpoint on which this listener is listening.
     local_endpoint: SocketAddr,
 
@@ -50,6 +176,14 @@ pub struct TcpListenerState {
 }
 
 impl Netstack {
+    /// A transferred one-shot socket stays owned until its unique listener
+    /// token closes. Do not recycle its slot while an I/O wrapper still lives.
+    pub(crate) fn owned_by_once_listener(&self, handle: SocketHandle) -> bool {
+        self.tcp_listeners.values().any(|listener| {
+            listener.once && listener.transferred && listener.current_socket_handle == handle
+        })
+    }
+
     /// Process a TCP listener command.
     #[tracing::instrument(skip_all, fields(?cmd), level = "debug")]
     pub(crate) fn process_tcp_listen(
@@ -60,14 +194,29 @@ impl Netstack {
         debug_assert!(handle.is_none());
 
         match cmd {
-            TcpListenCommand::Listen { local_endpoint } => {
-                let mut listener = tcp::Socket::new(self.tcp_buffer(), self.tcp_buffer());
+            TcpListenCommand::Listen { local_endpoint }
+            | TcpListenCommand::ListenOnce { local_endpoint } => {
+                let once = matches!(cmd, TcpListenCommand::ListenOnce { .. });
+                let (mut listener, allocation) = if self.config.tcp_listener_budgeted || once {
+                    match self.new_outbound_tcp_socket() {
+                        Ok((socket, allocation)) => (socket, Some(allocation)),
+                        Err(error) => return Response::Error(error),
+                    }
+                } else {
+                    (tcp::Socket::new(self.tcp_buffer(), self.tcp_buffer()), None)
+                };
 
                 if let Err(e) = listener.listen(local_endpoint) {
+                    if let Some(allocation) = allocation {
+                        self.release_unregistered_tcp_buffer(allocation);
+                    }
                     return Response::Error(e.into());
                 }
 
                 let socket_handle = self.socket_set.add(listener);
+                if let Some(allocation) = allocation {
+                    self.register_tcp_buffer_allocation(socket_handle, allocation);
+                }
 
                 let listener_handle = ListenerHandle(self.next_tcp_listener_id);
                 self.next_tcp_listener_id += 1;
@@ -75,6 +224,9 @@ impl Netstack {
                 self.tcp_listeners.insert(
                     listener_handle,
                     TcpListenerState {
+                        once,
+                        transferred: false,
+                        suspended: false,
                         current_socket_handle: socket_handle,
                         local_endpoint,
                         half_open_queue: Default::default(),
@@ -92,6 +244,33 @@ impl Netstack {
                     tracing::error!(?handle, "listener does not exist");
                     return Error::missing_listener().into();
                 };
+
+                if listener.once {
+                    if listener.transferred {
+                        return Error::missing_listener().into();
+                    }
+                    let socket = self
+                        .socket_set
+                        .get_mut::<tcp::Socket>(listener.current_socket_handle);
+                    if matches!(
+                        socket.state(),
+                        tcp::State::Established | tcp::State::CloseWait
+                    ) {
+                        let Some(remote) = socket.remote_endpoint() else {
+                            return Error::invalid_socket_state().into();
+                        };
+                        listener.transferred = true;
+                        return TcpListenResponse::Accepted {
+                            handle: listener.current_socket_handle,
+                            remote: SocketAddr::new(remote.addr.into(), remote.port),
+                        }
+                        .into();
+                    }
+                    return Response::WouldBlock {
+                        handle: None,
+                        command: TcpListenCommand::Accept { handle }.into(),
+                    };
+                }
 
                 // Iterate the half-open queue, re-queueing any socket handles that are still in
                 // `SYN-RECEIVED`. Move any sockets in `ESTABLISHED` to the `accept_queue`, and
@@ -198,13 +377,22 @@ impl Netstack {
                     return Error::missing_listener().into();
                 };
 
-                let sock = self
-                    .socket_set
-                    .get_mut::<tcp::Socket>(listener.current_socket_handle);
-
-                sock.close();
-
-                self.pending_tcp_closes.push(listener.current_socket_handle);
+                if (listener.once || !listener.transferred) && !listener.suspended {
+                    let sock = self
+                        .socket_set
+                        .get_mut::<tcp::Socket>(listener.current_socket_handle);
+                    if listener.once {
+                        sock.abort();
+                    } else {
+                        sock.close();
+                    }
+                    if !self
+                        .pending_tcp_closes
+                        .contains(&listener.current_socket_handle)
+                    {
+                        self.pending_tcp_closes.push(listener.current_socket_handle);
+                    }
+                }
 
                 let accept_handles = listener
                     .half_open_queue
@@ -226,7 +414,14 @@ impl Netstack {
     /// Attempt to accept a TCP connection for all TCP listeners.
     #[tracing::instrument(skip_all)]
     pub(crate) fn pump_tcp_accept(&mut self) {
+        if self.config.tcp_listener_budgeted {
+            self.pump_bounded_tcp_accept();
+            return;
+        }
         for listener in self.tcp_listeners.values_mut() {
+            if listener.once {
+                continue;
+            }
             let sock = self
                 .socket_set
                 .get_mut::<tcp::Socket>(listener.current_socket_handle);
@@ -295,6 +490,58 @@ impl Netstack {
             let socket_handle = self.socket_set.add(new_listener);
             listener.current_socket_handle = socket_handle;
             tracing::trace!(new_handle = ?socket_handle, "replaced active listen socket");
+        }
+    }
+
+    fn pump_bounded_tcp_accept(&mut self) {
+        let handles = self
+            .tcp_listeners
+            .keys()
+            .copied()
+            .collect::<alloc::vec::Vec<_>>();
+        for handle in handles {
+            let Some(mut listener) = self.tcp_listeners.remove(&handle) else {
+                continue;
+            };
+            if listener.once {
+                self.tcp_listeners.insert(handle, listener);
+                continue;
+            }
+            if !listener.suspended {
+                let socket = self
+                    .socket_set
+                    .get_mut::<tcp::Socket>(listener.current_socket_handle);
+                match socket.state() {
+                    tcp::State::Listen => {
+                        self.tcp_listeners.insert(handle, listener);
+                        continue;
+                    }
+                    tcp::State::SynReceived => listener
+                        .half_open_queue
+                        .push_back(listener.current_socket_handle),
+                    tcp::State::Established | tcp::State::CloseWait => listener
+                        .accept_queue
+                        .push_back(listener.current_socket_handle),
+                    _ => {
+                        socket.close();
+                        self.pending_tcp_closes.push(listener.current_socket_handle);
+                    }
+                }
+                listener.suspended = true;
+            }
+            if listener.half_open_queue.len() + listener.accept_queue.len() < 32
+                && let Ok((mut socket, allocation)) = self.new_outbound_tcp_socket()
+            {
+                if socket.listen(listener.local_endpoint).is_ok() {
+                    let socket_handle = self.socket_set.add(socket);
+                    self.register_tcp_buffer_allocation(socket_handle, allocation);
+                    listener.current_socket_handle = socket_handle;
+                    listener.suspended = false;
+                } else {
+                    self.release_unregistered_tcp_buffer(allocation);
+                }
+            }
+            self.tcp_listeners.insert(handle, listener);
         }
     }
 }

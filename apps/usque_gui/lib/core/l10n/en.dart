@@ -1,6 +1,12 @@
 /// English UI catalog.
 const Map<String, String> kEnCatalog = <String, String>{
   'app_name': 'Usque',
+  'diag_fail_L4_SESSION_UNAVAILABLE': 'L4 session unavailable',
+  'diag_fail_L4_PROTOCOL_ERROR': 'L4 protocol error',
+  'diag_fail_L4_CONNECT_REJECTED': 'L4 CONNECT rejected',
+  'diag_fail_L4_CONNECT_TIMEOUT': 'L4 CONNECT timed out',
+  'diag_fail_L4_RESOURCE_EXHAUSTED': 'L4 resource budget exhausted',
+  'diag_fail_L4_DNS_FAILED': 'L4 DNS query failed',
   'window_minimize': 'Minimize',
   'window_maximize': 'Maximize',
   'window_restore': 'Restore window',

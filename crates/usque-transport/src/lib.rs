@@ -5,9 +5,11 @@
 //! network configuration.
 
 mod connect_ip_control;
+mod data_plane;
 mod diagnostic_probe;
 mod direct_gateway;
 mod dns;
+mod dns_stream;
 mod encrypted_dns;
 mod feature_flags;
 mod geo_direct;
@@ -16,6 +18,7 @@ mod h3;
 mod h3_buffer;
 mod http_proxy;
 mod icmp;
+mod l4;
 mod masque_runtime;
 mod migration_barrier;
 mod netstack;
@@ -33,6 +36,7 @@ mod relay;
 mod socket;
 mod socks5;
 mod split_dns;
+mod tcp;
 mod telemetry;
 mod tunnel;
 mod udp_io;
@@ -44,6 +48,7 @@ mod fault_injection;
 #[cfg(all(feature = "fault-injection", not(debug_assertions), not(test)))]
 compile_error!("fault-injection is restricted to test/debug lab builds");
 
+pub use data_plane::{DataPlaneRuntime, TunPacketIo};
 pub use diagnostic_probe::{
     NetworkProbeResult, h3_probe_endpoints, probe_encrypted_dns, probe_h3_handshake,
     probe_h3_handshake_candidates,

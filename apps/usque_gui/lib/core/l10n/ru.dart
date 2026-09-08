@@ -1,6 +1,12 @@
 /// Russian UI catalog.
 const Map<String, String> kRuCatalog = <String, String>{
   'app_name': 'Usque',
+  'diag_fail_L4_SESSION_UNAVAILABLE': 'Сеанс L4 недоступен',
+  'diag_fail_L4_PROTOCOL_ERROR': 'Ошибка протокола L4',
+  'diag_fail_L4_CONNECT_REJECTED': 'L4 CONNECT отклонён',
+  'diag_fail_L4_CONNECT_TIMEOUT': 'Истекло время ожидания L4 CONNECT',
+  'diag_fail_L4_RESOURCE_EXHAUSTED': 'Исчерпан лимит ресурсов L4',
+  'diag_fail_L4_DNS_FAILED': 'Сбой DNS-запроса L4',
   'window_minimize': 'Свернуть',
   'window_maximize': 'Развернуть',
   'window_restore': 'Восстановить размер окна',

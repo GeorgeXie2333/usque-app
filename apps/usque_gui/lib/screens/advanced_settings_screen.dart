@@ -35,6 +35,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   late final TextEditingController _dnsV6;
   late final TextEditingController _bypass;
   late TransportPolicy _transport;
+  late DataPlaneMode _dataPlane;
   late CongestionControlAlgorithm _congestionControl;
   late IpPolicy _ipPolicy;
   late bool _killSwitch;
@@ -64,6 +65,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     _mtu.text,
     _bypass.text,
     _transport,
+    _dataPlane,
     _congestionControl,
     _ipPolicy,
     _killSwitch,
@@ -110,6 +112,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     _dnsV6.text = profile.dnsIpv6;
     _bypass.text = profile.bypassCidrs.join('\n');
     _transport = profile.transport;
+    _dataPlane = profile.dataPlane;
     _congestionControl = profile.congestionControl;
     _ipPolicy = profile.ipPolicy;
     _killSwitch = profile.killSwitch;
@@ -204,28 +207,68 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                     title: strings.get('transport'),
                     gap: 20,
                     children: <Widget>[
-                      SegmentedButton<TransportPolicy>(
-                        segments: <ButtonSegment<TransportPolicy>>[
-                          ButtonSegment<TransportPolicy>(
-                            value: TransportPolicy.automatic,
-                            label: Text(strings.get('automatic')),
-                          ),
-                          ButtonSegment<TransportPolicy>(
-                            value: TransportPolicy.http3,
-                            label: Text(strings.get('http3')),
-                          ),
-                          ButtonSegment<TransportPolicy>(
-                            value: TransportPolicy.http2,
-                            label: Text(strings.get('http2')),
-                          ),
-                        ],
-                        selected: <TransportPolicy>{_transport},
-                        onSelectionChanged: _saving
-                            ? null
-                            : (selection) =>
-                                  setState(() => _transport = selection.first),
-                        showSelectedIcon: false,
+                      LayoutBuilder(
+                        builder: (context, constraints) =>
+                            SegmentedButton<String>(
+                              direction:
+                                  constraints.maxWidth < 560 ||
+                                      MediaQuery.textScalerOf(
+                                            context,
+                                          ).scale(1) >
+                                          1.3
+                                  ? Axis.vertical
+                                  : Axis.horizontal,
+                              segments: <ButtonSegment<String>>[
+                                ButtonSegment(
+                                  value: 'automatic',
+                                  label: Text(strings.get('automatic')),
+                                ),
+                                ButtonSegment(
+                                  value: 'http3',
+                                  label: Text(strings.get('http3')),
+                                ),
+                                ButtonSegment(
+                                  value: 'http2',
+                                  label: Text(strings.get('http2')),
+                                ),
+                                ButtonSegment(
+                                  value: 'l4',
+                                  label: Text(strings.get('l4_mode')),
+                                  enabled:
+                                      widget
+                                          .controller
+                                          .engineCapabilities
+                                          ?.l4Available ??
+                                      false,
+                                ),
+                              ],
+                              selected: <String>{
+                                _dataPlane == DataPlaneMode.l4Proxy
+                                    ? 'l4'
+                                    : _transport.name,
+                              },
+                              onSelectionChanged: _saving
+                                  ? null
+                                  : (selection) {
+                                      setState(() {
+                                        if (selection.first == 'l4') {
+                                          _dataPlane = DataPlaneMode.l4Proxy;
+                                        } else {
+                                          _dataPlane = DataPlaneMode.connectIp;
+                                          _transport = TransportPolicy.values
+                                              .byName(selection.first);
+                                        }
+                                        _saved = false;
+                                        _saveError = null;
+                                      });
+                                    },
+                              showSelectedIcon: false,
+                            ),
                       ),
+                      Text(strings.get('l4_explanation')),
+                      if (!(widget.controller.engineCapabilities?.l4Available ??
+                          false))
+                        Text(strings.get('l4_unsupported')),
                       const SizedBox(height: 18),
                       _ResponsiveFields(
                         children: <Widget>[
@@ -270,18 +313,31 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                             ),
                             validator: _validatePort,
                           ),
-                          TextFormField(
-                            key: _fieldKeys[3],
-                            focusNode: _focus[3],
-                            enabled: !_saving,
-                            controller: _sni,
-                            onChanged: (_) => _edited(),
-                            keyboardType: TextInputType.url,
-                            decoration: InputDecoration(
-                              labelText: strings.get('sni'),
+                          if (_dataPlane == DataPlaneMode.l4Proxy)
+                            TextFormField(
+                              key: ValueKey(_zeroTrustEndpointIpsManaged),
+                              initialValue: _zeroTrustEndpointIpsManaged
+                                  ? 'zt-masque-proxy.cloudflareclient.com'
+                                  : 'consumer-masque-proxy.cloudflareclient.com',
+                              readOnly: true,
+                              decoration: InputDecoration(
+                                labelText: strings.get('sni'),
+                                helperText: strings.get('l4_sni_identity'),
+                              ),
+                            )
+                          else
+                            TextFormField(
+                              key: _fieldKeys[3],
+                              focusNode: _focus[3],
+                              enabled: !_saving,
+                              controller: _sni,
+                              onChanged: (_) => _edited(),
+                              keyboardType: TextInputType.url,
+                              decoration: InputDecoration(
+                                labelText: strings.get('sni'),
+                              ),
+                              validator: _validateSni,
                             ),
-                            validator: _validateSni,
-                          ),
                         ],
                       ),
                       const SizedBox(height: 18),
@@ -468,7 +524,8 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
           session != null &&
           session != controller.sharedNetwork.congestionControl;
       final h2 =
-          _transport == TransportPolicy.http2 ||
+          (_dataPlane == DataPlaneMode.connectIp &&
+              _transport == TransportPolicy.http2) ||
           const [
             'h2',
             'http2',
@@ -506,7 +563,8 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                     .toList(),
             onChanged:
                 _saving ||
-                    _transport == TransportPolicy.http2 ||
+                    (_dataPlane == DataPlaneMode.connectIp &&
+                        _transport == TransportPolicy.http2) ||
                     algorithms.isEmpty
                 ? null
                 : (value) {
@@ -561,6 +619,21 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
 
   Future<void> _save() async {
     if (_saving) return;
+    if (_dataPlane == DataPlaneMode.l4Proxy &&
+        !(widget.controller.engineCapabilities?.l4Available ?? false)) {
+      setState(
+        () => _saveError = widget.controller.strings.get('l4_unsupported'),
+      );
+      return;
+    }
+    if (_dataPlane == DataPlaneMode.connectIp &&
+        widget.controller.activeProfile.proxy.dnsMode ==
+            ProxyDnsMode.edgeResolved) {
+      setState(
+        () => _saveError = widget.controller.strings.get('l4_edge_requires_l4'),
+      );
+      return;
+    }
     setState(() => _validationAttempted = true);
     if (!(_formKey.currentState?.validate() ?? false)) {
       setState(() => _saveError = widget.controller.strings.get('form_errors'));
@@ -592,6 +665,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
       'mtu',
       'split_exclusions',
       'transport',
+      'data_plane',
       'congestion_control',
       'ip_policy',
       'kill_switch',
@@ -607,6 +681,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
       profile.copyWith(
         id: _editingAccountId,
         transport: _transport,
+        dataPlane: _dataPlane,
         congestionControl: _congestionControl,
         ipPolicy: _ipPolicy,
         endpointIpv4: endpointIpsManaged

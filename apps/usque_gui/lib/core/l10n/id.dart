@@ -1,6 +1,12 @@
 /// Indonesian UI catalog.
 const Map<String, String> kIdCatalog = <String, String>{
   'app_name': 'Usque',
+  'diag_fail_L4_SESSION_UNAVAILABLE': 'Sesi L4 tidak tersedia',
+  'diag_fail_L4_PROTOCOL_ERROR': 'Galat protokol L4',
+  'diag_fail_L4_CONNECT_REJECTED': 'L4 CONNECT ditolak',
+  'diag_fail_L4_CONNECT_TIMEOUT': 'L4 CONNECT kehabisan waktu',
+  'diag_fail_L4_RESOURCE_EXHAUSTED': 'Anggaran sumber daya L4 habis',
+  'diag_fail_L4_DNS_FAILED': 'Kueri DNS L4 gagal',
   'window_minimize': 'Perkecil',
   'window_maximize': 'Perbesar',
   'window_restore': 'Pulihkan ukuran jendela',

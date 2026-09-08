@@ -122,7 +122,15 @@ internal object NetworkQualityFields {
 
     fun capabilities(value: String?): Map<String, Boolean> {
         val source = if (value != null && value.length <= 1024) runCatching { JSONObject(value) }.getOrNull() else null
-        return listOf("network_quality", "encrypted_direct_dns", "quic_migration", "automatic_pmtu").associateWith {
+        return listOf(
+            "network_quality",
+            "encrypted_direct_dns",
+            "quic_migration",
+            "automatic_pmtu",
+            "l4_tcp",
+            "l4_tun_tcp",
+            "l4_dns_conversion",
+        ).associateWith {
             source?.opt(it) ==
                 true
         }

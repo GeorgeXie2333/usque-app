@@ -1,6 +1,12 @@
 /// Vietnamese UI catalog.
 const Map<String, String> kViCatalog = <String, String>{
   'app_name': 'Usque',
+  'diag_fail_L4_SESSION_UNAVAILABLE': 'Phiên L4 không khả dụng',
+  'diag_fail_L4_PROTOCOL_ERROR': 'Lỗi giao thức L4',
+  'diag_fail_L4_CONNECT_REJECTED': 'L4 CONNECT bị từ chối',
+  'diag_fail_L4_CONNECT_TIMEOUT': 'L4 CONNECT hết thời gian chờ',
+  'diag_fail_L4_RESOURCE_EXHAUSTED': 'Đã hết hạn mức tài nguyên L4',
+  'diag_fail_L4_DNS_FAILED': 'Truy vấn DNS L4 thất bại',
   'window_minimize': 'Thu nhỏ',
   'window_maximize': 'Phóng to',
   'window_restore': 'Khôi phục kích thước cửa sổ',

@@ -34,6 +34,12 @@ enum TransportPolicy {
   TRANSPORT_POLICY_HTTP2 = 3;
 }
 
+enum DataPlaneMode {
+  DATA_PLANE_MODE_UNSPECIFIED = 0;
+  DATA_PLANE_MODE_CONNECT_IP = 1;
+  DATA_PLANE_MODE_L4_PROXY = 2;
+}
+
 enum IpPolicy {
   IP_POLICY_UNSPECIFIED = 0;
   IP_POLICY_AUTO = 1;
@@ -64,6 +70,7 @@ enum ProxyDnsMode {
   PROXY_DNS_MODE_REMOTE = 1;
   PROXY_DNS_MODE_LOCAL_CONFIGURED = 2;
   PROXY_DNS_MODE_SYSTEM = 3;
+  PROXY_DNS_MODE_EDGE_RESOLVED = 4;
 }
 
 enum DirectDnsMode {
@@ -186,6 +193,7 @@ message Profile {
   repeated string geo_direct_countries = 16;
   DirectDnsSettings direct_dns = 17;
   CongestionControlAlgorithm congestion_control = 18;
+  DataPlaneMode data_plane = 19;
 }
 
 message Statistics {
@@ -271,6 +279,9 @@ message Capabilities {
   bool automatic_pmtu = 23;
   repeated CongestionControlAlgorithm h3_congestion_control_algorithms = 24;
   bool network_settings_application = 25;
+  bool l4_tcp = 26;
+  bool l4_tun_tcp = 27;
+  bool l4_dns_conversion = 28;
 }
 
 message FrontendStatus {
@@ -300,6 +311,34 @@ message ConnectionSnapshot {
   TransportFailure failure = 16;
   NetworkQualitySnapshot network_quality = 17;
   CongestionControlAlgorithm session_congestion_control = 18;
+  DataPlaneMode data_plane = 19;
+  L4Snapshot l4 = 20;
+}
+
+// No destinations, DNS content, connection IDs, or credential material.
+message L4Snapshot {
+  bool connect_verified = 1;
+  uint32 sessions = 2;
+  uint32 draining_sessions = 3;
+  uint32 active_flows = 4;
+  uint32 pending_flows = 5;
+  uint64 connect_successes = 6;
+  uint64 connect_failures = 7;
+  uint64 connect_timeouts = 8;
+  uint64 buffer_bytes = 9;
+  uint64 budget_rejections = 10;
+  uint64 send_backpressure = 11;
+  uint64 receive_backpressure = 12;
+  uint64 udp_rejected = 13;
+  uint64 dns_successes = 14;
+  uint64 dns_failures = 15;
+  uint64 dns_timeouts = 16;
+  uint64 migration_preserved_flows = 17;
+  uint64 reconnect_terminated_flows = 18;
+  uint32 tun_flows = 19;
+  uint32 half_open_flows = 20;
+  uint64 connect_latency_us = 21;
+  uint64 unsupported_packets = 22;
 }
 
 message Empty {}

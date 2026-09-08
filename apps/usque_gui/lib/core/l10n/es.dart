@@ -1,6 +1,12 @@
 /// Spanish UI catalog.
 const Map<String, String> kEsCatalog = <String, String>{
   'app_name': 'Usque',
+  'diag_fail_L4_SESSION_UNAVAILABLE': 'Sesión L4 no disponible',
+  'diag_fail_L4_PROTOCOL_ERROR': 'Error de protocolo L4',
+  'diag_fail_L4_CONNECT_REJECTED': 'L4 CONNECT rechazado',
+  'diag_fail_L4_CONNECT_TIMEOUT': 'Tiempo de espera de L4 CONNECT agotado',
+  'diag_fail_L4_RESOURCE_EXHAUSTED': 'Presupuesto de recursos L4 agotado',
+  'diag_fail_L4_DNS_FAILED': 'Consulta DNS L4 fallida',
   'window_minimize': 'Minimizar',
   'window_maximize': 'Maximizar',
   'window_restore': 'Restaurar tamaño de ventana',

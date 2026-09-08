@@ -128,6 +128,7 @@ pub(crate) struct PmtuController {
     paths: Vec<PathPmtuState>,
     active: Option<PmtuPathKey>,
     automatic: bool,
+    reliable_streams: bool,
 }
 
 impl Default for PmtuController {
@@ -136,6 +137,7 @@ impl Default for PmtuController {
             paths: Vec::new(),
             active: None,
             automatic: crate::PRODUCTION_NETWORK_FEATURES.automatic_pmtu,
+            reliable_streams: false,
         }
     }
 }
@@ -154,7 +156,12 @@ impl PmtuController {
             paths: vec![PathPmtuState::new(initial_path)],
             active: Some(initial_path),
             automatic,
+            reliable_streams: false,
         }
+    }
+
+    pub(crate) fn set_reliable_stream_mode(&mut self) {
+        self.reliable_streams = true;
     }
 
     pub(crate) fn observe_active_path(
@@ -298,6 +305,7 @@ impl PmtuController {
     ) -> Option<PmtuObservation> {
         self.activate_path(key);
         let automatic = self.automatic;
+        let reliable_streams = self.reliable_streams;
         let state = self.active_state_mut();
         if !automatic || completed_outer_payload.is_none_or(|size| size <= MIN_QUIC_UDP_PAYLOAD) {
             state.loss_window = None;
@@ -338,7 +346,11 @@ impl PmtuController {
         let pto = sample.pto_count - window.baseline.pto_count;
         *window = LossWindow::new(now, sample);
         if lost < MINIMUM_SUSPECT_LOSSES
-            || datagrams_lost == 0
+            || if reliable_streams {
+                pto < 2
+            } else {
+                datagrams_lost == 0
+            }
             || (lost.saturating_mul(4) < sent && pto < 2)
         {
             return None;

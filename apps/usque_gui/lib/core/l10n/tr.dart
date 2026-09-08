@@ -1,6 +1,12 @@
 /// Turkish UI catalog.
 const Map<String, String> kTrCatalog = <String, String>{
   'app_name': 'Usque',
+  'diag_fail_L4_SESSION_UNAVAILABLE': 'L4 oturumu kullanılamıyor',
+  'diag_fail_L4_PROTOCOL_ERROR': 'L4 protokol hatası',
+  'diag_fail_L4_CONNECT_REJECTED': 'L4 CONNECT reddedildi',
+  'diag_fail_L4_CONNECT_TIMEOUT': 'L4 CONNECT zaman aşımına uğradı',
+  'diag_fail_L4_RESOURCE_EXHAUSTED': 'L4 kaynak bütçesi tükendi',
+  'diag_fail_L4_DNS_FAILED': 'L4 DNS sorgusu başarısız',
   'window_minimize': 'Küçült',
   'window_maximize': 'Ekranı kapla',
   'window_restore': 'Pencere boyutunu geri yükle',

@@ -21,6 +21,7 @@ internal data class TunIdentity(
     val bypassCidrs: List<String>,
     val perAppEnabled: Boolean = false,
     val perAppPackages: List<String> = emptyList(),
+    val dataPlane: String = "connect_ip",
 ) {
     fun sameForReuse(other: TunIdentity): Boolean = this == other
 
@@ -31,6 +32,7 @@ internal data class TunIdentity(
         ): TunIdentity =
             TunIdentity(
                 profileId = profile.id,
+                dataPlane = profile.dataPlane,
                 mtu = profile.mtu,
                 dnsMode = profile.dnsMode,
                 dnsV4 = profile.dnsIpv4.hostAddress ?: profile.dnsIpv4.toString(),

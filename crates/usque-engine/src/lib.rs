@@ -66,6 +66,7 @@ use active_runtime::{ActiveDataPlane, ActiveProxyRuntime, ActiveRuntime};
 mod windows_agent;
 
 mod congestion;
+mod data_plane;
 
 #[cfg(target_os = "macos")]
 pub mod macos_ipc;
@@ -967,6 +968,7 @@ impl ControlService {
         let mut data_plane = self.data_plane.lock().await;
         let mut state = self.state.lock().await;
         if let Some(active) = data_plane.as_mut() {
+            state.update_data_plane(active.profile.data_plane, active.runtime.l4_snapshot());
             if !platform_recovery_pending {
                 match active.runtime.health() {
                     RuntimeHealth::Connected { path, .. }
@@ -1165,7 +1167,7 @@ impl ControlService {
             if let Some(active) = data_plane.as_ref() {
                 let (protector, runtime_cancel) = active.runtime.diagnostic_dns_context()?;
                 return Some(diagnostics::DiagnosticProbeContext {
-                    settings: profile.direct_dns.clone(),
+                    settings: active.profile.direct_dns.clone(),
                     protector,
                     runtime_cancel,
                     h3: None,
@@ -1196,8 +1198,18 @@ impl ControlService {
             protector,
             runtime_cancel: tokio_util::sync::CancellationToken::new(),
             h3: identity
-                .filter(|_| profile.transport != TransportPolicy::Http2)
-                .map(|identity| (endpoints, profile.endpoint.sni.clone(), identity)),
+                .filter(|_| {
+                    profile.data_plane == usque_core::DataPlaneMode::L4Proxy
+                        || profile.transport != TransportPolicy::Http2
+                })
+                .and_then(|identity| {
+                    let sni = if profile.data_plane == usque_core::DataPlaneMode::L4Proxy {
+                        identity.l4_server_name()?.to_owned()
+                    } else {
+                        profile.endpoint.sni.clone()
+                    };
+                    Some((endpoints, sni, identity))
+                }),
             _lifecycle: Some(lifecycle),
         })
     }
@@ -1798,7 +1810,12 @@ impl ControlService {
 
         {
             let mut state = self.state.lock().await;
-            match profile.transport {
+            state.update_data_plane(profile.data_plane, None);
+            match if profile.data_plane == usque_core::DataPlaneMode::L4Proxy {
+                TransportPolicy::Http3
+            } else {
+                profile.transport
+            } {
                 TransportPolicy::Auto => {
                     state.transition(ConnectionPhase::ConnectingHttp3)?;
                 }
@@ -1919,6 +1936,7 @@ impl ControlService {
         );
         let snapshot = {
             let mut state = self.state.lock().await;
+            state.update_data_plane(profile.data_plane, runtime.l4_snapshot());
             if profile.transport == TransportPolicy::Auto && path.transport == Transport::Http2 {
                 state.transition(ConnectionPhase::ConnectingHttp2)?;
             }
@@ -1943,7 +1961,10 @@ impl ControlService {
                     },
                 });
             }
-            if profile.proxy.dns_mode != ProxyDnsMode::Remote {
+            if matches!(
+                profile.proxy.dns_mode,
+                ProxyDnsMode::LocalConfigured | ProxyDnsMode::System
+            ) {
                 warnings.push(ConnectionWarning {
                     code: "LOCAL_DNS_LEAK_RISK".to_owned(),
                     message:
@@ -4122,6 +4143,7 @@ fn profile_from_proto(source: v1::Profile) -> Result<Profile, ControlServiceErro
 
     let mut profile = Profile {
         id: parse_profile_id(&source.id)?,
+        data_plane: data_plane::from_proto(source.data_plane)?,
         name: source.name,
         mode,
         frontends,
@@ -4207,6 +4229,9 @@ fn profile_from_proto(source: v1::Profile) -> Result<Profile, ControlServiceErro
                     ProxyDnsMode::LocalConfigured
                 }
                 value if value == v1::ProxyDnsMode::System as i32 => ProxyDnsMode::System,
+                value if value == v1::ProxyDnsMode::EdgeResolved as i32 => {
+                    ProxyDnsMode::EdgeResolved
+                }
                 _ => {
                     return Err(ControlServiceError::InvalidRequest(
                         "unknown proxy DNS mode".to_owned(),
@@ -4262,6 +4287,7 @@ fn parse_listeners(values: &[String]) -> Result<Vec<SocketAddr>, ControlServiceE
 
 pub(crate) fn profile_to_proto(profile: &Profile) -> v1::Profile {
     v1::Profile {
+        data_plane: data_plane::to_proto(profile.data_plane),
         congestion_control: congestion::to_proto(profile.congestion_control),
         id: profile.id.to_string(),
         name: profile.name.clone(),
@@ -4413,6 +4439,7 @@ fn proxy_to_proto(proxy: &ProxySettings) -> v1::ProxySettings {
             ProxyDnsMode::Remote => v1::ProxyDnsMode::Remote as i32,
             ProxyDnsMode::LocalConfigured => v1::ProxyDnsMode::LocalConfigured as i32,
             ProxyDnsMode::System => v1::ProxyDnsMode::System as i32,
+            ProxyDnsMode::EdgeResolved => v1::ProxyDnsMode::EdgeResolved as i32,
         },
         dns_servers: proxy.dns_servers.iter().map(ToString::to_string).collect(),
         auth_username: proxy
@@ -4424,6 +4451,9 @@ fn proxy_to_proto(proxy: &ProxySettings) -> v1::ProxySettings {
 
 fn current_capabilities() -> v1::Capabilities {
     v1::Capabilities {
+        l4_tcp: true,
+        l4_tun_tcp: cfg!(windows),
+        l4_dns_conversion: true,
         network_settings_application: true,
         h3_congestion_control_algorithms: usque_core::CongestionControlAlgorithm::ALL
             .into_iter()
@@ -4457,6 +4487,11 @@ fn current_capabilities() -> v1::Capabilities {
 
 pub(crate) fn snapshot_to_proto(snapshot: &ConnectionSnapshot) -> v1::ConnectionSnapshot {
     v1::ConnectionSnapshot {
+        data_plane: snapshot
+            .data_plane
+            .map(data_plane::to_proto)
+            .unwrap_or_default(),
+        l4: snapshot.l4.as_ref().map(data_plane::snapshot_to_proto),
         session_congestion_control: snapshot
             .session_congestion_control
             .map(congestion::to_proto)

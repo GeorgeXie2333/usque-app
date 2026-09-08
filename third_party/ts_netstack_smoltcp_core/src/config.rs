@@ -152,6 +152,9 @@ pub struct Config {
 
     /// Whether Nagle's algorithm is enabled on newly created TCP sockets.
     pub tcp_nagle_enabled: bool,
+    /// Apply the TCP allocation policy and a bounded accept backlog to listeners.
+    /// Opt-in so existing upstream listener behavior remains unchanged.
+    pub tcp_listener_budgeted: bool,
 
     /// The default size of buffer allocated for each raw socket.
     pub raw_buffer_size: usize,
@@ -175,6 +178,7 @@ impl Default for Config {
             tcp_buffer_policy: None,
             tcp_buffer_metrics: None,
             tcp_nagle_enabled: true,
+            tcp_listener_budgeted: false,
 
             raw_buffer_size: 1024 * 4,
             raw_message_count: 32,

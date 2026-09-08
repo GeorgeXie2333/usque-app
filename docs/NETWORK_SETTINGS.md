@@ -48,6 +48,13 @@ reply cannot put the interface back into an unknown state.
 
 ## Application rules
 
+Schema 15 adds `data_plane` independently of the saved CONNECT-IP transport
+policy. [Experimental L4](L4_PROXY.md) always uses HTTP/3, preserves the saved
+H3/H2 preference and SNI, and is excluded from Auto. Data-plane switches and
+L4 TUN toggles are cold changes. Old configurations remain CONNECT-IP; unknown
+explicit modes are rejected. L4 capability fields are appended, never inferred
+from generic HTTP/3 support.
+
 | Situation | Result |
 | --- | --- |
 | Disconnected, connecting, reconnecting, disconnecting, error, or executor busy | Save; wait for a manual connection. |

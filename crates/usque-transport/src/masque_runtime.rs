@@ -863,7 +863,7 @@ fn record_tun_sink_drop(dropped: usize, batches: &mut u64, packets: &mut u64) {
     }
 }
 
-fn listeners_overlap(active: &[SocketAddr], wanted: &[SocketAddr]) -> bool {
+pub(crate) fn listeners_overlap(active: &[SocketAddr], wanted: &[SocketAddr]) -> bool {
     let active: HashSet<SocketAddr> = active.iter().copied().collect();
     wanted.iter().any(|address| active.contains(address))
 }
@@ -874,7 +874,7 @@ fn listeners_overlap(active: &[SocketAddr], wanted: &[SocketAddr]) -> bool {
 /// idle are also applied at `activate` time and live in the accept-loop
 /// context until the frontend is rebuilt.
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct FrontendSpec {
+pub(crate) struct FrontendSpec {
     listeners: HashSet<SocketAddr>,
     credentials: Option<ProxyAuthCredentials>,
     dns_mode: ProxyDnsMode,
@@ -883,7 +883,7 @@ struct FrontendSpec {
 }
 
 impl FrontendSpec {
-    fn socks5(
+    pub(crate) fn socks5(
         listeners: &[SocketAddr],
         profile: &Profile,
         credentials: Option<ProxyAuthCredentials>,
@@ -897,7 +897,7 @@ impl FrontendSpec {
         }
     }
 
-    fn http(
+    pub(crate) fn http(
         listeners: &[SocketAddr],
         profile: &Profile,
         credentials: Option<ProxyAuthCredentials>,
@@ -911,7 +911,7 @@ impl FrontendSpec {
         }
     }
 
-    fn from_socks5_profile(profile: &Profile) -> Option<Self> {
+    pub(crate) fn from_socks5_profile(profile: &Profile) -> Option<Self> {
         Some(Self::socks5(
             &profile.proxy.socks5_listeners,
             profile,
@@ -919,7 +919,7 @@ impl FrontendSpec {
         ))
     }
 
-    fn from_http_profile(profile: &Profile) -> Option<Self> {
+    pub(crate) fn from_http_profile(profile: &Profile) -> Option<Self> {
         Some(Self::http(
             &profile.proxy.http_listeners,
             profile,
@@ -927,7 +927,10 @@ impl FrontendSpec {
         ))
     }
 
-    fn from_socks5_frontend(frontend: &Socks5Frontend, profile: &Profile) -> Option<Self> {
+    pub(crate) fn from_socks5_frontend(
+        frontend: &Socks5Frontend,
+        profile: &Profile,
+    ) -> Option<Self> {
         Some(Self::socks5(
             frontend.listeners(),
             profile,
@@ -935,7 +938,10 @@ impl FrontendSpec {
         ))
     }
 
-    fn from_http_frontend(frontend: &HttpProxyFrontend, profile: &Profile) -> Option<Self> {
+    pub(crate) fn from_http_frontend(
+        frontend: &HttpProxyFrontend,
+        profile: &Profile,
+    ) -> Option<Self> {
         Some(Self::http(
             frontend.listeners(),
             profile,

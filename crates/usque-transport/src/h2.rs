@@ -96,11 +96,18 @@ impl H2FlowControlConfig {
 pub struct MasqueTlsIdentity {
     private_key_sec1_der: Zeroizing<Vec<u8>>,
     endpoint_pin: EndpointPin,
+    pub(crate) provider: Option<usque_core::IdentityProvider>,
     pub assigned_ipv4: Ipv4Addr,
     pub assigned_ipv6: Ipv6Addr,
 }
 
 impl MasqueTlsIdentity {
+    /// Available only when the credential loader supplied an authenticated
+    /// provider. Diagnostics must not derive L4 SNI from a saved profile label.
+    pub fn l4_server_name(&self) -> Option<&'static str> {
+        self.provider.as_ref().map(usque_core::l4_server_name)
+    }
+
     pub fn new(
         private_key_sec1_der: Zeroizing<Vec<u8>>,
         endpoint_pin_spki_der: &[u8],
@@ -116,6 +123,7 @@ impl MasqueTlsIdentity {
         Ok(Self {
             private_key_sec1_der,
             endpoint_pin,
+            provider: None,
             assigned_ipv4,
             assigned_ipv6,
         })
@@ -1127,6 +1135,8 @@ pub(crate) fn validate_ip_packet(packet: &[u8]) -> Result<(), TransportError> {
 
 #[derive(Debug, Error)]
 pub enum TransportError {
+    #[error("L4 data plane unavailable ({})", .0.code.as_str())]
+    L4(Box<TransportFailure>),
     #[error("the secure identity records are incomplete or invalid")]
     InvalidIdentity,
     #[error("the enrolled MASQUE private key is not valid P-256 SEC1 DER")]
@@ -1238,6 +1248,7 @@ impl TransportError {
         use TransportStage as Stage;
 
         let (code, stage) = match self {
+            Self::L4(failure) => return failure.as_ref().clone(),
             Self::InvalidIdentity | Self::InvalidPrivateKey | Self::InvalidEndpointPin => {
                 (Code::IdentityInvalid, Stage::TunnelStartup)
             }

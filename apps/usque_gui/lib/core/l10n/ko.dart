@@ -1,6 +1,12 @@
 /// Korean UI catalog.
 const Map<String, String> kKoCatalog = <String, String>{
   'app_name': 'Usque',
+  'diag_fail_L4_SESSION_UNAVAILABLE': 'L4 세션을 사용할 수 없음',
+  'diag_fail_L4_PROTOCOL_ERROR': 'L4 프로토콜 오류',
+  'diag_fail_L4_CONNECT_REJECTED': 'L4 CONNECT 거부됨',
+  'diag_fail_L4_CONNECT_TIMEOUT': 'L4 CONNECT 시간 초과',
+  'diag_fail_L4_RESOURCE_EXHAUSTED': 'L4 리소스 한도 초과',
+  'diag_fail_L4_DNS_FAILED': 'L4 DNS 쿼리 실패',
   'window_minimize': '최소화',
   'window_maximize': '최대화',
   'window_restore': '창 크기 복원',

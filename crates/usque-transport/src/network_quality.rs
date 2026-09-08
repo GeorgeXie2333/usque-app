@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -509,6 +509,7 @@ pub struct NetworkQualityTelemetry {
 }
 
 struct NetworkQualityTelemetryInner {
+    stream_data_plane: AtomicBool,
     features: crate::NetworkFeatureFlags,
     #[cfg(any(test, feature = "fault-injection"))]
     faults: std::sync::Mutex<Option<crate::fault_injection::NetworkFaults>>,
@@ -539,6 +540,7 @@ impl NetworkQualityTelemetry {
             std::array::from_fn(|index| QueueMetrics::unregistered(ALL_QUEUE_KINDS[index]));
         Self {
             inner: Arc::new(NetworkQualityTelemetryInner {
+                stream_data_plane: AtomicBool::new(false),
                 features,
                 #[cfg(any(test, feature = "fault-injection"))]
                 faults: std::sync::Mutex::new(None),
@@ -555,6 +557,10 @@ impl NetworkQualityTelemetry {
 impl NetworkQualityTelemetry {
     pub fn features(&self) -> crate::NetworkFeatureFlags {
         self.inner.features
+    }
+
+    pub(crate) fn use_stream_data_plane(&self) {
+        self.inner.stream_data_plane.store(true, Ordering::Release);
     }
 
     #[cfg(any(test, feature = "fault-injection"))]
@@ -1165,6 +1171,21 @@ impl NetworkQualitySampler {
             h2_flow_control: state.h2.flow_control,
             samples: Vec::new(),
         };
+        if self
+            .telemetry
+            .inner
+            .stream_data_plane
+            .load(Ordering::Acquire)
+        {
+            snapshot.pmtu.effective_connect_ip_payload_bytes = MetricValue::unsupported();
+            snapshot.loss.datagrams_sent = MetricValue::unsupported();
+            snapshot.loss.datagrams_received = MetricValue::unsupported();
+            snapshot.loss.datagrams_lost = MetricValue::unsupported();
+            snapshot.loss.datagram_receive_drops = MetricValue::unsupported();
+            snapshot
+                .queues
+                .retain(|queue| queue.kind != QueueKind::H3DatagramSend);
+        }
         snapshot.level = self.classify(&snapshot);
         if snapshot.connection_id.is_some() {
             let origin = *self.clock_origin.get_or_insert(sampled_at);

@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "kind": "sampling_contract_not_measurement_evidence",
+  "status": "not_run",
+  "minimum_repetitions": 7,
+  "baseline": {"data_plane": "connect_ip", "transport": "http3"},
+  "candidate": {"data_plane": "l4_proxy", "transport": "http3"},
+  "frontends": ["socks5", "http_connect", "http_forward", "tun"],
+  "platforms": ["windows-x64-v2", "android-arm64", "android-armv7"],
+  "loads": ["cold_connect", "warm_connect", "single_download", "single_upload", "many_bidirectional_streams", "short_and_long_mixed", "slow_reader", "slow_writer", "cancel_burst", "long_run_idle_reuse"],
+  "network_conditions": ["low_rtt", "high_bdp", "random_loss", "rate_limited", "pmtu_blackhole", "same_family_migration", "full_rebuild"],
+  "metrics": ["application_goodput_bps", "connect_latency_p95_us", "connect_latency_p99_us", "cpu_seconds_per_gb", "rss_peak_bytes", "reclaimed_buffer_bytes", "failure_rate", "recovery_time_ms", "flow_rejections", "dns_conversion_failures"],
+  "candidate_metadata": ["commit", "artifact_sha256", "build_variant", "os_version", "cpu", "memory", "account_class_without_identifier", "congestion_algorithm", "tun_mtu", "network_profile", "run_seed"],
+  "not_applicable": ["connect_ip_address_negotiation", "datagram_queue_loss", "connect_ip_payload_ceiling"],
+  "rules": ["keep existing thresholds unchanged", "record failed and not_run results", "do not merge proxy and TUN results", "do not publish raw targets or packet captures", "do not infer isolation from a label alone", "supplemental evidence is not a publication prerequisite"]
+}

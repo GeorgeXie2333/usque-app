@@ -1,6 +1,12 @@
 /// Persian UI catalog.
 const Map<String, String> kFaCatalog = <String, String>{
   'app_name': 'Usque',
+  'diag_fail_L4_SESSION_UNAVAILABLE': 'نشست L4 در دسترس نیست',
+  'diag_fail_L4_PROTOCOL_ERROR': 'خطای پروتکل L4',
+  'diag_fail_L4_CONNECT_REJECTED': 'درخواست L4 CONNECT رد شد',
+  'diag_fail_L4_CONNECT_TIMEOUT': 'مهلت L4 CONNECT تمام شد',
+  'diag_fail_L4_RESOURCE_EXHAUSTED': 'بودجهٔ منابع L4 تمام شد',
+  'diag_fail_L4_DNS_FAILED': 'پرس‌وجوی DNS در L4 ناموفق بود',
   'window_minimize': 'کوچک‌کردن',
   'window_maximize': 'بزرگ‌کردن',
   'window_restore': 'بازگرداندن اندازهٔ پنجره',

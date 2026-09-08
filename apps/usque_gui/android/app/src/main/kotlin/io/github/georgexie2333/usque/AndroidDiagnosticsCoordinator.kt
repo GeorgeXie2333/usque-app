@@ -467,14 +467,20 @@ internal class AndroidDiagnosticsCoordinator(
             }
 
             "transport.h3_connect", "transport.h3_datagram" -> {
+                val l4 = snapshot["data_plane"] == "l4_proxy"
+                val verified = (snapshot["l4"] as? Map<*, *>)?.get("connect_verified") == true
                 status =
-                    if (connected &&
-                        controlReachable &&
-                        snapshot["transport"] == "h3"
-                    ) {
-                        "passed"
-                    } else {
+                    if (l4 && (check.id == "transport.h3_datagram" || !verified)) {
                         "skipped"
+                    } else {
+                        if (connected &&
+                            controlReachable &&
+                            snapshot["transport"] == "h3"
+                        ) {
+                            "passed"
+                        } else {
+                            "skipped"
+                        }
                     }
             }
 
@@ -505,7 +511,9 @@ internal class AndroidDiagnosticsCoordinator(
 
             "tunnel.address_assignment" -> {
                 status =
-                    if (!platformStateObserved) {
+                    if (snapshot["data_plane"] == "l4_proxy") {
+                        "skipped"
+                    } else if (!platformStateObserved) {
                         "skipped"
                     } else if (
                         connected &&
@@ -544,6 +552,8 @@ internal class AndroidDiagnosticsCoordinator(
                         "skipped"
                     } else if (bytes > 0L) {
                         "passed"
+                    } else if (snapshot["data_plane"] == "l4_proxy") {
+                        "skipped"
                     } else if (connected) {
                         "warning"
                     } else {

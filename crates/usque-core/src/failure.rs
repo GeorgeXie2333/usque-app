@@ -57,10 +57,16 @@ pub enum TransportFailureCode {
     DiagnosticCancelled,
     DiagnosticDependencyFailed,
     Internal,
+    L4SessionUnavailable,
+    L4ProtocolError,
+    L4ConnectRejected,
+    L4ConnectTimeout,
+    L4ResourceExhausted,
+    L4DnsFailed,
 }
 
 impl TransportFailureCode {
-    pub const ALL: [Self; 48] = [
+    pub const ALL: [Self; 54] = [
         Self::EngineUnavailable,
         Self::AgentUnreachable,
         Self::VpnServiceUnavailable,
@@ -109,6 +115,12 @@ impl TransportFailureCode {
         Self::DiagnosticCancelled,
         Self::DiagnosticDependencyFailed,
         Self::Internal,
+        Self::L4SessionUnavailable,
+        Self::L4ProtocolError,
+        Self::L4ConnectRejected,
+        Self::L4ConnectTimeout,
+        Self::L4ResourceExhausted,
+        Self::L4DnsFailed,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -161,6 +173,12 @@ impl TransportFailureCode {
             Self::DiagnosticCancelled => "DIAGNOSTIC_CANCELLED",
             Self::DiagnosticDependencyFailed => "DIAGNOSTIC_DEPENDENCY_FAILED",
             Self::Internal => "INTERNAL",
+            Self::L4SessionUnavailable => "L4_SESSION_UNAVAILABLE",
+            Self::L4ProtocolError => "L4_PROTOCOL_ERROR",
+            Self::L4ConnectRejected => "L4_CONNECT_REJECTED",
+            Self::L4ConnectTimeout => "L4_CONNECT_TIMEOUT",
+            Self::L4ResourceExhausted => "L4_RESOURCE_EXHAUSTED",
+            Self::L4DnsFailed => "L4_DNS_FAILED",
         }
     }
 
@@ -168,6 +186,9 @@ impl TransportFailureCode {
         use FailureAction::{FallbackToH2, Retry, RetryAfterNetworkChange, Stop};
         use FailureSeverity::{Critical, Error, Warning};
         match self {
+            Self::L4ConnectRejected | Self::L4ProtocolError => {
+                FailureMetadata::new(Error, false, false, Stop, "retry", true)
+            }
             Self::H3UdpUnreachable
             | Self::H3HandshakeTimeout
             | Self::H3ProtocolError
