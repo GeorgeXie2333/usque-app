@@ -16,6 +16,8 @@ class SaveChangesBar extends StatelessWidget {
     this.saved = false,
     this.savedLabel,
     this.idleHint,
+    this.statusLabel,
+    this.onReconnect,
     super.key,
   });
 
@@ -25,6 +27,8 @@ class SaveChangesBar extends StatelessWidget {
   final bool saved;
   final String? savedLabel;
   final String? idleHint;
+  final String? statusLabel;
+  final VoidCallback? onReconnect;
   final String? error;
   final VoidCallback? onSave;
 
@@ -32,6 +36,7 @@ class SaveChangesBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final message =
+        statusLabel ??
         error ??
         (saving
             ? strings.get('saving_changes')
@@ -71,7 +76,7 @@ class SaveChangesBar extends StatelessWidget {
                         ),
                       ),
                     );
-                    final save = FilledButton.icon(
+                    final saveButton = FilledButton.icon(
                       onPressed: saving || (!dirty && error == null)
                           ? null
                           : onSave,
@@ -85,6 +90,23 @@ class SaveChangesBar extends StatelessWidget {
                         strings.get(saving ? 'saving_changes' : 'save_changes'),
                       ),
                     );
+                    final save = onReconnect == null
+                        ? saveButton
+                        : Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            alignment: WrapAlignment.end,
+                            children: [
+                              if (onReconnect != null)
+                                OutlinedButton(
+                                  onPressed: onReconnect,
+                                  child: Text(
+                                    strings.get('settings_reconnect'),
+                                  ),
+                                ),
+                              saveButton,
+                            ],
+                          );
                     if (constraints.maxWidth < 520 ||
                         MediaQuery.textScalerOf(context).scale(14) > 21) {
                       return Column(

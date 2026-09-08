@@ -313,30 +313,37 @@ void main() {
     variant: TargetPlatformVariant.only(TargetPlatform.android),
   );
 
-  test('mixed algorithm and runtime edits still reconfigure', () async {
-    final engine = CongestionSaveEngine();
-    final app = AppController(engine)
-      ..snapshot = const EngineSnapshot(
-        phase: ConnectionPhase.connected,
-        sessionCongestionControl: CongestionControlAlgorithm.cubic,
-      );
-    addTearDown(app.dispose);
-    engine.runtimeReconfigure.complete();
-    expect(
-      await app.saveNetwork(
-        app.activeProfile.copyWith(
-          congestionControl: CongestionControlAlgorithm.bbr3,
-          sni: 'changed.example',
+  test(
+    'mixed algorithm and runtime edits use the unified save command',
+    () async {
+      final engine = CongestionSaveEngine();
+      final app = AppController(engine)
+        ..snapshot = const EngineSnapshot(
+          phase: ConnectionPhase.connected,
+          sessionCongestionControl: CongestionControlAlgorithm.cubic,
+        );
+      addTearDown(app.dispose);
+      engine.runtimeReconfigure.complete();
+      expect(
+        await app.saveNetwork(
+          app.activeProfile.copyWith(
+            congestionControl: CongestionControlAlgorithm.bbr3,
+            sni: 'changed.example',
+          ),
         ),
-      ),
-      isTrue,
-    );
-    expect(engine.reconfigurations, 1);
-    expect(
-      app.snapshot.sessionCongestionControl,
-      CongestionControlAlgorithm.cubic,
-    );
-  });
+        isTrue,
+      );
+      expect(engine.reconfigurations, 0);
+      expect(
+        engine.settingsState!.deferredFields,
+        containsAll(['congestion_control', 'endpoint.sni']),
+      );
+      expect(
+        app.snapshot.sessionCongestionControl,
+        CongestionControlAlgorithm.cubic,
+      );
+    },
+  );
 
   for (final size in [const Size(375, 812), const Size(1280, 900)]) {
     testWidgets('selector is below SNI with concise labels at $size', (
@@ -467,7 +474,7 @@ void main() {
       app.sharedNetwork.congestionControl,
       CongestionControlAlgorithm.cubic,
     );
-    expect(find.text(app.strings.get('changes_failed')), findsOneWidget);
+    expect(find.text(app.strings.get('settings_save_failed')), findsOneWidget);
     expect(
       tester.widget<PopScope<Object?>>(find.byType(PopScope<Object?>)).canPop,
       isFalse,

@@ -15,6 +15,7 @@ use crate::map_windows_vpn_error;
 
 pub(crate) struct ActiveDataPlane {
     pub(crate) profile_id: uuid::Uuid,
+    pub(crate) profile: Profile,
     pub(crate) session_generation: u64,
     pub(crate) frontends: FrontendSettings,
     pub(crate) connected_at: Instant,

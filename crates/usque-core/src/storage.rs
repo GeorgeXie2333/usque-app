@@ -23,6 +23,40 @@ pub struct ConfigStore {
 }
 
 impl ConfigStore {
+    /// Lock a stable sidecar inode, not the atomically replaced JSON file.
+    /// The OS releases the lock when the guard is dropped or the process exits.
+    pub fn lock_exclusive(&self) -> Result<File, StoreError> {
+        let parent = self
+            .path
+            .parent()
+            .ok_or_else(|| StoreError::MissingParent(self.path.clone()))?;
+        fs::create_dir_all(parent)?;
+        let lock = File::options()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(self.path.with_extension("json.lock"))?;
+        lock.lock()?;
+        Ok(lock)
+    }
+
+    /// A short read/modify/write transaction. Callers must not perform network
+    /// operations or re-enter this store from the closure.
+    pub fn update<T, E>(
+        &self,
+        change: impl FnOnce(&mut AppConfig) -> Result<T, E>,
+    ) -> Result<(AppConfig, T), E>
+    where
+        E: From<StoreError>,
+    {
+        let _lock = self.lock_exclusive()?;
+        let mut config = self.load_or_default()?;
+        let result = change(&mut config)?;
+        self.save(&config)?;
+        Ok((config, result))
+    }
+
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self { path: path.into() }
     }
@@ -101,7 +135,7 @@ impl ConfigStore {
 
         replace_file(temporary.path(), &self.path)?;
         let _ = temporary.keep();
-        sync_parent(parent)?;
+        sync_parent(parent).map_err(StoreError::CommitUncertain)?;
         Ok(())
     }
 
@@ -406,6 +440,10 @@ fn sync_parent(parent: &Path) -> io::Result<()> {
 
 #[derive(Debug, Error)]
 pub enum StoreError {
+    #[error("configuration replacement completed but durability is unconfirmed: {0}")]
+    CommitUncertain(io::Error),
+    #[error("network settings were rejected: {0}")]
+    NetworkSettings(String),
     #[error("configuration I/O failed: {0}")]
     Io(#[from] io::Error),
     #[error("configuration JSON is invalid: {0}")]
@@ -421,6 +459,48 @@ pub enum StoreError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn concurrent_transactions_merge_the_latest_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ConfigStore::new(directory.path().join("config.json"));
+        store.save(&AppConfig::default()).unwrap();
+        std::thread::scope(|scope| {
+            for index in 0..12 {
+                let store = store.clone();
+                scope.spawn(move || {
+                    store
+                        .update::<_, StoreError>(|config| {
+                            config.insert_account(
+                                Uuid::new_v4(),
+                                format!("Account {index}"),
+                                None,
+                            )?;
+                            Ok(())
+                        })
+                        .unwrap();
+                });
+            }
+        });
+        assert_eq!(store.load().unwrap().profiles.len(), 13);
+    }
+
+    #[test]
+    fn rejected_transaction_leaves_the_file_unchanged() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ConfigStore::new(directory.path().join("config.json"));
+        let original = AppConfig::default();
+        store.save(&original).unwrap();
+        assert!(
+            store
+                .update::<(), StoreError>(|config| {
+                    config.network.mtu = 1400;
+                    Err(StoreError::NetworkSettings("rejected".into()))
+                })
+                .is_err()
+        );
+        assert_eq!(store.load().unwrap(), original);
+    }
 
     #[test]
     fn save_and_load_round_trip() {

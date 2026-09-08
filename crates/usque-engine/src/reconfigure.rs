@@ -26,10 +26,11 @@ impl ControlService {
             ));
         }
         let previous = self
-            .config
-            .read()
+            .data_plane
+            .lock()
             .await
-            .runtime_profile(profile.id)
+            .as_ref()
+            .map(|active| active.profile.clone())
             .ok_or(ControlServiceError::ProfileNotFound(profile.id))?;
 
         let class = classify_reconfigure(&previous, &profile);
@@ -65,10 +66,12 @@ impl ControlService {
                 return Err(error);
             }
         };
+        *self.session_profile.lock().await = Some(applied.clone());
         let snapshot = match self.connect_locked(profile_id).await {
             Ok(snapshot) => snapshot,
             Err(error) => {
                 self.upsert_profile_locked(previous.clone()).await?;
+                *self.session_profile.lock().await = Some(previous.clone());
                 if let Err(rollback_error) = self.connect_locked(previous.id).await {
                     tracing::error!(%rollback_error, "failed to restore the previous active Profile");
                 }
@@ -87,6 +90,7 @@ impl ControlService {
         previous: Profile,
         class: ReconfigureClass,
     ) -> Result<v1::ReconfigureResult, ControlServiceError> {
+        let session_algorithm = previous.congestion_control;
         let applied = self.upsert_profile_locked(profile).await?;
         let applied_result = match class {
             ReconfigureClass::HotFrontends => self.hot_reconfigure_frontends(&applied).await,
@@ -142,6 +146,18 @@ impl ControlService {
             return Err(error);
         }
         self.apply_hot_profile_state(&applied).await;
+        let mut confirmed = applied.clone();
+        confirmed.congestion_control = session_algorithm;
+        let generation = {
+            let mut active = self.data_plane.lock().await;
+            active.as_mut().map(|active| {
+                active.profile = confirmed.clone();
+                active.session_generation
+            })
+        };
+        *self.session_profile.lock().await = Some(confirmed.clone());
+        self.publish_settings_runtime(Some(confirmed), generation)
+            .await;
         let snapshot = self.status_snapshot().await;
         Ok(v1::ReconfigureResult {
             profile: Some(profile_to_proto(&applied)),
@@ -149,7 +165,7 @@ impl ControlService {
         })
     }
 
-    async fn hot_reconfigure_frontends(
+    pub(crate) async fn hot_reconfigure_frontends(
         &self,
         profile: &Profile,
     ) -> Result<(), ControlServiceError> {
@@ -164,7 +180,10 @@ impl ControlService {
         Ok(())
     }
 
-    async fn hot_apply_system_proxy(&self, profile: &Profile) -> Result<(), ControlServiceError> {
+    pub(crate) async fn hot_apply_system_proxy(
+        &self,
+        profile: &Profile,
+    ) -> Result<(), ControlServiceError> {
         let mut data_plane = self.data_plane.lock().await;
         let Some(active) = data_plane.as_mut() else {
             return Err(ControlServiceError::InvalidRequest(
@@ -174,7 +193,10 @@ impl ControlService {
         active.runtime.apply_system_proxy(profile).await
     }
 
-    async fn hot_tunnel_attach(&self, profile: &Profile) -> Result<(), ControlServiceError> {
+    pub(crate) async fn hot_tunnel_attach(
+        &self,
+        profile: &Profile,
+    ) -> Result<(), ControlServiceError> {
         let mut data_plane = self.data_plane.lock().await;
         let Some(mut active) = data_plane.take() else {
             return Err(ControlServiceError::InvalidRequest(

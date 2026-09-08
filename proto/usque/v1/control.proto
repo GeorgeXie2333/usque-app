@@ -270,6 +270,7 @@ message Capabilities {
   bool quic_migration = 22;
   bool automatic_pmtu = 23;
   repeated CongestionControlAlgorithm h3_congestion_control_algorithms = 24;
+  bool network_settings_application = 25;
 }
 
 message FrontendStatus {
@@ -772,6 +773,38 @@ message ReconfigureResult {
   ConnectionSnapshot snapshot = 2;
 }
 
+message SaveNetworkSettingsRequest {
+  string operation_id = 1;
+  string account_id = 2;
+  Profile values = 3;
+  repeated string changed_fields = 4;
+}
+
+message GetNetworkSettingsStateRequest {}
+
+enum NetworkSettingsApplyStatus {
+  NETWORK_SETTINGS_APPLY_STATUS_UNSPECIFIED = 0;
+  NETWORK_SETTINGS_APPLY_STATUS_NOT_REQUIRED = 1;
+  NETWORK_SETTINGS_APPLY_STATUS_APPLYING = 2;
+  NETWORK_SETTINGS_APPLY_STATUS_APPLIED = 3;
+  NETWORK_SETTINGS_APPLY_STATUS_DEFERRED = 4;
+  NETWORK_SETTINGS_APPLY_STATUS_FAILED = 5;
+  NETWORK_SETTINGS_APPLY_STATUS_UNKNOWN = 6;
+}
+
+message NetworkSettingsState {
+  string source_epoch = 1;
+  uint64 sequence = 2;
+  string operation_id = 3;
+  string session_id = 4;
+  Profile stored_profile = 5;
+  Profile applied_profile = 6;
+  NetworkSettingsApplyStatus apply_status = 7;
+  repeated string deferred_fields = 8;
+  string error_code = 9;
+  optional bool persisted = 10;
+}
+
 message ControlRequest {
   string request_id = 1;
   // 19 was PauseCaptivePortalRequest (removed).
@@ -807,6 +840,8 @@ message ControlRequest {
     GetDiagnosticsRequest get_diagnostics = 38;
     GetConnectionTimelineRequest get_connection_timeline = 39;
     GetNetworkQualityRequest get_network_quality = 40;
+    SaveNetworkSettingsRequest save_network_settings = 41;
+    GetNetworkSettingsStateRequest get_network_settings_state = 42;
   }
 }
 
@@ -848,6 +883,7 @@ message ControlResponse {
     DiagnosticSession diagnostics = 19;
     ConnectionTimeline connection_timeline = 20;
     NetworkQualitySnapshot network_quality = 21;
+    NetworkSettingsState network_settings = 22;
   }
 }
 
@@ -916,5 +952,6 @@ message EventEnvelope {
     DiagnosticSessionCompleted diagnostic_session_completed = 21;
     DiagnosticSessionCancelled diagnostic_session_cancelled = 22;
     NetworkQualityUpdated network_quality_updated = 23;
+    NetworkSettingsState network_settings_changed = 24;
   }
 }

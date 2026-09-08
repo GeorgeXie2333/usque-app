@@ -118,6 +118,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCap
 ) -> jstring {
     with_jni_env(&mut environment, |environment| {
         let json = serde_json::json!({
+            "network_settings_application": engine_ready(),
             "network_quality": engine_ready() && usque_transport::PRODUCTION_NETWORK_FEATURES.network_quality_metrics,
             "encrypted_direct_dns": engine_ready() && usque_transport::ENCRYPTED_DIRECT_DNS_ENABLED,
             "quic_migration": engine_ready() && usque_transport::PRODUCTION_NETWORK_FEATURES.quic_migration,
@@ -752,6 +753,40 @@ fn native_apply_profile_command(
     }
 }
 
+mod network_settings;
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeNetworkSettings<
+    'local,
+>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    config_path: JString<'local>,
+    request_json: JString<'local>,
+) -> jstring {
+    with_jni_env(&mut environment, |environment| {
+        let result = (|| {
+            let path = config_path
+                .try_to_string(environment)
+                .map_err(|_| "invalid path")?;
+            let request = request_json
+                .try_to_string(environment)
+                .map_err(|_| "invalid request")?;
+            network_settings::command(&path, &request)
+        })();
+        match result {
+            Ok(value) => match environment.new_string(value) {
+                Ok(value) => value.into_raw(),
+                Err(_) => std::ptr::null_mut(),
+            },
+            Err(error) => {
+                throw_io_error(environment, &error);
+                std::ptr::null_mut()
+            }
+        }
+    })
+}
+
 fn engine_ready() -> bool {
     cfg!(target_os = "android")
 }
@@ -1124,6 +1159,15 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
         .map_err(|error| format!("invalid profile-store command: {error}"))?;
     let clear_all_data = matches!(&command, AndroidConfigCommand::ClearAllData);
     let store = ConfigStore::new(config_path);
+    if matches!(
+        command,
+        AndroidConfigCommand::ListGeoRules
+            | AndroidConfigCommand::DownloadGeoRules { .. }
+            | AndroidConfigCommand::UpdateAllGeoRules
+    ) {
+        return apply_geo_command(store.path(), command);
+    }
+    let _lock = store.lock_exclusive().map_err(|error| error.to_string())?;
     let mut config = store.load_or_default().map_err(|error| error.to_string())?;
     let mut changed = false;
 

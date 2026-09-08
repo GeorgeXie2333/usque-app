@@ -21,35 +21,15 @@ class CongestionControlSettingsTest {
     }
 
     @Test
-    fun mixedSavePreservesSessionAlgorithmAndChangesOtherFields() {
-        val active = """{"id":"a","mtu":1280,"congestion_control":"reno"}"""
+    fun newSessionUsesAllSavedFieldsAndRejectsMissingAccounts() {
+        val old = """{"id":"a","mtu":1280,"congestion_control":"reno"}"""
         val desired = """{"id":"a","mtu":1400,"congestion_control":"bbr3"}"""
-        val applied = JSONObject(CongestionControlSettings.forCurrentSession(desired, active))
-        assertEquals("reno", applied.getString("congestion_control"))
-        assertEquals(1400, applied.getInt("mtu"))
-        assertEquals(
-            "bbr3",
-            JSONObject(
-                CongestionControlSettings.forNewSession(applied.toString(), desired),
-            ).getString("congestion_control"),
-        )
-    }
-
-    @Test
-    fun oldRuntimeIsCubicAndNewSessionReadsAuthoritativeCatalog() {
-        val old = """{"id":"a","mtu":1280}"""
-        val desired = """{"id":"a","congestion_control":"bbr3"}"""
-        assertEquals(
-            "cubic",
-            JSONObject(CongestionControlSettings.forCurrentSession(desired, old)).getString("congestion_control"),
-        )
-        val catalog = """{"profiles":[$desired]}"""
-        val fresh = JSONObject(CongestionControlSettings.fromCatalog(old, catalog))
+        val fresh = JSONObject(NetworkSettingsFields.savedProfile(old, """{"profiles":[$desired]}"""))
         assertEquals("bbr3", fresh.getString("congestion_control"))
-        assertEquals(1280, fresh.getInt("mtu"))
-        assertThrows(
-            IllegalStateException::class.java,
-        ) { CongestionControlSettings.fromCatalog(old, """{"profiles":[]}""") }
+        assertEquals(1400, fresh.getInt("mtu"))
+        assertThrows(IllegalStateException::class.java) {
+            NetworkSettingsFields.savedProfile(old, """{"profiles":[]}""")
+        }
     }
 
     @Test

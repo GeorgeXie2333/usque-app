@@ -26,6 +26,33 @@ export 'control_codec.dart'
 /// transport. Public API, MethodChannel names, named pipes, and protobuf wire
 /// data are unchanged from the pre-split client.
 class DesktopEngineClient implements EngineClient {
+  @override
+  Future<NetworkSettingsState> saveNetworkSettings(
+    String operationId,
+    String accountId,
+    UsqueProfile values,
+    List<String> changedFields,
+  ) async {
+    final payload = ControlPayloadWriter()
+      ..string(1, operationId)
+      ..string(2, accountId)
+      ..message(3, _codec.encodeProfile(values));
+    for (final field in changedFields) {
+      payload.string(4, field);
+    }
+    return _requireSettings(await _request(41, payload.takeBytes()));
+  }
+
+  @override
+  Future<NetworkSettingsState> getNetworkSettingsState() async =>
+      _requireSettings(await _request(42, Uint8List(0)));
+
+  NetworkSettingsState _requireSettings(ControlResponse response) =>
+      response.networkSettings ??
+      (throw const EngineException(
+        'NETWORK_SETTINGS_UNSUPPORTED',
+        'Restart or update the Engine to save network settings.',
+      ));
   DesktopEngineClient()
     : _transport = DesktopEngineTransport(),
       _codec = const ControlCodec(),
@@ -318,7 +345,6 @@ class DesktopEngineClient implements EngineClient {
   @override
   Future<EngineSnapshot> connect(UsqueProfile profile) {
     return _serialized(() async {
-      await _upsertProfile(profile);
       final payload = ControlPayloadWriter()..string(1, profile.id);
       final response = await _request(12, payload.takeBytes());
       return response.snapshot ?? const EngineSnapshot();
@@ -614,7 +640,7 @@ class DesktopEngineClient implements EngineClient {
         lastError = error;
         // Production: stop retrying once the sidecar process handle is gone.
         // Test transports have no live process, so errors surface immediately.
-        if (!_transport.hasLiveProcess) {
+        if (payloadField == 41 || !_transport.hasLiveProcess) {
           break;
         }
         await Future<void>.delayed(const Duration(milliseconds: 50));

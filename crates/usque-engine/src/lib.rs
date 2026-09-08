@@ -54,6 +54,7 @@ mod ipc_stream;
 pub mod logging;
 mod maintenance;
 mod network_quality;
+mod network_settings;
 mod sensitive_output;
 
 mod active_runtime;
@@ -75,7 +76,21 @@ pub mod windows_ipc;
 #[cfg(windows)]
 pub mod windows_purge;
 
+#[derive(Clone)]
 pub struct ControlService {
+    inner: Arc<ControlServiceState>,
+}
+
+impl std::ops::Deref for ControlService {
+    type Target = ControlServiceState;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+#[doc(hidden)]
+pub struct ControlServiceState {
     store: ConfigStore,
     pub(crate) config: RwLock<AppConfig>,
     pub(crate) state: Arc<Mutex<StateMachine>>,
@@ -93,6 +108,12 @@ pub struct ControlService {
     session_generation: AtomicU64,
     /// Survives internal reconnects, but is reset by a new user connection.
     session_congestion_control: Mutex<Option<(Uuid, usque_core::CongestionControlAlgorithm)>>,
+    session_profile: Mutex<Option<Profile>>,
+    settings: Mutex<usque_core::network_settings::NetworkSettingsState>,
+    settings_tx: watch::Sender<u64>,
+    settings_intent: AtomicU64,
+    settings_submission: Mutex<()>,
+    settings_applying: std::sync::atomic::AtomicBool,
     #[cfg(windows)]
     windows_recovery: Mutex<WindowsRecoveryRuntime>,
     #[cfg(windows)]
@@ -373,33 +394,42 @@ impl ControlService {
             .unwrap_or_else(|| PathBuf::from("."));
         let (geo_progress_tx, _) = tokio::sync::broadcast::channel(16);
         let (network_quality_tx, _) = watch::channel(network_quality::disconnected_snapshot());
+        let (settings_tx, _) = watch::channel(0);
         Ok(Self {
-            maintenance: maintenance::Maintenance::new(store.path()),
-            diagnostics: diagnostics::DiagnosticsManager::new(),
-            store,
-            config: RwLock::new(config),
-            state: Arc::new(Mutex::new(StateMachine::default())),
-            mutation_lock: Arc::new(Mutex::new(())),
-            vault,
-            data_plane: Arc::new(Mutex::new(None)),
-            disconnect_cleanup: Mutex::new(None),
-            exit_probe_task: Mutex::new(None),
-            cache_dir,
-            geo_progress_tx,
-            network_quality_tx,
-            network_quality_relay: Mutex::new(None),
-            session_generation: AtomicU64::new(0),
-            session_congestion_control: Mutex::new(None),
-            #[cfg(windows)]
-            windows_recovery: Mutex::new(WindowsRecoveryRuntime::default()),
-            #[cfg(windows)]
-            windows_recovery_notify: tokio::sync::Notify::new(),
-            #[cfg(windows)]
-            windows_recovery_stopping: std::sync::atomic::AtomicBool::new(false),
-            #[cfg(any(windows, test))]
-            event_sequence: AtomicU64::new(0),
-            #[cfg(test)]
-            remote_license_unbinds: Mutex::new(Vec::new()),
+            inner: Arc::new(ControlServiceState {
+                maintenance: maintenance::Maintenance::new(store.path()),
+                diagnostics: diagnostics::DiagnosticsManager::new(),
+                store,
+                config: RwLock::new(config),
+                state: Arc::new(Mutex::new(StateMachine::default())),
+                mutation_lock: Arc::new(Mutex::new(())),
+                vault,
+                data_plane: Arc::new(Mutex::new(None)),
+                disconnect_cleanup: Mutex::new(None),
+                exit_probe_task: Mutex::new(None),
+                cache_dir,
+                geo_progress_tx,
+                network_quality_tx,
+                network_quality_relay: Mutex::new(None),
+                session_generation: AtomicU64::new(0),
+                session_congestion_control: Mutex::new(None),
+                session_profile: Mutex::new(None),
+                settings: Mutex::new(Default::default()),
+                settings_tx,
+                settings_intent: AtomicU64::new(0),
+                settings_submission: Mutex::new(()),
+                settings_applying: std::sync::atomic::AtomicBool::new(false),
+                #[cfg(windows)]
+                windows_recovery: Mutex::new(WindowsRecoveryRuntime::default()),
+                #[cfg(windows)]
+                windows_recovery_notify: tokio::sync::Notify::new(),
+                #[cfg(windows)]
+                windows_recovery_stopping: std::sync::atomic::AtomicBool::new(false),
+                #[cfg(any(windows, test))]
+                event_sequence: AtomicU64::new(0),
+                #[cfg(test)]
+                remote_license_unbinds: Mutex::new(Vec::new()),
+            }),
         })
     }
 
@@ -563,6 +593,7 @@ impl ControlService {
         let frontends = applied.frontends;
         *self.data_plane.lock().await = Some(ActiveDataPlane {
             profile_id: applied.id,
+            profile: applied.clone(),
             session_generation: self.next_session_generation(),
             frontends,
             connected_at: Instant::now(),
@@ -574,6 +605,15 @@ impl ControlService {
         });
         self.install_network_quality_source(quality_source).await;
         self.apply_hot_profile_state(&applied).await;
+        *self.session_profile.lock().await = Some(applied.clone());
+        let generation = self
+            .data_plane
+            .lock()
+            .await
+            .as_ref()
+            .map(|active| active.session_generation);
+        self.publish_settings_runtime(Some(applied), generation)
+            .await;
         Ok(())
     }
 
@@ -605,6 +645,7 @@ impl ControlService {
     /// Stops forwarding immediately, then waits for privileged platform state
     /// to be restored before the Engine process is allowed to exit.
     pub async fn shutdown(&self) -> Result<(), ControlServiceError> {
+        self.settings_intent.fetch_add(1, Ordering::SeqCst);
         #[cfg(windows)]
         self.clear_windows_connection_intent().await;
         let _mutation = self.mutation_lock.lock().await;
@@ -655,6 +696,15 @@ impl ControlService {
         payload: control_request::Payload,
     ) -> Result<control_response::Payload, ControlServiceError> {
         match payload {
+            control_request::Payload::SaveNetworkSettings(request) => {
+                let state = self.save_network_settings(*request).await?;
+                Ok(control_response::Payload::NetworkSettings(Box::new(state)))
+            }
+            control_request::Payload::GetNetworkSettingsState(_) => {
+                Ok(control_response::Payload::NetworkSettings(Box::new(
+                    self.network_settings_state().await,
+                )))
+            }
             control_request::Payload::GetStatus(_) => {
                 let snapshot = self.status_snapshot().await;
                 Ok(control_response::Payload::Status(Box::new(
@@ -1639,6 +1689,7 @@ impl ControlService {
         let _mutation = self.mutation_lock.lock().await;
         if self.data_plane.lock().await.is_none() {
             *self.session_congestion_control.lock().await = None;
+            *self.session_profile.lock().await = None;
         }
         #[cfg(windows)]
         let intent_generation = self.begin_windows_connection_intent(profile_id).await;
@@ -1676,6 +1727,15 @@ impl ControlService {
                 .runtime_profile(profile_id)
                 .ok_or(ControlServiceError::ProfileNotFound(profile_id))?
         };
+        if let Some(session) = self
+            .session_profile
+            .lock()
+            .await
+            .as_ref()
+            .filter(|session| session.id == profile_id)
+        {
+            profile = session.clone();
+        }
         self.attach_proxy_auth(&mut profile).await?;
         {
             let mut session = self.session_congestion_control.lock().await;
@@ -1924,9 +1984,11 @@ impl ControlService {
             state.snapshot().clone()
         };
         let session_generation = self.next_session_generation();
+        *self.session_profile.lock().await = Some(profile.clone());
         let quality_source = runtime.subscribe_network_quality();
         *self.data_plane.lock().await = Some(ActiveDataPlane {
             profile_id,
+            profile: profile.clone(),
             session_generation,
             frontends: profile.frontends,
             connected_at: Instant::now(),
@@ -1941,6 +2003,8 @@ impl ControlService {
         // later, matching the Android runtime. Probe failure must not delay or
         // tear down a healthy session.
         self.spawn_exit_probe(exit_probe, profile_id, session_generation)
+            .await;
+        self.publish_settings_runtime(Some(profile), Some(session_generation))
             .await;
         Ok(snapshot)
     }
@@ -1972,10 +2036,12 @@ impl ControlService {
     }
 
     async fn disconnect(&self) -> Result<ConnectionSnapshot, ControlServiceError> {
+        self.settings_intent.fetch_add(1, Ordering::SeqCst);
         #[cfg(windows)]
         self.clear_windows_connection_intent().await;
         let _mutation = self.mutation_lock.lock().await;
         *self.session_congestion_control.lock().await = None;
+        *self.session_profile.lock().await = None;
         self.disconnect_locked().await
     }
 
@@ -2023,6 +2089,7 @@ impl ControlService {
             .await
             .transition(ConnectionPhase::Disconnected)?
             .clone();
+        self.publish_settings_runtime(None, None).await;
         Ok(snapshot)
     }
 
@@ -2037,8 +2104,10 @@ impl ControlService {
     }
 
     async fn retry(&self) -> Result<ConnectionSnapshot, ControlServiceError> {
+        self.settings_intent.fetch_add(1, Ordering::SeqCst);
         let _mutation = self.mutation_lock.lock().await;
         *self.session_congestion_control.lock().await = None;
+        *self.session_profile.lock().await = None;
         let connected_profile = self
             .data_plane
             .lock()
@@ -2168,6 +2237,7 @@ impl ControlService {
         if !confirmed {
             return Err(ControlServiceError::ConfirmationRequired);
         }
+        self.settings_intent.fetch_add(1, Ordering::SeqCst);
         #[cfg(windows)]
         self.clear_windows_connection_intent().await;
         let _mutation = self.mutation_lock.lock().await;
@@ -2194,7 +2264,11 @@ impl ControlService {
         self.vault
             .delete(SHARED_NETWORK_SECRET_ID, SecretRecord::ProxyPassword)
             .await?;
-        self.persist(AppConfig::default()).await?;
+        self.update_config(|latest| {
+            *latest = AppConfig::default();
+            Ok(())
+        })
+        .await?;
         self.maintenance.clear_local_state().await?;
         Ok(())
     }
@@ -2395,6 +2469,17 @@ impl ControlService {
             );
         } else {
             state.mark_error(connection_error_for(error));
+        }
+        drop(state);
+        let mut settings = self.settings.lock().await;
+        if settings.apply_status == usque_core::network_settings::ApplyStatus::Applying
+            && !self.settings_applying.load(Ordering::SeqCst)
+        {
+            settings.apply_status = usque_core::network_settings::ApplyStatus::Failed;
+            settings.applied_profile = None;
+            settings.error_code = Some("NETWORK_SETTINGS_APPLY_FAILED".into());
+            settings.advance();
+            self.settings_tx.send_replace(settings.sequence);
         }
     }
 
@@ -2983,7 +3068,12 @@ impl ControlService {
                 )
                 .await?;
         }
-        self.persist(next).await
+        self.update_config(move |latest| {
+            latest.network.proxy.auth_username = next.network.proxy.auth_username;
+            latest.network.proxy.auth_password = None;
+            Ok(())
+        })
+        .await
     }
 
     async fn attach_proxy_auth(&self, profile: &mut Profile) -> Result<(), ControlServiceError> {
@@ -3194,15 +3284,16 @@ impl ControlService {
         &self,
         profile: Profile,
     ) -> Result<Profile, ControlServiceError> {
-        let mut next = self.config.read().await.clone();
-        let stored = next
-            .upsert_runtime_profile(profile)
-            .map_err(ControlServiceError::configuration)?;
-        if next.active_profile_id.is_none() {
-            next.active_profile_id = Some(stored.id);
-        }
-        self.persist(next).await?;
-        Ok(stored)
+        self.update_config(move |latest| {
+            let stored = latest
+                .upsert_runtime_profile(profile)
+                .map_err(ControlServiceError::configuration)?;
+            if latest.active_profile_id.is_none() {
+                latest.active_profile_id = Some(stored.id);
+            }
+            Ok(stored)
+        })
+        .await
     }
 
     async fn import_legacy_profiles(
@@ -3267,13 +3358,18 @@ impl ControlService {
                 next.active_profile_id = next.profiles.first().map(|account| account.id);
             }
             next.preferences.profiles_migrated_from_flutter = true;
-            self.persist(next).await?;
+            self.update_config(move |latest| {
+                *latest = next;
+                Ok(())
+            })
+            .await?;
         }
         let config = self.config.read().await;
         Ok(profile_list_to_proto(&config))
     }
 
     async fn delete_profile(&self, id: Uuid) -> Result<(), ControlServiceError> {
+        self.settings_intent.fetch_add(1, Ordering::SeqCst);
         {
             let config = self.config.read().await;
             if !config.profiles.iter().any(|profile| profile.id == id) {
@@ -3306,6 +3402,7 @@ impl ControlService {
     }
 
     async fn set_active_profile(&self, id: Uuid) -> Result<(), ControlServiceError> {
+        self.settings_intent.fetch_add(1, Ordering::SeqCst);
         if !self
             .config
             .read()
@@ -3390,11 +3487,14 @@ impl ControlService {
         self.vault
             .delete(SHARED_NETWORK_SECRET_ID, SecretRecord::ProxyPassword)
             .await?;
-        let profile = next
-            .runtime_profile(id)
-            .ok_or(ControlServiceError::ProfileNotFound(id))?;
-        self.persist(next).await?;
-        Ok(profile)
+        self.update_config(move |latest| {
+            latest.network.reset_user_defaults();
+            latest.network.proxy.auth_username = None;
+            latest
+                .runtime_profile(id)
+                .ok_or(ControlServiceError::ProfileNotFound(id))
+        })
+        .await
     }
 
     async fn reap_pending_identity_deletions_locked(&self) -> Result<(), ControlServiceError> {
@@ -3494,16 +3594,28 @@ impl ControlService {
         }
     }
 
-    async fn persist(&self, next: AppConfig) -> Result<(), ControlServiceError> {
-        next.validate()
-            .map_err(ControlServiceError::profile_configuration)?;
+    /// Account operations are serialized by the lifecycle lock, but settings
+    /// saves are independent. Never copy their older network snapshot back.
+    async fn persist(&self, mut next: AppConfig) -> Result<(), ControlServiceError> {
+        self.update_config(move |latest| {
+            next.network = latest.network.clone();
+            *latest = next;
+            Ok(())
+        })
+        .await
+    }
+
+    async fn update_config<T: Send + 'static>(
+        &self,
+        change: impl FnOnce(&mut AppConfig) -> Result<T, ControlServiceError> + Send + 'static,
+    ) -> Result<T, ControlServiceError> {
+        let mut config = self.config.write().await;
         let store = self.store.clone();
-        let persisted = next.clone();
-        tokio::task::spawn_blocking(move || store.save(&persisted))
+        let (next, result) = tokio::task::spawn_blocking(move || store.update(change))
             .await
             .map_err(|error| ControlServiceError::PersistenceWorker(error.to_string()))??;
-        *self.config.write().await = next;
-        Ok(())
+        *config = next;
+        Ok(result)
     }
 }
 
@@ -4312,6 +4424,7 @@ fn proxy_to_proto(proxy: &ProxySettings) -> v1::ProxySettings {
 
 fn current_capabilities() -> v1::Capabilities {
     v1::Capabilities {
+        network_settings_application: true,
         h3_congestion_control_algorithms: usque_core::CongestionControlAlgorithm::ALL
             .into_iter()
             .map(congestion::to_proto)
@@ -5007,7 +5120,7 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct MemoryVault {
+    pub(super) struct MemoryVault {
         records: Mutex<HashMap<(Uuid, SecretRecord), Vec<u8>>>,
     }
 
@@ -6477,7 +6590,13 @@ mod tests {
                 armed: false,
             },
         );
-        service.persist(pending).await.unwrap();
+        service
+            .update_config(move |latest| {
+                *latest = pending;
+                Ok(())
+            })
+            .await
+            .unwrap();
         assert_eq!(
             service
                 .load_identity_provisioning_boundary(profile_id)
@@ -6490,7 +6609,13 @@ mod tests {
         let mut bound = service.config_snapshot().await;
         bound.pending_identity_replacements.remove(&profile_id);
         bound.identity_bindings.insert(profile_id, provider.clone());
-        service.persist(bound).await.unwrap();
+        service
+            .update_config(move |latest| {
+                *latest = bound;
+                Ok(())
+            })
+            .await
+            .unwrap();
         assert_eq!(
             service
                 .load_identity_provisioning_boundary(profile_id)
@@ -6687,7 +6812,13 @@ mod tests {
             port: 443,
             sni: usque_core::ZERO_TRUST_SNI.to_owned(),
         };
-        service.persist(config).await.unwrap();
+        service
+            .update_config(move |latest| {
+                *latest = config;
+                Ok(())
+            })
+            .await
+            .unwrap();
 
         assert_eq!(
             service
@@ -6749,7 +6880,13 @@ mod tests {
         config
             .identity_bindings
             .insert(profile_id, provider.clone());
-        service.persist(config).await.unwrap();
+        service
+            .update_config(move |latest| {
+                *latest = config;
+                Ok(())
+            })
+            .await
+            .unwrap();
         vault
             .delete(profile_id, SecretRecord::IdentityMetadata)
             .await
@@ -6816,7 +6953,13 @@ mod tests {
         let mut config = service.config_snapshot().await;
         config.network.endpoint.port = 8443;
         config.network.endpoint.sni = "shared.example.com".to_owned();
-        service.persist(config).await.unwrap();
+        service
+            .update_config(move |latest| {
+                *latest = config;
+                Ok(())
+            })
+            .await
+            .unwrap();
         let first_ips = ManagedEndpointIps {
             ipv4: "162.159.197.8".parse().unwrap(),
             ipv6: "2606:4700:102::8".parse().unwrap(),
@@ -6953,7 +7096,13 @@ mod tests {
                 armed: true,
             },
         );
-        service.persist(interrupted).await.unwrap();
+        service
+            .update_config(move |latest| {
+                *latest = interrupted;
+                Ok(())
+            })
+            .await
+            .unwrap();
 
         service.reap_pending_identity_deletions().await.unwrap();
 
@@ -6995,7 +7144,13 @@ mod tests {
         let mut pending = service.config_snapshot().await;
         pending.network.dns_servers = vec![IpAddr::V4(managed.ipv4)];
         pending.pending_identity_creations.push(profile_id);
-        service.persist(pending).await.unwrap();
+        service
+            .update_config(move |latest| {
+                *latest = pending;
+                Ok(())
+            })
+            .await
+            .unwrap();
         service
             .persist_identity(
                 profile_id,
@@ -7052,7 +7207,13 @@ mod tests {
             .unwrap();
         let mut config = service.config_snapshot().await;
         config.identity_bindings.insert(profile_id, provider);
-        service.persist(config).await.unwrap();
+        service
+            .update_config(move |latest| {
+                *latest = config;
+                Ok(())
+            })
+            .await
+            .unwrap();
 
         let catalog = service.profile_catalog().await;
         assert_eq!(
@@ -7282,7 +7443,13 @@ mod tests {
         config
             .set_managed_endpoint_ips(profile_id, managed.clone())
             .unwrap();
-        service.persist(config).await.unwrap();
+        service
+            .update_config(move |latest| {
+                *latest = config;
+                Ok(())
+            })
+            .await
+            .unwrap();
 
         let reset = service.reset_profile(profile_id).await.unwrap();
         assert_eq!(reset.endpoint.ipv4, managed.ipv4);
@@ -7373,6 +7540,16 @@ mod tests {
         );
         next.proxy.socks5_listeners[0].set_port(1081);
         service.reconfigure_active_profile(next).await.unwrap();
+        let confirmed = service
+            .network_settings_state()
+            .await
+            .applied_profile
+            .unwrap();
+        assert_eq!(confirmed.congestion_control, 1);
+        assert_eq!(
+            confirmed.proxy.unwrap().socks5_listeners[0],
+            "127.0.0.1:1081"
+        );
         assert_eq!(
             service
                 .state

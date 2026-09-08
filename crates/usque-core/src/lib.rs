@@ -5,6 +5,7 @@ pub mod exit_probe;
 pub mod failure;
 pub mod geo_rules;
 pub mod identity;
+pub mod network_settings;
 pub mod reconfigure;
 pub mod redaction;
 pub mod registration;

@@ -42,11 +42,19 @@ where
     let mut geo_progress = service.subscribe_geo_progress();
     let mut diagnostics = service.subscribe_diagnostics();
     let mut quality_updates = service.subscribe_network_quality();
+    let mut settings_updates = service.settings_tx.subscribe();
     let initial_quality = service.network_quality_payload();
     let mut quality_gate = NetworkQualityEventGate::new(initial_quality);
 
     loop {
         tokio::select! {
+            changed = settings_updates.changed() => {
+                if changed.is_err() { return Ok(()); }
+                write_event(&mut stream, EventEnvelope {
+                    sequence: service.next_event_sequence(),
+                    payload: Some(event_envelope::Payload::NetworkSettingsChanged(Box::new(service.network_settings_state().await))),
+                }).await?;
+            }
             _ = ticker.tick() => {
                 let snapshot = service.event_snapshot().await;
                 // A snapshot is intentionally emitted every second even when the

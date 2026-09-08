@@ -102,6 +102,77 @@ internal class VpnControlClient(
     var clearAllAcknowledgedListener: ClearAllAcknowledgedListener? = null
 
     private val pendingSnapshots = mutableMapOf<Int, MethodChannel.Result>()
+
+    private data class SettingsRequest(
+        val json: String?,
+        val result: MethodChannel.Result,
+        var sent: Boolean = false,
+    )
+
+    private val pendingSettings = mutableMapOf<Int, SettingsRequest>()
+
+    fun requestNetworkSettings(
+        json: String?,
+        result: MethodChannel.Result,
+    ) {
+        if (destroyed) {
+            result.error("ENGINE_IPC_CLOSED", "The settings service is unavailable.", null)
+            return
+        }
+        val id = allocateRequestId()
+        pendingSettings[id] = SettingsRequest(json, result)
+        scheduler.postDelayed(10_000L, "settings-$id") {
+            pendingSettings.remove(id)?.result?.error(
+                "NETWORK_SETTINGS_UNCONFIRMED",
+                "The settings result is not confirmed.",
+                null,
+            )
+        }
+        bind()
+        flushSettings()
+    }
+
+    private fun flushSettings() {
+        val service = endpoint ?: return
+        pendingSettings.toMap().forEach { (id, request) ->
+            if (!request.sent) {
+                request.sent = true
+                val what =
+                    if (request.json ==
+                        null
+                    ) {
+                        UsqueVpnService.MSG_GET_SETTINGS
+                    } else {
+                        UsqueVpnService.MSG_SAVE_SETTINGS
+                    }
+                if (!service.send(what, id, mapOf("settings_request" to request.json))) {
+                    scheduler.cancel("settings-$id")
+                    pendingSettings.remove(id)?.result?.error(
+                        "NETWORK_SETTINGS_UNCONFIRMED",
+                        "The settings result is not confirmed.",
+                        null,
+                    )
+                }
+            }
+        }
+    }
+
+    internal fun deliverSettingsReply(
+        id: Int,
+        json: String?,
+        error: String? = null,
+    ) {
+        scheduler.cancel("settings-$id")
+        pendingSettings.remove(id)?.result?.let { result ->
+            val parsed = json?.let { runCatching { NetworkSettingsFields.decode(it) }.getOrNull() }
+            if (parsed == null) {
+                result.error(error ?: "NETWORK_SETTINGS_UNCONFIRMED", "Network settings could not be confirmed.", null)
+            } else {
+                result.success(parsed)
+            }
+        }
+    }
+
     private val pendingDiagnosticProbes = mutableMapOf<Int, (SnapshotProbe) -> Unit>()
     private var pendingNetworkProbe: Pair<Int, CompletableFuture<String?>>? = null
     private var pendingTimeline: Pair<Int, (Map<String, Any?>?) -> Unit>? = null
@@ -166,6 +237,7 @@ internal class VpnControlClient(
                     requestDisconnect(result)
                 }
                 flushPendingReconfigure()
+                flushSettings()
             }
 
             override fun onServiceDisconnected(name: ComponentName?) {
@@ -590,6 +662,11 @@ internal class VpnControlClient(
     }
 
     fun destroy() {
+        pendingSettings.forEach { (id, request) ->
+            scheduler.cancel("settings-$id")
+            request.result.error("NETWORK_SETTINGS_UNCONFIRMED", "The settings result is not confirmed.", null)
+        }
+        pendingSettings.clear()
         val acknowledgedClearAllToCancel =
             synchronized(clearAllStateLock) {
                 if (destroyed) return
@@ -782,6 +859,7 @@ internal class VpnControlClient(
             requestDisconnect(result)
         }
         flushPendingReconfigure()
+        flushSettings()
     }
 
     fun detachEndpointForTest() {
@@ -814,6 +892,20 @@ internal class VpnControlClient(
         data: Bundle,
     ): Boolean =
         when (what) {
+            UsqueVpnService.MSG_SAVE_SETTINGS, UsqueVpnService.MSG_GET_SETTINGS -> {
+                deliverSettingsReply(arg1, data.getString("network_settings"), data.getString("settings_error"))
+                true
+            }
+
+            UsqueVpnService.MSG_SETTINGS_EVENT -> {
+                data.getString("network_settings")?.let { json ->
+                    runCatching { NetworkSettingsFields.decode(json) }.getOrNull()?.let {
+                        eventListener?.onEvent(mapOf("network_settings" to it))
+                    }
+                }
+                true
+            }
+
             UsqueVpnService.MSG_CONNECTION_TIMELINE -> {
                 deliverTimelineReply(arg1, data.getString("connection_timeline"))
                 true

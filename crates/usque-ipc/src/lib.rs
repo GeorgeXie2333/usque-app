@@ -74,6 +74,46 @@ pub enum FrameError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn network_settings_wire_numbers_are_append_only() {
+        let save = v1::ControlRequest {
+            request_id: String::new(),
+            payload: Some(v1::control_request::Payload::SaveNetworkSettings(
+                Box::default(),
+            )),
+        };
+        assert_eq!(save.encode_to_vec(), [0xca, 0x02, 0]);
+        let get = v1::ControlRequest {
+            request_id: String::new(),
+            payload: Some(v1::control_request::Payload::GetNetworkSettingsState(
+                Default::default(),
+            )),
+        };
+        assert_eq!(get.encode_to_vec(), [0xd2, 0x02, 0]);
+        let response = v1::ControlResponse {
+            payload: Some(v1::control_response::Payload::NetworkSettings(
+                Box::default(),
+            )),
+            ..Default::default()
+        };
+        assert_eq!(response.encode_to_vec(), [0xb2, 0x01, 0]);
+        let event = v1::EventEnvelope {
+            payload: Some(v1::event_envelope::Payload::NetworkSettingsChanged(
+                Box::default(),
+            )),
+            ..Default::default()
+        };
+        assert_eq!(event.encode_to_vec(), [0xc2, 0x01, 0]);
+        assert_eq!(
+            v1::Capabilities {
+                network_settings_application: true,
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0xc8, 0x01, 1]
+        );
+        assert!(v1::ControlRequest::decode(&[0xca, 0x02, 0xff][..]).is_err());
+    }
     use crate::agent_v1::{
         AcquireDirectEgressRequest, AcquireTunnelLeaseRequest, AgentCapabilities, AgentRequest,
         AgentState, GetCapabilitiesRequest, InspectPlatformStateRequest, PrepareTunnelRequest,

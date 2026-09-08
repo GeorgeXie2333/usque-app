@@ -27,6 +27,7 @@ class _ProxyScreenState extends State<ProxyScreen> {
   final _focus = List.generate(8, (_) => FocusNode());
   late ProxyDnsMode _dnsMode;
   late List<Object> _baseline;
+  late String _editingAccountId;
   bool _saving = false;
   bool _saved = false;
   bool _loading = false;
@@ -52,7 +53,10 @@ class _ProxyScreenState extends State<ProxyScreen> {
     // overwrite a shared-network draft or an in-flight apply with a snapshot.
     if (!_dirty && !_saving) {
       final proxy = widget.controller.activeProfile.proxy;
-      if (!listEquals(_proxyValues(proxy), _baseline)) _load(proxy);
+      if (_editingAccountId != widget.controller.activeProfile.id ||
+          !listEquals(_proxyValues(proxy), _baseline)) {
+        _load(proxy);
+      }
     }
   }
 
@@ -69,6 +73,7 @@ class _ProxyScreenState extends State<ProxyScreen> {
   ];
 
   void _load(ProxySettings proxy) {
+    _editingAccountId = widget.controller.activeProfile.id;
     _loading = true;
     final values = _proxyValues(proxy);
     for (var i = 0; i < _fields.length; i++) {
@@ -115,7 +120,7 @@ class _ProxyScreenState extends State<ProxyScreen> {
   }
 
   Future<void> _save() async {
-    if (_saving || widget.controller.busy) return;
+    if (_saving) return;
     setState(() => _validationAttempted = true);
     if (!(_formKey.currentState?.validate() ?? false)) {
       setState(() => _saveError = widget.controller.strings.get('form_errors'));
@@ -144,8 +149,24 @@ class _ProxyScreenState extends State<ProxyScreen> {
     // Merge only this form's fields into the latest shared settings so a
     // separate credential update cannot be overwritten by an older draft.
     final profile = widget.controller.activeProfile;
+    const paths = [
+      'proxy.socks5_listeners',
+      'proxy.socks5_listeners',
+      'proxy.socks5_listeners',
+      'proxy.http_listeners',
+      'proxy.http_listeners',
+      'proxy.http_listeners',
+      'proxy.dns_servers',
+      'proxy.dns_servers',
+      'proxy.dns_mode',
+    ];
+    final changedFields = <String>{
+      for (var i = 0; i < paths.length; i++)
+        if (_values[i] != _baseline[i]) paths[i],
+    }.toList();
     final applied = await widget.controller.saveNetwork(
       profile.copyWith(
+        id: _editingAccountId,
         proxy: profile.proxy.copyWith(
           socksIpv4: _fields[0].text.trim(),
           socksIpv6: _fields[1].text.trim(),
@@ -162,14 +183,13 @@ class _ProxyScreenState extends State<ProxyScreen> {
               : profile.proxy.dnsIpv6,
         ),
       ),
+      changedFields: changedFields,
     );
     if (!mounted) return;
     setState(() {
       _saving = false;
       _saved = applied;
-      // saveNetwork reloads the authoritative catalog on failure. Reflect
-      // that result rather than leaving an apparently applied text value.
-      _load(widget.controller.activeProfile.proxy);
+      if (applied) _load(widget.controller.activeProfile.proxy);
       _saveError = applied
           ? null
           : widget.controller.strings.get('changes_failed');
@@ -322,8 +342,17 @@ class _ProxyScreenState extends State<ProxyScreen> {
           dirty: _dirty,
           saving: _saving,
           saved: _saved,
+          statusLabel:
+              !_dirty ||
+                  widget.controller.networkSettings.unconfirmed ||
+                  widget.controller.networkSettings.saveError != null
+              ? widget.controller.networkSettingsMessage
+              : null,
+          onReconnect: widget.controller.networkSettingsCanReconnect
+              ? widget.controller.retry
+              : null,
           error: _saveError,
-          onSave: widget.controller.busy ? null : _save,
+          onSave: _save,
         ),
       ],
     );

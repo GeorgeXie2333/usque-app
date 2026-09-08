@@ -58,6 +58,9 @@ class UsqueVpnService : VpnService() {
         const val MSG_DIAGNOSTIC_PROBE = 12
         const val MSG_CANCEL_DIAGNOSTIC_PROBE = 13
         const val MSG_CONNECTION_TIMELINE = 14
+        const val MSG_SAVE_SETTINGS = 15
+        const val MSG_GET_SETTINGS = 16
+        const val MSG_SETTINGS_EVENT = 17
 
         private const val NATIVE_STATUS_INTERVAL_MILLIS = 1_000L
         private const val PHYSICAL_NETWORK_WAIT_MILLIS = 8_000L
@@ -89,6 +92,17 @@ class UsqueVpnService : VpnService() {
     private val nativeRuntimeActive = AtomicBoolean()
     private val clearAllRequested = AtomicBoolean()
     private val activeProfileJson = AtomicReference<String?>(null)
+    private val settingsExecutor = Executors.newSingleThreadExecutor()
+    private var settingsBusy = false
+    private var settingsAwaitingRuntime = false
+    private var settingsOperation: String? = null
+    private var settingsGeneration = -1L
+    private var settingsStateJson: String? = null
+    private var settingsUncertain = false
+    private var runtimeReconfigureInFlight = false
+    private var confirmedSettingsProfile: String? = null
+    private val settingsPath: String
+        get() = File(noBackupFilesDir, "usque_config/profiles-v2.json").absolutePath
     private val activeMode = AtomicReference<String?>(null)
     private val lastTunIdentity = AtomicReference<TunIdentity?>(null)
 
@@ -143,6 +157,11 @@ class UsqueVpnService : VpnService() {
         Messenger(
             Handler(Looper.getMainLooper()) { message ->
                 when (message.what) {
+                    MSG_SAVE_SETTINGS, MSG_GET_SETTINGS -> {
+                        networkSettingsRequest(Message.obtain(message))
+                        true
+                    }
+
                     MSG_SNAPSHOT -> {
                         replyWithSnapshot(message)
                         true
@@ -152,6 +171,15 @@ class UsqueVpnService : VpnService() {
                         message.replyTo?.let { client ->
                             if (!eventClients.contains(client)) eventClients += client
                             sendEvent(client)
+                            settingsStateJson?.let { json ->
+                                runCatching {
+                                    client.send(
+                                        Message.obtain(null, MSG_SETTINGS_EVENT).apply {
+                                            data = Bundle().apply { putString("network_settings", json) }
+                                        },
+                                    )
+                                }
+                            }
                         }
                         true
                     }
@@ -282,7 +310,7 @@ class UsqueVpnService : VpnService() {
                     (!recoveryNeedsVpn || VpnService.prepare(this) == null) &&
                     recoveryProfile.toByteArray(Charsets.UTF_8).size <= MAX_PROFILE_BYTES
                 ) {
-                    beginConnection(recoveryProfile)
+                    beginConnection(recoveryProfile, newSession = false)
                 } else {
                     stopSelf()
                     return START_NOT_STICKY
@@ -319,6 +347,7 @@ class UsqueVpnService : VpnService() {
             NativeEngine.stop()
         }
         engineExecutor.shutdownNow()
+        settingsExecutor.shutdownNow()
         statusExecutor.shutdownNow()
         stopExecutor.shutdown()
         networkMonitor.unregister(getSystemService(ConnectivityManager::class.java))
@@ -350,7 +379,7 @@ class UsqueVpnService : VpnService() {
                     val configPath = File(noBackupFilesDir, "usque_config/profiles-v2.json").absolutePath
                     val catalog =
                         requireNotNull(NativeEngine.applyProfileCommand(configPath, """{"command":"list_profiles"}"""))
-                    profileJson = CongestionControlSettings.fromCatalog(profileJson, catalog)
+                    profileJson = NetworkSettingsFields.savedProfile(profileJson, catalog)
                 }
                 val source = JSONObject(profileJson)
                 val tunnelEnabled = VpnReconfigure.tunnelFrontendEnabled(source)
@@ -374,7 +403,7 @@ class UsqueVpnService : VpnService() {
         if (
             !recoveryPreferences
                 .edit()
-                .putString(RECOVERY_PROFILE, profileJson)
+                .putString(RECOVERY_PROFILE, if (settingsBusy && !newSession) confirmedSettingsProfile else profileJson)
                 .putString(LAST_PROFILE, if (newSession) profileJson else desiredProfileJson)
                 .commit()
         ) {
@@ -388,6 +417,27 @@ class UsqueVpnService : VpnService() {
             return
         }
         val generation = connectionGeneration.incrementAndGet()
+        settingsUncertain = false
+        runtimeReconfigureInFlight = false
+        if (newSession) {
+            settingsBusy = false
+            settingsOperation = null
+        } else if (settingsBusy) {
+            settingsGeneration = generation
+            settingsExecutor.execute {
+                runCatching {
+                    NativeEngine.networkSettings(
+                        settingsPath,
+                        JSONObject()
+                            .put("command", "observe")
+                            .put("profile", JSONObject.NULL)
+                            .put("session_id", generation.toString())
+                            .put("applying", true)
+                            .toString(),
+                    )
+                }
+            }
+        }
         networkMonitor.bumpGeneration()
         activeProfileJson.set(profileJson)
         activeMode.set(mode)
@@ -462,15 +512,19 @@ class UsqueVpnService : VpnService() {
 
     @SuppressLint("ApplySharedPref", "UseKtx")
     private fun reconfigureConnection(request: Message) {
+        val settingsRequest = request.data.getBoolean("network_settings_operation")
+        if (settingsBusy && !settingsRequest) {
+            replyControlError(request, "NETWORK_SETTINGS_BUSY", "A settings application is in progress.")
+            return
+        }
         val desiredProfileJson = request.data.getString(EXTRA_PROFILE_JSON).orEmpty()
-        var profileJson = desiredProfileJson
+        val profileJson = desiredProfileJson
         if (profileJson.isEmpty() || profileJson.toByteArray(Charsets.UTF_8).size > MAX_PROFILE_BYTES) {
             replyControlError(request, "INVALID_ARGUMENT", "The reconfigure profile is malformed.")
             return
         }
         val mode =
             try {
-                profileJson = CongestionControlSettings.forCurrentSession(desiredProfileJson, activeProfileJson.get())
                 val source = JSONObject(profileJson)
                 val tunnelEnabled = VpnReconfigure.tunnelFrontendEnabled(source)
                 if (tunnelEnabled) {
@@ -487,7 +541,7 @@ class UsqueVpnService : VpnService() {
         if (
             !recoveryPreferences
                 .edit()
-                .putString(RECOVERY_PROFILE, profileJson)
+                .putString(RECOVERY_PROFILE, if (settingsRequest) confirmedSettingsProfile else profileJson)
                 .putString(LAST_PROFILE, desiredProfileJson)
                 .commit()
         ) {
@@ -500,6 +554,8 @@ class UsqueVpnService : VpnService() {
         }
         // Disconnect bumps this; JNI continuations must not reconnect a stopped session.
         val generation = connectionGeneration.get()
+        runtimeReconfigureInFlight = true
+        request.data.putLong("runtime_reconfigure_generation", generation)
         activeProfileJson.set(profileJson)
         activeMode.set(mode)
 
@@ -1470,6 +1526,194 @@ class UsqueVpnService : VpnService() {
         }
     }
 
+    private fun networkSettingsRequest(request: Message) {
+        val generation = connectionGeneration.get()
+        val phase = snapshotState.phase
+        val available =
+            !settingsBusy && !settingsUncertain && !runtimeReconfigureInFlight &&
+                nativeRuntimeActive.get() && phase in setOf("connected", "degraded")
+        val saving = request.what == MSG_SAVE_SETTINGS
+        if (saving && available) settingsBusy = true
+        settingsExecutor.execute {
+            val outcome =
+                runCatching {
+                    val command =
+                        if (saving) {
+                            JSONObject(request.data.getString("settings_request").orEmpty()).apply {
+                                put("command", "save")
+                                put("phase", phase)
+                                put("available", available)
+                                put("session_id", generation.toString())
+                            }
+                        } else {
+                            JSONObject().put("command", "get")
+                        }
+                    JSONObject(requireNotNull(NativeEngine.networkSettings(settingsPath, command.toString())))
+                }
+            mainHandler.post {
+                val source = outcome.getOrNull()
+                if (source == null) {
+                    if (saving && available) settingsBusy = false
+                    val rejected = outcome.exceptionOrNull()?.message?.contains("NETWORK_SETTINGS_SAVE_FAILED") == true
+                    replySettings(
+                        request,
+                        null,
+                        if (rejected) "NETWORK_SETTINGS_SAVE_FAILED" else "NETWORK_SETTINGS_UNCONFIRMED",
+                    )
+                    return@post
+                }
+                val target = source.optJSONObject("target")?.toString()
+                source.remove("target")
+                val json = source.toString()
+                publishSettings(json)
+                replySettings(request, json, null)
+                if (saving && available) {
+                    if (target == null || !isCurrent(generation) ||
+                        snapshotState.phase !in setOf("connected", "degraded")
+                    ) {
+                        settingsBusy = false
+                        observeNetworkSettings()
+                    } else {
+                        settingsOperation = source.getString("operation_id")
+                        val operation = settingsOperation
+                        settingsGeneration = generation
+                        settingsAwaitingRuntime = false
+                        val reply =
+                            Messenger(
+                                Handler(Looper.getMainLooper()) { replyMessage ->
+                                    if (settingsBusy && settingsOperation == operation &&
+                                        settingsGeneration == connectionGeneration.get()
+                                    ) {
+                                        if (replyMessage.data.getString("control_error_code") != null) {
+                                            settingsUncertain = true
+                                            settingsBusy = false
+                                            val failedGeneration = settingsGeneration
+                                            settingsExecutor.execute {
+                                                val json =
+                                                    runCatching {
+                                                        NativeEngine.networkSettings(
+                                                            settingsPath,
+                                                            JSONObject()
+                                                                .put("command", "failed")
+                                                                .put("operation_id", operation)
+                                                                .put("session_id", failedGeneration.toString())
+                                                                .toString(),
+                                                        )
+                                                    }.getOrNull()
+                                                mainHandler.post {
+                                                    if (isCurrent(failedGeneration) &&
+                                                        json != null
+                                                    ) {
+                                                        publishSettings(json)
+                                                    }
+                                                }
+                                            }
+                                            return@Handler true
+                                        }
+                                        settingsAwaitingRuntime = true
+                                        observeNetworkSettings()
+                                        refreshNativeSnapshot()
+                                    }
+                                    true
+                                },
+                            )
+                        reconfigureConnection(
+                            Message.obtain(null, MSG_RECONFIGURE).apply {
+                                replyTo = reply
+                                data =
+                                    Bundle().apply {
+                                        putString(EXTRA_PROFILE_JSON, target)
+                                        putBoolean("network_settings_operation", true)
+                                    }
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    // The synchronous commit result is part of the recovery confirmation.
+    @SuppressLint("ApplySharedPref", "UseKtx")
+    private fun observeNetworkSettings() {
+        val generation = connectionGeneration.get()
+        if (settingsBusy && settingsGeneration >= 0 && settingsGeneration != generation) {
+            settingsBusy = false
+            settingsOperation = null
+        }
+        if (settingsBusy && !settingsAwaitingRuntime) return
+        if (runtimeReconfigureInFlight) return
+        if (settingsUncertain) return
+        val profile = activeProfileJson.get()
+        val stable =
+            snapshotState.phase in setOf("connected", "degraded") &&
+                nativeRuntimeActive.get() && profile != null &&
+                (!VpnReconfigure.tunnelFrontendEnabled(profile) || tunnel.get()?.fileDescriptor?.valid() == true)
+        val operation = settingsOperation
+        val failed = settingsBusy && snapshotState.phase == "error" && operation != null
+        if (settingsBusy && !stable && !failed) return
+        val command =
+            if (failed) {
+                settingsUncertain = true
+                activeProfileJson.set(confirmedSettingsProfile)
+                JSONObject()
+                    .put("command", "failed")
+                    .put("operation_id", operation)
+                    .put("session_id", generation.toString())
+            } else {
+                if (stable && profile != confirmedSettingsProfile) {
+                    if (!recoveryPreferences.edit().putString(RECOVERY_PROFILE, profile).commit()) {
+                        settingsUncertain = true
+                    } else {
+                        confirmedSettingsProfile = profile
+                    }
+                }
+                JSONObject()
+                    .put("command", "observe")
+                    .put("profile", if (stable) JSONObject(profile) else JSONObject.NULL)
+                    .put("session_id", generation.toString())
+                    .put("applying", false)
+                    .put("unconfirmed", settingsUncertain)
+            }
+        settingsBusy = false
+        settingsOperation = null
+        settingsExecutor.execute {
+            val json = runCatching { NativeEngine.networkSettings(settingsPath, command.toString()) }.getOrNull()
+            mainHandler.post { if (isCurrent(generation) && json != null) publishSettings(json) }
+        }
+    }
+
+    private fun publishSettings(json: String) {
+        settingsStateJson = json
+        eventClients.toList().forEach { client ->
+            runCatching {
+                client.send(
+                    Message.obtain(null, MSG_SETTINGS_EVENT).apply {
+                        data = Bundle().apply { putString("network_settings", json) }
+                    },
+                )
+            }
+        }
+    }
+
+    private fun replySettings(
+        request: Message,
+        json: String?,
+        error: String?,
+    ) {
+        runCatching {
+            request.replyTo?.send(
+                Message.obtain(null, request.what, request.arg1, 0).apply {
+                    data =
+                        Bundle().apply {
+                            putString("network_settings", json)
+                            putString("settings_error", error)
+                        }
+                },
+            )
+        }
+    }
+
     private fun refreshNativeSnapshot() {
         if (destroyed || !nativeRuntimeActive.get()) return
         statusExecutor.execute(::refreshNativeSnapshotInBackground)
@@ -1477,6 +1721,7 @@ class UsqueVpnService : VpnService() {
 
     private fun refreshNativeSnapshotInBackground() {
         if (destroyed || !nativeRuntimeActive.get()) return
+        val generation = connectionGeneration.get()
         val source =
             try {
                 JSONObject(NativeEngine.snapshot() ?: return)
@@ -1484,7 +1729,7 @@ class UsqueVpnService : VpnService() {
                 return
             }
         mainHandler.post {
-            if (!destroyed && nativeRuntimeActive.get()) {
+            if (isCurrent(generation) && nativeRuntimeActive.get()) {
                 applyNativeSnapshot(source)
             }
         }
@@ -1492,6 +1737,7 @@ class UsqueVpnService : VpnService() {
 
     private fun applyNativeSnapshot(source: JSONObject) {
         val merge = snapshotState.applyNativeSnapshot(source)
+        observeNetworkSettings()
         merge.cacheWrite?.let { write ->
             statusExecutor.execute {
                 try {
@@ -1590,6 +1836,11 @@ class UsqueVpnService : VpnService() {
     }
 
     private fun replyWithSnapshot(request: Message) {
+        if (request.what == MSG_RECONFIGURE &&
+            request.data.getLong("runtime_reconfigure_generation", -1) == connectionGeneration.get()
+        ) {
+            runtimeReconfigureInFlight = false
+        }
         val reply =
             Message.obtain(null, MSG_SNAPSHOT).apply {
                 arg1 = request.arg1
@@ -1624,6 +1875,7 @@ class UsqueVpnService : VpnService() {
     }
 
     private fun broadcastSnapshot() {
+        observeNetworkSettings()
         val snapshot = snapshotState.takeBroadcastBundle(platformFlags()) ?: return
         eventClients.forEach { client -> sendEvent(client, snapshot) }
     }

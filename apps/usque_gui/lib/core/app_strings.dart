@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import '../models/app_models.dart';
 import 'l10n/catalogs.dart';
 import 'l10n/network_quality.dart';
+import 'l10n/network_settings.dart';
 import 'l10n/ui_workflow.dart';
 import 'l10n/windows_recovery.dart';
 
@@ -32,6 +33,10 @@ class AppStrings {
       catalogId.startsWith('zh') ? 'zh' : catalogId.split('_').first;
 
   String get(String key) {
+    final settings = catalogId == 'zh_CN'
+        ? kNetworkSettingsZh
+        : kNetworkSettingsEn;
+    if (settings.containsKey(key)) return settings[key]!;
     final workflow = kUiWorkflowCatalogs[catalogId] ?? kUiWorkflowEn;
     if (workflow.containsKey(key)) return workflow[key]!;
     final quality = kNetworkQualityCatalogs[catalogId] ?? kNetworkQualityEn;

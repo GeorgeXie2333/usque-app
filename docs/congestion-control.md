@@ -15,8 +15,9 @@ belong in this document rather than the settings form.
 ## Saved preference versus session
 
 Saving only the algorithm persists a preference without reconnecting. A manual
-connect or retry, or a fresh engine/service start, captures the latest saved
-value. The current session retains its captured value through automatic
+connect or retry captures the latest saved value. A fresh engine connection
+also reads saved settings; Android restoration of an existing session uses
+its confirmed recovery profile. The current session retains its captured value through automatic
 reconnection, QUIC migration, H3/H2 switching, hot frontend updates and internal
 reconnections caused by other settings. Merely reopening the GUI is not a new
 engine session. An active H2 connection reports that H3 control is not applied.
@@ -30,8 +31,10 @@ draft; storage failure leaves that draft editable and displays the failure.
 
 Windows binds the value under the existing mutation lock and retains it outside
 the transient data-plane object. Android keeps desired and effective recovery
-profiles separate. A fresh Android session consults the Rust profile catalog,
-so manual retry and process restart cannot consume a stale cached preference.
+profiles separate. A manually started Android session consults the Rust profile
+catalog. Process restoration retains the confirmed session preference and
+does not activate settings saved for a later manual connection. See the
+[network settings contract](NETWORK_SETTINGS.md) for mixed edits and failures.
 No configuration operation changes the congestion algorithm of a live socket.
 
 ## Configuration and wire compatibility

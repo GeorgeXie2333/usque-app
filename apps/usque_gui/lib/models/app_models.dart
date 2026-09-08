@@ -1801,6 +1801,7 @@ class NetworkQualitySnapshot {
 
 class EngineCapabilities {
   const EngineCapabilities({
+    this.networkSettingsApplication = false,
     this.h3CongestionControlAlgorithms = const <CongestionControlAlgorithm>[],
     this.networkQuality = false,
     this.encryptedDirectDns = false,
@@ -1810,6 +1811,7 @@ class EngineCapabilities {
 
   factory EngineCapabilities.fromMap(Map<Object?, Object?> map) =>
       EngineCapabilities(
+        networkSettingsApplication: map['network_settings_application'] == true,
         h3CongestionControlAlgorithms: CongestionControlAlgorithm.values
             .where(
               (algorithm) =>
@@ -1826,6 +1828,7 @@ class EngineCapabilities {
       );
 
   final bool networkQuality;
+  final bool networkSettingsApplication;
   final List<CongestionControlAlgorithm> h3CongestionControlAlgorithms;
   final bool encryptedDirectDns;
   final bool quicMigration;
@@ -1835,6 +1838,7 @@ class EngineCapabilities {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is EngineCapabilities &&
+          networkSettingsApplication == other.networkSettingsApplication &&
           listEquals(
             h3CongestionControlAlgorithms,
             other.h3CongestionControlAlgorithms,
@@ -1846,6 +1850,7 @@ class EngineCapabilities {
 
   @override
   int get hashCode => Object.hash(
+    networkSettingsApplication,
     Object.hashAll(h3CongestionControlAlgorithms),
     networkQuality,
     encryptedDirectDns,

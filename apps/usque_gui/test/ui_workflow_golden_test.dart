@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:usque/models/app_models.dart';
+import 'package:usque/models/network_settings.dart';
 import 'package:usque/screens/advanced_settings_screen.dart';
 import 'package:usque/screens/diagnostics_screen.dart';
 import 'package:usque/screens/onboarding_screen.dart';
@@ -206,6 +207,20 @@ void main() {
       addTearDown(app.dispose);
       app.sharedNetwork = app.sharedNetwork.copyWith(
         congestionControl: CongestionControlAlgorithm.bbr3,
+      );
+      app.networkSettings.accept(
+        NetworkSettingsState(
+          sourceEpoch: 'golden-engine',
+          sequence: 1,
+          operationId: 'saved-settings',
+          persisted: true,
+          storedProfile: app.activeProfile,
+          appliedProfile: app.activeProfile.copyWith(
+            congestionControl: CongestionControlAlgorithm.cubic,
+          ),
+          status: NetworkSettingsApplyStatus.deferred,
+          deferredFields: const ['congestion_control'],
+        ),
       );
       final boundary = GlobalKey();
       await tester.pumpWidget(

@@ -47,6 +47,7 @@ not gate publication. Missing, failed, or `not_run` evidence is never a pass.
 | [H3 path infrastructure](h3-path-infrastructure.md) | Socket ownership, exact generations, and migration / 路径所有权、网络代次与迁移 |
 | [H3 client reliability](h3-client-reliability.md) | Receive handling, fragmentation policy, GOAWAY, and recovery / 接收、分片策略与恢复 |
 | [HTTP/3 congestion control](congestion-control.md) | Algorithm selection, deferred session settings, and BBRv3 / 算法选择、延迟生效与 BBRv3 |
+| [Network settings](NETWORK_SETTINGS.md) | Field patches, durable saves, session application, and verification / 字段补丁、保存与会话生效契约 |
 | [Direct DNS threat model](direct-dns-threat-model.md) | Scoped trust boundaries, assumptions, and review evidence / 专题信任边界、假设与审查依据 |
 
 These documents describe contracts or scoped reviews, not measured performance

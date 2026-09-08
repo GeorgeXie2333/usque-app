@@ -3,6 +3,16 @@ package io.github.georgexie2333.usque
 import java.io.File
 
 internal object NativeEngine {
+    fun networkSettings(
+        path: String,
+        request: String,
+    ): String? = if (libraryLoaded) nativeNetworkSettings(path, request) else null
+
+    private external fun nativeNetworkSettings(
+        path: String,
+        request: String,
+    ): String?
+
     private val libraryLoaded: Boolean =
         try {
             System.loadLibrary("usque_android")

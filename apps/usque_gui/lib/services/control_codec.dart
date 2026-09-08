@@ -130,6 +130,7 @@ class ControlCodec {
       ConnectionTimeline? connectionTimeline;
       NetworkQualitySnapshot? networkQuality;
       EngineCapabilities? capabilities;
+      NetworkSettingsState? networkSettings;
       while (!reader.isDone) {
         final field = reader.field();
         switch (field.number) {
@@ -155,6 +156,8 @@ class ControlCodec {
             );
           case 21:
             networkQuality = _decodeNetworkQuality(reader.message(field));
+          case 22:
+            networkSettings = _decodeNetworkSettings(reader.message(field));
           case 15:
             capabilities = _decodeCapabilities(reader.message(field));
           default:
@@ -184,6 +187,7 @@ class ControlCodec {
         connectionTimeline: connectionTimeline,
         networkQuality: networkQuality,
         capabilities: capabilities,
+        networkSettings: networkSettings,
       );
     } on FormatException catch (error) {
       throw _invalidIpcResponse(error);
@@ -217,6 +221,7 @@ class ControlCodec {
       NetworkQualitySnapshot? networkQuality;
       EngineCapabilities? capabilities;
       var diagnosticsChanged = false;
+      NetworkSettingsState? networkSettings;
       while (!envelope.isDone) {
         final field = envelope.field();
         switch (field.number) {
@@ -277,6 +282,8 @@ class ControlCodec {
                 updated.skip(updatedField);
               }
             }
+          case 24:
+            networkSettings = _decodeNetworkSettings(envelope.message(field));
           default:
             envelope.skip(field);
         }
@@ -286,6 +293,7 @@ class ControlCodec {
         geoProgress: geoProgress,
         diagnosticSession: diagnosticSession,
         diagnosticsChanged: diagnosticsChanged,
+        networkSettings: networkSettings,
         networkQuality: networkQuality,
         capabilities: capabilities,
       );
@@ -318,6 +326,7 @@ class ControlResponse {
     this.connectionTimeline,
     this.networkQuality,
     this.capabilities,
+    this.networkSettings,
   });
 
   final EngineSnapshot? snapshot;
@@ -329,6 +338,7 @@ class ControlResponse {
   final ConnectionTimeline? connectionTimeline;
   final NetworkQualitySnapshot? networkQuality;
   final EngineCapabilities? capabilities;
+  final NetworkSettingsState? networkSettings;
 }
 
 /// Minimal protobuf field writer for control request payloads.
@@ -1280,6 +1290,7 @@ ConnectionMetrics _decodeConnectionMetrics(_ProtoReader reader) {
 }
 
 EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
+  var networkSettingsApplication = false;
   final congestionAlgorithms = <CongestionControlAlgorithm>[];
   var networkQuality = false;
   var encryptedDirectDns = false;
@@ -1288,6 +1299,8 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
   while (!reader.isDone) {
     final field = reader.field();
     switch (field.number) {
+      case 25:
+        networkSettingsApplication = reader.varint(field) != 0;
       case 20:
         networkQuality = reader.varint(field) != 0;
       case 21:
@@ -1315,12 +1328,62 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
     }
   }
   return EngineCapabilities(
+    networkSettingsApplication: networkSettingsApplication,
     h3CongestionControlAlgorithms: List.unmodifiable(congestionAlgorithms),
     networkQuality: networkQuality,
     encryptedDirectDns: encryptedDirectDns,
     quicMigration: quicMigration,
     automaticPmtu: automaticPmtu,
   );
+}
+
+NetworkSettingsState _decodeNetworkSettings(_ProtoReader reader) {
+  final values = <Object?, Object?>{};
+  final fields = <String>[];
+  while (!reader.isDone) {
+    final field = reader.field();
+    switch (field.number) {
+      case 1:
+        values['source_epoch'] = reader.string(field);
+      case 2:
+        values['sequence'] = reader.varint(field);
+      case 3:
+        values['operation_id'] = reader.string(field);
+      case 4:
+        values['session_id'] = reader.string(field);
+      case 5:
+        values['stored_profile'] = _decodeProfile(
+          reader.message(field),
+        ).toMap();
+      case 6:
+        values['applied_profile'] = _decodeProfile(
+          reader.message(field),
+        ).toMap();
+      case 7:
+        values['apply_status'] = switch (reader.varint(field)) {
+          1 => 'not_required',
+          2 => 'applying',
+          3 => 'applied',
+          4 => 'deferred',
+          5 => 'failed',
+          _ => 'unknown',
+        };
+      case 8:
+        if (fields.length >= 32) {
+          throw const FormatException('Too many pending settings');
+        }
+        fields.add(reader.string(field));
+      case 9:
+        values['error_code'] = _emptyToNull(reader.string(field));
+      case 10:
+        values['persisted'] = reader.varint(field) != 0;
+      default:
+        reader.skip(field);
+    }
+  }
+  values['sequence'] ??= 0;
+  values['deferred_fields'] = fields;
+  return NetworkSettingsState.fromMap(values);
 }
 
 NetworkQualitySnapshot _decodeNetworkQuality(_ProtoReader reader) {

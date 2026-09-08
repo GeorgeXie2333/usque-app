@@ -255,11 +255,34 @@ internal class AndroidEngineMethodHandler(
         result: MethodChannel.Result,
     ) {
         when (call.method) {
+            "saveNetworkSettings", "getNetworkSettingsState" -> {
+                val request =
+                    if (call.method == "saveNetworkSettings") {
+                        flutterValueToJson(call.arguments)
+                    } else {
+                        null
+                    }
+                controlClient.requestNetworkSettings(request, result)
+            }
+
             "getCapabilities" -> {
                 val native = engineBridge.capabilities()
                 result.success(
                     NetworkQualityFields.capabilities(native) +
-                        mapOf("h3_congestion_control_algorithms" to CongestionControlSettings.capabilities(native)),
+                        mapOf(
+                            "h3_congestion_control_algorithms" to CongestionControlSettings.capabilities(native),
+                            "network_settings_application" to
+                                (
+                                    native?.let {
+                                        runCatching {
+                                            JSONObject(
+                                                it,
+                                            ).optBoolean("network_settings_application")
+                                        }.getOrDefault(false)
+                                    }
+                                        ?: false
+                                ),
+                        ),
                 )
             }
 
@@ -2372,10 +2395,27 @@ internal class AndroidEngineMethodHandler(
             )
             return
         }
-        val normalized = VpnReconfigure.canonicalizeProfileArguments(arguments)
-        val mode = normalized["mode"] as String
-        val profileJson = flutterValueToJson(normalized)
-        activityCommands.connectAfterValidation(profileJson, mode, result)
+        val requested = flutterValueToJson(arguments)
+        identityExecutor.execute {
+            try {
+                val catalog =
+                    requireNotNull(
+                        engineBridge.applyProfileCommand(profileConfigPath, """{"command":"list_profiles"}"""),
+                    )
+                val profileJson = NetworkSettingsFields.savedProfile(requested, catalog)
+                val tunnel = VpnReconfigure.tunnelFrontendEnabled(profileJson)
+                val mode = VpnReconfigure.canonicalMode(tunnel)
+                mainScheduler.post { activityCommands.connectAfterValidation(profileJson, mode, result) }
+            } catch (_: Exception) {
+                mainScheduler.post {
+                    result.error(
+                        "PROFILE_STORE_FAILED",
+                        "The saved account could not be loaded.",
+                        null,
+                    )
+                }
+            }
+        }
     }
 
     /**

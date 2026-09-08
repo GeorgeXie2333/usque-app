@@ -47,6 +47,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   bool _saved = false;
   bool _validationAttempted = false;
   List<Object> _baseline = [];
+  late String _editingAccountId;
   final _fieldKeys = List.generate(
     8,
     (_) => GlobalKey<FormFieldState<String>>(),
@@ -114,7 +115,10 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     _killSwitch = profile.killSwitch;
     _allowLan = profile.allowLan;
     _directDns = profile.directDns;
-    if (baseline) _baseline = _values;
+    if (baseline) {
+      _baseline = _values;
+      _editingAccountId = profile.id;
+    }
     _loading = false;
   }
 
@@ -164,12 +168,14 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
             dirty: _dirty,
             saving: _saving,
             saved: _saved,
-            savedLabel: strings.get('cc_saved'),
-            idleHint:
-                widget.controller.snapshot.sessionCongestionControl != null &&
-                    widget.controller.snapshot.sessionCongestionControl !=
-                        widget.controller.sharedNetwork.congestionControl
-                ? strings.get('cc_saved')
+            statusLabel:
+                !_dirty ||
+                    widget.controller.networkSettings.unconfirmed ||
+                    widget.controller.networkSettings.saveError != null
+                ? widget.controller.networkSettingsMessage
+                : null,
+            onReconnect: widget.controller.networkSettingsCanReconnect
+                ? widget.controller.retry
                 : null,
             error: _saveError,
             onSave: _save,
@@ -576,8 +582,30 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     });
     final profile = widget.controller.activeProfile;
     final endpointIpsManaged = _zeroTrustEndpointIpsManaged;
+    const paths = [
+      'endpoint.ipv4',
+      'endpoint.ipv6',
+      'endpoint.port',
+      'endpoint.sni',
+      'dns_servers',
+      'dns_servers',
+      'mtu',
+      'split_exclusions',
+      'transport',
+      'congestion_control',
+      'ip_policy',
+      'kill_switch',
+      'allow_lan',
+      'direct_dns',
+    ];
+    final changedFields = <String>{
+      for (var i = 0; i < paths.length; i++)
+        if (_values[i] != _baseline[i] && !(endpointIpsManaged && i < 2))
+          paths[i],
+    }.toList();
     final saved = await widget.controller.saveNetwork(
       profile.copyWith(
+        id: _editingAccountId,
         transport: _transport,
         congestionControl: _congestionControl,
         ipPolicy: _ipPolicy,
@@ -601,6 +629,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
             .where((line) => line.isNotEmpty)
             .toList(growable: false),
       ),
+      changedFields: changedFields,
     );
     if (!mounted) return;
     setState(() {
