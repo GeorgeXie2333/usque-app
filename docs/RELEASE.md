@@ -198,6 +198,13 @@ only that user's Usque directories and credential namespace. A direct
 clean an EXE bundle registration. The shared Wintun driver package is not
 removed.
 
+The quiet launcher's fixed executable prefix and quotes are authored in WXS.
+Only its Base64 script token crosses the WiX `-define` command-line boundary;
+passing the complete quoted command loses quotes under PowerShell's Legacy
+native argument passing. The MSI verifier still compares the full resulting
+Registry value against the trusted launcher, and CI compiles real inert MSIs
+under all three PowerShell 7 argument-passing modes.
+
 User-facing install and uninstall steps are in [INSTALLATION.md](INSTALLATION.md).
 
 ## Runner isolation boundary

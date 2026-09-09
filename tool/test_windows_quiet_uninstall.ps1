@@ -99,6 +99,9 @@ try {
     $command = & (Join-Path $PSScriptRoot "get_windows_quiet_uninstall_command.ps1")
     Assert-QuietTest ($command.StartsWith('"[System64Folder]WindowsPowerShell\v1.0\powershell.exe" ')) "64-bit MSI must use the native system host"
     $encoded = ($command -split ' -EncodedCommand ', 2)[1]
+    $wixToken = & (Join-Path $PSScriptRoot "get_windows_quiet_uninstall_command.ps1") -EncodedScriptOnly
+    Assert-QuietTest ($wixToken -cmatch '^[A-Za-z0-9+/]+={0,2}$') "WiX token must be quote-free Base64"
+    Assert-QuietTest ($wixToken -ceq $encoded) "WiX token differs from the verified launcher"
     $decoded = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($encoded))
     $source = Get-Content -LiteralPath (Join-Path $PSScriptRoot "windows_quiet_uninstall.ps1") -Raw
     Assert-QuietTest ($decoded -ceq $source) "registered launcher differs from tested source"

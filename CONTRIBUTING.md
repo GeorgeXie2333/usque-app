@@ -228,6 +228,13 @@ PowerShell 5.1. These use inert process/registry doubles and a harmless child
 process to check completion, exit codes, copy locking, and launcher encoding.
 They do not run an MSI or uninstall a product.
 
+For MSI argument changes, run `pwsh -NoProfile -File
+tool/test_windows_wix_arguments.ps1` with `-Variant x64-v2` and `-Variant arm64`.
+It compiles inert MSIs from the real authoring in Legacy, Standard, and Windows
+argument-passing modes and checks their Registry tables. CI runs this gate for
+both architectures. Pass only the Base64 quiet-launcher script through WiX
+`-define`; the quoted executable prefix belongs in the WXS source.
+
 ### Windows Flutter and runner
 
 For Flutter or Windows-runner changes, run the Windows Rust gates above and

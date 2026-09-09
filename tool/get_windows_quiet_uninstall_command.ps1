@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param()
+param([switch]$EncodedScriptOnly)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
@@ -12,4 +12,11 @@ $command = '"[System64Folder]WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoP
 if ($command.Length -ge 32000) {
     throw "The quiet uninstall command exceeds the supported Windows command-line length."
 }
-Write-Output $command
+# Native Legacy argument passing removes embedded quotes. Only the quote-free
+# Base64 token may cross the WiX command-line boundary; the prefix lives in WXS.
+if ($EncodedScriptOnly) {
+    Write-Output $encoded
+}
+else {
+    Write-Output $command
+}

@@ -307,7 +307,7 @@ if (-not [string]::IsNullOrWhiteSpace($CabCacheDirectory)) {
     New-Item -ItemType Directory -Path $CabCacheDirectory -Force | Out-Null
     $cabCachePath = (Resolve-Path -LiteralPath $CabCacheDirectory).Path
 }
-$quietUninstallCommand = & (Join-Path $PSScriptRoot "get_windows_quiet_uninstall_command.ps1")
+$quietUninstallScript = & (Join-Path $PSScriptRoot "get_windows_quiet_uninstall_command.ps1") -EncodedScriptOnly
 
 Push-Location $repositoryRoot
 try {
@@ -338,7 +338,7 @@ try {
             "-define", "IconPath=$iconPath",
             "-define", "LicensePath=$licensePath",
             "-define", "UsqueLocalizationPath=$localizationIncludePath",
-            "-define", "UsqueQuietUninstallCommand=$quietUninstallCommand",
+            "-define", "UsqueQuietUninstallScript=$quietUninstallScript",
             "-defaultcompressionlevel", "high",
             "-intermediateFolder", $intermediatePath,
             "-pdbtype", "none",

@@ -288,7 +288,7 @@
         Key="Software\Microsoft\Windows\CurrentVersion\Uninstall\Usque"
         Name="QuietUninstallString"
         Type="string"
-        Value="$(UsqueQuietUninstallCommand)" />
+        Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand $(UsqueQuietUninstallScript)" />
       <RegistryValue
         Root="HKLM"
         Key="Software\Microsoft\Windows\CurrentVersion\Uninstall\Usque"
