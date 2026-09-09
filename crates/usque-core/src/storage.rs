@@ -17,6 +17,8 @@ use crate::config::{
 };
 use crate::identity::IdentityProvider;
 
+mod file_lock;
+
 #[derive(Debug, Clone)]
 pub struct ConfigStore {
     path: PathBuf,
@@ -37,7 +39,7 @@ impl ConfigStore {
             .create(true)
             .truncate(false)
             .open(self.path.with_extension("json.lock"))?;
-        lock.lock()?;
+        file_lock::lock_exclusive(&lock)?;
         Ok(lock)
     }
 
@@ -464,6 +466,120 @@ pub enum StoreError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn open_lock_probe(store: &ConfigStore) -> File {
+        File::options()
+            .read(true)
+            .write(true)
+            .open(store.path().with_extension("json.lock"))
+            .unwrap()
+    }
+
+    #[test]
+    fn sidecar_lock_survives_config_replacement_and_releases_on_drop() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ConfigStore::new(directory.path().join("usque_config/profiles-v2.json"));
+        let guard = store.lock_exclusive().unwrap();
+        assert!(!store.path().exists());
+        let probe = open_lock_probe(&store);
+        assert_eq!(
+            file_lock::try_lock_exclusive(&probe).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
+
+        let mut config = AppConfig::default();
+        store.save(&config).unwrap();
+        config.network.mtu = 1400;
+        store.save(&config).unwrap();
+        let replacement_probe = open_lock_probe(&store);
+        assert_eq!(
+            file_lock::try_lock_exclusive(&replacement_probe)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::WouldBlock
+        );
+
+        drop(guard);
+        file_lock::try_lock_exclusive(&replacement_probe).unwrap();
+        assert_eq!(store.load().unwrap(), config);
+    }
+
+    #[test]
+    fn failed_lock_never_runs_a_transaction_or_changes_saved_data() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ConfigStore::new(directory.path().join("profiles-v2.json"));
+        store.save(&AppConfig::default()).unwrap();
+        let original = fs::read(store.path()).unwrap();
+        fs::create_dir(store.path().with_extension("json.lock")).unwrap();
+
+        let mut called = false;
+        let result = store.update::<(), StoreError>(|config| {
+            called = true;
+            config.network.mtu = 1400;
+            Ok(())
+        });
+        assert!(matches!(result, Err(StoreError::Io(_))));
+        assert!(!called);
+        assert_eq!(fs::read(store.path()).unwrap(), original);
+    }
+
+    // This inert subprocess only locks a file inside the parent test's tempdir.
+    // It must be terminated while holding the lock to exercise OS cleanup,
+    // without running Rust destructors or touching real application state.
+    #[test]
+    fn profile_lock_child_process() {
+        let Some(path) = std::env::var_os("USQUE_TEST_PROFILE_LOCK_PATH") else {
+            return;
+        };
+        let store = ConfigStore::new(PathBuf::from(path));
+        let _guard = store.lock_exclusive().unwrap();
+        fs::write(store.path().with_extension("ready"), b"locked").unwrap();
+        loop {
+            std::thread::park();
+        }
+    }
+
+    #[test]
+    fn sidecar_lock_is_released_when_its_process_is_terminated() {
+        use std::process::{Child, Command, Stdio};
+        use std::time::{Duration, Instant};
+
+        struct ReapChild(Child);
+        impl Drop for ReapChild {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+
+        let directory = tempfile::tempdir().unwrap();
+        let store = ConfigStore::new(directory.path().join("profiles-v2.json"));
+        let ready = store.path().with_extension("ready");
+        let mut child = ReapChild(
+            Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "storage::tests::profile_lock_child_process"])
+                .env("USQUE_TEST_PROFILE_LOCK_PATH", store.path())
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .spawn()
+                .unwrap(),
+        );
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !ready.exists() {
+            assert!(child.0.try_wait().unwrap().is_none(), "lock child exited");
+            assert!(Instant::now() < deadline, "lock child did not become ready");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        let probe = open_lock_probe(&store);
+        assert_eq!(
+            file_lock::try_lock_exclusive(&probe).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
+        child.0.kill().unwrap();
+        child.0.wait().unwrap();
+        file_lock::try_lock_exclusive(&probe).unwrap();
+    }
 
     #[test]
     fn concurrent_transactions_merge_the_latest_file() {

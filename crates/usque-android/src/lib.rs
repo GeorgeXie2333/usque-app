@@ -3227,7 +3227,7 @@ mod tests {
     #[test]
     fn rust_profile_store_imports_flutter_data_only_once() {
         let directory = tempfile::tempdir().unwrap();
-        let config_path = directory.path().join("profiles-v2.json");
+        let config_path = directory.path().join("usque_config/profiles-v2.json");
         let profile: serde_json::Value = serde_json::from_str(&valid_profile_json()).unwrap();
         let import = serde_json::json!({
             "command": "import_legacy_profiles",
@@ -3237,6 +3237,14 @@ mod tests {
         let first =
             apply_profile_command(config_path.to_str().unwrap(), &import.to_string()).unwrap();
         assert!(first.contains("\"name\":\"Default\""));
+        // Onboarding immediately reads this catalog again before provisioning.
+        // Keep the fresh-install path and the repeated lock acquisition covered.
+        let listed = apply_profile_command(
+            config_path.to_str().unwrap(),
+            r#"{"command":"list_profiles"}"#,
+        )
+        .unwrap();
+        assert_eq!(listed, first);
 
         let mut replacement: serde_json::Value =
             serde_json::from_str(&valid_profile_json()).unwrap();
