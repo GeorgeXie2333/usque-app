@@ -237,6 +237,30 @@ mod tests {
     use super::*;
 
     #[test]
+    fn every_supported_locale_has_complete_confirmation_copy() {
+        for locale in [
+            "en-US", "zh-CN", "zh-HK", "zh-TW", "ja-JP", "ko-KR", "de-DE", "es-ES", "fr-FR",
+            "pt-BR", "nl-NL", "it-IT", "pl-PL", "ru-RU", "uk-UA", "tr-TR", "ar-SA", "fa-IR",
+            "id-ID", "vi-VN", "th-TH",
+        ] {
+            let copy = copy_for_locale(locale);
+            for text in [
+                copy.title,
+                copy.body,
+                copy.delete_data,
+                copy.warning,
+                copy.uninstall,
+                copy.cancel,
+            ] {
+                assert!(
+                    !text.trim().is_empty(),
+                    "missing confirmation copy for {locale}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn chinese_regions_map_to_distinct_copy() {
         assert_eq!(copy_for_locale("zh-CN").uninstall, "卸载");
         assert_eq!(copy_for_locale("zh-HK").uninstall, "解除安裝");

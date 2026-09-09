@@ -6,6 +6,9 @@
 
 use thiserror::Error;
 
+// Production copy belongs to the Windows-only dialog. Keep the pure locale
+// tests available on other hosts without compiling unused UI data into them.
+#[cfg(any(windows, test))]
 mod l10n;
 
 #[cfg(windows)]
