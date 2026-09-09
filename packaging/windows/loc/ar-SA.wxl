@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WixLocalization
+  xmlns="http://wixtoolset.org/schemas/v4/wxl"
+  Culture="ar-SA">
+  <String
+    Id="UsqueRemoveDataTitle"
+    Value="خيارات الإزالة" />
+  <String
+    Id="UsqueRemoveDataDescription"
+    Value="اختر ما إذا كنت تريد الاحتفاظ بالبيانات لإعادة تثبيت لاحقة." />
+  <String
+    Id="UsqueRemoveDataCheckbox"
+    Value="حذف الملفات الشخصية والإعدادات والسجلات وذاكرة التخزين المؤقت وهويات WARP لمستخدم Windows هذا." />
+  <String
+    Id="UsqueRemoveDataWarning"
+    Value="لا يمكن التراجع عن هذا. اترك الخيار دون تحديد للاحتفاظ بالبيانات المحلية. لا يتأثر مستخدمو Windows الآخرون." />
+  <String
+    Id="UsqueRepairTitle"
+    Value="الإصلاح غير مدعوم" />
+  <String
+    Id="UsqueRepairDescription"
+    Value="قد يقطع الإصلاح حالة استرداد الشبكة المميزة. اختر إزالة لإلغاء تثبيت Usque ثم أعد تثبيته؛ تُحفظ بيانات المستخدم ما لم تختر الحذف صراحة. تثبيت إصدار أحدث مدعوم أيضًا." />
+  <String
+    Id="UsqueRepairOk"
+    Value="موافق" />
+</WixLocalization>

@@ -128,7 +128,9 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] Remove crash-surviving Usque Wintun devices by journaled name/GUID/LUID,
   distinguish true uninstall from major upgrade, and delete only proven-clean
   machine recovery state before MSI removes the Agent binary.
-- [x] Signed x64-v2 and ARM64 MSI packaging.
+- [x] Signed x64-v2 and ARM64 update MSIs plus localized installer bundles,
+  with signer-pinned cleanup of hidden Burn registration after direct MSI
+  uninstall.
 - [ ] Isolated clean-install, upgrade, and uninstall validation.
 
 ### Android and Android TV
@@ -170,7 +172,7 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] Composable VPN/SOCKS5/HTTP outputs, Windows system-proxy dependency, and non-loopback listener warning.
 - [x] Remote/custom/system Proxy DNS selection with dedicated IPv4/IPv6 servers and an explicit local-DNS leak warning.
 - [x] Exit location, IPv4, IPv6, protocol, family, duration, and traffic UI.
-- [x] English and Simplified Chinese string catalogs.
+- [x] Twenty-one string catalogs, including English and three Chinese regional catalogs.
 - [x] Adaptive desktop/mobile navigation and focusable Material controls.
 - [x] Retain a bounded, corruption-safe one-time reader for the legacy Flutter Profile draft.
 - [x] Make versioned Rust configuration the authoritative Profile store on Windows and Android, then remove the migrated Flutter draft.

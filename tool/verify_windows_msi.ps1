@@ -19,6 +19,12 @@ param(
     [ValidatePattern("^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$")]
     [string]$ExpectedAgentFileVersion,
 
+    [ValidateRange(0, 65535)]
+    [int]$ExpectedMsiLanguage = 1033,
+
+    [ValidatePattern("^\{?[0-9A-Fa-f]{8}-(?:[0-9A-Fa-f]{4}-){3}[0-9A-Fa-f]{12}\}?$")]
+    [string]$ExpectedProductCode,
+
     [Parameter(Mandatory = $true)]
     [ValidatePattern("^[0-9A-Fa-f]{64}$")]
     [string]$SignerSha256
@@ -214,6 +220,11 @@ try {
     }
     Assert-Equal $propertyMap.ProductVersion $ExpectedMsiVersion "ProductVersion"
     Assert-Equal $propertyMap.ProductName "Usque $ExpectedDisplayVersion" "ProductName"
+    Assert-Equal $propertyMap.ProductLanguage $ExpectedMsiLanguage "ProductLanguage"
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedProductCode)) {
+        $normalizedProductCode = "{$(([guid]$ExpectedProductCode).ToString('D').ToUpperInvariant())}"
+        Assert-Equal $propertyMap.ProductCode $normalizedProductCode "ProductCode"
+    }
     Assert-Equal `
         $propertyMap.UpgradeCode `
         "{076CF387-E447-4666-9153-2DA16049A390}" `
@@ -340,10 +351,10 @@ try {
             -Query "SELECT ``Value`` FROM ``Registry`` WHERE ``Key``='Software\Microsoft\Windows\CurrentVersion\Uninstall\Usque' AND ``Name``='QuietUninstallString'" `
             -Columns @("Value")) `
         "custom ARP quiet uninstall string"
-    Assert-Equal `
-        $arpQuietUninstall.Value `
-        "msiexec /x [ProductCode] /qn" `
-        "custom ARP quiet uninstall string"
+    $expectedQuietCommand = & (Join-Path $PSScriptRoot "get_windows_quiet_uninstall_command.ps1")
+    if (-not [StringComparer]::Ordinal.Equals($arpQuietUninstall.Value, $expectedQuietCommand)) {
+        throw "QuietUninstallString does not match the trusted synchronous launcher."
+    }
     if ($arpQuietUninstall.Value -like "*USQUE_REMOVE_USER_DATA=1*") {
         throw "QuietUninstallString must not request user-data deletion."
     }
@@ -795,13 +806,20 @@ try {
 
     $upgradeRows = Invoke-MsiQuery `
         -Database $database `
-        -Query "SELECT ``UpgradeCode``,``VersionMin``,``VersionMax``,``Attributes``,``ActionProperty`` FROM ``Upgrade``" `
-        -Columns @("UpgradeCode", "VersionMin", "VersionMax", "Attributes", "ActionProperty")
+        -Query "SELECT ``UpgradeCode``,``VersionMin``,``VersionMax``,``Language``,``Attributes``,``ActionProperty`` FROM ``Upgrade``" `
+        -Columns @("UpgradeCode", "VersionMin", "VersionMax", "Language", "Attributes", "ActionProperty")
+    $languageRestrictedUpgrade = @(
+        $upgradeRows | Where-Object { -not [string]::IsNullOrEmpty([string]$_.Language) }
+    )
+    if ($languageRestrictedUpgrade.Count -ne 0) {
+        throw "Every major-upgrade row must match installed products across installer languages."
+    }
     $detected = Assert-OneRow `
     @($upgradeRows | Where-Object { $_.ActionProperty -eq "WIX_UPGRADE_DETECTED" }) `
         "WIX_UPGRADE_DETECTED"
     Assert-Equal $detected.UpgradeCode "{076CF387-E447-4666-9153-2DA16049A390}" "detected upgrade code"
     Assert-Equal $detected.VersionMax $ExpectedMsiVersion "upgrade maximum version"
+    Assert-Equal $detected.Language "" "cross-language upgrade matching"
     if (([int]$detected.Attributes -band 512) -eq 0) {
         throw "Equal-version architecture replacement is not enabled."
     }

@@ -20,12 +20,12 @@ class ReleaseContractTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
-    def test_manifest_requires_the_exact_six_artifacts(self) -> None:
+    def test_manifest_requires_the_exact_eight_artifacts(self) -> None:
         manifest = release_contract.create_manifest(
             self.root, self.tag, self.commit, "b" * 64, "c" * 64
         )
         index = release_contract.artifact_index(manifest)
-        self.assertEqual(6, len(index))
+        self.assertEqual(8, len(index))
         release_contract.verify_artifacts(self.root, manifest)
         self.assertFalse((self.root / "SHA256SUMS").exists())
         for name in index:
@@ -84,7 +84,8 @@ class ReleaseNotesContractTests(unittest.TestCase):
 
         self.assertNotIn("{{", rendered)
         self.assertIn("Usque v9.8.7-beta.3 official release", rendered)
-        self.assertIn("usque-v9.8.7-beta.3-windows-x64-v2.msi", rendered)
+        self.assertIn("usque-v9.8.7-beta.3-windows-x64-v2.exe", rendered)
+        self.assertNotIn("usque-v9.8.7-beta.3-windows-x64-v2.msi", rendered)
         self.assertIn("usque-v9.8.7-beta.3-android-universal.apk", rendered)
         self.assertIn("`" + "b" * 64 + "`", rendered)
         self.assertIn("`" + "c" * 64 + "`", rendered)
@@ -146,8 +147,17 @@ class ReleaseWorkflowPolicyTests(unittest.TestCase):
         publish = self.job("publish")
         self.assertIn("needs: stage-candidate", publish)
         self.assertNotIn("protected-reliability-summary", publish)
-        self.assertIn("sha256sum -- *.msi *.apk > SHA256SUMS", publish)
-        self.assertIn('wc -l)" -eq 14', publish)
+        self.assertIn("sha256sum -- *.exe *.msi *.apk > SHA256SUMS", publish)
+        self.assertIn('wc -l)" -eq 18', publish)
+
+    def test_windows_release_signs_msi_engine_and_final_bundle(self) -> None:
+        windows = self.job("windows")
+        self.assertIn("build_windows_installer_payload.ps1", windows)
+        self.assertIn("build_windows_bundle.ps1", windows)
+        self.assertIn("wix -- burn detach", windows)
+        self.assertIn("wix -- burn reattach", windows)
+        self.assertIn("verify_windows_bundle.ps1", windows)
+        self.assertIn("-VerifyAuthenticode", windows)
 
     def test_performance_lab_uses_v2_samples_and_repository_budget_math(self) -> None:
         performance = self.job("performance-reliability")

@@ -16,6 +16,8 @@ immediately below the matching English text.
   <br>HTTP/3 接收、取消、恢复及 PMTU 处理得到强化。网络质量中心在合并投递时保留真实源样本，协调 Windows 与 Android 的采样，并修正 Android 输出状态。这些是实现修复，不代表已经测得吞吐提升。
 - Zero Trust enrollment is available during onboarding. Native Windows and Android layouts now use clearer open sections, improved account and proxy workflows, unsaved-change handling, and Windows window sizing that respects the display work area. Zero Trust remains experimental.
   <br>首次配置流程新增 Zero Trust 注册。Windows 与 Android 原生布局采用更清晰的开放分区，改进账户及代理配置流程和未保存修改处理，并让 Windows 窗口尺寸适应显示器工作区。Zero Trust 仍为实验性功能。
+- The Windows installer now selects from 21 localized interfaces in one signed bundle per architecture. Windows tray and uninstall text, plus Android notifications, Quick Settings, and shortcuts, follow the selected UI language.
+  <br>Windows 安装程序现在会在每个架构的单一签名安装包中选择 21 种本地化界面。Windows 托盘与卸载文案，以及 Android 通知、快捷设置和快捷方式，也会跟随所选界面语言。
 - Dependency, release-tooling, guide, and screenshot updates accompany these changes. Real installation, upgrade, VPN recovery, leak, and performance validation requires isolated environments; compile-only and MSI table checks must not be presented as those runtime results.
   <br>此版本还更新依赖、发布工具、指南和截图。真实安装、升级、VPN 恢复、泄漏及性能验证需要隔离环境；编译与 MSI 表检查不得被表述为这些运行时验证结果。
 
@@ -40,8 +42,13 @@ The packages below are the only official installers for this release.
 
 | OS / 系统 | Requirements / 版本要求 | Direct downloads / 直接下载 |
 | --- | --- | --- |
-| Windows | Windows 10 22H2 (build 19045) or later.<br>Windows 10 22H2（内部版本 19045）或更高版本。 | [x64-v2 MSI](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-windows-x64-v2.msi)<br>[ARM64 MSI](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-windows-arm64.msi) |
+| Windows | Windows 10 22H2 (build 19045) or later.<br>Windows 10 22H2（内部版本 19045）或更高版本。 | [x64-v2 installer](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-windows-x64-v2.exe)<br>[ARM64 installer](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-windows-arm64.exe) |
 | Android / Android TV | Android 8.0 (API 26) or later. Android TV is supported.<br>Android 8.0（API 26）或更高版本，支持 Android TV。 | [ARM64-v8a APK](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-android-arm64-v8a.apk)<br>[x86_64 APK](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-android-x86_64.apk)<br>[ARMv7 APK](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-android-armeabi-v7a.apk)<br>[Universal APK](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-android-universal.apk) |
+
+For Windows, use the linked installer EXE. The similarly named MSI assets are
+reserved for Usque's verified in-app update flow.
+
+Windows 请使用上方链接的安装程序 EXE。同名 MSI 资产仅供 Usque 经过验证的应用内更新流程使用。
 
 Use the package matching your device architecture. The universal APK contains all three Android ABIs and is larger; use it only when the device ABI is unknown.
 

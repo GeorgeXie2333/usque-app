@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WixLocalization
+  xmlns="http://wixtoolset.org/schemas/v4/wxl"
+  Culture="de-DE">
+  <String
+    Id="UsqueRemoveDataTitle"
+    Value="Deinstallationsoptionen" />
+  <String
+    Id="UsqueRemoveDataDescription"
+    Value="Wählen Sie, ob Daten für eine spätere Neuinstallation behalten werden." />
+  <String
+    Id="UsqueRemoveDataCheckbox"
+    Value="Profile, Einstellungen, Protokolle, Caches und WARP-Identitäten dieses Windows-Benutzers löschen." />
+  <String
+    Id="UsqueRemoveDataWarning"
+    Value="Dies kann nicht rückgängig gemacht werden. Deaktiviert lassen, um lokale Daten zu behalten. Andere Windows-Benutzer sind nicht betroffen." />
+  <String
+    Id="UsqueRepairTitle"
+    Value="Reparatur wird nicht unterstützt" />
+  <String
+    Id="UsqueRepairDescription"
+    Value="Eine Reparatur könnte den privilegierten Netzwerkwiederherstellungszustand unterbrechen. Wählen Sie Entfernen, um Usque zu deinstallieren, und installieren Sie es anschließend erneut. Benutzerdaten bleiben erhalten, sofern Sie die Löschung nicht ausdrücklich wählen. Die Installation einer neueren Version wird ebenfalls unterstützt." />
+  <String
+    Id="UsqueRepairOk"
+    Value="OK" />
+</WixLocalization>

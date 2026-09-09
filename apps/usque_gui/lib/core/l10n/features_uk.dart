@@ -342,3 +342,49 @@ const Map<String, String> kWindowsRecoveryUk = <String, String>{
 const String kWindowsAdapterCleanupUk =
     'Попередній адаптер Wintun не вдалося вилучити або підтвердити '
     'його вилучення. Нове зʼєднання VPN не розпочиналося.';
+
+const Map<String, String> kL4Uk = <String, String>{
+  'l4_quic_not_ready': 'Очікування готового сеансу QUIC',
+  'l4_unsupported_packets': 'Відхилено непідтримувані або пошкоджені пакети',
+  'l4_budget_rejections': 'Відмови в допуску ресурсів',
+  'l4_not_applicable': 'Не застосовується (L4)',
+  'l4_mode': 'L4 (експериментальний)',
+  'l4_explanation':
+      'Лише TCP поверх HTTP/3. Підтримуються VPN/TUN, SOCKS5 і HTTP; DNS TUN перетворюється на TCP. Auto ніколи не вибирає L4. Інший UDP, віддалений ping, фрагменти IP і заголовки розширень не підтримуються; деякі програми можуть не працювати.',
+  'l4_unsupported':
+      'Цей рушій не оголосив повної підтримки L4. Увімкнути L4 не можна.',
+  'l4_sni_identity':
+      'Лише читання: виводиться з завантаженої ідентичності облікового запису. Наявний SNI CONNECT-IP зберігається.',
+  'l4_edge_requires_l4':
+      'DNS, який розвʼязується на межі, потребує L4. Виберіть інший режим DNS проксі перед перемиканням на Auto, H3 або H2.',
+  'proxy_dns_edge_resolved': 'Межа Cloudflare (лише L4; без локального запиту)',
+  'l4_verified': 'L4 CONNECT підтверджено',
+  'l4_unverified': 'QUIC готовий; L4 CONNECT ще не підтверджено',
+  'l4_status_unknown': 'Стан перевірки L4 невідомий',
+  'l4_sessions': 'Сеанси / завершення',
+  'l4_flows': 'Активні / очікувальні потоки',
+  'l4_connect': 'CONNECT успіхи / збої / тайм-аути',
+  'l4_buffers': 'Використаний бюджет буфера програми (байти)',
+  'l4_backpressure': 'Зворотний тиск надсилання / приймання',
+  'l4_tun_flows': 'TUN TCP / напіввідкриті',
+  'l4_udp': 'Відхилені пакети UDP',
+  'l4_dns': 'Перетворення DNS успіхи / збої / тайм-аути',
+  'l4_migration': 'Потоки, збережені міграцією / завершені перезбиранням',
+  'l4_na':
+      'Керування адресою CONNECT-IP, черги DATAGRAM, MTU внутрішнього навантаження і тайм-аут UDP: у L4 не застосовується.',
+};
+
+const Map<String, String> kNetworkSettingsUk = <String, String>{
+  'settings_applying': 'Збережено, застосовується',
+  'settings_applied': 'Збережено й застосовано',
+  'settings_deferred':
+      'Збережено, набуде чинності під час наступного ручного зʼєднання',
+  'settings_failed': 'Збережено, застосувати не вдалося',
+  'settings_unknown': 'Результат ще не підтверджено',
+  'settings_saved': 'Збережено',
+  'settings_unsupported':
+      'Перезапустіть або оновіть Engine, щоб зберегти мережеві параметри.',
+  'settings_save_failed':
+      'Не вдалося зберегти параметри. Ваші зміни збережено.',
+  'settings_reconnect': 'Зʼєднати знову',
+};

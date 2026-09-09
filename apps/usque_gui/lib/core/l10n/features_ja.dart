@@ -248,3 +248,44 @@ const Map<String, String> kWindowsRecoveryJa = <String, String>{
 
 const String kWindowsAdapterCleanupJa =
     '前回の Wintun アダプターを削除できなかったか、削除を確認できませんでした。新しい VPN 接続は開始されていません。';
+
+const Map<String, String> kL4Ja = <String, String>{
+  'l4_quic_not_ready': 'QUIC セッションの準備を待っています',
+  'l4_unsupported_packets': '未対応または不正なパケットを拒否しました',
+  'l4_budget_rejections': 'リソース受付の拒否回数',
+  'l4_not_applicable': '対象外（L4）',
+  'l4_mode': 'L4（実験的）',
+  'l4_explanation':
+      'HTTP/3 上の TCP 専用モードです。VPN/TUN、SOCKS5、HTTP に対応し、TUN DNS は TCP に変換されます。Auto は L4 を選びません。その他の UDP、遠隔 ping、IP 断片、拡張ヘッダーは未対応で、一部のアプリは動作しないことがあります。',
+  'l4_unsupported': 'この Engine は完全な L4 対応を宣言していません。L4 は有効にできません。',
+  'l4_sni_identity':
+      '読み取り専用: 読み込まれたアカウント識別情報から派生します。既存の CONNECT-IP SNI は保持されます。',
+  'l4_edge_requires_l4':
+      'エッジ解決 DNS は L4 専用です。Auto、H3、H2 に切り替える前に、別のプロキシ DNS モードを選んでください。',
+  'proxy_dns_edge_resolved': 'Cloudflare エッジ（L4 のみ、ローカル検索なし）',
+  'l4_verified': 'L4 CONNECT を確認済み',
+  'l4_unverified': 'QUIC 準備完了。L4 CONNECT は未確認',
+  'l4_status_unknown': 'L4 確認状態は不明です',
+  'l4_sessions': 'セッション / 排出中',
+  'l4_flows': '稼働中 / 待機中のストリーム',
+  'l4_connect': 'CONNECT 成功 / 失敗 / タイムアウト',
+  'l4_buffers': 'アプリ緩衝予算の使用量（バイト）',
+  'l4_backpressure': '送信 / 受信の背圧',
+  'l4_tun_flows': 'TUN TCP / 半開',
+  'l4_udp': '拒否した UDP パケット',
+  'l4_dns': 'DNS 変換の成功 / 失敗 / タイムアウト',
+  'l4_migration': '移行で保持したストリーム / 再構築で終了したストリーム',
+  'l4_na': 'CONNECT-IP アドレス制御、DATAGRAM キュー、内側ペイロード MTU、UDP タイムアウトは L4 では対象外です。',
+};
+
+const Map<String, String> kNetworkSettingsJa = <String, String>{
+  'settings_applying': '保存済み、適用中',
+  'settings_applied': '保存して適用しました',
+  'settings_deferred': '保存済み。次回の手動接続で有効になります',
+  'settings_failed': '保存済み、適用に失敗しました',
+  'settings_unknown': '結果はまだ確認されていません',
+  'settings_saved': '保存済み',
+  'settings_unsupported': 'ネットワーク設定を保存するには、Engine を再起動または更新してください。',
+  'settings_save_failed': '設定を保存できませんでした。編集内容は保持されています。',
+  'settings_reconnect': '再接続',
+};

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WixLocalization
+  xmlns="http://wixtoolset.org/schemas/v4/wxl"
+  Culture="uk-UA">
+  <String
+    Id="UsqueRemoveDataTitle"
+    Value="Параметри вилучення" />
+  <String
+    Id="UsqueRemoveDataDescription"
+    Value="Виберіть, чи зберігати дані для подальшого повторного встановлення." />
+  <String
+    Id="UsqueRemoveDataCheckbox"
+    Value="Видалити профілі, параметри, журнали, кеш і ідентичності WARP цього користувача Windows." />
+  <String
+    Id="UsqueRemoveDataWarning"
+    Value="Це неможливо скасувати. Залиште параметр знятим, щоб зберегти локальні дані. Інших користувачів Windows це не стосується." />
+  <String
+    Id="UsqueRepairTitle"
+    Value="Відновлення не підтримується" />
+  <String
+    Id="UsqueRepairDescription"
+    Value="Відновлення може перервати привілейований стан відновлення мережі. Виберіть «Вилучити», щоб вилучити Usque, потім встановіть знову; дані користувача зберігаються, якщо явно не вибрати видалення. Встановлення новішого випуску також підтримується." />
+  <String
+    Id="UsqueRepairOk"
+    Value="OK" />
+</WixLocalization>

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WixLocalization
+  xmlns="http://wixtoolset.org/schemas/v4/wxl"
+  Culture="zh-CN">
+  <String
+    Id="UsqueRemoveDataTitle"
+    Value="卸载选项" />
+  <String
+    Id="UsqueRemoveDataDescription"
+    Value="选择是否保留数据以便日后重新安装。" />
+  <String
+    Id="UsqueRemoveDataCheckbox"
+    Value="删除此 Windows 用户的配置、设置、日志、缓存和 WARP 身份。" />
+  <String
+    Id="UsqueRemoveDataWarning"
+    Value="此操作无法撤销。取消勾选可保留本地数据。其他 Windows 用户不受影响。" />
+  <String
+    Id="UsqueRepairTitle"
+    Value="不支持修复" />
+  <String
+    Id="UsqueRepairDescription"
+    Value="修复可能中断受保护的网络恢复状态。请选择“删除”卸载 Usque，然后再安装；除非你明确选择删除，否则会保留用户数据。也支持安装更新版本。" />
+  <String
+    Id="UsqueRepairOk"
+    Value="确定" />
+</WixLocalization>

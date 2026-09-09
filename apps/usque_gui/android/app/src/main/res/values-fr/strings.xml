@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="vpn_channel_name">Service réseau Usque</string>
+    <string name="vpn_channel_description">État persistant du VPN Usque actif ou du proxy local</string>
+    <string name="vpn_notif_disconnect">Déconnecter</string>
+    <string name="vpn_notif_preparing">Préparation du tunnel sécurisé</string>
+    <string name="vpn_notif_connecting_h3">Connexion avec HTTP/3</string>
+    <string name="vpn_notif_connecting_h2">Connexion avec HTTP/2</string>
+    <string name="vpn_notif_connected">Connecté</string>
+    <string name="vpn_notif_connected_via">Connecté via %1$s</string>
+    <string name="vpn_notif_degraded">Connecté avec une prise en charge limitée des familles d’adresses</string>
+    <string name="vpn_notif_reconnecting">Reconnexion sécurisée</string>
+    <string name="vpn_notif_error">Le service réseau s’est arrêté après une erreur</string>
+    <string name="vpn_notif_disconnecting">Déconnexion</string>
+    <string name="vpn_notif_idle">Usque VPN</string>
+    <string name="vpn_notif_invalid_profile">Profil VPN non valide</string>
+    <string name="vpn_notif_invalid_network_profile">Profil réseau non valide</string>
+    <string name="vpn_notif_recovery_unavailable">Récupération VPN indisponible</string>
+    <string name="tile_connected">Connecté</string>
+    <string name="tile_disconnected">Déconnecté</string>
+    <string name="tile_connecting">Connexion</string>
+    <string name="tile_reconnecting">Reconnexion</string>
+    <string name="tile_disconnecting">Déconnexion</string>
+    <string name="tile_checking">Vérification</string>
+    <string name="tile_working">En cours</string>
+    <string name="tile_open_app">Ouvrir Usque</string>
+    <string name="tile_profile_required">Ouvrez Usque et connectez une fois un profil VPN avant d’utiliser la tuile.</string>
+    <string name="tile_identity_required">Ouvrez Usque et configurez l’identité WARP de ce profil.</string>
+    <string name="tile_vpn_permission_required">Ouvrez Usque pour accorder l’autorisation VPN Android.</string>
+    <string name="tile_proxy_only">Une connexion proxy uniquement est active. Ouvrez Usque pour activer le frontend VPN.</string>
+    <string name="shortcut_connect">Connecter</string>
+    <string name="shortcut_disconnect">Déconnecter</string>
+    <string name="shortcut_profiles">Comptes</string>
+    <string name="shortcut_long_label">%1$s Usque</string>
+</resources>

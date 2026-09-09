@@ -234,3 +234,42 @@ const Map<String, String> kWindowsRecoveryZhTw = <String, String>{
 
 const String kWindowsAdapterCleanupZhTw =
     '先前的 Wintun 介面卡無法移除，或無法驗證已移除；尚未建立新 VPN 連線。';
+
+const Map<String, String> kL4ZhTw = <String, String>{
+  'l4_quic_not_ready': '等待 QUIC 工作階段就緒',
+  'l4_unsupported_packets': '已拒絕不支援或格式錯誤的封包',
+  'l4_budget_rejections': '資源准入拒絕次數',
+  'l4_not_applicable': '不適用（L4）',
+  'l4_mode': 'L4（實驗性）',
+  'l4_explanation':
+      '基於 HTTP/3 的 TCP-only 模式，支援 VPN/TUN、SOCKS5 與 HTTP；TUN DNS 會轉為 TCP。Auto 不會選用 L4。其他 UDP、遠端 Ping、IP 分片與擴充標頭不受支援，部分應用程式可能無法使用。',
+  'l4_unsupported': '目前引擎尚未宣告完整的 L4 能力，無法啟用 L4。',
+  'l4_sni_identity': '唯讀：由已載入的帳戶身分衍生。原有 CONNECT-IP SNI 會保留。',
+  'l4_edge_requires_l4': '邊緣解析 DNS 僅適用於 L4。切換 Auto、H3 或 H2 前，請先選擇其他代理 DNS 模式。',
+  'proxy_dns_edge_resolved': 'Cloudflare 邊緣解析（僅 L4，不在本機解析）',
+  'l4_verified': '已驗證 L4 CONNECT',
+  'l4_unverified': 'QUIC 已就緒；L4 CONNECT 尚未驗證',
+  'l4_status_unknown': 'L4 驗證狀態未知',
+  'l4_sessions': '工作階段／排空中',
+  'l4_flows': '作用中／等待中的串流',
+  'l4_connect': 'CONNECT 成功／失敗／逾時',
+  'l4_buffers': '應用程式緩衝預算用量（位元組）',
+  'l4_backpressure': '傳送／接收背壓',
+  'l4_tun_flows': 'TUN TCP／半開連線',
+  'l4_udp': '已拒絕的 UDP 封包',
+  'l4_dns': 'DNS 轉換成功／失敗／逾時',
+  'l4_migration': '遷移保留的串流／重建終止的串流',
+  'l4_na': 'CONNECT-IP 位址控制、DATAGRAM 佇列、內層承載 MTU 與 UDP 逾時：在 L4 下不適用。',
+};
+
+const Map<String, String> kNetworkSettingsZhTw = <String, String>{
+  'settings_applying': '已儲存，正在套用',
+  'settings_applied': '已儲存並套用',
+  'settings_deferred': '已儲存，下次手動連線後生效',
+  'settings_failed': '已儲存，套用失敗',
+  'settings_unknown': '結果尚未確認',
+  'settings_saved': '已儲存',
+  'settings_unsupported': '請重新啟動或更新引擎後再儲存網路設定。',
+  'settings_save_failed': '設定儲存失敗，已保留你的修改。',
+  'settings_reconnect': '重新連線',
+};

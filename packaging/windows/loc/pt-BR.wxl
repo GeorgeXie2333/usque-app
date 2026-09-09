@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WixLocalization
+  xmlns="http://wixtoolset.org/schemas/v4/wxl"
+  Culture="pt-BR">
+  <String
+    Id="UsqueRemoveDataTitle"
+    Value="Opções de desinstalação" />
+  <String
+    Id="UsqueRemoveDataDescription"
+    Value="Escolha se os dados devem ser mantidos para uma reinstalação futura." />
+  <String
+    Id="UsqueRemoveDataCheckbox"
+    Value="Excluir perfis, configurações, logs, caches e identidades WARP deste usuário do Windows." />
+  <String
+    Id="UsqueRemoveDataWarning"
+    Value="Isso não pode ser desfeito. Deixe desmarcado para manter os dados locais. Outros usuários do Windows não são afetados." />
+  <String
+    Id="UsqueRepairTitle"
+    Value="O reparo não é compatível" />
+  <String
+    Id="UsqueRepairDescription"
+    Value="O reparo pode interromper o estado privilegiado de recuperação de rede. Escolha Remover para desinstalar o Usque e, em seguida, reinstale-o; os dados do usuário são mantidos, a menos que você selecione explicitamente a exclusão. A instalação de uma versão mais recente também é compatível." />
+  <String
+    Id="UsqueRepairOk"
+    Value="OK" />
+</WixLocalization>

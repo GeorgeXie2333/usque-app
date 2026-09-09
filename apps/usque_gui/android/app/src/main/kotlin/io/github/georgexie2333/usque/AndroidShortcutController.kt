@@ -15,21 +15,21 @@ internal object AndroidShortcutController {
                 shortcut(
                     context,
                     id = "connect",
-                    label = "Connect",
+                    label = AndroidLocaleController.getString(context, R.string.shortcut_connect),
                     action = MainActivity.ACTION_SHORTCUT_CONNECT,
                     icon = icon,
                 ),
                 shortcut(
                     context,
                     id = "disconnect",
-                    label = "Disconnect",
+                    label = AndroidLocaleController.getString(context, R.string.shortcut_disconnect),
                     action = MainActivity.ACTION_SHORTCUT_DISCONNECT,
                     icon = icon,
                 ),
                 shortcut(
                     context,
                     id = "profiles",
-                    label = "Profiles",
+                    label = AndroidLocaleController.getString(context, R.string.shortcut_profiles),
                     action = MainActivity.ACTION_SHORTCUT_PROFILES,
                     icon = icon,
                 ),
@@ -46,7 +46,7 @@ internal object AndroidShortcutController {
         ShortcutInfo
             .Builder(context, id)
             .setShortLabel(label)
-            .setLongLabel("$label Usque")
+            .setLongLabel(AndroidLocaleController.getString(context, R.string.shortcut_long_label, label))
             .setIcon(icon)
             .setIntent(
                 Intent(context, MainActivity::class.java)

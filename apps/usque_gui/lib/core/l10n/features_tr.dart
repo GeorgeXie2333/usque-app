@@ -280,3 +280,47 @@ const Map<String, String> kWindowsRecoveryTr = <String, String>{
 
 const String kWindowsAdapterCleanupTr =
     'Önceki Wintun bağdaştırıcısı kaldırılamadı veya kaldırıldığı doğrulanamadı. Yeni bir VPN bağlantısı başlatılmadı.';
+
+const Map<String, String> kL4Tr = <String, String>{
+  'l4_quic_not_ready': 'Hazır bir QUIC oturumu bekleniyor',
+  'l4_unsupported_packets': 'Desteklenmeyen veya bozuk paketler reddedildi',
+  'l4_budget_rejections': 'Kaynak kabulleri reddedildi',
+  'l4_not_applicable': 'Uygulanamaz (L4)',
+  'l4_mode': 'L4 (deneysel)',
+  'l4_explanation':
+      'HTTP/3 üzerinde yalnızca TCP. VPN/TUN, SOCKS5 ve HTTP desteklenir; TUN DNS TCP’ye dönüştürülür. Auto asla L4 seçmez. Diğer UDP, uzak ping, IP parçaları ve uzantı başlıkları desteklenmez; bazı uygulamalar çalışmayabilir.',
+  'l4_unsupported':
+      'Bu motor tam L4 desteği bildirmemiştir. L4 etkinleştirilemez.',
+  'l4_sni_identity':
+      'Salt okunur: yüklenen hesap kimliğinden türetilir. Mevcut CONNECT-IP SNI korunur.',
+  'l4_edge_requires_l4':
+      'Kenarda çözülen DNS L4 gerektirir. Auto, H3 veya H2’ye geçmeden önce başka bir vekil DNS kipi seçin.',
+  'proxy_dns_edge_resolved': 'Cloudflare kenarı (yalnızca L4; yerel arama yok)',
+  'l4_verified': 'L4 CONNECT doğrulandı',
+  'l4_unverified': 'QUIC hazır; L4 CONNECT henüz doğrulanmadı',
+  'l4_status_unknown': 'L4 doğrulama durumu bilinmiyor',
+  'l4_sessions': 'Oturumlar / boşaltma',
+  'l4_flows': 'Etkin / bekleyen akışlar',
+  'l4_connect': 'CONNECT başarı / hata / zaman aşımı',
+  'l4_buffers': 'Kullanılan uygulama tampon bütçesi (bayt)',
+  'l4_backpressure': 'Gönderme / alma geri basıncı',
+  'l4_tun_flows': 'TUN TCP / yarı açık',
+  'l4_udp': 'Reddedilen UDP paketleri',
+  'l4_dns': 'DNS dönüşümleri başarı / hata / zaman aşımı',
+  'l4_migration': 'Göçle korunan / yeniden kurulumla biten akışlar',
+  'l4_na':
+      'CONNECT-IP adres denetimi, DATAGRAM kuyrukları, iç yük MTU’su ve UDP zaman aşımı: L4’te uygulanamaz.',
+};
+
+const Map<String, String> kNetworkSettingsTr = <String, String>{
+  'settings_applying': 'Kaydedildi, uygulanıyor',
+  'settings_applied': 'Kaydedildi ve uygulandı',
+  'settings_deferred': 'Kaydedildi, sonraki elle bağlantıda geçerli olur',
+  'settings_failed': 'Kaydedildi, uygulama başarısız',
+  'settings_unknown': 'Sonuç henüz doğrulanmadı',
+  'settings_saved': 'Kaydedildi',
+  'settings_unsupported':
+      'Ağ ayarlarını kaydetmek için Engine’i yeniden başlatın veya güncelleyin.',
+  'settings_save_failed': 'Ayarlar kaydedilemedi. Düzenlemeleriniz korundu.',
+  'settings_reconnect': 'Yeniden bağlan',
+};

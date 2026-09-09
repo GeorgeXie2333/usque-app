@@ -34,11 +34,9 @@ class AppStrings {
       catalogId.startsWith('zh') ? 'zh' : catalogId.split('_').first;
 
   String get(String key) {
-    final l4 = catalogId == 'zh_CN' ? kL4ZhCn : kL4En;
+    final l4 = kL4Catalogs[catalogId] ?? kL4En;
     if (l4.containsKey(key)) return l4[key]!;
-    final settings = catalogId == 'zh_CN'
-        ? kNetworkSettingsZh
-        : kNetworkSettingsEn;
+    final settings = kNetworkSettingsCatalogs[catalogId] ?? kNetworkSettingsEn;
     if (settings.containsKey(key)) return settings[key]!;
     final workflow = kUiWorkflowCatalogs[catalogId] ?? kUiWorkflowEn;
     if (workflow.containsKey(key)) return workflow[key]!;
@@ -67,7 +65,9 @@ class AppStrings {
   static bool get debugCatalogsAreComplete {
     if (!_featureTablesComplete(kUiWorkflowCatalogs, kUiWorkflowEn) ||
         !_featureTablesComplete(kWindowsRecoveryCatalogs, kWindowsRecoveryEn) ||
-        !_featureTablesComplete(kNetworkQualityCatalogs, kNetworkQualityEn)) {
+        !_featureTablesComplete(kNetworkQualityCatalogs, kNetworkQualityEn) ||
+        !_featureTablesComplete(kL4Catalogs, kL4En) ||
+        !_featureTablesComplete(kNetworkSettingsCatalogs, kNetworkSettingsEn)) {
       return false;
     }
     if (!setEquals(
@@ -152,6 +152,8 @@ class AppStrings {
     scan(kUiWorkflowCatalogs, kUiWorkflowEn);
     scan(kNetworkQualityCatalogs, kNetworkQualityEn);
     scan(kWindowsRecoveryCatalogs, kWindowsRecoveryEn);
+    scan(kL4Catalogs, kL4En);
+    scan(kNetworkSettingsCatalogs, kNetworkSettingsEn);
     for (final catalogEntry in kWindowsAdapterCleanupCatalogs.entries) {
       if (catalogEntry.key == 'en') {
         continue;
@@ -175,6 +177,11 @@ class AppStrings {
         !_placeholdersPreserved(
           kWindowsRecoveryEn,
           kWindowsRecoveryCatalogs.values,
+        ) ||
+        !_placeholdersPreserved(kL4En, kL4Catalogs.values) ||
+        !_placeholdersPreserved(
+          kNetworkSettingsEn,
+          kNetworkSettingsCatalogs.values,
         )) {
       return false;
     }

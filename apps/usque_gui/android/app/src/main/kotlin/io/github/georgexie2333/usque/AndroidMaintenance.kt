@@ -207,6 +207,9 @@ internal object AndroidMaintenance {
         ) {
             "Android update state could not be cleared"
         }
+        check(AndroidLocaleController.clear(context)) {
+            "Android locale state could not be cleared"
+        }
         AndroidLogStore(context).clear()
         FlagSvgCache(context).clear()
         PerAppProxyStore.clear(context)

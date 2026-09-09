@@ -1383,6 +1383,10 @@ void main() {
       ...kEnCatalog.keys.where(
         (key) => key.startsWith('geo_') && key != 'geo_enable',
       ),
+      'tray_open',
+      'tray_connect_profile',
+      'tray_disconnect_profile',
+      'tray_disconnect_exit',
       'diagnostics_page_subtitle',
       'diag_refresh_timeline',
       'diag_operation_failed',

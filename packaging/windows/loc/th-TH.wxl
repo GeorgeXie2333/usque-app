@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WixLocalization
+  xmlns="http://wixtoolset.org/schemas/v4/wxl"
+  Culture="th-TH">
+  <String
+    Id="UsqueRemoveDataTitle"
+    Value="ตัวเลือกการถอนการติดตั้ง" />
+  <String
+    Id="UsqueRemoveDataDescription"
+    Value="เลือกว่าจะเก็บข้อมูลไว้เพื่อติดตั้งใหม่ในภายหลังหรือไม่" />
+  <String
+    Id="UsqueRemoveDataCheckbox"
+    Value="ลบโปรไฟล์ การตั้งค่า บันทึก แคช และข้อมูลประจำตัว WARP ของผู้ใช้ Windows นี้" />
+  <String
+    Id="UsqueRemoveDataWarning"
+    Value="ย้อนกลับไม่ได้ ปล่อยตัวเลือกนี้ว่างไว้เพื่อเก็บข้อมูลในเครื่อง ผู้ใช้ Windows คนอื่นไม่ได้รับผลกระทบ" />
+  <String
+    Id="UsqueRepairTitle"
+    Value="ไม่รองรับการซ่อม" />
+  <String
+    Id="UsqueRepairDescription"
+    Value="การซ่อมอาจขัดจังหวะสถานะการกู้คืนเครือข่ายที่มีสิทธิ์ เลือก นำออก เพื่อถอน Usque แล้วติดตั้งใหม่ ข้อมูลผู้ใช้จะถูกเก็บไว้เว้นแต่คุณจะเลือกการลบอย่างชัดเจน การติดตั้งรุ่นที่ใหม่กว่าก็รองรับเช่นกัน" />
+  <String
+    Id="UsqueRepairOk"
+    Value="ตกลง" />
+</WixLocalization>

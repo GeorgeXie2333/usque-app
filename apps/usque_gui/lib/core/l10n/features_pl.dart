@@ -339,3 +339,51 @@ const Map<String, String> kWindowsRecoveryPl = <String, String>{
 const String kWindowsAdapterCleanupPl =
     'Nie można usunąć poprzedniego adaptera Wintun albo nie można '
     'potwierdzić jego usunięcia. Nie rozpoczęto nowego połączenia VPN.';
+
+const Map<String, String> kL4Pl = <String, String>{
+  'l4_quic_not_ready': 'Oczekiwanie na gotową sesję QUIC',
+  'l4_unsupported_packets': 'Odrzucono nieobsługiwane lub uszkodzone pakiety',
+  'l4_budget_rejections': 'Odrzucone przyjęcia zasobów',
+  'l4_not_applicable': 'Nie dotyczy (L4)',
+  'l4_mode': 'L4 (eksperymentalny)',
+  'l4_explanation':
+      'Tylko TCP przez HTTP/3. Obsługuje VPN/TUN, SOCKS5 i HTTP; DNS TUN jest zamieniany na TCP. Auto nigdy nie wybiera L4. Inne UDP, zdalny ping, fragmenty IP i nagłówki rozszerzeń nie są obsługiwane; niektóre aplikacje mogą nie działać.',
+  'l4_unsupported':
+      'Ten silnik nie zadeklarował pełnej obsługi L4. Nie można włączyć L4.',
+  'l4_sni_identity':
+      'Tylko do odczytu: pochodzi z wczytanej tożsamości konta. Istniejący SNI CONNECT-IP zostaje zachowany.',
+  'l4_edge_requires_l4':
+      'DNS rozwiązywany na brzegu wymaga L4. Wybierz inny tryb DNS proxy przed przełączeniem na Auto, H3 lub H2.',
+  'proxy_dns_edge_resolved':
+      'Brzeg Cloudflare (tylko L4; bez lokalnego wyszukiwania)',
+  'l4_verified': 'L4 CONNECT zweryfikowany',
+  'l4_unverified': 'QUIC gotowy; L4 CONNECT jeszcze niezweryfikowany',
+  'l4_status_unknown': 'Stan weryfikacji L4 nieznany',
+  'l4_sessions': 'Sesje / opróżnianie',
+  'l4_flows': 'Aktywne / oczekujące strumienie',
+  'l4_connect': 'CONNECT sukcesy / błędy / przekroczenia czasu',
+  'l4_buffers': 'Zużyty budżet bufora aplikacji (bajty)',
+  'l4_backpressure': 'Przeciwciśnienie wysyłania / odbierania',
+  'l4_tun_flows': 'TUN TCP / półotwarte',
+  'l4_udp': 'Odrzucone pakiety UDP',
+  'l4_dns': 'Konwersje DNS sukcesy / błędy / przekroczenia czasu',
+  'l4_migration':
+      'Strumienie zachowane przez migrację / zakończone przez przebudowę',
+  'l4_na':
+      'Sterowanie adresem CONNECT-IP, kolejki DATAGRAM, MTU ładunku wewnętrznego i limit czasu UDP: nie dotyczy w L4.',
+};
+
+const Map<String, String> kNetworkSettingsPl = <String, String>{
+  'settings_applying': 'Zapisano, trwa stosowanie',
+  'settings_applied': 'Zapisano i zastosowano',
+  'settings_deferred':
+      'Zapisano, zacznie obowiązywać przy następnym ręcznym połączeniu',
+  'settings_failed': 'Zapisano, stosowanie nie powiodło się',
+  'settings_unknown': 'Wynik jeszcze niepotwierdzony',
+  'settings_saved': 'Zapisano',
+  'settings_unsupported':
+      'Uruchom ponownie lub zaktualizuj Engine, aby zapisać ustawienia sieci.',
+  'settings_save_failed':
+      'Nie udało się zapisać ustawień. Twoje zmiany zostały zachowane.',
+  'settings_reconnect': 'Połącz ponownie',
+};

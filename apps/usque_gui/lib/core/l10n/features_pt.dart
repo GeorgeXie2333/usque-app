@@ -335,3 +335,50 @@ const Map<String, String> kWindowsRecoveryPt = <String, String>{
 const String kWindowsAdapterCleanupPt =
     'Não foi possível remover o adaptador Wintun anterior ou a remoção não '
     'pôde ser verificada. Nenhuma nova conexão VPN foi iniciada.';
+
+const Map<String, String> kL4Pt = <String, String>{
+  'l4_quic_not_ready': 'Aguardando uma sessão QUIC pronta',
+  'l4_unsupported_packets': 'Pacotes incompatíveis ou malformados rejeitados',
+  'l4_budget_rejections': 'Admissões de recurso rejeitadas',
+  'l4_not_applicable': 'Não aplicável (L4)',
+  'l4_mode': 'L4 (em fase experimental)',
+  'l4_explanation':
+      'Somente TCP sobre HTTP/3. Compatível com VPN/TUN, SOCKS5 e HTTP; o DNS do TUN é convertido para TCP. O Auto nunca escolhe L4. Outros UDP, ping remoto, fragmentos IP e cabeçalhos de extensão não são compatíveis; alguns aplicativos podem não funcionar.',
+  'l4_unsupported':
+      'Este mecanismo não declarou suporte L4 completo. Não é possível ativar o L4.',
+  'l4_sni_identity':
+      'Somente leitura: derivado da identidade da conta carregada. O SNI CONNECT-IP existente é preservado.',
+  'l4_edge_requires_l4':
+      'O DNS resolvido na borda exige L4. Selecione outro modo de DNS do proxy antes de mudar para Auto, H3 ou H2.',
+  'proxy_dns_edge_resolved':
+      'Borda Cloudflare (somente L4; sem consulta local)',
+  'l4_verified': 'L4 CONNECT verificado',
+  'l4_unverified': 'QUIC pronto; L4 CONNECT ainda não verificado',
+  'l4_status_unknown': 'Status de verificação L4 desconhecido',
+  'l4_sessions': 'Sessões / esvaziamento',
+  'l4_flows': 'Fluxos ativos / em espera',
+  'l4_connect': 'CONNECT êxitos / falhas / tempos esgotados',
+  'l4_buffers': 'Orçamento de buffer do aplicativo usado (bytes)',
+  'l4_backpressure': 'Contrapressão de envio / recebimento',
+  'l4_tun_flows': 'TUN TCP / meio aberto',
+  'l4_udp': 'Pacotes UDP rejeitados',
+  'l4_dns': 'Conversões DNS êxitos / falhas / tempos esgotados',
+  'l4_migration':
+      'Fluxos preservados pela migração / encerrados pela reconstrução',
+  'l4_na':
+      'Controle de endereço CONNECT-IP, filas DATAGRAM, MTU da carga interna e tempo limite UDP: não aplicável no L4.',
+};
+
+const Map<String, String> kNetworkSettingsPt = <String, String>{
+  'settings_applying': 'Salvo, aplicando',
+  'settings_applied': 'Salvo e aplicado',
+  'settings_deferred': 'Salvo; vale na próxima conexão manual',
+  'settings_failed': 'Salvo, falha ao aplicar',
+  'settings_unknown': 'Resultado ainda não confirmado',
+  'settings_saved': 'Salvo',
+  'settings_unsupported':
+      'Reinicie ou atualize o Engine para salvar as configurações de rede.',
+  'settings_save_failed':
+      'Não foi possível salvar as configurações. Suas edições foram mantidas.',
+  'settings_reconnect': 'Reconectar',
+};

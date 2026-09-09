@@ -272,3 +272,48 @@ const Map<String, String> kWindowsRecoveryVi = <String, String>{
 
 const String kWindowsAdapterCleanupVi =
     'Không thể gỡ bộ điều hợp Wintun trước đó hoặc không xác nhận được việc đã gỡ. Chưa khởi động kết nối VPN mới.';
+
+const Map<String, String> kL4Vi = <String, String>{
+  'l4_quic_not_ready': 'Đang chờ phiên QUIC sẵn sàng',
+  'l4_unsupported_packets': 'Đã từ chối gói không hỗ trợ hoặc sai định dạng',
+  'l4_budget_rejections': 'Số lần từ chối cấp tài nguyên',
+  'l4_not_applicable': 'Không áp dụng (L4)',
+  'l4_mode': 'L4 (thử nghiệm)',
+  'l4_explanation':
+      'Chỉ TCP trên HTTP/3. Hỗ trợ VPN/TUN, SOCKS5 và HTTP; DNS của TUN được chuyển sang TCP. Auto không bao giờ chọn L4. UDP khác, ping từ xa, mảnh IP và header mở rộng không được hỗ trợ; một số ứng dụng có thể không chạy.',
+  'l4_unsupported':
+      'Engine này chưa khai báo hỗ trợ L4 đầy đủ. Không thể bật L4.',
+  'l4_sni_identity':
+      'Chỉ đọc: suy ra từ danh tính tài khoản đã tải. SNI CONNECT-IP hiện có được giữ lại.',
+  'l4_edge_requires_l4':
+      'DNS phân giải ở biên yêu cầu L4. Hãy chọn chế độ DNS proxy khác trước khi chuyển sang Auto, H3 hoặc H2.',
+  'proxy_dns_edge_resolved': 'Biên Cloudflare (chỉ L4; không tra cứu cục bộ)',
+  'l4_verified': 'Đã xác minh L4 CONNECT',
+  'l4_unverified': 'QUIC sẵn sàng; L4 CONNECT chưa được xác minh',
+  'l4_status_unknown': 'Chưa rõ trạng thái xác minh L4',
+  'l4_sessions': 'Phiên / đang xả',
+  'l4_flows': 'Luồng đang chạy / đang chờ',
+  'l4_connect': 'CONNECT thành công / thất bại / hết hạn',
+  'l4_buffers': 'Ngân sách bộ đệm ứng dụng đã dùng (byte)',
+  'l4_backpressure': 'Áp lực ngược gửi / nhận',
+  'l4_tun_flows': 'TUN TCP / nửa mở',
+  'l4_udp': 'Gói UDP bị từ chối',
+  'l4_dns': 'Chuyển DNS thành công / thất bại / hết hạn',
+  'l4_migration': 'Luồng giữ nhờ chuyển đường / kết thúc do dựng lại',
+  'l4_na':
+      'Điều khiển địa chỉ CONNECT-IP, hàng đợi DATAGRAM, MTU tải trọng trong và thời hạn UDP: không áp dụng ở L4.',
+};
+
+const Map<String, String> kNetworkSettingsVi = <String, String>{
+  'settings_applying': 'Đã lưu, đang áp dụng',
+  'settings_applied': 'Đã lưu và áp dụng',
+  'settings_deferred': 'Đã lưu, có hiệu lực ở lần kết nối thủ công tiếp theo',
+  'settings_failed': 'Đã lưu, áp dụng thất bại',
+  'settings_unknown': 'Kết quả chưa được xác nhận',
+  'settings_saved': 'Đã lưu',
+  'settings_unsupported':
+      'Hãy khởi động lại hoặc cập nhật Engine để lưu cài đặt mạng.',
+  'settings_save_failed':
+      'Không lưu được cài đặt. Các chỉnh sửa của bạn vẫn được giữ.',
+  'settings_reconnect': 'Kết nối lại',
+};

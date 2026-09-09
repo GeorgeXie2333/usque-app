@@ -1,0 +1,206 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix
+  xmlns="http://wixtoolset.org/schemas/v4/wxs"
+  xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal"
+  RequiredVersion="5.0.2">
+  <!--
+    The bundle is the user-facing Windows download. WixIUIBA deliberately
+    delegates all interaction to the existing MSI UI, preserving the custom
+    install-directory and uninstall-data flows. The bundle registration is
+    hidden because Usque's MSI registers usque-uninstall.exe as the only
+    visible uninstall entry. That helper resolves this bundle through the
+    stable ProviderKey, verifies the cached EXE has the same signer, and runs
+    it after a direct MSI uninstall so Burn can remove its own registration.
+
+    The English MSI remains a separately signed update payload. Each language
+    transform is hash-protected inside the signed, attached Burn container.
+  -->
+  <Bundle
+    Name="Usque $(DisplayVersion) ($(Variant))"
+    Manufacturer="Usque contributors"
+    Version="$(BundleVersion)"
+    UpgradeCode="$(BundleUpgradeCode)"
+    ProviderKey="Usque.Windows.$(Variant)"
+    Compressed="yes"
+    DisableModify="yes"
+    DisableRemove="yes"
+    IconSourceFile="$(IconPath)"
+    Copyright="Copyright (c) Usque contributors">
+
+    <BootstrapperApplication>
+      <bal:WixInternalUIBootstrapperApplication
+        Theme="standard"
+        LogoFile="$(LogoPath)" />
+    </BootstrapperApplication>
+
+    <!--
+      Keep the initial choice for maintenance runs of this exact bundle. A
+      newer related bundle chooses again from the then-current Windows UI
+      language. Unsupported UI languages fall back to the English base MSI.
+    -->
+    <Variable
+      Name="UsqueMsiTransform"
+      Type="string"
+      Value=""
+      Persisted="yes" />
+
+    <SetVariable
+      Id="SelectArabicTransform"
+      Variable="UsqueMsiTransform"
+      Type="string"
+      Value="transforms\ar-SA.mst"
+      Condition="NOT WixBundleInstalled AND (UserUILanguageID = 1025 OR UserUILanguageID = 2049 OR UserUILanguageID = 3073 OR UserUILanguageID = 4097 OR UserUILanguageID = 5121 OR UserUILanguageID = 6145 OR UserUILanguageID = 7169 OR UserUILanguageID = 8193 OR UserUILanguageID = 9217 OR UserUILanguageID = 10241 OR UserUILanguageID = 11265 OR UserUILanguageID = 12289 OR UserUILanguageID = 13313 OR UserUILanguageID = 14337 OR UserUILanguageID = 15361 OR UserUILanguageID = 16385)" />
+    <SetVariable
+      Id="SelectGermanTransform"
+      Variable="UsqueMsiTransform"
+      Type="string"
+      Value="transforms\de-DE.mst"
+      Condition="NOT WixBundleInstalled AND (UserUILanguageID = 1031 OR UserUILanguageID = 2055 OR UserUILanguageID = 3079 OR UserUILanguageID = 4103 OR UserUILanguageID = 5127)" />
+    <SetVariable
+      Id="SelectSpanishTransform"
+      Variable="UsqueMsiTransform"
+      Type="string"
+      Value="transforms\es-ES.mst"
+      Condition="NOT WixBundleInstalled AND (UserUILanguageID = 1034 OR UserUILanguageID = 2058 OR UserUILanguageID = 3082 OR UserUILanguageID = 4106 OR UserUILanguageID = 5130 OR UserUILanguageID = 6154 OR UserUILanguageID = 7178 OR UserUILanguageID = 8202 OR UserUILanguageID = 9226 OR UserUILanguageID = 10250 OR UserUILanguageID = 11274 OR UserUILanguageID = 12298 OR UserUILanguageID = 13322 OR UserUILanguageID = 14346 OR UserUILanguageID = 15370 OR UserUILanguageID = 16394 OR UserUILanguageID = 17418 OR UserUILanguageID = 18442 OR UserUILanguageID = 19466 OR UserUILanguageID = 20490 OR UserUILanguageID = 21514 OR UserUILanguageID = 22538 OR UserUILanguageID = 23562)" />
+    <SetVariable
+      Id="SelectPersianTransform"
+      Variable="UsqueMsiTransform"
+      Type="string"
+      Value="transforms\fa-IR.mst"
+      Condition="NOT WixBundleInstalled AND UserUILanguageID = 1065" />
+    <SetVariable
+      Id="SelectFrenchTransform"
+      Variable="UsqueMsiTransform"
+      Type="string"
+      Value="transforms\fr-FR.mst"
+      Condition="NOT WixBundleInstalled AND (UserUILanguageID = 1036 OR UserUILanguageID = 2060 OR UserUILanguageID = 3084 OR UserUILanguageID = 4108 OR UserUILanguageID = 5132 OR UserUILanguageID = 6156 OR UserUILanguageID = 7180 OR UserUILanguageID = 8204 OR UserUILanguageID = 9228 OR UserUILanguageID = 10252 OR UserUILanguageID = 11276 OR UserUILanguageID = 12300 OR UserUILanguageID = 13324 OR UserUILanguageID = 14348 OR UserUILanguageID = 15372)" />
+    <SetVariable
+      Id="SelectIndonesianTransform"
+      Variable="UsqueMsiTransform"
+      Type="string"
+      Value="transforms\id-ID.mst"
+      Condition="NOT WixBundleInstalled AND UserUILanguageID = 1057" />
+    <SetVariable
+      Id="SelectItalianTransform"
+      Variable="UsqueMsiTransform"
+      Type="string"
+      Value="transforms\it-IT.mst"
+      Condition="NOT WixBundleInstalled AND (UserUILanguageID = 1040 OR UserUILanguageID = 2064)" />
+    <SetVariable
+      Id="SelectJapaneseTransform"
+      Variable="UsqueMsiTransform"
+      Type="string"
+      Value="transforms\ja-JP.mst"
+      Condition="NOT WixBundleInstalled AND UserUILanguageID = 1041" />
+    <SetVariable
+      Id="SelectKoreanTransform"
+      Variable="UsqueMsiTransform"
+      Type="string"
+      Value="transforms\ko-KR.mst"
+      Condition="NOT WixBundleInstalled AND UserUILanguageID = 1042" />
+    <SetVariable
+      Id="SelectDutchTransform"
+      Variable="UsqueMsiTransform"
+      Type="string"
+      Value="transforms\nl-NL.mst"
+      Condition="NOT WixBundleInstalled AND (UserUILanguageID = 1043 OR UserUILanguageID = 2067)" />
+    <SetVariable
+      Id="SelectPolishTransform"
+      Variable="UsqueMsiTransform"
+      Type="string"
+      Value="transforms\pl-PL.mst"
+      Condition="NOT WixBundleInstalled AND UserUILanguageID = 1045" />
+    <SetVariable
+      Id="SelectPortugueseTransform"
+      Variable="UsqueMsiTransform"
+      Type="string"
+      Value="transforms\pt-BR.mst"
+      Condition="NOT WixBundleInstalled AND (UserUILanguageID = 1046 OR UserUILanguageID = 2070)" />
+    <SetVariable
+      Id="SelectRussianTransform"
+      Variable="UsqueMsiTransform"
+      Type="string"
+      Value="transforms\ru-RU.mst"
+      Condition="NOT WixBundleInstalled AND (UserUILanguageID = 1049 OR UserUILanguageID = 2073)" />
+    <SetVariable
+      Id="SelectThaiTransform"
+      Variable="UsqueMsiTransform"
+      Type="string"
+      Value="transforms\th-TH.mst"
+      Condition="NOT WixBundleInstalled AND UserUILanguageID = 1054" />
+    <SetVariable
+      Id="SelectTurkishTransform"
+      Variable="UsqueMsiTransform"
+      Type="string"
+      Value="transforms\tr-TR.mst"
+      Condition="NOT WixBundleInstalled AND UserUILanguageID = 1055" />
+    <SetVariable
+      Id="SelectUkrainianTransform"
+      Variable="UsqueMsiTransform"
+      Type="string"
+      Value="transforms\uk-UA.mst"
+      Condition="NOT WixBundleInstalled AND UserUILanguageID = 1058" />
+    <SetVariable
+      Id="SelectVietnameseTransform"
+      Variable="UsqueMsiTransform"
+      Type="string"
+      Value="transforms\vi-VN.mst"
+      Condition="NOT WixBundleInstalled AND UserUILanguageID = 1066" />
+    <SetVariable
+      Id="SelectSimplifiedChineseTransform"
+      Variable="UsqueMsiTransform"
+      Type="string"
+      Value="transforms\zh-CN.mst"
+      Condition="NOT WixBundleInstalled AND (UserUILanguageID = 4 OR UserUILanguageID = 2052 OR UserUILanguageID = 4100)" />
+    <SetVariable
+      Id="SelectHongKongChineseTransform"
+      Variable="UsqueMsiTransform"
+      Type="string"
+      Value="transforms\zh-HK.mst"
+      Condition="NOT WixBundleInstalled AND (UserUILanguageID = 3076 OR UserUILanguageID = 5124)" />
+    <SetVariable
+      Id="SelectTaiwanChineseTransform"
+      Variable="UsqueMsiTransform"
+      Type="string"
+      Value="transforms\zh-TW.mst"
+      Condition="NOT WixBundleInstalled AND (UserUILanguageID = 1028 OR UserUILanguageID = 31748)" />
+
+    <Chain>
+      <MsiPackage
+        Id="UsqueMsi"
+        SourceFile="$(MsiPath)"
+        bal:PrimaryPackageType="default">
+        <Payload SourceFile="$(TransformDirectory)\ar-SA.mst" Name="transforms\ar-SA.mst" />
+        <Payload SourceFile="$(TransformDirectory)\de-DE.mst" Name="transforms\de-DE.mst" />
+        <Payload SourceFile="$(TransformDirectory)\es-ES.mst" Name="transforms\es-ES.mst" />
+        <Payload SourceFile="$(TransformDirectory)\fa-IR.mst" Name="transforms\fa-IR.mst" />
+        <Payload SourceFile="$(TransformDirectory)\fr-FR.mst" Name="transforms\fr-FR.mst" />
+        <Payload SourceFile="$(TransformDirectory)\id-ID.mst" Name="transforms\id-ID.mst" />
+        <Payload SourceFile="$(TransformDirectory)\it-IT.mst" Name="transforms\it-IT.mst" />
+        <Payload SourceFile="$(TransformDirectory)\ja-JP.mst" Name="transforms\ja-JP.mst" />
+        <Payload SourceFile="$(TransformDirectory)\ko-KR.mst" Name="transforms\ko-KR.mst" />
+        <Payload SourceFile="$(TransformDirectory)\nl-NL.mst" Name="transforms\nl-NL.mst" />
+        <Payload SourceFile="$(TransformDirectory)\pl-PL.mst" Name="transforms\pl-PL.mst" />
+        <Payload SourceFile="$(TransformDirectory)\pt-BR.mst" Name="transforms\pt-BR.mst" />
+        <Payload SourceFile="$(TransformDirectory)\ru-RU.mst" Name="transforms\ru-RU.mst" />
+        <Payload SourceFile="$(TransformDirectory)\th-TH.mst" Name="transforms\th-TH.mst" />
+        <Payload SourceFile="$(TransformDirectory)\tr-TR.mst" Name="transforms\tr-TR.mst" />
+        <Payload SourceFile="$(TransformDirectory)\uk-UA.mst" Name="transforms\uk-UA.mst" />
+        <Payload SourceFile="$(TransformDirectory)\vi-VN.mst" Name="transforms\vi-VN.mst" />
+        <Payload SourceFile="$(TransformDirectory)\zh-CN.mst" Name="transforms\zh-CN.mst" />
+        <Payload SourceFile="$(TransformDirectory)\zh-HK.mst" Name="transforms\zh-HK.mst" />
+        <Payload SourceFile="$(TransformDirectory)\zh-TW.mst" Name="transforms\zh-TW.mst" />
+        <MsiProperty
+          Name="TRANSFORMS"
+          Value="[WixBundleExecutePackageCacheFolder][UsqueMsiTransform]"
+          Condition="UsqueMsiTransform" />
+        <!-- Cache the elevated per-machine transform for later bundle
+             maintenance runs. -->
+        <MsiProperty
+          Name="TRANSFORMSSECURE"
+          Value="1"
+          Condition="UsqueMsiTransform" />
+      </MsiPackage>
+    </Chain>
+  </Bundle>
+</Wix>

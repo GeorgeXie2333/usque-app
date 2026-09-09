@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="vpn_channel_name">Usque 네트워크 서비스</string>
+    <string name="vpn_channel_description">활성 Usque VPN 또는 로컬 프록시의 지속 상태</string>
+    <string name="vpn_notif_disconnect">연결 해제</string>
+    <string name="vpn_notif_preparing">보안 터널을 준비하는 중</string>
+    <string name="vpn_notif_connecting_h3">HTTP/3로 연결하는 중</string>
+    <string name="vpn_notif_connecting_h2">HTTP/2로 연결하는 중</string>
+    <string name="vpn_notif_connected">연결됨</string>
+    <string name="vpn_notif_connected_via">%1$s(으)로 연결됨</string>
+    <string name="vpn_notif_degraded">연결됨, 주소군 지원이 제한됨</string>
+    <string name="vpn_notif_reconnecting">안전하게 다시 연결하는 중</string>
+    <string name="vpn_notif_error">오류로 네트워크 서비스가 중지됨</string>
+    <string name="vpn_notif_disconnecting">연결 해제 중</string>
+    <string name="vpn_notif_idle">Usque VPN</string>
+    <string name="vpn_notif_invalid_profile">VPN 프로필이 잘못됨</string>
+    <string name="vpn_notif_invalid_network_profile">네트워크 프로필이 잘못됨</string>
+    <string name="vpn_notif_recovery_unavailable">VPN을 복구할 수 없음</string>
+    <string name="tile_connected">연결됨</string>
+    <string name="tile_disconnected">연결 안 됨</string>
+    <string name="tile_connecting">연결 중</string>
+    <string name="tile_reconnecting">다시 연결 중</string>
+    <string name="tile_disconnecting">연결 해제 중</string>
+    <string name="tile_checking">확인 중</string>
+    <string name="tile_working">처리 중</string>
+    <string name="tile_open_app">Usque 열기</string>
+    <string name="tile_profile_required">타일을 사용하기 전에 Usque를 열고 VPN 프로필에 한 번 연결하세요.</string>
+    <string name="tile_identity_required">Usque를 열고 이 프로필의 WARP 신원을 설정하세요.</string>
+    <string name="tile_vpn_permission_required">Usque를 열어 Android VPN 권한을 허용하세요.</string>
+    <string name="tile_proxy_only">프록시 전용 연결이 활성입니다. VPN 프론트엔드를 켜려면 Usque를 여세요.</string>
+    <string name="shortcut_connect">연결</string>
+    <string name="shortcut_disconnect">연결 해제</string>
+    <string name="shortcut_profiles">계정</string>
+    <string name="shortcut_long_label">%1$s Usque</string>
+</resources>

@@ -39,11 +39,11 @@ Usque is an independent project. It is not affiliated with, sponsored by, or end
 
 ## Download and install
 
-The release target is **v0.2.5**, a feature and reliability release for Windows and Android. Its tag workflow produces six packages:
+The release target is **v0.2.5**, a feature and reliability release for Windows and Android. Its tag workflow produces six user-facing installers plus two Windows MSI payloads reserved for automatic updates:
 
 | Platform | Minimum OS | Packages |
 | --- | --- | --- |
-| Windows | Windows 10 22H2, build 19045 | x64-v2 MSI or ARM64 MSI |
+| Windows | Windows 10 22H2, build 19045 | x64-v2 installer EXE or ARM64 installer EXE |
 | Android / Android TV | Android 8.0, API 26 | arm64-v8a, x86_64, or armeabi-v7a APK |
 | Android / Android TV | Android 8.0, API 26 | Universal APK containing all three ABIs |
 
@@ -79,7 +79,7 @@ VPN, SOCKS5, and HTTP are enabled by default on both platforms; Windows system p
 - Full-tunnel VPN, tunneled DNS, Kill Switch, LAN access, and custom CIDR bypass rules.
 - Optional country-based direct routing: separately downloaded per-country GeoIP data and one verified global V2Fly GeoSite catalog. Known names use GeoSite; destinations without a visible name use GeoIP. Unknown destinations stay on MASQUE.
 - A local Network Quality page with RTT, loss availability, queues, PMTU, migration, direct DNS, and 60-second trends. Network Doctor offers read-only Standard checks and explicitly authorized Deep checks.
-- Windows tray, single-instance activation, start on boot, and close-to-tray; Android Quick Settings tile, launcher shortcuts, boot recovery, and TV navigation. English and Simplified Chinese, light and dark themes.
+- Windows tray, single-instance activation, start on boot, and close-to-tray; Android Quick Settings tile, launcher shortcuts, boot recovery, and TV navigation. Twenty-one language catalogs, plus light and dark themes.
 
 Android per-app proxy is an app-wide include-only setting, not an account setting. When off, all apps use the VPN. When on, only selected apps do; newly installed apps stay outside the tunnel until selected. With Android **Block connections without VPN**, unselected apps are blocked instead of bypassing it.
 

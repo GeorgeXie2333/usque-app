@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WixLocalization
+  xmlns="http://wixtoolset.org/schemas/v4/wxl"
+  Culture="en-US">
+  <String
+    Id="UsqueRemoveDataTitle"
+    Value="Uninstall options" />
+  <String
+    Id="UsqueRemoveDataDescription"
+    Value="Choose whether to keep data for a future reinstall." />
+  <String
+    Id="UsqueRemoveDataCheckbox"
+    Value="Delete profiles, settings, logs, caches, and WARP identities for this Windows user." />
+  <String
+    Id="UsqueRemoveDataWarning"
+    Value="This cannot be undone. Leave this option unchecked to keep local data. Other Windows users are not affected." />
+  <String
+    Id="UsqueRepairTitle"
+    Value="Repair is not supported" />
+  <String
+    Id="UsqueRepairDescription"
+    Value="Repair could interrupt privileged network recovery state. Choose Remove to uninstall Usque, then reinstall it; user data is kept unless you explicitly select deletion. Installing a newer release is also supported." />
+  <String
+    Id="UsqueRepairOk"
+    Value="OK" />
+</WixLocalization>

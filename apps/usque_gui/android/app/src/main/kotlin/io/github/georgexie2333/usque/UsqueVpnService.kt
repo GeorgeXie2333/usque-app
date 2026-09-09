@@ -3,6 +3,7 @@ package io.github.georgexie2333.usque
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.net.ConnectivityManager
 import android.net.IpPrefix
 import android.net.Network
@@ -61,6 +62,7 @@ class UsqueVpnService : VpnService() {
         const val MSG_SAVE_SETTINGS = 15
         const val MSG_GET_SETTINGS = 16
         const val MSG_SETTINGS_EVENT = 17
+        const val MSG_UPDATE_LOCALE = 18
 
         private const val NATIVE_STATUS_INTERVAL_MILLIS = 1_000L
         private const val PHYSICAL_NETWORK_WAIT_MILLIS = 8_000L
@@ -247,6 +249,11 @@ class UsqueVpnService : VpnService() {
                         true
                     }
 
+                    MSG_UPDATE_LOCALE -> {
+                        updateLocale(message.data.getString("catalog_id"))
+                        true
+                    }
+
                     else -> {
                         false
                     }
@@ -259,6 +266,11 @@ class UsqueVpnService : VpnService() {
         logStore.record(AndroidLogStore.Event.SERVICE_CREATED)
         notifications.createChannel()
         networkMonitor.register(getSystemService(ConnectivityManager::class.java))
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        refreshLocalizedSurfaces()
     }
 
     override fun onBind(intent: Intent?): IBinder? =
@@ -366,7 +378,7 @@ class UsqueVpnService : VpnService() {
         if (profileJson.toByteArray(Charsets.UTF_8).size > MAX_PROFILE_BYTES) {
             startForeground(
                 VpnNotificationController.NOTIFICATION_ID,
-                notifications.build("Invalid VPN profile"),
+                notifications.build(AndroidLocaleController.getString(this, R.string.vpn_notif_invalid_profile)),
             )
             snapshotState.reset("error")
             snapshotState.warning = "The VPN profile exceeds the Android safety limit."
@@ -393,7 +405,9 @@ class UsqueVpnService : VpnService() {
             } catch (error: Exception) {
                 startForeground(
                     VpnNotificationController.NOTIFICATION_ID,
-                    notifications.build("Invalid network profile"),
+                    notifications.build(
+                        AndroidLocaleController.getString(this, R.string.vpn_notif_invalid_network_profile),
+                    ),
                 )
                 snapshotState.reset("error")
                 snapshotState.warning = "The network profile is invalid: ${safeMessage(error)}"
@@ -409,7 +423,9 @@ class UsqueVpnService : VpnService() {
         ) {
             startForeground(
                 VpnNotificationController.NOTIFICATION_ID,
-                notifications.build("VPN recovery unavailable"),
+                notifications.build(
+                    AndroidLocaleController.getString(this, R.string.vpn_notif_recovery_unavailable),
+                ),
             )
             snapshotState.reset("error")
             snapshotState.warning = "Android could not save the non-secret recovery profile."
@@ -448,7 +464,7 @@ class UsqueVpnService : VpnService() {
         )
         startForeground(
             VpnNotificationController.NOTIFICATION_ID,
-            notifications.build("Preparing secure tunnel"),
+            notifications.build(notifications.copyFor("preparing")),
         )
         snapshotState.reset("preparing")
         notifyTileStateChanged()
@@ -729,7 +745,7 @@ class UsqueVpnService : VpnService() {
                 replyControlError(
                     it,
                     "TILE_PROFILE_REQUIRED",
-                    "Open Usque and connect a VPN profile once before using the tile.",
+                    AndroidLocaleController.getString(this, R.string.tile_profile_required),
                 )
             }
             stopSelf()
@@ -768,7 +784,7 @@ class UsqueVpnService : VpnService() {
                 replyControlError(
                     it,
                     "TILE_IDENTITY_REQUIRED",
-                    "Open Usque and configure the WARP identity for this profile.",
+                    AndroidLocaleController.getString(this, R.string.tile_identity_required),
                 )
             }
             stopSelf()
@@ -780,7 +796,7 @@ class UsqueVpnService : VpnService() {
                 replyControlError(
                     it,
                     "TILE_VPN_PERMISSION_REQUIRED",
-                    "Open Usque to grant Android VPN permission.",
+                    AndroidLocaleController.getString(this, R.string.tile_vpn_permission_required),
                 )
             }
             if (request == null) {
@@ -824,7 +840,7 @@ class UsqueVpnService : VpnService() {
             replyControlError(
                 request,
                 "TILE_VPN_FRONTEND_INACTIVE",
-                "A proxy-only connection is active. Open Usque to enable the VPN frontend.",
+                AndroidLocaleController.getString(this, R.string.tile_proxy_only),
             )
         } else {
             connectLastProfile(request)
@@ -1415,6 +1431,7 @@ class UsqueVpnService : VpnService() {
         }
         clearAllRequested.set(true)
         recoveryPreferences.edit().clear().commit()
+        AndroidLocaleController.clear(this)
         PerAppProxyStore.clear(this)
         val generation = connectionGeneration.incrementAndGet()
         networkMonitor.bumpGeneration()
@@ -1924,7 +1941,19 @@ class UsqueVpnService : VpnService() {
         )
 
     private fun updateNotification() {
-        notifications.update(snapshotState.notificationText())
+        notifications.update(notifications.copyFor(snapshotState))
+    }
+
+    private fun updateLocale(catalogId: String?) {
+        if (catalogId == null || !AndroidLocaleController.applyToProcess(catalogId)) return
+        refreshLocalizedSurfaces()
+    }
+
+    private fun refreshLocalizedSurfaces() {
+        notifications.createChannel()
+        if (snapshotState.phase != "disconnected") updateNotification()
+        lastTilePresentation = null
+        notifyTileStateChanged()
     }
 
     private fun isCurrent(generation: Long): Boolean = !destroyed && connectionGeneration.get() == generation

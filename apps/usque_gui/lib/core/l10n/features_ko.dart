@@ -252,3 +252,44 @@ const Map<String, String> kWindowsRecoveryKo = <String, String>{
 
 const String kWindowsAdapterCleanupKo =
     '이전 Wintun 어댑터를 제거하지 못했거나 제거 여부를 확인하지 못했습니다. 새 VPN 연결은 시작되지 않았습니다.';
+
+const Map<String, String> kL4Ko = <String, String>{
+  'l4_quic_not_ready': '준비된 QUIC 세션을 기다리는 중',
+  'l4_unsupported_packets': '지원되지 않거나 잘못된 패킷을 거부함',
+  'l4_budget_rejections': '리소스 수락 거부 횟수',
+  'l4_not_applicable': '해당 없음(L4)',
+  'l4_mode': 'L4(실험적)',
+  'l4_explanation':
+      'HTTP/3 위의 TCP 전용 모드입니다. VPN/TUN, SOCKS5, HTTP를 지원하며 TUN DNS는 TCP로 변환됩니다. Auto는 L4를 선택하지 않습니다. 그 외 UDP, 원격 ping, IP 조각, 확장 헤더는 지원되지 않아 일부 앱이 동작하지 않을 수 있습니다.',
+  'l4_unsupported': '이 엔진은 완전한 L4 지원을 선언하지 않았습니다. L4를 켤 수 없습니다.',
+  'l4_sni_identity': '읽기 전용: 불러온 계정 식별 정보에서 파생됩니다. 기존 CONNECT-IP SNI는 유지됩니다.',
+  'l4_edge_requires_l4':
+      '에지 확인 DNS는 L4 전용입니다. Auto, H3, H2로 바꾸기 전에 다른 프록시 DNS 모드를 선택하세요.',
+  'proxy_dns_edge_resolved': 'Cloudflare 에지(L4 전용, 로컬 조회 없음)',
+  'l4_verified': 'L4 CONNECT 확인됨',
+  'l4_unverified': 'QUIC 준비됨. L4 CONNECT는 아직 확인되지 않음',
+  'l4_status_unknown': 'L4 확인 상태를 알 수 없음',
+  'l4_sessions': '세션 / 종료 중',
+  'l4_flows': '활성 / 대기 스트림',
+  'l4_connect': 'CONNECT 성공 / 실패 / 시간 초과',
+  'l4_buffers': '앱 버퍼 예산 사용량(바이트)',
+  'l4_backpressure': '송신 / 수신 배압',
+  'l4_tun_flows': 'TUN TCP / 반열림',
+  'l4_udp': '거부된 UDP 패킷',
+  'l4_dns': 'DNS 변환 성공 / 실패 / 시간 초과',
+  'l4_migration': '마이그레이션으로 유지된 스트림 / 재구축으로 종료된 스트림',
+  'l4_na':
+      'CONNECT-IP 주소 제어, DATAGRAM 대기열, 내부 페이로드 MTU, UDP 시간 초과는 L4에서 해당 없습니다.',
+};
+
+const Map<String, String> kNetworkSettingsKo = <String, String>{
+  'settings_applying': '저장됨, 적용 중',
+  'settings_applied': '저장하고 적용함',
+  'settings_deferred': '저장됨. 다음 수동 연결에서 적용됩니다',
+  'settings_failed': '저장됨, 적용 실패',
+  'settings_unknown': '결과가 아직 확인되지 않음',
+  'settings_saved': '저장됨',
+  'settings_unsupported': '네트워크 설정을 저장하려면 Engine을 다시 시작하거나 업데이트하세요.',
+  'settings_save_failed': '설정을 저장하지 못했습니다. 편집 내용은 유지됩니다.',
+  'settings_reconnect': '다시 연결',
+};

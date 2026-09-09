@@ -1,4 +1,25 @@
-// L4 experimental strings; other locales use the explicit English fallback.
+import 'features_ar.dart';
+import 'features_de.dart';
+import 'features_es.dart';
+import 'features_fa.dart';
+import 'features_fr.dart';
+import 'features_id.dart';
+import 'features_it.dart';
+import 'features_ja.dart';
+import 'features_ko.dart';
+import 'features_nl.dart';
+import 'features_pl.dart';
+import 'features_pt.dart';
+import 'features_ru.dart';
+import 'features_th.dart';
+import 'features_tr.dart';
+import 'features_uk.dart';
+import 'features_vi.dart';
+import 'features_zh_hk.dart';
+import 'features_zh_tw.dart';
+
+// L4 experimental copy is keyed by AppStrings catalog id. Missing ids fall
+// back to English. Companion locale maps live in features_*.dart.
 const kL4En = <String, String>{
   'l4_quic_not_ready': 'Waiting for a ready QUIC session',
   'l4_unsupported_packets': 'Unsupported or malformed packets rejected',
@@ -56,3 +77,28 @@ const kL4ZhCn = <String, String>{
   'l4_migration': '迁移保留流／重建终止流',
   'l4_na': 'CONNECT-IP 地址控制、DATAGRAM 队列、内层有效载荷 MTU 和 UDP 超时：L4 下不适用。',
 };
+
+const Map<String, Map<String, String>> kL4Catalogs =
+    <String, Map<String, String>>{
+      'en': kL4En,
+      'zh_CN': kL4ZhCn,
+      'zh_HK': kL4ZhHk,
+      'zh_TW': kL4ZhTw,
+      'ja': kL4Ja,
+      'ko': kL4Ko,
+      'es': kL4Es,
+      'pt': kL4Pt,
+      'fr': kL4Fr,
+      'nl': kL4Nl,
+      'tr': kL4Tr,
+      'ru': kL4Ru,
+      'fa': kL4Fa,
+      'ar': kL4Ar,
+      'de': kL4De,
+      'id': kL4Id,
+      'it': kL4It,
+      'pl': kL4Pl,
+      'th': kL4Th,
+      'uk': kL4Uk,
+      'vi': kL4Vi,
+    };

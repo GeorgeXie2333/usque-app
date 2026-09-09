@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="vpn_channel_name">Usque-netwerkdienst</string>
+    <string name="vpn_channel_description">Blijvende status van de actieve Usque-VPN of lokale proxy</string>
+    <string name="vpn_notif_disconnect">Verbreken</string>
+    <string name="vpn_notif_preparing">Beveiligde tunnel voorbereiden</string>
+    <string name="vpn_notif_connecting_h3">Verbinden met HTTP/3</string>
+    <string name="vpn_notif_connecting_h2">Verbinden met HTTP/2</string>
+    <string name="vpn_notif_connected">Verbonden</string>
+    <string name="vpn_notif_connected_via">Verbonden via %1$s</string>
+    <string name="vpn_notif_degraded">Verbonden met beperkte adresfamilieondersteuning</string>
+    <string name="vpn_notif_reconnecting">Veilig opnieuw verbinden</string>
+    <string name="vpn_notif_error">Netwerkdienst gestopt na een fout</string>
+    <string name="vpn_notif_disconnecting">Verbinding verbreken</string>
+    <string name="vpn_notif_idle">Usque VPN</string>
+    <string name="vpn_notif_invalid_profile">Ongeldig VPN-profiel</string>
+    <string name="vpn_notif_invalid_network_profile">Ongeldig netwerkprofiel</string>
+    <string name="vpn_notif_recovery_unavailable">VPN-herstel niet beschikbaar</string>
+    <string name="tile_connected">Verbonden</string>
+    <string name="tile_disconnected">Verbroken</string>
+    <string name="tile_connecting">Verbinden</string>
+    <string name="tile_reconnecting">Opnieuw verbinden</string>
+    <string name="tile_disconnecting">Verbreken</string>
+    <string name="tile_checking">Controleren</string>
+    <string name="tile_working">Bezig</string>
+    <string name="tile_open_app">Usque openen</string>
+    <string name="tile_profile_required">Open Usque en verbind één keer een VPN-profiel voordat u de tegel gebruikt.</string>
+    <string name="tile_identity_required">Open Usque en configureer de WARP-identiteit voor dit profiel.</string>
+    <string name="tile_vpn_permission_required">Open Usque om de Android-VPN-toestemming te geven.</string>
+    <string name="tile_proxy_only">Er is een alleen-proxyverbinding actief. Open Usque om de VPN-frontend in te schakelen.</string>
+    <string name="shortcut_connect">Verbinden</string>
+    <string name="shortcut_disconnect">Verbreken</string>
+    <string name="shortcut_profiles">Accounts</string>
+    <string name="shortcut_long_label">%1$s Usque</string>
+</resources>

@@ -39,11 +39,11 @@ Usque 为独立项目，与 Cloudflare 无隶属、赞助或背书关系。Cloud
 
 ## 下载与安装
 
-本次发布目标为 **v0.2.5**，是面向 Windows 和 Android 的功能与可靠性版本；对应标签工作流生成六个安装包：
+本次发布目标为 **v0.2.5**，是面向 Windows 和 Android 的功能与可靠性版本；对应标签工作流生成六个面向用户的安装包，以及两个仅供自动更新使用的 Windows MSI 载荷：
 
 | 平台 | 最低系统 | 安装包 |
 | --- | --- | --- |
-| Windows | Windows 10 22H2，Build 19045 | x64-v2 MSI 或 ARM64 MSI |
+| Windows | Windows 10 22H2，Build 19045 | x64-v2 安装程序 EXE 或 ARM64 安装程序 EXE |
 | Android / Android TV | Android 8.0，API 26 | arm64-v8a、x86_64 或 armeabi-v7a APK |
 | Android / Android TV | Android 8.0，API 26 | 包含上述三种 ABI 的通用 APK |
 
@@ -77,7 +77,7 @@ Usque 为独立项目，与 Cloudflare 无隶属、赞助或背书关系。Cloud
 - 全隧道 VPN、隧道内 DNS、Kill Switch、局域网访问和自定义 CIDR 绕过规则。
 - 可选的按国家直连：单独下载各国 GeoIP 数据和一份经过校验的全局 V2Fly GeoSite 目录。有域名时使用 GeoSite，无法看到域名时使用 GeoIP；未知目标仍走 MASQUE。
 - 本地网络质量中心展示 RTT、丢包可用性、队列、PMTU、迁移、直连 DNS 和 60 秒趋势。Network Doctor 提供只读的 Standard 检查及需明确授权的 Deep 检查。
-- Windows 托盘、单实例、开机启动和关闭后最小化到托盘；Android 快捷设置磁贴、启动器快捷方式、开机恢复和电视导航。支持英文、简体中文以及浅色、深色主题。
+- Windows 托盘、单实例、开机启动和关闭后最小化到托盘；Android 快捷设置磁贴、启动器快捷方式、开机恢复和电视导航。支持 21 种语言，以及浅色、深色主题。
 
 Android 分应用代理是应用级的“仅包含所选应用”设置，不属于某个账户。关闭时全部应用走 VPN；开启后仅勾选的应用走隧道，新安装的应用需手动勾选。启用 Android 的“阻止未使用 VPN 的连接”后，未勾选的应用会被阻断，而不是绕过隧道。
 

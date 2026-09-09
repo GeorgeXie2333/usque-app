@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WixLocalization
+  xmlns="http://wixtoolset.org/schemas/v4/wxl"
+  Culture="ja-JP">
+  <String
+    Id="UsqueRemoveDataTitle"
+    Value="アンインストールのオプション" />
+  <String
+    Id="UsqueRemoveDataDescription"
+    Value="再インストールに備えてデータを残すかどうかを選びます。" />
+  <String
+    Id="UsqueRemoveDataCheckbox"
+    Value="この Windows ユーザーのプロファイル、設定、ログ、キャッシュ、WARP 識別情報を削除します。" />
+  <String
+    Id="UsqueRemoveDataWarning"
+    Value="この操作は元に戻せません。オフのままにするとローカルデータは残ります。他の Windows ユーザーには影響しません。" />
+  <String
+    Id="UsqueRepairTitle"
+    Value="修復はサポートされていません" />
+  <String
+    Id="UsqueRepairDescription"
+    Value="修復は特権付きのネットワーク復旧状態を中断する可能性があります。[削除] を選んで Usque をアンインストールしてから再インストールしてください。削除を明示しない限りユーザーデータは残ります。新しいリリースのインストールもサポートされます。" />
+  <String
+    Id="UsqueRepairOk"
+    Value="OK" />
+</WixLocalization>

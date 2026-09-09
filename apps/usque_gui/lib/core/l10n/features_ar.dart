@@ -267,3 +267,45 @@ const Map<String, String> kWindowsRecoveryAr = <String, String>{
 
 const String kWindowsAdapterCleanupAr =
     'تعذّر إزالة محوّل Wintun السابق أو تعذّر التحقق من إزالته. لم يبدأ أي اتصال VPN جديد.';
+
+const Map<String, String> kL4Ar = <String, String>{
+  'l4_quic_not_ready': 'بانتظار جلسة QUIC جاهزة',
+  'l4_unsupported_packets': 'رُفضت الحزم غير المدعومة أو التالفة',
+  'l4_budget_rejections': 'رفض قبول الموارد',
+  'l4_not_applicable': 'غير منطبق (L4)',
+  'l4_mode': 'L4 (تجريبي)',
+  'l4_explanation':
+      'وضع TCP فقط عبر HTTP/3. يدعم VPN/TUN وSOCKS5 وHTTP؛ ويُحوَّل DNS الخاص بـ TUN إلى TCP. لا يختار Auto وضع L4 أبدًا. بقية UDP والبينغ البعيد وتجزئة IP والرؤوس الموسعة غير مدعومة؛ قد لا تعمل بعض التطبيقات.',
+  'l4_unsupported': 'لم يعلن هذا المحرك عن دعم L4 كامل. لا يمكن تفعيل L4.',
+  'l4_sni_identity':
+      'للقراءة فقط: يُشتق من هوية الحساب المحمّلة. يُحفظ SNI الخاص بـ CONNECT-IP.',
+  'l4_edge_requires_l4':
+      'يتطلب DNS المحلول عند الحافة وضع L4. اختر وضع DNS وكيل آخر قبل التبديل إلى Auto أو H3 أو H2.',
+  'proxy_dns_edge_resolved': 'حافة Cloudflare (L4 فقط؛ بلا بحث محلي)',
+  'l4_verified': 'تم التحقق من L4 CONNECT',
+  'l4_unverified': 'QUIC جاهز؛ لم يُتحقق بعد من L4 CONNECT',
+  'l4_status_unknown': 'حالة التحقق من L4 غير معروفة',
+  'l4_sessions': 'الجلسات / التفريغ',
+  'l4_flows': 'التدفقات النشطة / المنتظرة',
+  'l4_connect': 'نجاح / فشل / مهلة CONNECT',
+  'l4_buffers': 'ميزانية المخزن المؤقت للتطبيق المستخدمة (بايت)',
+  'l4_backpressure': 'ضغط الإرسال / الاستقبال الخلفي',
+  'l4_tun_flows': 'TUN TCP / شبه مفتوح',
+  'l4_udp': 'حزم UDP المرفوضة',
+  'l4_dns': 'تحويلات DNS نجاح / فشل / مهلة',
+  'l4_migration': 'تدفقات حفظها الترحيل / أنهى إعادة البناء',
+  'l4_na':
+      'التحكم في عنوان CONNECT-IP وطوابير DATAGRAM وMTU الحمولة الداخلية ومهلة UDP: غير منطبق في L4.',
+};
+
+const Map<String, String> kNetworkSettingsAr = <String, String>{
+  'settings_applying': 'تم الحفظ، جارٍ التطبيق',
+  'settings_applied': 'تم الحفظ والتطبيق',
+  'settings_deferred': 'تم الحفظ، ويسري عند الاتصال اليدوي التالي',
+  'settings_failed': 'تم الحفظ، فشل التطبيق',
+  'settings_unknown': 'لم يُؤكد النتيجة بعد',
+  'settings_saved': 'تم الحفظ',
+  'settings_unsupported': 'أعد تشغيل المحرك أو حدّثه لحفظ إعدادات الشبكة.',
+  'settings_save_failed': 'تعذّر حفظ الإعدادات. احتُفظ بتعديلاتك.',
+  'settings_reconnect': 'إعادة الاتصال',
+};

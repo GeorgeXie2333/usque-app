@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WixLocalization
+  xmlns="http://wixtoolset.org/schemas/v4/wxl"
+  Culture="id-ID">
+  <String
+    Id="UsqueRemoveDataTitle"
+    Value="Opsi pencopotan" />
+  <String
+    Id="UsqueRemoveDataDescription"
+    Value="Pilih apakah data disimpan untuk instalasi ulang nanti." />
+  <String
+    Id="UsqueRemoveDataCheckbox"
+    Value="Hapus profil, pengaturan, log, cache, dan identitas WARP pengguna Windows ini." />
+  <String
+    Id="UsqueRemoveDataWarning"
+    Value="Ini tidak dapat dibatalkan. Biarkan opsi tidak dicentang untuk menyimpan data lokal. Pengguna Windows lain tidak terpengaruh." />
+  <String
+    Id="UsqueRepairTitle"
+    Value="Perbaikan tidak didukung" />
+  <String
+    Id="UsqueRepairDescription"
+    Value="Perbaikan dapat mengganggu status pemulihan jaringan istimewa. Pilih Hapus untuk mencopot Usque, lalu pasang lagi; data pengguna disimpan kecuali Anda secara eksplisit memilih penghapusan. Pemasangan rilis yang lebih baru juga didukung." />
+  <String
+    Id="UsqueRepairOk"
+    Value="OK" />
+</WixLocalization>

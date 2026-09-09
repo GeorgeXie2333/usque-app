@@ -284,3 +284,49 @@ const Map<String, String> kWindowsRecoveryId = <String, String>{
 
 const String kWindowsAdapterCleanupId =
     'Adapter Wintun sebelumnya tidak dapat dihapus atau penghapusannya tidak dapat diverifikasi. Koneksi VPN baru belum dimulai.';
+
+const Map<String, String> kL4Id = <String, String>{
+  'l4_quic_not_ready': 'Menunggu sesi QUIC yang siap',
+  'l4_unsupported_packets': 'Paket tidak didukung atau rusak ditolak',
+  'l4_budget_rejections': 'Penerimaan sumber daya ditolak',
+  'l4_not_applicable': 'Tidak berlaku (L4)',
+  'l4_mode': 'L4 (eksperimental)',
+  'l4_explanation':
+      'Hanya TCP melalui HTTP/3. Mendukung VPN/TUN, SOCKS5, dan HTTP; DNS TUN diubah menjadi TCP. Auto tidak pernah memilih L4. UDP lain, ping jarak jauh, fragmen IP, dan header ekstensi tidak didukung; beberapa aplikasi mungkin tidak berfungsi.',
+  'l4_unsupported':
+      'Mesin ini belum menyatakan dukungan L4 lengkap. L4 tidak dapat diaktifkan.',
+  'l4_sni_identity':
+      'Hanya baca: diturunkan dari identitas akun yang dimuat. SNI CONNECT-IP yang ada dipertahankan.',
+  'l4_edge_requires_l4':
+      'DNS yang diselesaikan di tepi memerlukan L4. Pilih mode DNS proksi lain sebelum beralih ke Auto, H3, atau H2.',
+  'proxy_dns_edge_resolved':
+      'Tepi Cloudflare (hanya L4; tanpa pencarian lokal)',
+  'l4_verified': 'L4 CONNECT terverifikasi',
+  'l4_unverified': 'QUIC siap; L4 CONNECT belum terverifikasi',
+  'l4_status_unknown': 'Status verifikasi L4 tidak diketahui',
+  'l4_sessions': 'Sesi / pengosongan',
+  'l4_flows': 'Aliran aktif / menunggu',
+  'l4_connect': 'CONNECT berhasil / gagal / habis waktu',
+  'l4_buffers': 'Anggaran penyangga aplikasi yang terpakai (byte)',
+  'l4_backpressure': 'Tekanan balik kirim / terima',
+  'l4_tun_flows': 'TUN TCP / setengah terbuka',
+  'l4_udp': 'Paket UDP yang ditolak',
+  'l4_dns': 'Konversi DNS berhasil / gagal / habis waktu',
+  'l4_migration': 'Aliran dipertahankan migrasi / diakhiri pembangunan ulang',
+  'l4_na':
+      'Kontrol alamat CONNECT-IP, antrean DATAGRAM, MTU muatan dalam, dan batas waktu UDP: tidak berlaku di L4.',
+};
+
+const Map<String, String> kNetworkSettingsId = <String, String>{
+  'settings_applying': 'Disimpan, sedang diterapkan',
+  'settings_applied': 'Disimpan dan diterapkan',
+  'settings_deferred': 'Disimpan, berlaku pada koneksi manual berikutnya',
+  'settings_failed': 'Disimpan, penerapan gagal',
+  'settings_unknown': 'Hasil belum dikonfirmasi',
+  'settings_saved': 'Disimpan',
+  'settings_unsupported':
+      'Mulai ulang atau perbarui Engine untuk menyimpan pengaturan jaringan.',
+  'settings_save_failed':
+      'Pengaturan tidak dapat disimpan. Suntingan Anda tetap ada.',
+  'settings_reconnect': 'Hubungkan ulang',
+};

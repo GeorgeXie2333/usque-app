@@ -9,6 +9,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.graphics.drawable.Icon
 import android.net.VpnService
 import android.os.Build
@@ -254,6 +255,11 @@ class MainActivity : FlutterFragmentActivity() {
         handleIncomingIntent(intent)
     }
 
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        AndroidShortcutController.sync(this)
+    }
+
     private fun configureQuickSettingsTileAvailability() {
         val state =
             if (packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)) {
@@ -345,7 +351,11 @@ class MainActivity : FlutterFragmentActivity() {
         ensureEngineComponents()
         engineMethodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
         engineMethodChannel?.setMethodCallHandler { call, result ->
-            methodHandler.handle(call, result)
+            if (call.method == "updatePlatformLocale") {
+                updatePlatformLocale(call.argument<String>("catalog_id"), result)
+            } else {
+                methodHandler.handle(call, result)
+            }
         }
         AndroidUpdateInstaller.terminalListener = { success, message ->
             runOnUiThread { publishUpdateInstallResult(success, message) }
@@ -370,6 +380,27 @@ class MainActivity : FlutterFragmentActivity() {
                     }
                 },
             )
+    }
+
+    private fun updatePlatformLocale(
+        catalogId: String?,
+        result: MethodChannel.Result,
+    ) {
+        if (catalogId == null) {
+            result.error("INVALID_ARGUMENT", "The platform locale is missing.", null)
+            return
+        }
+        if (!AndroidLocaleController.persist(this, catalogId)) {
+            result.error("PLATFORM_LOCALE_SAVE_FAILED", "The platform locale could not be saved.", null)
+            return
+        }
+        AndroidShortcutController.sync(this)
+        controlClient.updateLocale(catalogId)
+        android.service.quicksettings.TileService.requestListeningState(
+            this,
+            ComponentName(this, UsqueTileService::class.java),
+        )
+        result.success(null)
     }
 
     override fun onStart() {

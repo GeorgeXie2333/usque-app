@@ -2886,6 +2886,7 @@ name = "usque-uninstall"
 version = "0.2.5"
 dependencies = [
  "thiserror",
+ "usque-platform",
  "windows-sys 0.61.2",
 ]
 

@@ -340,3 +340,51 @@ const Map<String, String> kWindowsRecoveryNl = <String, String>{
 const String kWindowsAdapterCleanupNl =
     'De vorige Wintun-adapter kon niet worden verwijderd, of de verwijdering '
     'kon niet worden geverifieerd. Er is geen nieuwe VPN-verbinding gestart.';
+
+const Map<String, String> kL4Nl = <String, String>{
+  'l4_quic_not_ready': 'Wachten op een gerede QUIC-sessie',
+  'l4_unsupported_packets':
+      'Niet-ondersteunde of ongeldige pakketten geweigerd',
+  'l4_budget_rejections': 'Afgewezen resourcetoelatingen',
+  'l4_not_applicable': 'Niet van toepassing (L4)',
+  'l4_mode': 'L4 (experimenteel)',
+  'l4_explanation':
+      'Alleen TCP over HTTP/3. Ondersteunt VPN/TUN, SOCKS5 en HTTP; TUN-DNS wordt naar TCP omgezet. Auto kiest nooit L4. Overige UDP, externe ping, IP-fragmenten en extensiekoppen worden niet ondersteund; sommige apps werken mogelijk niet.',
+  'l4_unsupported':
+      'Deze engine heeft geen volledige L4-ondersteuning aangegeven. L4 kan niet worden ingeschakeld.',
+  'l4_sni_identity':
+      'Alleen-lezen: afgeleid van de geladen accountidentiteit. De bestaande CONNECT-IP-SNI blijft behouden.',
+  'l4_edge_requires_l4':
+      'Aan de rand omgezette DNS vereist L4. Kies een andere proxy-DNS-modus voordat u naar Auto, H3 of H2 schakelt.',
+  'proxy_dns_edge_resolved':
+      'Cloudflare-rand (alleen L4; geen lokale opzoeking)',
+  'l4_verified': 'L4 CONNECT geverifieerd',
+  'l4_unverified': 'QUIC gereed; L4 CONNECT nog niet geverifieerd',
+  'l4_status_unknown': 'L4-verificatiestatus onbekend',
+  'l4_sessions': 'Sessies / leegloop',
+  'l4_flows': 'Actieve / wachtende streams',
+  'l4_connect': 'CONNECT geslaagd / mislukt / time-out',
+  'l4_buffers': 'Gebruikt applicatiebufferbudget (bytes)',
+  'l4_backpressure': 'Verzend- / ontvangsttegendruk',
+  'l4_tun_flows': 'TUN TCP / halfopen',
+  'l4_udp': 'Geweigerde UDP-pakketten',
+  'l4_dns': 'DNS-omzettingen geslaagd / mislukt / time-out',
+  'l4_migration': 'Streams behouden door migratie / beëindigd door herbouw',
+  'l4_na':
+      'CONNECT-IP-adresbeheer, DATAGRAM-wachtrijen, binnenste payload-MTU en UDP-time-out: niet van toepassing in L4.',
+};
+
+const Map<String, String> kNetworkSettingsNl = <String, String>{
+  'settings_applying': 'Opgeslagen, wordt toegepast',
+  'settings_applied': 'Opgeslagen en toegepast',
+  'settings_deferred':
+      'Opgeslagen, gaat in bij de volgende handmatige verbinding',
+  'settings_failed': 'Opgeslagen, toepassen mislukt',
+  'settings_unknown': 'Resultaat nog niet bevestigd',
+  'settings_saved': 'Opgeslagen',
+  'settings_unsupported':
+      'Start de Engine opnieuw of werk deze bij om netwerkinstellingen op te slaan.',
+  'settings_save_failed':
+      'Instellingen konden niet worden opgeslagen. Uw wijzigingen blijven behouden.',
+  'settings_reconnect': 'Opnieuw verbinden',
+};

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="vpn_channel_name">Мережева служба Usque</string>
+    <string name="vpn_channel_description">Постійний стан активного VPN Usque або локального проксі</string>
+    <string name="vpn_notif_disconnect">Відʼєднати</string>
+    <string name="vpn_notif_preparing">Підготовка захищеного тунелю</string>
+    <string name="vpn_notif_connecting_h3">Зʼєднання через HTTP/3</string>
+    <string name="vpn_notif_connecting_h2">Зʼєднання через HTTP/2</string>
+    <string name="vpn_notif_connected">Зʼєднано</string>
+    <string name="vpn_notif_connected_via">Зʼєднано через %1$s</string>
+    <string name="vpn_notif_degraded">Зʼєднано з обмеженою підтримкою сімейства адрес</string>
+    <string name="vpn_notif_reconnecting">Безпечне повторне зʼєднання</string>
+    <string name="vpn_notif_error">Мережеву службу зупинено після помилки</string>
+    <string name="vpn_notif_disconnecting">Відʼєднання</string>
+    <string name="vpn_notif_idle">Usque VPN</string>
+    <string name="vpn_notif_invalid_profile">Недійсний профіль VPN</string>
+    <string name="vpn_notif_invalid_network_profile">Недійсний мережевий профіль</string>
+    <string name="vpn_notif_recovery_unavailable">Відновлення VPN недоступне</string>
+    <string name="tile_connected">Зʼєднано</string>
+    <string name="tile_disconnected">Відʼєднано</string>
+    <string name="tile_connecting">Зʼєднання</string>
+    <string name="tile_reconnecting">Повторне зʼєднання</string>
+    <string name="tile_disconnecting">Відʼєднання</string>
+    <string name="tile_checking">Перевірка</string>
+    <string name="tile_working">Виконується</string>
+    <string name="tile_open_app">Відкрити Usque</string>
+    <string name="tile_profile_required">Відкрийте Usque й один раз зʼєднайте профіль VPN, перш ніж користуватися плиткою.</string>
+    <string name="tile_identity_required">Відкрийте Usque й налаштуйте ідентичність WARP для цього профілю.</string>
+    <string name="tile_vpn_permission_required">Відкрийте Usque, щоб надати дозвіл Android VPN.</string>
+    <string name="tile_proxy_only">Активне лише проксі-зʼєднання. Відкрийте Usque, щоб увімкнути інтерфейс VPN.</string>
+    <string name="shortcut_connect">Зʼєднати</string>
+    <string name="shortcut_disconnect">Відʼєднати</string>
+    <string name="shortcut_profiles">Облікові записи</string>
+    <string name="shortcut_long_label">%1$s Usque</string>
+</resources>

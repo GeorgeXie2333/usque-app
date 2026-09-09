@@ -483,6 +483,7 @@ jobs:
         run: |
           dotnet tool restore
           dotnet tool run wix -- extension add WixToolset.UI.wixext/5.0.2
+          dotnet tool run wix -- extension add WixToolset.BootstrapperApplications.wixext/5.0.2
 
       - name: Verify MSI version mapping
         shell: pwsh
@@ -521,42 +522,161 @@ jobs:
           Copy-Item $fixture (Join-Path $payload "wintun.dll")
           Copy-Item LICENSE.md (Join-Path $payload "data/LICENSE.md")
 
-      - name: Compile MSI authoring
+      - name: Compile multilingual MSI and bundle authoring
         shell: pwsh
         run: |
           $payload = Join-Path $env:RUNNER_TEMP "msi-payload"
-          $output = Join-Path $env:RUNNER_TEMP "usque-authoring-${{ matrix.arch }}.msi"
+          $root = Join-Path $env:RUNNER_TEMP "windows-authoring-${{ matrix.arch }}"
+          $msiDirectory = Join-Path $root "msi"
+          $transformDirectory = Join-Path $root "transforms"
+          New-Item `
+            -ItemType Directory `
+            -Path $msiDirectory, $transformDirectory `
+            -Force | Out-Null
+          $productCode = "11111111-1111-1111-1111-111111111111"
+          $quietUninstallCommand = & ./tool/get_windows_quiet_uninstall_command.ps1
+          & ./tool/test_windows_quiet_uninstall.ps1
+          & "$env:SystemRoot/System32/WindowsPowerShell/v1.0/powershell.exe" `
+            -NoProfile -NonInteractive -File ./tool/test_windows_quiet_uninstall.ps1
+          if ($LASTEXITCODE -ne 0) { throw "Windows PowerShell quiet-uninstall tests failed." }
+          $cultures = Get-ChildItem "packaging/windows/loc" -Filter "*.wxl" |
+            ForEach-Object BaseName |
+            Sort-Object
+          foreach ($culture in $cultures) {
+            $language = [Globalization.CultureInfo]::GetCultureInfo($culture).LCID
+            $include = Join-Path $root "$culture.wxi"
+            & ./tool/render_windows_wix_localization.ps1 `
+              -LocalizationPath "packaging/windows/loc/$culture.wxl" `
+              -OutputPath $include `
+              -ExpectedCulture $culture | Out-Null
+            $name = if ($culture -eq "en-US") {
+              "usque-v0.2.5-windows-${{ matrix.variant }}.msi"
+            } else {
+              "usque-v0.2.5-windows-${{ matrix.variant }}-$culture.msi"
+            }
+            $output = Join-Path $msiDirectory $name
+            $arguments = @(
+              "build",
+              "-arch", "${{ matrix.arch }}",
+              "-ext", "WixToolset.UI.wixext/5.0.2",
+              "-bindpath", "app=$payload",
+              "-define", "DisplayVersion=0.2.5",
+              "-define", "MsiVersion=0.2.599",
+              "-define", "MsiLanguage=$language",
+              "-define", "MsiCodepage=65001",
+              "-define", "ProductCode=$productCode",
+              "-define", "Variant=${{ matrix.variant }}",
+              "-define", "SignerSha256=$("0" * 64)",
+              "-define", "IconPath=$((Resolve-Path "assets/branding/usque-app-icon.ico").Path)",
+              "-define", "LicensePath=$((Resolve-Path "packaging/windows/LICENSE.rtf").Path)",
+              "-define", "UsqueLocalizationPath=$include",
+              "-define", "UsqueQuietUninstallCommand=$quietUninstallCommand",
+              "-culture", $culture
+            )
+            if ($culture -ne "en-US") {
+              $arguments += @("-culture", "en-US")
+            }
+            $arguments += @(
+              "-defaultcompressionlevel", "high",
+              "-intermediateFolder", (Join-Path $root "wix-$culture"),
+              "-pdbtype", "none",
+              "-out", $output,
+              "packaging/windows/Usque.wxs",
+              "packaging/windows/UsqueUI.wxs"
+            )
+            dotnet tool run wix -- @arguments
+            if ($LASTEXITCODE -ne 0) {
+              throw "WiX build failed for $culture."
+            }
+            & ./tool/verify_windows_msi.ps1 `
+              -MsiPath $output `
+              -Variant "${{ matrix.variant }}" `
+              -ExpectedMsiVersion "0.2.599" `
+              -ExpectedDisplayVersion "0.2.5" `
+              -ExpectedAgentFileVersion "0.14.1.0" `
+              -ExpectedMsiLanguage $language `
+              -ExpectedProductCode $productCode `
+              -SignerSha256 ("0" * 64) | Out-Null
+          }
+
+          $baseMsi = Join-Path `
+            $msiDirectory `
+            "usque-v0.2.5-windows-${{ matrix.variant }}.msi"
+          foreach ($culture in @($cultures | Where-Object { $_ -ne "en-US" })) {
+            $localizedMsi = Join-Path `
+              $msiDirectory `
+              "usque-v0.2.5-windows-${{ matrix.variant }}-$culture.msi"
+            dotnet tool run wix -- msi transform `
+              $baseMsi `
+              $localizedMsi `
+              -out (Join-Path $transformDirectory "$culture.mst") `
+              -t language
+            if ($LASTEXITCODE -ne 0) {
+              throw "WiX transform generation failed for $culture."
+            }
+          }
+
+          $bundleUpgradeCode = if ("${{ matrix.variant }}" -eq "arm64") {
+            "EDE480D1-DE1B-4DC5-BE18-084CCABAE9D0"
+          } else {
+            "33C3EFF5-32C9-4BD6-B923-FA8FF6506CE3"
+          }
+          $bundle = Join-Path `
+            $root `
+            "usque-v0.2.5-windows-${{ matrix.variant }}.exe"
           dotnet tool run wix -- build `
             -arch "${{ matrix.arch }}" `
-            -ext "WixToolset.UI.wixext/5.0.2" `
-            -bindpath "app=$payload" `
+            -ext "WixToolset.BootstrapperApplications.wixext/5.0.2" `
             -define "DisplayVersion=0.2.5" `
-            -define "MsiVersion=0.2.599" `
+            -define "BundleVersion=0.2.5" `
+            -define "BundleUpgradeCode=$bundleUpgradeCode" `
             -define "Variant=${{ matrix.variant }}" `
-            -define "SignerSha256=$("0" * 64)" `
             -define "IconPath=$((Resolve-Path "assets/branding/usque-app-icon.ico").Path)" `
-            -define "LicensePath=$((Resolve-Path "packaging/windows/LICENSE.rtf").Path)" `
-            -defaultcompressionlevel high `
-            -intermediateFolder (Join-Path $env:RUNNER_TEMP "wix-${{ matrix.arch }}") `
+            -define "LogoPath=$((Resolve-Path "assets/branding/usque-app-icon.png").Path)" `
+            -define "MsiPath=$baseMsi" `
+            -define "TransformDirectory=$transformDirectory" `
+            -intermediateFolder (Join-Path $root "wix-bundle") `
             -pdbtype none `
-            -out $output `
-            packaging/windows/Usque.wxs `
-            packaging/windows/UsqueUI.wxs
-          if ($LASTEXITCODE -ne 0) { throw "WiX build failed." }
+            -out $bundle `
+            packaging/windows/UsqueBundle.wxs
+          if ($LASTEXITCODE -ne 0) { throw "WiX bundle build failed." }
+          & ./tool/verify_windows_bundle.ps1 `
+            -BundlePath $bundle `
+            -Variant "${{ matrix.variant }}" `
+            -Version "0.2.5" `
+            -SignerSha256 ("0" * 64) `
+            -ExpectedAgentFileVersion "0.14.1.0" | Out-Null
+
+          $engine = Join-Path $root "burn-engine.exe"
+          $reattached = Join-Path $root "reattached.exe"
+          dotnet tool run wix -- burn detach $bundle -engine $engine
+          if ($LASTEXITCODE -ne 0) { throw "Burn engine detach failed." }
+          dotnet tool run wix -- burn reattach `
+            $bundle `
+            -engine $engine `
+            -out $reattached
+          if ($LASTEXITCODE -ne 0) { throw "Burn engine reattach failed." }
+          & ./tool/verify_windows_bundle.ps1 `
+            -BundlePath $reattached `
+            -Variant "${{ matrix.variant }}" `
+            -Version "0.2.5" `
+            -SignerSha256 ("0" * 64) `
+            -ExpectedAgentFileVersion "0.14.1.0" | Out-Null
 
           # The inert EXE fixtures are copies of pinned Wintun 0.14.1.
           & ./tool/verify_windows_msi.ps1 `
-            -MsiPath $output `
+            -MsiPath $baseMsi `
             -Variant "${{ matrix.variant }}" `
             -ExpectedMsiVersion "0.2.599" `
             -ExpectedDisplayVersion "0.2.5" `
             -ExpectedAgentFileVersion "0.14.1.0" `
+            -ExpectedProductCode $productCode `
             -SignerSha256 ("0" * 64)
 
           # Mutate only temporary copies of the inert MSI. No install, service,
           # recovery, route, or WFP operation is executed by these tests.
           & ./tool/test_windows_msi_replacement.ps1 `
-            -MsiPath $output `
+            -MsiPath $baseMsi `
             -Variant "${{ matrix.variant }}" `
             -ExpectedMsiVersion "0.2.599" `
             -ExpectedDisplayVersion "0.2.5" `

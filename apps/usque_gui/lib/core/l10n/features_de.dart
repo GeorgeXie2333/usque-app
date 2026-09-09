@@ -352,3 +352,51 @@ const String kWindowsAdapterCleanupDe =
     'Der vorherige Wintun-Adapter konnte nicht entfernt werden, oder die '
     'Entfernung konnte nicht bestätigt werden. Es wurde keine neue '
     'VPN-Verbindung gestartet.';
+
+const Map<String, String> kL4De = <String, String>{
+  'l4_quic_not_ready': 'Warten auf eine bereite QUIC-Sitzung',
+  'l4_unsupported_packets':
+      'Nicht unterstützte oder fehlerhafte Pakete abgelehnt',
+  'l4_budget_rejections': 'Abgelehnte Ressourcenzulassungen',
+  'l4_not_applicable': 'Nicht zutreffend (L4)',
+  'l4_mode': 'L4 (experimentell)',
+  'l4_explanation':
+      'Nur TCP über HTTP/3. Unterstützt VPN/TUN, SOCKS5 und HTTP; TUN-DNS wird in TCP umgewandelt. Auto wählt L4 nie. Anderes UDP, Remote-Ping, IP-Fragmente und Erweiterungsköpfe sind nicht unterstützt; manche Apps funktionieren möglicherweise nicht.',
+  'l4_unsupported':
+      'Diese Engine hat keine vollständige L4-Unterstützung erklärt. L4 kann nicht aktiviert werden.',
+  'l4_sni_identity':
+      'Schreibgeschützt: aus der geladenen Kontoidentität abgeleitet. Die vorhandene CONNECT-IP-SNI bleibt erhalten.',
+  'l4_edge_requires_l4':
+      'Am Rand aufgelöstes DNS erfordert L4. Wählen Sie vor dem Wechsel zu Auto, H3 oder H2 einen anderen Proxy-DNS-Modus.',
+  'proxy_dns_edge_resolved': 'Cloudflare-Rand (nur L4; keine lokale Abfrage)',
+  'l4_verified': 'L4 CONNECT bestätigt',
+  'l4_unverified': 'QUIC bereit; L4 CONNECT noch nicht bestätigt',
+  'l4_status_unknown': 'L4-Prüfstatus unbekannt',
+  'l4_sessions': 'Sitzungen / Abbau',
+  'l4_flows': 'Aktive / wartende Streams',
+  'l4_connect': 'CONNECT Erfolg / Fehler / Zeitüberschreitung',
+  'l4_buffers': 'Verbrauchtes Anwendungspufferbudget (Byte)',
+  'l4_backpressure': 'Sende- / Empfangsgegendruck',
+  'l4_tun_flows': 'TUN-TCP / halboffen',
+  'l4_udp': 'Abgelehnte UDP-Pakete',
+  'l4_dns': 'DNS-Umwandlungen Erfolg / Fehler / Zeitüberschreitung',
+  'l4_migration':
+      'Durch Migration erhaltene / durch Neuaufbau beendete Streams',
+  'l4_na':
+      'CONNECT-IP-Adresssteuerung, DATAGRAM-Warteschlangen, inneres Nutzlast-MTU und UDP-Timeout: in L4 nicht zutreffend.',
+};
+
+const Map<String, String> kNetworkSettingsDe = <String, String>{
+  'settings_applying': 'Gespeichert, wird angewendet',
+  'settings_applied': 'Gespeichert und angewendet',
+  'settings_deferred':
+      'Gespeichert, gilt bei der nächsten manuellen Verbindung',
+  'settings_failed': 'Gespeichert, Anwendung fehlgeschlagen',
+  'settings_unknown': 'Ergebnis noch nicht bestätigt',
+  'settings_saved': 'Gespeichert',
+  'settings_unsupported':
+      'Starten Sie die Engine neu oder aktualisieren Sie sie, um Netzwerkeinstellungen zu speichern.',
+  'settings_save_failed':
+      'Einstellungen konnten nicht gespeichert werden. Ihre Änderungen bleiben erhalten.',
+  'settings_reconnect': 'Erneut verbinden',
+};

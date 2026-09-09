@@ -269,3 +269,47 @@ const Map<String, String> kWindowsRecoveryTh = <String, String>{
 
 const String kWindowsAdapterCleanupTh =
     'อะแดปเตอร์ Wintun ก่อนหน้านี้ถอดออกไม่ได้ หรือยืนยันการถอดออกไม่ได้ ยังไม่ได้เริ่มการเชื่อมต่อ VPN ใหม่';
+
+const Map<String, String> kL4Th = <String, String>{
+  'l4_quic_not_ready': 'กำลังรอเซสชัน QUIC ที่พร้อม',
+  'l4_unsupported_packets': 'ปฏิเสธแพ็กเก็ตที่ไม่รองรับหรือผิดรูปแบบ',
+  'l4_budget_rejections': 'จำนวนครั้งที่ปฏิเสธการรับทรัพยากร',
+  'l4_not_applicable': 'ไม่ใช้ได้ (L4)',
+  'l4_mode': 'L4 (ทดลอง)',
+  'l4_explanation':
+      'เฉพาะ TCP บน HTTP/3 รองรับ VPN/TUN, SOCKS5 และ HTTP; DNS ของ TUN จะถูกแปลงเป็น TCP Auto จะไม่เลือก L4 UDP อื่น, ping ระยะไกล, ชิ้นส่วน IP และส่วนหัวส่วนขยายไม่รองรับ บางแอปอาจใช้ไม่ได้',
+  'l4_unsupported':
+      'เอนจินนี้ยังไม่ได้ประกาศการรองรับ L4 ครบ ไม่สามารถเปิด L4 ได้',
+  'l4_sni_identity':
+      'อ่านอย่างเดียว: ได้จากข้อมูลประจำตัวบัญชีที่โหลดแล้ว SNI ของ CONNECT-IP เดิมจะถูกเก็บไว้',
+  'l4_edge_requires_l4':
+      'DNS ที่แปลงที่ขอบต้องใช้ L4 เลือกโหมด DNS พร็อกซีอื่นก่อนสลับเป็น Auto, H3 หรือ H2',
+  'proxy_dns_edge_resolved': 'ขอบ Cloudflare (เฉพาะ L4 ไม่ค้นหาในเครื่อง)',
+  'l4_verified': 'ยืนยัน L4 CONNECT แล้ว',
+  'l4_unverified': 'QUIC พร้อมแล้ว ยังไม่ได้ยืนยัน L4 CONNECT',
+  'l4_status_unknown': 'ไม่ทราบสถานะการยืนยัน L4',
+  'l4_sessions': 'เซสชัน / กำลังระบาย',
+  'l4_flows': 'สตรีมที่ใช้งาน / ที่รอ',
+  'l4_connect': 'CONNECT สำเร็จ / ล้มเหลว / หมดเวลา',
+  'l4_buffers': 'งบประมาณบัฟเฟอร์แอปที่ใช้ (ไบต์)',
+  'l4_backpressure': 'แรงดันย้อนส่ง / รับ',
+  'l4_tun_flows': 'TUN TCP / เปิดครึ่งหนึ่ง',
+  'l4_udp': 'แพ็กเก็ต UDP ที่ปฏิเสธ',
+  'l4_dns': 'การแปลง DNS สำเร็จ / ล้มเหลว / หมดเวลา',
+  'l4_migration': 'สตรีมที่โยกย้ายเก็บไว้ / ที่สร้างใหม่แล้วจบ',
+  'l4_na':
+      'การควบคุมที่อยู่ CONNECT-IP, คิว DATAGRAM, MTU ของส่วนข้อมูลชั้นใน และหมดเวลา UDP: ไม่ใช้ได้ใน L4',
+};
+
+const Map<String, String> kNetworkSettingsTh = <String, String>{
+  'settings_applying': 'บันทึกแล้ว กำลังนำไปใช้',
+  'settings_applied': 'บันทึกและนำไปใช้แล้ว',
+  'settings_deferred': 'บันทึกแล้ว มีผลเมื่อเชื่อมต่อด้วยตนเองครั้งถัดไป',
+  'settings_failed': 'บันทึกแล้ว นำไปใช้ไม่สำเร็จ',
+  'settings_unknown': 'ยังไม่ยืนยันผลลัพธ์',
+  'settings_saved': 'บันทึกแล้ว',
+  'settings_unsupported':
+      'รีสตาร์ทหรืออัปเดต Engine เพื่อบันทึกการตั้งค่าเครือข่าย',
+  'settings_save_failed': 'บันทึกการตั้งค่าไม่ได้ ยังคงการแก้ไขของคุณไว้',
+  'settings_reconnect': 'เชื่อมต่อใหม่',
+};

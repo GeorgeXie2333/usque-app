@@ -340,3 +340,51 @@ const Map<String, String> kWindowsRecoveryRu = <String, String>{
 const String kWindowsAdapterCleanupRu =
     'Предыдущий адаптер Wintun не удалось удалить или подтвердить его '
     'удаление. Новое VPN-подключение не запускалось.';
+
+const Map<String, String> kL4Ru = <String, String>{
+  'l4_quic_not_ready': 'Ожидание готового сеанса QUIC',
+  'l4_unsupported_packets':
+      'Отклонены неподдерживаемые или повреждённые пакеты',
+  'l4_budget_rejections': 'Отказы в допуске ресурсов',
+  'l4_not_applicable': 'Не применимо (L4)',
+  'l4_mode': 'L4 (экспериментальный)',
+  'l4_explanation':
+      'Только TCP поверх HTTP/3. Поддерживаются VPN/TUN, SOCKS5 и HTTP; DNS TUN преобразуется в TCP. Auto никогда не выбирает L4. Прочий UDP, удалённый ping, фрагменты IP и заголовки расширений не поддерживаются; некоторые приложения могут не работать.',
+  'l4_unsupported':
+      'Этот движок не объявил полной поддержки L4. Включить L4 нельзя.',
+  'l4_sni_identity':
+      'Только чтение: выводится из загруженной идентичности учётной записи. Существующий SNI CONNECT-IP сохраняется.',
+  'l4_edge_requires_l4':
+      'DNS, разрешаемый на границе, требует L4. Выберите другой режим DNS прокси перед переключением на Auto, H3 или H2.',
+  'proxy_dns_edge_resolved':
+      'Граница Cloudflare (только L4; без локального запроса)',
+  'l4_verified': 'L4 CONNECT подтверждён',
+  'l4_unverified': 'QUIC готов; L4 CONNECT ещё не подтверждён',
+  'l4_status_unknown': 'Состояние проверки L4 неизвестно',
+  'l4_sessions': 'Сеансы / завершение',
+  'l4_flows': 'Активные / ожидающие потоки',
+  'l4_connect': 'CONNECT успехи / сбои / тайм-ауты',
+  'l4_buffers': 'Использованный бюджет буфера приложения (байты)',
+  'l4_backpressure': 'Обратное давление отправки / приёма',
+  'l4_tun_flows': 'TUN TCP / полуоткрытые',
+  'l4_udp': 'Отклонённые пакеты UDP',
+  'l4_dns': 'Преобразования DNS успехи / сбои / тайм-ауты',
+  'l4_migration': 'Потоки, сохранённые миграцией / завершённые пересборкой',
+  'l4_na':
+      'Управление адресом CONNECT-IP, очереди DATAGRAM, MTU внутренней нагрузки и тайм-аут UDP: в L4 не применимо.',
+};
+
+const Map<String, String> kNetworkSettingsRu = <String, String>{
+  'settings_applying': 'Сохранено, применяется',
+  'settings_applied': 'Сохранено и применено',
+  'settings_deferred':
+      'Сохранено, вступит в силу при следующем ручном подключении',
+  'settings_failed': 'Сохранено, применить не удалось',
+  'settings_unknown': 'Результат ещё не подтверждён',
+  'settings_saved': 'Сохранено',
+  'settings_unsupported':
+      'Перезапустите или обновите Engine, чтобы сохранить сетевые настройки.',
+  'settings_save_failed':
+      'Не удалось сохранить настройки. Ваши правки сохранены.',
+  'settings_reconnect': 'Подключить снова',
+};

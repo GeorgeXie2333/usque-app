@@ -13,9 +13,9 @@ internal object QuickSettingsTileState {
         val subtitle: String?,
     )
 
-    fun active(subtitle: String = "Connected") = Presentation(State.ACTIVE, subtitle)
+    fun active(subtitle: String = "connected") = Presentation(State.ACTIVE, subtitle)
 
-    fun inactive(subtitle: String? = "Disconnected") = Presentation(State.INACTIVE, subtitle)
+    fun inactive(subtitle: String? = "disconnected") = Presentation(State.INACTIVE, subtitle)
 
     fun pending(subtitle: String) = Presentation(State.UNAVAILABLE, subtitle)
 
@@ -32,10 +32,10 @@ internal object QuickSettingsTileState {
     private fun fromActiveVpnPhase(phase: String?): Presentation =
         when (phase) {
             "connected", "degraded" -> active()
-            "preparing", "connectingH3", "connectingH2" -> pending("Connecting")
-            "reconnecting" -> pending("Reconnecting")
-            "disconnecting" -> pending("Disconnecting")
+            "preparing", "connectingH3", "connectingH2" -> pending("connecting")
+            "reconnecting" -> pending("reconnecting")
+            "disconnecting" -> pending("disconnecting")
             "disconnected", "error" -> inactive()
-            else -> pending("Checking")
+            else -> pending("checking")
         }
 }

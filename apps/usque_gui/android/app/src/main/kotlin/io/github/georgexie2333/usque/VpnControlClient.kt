@@ -184,6 +184,7 @@ internal class VpnControlClient(
     private var eventSubscriptionReachable = false
     private var pendingDisconnectResult: MethodChannel.Result? = null
     private var pendingReconfigure: PendingReconfigure? = null
+    private var desiredLocaleCatalog: String? = null
 
     /** Guards the acknowledgement-to-local-wipe ownership transition across threads. */
     private val clearAllStateLock = Any()
@@ -238,6 +239,7 @@ internal class VpnControlClient(
                 }
                 flushPendingReconfigure()
                 flushSettings()
+                flushLocale()
             }
 
             override fun onServiceDisconnected(name: ComponentName?) {
@@ -283,6 +285,21 @@ internal class VpnControlClient(
             registerForEvents()
         } else {
             unregisterForEvents()
+        }
+    }
+
+    fun updateLocale(catalogId: String) {
+        if (destroyed) return
+        desiredLocaleCatalog = catalogId
+        flushLocale()
+    }
+
+    private fun flushLocale() {
+        val service = endpoint ?: return
+        val catalogId = desiredLocaleCatalog ?: return
+        if (!service.send(UsqueVpnService.MSG_UPDATE_LOCALE, extras = mapOf("catalog_id" to catalogId))) {
+            endpoint = null
+            eventSubscriptionReachable = false
         }
     }
 
@@ -860,6 +877,7 @@ internal class VpnControlClient(
         }
         flushPendingReconfigure()
         flushSettings()
+        flushLocale()
     }
 
     fun detachEndpointForTest() {

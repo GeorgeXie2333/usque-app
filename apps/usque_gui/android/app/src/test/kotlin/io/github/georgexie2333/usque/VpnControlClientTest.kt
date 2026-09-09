@@ -53,6 +53,33 @@ class VpnControlClientTest {
     }
 
     @Test
+    fun localeUpdateIsRetainedUntilTheVpnProcessIsReachable() {
+        client.updateLocale("ja")
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+
+        assertEquals(UsqueVpnService.MSG_UPDATE_LOCALE, endpoint.messages.single().what)
+        assertEquals(
+            "ja",
+            endpoint.messages
+                .single()
+                .extras
+                ?.get("catalog_id"),
+        )
+
+        endpoint.messages.clear()
+        client.updateLocale("zh_TW")
+        assertEquals(UsqueVpnService.MSG_UPDATE_LOCALE, endpoint.messages.single().what)
+        assertEquals(
+            "zh_TW",
+            endpoint.messages
+                .single()
+                .extras
+                ?.get("catalog_id"),
+        )
+    }
+
+    @Test
     fun settingsReplyKeepsPersistenceSeparateFromRuntimeAndStripsPrivateTarget() {
         val endpoint = RecordingEndpoint()
         client.attachEndpointForTest(endpoint)

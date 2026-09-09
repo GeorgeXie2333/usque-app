@@ -342,3 +342,50 @@ const Map<String, String> kWindowsRecoveryFr = <String, String>{
 const String kWindowsAdapterCleanupFr =
     'L’adaptateur Wintun précédent n’a pas pu être retiré, ou son retrait n’a '
     'pas pu être vérifié. Aucune nouvelle connexion VPN n’a démarré.';
+
+const Map<String, String> kL4Fr = <String, String>{
+  'l4_quic_not_ready': 'En attente d’une session QUIC prête',
+  'l4_unsupported_packets': 'Paquets non pris en charge ou mal formés rejetés',
+  'l4_budget_rejections': 'Admissions de ressources refusées',
+  'l4_not_applicable': 'Sans objet (L4)',
+  'l4_mode': 'L4 (expérimental)',
+  'l4_explanation':
+      'TCP uniquement sur HTTP/3. Prend en charge VPN/TUN, SOCKS5 et HTTP ; le DNS TUN est converti en TCP. Auto ne choisit jamais L4. Les autres UDP, le ping distant, les fragments IP et les en-têtes d’extension ne sont pas pris en charge ; certaines applications peuvent ne pas fonctionner.',
+  'l4_unsupported':
+      'Ce moteur n’a pas déclaré de prise en charge L4 complète. L4 ne peut pas être activé.',
+  'l4_sni_identity':
+      'Lecture seule : dérivé de l’identité de compte chargée. Le SNI CONNECT-IP existant est conservé.',
+  'l4_edge_requires_l4':
+      'Le DNS résolu en bordure exige L4. Choisissez un autre mode DNS proxy avant de passer à Auto, H3 ou H2.',
+  'proxy_dns_edge_resolved':
+      'Bordure Cloudflare (L4 uniquement ; pas de requête locale)',
+  'l4_verified': 'L4 CONNECT vérifié',
+  'l4_unverified': 'QUIC prêt ; L4 CONNECT pas encore vérifié',
+  'l4_status_unknown': 'État de vérification L4 inconnu',
+  'l4_sessions': 'Sessions / vidage',
+  'l4_flows': 'Flux actifs / en attente',
+  'l4_connect': 'CONNECT réussites / échecs / délais dépassés',
+  'l4_buffers': 'Budget de tampon applicatif utilisé (octets)',
+  'l4_backpressure': 'Contre-pression d’envoi / de réception',
+  'l4_tun_flows': 'TUN TCP / semi-ouvert',
+  'l4_udp': 'Paquets UDP rejetés',
+  'l4_dns': 'Conversions DNS réussites / échecs / délais dépassés',
+  'l4_migration': 'Flux conservés par migration / terminés par reconstruction',
+  'l4_na':
+      'Contrôle d’adresse CONNECT-IP, files DATAGRAM, MTU de charge utile interne et délai UDP : sans objet en L4.',
+};
+
+const Map<String, String> kNetworkSettingsFr = <String, String>{
+  'settings_applying': 'Enregistré, application en cours',
+  'settings_applied': 'Enregistré et appliqué',
+  'settings_deferred':
+      'Enregistré, prend effet à la prochaine connexion manuelle',
+  'settings_failed': 'Enregistré, échec de l’application',
+  'settings_unknown': 'Résultat pas encore confirmé',
+  'settings_saved': 'Enregistré',
+  'settings_unsupported':
+      'Redémarrez ou mettez à jour le moteur pour enregistrer les paramètres réseau.',
+  'settings_save_failed':
+      'Les paramètres n’ont pas pu être enregistrés. Vos modifications sont conservées.',
+  'settings_reconnect': 'Reconnecter',
+};

@@ -18,16 +18,22 @@ of isolated upgrade testing.
 
 ## Official package names (v0.2.5)
 
-- `usque-v0.2.5-windows-x64-v2.msi`
-- `usque-v0.2.5-windows-arm64.msi`
+- `usque-v0.2.5-windows-x64-v2.exe`
+- `usque-v0.2.5-windows-arm64.exe`
 - `usque-v0.2.5-android-arm64-v8a.apk`
 - `usque-v0.2.5-android-x86_64.apk`
 - `usque-v0.2.5-android-armeabi-v7a.apk`
 - `usque-v0.2.5-android-universal.apk`
 
-The GitHub Release attaches those six packages plus `release-manifest.json`,
-`SHA256SUMS`, and each package's SPDX SBOM. GitHub shows a SHA-256 for each
-asset; signer fingerprints remain in the release notes, and build provenance
+The six files above are the user-facing installers. The release also contains
+these two signed, update-only payloads for `usque-update.exe`:
+
+- `usque-v0.2.5-windows-x64-v2.msi`
+- `usque-v0.2.5-windows-arm64.msi`
+
+The GitHub Release attaches those eight primary artifacts plus
+`release-manifest.json`, `SHA256SUMS`, and each artifact's SPDX SBOM. GitHub
+shows a SHA-256 for each asset; signer fingerprints remain in the release notes, and build provenance
 remains available through GitHub attestations. Optional protected-runner
 summaries, restricted packet captures, and raw lab evidence are CI artifacts
 rather than required public release assets. A local validation package, Actions
@@ -54,9 +60,17 @@ With direct-country routing enabled, Usque identifies GeoSite matches before sen
 
 ## Windows
 
-The release needs Windows 10 22H2 build 19045 or later. Use the x64-v2 MSI on native x64 Windows and the ARM64 MSI on native ARM64 Windows.
+The release needs Windows 10 22H2 build 19045 or later. Use the x64-v2 installer EXE on native x64 Windows and the ARM64 installer EXE on native ARM64 Windows. Do not manually install the update-only MSI when the matching EXE is available.
 
-The pre-1.0 MSI uses a fixed self-signed Authenticode identity, so Windows may show an unknown-publisher warning. The installer does not add that certificate to the machine Root or Trusted Publisher stores. Confirm the certificate SHA-256 from the release notes before accepting the warning.
+The pre-1.0 bundle, its Burn engine, and its embedded MSI use the fixed self-signed Authenticode identity, so Windows may show an unknown-publisher warning. The installer does not add that certificate to the machine Root or Trusted Publisher stores. Confirm the certificate SHA-256 from the release notes before accepting the warning.
+
+The EXE selects its MSI interface from the current Windows UI language. It
+ships Arabic, German, Spanish, Persian, French, Indonesian, Italian, Japanese,
+Korean, Dutch, Polish, Brazilian Portuguese, Russian, Thai, Turkish, Ukrainian,
+Vietnamese, Simplified Chinese, Hong Kong Chinese, and Taiwan Chinese
+transforms, with English as the base and fallback. This choice affects the
+installer interface only; Usque's language remains independently selectable in
+the app.
 
 The interactive installer:
 
@@ -156,7 +170,21 @@ Confirming Uninstall starts Windows Installer, which then:
 
 The shared Wintun driver package stays, because another application may use it. A successful uninstall must not leave an Usque Wintun adapter.
 
-The data-deletion option cannot be undone and does not affect other Windows users. Leave it unchecked to keep local data for a later reinstall. Silent uninstall (`msiexec /x {ProductCode} /qn`, or the registered `QuietUninstallString`) also keeps data unless an administrator sets `USQUE_REMOVE_USER_DATA=1`. Upgrades never show the confirmation dialog and never purge user data. Re-running the MSI while Usque is installed still offers the same default-off deletion checkbox on the maintenance remove path.
+The data-deletion option cannot be undone and does not affect other Windows
+users. Leave it unchecked to keep local data for a later reinstall. The
+registered `QuietUninstallString` uses a hidden system PowerShell host to stage
+and verify the helper, then runs its temporary copy with `--quiet`. It keeps
+user data and waits for both Windows Installer and hidden Burn cleanup before
+returning the final failure or reboot-required exit code. Use this registered
+command for automation, not `usque-uninstall.exe --quiet` in the install folder.
+Because Windows Installer and Burn retain separate per-machine trust
+boundaries, Windows may request administrator approval for each phase.
+Administrators of an MSI-only deployment may instead use
+`msiexec /x {ProductCode} /qn /norestart`; do not use that direct command for
+an EXE-bundle installation because it cannot remove Burn's cached registration.
+Upgrades never show the confirmation dialog and never purge user data.
+Re-running the installer EXE while Usque is installed still offers the same
+default-off deletion checkbox on the maintenance remove path.
 
 MSI Repair, Modify, and Patch are not supported, and the Start Menu shortcut is
 non-advertised so launching it cannot trigger MSI self-repair. Repair could stop
@@ -196,7 +224,7 @@ settings backups.
 
 When automatic checks are enabled, each new Usque application process checks once after local state initialization. Returning from the background or reopening the window does not check again. Turning the switch off disables that startup check; **Check now** always performs a live request.
 
-Only a non-prerelease GitHub Release is offered. Usque does not download it in the background: the Settings page first shows the release version, architecture, and package size. After you choose Download, Usque requires the exact package and `release-manifest.json` from the same release, streams into a private `.part` file, checks the declared size and SHA-256, and atomically publishes the completed file. Downloads can be cancelled and retried. Failed and partial downloads are removed immediately; abandoned update packages are removed after seven days.
+Only a non-prerelease GitHub Release is offered. Usque does not download it in the background: the Settings page first shows the release version, architecture, and package size. After you choose Download, Usque requires the exact update MSI (Windows) or APK (Android) and `release-manifest.json` from the same release, streams into a private `.part` file, checks the declared size and SHA-256, and atomically publishes the completed file. Downloads can be cancelled and retried. Failed and partial downloads are removed immediately; abandoned update packages are removed after seven days.
 
 On Windows, **Restart and update** flushes local settings, disconnects the Engine normally, and starts the signed `usque-update.exe` helper. The helper checks the MSI digest, Authenticode signer, UpgradeCode, ProductVersion, architecture, and installed variant before waiting for the GUI to exit and running Windows Installer in passive, no-restart mode. It deletes the MSI at a terminal result and starts the installed application again unless Windows requires a reboot. Validate the real upgrade and failure-recovery paths only in a snapshot-enabled VM.
 

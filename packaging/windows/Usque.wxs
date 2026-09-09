@@ -6,9 +6,11 @@
   <Package
     Name="Usque $(DisplayVersion)"
     Manufacturer="Usque contributors"
+    ProductCode="$(ProductCode)"
     Version="$(MsiVersion)"
     UpgradeCode="076CF387-E447-4666-9153-2DA16049A390"
-    Language="1033"
+    Language="$(MsiLanguage)"
+    Codepage="$(MsiCodepage)"
     Scope="perMachine"
     InstallerVersion="500">
 
@@ -28,6 +30,7 @@
     <MajorUpgrade
       AllowSameVersionUpgrades="yes"
       DowngradeErrorMessage="A newer version of [ProductName] is already installed."
+      IgnoreLanguage="yes"
       Schedule="afterInstallExecute" />
 
     <!--
@@ -285,7 +288,7 @@
         Key="Software\Microsoft\Windows\CurrentVersion\Uninstall\Usque"
         Name="QuietUninstallString"
         Type="string"
-        Value="msiexec /x [ProductCode] /qn" />
+        Value="$(UsqueQuietUninstallCommand)" />
       <RegistryValue
         Root="HKLM"
         Key="Software\Microsoft\Windows\CurrentVersion\Uninstall\Usque"

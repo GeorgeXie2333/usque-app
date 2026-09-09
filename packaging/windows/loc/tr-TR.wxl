@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WixLocalization
+  xmlns="http://wixtoolset.org/schemas/v4/wxl"
+  Culture="tr-TR">
+  <String
+    Id="UsqueRemoveDataTitle"
+    Value="Kaldırma seçenekleri" />
+  <String
+    Id="UsqueRemoveDataDescription"
+    Value="İleride yeniden kurulum için verilerin tutulup tutulmayacağını seçin." />
+  <String
+    Id="UsqueRemoveDataCheckbox"
+    Value="Bu Windows kullanıcısının profillerini, ayarlarını, günlüklerini, önbelleklerini ve WARP kimliklerini sil." />
+  <String
+    Id="UsqueRemoveDataWarning"
+    Value="Bu işlem geri alınamaz. Yerel verileri tutmak için seçeneği işaretlemeyin. Diğer Windows kullanıcıları etkilenmez." />
+  <String
+    Id="UsqueRepairTitle"
+    Value="Onarım desteklenmiyor" />
+  <String
+    Id="UsqueRepairDescription"
+    Value="Onarım, ayrıcalıklı ağ kurtarma durumunu kesintiye uğratabilir. Usque’yu kaldırmak için Kaldır’ı seçin, ardından yeniden kurun; silmeyi açıkça seçmezseniz kullanıcı verileri tutulur. Daha yeni bir sürümün kurulumu da desteklenir." />
+  <String
+    Id="UsqueRepairOk"
+    Value="Tamam" />
+</WixLocalization>

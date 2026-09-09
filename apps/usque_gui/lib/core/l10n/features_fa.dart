@@ -272,3 +272,47 @@ const Map<String, String> kWindowsRecoveryFa = <String, String>{
 
 const String kWindowsAdapterCleanupFa =
     'آداپتور Wintun قبلی حذف نشد یا حذف آن تأیید نشد. اتصال VPN جدیدی شروع نشده است.';
+
+const Map<String, String> kL4Fa = <String, String>{
+  'l4_quic_not_ready': 'در انتظار نشست QUIC آماده',
+  'l4_unsupported_packets': 'بسته‌های پشتیبانی‌نشده یا معیوب رد شدند',
+  'l4_budget_rejections': 'رد پذیرش منابع',
+  'l4_not_applicable': 'اعمال نمی‌شود (L4)',
+  'l4_mode': 'L4 (آزمایشی)',
+  'l4_explanation':
+      'فقط TCP روی HTTP/3. از VPN/TUN، SOCKS5 و HTTP پشتیبانی می‌کند؛ DNS مربوط به TUN به TCP تبدیل می‌شود. Auto هرگز L4 را انتخاب نمی‌کند. سایر UDP، پینگ دوردست، قطعات IP و سرآیندهای گسترش‌یافته پشتیبانی نمی‌شوند؛ برخی برنامه‌ها ممکن است کار نکنند.',
+  'l4_unsupported':
+      'این موتور پشتیبانی کامل L4 را اعلام نکرده است. نمی‌توان L4 را فعال کرد.',
+  'l4_sni_identity':
+      'فقط‌خواندنی: از هویت حساب بارگذاری‌شده مشتق می‌شود. SNI موجود CONNECT-IP حفظ می‌شود.',
+  'l4_edge_requires_l4':
+      'DNS حل‌شده در لبه به L4 نیاز دارد. پیش از رفتن به Auto، H3 یا H2 حالت DNS پیشکار دیگری را انتخاب کنید.',
+  'proxy_dns_edge_resolved': 'لبه Cloudflare (فقط L4؛ بدون جستجوی محلی)',
+  'l4_verified': 'L4 CONNECT تأیید شد',
+  'l4_unverified': 'QUIC آماده است؛ L4 CONNECT هنوز تأیید نشده',
+  'l4_status_unknown': 'وضعیت تأیید L4 ناشناخته است',
+  'l4_sessions': 'نشست‌ها / تخلیه',
+  'l4_flows': 'جریان‌های فعال / در انتظار',
+  'l4_connect': 'CONNECT موفقیت / شکست / مهلت',
+  'l4_buffers': 'بودجهٔ بافر برنامهٔ استفاده‌شده (بایت)',
+  'l4_backpressure': 'فشار معکوس ارسال / دریافت',
+  'l4_tun_flows': 'TUN TCP / نیمه‌باز',
+  'l4_udp': 'بسته‌های UDP ردشده',
+  'l4_dns': 'تبدیل DNS موفقیت / شکست / مهلت',
+  'l4_migration': 'جریان‌های حفظ‌شده با مهاجرت / پایان‌یافته با بازسازی',
+  'l4_na':
+      'کنترل نشانی CONNECT-IP، صف‌های DATAGRAM، MTU بار داخلی و مهلت UDP: در L4 اعمال نمی‌شود.',
+};
+
+const Map<String, String> kNetworkSettingsFa = <String, String>{
+  'settings_applying': 'ذخیره شد، در حال اعمال',
+  'settings_applied': 'ذخیره و اعمال شد',
+  'settings_deferred': 'ذخیره شد، در اتصال دستی بعدی اعمال می‌شود',
+  'settings_failed': 'ذخیره شد، اعمال ناموفق بود',
+  'settings_unknown': 'نتیجه هنوز تأیید نشده است',
+  'settings_saved': 'ذخیره شد',
+  'settings_unsupported':
+      'برای ذخیرهٔ تنظیمات شبکه، Engine را بازراه‌اندازی یا به‌روزرسانی کنید.',
+  'settings_save_failed': 'تنظیمات ذخیره نشد. ویرایش‌های شما حفظ شده‌اند.',
+  'settings_reconnect': 'اتصال دوباره',
+};

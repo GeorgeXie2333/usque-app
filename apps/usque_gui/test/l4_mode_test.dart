@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:usque/core/l10n/l4.dart';
+import 'package:usque/core/l10n/network_settings.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/screens/advanced_settings_screen.dart';
 import 'package:usque/screens/proxy_screen.dart';
@@ -55,6 +56,17 @@ void main() {
       throwsFormatException,
     );
     expect(kL4En.keys.toSet(), kL4ZhCn.keys.toSet());
+    for (final table in kL4Catalogs.values) {
+      expect(table.keys.toSet(), kL4En.keys.toSet());
+    }
+    expect(kL4Catalogs['ja']!['l4_mode'], isNot(kL4En['l4_mode']));
+    for (final table in kNetworkSettingsCatalogs.values) {
+      expect(table.keys.toSet(), kNetworkSettingsEn.keys.toSet());
+    }
+    expect(
+      kNetworkSettingsCatalogs['ja']!['settings_reconnect'],
+      isNot(kNetworkSettingsEn['settings_reconnect']),
+    );
   });
 
   test('old capabilities disable L4 and unknown status is never success', () {

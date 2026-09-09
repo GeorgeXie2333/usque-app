@@ -19,6 +19,7 @@ path = "src/lib.rs"
 thiserror.workspace = true
 
 [target.'cfg(windows)'.dependencies]
+usque-platform = { path = "../usque-platform" }
 windows-sys.workspace = true
 
 [lints]
