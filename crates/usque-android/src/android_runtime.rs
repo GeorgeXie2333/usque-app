@@ -542,6 +542,7 @@ type OwnedSessionDataEvent = SessionDataEvent<
 struct PendingPacketIo<'a, F> {
     send: std::pin::Pin<&'a mut Option<F>>,
     write: Option<&'a [u8]>,
+    observer: Option<&'a usque_transport::TunWriteObserver>,
 }
 
 async fn next_owned_session_data<F: Future<Output = Result<(), TransportError>>>(
@@ -555,6 +556,7 @@ async fn next_owned_session_data<F: Future<Output = Result<(), TransportError>>>
     let PendingPacketIo {
         send: pending_send,
         write: pending_write,
+        observer,
     } = pending;
     let can_read = pending_send.as_ref().get_ref().is_none();
     let allocated = match packet_slab.prepare(slot_size) {
@@ -587,7 +589,7 @@ async fn next_owned_session_data<F: Future<Output = Result<(), TransportError>>>
         wait_pending(pending_send),
         async {
             match (tun, pending_write) {
-                (Some(tun), Some(packet)) => write_packet(tun, packet).await,
+                (Some(tun), Some(packet)) => write_packet(tun, packet, observer).await,
                 _ => std::future::pending().await,
             }
         },
@@ -618,8 +620,11 @@ async fn run_session(
     // pinned in-place across ticks; it is neither re-enqueued nor heap-boxed.
     let mut pending_send = std::pin::pin!(None);
     let mut pending_write: Option<bytes::Bytes> = None;
+    let mut write_observer = tun_io.as_ref().and_then(TunPacketIo::write_observer);
+    let mut write_sample = None;
 
     loop {
+        let mut completed_write = None;
         tokio::select! {
             biased;
             _ = cancellation.cancelled() => break,
@@ -630,6 +635,7 @@ async fn run_session(
                 {
                     pending_send.set(None);
                     pending_write = None;
+                    write_sample = None;
                 }
                 handle_runtime_command(
                     command,
@@ -640,6 +646,7 @@ async fn run_session(
                     &status,
                 )
                 .await;
+                write_observer = tun_io.as_ref().and_then(TunPacketIo::write_observer);
             }
             event = next_owned_session_data(
                 &mut packet_slab,
@@ -647,7 +654,7 @@ async fn run_session(
                 tun.as_ref(),
                 tun_io.as_mut(),
                 ticker.tick(),
-                PendingPacketIo { send: pending_send.as_mut(), write: pending_write.as_deref() },
+                PendingPacketIo { send: pending_send.as_mut(), write: pending_write.as_deref(), observer: write_observer.as_ref() },
             ) => match event {
                 SessionDataEvent::Sent(result) => {
                     pending_send.set(None);
@@ -657,6 +664,10 @@ async fn run_session(
                     }
                 }
                 SessionDataEvent::Written(result) => {
+                    if result.is_ok() {
+                        completed_write = pending_write.as_ref().map(bytes::Bytes::len);
+                        if let (Some(observer), Some(sample)) = (&write_observer, write_sample.take()) { observer.finish(sample); }
+                    }
                     pending_write = None;
                     if let Err(error) = result {
                         set_error(&status, format!("write Android TUN: {error}"));
@@ -693,6 +704,7 @@ async fn run_session(
                     match received {
                         Ok(packet) => {
                             pending_write = Some(packet);
+                            write_sample = write_observer.as_ref().map(|o| o.begin());
                         }
                         Err(error) => {
                             set_transport_error_on_path(&status, &error, tunnel.path());
@@ -721,6 +733,58 @@ async fn run_session(
                     }
                     last_sample = now;
                     last_traffic = current;
+                }
+            }
+        }
+        // L4 download only: drain already-ready packets without awaiting one
+        // direction. One existing pending slot owns any WouldBlock remainder.
+        if let (Some(tun), Some(io), Some(observer)) =
+            (tun.as_ref(), tun_io.as_mut(), write_observer.as_ref())
+        {
+            let mut batch = crate::session_pump::ReadyBatch::new();
+            if let Some(bytes) = completed_write {
+                batch.completed(bytes);
+            }
+            loop {
+                if cancellation.is_cancelled() {
+                    break;
+                }
+                if pending_write.is_none() {
+                    match io.try_receive_packet() {
+                        Ok(Some(packet)) => {
+                            pending_write = Some(packet);
+                            write_sample = Some(observer.begin());
+                        }
+                        Ok(None) => break,
+                        Err(error) => {
+                            set_transport_error_on_path(&status, &error, tunnel.path());
+                            cancellation.cancel();
+                            break;
+                        }
+                    }
+                }
+                let packet = pending_write.as_ref().expect("pending packet");
+                if !batch.allows(packet.len()) {
+                    tokio::task::yield_now().await;
+                    break;
+                }
+                let result = tun.try_io(tokio::io::Interest::WRITABLE, |inner| {
+                    write_packet_once(inner, packet, Some(observer))
+                });
+                match result {
+                    Ok(()) => {
+                        batch.completed(packet.len());
+                        pending_write = None;
+                        if let Some(sample) = write_sample.take() {
+                            observer.finish(sample);
+                        }
+                    }
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
+                    Err(error) => {
+                        set_error(&status, format!("write Android TUN: {error}"));
+                        cancellation.cancel();
+                        break;
+                    }
                 }
             }
         }
@@ -1060,30 +1124,42 @@ async fn read_packet(tun: &AsyncFd<TunFd>, packet: &mut [u8]) -> io::Result<usiz
     }
 }
 
-async fn write_packet(tun: &AsyncFd<TunFd>, packet: &[u8]) -> io::Result<()> {
+fn write_packet_once(
+    tun: &TunFd,
+    packet: &[u8],
+    observer: Option<&usque_transport::TunWriteObserver>,
+) -> io::Result<()> {
+    // SAFETY: the owned nonblocking TUN descriptor and readable packet outlive
+    // this synchronous call. IP packet boundaries require exactly one write.
+    let written = unsafe { libc::write(tun.as_raw_fd(), packet.as_ptr().cast(), packet.len()) };
+    let result = if written < 0 {
+        Err(io::Error::last_os_error())
+    } else if written as usize != packet.len() {
+        Err(io::Error::new(
+            io::ErrorKind::WriteZero,
+            "Android TUN accepted a partial packet",
+        ))
+    } else {
+        Ok(())
+    };
+    if let Some(observer) = observer {
+        observer.syscall(
+            result
+                .as_ref()
+                .is_err_and(|e| e.kind() == io::ErrorKind::WouldBlock),
+        );
+    }
+    result
+}
+
+async fn write_packet(
+    tun: &AsyncFd<TunFd>,
+    packet: &[u8],
+    observer: Option<&usque_transport::TunWriteObserver>,
+) -> io::Result<()> {
     loop {
         let mut ready = tun.writable().await?;
-        match ready.try_io(|inner| {
-            // SAFETY: fd is writable (AsyncFd); packet is a valid readable
-            // buffer for its full length and outlives the write call.
-            let written = unsafe {
-                libc::write(
-                    inner.get_ref().as_raw_fd(),
-                    packet.as_ptr().cast(),
-                    packet.len(),
-                )
-            };
-            if written < 0 {
-                Err(io::Error::last_os_error())
-            } else if written as usize != packet.len() {
-                Err(io::Error::new(
-                    io::ErrorKind::WriteZero,
-                    "Android TUN accepted a partial packet",
-                ))
-            } else {
-                Ok(())
-            }
-        }) {
+        match ready.try_io(|inner| write_packet_once(inner.get_ref(), packet, observer)) {
             Ok(result) => return result,
             Err(_) => continue,
         }

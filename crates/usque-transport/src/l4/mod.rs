@@ -2,11 +2,17 @@
 mod actor;
 #[cfg(test)]
 mod actor_tests;
+mod budget_wait;
 mod client;
 #[cfg(test)]
 mod client_tests;
+pub(crate) mod performance;
+mod pool;
+mod relay;
 mod runtime;
 pub(crate) mod stream;
+#[cfg(test)]
+pub(crate) mod test_options;
 mod tun;
 mod tun_stream;
 #[cfg(test)]

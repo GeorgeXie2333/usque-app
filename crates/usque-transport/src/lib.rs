@@ -66,6 +66,7 @@ pub use h3::{
     H3Driver, H3MigrationHandle, H3MigrationResult, H3ReceiveHalf, H3SendHalf, H3Tunnel, connect_h3,
 };
 pub use http_proxy::HttpProxyRuntime;
+pub use l4::performance::{TunWriteObserver, TunWriteSample};
 pub use masque_runtime::{MasqueRuntime, MasqueTunIo};
 pub use netstack::{
     ManagedTunnelMonitor, ManagedTunnelRuntime, ManagedTunnelSender, ProxyPerformanceSnapshot,

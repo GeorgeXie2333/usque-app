@@ -2,6 +2,7 @@
 //! packet tunnel or a physical UDP socket. DNS is parsed before any dial.
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -12,10 +13,11 @@ use tokio::task::{JoinHandle, JoinSet};
 use tokio::time::{Instant, timeout};
 use tokio_util::sync::CancellationToken;
 use ts_netstack_smoltcp::netcore::{
-    Config, HasChannel, NetstackControl, TcpBufferPolicy, TcpBufferTier,
+    Config, HasChannel, NetstackControl, TcpBufferMetrics, TcpBufferPolicy, TcpBufferTier,
 };
 use usque_core::Profile;
 
+use super::performance::{MeasuredSender, QueuedPacket, TunWriteObserver};
 use super::stream::BufferLease;
 use super::tun_stream::{OnceListener, TunStream};
 use super::tun_wire::{TcpReset, reply_allowed, udp_response, udp_unreachable, valid_transport};
@@ -51,8 +53,8 @@ struct Flows {
 }
 
 pub(crate) struct TunBridge {
-    pub(crate) outgoing: mpsc::Sender<Bytes>,
-    incoming: Option<mpsc::Receiver<Bytes>>,
+    pub(crate) outgoing: MeasuredSender,
+    incoming: Option<mpsc::Receiver<QueuedPacket>>,
     cancellation: CancellationToken,
     tasks: Vec<JoinHandle<()>>,
     flow_tasks: tokio_util::task::TaskTracker,
@@ -63,13 +65,16 @@ pub(crate) struct TunBridge {
 
 pub(crate) struct L4TunIo {
     metrics: Arc<L4Metrics>,
-    outgoing: mpsc::Sender<Bytes>,
-    incoming: mpsc::Receiver<Bytes>,
+    outgoing: MeasuredSender,
+    incoming: mpsc::Receiver<QueuedPacket>,
     cancellation: CancellationToken,
     mtu: usize,
 }
 
 impl L4TunIo {
+    pub(crate) fn write_observer(&self) -> TunWriteObserver {
+        TunWriteObserver::new(self.metrics.performance.clone())
+    }
     pub(crate) fn start_send_owned_packet(
         &self,
         packet: Bytes,
@@ -86,35 +91,47 @@ impl L4TunIo {
                 metrics.update(|m| m.unsupported_packets += 1);
                 return Ok(());
             }
+            let length = packet.len();
             tokio::select! {
                 _ = cancellation.cancelled() => Err(TransportError::TunnelClosed),
-                result = outgoing.send(packet) => result.map_err(|_| TransportError::TunnelClosed),
+                result = outgoing.send(packet) => {
+                    result.map_err(|_| TransportError::TunnelClosed)?;
+                    metrics.performance.tun_ingress_packets.fetch_add(1, Ordering::Relaxed);
+                    metrics.performance.tun_ingress_bytes.fetch_add(length as u64, Ordering::Relaxed);
+                    Ok(())
+                },
             }
         }
     }
 
     pub(crate) async fn send_owned_packet(&self, packet: Bytes) -> Result<(), TransportError> {
-        if self.cancellation.is_cancelled() {
-            return Err(TransportError::TunnelClosed);
-        }
-        if crate::h2::validate_ip_packet(&packet).is_err() || packet.len() > self.mtu {
-            self.metrics.update(|m| m.unsupported_packets += 1);
-            return Ok(());
-        }
-        tokio::select! {
-            _ = self.cancellation.cancelled() => Err(TransportError::TunnelClosed),
-            result = self.outgoing.send(packet) => result.map_err(|_| TransportError::TunnelClosed),
-        }
+        self.start_send_owned_packet(packet).await
     }
     pub(crate) async fn receive_packet(&mut self) -> Result<Bytes, TransportError> {
-        tokio::select! {
+        let packet = tokio::select! {
             _ = self.cancellation.cancelled() => Err(TransportError::TunnelClosed),
-            result = self.incoming.recv() => result.ok_or(TransportError::TunnelClosed),
-        }
+            result = self.incoming.recv() => result.map(QueuedPacket::into_bytes).ok_or(TransportError::TunnelClosed),
+        }?;
+        self.received(&packet);
+        Ok(packet)
+    }
+    fn received(&self, packet: &Bytes) {
+        self.metrics
+            .performance
+            .tun_egress_packets
+            .fetch_add(1, Ordering::Relaxed);
+        self.metrics
+            .performance
+            .tun_egress_bytes
+            .fetch_add(packet.len() as u64, Ordering::Relaxed);
     }
     pub(crate) fn try_receive_packet(&mut self) -> Result<Option<Bytes>, TransportError> {
         match self.incoming.try_recv() {
-            Ok(v) => Ok(Some(v)),
+            Ok(v) => {
+                let packet = v.into_bytes();
+                self.received(&packet);
+                Ok(Some(packet))
+            }
             Err(mpsc::error::TryRecvError::Empty) => Ok(None),
             Err(_) => Err(TransportError::TunnelClosed),
         }
@@ -145,12 +162,17 @@ impl TunBridge {
             .reserve_admission(packet_budget)
             .ok_or(TransportError::SendQueueFull)?;
         let cancellation = services.cancellation.child_token();
+        let tcp_metrics = TcpBufferMetrics::default();
+        metrics
+            .performance
+            .observe_tun(profile.mtu, tcp_metrics.clone());
         let config = Config {
             mtu: usize::from(profile.mtu),
             command_channel_capacity: Some(256),
             tcp_buffer_size: 64 << 10,
             tcp_nagle_enabled: false,
             tcp_listener_budgeted: true,
+            tcp_buffer_metrics: Some(tcp_metrics),
             tcp_buffer_policy: Some(TcpBufferPolicy {
                 preferred: TcpBufferTier {
                     receive: 256 << 10,
@@ -165,7 +187,13 @@ impl TunBridge {
             }),
             ..Config::default()
         };
-        let (stack, pipe) = crate::netstack::bounded_piped_with_capacity(config, PACKETS);
+        let (stack_pipe, pipe) = crate::packet_pipe::PacketPipe::observed(
+            PACKETS,
+            Some(metrics.performance.stack_ingress.clone()),
+            Some(metrics.performance.stack_egress.clone()),
+        );
+        let device = crate::packet_pipe::PacketDevice::new(stack_pipe, config.mtu);
+        let stack = ts_netstack_smoltcp::Netstack::new(device, config);
         let channel = stack.command_channel();
         let stack_task = tokio_util::task::AbortOnDropHandle::new(stack.spawn_tokio());
         channel
@@ -180,8 +208,10 @@ impl TunBridge {
             quality,
         ));
         let flows = Arc::new(Mutex::new(Flows::default()));
-        let (outgoing, mut packets) = mpsc::channel::<Bytes>(PACKETS);
-        let (response_tx, incoming) = mpsc::channel::<Bytes>(PACKETS);
+        let (outgoing, mut packets) = mpsc::channel::<QueuedPacket>(PACKETS);
+        let outgoing = MeasuredSender::new(outgoing, metrics.performance.tun_ingress.clone());
+        let (response_tx, incoming) = mpsc::channel::<QueuedPacket>(PACKETS);
+        let response_tx = MeasuredSender::new(response_tx, metrics.performance.tun_egress.clone());
         let crate::packet_pipe::PacketPipe {
             tx: stack_incoming,
             mut rx,
@@ -240,7 +270,7 @@ impl TunBridge {
                         }
                         dns.prune(); continue;
                     }
-                    packet = packets.recv() => match packet { Some(p) => p, None => break },
+                    packet = packets.recv() => match packet { Some(p) => p.into_bytes(), None => break },
                 };
                 let Some(meta) = NatPacket::parse(&packet) else {
                     pump_metrics.update(|m| m.unsupported_packets += 1);
@@ -480,7 +510,7 @@ struct FlowGuard {
     key: Key,
     id: u64,
     stats: Arc<L4Metrics>,
-    replies: mpsc::Sender<Bytes>,
+    replies: MeasuredSender,
 }
 impl FlowGuard {
     fn outbound(&self, stream: &RoutedTcpStream) {
@@ -565,6 +595,7 @@ async fn run_tcp(
 ) -> Result<(), ()> {
     let mut local = tokio::select! { _ = cancellation.cancelled() => return Err(()), accepted = timeout(Duration::from_secs(10), listener.accept(key.client)) => accepted.map_err(|_| ())?.map_err(|_| ())? };
     guard.accepted();
+    local.observe(guard.stats.performance.clone());
     if key.remote.port() == 53
         && matches!(
             key.remote.ip(),
@@ -584,9 +615,25 @@ async fn run_tcp(
         result = timeout(Duration::from_secs(10), connect_target(key.remote, route, services)) => result.map_err(|_| ())??,
     };
     guard.outbound(&remote);
+    let transfer = async {
+        if let RoutedTcpStream::Tunnel(stream) = &mut remote
+            && stream.has_owned_read()
+        {
+            super::relay::copy_owned(&mut local, stream.as_mut(), Limits::platform().relay).await
+        } else {
+            tokio::io::copy_bidirectional_with_sizes(
+                &mut local,
+                &mut remote,
+                Limits::platform().relay,
+                Limits::platform().relay,
+            )
+            .await
+            .map(|_| ())
+        }
+    };
     tokio::select! {
         _ = cancellation.cancelled() => return Err(()),
-        result = tokio::io::copy_bidirectional_with_sizes(&mut local, &mut remote, Limits::platform().relay, Limits::platform().relay) => { result.map_err(|_| ())?; }
+        result = transfer => { result.map_err(|_| ())?; }
     }
     // Allow the local FIN/ACK exchange before reclaiming the one-shot socket.
     drop(remote);

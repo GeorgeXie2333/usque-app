@@ -123,13 +123,14 @@ impl L4Runtime {
         ));
         let pool = dns.clone();
         let pool_cancel = cancellation.child_token();
+        let perf = client.metrics.performance.clone();
         let pool_maintenance = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
             let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
             tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
                 tokio::select! {
                     _ = pool_cancel.cancelled() => break,
-                    _ = tick.tick() => pool.prune(),
+                    _ = tick.tick() => { pool.prune(); perf.sample(); },
                 }
             }
         }));

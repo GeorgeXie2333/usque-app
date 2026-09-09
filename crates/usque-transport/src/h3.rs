@@ -4,6 +4,7 @@ use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket as StdUdpSocket};
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant as StdInstant};
 
 use boring::ssl::{SslContextBuilder, SslMethod};
@@ -481,6 +482,13 @@ async fn connect_h3_application(
         quic_config_with_features(identity, family_ceiling, features, congestion_control)?;
     if l4.is_some() {
         crate::l4::Limits::platform().configure(&mut quic_config);
+    }
+    #[cfg(test)]
+    if let Some(actor) = &l4 {
+        actor
+            .test_options
+            .apply(&mut quic_config, &prepared.socket)
+            .map_err(TransportError::Io)?;
     }
     let mut source_connection_id = [0u8; CONNECTION_ID_LENGTH];
     boring::rand::rand_bytes(&mut source_connection_id)?;
@@ -1141,7 +1149,9 @@ async fn drive_h3_actor(
                     .send(std::mem::take(&mut incoming_batch));
             }
             _ = incoming_tx.closed(), if !is_l4 => return Err(TransportError::TunnelClosed),
-            _ = wait_l4_work(&l4), if is_l4 => {}
+            _ = wait_l4_work(&l4), if is_l4 => {
+                if let Some(actor) = &mut l4 { actor.record_wakeup(); }
+            }
             sent = send_due_wire_datagrams(
                 path_sockets,
                 &mut wire_datagrams,
@@ -1168,6 +1178,14 @@ async fn drive_h3_actor(
                 }
             }
             _ = quality_tick.tick(), if connection.is_established() => {
+                if let Some(actor) = l4.as_ref()
+                    && !actor.handle.draining.load(Ordering::Acquire)
+                    && let Some(path) = path_sockets.active()
+                {
+                    actor.budget.metrics.performance.observe_udp(
+                        actor.handle.epoch.load(Ordering::Acquire), path.socket_buffer_sizes(),
+                    );
+                }
                 observe_h3_metrics(
                     &mut connection,
                     &mut pmtu,

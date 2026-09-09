@@ -98,6 +98,25 @@ pub(crate) trait TcpIo: AsyncRead + AsyncWrite + Send + Unpin {
     fn session_generation(&self) -> Option<u64> {
         None
     }
+    fn has_owned_read(&self) -> bool {
+        false
+    }
+    /// An empty chunk is EOF. Pending retains no caller-owned buffer.
+    fn poll_read_owned(
+        &mut self,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<io::Result<bytes::Bytes>> {
+        std::task::Poll::Ready(Err(io::ErrorKind::Unsupported.into()))
+    }
+}
+
+/// The caller retains the same unconsumed chunk until the command completes.
+pub(crate) trait OwnedTcpWrite: AsyncRead + AsyncWrite + Unpin {
+    fn poll_write_owned(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+        bytes: &bytes::Bytes,
+    ) -> std::task::Poll<io::Result<usize>>;
 }
 
 impl TcpIo for StackTcpStream {

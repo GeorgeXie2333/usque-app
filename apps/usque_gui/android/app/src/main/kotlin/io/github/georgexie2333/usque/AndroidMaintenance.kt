@@ -156,6 +156,10 @@ internal object AndroidMaintenance {
                     "app_version",
                     context.packageManager.getPackageInfo(context.packageName, 0).versionName,
                 ).put("platform", "android")
+                .put(
+                    "app_debuggable",
+                    context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0,
+                ).put("native_build", L4StatusFields.buildInfo(NativeEngine.buildInfo()) ?: JSONObject.NULL)
                 .put("sdk", Build.VERSION.SDK_INT)
                 .put("supported_abis", Build.SUPPORTED_ABIS.joinToString(","))
                 .put("diagnostic_complete", sessionState == "completed")

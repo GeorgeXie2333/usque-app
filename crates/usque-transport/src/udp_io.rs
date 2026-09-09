@@ -345,6 +345,14 @@ impl std::fmt::Debug for UdpBatchIo {
 }
 
 impl UdpBatchIo {
+    pub(crate) fn socket_buffer_sizes(&self) -> (Option<u64>, Option<u64>) {
+        let socket = socket2::SockRef::from(&self.socket);
+        (
+            socket.recv_buffer_size().ok().map(|n| n as u64),
+            socket.send_buffer_size().ok().map(|n| n as u64),
+        )
+    }
+
     pub fn new(socket: UdpSocket, quality: NetworkQualityTelemetry) -> io::Result<Self> {
         Self::with_mode_and_pool(
             socket,

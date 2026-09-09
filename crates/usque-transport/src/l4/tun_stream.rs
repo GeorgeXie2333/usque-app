@@ -4,6 +4,7 @@ use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
+use std::sync::{Arc, atomic::Ordering};
 use std::task::{Context, Poll};
 
 use bytes::{Buf, Bytes};
@@ -68,6 +69,8 @@ impl OnceListener {
                     shutdown: None,
                     buffer: Bytes::new(),
                     write_closed: false,
+                    performance: None,
+                    write_size: 0,
                 };
                 if remote != expected {
                     return Err(io::Error::other("TUN flow peer mismatch"));
@@ -123,6 +126,71 @@ pub(crate) struct TunStream {
     shutdown: Option<CommandFuture>,
     buffer: Bytes,
     write_closed: bool,
+    performance: Option<Arc<super::performance::Performance>>,
+    write_size: usize,
+}
+
+impl TunStream {
+    pub(crate) fn observe(&mut self, performance: Arc<super::performance::Performance>) {
+        self.performance = Some(performance);
+    }
+    fn start_write(&mut self, bytes: Bytes) {
+        self.write_size = bytes.len();
+        let channel = self.channel.clone();
+        let handle = self.handle;
+        let performance = self.performance.clone();
+        let started = performance.as_ref().and_then(|p| p.command_wait.begin());
+        if let Some(p) = &performance {
+            p.tcp_write_calls.fetch_add(1, Ordering::Relaxed);
+        }
+        self.write = Some(Box::pin(async move {
+            let result = channel
+                .request(Some(handle), tcp::stream::Command::Send { buf: bytes })
+                .await;
+            if let Some(p) = performance {
+                p.command_wait.finish(started);
+            }
+            result
+        }));
+    }
+    fn poll_sent(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<usize>> {
+        let result = std::task::ready!(
+            self.write
+                .as_mut()
+                .expect("write request")
+                .as_mut()
+                .poll(cx)
+        );
+        self.write = None;
+        match result {
+            Ok(Response::TcpStream(tcp::stream::Response::Sent { n })) if n <= self.write_size => {
+                if let Some(p) = &self.performance {
+                    p.tcp_accepted_bytes.fetch_add(n as u64, Ordering::Relaxed);
+                    if n < self.write_size {
+                        p.tcp_partial_writes.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+                Poll::Ready(Ok(n))
+            }
+            _ => Poll::Ready(Err(io::ErrorKind::ConnectionReset.into())),
+        }
+    }
+}
+
+impl crate::tcp::OwnedTcpWrite for TunStream {
+    fn poll_write_owned(&mut self, cx: &mut Context<'_>, bytes: &Bytes) -> Poll<io::Result<usize>> {
+        if self.write_closed {
+            return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
+        }
+        if bytes.is_empty() {
+            return Poll::Ready(Ok(0));
+        }
+        if self.write.is_none() {
+            // Clones only the reference-counted handle, never the payload.
+            self.start_write(bytes.slice(..bytes.len().min(super::CHUNK_SIZE)));
+        }
+        self.poll_sent(cx)
+    }
 }
 
 impl crate::tcp::TcpIo for TunStream {
@@ -187,27 +255,14 @@ impl AsyncWrite for TunStream {
             return Poll::Ready(Ok(0));
         }
         if self.write.is_none() {
-            let channel = self.channel.clone();
-            let handle = self.handle;
             let bytes = Bytes::copy_from_slice(&bytes[..bytes.len().min(super::CHUNK_SIZE)]);
-            self.write = Some(Box::pin(async move {
-                channel
-                    .request(Some(handle), tcp::stream::Command::Send { buf: bytes })
-                    .await
-            }));
+            if let Some(p) = &self.performance {
+                p.adapter_copied_bytes
+                    .fetch_add(bytes.len() as u64, Ordering::Relaxed);
+            }
+            self.start_write(bytes);
         }
-        let result = std::task::ready!(
-            self.write
-                .as_mut()
-                .expect("write request")
-                .as_mut()
-                .poll(cx)
-        );
-        self.write = None;
-        match result {
-            Ok(Response::TcpStream(tcp::stream::Response::Sent { n })) => Poll::Ready(Ok(n)),
-            _ => Poll::Ready(Err(io::ErrorKind::ConnectionReset.into())),
-        }
+        self.poll_sent(cx)
     }
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Poll::Ready(Ok(()))
@@ -258,10 +313,112 @@ impl Drop for TunStream {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tcp::OwnedTcpWrite;
     use ts_netstack_smoltcp::netcore::{
         Config, Netstack, Request, TcpBufferMetrics, TcpBufferPolicy, TcpBufferTier, flume,
         stack_control, try_request_nonblocking,
     };
+
+    #[tokio::test]
+    async fn owned_partial_commands_retain_allocation_and_remove_repeated_adapter_copies() {
+        for owned in [false, true] {
+            let metrics = Arc::new(super::super::performance::Performance::default());
+            let mut stack = Netstack::new(
+                Config::default(),
+                ts_netstack_smoltcp::netcore::smoltcp::time::Instant::from_millis(0),
+            );
+            let local: SocketAddr = "127.0.0.1:40001".parse().unwrap();
+            let (resp, reply) = flume::bounded(1);
+            stack.process_one_cmd(Request {
+                handle: None,
+                command: tcp::listen::Command::ListenOnce {
+                    local_endpoint: local,
+                }
+                .into(),
+                resp,
+            });
+            let Response::TcpListen(tcp::listen::Response::Listening { handle: listener }) =
+                reply.recv().unwrap()
+            else {
+                panic!("listener");
+            };
+            let mut sockets = ts_netstack_smoltcp::netcore::smoltcp::iface::SocketSet::new(vec![]);
+            let handle =
+                sockets.add(
+                    ts_netstack_smoltcp::netcore::smoltcp::socket::tcp::Socket::new(
+                        ts_netstack_smoltcp::netcore::smoltcp::socket::tcp::SocketBuffer::new(
+                            vec![0u8; 1],
+                        ),
+                        ts_netstack_smoltcp::netcore::smoltcp::socket::tcp::SocketBuffer::new(
+                            vec![0u8; 1],
+                        ),
+                    ),
+                );
+            let (tx, rx) = flume::bounded::<Request>(1);
+            let mut stream = TunStream {
+                listener,
+                handle,
+                local,
+                channel: tx.downgrade(),
+                read: None,
+                write: None,
+                shutdown: None,
+                buffer: Bytes::new(),
+                write_closed: false,
+                performance: Some(metrics.clone()),
+                write_size: 0,
+            };
+            let original = Bytes::from((0..32768).map(|i| i as u8).collect::<Vec<_>>());
+            let pointer = original.as_ptr() as usize;
+            let server = tokio::spawn(async move {
+                let mut output = Vec::new();
+                while output.len() < 32768 {
+                    let request = rx.recv_async().await.unwrap();
+                    let ts_netstack_smoltcp::netcore::Command::TcpStream(
+                        tcp::stream::Command::Send { buf },
+                    ) = request.command
+                    else {
+                        panic!("send command");
+                    };
+                    if owned {
+                        assert_eq!(buf.as_ptr() as usize, pointer + output.len());
+                    }
+                    let n = buf.len().min(1024);
+                    output.extend_from_slice(&buf[..n]);
+                    request
+                        .resp
+                        .send(Response::TcpStream(tcp::stream::Response::Sent { n }))
+                        .unwrap();
+                }
+                output
+            });
+            let mut remaining = original.clone();
+            while !remaining.is_empty() {
+                let n = std::future::poll_fn(|cx| {
+                    if owned {
+                        stream.poll_write_owned(cx, &remaining)
+                    } else {
+                        Pin::new(&mut stream).poll_write(cx, &remaining)
+                    }
+                })
+                .await
+                .unwrap();
+                remaining.advance(n);
+            }
+            assert_eq!(server.await.unwrap(), original);
+            let p = metrics.sample();
+            assert_eq!(p.tcp_accepted_bytes, 32768);
+            assert_eq!((p.tcp_write_calls, p.tcp_partial_writes), (32, 31));
+            assert_eq!(
+                p.adapter_copied_bytes,
+                if owned {
+                    0
+                } else {
+                    1024 * (1..=32).sum::<u64>()
+                }
+            );
+        }
+    }
 
     #[tokio::test]
     async fn full_command_queue_cleanup_releases_listener_without_network_progress() {

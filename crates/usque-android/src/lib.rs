@@ -359,6 +359,21 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCan
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeBuildInfo<'local>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
+) -> jstring {
+    with_jni_env(&mut environment, |environment| {
+        let Ok(value) = serde_json::to_string(&usque_core::NativeBuildInfo::current()) else {
+            return std::ptr::null_mut();
+        };
+        environment
+            .new_string(value)
+            .map_or(std::ptr::null_mut(), |value| value.into_raw())
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeStop<'local>(
     mut environment: EnvUnowned<'local>,
     _class: JClass<'local>,

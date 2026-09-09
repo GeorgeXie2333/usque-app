@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 
 import 'diagnostics_models.dart';
+import 'l4_performance.dart';
+export 'l4_performance.dart';
 
 enum AppSection { home, profiles, proxy, settings }
 
@@ -1919,6 +1921,7 @@ class L4Snapshot {
     this.halfOpenFlows = 0,
     this.connectLatencyUs = 0,
     this.unsupportedPackets = 0,
+    this.performance,
   });
   final bool connectVerified;
   final int sessions;
@@ -1942,6 +1945,7 @@ class L4Snapshot {
   final int halfOpenFlows;
   final int connectLatencyUs;
   final int unsupportedPackets;
+  final L4PerformanceSnapshot? performance;
   factory L4Snapshot.fromMap(Map<Object?, Object?> map) => L4Snapshot(
     connectVerified: map['connect_verified'] == true,
     sessions: (map['sessions'] as num?)?.toInt() ?? 0,
@@ -1967,6 +1971,9 @@ class L4Snapshot {
     halfOpenFlows: (map['half_open_flows'] as num?)?.toInt() ?? 0,
     connectLatencyUs: (map['connect_latency_us'] as num?)?.toInt() ?? 0,
     unsupportedPackets: (map['unsupported_packets'] as num?)?.toInt() ?? 0,
+    performance: map['performance'] is Map
+        ? L4PerformanceSnapshot.fromMap(map['performance'] as Map)
+        : null,
   );
   @override
   bool operator ==(Object other) =>
@@ -1993,7 +2000,8 @@ class L4Snapshot {
           tunFlows == other.tunFlows &&
           halfOpenFlows == other.halfOpenFlows &&
           connectLatencyUs == other.connectLatencyUs &&
-          unsupportedPackets == other.unsupportedPackets;
+          unsupportedPackets == other.unsupportedPackets &&
+          performance == other.performance;
   @override
   int get hashCode => Object.hashAll([
     connectVerified,
@@ -2018,6 +2026,7 @@ class L4Snapshot {
     halfOpenFlows,
     connectLatencyUs,
     unsupportedPackets,
+    performance,
   ]);
 }
 

@@ -49,6 +49,15 @@ impl AsyncWrite for MemoryStream {
     }
 }
 impl TcpIo for MemoryStream {
+    fn has_owned_read(&self) -> bool {
+        true
+    }
+    fn poll_read_owned(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<bytes::Bytes>> {
+        let mut buffer = [0u8; super::CHUNK_SIZE];
+        let mut read = ReadBuf::new(&mut buffer);
+        std::task::ready!(Pin::new(&mut self.0).poll_read(cx, &mut read))?;
+        Poll::Ready(Ok(bytes::Bytes::copy_from_slice(read.filled())))
+    }
     fn local_addr(&self) -> io::Result<SocketAddr> {
         Ok("0.0.0.0:0".parse().unwrap())
     }
@@ -72,6 +81,7 @@ impl TcpDialer for MemoryDialer {
             .unwrap()
             .push(target.authority().to_owned());
         let (client, mut peer) = tokio::io::duplex(8192);
+        let download = target.authority().ends_with(":8081");
         let cancellation = cancel.clone();
         tokio::spawn(async move {
             let result = async {
@@ -84,6 +94,10 @@ impl TcpDialer for MemoryDialer {
                         peer.write_u16(response.len() as u16).await?;
                         peer.write_all(&response).await?;
                     }
+                } else if download {
+                    peer.write_all(&vec![0x5a; 1 << 20]).await?;
+                    peer.shutdown().await?;
+                    Ok(())
                 } else {
                     let mut bytes = [0; 4096];
                     loop {
@@ -115,10 +129,14 @@ fn answer(query: &[u8]) -> Vec<u8> {
 }
 
 async fn bridge() -> (TunBridge, Arc<MemoryDialer>, Arc<L4Metrics>) {
-    let profile = Profile {
+    bridge_with_mtu(1280).await
+}
+
+async fn bridge_with_mtu(mtu: u16) -> (TunBridge, Arc<MemoryDialer>, Arc<L4Metrics>) {
+    let profile = super::test_options::TestOptions::TunMtu(mtu).profile(Profile {
         data_plane: DataPlaneMode::L4Proxy,
         ..Profile::default()
-    };
+    });
     let dialer = Arc::new(MemoryDialer::default());
     let cancellation = CancellationToken::new();
     let protector = Arc::new(NoopSocketProtector);
@@ -377,12 +395,19 @@ async fn drive_burst_wire(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn tun_bursts_resume_after_slow_reader_and_stop_cleanly_before_reconnecting() {
-    for cancel_during_burst in [false, true, false] {
-        let (mut bridge, _dialer, metrics) = bridge().await;
+    for (mtu, connections, cancel_during_burst) in [
+        (1280, 8, false),
+        (1280, 8, true),
+        (1280, 8, false),
+        (1500, 16, false),
+        (4096, 32, true),
+        (9000, 32, false),
+    ] {
+        let (mut bridge, _dialer, metrics) = bridge_with_mtu(mtu).await;
         let io = bridge.attach().unwrap();
         let (stack, pipe) = crate::netstack::bounded_piped_with_capacity(
             Config {
-                mtu: 1280,
+                mtu: usize::from(mtu),
                 tcp_buffer_size: 256 << 10,
                 tcp_nagle_enabled: false,
                 ..Config::default()
@@ -404,7 +429,7 @@ async fn tun_bursts_resume_after_slow_reader_and_stop_cleanly_before_reconnectin
             cancel.clone(),
         )));
         let mut streams = Vec::new();
-        for port in 40000..40008 {
+        for port in 40000..40000 + connections {
             streams.push(
                 timeout(
                     Duration::from_secs(5),
@@ -466,6 +491,81 @@ async fn tun_bursts_resume_after_slow_reader_and_stop_cleanly_before_reconnectin
         drop(bridge);
         assert_eq!(metrics.snapshot().tun_flows, 0);
         assert_eq!(metrics.snapshot().half_open_flows, 0);
+        assert_eq!(metrics.snapshot().buffer_bytes, 0);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sustained_owned_download_progresses_with_16_and_32_background_connections() {
+    for backgrounds in [16, 32] {
+        let (mut bridge, _, metrics) = bridge().await;
+        let (stack, pipe) = crate::netstack::bounded_piped_with_capacity(
+            Config {
+                mtu: 1280,
+                tcp_buffer_size: 256 << 10,
+                tcp_nagle_enabled: false,
+                ..Config::default()
+            },
+            64,
+        );
+        let channel = stack.command_channel();
+        let stack = tokio_util::task::AbortOnDropHandle::new(stack.spawn_tokio());
+        channel
+            .set_ips(["192.0.2.2".parse().unwrap()])
+            .await
+            .unwrap();
+        let (allow, receiver) = watch::channel(true);
+        let cancellation = CancellationToken::new();
+        let wire = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(drive_burst_wire(
+            bridge.attach().unwrap(),
+            pipe,
+            receiver,
+            cancellation.clone(),
+        )));
+        let mut background = Vec::new();
+        for index in 0..backgrounds {
+            background.push(
+                timeout(
+                    Duration::from_secs(5),
+                    channel.tcp_connect(
+                        SocketAddr::new("192.0.2.2".parse().unwrap(), 40000 + index),
+                        "203.0.113.7:8080".parse().unwrap(),
+                    ),
+                )
+                .await
+                .unwrap()
+                .unwrap(),
+            );
+        }
+        let mut stream = timeout(
+            Duration::from_secs(5),
+            channel.tcp_connect(
+                "192.0.2.2:41000".parse().unwrap(),
+                "203.0.113.7:8081".parse().unwrap(),
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let mut actual = vec![0; 1 << 20];
+        timeout(Duration::from_secs(15), stream.read_exact(&mut actual))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(actual.iter().all(|b| *b == 0x5a));
+        assert_eq!(metrics.performance.sample().adapter_copied_bytes, 0);
+        timeout(Duration::from_secs(2), bridge.shutdown())
+            .await
+            .unwrap();
+        cancellation.cancel();
+        timeout(Duration::from_secs(1), wire)
+            .await
+            .unwrap()
+            .unwrap();
+        drop((stream, background, allow));
+        stack.abort();
+        let _ = stack.await;
+        drop(bridge);
         assert_eq!(metrics.snapshot().buffer_bytes, 0);
     }
 }

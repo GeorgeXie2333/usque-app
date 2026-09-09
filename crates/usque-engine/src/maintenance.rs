@@ -216,6 +216,7 @@ fn write_diagnostic_bundle(
         "schema_version": 2,
         "created_at": Utc::now(),
         "app_version": env!("CARGO_PKG_VERSION"),
+        "native_build": usque_core::NativeBuildInfo::current(),
         "operating_system": std::env::consts::OS,
         "architecture": std::env::consts::ARCH,
         "diagnostic_complete": diagnostic_session.is_some_and(|session| {

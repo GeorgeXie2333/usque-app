@@ -241,6 +241,56 @@ async fn rejection_and_cancellation_are_stream_local() {
 }
 
 #[tokio::test]
+async fn owned_reads_reuse_pool_without_adapter_copy_and_keep_final_data_before_eof() {
+    let mut peer = Peer::new();
+    let (_, response) = peer.open("download.test");
+    let id = peer.request();
+    peer.respond(id, b"200");
+    peer.pump();
+    let mut stream = response.await.unwrap().unwrap();
+    assert!(stream.has_owned_read());
+    peer.actor.record_wakeup();
+    peer.pump();
+    assert_eq!(
+        peer.actor
+            .budget
+            .metrics
+            .performance
+            .sample()
+            .actor_no_progress_wakeups,
+        1
+    );
+    let payload = vec![0x53; 1024];
+    let perf = peer.actor.budget.metrics.performance.clone();
+    for index in 0..64 {
+        peer.peer
+            .send_body(&mut peer.server, id, &payload, index == 63)
+            .unwrap();
+        peer.pump();
+        let bytes = std::future::poll_fn(|cx| stream.poll_read_owned(cx))
+            .await
+            .unwrap();
+        assert_eq!(bytes, payload);
+        drop(bytes);
+    }
+    peer.pump();
+    assert!(
+        std::future::poll_fn(|cx| stream.poll_read_owned(cx))
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let value = perf.sample();
+    assert_eq!(value.h3_read_bytes, 64 * 1024);
+    assert_eq!(value.adapter_copied_bytes, 0);
+    assert!(value.receive_pool_hits >= 63);
+    assert!(value.receive_pool_allocations <= 2);
+    drop(stream);
+    drop(peer);
+    assert_eq!(perf.sample().receive_pool_live_bytes, 0);
+}
+
+#[tokio::test]
 async fn zero_copy_remainder_fin_and_drop_release_budget() {
     let mut peer = Peer::new();
     let (flow, response) = peer.open("bulk.test");
@@ -316,8 +366,15 @@ async fn shared_budget_release_wakes_both_actors_and_counts_ack_ownership() {
     let retained_by_quic = bytes.clone();
     drop(bytes);
     assert_eq!(budget.available(), 0);
-    let first = budget.wake.notified();
-    let second = budget.wake.notified();
+    let first_notify = Arc::new(Notify::new());
+    let second_notify = Arc::new(Notify::new());
+    let first_waiter = super::budget_wait::BudgetWaiter::new(&budget, Some(first_notify.clone()));
+    let second_waiter = super::budget_wait::BudgetWaiter::new(&budget, Some(second_notify.clone()));
+    first_waiter.arm(None);
+    second_waiter.arm(None);
+    assert_eq!(budget.available(), 0);
+    let first = first_notify.notified();
+    let second = second_notify.notified();
     tokio::pin!(first, second);
     first.as_mut().enable();
     second.as_mut().enable();
@@ -349,4 +406,38 @@ fn full_admission_retains_working_space_for_data_progress() {
     drop(bytes);
     drop(admitted);
     assert_eq!(budget.available(), 1 << 20);
+}
+
+#[tokio::test]
+async fn a_budget_blocked_stream_writer_resumes_without_a_network_packet() {
+    use std::task::{Context, Wake, Waker};
+    use tokio::io::AsyncWrite;
+    struct Counter(std::sync::atomic::AtomicUsize);
+    impl Wake for Counter {
+        fn wake(self: Arc<Self>) {
+            self.0.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+    let mut peer = Peer::new();
+    let (_, response) = peer.open("blocked.test");
+    let id = peer.request();
+    peer.respond(id, b"200");
+    peer.pump();
+    let mut stream = response.await.unwrap().unwrap();
+    let budget = peer.actor.budget.clone();
+    let hold = budget.reserve(budget.available()).unwrap();
+    let counter = Arc::new(Counter(std::sync::atomic::AtomicUsize::new(0)));
+    let waker = Waker::from(counter.clone());
+    assert!(
+        std::pin::Pin::new(&mut stream)
+            .poll_write(&mut Context::from_waker(&waker), b"resume")
+            .is_pending()
+    );
+    drop(hold);
+    assert!(counter.0.load(Ordering::Relaxed) > 0);
+    // Deliberately do not pump QUIC between capacity release and this write.
+    assert!(matches!(
+        std::pin::Pin::new(&mut stream).poll_write(&mut Context::from_waker(&waker), b"resume"),
+        std::task::Poll::Ready(Ok(6))
+    ));
 }

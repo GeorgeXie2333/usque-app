@@ -339,6 +339,64 @@ message L4Snapshot {
   uint32 half_open_flows = 20;
   uint64 connect_latency_us = 21;
   uint64 unsupported_packets = 22;
+  L4PerformanceSnapshot performance = 23;
+}
+
+message L4PerformanceSnapshot {
+  uint64 h3_read_calls = 1;
+  uint64 h3_read_bytes = 2;
+  uint64 h3_empty_reads = 3;
+  uint64 receive_pool_allocations = 4;
+  uint64 receive_pool_hits = 5;
+  uint64 receive_pool_evictions = 6;
+  uint64 receive_pool_idle_bytes = 7;
+  uint64 receive_pool_idle_high_watermark = 8;
+  uint64 receive_pool_live_bytes = 9;
+  uint64 receive_pool_live_high_watermark = 10;
+  uint64 adapter_copied_bytes = 11;
+  uint64 tcp_accepted_bytes = 12;
+  uint64 tcp_write_calls = 13;
+  uint64 tcp_partial_writes = 14;
+  uint64 actor_wakeups = 15;
+  uint64 actor_polls = 16;
+  uint64 actor_no_progress_polls = 17;
+  uint64 budget_wakeups = 18;
+  uint64 tun_ingress_packets = 19;
+  uint64 tun_ingress_bytes = 20;
+  uint64 tun_egress_packets = 21;
+  uint64 tun_egress_bytes = 22;
+  optional uint64 tun_write_calls = 23;
+  optional uint64 tun_write_would_block = 24;
+  optional uint64 udp_receive_buffer_bytes = 25;
+  optional uint64 udp_send_buffer_bytes = 26;
+  optional string udp_buffer_source = 27;
+  optional uint32 tun_mtu = 28;
+  optional string tun_mtu_source = 29;
+  optional uint64 tcp_preferred_sockets = 30;
+  optional uint64 tcp_fallback_sockets = 31;
+  optional uint64 tcp_buffer_bytes = 32;
+  L4WaitSnapshot command_wait = 33;
+  L4WaitSnapshot tun_write_wait = 34;
+  L4QueueSnapshot tun_ingress_queue = 35;
+  L4QueueSnapshot tun_egress_queue = 36;
+  L4QueueSnapshot stack_ingress_queue = 37;
+  L4QueueSnapshot stack_egress_queue = 38;
+  uint64 actor_no_progress_wakeups = 39;
+}
+
+message L4WaitSnapshot {
+  uint64 samples = 1;
+  uint64 sum_us = 2;
+  uint64 max_us = 3;
+  repeated uint64 buckets = 4;
+}
+
+message L4QueueSnapshot {
+  uint64 packets = 1;
+  uint64 bytes = 2;
+  uint64 high_water_packets = 3;
+  uint64 high_water_bytes = 4;
+  L4WaitSnapshot wait = 5;
 }
 
 message Empty {}

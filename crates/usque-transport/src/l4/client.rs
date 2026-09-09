@@ -32,6 +32,7 @@ pub(crate) struct L4Client {
     pub(crate) cancellation: CancellationToken,
     pub(crate) changed: Arc<Notify>,
     task: Mutex<Option<JoinHandle<()>>>,
+    pool: Arc<super::pool::ReceivePool>,
 }
 
 struct CancelRequest {
@@ -140,6 +141,36 @@ impl L4Client {
         counters: Arc<TrafficCounters>,
         parent: &CancellationToken,
     ) -> Result<Arc<Self>, TransportError> {
+        Self::start_with_options(
+            profile,
+            identity,
+            protector,
+            pin_refresher,
+            telemetry,
+            counters,
+            parent,
+            #[cfg(test)]
+            super::test_options::TestOptions::default(),
+        )
+        .await
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "private test runtime options preserve the production constructor"
+    )]
+    pub(crate) async fn start_with_options(
+        profile: Profile,
+        identity: MasqueTlsIdentity,
+        protector: Arc<dyn SocketProtector>,
+        pin_refresher: Option<Arc<dyn EndpointPinRefresher>>,
+        telemetry: ConnectionTelemetry,
+        counters: Arc<TrafficCounters>,
+        parent: &CancellationToken,
+        #[cfg(test)] test_options: super::test_options::TestOptions,
+    ) -> Result<Arc<Self>, TransportError> {
+        #[cfg(test)]
+        let profile = test_options.profile(profile);
         if identity.provider.is_none() {
             return Err(TransportError::InvalidIdentity);
         }
@@ -154,6 +185,7 @@ impl L4Client {
             Arc::new(Notify::new()),
         ));
         let (requests, rx) = mpsc::channel(limits.pending + 80);
+        let pool = super::pool::ReceivePool::shared(&budget);
         let path = path_for(AddressFamily::Ipv4);
         let initial_failure =
             TransportError::UnderlyingNetworkChanged.failure(Some(Transport::Http3), None);
@@ -176,8 +208,11 @@ impl L4Client {
             cancellation,
             changed,
             task: Mutex::new(None),
+            pool,
         });
         let supervisor = Supervisor {
+            #[cfg(test)]
+            test_options,
             epoch,
             profile,
             identity: Arc::new(identity),
@@ -220,6 +255,7 @@ impl L4Client {
 
     pub(crate) fn cancel(&self) {
         self.cancellation.cancel();
+        self.pool.close();
     }
 
     pub(crate) async fn shutdown(&self) {
@@ -234,6 +270,7 @@ impl L4Client {
 impl Drop for L4Client {
     fn drop(&mut self) {
         self.cancellation.cancel();
+        self.pool.close();
         if let Some(task) = self.task.lock().unwrap_or_else(|e| e.into_inner()).take() {
             task.abort();
         }
@@ -241,6 +278,8 @@ impl Drop for L4Client {
 }
 
 struct Supervisor {
+    #[cfg(test)]
+    test_options: super::test_options::TestOptions,
     epoch: Arc<AtomicU64>,
     profile: Profile,
     identity: Arc<MasqueTlsIdentity>,
@@ -262,6 +301,8 @@ struct Supervisor {
 
 impl Supervisor {
     async fn run(mut self) {
+        let budget_waiter =
+            super::budget_wait::BudgetWaiter::new(&self.budget, Some(self.budget.wake.clone()));
         let mut sessions: Vec<Session> = Vec::new();
         let mut queue: VecDeque<OpenRequest> = VecDeque::new();
         let mut connecting: Option<
@@ -277,6 +318,7 @@ impl Supervisor {
         let mut pin_refreshed = false;
         let mut established_at: Option<Instant> = None;
         loop {
+            budget_waiter.disarm();
             let lost_main = sessions.iter().any(|s| {
                 s.handle.closed.load(Ordering::Acquire)
                     && !s.handle.draining.load(Ordering::Acquire)
@@ -303,6 +345,12 @@ impl Supervisor {
             let main = sessions
                 .iter()
                 .position(|s| !s.handle.draining.load(Ordering::Acquire));
+            if main.is_none() {
+                self.metrics
+                    .performance
+                    .active_epoch
+                    .store(0, Ordering::Release);
+            }
             self.metrics.update(|m| {
                 m.sessions = sessions.len() as u32;
                 m.draining_sessions = sessions
@@ -314,6 +362,7 @@ impl Supervisor {
             });
             if let Some(index) = main {
                 let session = &sessions[index];
+                let mut budget_waiting = false;
                 for _ in 0..queue.len() {
                     let Some(request) = queue.pop_front() else {
                         break;
@@ -336,7 +385,19 @@ impl Supervisor {
                     };
                     // Reserve relay/DNS staging space before accepting a stream;
                     // Bytes retained by QUIC are charged separately until ACKed.
-                    let Some(relay) = self.budget.reserve_admission(2 * Limits::platform().relay)
+                    let Some(relay) = self
+                        .budget
+                        .reserve_admission(2 * Limits::platform().relay)
+                        .or_else(|| {
+                            budget_waiter.arm(None);
+                            let lease = self.budget.reserve_admission(2 * Limits::platform().relay);
+                            if lease.is_none() {
+                                budget_waiting = true;
+                            } else if !budget_waiting {
+                                budget_waiter.disarm();
+                            }
+                            lease
+                        })
                     else {
                         self.metrics.update(|m| m.budget_rejections += 1);
                         queue.push_back(request);
@@ -375,6 +436,8 @@ impl Supervisor {
                 && Instant::now() >= next_connect
             {
                 let setup = Setup {
+                    #[cfg(test)]
+                    test_options: self.test_options,
                     profile: self.profile.clone(),
                     identity: self.identity.clone(),
                     protector: self.protector.clone(),
@@ -421,6 +484,8 @@ impl Supervisor {
                         }
                         Ok(mut session) => {
                             session.epoch = self.epoch.fetch_add(1, Ordering::AcqRel).wrapping_add(1);
+                            session.handle.epoch.store(session.epoch, Ordering::Release);
+                            self.metrics.performance.active_epoch.store(session.epoch, Ordering::Release);
                             session.tunnel.activate_network_quality();
                             let path = path_for(session.family);
                             sessions.push(session);
@@ -474,6 +539,10 @@ impl Supervisor {
         }
         self.cancellation.cancel();
         drop(connecting);
+        self.metrics
+            .performance
+            .active_epoch
+            .store(0, Ordering::Release);
         drop(migration);
         drop(sessions);
         for request in queue {
@@ -502,6 +571,8 @@ impl Supervisor {
 }
 
 struct Setup {
+    #[cfg(test)]
+    test_options: super::test_options::TestOptions,
     profile: Profile,
     identity: Arc<MasqueTlsIdentity>,
     protector: Arc<dyn SocketProtector>,
@@ -569,6 +640,10 @@ impl Setup {
             self.changed.clone(),
         );
         actor.session_slot = Some(Arc::new(slot));
+        #[cfg(test)]
+        {
+            actor.test_options = self.test_options;
+        }
         let handle = actor.handle.clone();
         let attempt =
             ConnectionAttemptTelemetry::new(self.telemetry.clone(), Transport::Http3, family);

@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::io;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::task::{Context, Poll, Waker};
 
@@ -12,11 +12,13 @@ use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore, oneshot};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
+use super::budget_wait::BudgetWaiter;
 use crate::tcp::{DialError, FlowClass, TcpIo, TcpStream, TcpTarget};
 
 #[derive(Default)]
 pub(crate) struct L4Metrics {
     pub(crate) value: Mutex<usque_core::L4Snapshot>,
+    pub(crate) performance: Arc<super::performance::Performance>,
 }
 
 impl L4Metrics {
@@ -24,14 +26,18 @@ impl L4Metrics {
         f(&mut self.value.lock().unwrap_or_else(|e| e.into_inner()));
     }
     pub(crate) fn snapshot(&self) -> usque_core::L4Snapshot {
-        self.value.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        let mut snapshot = self.value.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        snapshot.performance = Some(self.performance.snapshot());
+        snapshot
     }
 }
 
 pub(crate) struct BufferBudget {
     permits: Arc<Semaphore>,
     progress_headroom: usize,
-    actors: Mutex<Vec<Weak<Notify>>>,
+    pub(super) waiters: Mutex<Vec<Weak<BudgetWaiter>>>,
+    pub(super) waiter_count: AtomicUsize,
+    pub(super) pool: Mutex<Weak<super::pool::ReceivePool>>,
     pub(crate) wake: Arc<Notify>,
     pub(crate) metrics: Arc<L4Metrics>,
 }
@@ -41,7 +47,9 @@ impl BufferBudget {
         Self {
             permits: Arc::new(Semaphore::new(bytes)),
             progress_headroom: (bytes / 8).min(16 << 20),
-            actors: Mutex::new(Vec::new()),
+            waiters: Mutex::default(),
+            waiter_count: AtomicUsize::new(0),
+            pool: Mutex::default(),
             metrics,
             wake,
         }
@@ -61,7 +69,20 @@ impl BufferBudget {
         headroom: usize,
     ) -> Option<BufferLease> {
         let count = u32::try_from(size.checked_add(headroom)?).ok()?;
-        let mut permit = self.permits.clone().try_acquire_many_owned(count).ok()?;
+        let mut permit = match self.permits.clone().try_acquire_many_owned(count) {
+            Ok(permit) => permit,
+            Err(_) => {
+                let pool = self
+                    .pool
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .upgrade();
+                if let Some(pool) = pool {
+                    pool.trim();
+                }
+                self.permits.clone().try_acquire_many_owned(count).ok()?
+            }
+        };
         // Atomically test the margin, then return it for actual packet/stream
         // progress. Fixed relay reservations must not strand every accepted
         // connection with zero budget for the next DATA read or write.
@@ -84,14 +105,25 @@ impl BufferBudget {
         }))
     }
 
+    #[cfg(test)]
     pub(crate) fn available(&self) -> usize {
         self.permits.available_permits()
     }
 
-    pub(crate) fn register_actor(&self, wake: &Arc<Notify>) {
-        let mut actors = self.actors.lock().unwrap_or_else(|e| e.into_inner());
-        actors.retain(|actor| actor.strong_count() != 0);
-        actors.push(Arc::downgrade(wake));
+    pub(super) fn notify_capacity(&self) {
+        if self.waiter_count.load(Ordering::Acquire) == 0 {
+            return;
+        }
+        let waiters: Vec<_> = self
+            .waiters
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .filter_map(Weak::upgrade)
+            .collect();
+        for waiter in waiters {
+            waiter.wake();
+        }
     }
 }
 
@@ -107,22 +139,7 @@ impl Drop for BufferLease {
         self.budget
             .metrics
             .update(|m| m.buffer_bytes = m.buffer_bytes.saturating_sub(self.size as u64));
-        // Both the main and draining actor can be waiting for the shared budget.
-        self.budget.wake.notify_waiters();
-        self.budget.wake.notify_one();
-        // Each actor has its own stored notification. A shared notify_one can
-        // be consumed by the other session between the budget check and wait.
-        for actor in self
-            .budget
-            .actors
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .iter()
-        {
-            if let Some(wake) = actor.upgrade() {
-                wake.notify_one();
-            }
-        }
+        self.budget.notify_capacity();
     }
 }
 
@@ -179,6 +196,7 @@ pub(crate) struct FlowState {
     pub(crate) error: Option<DialError>,
     pub(crate) reader: Option<Waker>,
     pub(crate) writer: Option<Waker>,
+    budget_waiter: Option<Arc<BudgetWaiter>>,
     pub(crate) interim_responses: u8,
 }
 
@@ -189,6 +207,7 @@ impl Flow {
     pub(crate) fn fail(&self, error: DialError) {
         let mut state = self.lock();
         state.error = Some(error);
+        state.budget_waiter.take();
         state.incoming.clear();
         state.outgoing.clear();
         state.incoming_bytes = 0;
@@ -241,6 +260,27 @@ impl Drop for Flow {
 pub(crate) struct L4Stream(pub(crate) Arc<Flow>);
 
 impl TcpIo for L4Stream {
+    fn has_owned_read(&self) -> bool {
+        true
+    }
+    fn poll_read_owned(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<Bytes>> {
+        let flow = &self.0;
+        let mut state = flow.lock();
+        if let Some(error) = state.error {
+            return Poll::Ready(Err(error.into()));
+        }
+        if let Some(bytes) = state.incoming.pop_front() {
+            state.incoming_bytes -= bytes.len();
+            flow.counters.record_received(bytes.len());
+            flow.wake.notify_one();
+            return Poll::Ready(Ok(bytes));
+        }
+        if state.read_finished && !state.read_pending {
+            return Poll::Ready(Ok(Bytes::new()));
+        }
+        state.reader = Some(cx.waker().clone());
+        Poll::Pending
+    }
     fn session_generation(&self) -> Option<u64> {
         Some(self.0.session_generation)
     }
@@ -270,6 +310,10 @@ impl AsyncRead for L4Stream {
         if let Some(bytes) = state.incoming.front_mut() {
             let n = out.remaining().min(bytes.len());
             out.put_slice(&bytes[..n]);
+            flow.metrics
+                .performance
+                .adapter_copied_bytes
+                .fetch_add(n as u64, Ordering::Relaxed);
             bytes.advance(n);
             if bytes.is_empty() {
                 state.incoming.pop_front();
@@ -308,14 +352,25 @@ impl AsyncWrite for L4Stream {
             .len()
             .min(super::CHUNK_SIZE)
             .min(super::FLOW_BUFFER.saturating_sub(state.outgoing_bytes));
-        if n != 0
-            && let Some(buffer) = flow.budget.copy(&bytes[..n])
-        {
-            state.outgoing.push_back(buffer);
-            state.outgoing_bytes += n;
-            flow.counters.record_sent(n);
-            flow.wake.notify_one();
-            return Poll::Ready(Ok(n));
+        if n != 0 {
+            let buffer = flow.budget.copy(&bytes[..n]).or_else(|| {
+                let waiter = state
+                    .budget_waiter
+                    .get_or_insert_with(|| BudgetWaiter::new(&flow.budget, None));
+                waiter.arm(Some(cx.waker()));
+                // Capacity may have returned before registration.
+                flow.budget.copy(&bytes[..n])
+            });
+            if let Some(buffer) = buffer {
+                if let Some(waiter) = &state.budget_waiter {
+                    waiter.disarm();
+                }
+                state.outgoing.push_back(buffer);
+                state.outgoing_bytes += n;
+                flow.counters.record_sent(n);
+                flow.wake.notify_one();
+                return Poll::Ready(Ok(n));
+            }
         }
         state.writer = Some(cx.waker().clone());
         flow.metrics.update(|m| m.send_backpressure += 1);
@@ -339,19 +394,25 @@ impl AsyncWrite for L4Stream {
         if let Some(error) = state.error {
             return Poll::Ready(Err(error.into()));
         }
+        let newly_requested = !state.fin_requested;
         state.fin_requested = true;
         if state.fin_sent {
             return Poll::Ready(Ok(()));
         }
         state.writer = Some(cx.waker().clone());
-        self.0.wake.notify_one();
+        if newly_requested {
+            self.0.wake.notify_one();
+        }
         Poll::Pending
     }
 }
 
 impl Drop for L4Stream {
     fn drop(&mut self) {
-        self.0.lock().dropped = true;
+        let mut state = self.0.lock();
+        state.dropped = true;
+        state.budget_waiter.take();
+        drop(state);
         self.0.wake.notify_one();
     }
 }

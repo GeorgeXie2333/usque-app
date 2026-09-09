@@ -2,6 +2,34 @@
 use std::future::Future;
 use std::pin::Pin;
 
+/// Ready-only egress batch; keeps no packet buffers of its own.
+pub(super) struct ReadyBatch {
+    packets: usize,
+    bytes: usize,
+    started: std::time::Instant,
+}
+impl ReadyBatch {
+    pub(super) fn new() -> Self {
+        Self {
+            packets: 0,
+            bytes: 0,
+            started: std::time::Instant::now(),
+        }
+    }
+    pub(super) fn allows(&self, next: usize) -> bool {
+        self.allows_at(next, self.started.elapsed())
+    }
+    fn allows_at(&self, next: usize, elapsed: std::time::Duration) -> bool {
+        self.packets < 16
+            && self.bytes + next <= 64 << 10
+            && elapsed < std::time::Duration::from_micros(200)
+    }
+    pub(super) fn completed(&mut self, bytes: usize) {
+        self.packets += 1;
+        self.bytes += bytes;
+    }
+}
+
 pub(super) enum SessionDataEvent<Read, Receive, Sent, Written> {
     TunRead(Read),
     TunnelReceive(Receive),
@@ -39,6 +67,19 @@ pub(super) async fn wait_pending<F: Future>(pending: Pin<&mut Option<F>>) -> F::
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn ready_batches_bound_packets_bytes_and_soft_time_for_every_mtu() {
+        use std::time::Duration;
+        for mtu in [1280, 1500, 4096, 9000] {
+            let mut batch = ReadyBatch::new();
+            while batch.allows_at(mtu, Duration::ZERO) {
+                batch.completed(mtu);
+            }
+            assert!(batch.packets <= 16 && batch.bytes <= 64 << 10);
+            assert!(!batch.allows_at(1, Duration::from_micros(200)));
+        }
+        assert!(!ReadyBatch::new().allows(65537));
+    }
     use std::sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},

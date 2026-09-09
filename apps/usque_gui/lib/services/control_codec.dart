@@ -2330,7 +2330,9 @@ L4Snapshot _decodeL4Snapshot(_ProtoReader reader) {
   while (!reader.isDone) {
     final field = reader.field();
     final key = fields[field.number];
-    if (key == null) {
+    if (field.number == 23) {
+      values['performance'] = _decodeL4Performance(reader.message(field));
+    } else if (key == null) {
       reader.skip(field);
     } else {
       final value = reader.varint(field);
@@ -2338,6 +2340,82 @@ L4Snapshot _decodeL4Snapshot(_ProtoReader reader) {
     }
   }
   return L4Snapshot.fromMap(values);
+}
+
+Map<Object?, Object?> _decodeL4Performance(_ProtoReader reader) {
+  final values = <Object?, Object?>{
+    for (final k in l4PerformanceScalarFields.take(22)) k: 0,
+    'actor_no_progress_wakeups': 0,
+  };
+  while (!reader.isDone) {
+    final field = reader.field();
+    if (field.number <= 32) {
+      final key = l4PerformanceScalarFields[field.number - 1];
+      values[key] = field.number == 27 || field.number == 29
+          ? reader.string(field)
+          : reader.varint(field);
+    } else if (field.number == 33 || field.number == 34) {
+      values[field.number == 33 ? 'command_wait' : 'tun_write_wait'] =
+          _decodeL4Wait(reader.message(field));
+    } else if (field.number >= 35 && field.number <= 38) {
+      values[l4PerformanceQueueFields[field.number - 35]] = _decodeL4Queue(
+        reader.message(field),
+      );
+    } else if (field.number == 39) {
+      values['actor_no_progress_wakeups'] = reader.varint(field);
+    } else {
+      reader.skip(field);
+    }
+  }
+  return values;
+}
+
+Map<Object?, Object?> _decodeL4Wait(_ProtoReader reader) {
+  final values = <Object?, Object?>{'samples': 0, 'sum_us': 0, 'max_us': 0};
+  final buckets = <int>[];
+  while (!reader.isDone) {
+    final field = reader.field();
+    if (field.number <= 3) {
+      values[['samples', 'sum_us', 'max_us'][field.number - 1]] = reader.varint(
+        field,
+      );
+    } else if (field.number == 4) {
+      if (field.wireType == 0) {
+        buckets.add(reader.varint(field));
+      } else {
+        final packed = reader.message(field);
+        while (!packed.isDone) {
+          buckets.add(packed._varint());
+          if (buckets.length > 32) {
+            throw const FormatException('L4 histogram exceeds bound');
+          }
+        }
+      }
+      if (buckets.length > 32) {
+        throw const FormatException('L4 histogram exceeds bound');
+      }
+    } else {
+      reader.skip(field);
+    }
+  }
+  values['buckets'] = buckets;
+  return values;
+}
+
+Map<Object?, Object?> _decodeL4Queue(_ProtoReader reader) {
+  const keys = ['packets', 'bytes', 'high_water_packets', 'high_water_bytes'];
+  final values = <Object?, Object?>{for (final k in keys) k: 0};
+  while (!reader.isDone) {
+    final field = reader.field();
+    if (field.number <= 4) {
+      values[keys[field.number - 1]] = reader.varint(field);
+    } else if (field.number == 5) {
+      values['wait'] = _decodeL4Wait(reader.message(field));
+    } else {
+      reader.skip(field);
+    }
+  }
+  return values;
 }
 
 String? _decodeKillSwitchState(int value) {

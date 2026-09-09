@@ -6,7 +6,9 @@
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+use crate::l4::performance::{QueuePerformance, QueuedPacket};
 use bytes::{Bytes, BytesMut};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_util::sync::PollSender;
 use ts_netstack_smoltcp::netcore::{
@@ -24,15 +26,29 @@ pub(crate) struct PacketPipe {
 
 impl PacketPipe {
     pub(crate) fn bounded(capacity: usize) -> (Self, Self) {
+        Self::observed(capacity, None, None)
+    }
+
+    pub(crate) fn observed(
+        capacity: usize,
+        to_first: Option<Arc<QueuePerformance>>,
+        from_first: Option<Arc<QueuePerformance>>,
+    ) -> (Self, Self) {
         let (a, b) = mpsc::channel(capacity);
         let (c, d) = mpsc::channel(capacity);
         (
             Self {
-                tx: PacketSender(a),
+                tx: PacketSender {
+                    sender: a,
+                    meter: from_first,
+                },
                 rx: PacketReceiver(d),
             },
             Self {
-                tx: PacketSender(c),
+                tx: PacketSender {
+                    sender: c,
+                    meter: to_first,
+                },
                 rx: PacketReceiver(b),
             },
         )
@@ -40,45 +56,64 @@ impl PacketPipe {
 }
 
 #[derive(Clone)]
-pub(crate) struct PacketSender(mpsc::Sender<Bytes>);
+pub(crate) struct PacketSender {
+    sender: mpsc::Sender<QueuedPacket>,
+    meter: Option<Arc<QueuePerformance>>,
+}
 impl PacketSender {
     pub(crate) async fn send_async(&self, packet: &[u8]) {
-        let _ = self.0.send(Bytes::copy_from_slice(packet)).await;
+        if let Ok(permit) = self.sender.reserve().await {
+            permit.send(QueuedPacket::new(
+                Bytes::copy_from_slice(packet),
+                self.meter.as_ref(),
+            ));
+        }
     }
 
     #[cfg(test)]
     pub(crate) fn try_send(&self, packet: &[u8]) -> bool {
-        self.0.try_send(Bytes::copy_from_slice(packet)).is_ok()
+        match self.sender.try_reserve() {
+            Ok(permit) => {
+                permit.send(QueuedPacket::new(
+                    Bytes::copy_from_slice(packet),
+                    self.meter.as_ref(),
+                ));
+                true
+            }
+            Err(_) => false,
+        }
     }
 }
 
-pub(crate) struct PacketReceiver(mpsc::Receiver<Bytes>);
+pub(crate) struct PacketReceiver(mpsc::Receiver<QueuedPacket>);
 impl PacketReceiver {
     pub(crate) fn rx_ready(&self) -> bool {
         !self.0.is_empty()
     }
 
     pub(crate) async fn recv_async(&mut self) -> Option<Bytes> {
-        self.0.recv().await
+        self.0.recv().await.map(QueuedPacket::into_bytes)
     }
     pub(crate) fn try_recv(&mut self) -> Option<Bytes> {
-        self.0.try_recv().ok()
+        self.0.try_recv().ok().map(QueuedPacket::into_bytes)
     }
 }
 
 pub(crate) struct PacketDevice {
-    tx: mpsc::Sender<Bytes>,
-    tx_waiter: PollSender<Bytes>,
-    rx: mpsc::Receiver<Bytes>,
-    received: Option<Bytes>,
+    tx: mpsc::Sender<QueuedPacket>,
+    tx_meter: Option<Arc<QueuePerformance>>,
+    tx_waiter: PollSender<QueuedPacket>,
+    rx: mpsc::Receiver<QueuedPacket>,
+    received: Option<QueuedPacket>,
     mtu: usize,
 }
 
 impl PacketDevice {
     pub(crate) fn new(pipe: PacketPipe, mtu: usize) -> Self {
         Self {
-            tx_waiter: PollSender::new(pipe.tx.0.clone()),
-            tx: pipe.tx.0,
+            tx_waiter: PollSender::new(pipe.tx.sender.clone()),
+            tx: pipe.tx.sender,
+            tx_meter: pipe.tx.meter,
             rx: pipe.rx.0,
             received: None,
             mtu,
@@ -111,7 +146,10 @@ impl AsyncWakeDevice for PacketDevice {
     }
 }
 
-pub(crate) struct PacketTx(mpsc::OwnedPermit<Bytes>);
+pub(crate) struct PacketTx(
+    mpsc::OwnedPermit<QueuedPacket>,
+    Option<Arc<QueuePerformance>>,
+);
 impl ts_netstack_smoltcp::netcore::smoltcp::phy::TxToken for PacketTx {
     fn consume<R, F>(self, len: usize, f: F) -> R
     where
@@ -119,7 +157,8 @@ impl ts_netstack_smoltcp::netcore::smoltcp::phy::TxToken for PacketTx {
     {
         let mut packet = BytesMut::zeroed(len);
         let result = f(&mut packet);
-        self.0.send(packet.freeze());
+        self.0
+            .send(QueuedPacket::new(packet.freeze(), self.1.as_ref()));
         result
     }
 }
@@ -141,11 +180,18 @@ impl Device for PacketDevice {
     fn receive(&mut self, _timestamp: Instant) -> Option<(PacketRx, PacketTx)> {
         let permit = self.tx.clone().try_reserve_owned().ok()?;
         let packet = self.received.take().or_else(|| self.rx.try_recv().ok())?;
-        Some((PacketRx(packet), PacketTx(permit)))
+        Some((
+            PacketRx(packet.into_bytes()),
+            PacketTx(permit, self.tx_meter.clone()),
+        ))
     }
 
     fn transmit(&mut self, _timestamp: Instant) -> Option<PacketTx> {
-        self.tx.clone().try_reserve_owned().ok().map(PacketTx)
+        self.tx
+            .clone()
+            .try_reserve_owned()
+            .ok()
+            .map(|permit| PacketTx(permit, self.tx_meter.clone()))
     }
 
     fn capabilities(&self) -> DeviceCapabilities {

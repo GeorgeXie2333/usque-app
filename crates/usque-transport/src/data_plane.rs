@@ -200,6 +200,13 @@ enum TunIoInner {
     L4(L4TunIo),
 }
 impl TunPacketIo {
+    /// Present only for a data plane that supports stream performance sampling.
+    pub fn write_observer(&self) -> Option<crate::TunWriteObserver> {
+        match &self.inner {
+            TunIoInner::ConnectIp(_) => None,
+            TunIoInner::L4(io) => Some(io.write_observer()),
+        }
+    }
     /// Starts a cancellation-safe, owned enqueue without borrowing the receive
     /// half. At most one pending send is retained by each platform packet pump.
     pub fn start_send_owned_packet(

@@ -25,6 +25,15 @@ internal object NativeEngine {
 
     fun isLinked(): Boolean = libraryLoaded
 
+    fun buildInfo(): String? =
+        try {
+            if (libraryLoaded) nativeBuildInfo() else null
+        } catch (_: UnsatisfiedLinkError) {
+            null
+        }
+
+    private external fun nativeBuildInfo(): String?
+
     fun connectionTimeline(): String? =
         try {
             if (libraryLoaded) nativeConnectionTimeline() else null

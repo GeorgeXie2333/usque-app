@@ -94,6 +94,10 @@ pub(crate) struct PathSocket {
 }
 
 impl PathSocket {
+    pub(crate) fn socket_buffer_sizes(&self) -> (Option<u64>, Option<u64>) {
+        self.io().socket_buffer_sizes()
+    }
+
     #[expect(
         clippy::too_many_arguments,
         reason = "a path socket atomically binds identity, generation, I/O, lease, and role"
