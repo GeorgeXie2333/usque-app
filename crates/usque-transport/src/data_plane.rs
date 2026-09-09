@@ -200,6 +200,28 @@ enum TunIoInner {
     L4(L4TunIo),
 }
 impl TunPacketIo {
+    /// Starts a cancellation-safe, owned enqueue without borrowing the receive
+    /// half. At most one pending send is retained by each platform packet pump.
+    pub fn start_send_owned_packet(
+        &self,
+        packet: Bytes,
+    ) -> impl std::future::Future<Output = Result<(), TransportError>> + Send + use<> {
+        enum BackendSend<C, L> {
+            ConnectIp(C),
+            L4(L),
+        }
+        let send = match &self.inner {
+            TunIoInner::ConnectIp(io) => BackendSend::ConnectIp(io.start_send_owned_packet(packet)),
+            TunIoInner::L4(io) => BackendSend::L4(io.start_send_owned_packet(packet)),
+        };
+        async move {
+            match send {
+                BackendSend::ConnectIp(send) => send.await,
+                BackendSend::L4(send) => send.await,
+            }
+        }
+    }
+
     pub async fn send_packet(&self, packet: &[u8]) -> Result<(), TransportError> {
         self.send_owned_packet(Bytes::copy_from_slice(packet)).await
     }

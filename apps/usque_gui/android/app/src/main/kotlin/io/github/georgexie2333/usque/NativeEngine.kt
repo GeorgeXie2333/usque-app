@@ -112,9 +112,7 @@ internal object NativeEngine {
         )
     }
 
-    fun stop() {
-        if (libraryLoaded) nativeStop()
-    }
+    fun stop(): Boolean = !libraryLoaded || runCatching { nativeStopConfirmed() }.getOrDefault(false)
 
     fun cancel() {
         if (libraryLoaded) nativeCancel()
@@ -229,7 +227,7 @@ internal object NativeEngine {
         vpnService: UsqueVpnService,
     ): Int
 
-    private external fun nativeStop()
+    private external fun nativeStopConfirmed(): Boolean
 
     private external fun nativeCancel()
 

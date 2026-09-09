@@ -333,3 +333,139 @@ async fn malformed_and_fragmented_packets_do_not_stop_other_tun_flows() {
     assert_eq!(metrics.snapshot().sessions, 0); // no hidden packet tunnel
     bridge.shutdown().await;
 }
+
+async fn pending_wire<F: std::future::Future>(pending: Pin<&mut Option<F>>) -> F::Output {
+    match pending.as_pin_mut() {
+        Some(future) => future.await,
+        None => std::future::pending().await,
+    }
+}
+
+async fn send_to_client(sender: crate::packet_pipe::PacketSender, packet: bytes::Bytes) {
+    sender.send_async(&packet).await;
+}
+
+async fn drive_burst_wire(
+    mut io: super::L4TunIo,
+    pipe: crate::packet_pipe::PacketPipe,
+    mut allow_receive: watch::Receiver<bool>,
+    cancellation: CancellationToken,
+) {
+    let crate::packet_pipe::PacketPipe { tx, mut rx } = pipe;
+    let mut up = std::pin::pin!(None);
+    let mut down = std::pin::pin!(None);
+    loop {
+        tokio::select! {
+            _ = cancellation.cancelled() => break,
+            changed = allow_receive.changed() => if changed.is_err() { break; },
+            packet = rx.recv_async(), if up.as_ref().get_ref().is_none() => {
+                let Some(packet) = packet else { break; };
+                up.set(Some(io.start_send_owned_packet(packet)));
+            }
+            sent = pending_wire(up.as_mut()) => {
+                up.set(None);
+                if sent.is_err() { break; }
+            }
+            packet = io.receive_packet(), if down.as_ref().get_ref().is_none() && *allow_receive.borrow() => {
+                let Ok(packet) = packet else { break; };
+                down.set(Some(send_to_client(tx.clone(), packet)));
+            }
+            _ = pending_wire(down.as_mut()) => down.set(None),
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn tun_bursts_resume_after_slow_reader_and_stop_cleanly_before_reconnecting() {
+    for cancel_during_burst in [false, true, false] {
+        let (mut bridge, _dialer, metrics) = bridge().await;
+        let io = bridge.attach().unwrap();
+        let (stack, pipe) = crate::netstack::bounded_piped_with_capacity(
+            Config {
+                mtu: 1280,
+                tcp_buffer_size: 256 << 10,
+                tcp_nagle_enabled: false,
+                ..Config::default()
+            },
+            64,
+        );
+        let channel = stack.command_channel();
+        let stack_task = tokio_util::task::AbortOnDropHandle::new(stack.spawn_tokio());
+        channel
+            .set_ips(["192.0.2.2".parse().unwrap()])
+            .await
+            .unwrap();
+        let (allow, receiver) = watch::channel(true);
+        let cancel = CancellationToken::new();
+        let wire = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(drive_burst_wire(
+            io,
+            pipe,
+            receiver,
+            cancel.clone(),
+        )));
+        let mut streams = Vec::new();
+        for port in 40000..40008 {
+            streams.push(
+                timeout(
+                    Duration::from_secs(5),
+                    channel.tcp_connect(
+                        SocketAddr::new("192.0.2.2".parse().unwrap(), port),
+                        "203.0.113.7:8080".parse().unwrap(),
+                    ),
+                )
+                .await
+                .unwrap()
+                .unwrap(),
+            );
+        }
+        allow.send(false).unwrap();
+        let mut transfers = tokio::task::JoinSet::new();
+        for (index, stream) in streams.into_iter().enumerate() {
+            transfers.spawn(async move {
+                let payload = vec![index as u8; 512 << 10];
+                let (mut read, mut write) = tokio::io::split(stream);
+                let mut received = vec![0; payload.len()];
+                tokio::try_join!(
+                    async {
+                        write.write_all(&payload).await?;
+                        write.shutdown().await
+                    },
+                    async { read.read_exact(&mut received).await.map(|_| ()) },
+                )
+                .unwrap();
+                assert_eq!(received, payload);
+            });
+        }
+        // Exceed the 64-packet pipe while the TUN consumer is intentionally
+        // paused. The separate test task and its timer must still be runnable.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(transfers.try_join_next().is_none());
+        if !cancel_during_burst {
+            allow.send(true).unwrap();
+            timeout(Duration::from_secs(15), async {
+                while let Some(result) = transfers.join_next().await {
+                    result.unwrap();
+                }
+            })
+            .await
+            .expect("bidirectional transfer must resume without losing bytes");
+        } else {
+            transfers.abort_all();
+            while transfers.join_next().await.is_some() {}
+        }
+        timeout(Duration::from_secs(2), bridge.shutdown())
+            .await
+            .expect("L4 TUN shutdown must not wait for a stalled receiver");
+        cancel.cancel();
+        timeout(Duration::from_secs(1), wire)
+            .await
+            .unwrap()
+            .unwrap();
+        stack_task.abort();
+        let _ = timeout(Duration::from_secs(1), stack_task).await.unwrap();
+        drop(bridge);
+        assert_eq!(metrics.snapshot().tun_flows, 0);
+        assert_eq!(metrics.snapshot().half_open_flows, 0);
+        assert_eq!(metrics.snapshot().buffer_bytes, 0);
+    }
+}

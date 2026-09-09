@@ -11,11 +11,9 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, MissedTickBehavior, interval_at, sleep, timeout};
 use tokio_util::sync::CancellationToken;
+use ts_netstack_smoltcp::Netstack;
 use ts_netstack_smoltcp::netcore::{
     Channel, Config, HasChannel, NetstackControl, TcpBufferMetrics, TcpBufferPolicy, TcpBufferTier,
-};
-use ts_netstack_smoltcp::{
-    Netstack, WakingPipe, WakingPipeDev, WakingPipeReceiver, WakingPipeSender,
 };
 use usque_core::{
     AddressFamily, IpPolicy, Profile, Transport, TransportFailure, TransportFailureCode,
@@ -29,6 +27,10 @@ use crate::h3::{H3MigrationResult, connect_h3_with_protector};
 use crate::network_quality::{NetworkQualitySnapshot, spawn_network_quality_sampler_with_counters};
 use crate::packet_batch::{
     MAX_PACKET_BATCH_BYTES, PACKET_BATCH_CHANNEL_CAPACITY, PacketBatch, PacketBatchResult,
+};
+use crate::packet_pipe::{
+    PacketDevice, PacketPipe as WakingPipe, PacketReceiver as WakingPipeReceiver,
+    PacketSender as WakingPipeSender,
 };
 use crate::pin_refresh::EndpointPinRefresher;
 use crate::queue_metrics::{
@@ -415,20 +417,16 @@ pub(crate) fn proxy_netstack_config(profile: &Profile) -> (Config, TcpBufferMetr
     (config, metrics)
 }
 
-pub(crate) fn bounded_piped(config: Config) -> (Netstack<WakingPipeDev>, WakingPipe) {
+pub(crate) fn bounded_piped(config: Config) -> (Netstack<PacketDevice>, WakingPipe) {
     bounded_piped_with_capacity(config, PROXY_PACKET_PIPE_CAPACITY)
 }
 
 pub(crate) fn bounded_piped_with_capacity(
     config: Config,
     capacity: usize,
-) -> (Netstack<WakingPipeDev>, WakingPipe) {
+) -> (Netstack<PacketDevice>, WakingPipe) {
     let (stack_pipe, remote_pipe) = WakingPipe::bounded(capacity);
-    let device = WakingPipeDev {
-        pipe: stack_pipe,
-        mtu: config.mtu,
-        medium: ts_netstack_smoltcp::netcore::smoltcp::phy::Medium::Ip,
-    };
+    let device = PacketDevice::new(stack_pipe, config.mtu);
     (Netstack::new(device, config), remote_pipe)
 }
 

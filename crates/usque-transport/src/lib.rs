@@ -25,6 +25,7 @@ mod netstack;
 mod network_quality;
 mod packet_batch;
 mod packet_mux;
+mod packet_pipe;
 mod path_socket;
 mod pin_refresh;
 mod pmtu;

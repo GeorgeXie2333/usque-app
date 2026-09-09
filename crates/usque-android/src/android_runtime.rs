@@ -17,6 +17,7 @@ use usque_transport::{
     TrafficSnapshot, TransportError, TunPacketIo,
 };
 
+use crate::session_pump::{SessionDataEvent, next_session_data, wait_pending};
 use crate::tun_read_slab::TunReadSlab;
 
 use super::{
@@ -59,7 +60,9 @@ struct EngineHandle {
     status: Arc<Mutex<NativeSnapshot>>,
     protector: Arc<AndroidSocketProtector>,
     commands: tokio::sync::mpsc::UnboundedSender<RuntimeCommand>,
-    thread: JoinHandle<()>,
+    // A retained, shared join owner keeps ENGINE occupied while stopping.
+    // Starts remain fail-closed, without holding ENGINE across a blocking wait.
+    thread: Arc<Mutex<Option<JoinHandle<()>>>>,
 }
 
 pub(super) fn start(
@@ -198,7 +201,7 @@ fn spawn_runtime(
         status: Arc::clone(&status),
         protector: handle_protector,
         commands: command_tx,
-        thread,
+        thread: Arc::new(Mutex::new(Some(thread))),
     });
     drop(slot);
 
@@ -269,16 +272,44 @@ fn duplicate_tun(tun_file_descriptor: i32) -> Result<OwnedFd, i32> {
     Ok(owned)
 }
 
-pub(super) fn stop() {
+pub(super) fn stop() -> bool {
     clear_last_start_error();
     let Some(engine) = ENGINE.get() else {
-        return;
+        return true;
     };
-    let handle = engine.lock().ok().and_then(|mut slot| slot.take());
-    if let Some(handle) = handle {
+    let owner = {
+        let Ok(slot) = engine.try_lock() else {
+            return false;
+        };
+        let Some(handle) = slot.as_ref() else {
+            return true;
+        };
         handle.cancellation.cancel();
-        let _ = handle.thread.join();
+        Arc::clone(&handle.thread)
+    };
+    // Only stop callers serialize on this lock. Snapshots, cancellation and
+    // start admission never wait for a worker while holding ENGINE.
+    let Ok(mut joining) = owner.try_lock() else {
+        return false;
+    };
+    if let Some(thread) = joining.as_ref()
+        && !crate::runtime_stop::wait_finished(thread, Duration::from_secs(5))
+    {
+        return false;
     }
+    if let Some(thread) = joining.take() {
+        let _ = thread.join();
+    }
+    let Ok(mut slot) = engine.try_lock() else {
+        return false;
+    };
+    if slot
+        .as_ref()
+        .is_some_and(|handle| Arc::ptr_eq(&handle.thread, &owner))
+    {
+        slot.take();
+    }
+    true
 }
 
 pub(super) fn cancel() {
@@ -501,38 +532,31 @@ fn spawn_exit_probe(
     }
 }
 
-enum SessionDataEvent<TunRead, TunnelReceive> {
-    TunRead(TunRead),
-    TunnelReceive(TunnelReceive),
-    Tick,
-    PreparationError(io::Error),
+type OwnedSessionDataEvent = SessionDataEvent<
+    Option<io::Result<usize>>,
+    Option<Result<bytes::Bytes, TransportError>>,
+    Result<(), TransportError>,
+    io::Result<()>,
+>;
+
+struct PendingPacketIo<'a, F> {
+    send: std::pin::Pin<&'a mut Option<F>>,
+    write: Option<&'a [u8]>,
 }
 
-async fn next_session_data<TunRead, TunnelReceive>(
-    tun_read: impl Future<Output = TunRead>,
-    tunnel_receive: impl Future<Output = TunnelReceive>,
-    tick: impl Future,
-) -> SessionDataEvent<TunRead, TunnelReceive> {
-    // Tokio randomizes the starting branch when `biased` is absent. Keep this
-    // fairness local to the data plane; the outer loop still gives cancellation
-    // and runtime commands deterministic priority.
-    tokio::select! {
-        read = tun_read => SessionDataEvent::TunRead(read),
-        received = tunnel_receive => SessionDataEvent::TunnelReceive(received),
-        _ = tick => SessionDataEvent::Tick,
-    }
-}
-
-type OwnedSessionDataEvent =
-    SessionDataEvent<Option<io::Result<usize>>, Option<Result<bytes::Bytes, TransportError>>>;
-
-async fn next_owned_session_data(
+async fn next_owned_session_data<F: Future<Output = Result<(), TransportError>>>(
     packet_slab: &mut TunReadSlab,
     slot_size: usize,
     tun: Option<&AsyncFd<TunFd>>,
     mut tun_io: Option<&mut TunPacketIo>,
     tick: impl Future,
+    pending: PendingPacketIo<'_, F>,
 ) -> OwnedSessionDataEvent {
+    let PendingPacketIo {
+        send: pending_send,
+        write: pending_write,
+    } = pending;
+    let can_read = pending_send.as_ref().get_ref().is_none();
     let allocated = match packet_slab.prepare(slot_size) {
         Ok(allocated) => allocated,
         Err(error) => return SessionDataEvent::PreparationError(error),
@@ -544,8 +568,8 @@ async fn next_owned_session_data(
     next_session_data(
         async {
             match tun {
-                Some(tun) => Some(read_packet(tun, tun_read_buffer).await),
-                None => {
+                Some(tun) if can_read => Some(read_packet(tun, tun_read_buffer).await),
+                _ => {
                     std::future::pending::<()>().await;
                     None
                 }
@@ -553,11 +577,18 @@ async fn next_owned_session_data(
         },
         async {
             match tun_io.as_deref_mut() {
-                Some(io) => Some(io.receive_packet().await),
-                None => {
+                Some(io) if pending_write.is_none() => Some(io.receive_packet().await),
+                _ => {
                     std::future::pending::<()>().await;
                     None
                 }
+            }
+        },
+        wait_pending(pending_send),
+        async {
+            match (tun, pending_write) {
+                (Some(tun), Some(packet)) => write_packet(tun, packet).await,
+                _ => std::future::pending().await,
             }
         },
         tick,
@@ -583,6 +614,10 @@ async fn run_session(
     ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let mut last_sample = Instant::now();
     let mut last_traffic = TrafficSnapshot::default();
+    // These slots hold at most one packet per direction. The send future stays
+    // pinned in-place across ticks; it is neither re-enqueued nor heap-boxed.
+    let mut pending_send = std::pin::pin!(None);
+    let mut pending_write: Option<bytes::Bytes> = None;
 
     loop {
         tokio::select! {
@@ -590,6 +625,12 @@ async fn run_session(
             _ = cancellation.cancelled() => break,
             command = commands.recv() => {
                 let Some(command) = command else { break; };
+                if matches!(&command, RuntimeCommand::AttachTun { .. } | RuntimeCommand::DetachTun { .. })
+                    || matches!(&command, RuntimeCommand::Reconfigure { profile: next, .. } if next.frontends.tunnel != profile.frontends.tunnel)
+                {
+                    pending_send.set(None);
+                    pending_write = None;
+                }
                 handle_runtime_command(
                     command,
                     &mut tunnel,
@@ -606,7 +647,22 @@ async fn run_session(
                 tun.as_ref(),
                 tun_io.as_mut(),
                 ticker.tick(),
+                PendingPacketIo { send: pending_send.as_mut(), write: pending_write.as_deref() },
             ) => match event {
+                SessionDataEvent::Sent(result) => {
+                    pending_send.set(None);
+                    if let Err(error) = result {
+                        set_transport_error_on_path(&status, &error, tunnel.path());
+                        break;
+                    }
+                }
+                SessionDataEvent::Written(result) => {
+                    pending_write = None;
+                    if let Err(error) = result {
+                        set_error(&status, format!("write Android TUN: {error}"));
+                        break;
+                    }
+                }
                 SessionDataEvent::PreparationError(error) => {
                     set_error(&status, format!("prepare Android TUN read: {error}"));
                     break;
@@ -629,36 +685,14 @@ async fn run_session(
                             break;
                         }
                     };
-                    let send = tokio::select! {
-                        biased;
-                        _ = cancellation.cancelled() => None,
-                        result = io.send_owned_packet(packet) => Some(result),
-                    };
-                    let Some(send) = send else {
-                        break;
-                    };
-                    if let Err(error) = send {
-                        set_transport_error_on_path(&status, &error, tunnel.path());
-                        break;
-                    }
+                    pending_send.set(Some(io.start_send_owned_packet(packet)));
                 }
                 SessionDataEvent::TunnelReceive(received) => {
                     let Some(received) = received else { continue; };
-                    let Some(tun) = tun.as_ref() else { continue; };
+                    if tun.is_none() { continue; }
                     match received {
                         Ok(packet) => {
-                            let written = tokio::select! {
-                                biased;
-                                _ = cancellation.cancelled() => None,
-                                result = write_packet(tun, &packet) => Some(result),
-                            };
-                            let Some(written) = written else {
-                                break;
-                            };
-                            if let Err(error) = written {
-                                set_error(&status, format!("write Android TUN: {error}"));
-                                break;
-                            }
+                            pending_write = Some(packet);
                         }
                         Err(error) => {
                             set_transport_error_on_path(&status, &error, tunnel.path());
@@ -692,6 +726,13 @@ async fn run_session(
         }
     }
     super::connection_timeline::publish(tunnel.connection_timeline());
+    tunnel.cancel_immediately();
+    pending_send.set(None);
+    drop(pending_write.take());
+    drop(tun_io.take());
+    // Release the native dup before awaiting backend cleanup. Java retains its
+    // own FD for fail-closed recovery unless the user explicitly disconnected.
+    drop(tun.take());
     tunnel.shutdown().await;
 }
 

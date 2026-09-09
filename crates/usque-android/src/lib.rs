@@ -367,6 +367,22 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeSto
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeStopConfirmed<
+    'local,
+>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
+) -> jboolean {
+    with_jni_env(&mut environment, |_| {
+        if stop_engine_confirmed() {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeNotifyNetworkChanged<
     'local,
 >(
@@ -2558,6 +2574,10 @@ impl NativeSnapshot {
 #[cfg(target_os = "android")]
 mod android_runtime;
 #[cfg(any(test, target_os = "android"))]
+mod runtime_stop;
+#[cfg(any(test, target_os = "android"))]
+mod session_pump;
+#[cfg(any(test, target_os = "android"))]
 mod tun_read_slab;
 
 fn start_engine(
@@ -2618,8 +2638,18 @@ fn start_proxy_engine(
 }
 
 fn stop_engine() {
+    let _ = stop_engine_confirmed();
+}
+
+fn stop_engine_confirmed() -> bool {
     #[cfg(target_os = "android")]
-    android_runtime::stop();
+    {
+        android_runtime::stop()
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        true
+    }
 }
 
 fn cancel_engine() {

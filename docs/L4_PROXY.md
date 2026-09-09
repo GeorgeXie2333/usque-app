@@ -84,6 +84,12 @@ retained slices until ACK/drop. Frontend admission is bounded before parsing
 and authentication. Local TCP listeners, half-opens and accepted sockets share
 the allocator; a one-shot listener does not allocate a spare accept socket.
 
+The local packet device reserves a bounded TX slot for every packet before
+handing smoltcp a transmit token. It never performs a blocking queue send or
+discards accepted TCP data on a full queue. Android retains at most one pending
+packet per direction while continuing reverse I/O, health sampling and control
+handling. See the [backpressure and stop follow-up](L4_BACKPRESSURE_FIX.md).
+
 | Limit | Desktop | Android 64-bit | Android 32-bit |
 | --- | ---: | ---: | ---: |
 | Business streams | 256 | 128 | 64 |
@@ -142,6 +148,14 @@ from registration, not fabricated CONNECT-IP negotiation. Android retains
 VpnService protection, network binding, generation checks and lifecycle policy.
 No broad process/UDP bypass, platform-safety downgrade or installer behavior is
 introduced. Failed traffic does not silently become direct traffic.
+
+Android reports native stop requests and confirmations separately. A native
+stop waits up to five seconds for its worker to finish, retaining ownership and
+refusing a replacement runtime when completion is unconfirmed. The native TUN
+duplicate is released before awaiting backend cleanup; Java's protective FD is
+retained for fail-closed recovery unless the user explicitly disconnects.
+`pending_cleanup` includes queued/unconfirmed native stops, and such a snapshot
+does not claim that the native runtime is stopped.
 
 ## Validation and performance evidence
 

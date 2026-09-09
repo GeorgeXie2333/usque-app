@@ -246,7 +246,7 @@ impl NatTable {
 /// unavailable gateway returns every packet to the MASQUE path.
 pub(crate) struct DirectGatewayRouter {
     channel: Option<Channel>,
-    stack_incoming: Option<ts_netstack_smoltcp::WakingPipeSender>,
+    stack_incoming: Option<crate::packet_pipe::PacketSender>,
     policy: Arc<GeoDirectPolicy>,
     protector: Arc<dyn SocketProtector>,
     counters: Arc<TrafficCounters>,
@@ -334,7 +334,7 @@ impl DirectGatewayRouter {
             stack_task.abort();
             return Err(TransportError::Netstack(error.to_string()));
         }
-        let ts_netstack_smoltcp::WakingPipe {
+        let crate::packet_pipe::PacketPipe {
             mut rx,
             tx: stack_incoming,
         } = pipe;
@@ -1007,7 +1007,7 @@ mod tests {
             .await
             .unwrap();
             let flows = Arc::clone(&gateway.flows);
-            let ts_netstack_smoltcp::WakingPipe {
+            let crate::packet_pipe::PacketPipe {
                 mut rx,
                 tx: client_incoming,
             } = client_pipe;

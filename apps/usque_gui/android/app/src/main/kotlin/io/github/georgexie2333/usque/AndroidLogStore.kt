@@ -25,6 +25,9 @@ internal class AndroidLogStore internal constructor(
         CONNECTION_STOPPED,
         NETWORK_CHANGED,
         VPN_PERMISSION_REVOKED,
+        NATIVE_STOP_REQUESTED,
+        NATIVE_STOP_COMPLETED,
+        NATIVE_STOP_UNCONFIRMED,
     }
 
     @Synchronized
@@ -44,7 +47,15 @@ internal class AndroidLogStore internal constructor(
                     append("{\"timestamp\":\"")
                     append(Instant.now())
                     append("\",\"level\":\"")
-                    append(if (event == Event.CONNECTION_FAILED) "WARN" else "INFO")
+                    append(
+                        if (event == Event.CONNECTION_FAILED ||
+                            event == Event.NATIVE_STOP_UNCONFIRMED
+                        ) {
+                            "WARN"
+                        } else {
+                            "INFO"
+                        },
+                    )
                     append("\",\"event\":\"")
                     append(event.name)
                     append('"')

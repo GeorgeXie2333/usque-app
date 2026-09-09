@@ -9,6 +9,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ServiceSnapshotStateTest {
+    @Test
+    fun pendingNativeCleanupCannotClaimThatTheRuntimeStopped() {
+        val snapshot = ServiceSnapshotState()
+        val pending =
+            ServiceSnapshotState.PlatformFlags(
+                tunnelOpen = false,
+                activeMode = null,
+                platformLockdown = false,
+                alwaysOn = false,
+                nativeRuntimeActive = false,
+                pendingCleanup = true,
+            )
+        assertEquals("unknown", snapshot.wireEntries(pending)["native_runtime_state"])
+        assertEquals(true, snapshot.wireEntries(pending)["pending_cleanup"])
+        assertEquals("stopped", snapshot.wireEntries(pending.copy(pendingCleanup = false))["native_runtime_state"])
+    }
+
     private fun state(): ServiceSnapshotState = ServiceSnapshotState()
 
     @Test

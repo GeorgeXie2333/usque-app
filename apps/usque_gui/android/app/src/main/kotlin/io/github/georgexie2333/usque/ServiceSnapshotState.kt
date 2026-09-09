@@ -536,7 +536,13 @@ internal class ServiceSnapshotState {
             WireKeys.NETWORK_GENERATION to fields.networkGeneration,
             WireKeys.DNS_SERVER_COUNT to fields.dnsServerCount,
             WireKeys.NATIVE_RUNTIME_STATE to
-                if (fields.nativeRuntimeActive) "running" else "stopped",
+                if (fields.pendingCleanup) {
+                    "unknown"
+                } else if (fields.nativeRuntimeActive) {
+                    "running"
+                } else {
+                    "stopped"
+                },
             WireKeys.FOREGROUND_NOTIFICATION_STATE to
                 if (fields.foregroundNotificationActive) "active" else "inactive",
             WireKeys.PENDING_CLEANUP to fields.pendingCleanup,

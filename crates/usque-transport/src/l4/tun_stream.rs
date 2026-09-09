@@ -96,10 +96,13 @@ fn cleanup(
     handle: Option<SocketHandle>,
     command: impl Fn() -> ts_netstack_smoltcp::netcore::Command + Send + 'static,
 ) {
-    if channel.request_nonblocking(handle, command()).is_err()
-        && let Ok(runtime) = tokio::runtime::Handle::try_current()
+    if matches!(
+        ts_netstack_smoltcp::netcore::try_request_nonblocking(channel, handle, command()),
+        Err(ts_netstack_smoltcp::netcore::TryRequestError::Full)
+    ) && let Ok(runtime) = tokio::runtime::Handle::try_current()
     {
         // A bounded command queue can be full during a cancellation burst.
+        // The legacy request_nonblocking helper reports Full as success.
         // Cleanup must wait for capacity instead of orphaning a live socket.
         // These tasks are bounded by the stack's allocated socket budget; a
         // stopped stack closes the receiver and releases all remaining work.
@@ -249,5 +252,81 @@ impl Drop for TunStream {
         cleanup(&self.channel, None, move || {
             tcp::listen::Command::Close { handle }.into()
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ts_netstack_smoltcp::netcore::{
+        Config, Netstack, Request, TcpBufferMetrics, TcpBufferPolicy, TcpBufferTier, flume,
+        stack_control, try_request_nonblocking,
+    };
+
+    #[tokio::test]
+    async fn full_command_queue_cleanup_releases_listener_without_network_progress() {
+        let metrics = TcpBufferMetrics::default();
+        let config = Config {
+            command_channel_capacity: Some(1),
+            tcp_buffer_metrics: Some(metrics.clone()),
+            tcp_buffer_policy: Some(TcpBufferPolicy {
+                preferred: TcpBufferTier {
+                    receive: 16384,
+                    transmit: 16384,
+                },
+                fallback: TcpBufferTier {
+                    receive: 16384,
+                    transmit: 16384,
+                },
+                preferred_budget: 32768,
+                total_budget: 32768,
+            }),
+            ..Config::default()
+        };
+        let mut stack = Netstack::new(
+            config,
+            ts_netstack_smoltcp::netcore::smoltcp::time::Instant::from_millis(0),
+        );
+        let channel = stack.command_channel();
+        for port in [40001, 40002] {
+            let local = SocketAddr::from(([127, 0, 0, 1], port));
+            let (resp, result) = flume::bounded(1);
+            stack.process_one_cmd(Request {
+                handle: None,
+                command: tcp::listen::Command::ListenOnce {
+                    local_endpoint: local,
+                }
+                .into(),
+                resp,
+            });
+            let Response::TcpListen(tcp::listen::Response::Listening { handle }) =
+                result.try_recv().unwrap()
+            else {
+                panic!("listener must fit after previous cleanup");
+            };
+            assert_eq!(metrics.snapshot().total_bytes, 32768);
+            try_request_nonblocking(
+                &channel,
+                None,
+                stack_control::Command::SetIps { new_ips: vec![] },
+            )
+            .unwrap();
+            drop(OnceListener {
+                channel: channel.clone(),
+                handle,
+                local,
+                transferred: false,
+            });
+            tokio::task::yield_now().await;
+            assert_eq!(metrics.snapshot().total_bytes, 32768);
+            tokio::time::timeout(std::time::Duration::from_secs(1), async {
+                while metrics.snapshot().total_bytes != 0 {
+                    stack.process_cmds();
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .expect("cleanup must retry a full command queue and reclaim without I/O");
+        }
     }
 }

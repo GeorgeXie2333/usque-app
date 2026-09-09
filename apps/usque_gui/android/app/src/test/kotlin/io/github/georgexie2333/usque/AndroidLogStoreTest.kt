@@ -7,6 +7,24 @@ import java.nio.file.Files
 
 class AndroidLogStoreTest {
     @Test
+    fun nativeStopCompletionAndUnconfirmedEventsSurviveRedaction() {
+        val directory = Files.createTempDirectory("usque-stop-log-test").toFile()
+        try {
+            val store = AndroidLogStore(directory)
+            store.record(AndroidLogStore.Event.NATIVE_STOP_REQUESTED)
+            store.record(AndroidLogStore.Event.NATIVE_STOP_UNCONFIRMED)
+            store.record(AndroidLogStore.Event.NATIVE_STOP_COMPLETED)
+            val diagnostic = store.diagnosticSnapshot()
+            assertTrue(diagnostic.contains("NATIVE_STOP_REQUESTED"))
+            assertTrue(diagnostic.contains("NATIVE_STOP_UNCONFIRMED"))
+            assertTrue(diagnostic.contains("NATIVE_STOP_COMPLETED"))
+            assertTrue(diagnostic.contains("\"level\":\"WARN\""))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
     fun diagnosticLogContainsOnlyWhitelistedStateTokens() {
         val directory = Files.createTempDirectory("usque-log-test").toFile()
         try {

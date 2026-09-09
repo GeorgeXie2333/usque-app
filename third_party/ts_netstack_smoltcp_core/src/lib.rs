@@ -36,7 +36,8 @@ mod wake_device;
 #[doc(inline)]
 pub use command::{
     Channel, ChannelClosedError, Command, Error, HasChannel, InternalErrorKind, Request, Response,
-    raw, request, request_blocking, request_nonblocking, stack_control, tcp, udp,
+    TryRequestError, raw, request, request_blocking, request_nonblocking, stack_control, tcp,
+    try_request_nonblocking, udp,
 };
 pub use config::{
     Config, TcpBufferMetrics, TcpBufferMetricsSnapshot, TcpBufferPolicy, TcpBufferTier,

@@ -406,6 +406,10 @@ impl Netstack {
                     self.pending_tcp_closes.push(pending_accept);
                 }
 
+                // A one-shot abort is already Closed. Reclaim it now, even
+                // if the pipe is full or there will be no more network I/O.
+                // Unique transferred owners still protect other socket slots.
+                self.drain_tcp_closes();
                 Response::Ok
             }
         }

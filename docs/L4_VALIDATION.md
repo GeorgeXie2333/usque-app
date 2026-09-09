@@ -1,5 +1,9 @@
 # L4 development validation
 
+This is the historical initial-L4 validation record. The subsequent high-load
+backpressure/stop fix and its separate validation scope are recorded in
+[L4 backpressure follow-up](L4_BACKPRESSURE_FIX.md).
+
 Validation date: 2026-09-09. Scope: this uncommitted working tree on a Windows
 development machine. This is a development record, not signed release evidence
 or a claim about real Cloudflare throughput/leak safety.

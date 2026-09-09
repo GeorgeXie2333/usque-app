@@ -2,11 +2,11 @@ use std::collections::HashSet;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 
+use crate::packet_pipe::PacketPipe as WakingPipe;
 use bytes::Bytes;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
-use ts_netstack_smoltcp::WakingPipe;
 use usque_core::{Profile, ProxyAuthCredentials, ProxyDnsMode};
 
 use crate::direct_gateway::DirectGatewayRouter;
@@ -44,6 +44,24 @@ pub struct MasqueTunIo {
 }
 
 impl MasqueTunIo {
+    /// Own the send state so platform packet pumps can continue receiving and
+    /// handling control events while this bounded enqueue waits for capacity.
+    pub(crate) fn start_send_owned_packet(
+        &self,
+        packet: Bytes,
+    ) -> impl std::future::Future<Output = Result<(), TransportError>> + Send + use<> {
+        let outgoing = self.outgoing.clone();
+        let cancellation = self.cancellation.clone();
+        async move {
+            crate::h2::validate_ip_packet(&packet)?;
+            let bytes = packet.len();
+            outgoing
+                .send_cancellable(packet, bytes, &cancellation)
+                .await
+                .map_err(|_| TransportError::TunnelClosed)
+        }
+    }
+
     /// Borrowed convenience path for low-frequency callers and tests. Platform
     /// packet pumps must prefer [`Self::send_owned_packet`].
     pub async fn send_packet(&self, packet: &[u8]) -> Result<(), TransportError> {

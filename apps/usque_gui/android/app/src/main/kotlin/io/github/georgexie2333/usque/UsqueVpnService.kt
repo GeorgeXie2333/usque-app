@@ -27,6 +27,7 @@ import java.net.Inet6Address
 import java.net.InetAddress
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
+import java.util.concurrent.Future
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -92,6 +93,7 @@ class UsqueVpnService : VpnService() {
     private val connectionGeneration = AtomicLong()
     private val tunnel = AtomicReference<ParcelFileDescriptor?>()
     private val nativeRuntimeActive = AtomicBoolean()
+    private val nativeStops = NativeStopTracker()
     private val clearAllRequested = AtomicBoolean()
     private val activeProfileJson = AtomicReference<String?>(null)
     private val settingsExecutor = Executors.newSingleThreadExecutor()
@@ -355,9 +357,7 @@ class UsqueVpnService : VpnService() {
         NativeEngine.cancel()
         val descriptor = tunnel.getAndSet(null)
         closeQuietly(descriptor)
-        stopExecutor.execute {
-            NativeEngine.stop()
-        }
+        submitNativeStop()
         engineExecutor.shutdownNow()
         settingsExecutor.shutdownNow()
         statusExecutor.shutdownNow()
@@ -493,18 +493,19 @@ class UsqueVpnService : VpnService() {
         val staleDescriptor =
             if (decision == TunRestartDecision.TEARDOWN) {
                 lastTunIdentity.set(null)
-                tunnel.getAndSet(null)
+                // Retain Java's protective FD until native stop is confirmed.
+                // A timed-out stop must not lose its cleanup owner to GC.
+                tunnel.get()
             } else {
                 null
             }
-        val stopped =
-            stopExecutor.submit {
-                NativeEngine.stop()
-                closeQuietly(staleDescriptor)
-            }
+        val stopped = submitNativeStop()
         engineExecutor.execute {
             try {
-                stopped.get(35, TimeUnit.SECONDS)
+                check(stopped.get(35, TimeUnit.SECONDS)) { "Native stop is unconfirmed" }
+                if (staleDescriptor != null && tunnel.compareAndSet(staleDescriptor, null)) {
+                    closeQuietly(staleDescriptor)
+                }
                 if (!isCurrent(generation)) return@execute
                 startConnection(generation, profileJson)
             } catch (error: Exception) {
@@ -1009,7 +1010,7 @@ class UsqueVpnService : VpnService() {
                 return
             }
             if (!isCurrent(generation)) {
-                NativeEngine.stop()
+                stopNativeRuntime(beginNativeStop())
                 if (!profile.killSwitch) {
                     tunnel.compareAndSet(descriptor, null)
                     closeQuietly(descriptor)
@@ -1078,7 +1079,7 @@ class UsqueVpnService : VpnService() {
                 return
             }
             if (!isCurrent(generation)) {
-                NativeEngine.stop()
+                stopNativeRuntime(beginNativeStop())
                 return
             }
             nativeRuntimeActive.set(true)
@@ -1393,6 +1394,7 @@ class UsqueVpnService : VpnService() {
         activeProfileJson.set(null)
         val stoppedMode = activeMode.getAndSet(null)
         nativeRuntimeActive.set(false)
+        val stopTicket = beginNativeStop()
         stopStatusTask()
         NativeEngine.cancel()
         val descriptor = tunnel.getAndSet(null)
@@ -1409,11 +1411,20 @@ class UsqueVpnService : VpnService() {
         stopForeground(STOP_FOREGROUND_REMOVE)
 
         // Joining the native Tokio thread is cleanup, not part of the user
-        // visible disconnect. The TUN and cancellation gate are already closed.
-        stopExecutor.execute {
-            NativeEngine.stop()
+        // visible disconnect. Java's TUN handle and the cancellation gate are
+        // closed; native duplicate-FD and worker completion are tracked below.
+        submitNativeStop(stopTicket) { confirmed ->
             mainHandler.post {
-                if (connectionGeneration.get() == generation && stopService) stopSelf()
+                if (connectionGeneration.get() == generation) {
+                    broadcastSnapshot()
+                    if (confirmed && stopService) stopSelf()
+                    if (!confirmed) {
+                        fail(
+                            generation,
+                            "Native cleanup is not confirmed. Retry before reconnecting.",
+                        )
+                    }
+                }
             }
         }
     }
@@ -1438,6 +1449,7 @@ class UsqueVpnService : VpnService() {
         activeProfileJson.set(null)
         activeMode.set(null)
         nativeRuntimeActive.set(false)
+        val stopTicket = beginNativeStop()
         stopStatusTask()
         snapshotState.phase = "disconnecting"
         snapshotState.warning = null
@@ -1446,10 +1458,14 @@ class UsqueVpnService : VpnService() {
         NativeEngine.cancel()
         val descriptor = tunnel.getAndSet(null)
         closeQuietly(descriptor)
-        stopExecutor.execute {
-            NativeEngine.stop()
+        submitNativeStop(stopTicket) { confirmed ->
             mainHandler.post {
                 if (connectionGeneration.get() == generation) {
+                    if (!confirmed) {
+                        replyControlError(request, "NATIVE_STOP_UNCONFIRMED", "Native cleanup has not completed.")
+                        fail(generation, "Native cleanup has not completed. Retry stopping before clearing data.")
+                        return@post
+                    }
                     snapshotState.reset("disconnected")
                     notifyTileStateChanged()
                     broadcastSnapshot()
@@ -1460,6 +1476,40 @@ class UsqueVpnService : VpnService() {
             }
         }
     }
+
+    private fun beginNativeStop(): Long {
+        val ticket = nativeStops.begin()
+        logStore.record(AndroidLogStore.Event.NATIVE_STOP_REQUESTED)
+        return ticket
+    }
+
+    private fun stopNativeRuntime(ticket: Long): Boolean {
+        val confirmed = NativeEngine.stop()
+        nativeStops.complete(ticket, confirmed)
+        logStore.record(
+            if (confirmed) {
+                AndroidLogStore.Event.NATIVE_STOP_COMPLETED
+            } else {
+                AndroidLogStore.Event.NATIVE_STOP_UNCONFIRMED
+            },
+        )
+        return confirmed
+    }
+
+    private fun submitNativeStop(
+        ticket: Long = beginNativeStop(),
+        completed: (Boolean) -> Unit = {},
+    ): Future<Boolean> =
+        try {
+            stopExecutor.submit<Boolean> {
+                val confirmed = stopNativeRuntime(ticket)
+                completed(confirmed)
+                confirmed
+            }
+        } catch (error: java.util.concurrent.RejectedExecutionException) {
+            nativeStops.complete(ticket, false)
+            throw error
+        }
 
     private fun handleUnderlyingNetworkChanged(
         selectedNetwork: Network?,
@@ -1937,7 +1987,7 @@ class UsqueVpnService : VpnService() {
             dnsServerCount = networkMonitor.underlyingDnsServers().size,
             nativeRuntimeActive = nativeRuntimeActive.get(),
             foregroundNotificationActive = activeProfileJson.get() != null,
-            pendingCleanup = clearAllRequested.get(),
+            pendingCleanup = clearAllRequested.get() || nativeStops.pendingCleanup(),
         )
 
     private fun updateNotification() {

@@ -55,6 +55,7 @@ pub(crate) struct TunBridge {
     incoming: Option<mpsc::Receiver<Bytes>>,
     cancellation: CancellationToken,
     tasks: Vec<JoinHandle<()>>,
+    flow_tasks: tokio_util::task::TaskTracker,
     metrics: Arc<L4Metrics>,
     _reservations: Vec<BufferLease>,
     mtu: usize,
@@ -69,6 +70,29 @@ pub(crate) struct L4TunIo {
 }
 
 impl L4TunIo {
+    pub(crate) fn start_send_owned_packet(
+        &self,
+        packet: Bytes,
+    ) -> impl std::future::Future<Output = Result<(), TransportError>> + Send + use<> {
+        let outgoing = self.outgoing.clone();
+        let cancellation = self.cancellation.clone();
+        let metrics = self.metrics.clone();
+        let mtu = self.mtu;
+        async move {
+            if cancellation.is_cancelled() {
+                return Err(TransportError::TunnelClosed);
+            }
+            if crate::h2::validate_ip_packet(&packet).is_err() || packet.len() > mtu {
+                metrics.update(|m| m.unsupported_packets += 1);
+                return Ok(());
+            }
+            tokio::select! {
+                _ = cancellation.cancelled() => Err(TransportError::TunnelClosed),
+                result = outgoing.send(packet) => result.map_err(|_| TransportError::TunnelClosed),
+            }
+        }
+    }
+
     pub(crate) async fn send_owned_packet(&self, packet: Bytes) -> Result<(), TransportError> {
         if self.cancellation.is_cancelled() {
             return Err(TransportError::TunnelClosed);
@@ -158,7 +182,7 @@ impl TunBridge {
         let flows = Arc::new(Mutex::new(Flows::default()));
         let (outgoing, mut packets) = mpsc::channel::<Bytes>(PACKETS);
         let (response_tx, incoming) = mpsc::channel::<Bytes>(PACKETS);
-        let ts_netstack_smoltcp::WakingPipe {
+        let crate::packet_pipe::PacketPipe {
             tx: stack_incoming,
             mut rx,
         } = pipe;
@@ -196,6 +220,8 @@ impl TunBridge {
         let task_cancel = cancellation.clone();
         let mtu = usize::from(profile.mtu);
         let pump_metrics = metrics.clone();
+        let flow_tasks = tokio_util::task::TaskTracker::new();
+        let tracked_flows = flow_tasks.clone();
         let task = tokio::spawn(async move {
             let mut jobs = JoinSet::new();
             let dns_permits = Arc::new(Semaphore::new(80));
@@ -236,7 +262,7 @@ impl TunBridge {
                         let resolver = resolver.clone();
                         let replies = response_tx.clone();
                         let cancel = task_cancel.clone();
-                        jobs.spawn(async move {
+                        jobs.spawn(tracked_flows.track_future(async move {
                             let _permit = permit;
                             let response = tokio::select! {
                                 _ = cancel.cancelled() => return,
@@ -245,7 +271,7 @@ impl TunBridge {
                             let response = crate::split_dns::limit_udp_response(&packet[meta.transport_offset + 8..], response, mtu.saturating_sub(meta.transport_offset + 8));
                             let wire = udp_response(&meta, &response);
                             tokio::select! { _ = cancel.cancelled() => {}, _ = replies.send(wire) => {} }
-                        });
+                        }));
                     } else {
                         pump_metrics.update(|m| m.udp_rejected += 1);
                         if icmp_window.elapsed() >= Duration::from_secs(1) {
@@ -364,15 +390,17 @@ impl TunBridge {
                     let replies = response_tx.clone();
                     let stats = pump_metrics.clone();
                     let budget = budget.clone();
-                    jobs.spawn(async move {
+                    // Own the mapping before spawn: cancellation may drop the
+                    // future without ever polling its first statement.
+                    let guard = FlowGuard {
+                        table,
+                        key,
+                        id,
+                        stats,
+                        replies,
+                    };
+                    jobs.spawn(tracked_flows.track_future(async move {
                         let _permit = permit;
-                        let guard = FlowGuard {
-                            table,
-                            key,
-                            id,
-                            stats,
-                            replies,
-                        };
                         let result = run_tcp(
                             listener, key, route, &services, &resolver, &budget, &cancel, &guard,
                         )
@@ -380,7 +408,7 @@ impl TunBridge {
                         if result.is_err() {
                             guard.reset();
                         }
-                    });
+                    }));
                     gateway
                 };
                 let mut packet = packet
@@ -403,6 +431,7 @@ impl TunBridge {
             incoming: Some(incoming),
             cancellation,
             tasks: vec![stack_task.detach(), incoming_task, task],
+            flow_tasks,
             metrics,
             _reservations: vec![stack_reservation, packet_reservation],
             mtu,
@@ -423,10 +452,18 @@ impl TunBridge {
     }
     pub(crate) async fn shutdown(&mut self) {
         self.cancel();
-        for task in self.tasks.drain(..) {
+        // Cancel every peer before awaiting any one task: a producer must not
+        // retain its consumer while shutdown waits for that producer to exit.
+        for task in &self.tasks {
             task.abort();
+        }
+        for task in self.tasks.drain(..) {
             let _ = task.await;
         }
+        // Dropping a JoinSet requests cancellation; it does not wait for child
+        // futures (and their mapping/buffer guards) to be dropped.
+        self.flow_tasks.close();
+        self.flow_tasks.wait().await;
     }
 }
 impl Drop for TunBridge {
