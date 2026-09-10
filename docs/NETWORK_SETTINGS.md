@@ -46,6 +46,13 @@ own operation ID receives a durable acknowledgement; an unrelated successful
 save does not confirm it. A query failure arriving after a newer authoritative
 reply cannot put the interface back into an unknown state.
 
+Further explicit saves remain available while earlier operations are unknown.
+The GUI tracks each operation independently: starting or rejecting another
+save does not clear earlier warnings, and a successful save acknowledges only
+itself. The latest save may succeed while the global warning remains. An
+accepted durable acknowledgement is retained for its in-flight request even
+if another snapshot arrives before that request times out.
+
 ## Application rules
 
 Schema 15 adds `data_plane` independently of the saved CONNECT-IP transport
@@ -79,6 +86,15 @@ restoration using the previous session, without changing the durable file.
 Android keeps the confirmed recovery profile separate from an in-progress
 settings target and confirms the target after native and platform completion.
 
+Android reserves a fresh application token and session generation before
+dispatching persistence. Its lifecycle is idle, persisting, reconfiguring,
+awaiting observation, then idle. Snapshots cannot finish an application while
+persistence or the runtime reply is pending. Terminal paths release the whole
+reservation, and late or duplicate callbacks cannot finish a newer save. Only
+that application's controlled cold reconnect carries its token into the new
+generation; unrelated session changes, disconnect, and destruction retire it.
+Cancelling application does not withdraw an already durable save acknowledgement.
+
 ## Persistence and safety
 
 [ConfigStore](../crates/usque-core/src/storage.rs) provides a short
@@ -89,9 +105,10 @@ Desktop account commits preserve the latest network settings. Credential I/O,
 network requests, runtime shutdown, and TUN operations stay outside the store
 transaction.
 
-The schema remains 14. Epochs, sequences, operation IDs, and application state
-are in memory and do not create a durable operation log. Passwords are removed
-from published profiles. This change does not relax Kill Switch, TUN retention,
+The current configuration schema is 15. Settings operation tracking does not
+add another schema version. Epochs, sequences, operation IDs, and application
+state are in memory and do not create a durable operation log. Passwords are
+removed from published profiles. This change does not relax Kill Switch, TUN retention,
 Agent journal, privileged cleanup, or isolated-runner requirements.
 
 ## Verification
@@ -114,6 +131,16 @@ uninstall, crash recovery, Android device lifecycle, and leak observation
 require the isolated environments in [AGENTS](../AGENTS.md). Workstation
 unit and compile checks do not establish those results. No MSI or release
 APK is part of this change.
+
+### Review-fix validation, 2026-09-11
+
+The operation-tracking fixes add Flutter cases for consecutive unknown saves,
+independent acknowledgement, query warnings, stale replies, and an early
+acknowledgement surviving a newer snapshot. Pure Kotlin tracker cases cover
+snapshot interleaving, terminal cleanup, duplicate callbacks, cancellation,
+and controlled session migration without starting JNI or a VPN service.
+Test execution and protected-environment validation for these fixes are
+`not_run`, as requested. The historical results below do not validate these fixes.
 
 ### Workstation validation, 2026-09-08
 

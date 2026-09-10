@@ -21,6 +21,7 @@ class SettingsEngine extends FakeEngineClient {
   Completer<NetworkSettingsState>? queryResponse;
   Object? saveFailure;
   Object? queryFailure;
+  int queries = 0;
   @override
   Future<NetworkSettingsState> saveNetworkSettings(
     String operationId,
@@ -36,6 +37,7 @@ class SettingsEngine extends FakeEngineClient {
 
   @override
   Future<NetworkSettingsState> getNetworkSettingsState() async {
+    queries++;
     if (queryFailure != null) throw queryFailure!;
     return queryResponse?.future ?? super.getNetworkSettingsState();
   }
@@ -206,9 +208,221 @@ void main() {
       isFalse,
     );
     expect(engine.submitted, hasLength(1));
+    expect(engine.queries, 1);
     expect(controller.unconfirmed, isTrue);
     expect(controller.state, isNull);
   });
+
+  for (final outcome in ['success', 'rejection', 'timeout', 'unacknowledged']) {
+    test(
+      'a later save $outcome does not clear an older unknown save',
+      () async {
+        final engine = SettingsEngine()
+          ..saveFailure = const EngineException(
+            'ENGINE_REQUEST_TIMEOUT',
+            'timeout',
+          )
+          ..queryFailure = const EngineException(
+            'ENGINE_IPC_UNAVAILABLE',
+            'offline',
+          );
+        final controller = NetworkSettingsController(engine)..supported = true;
+        addTearDown(controller.dispose);
+        final profile = UsqueProfile.defaultProfile();
+        expect(await controller.save(profile, ['mtu']), isFalse);
+        final first = engine.submitted.single;
+
+        engine
+          ..saveFailure = null
+          ..response = Completer();
+        final saving = controller.save(profile.copyWith(mtu: 1400), ['mtu']);
+        await Future<void>.delayed(Duration.zero);
+        final second = engine.submitted.last;
+        expect(engine.submitted, hasLength(2));
+        expect(controller.unconfirmed, isTrue);
+
+        switch (outcome) {
+          case 'rejection':
+            engine.response!.completeError(
+              const EngineException('NETWORK_SETTINGS_SAVE_FAILED', 'rejected'),
+            );
+          case 'timeout':
+            engine.response!.completeError(
+              const EngineException('ENGINE_REQUEST_TIMEOUT', 'timeout'),
+            );
+          default:
+            engine.response!.complete(
+              NetworkSettingsState(
+                sourceEpoch: 'one',
+                sequence: 1,
+                operationId: second,
+                persisted: outcome == 'success' ? true : null,
+              ),
+            );
+        }
+        expect(await saving, outcome == 'success');
+        expect(controller.unconfirmed, isTrue);
+        expect(
+          controller.saveError,
+          outcome == 'rejection' ? 'NETWORK_SETTINGS_SAVE_FAILED' : null,
+        );
+        expect(engine.submitted, hasLength(2));
+        expect(engine.queries, outcome == 'timeout' ? 2 : 1);
+
+        if (outcome == 'timeout' || outcome == 'unacknowledged') {
+          controller.accept(
+            NetworkSettingsState(
+              sourceEpoch: 'one',
+              sequence: 2,
+              operationId: second,
+              persisted: true,
+            ),
+          );
+          expect(controller.unconfirmed, isTrue);
+        }
+        controller.accept(
+          NetworkSettingsState(
+            sourceEpoch: 'one',
+            sequence: 3,
+            operationId: first,
+            persisted: true,
+          ),
+        );
+        expect(controller.unconfirmed, isFalse);
+      },
+    );
+  }
+
+  test(
+    'confirming an older save leaves a newer unknown save unresolved',
+    () async {
+      final engine = SettingsEngine()
+        ..saveFailure = const EngineException(
+          'ENGINE_REQUEST_TIMEOUT',
+          'timeout',
+        )
+        ..queryFailure = const EngineException(
+          'ENGINE_IPC_UNAVAILABLE',
+          'offline',
+        );
+      final controller = NetworkSettingsController(engine)..supported = true;
+      addTearDown(controller.dispose);
+      final profile = UsqueProfile.defaultProfile();
+      expect(await controller.save(profile, ['mtu']), isFalse);
+      expect(
+        await controller.save(profile.copyWith(mtu: 1400), ['mtu']),
+        isFalse,
+      );
+      controller.accept(
+        NetworkSettingsState(
+          sourceEpoch: 'one',
+          sequence: 1,
+          operationId: engine.submitted.first,
+          persisted: true,
+        ),
+      );
+      expect(controller.unconfirmed, isTrue);
+      controller.accept(
+        NetworkSettingsState(
+          sourceEpoch: 'one',
+          sequence: 2,
+          operationId: engine.submitted.last,
+          persisted: true,
+        ),
+      );
+      expect(controller.unconfirmed, isFalse);
+      expect(engine.submitted, hasLength(2));
+      expect(engine.queries, 2);
+    },
+  );
+
+  test(
+    'starting or rejecting a save cannot clear a failed status query',
+    () async {
+      final engine = SettingsEngine()
+        ..response = Completer()
+        ..queryFailure = const EngineException(
+          'ENGINE_IPC_UNAVAILABLE',
+          'offline',
+        );
+      final controller = NetworkSettingsController(engine)..supported = true;
+      addTearDown(controller.dispose);
+      await controller.refresh();
+      final saving = controller.save(UsqueProfile.defaultProfile(), ['mtu']);
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.unconfirmed, isTrue);
+      engine.response!.completeError(
+        const EngineException('NETWORK_SETTINGS_SAVE_FAILED', 'rejected'),
+      );
+      expect(await saving, isFalse);
+      expect(controller.unconfirmed, isTrue);
+      controller.accept(
+        const NetworkSettingsState(sourceEpoch: 'one', sequence: 1),
+      );
+      expect(controller.unconfirmed, isFalse);
+      expect(controller.saveError, 'NETWORK_SETTINGS_SAVE_FAILED');
+    },
+  );
+
+  test(
+    'stale or duplicate acknowledgements cannot confirm unknown saves',
+    () async {
+      final engine = SettingsEngine()
+        ..saveFailure = const EngineException(
+          'ENGINE_REQUEST_TIMEOUT',
+          'timeout',
+        )
+        ..queryFailure = const EngineException(
+          'ENGINE_IPC_UNAVAILABLE',
+          'offline',
+        );
+      final controller = NetworkSettingsController(engine)..supported = true;
+      addTearDown(controller.dispose);
+      expect(
+        await controller.save(UsqueProfile.defaultProfile(), ['mtu']),
+        isFalse,
+      );
+      final operation = engine.submitted.single;
+      controller.accept(
+        const NetworkSettingsState(sourceEpoch: 'old', sequence: 1),
+      );
+      const current = NetworkSettingsState(sourceEpoch: 'current', sequence: 2);
+      controller.accept(current);
+      for (final (epoch, sequence) in [
+        ('old', 99),
+        ('current', 1),
+        ('current', 2),
+      ]) {
+        controller.accept(
+          NetworkSettingsState(
+            sourceEpoch: epoch,
+            sequence: sequence,
+            operationId: operation,
+            persisted: true,
+          ),
+        );
+        expect(controller.unconfirmed, isTrue);
+        expect(controller.state, same(current));
+      }
+      controller.accept(
+        NetworkSettingsState(
+          sourceEpoch: 'current',
+          sequence: 3,
+          operationId: operation,
+        ),
+      );
+      expect(controller.unconfirmed, isTrue);
+      controller.accept(
+        NetworkSettingsState(
+          sourceEpoch: 'current',
+          sequence: 4,
+          operationId: operation,
+          persisted: true,
+        ),
+      );
+      expect(controller.unconfirmed, isFalse);
+    },
+  );
 
   test('persistence success is separate from application failure', () async {
     final engine = SettingsEngine()..response = Completer();
@@ -411,12 +625,22 @@ void main() {
           persisted: true,
         ),
       );
+      controller.accept(
+        const NetworkSettingsState(
+          sourceEpoch: 'one',
+          sequence: 2,
+          operationId: 'another-save',
+          persisted: true,
+        ),
+      );
       engine.response!.completeError(
         const EngineException('ENGINE_REQUEST_TIMEOUT', 'timeout'),
       );
       expect(await saving, isTrue);
       expect(controller.unconfirmed, isFalse);
       expect(engine.submitted, hasLength(1));
+      expect(engine.queries, 0);
+      expect(controller.state!.operationId, 'another-save');
     },
   );
 

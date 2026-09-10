@@ -15,13 +15,15 @@ class NetworkSettingsController extends ChangeNotifier {
   NetworkSettingsState? state;
   String? saveError;
   bool _queryUnconfirmed = false;
-  String? _unconfirmedOperationId;
+  final Map<String, _SaveAttempt> _saveAttempts = {};
   int _observationRevision = 0;
   bool supported = false;
   bool _disposed = false;
 
   Future<void> get flushed => _tail;
-  bool get unconfirmed => _queryUnconfirmed || _unconfirmedOperationId != null;
+  bool get unconfirmed =>
+      _queryUnconfirmed ||
+      _saveAttempts.values.any((attempt) => attempt.unconfirmed);
 
   Future<T> enqueue<T>(Future<T> Function() operation) {
     final result = Completer<T>();
@@ -64,10 +66,11 @@ class NetworkSettingsController extends ChangeNotifier {
 
   void _confirmPendingSave() {
     final confirmed = state;
-    if (confirmed != null &&
-        confirmed.operationId == _unconfirmedOperationId &&
-        confirmed.persisted == true) {
-      _unconfirmedOperationId = null;
+    if (confirmed != null && confirmed.persisted == true) {
+      final attempt = _saveAttempts.remove(confirmed.operationId);
+      // The in-flight save keeps this record even after a newer snapshot
+      // replaces the acknowledgement and before its own reply arrives.
+      if (attempt != null) attempt.acknowledged = true;
     }
   }
 
@@ -85,73 +88,60 @@ class NetworkSettingsController extends ChangeNotifier {
     }
   }
 
-  Future<bool> save(UsqueProfile values, List<String> fields) => enqueue(
-    () async {
-      if (!supported) {
-        try {
-          supported =
-              (await _engine.getCapabilities())?.networkSettingsApplication ??
-              false;
-        } on Object {
-          supported = false;
-        }
-      }
-      if (!supported) {
-        saveError = 'NETWORK_SETTINGS_UNSUPPORTED';
-        _notify();
-        return false;
-      }
-      final operationId = _operationId();
-      saveError = null;
-      _queryUnconfirmed = false;
-      _unconfirmedOperationId = null;
-      _notify();
-      try {
-        final result = await _engine.saveNetworkSettings(
-          operationId,
-          values.id,
-          values,
-          fields,
-        );
-        accept(result);
-        final saved =
-            result.operationId == operationId && result.persisted == true;
-        _unconfirmedOperationId = saved ? null : operationId;
-        _confirmPendingSave();
-        _notify();
-        return saved;
-      } on Object catch (error) {
-        final definitive =
-            error is EngineException &&
-            !error.code.startsWith('ENGINE_') &&
-            error.code != 'NETWORK_SETTINGS_UNCONFIRMED';
-        if (definitive) {
-          saveError = error.code;
-        } else {
-          _unconfirmedOperationId = operationId;
-          _confirmPendingSave();
-          if (_unconfirmedOperationId == null) {
-            _notify();
-            return true;
-          }
-          // A mutation is never replayed after an ambiguous reply.
+  Future<bool> save(UsqueProfile values, List<String> fields) =>
+      enqueue(() async {
+        if (!supported) {
           try {
-            final result = await _engine.getNetworkSettingsState();
-            accept(result);
-            if (result.operationId == operationId && result.persisted == true) {
-              _unconfirmedOperationId = null;
-              _notify();
-              return true;
-            }
+            supported =
+                (await _engine.getCapabilities())?.networkSettingsApplication ??
+                false;
           } on Object {
-            /* Retain unknown state and the page's draft. */
+            supported = false;
           }
         }
+        if (!supported) {
+          saveError = 'NETWORK_SETTINGS_UNSUPPORTED';
+          _notify();
+          return false;
+        }
+        final operationId = _operationId();
+        final attempt = _SaveAttempt();
+        _saveAttempts[operationId] = attempt;
+        saveError = null;
         _notify();
-        return false;
-      }
-    },
-  );
+        try {
+          final result = await _engine.saveNetworkSettings(
+            operationId,
+            values.id,
+            values,
+            fields,
+          );
+          accept(result);
+          attempt.unconfirmed = !attempt.acknowledged;
+          return attempt.acknowledged;
+        } on Object catch (error) {
+          if (attempt.acknowledged) return true;
+          final definitive =
+              error is EngineException &&
+              !error.code.startsWith('ENGINE_') &&
+              error.code != 'NETWORK_SETTINGS_UNCONFIRMED';
+          if (definitive) {
+            _saveAttempts.remove(operationId);
+            saveError = error.code;
+          } else {
+            attempt.unconfirmed = true;
+            // A mutation is never replayed after an ambiguous reply.
+            try {
+              accept(await _engine.getNetworkSettingsState());
+            } on Object {
+              /* Retain unknown state and the page's draft. */
+            }
+          }
+          return attempt.acknowledged;
+        } finally {
+          _notify();
+        }
+      });
 
   void _notify() {
     if (!_disposed) notifyListeners();
@@ -162,6 +152,11 @@ class NetworkSettingsController extends ChangeNotifier {
     _disposed = true;
     super.dispose();
   }
+}
+
+class _SaveAttempt {
+  bool acknowledged = false;
+  bool unconfirmed = false;
 }
 
 String _operationId() {
