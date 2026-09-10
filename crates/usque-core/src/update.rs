@@ -654,6 +654,61 @@ mod tests {
     }
 
     #[test]
+    fn windows_update_selects_msi_when_bundle_assets_coexist() {
+        let tag = concat!("v", env!("CARGO_PKG_VERSION"));
+        let mut assets = Vec::new();
+        let mut manifest = ReleaseManifest {
+            schema_version: 1,
+            tag: tag.to_owned(),
+            artifacts: Vec::new(),
+        };
+        for variant in ["x64-v2", "arm64"] {
+            for extension in ["exe", "msi"] {
+                let name = format!("usque-{tag}-windows-{variant}.{extension}");
+                let digest = if extension == "msi" { "a5" } else { "b6" }.repeat(32);
+                assets.push(GitHubAsset {
+                    name: name.clone(),
+                    browser_download_url: format!("{RELEASE_DOWNLOAD_PREFIX}{tag}/{name}"),
+                    size: 4096,
+                    digest: Some(format!("sha256:{digest}")),
+                });
+                manifest.artifacts.push(ManifestArtifact {
+                    name,
+                    platform: "windows".to_owned(),
+                    variant: variant.to_owned(),
+                    sha256: digest,
+                    size: 4096,
+                });
+            }
+        }
+        if let Some(target) = current_update_target()
+            && target.platform == "windows"
+        {
+            assert_eq!(target.extension, "msi");
+        }
+        for variant in ["x64-v2", "arm64"] {
+            let target = UpdateTarget {
+                platform: "windows",
+                variant,
+                extension: "msi",
+            };
+            let name = format!("usque-{tag}-windows-{variant}.{}", target.extension);
+            let asset = unique_asset(&assets, &name).unwrap();
+            validate_asset(asset, tag, &name).unwrap();
+            let package = package_from_manifest(target, &name, asset, &manifest).unwrap();
+            assert_eq!(package.name, name);
+            assert_eq!(package.variant, variant);
+            assert_eq!(package.sha256, "a5".repeat(32));
+            assert!(unique_asset(&[asset.clone(), asset.clone()], &name).is_err());
+        }
+        assets.retain(|asset| asset.name.ends_with(".exe"));
+        for variant in ["x64-v2", "arm64"] {
+            let name = format!("usque-{tag}-windows-{variant}.msi");
+            assert!(unique_asset(&assets, &name).is_err());
+        }
+    }
+
+    #[test]
     fn asset_selection_rejects_wrong_domains_duplicates_and_universal_fallbacks() {
         let selected = "usque-v0.2.2-android-arm64-v8a.apk";
         let universal = GitHubAsset {

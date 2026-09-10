@@ -39,14 +39,14 @@ try {
         if ($null -ne $previousArgumentPassing) { $PSNativeCommandArgumentPassing = $mode }
         $modeRoot = Join-Path $temporaryRoot $mode
         New-Item -ItemType Directory -Path $modeRoot | Out-Null
-        $output = Join-Path $modeRoot "usque-v0.2.5-windows-$Variant.msi"
+        $output = Join-Path $modeRoot "usque-v0.2.6-windows-$Variant.msi"
         $arguments = @(
             "build",
             "-arch", $architecture,
             "-ext", "WixToolset.UI.wixext/5.0.2",
             "-bindpath", "app=$payload",
-            "-define", "DisplayVersion=0.2.5",
-            "-define", "MsiVersion=0.2.599",
+            "-define", "DisplayVersion=0.2.6",
+            "-define", "MsiVersion=0.2.699",
             "-define", "MsiLanguage=1033",
             "-define", "MsiCodepage=65001",
             "-define", "ProductCode=$productCode",
@@ -70,8 +70,8 @@ try {
         & (Join-Path $PSScriptRoot "verify_windows_msi.ps1") `
             -MsiPath $output `
             -Variant $Variant `
-            -ExpectedMsiVersion "0.2.599" `
-            -ExpectedDisplayVersion "0.2.5" `
+            -ExpectedMsiVersion "0.2.699" `
+            -ExpectedDisplayVersion "0.2.6" `
             -ExpectedAgentFileVersion "0.14.1.0" `
             -ExpectedMsiLanguage 1033 `
             -ExpectedProductCode $productCode `

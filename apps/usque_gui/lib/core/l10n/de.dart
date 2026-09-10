@@ -312,7 +312,7 @@ const Map<String, String> kDeCatalog = <String, String>{
       'Status der Usque Engine, Protokollexport und lokale Daten.',
   'engine_status': 'Status der Usque Engine',
   'version': 'Version',
-  'app_version': 'Usque 0.2.5',
+  'app_version': 'Usque 0.2.6',
   'logs': 'Lokale Protokolle',
   'export_diagnostics': 'Diagnosepaket exportieren',
   'diagnostics_saved': 'Diagnosepaket gespeichert unter',

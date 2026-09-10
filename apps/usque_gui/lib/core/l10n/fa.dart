@@ -302,7 +302,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'diagnostics_subtitle': 'وضعیت موتور Usque، صادر کردن گزارش و داده‌های محلی.',
   'engine_status': 'وضعیت Usque Engine',
   'version': 'نسخه',
-  'app_version': 'Usque 0.2.5',
+  'app_version': 'Usque 0.2.6',
   'logs': 'گزارش‌های محلی',
   'export_diagnostics': 'صادر کردن بستهٔ عیب‌یابی',
   'diagnostics_saved': 'بستهٔ عیب‌یابی در این مسیر ذخیره شد:',

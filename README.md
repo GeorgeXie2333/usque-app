@@ -39,7 +39,7 @@ Usque is an independent project. It is not affiliated with, sponsored by, or end
 
 ## Download and install
 
-The release target is **v0.2.5**, a feature and reliability release for Windows and Android. Its tag workflow produces six user-facing installers plus two Windows MSI payloads reserved for automatic updates:
+The release target is **v0.2.6**, a feature and reliability release for Windows and Android. Its tag workflow produces six user-facing installers plus two Windows MSI payloads reserved for automatic updates:
 
 | Platform | Minimum OS | Packages |
 | --- | --- | --- |

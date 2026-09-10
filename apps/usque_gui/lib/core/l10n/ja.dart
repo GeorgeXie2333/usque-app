@@ -291,7 +291,7 @@ const Map<String, String> kJaCatalog = <String, String>{
   'diagnostics_subtitle': 'Usque Engine の状態、ログのエクスポート、ローカルデータ。',
   'engine_status': 'Usque Engine の状態',
   'version': 'バージョン',
-  'app_version': 'Usque 0.2.5',
+  'app_version': 'Usque 0.2.6',
   'logs': 'ローカルログ',
   'export_diagnostics': '診断バンドルをエクスポート',
   'diagnostics_saved': '診断バンドルの保存先',
