@@ -137,6 +137,7 @@ class L4PerformanceSnapshot {
     this.commandWait,
     this.tunWriteWait,
     this.queues,
+    this.receive,
   );
 
   /// Missing optional observations remain absent; buffers are not process RSS.
@@ -144,6 +145,7 @@ class L4PerformanceSnapshot {
   final String? udpBufferSource, tunMtuSource;
   final L4WaitSnapshot? commandWait, tunWriteWait;
   final Map<String, L4QueueSnapshot> queues;
+  final L4ReceiveSnapshot? receive;
   factory L4PerformanceSnapshot.fromMap(Map<Object?, Object?> map) {
     final counters = <String, int>{};
     for (final key in l4PerformanceScalarFields) {
@@ -162,6 +164,7 @@ class L4PerformanceSnapshot {
       L4WaitSnapshot.from(map['command_wait']),
       L4WaitSnapshot.from(map['tun_write_wait']),
       Map.unmodifiable(queues),
+      L4ReceiveSnapshot.from(map['receive']),
     );
   }
   @override
@@ -172,7 +175,8 @@ class L4PerformanceSnapshot {
       tunMtuSource == other.tunMtuSource &&
       commandWait == other.commandWait &&
       tunWriteWait == other.tunWriteWait &&
-      mapEquals(queues, other.queues);
+      mapEquals(queues, other.queues) &&
+      receive == other.receive;
   @override
   int get hashCode => Object.hash(
     Object.hashAll(counters.values),
@@ -181,5 +185,159 @@ class L4PerformanceSnapshot {
     commandWait,
     tunWriteWait,
     Object.hashAll(queues.values),
+    receive,
   );
+}
+
+const l4ReceiveCounterFields = <int, String>{
+  1: 'requested_buffer_bytes',
+  4: 'socket_drops_reported',
+  5: 'overflow_reports',
+  6: 'ancillary_errors',
+  7: 'recv_syscalls',
+  8: 'received_datagrams',
+  9: 'empty_recv_syscalls',
+  13: 'history_dropped',
+  14: 'buffer_target_bytes',
+};
+const l4ReceiveStringFields = <int, String>{
+  2: 'buffer_request_status',
+  3: 'overflow_monitoring',
+  10: 'receive_backend',
+  11: 'send_backend',
+};
+const l4ReceiveIntervalFields = <int, String>{
+  1: 'elapsed_ms',
+  2: 'interval_ms',
+  4: 'h3_read_bytes',
+  5: 'tcp_accepted_bytes',
+  6: 'tun_ingress_bytes',
+  7: 'received_datagrams',
+  8: 'recv_syscalls',
+  9: 'socket_drops',
+  10: 'socket_drops_reported',
+};
+const l4ReceiveStringValues = <String, Set<String>>{
+  'buffer_request_status': {
+    'not_requested',
+    'accepted',
+    'rejected',
+    'already_sufficient',
+  },
+  'overflow_monitoring': {'enabled', 'unavailable', 'unavailable_backend'},
+  'receive_backend': {'portable', 'recvmmsg'},
+  'send_backend': {'portable', 'sendmmsg'},
+};
+
+@immutable
+class L4ReceiveInterval {
+  const L4ReceiveInterval._(this.counters, this.pathReset);
+  final Map<String, int> counters;
+  final bool pathReset;
+  static L4ReceiveInterval? from(Object? value) {
+    if (value is! Map || value['path_reset'] is! bool) return null;
+    final counters = <String, int>{};
+    for (final key in l4ReceiveIntervalFields.values) {
+      final count = _count(value[key]);
+      if (count != null) counters[key] = count;
+    }
+    for (final key in [
+      'elapsed_ms',
+      'interval_ms',
+      'h3_read_bytes',
+      'tcp_accepted_bytes',
+      'tun_ingress_bytes',
+    ]) {
+      if (!counters.containsKey(key)) return null;
+    }
+    return L4ReceiveInterval._(
+      Map.unmodifiable(counters),
+      value['path_reset'] as bool,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is L4ReceiveInterval &&
+      pathReset == other.pathReset &&
+      mapEquals(counters, other.counters);
+  @override
+  int get hashCode => Object.hash(pathReset, Object.hashAll(counters.values));
+}
+
+@immutable
+class L4ReceiveSnapshot {
+  const L4ReceiveSnapshot._(this.counters, this.states, this.history);
+  final Map<String, int> counters;
+  final Map<String, String> states;
+  final List<L4ReceiveInterval> history;
+  static L4ReceiveSnapshot? from(Object? value) {
+    if (value is! Map) return null;
+    final rawHistory = value['history'] ?? <Object?>[];
+    if (rawHistory is! List || rawHistory.length > 120) return null;
+    final history = <L4ReceiveInterval>[];
+    for (final raw in rawHistory) {
+      final item = L4ReceiveInterval.from(raw);
+      if (item == null) return null;
+      history.add(item);
+    }
+    final counters = <String, int>{};
+    for (final key in l4ReceiveCounterFields.values) {
+      final count = _count(value[key]);
+      if (count != null) counters[key] = count;
+    }
+    final states = <String, String>{};
+    for (final entry in l4ReceiveStringValues.entries) {
+      if (entry.value.contains(value[entry.key])) {
+        states[entry.key] = value[entry.key] as String;
+      }
+    }
+    return L4ReceiveSnapshot._(
+      Map.unmodifiable(counters),
+      Map.unmodifiable(states),
+      List.unmodifiable(history),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is L4ReceiveSnapshot &&
+      mapEquals(counters, other.counters) &&
+      mapEquals(states, other.states) &&
+      listEquals(history, other.history);
+  @override
+  int get hashCode => Object.hash(
+    Object.hashAll(counters.values),
+    Object.hashAll(states.values),
+    Object.hashAll(history),
+  );
+}
+
+@immutable
+class UdpSocketReceiveSnapshot {
+  const UdpSocketReceiveSnapshot({
+    this.receiveBufferBytes,
+    this.sendBufferBytes,
+    this.observation,
+  });
+  final int? receiveBufferBytes, sendBufferBytes;
+  final L4ReceiveSnapshot? observation;
+  static UdpSocketReceiveSnapshot? from(Object? value) {
+    if (value is! Map) return null;
+    return UdpSocketReceiveSnapshot(
+      receiveBufferBytes: _count(value['receive_buffer_bytes']),
+      sendBufferBytes: _count(value['send_buffer_bytes']),
+      observation: L4ReceiveSnapshot.from(value['observation']),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is UdpSocketReceiveSnapshot &&
+      receiveBufferBytes == other.receiveBufferBytes &&
+      sendBufferBytes == other.sendBufferBytes &&
+      observation == other.observation;
+  @override
+  int get hashCode =>
+      Object.hash(receiveBufferBytes, sendBufferBytes, observation);
 }

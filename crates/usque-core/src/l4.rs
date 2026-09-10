@@ -70,6 +70,43 @@ pub struct L4PerformanceSnapshot {
     pub tun_egress_queue: Option<L4QueueSnapshot>,
     pub stack_ingress_queue: Option<L4QueueSnapshot>,
     pub stack_egress_queue: Option<L4QueueSnapshot>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receive: Option<L4ReceiveSnapshot>,
+}
+
+/// Socket-local observations, not end-to-end or peer QUIC loss estimates.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct L4ReceiveSnapshot {
+    #[serde(default)]
+    pub buffer_target_bytes: Option<u64>,
+    pub requested_buffer_bytes: Option<u64>,
+    pub buffer_request_status: Option<String>,
+    pub overflow_monitoring: Option<String>,
+    pub socket_drops_reported: Option<u64>,
+    pub overflow_reports: u64,
+    pub ancillary_errors: u64,
+    pub recv_syscalls: u64,
+    pub received_datagrams: u64,
+    pub empty_recv_syscalls: u64,
+    pub receive_backend: Option<String>,
+    pub send_backend: Option<String>,
+    pub history: Vec<L4ReceiveInterval>,
+    pub history_dropped: u64,
+}
+
+/// Bounded one-second buckets. Layer byte counts are distinct, never summed.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct L4ReceiveInterval {
+    pub elapsed_ms: u64,
+    pub interval_ms: u64,
+    pub path_reset: bool,
+    pub h3_read_bytes: u64,
+    pub tcp_accepted_bytes: u64,
+    pub tun_ingress_bytes: u64,
+    pub received_datagrams: Option<u64>,
+    pub recv_syscalls: Option<u64>,
+    pub socket_drops: Option<u64>,
+    pub socket_drops_reported: Option<u64>,
 }
 
 /// Logarithmic microsecond buckets; no raw timings or destination identifiers.

@@ -1,4 +1,5 @@
 //! Atomic L4 performance counters. No traffic, targets, or per-packet logging.
+use crate::udp_io::receive_observation::ReceiveSource;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -128,8 +129,15 @@ impl MeasuredSender {
     }
 }
 #[derive(Default)]
+struct UdpMetadata {
+    epoch: u64,
+    receive: Option<u64>,
+    send: Option<u64>,
+    source: Option<ReceiveSource>,
+}
+#[derive(Default)]
 struct Metadata {
-    udp: Option<(u64, Option<u64>, Option<u64>)>,
+    udp: Option<UdpMetadata>,
     tun: Option<(u32, TcpBufferMetrics)>,
 }
 #[derive(Default)]
@@ -169,12 +177,22 @@ pub(crate) struct Performance {
     platform_writer: AtomicBool,
     metadata: Mutex<Metadata>,
     cached: Mutex<(u64, L4PerformanceSnapshot)>,
+    history: Mutex<super::receive_history::ReceiveHistory>,
 }
 impl Performance {
-    pub(crate) fn observe_udp(&self, epoch: u64, sizes: (Option<u64>, Option<u64>)) {
+    pub(crate) fn observe_udp(
+        &self,
+        epoch: u64,
+        sizes: (Option<u64>, Option<u64>),
+        source: Option<ReceiveSource>,
+    ) {
         if epoch != 0 && epoch == self.active_epoch.load(Ordering::Acquire) {
-            self.metadata.lock().unwrap_or_else(|e| e.into_inner()).udp =
-                Some((epoch, sizes.0, sizes.1));
+            self.metadata.lock().unwrap_or_else(|e| e.into_inner()).udp = Some(UdpMetadata {
+                epoch,
+                receive: sizes.0,
+                send: sizes.1,
+                source,
+            });
         }
     }
     pub(crate) fn observe_tun(&self, mtu: u16, tcp: TcpBufferMetrics) {
@@ -224,13 +242,18 @@ impl Performance {
         };
         let epoch = self.active_epoch.load(Ordering::Acquire);
         let meta = self.metadata.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some((observed, receive, send)) = meta.udp
-            && observed == epoch
+        let mut socket_key = None;
+        if let Some(udp) = &meta.udp
+            && udp.epoch == epoch
             && epoch != 0
         {
-            value.udp_receive_buffer_bytes = receive;
-            value.udp_send_buffer_bytes = send;
+            value.udp_receive_buffer_bytes = udp.receive;
+            value.udp_send_buffer_bytes = udp.send;
             value.udp_buffer_source = Some("getsockopt_raw".to_owned());
+            if let Some(source) = &udp.source {
+                value.receive = Some(source.snapshot());
+                socket_key = Some((epoch, source.observation.id));
+            }
         }
         if let Some((mtu, tcp)) = &meta.tun {
             let tcp = tcp.snapshot();
@@ -245,6 +268,21 @@ impl Performance {
             value.stack_egress_queue = Some(self.stack_egress.snapshot());
         }
         drop(meta);
+        if let (Some(key), Some(receive)) = (socket_key, value.receive.as_mut()) {
+            self.history
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .record(
+                    Instant::now(),
+                    key,
+                    [
+                        value.h3_read_bytes,
+                        value.tcp_accepted_bytes,
+                        value.tun_ingress_bytes,
+                    ],
+                    receive,
+                );
+        }
         *self.cached.lock().unwrap_or_else(|e| e.into_inner()) = (epoch, value.clone());
         value
     }
@@ -258,6 +296,7 @@ impl Performance {
             value.udp_receive_buffer_bytes = None;
             value.udp_send_buffer_bytes = None;
             value.udp_buffer_source = None;
+            value.receive = None;
         }
         value
     }
@@ -325,11 +364,11 @@ mod tests {
     fn stale_session_cannot_publish_udp_buffer_observations() {
         let perf = Performance::default();
         perf.active_epoch.store(1, Ordering::Release);
-        perf.observe_udp(1, (Some(123), Some(456)));
+        perf.observe_udp(1, (Some(123), Some(456)), None);
         assert_eq!(perf.sample().udp_receive_buffer_bytes, Some(123));
         perf.active_epoch.store(2, Ordering::Release);
         assert!(perf.snapshot().udp_receive_buffer_bytes.is_none());
-        perf.observe_udp(1, (Some(999), Some(999)));
+        perf.observe_udp(1, (Some(999), Some(999)), None);
         assert!(perf.sample().udp_receive_buffer_bytes.is_none());
     }
 }

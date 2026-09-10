@@ -279,6 +279,8 @@ const Map<String, String> kL4Fa = <String, String>{
   'l4_budget_rejections': 'رد پذیرش منابع',
   'l4_not_applicable': 'اعمال نمی‌شود (L4)',
   'l4_mode': 'L4 (آزمایشی)',
+  'l4_transport_hint':
+      'فقط TCP؛ DNS تونل TUN از TCP استفاده می‌کند. حالت Auto شامل L4 نیست.',
   'l4_explanation':
       'فقط TCP روی HTTP/3. از VPN/TUN، SOCKS5 و HTTP پشتیبانی می‌کند؛ DNS مربوط به TUN به TCP تبدیل می‌شود. Auto هرگز L4 را انتخاب نمی‌کند. سایر UDP، پینگ دوردست، قطعات IP و سرآیندهای گسترش‌یافته پشتیبانی نمی‌شوند؛ برخی برنامه‌ها ممکن است کار نکنند.',
   'l4_unsupported':

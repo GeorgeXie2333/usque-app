@@ -382,6 +382,37 @@ message L4PerformanceSnapshot {
   L4QueueSnapshot stack_ingress_queue = 37;
   L4QueueSnapshot stack_egress_queue = 38;
   uint64 actor_no_progress_wakeups = 39;
+  L4ReceiveSnapshot receive = 40;
+}
+
+message L4ReceiveSnapshot {
+  optional uint64 requested_buffer_bytes = 1;
+  optional string buffer_request_status = 2;
+  optional string overflow_monitoring = 3;
+  optional uint64 socket_drops_reported = 4;
+  uint64 overflow_reports = 5;
+  uint64 ancillary_errors = 6;
+  uint64 recv_syscalls = 7;
+  uint64 received_datagrams = 8;
+  uint64 empty_recv_syscalls = 9;
+  optional string receive_backend = 10;
+  optional string send_backend = 11;
+  repeated L4ReceiveInterval history = 12;
+  uint64 history_dropped = 13;
+  optional uint64 buffer_target_bytes = 14;
+}
+
+message L4ReceiveInterval {
+  uint64 elapsed_ms = 1;
+  uint64 interval_ms = 2;
+  bool path_reset = 3;
+  uint64 h3_read_bytes = 4;
+  uint64 tcp_accepted_bytes = 5;
+  uint64 tun_ingress_bytes = 6;
+  optional uint64 received_datagrams = 7;
+  optional uint64 recv_syscalls = 8;
+  optional uint64 socket_drops = 9;
+  optional uint64 socket_drops_reported = 10;
 }
 
 message L4WaitSnapshot {
@@ -721,6 +752,13 @@ message NetworkQualitySnapshot {
   DirectDnsQuality direct_dns = 8;
   // At most 16 real source observations; not interpolated or persisted.
   repeated NetworkQualitySample samples = 9;
+  UdpSocketReceiveSnapshot udp_socket_receive = 10;
+}
+
+message UdpSocketReceiveSnapshot {
+  optional uint64 receive_buffer_bytes = 1;
+  optional uint64 send_buffer_bytes = 2;
+  L4ReceiveSnapshot observation = 3;
 }
 
 message NetworkQualitySample {

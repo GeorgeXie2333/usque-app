@@ -26,6 +26,7 @@ const kL4En = <String, String>{
   'l4_budget_rejections': 'Resource admissions rejected',
   'l4_not_applicable': 'Not applicable (L4)',
   'l4_mode': 'L4 (experimental)',
+  'l4_transport_hint': 'TCP only; TUN DNS uses TCP. Auto excludes L4.',
   'l4_explanation':
       'TCP-only over HTTP/3. Supports VPN/TUN, SOCKS5 and HTTP; TUN DNS is converted to TCP. Auto never selects L4. Other UDP, remote ping, IP fragments and extension headers are unsupported; some apps may not work.',
   'l4_unsupported':
@@ -57,6 +58,7 @@ const kL4ZhCn = <String, String>{
   'l4_budget_rejections': '资源准入拒绝次数',
   'l4_not_applicable': '不适用（L4）',
   'l4_mode': 'L4（实验性）',
+  'l4_transport_hint': '仅支持 TCP；TUN DNS 自动转换。Auto 不包含 L4。',
   'l4_explanation':
       '基于 HTTP/3 的 TCP-only 模式，支持 VPN/TUN、SOCKS5 和 HTTP；TUN DNS 自动转换为 TCP。Auto 不包含 L4。其他 UDP、远端 Ping、IP 分片与扩展头不受支持，部分应用可能无法使用。',
   'l4_unsupported': '当前引擎尚未声明完整的 L4 能力，不能启用 L4。',

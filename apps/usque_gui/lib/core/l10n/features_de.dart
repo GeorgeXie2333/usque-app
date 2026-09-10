@@ -360,6 +360,7 @@ const Map<String, String> kL4De = <String, String>{
   'l4_budget_rejections': 'Abgelehnte Ressourcenzulassungen',
   'l4_not_applicable': 'Nicht zutreffend (L4)',
   'l4_mode': 'L4 (experimentell)',
+  'l4_transport_hint': 'Nur TCP; TUN-DNS über TCP. Auto enthält kein L4.',
   'l4_explanation':
       'Nur TCP über HTTP/3. Unterstützt VPN/TUN, SOCKS5 und HTTP; TUN-DNS wird in TCP umgewandelt. Auto wählt L4 nie. Anderes UDP, Remote-Ping, IP-Fragmente und Erweiterungsköpfe sind nicht unterstützt; manche Apps funktionieren möglicherweise nicht.',
   'l4_unsupported':

@@ -287,6 +287,7 @@ const Map<String, String> kL4Tr = <String, String>{
   'l4_budget_rejections': 'Kaynak kabulleri reddedildi',
   'l4_not_applicable': 'Uygulanamaz (L4)',
   'l4_mode': 'L4 (deneysel)',
+  'l4_transport_hint': 'Yalnızca TCP; TUN DNS, TCP kullanır. Auto, L4 içermez.',
   'l4_explanation':
       'HTTP/3 üzerinde yalnızca TCP. VPN/TUN, SOCKS5 ve HTTP desteklenir; TUN DNS TCP’ye dönüştürülür. Auto asla L4 seçmez. Diğer UDP, uzak ping, IP parçaları ve uzantı başlıkları desteklenmez; bazı uygulamalar çalışmayabilir.',
   'l4_unsupported':

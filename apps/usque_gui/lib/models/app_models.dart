@@ -1515,6 +1515,7 @@ class NetworkQualitySample {
 
 class NetworkQualitySnapshot {
   const NetworkQualitySnapshot({
+    this.udpSocketReceive,
     this.sampledAt,
     this.connectionInstanceId,
     this.level = NetworkQualityLevel.unknown,
@@ -1535,6 +1536,7 @@ class NetworkQualitySnapshot {
   final MigrationQualityInfo migration;
   final DirectDnsQualityInfo directDns;
   final List<NetworkQualitySample> samples;
+  final UdpSocketReceiveSnapshot? udpSocketReceive;
 
   factory NetworkQualitySnapshot.fromMap(Map<Object?, Object?> map) {
     final metricsMap = _objectMap(map['metrics']);
@@ -1544,6 +1546,9 @@ class NetworkQualitySnapshot {
     final sampledAtMilliseconds = _mapInt(map, 'sampled_at_unix_ms');
     final connectionId = _mapString(map, 'connection_instance_id');
     return NetworkQualitySnapshot(
+      udpSocketReceive: UdpSocketReceiveSnapshot.from(
+        map['udp_socket_receive'],
+      ),
       samples: List.unmodifiable(
         (map['samples'] is List<Object?>
                 ? map['samples'] as List<Object?>

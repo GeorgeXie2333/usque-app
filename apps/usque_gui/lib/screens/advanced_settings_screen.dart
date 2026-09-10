@@ -148,6 +148,8 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final strings = widget.controller.strings;
+    final l4Available =
+        widget.controller.engineCapabilities?.l4Available ?? false;
     return UnsavedChangesGuard(
       strings: strings,
       dirty: _dirty,
@@ -234,12 +236,10 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                                 ButtonSegment(
                                   value: 'l4',
                                   label: Text(strings.get('l4_mode')),
-                                  enabled:
-                                      widget
-                                          .controller
-                                          .engineCapabilities
-                                          ?.l4Available ??
-                                      false,
+                                  enabled: l4Available,
+                                  tooltip: l4Available
+                                      ? null
+                                      : strings.get('l4_unsupported'),
                                 ),
                               ],
                               selected: <String>{
@@ -265,10 +265,14 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                               showSelectedIcon: false,
                             ),
                       ),
-                      Text(strings.get('l4_explanation')),
-                      if (!(widget.controller.engineCapabilities?.l4Available ??
-                          false))
-                        Text(strings.get('l4_unsupported')),
+                      if (_dataPlane == DataPlaneMode.l4Proxy) ...[
+                        Semantics(
+                          key: const ValueKey('l4-transport-hint'),
+                          liveRegion: true,
+                          child: Text(strings.get('l4_transport_hint')),
+                        ),
+                        if (!l4Available) Text(strings.get('l4_unsupported')),
+                      ],
                       const SizedBox(height: 18),
                       _ResponsiveFields(
                         children: <Widget>[

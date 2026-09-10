@@ -255,6 +255,7 @@ const Map<String, String> kL4Ja = <String, String>{
   'l4_budget_rejections': 'リソース受付の拒否回数',
   'l4_not_applicable': '対象外（L4）',
   'l4_mode': 'L4（実験的）',
+  'l4_transport_hint': 'TCP のみ。TUN の DNS は TCP に変換。Auto に L4 は含まれません。',
   'l4_explanation':
       'HTTP/3 上の TCP 専用モードです。VPN/TUN、SOCKS5、HTTP に対応し、TUN DNS は TCP に変換されます。Auto は L4 を選びません。その他の UDP、遠隔 ping、IP 断片、拡張ヘッダーは未対応で、一部のアプリは動作しないことがあります。',
   'l4_unsupported': 'この Engine は完全な L4 対応を宣言していません。L4 は有効にできません。',

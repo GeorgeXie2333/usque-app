@@ -274,6 +274,8 @@ const Map<String, String> kL4Ar = <String, String>{
   'l4_budget_rejections': 'رفض قبول الموارد',
   'l4_not_applicable': 'غير منطبق (L4)',
   'l4_mode': 'L4 (تجريبي)',
+  'l4_transport_hint':
+      'TCP فقط؛ يستخدم DNS الخاص بـ TUN بروتوكول TCP. لا يشمل Auto وضع L4.',
   'l4_explanation':
       'وضع TCP فقط عبر HTTP/3. يدعم VPN/TUN وSOCKS5 وHTTP؛ ويُحوَّل DNS الخاص بـ TUN إلى TCP. لا يختار Auto وضع L4 أبدًا. بقية UDP والبينغ البعيد وتجزئة IP والرؤوس الموسعة غير مدعومة؛ قد لا تعمل بعض التطبيقات.',
   'l4_unsupported': 'لم يعلن هذا المحرك عن دعم L4 كامل. لا يمكن تفعيل L4.',

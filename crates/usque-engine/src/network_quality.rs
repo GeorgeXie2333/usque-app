@@ -75,6 +75,13 @@ pub(crate) fn snapshot_to_proto(snapshot: &NetworkQualitySnapshot) -> v1::Networ
         .saturating_add(metric_raw_u64(&snapshot.loss.datagram_receive_drops));
 
     v1::NetworkQualitySnapshot {
+        udp_socket_receive: snapshot.socket_receive.as_ref().map(|socket| {
+            v1::UdpSocketReceiveSnapshot {
+                receive_buffer_bytes: socket.receive_buffer_bytes,
+                send_buffer_bytes: socket.send_buffer_bytes,
+                observation: Some(crate::data_plane::receive_to_proto(&socket.observation)),
+            }
+        }),
         sampled_at_unix_ms: snapshot.samples.last().map_or_else(
             || duration_milliseconds(sampled_at),
             |sample| sample.sampled_at_unix_ms,
@@ -432,6 +439,7 @@ mod tests {
     #[test]
     fn disconnected_conversion_has_explicit_availability_and_no_identifiers() {
         let proto = snapshot_to_proto(&disconnected_snapshot());
+        assert!(proto.udp_socket_receive.is_none());
         assert_eq!(proto.level, v1::NetworkQualityLevel::Disconnected as i32);
         assert!(proto.connection_instance_id.is_empty());
         assert!(proto.queues.iter().all(|queue| {
@@ -439,6 +447,31 @@ mod tests {
                 && queue.capacity_items == 0
                 && queue.capacity_bytes == 0
         }));
+    }
+
+    #[test]
+    fn udp_receive_wire_preserves_target_actual_and_absent_request() {
+        let mut snapshot = disconnected_snapshot();
+        snapshot.socket_receive = Some(usque_transport::SocketReceiveQuality {
+            receive_buffer_bytes: Some(4 << 20),
+            send_buffer_bytes: None,
+            observation: usque_core::L4ReceiveSnapshot {
+                buffer_target_bytes: Some(2 << 20),
+                buffer_request_status: Some("already_sufficient".into()),
+                ..Default::default()
+            },
+        });
+        let socket = snapshot_to_proto(&snapshot).udp_socket_receive.unwrap();
+        assert_eq!(socket.receive_buffer_bytes, Some(4 << 20));
+        assert_eq!(socket.send_buffer_bytes, None);
+        let observation = socket.observation.unwrap();
+        assert_eq!(observation.buffer_target_bytes, Some(2 << 20));
+        assert_eq!(observation.requested_buffer_bytes, None);
+        assert_eq!(observation.socket_drops_reported, None);
+        assert_eq!(
+            observation.buffer_request_status.as_deref(),
+            Some("already_sufficient")
+        );
     }
 
     #[test]

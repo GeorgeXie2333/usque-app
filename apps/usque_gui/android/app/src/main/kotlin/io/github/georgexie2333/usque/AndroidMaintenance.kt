@@ -135,6 +135,9 @@ internal object AndroidMaintenance {
         payloads["connection-timeline.json"] =
             sanitizeConnectionTimeline(connectionTimeline).toString(2).toByteArray()
         payloads["platform-health.json"] = platformHealth.toString(2).toByteArray()
+        NetworkQualityFields.diagnostic(snapshot["network_quality"], snapshot["data_plane"] == "l4_proxy")?.let {
+            payloads["network-quality.json"] = it.toString(2).toByteArray()
+        }
         val sanitizedSession = diagnosticSession?.let(::sanitizeDiagnosticSession)
         if (diagnosticSession != null) {
             payloads["diagnostic-session.json"] =

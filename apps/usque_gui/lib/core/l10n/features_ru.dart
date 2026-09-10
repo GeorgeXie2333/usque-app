@@ -348,6 +348,7 @@ const Map<String, String> kL4Ru = <String, String>{
   'l4_budget_rejections': 'Отказы в допуске ресурсов',
   'l4_not_applicable': 'Не применимо (L4)',
   'l4_mode': 'L4 (экспериментальный)',
+  'l4_transport_hint': 'Только TCP; DNS TUN — через TCP. Auto не включает L4.',
   'l4_explanation':
       'Только TCP поверх HTTP/3. Поддерживаются VPN/TUN, SOCKS5 и HTTP; DNS TUN преобразуется в TCP. Auto никогда не выбирает L4. Прочий UDP, удалённый ping, фрагменты IP и заголовки расширений не поддерживаются; некоторые приложения могут не работать.',
   'l4_unsupported':

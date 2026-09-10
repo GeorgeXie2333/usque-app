@@ -276,6 +276,8 @@ const Map<String, String> kL4Th = <String, String>{
   'l4_budget_rejections': 'จำนวนครั้งที่ปฏิเสธการรับทรัพยากร',
   'l4_not_applicable': 'ไม่ใช้ได้ (L4)',
   'l4_mode': 'L4 (ทดลอง)',
+  'l4_transport_hint':
+      'รองรับเฉพาะ TCP; DNS ของ TUN ใช้ TCP โหมด Auto ไม่รวม L4',
   'l4_explanation':
       'เฉพาะ TCP บน HTTP/3 รองรับ VPN/TUN, SOCKS5 และ HTTP; DNS ของ TUN จะถูกแปลงเป็น TCP Auto จะไม่เลือก L4 UDP อื่น, ping ระยะไกล, ชิ้นส่วน IP และส่วนหัวส่วนขยายไม่รองรับ บางแอปอาจใช้ไม่ได้',
   'l4_unsupported':

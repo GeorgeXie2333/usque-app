@@ -23,6 +23,12 @@ to canonical physical-system direct DNS, preserving schema-12 behavior.
   connection-local monotonic milliseconds, optional cumulative downloaded and
   uploaded bytes, optional available RTT milliseconds, and optional available
   interval loss basis points. Optional zero is a measurement; absence is not.
+- `NetworkQualitySnapshot.udp_socket_receive = 10` adds optional raw receive/send
+  buffer sizes and a bounded socket observation. Its policy target is separate
+  from a setter invocation and actual capacity; see the
+  [QUIC UDP receive-buffer contract](UDP_RECEIVE_BUFFER.md). H2 and older sources
+  omit this message. `L4ReceiveSnapshot.buffer_target_bytes = 14` preserves that
+  distinction without changing existing request or size fields.
 - `ConnectionEventType` migration, PMTU, and direct-DNS values occupy 22
   through 30
 

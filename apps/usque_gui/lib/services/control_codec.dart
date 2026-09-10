@@ -1407,6 +1407,7 @@ NetworkSettingsState _decodeNetworkSettings(_ProtoReader reader) {
 }
 
 NetworkQualitySnapshot _decodeNetworkQuality(_ProtoReader reader) {
+  UdpSocketReceiveSnapshot? udpSocketReceive;
   DateTime? sampledAt;
   String? connectionInstanceId;
   var level = NetworkQualityLevel.unknown;
@@ -1451,11 +1452,14 @@ NetworkQualitySnapshot _decodeNetworkQuality(_ProtoReader reader) {
         } else {
           reader.skip(field);
         }
+      case 10:
+        udpSocketReceive = _decodeUdpSocketReceive(reader.message(field));
       default:
         reader.skip(field);
     }
   }
   return NetworkQualitySnapshot(
+    udpSocketReceive: udpSocketReceive,
     sampledAt: sampledAt,
     connectionInstanceId: connectionInstanceId,
     level: level,
@@ -1465,6 +1469,31 @@ NetworkQualitySnapshot _decodeNetworkQuality(_ProtoReader reader) {
     migration: migration,
     directDns: directDns,
     samples: List.unmodifiable(samples),
+  );
+}
+
+UdpSocketReceiveSnapshot _decodeUdpSocketReceive(_ProtoReader reader) {
+  int? receive, send;
+  L4ReceiveSnapshot? observation;
+  while (!reader.isDone) {
+    final field = reader.field();
+    switch (field.number) {
+      case 1:
+        receive = reader.varint(field);
+      case 2:
+        send = reader.varint(field);
+      case 3:
+        observation = L4ReceiveSnapshot.from(
+          _decodeL4Receive(reader.message(field)),
+        );
+      default:
+        reader.skip(field);
+    }
+  }
+  return UdpSocketReceiveSnapshot(
+    receiveBufferBytes: receive,
+    sendBufferBytes: send,
+    observation: observation,
   );
 }
 
@@ -2363,6 +2392,8 @@ Map<Object?, Object?> _decodeL4Performance(_ProtoReader reader) {
       );
     } else if (field.number == 39) {
       values['actor_no_progress_wakeups'] = reader.varint(field);
+    } else if (field.number == 40) {
+      values['receive'] = _decodeL4Receive(reader.message(field));
     } else {
       reader.skip(field);
     }
@@ -2399,6 +2430,48 @@ Map<Object?, Object?> _decodeL4Wait(_ProtoReader reader) {
     }
   }
   values['buckets'] = buckets;
+  return values;
+}
+
+Map<Object?, Object?> _decodeL4Receive(_ProtoReader reader) {
+  final history = <Map<Object?, Object?>>[];
+  final values = <Object?, Object?>{
+    'history': history,
+    for (final key in [5, 6, 7, 8, 9, 13]) l4ReceiveCounterFields[key]: 0,
+  };
+  while (!reader.isDone) {
+    final field = reader.field();
+    final counter = l4ReceiveCounterFields[field.number];
+    final state = l4ReceiveStringFields[field.number];
+    if (counter != null) {
+      values[counter] = reader.varint(field);
+    } else if (state != null) {
+      values[state] = reader.string(field);
+    } else if (field.number == 12) {
+      if (history.length == 120) {
+        throw const FormatException('L4 receive history exceeds bound');
+      }
+      final item = <Object?, Object?>{
+        'path_reset': false,
+        for (final key in [1, 2, 4, 5, 6]) l4ReceiveIntervalFields[key]: 0,
+      };
+      final nested = reader.message(field);
+      while (!nested.isDone) {
+        final part = nested.field();
+        final key = l4ReceiveIntervalFields[part.number];
+        if (part.number == 3) {
+          item['path_reset'] = nested.varint(part) != 0;
+        } else if (key != null) {
+          item[key] = nested.varint(part);
+        } else {
+          nested.skip(part);
+        }
+      }
+      history.add(item);
+    } else {
+      reader.skip(field);
+    }
+  }
   return values;
 }
 

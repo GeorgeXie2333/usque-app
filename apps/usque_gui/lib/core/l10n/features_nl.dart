@@ -348,6 +348,7 @@ const Map<String, String> kL4Nl = <String, String>{
   'l4_budget_rejections': 'Afgewezen resourcetoelatingen',
   'l4_not_applicable': 'Niet van toepassing (L4)',
   'l4_mode': 'L4 (experimenteel)',
+  'l4_transport_hint': 'Alleen TCP; TUN-DNS gebruikt TCP. Auto sluit L4 uit.',
   'l4_explanation':
       'Alleen TCP over HTTP/3. Ondersteunt VPN/TUN, SOCKS5 en HTTP; TUN-DNS wordt naar TCP omgezet. Auto kiest nooit L4. Overige UDP, externe ping, IP-fragmenten en extensiekoppen worden niet ondersteund; sommige apps werken mogelijk niet.',
   'l4_unsupported':

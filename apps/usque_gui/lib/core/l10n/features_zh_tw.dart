@@ -241,6 +241,7 @@ const Map<String, String> kL4ZhTw = <String, String>{
   'l4_budget_rejections': '資源准入拒絕次數',
   'l4_not_applicable': '不適用（L4）',
   'l4_mode': 'L4（實驗性）',
+  'l4_transport_hint': '僅支援 TCP；TUN DNS 自動轉換。Auto 不包含 L4。',
   'l4_explanation':
       '基於 HTTP/3 的 TCP-only 模式，支援 VPN/TUN、SOCKS5 與 HTTP；TUN DNS 會轉為 TCP。Auto 不會選用 L4。其他 UDP、遠端 Ping、IP 分片與擴充標頭不受支援，部分應用程式可能無法使用。',
   'l4_unsupported': '目前引擎尚未宣告完整的 L4 能力，無法啟用 L4。',

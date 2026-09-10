@@ -14,6 +14,7 @@ pub(super) fn try_recv_batch(
     local_address: SocketAddr,
     output: &mut RecvBatch,
     quality: &NetworkQualityTelemetry,
+    observation: Option<&super::receive_observation::ReceiveObservation>,
 ) -> io::Result<usize> {
     let mut budget = ReceiveDrainBudget::default();
     while budget.remaining() > 0 {
@@ -27,6 +28,9 @@ pub(super) fn try_recv_batch(
         match socket.try_recv_from(buffer.portable_storage_mut()) {
             Ok((length, source)) => {
                 quality.record_udp_recv(1);
+                if let Some(observation) = observation {
+                    observation.record_recv(1);
+                }
                 if !budget.accept(length, false, quality) {
                     continue;
                 }
@@ -40,10 +44,16 @@ pub(super) fn try_recv_batch(
             Err(error) if is_message_too_long(&error) => {
                 // Winsock consumes the datagram even when reporting WSAEMSGSIZE.
                 quality.record_udp_recv(1);
+                if let Some(observation) = observation {
+                    observation.record_recv(1);
+                }
                 budget.accept(0, true, quality);
             }
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                 quality.record_udp_recv(0);
+                if let Some(observation) = observation {
+                    observation.record_recv(0);
+                }
                 return if output.is_empty() {
                     Err(error)
                 } else {
@@ -52,6 +62,9 @@ pub(super) fn try_recv_batch(
             }
             Err(error) => {
                 quality.record_udp_recv(0);
+                if let Some(observation) = observation {
+                    observation.record_recv(0);
+                }
                 return Err(error);
             }
         }

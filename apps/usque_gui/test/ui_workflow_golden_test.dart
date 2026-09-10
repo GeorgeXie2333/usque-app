@@ -250,6 +250,63 @@ void main() {
     }, tags: 'golden');
   }
 
+  for (final chinese in [false, true]) {
+    testWidgets('L4 transport hint ${chinese ? 'zh_dark' : 'en_light'}', (
+      tester,
+    ) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(375, 812);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      final app = AppController(WorkflowEngine())
+        ..localePreference = chinese
+            ? LocalePreference.simplifiedChinese
+            : LocalePreference.english
+        ..engineCapabilities = const EngineCapabilities(
+          l4Tcp: true,
+          l4TunTcp: true,
+          l4DnsConversion: true,
+          h3CongestionControlAlgorithms: CongestionControlAlgorithm.values,
+        );
+      app.sharedNetwork = app.sharedNetwork.copyWith(
+        dataPlane: DataPlaneMode.l4Proxy,
+      );
+      addTearDown(app.dispose);
+      final boundary = GlobalKey();
+      await tester.pumpWidget(
+        RepaintBoundary(
+          key: boundary,
+          child: workflowHost(
+            app,
+            dark: chinese,
+            scale: chinese ? 2 : 1,
+            home: AdvancedSettingsScreen(controller: app),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.byType(SegmentedButton<String>),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await Scrollable.ensureVisible(
+        tester.element(find.byType(SegmentedButton<String>)),
+        alignment: 0.15,
+      );
+      await tester.pumpAndSettle();
+      expect(find.text(app.strings.get('l4_explanation')), findsNothing);
+      expect(find.byKey(const ValueKey('l4-transport-hint')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await expectLater(
+        find.byKey(boundary),
+        matchesGoldenFile(
+          'goldens/l4_hint_${chinese ? 'zh_dark' : 'en_light'}.png',
+        ),
+      );
+    }, tags: 'golden');
+  }
+
   testWidgets(
     'workflow remains usable with real fonts, large text and landscape',
     (tester) async {

@@ -5,6 +5,11 @@ It removes avoidable adapter copies and receive allocations, not the necessary
 copy into smoltcp's TCP ring or the operating system. Offline assertions are
 cost/correctness evidence, **not throughput measurements**.
 
+Follow-up: the later [QUIC UDP receive-buffer policy](UDP_RECEIVE_BUFFER.md)
+promotes a 2 MiB socket receive target on Windows/Android after separate A/B
+feedback. That is not a result of this first-round copy/allocation change; the
+historical checks below apply only to their stated candidate.
+
 ## Unchanged production behavior
 
 The local stack, QUIC/TLS libraries, MTU 1280 default, QUIC windows, TCP preferred

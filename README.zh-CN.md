@@ -103,6 +103,7 @@ Zero Trust 注册仍属**实验性功能**，仅用于以组织身份使用现�
 | 端口 / SNI | `443` / `speed.cloudflare.com` |
 | 传输 | 自动：先 HTTP/3，再 HTTP/2 |
 | HTTP/3 拥塞控制 | `cubic`；可选择 BBRv2、实验性 BBRv3 和 `reno` |
+| QUIC UDP 接收缓冲 | Windows/Android 的 H3、L4 均以 [2 MiB 为目标](docs/UDP_RECEIVE_BUFFER.md)申请；实际容量由系统决定 |
 | TUN MTU | `1280` |
 | 备用 DNS | `1.1.1.1`、`2606:4700:4700::1111` |
 | SOCKS5 | `127.0.0.1:1080`、`[::1]:1080` |

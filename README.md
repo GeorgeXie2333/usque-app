@@ -105,6 +105,7 @@ Zero Trust enrollment is **experimental**, limited to an organization identity u
 | Port / SNI | `443` / `speed.cloudflare.com` |
 | Transport | Auto: HTTP/3, then HTTP/2 |
 | HTTP/3 congestion control | `cubic`; BBRv2, experimental BBRv3, and `reno` are selectable |
+| QUIC UDP receive buffer | [2 MiB target](docs/UDP_RECEIVE_BUFFER.md) on Windows/Android for H3 and L4; actual capacity is OS-dependent |
 | TUN MTU | `1280` |
 | Fallback DNS | `1.1.1.1`, `2606:4700:4700::1111` |
 | SOCKS5 | `127.0.0.1:1080`, `[::1]:1080` |

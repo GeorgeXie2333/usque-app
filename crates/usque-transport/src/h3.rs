@@ -477,6 +477,11 @@ async fn connect_h3_application(
     let quality = attempt
         .map(ConnectionAttemptTelemetry::quality)
         .unwrap_or_default();
+    if l4.is_some() {
+        // Set the connection role before initial/candidate receive workers are
+        // created, including callers that do not go through L4Runtime.
+        quality.use_stream_data_plane();
+    }
     let features = quality.features();
     let (mut quic_config, pin_state) =
         quic_config_with_features(identity, family_ceiling, features, congestion_control)?;
@@ -1178,12 +1183,18 @@ async fn drive_h3_actor(
                 }
             }
             _ = quality_tick.tick(), if connection.is_established() => {
+                if l4.is_none() && let Some(path) = path_sockets.active()
+                    && let Some(source) = path.receive_source()
+                {
+                    quality.observe_socket_receive(path.socket_buffer_sizes(), Some(source));
+                }
                 if let Some(actor) = l4.as_ref()
                     && !actor.handle.draining.load(Ordering::Acquire)
                     && let Some(path) = path_sockets.active()
                 {
                     actor.budget.metrics.performance.observe_udp(
                         actor.handle.epoch.load(Ordering::Acquire), path.socket_buffer_sizes(),
+                        path.receive_source(),
                     );
                 }
                 observe_h3_metrics(

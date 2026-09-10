@@ -364,13 +364,21 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeBui
     _class: JClass<'local>,
 ) -> jstring {
     with_jni_env(&mut environment, |environment| {
-        let Ok(value) = serde_json::to_string(&usque_core::NativeBuildInfo::current()) else {
+        let Ok(value) = native_build_info_json() else {
             return std::ptr::null_mut();
         };
         environment
             .new_string(value)
             .map_or(std::ptr::null_mut(), |value| value.into_raw())
     })
+}
+
+fn native_build_info_json() -> Result<String, serde_json::Error> {
+    let mut value = serde_json::to_value(usque_core::NativeBuildInfo::current())?;
+    // Preserve the field used by earlier comparison APKs; production has no
+    // experimental receive-backend or buffer-size build selection.
+    value["network_experiment"] = serde_json::json!("none");
+    serde_json::to_string(&value)
 }
 
 #[unsafe(no_mangle)]
@@ -2235,6 +2243,11 @@ fn network_quality_value(snapshot: &NetworkQualitySnapshot) -> serde_json::Value
             .connection_id
             .map(|connection| connection.0.to_string())
             .unwrap_or_default(),
+        "udp_socket_receive": snapshot.socket_receive.as_ref().map(|socket| serde_json::json!({
+            "receive_buffer_bytes": socket.receive_buffer_bytes,
+            "send_buffer_bytes": socket.send_buffer_bytes,
+            "observation": socket.observation,
+        })),
         "level": native_quality_level(snapshot.level),
         "metrics": {
             "latest_rtt_milliseconds": latest_rtt_known.then_some(latest_rtt),
@@ -2247,6 +2260,8 @@ fn network_quality_value(snapshot: &NetworkQualitySnapshot) -> serde_json::Value
             "bytes_in_flight": bytes_in_flight_known.then_some(bytes_in_flight),
             "send_rate_bits_per_second": send_rate_known.then_some(send_rate),
             "packets_lost": snapshot.loss.lost_packets.value.unwrap_or_default(),
+            "local_quic_packets_lost_observed": snapshot.loss.lost_packets.value,
+            "local_quic_pto_count_observed": snapshot.loss.pto_count.value,
             "bytes_lost": snapshot.loss.lost_bytes.value.unwrap_or_default(),
             "tun_sink_drop_count": native_queue_drop(snapshot, QueueKind::TransportToTun),
             "quic_datagram_drop_count": native_queue_drop(snapshot, QueueKind::H3DatagramSend)
@@ -2944,6 +2959,14 @@ fn jni_command_abandoned(cancelled: &AtomicBool) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn production_build_info_explicitly_has_no_receive_experiment() {
+        let value: serde_json::Value =
+            serde_json::from_str(&super::native_build_info_json().unwrap()).unwrap();
+        assert_eq!(value["network_experiment"], "none");
+        assert_eq!(value["debug_assertions"], cfg!(debug_assertions));
+        assert_eq!(value.as_object().unwrap().len(), 4);
+    }
     #[test]
     fn authoritative_generation_catches_preinstall_notification_and_never_rolls_back() {
         let captured_before_install = std::sync::atomic::AtomicU64::new(7);

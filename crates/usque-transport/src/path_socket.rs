@@ -97,6 +97,11 @@ impl PathSocket {
     pub(crate) fn socket_buffer_sizes(&self) -> (Option<u64>, Option<u64>) {
         self.io().socket_buffer_sizes()
     }
+    pub(crate) fn receive_source(
+        &self,
+    ) -> Option<crate::udp_io::receive_observation::ReceiveSource> {
+        self.io().receive_source()
+    }
 
     #[expect(
         clippy::too_many_arguments,

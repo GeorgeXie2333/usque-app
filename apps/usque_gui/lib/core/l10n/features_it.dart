@@ -348,6 +348,7 @@ const Map<String, String> kL4It = <String, String>{
   'l4_budget_rejections': 'Ammissioni di risorse rifiutate',
   'l4_not_applicable': 'Non applicabile (L4)',
   'l4_mode': 'L4 (sperimentale)',
+  'l4_transport_hint': 'Solo TCP; il DNS TUN usa TCP. Auto non include L4.',
   'l4_explanation':
       'Solo TCP su HTTP/3. Supporta VPN/TUN, SOCKS5 e HTTP; il DNS TUN viene convertito in TCP. Auto non sceglie mai L4. Altri UDP, ping remoto, frammenti IP e intestazioni di estensione non sono supportati; alcune app potrebbero non funzionare.',
   'l4_unsupported':

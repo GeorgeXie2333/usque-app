@@ -15,6 +15,12 @@ existing application connections are not preserved across those changes.
 Frontend listener/authentication edits retain the existing hot-update contract.
 Congestion control remains a saved preference for the next user session.
 
+The transport selector shows a concise L4 hint only while L4 is selected;
+Auto, H3 and H2 do not display it. The short copy is localized in all 21 language
+catalogs. Detailed traffic limitations remain on the proxy page and below.
+An unavailable L4 option keeps its explanatory tooltip; a previously saved L4
+selection also shows the unsupported-engine warning until another mode is chosen.
+
 An older engine without all required L4 capability fields cannot enable L4.
 The Home readout and Network quality page show the running data plane, not
 just a saved preference. QUIC readiness does not prove CONNECT permission:

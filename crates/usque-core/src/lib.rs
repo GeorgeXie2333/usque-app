@@ -42,7 +42,10 @@ pub use identity::{
     ConsumerEntitlement, EndpointPin, IdentityError, IdentityMetadata, IdentityProvider,
     MasqueKeyPair, WarpIdentity, parse_manual_warp_secret,
 };
-pub use l4::{L4PerformanceSnapshot, L4QueueSnapshot, L4Snapshot, L4WaitSnapshot, NativeBuildInfo};
+pub use l4::{
+    L4PerformanceSnapshot, L4QueueSnapshot, L4ReceiveInterval, L4ReceiveSnapshot, L4Snapshot,
+    L4WaitSnapshot, NativeBuildInfo,
+};
 pub use reconfigure::{ReconfigureClass, classify_reconfigure};
 pub use registration::{
     ConsumerRegistrationClient, EndpointPinRefresh, PreparedEndpointPinRefresh,

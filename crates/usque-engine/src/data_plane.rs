@@ -91,6 +91,7 @@ fn performance_to_proto(value: &usque_core::L4PerformanceSnapshot) -> v1::L4Perf
         tun_egress_queue: value.tun_egress_queue.as_ref().map(queue_to_proto),
         stack_ingress_queue: value.stack_ingress_queue.as_ref().map(queue_to_proto),
         stack_egress_queue: value.stack_egress_queue.as_ref().map(queue_to_proto),
+        receive: value.receive.as_ref().map(receive_to_proto),
     }
 }
 fn wait_to_proto(value: &usque_core::L4WaitSnapshot) -> v1::L4WaitSnapshot {
@@ -99,6 +100,40 @@ fn wait_to_proto(value: &usque_core::L4WaitSnapshot) -> v1::L4WaitSnapshot {
         sum_us: value.sum_us,
         max_us: value.max_us,
         buckets: value.buckets.to_vec(),
+    }
+}
+
+pub(crate) fn receive_to_proto(value: &usque_core::L4ReceiveSnapshot) -> v1::L4ReceiveSnapshot {
+    v1::L4ReceiveSnapshot {
+        buffer_target_bytes: value.buffer_target_bytes,
+        requested_buffer_bytes: value.requested_buffer_bytes,
+        buffer_request_status: value.buffer_request_status.clone(),
+        overflow_monitoring: value.overflow_monitoring.clone(),
+        socket_drops_reported: value.socket_drops_reported,
+        overflow_reports: value.overflow_reports,
+        ancillary_errors: value.ancillary_errors,
+        recv_syscalls: value.recv_syscalls,
+        received_datagrams: value.received_datagrams,
+        empty_recv_syscalls: value.empty_recv_syscalls,
+        receive_backend: value.receive_backend.clone(),
+        send_backend: value.send_backend.clone(),
+        history: value
+            .history
+            .iter()
+            .map(|v| v1::L4ReceiveInterval {
+                elapsed_ms: v.elapsed_ms,
+                interval_ms: v.interval_ms,
+                path_reset: v.path_reset,
+                h3_read_bytes: v.h3_read_bytes,
+                tcp_accepted_bytes: v.tcp_accepted_bytes,
+                tun_ingress_bytes: v.tun_ingress_bytes,
+                received_datagrams: v.received_datagrams,
+                recv_syscalls: v.recv_syscalls,
+                socket_drops: v.socket_drops,
+                socket_drops_reported: v.socket_drops_reported,
+            })
+            .collect(),
+        history_dropped: value.history_dropped,
     }
 }
 fn queue_to_proto(value: &usque_core::L4QueueSnapshot) -> v1::L4QueueSnapshot {
@@ -133,5 +168,24 @@ mod tests {
         assert!(added.tun_mtu.is_none());
         assert!(added.tun_write_calls.is_none());
         assert_eq!(added.command_wait.unwrap().buckets.len(), 32);
+        assert!(added.receive.is_none());
+        legacy.performance.as_mut().unwrap().receive = Some(usque_core::L4ReceiveSnapshot {
+            requested_buffer_bytes: Some(2 << 20),
+            buffer_request_status: Some("accepted".to_owned()),
+            history: vec![usque_core::L4ReceiveInterval {
+                path_reset: true,
+                ..Default::default()
+            }],
+            ..Default::default()
+        });
+        let received = snapshot_to_proto(&legacy)
+            .performance
+            .unwrap()
+            .receive
+            .unwrap();
+        assert_eq!(received.requested_buffer_bytes, Some(2 << 20));
+        assert!(received.socket_drops_reported.is_none());
+        assert!(received.history[0].path_reset);
+        assert!(received.history[0].socket_drops.is_none());
     }
 }

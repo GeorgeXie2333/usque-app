@@ -259,6 +259,7 @@ const Map<String, String> kL4Ko = <String, String>{
   'l4_budget_rejections': '리소스 수락 거부 횟수',
   'l4_not_applicable': '해당 없음(L4)',
   'l4_mode': 'L4(실험적)',
+  'l4_transport_hint': 'TCP만 지원하며 TUN DNS는 TCP로 변환됩니다. Auto에 L4는 포함되지 않습니다.',
   'l4_explanation':
       'HTTP/3 위의 TCP 전용 모드입니다. VPN/TUN, SOCKS5, HTTP를 지원하며 TUN DNS는 TCP로 변환됩니다. Auto는 L4를 선택하지 않습니다. 그 외 UDP, 원격 ping, IP 조각, 확장 헤더는 지원되지 않아 일부 앱이 동작하지 않을 수 있습니다.',
   'l4_unsupported': '이 엔진은 완전한 L4 지원을 선언하지 않았습니다. L4를 켤 수 없습니다.',

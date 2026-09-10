@@ -885,7 +885,10 @@ impl ControlService {
                         config,
                         snapshot,
                         diagnostic_session,
-                        timeline,
+                        maintenance::DiagnosticTransportContext {
+                            timeline,
+                            socket_receive: self.network_quality_snapshot().socket_receive,
+                        },
                     )
                     .await?;
                 Ok(control_response::Payload::Empty(v1::Empty {}))

@@ -291,6 +291,8 @@ const Map<String, String> kL4Id = <String, String>{
   'l4_budget_rejections': 'Penerimaan sumber daya ditolak',
   'l4_not_applicable': 'Tidak berlaku (L4)',
   'l4_mode': 'L4 (eksperimental)',
+  'l4_transport_hint':
+      'Hanya TCP; DNS TUN memakai TCP. Auto tidak mencakup L4.',
   'l4_explanation':
       'Hanya TCP melalui HTTP/3. Mendukung VPN/TUN, SOCKS5, dan HTTP; DNS TUN diubah menjadi TCP. Auto tidak pernah memilih L4. UDP lain, ping jarak jauh, fragmen IP, dan header ekstensi tidak didukung; beberapa aplikasi mungkin tidak berfungsi.',
   'l4_unsupported':

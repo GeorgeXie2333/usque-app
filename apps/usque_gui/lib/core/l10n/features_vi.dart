@@ -279,6 +279,7 @@ const Map<String, String> kL4Vi = <String, String>{
   'l4_budget_rejections': 'Số lần từ chối cấp tài nguyên',
   'l4_not_applicable': 'Không áp dụng (L4)',
   'l4_mode': 'L4 (thử nghiệm)',
+  'l4_transport_hint': 'Chỉ TCP; DNS của TUN dùng TCP. Auto không bao gồm L4.',
   'l4_explanation':
       'Chỉ TCP trên HTTP/3. Hỗ trợ VPN/TUN, SOCKS5 và HTTP; DNS của TUN được chuyển sang TCP. Auto không bao giờ chọn L4. UDP khác, ping từ xa, mảnh IP và header mở rộng không được hỗ trợ; một số ứng dụng có thể không chạy.',
   'l4_unsupported':

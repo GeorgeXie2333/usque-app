@@ -8,6 +8,7 @@ mod client;
 mod client_tests;
 pub(crate) mod performance;
 mod pool;
+mod receive_history;
 mod relay;
 mod runtime;
 pub(crate) mod stream;
