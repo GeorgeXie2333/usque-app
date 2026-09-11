@@ -176,6 +176,30 @@ class ReleaseWorkflowPolicyTests(unittest.TestCase):
         self.assertNotIn("Informational controlled performance baseline", performance)
 
 
+class WindowsInstallerValidationPolicyTests(unittest.TestCase):
+    def test_ci_validates_every_compiled_culture_before_creating_transforms(self) -> None:
+        root = Path(__file__).resolve().parent.parent
+        workflow = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        culture_loop = re.search(
+            r"(?ms)^          foreach \(\$culture in \$cultures\) \{\n.*?^          \}",
+            workflow,
+        )
+        self.assertIsNotNone(culture_loop)
+        assert culture_loop is not None
+        self.assertIn(
+            "dotnet tool run wix -- msi validate -sice ICE61 $output",
+            culture_loop.group(0),
+        )
+        self.assertIn('throw "MSI ICE validation failed for $culture."', culture_loop.group(0))
+        self.assertIn("tool/test_windows_msi_localization.ps1", workflow)
+
+    def test_language_builder_does_not_discard_native_diagnostics(self) -> None:
+        root = Path(__file__).resolve().parent.parent
+        builder = (root / "tool/build_windows_installer_payload.ps1").read_text(encoding="utf-8")
+        calls = re.findall(r"(?m)^\s*& \$buildMsi\b[^|]+\| ([^\n]+)", builder)
+        self.assertEqual(["Out-Host", "Out-Host"], calls)
+
+
 class ReleaseVersionContractTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
