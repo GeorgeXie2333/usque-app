@@ -700,6 +700,12 @@ jobs:
           & ./tool/test_windows_msi_localization.ps1 `
             -MsiPath (Join-Path $msiDirectory "usque-v0.2.6-windows-${{ matrix.variant }}-ja-JP.msi")
 
+      - name: Verify signed Burn engine round trip without installation
+        shell: pwsh
+        run: |
+          & ./tool/test_windows_burn_engine.ps1 `
+            -BundlePath (Join-Path $env:RUNNER_TEMP "windows-authoring-${{ matrix.arch }}/usque-v0.2.6-windows-${{ matrix.variant }}.exe")
+
   gate:
     name: CI / gate
     if: ${{ always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}

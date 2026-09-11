@@ -177,12 +177,9 @@ New-Item -ItemType Directory -Path $payloadRoot, $baRoot -Force | Out-Null
 try {
     if ($VerifyAuthenticode) {
         $detachedEngine = Join-Path $temporaryRoot "detached-engine.exe"
-        & dotnet tool run wix -- burn detach `
-            $resolvedBundle `
-            -engine $detachedEngine | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            throw "WiX could not detach the signed Burn engine for verification."
-        }
+        & (Join-Path $PSScriptRoot "extract_windows_burn_engine.ps1") `
+            -BundlePath $resolvedBundle `
+            -OutputPath $detachedEngine | Out-Null
         & (Join-Path $PSScriptRoot "verify_windows_authenticode.ps1") `
             -Path $detachedEngine `
             -SignerSha256 $SignerSha256 `
