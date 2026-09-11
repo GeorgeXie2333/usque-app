@@ -602,6 +602,13 @@ jobs:
               -ExpectedMsiLanguage $language `
               -ExpectedProductCode $productCode `
               -SignerSha256 ("0" * 64) | Out-Null
+
+            # Validate every compiled language, not only the loop's last MSI.
+            # Only ICE61 is suppressed for intentional equal-version upgrades.
+            dotnet tool run wix -- msi validate -sice ICE61 $output
+            if ($LASTEXITCODE -ne 0) {
+              throw "MSI ICE validation failed for $culture."
+            }
           }
 
           $baseMsi = Join-Path `
@@ -688,10 +695,10 @@ jobs:
             -ExpectedAgentFileVersion "0.14.1.0" `
             -SignerSha256 ("0" * 64)
 
-          # Equal-version validation packages intentionally replace the same
-          # product; only the corresponding ICE61 warning is suppressed.
-          dotnet tool run wix -- msi validate -sice ICE61 $output
-          if ($LASTEXITCODE -ne 0) { throw "MSI ICE validation failed." }
+          # Reproduce the malformed Japanese format string on a temporary copy
+          # to prove ICE03 remains enabled. Never installs or runs an MSI.
+          & ./tool/test_windows_msi_localization.ps1 `
+            -MsiPath (Join-Path $msiDirectory "usque-v0.2.6-windows-${{ matrix.variant }}-ja-JP.msi")
 
   gate:
     name: CI / gate

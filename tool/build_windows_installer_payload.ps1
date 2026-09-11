@@ -98,16 +98,20 @@ $commonArguments = @{
     AllowPinnedUntrustedRoot = $AllowPinnedUntrustedRoot
 }
 
-& $buildMsi @commonArguments -Culture "en-US" -OutputDirectory $outputRoot | Out-Null
+# Keep native WiX/ICE diagnostics visible even when callers discard this
+# helper's machine-readable result. A terminating child error must still fail.
+Write-Information "Building and validating MSI culture en-US ($Variant)." -InformationAction Continue
+& $buildMsi @commonArguments -Culture "en-US" -OutputDirectory $outputRoot | Out-Host
 if (-not (Test-Path -LiteralPath $baseMsiPath -PathType Leaf)) {
     throw "English base MSI was not produced: $baseMsiPath"
 }
 
 foreach ($culture in $localizedCultures) {
+    Write-Information "Building and validating MSI culture $culture ($Variant)." -InformationAction Continue
     & $buildMsi `
         @commonArguments `
         -Culture $culture `
-        -OutputDirectory $localizedOutput | Out-Null
+        -OutputDirectory $localizedOutput | Out-Host
 
     $localizedMsiPath = Join-Path `
         $localizedOutput `

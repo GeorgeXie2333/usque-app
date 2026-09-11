@@ -222,6 +222,12 @@ Do not run a plain `cargo build --release` in a fresh Windows shell. Use the hel
 
 Why the helper exists is in [AGENTS.md](AGENTS.md). For MSI or installer-bundle work, restore the pinned .NET tool and follow the multilingual CI fixture build. Table, transform, bundle extraction, detach/reattach, and ICE validation are safe; running the bundle or installing the MSI is not.
 
+Run ICE validation inside the culture loop for every MSI in both architecture
+sets. `tool/test_windows_msi_localization.ps1 -MsiPath <Japanese fixture MSI>`
+checks a valid package and then proves ICE03 rejects the malformed localized
+format string on a temporary copy. Do not suppress validation diagnostics or
+substitute validation of only the final culture for the complete language set.
+
 For quiet-uninstall changes, run `pwsh -NoProfile -File
 tool/test_windows_quiet_uninstall.ps1` and the same test script with Windows
 PowerShell 5.1. These use inert process/registry doubles and a harmless child
