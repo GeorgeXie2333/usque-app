@@ -199,6 +199,18 @@ class WindowsInstallerValidationPolicyTests(unittest.TestCase):
         calls = re.findall(r"(?m)^\s*& \$buildMsi\b[^|]+\| ([^\n]+)", builder)
         self.assertEqual(["Out-Host", "Out-Host"], calls)
 
+    def test_bundle_signature_gate_restores_engine_without_skipping_authenticode(self) -> None:
+        root = Path(__file__).resolve().parent.parent
+        verifier = (root / "tool/verify_windows_bundle.ps1").read_text(encoding="utf-8")
+        self.assertIn('"extract_windows_burn_engine.ps1"', verifier)
+        self.assertNotIn("wix -- burn detach", verifier)
+        restored_check = verifier.split('"extract_windows_burn_engine.ps1"', 1)[1]
+        self.assertIn('"verify_windows_authenticode.ps1"', restored_check)
+        self.assertIn("-Path $detachedEngine", restored_check)
+        self.assertIn("-SignerSha256 $SignerSha256", restored_check)
+        workflow = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        self.assertIn("tool/test_windows_burn_engine.ps1", workflow)
+
 
 class ReleaseVersionContractTests(unittest.TestCase):
     def setUp(self) -> None:

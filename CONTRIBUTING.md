@@ -228,6 +228,15 @@ checks a valid package and then proves ICE03 rejects the malformed localized
 format string on a temporary copy. Do not suppress validation diagnostics or
 substitute validation of only the final culture for the complete language set.
 
+Run `tool/test_windows_burn_engine.ps1 -BundlePath <inert fixture bundle>` for
+both architectures. It signs only temporary engine/bundle copies with a fresh
+non-exportable test identity in `CurrentUser\My`, never a trust store, and
+removes that identity and its key afterward. It checks byte-identical signed
+engine recovery, tamper/wrong-pin rejection, malformed headers, and read-only
+inputs. The test never executes a bundle or installs an MSI. Raw `wix burn
+detach` is for the pre-signing step: verifying an engine from an already signed
+bundle requires restoring the PE signature/checksum fields as Burn itself does.
+
 For quiet-uninstall changes, run `pwsh -NoProfile -File
 tool/test_windows_quiet_uninstall.ps1` and the same test script with Windows
 PowerShell 5.1. These use inert process/registry doubles and a harmless child

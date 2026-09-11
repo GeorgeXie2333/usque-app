@@ -44,6 +44,10 @@ release signs the MSI before embedding it, then follows WiX's detach/sign/
 reattach/sign sequence so both the Burn engine and final bundle carry the same
 project identity. A signer mismatch, a modified Wintun DLL, a malformed
 language transform, or a missing official fingerprint fails the release.
+For verification of an already signed bundle, the engine extractor restores
+the original PE checksum and certificate directory, matching Burn's cached
+engine behavior, before checking Authenticode and the fixed signer. Raw
+`wix burn detach` alone is not a signed-engine verification extractor.
 The installed uninstall helper applies the same offline Authenticode policy
 before it runs a cached hidden bundle for registration cleanup.
 
