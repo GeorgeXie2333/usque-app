@@ -57,6 +57,8 @@ mod network_quality;
 mod network_settings;
 mod sensitive_output;
 mod vpngate;
+#[cfg(test)]
+mod vpngate_connection_tests;
 
 mod active_runtime;
 mod reconfigure;
@@ -109,6 +111,7 @@ pub struct ControlServiceState {
     gate_fetch_task: Mutex<Option<vpngate::FetchTask>>,
     gate_status: watch::Sender<usque_core::vpngate::GateStatus>,
     gate_supervisor: Mutex<Option<AbortOnDropHandle<()>>>,
+    gate_startup_cancel: Mutex<tokio_util::sync::CancellationToken>,
     network_quality_tx: watch::Sender<usque_transport::NetworkQualitySnapshot>,
     network_quality_relay: Mutex<Option<AbortOnDropHandle<()>>>,
     session_generation: AtomicU64,
@@ -419,6 +422,7 @@ impl ControlService {
                 gate_fetch_task: Mutex::new(None),
                 gate_status: watch::channel(Default::default()).0,
                 gate_supervisor: Mutex::new(None),
+                gate_startup_cancel: Mutex::new(tokio_util::sync::CancellationToken::new()),
                 cache_dir,
                 geo_progress_tx,
                 network_quality_tx,
@@ -658,6 +662,7 @@ impl ControlService {
     /// Stops forwarding immediately, then waits for privileged platform state
     /// to be restored before the Engine process is allowed to exit.
     pub async fn shutdown(&self) -> Result<(), ControlServiceError> {
+        self.gate_startup_cancel.lock().await.cancel();
         self.cancel_gate_refresh().await;
         self.settings_intent.fetch_add(1, Ordering::SeqCst);
         #[cfg(windows)]
@@ -1745,14 +1750,20 @@ impl ControlService {
     }
 
     async fn connect(&self, profile_id: Uuid) -> Result<ConnectionSnapshot, ControlServiceError> {
+        let startup_cancel = self.gate_connection_request().await;
         let _mutation = self.mutation_lock.lock().await;
+        if startup_cancel.is_cancelled() {
+            return Ok(self.state.lock().await.snapshot().clone());
+        }
         if self.data_plane.lock().await.is_none() {
             *self.session_congestion_control.lock().await = None;
             *self.session_profile.lock().await = None;
         }
         #[cfg(windows)]
         let intent_generation = self.begin_windows_connection_intent(profile_id).await;
-        let result = self.connect_locked(profile_id).await;
+        let result = self
+            .connect_with_cancellation_locked(profile_id, startup_cancel)
+            .await;
         #[cfg(windows)]
         if result.is_err() {
             self.clear_windows_connection_intent_if(intent_generation)
@@ -1765,6 +1776,19 @@ impl ControlService {
         &self,
         profile_id: Uuid,
     ) -> Result<ConnectionSnapshot, ControlServiceError> {
+        let startup_cancel = self.gate_startup_cancel.lock().await.clone();
+        self.connect_with_cancellation_locked(profile_id, startup_cancel)
+            .await
+    }
+
+    async fn connect_with_cancellation_locked(
+        &self,
+        profile_id: Uuid,
+        startup_cancel: tokio_util::sync::CancellationToken,
+    ) -> Result<ConnectionSnapshot, ControlServiceError> {
+        if startup_cancel.is_cancelled() {
+            return Ok(self.state.lock().await.snapshot().clone());
+        }
         self.ensure_gate_supervisor().await;
         self.await_disconnect_cleanup().await?;
         {
@@ -1886,8 +1910,11 @@ impl ControlService {
                     identity,
                     Arc::clone(&pin_refresher),
                     Arc::new(geo_policy.clone()),
-                    selected_gate,
-                    Some(self.gate_status.clone()),
+                    usque_transport::VpnGateStart {
+                        selected: selected_gate,
+                        status: Some(self.gate_status.clone()),
+                        cancellation: startup_cancel.clone(),
+                    },
                 )
                 .await
                 {
@@ -1925,16 +1952,21 @@ impl ControlService {
                 usque_transport::VpnGateStart {
                     selected: selected_gate,
                     status: Some(self.gate_status.clone()),
+                    cancellation: startup_cancel.clone(),
                 },
             ))
             .await
             {
                 Ok(runtime) => {
                     let mut runtime = ProxyRuntime::from_data_plane(runtime);
+                    if startup_cancel.is_cancelled() {
+                        runtime.quiesce_final();
+                    }
                     #[cfg(windows)]
                     let system_proxy = if profile.frontends.http
                         && profile.proxy.system_proxy
                         && runtime.gate_status().stage != usque_core::vpngate::GateStage::Error
+                        && !startup_cancel.is_cancelled()
                     {
                         let Some(listener) =
                             windows_agent::loopback_http_listener(runtime.http_listeners())
@@ -1972,6 +2004,7 @@ impl ControlService {
                         None
                     };
                     if runtime.gate_status().stage != usque_core::vpngate::GateStage::Error
+                        && !startup_cancel.is_cancelled()
                         && let Err(error) = runtime.activate_final().await
                     {
                         runtime.shutdown().await;
@@ -1996,6 +2029,13 @@ impl ControlService {
                 }
             }
         };
+        if startup_cancel.is_cancelled() {
+            let mut runtime = runtime;
+            runtime.cancel_immediately();
+            *self.disconnect_cleanup.lock().await =
+                Some(tokio::spawn(async move { runtime.shutdown().await }));
+            return self.disconnect_locked().await;
+        }
         let path = runtime.path();
         let listener_auth = profile.proxy.listener_credentials().ok().flatten();
         let exit_probe = exit_probe_for_session(
@@ -2141,6 +2181,9 @@ impl ControlService {
     }
 
     async fn disconnect(&self) -> Result<ConnectionSnapshot, ControlServiceError> {
+        // The startup owner must finish/retain its platform guard before the
+        // serialized teardown runs. Signal it without waiting for that lock.
+        self.gate_startup_cancel.lock().await.cancel();
         self.settings_intent.fetch_add(1, Ordering::SeqCst);
         #[cfg(windows)]
         self.clear_windows_connection_intent().await;
@@ -2210,8 +2253,12 @@ impl ControlService {
     }
 
     async fn retry(&self) -> Result<ConnectionSnapshot, ControlServiceError> {
+        let startup_cancel = self.gate_connection_request().await;
         self.settings_intent.fetch_add(1, Ordering::SeqCst);
         let _mutation = self.mutation_lock.lock().await;
+        if startup_cancel.is_cancelled() {
+            return Ok(self.state.lock().await.snapshot().clone());
+        }
         *self.session_congestion_control.lock().await = None;
         *self.session_profile.lock().await = None;
         let connected_profile = self
@@ -2239,7 +2286,8 @@ impl ControlService {
             })
             .map(|active| active.profile.clone());
         if let Some(profile) = gate_retry {
-            self.hot_replace_gate(&profile).await?;
+            self.hot_replace_gate_with_cancellation(&profile, &startup_cancel)
+                .await?;
             return Ok(self.status_snapshot().await);
         }
 
@@ -2329,7 +2377,9 @@ impl ControlService {
                 // The Agent journal remains Active and WFP stays fail-closed.
                 // `connect_locked` detects that transaction and recreates only
                 // MASQUE plus the volatile packet session.
-                let result = self.connect_locked(profile_id).await;
+                let result = self
+                    .connect_with_cancellation_locked(profile_id, startup_cancel)
+                    .await;
                 if result.is_err() {
                     self.clear_windows_connection_intent_if(intent_generation)
                         .await;
@@ -2345,7 +2395,9 @@ impl ControlService {
                 .await;
         }
         disconnected?;
-        let result = self.connect_locked(profile_id).await;
+        let result = self
+            .connect_with_cancellation_locked(profile_id, startup_cancel)
+            .await;
         #[cfg(windows)]
         if result.is_err() {
             self.clear_windows_connection_intent_if(intent_generation)

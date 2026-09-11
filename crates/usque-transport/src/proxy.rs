@@ -37,10 +37,15 @@ impl ProxyRuntime {
         )>,
         policy: Arc<GeoDirectPolicy>,
         status: tokio::sync::watch::Sender<usque_core::vpngate::GateStatus>,
+        cancellation: &tokio_util::sync::CancellationToken,
     ) -> Result<(), TransportError> {
         self.inner_mut()
-            .replace_gate(profile, selected, policy, status)
+            .replace_gate(profile, selected, policy, status, cancellation)
             .await?;
+        if cancellation.is_cancelled() {
+            self.quiesce_final();
+            return Err(TransportError::TunnelClosed);
+        }
         self.activate_final().await
     }
     pub async fn activate_final(&mut self) -> Result<(), TransportError> {

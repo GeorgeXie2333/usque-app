@@ -32,6 +32,8 @@ pub struct DataPlaneRuntime {
 pub struct VpnGateStart {
     pub selected: Option<(ServerSummary, PreparedProfile)>,
     pub status: Option<watch::Sender<GateStatus>>,
+    /// Cancels startup only; the established OpenVPN worker owns its lifetime.
+    pub cancellation: CancellationToken,
 }
 struct GateRuntime {
     frontend: MasqueRuntime,
@@ -91,7 +93,11 @@ impl DataPlaneRuntime {
         policy: Arc<GeoDirectPolicy>,
         gate: VpnGateStart,
     ) -> Result<Self, TransportError> {
-        let VpnGateStart { selected, status } = gate;
+        let VpnGateStart {
+            selected,
+            status,
+            cancellation,
+        } = gate;
         if !profile.vpn_gate.enabled {
             return Self::start_with_geo_policy(profile, identity, protector, refresher, policy)
                 .await;
@@ -122,7 +128,16 @@ impl DataPlaneRuntime {
         runtime.transition_status.current_server = Some(selected.0.clone());
         let status_copy = status.clone();
         if let Err(error) = runtime
-            .install_gate(profile, selected, protector, policy, status)
+            .install_gate(
+                profile,
+                protector,
+                policy,
+                VpnGateStart {
+                    selected: Some(selected),
+                    status,
+                    cancellation,
+                },
+            )
             .await
         {
             let reason = match error {
@@ -156,20 +171,29 @@ impl DataPlaneRuntime {
     async fn install_gate(
         &mut self,
         profile: &Profile,
-        selected: (ServerSummary, PreparedProfile),
         protector: Arc<dyn SocketProtector>,
         policy: Arc<GeoDirectPolicy>,
-        status: Option<watch::Sender<GateStatus>>,
+        gate: VpnGateStart,
     ) -> Result<(), TransportError> {
+        let VpnGateStart {
+            selected,
+            status,
+            cancellation,
+        } = gate;
+        let selected = selected.ok_or(TransportError::VpnGate(GateFailure::Configuration))?;
         let (server, prepared) = selected;
         if profile.vpn_gate.selection.as_ref().is_none_or(|selection| {
             selection.server_id != server.id || selection.config_sha256 != server.config_sha256
         }) {
             return Err(TransportError::VpnGate(GateFailure::Configuration));
         }
-        let (mut driver, tunnel, mut network) =
-            crate::vpngate::GateDriver::start(&prepared, self.warp_internal_network(), status)
-                .await?;
+        let (mut driver, tunnel, mut network) = crate::vpngate::GateDriver::start(
+            &prepared,
+            self.warp_internal_network(),
+            status,
+            &cancellation,
+        )
+        .await?;
         network.mtu = profile.mtu.min(network.mtu);
         if network.dns_servers.is_empty() {
             network.dns_servers = profile
@@ -184,7 +208,7 @@ impl DataPlaneRuntime {
             return Err(TransportError::VpnGate(GateFailure::Configuration));
         }
         let effective = final_profile(profile, &network);
-        let frontend = match MasqueRuntime::start_over_tunnel(
+        let mut frontend = match MasqueRuntime::start_over_tunnel(
             &effective,
             tunnel,
             (
@@ -202,6 +226,11 @@ impl DataPlaneRuntime {
                 return Err(error);
             }
         };
+        if cancellation.is_cancelled() {
+            frontend.shutdown().await;
+            driver.shutdown().await;
+            return Err(TransportError::TunnelClosed);
+        }
         self.gate = Some(Box::new(GateRuntime {
             frontend,
             driver,
@@ -220,6 +249,7 @@ impl DataPlaneRuntime {
         selected: Option<(ServerSummary, PreparedProfile)>,
         policy: Arc<GeoDirectPolicy>,
         status: watch::Sender<GateStatus>,
+        cancellation: &CancellationToken,
     ) -> Result<(), TransportError> {
         self.quiesce_final();
         let protector = match &self.inner {
@@ -245,10 +275,13 @@ impl DataPlaneRuntime {
                 Some(selected) => {
                     Box::pin(self.install_gate(
                         profile,
-                        selected,
                         protector,
                         policy,
-                        Some(status.clone()),
+                        VpnGateStart {
+                            selected: Some(selected),
+                            status: Some(status.clone()),
+                            cancellation: cancellation.clone(),
+                        },
                     ))
                     .await
                 }

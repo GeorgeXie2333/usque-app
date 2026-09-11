@@ -314,7 +314,12 @@ class _ConnectionHero extends StatelessWidget {
     final status = strings.get(presentation.labelKey);
     final action = strings.get(presentation.actionKey);
     final canAct =
-        !view.busy &&
+        (!view.busy ||
+            view.phase == ConnectionPhase.preparing ||
+            view.phase == ConnectionPhase.connectingH3 ||
+            view.phase == ConnectionPhase.connectingH2 ||
+            view.phase == ConnectionPhase.reconnecting) &&
+        view.phase != ConnectionPhase.disconnecting &&
         !(view.phase == ConnectionPhase.error &&
             view.errorCode == 'WINDOWS_RECOVERY_BLOCKED');
     Widget ring(double size) => ConnectionRing(

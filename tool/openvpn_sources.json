@@ -21,7 +21,7 @@
       {
         "path": "openvpn/mbedtls/ssl/sslctx.hpp",
         "upstream_sha256": "d3f8ec39f9b25ccfe9d8d194859ccc401f9c8da4234bd77ffe6eb91db7af7604",
-        "sha256": "eaaba515e4fe496af423423f663cbed0f18fc4ae6f3d015cc80f0699d0951cae"
+        "sha256": "a39dca7989e347fb93916f2baae04d67e9e28779a2855062a85f069de33c0fc7"
       },
       {
         "path": "openvpn/transport/dco.hpp",

@@ -853,12 +853,9 @@ impl WindowsVpnRuntime {
         identity: MasqueTlsIdentity,
         pin_refresher: Arc<dyn EndpointPinRefresher>,
         geo_policy: Arc<GeoDirectPolicy>,
-        selected_gate: Option<(
-            usque_core::vpngate::ServerSummary,
-            usque_core::vpngate::PreparedProfile,
-        )>,
-        gate_status: Option<watch::Sender<usque_core::vpngate::GateStatus>>,
+        gate: usque_transport::VpnGateStart,
     ) -> Result<Self, WindowsVpnError> {
+        let startup_cancel = gate.cancellation.clone();
         let geo_enabled = geo_policy.is_enabled();
         let agent = WindowsAgentClient::production();
         let capabilities = agent.get_capabilities().await?;
@@ -912,7 +909,7 @@ impl WindowsVpnRuntime {
             status: usque_core::vpngate::GateStatus {
                 stage: usque_core::vpngate::GateStage::Error,
                 warp_stage: Some("error".into()),
-                current_server: selected_gate.as_ref().map(|(server, _)| server.clone()),
+                current_server: gate.selected.as_ref().map(|(server, _)| server.clone()),
                 failure: Some(usque_core::vpngate::GateFailure::Transport),
                 ..Default::default()
             },
@@ -956,10 +953,7 @@ impl WindowsVpnRuntime {
             transport_protector,
             Some(pin_refresher),
             geo_policy,
-            usque_transport::VpnGateStart {
-                selected: selected_gate,
-                status: gate_status,
-            },
+            gate,
         ))
         .await
         {
@@ -1016,7 +1010,7 @@ impl WindowsVpnRuntime {
             if runtime.gate_status().stage != usque_core::vpngate::GateStage::Error {
                 // The helper records an error and closes admission on failure.
                 // Ownership of the WFP guard remains until explicit disconnect.
-                let _ = runtime.finish_chain_network(profile).await;
+                let _ = runtime.finish_chain_network(profile, &startup_cancel).await;
             }
             return Ok(runtime);
         }
@@ -1144,6 +1138,7 @@ impl WindowsVpnRuntime {
         )>,
         policy: Arc<GeoDirectPolicy>,
         status: watch::Sender<usque_core::vpngate::GateStatus>,
+        startup_cancel: &CancellationToken,
     ) -> Result<(), WindowsVpnError> {
         self.quiesce_final();
         require_open_vpn_transaction(self.transaction_open, self.operation_id)?;
@@ -1179,20 +1174,24 @@ impl WindowsVpnRuntime {
                 usque_transport::VpnGateStart {
                     selected,
                     status: Some(status),
+                    cancellation: startup_cancel.clone(),
                 },
             )
             .await?;
             self.monitor.tunnel = tunnel.monitor();
             self.tunnel = Some(tunnel);
             self.bootstrap = None;
-            return self.finish_chain_network(profile).await;
+            return self.finish_chain_network(profile, startup_cancel).await;
         }
         let tunnel = self
             .tunnel
             .as_mut()
             .ok_or(WindowsVpnError::MissingMasqueRuntime)?;
         tunnel.detach_tun();
-        if let Err(error) = tunnel.replace_gate(profile, selected, policy, status).await {
+        if let Err(error) = tunnel
+            .replace_gate(profile, selected, policy, status, startup_cancel)
+            .await
+        {
             let reason = match &error {
                 TransportError::VpnGate(reason) => *reason,
                 _ => usque_core::vpngate::GateFailure::Transport,
@@ -1200,11 +1199,15 @@ impl WindowsVpnRuntime {
             tunnel.fail_gate(reason).await;
             return Err(error.into());
         }
-        self.finish_chain_network(profile).await
+        self.finish_chain_network(profile, startup_cancel).await
     }
 
     /// Retain the operation's guard and underlay on every finalization failure.
-    async fn finish_chain_network(&mut self, profile: &Profile) -> Result<(), WindowsVpnError> {
+    async fn finish_chain_network(
+        &mut self,
+        profile: &Profile,
+        startup_cancel: &CancellationToken,
+    ) -> Result<(), WindowsVpnError> {
         let tunnel = self
             .tunnel
             .as_mut()
@@ -1221,6 +1224,9 @@ impl WindowsVpnRuntime {
             .into());
         }
         let result = async {
+            if startup_cancel.is_cancelled() {
+                return Err(TransportError::TunnelClosed.into());
+            }
             let network = tunnel.network_parameters();
             let mut final_profile = profile.clone();
             final_profile.mtu = network.mtu;
@@ -1291,6 +1297,9 @@ impl WindowsVpnRuntime {
                 self.system_proxy = Some(
                     WindowsSystemProxyGuard::start_for_tunnel(listener, self.operation_id).await?,
                 );
+            }
+            if startup_cancel.is_cancelled() {
+                return Err(TransportError::TunnelClosed.into());
             }
             tunnel.activate_final().await?;
             Ok::<_, WindowsVpnError>(())

@@ -1004,6 +1004,72 @@ void main() {
     controller.dispose();
   });
 
+  for (final failsLate in <bool>[false, true]) {
+    test(
+      'disconnect wins over a late connect response (error=$failsLate)',
+      () async {
+        SharedPreferences.setMockInitialValues(<String, Object>{});
+        final engine = ConcurrentGeoEngineClient();
+        final controller = AppController(engine);
+        await controller.initialize();
+        final connecting = controller.connectOrDisconnect();
+        await engine.connectStarted.future;
+        expect(controller.busy, isTrue);
+        await controller.connectOrDisconnect();
+        expect(
+          engine.calls.where((call) => call == 'disconnect'),
+          hasLength(1),
+        );
+        expect(controller.snapshot.phase, ConnectionPhase.disconnected);
+        if (failsLate) {
+          engine.connectResult.completeError(
+            const EngineException('PACKET_RECEIVE_FAILED', 'Transport'),
+          );
+        } else {
+          engine.connectResult.complete(
+            const EngineSnapshot(phase: ConnectionPhase.connected),
+          );
+        }
+        await connecting;
+        expect(controller.snapshot.phase, ConnectionPhase.disconnected);
+        expect(controller.lastError, isNull);
+        expect(controller.busy, isFalse);
+        controller.dispose();
+      },
+    );
+  }
+
+  testWidgets(
+    'home allows cancelling while the connection request is pending',
+    (tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final engine = ConcurrentGeoEngineClient();
+      final controller = AppController(engine);
+      await controller.initialize();
+      final connecting = controller.connectOrDisconnect();
+      await engine.connectStarted.future;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: UsqueTheme.light(),
+          home: Scaffold(body: HomeScreen(controller: controller)),
+        ),
+      );
+      final ring = tester.widget<ConnectionRing>(find.byType(ConnectionRing));
+      expect(ring.busy, isTrue);
+      expect(ring.onPressed, isNotNull);
+      ring.onPressed!();
+      await tester.pump();
+      expect(engine.calls, contains('disconnect'));
+      engine.connectResult.complete(
+        const EngineSnapshot(phase: ConnectionPhase.connected),
+      );
+      await connecting;
+      await tester.pumpWidget(const SizedBox());
+      expect(controller.snapshot.phase, ConnectionPhase.disconnected);
+      controller.dispose();
+    },
+  );
+
   test('advanced defaults preserve countries managed on their own page', () {
     final reset = UsqueProfile.defaultProfile()
         .copyWith(geoDirectCountries: const <String>['CN', 'US'])

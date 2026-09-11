@@ -15,6 +15,15 @@ pub(crate) struct FetchTask {
 }
 
 impl ControlService {
+    /// A fresh explicit request may start after a completed cancellation.
+    /// Internal retries never reset the user's stop signal.
+    pub(crate) async fn gate_connection_request(&self) -> CancellationToken {
+        let mut cancellation = self.gate_startup_cancel.lock().await;
+        if cancellation.is_cancelled() {
+            *cancellation = CancellationToken::new();
+        }
+        cancellation.clone()
+    }
     pub(crate) async fn ensure_gate_supervisor(&self) {
         let mut task = self.gate_supervisor.lock().await;
         if task.is_some() {
@@ -76,6 +85,20 @@ impl ControlService {
         &self,
         profile: &usque_core::Profile,
     ) -> Result<(), ControlServiceError> {
+        let startup_cancel = self.gate_startup_cancel.lock().await.clone();
+        self.hot_replace_gate_with_cancellation(profile, &startup_cancel)
+            .await
+    }
+    pub(crate) async fn hot_replace_gate_with_cancellation(
+        &self,
+        profile: &usque_core::Profile,
+        startup_cancel: &CancellationToken,
+    ) -> Result<(), ControlServiceError> {
+        if startup_cancel.is_cancelled() {
+            return Err(ControlServiceError::Transport(
+                usque_transport::TransportError::TunnelClosed,
+            ));
+        }
         self.abort_exit_probe().await;
         let mut active = self
             .data_plane
@@ -99,7 +122,13 @@ impl ControlService {
                 crate::active_runtime::ActiveRuntime::Proxy(runtime) => {
                     runtime
                         .runtime
-                        .replace_gate(profile, selected, policy, self.gate_status.clone())
+                        .replace_gate(
+                            profile,
+                            selected,
+                            policy,
+                            self.gate_status.clone(),
+                            startup_cancel,
+                        )
                         .await
                         .map_err(ControlServiceError::Transport)?;
                     #[cfg(windows)]
@@ -125,7 +154,13 @@ impl ControlService {
                 }
                 #[cfg(windows)]
                 crate::active_runtime::ActiveRuntime::Vpn(runtime) => runtime
-                    .replace_gate(profile, selected, policy, self.gate_status.clone())
+                    .replace_gate(
+                        profile,
+                        selected,
+                        policy,
+                        self.gate_status.clone(),
+                        startup_cancel,
+                    )
                     .await
                     .map_err(crate::map_windows_vpn_error),
                 #[cfg(test)]

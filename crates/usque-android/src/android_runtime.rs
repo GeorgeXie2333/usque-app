@@ -532,6 +532,7 @@ async fn run(
             usque_transport::VpnGateStart {
                 selected: selected_gate,
                 status: Some(gate_tx.clone()),
+                cancellation: cancellation.clone(),
             },
         ));
         tokio::pin!(startup);
@@ -583,13 +584,14 @@ async fn run(
         tun_io,
         tunnel,
         profile,
-        cancellation,
+        cancellation.clone(),
         status.clone(),
         commands,
         GateContext {
             cache_dir,
             status: gate_tx,
             snapshot: status,
+            cancellation,
         },
     )
     .await;
@@ -656,6 +658,7 @@ struct GateContext {
     cache_dir: PathBuf,
     status: tokio::sync::watch::Sender<usque_core::vpngate::GateStatus>,
     snapshot: Arc<Mutex<NativeSnapshot>>,
+    cancellation: CancellationToken,
 }
 
 struct PendingPacketIo<'a, F> {
@@ -982,6 +985,7 @@ async fn retry_gate(
                 Some(selected),
                 Arc::new(policy),
                 context.status.clone(),
+                &context.cancellation,
             )
             .await?;
         if !profile.frontends.tunnel {
@@ -1067,6 +1071,7 @@ async fn handle_runtime_command(
                                     selected,
                                     Arc::new(policy),
                                     gate_context.status.clone(),
+                                    &gate_context.cancellation,
                                 )
                                 .await
                         }

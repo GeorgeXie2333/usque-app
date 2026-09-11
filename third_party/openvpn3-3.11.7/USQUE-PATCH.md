@@ -24,6 +24,12 @@ The Mbed TLS configuration now honors `set_tls_version_max`, loads an explicit
 `tls-version-max`, and recognizes TLS 1.3 as a valid minimum on Mbed TLS 3.6.
 The memory interoperability peer sets a TLS 1.2 maximum to exercise that path.
 
+The Mbed TLS loader also preserves `remote-cert-tls` key-usage and extended
+key-usage defaults when no explicit override is present. Its key-usage check
+requires the correct extension and treats Mbed TLS's zero return as success.
+The memory peer tests reject an incompatible certificate role and key usage,
+in addition to invalid CA and authentication failures.
+
 `openvpn/mbedtls/crypto/cipher.hpp` explicitly selects PKCS#7 padding for CBC.
 Mbed TLS 3.6.7 no longer initializes a default padding mode in cipher setup;
 without this call CBC data encryption fails. No wire format or padding

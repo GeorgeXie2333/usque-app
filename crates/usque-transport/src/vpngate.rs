@@ -68,7 +68,11 @@ impl GateDriver {
         profile: &PreparedProfile,
         warp: InternalNetwork,
         status_sink: Option<watch::Sender<GateStatus>>,
+        startup_cancel: &CancellationToken,
     ) -> Result<(Self, ManagedTunnelRuntime, FinalNetworkParameters), TransportError> {
+        if startup_cancel.is_cancelled() {
+            return Err(TransportError::TunnelClosed);
+        }
         let native = Session::start(profile.content(), profile.remote)
             .map_err(|_| TransportError::VpnGate(GateFailure::Configuration))?;
         let cancellation = CancellationToken::new();
@@ -102,13 +106,24 @@ impl GateDriver {
             cancellation,
             task: Some(task),
         };
-        let result = tokio::time::timeout(Duration::from_secs(35), ready_rx).await;
+        let result = tokio::select! {
+            biased;
+            _ = startup_cancel.cancelled() => {
+                tracing::info!(gate_event = "STARTUP_CANCELLED", "VPN Gate startup cancelled");
+                driver.shutdown().await;
+                return Err(TransportError::TunnelClosed);
+            }
+            result = tokio::time::timeout(Duration::from_secs(35), ready_rx) => result,
+        };
         match result {
             Ok(Ok(Ok((runtime, network)))) => {
                 guard.disarm();
                 Ok((driver, runtime, network))
             }
             other => {
+                if other.is_err() {
+                    tracing::warn!(gate_event = "STARTUP_TIMEOUT", "VPN Gate startup failed");
+                }
                 let reason = match other {
                     Ok(Ok(Err(reason))) => reason,
                     _ => GateFailure::Transport,
@@ -211,7 +226,10 @@ impl Actor {
                     if let Some(cancel) = &channel_cancel { cancel.cancelled().await }
                     else { std::future::pending().await }
                 } => return Ok(()),
-                event = self.native.next_event() => self.event(event.map_err(|_| GateFailure::Transport)?).await?,
+                event = self.native.next_event() => self.event(event.map_err(|error| {
+                    tracing::warn!(gate_event = "NATIVE_EVENT_FAILED", failure_kind = ?error, "VPN Gate native event could not be decoded");
+                    GateFailure::Transport
+                })?).await?,
                 changed = self.underlay_health.changed() => {
                     if changed.is_err() { return Err(GateFailure::Transport); }
                     if !matches!(*self.underlay_health.borrow(), RuntimeHealth::Connected { .. }) {
@@ -302,6 +320,9 @@ impl Actor {
                 error,
                 fatal,
             } if generation == self.generation => {
+                // The C ABI supplies library enum labels only, never free-form
+                // peer info, certificate subjects, endpoints or configuration.
+                tracing::info!(gate_event = %name, error, fatal, "VPN Gate protocol event");
                 if name == "CONNECTED" {
                     let network = self.network.clone().ok_or(GateFailure::Configuration)?;
                     if !matches!(
@@ -489,15 +510,27 @@ impl Connection {
                 let stream = warp
                     .connect_address(remote, &cancel, Instant::now() + Duration::from_secs(15))
                     .await
-                    .map_err(std::io::Error::from)?;
+                    .map_err(|error| {
+                        tracing::warn!(gate_event = "TCP_DIAL_FAILED", failure_kind = ?error, "VPN Gate WARP dial failed");
+                        std::io::Error::from(error)
+                    })?;
+                tracing::info!(
+                    gate_event = "TCP_CONNECTED",
+                    "VPN Gate WARP transport ready"
+                );
                 input
                     .transport_connected(generation)
                     .await
                     .map_err(|_| std::io::ErrorKind::ConnectionAborted)?;
                 let (mut reader, mut writer) = tokio::io::split(stream);
+                let sent_frames = std::sync::atomic::AtomicU64::new(0);
+                let received_frames = std::sync::atomic::AtomicU64::new(0);
                 let receive = async {
                     loop {
-                        let packet = read_frame(&mut reader).await?;
+                        let packet = read_frame(&mut reader).await.inspect_err(|error| {
+                            tracing::warn!(gate_event = "TCP_READ_FAILED", io_error_kind = ?error.kind(), "VPN Gate framed transport failed");
+                        })?;
+                        received_frames.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         input
                             .receive_transport(generation, &packet)
                             .await
@@ -508,11 +541,21 @@ impl Connection {
                 };
                 let send = async {
                     while let Some(packet) = packets.recv().await {
-                        write_frame(&mut writer, &packet).await?;
+                        write_frame(&mut writer, &packet).await.inspect_err(|error| {
+                            tracing::warn!(gate_event = "TCP_WRITE_FAILED", io_error_kind = ?error.kind(), "VPN Gate framed transport failed");
+                        })?;
+                        sent_frames.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     }
                     Ok::<(), std::io::Error>(())
                 };
-                tokio::select! { result = receive => result, result = send => result }
+                let result = tokio::select! { result = receive => result, result = send => result };
+                tracing::info!(
+                    gate_event = "TCP_CLOSED",
+                    sent_frames = sent_frames.load(std::sync::atomic::Ordering::Relaxed),
+                    received_frames = received_frames.load(std::sync::atomic::Ordering::Relaxed),
+                    "VPN Gate transport ended"
+                );
+                result
             };
             tokio::select! {
                 biased;
@@ -553,6 +596,101 @@ async fn write_frame(writer: &mut (impl AsyncWrite + Unpin), packet: &[u8]) -> s
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tcp::{DialError, FlowClass, TcpDialer, TcpIo, TcpStream, TcpTarget};
+    use std::sync::Arc;
+
+    struct MemoryDialer {
+        connected: bool,
+        dialed: tokio::sync::Notify,
+        peer: std::sync::Mutex<Option<oneshot::Sender<tokio::io::DuplexStream>>>,
+    }
+    impl TcpIo for tokio::io::DuplexStream {
+        fn local_addr(&self) -> std::io::Result<SocketAddr> {
+            Ok("127.0.0.1:12345".parse().unwrap())
+        }
+    }
+    #[async_trait::async_trait]
+    impl TcpDialer for MemoryDialer {
+        async fn connect(
+            &self,
+            _: TcpTarget,
+            _: Instant,
+            _: &CancellationToken,
+            _: FlowClass,
+        ) -> Result<TcpStream, DialError> {
+            self.dialed.notify_one();
+            if !self.connected {
+                return std::future::pending().await;
+            }
+            let (client, peer) = tokio::io::duplex(4096);
+            self.peer
+                .lock()
+                .unwrap()
+                .take()
+                .unwrap()
+                .send(peer)
+                .unwrap();
+            Ok(Box::new(client))
+        }
+    }
+
+    #[tokio::test]
+    async fn cancellation_joins_worker_during_dial_and_tls_wait() {
+        let ca = include_str!("../../usque-openvpn/tests/fixtures/ca.crt");
+        let cert = include_str!("../../usque-openvpn/tests/fixtures/client.crt");
+        let key = include_str!("../../usque-openvpn/tests/fixtures/client.key");
+        let prepared = usque_core::vpngate::prepare_profile(
+            &format!("client\ndev tun\nproto tcp\nremote 8.8.8.8 1194\ncipher AES-128-CBC\nauth SHA1\n<ca>\n{ca}</ca>\n<cert>\n{cert}</cert>\n<key>\n{key}</key>\n"),
+            "8.8.8.8".parse().unwrap(),
+        ).unwrap();
+        for connected in [false, true] {
+            let (peer_tx, peer_rx) = oneshot::channel();
+            let dialer = Arc::new(MemoryDialer {
+                connected,
+                dialed: tokio::sync::Notify::new(),
+                peer: std::sync::Mutex::new(Some(peer_tx)),
+            });
+            let (health, receiver) = watch::channel(RuntimeHealth::Connected {
+                path: RuntimePath {
+                    transport: usque_core::Transport::Http3,
+                    endpoint_family: usque_core::AddressFamily::Ipv4,
+                    ipv4_available: true,
+                    ipv6_available: false,
+                },
+                reconnect_count: 0,
+            });
+            let warp =
+                InternalNetwork::for_streams(dialer.clone(), receiver, CancellationToken::new());
+            let cancel = CancellationToken::new();
+            let startup = GateDriver::start(&prepared, warp, None, &cancel);
+            tokio::pin!(startup);
+            let stop = async {
+                dialer.dialed.notified().await;
+                let mut peer = if connected {
+                    let mut peer = peer_rx.await.unwrap();
+                    assert_eq!(read_frame(&mut peer).await.unwrap().len(), 14);
+                    Some(peer)
+                } else {
+                    None
+                };
+                cancel.cancel();
+                if let Some(peer) = &mut peer {
+                    assert_eq!(
+                        peer.read(&mut [0; 1]).await.unwrap(),
+                        0,
+                        "cancel closes the WARP stream"
+                    );
+                }
+            };
+            let (result, ()) = tokio::time::timeout(Duration::from_secs(3), async {
+                tokio::join!(startup, stop)
+            })
+            .await
+            .expect("cancel must not wait for the 35-second startup deadline");
+            assert!(matches!(result, Err(TransportError::TunnelClosed)));
+            drop(health);
+        }
+    }
     #[test]
     fn retry_waits_for_warp_preserves_backoff_and_stops_on_terminal_errors() {
         let mut retry = VpnGateRetry::default();

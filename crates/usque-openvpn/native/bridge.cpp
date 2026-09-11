@@ -11,6 +11,7 @@
 #include <openvpn/transport/client/extern/config.hpp>
 #include <openvpn/tun/extern/config.hpp>
 #include <openvpn/tun/builder/capture.hpp>
+#include <openvpn/tun/tunmtu.hpp>
 
 namespace {
 using namespace openvpn;
@@ -224,7 +225,12 @@ class Tun final : public TunClient {
     bool halted = true;
   public:
     Tun(Shared &state, const ExternalTun::Config &conf, TunClientParent &owner)
-        : shared(state), config(conf), parent(owner) {}
+        : shared(state), config(conf), parent(owner) {
+        // Native TUN backends supply the default when neither side sets MTU.
+        // The memory backend must make the same choice explicitly.
+        if (config.tun_prop.mtu == 0)
+            config.tun_prop.mtu = TUN_MTU_DEFAULT;
+    }
     ~Tun() override { stop(); }
     void tun_start(const OptionList &options, TransportClient &transport, CryptoDCSettings &) override {
         // Capture only: this builder has no route, DNS or interface side effects.
@@ -232,6 +238,9 @@ class Tun final : public TunClient {
         TunProp::configure_builder(&capture, &properties, config.stats.get(),
                                    transport.server_endpoint_addr(), config.tun_prop,
                                    options, nullptr, true);
+        // TunProp::State only records MTU for a pushed tun-mtu option. Capture
+        // contains the effective local/default/pushed value in all cases.
+        properties.mtu = capture.mtu;
         Message message;
         message.event.kind = NETWORK;
         if (properties.vpn_ip4_addr.defined())

@@ -454,18 +454,28 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> connectOrDisconnect() async {
+    if (snapshot.phase == ConnectionPhase.disconnecting) return;
     final intent = ++_connectionIntent;
     if (snapshot.isConnected || snapshot.isTransitional) {
+      snapshot = EngineSnapshot(
+        phase: ConnectionPhase.disconnecting,
+        vpnGate: snapshot.vpnGate,
+        killSwitchState: snapshot.killSwitchState,
+        platformLockdown: snapshot.platformLockdown,
+        alwaysOn: snapshot.alwaysOn,
+      );
       await _run(() async {
         _userDisconnectedThisSession = true;
-        snapshot = await _engine.disconnect();
+        final next = await _engine.disconnect();
+        if (intent != _connectionIntent) return;
+        snapshot = next;
         if (snapshot.phase == ConnectionPhase.disconnected &&
             !snapshotStreamDegraded) {
           _stopPolling();
         } else if (!_engine.supportsSnapshotEvents || snapshotStreamDegraded) {
           _startPolling(force: snapshotStreamDegraded);
         }
-      });
+      }, connectionIntent: intent);
       return;
     }
 
@@ -481,8 +491,9 @@ class AppController extends ChangeNotifier {
       await flushProfileWrites();
       if (intent != _connectionIntent) return;
       _requireDataPlaneCapability(activeProfile);
-      snapshot = await _engine.connect(activeProfile);
-    });
+      final next = await _engine.connect(activeProfile);
+      if (intent == _connectionIntent) snapshot = next;
+    }, connectionIntent: intent);
     if (success && (snapshot.isConnected || snapshot.isTransitional)) {
       if (!_engine.supportsSnapshotEvents || snapshotStreamDegraded) {
         _startPolling(force: snapshotStreamDegraded);
@@ -496,8 +507,9 @@ class AppController extends ChangeNotifier {
       await flushProfileWrites();
       if (intent != _connectionIntent) return;
       _requireDataPlaneCapability(activeProfile);
-      snapshot = await _engine.retry();
-    });
+      final next = await _engine.retry();
+      if (intent == _connectionIntent) snapshot = next;
+    }, connectionIntent: intent);
     if (success && (snapshot.isConnected || snapshot.isTransitional)) {
       if (!_engine.supportsSnapshotEvents || snapshotStreamDegraded) {
         _startPolling(force: snapshotStreamDegraded);
@@ -1009,6 +1021,7 @@ class AppController extends ChangeNotifier {
   Future<bool> _run(
     Future<void> Function() operation, {
     bool affectsConnection = true,
+    int? connectionIntent,
   }) async {
     _activeOperations += 1;
     busy = true;
@@ -1018,6 +1031,9 @@ class AppController extends ChangeNotifier {
       await operation();
       return true;
     } catch (error) {
+      if (connectionIntent != null && connectionIntent != _connectionIntent) {
+        return false;
+      }
       lastError = error is EngineException
           ? strings.windowsRecoveryError(error.code, details: error.message) ??
                 error.message

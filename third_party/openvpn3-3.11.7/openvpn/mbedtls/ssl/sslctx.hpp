@@ -559,8 +559,11 @@ class MbedTLSContext : public SSLFactoryAPI
 
             // parse remote-cert-x options
             KUParse::remote_cert_tls(opt, relay_prefix, ku, eku);
-            KUParse::remote_cert_ku(opt, relay_prefix, ku);
-            KUParse::remote_cert_eku(opt, relay_prefix, eku);
+            // Optional explicit overrides must not erase remote-cert-tls defaults.
+            if (opt.get_ptr(relay_prefix + "remote-cert-ku"))
+                KUParse::remote_cert_ku(opt, relay_prefix, ku);
+            if (opt.get_ptr(relay_prefix + "remote-cert-eku"))
+                KUParse::remote_cert_eku(opt, relay_prefix, eku);
 
             // parse tls-remote
             tls_remote = opt.get_optional(relay_prefix + "tls-remote", 1, 256);
@@ -1306,11 +1309,11 @@ class MbedTLSContext : public SSLFactoryAPI
 
     bool verify_x509_cert_ku(const mbedtls_x509_crt *cert)
     {
-        if (mbedtls_x509_crt_has_ext_type(cert, MBEDTLS_OID_X509_EXT_EXTENDED_KEY_USAGE))
+        if (mbedtls_x509_crt_has_ext_type(cert, MBEDTLS_OID_X509_EXT_KEY_USAGE))
         {
             for (std::vector<unsigned int>::const_iterator i = config->ku.begin(); i != config->ku.end(); ++i)
             {
-                if (mbedtls_x509_crt_check_key_usage(cert, *i))
+                if (mbedtls_x509_crt_check_key_usage(cert, *i) == 0)
                     return true;
             }
         }

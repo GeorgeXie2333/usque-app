@@ -10,4 +10,5 @@ are built. OpenVPN source is used under MPL-2.0; Mbed TLS under Apache-2.0.
 
 `SOURCE-FILES.sha256` records the included upstream files.
 
-The narrow Windows DCO include guard change is documented in `USQUE-PATCH.md`.
+The protocol-only build and Mbed TLS compatibility patches are documented in
+`USQUE-PATCH.md`.

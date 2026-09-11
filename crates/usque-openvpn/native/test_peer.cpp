@@ -24,6 +24,7 @@ class Peer final : public ProtoContextCallbackInterface {
     std::unique_ptr<ProtoContext> context_;
     std::deque<std::vector<uint8_t>> output_;
     bool reject_auth_;
+    uint32_t pushed_mtu_;
     uint32_t data_count_ = 0;
     uint32_t handshakes_ = 0;
     uint32_t data_keys_ = 0;
@@ -34,15 +35,18 @@ class Peer final : public ProtoContextCallbackInterface {
     void control_recv(BufferPtr&& packet) override {
         const std::string request(reinterpret_cast<const char*>(packet->c_data()), packet->size());
         if (request.rfind("PUSH_REQUEST", 0) != 0) return;
-        const std::string reply = reject_auth_ ? "AUTH_FAILED" :
-            "PUSH_REPLY,topology subnet,ifconfig 10.8.0.2 255.255.255.0,route-gateway 10.8.0.1,dhcp-option DNS 10.8.0.1,tun-mtu 1500,cipher AES-128-CBC,auth SHA1";
+        std::string reply = reject_auth_ ? "AUTH_FAILED" :
+            "PUSH_REPLY,topology subnet,ifconfig 10.8.0.2 255.255.255.0,route-gateway 10.8.0.1,dhcp-option DNS 10.8.0.1,cipher AES-128-CBC,auth SHA1";
+        if (!reject_auth_ && pushed_mtu_)
+            reply += ",tun-mtu " + std::to_string(pushed_mtu_);
         BufferAllocated message(reinterpret_cast<const unsigned char*>(reply.c_str()), reply.size() + 1, 0);
         context_->control_send(std::move(message));
     }
     bool supports_epoch_data() override { return false; }
     void active(bool) override { ++handshakes_; }
 public:
-    Peer(const char* ca, const char* cert, const char* key, bool reject_auth) : reject_auth_(reject_auth) {
+    Peer(const char* ca, const char* cert, const char* key, bool reject_auth, uint32_t pushed_mtu)
+        : reject_auth_(reject_auth), pushed_mtu_(pushed_mtu) {
         MbedTLSRandom::Ptr rng(new MbedTLSRandom);
         MbedTLSContext::Config::Ptr tls(new MbedTLSContext::Config);
         tls->set_mode(Mode(Mode::SERVER));
@@ -119,8 +123,8 @@ public:
 thread_local std::string peer_error;
 }
 extern "C" {
-void* usque_test_peer_create(const char* ca, const char* cert, const char* key, int reject_auth) {
-    try { return new Peer(ca, cert, key, reject_auth != 0); }
+void* usque_test_peer_create(const char* ca, const char* cert, const char* key, int reject_auth, uint32_t pushed_mtu) {
+    try { return new Peer(ca, cert, key, reject_auth != 0, pushed_mtu); }
     catch (const std::exception& e) { peer_error = e.what(); return nullptr; }
 }
 void usque_test_peer_destroy(void* peer) { delete static_cast<Peer*>(peer); }
