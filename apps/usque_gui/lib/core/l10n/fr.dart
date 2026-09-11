@@ -1,10 +1,20 @@
 /// French UI catalog.
 const Map<String, String> kFrCatalog = <String, String>{
   'app_name': 'Usque',
+  'diag_fail_L4_SESSION_UNAVAILABLE': 'Session L4 indisponible',
+  'diag_fail_L4_PROTOCOL_ERROR': 'Erreur de protocole L4',
+  'diag_fail_L4_CONNECT_REJECTED': 'L4 CONNECT refusé',
+  'diag_fail_L4_CONNECT_TIMEOUT': 'Délai L4 CONNECT dépassé',
+  'diag_fail_L4_RESOURCE_EXHAUSTED': 'Budget de ressources L4 épuisé',
+  'diag_fail_L4_DNS_FAILED': 'Échec de la requête DNS L4',
   'window_minimize': 'Réduire',
   'window_maximize': 'Agrandir',
   'window_restore': 'Restaurer la taille de la fenêtre',
   'window_close': 'Fermer',
+  'tray_open': 'Ouvrir Usque',
+  'tray_connect_profile': 'Connecter le compte actif',
+  'tray_disconnect_profile': 'Déconnecter le compte actif',
+  'tray_disconnect_exit': 'Déconnecter et quitter',
   'connection_status': 'État de la connexion',
   'outputs': 'Sorties réseau',
   'home': 'Accueil',
@@ -13,7 +23,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'proxy': 'Proxy',
   'proxy_subtitle': 'Écouteurs locaux et DNS partagés par tous les comptes.',
   'settings': 'Paramètres',
-  'settings_subtitle': 'Comportement de l’application sur cet appareil.',
+  'settings_subtitle': 'Paramètres de connexion, de proxy et de l’application.',
   'diagnostics': 'Diagnostics',
   'nav_home': 'Accueil',
   'nav_profiles': 'Comptes',
@@ -87,7 +97,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'zero_trust_repair_same_team':
       'Reconnectez-vous à la même organisation pour actualiser l’enregistrement de cet appareil.',
   'zero_trust_metadata_missing':
-      'La liaison d’organisation enregistrée est manquante. Par sécurité, ce profil ne peut pas être réparé sur place ; créez un nouveau profil Zero Trust.',
+      'La liaison d’organisation enregistrée est manquante. Par sécurité, cette entrée de compte ne peut pas être réparée sur place ; ajoutez un nouveau compte Zero Trust.',
   'zero_trust_endpoint_managed':
       'Ce point de terminaison est géré par l’enregistrement d’appareil Zero Trust et ne peut pas être modifié ici.',
   'experimental': 'Expérimental',
@@ -103,13 +113,13 @@ const Map<String, String> kFrCatalog = <String, String>{
   'delete': 'Supprimer',
   'delete_profile': 'Supprimer le compte ?',
   'delete_profile_body':
-      'Cela supprime les paramètres non secrets de ce profil. Les données d’identité stockées ne sont pas supprimées.',
+      'Cela supprime les paramètres non secrets de cette entrée de compte. Les données d’identité stockées ne sont pas supprimées.',
   'delete_zero_trust_profile_body':
-      'Cela supprime uniquement le profil local et les identifiants. Demandez à un administrateur de l’organisation de retirer l’enregistrement d’appareil résiduel dans Zero Trust.',
+      'Cela supprime uniquement l’entrée de compte locale et les identifiants. Demandez à un administrateur de l’organisation de retirer l’enregistrement d’appareil résiduel dans Zero Trust.',
   'license_not_applicable': 'Licence non applicable · Expérimental',
   'zero_trust_reauthenticate': 'Reconnectez-vous à cette organisation',
   'zero_trust_admin_cleanup_note':
-      'La suppression de ce profil ne révoque pas l’appareil dans le tableau de bord Zero Trust.',
+      'La suppression de cette entrée de compte ne révoque pas l’appareil dans le tableau de bord Zero Trust.',
   'mode': 'Mode de connexion',
   'vpn_mode': 'VPN',
   'socks_mode': 'SOCKS5',
@@ -139,7 +149,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'lan_warning_body':
       'Usque n’ajoute pas d’authentification par nom d’utilisateur/mot de passe. Toute personne pouvant atteindre cet écouteur peut l’utiliser.',
   'lan_warning_body_authenticated':
-      'Cet écouteur accepte les clients authentifiés hors boucle locale qui présentent le nom d’utilisateur et le mot de passe configurés.',
+      'Cet écouteur accepte les clients authentifiés hors loopback (hors 127.0.0.1 / ::1) qui présentent le nom d’utilisateur et le mot de passe configurés.',
   'proxy_auth': 'Authentification de l’écouteur',
   'proxy_auth_help':
       'Nom d’utilisateur et mot de passe facultatifs pour les écouteurs SOCKS5 et HTTP. Le mot de passe est stocké dans le coffre-fort système, pas dans le fichier de profil.',
@@ -198,7 +208,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'already_latest': 'Cette installation est déjà à jour.',
   'open_release': 'Ouvrir la page de version',
   'update_startup_description':
-      'Usque vérifie une fois après son démarrage. Revenir dans l’application ne déclenche pas une nouvelle vérification. « Vérifier maintenant » envoie toujours une requête en direct.',
+      'Usque vérifie une fois après son démarrage. Revenir dans l’application ne déclenche pas une nouvelle vérification. « Vérifier maintenant » interroge toujours les informations de la dernière version.',
   'update_checking': 'Recherche d’une mise à jour…',
   'update_downloading': 'Téléchargement du paquet de mise à jour vérifié…',
   'update_verifying': 'Vérification du paquet de mise à jour…',
@@ -302,7 +312,7 @@ const Map<String, String> kFrCatalog = <String, String>{
       'État de l’Usque Engine, export des journaux et données locales.',
   'engine_status': 'État de l’Usque Engine',
   'version': 'Version',
-  'app_version': 'Usque 0.2.5',
+  'app_version': 'Usque 0.2.6',
   'logs': 'Journaux locaux',
   'export_diagnostics': 'Exporter l’archive de diagnostics',
   'diagnostics_saved': 'Archive de diagnostics enregistrée dans',
@@ -312,9 +322,9 @@ const Map<String, String> kFrCatalog = <String, String>{
   'license': 'Licence',
   'clear_all_data': 'Effacer toutes les données',
   'clear_all_data_help':
-      'Déconnecter et supprimer définitivement de cet appareil tous les profils, identités Consumer WARP, préférences, caches et enregistrements de diagnostic locaux.',
+      'Déconnecter et supprimer définitivement de cet appareil tous les comptes, identités Consumer WARP, préférences, caches et enregistrements de diagnostic locaux.',
   'clear_all_data_confirm':
-      'Cette action est irréversible. Usque se déconnectera d’abord, effacera toutes les identités et tous les profils enregistrés, puis reviendra à la configuration initiale.',
+      'Cette action est irréversible. Usque se déconnectera d’abord, effacera toutes les identités et tous les comptes enregistrés, puis reviendra à la configuration initiale.',
   'clear_all_data_complete':
       'Toutes les données locales Usque ont été effacées.',
   'unofficial':
@@ -342,7 +352,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'permission_note':
       'Le système d’exploitation peut afficher une confirmation supplémentaire lors de la première connexion.',
   'setup_failed': 'La configuration n’a pas pu être terminée',
-  'profile_required': 'Conservez au moins un profil.',
+  'profile_required': 'Conservez au moins un compte.',
   'socks_capabilities': 'TCP et UDP',
   'http_capabilities': 'CONNECT et transfert ordinaire',
   'geo_direct': 'Pays avec routage direct',

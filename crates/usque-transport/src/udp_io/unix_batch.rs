@@ -6,6 +6,7 @@ use std::ptr;
 
 use tokio::net::UdpSocket;
 
+use super::receive_observation::{ControlBuffer, ReceiveObservation, parse_control};
 use super::{
     ReceiveDrainBudget, ReceivedDatagram, RecvBatch, SendDatagram, UDP_ACTOR_DRAIN_LIMIT,
     UDP_BATCH_SIZE, UDP_RECEIVE_SLOT_SIZE, receive_pool_exhausted_error,
@@ -17,6 +18,7 @@ pub(super) fn try_recv_batch(
     local_address: SocketAddr,
     output: &mut RecvBatch,
     quality: &NetworkQualityTelemetry,
+    observation: Option<&ReceiveObservation>,
 ) -> io::Result<usize> {
     let mut budget = ReceiveDrainBudget::default();
     while budget.remaining() > 0 {
@@ -40,6 +42,9 @@ pub(super) fn try_recv_batch(
         }
         let mut addresses: [libc::sockaddr_storage; UDP_BATCH_SIZE] =
             std::array::from_fn(|_| zeroed_sockaddr_storage());
+        let mut controls = observation
+            .filter(|o| o.overflow_enabled())
+            .map(|_| [ControlBuffer([0; 32]); UDP_BATCH_SIZE]);
         let mut iovecs: [libc::iovec; UDP_BATCH_SIZE] =
             std::array::from_fn(|index| match buffers[index].as_mut() {
                 Some(buffer) => libc::iovec {
@@ -58,8 +63,10 @@ pub(super) fn try_recv_batch(
                     msg_namelen: mem::size_of::<libc::sockaddr_storage>() as libc::socklen_t,
                     msg_iov: ptr::from_mut(&mut iovecs[index]),
                     msg_iovlen: 1,
-                    msg_control: ptr::null_mut(),
-                    msg_controllen: 0,
+                    msg_control: controls.as_mut().map_or(ptr::null_mut(), |controls| {
+                        controls[index].0.as_mut_ptr().cast()
+                    }),
+                    msg_controllen: if controls.is_some() { 32 } else { 0 },
                     msg_flags: 0,
                 },
                 msg_len: 0,
@@ -69,7 +76,8 @@ pub(super) fn try_recv_batch(
         // sockaddr storage, and boxed receive buffers are initialized, pinned
         // by local ownership, mutually disjoint, and live until `recvmmsg`
         // returns. Every passed iovec length is exactly the 2048-byte payload
-        // bound; unacquired slots beyond `requested` are never passed.
+        // bound; optional control slots are independently 8-byte aligned and
+        // live alongside the headers. Unacquired slots are never passed.
         let received = unsafe {
             libc::recvmmsg(
                 socket.as_raw_fd(),
@@ -82,6 +90,9 @@ pub(super) fn try_recv_batch(
         if received < 0 {
             let error = io::Error::last_os_error();
             quality.record_udp_recv(0);
+            if let Some(observation) = observation {
+                observation.record_recv(0);
+            }
             return if output.is_empty() {
                 Err(error)
             } else {
@@ -91,6 +102,9 @@ pub(super) fn try_recv_batch(
         let received = received as usize;
         if received > requested {
             quality.record_udp_recv(0);
+            if let Some(observation) = observation {
+                observation.record_recv(0);
+            }
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "recvmmsg returned more datagrams than requested",
@@ -98,6 +112,9 @@ pub(super) fn try_recv_batch(
         }
         if received == 0 {
             quality.record_udp_recv(0);
+            if let Some(observation) = observation {
+                observation.record_recv(0);
+            }
             return if output.is_empty() {
                 Err(io::Error::from(io::ErrorKind::WouldBlock))
             } else {
@@ -105,8 +122,21 @@ pub(super) fn try_recv_batch(
             };
         }
         quality.record_udp_recv(received as u64);
+        if let Some(observation) = observation {
+            observation.record_recv(received);
+        }
         for index in 0..received {
             let message = &messages[index];
+            if let (Some(observation), Some(controls)) = (observation, &controls) {
+                observation.record_control(parse_control(
+                    &controls[index].0,
+                    message.msg_hdr.msg_controllen as usize,
+                    message.msg_hdr.msg_flags & libc::MSG_CTRUNC != 0,
+                    mem::size_of::<usize>(),
+                    libc::SOL_SOCKET,
+                    libc::SO_RXQ_OVFL,
+                ));
+            }
             if !budget.accept(
                 message.msg_len as usize,
                 message.msg_hdr.msg_flags & libc::MSG_TRUNC != 0,

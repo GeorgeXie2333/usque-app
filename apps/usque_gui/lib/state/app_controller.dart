@@ -11,6 +11,7 @@ import '../services/engine_client.dart';
 import '../services/update_downloader.dart';
 import 'diagnostics_controller.dart';
 import 'network_quality_controller.dart';
+import 'network_settings_controller.dart';
 
 class AppController extends ChangeNotifier {
   AppController(
@@ -20,7 +21,10 @@ class AppController extends ChangeNotifier {
   }) : _engine = engine,
        _updateDownloader = updateDownloader ?? UpdateDownloader(engine),
        diagnostics = DiagnosticsController(engine),
-       quality = qualityController ?? NetworkQualityController(engine);
+       quality = qualityController ?? NetworkQualityController(engine),
+       networkSettings = NetworkSettingsController(engine) {
+    networkSettings.addListener(_acceptNetworkSettings);
+  }
 
   static const int _profileSchemaVersion = 1;
   static const int _maximumProfilePayloadBytes = 1024 * 1024;
@@ -39,18 +43,44 @@ class AppController extends ChangeNotifier {
   final UpdateDownloader _updateDownloader;
   final DiagnosticsController diagnostics;
   final NetworkQualityController quality;
+  final NetworkSettingsController networkSettings;
+  String? get networkSettingsMessage {
+    if (networkSettings.unconfirmed) return strings.get('settings_unknown');
+    if (networkSettings.saveError != null) {
+      return strings.get(
+        networkSettings.saveError == 'NETWORK_SETTINGS_UNSUPPORTED'
+            ? 'settings_unsupported'
+            : 'settings_save_failed',
+      );
+    }
+    final state = networkSettings.state;
+    if (state == null || state.operationId == null) return null;
+    return strings.get(switch (state.status) {
+      NetworkSettingsApplyStatus.notRequired =>
+        state.deferredFields.isEmpty ? 'settings_saved' : 'settings_deferred',
+      NetworkSettingsApplyStatus.applying => 'settings_applying',
+      NetworkSettingsApplyStatus.applied => 'settings_applied',
+      NetworkSettingsApplyStatus.deferred => 'settings_deferred',
+      NetworkSettingsApplyStatus.failed => 'settings_failed',
+      NetworkSettingsApplyStatus.unknown => 'settings_unknown',
+    });
+  }
+
+  bool get networkSettingsCanReconnect =>
+      networkSettings.state?.persisted == true &&
+      networkSettings.state?.status == NetworkSettingsApplyStatus.failed;
   SharedPreferences? _preferences;
   Timer? _snapshotTimer;
   Future<void>? _snapshotRefresh;
   int _snapshotRevision = 0;
   Timer? _snapshotReconnectTimer;
   StreamSubscription<EngineSnapshotEvent>? _snapshotSubscription;
-  Future<void> _profileWriteTail = Future<void>.value();
   int _snapshotReconnectAttempt = 0;
   int _snapshotSubscriptionGeneration = 0;
   bool _snapshotStreamEstablished = false;
   bool _startupUpdateCheckStarted = false;
   bool _disposed = false;
+  int _connectionIntent = 0;
   int _updateOperationGeneration = 0;
   UpdateDownloadCancellation? _updateCancellation;
 
@@ -93,6 +123,11 @@ class AppController extends ChangeNotifier {
   set engineCapabilities(EngineCapabilities? value) {
     _engineCapabilities = value;
     quality.setEnabled(value?.networkQuality ?? false);
+    final newlySupported =
+        !networkSettings.supported &&
+        (value?.networkSettingsApplication ?? false);
+    networkSettings.supported = value?.networkSettingsApplication ?? false;
+    if (newlySupported) unawaited(networkSettings.refresh());
   }
 
   List<AppSection> get availableSections => const <AppSection>[
@@ -178,6 +213,21 @@ class AppController extends ChangeNotifier {
             endpointIpv6: UsqueProfile.defaultEndpointIpv6,
           )
         : source;
+  }
+
+  void _acceptNetworkSettings() {
+    final stored = networkSettings.state?.storedProfile;
+    if (stored != null && profiles.any((profile) => profile.id == stored.id)) {
+      final managed =
+          identityStatus(stored.id).provider == IdentityProvider.zeroTrust;
+      sharedNetwork = managed
+          ? stored.copyWith(
+              endpointIpv4: sharedNetwork.endpointIpv4,
+              endpointIpv6: sharedNetwork.endpointIpv6,
+            )
+          : stored;
+    }
+    _notifyListeners();
   }
 
   Future<void> initialize() async {
@@ -357,7 +407,15 @@ class AppController extends ChangeNotifier {
     });
   }
 
+  void _requireDataPlaneCapability(UsqueProfile profile) {
+    if (profile.dataPlane == DataPlaneMode.l4Proxy &&
+        !(engineCapabilities?.l4Available ?? false)) {
+      throw EngineException('L4_UNSUPPORTED', strings.get('l4_unsupported'));
+    }
+  }
+
   Future<void> connectOrDisconnect() async {
+    final intent = ++_connectionIntent;
     if (snapshot.isConnected || snapshot.isTransitional) {
       await _run(() async {
         _userDisconnectedThisSession = true;
@@ -381,6 +439,9 @@ class AppController extends ChangeNotifier {
           'This profile needs a valid Consumer WARP identity before it can connect.',
         );
       }
+      await flushProfileWrites();
+      if (intent != _connectionIntent) return;
+      _requireDataPlaneCapability(activeProfile);
       snapshot = await _engine.connect(activeProfile);
     });
     if (success && (snapshot.isConnected || snapshot.isTransitional)) {
@@ -391,7 +452,11 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> retry() async {
+    final intent = ++_connectionIntent;
     final success = await _run(() async {
+      await flushProfileWrites();
+      if (intent != _connectionIntent) return;
+      _requireDataPlaneCapability(activeProfile);
       snapshot = await _engine.retry();
     });
     if (success && (snapshot.isConnected || snapshot.isTransitional)) {
@@ -402,6 +467,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> disconnectForExit() async {
+    _connectionIntent++;
     if (snapshot.phase != ConnectionPhase.disconnected) {
       try {
         snapshot = await _engine.disconnect();
@@ -467,26 +533,29 @@ class AppController extends ChangeNotifier {
     required String username,
     required String password,
   }) async {
-    final profile = activeProfile;
-    final success = await _run(() async {
-      await _engine.updateProxyAuth(
-        profile.id,
-        username: username,
-        password: password,
-        confirmed: true,
-      );
-      final next = profile.copyWith(
-        proxy: profile.proxy.copyWith(authUsername: username),
-      );
-      if (profile.id == activeProfileId && snapshot.isConnected) {
-        await _engine.reconfigureActiveProfile(next);
-      } else {
-        await _engine.upsertProfile(next);
-      }
-      profiles = profiles
-          .map((item) => item.id == next.id ? next : item)
-          .toList(growable: false);
-    });
+    final success = await networkSettings.enqueue(
+      () => _run(() async {
+        final profile = activeProfile;
+        await _engine.updateProxyAuth(
+          profile.id,
+          username: username,
+          password: password,
+          confirmed: true,
+        );
+        final next = profile.copyWith(
+          proxy: profile.proxy.copyWith(authUsername: username),
+        );
+        if (profile.id == activeProfileId && snapshot.isConnected) {
+          await _engine.reconfigureActiveProfile(next);
+        } else {
+          await _engine.upsertProfile(next);
+        }
+        profiles = profiles
+            .map((item) => item.id == next.id ? next : item)
+            .toList(growable: false);
+        _captureSharedNetwork();
+      }, affectsConnection: false),
+    );
     if (success) {
       lastNotice = username.isEmpty
           ? strings.get('proxy_auth_cleared')
@@ -508,6 +577,7 @@ class AppController extends ChangeNotifier {
         await _refreshProfileCatalog();
       } finally {
         if (reconnect) {
+          _requireDataPlaneCapability(activeProfile);
           snapshot = await _engine.connect(activeProfile);
           _notifyListeners();
         }
@@ -528,6 +598,7 @@ class AppController extends ChangeNotifier {
         await _refreshProfileCatalog();
       } finally {
         if (reconnect) {
+          _requireDataPlaneCapability(activeProfile);
           snapshot = await _engine.connect(activeProfile);
           _notifyListeners();
         }
@@ -915,6 +986,9 @@ class AppController extends ChangeNotifier {
       if (affectsConnection && snapshot.phase != ConnectionPhase.disconnected) {
         snapshot = EngineSnapshot(
           phase: ConnectionPhase.error,
+          sessionCongestionControl: snapshot.sessionCongestionControl,
+          dataPlane: snapshot.dataPlane,
+          l4: snapshot.l4,
           warning: lastError,
           errorCode: error is EngineException ? error.code : null,
           errorRetryable: error is EngineException ? error.retryable : null,
@@ -1114,6 +1188,7 @@ class AppController extends ChangeNotifier {
       } finally {
         final safeToReconnect = !mutationCommitted || refreshedCatalog;
         if (reconnect && safeToReconnect) {
+          _requireDataPlaneCapability(activeProfile);
           snapshot = await _engine.connect(activeProfile);
           _notifyListeners();
         }
@@ -1148,62 +1223,37 @@ class AppController extends ChangeNotifier {
         )
         .toList(growable: false);
     _notifyListeners();
-    final outgoing = _hydrateAccount(
-      profiles.firstWhere((profile) => profile.id == id),
+    _queueProfileMutation(
+      () => _engine.upsertProfile(
+        _hydrateAccount(profiles.firstWhere((profile) => profile.id == id)),
+      ),
     );
-    _queueProfileMutation(() => _engine.upsertProfile(outgoing));
   }
 
-  void updateNetwork(UsqueProfile updated) {
-    unawaited(saveNetwork(updated));
+  void updateNetwork(UsqueProfile updated, {List<String>? changedFields}) {
+    unawaited(saveNetwork(updated, changedFields: changedFields));
   }
 
-  Future<bool> saveNetwork(UsqueProfile updated) {
-    if (!profiles.any((profile) => profile.id == updated.id) &&
-        updated.id != activeProfileId) {
-      return Future<bool>.value(false);
+  Future<bool> saveNetwork(
+    UsqueProfile updated, {
+    List<String>? changedFields,
+  }) {
+    if (updated.id != activeProfileId) return Future.value(false);
+    if (updated.dataPlane == DataPlaneMode.l4Proxy &&
+        !(engineCapabilities?.l4Available ?? false)) {
+      lastError = strings.get('l4_unsupported');
+      _notifyListeners();
+      return Future.value(false);
     }
-    final normalized = updated.frontends.http
-        ? updated
-        : updated.copyWith(proxy: updated.proxy.copyWith(systemProxy: false));
-    final zeroTrust =
-        identityStatus(updated.id).provider == IdentityProvider.zeroTrust;
-    sharedNetwork = sharedNetwork.copyWith(
-      frontends: normalized.frontends,
-      transport: normalized.transport,
-      ipPolicy: normalized.ipPolicy,
-      endpointIpv4: zeroTrust
-          ? sharedNetwork.endpointIpv4
-          : normalized.endpointIpv4,
-      endpointIpv6: zeroTrust
-          ? sharedNetwork.endpointIpv6
-          : normalized.endpointIpv6,
-      endpointPort: normalized.endpointPort,
-      sni: normalized.sni,
-      mtu: normalized.mtu,
-      dnsIpv4: normalized.dnsIpv4,
-      dnsIpv6: normalized.dnsIpv6,
-      dnsMode: normalized.dnsMode,
-      killSwitch: normalized.killSwitch,
-      allowLan: normalized.allowLan,
-      autoConnect: normalized.autoConnect,
-      bypassCidrs: normalized.bypassCidrs,
-      geoDirectCountries: normalized.geoDirectCountries,
-      directDns: normalized.directDns,
-      proxy: normalized.proxy,
+    return networkSettings.save(
+      updated,
+      changedFields ?? networkSettingsChangedFields(activeProfile, updated),
     );
-    _notifyListeners();
-    final outgoing = activeProfile;
-    return _queueProfileMutation(() {
-      if (outgoing.id == activeProfileId && snapshot.isConnected) {
-        return _engine.reconfigureActiveProfile(outgoing);
-      }
-      return _engine.upsertProfile(outgoing);
-    });
   }
 
   void setActiveProfile(String id) {
     if (profiles.any((profile) => profile.id == id)) {
+      _connectionIntent++;
       activeProfileId = id;
       _notifyListeners();
       _queueProfileMutation(() => _engine.setActiveProfile(id));
@@ -1231,37 +1281,39 @@ class AppController extends ChangeNotifier {
 
   Future<bool> _queueProfileMutation(Future<void> Function() mutation) {
     final outcome = Completer<bool>();
-    _profileWriteTail = _profileWriteTail.then((_) async {
-      var succeeded = false;
-      try {
-        await mutation();
-        succeeded = true;
-      } on Object catch (error) {
-        lastError = 'Profile changes could not be saved: $error';
+    unawaited(
+      networkSettings.enqueue(() async {
+        var succeeded = false;
         try {
-          final catalog = await _engine.importLegacyProfiles(
-            const <UsqueProfile>[],
-            '',
-          );
-          profiles = catalog.profiles;
-          activeProfileId = catalog.activeProfileId;
-          profileIdentityStates = catalog.identityStates;
-          profileIdentityStatuses = catalog.identityStatuses;
-          _captureSharedNetwork();
-        } on Object {
-          // Keep the optimistic in-memory state when the authoritative store
-          // cannot be reloaded; the original mutation error remains visible.
+          await mutation();
+          succeeded = true;
+        } on Object catch (error) {
+          lastError = 'Profile changes could not be saved: $error';
+          try {
+            final catalog = await _engine.importLegacyProfiles(
+              const <UsqueProfile>[],
+              '',
+            );
+            profiles = catalog.profiles;
+            activeProfileId = catalog.activeProfileId;
+            profileIdentityStates = catalog.identityStates;
+            profileIdentityStatuses = catalog.identityStatuses;
+            _captureSharedNetwork();
+          } on Object {
+            // Keep the optimistic in-memory state when the authoritative store
+            // cannot be reloaded; the original mutation error remains visible.
+          }
+          _notifyListeners();
         }
-        _notifyListeners();
-      }
-      outcome.complete(succeeded);
-    });
+        outcome.complete(succeeded);
+      }),
+    );
     return outcome.future;
   }
 
   /// Waits for already queued non-secret profile writes. Installers and tests
   /// can use this before terminating the UI process.
-  Future<void> flushProfileWrites() => _profileWriteTail;
+  Future<void> flushProfileWrites() => networkSettings.flushed;
 
   void _notifyListeners() {
     if (!_disposed) {
@@ -1309,6 +1361,7 @@ class AppController extends ChangeNotifier {
       onDone: () => _handleSnapshotEventDone(generation),
       cancelOnError: false,
     );
+    unawaited(networkSettings.refresh());
   }
 
   void _handleSnapshotEvent(EngineSnapshotEvent event, int generation) {
@@ -1350,6 +1403,9 @@ class AppController extends ChangeNotifier {
         event.capabilities != null && event.capabilities != engineCapabilities;
     if (handledCapabilities) {
       engineCapabilities = event.capabilities;
+    }
+    if (event.networkSettings != null) {
+      networkSettings.accept(event.networkSettings!);
     }
     final next = event.snapshot;
     if (next == null) {
@@ -1434,6 +1490,7 @@ class AppController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _connectionIntent++;
     _updateOperationGeneration += 1;
     _updateCancellation?.cancel();
     _updateCancellation = null;
@@ -1445,7 +1502,8 @@ class AppController extends ChangeNotifier {
     _snapshotSubscription = null;
     diagnostics.dispose();
     quality.dispose();
-    unawaited(_profileWriteTail.whenComplete(_engine.dispose));
+    networkSettings.dispose();
+    unawaited(networkSettings.flushed.whenComplete(_engine.dispose));
     super.dispose();
   }
 }

@@ -90,6 +90,7 @@ def expected_artifact_names(tag: str) -> dict[str, tuple[str, str]]:
         raise ContractError(f"unsupported release tag: {tag}")
     expected: dict[str, tuple[str, str]] = {}
     for variant in WINDOWS_VARIANTS:
+        expected[f"usque-{tag}-windows-{variant}.exe"] = ("windows", variant)
         expected[f"usque-{tag}-windows-{variant}.msi"] = ("windows", variant)
     for variant in ANDROID_VARIANTS:
         expected[f"usque-{tag}-android-{variant}.apk"] = ("android", variant)
@@ -290,7 +291,7 @@ def create_manifest(
     actual_primary = {
         path.name
         for path in directory.iterdir()
-        if path.is_file() and path.suffix.lower() in {".msi", ".apk"}
+        if path.is_file() and path.suffix.lower() in {".exe", ".msi", ".apk"}
     }
     missing = sorted(set(expected) - actual_primary)
     unexpected = sorted(actual_primary - set(expected))

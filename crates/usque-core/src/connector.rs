@@ -82,6 +82,11 @@ impl ConnectionOrchestrator {
     }
 
     pub async fn connect(&self, profile: &Profile) -> Result<ConnectedPath, OrchestratorError> {
+        if profile.data_plane != crate::DataPlaneMode::ConnectIp {
+            return Err(OrchestratorError::InvalidProfile(
+                "L4 requires the stream data plane".to_owned(),
+            ));
+        }
         profile
             .validate()
             .map_err(|error| OrchestratorError::InvalidProfile(error.to_string()))?;

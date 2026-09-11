@@ -9,6 +9,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ServiceSnapshotStateTest {
+    @Test
+    fun pendingNativeCleanupCannotClaimThatTheRuntimeStopped() {
+        val snapshot = ServiceSnapshotState()
+        val pending =
+            ServiceSnapshotState.PlatformFlags(
+                tunnelOpen = false,
+                activeMode = null,
+                platformLockdown = false,
+                alwaysOn = false,
+                nativeRuntimeActive = false,
+                pendingCleanup = true,
+            )
+        assertEquals("unknown", snapshot.wireEntries(pending)["native_runtime_state"])
+        assertEquals(true, snapshot.wireEntries(pending)["pending_cleanup"])
+        assertEquals("stopped", snapshot.wireEntries(pending.copy(pendingCleanup = false))["native_runtime_state"])
+    }
+
     private fun state(): ServiceSnapshotState = ServiceSnapshotState()
 
     @Test
@@ -189,12 +206,19 @@ class ServiceSnapshotStateTest {
                 keys.FOREGROUND_NOTIFICATION_STATE,
                 keys.PENDING_CLEANUP,
                 keys.NETWORK_QUALITY,
+                keys.SESSION_CONGESTION_CONTROL,
+                keys.DATA_PLANE,
+                keys.L4,
             ),
             wire.keys,
         )
         // Exact snake_case strings MainActivity.snapshotFromBundle reads.
         assertEquals("phase", keys.PHASE)
         assertEquals("network_quality_json", keys.NETWORK_QUALITY)
+        assertEquals("session_congestion_control", keys.SESSION_CONGESTION_CONTROL)
+        assertEquals("data_plane", keys.DATA_PLANE)
+        assertEquals("l4_json", keys.L4)
+        assertNull(wire[keys.SESSION_CONGESTION_CONTROL])
         assertEquals("warning", keys.WARNING)
         assertEquals("error_code", keys.ERROR_CODE)
         assertEquals("failure_code", keys.FAILURE_CODE)

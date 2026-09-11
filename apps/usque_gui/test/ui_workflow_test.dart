@@ -274,11 +274,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(engine.writes, 1);
     expect(app.activeProfile.proxy.socksPort, 9090);
-    expect(find.text('Changes applied'), findsOneWidget);
+    expect(find.text(app.strings.get('settings_deferred')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('failed proxy apply restores saved text and shows local error', (
+  testWidgets('failed proxy save keeps draft text and shows local error', (
     tester,
   ) async {
     final engine = WorkflowEngine()..failProfileUpsert = true;
@@ -290,9 +290,9 @@ void main() {
     expect(app.activeProfile.proxy.socksPort, 1080);
     expect(
       tester.widget<TextField>(fieldWithLabel('Port')).controller!.text,
-      '1080',
+      '9090',
     );
-    expect(find.text(app.strings.get('changes_failed')), findsOneWidget);
+    expect(find.text(app.strings.get('settings_save_failed')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

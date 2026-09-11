@@ -19,6 +19,9 @@ fn main() {
     config.boxed(".usque.v1.ControlRequest.payload.upsert_profile");
     config.boxed(".usque.v1.ControlRequest.payload.create_profile_with_identity");
     config.boxed(".usque.v1.ControlRequest.payload.reconfigure_active_profile");
+    config.boxed(".usque.v1.ControlRequest.payload.save_network_settings");
+    config.boxed(".usque.v1.ControlResponse.payload.network_settings");
+    config.boxed(".usque.v1.EventEnvelope.payload.network_settings_changed");
     config.boxed(".usque.v1.ControlResponse.payload.status");
     config.boxed(".usque.v1.ControlResponse.payload.profile");
     config.boxed(".usque.v1.ControlResponse.payload.reconfigure");

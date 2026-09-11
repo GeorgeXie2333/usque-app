@@ -1,10 +1,20 @@
 /// Russian UI catalog.
 const Map<String, String> kRuCatalog = <String, String>{
   'app_name': 'Usque',
+  'diag_fail_L4_SESSION_UNAVAILABLE': 'Сеанс L4 недоступен',
+  'diag_fail_L4_PROTOCOL_ERROR': 'Ошибка протокола L4',
+  'diag_fail_L4_CONNECT_REJECTED': 'L4 CONNECT отклонён',
+  'diag_fail_L4_CONNECT_TIMEOUT': 'Истекло время ожидания L4 CONNECT',
+  'diag_fail_L4_RESOURCE_EXHAUSTED': 'Исчерпан лимит ресурсов L4',
+  'diag_fail_L4_DNS_FAILED': 'Сбой DNS-запроса L4',
   'window_minimize': 'Свернуть',
   'window_maximize': 'Развернуть',
   'window_restore': 'Восстановить размер окна',
   'window_close': 'Закрыть',
+  'tray_open': 'Открыть Usque',
+  'tray_connect_profile': 'Подключить текущую учётную запись',
+  'tray_disconnect_profile': 'Отключить текущую учётную запись',
+  'tray_disconnect_exit': 'Отключить и выйти',
   'connection_status': 'Состояние подключения',
   'outputs': 'Сетевые выходы',
   'home': 'Главная',
@@ -13,7 +23,7 @@ const Map<String, String> kRuCatalog = <String, String>{
   'proxy': 'Прокси',
   'proxy_subtitle': 'Локальные слушатели и DNS общие для всех аккаунтов.',
   'settings': 'Настройки',
-  'settings_subtitle': 'Поведение приложения на этом устройстве.',
+  'settings_subtitle': 'Настройки подключения, прокси и приложения.',
   'diagnostics': 'Диагностика',
   'nav_home': 'Главная',
   'nav_profiles': 'Аккаунты',
@@ -84,7 +94,7 @@ const Map<String, String> kRuCatalog = <String, String>{
   'zero_trust_repair_same_team':
       'Войдите снова в ту же организацию, чтобы обновить регистрацию этого устройства.',
   'zero_trust_metadata_missing':
-      'Сохранённая привязка к организации отсутствует. В целях безопасности этот профиль нельзя восстановить на месте; создайте новый профиль Zero Trust.',
+      'Сохранённая привязка к организации отсутствует. В целях безопасности эту запись аккаунта нельзя исправить на месте; добавьте новый аккаунт Zero Trust.',
   'zero_trust_endpoint_managed':
       'Эта конечная точка управляется регистрацией устройства Zero Trust и не может быть изменена здесь.',
   'experimental': 'Экспериментально',
@@ -100,13 +110,13 @@ const Map<String, String> kRuCatalog = <String, String>{
   'delete': 'Удалить',
   'delete_profile': 'Удалить аккаунт?',
   'delete_profile_body':
-      'Будут удалены несекретные настройки этого профиля. Сохранённые данные идентичности не удаляются.',
+      'Будут удалены несекретные настройки этого аккаунта. Сохранённые данные идентичности не удаляются.',
   'delete_zero_trust_profile_body':
-      'Будут удалены только локальный профиль и учётные данные. Попросите администратора организации удалить оставшуюся регистрацию устройства в Zero Trust.',
+      'Будут удалены только локальный аккаунт и учётные данные. Попросите администратора организации удалить оставшуюся регистрацию устройства в Zero Trust.',
   'license_not_applicable': 'Лицензия неприменима · Экспериментально',
   'zero_trust_reauthenticate': 'Войти снова в эту организацию',
   'zero_trust_admin_cleanup_note':
-      'Удаление этого профиля не отзывает устройство в панели Zero Trust.',
+      'Удаление этого аккаунта не отзывает устройство в панели Zero Trust.',
   'mode': 'Режим подключения',
   'vpn_mode': 'VPN',
   'socks_mode': 'SOCKS5',
@@ -194,7 +204,7 @@ const Map<String, String> kRuCatalog = <String, String>{
   'already_latest': 'Эта установка уже актуальна.',
   'open_release': 'Открыть страницу выпуска',
   'update_startup_description':
-      'Проверка выполняется один раз после запуска Usque; возврат в приложение не запускает её повторно. Немедленная проверка выполняется в реальном времени.',
+      'Проверка выполняется один раз после запуска Usque; возврат в приложение не запускает её повторно. «Проверить сейчас» всегда запрашивает сведения о последнем выпуске.',
   'update_checking': 'Проверка обновлений…',
   'update_downloading': 'Загрузка проверенного пакета обновления…',
   'update_verifying': 'Проверка пакета обновления…',
@@ -295,7 +305,7 @@ const Map<String, String> kRuCatalog = <String, String>{
       'Состояние Usque Engine, экспорт журналов и локальные данные.',
   'engine_status': 'Состояние Usque Engine',
   'version': 'Версия',
-  'app_version': 'Usque 0.2.5',
+  'app_version': 'Usque 0.2.6',
   'logs': 'Локальные журналы',
   'export_diagnostics': 'Экспортировать диагностический пакет',
   'diagnostics_saved': 'Диагностический пакет сохранён в',
@@ -305,9 +315,9 @@ const Map<String, String> kRuCatalog = <String, String>{
   'license': 'Лицензия',
   'clear_all_data': 'Очистить все данные',
   'clear_all_data_help':
-      'Отключиться и безвозвратно удалить с этого устройства все профили, идентичности Consumer WARP, настройки, кэш и локальные диагностические записи.',
+      'Отключиться и безвозвратно удалить с этого устройства все аккаунты, идентичности Consumer WARP, настройки, кэш и локальные диагностические записи.',
   'clear_all_data_confirm':
-      'Это действие нельзя отменить. Usque сначала отключится, удалит все сохранённые идентичности и профили и вернётся к начальной настройке.',
+      'Это действие нельзя отменить. Usque сначала отключится, удалит все сохранённые идентичности и аккаунты и вернётся к начальной настройке.',
   'clear_all_data_complete': 'Все локальные данные Usque очищены.',
   'unofficial':
       'Неофициальный клиент, совместимый с Cloudflare WARP. Не связан с Cloudflare и не одобрен этой компанией.',
@@ -334,7 +344,7 @@ const Map<String, String> kRuCatalog = <String, String>{
   'permission_note':
       'Операционная система может показать дополнительное подтверждение при первом подключении.',
   'setup_failed': 'Не удалось завершить настройку',
-  'profile_required': 'Оставьте хотя бы один профиль.',
+  'profile_required': 'Оставьте хотя бы один аккаунт.',
   'socks_capabilities': 'TCP и UDP',
   'http_capabilities': 'CONNECT и обычная пересылка',
   'geo_direct': 'Страны с прямой маршрутизацией',
@@ -510,7 +520,7 @@ const Map<String, String> kRuCatalog = <String, String>{
   'diag_fail_ROUTE_RESTORE_INCOMPLETE': 'Восстановление маршрутов неполное',
   'diag_fail_DNS_RESTORE_INCOMPLETE': 'Восстановление DNS неполное',
   'diag_fail_SYSTEM_PROXY_STALE':
-      'Остаточное состояние системного прокси Usque',
+      'Состояние системного прокси Usque не было очищено',
   'diag_fail_PLATFORM_RECOVERY_PENDING':
       'Ожидается восстановление сетевого состояния платформы',
   'diag_fail_PACKET_SEND_FAILED': 'Сбой отправки пакета',

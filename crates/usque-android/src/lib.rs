@@ -118,10 +118,15 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCap
 ) -> jstring {
     with_jni_env(&mut environment, |environment| {
         let json = serde_json::json!({
+            "network_settings_application": engine_ready(),
+            "l4_tcp": engine_ready(),
+            "l4_tun_tcp": engine_ready(),
+            "l4_dns_conversion": engine_ready(),
             "network_quality": engine_ready() && usque_transport::PRODUCTION_NETWORK_FEATURES.network_quality_metrics,
             "encrypted_direct_dns": engine_ready() && usque_transport::ENCRYPTED_DIRECT_DNS_ENABLED,
             "quic_migration": engine_ready() && usque_transport::PRODUCTION_NETWORK_FEATURES.quic_migration,
             "automatic_pmtu": engine_ready() && usque_transport::PRODUCTION_NETWORK_FEATURES.automatic_pmtu,
+            "h3_congestion_control_algorithms": if engine_ready() { usque_core::CongestionControlAlgorithm::ALL.to_vec() } else { Vec::new() },
         })
         .to_string();
         environment
@@ -354,11 +359,50 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCan
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeBuildInfo<'local>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
+) -> jstring {
+    with_jni_env(&mut environment, |environment| {
+        let Ok(value) = native_build_info_json() else {
+            return std::ptr::null_mut();
+        };
+        environment
+            .new_string(value)
+            .map_or(std::ptr::null_mut(), |value| value.into_raw())
+    })
+}
+
+fn native_build_info_json() -> Result<String, serde_json::Error> {
+    let mut value = serde_json::to_value(usque_core::NativeBuildInfo::current())?;
+    // Preserve the field used by earlier comparison APKs; production has no
+    // experimental receive-backend or buffer-size build selection.
+    value["network_experiment"] = serde_json::json!("none");
+    serde_json::to_string(&value)
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeStop<'local>(
     mut environment: EnvUnowned<'local>,
     _class: JClass<'local>,
 ) {
     with_jni_env(&mut environment, |_| stop_engine());
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeStopConfirmed<
+    'local,
+>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
+) -> jboolean {
+    with_jni_env(&mut environment, |_| {
+        if stop_engine_confirmed() {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -751,6 +795,40 @@ fn native_apply_profile_command(
     }
 }
 
+mod network_settings;
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeNetworkSettings<
+    'local,
+>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    config_path: JString<'local>,
+    request_json: JString<'local>,
+) -> jstring {
+    with_jni_env(&mut environment, |environment| {
+        let result = (|| {
+            let path = config_path
+                .try_to_string(environment)
+                .map_err(|_| "invalid path")?;
+            let request = request_json
+                .try_to_string(environment)
+                .map_err(|_| "invalid request")?;
+            network_settings::command(&path, &request)
+        })();
+        match result {
+            Ok(value) => match environment.new_string(value) {
+                Ok(value) => value.into_raw(),
+                Err(_) => std::ptr::null_mut(),
+            },
+            Err(error) => {
+                throw_io_error(environment, &error);
+                std::ptr::null_mut()
+            }
+        }
+    })
+}
+
 fn engine_ready() -> bool {
     cfg!(target_os = "android")
 }
@@ -802,12 +880,16 @@ fn identity_metadata(secret: &[u8]) -> Result<IdentityMetadata, String> {
 
 #[derive(Debug, Deserialize)]
 struct AndroidProfile {
+    #[serde(default)]
+    data_plane: usque_core::DataPlaneMode,
     id: String,
     name: String,
     mode: String,
     #[serde(default)]
     frontends: Option<AndroidFrontends>,
     transport: String,
+    #[serde(default)]
+    congestion_control: usque_core::CongestionControlAlgorithm,
     ip_policy: String,
     endpoint_v4: String,
     endpoint_v6: String,
@@ -915,6 +997,7 @@ fn android_profile_to_core(source: AndroidProfile) -> Result<Profile, String> {
         "remote" => ProxyDnsMode::Remote,
         "localConfigured" => ProxyDnsMode::LocalConfigured,
         "system" => ProxyDnsMode::System,
+        "edgeResolved" => ProxyDnsMode::EdgeResolved,
         _ => return Err("invalid Android proxy DNS mode".to_owned()),
     };
     let direct_dns_mode = match source.direct_dns.mode.as_str() {
@@ -963,10 +1046,12 @@ fn android_profile_to_core(source: AndroidProfile) -> Result<Profile, String> {
     let http_ipv6: IpAddr = parse_value(&source.proxy.http_ipv6, "HTTP IPv6 listener")?;
     let mut profile = Profile {
         id: parse_value(&source.id, "profile ID")?,
+        data_plane: source.data_plane,
         name: source.name,
         mode,
         frontends,
         transport,
+        congestion_control: source.congestion_control,
         endpoint: EndpointSettings {
             ipv4: parse_value(&source.endpoint_v4, "endpoint IPv4")?,
             ipv6: parse_value(&source.endpoint_v6, "endpoint IPv6")?,
@@ -1120,6 +1205,15 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
         .map_err(|error| format!("invalid profile-store command: {error}"))?;
     let clear_all_data = matches!(&command, AndroidConfigCommand::ClearAllData);
     let store = ConfigStore::new(config_path);
+    if matches!(
+        command,
+        AndroidConfigCommand::ListGeoRules
+            | AndroidConfigCommand::DownloadGeoRules { .. }
+            | AndroidConfigCommand::UpdateAllGeoRules
+    ) {
+        return apply_geo_command(store.path(), command);
+    }
+    let _lock = store.lock_exclusive().map_err(|error| error.to_string())?;
     let mut config = store.load_or_default().map_err(|error| error.to_string())?;
     let mut changed = false;
 
@@ -1589,6 +1683,8 @@ fn android_profile_value(
             TransportPolicy::Http3 => "http3",
             TransportPolicy::Http2 => "http2",
         },
+        "congestion_control": profile.congestion_control,
+        "data_plane": profile.data_plane,
         "ip_policy": match profile.ip_policy {
             IpPolicy::Auto => "automatic",
             IpPolicy::PreferIpv4 => "preferIpv4",
@@ -1654,6 +1750,7 @@ fn android_profile_value(
                 ProxyDnsMode::Remote => "remote",
                 ProxyDnsMode::LocalConfigured => "localConfigured",
                 ProxyDnsMode::System => "system",
+                ProxyDnsMode::EdgeResolved => "edgeResolved",
             },
             "dns_v4": profile
                 .proxy
@@ -2146,6 +2243,11 @@ fn network_quality_value(snapshot: &NetworkQualitySnapshot) -> serde_json::Value
             .connection_id
             .map(|connection| connection.0.to_string())
             .unwrap_or_default(),
+        "udp_socket_receive": snapshot.socket_receive.as_ref().map(|socket| serde_json::json!({
+            "receive_buffer_bytes": socket.receive_buffer_bytes,
+            "send_buffer_bytes": socket.send_buffer_bytes,
+            "observation": socket.observation,
+        })),
         "level": native_quality_level(snapshot.level),
         "metrics": {
             "latest_rtt_milliseconds": latest_rtt_known.then_some(latest_rtt),
@@ -2158,6 +2260,8 @@ fn network_quality_value(snapshot: &NetworkQualitySnapshot) -> serde_json::Value
             "bytes_in_flight": bytes_in_flight_known.then_some(bytes_in_flight),
             "send_rate_bits_per_second": send_rate_known.then_some(send_rate),
             "packets_lost": snapshot.loss.lost_packets.value.unwrap_or_default(),
+            "local_quic_packets_lost_observed": snapshot.loss.lost_packets.value,
+            "local_quic_pto_count_observed": snapshot.loss.pto_count.value,
             "bytes_lost": snapshot.loss.lost_bytes.value.unwrap_or_default(),
             "tun_sink_drop_count": native_queue_drop(snapshot, QueueKind::TransportToTun),
             "quic_datagram_drop_count": native_queue_drop(snapshot, QueueKind::H3DatagramSend)
@@ -2415,6 +2519,12 @@ fn native_direct_dns_reason(value: DirectDnsReasonCode) -> &'static str {
 
 #[derive(Debug, Clone, Serialize)]
 struct NativeSnapshot {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    data_plane: Option<usque_core::DataPlaneMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    l4: Option<usque_core::L4Snapshot>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    session_congestion_control: Option<usque_core::CongestionControlAlgorithm>,
     phase: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     warning: Option<String>,
@@ -2454,7 +2564,10 @@ struct NativeSnapshot {
 impl NativeSnapshot {
     fn disconnected() -> Self {
         Self {
+            data_plane: None,
+            l4: None,
             phase: "disconnected".to_owned(),
+            session_congestion_control: None,
             warning: None,
             error_code: None,
             failure: None,
@@ -2490,6 +2603,10 @@ impl NativeSnapshot {
 
 #[cfg(target_os = "android")]
 mod android_runtime;
+#[cfg(any(test, target_os = "android"))]
+mod runtime_stop;
+#[cfg(any(test, target_os = "android"))]
+mod session_pump;
 #[cfg(any(test, target_os = "android"))]
 mod tun_read_slab;
 
@@ -2551,8 +2668,18 @@ fn start_proxy_engine(
 }
 
 fn stop_engine() {
+    let _ = stop_engine_confirmed();
+}
+
+fn stop_engine_confirmed() -> bool {
     #[cfg(target_os = "android")]
-    android_runtime::stop();
+    {
+        android_runtime::stop()
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        true
+    }
 }
 
 fn cancel_engine() {
@@ -2833,6 +2960,14 @@ fn jni_command_abandoned(cancelled: &AtomicBool) -> bool {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn production_build_info_explicitly_has_no_receive_experiment() {
+        let value: serde_json::Value =
+            serde_json::from_str(&super::native_build_info_json().unwrap()).unwrap();
+        assert_eq!(value["network_experiment"], "none");
+        assert_eq!(value["debug_assertions"], cfg!(debug_assertions));
+        assert_eq!(value.as_object().unwrap().len(), 4);
+    }
+    #[test]
     fn authoritative_generation_catches_preinstall_notification_and_never_rolls_back() {
         let captured_before_install = std::sync::atomic::AtomicU64::new(7);
         assert_eq!(
@@ -3065,6 +3200,31 @@ mod tests {
     }
 
     #[test]
+    fn android_congestion_selection_round_trips_and_rejects_unknown_values() {
+        for algorithm in usque_core::CongestionControlAlgorithm::ALL {
+            let profile = Profile {
+                congestion_control: algorithm,
+                ..Profile::default()
+            };
+            let mut json = android_profile_value(&profile, None, false);
+            assert_eq!(json["congestion_control"], algorithm.as_str());
+            let source: AndroidProfile = serde_json::from_value(json.clone()).unwrap();
+            assert_eq!(
+                android_profile_to_core(source).unwrap().congestion_control,
+                algorithm
+            );
+            json.as_object_mut().unwrap().remove("congestion_control");
+            let legacy: AndroidProfile = serde_json::from_value(json.clone()).unwrap();
+            assert_eq!(
+                legacy.congestion_control,
+                usque_core::CongestionControlAlgorithm::Cubic
+            );
+            json["congestion_control"] = serde_json::json!("unknown");
+            assert!(serde_json::from_value::<AndroidProfile>(json).is_err());
+        }
+    }
+
+    #[test]
     fn android_quality_map_is_numeric_sanitized_and_explicit() {
         let telemetry = NetworkQualityTelemetry::default();
         telemetry.begin_connection(
@@ -3135,7 +3295,7 @@ mod tests {
     #[test]
     fn rust_profile_store_imports_flutter_data_only_once() {
         let directory = tempfile::tempdir().unwrap();
-        let config_path = directory.path().join("profiles-v2.json");
+        let config_path = directory.path().join("usque_config/profiles-v2.json");
         let profile: serde_json::Value = serde_json::from_str(&valid_profile_json()).unwrap();
         let import = serde_json::json!({
             "command": "import_legacy_profiles",
@@ -3145,6 +3305,14 @@ mod tests {
         let first =
             apply_profile_command(config_path.to_str().unwrap(), &import.to_string()).unwrap();
         assert!(first.contains("\"name\":\"Default\""));
+        // Onboarding immediately reads this catalog again before provisioning.
+        // Keep the fresh-install path and the repeated lock acquisition covered.
+        let listed = apply_profile_command(
+            config_path.to_str().unwrap(),
+            r#"{"command":"list_profiles"}"#,
+        )
+        .unwrap();
+        assert_eq!(listed, first);
 
         let mut replacement: serde_json::Value =
             serde_json::from_str(&valid_profile_json()).unwrap();

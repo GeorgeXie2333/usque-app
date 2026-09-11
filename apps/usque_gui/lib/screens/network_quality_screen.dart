@@ -35,6 +35,8 @@ class NetworkQualityScreen extends StatelessWidget {
     final snapshot = state.latest;
     final metrics = snapshot?.metrics ?? const NetworkConnectionMetrics();
     final transport = controller.snapshot.transport?.toLowerCase();
+    final l4 = controller.snapshot.dataPlane == DataPlaneMode.l4Proxy;
+    final stream = controller.snapshot.l4;
     final h2 = const <String>{'h2', 'http2', 'http/2'}.contains(transport);
     final h3 = const <String>{'h3', 'http3', 'http/3'}.contains(transport);
     final tokens = UsqueTokens.of(context);
@@ -79,7 +81,9 @@ class NetworkQualityScreen extends StatelessWidget {
         (dns.mode == DirectDnsMode.doh || dns.mode == DirectDnsMode.dot);
     String count(int value, bool known) =>
         known ? '$value' : s.get('nq_unavailable');
-    final queues = snapshot?.queues ?? const <NetworkQueueQuality>[];
+    final queues = (snapshot?.queues ?? const <NetworkQueueQuality>[])
+        .where((queue) => !l4 || queue.kind != NetworkQueueKind.h3DatagramSend)
+        .toList();
     final mainQueues = queues
         .where(
           (queue) =>
@@ -125,6 +129,55 @@ class NetworkQualityScreen extends StatelessWidget {
         ],
         child: PanelStack(
           children: <Widget>[
+            if (l4)
+              ContentSection(
+                title: s.get('l4_mode'),
+                children: <Widget>[
+                  Text(
+                    s.get(
+                      stream == null
+                          ? 'l4_status_unknown'
+                          : stream.sessions == 0
+                          ? 'l4_quic_not_ready'
+                          : stream.connectVerified
+                          ? 'l4_verified'
+                          : 'l4_unverified',
+                    ),
+                  ),
+                  Text(s.get('l4_na')),
+                  if (stream != null) ...<Widget>[
+                    Text(
+                      '${s.get('l4_sessions')}: ${stream.sessions} / ${stream.drainingSessions}',
+                    ),
+                    Text(
+                      '${s.get('l4_flows')}: ${stream.activeFlows} / ${stream.pendingFlows}',
+                    ),
+                    Text(
+                      '${s.get('l4_connect')}: ${stream.connectSuccesses} / ${stream.connectFailures} / ${stream.connectTimeouts}',
+                    ),
+                    Text('${s.get('l4_buffers')}: ${stream.bufferBytes}'),
+                    Text(
+                      '${s.get('l4_backpressure')}: ${stream.sendBackpressure} / ${stream.receiveBackpressure}',
+                    ),
+                    Text(
+                      '${s.get('l4_tun_flows')}: ${stream.tunFlows} / ${stream.halfOpenFlows}',
+                    ),
+                    Text('${s.get('l4_udp')}: ${stream.udpRejected}'),
+                    Text(
+                      '${s.get('l4_unsupported_packets')}: ${stream.unsupportedPackets}',
+                    ),
+                    Text(
+                      '${s.get('l4_budget_rejections')}: ${stream.budgetRejections}',
+                    ),
+                    Text(
+                      '${s.get('l4_dns')}: ${stream.dnsSuccesses} / ${stream.dnsFailures} / ${stream.dnsTimeouts}',
+                    ),
+                    Text(
+                      '${s.get('l4_migration')}: ${stream.migrationPreservedFlows} / ${stream.reconnectTerminatedFlows}',
+                    ),
+                  ],
+                ],
+              ),
             if (!supported)
               WarningBanner(
                 title: s.get('nq_unsupported'),
@@ -162,7 +215,9 @@ class NetworkQualityScreen extends StatelessWidget {
                       ),
                       if (connected)
                         Text(
-                          h2
+                          l4
+                              ? 'L4 / HTTP/3'
+                              : h2
                               ? 'HTTP/2'
                               : h3
                               ? 'HTTP/3'
@@ -192,7 +247,7 @@ class NetworkQualityScreen extends StatelessWidget {
                         ? s.get('nq_empty')
                         : state.stale
                         ? s.get('nq_stale_help')
-                        : '${s.get('nq_updated')}: ${state.sampleAge?.inSeconds ?? 0} ${s.get('nq_seconds')}',
+                        : '${s.get('nq_updated')}: ${s.get('nq_seconds').replaceAll('{count}', '${state.sampleAge?.inSeconds ?? 0}')}',
                   ),
                   const SizedBox(height: 8),
                   Text(
@@ -437,7 +492,9 @@ class NetworkQualityScreen extends StatelessWidget {
                         ),
                         (
                           s.get('nq_inner_payload'),
-                          h2
+                          l4
+                              ? s.get('l4_not_applicable')
+                              : h2
                               ? s.get('nq_unsupported')
                               : exactBytes(
                                   availableMetric(

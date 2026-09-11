@@ -6,24 +6,28 @@ immediately below the matching English text.
 
 ## Highlights / 更新亮点
 
-- Usque v0.2.5 is a feature and reliability release that improves Windows upgrades and recovery, adds Zero Trust onboarding, and refines the Windows and Android experience.
-  <br>Usque v0.2.5 是一个功能与可靠性版本，改进 Windows 升级与恢复，新增 Zero Trust 首次配置流程，并优化 Windows 与 Android 使用体验。
-- Windows upgrades now install the versioned, recovery-compatible Agent before removing the older product, providing a compatibility bridge from v0.2.4. Complete payload replacement avoids mixing old and new application files, while asynchronous Wintun-removal confirmation and idempotent adapter recovery address cleanup failures.
-  <br>Windows 升级现在先安装带版本信息且兼容恢复流程的新版 Agent，再移除旧产品，为 v0.2.4 提供升级兼容桥接。完整载荷替换避免新旧应用文件混用，异步 Wintun 移除确认和幂等适配器恢复则修复清理失败问题。
-- Windows adds bounded, operation- and generation-checked automatic recovery, corrects physical DNS discovery, and authorizes bootstrap egress before committing the Kill Switch. Unrestored or conflicting platform state remains a hard stop for a new tunnel.
-  <br>Windows 新增次数受限且核对操作与代次的自动恢复，修正物理 DNS 发现，并在提交 Kill Switch 前授权引导出口。平台状态未恢复或存在冲突时仍禁止启动新隧道。
-- HTTP/3 receive, cancellation, recovery, and PMTU handling have been hardened. Network Quality retains real source samples across coalesced delivery, with coordinated Windows and Android sampling and corrected Android output status. These are implementation fixes, not measured throughput claims.
-  <br>HTTP/3 接收、取消、恢复及 PMTU 处理得到强化。网络质量中心在合并投递时保留真实源样本，协调 Windows 与 Android 的采样，并修正 Android 输出状态。这些是实现修复，不代表已经测得吞吐提升。
-- Zero Trust enrollment is available during onboarding. Native Windows and Android layouts now use clearer open sections, improved account and proxy workflows, unsaved-change handling, and Windows window sizing that respects the display work area. Zero Trust remains experimental.
-  <br>首次配置流程新增 Zero Trust 注册。Windows 与 Android 原生布局采用更清晰的开放分区，改进账户及代理配置流程和未保存修改处理，并让 Windows 窗口尺寸适应显示器工作区。Zero Trust 仍为实验性功能。
-- Dependency, release-tooling, guide, and screenshot updates accompany these changes. Real installation, upgrade, VPN recovery, leak, and performance validation requires isolated environments; compile-only and MSI table checks must not be presented as those runtime results.
-  <br>此版本还更新依赖、发布工具、指南和截图。真实安装、升级、VPN 恢复、泄漏及性能验证需要隔离环境；编译与 MSI 表检查不得被表述为这些运行时验证结果。
+- Usque v0.2.6 is a feature and reliability release that adds experimental L4 proxying, selectable HTTP/3 congestion control, and multilingual Windows installers, while improving network settings and cross-platform lifecycle handling.
+  <br>Usque v0.2.6 是一个功能与可靠性版本，新增实验性 L4 代理、可选 HTTP/3 拥塞控制及多语言 Windows 安装程序，并改进网络设置与跨平台生命周期处理。
+- Experimental L4 carries TCP over HTTP/3 CONNECT for SOCKS5, HTTP, and the bounded VPN/TUN bridge. It is explicitly selected, excludes general UDP, and never silently falls back to CONNECT-IP/H2 or replays established TCP connections. Backpressure fixes preserve accepted data and reverse-direction progress; download paths reduce copies and reuse receive buffers. CONNECT-IP with Auto remains the default.
+  <br>实验性 L4 通过 HTTP/3 CONNECT 承载 SOCKS5、HTTP 及有界 VPN/TUN 桥接中的 TCP 流量。它必须显式选择，不支持通用 UDP，不会静默回退至 CONNECT-IP/H2，也不会重放已建立的 TCP 连接。背压修复保留已接收数据及反向传输进度；下载路径减少复制并复用接收缓冲。默认仍为 CONNECT-IP 与 Auto。
+- HTTP/3 now offers CUBIC, Reno, BBRv2, and an independent experimental BBRv3, with fixes for stalled BBRv2 sending. CUBIC remains the default; a saved algorithm applies to the next manually started session, not an already running connection. Windows and Android QUIC sockets make a best-effort 2 MiB receive-buffer request and report actual OS values. These implementation changes are not measured throughput or fairness claims.
+  <br>HTTP/3 现在提供 CUBIC、Reno、BBRv2 和独立的实验性 BBRv3，并修复 BBRv2 发送停滞。默认仍为 CUBIC；保存的算法会在下次手动启动会话时生效，不会改变正在运行的连接。Windows 与 Android 的 QUIC 套接字会尽力请求 2 MiB 接收缓冲，并报告操作系统实际值。这些实现改动不代表已测得吞吐或公平性提升。
+- Network settings distinguish durable saves from runtime application and track each uncertain operation independently. Late replies cannot confirm a different save or overwrite newer state. Android application tokens, session generations, and supported profile-store file locking preserve ownership; native stop completion must be confirmed before replacing an unfinished runtime.
+  <br>网络设置区分持久化保存与运行时生效，并独立跟踪每个状态未确认的操作。迟到的回复不能确认另一次保存或覆盖较新状态。Android 通过应用令牌、会话代次及受支持的配置文件锁保留操作归属；未完成的原生运行实例必须确认停止后才能被替换。
+- v0.2.6 introduces signed Windows installer EXEs with 21 interface languages, while retaining signed MSI assets for verified in-app updates. Localized uninstall and quiet-launcher fixes preserve command quoting, wait for the final result, and clean up the hidden bundle registration. The newer-Agent-first upgrade bridge introduced in v0.2.5 remains in place for upgrades from v0.2.4.
+  <br>v0.2.6 新增支持 21 种界面语言的签名 Windows EXE 安装程序，同时保留签名 MSI 资产供经过验证的应用内更新使用。本地化卸载及静默启动器修复保留命令引号、等待最终结果，并清理隐藏的安装包注册信息。v0.2.5 引入的新版 Agent 优先安装机制继续为 v0.2.4 升级提供兼容桥接。
+- Feature translations, account terminology, Windows tray/uninstall text, and Android notifications, Quick Settings, and shortcuts are completed across the 21 supported languages. Updated guides explain L4 limitations, congestion settings, and diagnostic evidence. Real installation, upgrade, VPN recovery, leak, and performance validation requires isolated environments; deterministic tests and package inspection are not those runtime results.
+  <br>补全 21 种支持语言中的功能翻译、账户术语、Windows 托盘与卸载文案，以及 Android 通知、快捷设置和快捷方式。更新的指南说明 L4 限制、拥塞设置及诊断证据。真实安装、升级、VPN 恢复、泄漏及性能验证需要隔离环境；确定性测试和软件包检查不等同于这些运行时验证结果。
 
 ### DNS privacy / DNS 隐私
 
 GeoSite-matched direct-country queries use the selected direct DNS mode. System (the default) exposes them to the physical DNS provider; DoH or DoT exposes them to the configured encrypted resolver using numeric bootstrap and strict TLS, with no plaintext fallback. Other queries continue through WARP DNS. Apps that use their own encrypted DNS hide the domain from Usque, so those connections fall back to GeoIP routing.
 
 与 GeoSite 匹配的直连国家规则查询会使用所选的直连 DNS 模式。System（默认）会将查询暴露给物理 DNS 提供商；DoH 或 DoT 则使用数字 IP 引导和严格 TLS，将查询发送给配置的加密解析器，且不会回退到明文。其他查询继续通过 WARP DNS。应用自行使用加密 DNS 时，Usque 无法获知域名，相应连接会回退到 GeoIP 路由。
+
+In experimental L4, valid tunneled UDP/53 queries are converted to TCP DNS; an application-selected resolver IP is preserved. Remote proxy DNS uses L4 TCP DNS, while explicitly selected LocalConfigured/System modes retain their existing resolver exposure. L4-only EdgeResolved for SOCKS5/HTTP sends the hostname to the CONNECT edge without a local lookup; it does not recover hostnames from TUN IP traffic. General UDP remains unsupported, and failed traffic does not silently become direct traffic.
+
+在实验性 L4 中，有效的隧道 UDP/53 查询会转换为 TCP DNS，并保留应用指定的解析器 IP。远端代理 DNS 使用 L4 TCP DNS；显式选择的 LocalConfigured/System 模式仍保留原有的解析器可见性。仅适用于 L4 SOCKS5/HTTP 的 EdgeResolved 会将域名发送至 CONNECT 边缘节点而不进行本地查询，不能从 TUN IP 流量还原域名。通用 UDP 仍不受支持，失败流量不会静默转为直连。
 
 ## Usque {{release_tag}} official release / Usque {{release_tag}} 正式版发布
 
@@ -40,8 +44,13 @@ The packages below are the only official installers for this release.
 
 | OS / 系统 | Requirements / 版本要求 | Direct downloads / 直接下载 |
 | --- | --- | --- |
-| Windows | Windows 10 22H2 (build 19045) or later.<br>Windows 10 22H2（内部版本 19045）或更高版本。 | [x64-v2 MSI](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-windows-x64-v2.msi)<br>[ARM64 MSI](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-windows-arm64.msi) |
+| Windows | Windows 10 22H2 (build 19045) or later.<br>Windows 10 22H2（内部版本 19045）或更高版本。 | [x64-v2 installer](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-windows-x64-v2.exe)<br>[ARM64 installer](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-windows-arm64.exe) |
 | Android / Android TV | Android 8.0 (API 26) or later. Android TV is supported.<br>Android 8.0（API 26）或更高版本，支持 Android TV。 | [ARM64-v8a APK](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-android-arm64-v8a.apk)<br>[x86_64 APK](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-android-x86_64.apk)<br>[ARMv7 APK](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-android-armeabi-v7a.apk)<br>[Universal APK](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-android-universal.apk) |
+
+For Windows, use the linked installer EXE. The similarly named MSI assets are
+reserved for Usque's verified in-app update flow.
+
+Windows 请使用上方链接的安装程序 EXE。同名 MSI 资产仅供 Usque 经过验证的应用内更新流程使用。
 
 Use the package matching your device architecture. The universal APK contains all three Android ABIs and is larger; use it only when the device ABI is unknown.
 

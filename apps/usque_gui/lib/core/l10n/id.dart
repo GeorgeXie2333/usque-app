@@ -1,10 +1,20 @@
 /// Indonesian UI catalog.
 const Map<String, String> kIdCatalog = <String, String>{
   'app_name': 'Usque',
+  'diag_fail_L4_SESSION_UNAVAILABLE': 'Sesi L4 tidak tersedia',
+  'diag_fail_L4_PROTOCOL_ERROR': 'Galat protokol L4',
+  'diag_fail_L4_CONNECT_REJECTED': 'L4 CONNECT ditolak',
+  'diag_fail_L4_CONNECT_TIMEOUT': 'L4 CONNECT kehabisan waktu',
+  'diag_fail_L4_RESOURCE_EXHAUSTED': 'Anggaran sumber daya L4 habis',
+  'diag_fail_L4_DNS_FAILED': 'Kueri DNS L4 gagal',
   'window_minimize': 'Perkecil',
   'window_maximize': 'Perbesar',
   'window_restore': 'Pulihkan ukuran jendela',
   'window_close': 'Tutup',
+  'tray_open': 'Buka Usque',
+  'tray_connect_profile': 'Hubungkan akun aktif',
+  'tray_disconnect_profile': 'Putuskan akun aktif',
+  'tray_disconnect_exit': 'Putuskan dan keluar',
   'connection_status': 'Status koneksi',
   'outputs': 'Keluaran jaringan',
   'home': 'Beranda',
@@ -13,7 +23,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'proxy': 'Proksi',
   'proxy_subtitle': 'Listener lokal dan DNS digunakan bersama oleh semua akun.',
   'settings': 'Pengaturan',
-  'settings_subtitle': 'Perilaku aplikasi di perangkat ini.',
+  'settings_subtitle': 'Pengaturan koneksi, proksi, dan aplikasi.',
   'diagnostics': 'Diagnostik',
   'nav_home': 'Beranda',
   'nav_profiles': 'Akun',
@@ -82,7 +92,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'zero_trust_repair_same_team':
       'Masuk lagi ke organisasi yang sama untuk menyegarkan pendaftaran perangkat ini.',
   'zero_trust_metadata_missing':
-      'Ikatan organisasi yang tersimpan tidak ditemukan. Demi keamanan, profil ini tidak dapat diperbaiki di tempat; buat profil Zero Trust baru.',
+      'Ikatan organisasi yang tersimpan tidak ditemukan. Demi keamanan, entri akun ini tidak dapat diperbaiki di tempat; tambahkan akun Zero Trust baru.',
   'zero_trust_endpoint_managed':
       'Endpoint ini dikelola oleh pendaftaran perangkat Zero Trust dan tidak dapat diubah di sini.',
   'experimental': 'Eksperimental',
@@ -98,13 +108,13 @@ const Map<String, String> kIdCatalog = <String, String>{
   'delete': 'Hapus',
   'delete_profile': 'Hapus akun?',
   'delete_profile_body':
-      'Tindakan ini menghapus pengaturan non-rahasia untuk profil ini. Data identitas tersimpan tidak dihapus.',
+      'Tindakan ini menghapus pengaturan non-rahasia untuk entri akun ini. Data identitas tersimpan tidak dihapus.',
   'delete_zero_trust_profile_body':
-      'Tindakan ini hanya menghapus profil dan kredensial lokal. Minta administrator organisasi untuk menghapus sisa pendaftaran perangkat di Zero Trust.',
+      'Tindakan ini hanya menghapus entri akun dan kredensial lokal. Minta administrator organisasi untuk menghapus sisa pendaftaran perangkat di Zero Trust.',
   'license_not_applicable': 'Lisensi tidak berlaku · Eksperimental',
   'zero_trust_reauthenticate': 'Masuk lagi ke organisasi ini',
   'zero_trust_admin_cleanup_note':
-      'Menghapus profil ini tidak mencabut perangkat di dasbor Zero Trust.',
+      'Menghapus entri akun ini tidak mencabut perangkat di dasbor Zero Trust.',
   'mode': 'Mode koneksi',
   'vpn_mode': 'VPN',
   'socks_mode': 'SOCKS5',
@@ -193,7 +203,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'already_latest': 'Instalasi ini sudah yang terbaru.',
   'open_release': 'Buka halaman rilis',
   'update_startup_description':
-      'Pemeriksaan dilakukan sekali setelah Usque dimulai; kembali ke aplikasi tidak memulai pemeriksaan lagi. Pemeriksaan segera mengirim permintaan secara langsung.',
+      'Pemeriksaan dilakukan sekali setelah Usque dimulai; kembali ke aplikasi tidak memulai pemeriksaan lagi. Periksa sekarang selalu meminta informasi rilis terbaru.',
   'update_checking': 'Memeriksa pembaruan…',
   'update_downloading': 'Mengunduh paket pembaruan terverifikasi…',
   'update_verifying': 'Memverifikasi paket pembaruan…',
@@ -293,7 +303,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'diagnostics_subtitle': 'Status Usque Engine, ekspor log, dan data lokal.',
   'engine_status': 'Status Usque Engine',
   'version': 'Versi',
-  'app_version': 'Usque 0.2.5',
+  'app_version': 'Usque 0.2.6',
   'logs': 'Log lokal',
   'export_diagnostics': 'Ekspor bundel diagnostik',
   'diagnostics_saved': 'Bundel diagnostik disimpan ke',
@@ -303,9 +313,9 @@ const Map<String, String> kIdCatalog = <String, String>{
   'license': 'Lisensi',
   'clear_all_data': 'Hapus semua data',
   'clear_all_data_help':
-      'Putuskan dan hapus secara permanen setiap Profil, identitas Consumer WARP, preferensi, cache, dan catatan diagnostik lokal dari perangkat ini.',
+      'Putuskan dan hapus secara permanen setiap akun, identitas Consumer WARP, preferensi, cache, dan catatan diagnostik lokal dari perangkat ini.',
   'clear_all_data_confirm':
-      'Tindakan ini tidak dapat dibatalkan. Usque akan memutuskan terlebih dahulu, menghapus semua identitas dan Profil tersimpan, lalu kembali ke penyiapan awal.',
+      'Tindakan ini tidak dapat dibatalkan. Usque akan memutuskan terlebih dahulu, menghapus semua identitas dan akun tersimpan, lalu kembali ke penyiapan awal.',
   'clear_all_data_complete': 'Semua data Usque lokal telah dihapus.',
   'unofficial':
       'Klien tidak resmi yang kompatibel dengan Cloudflare WARP. Tidak berafiliasi dengan atau didukung oleh Cloudflare.',
@@ -332,7 +342,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'permission_note':
       'Sistem operasi mungkin menampilkan konfirmasi tambahan saat Anda pertama kali menyambung.',
   'setup_failed': 'Penyiapan tidak dapat diselesaikan',
-  'profile_required': 'Pertahankan setidaknya satu profil.',
+  'profile_required': 'Pertahankan setidaknya satu akun.',
   'socks_capabilities': 'TCP dan UDP',
   'http_capabilities': 'CONNECT dan penerusan biasa',
   'geo_direct': 'Negara yang dirutekan langsung',
@@ -505,7 +515,8 @@ const Map<String, String> kIdCatalog = <String, String>{
   'diag_fail_SYSTEM_PROXY_STATE_MISMATCH': 'Status proksi sistem tidak cocok',
   'diag_fail_ROUTE_RESTORE_INCOMPLETE': 'Pemulihan rute tidak lengkap',
   'diag_fail_DNS_RESTORE_INCOMPLETE': 'Pemulihan DNS tidak lengkap',
-  'diag_fail_SYSTEM_PROXY_STALE': 'Status proksi sistem Usque yang tersisa',
+  'diag_fail_SYSTEM_PROXY_STALE':
+      'Status proksi sistem Usque tidak dibersihkan',
   'diag_fail_PLATFORM_RECOVERY_PENDING':
       'Menunggu pemulihan status jaringan platform',
   'diag_fail_PACKET_SEND_FAILED': 'Pengiriman paket gagal',

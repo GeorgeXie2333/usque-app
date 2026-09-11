@@ -246,7 +246,7 @@ impl NatTable {
 /// unavailable gateway returns every packet to the MASQUE path.
 pub(crate) struct DirectGatewayRouter {
     channel: Option<Channel>,
-    stack_incoming: Option<ts_netstack_smoltcp::WakingPipeSender>,
+    stack_incoming: Option<crate::packet_pipe::PacketSender>,
     policy: Arc<GeoDirectPolicy>,
     protector: Arc<dyn SocketProtector>,
     counters: Arc<TrafficCounters>,
@@ -334,7 +334,7 @@ impl DirectGatewayRouter {
             stack_task.abort();
             return Err(TransportError::Netstack(error.to_string()));
         }
-        let ts_netstack_smoltcp::WakingPipe {
+        let crate::packet_pipe::PacketPipe {
             mut rx,
             tx: stack_incoming,
         } = pipe;
@@ -682,20 +682,20 @@ fn route_incoming(flows: &Arc<Mutex<NatTable>>, packet: &mut BytesMut) -> bool {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct NatPacket {
-    version: u8,
-    protocol: u8,
-    source: IpAddr,
-    destination: IpAddr,
-    source_port: u16,
-    destination_port: u16,
-    transport_offset: usize,
-    checksum_offset: usize,
-    checksum_optional: bool,
+pub(crate) struct NatPacket {
+    pub(crate) version: u8,
+    pub(crate) protocol: u8,
+    pub(crate) source: IpAddr,
+    pub(crate) destination: IpAddr,
+    pub(crate) source_port: u16,
+    pub(crate) destination_port: u16,
+    pub(crate) transport_offset: usize,
+    pub(crate) checksum_offset: usize,
+    pub(crate) checksum_optional: bool,
 }
 
 impl NatPacket {
-    fn parse(packet: &[u8]) -> Option<Self> {
+    pub(crate) fn parse(packet: &[u8]) -> Option<Self> {
         let (version, protocol, source, destination, transport_offset) = match packet.first()? >> 4
         {
             4 => parse_ipv4(packet)?,
@@ -761,7 +761,11 @@ fn parse_ipv6(packet: &[u8]) -> Option<(u8, u8, IpAddr, IpAddr, usize)> {
     matches!(protocol, 6 | 17).then_some((6, protocol, source, destination, 40))
 }
 
-fn rewrite_destination(packet: &mut [u8], parsed: &NatPacket, gateway: SocketAddr) -> bool {
+pub(crate) fn rewrite_destination(
+    packet: &mut [u8],
+    parsed: &NatPacket,
+    gateway: SocketAddr,
+) -> bool {
     rewrite_endpoint(
         packet,
         parsed,
@@ -773,7 +777,7 @@ fn rewrite_destination(packet: &mut [u8], parsed: &NatPacket, gateway: SocketAdd
     )
 }
 
-fn rewrite_source(packet: &mut [u8], parsed: &NatPacket, remote: SocketAddr) -> bool {
+pub(crate) fn rewrite_source(packet: &mut [u8], parsed: &NatPacket, remote: SocketAddr) -> bool {
     rewrite_endpoint(
         packet,
         parsed,
@@ -1003,7 +1007,7 @@ mod tests {
             .await
             .unwrap();
             let flows = Arc::clone(&gateway.flows);
-            let ts_netstack_smoltcp::WakingPipe {
+            let crate::packet_pipe::PacketPipe {
                 mut rx,
                 tx: client_incoming,
             } = client_pipe;

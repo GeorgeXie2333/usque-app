@@ -71,10 +71,54 @@ const List<int> _goldenProfileBytes = <int>[
   0x8a, 0x01, 0x02, // direct_dns { (field 17, 2 bytes)
   0x08, 0x01, //   mode PHYSICAL_SYSTEM
   // }
+  0x90, 0x01, 0x01, // congestion_control CUBIC (field 18)
+  0x98, 0x01, 0x01, // data_plane CONNECT_IP (appended field 19)
 ];
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test(
+    'settings submission bypasses a pending connection and connect never upserts',
+    () async {
+      final connecting = Completer<Uint8List>();
+      final frames = <Uint8List>[];
+      final client = DesktopEngineClient.forTest(
+        transport: DesktopEngineTransport.forTest(
+          requestIdFactory: () => '1',
+          exchange: (request) async {
+            frames.add(request);
+            if (frames.length == 1) return connecting.future;
+            const codec = ControlCodec();
+            final state = ControlPayloadWriter()
+              ..string(1, 'one')
+              ..unsigned(2, 1)
+              ..boolean(10, true)
+              ..enumeration(7, 4);
+            return codec.frame(
+              (ControlPayloadWriter()
+                    ..string(1, '1')
+                    ..message(22, state.takeBytes()))
+                  .takeBytes(),
+            );
+          },
+        ),
+      );
+      addTearDown(client.dispose);
+      final connection = client.connect(UsqueProfile.defaultProfile());
+      await Future<void>.delayed(Duration.zero);
+      expect(frames.single[7], 0x62); // Connect, not UpsertProfile.
+      final saved = await client.saveNetworkSettings(
+        'op',
+        UsqueProfile.defaultProfileId,
+        UsqueProfile.defaultProfile(),
+        ['mtu'],
+      );
+      expect(saved.persisted, isTrue);
+      expect(frames, hasLength(2));
+      connecting.complete(_statusResponse('1'));
+      await connection;
+    },
+  );
 
   group('ControlCodec protobuf golden bytes', () {
     const codec = ControlCodec();

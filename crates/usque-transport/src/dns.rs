@@ -25,7 +25,8 @@ const CLASS_IN: u16 = 1;
 static NEXT_DNS_ID: AtomicU16 = AtomicU16::new(0x5173);
 #[derive(Clone)]
 pub(crate) struct Resolver {
-    channel: Channel,
+    channel: Option<Channel>,
+    stream_dns: Option<Arc<crate::dns_stream::StreamDns>>,
     assigned_ipv4: Ipv4Addr,
     assigned_ipv6: Ipv6Addr,
     servers: Vec<IpAddr>,
@@ -34,6 +35,23 @@ pub(crate) struct Resolver {
 }
 
 impl Resolver {
+    pub(crate) fn for_streams(
+        stream_dns: Arc<crate::dns_stream::StreamDns>,
+        servers: Vec<IpAddr>,
+        mode: ProxyDnsMode,
+        protector: Arc<dyn SocketProtector>,
+    ) -> Self {
+        Self {
+            channel: None,
+            stream_dns: Some(stream_dns),
+            assigned_ipv4: Ipv4Addr::UNSPECIFIED,
+            assigned_ipv6: Ipv6Addr::UNSPECIFIED,
+            servers,
+            mode,
+            protector,
+        }
+    }
+
     pub(crate) fn new(
         channel: Channel,
         assigned_ipv4: Ipv4Addr,
@@ -43,7 +61,8 @@ impl Resolver {
         protector: Arc<dyn SocketProtector>,
     ) -> Self {
         Self {
-            channel,
+            channel: Some(channel),
+            stream_dns: None,
             assigned_ipv4,
             assigned_ipv6,
             servers,
@@ -66,6 +85,11 @@ impl Resolver {
                 .map_err(|error| TransportError::Dns(error.to_string()))?
                 .map(|address| address.ip())
                 .collect(),
+            ProxyDnsMode::EdgeResolved => {
+                return Err(TransportError::Dns(
+                    "edge-resolved names must be sent to CONNECT".to_owned(),
+                ));
+            }
         };
         deduplicate(&mut addresses);
         if addresses.is_empty() {
@@ -102,15 +126,38 @@ impl Resolver {
         let transaction_id = NEXT_DNS_ID.fetch_add(1, Ordering::Relaxed);
         let query = encode_query(transaction_id, name, query_type)?;
         let mut errors = Vec::new();
+        let deadline = tokio::time::Instant::now() + DNS_TIMEOUT;
 
         for server in &self.servers {
+            if let Some(dns) = &self.stream_dns {
+                match dns
+                    .query(SocketAddr::new(*server, DNS_PORT), &query, deadline)
+                    .await
+                {
+                    Ok(response) => match decode_response(&response, transaction_id, query_type) {
+                        Ok(values) if !values.is_empty() => return Ok(values),
+                        _ => {
+                            errors.push("remote DNS returned no usable answer".to_owned());
+                            continue;
+                        }
+                    },
+                    Err(error) => {
+                        errors.push(error.to_string());
+                        continue;
+                    }
+                }
+            }
             let local_ip = match server {
                 IpAddr::V4(_) => IpAddr::V4(self.assigned_ipv4),
                 IpAddr::V6(_) => IpAddr::V6(self.assigned_ipv6),
             };
             let local = SocketAddr::new(local_ip, next_udp_port());
             let remote = SocketAddr::new(*server, DNS_PORT);
-            let socket = match self.channel.udp_bind(local).await {
+            let channel = self
+                .channel
+                .as_ref()
+                .ok_or_else(|| TransportError::Dns("DNS transport unavailable".to_owned()))?;
+            let socket = match channel.udp_bind(local).await {
                 Ok(socket) => socket,
                 Err(error) => {
                     errors.push(format!("{server}: bind failed: {error}"));

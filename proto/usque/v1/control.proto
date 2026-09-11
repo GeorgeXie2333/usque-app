@@ -34,6 +34,12 @@ enum TransportPolicy {
   TRANSPORT_POLICY_HTTP2 = 3;
 }
 
+enum DataPlaneMode {
+  DATA_PLANE_MODE_UNSPECIFIED = 0;
+  DATA_PLANE_MODE_CONNECT_IP = 1;
+  DATA_PLANE_MODE_L4_PROXY = 2;
+}
+
 enum IpPolicy {
   IP_POLICY_UNSPECIFIED = 0;
   IP_POLICY_AUTO = 1;
@@ -41,6 +47,15 @@ enum IpPolicy {
   IP_POLICY_PREFER_IPV6 = 3;
   IP_POLICY_IPV4_ONLY = 4;
   IP_POLICY_IPV6_ONLY = 5;
+}
+
+// Client-side HTTP/3 only. BBR names quiche's BBRv2 implementation.
+enum CongestionControlAlgorithm {
+  CONGESTION_CONTROL_ALGORITHM_UNSPECIFIED = 0;
+  CONGESTION_CONTROL_ALGORITHM_CUBIC = 1;
+  CONGESTION_CONTROL_ALGORITHM_RENO = 2;
+  CONGESTION_CONTROL_ALGORITHM_BBR = 3;
+  CONGESTION_CONTROL_ALGORITHM_BBR3 = 4;
 }
 
 enum DnsMode {
@@ -55,6 +70,7 @@ enum ProxyDnsMode {
   PROXY_DNS_MODE_REMOTE = 1;
   PROXY_DNS_MODE_LOCAL_CONFIGURED = 2;
   PROXY_DNS_MODE_SYSTEM = 3;
+  PROXY_DNS_MODE_EDGE_RESOLVED = 4;
 }
 
 enum DirectDnsMode {
@@ -176,6 +192,8 @@ message Profile {
   FrontendSettings frontends = 15;
   repeated string geo_direct_countries = 16;
   DirectDnsSettings direct_dns = 17;
+  CongestionControlAlgorithm congestion_control = 18;
+  DataPlaneMode data_plane = 19;
 }
 
 message Statistics {
@@ -259,6 +277,11 @@ message Capabilities {
   bool encrypted_direct_dns = 21;
   bool quic_migration = 22;
   bool automatic_pmtu = 23;
+  repeated CongestionControlAlgorithm h3_congestion_control_algorithms = 24;
+  bool network_settings_application = 25;
+  bool l4_tcp = 26;
+  bool l4_tun_tcp = 27;
+  bool l4_dns_conversion = 28;
 }
 
 message FrontendStatus {
@@ -287,6 +310,124 @@ message ConnectionSnapshot {
   repeated FrontendStatus frontends = 15;
   TransportFailure failure = 16;
   NetworkQualitySnapshot network_quality = 17;
+  CongestionControlAlgorithm session_congestion_control = 18;
+  DataPlaneMode data_plane = 19;
+  L4Snapshot l4 = 20;
+}
+
+// No destinations, DNS content, connection IDs, or credential material.
+message L4Snapshot {
+  bool connect_verified = 1;
+  uint32 sessions = 2;
+  uint32 draining_sessions = 3;
+  uint32 active_flows = 4;
+  uint32 pending_flows = 5;
+  uint64 connect_successes = 6;
+  uint64 connect_failures = 7;
+  uint64 connect_timeouts = 8;
+  uint64 buffer_bytes = 9;
+  uint64 budget_rejections = 10;
+  uint64 send_backpressure = 11;
+  uint64 receive_backpressure = 12;
+  uint64 udp_rejected = 13;
+  uint64 dns_successes = 14;
+  uint64 dns_failures = 15;
+  uint64 dns_timeouts = 16;
+  uint64 migration_preserved_flows = 17;
+  uint64 reconnect_terminated_flows = 18;
+  uint32 tun_flows = 19;
+  uint32 half_open_flows = 20;
+  uint64 connect_latency_us = 21;
+  uint64 unsupported_packets = 22;
+  L4PerformanceSnapshot performance = 23;
+}
+
+message L4PerformanceSnapshot {
+  uint64 h3_read_calls = 1;
+  uint64 h3_read_bytes = 2;
+  uint64 h3_empty_reads = 3;
+  uint64 receive_pool_allocations = 4;
+  uint64 receive_pool_hits = 5;
+  uint64 receive_pool_evictions = 6;
+  uint64 receive_pool_idle_bytes = 7;
+  uint64 receive_pool_idle_high_watermark = 8;
+  uint64 receive_pool_live_bytes = 9;
+  uint64 receive_pool_live_high_watermark = 10;
+  uint64 adapter_copied_bytes = 11;
+  uint64 tcp_accepted_bytes = 12;
+  uint64 tcp_write_calls = 13;
+  uint64 tcp_partial_writes = 14;
+  uint64 actor_wakeups = 15;
+  uint64 actor_polls = 16;
+  uint64 actor_no_progress_polls = 17;
+  uint64 budget_wakeups = 18;
+  uint64 tun_ingress_packets = 19;
+  uint64 tun_ingress_bytes = 20;
+  uint64 tun_egress_packets = 21;
+  uint64 tun_egress_bytes = 22;
+  optional uint64 tun_write_calls = 23;
+  optional uint64 tun_write_would_block = 24;
+  optional uint64 udp_receive_buffer_bytes = 25;
+  optional uint64 udp_send_buffer_bytes = 26;
+  optional string udp_buffer_source = 27;
+  optional uint32 tun_mtu = 28;
+  optional string tun_mtu_source = 29;
+  optional uint64 tcp_preferred_sockets = 30;
+  optional uint64 tcp_fallback_sockets = 31;
+  optional uint64 tcp_buffer_bytes = 32;
+  L4WaitSnapshot command_wait = 33;
+  L4WaitSnapshot tun_write_wait = 34;
+  L4QueueSnapshot tun_ingress_queue = 35;
+  L4QueueSnapshot tun_egress_queue = 36;
+  L4QueueSnapshot stack_ingress_queue = 37;
+  L4QueueSnapshot stack_egress_queue = 38;
+  uint64 actor_no_progress_wakeups = 39;
+  L4ReceiveSnapshot receive = 40;
+}
+
+message L4ReceiveSnapshot {
+  optional uint64 requested_buffer_bytes = 1;
+  optional string buffer_request_status = 2;
+  optional string overflow_monitoring = 3;
+  optional uint64 socket_drops_reported = 4;
+  uint64 overflow_reports = 5;
+  uint64 ancillary_errors = 6;
+  uint64 recv_syscalls = 7;
+  uint64 received_datagrams = 8;
+  uint64 empty_recv_syscalls = 9;
+  optional string receive_backend = 10;
+  optional string send_backend = 11;
+  repeated L4ReceiveInterval history = 12;
+  uint64 history_dropped = 13;
+  optional uint64 buffer_target_bytes = 14;
+}
+
+message L4ReceiveInterval {
+  uint64 elapsed_ms = 1;
+  uint64 interval_ms = 2;
+  bool path_reset = 3;
+  uint64 h3_read_bytes = 4;
+  uint64 tcp_accepted_bytes = 5;
+  uint64 tun_ingress_bytes = 6;
+  optional uint64 received_datagrams = 7;
+  optional uint64 recv_syscalls = 8;
+  optional uint64 socket_drops = 9;
+  optional uint64 socket_drops_reported = 10;
+}
+
+message L4WaitSnapshot {
+  uint64 samples = 1;
+  uint64 sum_us = 2;
+  uint64 max_us = 3;
+  repeated uint64 buckets = 4;
+}
+
+message L4QueueSnapshot {
+  uint64 packets = 1;
+  uint64 bytes = 2;
+  uint64 high_water_packets = 3;
+  uint64 high_water_bytes = 4;
+  L4WaitSnapshot wait = 5;
 }
 
 message Empty {}
@@ -611,6 +752,13 @@ message NetworkQualitySnapshot {
   DirectDnsQuality direct_dns = 8;
   // At most 16 real source observations; not interpolated or persisted.
   repeated NetworkQualitySample samples = 9;
+  UdpSocketReceiveSnapshot udp_socket_receive = 10;
+}
+
+message UdpSocketReceiveSnapshot {
+  optional uint64 receive_buffer_bytes = 1;
+  optional uint64 send_buffer_bytes = 2;
+  L4ReceiveSnapshot observation = 3;
 }
 
 message NetworkQualitySample {
@@ -760,6 +908,38 @@ message ReconfigureResult {
   ConnectionSnapshot snapshot = 2;
 }
 
+message SaveNetworkSettingsRequest {
+  string operation_id = 1;
+  string account_id = 2;
+  Profile values = 3;
+  repeated string changed_fields = 4;
+}
+
+message GetNetworkSettingsStateRequest {}
+
+enum NetworkSettingsApplyStatus {
+  NETWORK_SETTINGS_APPLY_STATUS_UNSPECIFIED = 0;
+  NETWORK_SETTINGS_APPLY_STATUS_NOT_REQUIRED = 1;
+  NETWORK_SETTINGS_APPLY_STATUS_APPLYING = 2;
+  NETWORK_SETTINGS_APPLY_STATUS_APPLIED = 3;
+  NETWORK_SETTINGS_APPLY_STATUS_DEFERRED = 4;
+  NETWORK_SETTINGS_APPLY_STATUS_FAILED = 5;
+  NETWORK_SETTINGS_APPLY_STATUS_UNKNOWN = 6;
+}
+
+message NetworkSettingsState {
+  string source_epoch = 1;
+  uint64 sequence = 2;
+  string operation_id = 3;
+  string session_id = 4;
+  Profile stored_profile = 5;
+  Profile applied_profile = 6;
+  NetworkSettingsApplyStatus apply_status = 7;
+  repeated string deferred_fields = 8;
+  string error_code = 9;
+  optional bool persisted = 10;
+}
+
 message ControlRequest {
   string request_id = 1;
   // 19 was PauseCaptivePortalRequest (removed).
@@ -795,6 +975,8 @@ message ControlRequest {
     GetDiagnosticsRequest get_diagnostics = 38;
     GetConnectionTimelineRequest get_connection_timeline = 39;
     GetNetworkQualityRequest get_network_quality = 40;
+    SaveNetworkSettingsRequest save_network_settings = 41;
+    GetNetworkSettingsStateRequest get_network_settings_state = 42;
   }
 }
 
@@ -836,6 +1018,7 @@ message ControlResponse {
     DiagnosticSession diagnostics = 19;
     ConnectionTimeline connection_timeline = 20;
     NetworkQualitySnapshot network_quality = 21;
+    NetworkSettingsState network_settings = 22;
   }
 }
 
@@ -904,5 +1087,6 @@ message EventEnvelope {
     DiagnosticSessionCompleted diagnostic_session_completed = 21;
     DiagnosticSessionCancelled diagnostic_session_cancelled = 22;
     NetworkQualityUpdated network_quality_updated = 23;
+    NetworkSettingsState network_settings_changed = 24;
   }
 }

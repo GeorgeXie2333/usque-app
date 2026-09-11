@@ -159,3 +159,65 @@ pub fn request_nonblocking(
 
     _request_nonblocking(ch, handle, command.into())
 }
+
+/// Failure to enqueue a request. Unlike the legacy best-effort drop helper,
+/// this distinguishes saturation from a closed stack and never reports a drop
+/// as success. A cleanup owner can retry `Full` asynchronously.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum TryRequestError {
+    /// The live command queue has no free slot; the request was not enqueued.
+    Full,
+    /// The stack no longer accepts commands.
+    Closed,
+}
+
+/// Try to enqueue exactly one request without blocking or silently dropping it.
+pub fn try_request_nonblocking(
+    command_tx: impl UpgradableChannel,
+    handle: Option<SocketHandle>,
+    command: impl Into<Command>,
+) -> Result<(), TryRequestError> {
+    let channel = command_tx.upgrade().map_err(|_| TryRequestError::Closed)?;
+    let (resp, _receiver) = flume::bounded(1);
+    match channel.borrow().try_send(Request {
+        handle,
+        command: command.into(),
+        resp,
+    }) {
+        Ok(()) => Ok(()),
+        Err(flume::TrySendError::Full(_)) => Err(TryRequestError::Full),
+        Err(flume::TrySendError::Disconnected(_)) => Err(TryRequestError::Closed),
+    }
+}
+
+#[cfg(test)]
+mod enqueue_tests {
+    use super::*;
+
+    #[test]
+    fn cleanup_queue_full_is_distinct_from_success_and_closed() {
+        for capacity in [1, 256] {
+            let (sender, receiver) = flume::bounded(capacity);
+            for _ in 0..capacity {
+                assert_eq!(
+                    try_request_nonblocking(&sender, None, crate::tcp::stream::Command::Close),
+                    Ok(())
+                );
+            }
+            assert_eq!(
+                try_request_nonblocking(&sender, None, crate::tcp::stream::Command::Abort),
+                Err(TryRequestError::Full)
+            );
+            receiver.try_recv().unwrap();
+            assert_eq!(
+                try_request_nonblocking(&sender, None, crate::tcp::stream::Command::Abort),
+                Ok(())
+            );
+            drop(receiver);
+            assert_eq!(
+                try_request_nonblocking(&sender, None, crate::tcp::stream::Command::Close),
+                Err(TryRequestError::Closed)
+            );
+        }
+    }
+}

@@ -5,9 +5,11 @@
 //! network configuration.
 
 mod connect_ip_control;
+mod data_plane;
 mod diagnostic_probe;
 mod direct_gateway;
 mod dns;
+mod dns_stream;
 mod encrypted_dns;
 mod feature_flags;
 mod geo_direct;
@@ -16,12 +18,14 @@ mod h3;
 mod h3_buffer;
 mod http_proxy;
 mod icmp;
+mod l4;
 mod masque_runtime;
 mod migration_barrier;
 mod netstack;
 mod network_quality;
 mod packet_batch;
 mod packet_mux;
+mod packet_pipe;
 mod path_socket;
 mod pin_refresh;
 mod pmtu;
@@ -33,6 +37,7 @@ mod relay;
 mod socket;
 mod socks5;
 mod split_dns;
+mod tcp;
 mod telemetry;
 mod tunnel;
 mod udp_io;
@@ -44,6 +49,7 @@ mod fault_injection;
 #[cfg(all(feature = "fault-injection", not(debug_assertions), not(test)))]
 compile_error!("fault-injection is restricted to test/debug lab builds");
 
+pub use data_plane::{DataPlaneRuntime, TunPacketIo};
 pub use diagnostic_probe::{
     NetworkProbeResult, h3_probe_endpoints, probe_encrypted_dns, probe_h3_handshake,
     probe_h3_handshake_candidates,
@@ -60,6 +66,7 @@ pub use h3::{
     H3Driver, H3MigrationHandle, H3MigrationResult, H3ReceiveHalf, H3SendHalf, H3Tunnel, connect_h3,
 };
 pub use http_proxy::HttpProxyRuntime;
+pub use l4::performance::{TunWriteObserver, TunWriteSample};
 pub use masque_runtime::{MasqueRuntime, MasqueTunIo};
 pub use netstack::{
     ManagedTunnelMonitor, ManagedTunnelRuntime, ManagedTunnelSender, ProxyPerformanceSnapshot,
@@ -70,7 +77,8 @@ pub use network_quality::{
     DirectDnsQuality, DirectDnsReasonCode, H2FlowControlQuality, LossQuality, MetricAvailability,
     MetricValue, MigrationPhase, MigrationQuality, MigrationReasonCode, NetworkQualityLevel,
     NetworkQualitySample, NetworkQualitySampler, NetworkQualitySnapshot, NetworkQualityTelemetry,
-    PmtuPhase, PmtuQuality, QueueQuality, RttQuality, UdpIoQuality, spawn_network_quality_sampler,
+    PmtuPhase, PmtuQuality, QueueQuality, RttQuality, SocketReceiveQuality, UdpIoQuality,
+    spawn_network_quality_sampler,
 };
 pub use pin_refresh::{EndpointPinRefresher, refresh_endpoint_pin_over_protected_socket};
 pub use proxy::ProxyRuntime;

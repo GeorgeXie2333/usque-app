@@ -36,6 +36,41 @@ import 'package:usque/widgets/controller_selector.dart';
 import 'package:usque/widgets/profile_identity_dialog.dart';
 
 class FakeEngineClient implements EngineClient {
+  NetworkSettingsState? settingsState;
+  int settingsSequence = 0;
+
+  @override
+  Future<NetworkSettingsState> saveNetworkSettings(
+    String operationId,
+    String accountId,
+    UsqueProfile values,
+    List<String> changedFields,
+  ) async {
+    final normalized = values.frontends.http
+        ? values
+        : values.copyWith(proxy: values.proxy.copyWith(systemProxy: false));
+    await upsertProfile(normalized);
+    return settingsState = NetworkSettingsState(
+      sourceEpoch: 'test-engine',
+      sequence: ++settingsSequence,
+      operationId: operationId,
+      storedProfile: storedProfiles.firstWhere((p) => p.id == accountId),
+      persisted: true,
+      status: NetworkSettingsApplyStatus.deferred,
+      deferredFields: changedFields,
+    );
+  }
+
+  @override
+  Future<NetworkSettingsState> getNetworkSettingsState() async =>
+      settingsState ??
+      NetworkSettingsState(
+        sourceEpoch: 'test-engine',
+        sequence: settingsSequence,
+        storedProfile: storedProfiles.firstWhere(
+          (p) => p.id == storedActiveProfileId,
+        ),
+      );
   @override
   bool get supportsSnapshotEvents => false;
 
@@ -48,7 +83,8 @@ class FakeEngineClient implements EngineClient {
       current.networkQuality;
 
   @override
-  Future<EngineCapabilities?> getCapabilities() async => null;
+  Future<EngineCapabilities?> getCapabilities() async =>
+      const EngineCapabilities(networkSettingsApplication: true);
 
   bool provisioned = false;
   IdentityProvisioningMethod? lastProvisioningMethod;
@@ -796,14 +832,14 @@ void main() {
     final downloader = RecordingUpdateDownloader(engine);
     final controller = AppController(engine, updateDownloader: downloader);
     await controller.initialize();
-    const path = 'test-update-cache/usque-v0.2.6-android-arm64-v8a.apk';
+    const path = 'test-update-cache/usque-v0.2.7-android-arm64-v8a.apk';
     controller.updateResult = const UpdateCheckResult(
       available: true,
-      version: 'v0.2.6',
+      version: 'v0.2.7',
       package: UpdatePackage(
-        name: 'usque-v0.2.6-android-arm64-v8a.apk',
+        name: 'usque-v0.2.7-android-arm64-v8a.apk',
         downloadUrl:
-            'https://github.com/GeorgeXie2333/usque-app/releases/download/v0.2.6/usque-v0.2.6-android-arm64-v8a.apk',
+            'https://github.com/GeorgeXie2333/usque-app/releases/download/v0.2.7/usque-v0.2.7-android-arm64-v8a.apk',
         size: 1024,
         sha256:
             'a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5',
@@ -1347,6 +1383,10 @@ void main() {
       ...kEnCatalog.keys.where(
         (key) => key.startsWith('geo_') && key != 'geo_enable',
       ),
+      'tray_open',
+      'tray_connect_profile',
+      'tray_disconnect_profile',
+      'tray_disconnect_exit',
       'diagnostics_page_subtitle',
       'diag_refresh_timeline',
       'diag_operation_failed',
@@ -1383,6 +1423,13 @@ void main() {
     };
     expect(AppStrings.debugUntranslatedKeys(keys), isEmpty);
   });
+
+  test(
+    'non-English feature tables translate workflow, quality, and recovery',
+    () {
+      expect(AppStrings.debugUntranslatedFeatureKeys(), isEmpty);
+    },
+  );
 
   test(
     'diagnostics helpers resolve English, Chinese, Japanese, and German',
@@ -2066,6 +2113,12 @@ void main() {
       0x28,
       0xbb,
       0x03,
+      0x90,
+      0x01,
+      0x01,
+      0x98,
+      0x01,
+      0x01,
     ];
     expect(payload.sublist(payload.length - suffix.length), suffix);
   });
@@ -2241,6 +2294,8 @@ void main() {
     await first.initialize();
     first.addProfile('Persistent');
     final persistent = first.profiles.last;
+    first.setActiveProfile(persistent.id);
+    await first.flushProfileWrites();
     first.updateProfile(
       persistent.copyWith(
         frontends: const FrontendSettings(
@@ -2280,6 +2335,7 @@ void main() {
       ),
     );
     controller.setActiveProfile(work.id);
+    await controller.flushProfileWrites();
     expect(controller.activeProfile.mtu, 1400);
     expect(controller.activeProfile.autoConnect, isTrue);
     expect(controller.activeProfile.frontends.tunnel, isFalse);
@@ -2305,14 +2361,11 @@ void main() {
       controller.updateNetwork(
         controller.activeProfile.copyWith(sni: 'unsaved.example.com'),
       );
-      expect(controller.activeProfile.sni, 'unsaved.example.com');
+      expect(controller.activeProfile.sni, 'before.example.com');
 
       await controller.flushProfileWrites();
 
-      expect(
-        controller.lastError,
-        contains('Profile changes could not be saved'),
-      );
+      expect(controller.networkSettings.saveError, isNotNull);
       expect(controller.sharedNetwork.sni, 'before.example.com');
       expect(controller.activeProfile.sni, 'before.example.com');
       expect(engine.storedProfiles.single.sni, 'before.example.com');
@@ -2646,6 +2699,7 @@ void main() {
       ),
     );
     controller.setActiveProfile(consumer.id);
+    await controller.flushProfileWrites();
 
     expect(controller.activeProfile.endpointIpv4, consumer.endpointIpv4);
     expect(controller.activeProfile.endpointIpv6, consumer.endpointIpv6);
@@ -2658,56 +2712,53 @@ void main() {
     expect(controller.activeProfile.sni, 'shared.example.com');
   });
 
-  test(
-    'editing a non-active Zero Trust account cannot replace shared IPs',
-    () async {
-      SharedPreferences.setMockInitialValues(<String, Object>{
-        'onboarding_complete': true,
-      });
-      final consumer = UsqueProfile.defaultProfile();
-      final zeroTrust = consumer.copyWith(
-        id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
-        name: 'Work',
-        endpointIpv4: '162.159.197.2',
-        endpointIpv6: '2606:4700:102::2',
-      );
-      final engine = FakeEngineClient()
-        ..legacyProfilesImported = true
-        ..storedProfiles = <UsqueProfile>[consumer, zeroTrust]
-        ..storedActiveProfileId = consumer.id
-        ..storedIdentityStatuses = <String, ProfileIdentityStatus>{
-          zeroTrust.id: const ProfileIdentityStatus(
-            state: ProfileIdentityState.ready,
-            licenseState: LicenseState.notApplicable,
-            accountType: 'Zero Trust',
-            provider: IdentityProvider.zeroTrust,
-            organization: 'example-team',
-          ),
-        };
-      final controller = AppController(engine);
-      await controller.initialize();
-      addTearDown(controller.dispose);
-
-      controller.updateNetwork(
-        zeroTrust.copyWith(
-          endpointIpv4: '192.0.2.10',
-          endpointIpv6: '2001:db8::10',
-          endpointPort: 8443,
-          sni: 'shared.example.com',
+  test('editing a non-active Zero Trust account is rejected', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_complete': true,
+    });
+    final consumer = UsqueProfile.defaultProfile();
+    final zeroTrust = consumer.copyWith(
+      id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+      name: 'Work',
+      endpointIpv4: '162.159.197.2',
+      endpointIpv6: '2606:4700:102::2',
+    );
+    final engine = FakeEngineClient()
+      ..legacyProfilesImported = true
+      ..storedProfiles = <UsqueProfile>[consumer, zeroTrust]
+      ..storedActiveProfileId = consumer.id
+      ..storedIdentityStatuses = <String, ProfileIdentityStatus>{
+        zeroTrust.id: const ProfileIdentityStatus(
+          state: ProfileIdentityState.ready,
+          licenseState: LicenseState.notApplicable,
+          accountType: 'Zero Trust',
+          provider: IdentityProvider.zeroTrust,
+          organization: 'example-team',
         ),
-      );
-      await controller.flushProfileWrites();
+      };
+    final controller = AppController(engine);
+    await controller.initialize();
+    addTearDown(controller.dispose);
 
-      expect(controller.activeProfile.id, consumer.id);
-      expect(controller.activeProfile.endpointIpv4, consumer.endpointIpv4);
-      expect(controller.activeProfile.endpointIpv6, consumer.endpointIpv6);
-      expect(controller.activeProfile.endpointPort, 8443);
-      expect(controller.activeProfile.sni, 'shared.example.com');
-      controller.setActiveProfile(zeroTrust.id);
-      expect(controller.activeProfile.endpointIpv4, '162.159.197.2');
-      expect(controller.activeProfile.endpointIpv6, '2606:4700:102::2');
-    },
-  );
+    controller.updateNetwork(
+      zeroTrust.copyWith(
+        endpointIpv4: '192.0.2.10',
+        endpointIpv6: '2001:db8::10',
+        endpointPort: 8443,
+        sni: 'shared.example.com',
+      ),
+    );
+    await controller.flushProfileWrites();
+
+    expect(controller.activeProfile.id, consumer.id);
+    expect(controller.activeProfile.endpointIpv4, consumer.endpointIpv4);
+    expect(controller.activeProfile.endpointIpv6, consumer.endpointIpv6);
+    expect(controller.activeProfile.endpointPort, consumer.endpointPort);
+    expect(controller.activeProfile.sni, consumer.sni);
+    controller.setActiveProfile(zeroTrust.id);
+    expect(controller.activeProfile.endpointIpv4, '162.159.197.2');
+    expect(controller.activeProfile.endpointIpv6, '2606:4700:102::2');
+  });
 
   testWidgets('Zero Trust identity choice remains readable on a narrow phone', (
     tester,
@@ -3714,13 +3765,13 @@ void main() {
         addTearDown(controller.dispose);
         controller.updateResult = const UpdateCheckResult(
           available: true,
-          version: 'v0.2.6',
+          version: 'v0.2.7',
           releaseUrl:
-              'https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.2.6',
+              'https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.2.7',
           package: UpdatePackage(
-            name: 'usque-v0.2.6-windows-x64-v2.msi',
+            name: 'usque-v0.2.7-windows-x64-v2.msi',
             downloadUrl:
-                'https://github.com/GeorgeXie2333/usque-app/releases/download/v0.2.6/usque-v0.2.6-windows-x64-v2.msi',
+                'https://github.com/GeorgeXie2333/usque-app/releases/download/v0.2.7/usque-v0.2.7-windows-x64-v2.msi',
             size: 20 * 1024 * 1024,
             sha256:
                 'a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5',
@@ -3738,7 +3789,7 @@ void main() {
         );
 
         await tester.pumpWidget(app());
-        expect(find.text('v0.2.6  •  x64-v2  •  20.0 MiB'), findsOneWidget);
+        expect(find.text('v0.2.7  •  x64-v2  •  20.0 MiB'), findsOneWidget);
         expect(find.byType(LinearProgressIndicator), findsOneWidget);
         expect(find.text('5.0 MiB / 20.0 MiB'), findsOneWidget);
         expect(find.text('Cancel'), findsOneWidget);

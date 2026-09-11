@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:usque/models/app_models.dart';
+import 'package:usque/models/network_settings.dart';
 import 'package:usque/screens/advanced_settings_screen.dart';
 import 'package:usque/screens/diagnostics_screen.dart';
 import 'package:usque/screens/onboarding_screen.dart';
@@ -180,6 +181,131 @@ void main() {
     variant: TargetPlatformVariant.only(TargetPlatform.windows),
     tags: 'golden',
   );
+
+  for (final chinese in [false, true]) {
+    testWidgets('congestion selector ${chinese ? 'Chinese TV' : 'phone'}', (
+      tester,
+    ) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = chinese
+          ? const Size(1280, 900)
+          : const Size(375, 812);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      final app = AppController(WorkflowEngine())
+        ..localePreference = chinese
+            ? LocalePreference.simplifiedChinese
+            : LocalePreference.english
+        ..engineCapabilities = const EngineCapabilities(
+          h3CongestionControlAlgorithms: CongestionControlAlgorithm.values,
+        )
+        ..snapshot = const EngineSnapshot(
+          phase: ConnectionPhase.connected,
+          transport: 'h3',
+          sessionCongestionControl: CongestionControlAlgorithm.cubic,
+        );
+      addTearDown(app.dispose);
+      app.sharedNetwork = app.sharedNetwork.copyWith(
+        congestionControl: CongestionControlAlgorithm.bbr3,
+      );
+      app.networkSettings.accept(
+        NetworkSettingsState(
+          sourceEpoch: 'golden-engine',
+          sequence: 1,
+          operationId: 'saved-settings',
+          persisted: true,
+          storedProfile: app.activeProfile,
+          appliedProfile: app.activeProfile.copyWith(
+            congestionControl: CongestionControlAlgorithm.cubic,
+          ),
+          status: NetworkSettingsApplyStatus.deferred,
+          deferredFields: const ['congestion_control'],
+        ),
+      );
+      final boundary = GlobalKey();
+      await tester.pumpWidget(
+        RepaintBoundary(
+          key: boundary,
+          child: workflowHost(
+            app,
+            dark: chinese,
+            scale: chinese ? 2 : 1,
+            home: AdvancedSettingsScreen(controller: app),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await Scrollable.ensureVisible(
+        tester.element(find.byKey(const ValueKey('congestion-control'))),
+        alignment: 0.15,
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await expectLater(
+        find.byKey(boundary),
+        matchesGoldenFile(
+          'goldens/congestion_${chinese ? 'tv_dark' : 'phone_light'}.png',
+        ),
+      );
+    }, tags: 'golden');
+  }
+
+  for (final chinese in [false, true]) {
+    testWidgets('L4 transport hint ${chinese ? 'zh_dark' : 'en_light'}', (
+      tester,
+    ) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(375, 812);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      final app = AppController(WorkflowEngine())
+        ..localePreference = chinese
+            ? LocalePreference.simplifiedChinese
+            : LocalePreference.english
+        ..engineCapabilities = const EngineCapabilities(
+          l4Tcp: true,
+          l4TunTcp: true,
+          l4DnsConversion: true,
+          h3CongestionControlAlgorithms: CongestionControlAlgorithm.values,
+        );
+      app.sharedNetwork = app.sharedNetwork.copyWith(
+        dataPlane: DataPlaneMode.l4Proxy,
+      );
+      addTearDown(app.dispose);
+      final boundary = GlobalKey();
+      await tester.pumpWidget(
+        RepaintBoundary(
+          key: boundary,
+          child: workflowHost(
+            app,
+            dark: chinese,
+            scale: chinese ? 2 : 1,
+            home: AdvancedSettingsScreen(controller: app),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.byType(SegmentedButton<String>),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await Scrollable.ensureVisible(
+        tester.element(find.byType(SegmentedButton<String>)),
+        alignment: 0.15,
+      );
+      await tester.pumpAndSettle();
+      expect(find.text(app.strings.get('l4_explanation')), findsNothing);
+      expect(find.byKey(const ValueKey('l4-transport-hint')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await expectLater(
+        find.byKey(boundary),
+        matchesGoldenFile(
+          'goldens/l4_hint_${chinese ? 'zh_dark' : 'en_light'}.png',
+        ),
+      );
+    }, tags: 'golden');
+  }
 
   testWidgets(
     'workflow remains usable with real fonts, large text and landscape',

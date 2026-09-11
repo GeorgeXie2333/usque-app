@@ -1,10 +1,20 @@
 /// Spanish UI catalog.
 const Map<String, String> kEsCatalog = <String, String>{
   'app_name': 'Usque',
+  'diag_fail_L4_SESSION_UNAVAILABLE': 'Sesión L4 no disponible',
+  'diag_fail_L4_PROTOCOL_ERROR': 'Error de protocolo L4',
+  'diag_fail_L4_CONNECT_REJECTED': 'L4 CONNECT rechazado',
+  'diag_fail_L4_CONNECT_TIMEOUT': 'Tiempo de espera de L4 CONNECT agotado',
+  'diag_fail_L4_RESOURCE_EXHAUSTED': 'Presupuesto de recursos L4 agotado',
+  'diag_fail_L4_DNS_FAILED': 'Consulta DNS L4 fallida',
   'window_minimize': 'Minimizar',
   'window_maximize': 'Maximizar',
   'window_restore': 'Restaurar tamaño de ventana',
   'window_close': 'Cerrar',
+  'tray_open': 'Abrir Usque',
+  'tray_connect_profile': 'Conectar la cuenta activa',
+  'tray_disconnect_profile': 'Desconectar la cuenta activa',
+  'tray_disconnect_exit': 'Desconectar y salir',
   'connection_status': 'Estado de la conexión',
   'outputs': 'Salidas de red',
   'home': 'Inicio',
@@ -14,7 +24,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'proxy_subtitle':
       'Listeners locales y DNS compartidos por todas las cuentas.',
   'settings': 'Ajustes',
-  'settings_subtitle': 'Comportamiento de la aplicación en este dispositivo.',
+  'settings_subtitle': 'Ajustes de conexión, proxy y aplicación.',
   'diagnostics': 'Diagnóstico',
   'nav_home': 'Inicio',
   'nav_profiles': 'Cuentas',
@@ -88,7 +98,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'zero_trust_repair_same_team':
       'Inicie sesión de nuevo en la misma organización para actualizar el registro de este dispositivo.',
   'zero_trust_metadata_missing':
-      'Falta la vinculación de organización guardada. Por seguridad, este perfil no se puede reparar directamente; cree un perfil Zero Trust nuevo.',
+      'Falta la vinculación de organización guardada. Por seguridad, esta cuenta no se puede reparar en su lugar; añada una cuenta Zero Trust nueva.',
   'zero_trust_endpoint_managed':
       'Este extremo lo gestiona el registro de dispositivo de Zero Trust y no se puede editar aquí.',
   'experimental': 'Experimental',
@@ -104,13 +114,13 @@ const Map<String, String> kEsCatalog = <String, String>{
   'delete': 'Eliminar',
   'delete_profile': '¿Eliminar cuenta?',
   'delete_profile_body':
-      'Esto elimina los ajustes no secretos de este perfil. Los datos de identidad almacenados no se eliminan.',
+      'Esto elimina los ajustes no secretos de esta cuenta. Los datos de identidad almacenados no se eliminan.',
   'delete_zero_trust_profile_body':
-      'Esto elimina solo el perfil local y las credenciales. Pida a un administrador de la organización que quite el registro residual del dispositivo en Zero Trust.',
+      'Esto elimina solo la cuenta local y las credenciales. Pida a un administrador de la organización que quite el registro residual del dispositivo en Zero Trust.',
   'license_not_applicable': 'Licencia no aplicable · Experimental',
   'zero_trust_reauthenticate': 'Iniciar sesión de nuevo en esta organización',
   'zero_trust_admin_cleanup_note':
-      'Quitar este perfil no revoca el dispositivo en el panel de Zero Trust.',
+      'Quitar esta cuenta no revoca el dispositivo en el panel de Zero Trust.',
   'mode': 'Modo de conexión',
   'vpn_mode': 'VPN',
   'socks_mode': 'SOCKS5',
@@ -200,7 +210,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'already_latest': 'Esta instalación ya está actualizada.',
   'open_release': 'Abrir la página de la versión',
   'update_startup_description':
-      'Usque comprueba una vez después de iniciarse. Al volver a la aplicación no se vuelve a comprobar. «Buscar ahora» siempre realiza una solicitud en directo.',
+      'Usque comprueba una vez después de iniciarse. Al volver a la aplicación no se vuelve a comprobar. «Buscar ahora» siempre solicita la información de la última versión.',
   'update_checking': 'Buscando una actualización…',
   'update_downloading': 'Descargando el paquete de actualización verificado…',
   'update_verifying': 'Verificando el paquete de actualización…',
@@ -256,14 +266,14 @@ const Map<String, String> kEsCatalog = <String, String>{
   'lockdown': 'Bloquear sin VPN',
   'not_used_proxy': 'No se usa en modo proxy',
   'kill_switch_help':
-      'Bloquea el tráfico al conectar, reconectar o recuperarse de un fallo de Usque Engine. En Android esto dura mientras el servicio VPN está en ejecución; active VPN siempre activada y Bloquear conexiones sin VPN en los ajustes del sistema para protegerse después de que se cierre la aplicación.',
+      'Bloquea el tráfico al conectar, reconectar o recuperarse de un fallo de Usque Engine. En Android esto dura mientras el servicio VPN está en ejecución; active VPN siempre activada y Bloquear conexiones sin VPN en los ajustes del sistema para protegerse cuando el sistema cierra o detiene la aplicación de forma forzada.',
   'start_on_boot_android':
       'Inicie Usque después de reiniciar. Active también la conexión automática al iniciar.',
   'add_quick_settings_tile_help':
       'Fije el acceso de Usque en Android 13 o posterior. En versiones anteriores, añádalo desde Ajustes rápidos.',
   'always_on_vpn': 'Abrir ajustes de VPN siempre activada',
   'always_on_vpn_help':
-      'Active VPN siempre activada y Bloquear conexiones sin VPN para protegerse de fugas después de que se cierre la aplicación.',
+      'Active VPN siempre activada y Bloquear conexiones sin VPN para protegerse de fugas tras la detención forzada de la aplicación.',
   'per_app_proxy': 'Proxy por aplicación',
   'per_app_proxy_off': 'Todas las aplicaciones usan la VPN',
   'per_app_proxy_on': 'Proxy de {count} aplicaciones',
@@ -301,7 +311,7 @@ const Map<String, String> kEsCatalog = <String, String>{
       'Estado de Usque Engine, exportación de registros y datos locales.',
   'engine_status': 'Estado de Usque Engine',
   'version': 'Versión',
-  'app_version': 'Usque 0.2.5',
+  'app_version': 'Usque 0.2.6',
   'logs': 'Registros locales',
   'export_diagnostics': 'Exportar paquete de diagnóstico',
   'diagnostics_saved': 'Paquete de diagnóstico guardado en',
@@ -311,9 +321,9 @@ const Map<String, String> kEsCatalog = <String, String>{
   'license': 'Licencia',
   'clear_all_data': 'Borrar todos los datos',
   'clear_all_data_help':
-      'Desconecte y elimine de forma permanente de este dispositivo todos los perfiles, identidades WARP de consumo, preferencias, caché y registros de diagnóstico locales.',
+      'Desconecte y elimine de forma permanente de este dispositivo todas las cuentas, identidades Consumer WARP, preferencias, caché y registros de diagnóstico locales.',
   'clear_all_data_confirm':
-      'Esta acción no se puede deshacer. Usque se desconectará primero, borrará todas las identidades y perfiles guardados y volverá a la configuración inicial.',
+      'Esta acción no se puede deshacer. Usque se desconectará primero, borrará todas las identidades y cuentas guardadas y volverá a la configuración inicial.',
   'clear_all_data_complete': 'Se borraron todos los datos locales de Usque.',
   'unofficial':
       'Cliente no oficial compatible con Cloudflare WARP. No está afiliado ni respaldado por Cloudflare.',
@@ -340,7 +350,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'permission_note':
       'El sistema operativo puede mostrar una confirmación adicional la primera vez que se conecte.',
   'setup_failed': 'No se pudo completar la configuración',
-  'profile_required': 'Conserve al menos un perfil.',
+  'profile_required': 'Conserve al menos una cuenta.',
   'socks_capabilities': 'TCP y UDP',
   'http_capabilities': 'CONNECT y reenvío ordinario',
   'geo_direct': 'Países con enrutamiento directo',
@@ -518,7 +528,8 @@ const Map<String, String> kEsCatalog = <String, String>{
       'El estado del proxy del sistema no coincide',
   'diag_fail_ROUTE_RESTORE_INCOMPLETE': 'Restauración de rutas incompleta',
   'diag_fail_DNS_RESTORE_INCOMPLETE': 'Restauración de DNS incompleta',
-  'diag_fail_SYSTEM_PROXY_STALE': 'Estado del proxy de Usque sin limpiar',
+  'diag_fail_SYSTEM_PROXY_STALE':
+      'El estado del proxy del sistema de Usque no se limpió',
   'diag_fail_PLATFORM_RECOVERY_PENDING':
       'Esperando a que se restaure el estado de red de la plataforma',
   'diag_fail_PACKET_SEND_FAILED': 'Falló el envío de paquetes',

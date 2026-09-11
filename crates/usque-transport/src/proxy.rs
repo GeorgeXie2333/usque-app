@@ -3,9 +3,9 @@ use std::sync::Arc;
 use usque_core::Profile;
 
 use crate::NetworkQualitySnapshot;
+use crate::data_plane::DataPlaneRuntime;
 use crate::geo_direct::GeoDirectPolicy;
 use crate::h2::{MasqueTlsIdentity, TransportError};
-use crate::masque_runtime::MasqueRuntime;
 use crate::netstack::{ProxyPerformanceSnapshot, RuntimeHealth, RuntimePath, TrafficSnapshot};
 use crate::pin_refresh::EndpointPinRefresher;
 use crate::socket::{SocketProtector, noop_socket_protector};
@@ -18,15 +18,15 @@ use crate::telemetry::ConnectionTimelineSnapshot;
 /// keeps startup atomic and prevents SOCKS5 and HTTP from accidentally opening
 /// separate MASQUE channels for the same active Profile.
 pub struct ProxyRuntime {
-    runtime: Option<MasqueRuntime>,
+    runtime: Option<DataPlaneRuntime>,
 }
 
 impl ProxyRuntime {
-    fn inner(&self) -> &MasqueRuntime {
+    fn inner(&self) -> &DataPlaneRuntime {
         self.runtime.as_ref().expect("proxy MASQUE runtime")
     }
 
-    fn inner_mut(&mut self) -> &mut MasqueRuntime {
+    fn inner_mut(&mut self) -> &mut DataPlaneRuntime {
         self.runtime.as_mut().expect("proxy MASQUE runtime")
     }
 
@@ -73,7 +73,7 @@ impl ProxyRuntime {
     ) -> Result<Self, TransportError> {
         Ok(Self {
             runtime: Some(
-                MasqueRuntime::start_with_geo_policy(
+                DataPlaneRuntime::start_with_geo_policy(
                     profile,
                     identity,
                     protector,
@@ -87,6 +87,10 @@ impl ProxyRuntime {
 
     pub fn path(&self) -> RuntimePath {
         self.inner().path()
+    }
+
+    pub fn l4_snapshot(&self) -> Option<usque_core::L4Snapshot> {
+        self.inner().l4_snapshot()
     }
 
     pub fn listeners(&self) -> &[std::net::SocketAddr] {
@@ -144,11 +148,11 @@ impl ProxyRuntime {
         self.inner_mut().reconfigure_frontends(profile).await
     }
 
-    pub fn into_masque(mut self) -> MasqueRuntime {
+    pub fn into_data_plane(mut self) -> DataPlaneRuntime {
         self.runtime.take().expect("proxy MASQUE runtime")
     }
 
-    pub fn from_masque(runtime: MasqueRuntime) -> Self {
+    pub fn from_data_plane(runtime: DataPlaneRuntime) -> Self {
         Self {
             runtime: Some(runtime),
         }

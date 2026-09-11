@@ -3,6 +3,16 @@ package io.github.georgexie2333.usque
 import java.io.File
 
 internal object NativeEngine {
+    fun networkSettings(
+        path: String,
+        request: String,
+    ): String? = if (libraryLoaded) nativeNetworkSettings(path, request) else null
+
+    private external fun nativeNetworkSettings(
+        path: String,
+        request: String,
+    ): String?
+
     private val libraryLoaded: Boolean =
         try {
             System.loadLibrary("usque_android")
@@ -14,6 +24,15 @@ internal object NativeEngine {
     fun isReady(): Boolean = libraryLoaded && nativeIsReady()
 
     fun isLinked(): Boolean = libraryLoaded
+
+    fun buildInfo(): String? =
+        try {
+            if (libraryLoaded) nativeBuildInfo() else null
+        } catch (_: UnsatisfiedLinkError) {
+            null
+        }
+
+    private external fun nativeBuildInfo(): String?
 
     fun connectionTimeline(): String? =
         try {
@@ -102,9 +121,7 @@ internal object NativeEngine {
         )
     }
 
-    fun stop() {
-        if (libraryLoaded) nativeStop()
-    }
+    fun stop(): Boolean = !libraryLoaded || runCatching { nativeStopConfirmed() }.getOrDefault(false)
 
     fun cancel() {
         if (libraryLoaded) nativeCancel()
@@ -219,7 +236,7 @@ internal object NativeEngine {
         vpnService: UsqueVpnService,
     ): Int
 
-    private external fun nativeStop()
+    private external fun nativeStopConfirmed(): Boolean
 
     private external fun nativeCancel()
 

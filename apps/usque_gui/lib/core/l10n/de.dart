@@ -1,10 +1,20 @@
 /// German UI catalog.
 const Map<String, String> kDeCatalog = <String, String>{
   'app_name': 'Usque',
+  'diag_fail_L4_SESSION_UNAVAILABLE': 'L4-Sitzung nicht verfügbar',
+  'diag_fail_L4_PROTOCOL_ERROR': 'L4-Protokollfehler',
+  'diag_fail_L4_CONNECT_REJECTED': 'L4 CONNECT abgelehnt',
+  'diag_fail_L4_CONNECT_TIMEOUT': 'L4 CONNECT-Zeitüberschreitung',
+  'diag_fail_L4_RESOURCE_EXHAUSTED': 'L4-Ressourcenbudget erschöpft',
+  'diag_fail_L4_DNS_FAILED': 'L4-DNS-Abfrage fehlgeschlagen',
   'window_minimize': 'Minimieren',
   'window_maximize': 'Maximieren',
   'window_restore': 'Fenstergröße wiederherstellen',
   'window_close': 'Schließen',
+  'tray_open': 'Usque öffnen',
+  'tray_connect_profile': 'Aktives Konto verbinden',
+  'tray_disconnect_profile': 'Aktives Konto trennen',
+  'tray_disconnect_exit': 'Trennen und beenden',
   'connection_status': 'Verbindungsstatus',
   'outputs': 'Netzwerkausgaben',
   'home': 'Start',
@@ -14,7 +24,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'proxy_subtitle':
       'Lokale Listener und DNS werden von allen Konten gemeinsam genutzt.',
   'settings': 'Einstellungen',
-  'settings_subtitle': 'App-Verhalten auf diesem Gerät.',
+  'settings_subtitle': 'Verbindungs-, Proxy- und Anwendungseinstellungen.',
   'diagnostics': 'Diagnose',
   'nav_home': 'Start',
   'nav_profiles': 'Konten',
@@ -88,7 +98,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'zero_trust_repair_same_team':
       'Melden Sie sich erneut bei derselben Organisation an, um diese Geräteregistrierung zu aktualisieren.',
   'zero_trust_metadata_missing':
-      'Die gespeicherte Organisationsbindung fehlt. Aus Sicherheitsgründen kann dieses Profil nicht direkt repariert werden; erstellen Sie ein neues Zero Trust-Profil.',
+      'Die gespeicherte Organisationsbindung fehlt. Aus Sicherheitsgründen kann dieser Kontosatz nicht an Ort und Stelle repariert werden; fügen Sie ein neues Zero Trust-Konto hinzu.',
   'zero_trust_endpoint_managed':
       'Dieser Endpunkt wird durch die Zero Trust-Geräteregistrierung verwaltet und kann hier nicht bearbeitet werden.',
   'experimental': 'Experimentell',
@@ -104,13 +114,13 @@ const Map<String, String> kDeCatalog = <String, String>{
   'delete': 'Löschen',
   'delete_profile': 'Konto entfernen?',
   'delete_profile_body':
-      'Dadurch werden die nicht geheimen Einstellungen dieses Profils entfernt. Gespeicherte Identitätsdaten werden nicht gelöscht.',
+      'Dadurch werden die nicht geheimen Einstellungen dieses Kontosatzes entfernt. Gespeicherte Identitätsdaten werden nicht gelöscht.',
   'delete_zero_trust_profile_body':
-      'Dadurch werden nur das lokale Profil und die Anmeldedaten gelöscht. Bitten Sie einen Organisationsadministrator, die verbleibende Geräteregistrierung in Zero Trust zu entfernen.',
+      'Dadurch werden nur der lokale Kontosatz und die Anmeldedaten gelöscht. Bitten Sie einen Organisationsadministrator, die verbleibende Geräteregistrierung in Zero Trust zu entfernen.',
   'license_not_applicable': 'Lizenz nicht anwendbar · Experimentell',
   'zero_trust_reauthenticate': 'Erneut bei dieser Organisation anmelden',
   'zero_trust_admin_cleanup_note':
-      'Das Entfernen dieses Profils widerruft das Gerät nicht im Zero Trust-Dashboard.',
+      'Das Entfernen dieses Kontosatzes widerruft das Gerät nicht im Zero Trust-Dashboard.',
   'mode': 'Verbindungsmodus',
   'vpn_mode': 'VPN',
   'socks_mode': 'SOCKS5',
@@ -199,7 +209,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'already_latest': 'Diese Installation ist bereits aktuell.',
   'open_release': 'Release-Seite öffnen',
   'update_startup_description':
-      'Usque prüft einmal nach dem Start. Beim Zurückkehren zur App wird nicht erneut geprüft. „Jetzt prüfen“ führt immer eine Live-Anfrage aus.',
+      'Usque prüft einmal nach dem Start. Beim Zurückkehren zur App wird nicht erneut geprüft. „Jetzt prüfen“ fordert immer die aktuellen Versionsinformationen an.',
   'update_checking': 'Suche nach einem Update…',
   'update_downloading': 'Verifiziertes Update-Paket wird heruntergeladen…',
   'update_verifying': 'Update-Paket wird geprüft…',
@@ -302,7 +312,7 @@ const Map<String, String> kDeCatalog = <String, String>{
       'Status der Usque Engine, Protokollexport und lokale Daten.',
   'engine_status': 'Status der Usque Engine',
   'version': 'Version',
-  'app_version': 'Usque 0.2.5',
+  'app_version': 'Usque 0.2.6',
   'logs': 'Lokale Protokolle',
   'export_diagnostics': 'Diagnosepaket exportieren',
   'diagnostics_saved': 'Diagnosepaket gespeichert unter',
@@ -312,9 +322,9 @@ const Map<String, String> kDeCatalog = <String, String>{
   'license': 'Lizenz',
   'clear_all_data': 'Alle Daten löschen',
   'clear_all_data_help':
-      'Verbindung trennen und jedes Profil, jede Consumer-WARP-Identität, jede Einstellung, den Cache und lokale Diagnosedatensätze dauerhaft von diesem Gerät entfernen.',
+      'Verbindung trennen und jedes Konto, jede Consumer-WARP-Identität, jede Einstellung, den Cache und lokale Diagnosedatensätze dauerhaft von diesem Gerät entfernen.',
   'clear_all_data_confirm':
-      'Dies kann nicht rückgängig gemacht werden. Usque trennt zuerst die Verbindung, löscht alle gespeicherten Identitäten und Profile und kehrt zur Ersteinrichtung zurück.',
+      'Dies kann nicht rückgängig gemacht werden. Usque trennt zuerst die Verbindung, löscht alle gespeicherten Identitäten und Konten und kehrt zur Ersteinrichtung zurück.',
   'clear_all_data_complete': 'Alle lokalen Usque-Daten wurden gelöscht.',
   'unofficial':
       'Inoffizieller Client, kompatibel mit Cloudflare WARP. Nicht mit Cloudflare verbunden und nicht von Cloudflare empfohlen.',
@@ -341,7 +351,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'permission_note':
       'Das Betriebssystem zeigt beim ersten Verbinden möglicherweise eine zusätzliche Bestätigung an.',
   'setup_failed': 'Einrichtung konnte nicht abgeschlossen werden',
-  'profile_required': 'Behalten Sie mindestens ein Profil.',
+  'profile_required': 'Behalten Sie mindestens ein Konto.',
   'socks_capabilities': 'TCP und UDP',
   'http_capabilities': 'CONNECT und gewöhnliche Weiterleitung',
   'geo_direct': 'Länder mit direktem Routing',
@@ -350,7 +360,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'geo_update_all': 'Geodaten aktualisieren',
   'geo_last_updated': 'Letzte erfolgreiche Aktualisierung: {current}',
   'geo_never_updated': 'Noch nicht aktualisiert',
-  'geo_updating': 'Aktualisiere {current} von {total}',
+  'geo_updating': '{current} von {total} wird aktualisiert',
   'geo_download': 'Herunterladen',
   'geo_update': 'Aktualisieren',
   'geo_enable': 'Direkt',
@@ -391,7 +401,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'diag_start': 'Diagnose starten',
   'diag_session': 'Diagnosesitzung',
   'diag_progress_semantics': 'Diagnosefortschritt {current}%',
-  'diag_waiting_check': 'Warte auf Prüfstatus…',
+  'diag_waiting_check': 'Warten auf Prüfstatus…',
   'diag_summary_passed': 'Bestanden {count}',
   'diag_summary_warnings': 'Warnungen {count}',
   'diag_summary_failed': 'Fehlgeschlagen {count}',

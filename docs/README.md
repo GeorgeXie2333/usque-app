@@ -46,6 +46,9 @@ not gate publication. Missing, failed, or `not_run` evidence is never a pass.
 | [Network-quality IPC](network-quality-ipc.md) | Wire fields, compatibility, event coalescing, and UI samples / 协议字段、兼容性与采样 |
 | [H3 path infrastructure](h3-path-infrastructure.md) | Socket ownership, exact generations, and migration / 路径所有权、网络代次与迁移 |
 | [H3 client reliability](h3-client-reliability.md) | Receive handling, fragmentation policy, GOAWAY, and recovery / 接收、分片策略与恢复 |
+| [HTTP/3 congestion control](congestion-control.md) | Algorithm selection, deferred session settings, and BBRv3 / 算法选择、延迟生效与 BBRv3 |
+| [QUIC UDP receive buffer](UDP_RECEIVE_BUFFER.md) | Windows/Android default, OS readback, diagnostic fields and evidence limits / 共用接收缓冲默认值、实际回读与证据边界 |
+| [Network settings](NETWORK_SETTINGS.md) | Field patches, durable saves, session application, and verification / 字段补丁、保存与会话生效契约 |
 | [Direct DNS threat model](direct-dns-threat-model.md) | Scoped trust boundaries, assumptions, and review evidence / 专题信任边界、假设与审查依据 |
 
 These documents describe contracts or scoped reviews, not measured performance
@@ -60,6 +63,7 @@ fail-closed checks. Preserve protobuf numbers and invariant identifiers.
 | [Implementation baseline](implementation-baseline.md) | PR-00 source, toolchain, and unavailable-lab baseline / PR-00 基线 |
 | [Network-quality acceptance](network-quality-acceptance.md) | PR-01–PR-12 implementation and test matrix, with later correction notice / 阶段验收及后续更正 |
 | [PMTU review and fixes](pmtu-path-fixes.md) | Candidate-specific defects, corrections, and regression results / 特定候选版本的修复记录 |
+| [Receive-buffer experiments](RECEIVE_BUFFER_EXPERIMENTS.md) | Retired Android A/B builds, user observations, and evidence limits / 已结束的安卓对照试验与证据边界 |
 
 Do not update historical test counts to look current or turn `not_run` into a
 pass. Later evidence needs its own exact commit, candidate, and environment.

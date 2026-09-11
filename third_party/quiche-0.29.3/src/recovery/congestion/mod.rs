@@ -292,7 +292,7 @@ impl From<CongestionControlAlgorithm> for &'static CongestionControlOps {
             // the gcongestion directory by Recovery::new_with_config;
             // LegacyRecovery never gets a RecoveryConfig with the
             // Bbr2Gcongestion algorithm.
-            CongestionControlAlgorithm::Bbr2Gcongestion => unreachable!(),
+            CongestionControlAlgorithm::Bbr2Gcongestion | CongestionControlAlgorithm::Bbr3 => unreachable!(),
         }
     }
 }

@@ -7,10 +7,10 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
+use crate::tcp::TcpStream as TunnelTcpStream;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::{TcpSocket, TcpStream, UdpSocket};
 use tokio::time::timeout;
-use ts_netstack_smoltcp::netsock::TcpStream as StackTcpStream;
 use usque_geo::{ArtifactKind, CountryCode, GeoClassifier, GeoError};
 
 use crate::netstack::TrafficCounters;
@@ -205,7 +205,7 @@ impl<'a> GeoTarget<'a> {
 /// A TCP stream connected either through the userspace tunnel or directly on
 /// the protected physical network.
 pub(crate) enum RoutedTcpStream {
-    Tunnel(StackTcpStream),
+    Tunnel(TunnelTcpStream),
     Direct {
         stream: TcpStream,
         counters: Arc<TrafficCounters>,
@@ -216,7 +216,7 @@ pub(crate) enum RoutedTcpStream {
 impl RoutedTcpStream {
     pub(crate) fn local_addr(&self) -> io::Result<SocketAddr> {
         match self {
-            Self::Tunnel(stream) => Ok(stream.local_addr()),
+            Self::Tunnel(stream) => stream.local_addr(),
             Self::Direct { stream, .. } => stream.local_addr(),
         }
     }
@@ -363,7 +363,7 @@ pub(crate) async fn connect_routed<E, F, Fut>(
 ) -> Result<RoutedTcpStream, E>
 where
     F: FnOnce(Option<Vec<IpAddr>>) -> Fut,
-    Fut: Future<Output = Result<StackTcpStream, E>>,
+    Fut: Future<Output = Result<TunnelTcpStream, E>>,
 {
     let (target, port) = destination;
     connect_with_geo_fallback(policy, protector, target, port, tunnel)

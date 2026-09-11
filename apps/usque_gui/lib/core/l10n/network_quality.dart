@@ -1,5 +1,28 @@
-/// This feature ships in English and Simplified Chinese; other locales use
-/// the same explicit English fallback as AppStrings' existing lookup policy.
+import 'features_ar.dart';
+import 'features_de.dart';
+import 'features_es.dart';
+import 'features_fa.dart';
+import 'features_fr.dart';
+import 'features_id.dart';
+import 'features_it.dart';
+import 'features_ja.dart';
+import 'features_ko.dart';
+import 'features_nl.dart';
+import 'features_pl.dart';
+import 'features_pt.dart';
+import 'features_ru.dart';
+import 'features_th.dart';
+import 'features_tr.dart';
+import 'features_uk.dart';
+import 'features_vi.dart';
+import 'features_zh_hk.dart';
+import 'features_zh_tw.dart';
+
+/// Network-quality copy is keyed by AppStrings catalog id. Missing ids fall
+/// back to English. Companion locale maps live in features_*.dart.
+///
+/// Keep [kNetworkQualityEn] immediately before [kNetworkQualityZhCn] so
+/// reliability catalog tests can slice those two maps.
 const kNetworkQualityEn = <String, String>{
   'nq_range': 'Range',
   'nq_bytes': 'Bytes',
@@ -63,7 +86,7 @@ const kNetworkQualityEn = <String, String>{
   'nq_live': 'Live',
   'nq_stale': 'Stale readings',
   'nq_updated': 'Last sample',
-  'nq_seconds': 's ago',
+  'nq_seconds': '{count} s ago',
   'nq_good': 'Good',
   'nq_fair': 'Fair',
   'nq_poor': 'Poor',
@@ -221,7 +244,7 @@ const kNetworkQualityZhCn = <String, String>{
   'nq_finding_unavailable': "当前状态下此指标不可用。",
   'nq_finding_invalid_configuration': "自定义 DNS 配置无效。",
   'nq_finding_dns_system': "当前使用物理系统 DNS，不适用加密 DNS 检查。",
-  'nq_finding_unsupported': "此 Engine 不支持加密 DNS，且不会回退到明文。",
+  'nq_finding_unsupported': "此 Engine 不支持加密 DNS，且不允许回退到明文。",
   'nq_finding_dns_custom_valid': "自定义加密 DNS 配置有效，明文回退已禁用。",
   'nq_finding_stale': "读数已过期，或物理网络已切换。",
   'nq_finding_rtt_high': "测得的往返延迟较高。",
@@ -246,12 +269,12 @@ const kNetworkQualityZhCn = <String, String>{
   'network_quality': '网络质量',
   'nq_subtitle': '了解连接状态，不只看速度。',
   'nq_local_only': '指标仅保存在本机，不会上传。',
-  'nq_doctor': '一键运行网络医生',
+  'nq_doctor': '运行网络诊断',
   'nq_doctor_help': '标准检查只读取本地状态，不新建外部连接，也不修改设置。',
   'nq_live': '实时',
   'nq_stale': '读数已过期',
   'nq_updated': '最近采样',
-  'nq_seconds': '秒前',
+  'nq_seconds': '{count} 秒前',
   'nq_good': '良好',
   'nq_fair': '一般',
   'nq_poor': '较差',
@@ -262,7 +285,7 @@ const kNetworkQualityZhCn = <String, String>{
   'nq_unavailable': '不可用',
   'nq_not_ready': '尚未就绪',
   'nq_unsupported': '不支持',
-  'nq_capability_missing': '此引擎尚不提供网络质量信息，现有连接控制仍可使用。',
+  'nq_capability_missing': '此 Engine 不提供网络质量信息，现有连接控制仍可使用。',
   'nq_empty': '连接后显示测量结果。未知值不会显示成零。',
   'nq_stale_help': '数据源已停止更新。这里是先前读数，缺失采样保留为空缺。',
   'nq_rtt': '往返时延',
@@ -360,7 +383,7 @@ const kNetworkQualityZhCn = <String, String>{
   'nq_dns_no_fallback': '加密直连 DNS 失败时，查询会失败；绝不回退到系统或明文 DNS。',
   'nq_dns_system_privacy': '使用物理网络系统 DNS 时，直连查询的域名可能对该网络的 DNS 服务商可见。',
   'nq_dns_scope': '仅用于 Geo 规则选择的直连查询，隧道 DNS 不变。',
-  'nq_dns_no_capability': '此引擎不支持加密直连 DNS。已保存的设置会保留；你可以明确选择系统 DNS。',
+  'nq_dns_no_capability': '此 Engine 不支持加密直连 DNS。已保存的设置会保留；你可以明确选择系统 DNS。',
   'nq_dns_invalid_name': '请输入 DNS 名称，不含空白、网址语法或通配符。',
   'nq_dns_invalid_path': '请输入以 / 开头、最长 256 字符的路径，不含查询参数、片段或空白。',
   'nq_dns_invalid_bootstrap': '请输入 1–8 个不重复的单播 IP；不允许未指定、多播、广播或 IPv6 链路本地地址。',
@@ -368,7 +391,32 @@ const kNetworkQualityZhCn = <String, String>{
   'nq_dns_invalid_mode': '请选择支持的 DNS 模式。',
   'nq_doctor_deep_title': '运行深度网络检查？',
   'nq_doctor_deep_body':
-      '深度检查可能向你配置的解析器发送测试 DNS 查询，并验证受保护的 QUIC 路径。最长 15 秒，可取消；不会创建第二条业务隧道，也不会修改 DNS、路由、配置或传输协议。',
+      '深度检查可能向你配置的解析器发送测试 DNS 查询，并验证受保护的 QUIC 路径。最长 15 秒，可取消；不会创建第二条业务隧道，也不会修改 DNS、路由、账号或传输协议。',
   'nq_doctor_deep_run': '运行深度检查',
   'nq_doctor_evidence': '本地检查仅描述配置与已观测状态，不等于外部抓包证明绝无 DNS 泄漏。',
 };
+
+const Map<String, Map<String, String>> kNetworkQualityCatalogs =
+    <String, Map<String, String>>{
+      'en': kNetworkQualityEn,
+      'zh_CN': kNetworkQualityZhCn,
+      'zh_HK': kNetworkQualityZhHk,
+      'zh_TW': kNetworkQualityZhTw,
+      'ja': kNetworkQualityJa,
+      'ko': kNetworkQualityKo,
+      'es': kNetworkQualityEs,
+      'pt': kNetworkQualityPt,
+      'fr': kNetworkQualityFr,
+      'nl': kNetworkQualityNl,
+      'tr': kNetworkQualityTr,
+      'ru': kNetworkQualityRu,
+      'fa': kNetworkQualityFa,
+      'ar': kNetworkQualityAr,
+      'de': kNetworkQualityDe,
+      'id': kNetworkQualityId,
+      'it': kNetworkQualityIt,
+      'pl': kNetworkQualityPl,
+      'th': kNetworkQualityTh,
+      'uk': kNetworkQualityUk,
+      'vi': kNetworkQualityVi,
+    };

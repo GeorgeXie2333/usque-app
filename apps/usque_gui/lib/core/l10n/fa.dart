@@ -1,10 +1,20 @@
 /// Persian UI catalog.
 const Map<String, String> kFaCatalog = <String, String>{
   'app_name': 'Usque',
+  'diag_fail_L4_SESSION_UNAVAILABLE': 'نشست L4 در دسترس نیست',
+  'diag_fail_L4_PROTOCOL_ERROR': 'خطای پروتکل L4',
+  'diag_fail_L4_CONNECT_REJECTED': 'درخواست L4 CONNECT رد شد',
+  'diag_fail_L4_CONNECT_TIMEOUT': 'مهلت L4 CONNECT تمام شد',
+  'diag_fail_L4_RESOURCE_EXHAUSTED': 'بودجهٔ منابع L4 تمام شد',
+  'diag_fail_L4_DNS_FAILED': 'پرس‌وجوی DNS در L4 ناموفق بود',
   'window_minimize': 'کوچک‌کردن',
   'window_maximize': 'بزرگ‌کردن',
   'window_restore': 'بازگرداندن اندازهٔ پنجره',
   'window_close': 'بستن',
+  'tray_open': 'باز کردن Usque',
+  'tray_connect_profile': 'اتصال حساب فعال',
+  'tray_disconnect_profile': 'قطع اتصال حساب فعال',
+  'tray_disconnect_exit': 'قطع اتصال و خروج',
   'connection_status': 'وضعیت اتصال',
   'outputs': 'خروجی‌های شبکه',
   'home': 'خانه',
@@ -13,7 +23,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'proxy': 'پروکسی',
   'proxy_subtitle': 'شنونده‌های محلی و DNS بین همهٔ حساب‌ها مشترک هستند.',
   'settings': 'تنظیمات',
-  'settings_subtitle': 'رفتار برنامه در این دستگاه.',
+  'settings_subtitle': 'تنظیمات اتصال، پروکسی و برنامه.',
   'diagnostics': 'عیب‌یابی',
   'nav_home': 'خانه',
   'nav_profiles': 'حساب‌ها',
@@ -44,7 +54,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'ipv6': 'IPv6',
   'not_available': 'در دسترس نیست',
   'location_disconnected': 'در انتظار اتصال',
-  'engine_unavailable': 'موتور بومی Usque هنوز در این ساخت در دسترس نیست.',
+  'engine_unavailable': 'Usque Engine بومی هنوز در این ساخت در دسترس نیست.',
   'dismiss': 'رد کردن',
   'new_profile': 'افزودن حساب',
   'profile_name': 'نام حساب',
@@ -82,7 +92,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'zero_trust_repair_same_team':
       'دوباره به همان سازمان وارد شوید تا ثبت این دستگاه تازه‌سازی شود.',
   'zero_trust_metadata_missing':
-      'پیوند ذخیره‌شدهٔ سازمان موجود نیست. برای ایمنی، این پروفایل را نمی‌توان درجا ترمیم کرد؛ یک پروفایل Zero Trust جدید بسازید.',
+      'پیوند ذخیره‌شدهٔ سازمان موجود نیست. برای ایمنی، این ورودی حساب را نمی‌توان درجا ترمیم کرد؛ یک حساب Zero Trust جدید اضافه کنید.',
   'zero_trust_endpoint_managed':
       'این نقطهٔ پایانی توسط ثبت دستگاه Zero Trust مدیریت می‌شود و اینجا قابل ویرایش نیست.',
   'experimental': 'آزمایشی',
@@ -98,13 +108,13 @@ const Map<String, String> kFaCatalog = <String, String>{
   'delete': 'حذف',
   'delete_profile': 'حساب حذف شود؟',
   'delete_profile_body':
-      'تنظیمات غیرمحرمانهٔ این پروفایل حذف می‌شود. داده‌های هویت ذخیره‌شده حذف نمی‌شوند.',
+      'تنظیمات غیرمحرمانهٔ این ورودی حساب حذف می‌شود. داده‌های هویت ذخیره‌شده حذف نمی‌شوند.',
   'delete_zero_trust_profile_body':
-      'فقط پروفایل محلی و اعتبارنامه‌ها حذف می‌شوند. از یک مدیر سازمان بخواهید ثبت باقی‌ماندهٔ دستگاه را در Zero Trust حذف کند.',
+      'فقط ورودی حساب محلی و اعتبارنامه‌ها حذف می‌شوند. از یک مدیر سازمان بخواهید ثبت باقی‌ماندهٔ دستگاه را در Zero Trust حذف کند.',
   'license_not_applicable': 'مجوز اعمال نمی‌شود · آزمایشی',
   'zero_trust_reauthenticate': 'دوباره به این سازمان وارد شوید',
   'zero_trust_admin_cleanup_note':
-      'حذف این پروفایل دستگاه را در داشبورد Zero Trust باطل نمی‌کند.',
+      'حذف این ورودی حساب دستگاه را در داشبورد Zero Trust باطل نمی‌کند.',
   'mode': 'حالت اتصال',
   'vpn_mode': 'VPN',
   'socks_mode': 'SOCKS5',
@@ -290,9 +300,9 @@ const Map<String, String> kFaCatalog = <String, String>{
   'invalid_cidr': 'CIDR نامعتبر',
   'diagnostics_title': 'عیب‌یابی و اطلاعات برنامه',
   'diagnostics_subtitle': 'وضعیت موتور Usque، صادر کردن گزارش و داده‌های محلی.',
-  'engine_status': 'وضعیت موتور Usque',
+  'engine_status': 'وضعیت Usque Engine',
   'version': 'نسخه',
-  'app_version': 'Usque 0.2.5',
+  'app_version': 'Usque 0.2.6',
   'logs': 'گزارش‌های محلی',
   'export_diagnostics': 'صادر کردن بستهٔ عیب‌یابی',
   'diagnostics_saved': 'بستهٔ عیب‌یابی در این مسیر ذخیره شد:',
@@ -302,9 +312,9 @@ const Map<String, String> kFaCatalog = <String, String>{
   'license': 'مجوز',
   'clear_all_data': 'پاک کردن همهٔ داده‌ها',
   'clear_all_data_help':
-      'اتصال را قطع کنید و همهٔ پروفایل‌ها، هویت Consumer WARP، ترجیح‌ها، حافظهٔ نهان و سوابق عیب‌یابی محلی را برای همیشه از این دستگاه حذف کنید.',
+      'اتصال را قطع کنید و همهٔ حساب‌ها، هویت Consumer WARP، ترجیح‌ها، حافظهٔ نهان و سوابق عیب‌یابی محلی را برای همیشه از این دستگاه حذف کنید.',
   'clear_all_data_confirm':
-      'این کار برگشت‌پذیر نیست. Usque ابتدا اتصال را قطع می‌کند، همهٔ هویت‌ها و پروفایل‌های ذخیره‌شده را پاک می‌کند و به راه‌اندازی اولیه بازمی‌گردد.',
+      'این کار برگشت‌پذیر نیست. Usque ابتدا اتصال را قطع می‌کند، همهٔ هویت‌ها و حساب‌های ذخیره‌شده را پاک می‌کند و به راه‌اندازی اولیه بازمی‌گردد.',
   'clear_all_data_complete': 'همهٔ داده‌های محلی Usque پاک شد.',
   'unofficial':
       'کلاینت غیررسمی سازگار با Cloudflare WARP. وابسته به Cloudflare نیست و از سوی آن تأیید نشده است.',
@@ -331,7 +341,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'permission_note':
       'سیستم‌عامل ممکن است هنگام نخستین اتصال یک تأیید اضافی نشان دهد.',
   'setup_failed': 'راه‌اندازی کامل نشد',
-  'profile_required': 'حداقل یک پروفایل نگه دارید.',
+  'profile_required': 'حداقل یک حساب نگه دارید.',
   'socks_capabilities': 'TCP و UDP',
   'http_capabilities': 'CONNECT و هدایت معمولی',
   'geo_direct': 'کشورهای دارای مسیریابی مستقیم',
@@ -467,7 +477,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'diag_check_protection_dns_path': 'مسیر DNS',
   'diag_check_protection_route_ownership': 'مالکیت مسیر',
   'diag_check_protection_recovery_journal': 'دفتر بازیابی',
-  'diag_fail_ENGINE_UNAVAILABLE': 'موتور Usque در دسترس نیست',
+  'diag_fail_ENGINE_UNAVAILABLE': 'Usque Engine در دسترس نیست',
   'diag_fail_AGENT_UNREACHABLE': 'سرویس Usque Agent در دسترس نیست',
   'diag_fail_VPN_SERVICE_UNAVAILABLE': 'خدمت VPN در دسترس نیست',
   'diag_fail_PROXY_PORT_IN_USE': 'درگاه پروکسی در حال استفاده است',

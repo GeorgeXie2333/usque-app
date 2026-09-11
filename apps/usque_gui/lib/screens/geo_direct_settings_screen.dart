@@ -21,6 +21,7 @@ class GeoDirectSettingsScreen extends StatefulWidget {
 class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
   final TextEditingController _search = TextEditingController();
   late Set<String> _enabled;
+  bool _saving = false;
 
   @override
   void initState() {
@@ -35,13 +36,23 @@ class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
     super.dispose();
   }
 
-  void _save() {
+  Future<void> _save() async {
+    if (_saving) return;
+    setState(() => _saving = true);
     final profile = widget.controller.activeProfile;
-    widget.controller.updateNetwork(
+    await widget.controller.saveNetwork(
       profile.copyWith(geoDirectCountries: _orderedCountries(_enabled)),
+      changedFields: const ['geo_direct_countries'],
     );
+    if (!mounted) return;
+    setState(() => _saving = false);
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(widget.controller.strings.get('saved'))),
+      SnackBar(
+        content: Text(
+          widget.controller.networkSettingsMessage ??
+              widget.controller.strings.get('settings_unknown'),
+        ),
+      ),
     );
   }
 
@@ -57,7 +68,7 @@ class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
           backLabel: strings.get('back'),
           actions: <Widget>[
             FilledButton.icon(
-              onPressed: _save,
+              onPressed: _saving ? null : _save,
               icon: const Icon(LucideIcons.save),
               label: Text(strings.get('save')),
             ),

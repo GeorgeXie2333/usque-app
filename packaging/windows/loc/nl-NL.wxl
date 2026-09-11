@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WixLocalization
+  xmlns="http://wixtoolset.org/schemas/v4/wxl"
+  Culture="nl-NL">
+  <String
+    Id="UsqueRemoveDataTitle"
+    Value="Verwijderopties" />
+  <String
+    Id="UsqueRemoveDataDescription"
+    Value="Kies of gegevens voor een latere herinstallatie behouden blijven." />
+  <String
+    Id="UsqueRemoveDataCheckbox"
+    Value="Profielen, instellingen, logboeken, caches en WARP-identiteiten van deze Windows-gebruiker verwijderen." />
+  <String
+    Id="UsqueRemoveDataWarning"
+    Value="Dit kan niet ongedaan worden gemaakt. Laat de optie uit om lokale gegevens te behouden. Andere Windows-gebruikers worden niet beïnvloed." />
+  <String
+    Id="UsqueRepairTitle"
+    Value="Repareren wordt niet ondersteund" />
+  <String
+    Id="UsqueRepairDescription"
+    Value="Repareren kan de bevoorrechte netwerkherstelsstatus onderbreken. Kies Verwijderen om Usque te deïnstalleren en installeer het daarna opnieuw; gebruikersgegevens blijven behouden tenzij u verwijdering expliciet selecteert. Het installeren van een nieuwere versie wordt ook ondersteund." />
+  <String
+    Id="UsqueRepairOk"
+    Value="OK" />
+</WixLocalization>

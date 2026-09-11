@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="vpn_channel_name">Dịch vụ mạng Usque</string>
+    <string name="vpn_channel_description">Trạng thái bền của VPN Usque đang chạy hoặc proxy cục bộ</string>
+    <string name="vpn_notif_disconnect">Ngắt kết nối</string>
+    <string name="vpn_notif_preparing">Đang chuẩn bị đường hầm an toàn</string>
+    <string name="vpn_notif_connecting_h3">Đang kết nối bằng HTTP/3</string>
+    <string name="vpn_notif_connecting_h2">Đang kết nối bằng HTTP/2</string>
+    <string name="vpn_notif_connected">Đã kết nối</string>
+    <string name="vpn_notif_connected_via">Đã kết nối qua %1$s</string>
+    <string name="vpn_notif_degraded">Đã kết nối với hỗ trợ họ địa chỉ bị hạn chế</string>
+    <string name="vpn_notif_reconnecting">Đang kết nối lại an toàn</string>
+    <string name="vpn_notif_error">Dịch vụ mạng đã dừng sau lỗi</string>
+    <string name="vpn_notif_disconnecting">Đang ngắt kết nối</string>
+    <string name="vpn_notif_idle">Usque VPN</string>
+    <string name="vpn_notif_invalid_profile">Hồ sơ VPN không hợp lệ</string>
+    <string name="vpn_notif_invalid_network_profile">Hồ sơ mạng không hợp lệ</string>
+    <string name="vpn_notif_recovery_unavailable">Không khôi phục được VPN</string>
+    <string name="tile_connected">Đã kết nối</string>
+    <string name="tile_disconnected">Đã ngắt</string>
+    <string name="tile_connecting">Đang kết nối</string>
+    <string name="tile_reconnecting">Đang kết nối lại</string>
+    <string name="tile_disconnecting">Đang ngắt</string>
+    <string name="tile_checking">Đang kiểm tra</string>
+    <string name="tile_working">Đang xử lý</string>
+    <string name="tile_open_app">Mở Usque</string>
+    <string name="tile_profile_required">Hãy mở Usque và kết nối một hồ sơ VPN một lần trước khi dùng ô tắt.</string>
+    <string name="tile_identity_required">Hãy mở Usque và cấu hình danh tính WARP cho hồ sơ này.</string>
+    <string name="tile_vpn_permission_required">Hãy mở Usque để cấp quyền VPN Android.</string>
+    <string name="tile_proxy_only">Đang có kết nối chỉ-proxy. Hãy mở Usque để bật giao diện VPN.</string>
+    <string name="shortcut_connect">Kết nối</string>
+    <string name="shortcut_disconnect">Ngắt kết nối</string>
+    <string name="shortcut_profiles">Tài khoản</string>
+    <string name="shortcut_long_label">%1$s Usque</string>
+</resources>

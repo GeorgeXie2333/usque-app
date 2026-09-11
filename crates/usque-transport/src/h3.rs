@@ -4,6 +4,7 @@ use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket as StdUdpSocket};
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant as StdInstant};
 
 use boring::ssl::{SslContextBuilder, SslMethod};
@@ -364,18 +365,27 @@ pub async fn connect_h3(
         endpoint,
         sni,
         identity,
-        usize::from(usque_core::config::DEFAULT_MTU),
+        H3ConnectSettings {
+            inner_mtu: usize::from(usque_core::config::DEFAULT_MTU),
+            congestion_control: usque_core::CongestionControlAlgorithm::default(),
+        },
         noop_socket_protector(),
         None,
     )
     .await
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct H3ConnectSettings {
+    pub inner_mtu: usize,
+    pub congestion_control: usque_core::CongestionControlAlgorithm,
+}
+
 pub(crate) async fn connect_h3_with_protector(
     endpoint: SocketAddr,
     sni: &str,
     identity: &MasqueTlsIdentity,
-    profile_inner_mtu: usize,
+    settings: H3ConnectSettings,
     protector: Arc<dyn SocketProtector>,
     attempt: Option<&ConnectionAttemptTelemetry>,
 ) -> Result<H3Tunnel, TransportError> {
@@ -383,7 +393,7 @@ pub(crate) async fn connect_h3_with_protector(
         endpoint,
         sni,
         identity,
-        profile_inner_mtu,
+        settings,
         Arc::clone(&protector),
         attempt,
     )
@@ -392,15 +402,7 @@ pub(crate) async fn connect_h3_with_protector(
         Err(TransportError::Http3ProtocolViolation(_)) => {
             // The Go oracle retries this specific Cloudflare interoperability
             // failure once. All other failures preserve normal fallback rules.
-            connect_h3_once(
-                endpoint,
-                sni,
-                identity,
-                profile_inner_mtu,
-                protector,
-                attempt,
-            )
-            .await
+            connect_h3_once(endpoint, sni, identity, settings, protector, attempt).await
         }
         result => result,
     }
@@ -410,10 +412,54 @@ async fn connect_h3_once(
     endpoint: SocketAddr,
     sni: &str,
     identity: &MasqueTlsIdentity,
-    profile_inner_mtu: usize,
+    settings: H3ConnectSettings,
     protector: Arc<dyn SocketProtector>,
     attempt: Option<&ConnectionAttemptTelemetry>,
 ) -> Result<H3Tunnel, TransportError> {
+    connect_h3_application(endpoint, sni, identity, settings, protector, attempt, None).await
+}
+
+pub(crate) async fn connect_l4_h3(
+    endpoint: SocketAddr,
+    identity: &MasqueTlsIdentity,
+    settings: H3ConnectSettings,
+    protector: Arc<dyn SocketProtector>,
+    attempt: Option<&ConnectionAttemptTelemetry>,
+    actor: crate::l4::L4Actor,
+) -> Result<H3Tunnel, TransportError> {
+    let provider = identity
+        .provider
+        .as_ref()
+        .ok_or(TransportError::InvalidIdentity)?;
+    connect_h3_application(
+        endpoint,
+        usque_core::l4_server_name(provider),
+        identity,
+        settings,
+        protector,
+        attempt,
+        Some(actor),
+    )
+    .await
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "shared QUIC setup keeps L4 and CONNECT-IP under the same socket and pin contract"
+)]
+async fn connect_h3_application(
+    endpoint: SocketAddr,
+    sni: &str,
+    identity: &MasqueTlsIdentity,
+    settings: H3ConnectSettings,
+    protector: Arc<dyn SocketProtector>,
+    attempt: Option<&ConnectionAttemptTelemetry>,
+    l4: Option<crate::l4::L4Actor>,
+) -> Result<H3Tunnel, TransportError> {
+    let H3ConnectSettings {
+        inner_mtu: profile_inner_mtu,
+        congestion_control,
+    } = settings;
     let prepared = prepare_initial_udp_socket(endpoint, protector.as_ref())
         .await
         .map_err(SocketPrepareError::into_transport_error)?;
@@ -431,9 +477,24 @@ async fn connect_h3_once(
     let quality = attempt
         .map(ConnectionAttemptTelemetry::quality)
         .unwrap_or_default();
+    if l4.is_some() {
+        // Set the connection role before initial/candidate receive workers are
+        // created, including callers that do not go through L4Runtime.
+        quality.use_stream_data_plane();
+    }
     let features = quality.features();
     let (mut quic_config, pin_state) =
-        quic_config_with_features(identity, family_ceiling, features)?;
+        quic_config_with_features(identity, family_ceiling, features, congestion_control)?;
+    if l4.is_some() {
+        crate::l4::Limits::platform().configure(&mut quic_config);
+    }
+    #[cfg(test)]
+    if let Some(actor) = &l4 {
+        actor
+            .test_options
+            .apply(&mut quic_config, &prepared.socket)
+            .map_err(TransportError::Io)?;
+    }
     let mut source_connection_id = [0u8; CONNECTION_ID_LENGTH];
     boring::rand::rand_bytes(&mut source_connection_id)?;
     let source_connection_id = quiche::ConnectionId::from_ref(&source_connection_id);
@@ -448,7 +509,10 @@ async fn connect_h3_once(
 
     let mut h3_config = quiche::h3::Config::new()
         .map_err(|error| TransportError::Http3(format!("create HTTP/3 config: {error:?}")))?;
-    h3_config.enable_extended_connect(true);
+    h3_config.enable_extended_connect(l4.is_none());
+    if l4.is_some() {
+        h3_config.set_max_field_section_size(16 * 1024);
+    }
     // Match the oracle's DisableCompression behavior.
     h3_config.set_qpack_max_table_capacity(0);
     h3_config.set_qpack_blocked_streams(0);
@@ -499,6 +563,7 @@ async fn connect_h3_once(
         profile_inner_mtu,
         family_ceiling,
         PmtuPathKey::new(local_address, endpoint),
+        l4,
     )));
 
     let startup = timeout(CONNECT_TIMEOUT, startup_rx).await;
@@ -559,17 +624,23 @@ async fn connect_h3_once(
     }
 }
 
-fn quic_config(
+pub(crate) fn quic_config(
     identity: &MasqueTlsIdentity,
     family_ceiling: usize,
 ) -> Result<(quiche::Config, Arc<PinState>), TransportError> {
-    quic_config_with_features(identity, family_ceiling, crate::PRODUCTION_NETWORK_FEATURES)
+    quic_config_with_features(
+        identity,
+        family_ceiling,
+        crate::PRODUCTION_NETWORK_FEATURES,
+        usque_core::CongestionControlAlgorithm::default(),
+    )
 }
 
 fn quic_config_with_features(
     identity: &MasqueTlsIdentity,
     family_ceiling: usize,
     features: crate::NetworkFeatureFlags,
+    congestion_control: usque_core::CongestionControlAlgorithm,
 ) -> Result<(quiche::Config, Arc<PinState>), TransportError> {
     let mut tls = SslContextBuilder::new(SslMethod::tls())?;
     let pin_state = configure_client_identity_and_pin(&mut tls, identity)?;
@@ -600,9 +671,21 @@ fn quic_config_with_features(
         DATAGRAM_RECV_QUEUE_CAPACITY,
         DATAGRAM_SEND_QUEUE_CAPACITY,
     );
-    config.set_cc_algorithm(quiche::CongestionControlAlgorithm::CUBIC);
+    config.set_cc_algorithm(quiche_congestion_control(congestion_control));
     config.enable_pacing(true);
     Ok((config, pin_state))
+}
+
+fn quiche_congestion_control(
+    algorithm: usque_core::CongestionControlAlgorithm,
+) -> quiche::CongestionControlAlgorithm {
+    use usque_core::CongestionControlAlgorithm as Algorithm;
+    match algorithm {
+        Algorithm::Cubic => quiche::CongestionControlAlgorithm::CUBIC,
+        Algorithm::Reno => quiche::CongestionControlAlgorithm::Reno,
+        Algorithm::Bbr => quiche::CongestionControlAlgorithm::Bbr2Gcongestion,
+        Algorithm::Bbr3 => quiche::CongestionControlAlgorithm::Bbr3,
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -726,8 +809,11 @@ async fn run_h3_actor(
     profile_inner_mtu: usize,
     family_ceiling: usize,
     initial_path: PmtuPathKey,
+    l4: Option<crate::l4::L4Actor>,
 ) -> Result<(), TransportError> {
     let mut startup_tx = Some(startup_tx);
+    // Do not free a session slot until the QUIC actor AND protected paths stop.
+    let _l4_slot = l4.as_ref().and_then(|actor| actor.session_slot.clone());
     let result = drive_h3_actor(
         &mut path_sockets,
         connection,
@@ -745,6 +831,7 @@ async fn run_h3_actor(
         profile_inner_mtu,
         family_ceiling,
         initial_path,
+        l4,
     )
     .await;
     path_sockets.shutdown_all().await;
@@ -781,6 +868,7 @@ async fn drive_h3_actor(
     profile_inner_mtu: usize,
     family_ceiling: usize,
     initial_path: PmtuPathKey,
+    mut l4: Option<crate::l4::L4Actor>,
 ) -> Result<(), TransportError> {
     let mut http3 = None;
     let mut request_stream_id = None;
@@ -798,6 +886,10 @@ async fn drive_h3_actor(
     let mut incoming_batch = PacketBatch::new();
     let mut inbound_queue_drop_count = 0_u64;
     let mut pmtu = PmtuController::with_automatic(initial_path, quality.features().automatic_pmtu);
+    let is_l4 = l4.is_some();
+    if is_l4 {
+        pmtu.set_reliable_stream_mode();
+    }
     let migration_platform_supported = protector.network_generation().is_some();
     let mut migration = MigrationActor::new(
         protector,
@@ -863,57 +955,76 @@ async fn drive_h3_actor(
         }
 
         if let Some(http3) = http3.as_mut() {
-            let response_was_accepted = response_accepted;
-            process_http3_events(
-                http3,
-                &mut connection,
-                request_stream_id,
-                &mut response_accepted,
-                &mut control,
-                &mut goaway,
-            )?;
-            if !response_was_accepted
-                && response_accepted
-                && let Some(attempt) = attempt
-            {
-                attempt.record(
-                    ConnectionEventType::MasqueAccepted,
-                    TransportStage::MasqueConnect,
-                );
-            }
-
-            if let Some(stream_id) = request_stream_id {
-                flush_control_capsules(http3, &mut connection, stream_id, &mut control.pending)?;
-            }
-
-            if request_stream_id.is_none() && http3.peer_settings_raw().is_some() {
-                if !http3.dgram_enabled_by_peer(&connection) {
-                    return Err(TransportError::Http3DatagramUnavailable);
-                }
-                if !peer_settings_recorded {
-                    peer_settings_recorded = true;
-                    if let Some(attempt) = attempt {
-                        attempt.record(
-                            ConnectionEventType::PeerSettingsReceived,
-                            TransportStage::PeerSettings,
-                        );
+            if let Some(actor) = l4.as_mut() {
+                actor.pump(
+                    http3,
+                    &mut connection,
+                    migration.allows_application_injection(),
+                )?;
+                if !ready {
+                    ready = true;
+                    if let Some(startup_tx) = startup_tx.take() {
+                        let _ = startup_tx.send(Ok(()));
                     }
                 }
-                match http3.send_request(&mut connection, &connect_headers(), false) {
-                    Ok(stream_id) => request_stream_id = Some(stream_id),
-                    Err(quiche::h3::Error::StreamBlocked) => {}
-                    Err(error) => {
-                        return Err(TransportError::Http3(format!(
-                            "send CONNECT-IP request: {error:?}"
-                        )));
+            } else {
+                let response_was_accepted = response_accepted;
+                process_http3_events(
+                    http3,
+                    &mut connection,
+                    request_stream_id,
+                    &mut response_accepted,
+                    &mut control,
+                    &mut goaway,
+                )?;
+                if !response_was_accepted
+                    && response_accepted
+                    && let Some(attempt) = attempt
+                {
+                    attempt.record(
+                        ConnectionEventType::MasqueAccepted,
+                        TransportStage::MasqueConnect,
+                    );
+                }
+
+                if let Some(stream_id) = request_stream_id {
+                    flush_control_capsules(
+                        http3,
+                        &mut connection,
+                        stream_id,
+                        &mut control.pending,
+                    )?;
+                }
+
+                if request_stream_id.is_none() && http3.peer_settings_raw().is_some() {
+                    if !http3.dgram_enabled_by_peer(&connection) {
+                        return Err(TransportError::Http3DatagramUnavailable);
+                    }
+                    if !peer_settings_recorded {
+                        peer_settings_recorded = true;
+                        if let Some(attempt) = attempt {
+                            attempt.record(
+                                ConnectionEventType::PeerSettingsReceived,
+                                TransportStage::PeerSettings,
+                            );
+                        }
+                    }
+                    match http3.send_request(&mut connection, &connect_headers(), false) {
+                        Ok(stream_id) => request_stream_id = Some(stream_id),
+                        Err(quiche::h3::Error::StreamBlocked) => {}
+                        Err(error) => {
+                            return Err(TransportError::Http3(format!(
+                                "send CONNECT-IP request: {error:?}"
+                            )));
+                        }
                     }
                 }
-            }
 
-            if response_accepted && http3.dgram_enabled_by_peer(&connection) && !ready {
-                ready = true;
-                if let Some(startup_tx) = startup_tx.take() {
-                    let _ = startup_tx.send(Ok(()));
+                if response_accepted && http3.dgram_enabled_by_peer(&connection) && !ready {
+                    ready = true;
+                    if let Some(startup_tx) = startup_tx.take() {
+                        let _ = startup_tx.send(Ok(()));
+                    }
                 }
             }
         }
@@ -965,7 +1076,11 @@ async fn drive_h3_actor(
         reconcile_datagram_queue(&connection, &mut datagram_entries, datagram_queue);
 
         if connection.is_closed() {
-            return Err(connection_closed_error(&connection));
+            return Err(if is_l4 {
+                TransportError::TunnelClosed
+            } else {
+                connection_closed_error(&connection)
+            });
         }
 
         let quic_deadline =
@@ -1015,7 +1130,7 @@ async fn drive_h3_actor(
                     }
                 }
             }
-            batch = outgoing_rx.recv(), if ready
+            batch = outgoing_rx.recv(), if ready && !is_l4
                 && pending_batch.is_none()
                 && migration.allows_application_injection() => {
                 match batch {
@@ -1038,7 +1153,10 @@ async fn drive_h3_actor(
                 permit.map_err(|_| TransportError::TunnelClosed)?
                     .send(std::mem::take(&mut incoming_batch));
             }
-            _ = incoming_tx.closed() => return Err(TransportError::TunnelClosed),
+            _ = incoming_tx.closed(), if !is_l4 => return Err(TransportError::TunnelClosed),
+            _ = wait_l4_work(&l4), if is_l4 => {
+                if let Some(actor) = &mut l4 { actor.record_wakeup(); }
+            }
             sent = send_due_wire_datagrams(
                 path_sockets,
                 &mut wire_datagrams,
@@ -1056,13 +1174,29 @@ async fn drive_h3_actor(
             _ = sleep_until(Instant::from_std(pmtu_suppressed_until.unwrap_or_else(StdInstant::now))), if pmtu_suppressed_until.is_some() => {}
             _ = sleep_until(quic_deadline) => connection.on_timeout(),
             _ = keepalive.tick(), if connection.is_established() => {
+                if l4.as_ref().is_none_or(crate::l4::L4Actor::has_activity) {
                 connection
                     .send_ack_eliciting()
                     .map_err(|error| TransportError::Http3(format!(
                         "queue QUIC keepalive: {error:?}"
                     )))?;
+                }
             }
             _ = quality_tick.tick(), if connection.is_established() => {
+                if l4.is_none() && let Some(path) = path_sockets.active()
+                    && let Some(source) = path.receive_source()
+                {
+                    quality.observe_socket_receive(path.socket_buffer_sizes(), Some(source));
+                }
+                if let Some(actor) = l4.as_ref()
+                    && !actor.handle.draining.load(Ordering::Acquire)
+                    && let Some(path) = path_sockets.active()
+                {
+                    actor.budget.metrics.performance.observe_udp(
+                        actor.handle.epoch.load(Ordering::Acquire), path.socket_buffer_sizes(),
+                        path.receive_source(),
+                    );
+                }
                 observe_h3_metrics(
                     &mut connection,
                     &mut pmtu,
@@ -1074,6 +1208,18 @@ async fn drive_h3_actor(
                 )?;
             }
         }
+    }
+}
+
+async fn wait_l4_work(actor: &Option<crate::l4::L4Actor>) {
+    if let Some(actor) = actor {
+        tokio::select! {
+            _ = actor.handle.wake.notified() => {},
+            _ = actor.budget.wake.notified() => {},
+            _ = sleep_until(actor.drain_deadline.unwrap_or_else(|| Instant::now() + Duration::from_secs(60))) => {},
+        }
+    } else {
+        std::future::pending::<()>().await;
     }
 }
 
@@ -1745,15 +1891,23 @@ fn generate_wire_datagrams(
     quality: &NetworkQualityTelemetry,
     active: crate::path_socket::PathBinding,
 ) -> Result<(), TransportError> {
-    if send_quantum < INITIAL_SAFE_UDP_PAYLOAD {
-        return Ok(());
-    }
     let mut generated_bytes = 0usize;
-    while pending.len() < MAX_PENDING_WIRE_DATAGRAMS
-        && generated_bytes.saturating_add(wire_payload_capacity) <= send_quantum
-    {
+    while pending.len() < MAX_PENDING_WIRE_DATAGRAMS {
+        // The allocation ceiling is not the next packet's required size.
+        // BBRv2 can budget one 1200-byte QUIC packet during the handshake or
+        // PMTU search. Requiring the full family ceiling (or the 1350-byte
+        // non-PMTUD fallback) would leave that flight permanently unsent.
+        let packet_capacity =
+            wire_payload_capacity.min(send_quantum.saturating_sub(generated_bytes));
+        if packet_capacity < quiche::MIN_CLIENT_INITIAL_LEN {
+            break;
+        }
         let mut bytes = take_wire_buffer(free_buffers, wire_payload_capacity, quality);
-        match connection.send_on_path(&mut bytes, Some(active.local_addr), Some(active.peer_addr)) {
+        match connection.send_on_path(
+            &mut bytes[..packet_capacity],
+            Some(active.local_addr),
+            Some(active.peer_addr),
+        ) {
             Ok((length, send_info)) => {
                 generated_bytes = generated_bytes.saturating_add(length);
                 bytes.truncate(length);
@@ -2055,7 +2209,7 @@ fn connection_closed_error(connection: &H3QuicConnection) -> TransportError {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
     use super::*;
@@ -2153,7 +2307,7 @@ mod tests {
         test_quic_pair_with_config(client_addr, server_addr, |_, _| {})
     }
 
-    pub(super) fn test_quic_pair_with_config(
+    pub(crate) fn test_quic_pair_with_config(
         client_addr: SocketAddr,
         server_addr: SocketAddr,
         configure: impl FnOnce(&mut quiche::Config, &mut quiche::Config),
@@ -2249,7 +2403,7 @@ mod tests {
         Ok(packets)
     }
 
-    pub(super) fn advance_test_pair(
+    pub(crate) fn advance_test_pair(
         client: &mut H3QuicConnection,
         server: &mut H3QuicConnection,
     ) -> Result<(), quiche::Error> {
@@ -2698,6 +2852,98 @@ mod tests {
         assert_eq!(pending.len(), 1);
         assert_eq!(pending.front().unwrap().bytes, vec![3; 100]);
         sender.shutdown_all().await;
+    }
+
+    #[test]
+    fn actor_completes_handshake_with_every_algorithm_and_family_ceiling() {
+        for algorithm in usque_core::CongestionControlAlgorithm::ALL {
+            for (from, to, ceiling) in [
+                (
+                    "127.0.0.1:12340",
+                    "127.0.0.1:44330",
+                    crate::pmtu::IPV4_MAX_UDP_PAYLOAD,
+                ),
+                (
+                    "[::1]:12340",
+                    "[::1]:44330",
+                    crate::pmtu::IPV6_MAX_UDP_PAYLOAD,
+                ),
+            ] {
+                let (mut client, mut server, from, to) = test_quic_pair_with_config(
+                    from.parse().unwrap(),
+                    to.parse().unwrap(),
+                    |client, server| {
+                        client.set_cc_algorithm(quiche_congestion_control(algorithm));
+                        client.set_max_send_udp_payload_size(ceiling);
+                        client.set_max_ack_delay(0);
+                        server.set_max_ack_delay(0);
+                        server.set_max_recv_udp_payload_size(1200);
+                    },
+                );
+                let quality = NetworkQualityTelemetry::default();
+                let metrics = QueueMetrics::new(
+                    QueueKind::H3WireSend,
+                    MAX_PENDING_WIRE_DATAGRAMS,
+                    MAX_PENDING_WIRE_DATAGRAMS * ceiling,
+                );
+                let mut pending = VecDeque::new();
+                let mut free = Vec::new();
+                let mut minimum_quantum = usize::MAX;
+                for flight in 0..32 {
+                    if client.is_established() {
+                        client.dgram_send(b"probe").unwrap();
+                    }
+                    let quantum = client.send_quantum();
+                    minimum_quantum = minimum_quantum.min(quantum);
+                    generate_wire_datagrams(
+                        &mut client,
+                        &mut pending,
+                        &mut free,
+                        quantum,
+                        ceiling,
+                        &metrics,
+                        &quality,
+                        crate::path_socket::PathBinding {
+                            path_id: PathId::new(0),
+                            local_addr: from,
+                            peer_addr: to,
+                            network_generation: 0,
+                        },
+                    )
+                    .unwrap();
+                    assert!(
+                        pending
+                            .iter()
+                            .map(|packet| packet.bytes.len())
+                            .sum::<usize>()
+                            <= quantum
+                    );
+                    while let Some(mut packet) = pending.pop_front() {
+                        assert!(packet.bytes.len() <= ceiling);
+                        server
+                            .recv(&mut packet.bytes, quiche::RecvInfo { from, to })
+                            .unwrap();
+                        packet.queue_entry.complete();
+                        recycle_wire_buffer(&mut free, packet.bytes, &quality);
+                    }
+                    if flight == 0 {
+                        // Model a WAN RTT. A near-zero in-memory RTT inflates
+                        // BBRv2's send quantum and hides the one-packet case.
+                        std::thread::sleep(Duration::from_millis(200));
+                    }
+                    transfer_test_flight(&mut server, &mut client, None, None).unwrap();
+                }
+                assert!(
+                    client.is_established() && server.is_established(),
+                    "{} with ceiling {ceiling} stalled at quantum {minimum_quantum}",
+                    algorithm.as_str()
+                );
+                if algorithm == usque_core::CongestionControlAlgorithm::Bbr {
+                    assert!(minimum_quantum < ceiling);
+                }
+                assert_eq!(server.dgram_recv_buf().unwrap().as_ref(), b"probe");
+            }
+        }
     }
 
     #[test]

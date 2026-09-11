@@ -5,6 +5,9 @@ import 'package:flutter/services.dart';
 
 import '../models/app_models.dart';
 import '../models/diagnostics_models.dart';
+import '../models/network_settings.dart';
+
+export '../models/network_settings.dart';
 
 class EngineException implements Exception {
   const EngineException(this.code, this.message, {this.retryable = false});
@@ -27,6 +30,7 @@ class EngineSnapshotEvent {
     this.geoProgress,
     this.diagnosticSession,
     this.diagnosticsChanged = false,
+    this.networkSettings,
   });
 
   final EngineSnapshot? snapshot;
@@ -35,9 +39,18 @@ class EngineSnapshotEvent {
   final GeoRulesProgress? geoProgress;
   final DiagnosticSession? diagnosticSession;
   final bool diagnosticsChanged;
+  final NetworkSettingsState? networkSettings;
 }
 
 abstract interface class EngineClient {
+  Future<NetworkSettingsState> saveNetworkSettings(
+    String operationId,
+    String accountId,
+    UsqueProfile values,
+    List<String> changedFields,
+  );
+
+  Future<NetworkSettingsState> getNetworkSettingsState();
   bool get supportsSnapshotEvents;
 
   Stream<EngineSnapshotEvent> get snapshotEvents;
@@ -165,6 +178,28 @@ abstract interface class EngineClient {
 }
 
 class MethodChannelEngineClient implements EngineClient {
+  @override
+  Future<NetworkSettingsState> saveNetworkSettings(
+    String operationId,
+    String accountId,
+    UsqueProfile values,
+    List<String> changedFields,
+  ) async {
+    final result = await _invoke<Map<Object?, Object?>>('saveNetworkSettings', {
+      'operation_id': operationId,
+      'account_id': accountId,
+      'values': values.toMap(),
+      'changed_fields': changedFields,
+    });
+    return NetworkSettingsState.fromMap(result ?? const {});
+  }
+
+  @override
+  Future<NetworkSettingsState> getNetworkSettingsState() async =>
+      NetworkSettingsState.fromMap(
+        await _invoke<Map<Object?, Object?>>('getNetworkSettingsState') ??
+            const {},
+      );
   static const MethodChannel _channel = MethodChannel(
     'io.github.georgexie2333.usque/engine',
   );
@@ -240,6 +275,11 @@ class MethodChannelEngineClient implements EngineClient {
       final map = Map<Object?, Object?>.from(value);
       final progress = map['geo_progress'];
       return EngineSnapshotEvent(
+        networkSettings: map['network_settings'] is Map
+            ? NetworkSettingsState.fromMap(
+                Map<Object?, Object?>.from(map['network_settings'] as Map),
+              )
+            : null,
         snapshot: map.containsKey('phase') ? _snapshotFromMap(map) : null,
         geoProgress: progress is Map
             ? geoRulesProgressFromMap(Map<Object?, Object?>.from(progress))

@@ -15,6 +15,7 @@ use crate::map_windows_vpn_error;
 
 pub(crate) struct ActiveDataPlane {
     pub(crate) profile_id: uuid::Uuid,
+    pub(crate) profile: Profile,
     pub(crate) session_generation: u64,
     pub(crate) frontends: FrontendSettings,
     pub(crate) connected_at: Instant,
@@ -125,6 +126,16 @@ impl HarnessRuntime {
 }
 
 impl ActiveRuntime {
+    pub(crate) fn l4_snapshot(&self) -> Option<usque_core::L4Snapshot> {
+        match self {
+            Self::Proxy(runtime) => runtime.runtime.l4_snapshot(),
+            #[cfg(windows)]
+            Self::Vpn(runtime) => runtime.l4_snapshot(),
+            #[cfg(test)]
+            Self::Harness(_) => None,
+        }
+    }
+
     pub(crate) fn cancel_immediately(&mut self) {
         match self {
             Self::Proxy(runtime) => runtime.runtime.cancel_immediately(),
@@ -505,21 +516,21 @@ async fn attach_vpn(
     if let Some(mut guard) = proxy.system_proxy.take()
         && let Err(error) = guard.shutdown().await
     {
-        let masque = proxy.runtime.into_masque();
+        let masque = proxy.runtime.into_data_plane();
         return Err((
             ActiveRuntime::Proxy(Box::new(ActiveProxyRuntime {
-                runtime: ProxyRuntime::from_masque(masque),
+                runtime: ProxyRuntime::from_data_plane(masque),
                 system_proxy: None,
             })),
             map_windows_vpn_error(error),
         ));
     }
-    let masque = proxy.runtime.into_masque();
+    let masque = proxy.runtime.into_data_plane();
     match crate::windows_agent::WindowsVpnRuntime::attach_existing(profile, masque).await {
         Ok(vpn) => Ok(ActiveRuntime::Vpn(Box::new(vpn))),
         Err((masque, error)) => Err((
             ActiveRuntime::Proxy(Box::new(ActiveProxyRuntime {
-                runtime: ProxyRuntime::from_masque(masque),
+                runtime: ProxyRuntime::from_data_plane(masque),
                 system_proxy: None,
             })),
             map_windows_vpn_error(error),
@@ -541,7 +552,7 @@ async fn detach_vpn(
             return Err((ActiveRuntime::Vpn(vpn), map_windows_vpn_error(error)));
         }
     };
-    let proxy_runtime = ProxyRuntime::from_masque(masque);
+    let proxy_runtime = ProxyRuntime::from_data_plane(masque);
     let system_proxy = if profile.frontends.http && profile.proxy.system_proxy {
         let Some(listener) =
             crate::windows_agent::loopback_http_listener(proxy_runtime.http_listeners())

@@ -19,6 +19,7 @@ use tokio_util::sync::CancellationToken;
 use crate::network_quality::NetworkQualityTelemetry;
 
 mod portable;
+pub(crate) mod receive_observation;
 #[cfg(any(target_os = "android", target_os = "linux"))]
 mod unix_batch;
 
@@ -288,6 +289,7 @@ pub struct UdpBatchIo {
     socket: UdpSocket,
     local_address: SocketAddr,
     mode: AtomicU8,
+    receive_observation: Option<Arc<receive_observation::ReceiveObservation>>,
     fallback_reason: AtomicU8,
     pool: Arc<UdpBufferPool>,
     quality: NetworkQualityTelemetry,
@@ -345,6 +347,14 @@ impl std::fmt::Debug for UdpBatchIo {
 }
 
 impl UdpBatchIo {
+    pub(crate) fn socket_buffer_sizes(&self) -> (Option<u64>, Option<u64>) {
+        let socket = socket2::SockRef::from(&self.socket);
+        (
+            socket.recv_buffer_size().ok().map(|n| n as u64),
+            socket.send_buffer_size().ok().map(|n| n as u64),
+        )
+    }
+
     pub fn new(socket: UdpSocket, quality: NetworkQualityTelemetry) -> io::Result<Self> {
         Self::with_mode_and_pool(
             socket,
@@ -377,6 +387,8 @@ impl UdpBatchIo {
         pool: UdpReceivePool,
     ) -> io::Result<Self> {
         let local_address = socket.local_addr()?;
+        let receive_observation = receive_observation::production_target()
+            .map(|target| receive_observation::ReceiveObservation::attach(&socket, Some(target)));
         let mode = if quality.features().udp_batch_io {
             mode
         } else {
@@ -386,6 +398,7 @@ impl UdpBatchIo {
             socket,
             local_address,
             mode: AtomicU8::new(mode as u8),
+            receive_observation,
             fallback_reason: AtomicU8::new(0),
             pool: pool.inner,
             quality,
@@ -394,6 +407,16 @@ impl UdpBatchIo {
 
     pub fn mode(&self) -> UdpBatchMode {
         UdpBatchMode::from_u8(self.mode.load(Ordering::Acquire))
+    }
+
+    pub(crate) fn receive_source(&self) -> Option<receive_observation::ReceiveSource> {
+        self.receive_observation
+            .as_ref()
+            .map(|observation| receive_observation::ReceiveSource {
+                observation: observation.clone(),
+                receive_mode: self.mode(),
+                send_mode: self.mode(),
+            })
     }
 
     pub fn local_addr(&self) -> SocketAddr {
@@ -434,6 +457,7 @@ impl UdpBatchIo {
                         self.local_address,
                         output,
                         &self.quality,
+                        self.receive_observation.as_deref(),
                     ),
                     UdpBatchMode::SendMmsgRecvMmsg => self.try_recv_batch_unix(output),
                 }
@@ -545,7 +569,13 @@ impl UdpBatchIo {
 
     #[cfg(any(target_os = "android", target_os = "linux"))]
     fn try_recv_batch_unix(&self, output: &mut RecvBatch) -> io::Result<usize> {
-        unix_batch::try_recv_batch(&self.socket, self.local_address, output, &self.quality)
+        unix_batch::try_recv_batch(
+            &self.socket,
+            self.local_address,
+            output,
+            &self.quality,
+            self.receive_observation.as_deref(),
+        )
     }
 
     #[cfg(not(any(target_os = "android", target_os = "linux")))]
@@ -912,6 +942,135 @@ mod tests {
         )
         .unwrap();
         assert_eq!(io.mode(), UdpBatchMode::Portable);
+    }
+
+    #[tokio::test]
+    async fn ordinary_quic_sockets_request_receive_capacity_without_changing_send() {
+        for l4 in [false, true] {
+            let quality = NetworkQualityTelemetry::default();
+            if l4 {
+                quality.use_stream_data_plane();
+            }
+            let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+            let previous_receive =
+                socket2::SockRef::from(&socket).recv_buffer_size().unwrap() as u64;
+            let previous_send = socket2::SockRef::from(&socket).send_buffer_size().unwrap() as u64;
+            let io = UdpBatchIo::new(socket, quality).unwrap();
+            let target = receive_observation::production_target().map(|n| n as u64);
+            match io.receive_source() {
+                Some(source) => assert_eq!(source.snapshot().buffer_target_bytes, target),
+                None => assert!(target.is_none()),
+            }
+            assert_eq!(io.socket_buffer_sizes().1, Some(previous_send));
+            assert!(io.socket_buffer_sizes().0.unwrap() >= previous_receive);
+            assert_eq!(io.mode(), default_batch_mode());
+        }
+    }
+
+    #[tokio::test]
+    async fn system_default_control_is_confined_to_loopback_observer() {
+        let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let before = socket2::SockRef::from(&socket).recv_buffer_size().unwrap();
+        let source = receive_observation::ReceiveSource {
+            observation: receive_observation::ReceiveObservation::attach(&socket, None),
+            receive_mode: default_batch_mode(),
+            send_mode: default_batch_mode(),
+        };
+        let observed = source.snapshot();
+        assert_eq!(observed.buffer_target_bytes, None);
+        assert_eq!(observed.requested_buffer_bytes, None);
+        assert_eq!(
+            observed.buffer_request_status.as_deref(),
+            Some("not_requested")
+        );
+        assert_eq!(
+            socket2::SockRef::from(&socket).recv_buffer_size().unwrap(),
+            before
+        );
+    }
+
+    #[tokio::test]
+    async fn replacement_keeps_shared_pool_and_buffer_policy() {
+        for l4 in [false, true] {
+            let quality = NetworkQualityTelemetry::default();
+            if l4 {
+                quality.use_stream_data_plane();
+            }
+            let io = UdpBatchIo::with_mode(
+                UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+                UdpBatchMode::SendMmsgRecvMmsg,
+                quality.clone(),
+            )
+            .unwrap();
+            assert_eq!(io.mode(), UdpBatchMode::SendMmsgRecvMmsg);
+            let replacement = UdpBatchIo::with_mode_and_pool(
+                UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+                UdpBatchMode::SendMmsgRecvMmsg,
+                quality,
+                io.receive_pool(),
+            )
+            .unwrap();
+            assert_eq!(
+                replacement
+                    .receive_source()
+                    .map(|source| source.snapshot().buffer_target_bytes),
+                io.receive_source()
+                    .map(|source| source.snapshot().buffer_target_bytes),
+            );
+            assert_eq!(replacement.mode(), io.mode());
+            assert!(
+                replacement
+                    .receive_pool()
+                    .shares_budget_with(&io.receive_pool())
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn portable_receive_preserves_payload_and_cancellation() {
+        let quality = NetworkQualityTelemetry::default();
+        let receiver = UdpBatchIo::with_mode(
+            UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+            UdpBatchMode::Portable,
+            quality.clone(),
+        )
+        .unwrap();
+        let sender = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        for bytes in [b"one".as_slice(), b"two", b"three"] {
+            sender.send_to(bytes, receiver.local_addr()).await.unwrap();
+        }
+        let cancel = CancellationToken::new();
+        let mut batch = receiver.new_recv_batch();
+        timeout(
+            Duration::from_secs(1),
+            receiver.recv_batch(&mut batch, &cancel),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let packets: Vec<_> = batch.drain().map(|p| p.payload().to_vec()).collect();
+        assert_eq!(
+            packets,
+            [b"one".to_vec(), b"two".to_vec(), b"three".to_vec()]
+        );
+        assert_eq!(receiver.mode(), UdpBatchMode::Portable);
+        assert!(receiver.fallback_reason().is_none());
+        assert_eq!(
+            crate::NetworkQualitySampler::new(quality)
+                .sample()
+                .udp_io
+                .batch_fallbacks,
+            0
+        );
+        cancel.cancel();
+        let error = timeout(
+            Duration::from_secs(1),
+            receiver.recv_batch(&mut batch, &cancel),
+        )
+        .await
+        .unwrap()
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::Interrupted);
     }
 
     #[tokio::test]

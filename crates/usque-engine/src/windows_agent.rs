@@ -41,11 +41,11 @@ use usque_platform::packet_ring::{
     PACKET_RING_LAYOUT_VERSION, PacketDirection, PacketRingError, SharedPacketRing,
 };
 use usque_transport::{
-    ConnectionTimelineSnapshot, DirectEgressLease, DirectProtocol, EndpointPinRefresher,
-    GeoDirectPolicy, ManagedTunnelMonitor, MasqueRuntime, MasqueTlsIdentity, MasqueTunIo,
+    ConnectionTimelineSnapshot, DataPlaneRuntime, DirectEgressLease, DirectProtocol,
+    EndpointPinRefresher, GeoDirectPolicy, ManagedTunnelMonitor, MasqueTlsIdentity,
     NoopSocketProtector, RuntimeHealth, RuntimePath, SPLIT_DNS_IPV4, SPLIT_DNS_IPV6,
     STALE_GENERATION_REASON, SocketHandle, SocketProtector, TrafficSnapshot, TransportError,
-    resolve_physical_host,
+    TunPacketIo, resolve_physical_host,
 };
 use uuid::Uuid;
 use windows_sys::Win32::{
@@ -695,7 +695,7 @@ pub(crate) struct WindowsVpnRuntime {
     http_listeners: Vec<SocketAddr>,
     system_proxy: Option<WindowsSystemProxyGuard>,
     transaction_open: bool,
-    tunnel: Option<MasqueRuntime>,
+    tunnel: Option<DataPlaneRuntime>,
     // Present when this runtime created the VPN-bound MASQUE protector.
     socket_protector: Option<Arc<WindowsVpnSocketProtector>>,
 }
@@ -783,6 +783,9 @@ impl WindowsVpnMonitor {
 }
 
 impl WindowsVpnRuntime {
+    pub(crate) fn l4_snapshot(&self) -> Option<usque_core::L4Snapshot> {
+        self.tunnel.as_ref().and_then(DataPlaneRuntime::l4_snapshot)
+    }
     pub(crate) async fn start(
         profile: &Profile,
         identity: MasqueTlsIdentity,
@@ -883,7 +886,7 @@ impl WindowsVpnRuntime {
         start_physical_network_monitor(&protector);
         let transport_protector: Arc<dyn SocketProtector> = protector.clone();
 
-        let tunnel = match MasqueRuntime::start_with_geo_policy(
+        let tunnel = match DataPlaneRuntime::start_with_geo_policy(
             profile,
             identity,
             transport_protector,
@@ -952,7 +955,7 @@ impl WindowsVpnRuntime {
     ) -> Option<(Arc<dyn SocketProtector>, CancellationToken)> {
         self.tunnel
             .as_ref()
-            .map(MasqueRuntime::diagnostic_dns_context)
+            .map(DataPlaneRuntime::diagnostic_dns_context)
     }
 
     pub(crate) fn failure(&self) -> Option<String> {
@@ -991,8 +994,8 @@ impl WindowsVpnRuntime {
     /// caller receives the live MASQUE runtime back so SOCKS/HTTP survive.
     pub(crate) async fn attach_existing(
         profile: &Profile,
-        tunnel: MasqueRuntime,
-    ) -> Result<Self, (MasqueRuntime, WindowsVpnError)> {
+        tunnel: DataPlaneRuntime,
+    ) -> Result<Self, (DataPlaneRuntime, WindowsVpnError)> {
         let agent = WindowsAgentClient::production();
         let capabilities = match agent.get_capabilities().await {
             Ok(capabilities) => capabilities,
@@ -1042,7 +1045,7 @@ impl WindowsVpnRuntime {
     }
 
     /// Tear down Wintun/WFP and return the live MASQUE session.
-    pub(crate) async fn detach_into_masque(&mut self) -> Result<MasqueRuntime, WindowsVpnError> {
+    pub(crate) async fn detach_into_masque(&mut self) -> Result<DataPlaneRuntime, WindowsVpnError> {
         if self.tunnel.is_none() {
             return Err(WindowsVpnError::MissingMasqueRuntime);
         }
@@ -1282,12 +1285,12 @@ pub(crate) fn loopback_http_listener(listeners: &[SocketAddr]) -> Option<SocketA
 
 async fn bind_agent_session(
     profile: &Profile,
-    mut tunnel: MasqueRuntime,
+    mut tunnel: DataPlaneRuntime,
     agent: WindowsAgentClient,
     operation_id: Uuid,
     resuming: bool,
     startup_lease: Option<NamedPipeClient>,
-) -> Result<WindowsVpnRuntime, (MasqueRuntime, WindowsVpnError)> {
+) -> Result<WindowsVpnRuntime, (DataPlaneRuntime, WindowsVpnError)> {
     let tun_io = match tunnel.attach_tun() {
         Ok(tun_io) => tun_io,
         Err(error) => {
@@ -1483,6 +1486,7 @@ fn tunnel_plan_from_assignment(
     registration_api: &[SocketAddr],
     split_dns: bool,
 ) -> agent_v1::TunnelPlan {
+    let split_dns = split_dns || profile.data_plane == usque_core::DataPlaneMode::L4Proxy;
     let ipv4 = profile.endpoint.ipv4_socket();
     let ipv6 = profile.endpoint.ipv6_socket();
     let endpoint = match profile.ip_policy {
@@ -1568,7 +1572,7 @@ fn validate_capabilities(
 }
 
 fn start_packet_pumps(
-    mut tun_io: MasqueTunIo,
+    mut tun_io: TunPacketIo,
     mapping: Arc<PacketSessionMapping>,
     tunnel_monitor: ManagedTunnelMonitor,
     cancellation: CancellationToken,
@@ -1706,7 +1710,7 @@ fn start_packet_pumps(
 }
 
 async fn publish_engine_packet_batch(
-    tun_io: &mut MasqueTunIo,
+    tun_io: &mut TunPacketIo,
     mapping: &PacketSessionMapping,
     tunnel_monitor: &ManagedTunnelMonitor,
     cancellation: &CancellationToken,
@@ -4115,6 +4119,25 @@ mod tests {
         );
         assert!(plan.split_dns);
         assert_eq!(plan.dns_servers, ["198.18.0.1", "fd00::1"]);
+    }
+
+    #[test]
+    fn l4_tun_plan_uses_registered_addresses_and_internal_dns_without_geo() {
+        let identity = identity();
+        let profile = Profile {
+            data_plane: usque_core::DataPlaneMode::L4Proxy,
+            ..Profile::default()
+        };
+        let plan = tunnel_plan(&profile, &identity, &[], false);
+        assert!(plan.split_dns);
+        assert_eq!(plan.dns_servers, ["198.18.0.1", "fd00::1"]);
+        assert_eq!(plan.assigned_ipv4, format!("{}/32", identity.assigned_ipv4));
+        assert_eq!(
+            plan.assigned_ipv6,
+            format!("{}/128", identity.assigned_ipv6)
+        );
+        assert_eq!(plan.endpoint_candidates.len(), 2);
+        assert!(!plan.allow_lan);
     }
 
     #[test]

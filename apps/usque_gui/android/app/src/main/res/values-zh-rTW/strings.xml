@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="vpn_channel_name">Usque 網路服務</string>
+    <string name="vpn_channel_description">目前 Usque VPN 或本機代理的持續狀態</string>
+    <string name="vpn_notif_disconnect">中斷</string>
+    <string name="vpn_notif_preparing">正在準備安全通道</string>
+    <string name="vpn_notif_connecting_h3">正在以 HTTP/3 連線</string>
+    <string name="vpn_notif_connecting_h2">正在以 HTTP/2 連線</string>
+    <string name="vpn_notif_connected">已連線</string>
+    <string name="vpn_notif_connected_via">已透過 %1$s 連線</string>
+    <string name="vpn_notif_degraded">已連線，但位址族支援受限</string>
+    <string name="vpn_notif_reconnecting">正在安全重新連線</string>
+    <string name="vpn_notif_error">網路服務因錯誤已停止</string>
+    <string name="vpn_notif_disconnecting">正在中斷</string>
+    <string name="vpn_notif_idle">Usque VPN</string>
+    <string name="vpn_notif_invalid_profile">VPN 設定檔無效</string>
+    <string name="vpn_notif_invalid_network_profile">網路設定檔無效</string>
+    <string name="vpn_notif_recovery_unavailable">無法還原 VPN</string>
+    <string name="tile_connected">已連線</string>
+    <string name="tile_disconnected">已中斷</string>
+    <string name="tile_connecting">正在連線</string>
+    <string name="tile_reconnecting">正在重新連線</string>
+    <string name="tile_disconnecting">正在中斷</string>
+    <string name="tile_checking">正在檢查</string>
+    <string name="tile_working">處理中</string>
+    <string name="tile_open_app">開啟 Usque</string>
+    <string name="tile_profile_required">請先開啟 Usque 並連線一次 VPN 設定檔，然後再使用快捷開關。</string>
+    <string name="tile_identity_required">請開啟 Usque 並為此設定檔設定 WARP 身分。</string>
+    <string name="tile_vpn_permission_required">請開啟 Usque 以授予 Android VPN 權限。</string>
+    <string name="tile_proxy_only">目前為僅代理連線。請開啟 Usque 以啟用 VPN 前端。</string>
+    <string name="shortcut_connect">連線</string>
+    <string name="shortcut_disconnect">中斷</string>
+    <string name="shortcut_profiles">帳戶</string>
+    <string name="shortcut_long_label">%1$s Usque</string>
+</resources>

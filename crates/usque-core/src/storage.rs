@@ -17,12 +17,48 @@ use crate::config::{
 };
 use crate::identity::IdentityProvider;
 
+mod file_lock;
+
 #[derive(Debug, Clone)]
 pub struct ConfigStore {
     path: PathBuf,
 }
 
 impl ConfigStore {
+    /// Lock a stable sidecar inode, not the atomically replaced JSON file.
+    /// The OS releases the lock when the guard is dropped or the process exits.
+    pub fn lock_exclusive(&self) -> Result<File, StoreError> {
+        let parent = self
+            .path
+            .parent()
+            .ok_or_else(|| StoreError::MissingParent(self.path.clone()))?;
+        fs::create_dir_all(parent)?;
+        let lock = File::options()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(self.path.with_extension("json.lock"))?;
+        file_lock::lock_exclusive(&lock)?;
+        Ok(lock)
+    }
+
+    /// A short read/modify/write transaction. Callers must not perform network
+    /// operations or re-enter this store from the closure.
+    pub fn update<T, E>(
+        &self,
+        change: impl FnOnce(&mut AppConfig) -> Result<T, E>,
+    ) -> Result<(AppConfig, T), E>
+    where
+        E: From<StoreError>,
+    {
+        let _lock = self.lock_exclusive()?;
+        let mut config = self.load_or_default()?;
+        let result = change(&mut config)?;
+        self.save(&config)?;
+        Ok((config, result))
+    }
+
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self { path: path.into() }
     }
@@ -101,7 +137,7 @@ impl ConfigStore {
 
         replace_file(temporary.path(), &self.path)?;
         let _ = temporary.keep();
-        sync_parent(parent)?;
+        sync_parent(parent).map_err(StoreError::CommitUncertain)?;
         Ok(())
     }
 
@@ -348,6 +384,15 @@ fn migrate_app_config(config: &mut AppConfig) {
         config.network.direct_dns = DirectDnsSettings::default();
         config.schema_version = 13;
     }
+    if config.schema_version < 14 {
+        // The field's serde default preserves CUBIC for pre-selection configs.
+        config.schema_version = 14;
+    }
+    if config.schema_version < 15 {
+        // Migration never opts an existing account into an experimental path.
+        config.network.data_plane = crate::DataPlaneMode::ConnectIp;
+        config.schema_version = 15;
+    }
 }
 
 #[cfg(not(windows))]
@@ -402,6 +447,10 @@ fn sync_parent(parent: &Path) -> io::Result<()> {
 
 #[derive(Debug, Error)]
 pub enum StoreError {
+    #[error("configuration replacement completed but durability is unconfirmed: {0}")]
+    CommitUncertain(io::Error),
+    #[error("network settings were rejected: {0}")]
+    NetworkSettings(String),
     #[error("configuration I/O failed: {0}")]
     Io(#[from] io::Error),
     #[error("configuration JSON is invalid: {0}")]
@@ -417,6 +466,162 @@ pub enum StoreError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn open_lock_probe(store: &ConfigStore) -> File {
+        File::options()
+            .read(true)
+            .write(true)
+            .open(store.path().with_extension("json.lock"))
+            .unwrap()
+    }
+
+    #[test]
+    fn sidecar_lock_survives_config_replacement_and_releases_on_drop() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ConfigStore::new(directory.path().join("usque_config/profiles-v2.json"));
+        let guard = store.lock_exclusive().unwrap();
+        assert!(!store.path().exists());
+        let probe = open_lock_probe(&store);
+        assert_eq!(
+            file_lock::try_lock_exclusive(&probe).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
+
+        let mut config = AppConfig::default();
+        store.save(&config).unwrap();
+        config.network.mtu = 1400;
+        store.save(&config).unwrap();
+        let replacement_probe = open_lock_probe(&store);
+        assert_eq!(
+            file_lock::try_lock_exclusive(&replacement_probe)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::WouldBlock
+        );
+
+        drop(guard);
+        file_lock::try_lock_exclusive(&replacement_probe).unwrap();
+        assert_eq!(store.load().unwrap(), config);
+    }
+
+    #[test]
+    fn failed_lock_never_runs_a_transaction_or_changes_saved_data() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ConfigStore::new(directory.path().join("profiles-v2.json"));
+        store.save(&AppConfig::default()).unwrap();
+        let original = fs::read(store.path()).unwrap();
+        fs::create_dir(store.path().with_extension("json.lock")).unwrap();
+
+        let mut called = false;
+        let result = store.update::<(), StoreError>(|config| {
+            called = true;
+            config.network.mtu = 1400;
+            Ok(())
+        });
+        assert!(matches!(result, Err(StoreError::Io(_))));
+        assert!(!called);
+        assert_eq!(fs::read(store.path()).unwrap(), original);
+    }
+
+    // This inert subprocess only locks a file inside the parent test's tempdir.
+    // It must be terminated while holding the lock to exercise OS cleanup,
+    // without running Rust destructors or touching real application state.
+    #[test]
+    fn profile_lock_child_process() {
+        let Some(path) = std::env::var_os("USQUE_TEST_PROFILE_LOCK_PATH") else {
+            return;
+        };
+        let store = ConfigStore::new(PathBuf::from(path));
+        let _guard = store.lock_exclusive().unwrap();
+        fs::write(store.path().with_extension("ready"), b"locked").unwrap();
+        loop {
+            std::thread::park();
+        }
+    }
+
+    #[test]
+    fn sidecar_lock_is_released_when_its_process_is_terminated() {
+        use std::process::{Child, Command, Stdio};
+        use std::time::{Duration, Instant};
+
+        struct ReapChild(Child);
+        impl Drop for ReapChild {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+
+        let directory = tempfile::tempdir().unwrap();
+        let store = ConfigStore::new(directory.path().join("profiles-v2.json"));
+        let ready = store.path().with_extension("ready");
+        let mut child = ReapChild(
+            Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "storage::tests::profile_lock_child_process"])
+                .env("USQUE_TEST_PROFILE_LOCK_PATH", store.path())
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .spawn()
+                .unwrap(),
+        );
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !ready.exists() {
+            assert!(child.0.try_wait().unwrap().is_none(), "lock child exited");
+            assert!(Instant::now() < deadline, "lock child did not become ready");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        let probe = open_lock_probe(&store);
+        assert_eq!(
+            file_lock::try_lock_exclusive(&probe).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
+        child.0.kill().unwrap();
+        child.0.wait().unwrap();
+        file_lock::try_lock_exclusive(&probe).unwrap();
+    }
+
+    #[test]
+    fn concurrent_transactions_merge_the_latest_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ConfigStore::new(directory.path().join("config.json"));
+        store.save(&AppConfig::default()).unwrap();
+        std::thread::scope(|scope| {
+            for index in 0..12 {
+                let store = store.clone();
+                scope.spawn(move || {
+                    store
+                        .update::<_, StoreError>(|config| {
+                            config.insert_account(
+                                Uuid::new_v4(),
+                                format!("Account {index}"),
+                                None,
+                            )?;
+                            Ok(())
+                        })
+                        .unwrap();
+                });
+            }
+        });
+        assert_eq!(store.load().unwrap().profiles.len(), 13);
+    }
+
+    #[test]
+    fn rejected_transaction_leaves_the_file_unchanged() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ConfigStore::new(directory.path().join("config.json"));
+        let original = AppConfig::default();
+        store.save(&original).unwrap();
+        assert!(
+            store
+                .update::<(), StoreError>(|config| {
+                    config.network.mtu = 1400;
+                    Err(StoreError::NetworkSettings("rejected".into()))
+                })
+                .is_err()
+        );
+        assert_eq!(store.load().unwrap(), original);
+    }
 
     #[test]
     fn save_and_load_round_trip() {
@@ -865,5 +1070,64 @@ mod tests {
             error,
             StoreError::Config(ConfigError::GeoDirectCountryNotDownloaded(_))
         ));
+    }
+
+    #[test]
+    fn schema_thirteen_defaults_to_cubic_and_preserves_shared_selection() {
+        use crate::CongestionControlAlgorithm as Algorithm;
+        let directory = tempfile::tempdir().unwrap();
+        let store = ConfigStore::new(directory.path().join("config.json"));
+        let mut legacy = serde_json::to_value(AppConfig::default()).unwrap();
+        legacy["schema_version"] = serde_json::json!(13);
+        legacy["network"]
+            .as_object_mut()
+            .unwrap()
+            .remove("congestion_control");
+        fs::write(store.path(), serde_json::to_vec(&legacy).unwrap()).unwrap();
+        let mut config = store.load().unwrap();
+        assert_eq!(config.schema_version, CURRENT_SCHEMA_VERSION);
+        assert_eq!(config.network.congestion_control, Algorithm::Cubic);
+        assert!(store.backup_path().exists());
+        for algorithm in Algorithm::ALL {
+            config.network.congestion_control = algorithm;
+            store.save(&config).unwrap();
+            let loaded = store.load().unwrap();
+            assert_eq!(loaded.network.congestion_control, algorithm);
+            assert!(
+                loaded
+                    .runtime_profiles()
+                    .iter()
+                    .all(|profile| profile.congestion_control == algorithm)
+            );
+        }
+        config.network.reset_user_defaults();
+        assert_eq!(config.network.congestion_control, Algorithm::Cubic);
+        legacy["network"]["congestion_control"] = serde_json::json!("future_algorithm");
+        assert!(serde_json::from_value::<AppConfig>(legacy).is_err());
+    }
+
+    #[test]
+    fn schema_fourteen_keeps_connect_ip_and_saved_transport_and_sni() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ConfigStore::new(directory.path().join("config.json"));
+        let mut config = AppConfig::default();
+        config.network.transport = crate::TransportPolicy::Http2;
+        config.network.endpoint.sni = "legacy.example.com".to_owned();
+        let mut legacy = serde_json::to_value(config).unwrap();
+        legacy["schema_version"] = serde_json::json!(14);
+        legacy["network"]
+            .as_object_mut()
+            .unwrap()
+            .remove("data_plane");
+        fs::write(store.path(), serde_json::to_vec(&legacy).unwrap()).unwrap();
+        let loaded = store.load().unwrap();
+        assert_eq!(loaded.schema_version, 15);
+        for profile in loaded.runtime_profiles() {
+            assert_eq!(profile.data_plane, crate::DataPlaneMode::ConnectIp);
+            assert_eq!(profile.transport, crate::TransportPolicy::Http2);
+            assert_eq!(profile.endpoint.sni, "legacy.example.com");
+        }
+        legacy["network"]["data_plane"] = serde_json::json!("future_mode");
+        assert!(serde_json::from_value::<AppConfig>(legacy).is_err());
     }
 }

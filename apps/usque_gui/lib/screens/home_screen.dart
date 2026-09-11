@@ -516,7 +516,9 @@ class _EngineReadout extends StatelessWidget {
       selector: (controller) {
         final EngineSnapshot snapshot = controller.snapshot;
         return (
-          transport: snapshot.transport,
+          transport: snapshot.dataPlane == DataPlaneMode.l4Proxy
+              ? 'L4 / H3'
+              : snapshot.transport,
           addressFamily: snapshot.addressFamily,
           connectedAt: snapshot.connectedAt,
           alwaysOn: snapshot.alwaysOn,

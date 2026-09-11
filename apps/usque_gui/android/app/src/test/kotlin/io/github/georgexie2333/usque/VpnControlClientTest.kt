@@ -37,6 +37,69 @@ class VpnControlClientTest {
     }
 
     @Test
+    fun settingsTimeoutNeverReplaysAndLateReplyCannotReportSuccess() {
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        val result = RecordingResult()
+        client.requestNetworkSettings("""{"operation_id":"op"}""", result)
+        assertEquals(UsqueVpnService.MSG_SAVE_SETTINGS, endpoint.messages.single().what)
+        val id = endpoint.messages.single().requestId
+        scheduler.fireAllDelayed()
+        assertEquals("NETWORK_SETTINGS_UNCONFIRMED", result.errorCode)
+        client.attachEndpointForTest(endpoint)
+        client.deliverSettingsReply(id, """{"source_epoch":"one","sequence":1,"persisted":true}""")
+        assertEquals(1, result.completionCount)
+        assertEquals(1, endpoint.messages.size)
+    }
+
+    @Test
+    fun localeUpdateIsRetainedUntilTheVpnProcessIsReachable() {
+        client.updateLocale("ja")
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+
+        assertEquals(UsqueVpnService.MSG_UPDATE_LOCALE, endpoint.messages.single().what)
+        assertEquals(
+            "ja",
+            endpoint.messages
+                .single()
+                .extras
+                ?.get("catalog_id"),
+        )
+
+        endpoint.messages.clear()
+        client.updateLocale("zh_TW")
+        assertEquals(UsqueVpnService.MSG_UPDATE_LOCALE, endpoint.messages.single().what)
+        assertEquals(
+            "zh_TW",
+            endpoint.messages
+                .single()
+                .extras
+                ?.get("catalog_id"),
+        )
+    }
+
+    @Test
+    fun settingsReplyKeepsPersistenceSeparateFromRuntimeAndStripsPrivateTarget() {
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        val result = RecordingResult()
+        client.requestNetworkSettings("{}", result)
+        val id = endpoint.messages.single().requestId
+        client.deliverSettingsReply(
+            id,
+            """{"source_epoch":"one","sequence":1,"persisted":true,"apply_status":"failed","target":{"mtu":1400}}""",
+        )
+        val state = result.successValue as Map<*, *>
+        assertEquals(true, state["persisted"])
+        assertEquals("failed", state["apply_status"])
+        assertFalse(state.containsKey("target"))
+        client.deliverSettingsReply(id, "{}")
+        scheduler.fireAllDelayed()
+        assertEquals(1, result.completionCount)
+    }
+
+    @Test
     fun timelineRequestIsSingleFlightTimesOutAndIgnoresLateReplies() {
         val endpoint = RecordingEndpoint()
         client.attachEndpointForTest(endpoint)

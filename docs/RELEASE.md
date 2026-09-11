@@ -5,16 +5,18 @@ record that the current checkout has been published. The authoritative
 executable contracts are [release.yml](../.github/workflows/release.yml) and
 [release_contract.py](../tool/release_contract.py).
 
-The workflow currently accepts only `v0.2.5` and requires that tag to point at
+The workflow currently accepts only `v0.2.6` and requires that tag to point at
 the current `main` commit when its gate runs. The tag is maintainer-only.
 Signing and publish jobs run in GitHub Environments that need approval. If a
 required file, signing input, or CI result is missing, the workflow fails. A
-local MSI or APK cannot replace a failed Actions build.
+local bundle, MSI, or APK cannot replace a failed Actions build.
 
-The v0.2.5 candidate includes the newer-Agent-first Windows upgrade sequence
-and complete payload replacement described below. These fixes are not part of
-the original v0.2.4 release. Read each release's tagged documentation and notes
-for its delivered behavior. This guide does not authorize moving or reusing a
+The v0.2.6 candidate retains the newer-Agent-first Windows upgrade sequence
+and complete payload replacement introduced in v0.2.5. Those fixes are not part
+of the original v0.2.4 release. The multilingual EXE installer and hidden-bundle
+uninstall lifecycle are new in v0.2.6, not the original v0.2.5 MSI-only release.
+Read each release's tagged documentation and notes for its delivered behavior.
+This guide does not authorize moving or reusing a
 published tag; a subsequent release needs a separately reviewed version and
 workflow update and the existing approval gates. Static and compile-only
 checks are not evidence of a successful real-machine upgrade.
@@ -23,7 +25,7 @@ Which signatures count as official, how fingerprints are published, and what hap
 
 ## Before signing starts
 
-- The tag must be `v0.2.5` and must point at the current `main` commit.
+- The tag must be `v0.2.6` and must point at the current `main` commit.
 - That commit must already have a successful `ci.yml` push run, including `CI / gate`.
 - `release-signing` and `release-publish` both require approval.
 - Android Developer Console must show `io.github.georgexie2333.usque` and the certificate fingerprint in `ANDROID_SIGNER_SHA256` as **Registered**.
@@ -55,14 +57,14 @@ The Windows job imports the private identity only into the runner user's persona
 
 Android builds verify the Gradle 9.5.1 distribution against its published SHA-256, use the checked-in `app/gradle.lockfile`, and check resolved artifacts against `gradle/verification-metadata.xml`. Updating an Android dependency means reviewing and regenerating both files by hand. CI and release jobs must not use `--write-locks` or `--write-verification-metadata`.
 
-The MSI does not install the publisher certificate into the machine Root or TrustedPublisher stores. At runtime the Agent accepts only the `CERT_E_UNTRUSTEDROOT` result expected for this self-signed identity, after Windows has checked the Authenticode digest and signature, and then requires the embedded certificate fingerprint to match `WINDOWS_SIGNER_SHA256`. Any other trust result is fatal.
+The Windows bundle and MSI do not install the publisher certificate into the machine Root or TrustedPublisher stores. At runtime the Agent accepts only the `CERT_E_UNTRUSTEDROOT` result expected for this self-signed identity, after Windows has checked the Authenticode digest and signature, and then requires the embedded certificate fingerprint to match `WINDOWS_SIGNER_SHA256`. Any other trust result is fatal.
 
 ## Artifact flow
 
-1. The tag job builds signed x64-v2 and ARM64 MSIs plus signed arm64-v8a, x86_64, armeabi-v7a, and universal APKs in the signing environment.
+1. The tag job builds signed x64-v2 and ARM64 installer bundles, their signed update MSIs, and signed arm64-v8a, x86_64, armeabi-v7a, and universal APKs in the signing environment.
 2. Each platform job checks the certificate identity and creates GitHub build provenance.
-3. A staging job downloads those artifacts, rejects missing or extra MSI/APK files, writes an internal release manifest, generates SPDX SBOMs, and records SBOM attestations.
-4. The publish job rechecks every primary package against the immutable manifest, calculates final package checksums, and creates the GitHub release with the six install packages, manifest, checksums, and per-package SBOMs.
+3. A staging job downloads those artifacts, rejects missing or extra EXE/MSI/APK files, writes an internal release manifest, generates SPDX SBOMs, and records SBOM attestations.
+4. The publish job rechecks every primary package against the immutable manifest, calculates final package checksums, and creates the GitHub release with six user-facing installers, two update-only MSIs, the manifest, checksums, and per-package SBOMs.
 5. When repository variable `RUN_PROTECTED_RELEASE_VALIDATION` is exactly `true`, four protected self-hosted runner classes separately exercise the staged candidate: a Windows snapshot VM, a dedicated Android device, an independent network observer, and a controlled performance lab.
 6. Protected validation is supplemental and does not gate publication. The aggregator emits `reliability-report.json` and `device-matrix.md` as a protected Actions artifact only when every required report and evidence file passes its exact-candidate and isolation checks. Missing infrastructure, `failed`, and `not_run` remain visible non-passes and never become release approval.
 
@@ -86,15 +88,19 @@ unrendered or partially rendered body.
 
 Primary files:
 
-- `usque-v0.2.5-windows-x64-v2.msi`
-- `usque-v0.2.5-windows-arm64.msi`
-- `usque-v0.2.5-android-arm64-v8a.apk`
-- `usque-v0.2.5-android-x86_64.apk`
-- `usque-v0.2.5-android-armeabi-v7a.apk`
-- `usque-v0.2.5-android-universal.apk`
+- `usque-v0.2.6-windows-x64-v2.exe`
+- `usque-v0.2.6-windows-arm64.exe`
+- `usque-v0.2.6-windows-x64-v2.msi`
+- `usque-v0.2.6-windows-arm64.msi`
+- `usque-v0.2.6-android-arm64-v8a.apk`
+- `usque-v0.2.6-android-x86_64.apk`
+- `usque-v0.2.6-android-armeabi-v7a.apk`
+- `usque-v0.2.6-android-universal.apk`
 
-In addition to the six install packages, the public release includes
-`release-manifest.json`, `SHA256SUMS`, and each package's SPDX SBOM. A public
+The two EXEs and four APKs are the user-facing installers; the two MSIs are
+update payloads consumed by the signed Windows updater. In addition to these
+eight primary artifacts, the public release includes `release-manifest.json`,
+`SHA256SUMS`, and each artifact's SPDX SBOM. A public
 release requires the usual CI, architecture, signature, package, checksum,
 SBOM, and provenance checks. Protected-runner validation is optional and
 non-blocking; its environments, evidence contract, and privacy boundary are
@@ -102,7 +108,7 @@ documented in [RELIABILITY_TESTING.md](RELIABILITY_TESTING.md).
 
 ## Windows package rules
 
-These rules describe the v0.2.5 authoring and verification code. The Agent
+These rules describe the v0.2.6 authoring and verification code. The Agent
 file-version check and late related-product removal sequence were added after
 the original v0.2.4 tag; they must not be presented as properties already
 verified in that older package. User-facing applicability is recorded in
@@ -115,7 +121,20 @@ MSI build = SemVer patch * 100 + beta ordinal
 stable ordinal = 99
 ```
 
-Stable `v0.2.5` is therefore MSI ProductVersion `0.2.599`. The real SemVer stays in ProductName and the filenames. The Agent embeds the same mapped value as its four-part PE file version (`0.2.599.0`), and packaging rejects an unversioned or mismatched Agent. Equal-version major upgrades are enabled so a validation build can replace the same product instead of installing a second copy under `Program Files\Usque`. WiX validation suppresses only ICE61, which assumes upgrades must raise the version; every other standard ICE check stays on.
+Stable `v0.2.6` is therefore MSI ProductVersion `0.2.699`. The real SemVer stays in ProductName and the filenames. The Agent embeds the same mapped value as its four-part PE file version (`0.2.699.0`), and packaging rejects an unversioned or mismatched Agent. Equal-version major upgrades are enabled so a validation build can replace the same product instead of installing a second copy under `Program Files\Usque`. WiX validation suppresses only ICE61, which assumes upgrades must raise the version; every other standard ICE check stays on.
+
+The user-facing Windows artifact is a WiX Internal UI Bootstrapper Application
+bundle. It contains the signed English MSI plus 20 language transforms and
+selects a transform from the current Windows UI language; unsupported UI
+languages fall back to English. Every localized MSI is compiled and fully
+ICE-validated from the same ProductCode before its transform is generated.
+`MajorUpgrade/@IgnoreLanguage` is required so a direct update MSI can replace
+an installation created with any transform. The tag workflow signs the base
+MSI first, builds the bundle, detaches and signs the Burn engine, reattaches it,
+then signs and re-verifies the final EXE. The base MSI remains a release asset
+only because the in-app updater validates and invokes MSI directly. Localized
+installs set `TRANSFORMSSECURE=1` so Windows Installer retains the selected
+transform for elevated major upgrades and the custom uninstall path.
 
 `RemoveExistingProducts` runs after `InstallExecute` and before
 `InstallFinalize`. This transactionally installs the fixed, versioned Agent
@@ -149,16 +168,51 @@ process is force-closed only after Restart Manager's bounded graceful timeout,
 and sets `MSIDISABLERMRESTART=1` so an old process is never relaunched after an
 uninstall or in the middle of a major upgrade.
 
-The build rejects unsigned project EXE/DLL files, a signer mismatch, an unversioned or version-mismatched Agent, PDBs, reparse points, a modified Wintun DLL, a missing `usque-update.exe`, a wrong service command/start type/DACL, an advertised shortcut, a missing maintenance guard, an early related-product removal sequence, a wrong uninstall action/condition sequence, a 32-bit component, or an ICE failure. The signed update helper reuses the Agent's offline Authenticode verifier and additionally checks the MSI SHA-256, UpgradeCode, mapped stable ProductVersion, summary architecture, and `USQUE_UPDATE_VARIANT` property before starting Windows Installer. True uninstall runs emergency WFP cleanup, journal recovery, optional current-user data cleanup, and clean-state finalization after the service stops and before its binary is removed. A major upgrade runs the first two actions but skips user-data cleanup and clean-state finalization so the replacement service keeps user state and the machine-state directory. The installer UI exposes `INSTALLFOLDER` and stores the chosen path in the 64-bit machine registry for the next major upgrade.
+The build rejects unsigned project EXE/DLL files, a signer mismatch, an unversioned or version-mismatched Agent, PDBs, reparse points, a modified Wintun DLL, a missing `usque-update.exe`, a wrong service command/start type/DACL, an advertised shortcut, a missing maintenance guard, an early related-product removal sequence, a language-sensitive upgrade row, a missing or malformed bundle transform, a visible duplicate Burn uninstall entry, a direct quiet-MSI uninstall registration that would strand Burn, a wrong uninstall action/condition sequence, a 32-bit component, or an ICE failure. The signed update helper reuses the Agent's offline Authenticode verifier and additionally checks the MSI SHA-256, UpgradeCode, mapped stable ProductVersion, summary architecture, and `USQUE_UPDATE_VARIANT` property before starting Windows Installer. True uninstall runs emergency WFP cleanup, journal recovery, optional current-user data cleanup, and clean-state finalization after the service stops and before its binary is removed. A major upgrade runs the first two actions but skips user-data cleanup and clean-state finalization so the replacement service keeps user state and the machine-state directory. The installer UI exposes `INSTALLFOLDER` and stores the chosen path in the 64-bit machine registry for the next major upgrade.
 
-Uninstall keeps the current user's profiles, preferences, logs, caches, and Credential Manager records by default. Settings does not host the MSI wizard, so the package hides the Windows Installer ARP entry (`ARPSYSTEMCOMPONENT`) and registers `usque-uninstall.exe` as the visible uninstall command. That helper asks for confirmation and, only if requested, passes `USQUE_REMOVE_USER_DATA=1` into `msiexec`. Deletion covers only that user's Usque directories and credential namespace. Silent uninstall (`QuietUninstallString` / `msiexec /x /qn`) keeps data unless `USQUE_REMOVE_USER_DATA=1` is set. The shared Wintun driver package is not removed.
+Uninstall keeps the current user's profiles, preferences, logs, caches, and
+Credential Manager records by default. Settings does not host the MSI wizard,
+so the package hides the Windows Installer ARP entry (`ARPSYSTEMCOMPONENT`) and
+registers `usque-uninstall.exe` as the visible uninstall command. The bundle
+also sets `DisableModify=yes` and `DisableRemove=yes`, which keeps its Burn
+registration out of Programs and Features instead of creating a second
+uninstall route. The helper asks for confirmation in the Windows UI language,
+then copies itself out of the install directory before removal begins.
+It resolves the hidden bundle through the architecture-specific stable Burn
+provider key, requires the cached EXE to remain in its bundle-ID cache directory
+and have the same Authenticode signer, uninstalls the current MSI, then runs the
+cached bundle quietly so Burn removes its own registration and cache.
+Windows Installer and Burn own separate per-machine elevation boundaries, so
+Windows may request administrator approval for each phase; the helper itself
+is never elevated from its user-writable temporary path.
+The registered `QuietUninstallString` embeds the repository's quiet launcher
+in a hidden system PowerShell host. It stages the signed helper, waits for the
+installed staging process to exit, locks the copy against changes, rechecks
+its signer using the installed verifier, and then waits for the temporary
+worker's final exit code. Thus no installed image stays mapped during removal,
+and callers receive failures and reboot requirements instead of asynchronous
+success. Installation paths are passed as process filenames, never script
+source; no execution-policy override is used. Direct `--quiet` from the install
+directory fails closed rather than detaching. The registered command keeps
+data. An administrator may request deletion explicitly; deletion covers
+only that user's Usque directories and credential namespace. A direct
+`msiexec /x` command is reserved for MSI-only deployments because it cannot
+clean an EXE bundle registration. The shared Wintun driver package is not
+removed.
+
+The quiet launcher's fixed executable prefix and quotes are authored in WXS.
+Only its Base64 script token crosses the WiX `-define` command-line boundary;
+passing the complete quoted command loses quotes under PowerShell's Legacy
+native argument passing. The MSI verifier still compares the full resulting
+Registry value against the trusted launcher, and CI compiles real inert MSIs
+under all three PowerShell 7 argument-passing modes.
 
 User-facing install and uninstall steps are in [INSTALLATION.md](INSTALLATION.md).
 
 ## Runner isolation boundary
 
 GitHub-hosted runners compile, test, sign, inspect, hash, inventory, attest, and
-aggregate the release. They do not install an MSI, start Windows VPN/TUN,
+aggregate the release. They do not run an installer bundle, install an MSI, start Windows VPN/TUN,
 change runner networking, or install APKs on devices.
 
 The separate, opt-in protected self-hosted jobs perform destructive lifecycle,

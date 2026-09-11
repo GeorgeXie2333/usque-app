@@ -3,6 +3,7 @@ package io.github.georgexie2333.usque
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.net.ConnectivityManager
 import android.net.IpPrefix
 import android.net.Network
@@ -26,6 +27,7 @@ import java.net.Inet6Address
 import java.net.InetAddress
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
+import java.util.concurrent.Future
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -58,6 +60,10 @@ class UsqueVpnService : VpnService() {
         const val MSG_DIAGNOSTIC_PROBE = 12
         const val MSG_CANCEL_DIAGNOSTIC_PROBE = 13
         const val MSG_CONNECTION_TIMELINE = 14
+        const val MSG_SAVE_SETTINGS = 15
+        const val MSG_GET_SETTINGS = 16
+        const val MSG_SETTINGS_EVENT = 17
+        const val MSG_UPDATE_LOCALE = 18
 
         private const val NATIVE_STATUS_INTERVAL_MILLIS = 1_000L
         private const val PHYSICAL_NETWORK_WAIT_MILLIS = 8_000L
@@ -87,8 +93,17 @@ class UsqueVpnService : VpnService() {
     private val connectionGeneration = AtomicLong()
     private val tunnel = AtomicReference<ParcelFileDescriptor?>()
     private val nativeRuntimeActive = AtomicBoolean()
+    private val nativeStops = NativeStopTracker()
     private val clearAllRequested = AtomicBoolean()
     private val activeProfileJson = AtomicReference<String?>(null)
+    private val settingsExecutor = Executors.newSingleThreadExecutor()
+    private val settingsApplication = NetworkSettingsApplicationTracker()
+    private var settingsStateJson: String? = null
+    private var settingsUncertain = false
+    private var runtimeReconfigureInFlight = false
+    private var confirmedSettingsProfile: String? = null
+    private val settingsPath: String
+        get() = File(noBackupFilesDir, "usque_config/profiles-v2.json").absolutePath
     private val activeMode = AtomicReference<String?>(null)
     private val lastTunIdentity = AtomicReference<TunIdentity?>(null)
 
@@ -143,6 +158,11 @@ class UsqueVpnService : VpnService() {
         Messenger(
             Handler(Looper.getMainLooper()) { message ->
                 when (message.what) {
+                    MSG_SAVE_SETTINGS, MSG_GET_SETTINGS -> {
+                        networkSettingsRequest(Message.obtain(message))
+                        true
+                    }
+
                     MSG_SNAPSHOT -> {
                         replyWithSnapshot(message)
                         true
@@ -152,6 +172,15 @@ class UsqueVpnService : VpnService() {
                         message.replyTo?.let { client ->
                             if (!eventClients.contains(client)) eventClients += client
                             sendEvent(client)
+                            settingsStateJson?.let { json ->
+                                runCatching {
+                                    client.send(
+                                        Message.obtain(null, MSG_SETTINGS_EVENT).apply {
+                                            data = Bundle().apply { putString("network_settings", json) }
+                                        },
+                                    )
+                                }
+                            }
                         }
                         true
                     }
@@ -219,6 +248,11 @@ class UsqueVpnService : VpnService() {
                         true
                     }
 
+                    MSG_UPDATE_LOCALE -> {
+                        updateLocale(message.data.getString("catalog_id"))
+                        true
+                    }
+
                     else -> {
                         false
                     }
@@ -231,6 +265,11 @@ class UsqueVpnService : VpnService() {
         logStore.record(AndroidLogStore.Event.SERVICE_CREATED)
         notifications.createChannel()
         networkMonitor.register(getSystemService(ConnectivityManager::class.java))
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        refreshLocalizedSurfaces()
     }
 
     override fun onBind(intent: Intent?): IBinder? =
@@ -282,7 +321,7 @@ class UsqueVpnService : VpnService() {
                     (!recoveryNeedsVpn || VpnService.prepare(this) == null) &&
                     recoveryProfile.toByteArray(Charsets.UTF_8).size <= MAX_PROFILE_BYTES
                 ) {
-                    beginConnection(recoveryProfile)
+                    beginConnection(recoveryProfile, newSession = false)
                 } else {
                     stopSelf()
                     return START_NOT_STICKY
@@ -306,6 +345,7 @@ class UsqueVpnService : VpnService() {
         destroyed = true
         networkMonitor.cancelScheduledSelection()
         connectionGeneration.incrementAndGet()
+        settingsApplication.cancel()
         networkMonitor.bumpGeneration()
         activeProfileJson.set(null)
         activeMode.set(null)
@@ -315,10 +355,9 @@ class UsqueVpnService : VpnService() {
         NativeEngine.cancel()
         val descriptor = tunnel.getAndSet(null)
         closeQuietly(descriptor)
-        stopExecutor.execute {
-            NativeEngine.stop()
-        }
+        submitNativeStop()
         engineExecutor.shutdownNow()
+        settingsExecutor.shutdownNow()
         statusExecutor.shutdownNow()
         stopExecutor.shutdown()
         networkMonitor.unregister(getSystemService(ConnectivityManager::class.java))
@@ -327,12 +366,23 @@ class UsqueVpnService : VpnService() {
 
     // Recovery state must be durable before starting the native connection.
     @SuppressLint("ApplySharedPref", "UseKtx")
-    private fun beginConnection(profileJson: String) {
+    private fun beginConnection(
+        requestedProfileJson: String,
+        desiredProfileJson: String = requestedProfileJson,
+        newSession: Boolean = true,
+        settingsToken: Long? = null,
+    ) {
+        val previousGeneration = connectionGeneration.get()
+        val continuingSettings =
+            settingsToken != null && settingsApplication.owns(settingsToken, previousGeneration) &&
+                settingsApplication.phase == NetworkSettingsApplicationTracker.Phase.RECONFIGURING
+        if (settingsToken != null && !continuingSettings) return
+        var profileJson = requestedProfileJson
         diagnosticProbes.cancel()
         if (profileJson.toByteArray(Charsets.UTF_8).size > MAX_PROFILE_BYTES) {
             startForeground(
                 VpnNotificationController.NOTIFICATION_ID,
-                notifications.build("Invalid VPN profile"),
+                notifications.build(AndroidLocaleController.getString(this, R.string.vpn_notif_invalid_profile)),
             )
             snapshotState.reset("error")
             snapshotState.warning = "The VPN profile exceeds the Android safety limit."
@@ -341,6 +391,12 @@ class UsqueVpnService : VpnService() {
         }
         val (mode, tunnelEnabled) =
             try {
+                if (newSession) {
+                    val configPath = File(noBackupFilesDir, "usque_config/profiles-v2.json").absolutePath
+                    val catalog =
+                        requireNotNull(NativeEngine.applyProfileCommand(configPath, """{"command":"list_profiles"}"""))
+                    profileJson = NetworkSettingsFields.savedProfile(profileJson, catalog)
+                }
                 val source = JSONObject(profileJson)
                 val tunnelEnabled = VpnReconfigure.tunnelFrontendEnabled(source)
                 if (tunnelEnabled) {
@@ -353,23 +409,28 @@ class UsqueVpnService : VpnService() {
             } catch (error: Exception) {
                 startForeground(
                     VpnNotificationController.NOTIFICATION_ID,
-                    notifications.build("Invalid network profile"),
+                    notifications.build(
+                        AndroidLocaleController.getString(this, R.string.vpn_notif_invalid_network_profile),
+                    ),
                 )
                 snapshotState.reset("error")
                 snapshotState.warning = "The network profile is invalid: ${safeMessage(error)}"
                 broadcastSnapshot()
                 return
             }
+        val recoveryProfile = if (settingsApplication.busy && !newSession) confirmedSettingsProfile else profileJson
         if (
             !recoveryPreferences
                 .edit()
-                .putString(RECOVERY_PROFILE, profileJson)
-                .putString(LAST_PROFILE, profileJson)
+                .putString(RECOVERY_PROFILE, recoveryProfile)
+                .putString(LAST_PROFILE, if (newSession) profileJson else desiredProfileJson)
                 .commit()
         ) {
             startForeground(
                 VpnNotificationController.NOTIFICATION_ID,
-                notifications.build("VPN recovery unavailable"),
+                notifications.build(
+                    AndroidLocaleController.getString(this, R.string.vpn_notif_recovery_unavailable),
+                ),
             )
             snapshotState.reset("error")
             snapshotState.warning = "Android could not save the non-secret recovery profile."
@@ -377,6 +438,27 @@ class UsqueVpnService : VpnService() {
             return
         }
         val generation = connectionGeneration.incrementAndGet()
+        settingsUncertain = false
+        runtimeReconfigureInFlight = false
+        if (settingsToken != null &&
+            settingsApplication.migrateSession(settingsToken, previousGeneration, generation)
+        ) {
+            settingsExecutor.execute {
+                runCatching {
+                    NativeEngine.networkSettings(
+                        settingsPath,
+                        JSONObject()
+                            .put("command", "observe")
+                            .put("profile", JSONObject.NULL)
+                            .put("session_id", generation.toString())
+                            .put("applying", true)
+                            .toString(),
+                    )
+                }
+            }
+        } else {
+            settingsApplication.cancel()
+        }
         networkMonitor.bumpGeneration()
         activeProfileJson.set(profileJson)
         activeMode.set(mode)
@@ -387,7 +469,7 @@ class UsqueVpnService : VpnService() {
         )
         startForeground(
             VpnNotificationController.NOTIFICATION_ID,
-            notifications.build("Preparing secure tunnel"),
+            notifications.build(notifications.copyFor("preparing")),
         )
         snapshotState.reset("preparing")
         notifyTileStateChanged()
@@ -416,18 +498,19 @@ class UsqueVpnService : VpnService() {
         val staleDescriptor =
             if (decision == TunRestartDecision.TEARDOWN) {
                 lastTunIdentity.set(null)
-                tunnel.getAndSet(null)
+                // Retain Java's protective FD until native stop is confirmed.
+                // A timed-out stop must not lose its cleanup owner to GC.
+                tunnel.get()
             } else {
                 null
             }
-        val stopped =
-            stopExecutor.submit {
-                NativeEngine.stop()
-                closeQuietly(staleDescriptor)
-            }
+        val stopped = submitNativeStop()
         engineExecutor.execute {
             try {
-                stopped.get(35, TimeUnit.SECONDS)
+                check(stopped.get(35, TimeUnit.SECONDS)) { "Native stop is unconfirmed" }
+                if (staleDescriptor != null && tunnel.compareAndSet(staleDescriptor, null)) {
+                    closeQuietly(staleDescriptor)
+                }
                 if (!isCurrent(generation)) return@execute
                 startConnection(generation, profileJson)
             } catch (error: Exception) {
@@ -450,8 +533,18 @@ class UsqueVpnService : VpnService() {
     }
 
     @SuppressLint("ApplySharedPref", "UseKtx")
-    private fun reconfigureConnection(request: Message) {
-        val profileJson = request.data.getString(EXTRA_PROFILE_JSON).orEmpty()
+    private fun reconfigureConnection(
+        request: Message,
+        settingsToken: Long? = null,
+    ) {
+        val settingsRequest = settingsToken != null
+        if (settingsApplication.busy && !settingsRequest) {
+            replyControlError(request, "NETWORK_SETTINGS_BUSY", "A settings application is in progress.")
+            return
+        }
+        if (settingsToken != null && !settingsApplication.owns(settingsToken, connectionGeneration.get())) return
+        val desiredProfileJson = request.data.getString(EXTRA_PROFILE_JSON).orEmpty()
+        val profileJson = desiredProfileJson
         if (profileJson.isEmpty() || profileJson.toByteArray(Charsets.UTF_8).size > MAX_PROFILE_BYTES) {
             replyControlError(request, "INVALID_ARGUMENT", "The reconfigure profile is malformed.")
             return
@@ -474,8 +567,8 @@ class UsqueVpnService : VpnService() {
         if (
             !recoveryPreferences
                 .edit()
-                .putString(RECOVERY_PROFILE, profileJson)
-                .putString(LAST_PROFILE, profileJson)
+                .putString(RECOVERY_PROFILE, if (settingsRequest) confirmedSettingsProfile else profileJson)
+                .putString(LAST_PROFILE, desiredProfileJson)
                 .commit()
         ) {
             replyControlError(
@@ -487,11 +580,13 @@ class UsqueVpnService : VpnService() {
         }
         // Disconnect bumps this; JNI continuations must not reconnect a stopped session.
         val generation = connectionGeneration.get()
+        runtimeReconfigureInFlight = true
+        request.data.putLong("runtime_reconfigure_generation", generation)
         activeProfileJson.set(profileJson)
         activeMode.set(mode)
 
         if (!nativeRuntimeActive.get()) {
-            beginConnection(profileJson)
+            beginConnection(profileJson, desiredProfileJson, newSession = false, settingsToken = settingsToken)
             request.let(::replyWithSnapshot)
             return
         }
@@ -526,7 +621,12 @@ class UsqueVpnService : VpnService() {
                 NativeEngine.RECONFIGURE_NEED_COLD -> {
                     mainHandler.post {
                         if (isCurrent(generation)) {
-                            beginConnection(profileJson)
+                            beginConnection(
+                                profileJson,
+                                desiredProfileJson,
+                                newSession = false,
+                                settingsToken = settingsToken,
+                            )
                         }
                         replyWithSnapshot(request)
                     }
@@ -660,7 +760,7 @@ class UsqueVpnService : VpnService() {
                 replyControlError(
                     it,
                     "TILE_PROFILE_REQUIRED",
-                    "Open Usque and connect a VPN profile once before using the tile.",
+                    AndroidLocaleController.getString(this, R.string.tile_profile_required),
                 )
             }
             stopSelf()
@@ -699,7 +799,7 @@ class UsqueVpnService : VpnService() {
                 replyControlError(
                     it,
                     "TILE_IDENTITY_REQUIRED",
-                    "Open Usque and configure the WARP identity for this profile.",
+                    AndroidLocaleController.getString(this, R.string.tile_identity_required),
                 )
             }
             stopSelf()
@@ -711,7 +811,7 @@ class UsqueVpnService : VpnService() {
                 replyControlError(
                     it,
                     "TILE_VPN_PERMISSION_REQUIRED",
-                    "Open Usque to grant Android VPN permission.",
+                    AndroidLocaleController.getString(this, R.string.tile_vpn_permission_required),
                 )
             }
             if (request == null) {
@@ -755,7 +855,7 @@ class UsqueVpnService : VpnService() {
             replyControlError(
                 request,
                 "TILE_VPN_FRONTEND_INACTIVE",
-                "A proxy-only connection is active. Open Usque to enable the VPN frontend.",
+                AndroidLocaleController.getString(this, R.string.tile_proxy_only),
             )
         } else {
             connectLastProfile(request)
@@ -924,7 +1024,7 @@ class UsqueVpnService : VpnService() {
                 return
             }
             if (!isCurrent(generation)) {
-                NativeEngine.stop()
+                stopNativeRuntime(beginNativeStop())
                 if (!profile.killSwitch) {
                     tunnel.compareAndSet(descriptor, null)
                     closeQuietly(descriptor)
@@ -993,7 +1093,7 @@ class UsqueVpnService : VpnService() {
                 return
             }
             if (!isCurrent(generation)) {
-                NativeEngine.stop()
+                stopNativeRuntime(beginNativeStop())
                 return
             }
             nativeRuntimeActive.set(true)
@@ -1285,7 +1385,11 @@ class UsqueVpnService : VpnService() {
             request.let(::replyWithSnapshot)
             return
         }
-        beginConnection(profileJson)
+        beginConnection(
+            profileJson,
+            recoveryPreferences.getString(LAST_PROFILE, null) ?: profileJson,
+            newSession = false,
+        )
         request.let(::replyWithSnapshot)
     }
 
@@ -1300,10 +1404,12 @@ class UsqueVpnService : VpnService() {
         lastTunIdentity.set(null)
         pendingTunRestart = TunRestartDecision.TEARDOWN
         val generation = connectionGeneration.incrementAndGet()
+        settingsApplication.cancel()
         networkMonitor.bumpGeneration()
         activeProfileJson.set(null)
         val stoppedMode = activeMode.getAndSet(null)
         nativeRuntimeActive.set(false)
+        val stopTicket = beginNativeStop()
         stopStatusTask()
         NativeEngine.cancel()
         val descriptor = tunnel.getAndSet(null)
@@ -1320,11 +1426,20 @@ class UsqueVpnService : VpnService() {
         stopForeground(STOP_FOREGROUND_REMOVE)
 
         // Joining the native Tokio thread is cleanup, not part of the user
-        // visible disconnect. The TUN and cancellation gate are already closed.
-        stopExecutor.execute {
-            NativeEngine.stop()
+        // visible disconnect. Java's TUN handle and the cancellation gate are
+        // closed; native duplicate-FD and worker completion are tracked below.
+        submitNativeStop(stopTicket) { confirmed ->
             mainHandler.post {
-                if (connectionGeneration.get() == generation && stopService) stopSelf()
+                if (connectionGeneration.get() == generation) {
+                    broadcastSnapshot()
+                    if (confirmed && stopService) stopSelf()
+                    if (!confirmed) {
+                        fail(
+                            generation,
+                            "Native cleanup is not confirmed. Retry before reconnecting.",
+                        )
+                    }
+                }
             }
         }
     }
@@ -1342,12 +1457,15 @@ class UsqueVpnService : VpnService() {
         }
         clearAllRequested.set(true)
         recoveryPreferences.edit().clear().commit()
+        AndroidLocaleController.clear(this)
         PerAppProxyStore.clear(this)
         val generation = connectionGeneration.incrementAndGet()
+        settingsApplication.cancel()
         networkMonitor.bumpGeneration()
         activeProfileJson.set(null)
         activeMode.set(null)
         nativeRuntimeActive.set(false)
+        val stopTicket = beginNativeStop()
         stopStatusTask()
         snapshotState.phase = "disconnecting"
         snapshotState.warning = null
@@ -1356,10 +1474,14 @@ class UsqueVpnService : VpnService() {
         NativeEngine.cancel()
         val descriptor = tunnel.getAndSet(null)
         closeQuietly(descriptor)
-        stopExecutor.execute {
-            NativeEngine.stop()
+        submitNativeStop(stopTicket) { confirmed ->
             mainHandler.post {
                 if (connectionGeneration.get() == generation) {
+                    if (!confirmed) {
+                        replyControlError(request, "NATIVE_STOP_UNCONFIRMED", "Native cleanup has not completed.")
+                        fail(generation, "Native cleanup has not completed. Retry stopping before clearing data.")
+                        return@post
+                    }
                     snapshotState.reset("disconnected")
                     notifyTileStateChanged()
                     broadcastSnapshot()
@@ -1370,6 +1492,40 @@ class UsqueVpnService : VpnService() {
             }
         }
     }
+
+    private fun beginNativeStop(): Long {
+        val ticket = nativeStops.begin()
+        logStore.record(AndroidLogStore.Event.NATIVE_STOP_REQUESTED)
+        return ticket
+    }
+
+    private fun stopNativeRuntime(ticket: Long): Boolean {
+        val confirmed = NativeEngine.stop()
+        nativeStops.complete(ticket, confirmed)
+        logStore.record(
+            if (confirmed) {
+                AndroidLogStore.Event.NATIVE_STOP_COMPLETED
+            } else {
+                AndroidLogStore.Event.NATIVE_STOP_UNCONFIRMED
+            },
+        )
+        return confirmed
+    }
+
+    private fun submitNativeStop(
+        ticket: Long = beginNativeStop(),
+        completed: (Boolean) -> Unit = {},
+    ): Future<Boolean> =
+        try {
+            stopExecutor.submit<Boolean> {
+                val confirmed = stopNativeRuntime(ticket)
+                completed(confirmed)
+                confirmed
+            }
+        } catch (error: java.util.concurrent.RejectedExecutionException) {
+            nativeStops.complete(ticket, false)
+            throw error
+        }
 
     private fun handleUnderlyingNetworkChanged(
         selectedNetwork: Network?,
@@ -1453,6 +1609,193 @@ class UsqueVpnService : VpnService() {
         }
     }
 
+    private fun networkSettingsRequest(request: Message) {
+        val generation = connectionGeneration.get()
+        settingsApplication.cancelIfStale(generation)
+        val phase = snapshotState.phase
+        val available =
+            !destroyed && !settingsApplication.busy && !settingsUncertain && !runtimeReconfigureInFlight &&
+                nativeRuntimeActive.get() && phase in setOf("connected", "degraded")
+        val saving = request.what == MSG_SAVE_SETTINGS
+        val token = if (saving && available) settingsApplication.begin(generation) else null
+        settingsExecutor.execute {
+            val outcome =
+                runCatching {
+                    val command =
+                        if (saving) {
+                            JSONObject(request.data.getString("settings_request").orEmpty()).apply {
+                                put("command", "save")
+                                put("phase", phase)
+                                put("available", available)
+                                put("session_id", generation.toString())
+                            }
+                        } else {
+                            JSONObject().put("command", "get")
+                        }
+                    JSONObject(requireNotNull(NativeEngine.networkSettings(settingsPath, command.toString())))
+                }
+            mainHandler.post {
+                val source = outcome.getOrNull()
+                if (source == null) {
+                    if (token != null) settingsApplication.finish(token, generation)
+                    val rejected = outcome.exceptionOrNull()?.message?.contains("NETWORK_SETTINGS_SAVE_FAILED") == true
+                    replySettings(
+                        request,
+                        null,
+                        if (rejected) "NETWORK_SETTINGS_SAVE_FAILED" else "NETWORK_SETTINGS_UNCONFIRMED",
+                    )
+                    return@post
+                }
+                val target = source.optJSONObject("target")?.toString()
+                source.remove("target")
+                val json = source.toString()
+                if (isCurrent(generation) && (token == null || settingsApplication.owns(token, generation))) {
+                    publishSettings(json)
+                }
+                // Session cancellation retires application ownership, not the
+                // durable acknowledgement owed to this save's caller.
+                replySettings(request, json, null)
+                if (token == null || !isCurrent(generation) || !settingsApplication.owns(token, generation)) return@post
+                if (target == null || snapshotState.phase !in setOf("connected", "degraded")) {
+                    settingsApplication.finish(token, generation)
+                    observeNetworkSettings()
+                    return@post
+                }
+                val operation = source.getString("operation_id")
+                if (!settingsApplication.committed(token, generation, operation)) return@post
+                val reply =
+                    Messenger(
+                        Handler(Looper.getMainLooper()) { replyMessage ->
+                            val currentGeneration = connectionGeneration.get()
+                            if (!isCurrent(currentGeneration)) return@Handler true
+                            val application =
+                                settingsApplication.runtimeReplied(token, currentGeneration) ?: return@Handler true
+                            if (replyMessage.data.getString("control_error_code") != null) {
+                                val failedGeneration = application.generation
+                                settingsUncertain = true
+                                settingsApplication.finish(token, failedGeneration)
+                                settingsExecutor.execute {
+                                    val json =
+                                        runCatching {
+                                            NativeEngine.networkSettings(
+                                                settingsPath,
+                                                JSONObject()
+                                                    .put("command", "failed")
+                                                    .put("operation_id", application.operationId)
+                                                    .put("session_id", failedGeneration.toString())
+                                                    .toString(),
+                                            )
+                                        }.getOrNull()
+                                    mainHandler.post {
+                                        if (isCurrent(failedGeneration) && settingsApplication.isLatest(token) &&
+                                            json != null
+                                        ) {
+                                            publishSettings(json)
+                                        }
+                                    }
+                                }
+                                return@Handler true
+                            }
+                            observeNetworkSettings()
+                            refreshNativeSnapshot()
+                            true
+                        },
+                    )
+                reconfigureConnection(
+                    Message.obtain(null, MSG_RECONFIGURE).apply {
+                        replyTo = reply
+                        data = Bundle().apply { putString(EXTRA_PROFILE_JSON, target) }
+                    },
+                    settingsToken = token,
+                )
+            }
+        }
+    }
+
+    // The synchronous commit result is part of the recovery confirmation.
+    @SuppressLint("ApplySharedPref", "UseKtx")
+    private fun observeNetworkSettings() {
+        if (destroyed) return
+        val generation = connectionGeneration.get()
+        settingsApplication.cancelIfStale(generation)
+        if (!settingsApplication.allowsObservation(generation)) return
+        if (runtimeReconfigureInFlight) return
+        if (settingsUncertain) return
+        val profile = activeProfileJson.get()
+        val stable =
+            snapshotState.phase in setOf("connected", "degraded") &&
+                nativeRuntimeActive.get() && profile != null &&
+                (!VpnReconfigure.tunnelFrontendEnabled(profile) || tunnel.get()?.fileDescriptor?.valid() == true)
+        val application = settingsApplication.current(generation)
+        val failed = application != null && snapshotState.phase == "error"
+        if (application != null && !stable && !failed) return
+        val command =
+            if (failed) {
+                settingsUncertain = true
+                activeProfileJson.set(confirmedSettingsProfile)
+                JSONObject()
+                    .put("command", "failed")
+                    .put("operation_id", application.operationId)
+                    .put("session_id", generation.toString())
+            } else {
+                if (stable && profile != confirmedSettingsProfile) {
+                    if (!recoveryPreferences.edit().putString(RECOVERY_PROFILE, profile).commit()) {
+                        settingsUncertain = true
+                    } else {
+                        confirmedSettingsProfile = profile
+                    }
+                }
+                JSONObject()
+                    .put("command", "observe")
+                    .put("profile", if (stable) JSONObject(profile) else JSONObject.NULL)
+                    .put("session_id", generation.toString())
+                    .put("applying", false)
+                    .put("unconfirmed", settingsUncertain)
+            }
+        if (application != null) settingsApplication.finish(application.token, generation)
+        settingsExecutor.execute {
+            val json = runCatching { NativeEngine.networkSettings(settingsPath, command.toString()) }.getOrNull()
+            mainHandler.post {
+                if (isCurrent(generation) && (application == null || settingsApplication.isLatest(application.token)) &&
+                    json != null
+                ) {
+                    publishSettings(json)
+                }
+            }
+        }
+    }
+
+    private fun publishSettings(json: String) {
+        settingsStateJson = json
+        eventClients.toList().forEach { client ->
+            runCatching {
+                client.send(
+                    Message.obtain(null, MSG_SETTINGS_EVENT).apply {
+                        data = Bundle().apply { putString("network_settings", json) }
+                    },
+                )
+            }
+        }
+    }
+
+    private fun replySettings(
+        request: Message,
+        json: String?,
+        error: String?,
+    ) {
+        runCatching {
+            request.replyTo?.send(
+                Message.obtain(null, request.what, request.arg1, 0).apply {
+                    data =
+                        Bundle().apply {
+                            putString("network_settings", json)
+                            putString("settings_error", error)
+                        }
+                },
+            )
+        }
+    }
+
     private fun refreshNativeSnapshot() {
         if (destroyed || !nativeRuntimeActive.get()) return
         statusExecutor.execute(::refreshNativeSnapshotInBackground)
@@ -1460,6 +1803,7 @@ class UsqueVpnService : VpnService() {
 
     private fun refreshNativeSnapshotInBackground() {
         if (destroyed || !nativeRuntimeActive.get()) return
+        val generation = connectionGeneration.get()
         val source =
             try {
                 JSONObject(NativeEngine.snapshot() ?: return)
@@ -1467,7 +1811,7 @@ class UsqueVpnService : VpnService() {
                 return
             }
         mainHandler.post {
-            if (!destroyed && nativeRuntimeActive.get()) {
+            if (isCurrent(generation) && nativeRuntimeActive.get()) {
                 applyNativeSnapshot(source)
             }
         }
@@ -1475,6 +1819,7 @@ class UsqueVpnService : VpnService() {
 
     private fun applyNativeSnapshot(source: JSONObject) {
         val merge = snapshotState.applyNativeSnapshot(source)
+        observeNetworkSettings()
         merge.cacheWrite?.let { write ->
             statusExecutor.execute {
                 try {
@@ -1573,6 +1918,11 @@ class UsqueVpnService : VpnService() {
     }
 
     private fun replyWithSnapshot(request: Message) {
+        if (request.what == MSG_RECONFIGURE &&
+            request.data.getLong("runtime_reconfigure_generation", -1) == connectionGeneration.get()
+        ) {
+            runtimeReconfigureInFlight = false
+        }
         val reply =
             Message.obtain(null, MSG_SNAPSHOT).apply {
                 arg1 = request.arg1
@@ -1607,6 +1957,7 @@ class UsqueVpnService : VpnService() {
     }
 
     private fun broadcastSnapshot() {
+        observeNetworkSettings()
         val snapshot = snapshotState.takeBroadcastBundle(platformFlags()) ?: return
         eventClients.forEach { client -> sendEvent(client, snapshot) }
     }
@@ -1651,11 +2002,23 @@ class UsqueVpnService : VpnService() {
             dnsServerCount = networkMonitor.underlyingDnsServers().size,
             nativeRuntimeActive = nativeRuntimeActive.get(),
             foregroundNotificationActive = activeProfileJson.get() != null,
-            pendingCleanup = clearAllRequested.get(),
+            pendingCleanup = clearAllRequested.get() || nativeStops.pendingCleanup(),
         )
 
     private fun updateNotification() {
-        notifications.update(snapshotState.notificationText())
+        notifications.update(notifications.copyFor(snapshotState))
+    }
+
+    private fun updateLocale(catalogId: String?) {
+        if (catalogId == null || !AndroidLocaleController.applyToProcess(catalogId)) return
+        refreshLocalizedSurfaces()
+    }
+
+    private fun refreshLocalizedSurfaces() {
+        notifications.createChannel()
+        if (snapshotState.phase != "disconnected") updateNotification()
+        lastTilePresentation = null
+        notifyTileStateChanged()
     }
 
     private fun isCurrent(generation: Long): Boolean = !destroyed && connectionGeneration.get() == generation

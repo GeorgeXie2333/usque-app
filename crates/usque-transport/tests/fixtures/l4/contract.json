@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "source_commit": "6aa03fc97d12848dce34eedbd187fb1077b5d1ea",
+  "source_path": "api/l4proxy.go",
+  "kind": "source-derived semantic vectors, not captured wire traffic",
+  "consumer_sni": "consumer-masque-proxy.cloudflareclient.com",
+  "zero_trust_sni": "zt-masque-proxy.cloudflareclient.com",
+  "zero_trust_source": "https://github.com/Diniboy1123/usque/issues/126",
+  "targets": [
+    {"host": "example.test", "port": 443, "authority": "example.test:443"},
+    {"host": "192.0.2.1", "port": 80, "authority": "192.0.2.1:80"},
+    {"host": "2001:db8::1", "port": 853, "authority": "[2001:db8::1]:853"}
+  ],
+  "request_pseudo_headers": [":method", ":authority"],
+  "method": "CONNECT",
+  "forbidden_request_fields": [":protocol", ":path", ":scheme", "capsule-protocol", "proxy-authorization"],
+  "accepted_final_statuses": [200, 204, 299],
+  "rejected_final_statuses": [300, 401, 403, 500],
+  "datagrams_required": false,
+  "payload_frames": "HTTP/3 DATA",
+  "connection_id_length": 20,
+  "session_reuse": true,
+  "live_consumer_result": "not_run",
+  "live_zero_trust_result": "not_run"
+}

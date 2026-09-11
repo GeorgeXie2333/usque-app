@@ -509,6 +509,7 @@ class _NetworkOutputsPanel extends StatelessWidget {
             value: frontends.tunnel,
             onChanged: (value) => controller.updateNetwork(
               profile.copyWith(frontends: frontends.copyWith(tunnel: value)),
+              changedFields: const ['frontends.tunnel'],
             ),
           ),
         if (proxyOnly)
@@ -519,6 +520,7 @@ class _NetworkOutputsPanel extends StatelessWidget {
             value: frontends.socks5,
             onChanged: (value) => controller.updateNetwork(
               profile.copyWith(frontends: frontends.copyWith(socks5: value)),
+              changedFields: const ['frontends.socks5'],
             ),
           ),
         if (proxyOnly)
@@ -529,6 +531,7 @@ class _NetworkOutputsPanel extends StatelessWidget {
             value: frontends.http,
             onChanged: (value) => controller.updateNetwork(
               profile.copyWith(frontends: frontends.copyWith(http: value)),
+              changedFields: const ['frontends.http'],
             ),
           ),
         if (proxyOnly && windows)
@@ -542,6 +545,7 @@ class _NetworkOutputsPanel extends StatelessWidget {
                     profile.copyWith(
                       proxy: profile.proxy.copyWith(systemProxy: value),
                     ),
+                    changedFields: const ['proxy.system_proxy'],
                   )
                 : null,
           ),
@@ -551,8 +555,10 @@ class _NetworkOutputsPanel extends StatelessWidget {
             secondary: const Icon(LucideIcons.zap),
             title: Text(strings.get('auto_connect')),
             value: profile.autoConnect,
-            onChanged: (value) =>
-                controller.updateNetwork(profile.copyWith(autoConnect: value)),
+            onChanged: (value) => controller.updateNetwork(
+              profile.copyWith(autoConnect: value),
+              changedFields: const ['auto_connect'],
+            ),
           ),
         if (!proxyOnly && !frontends.any) ...<Widget>[
           const SizedBox(height: 8),
@@ -561,6 +567,16 @@ class _NetworkOutputsPanel extends StatelessWidget {
             message: strings.get('channel_only_warning'),
           ),
         ],
+        if (controller.networkSettingsMessage != null)
+          Semantics(
+            liveRegion: true,
+            child: Text(controller.networkSettingsMessage!),
+          ),
+        if (controller.networkSettingsCanReconnect)
+          OutlinedButton(
+            onPressed: controller.retry,
+            child: Text(strings.get('settings_reconnect')),
+          ),
       ],
     );
   }

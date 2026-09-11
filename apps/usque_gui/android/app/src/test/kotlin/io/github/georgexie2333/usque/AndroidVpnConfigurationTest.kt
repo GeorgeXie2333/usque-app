@@ -9,6 +9,14 @@ import java.net.InetAddress
 
 class AndroidVpnConfigurationTest {
     @Test
+    fun l4AlwaysAddsInternalDnsWithoutRequiringPhysicalDnsOrGeo() {
+        val l4 = profile("ipv4Only").copy(dataPlane = "l4_proxy")
+        assertTrue(l4.splitDnsEnabled)
+        assertEquals(false, l4.requiresPhysicalDns)
+        assertEquals(listOf(l4.dnsIpv4, l4.dnsIpv6), l4.dnsServers)
+    }
+
+    @Test
     fun encryptedBootstrapDoesNotRequirePhysicalDnsMetadata() {
         val geo = profile("automatic").copy(geoDirectCountries = listOf("CN"))
         assertTrue(geo.requiresPhysicalDns)

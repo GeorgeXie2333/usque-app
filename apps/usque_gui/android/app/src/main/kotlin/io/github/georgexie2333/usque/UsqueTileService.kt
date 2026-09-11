@@ -54,7 +54,7 @@ class UsqueTileService : TileService() {
         if (lastClickElapsed != 0L && now - lastClickElapsed < CLICK_DEBOUNCE_MILLIS) return
         lastClickElapsed = now
 
-        render(QuickSettingsTileState.pending("Working"))
+        render(QuickSettingsTileState.pending("working"))
         sendControl(UsqueVpnService.MSG_TILE_TOGGLE, openAppOnFailure = true)
     }
 
@@ -153,7 +153,7 @@ class UsqueTileService : TileService() {
     ) {
         val controlError = snapshot.getString("control_error_code")
         if (controlError != null) {
-            render(QuickSettingsTileState.inactive("Open Usque"))
+            render(QuickSettingsTileState.inactive("open_app"))
             if (openAppOnFailure) openApp()
             if (openAppOnFailure) requestAuthoritativeRefresh()
             return
@@ -174,7 +174,7 @@ class UsqueTileService : TileService() {
         if (activeConnection !== connection) return
         finishRequest(connection)
         if (openAppOnFailure) {
-            render(QuickSettingsTileState.inactive("Open Usque"))
+            render(QuickSettingsTileState.inactive("open_app"))
             openApp()
             requestAuthoritativeRefresh()
         } else {
@@ -204,20 +204,38 @@ class UsqueTileService : TileService() {
                     QuickSettingsTileState.State.UNAVAILABLE -> Tile.STATE_UNAVAILABLE
                 }
             label = "Usque"
+            val subtitleText = tileSubtitle(presentation.subtitle)
             contentDescription =
-                if (presentation.subtitle == null) {
+                if (subtitleText == null) {
                     "Usque"
                 } else {
-                    "Usque, ${presentation.subtitle}"
+                    "Usque, $subtitleText"
                 }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                subtitle = presentation.subtitle
+                subtitle = subtitleText
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                stateDescription = presentation.subtitle
+                stateDescription = subtitleText
             }
             updateTile()
         }
+    }
+
+    private fun tileSubtitle(key: String?): String? {
+        val id =
+            when (key) {
+                "connected" -> R.string.tile_connected
+                "disconnected" -> R.string.tile_disconnected
+                "connecting" -> R.string.tile_connecting
+                "reconnecting" -> R.string.tile_reconnecting
+                "disconnecting" -> R.string.tile_disconnecting
+                "checking" -> R.string.tile_checking
+                "working" -> R.string.tile_working
+                "open_app" -> R.string.tile_open_app
+                null -> return null
+                else -> return key
+            }
+        return AndroidLocaleController.getString(this, id)
     }
 
     private fun cachedPresentation(): QuickSettingsTileState.Presentation {

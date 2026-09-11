@@ -14,6 +14,10 @@ class SaveChangesBar extends StatelessWidget {
     required this.onSave,
     this.error,
     this.saved = false,
+    this.savedLabel,
+    this.idleHint,
+    this.statusLabel,
+    this.onReconnect,
     super.key,
   });
 
@@ -21,6 +25,10 @@ class SaveChangesBar extends StatelessWidget {
   final bool dirty;
   final bool saving;
   final bool saved;
+  final String? savedLabel;
+  final String? idleHint;
+  final String? statusLabel;
+  final VoidCallback? onReconnect;
   final String? error;
   final VoidCallback? onSave;
 
@@ -28,16 +36,15 @@ class SaveChangesBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final message =
+        statusLabel ??
         error ??
-        strings.get(
-          saving
-              ? 'saving_changes'
-              : dirty
-              ? 'unsaved_changes'
-              : saved
-              ? 'changes_applied'
-              : 'changes_apply_hint',
-        );
+        (saving
+            ? strings.get('saving_changes')
+            : dirty
+            ? strings.get('unsaved_changes')
+            : saved
+            ? savedLabel ?? strings.get('changes_applied')
+            : idleHint ?? strings.get('changes_apply_hint'));
     return Material(
       color: theme.colorScheme.surface,
       child: DecoratedBox(
@@ -69,7 +76,7 @@ class SaveChangesBar extends StatelessWidget {
                         ),
                       ),
                     );
-                    final save = FilledButton.icon(
+                    final saveButton = FilledButton.icon(
                       onPressed: saving || (!dirty && error == null)
                           ? null
                           : onSave,
@@ -83,6 +90,23 @@ class SaveChangesBar extends StatelessWidget {
                         strings.get(saving ? 'saving_changes' : 'save_changes'),
                       ),
                     );
+                    final save = onReconnect == null
+                        ? saveButton
+                        : Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            alignment: WrapAlignment.end,
+                            children: [
+                              if (onReconnect != null)
+                                OutlinedButton(
+                                  onPressed: onReconnect,
+                                  child: Text(
+                                    strings.get('settings_reconnect'),
+                                  ),
+                                ),
+                              saveButton,
+                            ],
+                          );
                     if (constraints.maxWidth < 520 ||
                         MediaQuery.textScalerOf(context).scale(14) > 21) {
                       return Column(

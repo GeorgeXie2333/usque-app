@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="vpn_channel_name">خدمت شبکهٔ Usque</string>
+    <string name="vpn_channel_description">وضعیت پایدار VPN فعال Usque یا پیشکار محلی</string>
+    <string name="vpn_notif_disconnect">قطع اتصال</string>
+    <string name="vpn_notif_preparing">آماده‌سازی تونل امن</string>
+    <string name="vpn_notif_connecting_h3">اتصال با HTTP/3</string>
+    <string name="vpn_notif_connecting_h2">اتصال با HTTP/2</string>
+    <string name="vpn_notif_connected">متصل</string>
+    <string name="vpn_notif_connected_via">متصل از طریق %1$s</string>
+    <string name="vpn_notif_degraded">متصل با پشتیبانی محدود خانوادهٔ نشانی</string>
+    <string name="vpn_notif_reconnecting">اتصال دوبارهٔ امن</string>
+    <string name="vpn_notif_error">خدمت شبکه پس از خطا متوقف شد</string>
+    <string name="vpn_notif_disconnecting">در حال قطع اتصال</string>
+    <string name="vpn_notif_idle">Usque VPN</string>
+    <string name="vpn_notif_invalid_profile">نمایهٔ VPN نامعتبر</string>
+    <string name="vpn_notif_invalid_network_profile">نمایهٔ شبکه نامعتبر</string>
+    <string name="vpn_notif_recovery_unavailable">بازیابی VPN در دسترس نیست</string>
+    <string name="tile_connected">متصل</string>
+    <string name="tile_disconnected">قطع‌شده</string>
+    <string name="tile_connecting">در حال اتصال</string>
+    <string name="tile_reconnecting">اتصال دوباره</string>
+    <string name="tile_disconnecting">قطع اتصال</string>
+    <string name="tile_checking">در حال بررسی</string>
+    <string name="tile_working">در حال انجام</string>
+    <string name="tile_open_app">باز کردن Usque</string>
+    <string name="tile_profile_required">پیش از استفاده از کاشی، Usque را باز کنید و یک‌بار به نمایهٔ VPN متصل شوید.</string>
+    <string name="tile_identity_required">Usque را باز کنید و هویت WARP این نمایه را پیکربندی کنید.</string>
+    <string name="tile_vpn_permission_required">برای دادن مجوز VPN اندروید Usque را باز کنید.</string>
+    <string name="tile_proxy_only">اتصال فقط-پیشکار فعال است. برای فعال‌کردن پیشانهٔ VPN، Usque را باز کنید.</string>
+    <string name="shortcut_connect">اتصال</string>
+    <string name="shortcut_disconnect">قطع اتصال</string>
+    <string name="shortcut_profiles">حساب‌ها</string>
+    <string name="shortcut_long_label">%1$s Usque</string>
+</resources>

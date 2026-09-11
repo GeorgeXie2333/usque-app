@@ -25,11 +25,9 @@ use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore, watch};
 use tokio::task::JoinHandle;
-use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
+#[cfg(test)]
 use ts_netstack_smoltcp::CreateSocket;
-use ts_netstack_smoltcp::netcore::Channel;
-use ts_netstack_smoltcp::netsock::TcpStream as StackTcpStream;
 use usque_core::{OperatingMode, Profile, ProxyAuthCredentials};
 
 use crate::dns::Resolver;
@@ -40,7 +38,6 @@ use crate::netstack::{
     TrafficSnapshot,
 };
 use crate::pin_refresh::EndpointPinRefresher;
-use crate::port_allocator::next_tcp_port;
 use crate::socket::{SocketProtector, noop_socket_protector};
 
 /// Hyper HTTP/1 `max_buf_size` is both the connection I/O window and the
@@ -184,37 +181,42 @@ impl HttpProxyFrontend {
         stack: &PacketStack,
         bound: Vec<TcpListener>,
     ) -> Result<Self, TransportError> {
+        Self::activate_services(
+            profile,
+            crate::tcp::ProxyServices::from_stack(profile, assigned_ipv4, assigned_ipv6, stack),
+            bound,
+        )
+    }
+
+    pub(crate) fn activate_services(
+        profile: &Profile,
+        services: crate::tcp::ProxyServices,
+        bound: Vec<TcpListener>,
+    ) -> Result<Self, TransportError> {
         let auth = match profile.proxy.listener_credentials() {
             Ok(credentials) => credentials.map(Arc::new),
             Err(error) => return Err(TransportError::HttpProxy(error.to_string())),
         };
-        let cancellation = stack.cancellation.child_token();
+        let cancellation = services.cancellation.child_token();
         let (failure_tx, failure) = watch::channel(None);
         let performance = Arc::new(HttpPoolCounters::default());
-        let dns_servers = if profile.proxy.dns_mode == usque_core::ProxyDnsMode::LocalConfigured {
-            profile.proxy.dns_servers.clone()
-        } else {
-            profile.dns_servers.clone()
-        };
-        let resolver = Resolver::new(
-            stack.channel.clone(),
-            assigned_ipv4,
-            assigned_ipv6,
-            dns_servers,
-            profile.proxy.dns_mode,
-            Arc::clone(&stack.protector),
-        );
         let context = Arc::new(HttpContext {
-            channel: stack.channel.clone(),
-            resolver,
-            protector: Arc::clone(&stack.protector),
-            geo_policy: Arc::clone(&stack.geo_policy),
-            counters: Arc::clone(&stack.counters),
-            assigned_ipv4,
-            assigned_ipv6,
+            l4: profile.data_plane == usque_core::DataPlaneMode::L4Proxy,
+            relay_buffer: if profile.data_plane == usque_core::DataPlaneMode::L4Proxy {
+                crate::l4::Limits::platform().relay
+            } else {
+                crate::relay::RELAY_BUFFER_SIZE
+            },
+            admission: services.admission,
+            resolver: services.resolver,
+            dialer: services.dialer,
+            edge_resolved: profile.proxy.dns_mode == usque_core::ProxyDnsMode::EdgeResolved,
+            protector: services.protector,
+            geo_policy: services.geo_policy,
+            counters: services.counters,
             cancellation: cancellation.clone(),
             failure: failure_tx,
-            health: stack.subscribe_health(),
+            health: services.health,
             performance: Arc::clone(&performance),
             auth,
         });
@@ -274,13 +276,15 @@ impl Drop for HttpProxyFrontend {
 }
 
 struct HttpContext {
-    channel: Channel,
+    l4: bool,
+    relay_buffer: usize,
+    admission: Option<Arc<crate::tcp::FrontendAdmission>>,
+    dialer: Arc<dyn crate::tcp::TcpDialer>,
+    edge_resolved: bool,
     resolver: Resolver,
     protector: Arc<dyn SocketProtector>,
     geo_policy: Arc<GeoDirectPolicy>,
     counters: Arc<TrafficCounters>,
-    assigned_ipv4: Ipv4Addr,
-    assigned_ipv6: Ipv6Addr,
     cancellation: CancellationToken,
     failure: watch::Sender<Option<String>>,
     health: watch::Receiver<RuntimeHealth>,
@@ -334,10 +338,23 @@ async fn run_listener(listener: TcpListener, context: Arc<HttpContext>) {
             tracing::warn!(%peer, "rejected non-loopback peer on a loopback HTTP proxy listener");
             continue;
         }
+        let permit = if let Some(admission) = &context.admission {
+            let Some(permit) = admission.acquire() else {
+                continue;
+            };
+            Some(permit)
+        } else {
+            None
+        };
         let connection_context = Arc::clone(&context);
         tokio::spawn(async move {
+            let _permit = permit;
             if let Err(error) = serve_client(stream, Arc::clone(&connection_context)).await {
-                tracing::debug!(%peer, %error, "HTTP proxy session ended");
+                if connection_context.admission.is_some() {
+                    tracing::debug!("L4 HTTP proxy session ended");
+                } else {
+                    tracing::debug!(%peer, %error, "HTTP proxy session ended");
+                }
             }
         });
     }
@@ -372,7 +389,9 @@ async fn handle_request(
         return Ok(response);
     }
 
-    if !matches!(&*context.health.borrow(), RuntimeHealth::Connected { .. }) {
+    if matches!(&*context.health.borrow(), RuntimeHealth::Failed { .. })
+        || (!context.l4 && !matches!(&*context.health.borrow(), RuntimeHealth::Connected { .. }))
+    {
         return Ok(error_response(
             StatusCode::SERVICE_UNAVAILABLE,
             "the MASQUE channel is reconnecting",
@@ -451,9 +470,9 @@ async fn handle_connect(
         };
         tokio::select! {
             _ = cancellation.cancelled() => {}
-            result = relay_connect_upgrade(upgraded, remote) => {
+            result = relay_connect_upgrade(upgraded, remote, context.relay_buffer) => {
                 if let Err(error) = result {
-                    tracing::debug!(%error, "HTTP CONNECT relay ended");
+                    if context.admission.is_some() { tracing::debug!("L4 HTTP CONNECT relay ended"); } else { tracing::debug!(%error, "HTTP CONNECT relay ended"); }
                 }
             }
         }
@@ -467,6 +486,7 @@ async fn handle_connect(
 async fn relay_connect_upgrade(
     upgraded: hyper::upgrade::Upgraded,
     mut remote: RoutedTcpStream,
+    buffer_size: usize,
 ) -> std::io::Result<()> {
     let parts = upgraded.downcast::<TokioIo<TcpStream>>().map_err(|_| {
         std::io::Error::other("HTTP CONNECT upgrade did not wrap TokioIo<TcpStream>")
@@ -476,7 +496,7 @@ async fn relay_connect_upgrade(
         remote.write_all(&parts.read_buf).await?;
         remote.flush().await?;
     }
-    crate::relay::copy_bidirectional(&mut client, &mut remote).await?;
+    crate::relay::copy_bidirectional_with_buffer(&mut client, &mut remote, buffer_size).await?;
     Ok(())
 }
 
@@ -850,6 +870,21 @@ async fn connect_remote(
     host: &str,
     port: u16,
 ) -> Result<RoutedTcpStream, RemoteConnectError> {
+    let operation = connect_remote_inner(context, host, port);
+    if context.l4 {
+        tokio::time::timeout(REMOTE_CONNECT_TIMEOUT, operation)
+            .await
+            .unwrap_or_else(|_| Err(RemoteConnectError::Failed("L4_CONNECT_TIMEOUT".to_owned())))
+    } else {
+        operation.await
+    }
+}
+
+async fn connect_remote_inner(
+    context: &HttpContext,
+    host: &str,
+    port: u16,
+) -> Result<RoutedTcpStream, RemoteConnectError> {
     connect_routed(
         &context.geo_policy,
         context.protector.as_ref(),
@@ -857,6 +892,20 @@ async fn connect_remote(
         (GeoTarget::from_host(host), port),
         || RemoteConnectError::Failed("encrypted_direct_dns_failed".to_owned()),
         |resolved| async {
+            if resolved.is_none() && context.edge_resolved {
+                let target =
+                    crate::tcp::TcpTarget::new(host, port).map_err(remote_connect_error)?;
+                return context
+                    .dialer
+                    .connect(
+                        target,
+                        tokio::time::Instant::now() + REMOTE_CONNECT_TIMEOUT,
+                        &context.cancellation,
+                        crate::tcp::FlowClass::Business,
+                    )
+                    .await
+                    .map_err(remote_connect_error);
+            }
             let addresses = if let Some(addresses) = resolved {
                 addresses
             } else {
@@ -879,34 +928,38 @@ async fn connect_tunnel_remote(
     context: &HttpContext,
     addresses: &[IpAddr],
     port: u16,
-) -> Result<StackTcpStream, RemoteConnectError> {
-    let mut failures = Vec::new();
+) -> Result<crate::tcp::TcpStream, RemoteConnectError> {
+    let deadline = tokio::time::Instant::now() + REMOTE_CONNECT_TIMEOUT;
+    let mut last = crate::tcp::DialError::Network;
     for address in addresses.iter().take(MAX_TARGET_ADDRESSES) {
-        let local_ip = match address {
-            IpAddr::V4(_) => IpAddr::V4(context.assigned_ipv4),
-            IpAddr::V6(_) => IpAddr::V6(context.assigned_ipv6),
-        };
-        let local = SocketAddr::new(local_ip, next_tcp_port());
-        let remote = SocketAddr::new(*address, port);
-        match timeout(
-            REMOTE_CONNECT_TIMEOUT,
-            context.channel.tcp_connect(local, remote),
-        )
-        .await
+        let target = crate::tcp::TcpTarget::address(SocketAddr::new(*address, port));
+        match context
+            .dialer
+            .connect(
+                target,
+                deadline,
+                &context.cancellation,
+                crate::tcp::FlowClass::Business,
+            )
+            .await
         {
-            Ok(Ok(stream)) => return Ok(stream),
-            Ok(Err(error)) if error.is_tcp_buffer_budget_exhausted() => {
-                return Err(RemoteConnectError::BudgetExhausted);
-            }
-            Ok(Err(error)) => failures.push(format!("{remote}: {error}")),
-            Err(_) => failures.push(format!("{remote}: timed out")),
+            Ok(stream) => return Ok(stream),
+            Err(
+                error @ (crate::tcp::DialError::Budget
+                | crate::tcp::DialError::Cancelled
+                | crate::tcp::DialError::Rejected(401 | 403)),
+            ) => return Err(remote_connect_error(error)),
+            Err(error) => last = error,
         }
     }
-    Err(RemoteConnectError::Failed(if failures.is_empty() {
-        "no usable target address".to_owned()
-    } else {
-        failures.join("; ")
-    }))
+    Err(remote_connect_error(last))
+}
+
+fn remote_connect_error(error: crate::tcp::DialError) -> RemoteConnectError {
+    match error {
+        crate::tcp::DialError::Budget => RemoteConnectError::BudgetExhausted,
+        _ => RemoteConnectError::Failed(error.to_string()),
+    }
 }
 
 fn error_response(status: StatusCode, message: &str, retry: bool) -> Response<ProxyBody> {
@@ -1087,12 +1140,18 @@ mod tests {
                         usque_core::ProxyDnsMode::Remote,
                         Arc::clone(&protector),
                     ),
-                    channel: client_channel,
+                    dialer: Arc::new(crate::tcp::StackDialer {
+                        channel: client_channel,
+                        ipv4: client_ip,
+                        ipv6: Ipv6Addr::LOCALHOST,
+                    }),
+                    edge_resolved: false,
+                    l4: false,
+                    relay_buffer: crate::relay::RELAY_BUFFER_SIZE,
+                    admission: None,
                     protector,
                     geo_policy: Arc::new(GeoDirectPolicy::disabled()),
                     counters: Arc::new(TrafficCounters::default()),
-                    assigned_ipv4: client_ip,
-                    assigned_ipv6: Ipv6Addr::LOCALHOST,
                     cancellation: CancellationToken::new(),
                     failure,
                     health,

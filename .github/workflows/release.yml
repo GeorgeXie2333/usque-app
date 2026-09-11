@@ -3,7 +3,7 @@ name: Public release
 on:
   push:
     tags:
-      - "v0.2.5"
+      - "v0.2.6"
 
 concurrency:
   group: release-${{ github.ref }}
@@ -17,8 +17,8 @@ env:
   CMAKE_GENERATOR: Ninja
   FLUTTER_COMMIT: 84fc5cbb223bc12f83d65b647ff8a56caf779ffd
   FLUTTER_VERSION: 3.44.7
-  RELEASE_TAG: v0.2.5
-  ANDROID_VERSION_CODE: "19"
+  RELEASE_TAG: v0.2.6
+  ANDROID_VERSION_CODE: "20"
   DOTNET_CLI_TELEMETRY_OPTOUT: "1"
 
 jobs:
@@ -294,50 +294,136 @@ jobs:
               -AllowPinnedUntrustedRoot | Out-Null
           }
 
-      - name: Build, inspect, and ICE-validate MSI
+      - name: Build, inspect, and ICE-validate MSI language set
         shell: pwsh
         run: |
           $payload = Get-Content (Join-Path $env:RUNNER_TEMP "payload-path.txt")
           $output = Join-Path $env:RUNNER_TEMP "windows-release"
-          & ./tool/build_windows_msi.ps1 `
+          $working = Join-Path `
+            $env:RUNNER_TEMP `
+            "windows-installer-${{ matrix.variant }}"
+          & ./tool/build_windows_installer_payload.ps1 `
             -Variant "${{ matrix.variant }}" `
             -AppDirectory $payload `
             -OutputDirectory $output `
+            -WorkingDirectory $working `
             -SignerSha256 $env:WINDOWS_SIGNER_SHA256 `
             -Version $env:RELEASE_TAG `
             -AllowPinnedUntrustedRoot
 
-      - name: Sign and verify MSI
+      - name: Sign and verify update MSI
         shell: pwsh
         run: |
-          $msi = Get-ChildItem `
-            (Join-Path $env:RUNNER_TEMP "windows-release") `
-            -Filter "*.msi" |
-            Select-Object -First 1
-          if ($null -eq $msi) { throw "MSI was not produced." }
+          $msi = Join-Path `
+            $env:RUNNER_TEMP `
+            "windows-release/usque-$($env:RELEASE_TAG)-windows-${{ matrix.variant }}.msi"
+          if (-not (Test-Path -LiteralPath $msi -PathType Leaf)) {
+            throw "MSI was not produced: $msi"
+          }
           & $env:USQUE_SIGNTOOL sign `
             /sha1 $env:USQUE_CERT_THUMBPRINT `
             /s My `
             /fd SHA256 `
             /tr $env:WINDOWS_TIMESTAMP_URL `
             /td SHA256 `
-            $msi.FullName
+            $msi
           if ($LASTEXITCODE -ne 0) { throw "MSI signing failed." }
           & ./tool/verify_windows_authenticode.ps1 `
-            -Path $msi.FullName `
+            -Path $msi `
             -SignerSha256 $env:WINDOWS_SIGNER_SHA256 `
+            -AllowPinnedUntrustedRoot | Out-Null
+
+      - name: Build localized installer bundle
+        shell: pwsh
+        run: |
+          $msi = Join-Path `
+            $env:RUNNER_TEMP `
+            "windows-release/usque-$($env:RELEASE_TAG)-windows-${{ matrix.variant }}.msi"
+          $transforms = Join-Path `
+            $env:RUNNER_TEMP `
+            "windows-installer-${{ matrix.variant }}/transforms"
+          $unsignedDirectory = Join-Path `
+            $env:RUNNER_TEMP `
+            "windows-bundle-unsigned-${{ matrix.variant }}"
+          $unsignedBundle = Join-Path `
+            $unsignedDirectory `
+            "usque-$($env:RELEASE_TAG)-windows-${{ matrix.variant }}.exe"
+          & ./tool/build_windows_bundle.ps1 `
+            -Variant "${{ matrix.variant }}" `
+            -MsiPath $msi `
+            -TransformDirectory $transforms `
+            -OutputPath $unsignedBundle `
+            -SignerSha256 $env:WINDOWS_SIGNER_SHA256 `
+            -Version $env:RELEASE_TAG `
+            -AllowPinnedUntrustedRoot
+
+      - name: Sign Burn engine and final installer bundle
+        shell: pwsh
+        run: |
+          $unsignedBundle = Join-Path `
+            $env:RUNNER_TEMP `
+            "windows-bundle-unsigned-${{ matrix.variant }}/usque-$($env:RELEASE_TAG)-windows-${{ matrix.variant }}.exe"
+          $engine = Join-Path `
+            $env:RUNNER_TEMP `
+            "usque-burn-engine-${{ matrix.variant }}.exe"
+          $bundle = Join-Path `
+            $env:RUNNER_TEMP `
+            "windows-release/usque-$($env:RELEASE_TAG)-windows-${{ matrix.variant }}.exe"
+
+          dotnet tool run wix -- burn detach `
+            $unsignedBundle `
+            -engine $engine
+          if ($LASTEXITCODE -ne 0) { throw "Burn engine detach failed." }
+
+          & $env:USQUE_SIGNTOOL sign `
+            /sha1 $env:USQUE_CERT_THUMBPRINT `
+            /s My `
+            /fd SHA256 `
+            /tr $env:WINDOWS_TIMESTAMP_URL `
+            /td SHA256 `
+            $engine
+          if ($LASTEXITCODE -ne 0) { throw "Burn engine signing failed." }
+          & ./tool/verify_windows_authenticode.ps1 `
+            -Path $engine `
+            -SignerSha256 $env:WINDOWS_SIGNER_SHA256 `
+            -AllowPinnedUntrustedRoot | Out-Null
+
+          dotnet tool run wix -- burn reattach `
+            $unsignedBundle `
+            -engine $engine `
+            -out $bundle
+          if ($LASTEXITCODE -ne 0) { throw "Burn engine reattach failed." }
+
+          & $env:USQUE_SIGNTOOL sign `
+            /sha1 $env:USQUE_CERT_THUMBPRINT `
+            /s My `
+            /fd SHA256 `
+            /tr $env:WINDOWS_TIMESTAMP_URL `
+            /td SHA256 `
+            $bundle
+          if ($LASTEXITCODE -ne 0) { throw "Bundle signing failed." }
+          & ./tool/verify_windows_bundle.ps1 `
+            -BundlePath $bundle `
+            -Variant "${{ matrix.variant }}" `
+            -Version $env:RELEASE_TAG `
+            -SignerSha256 $env:WINDOWS_SIGNER_SHA256 `
+            -VerifyAuthenticode `
             -AllowPinnedUntrustedRoot | Out-Null
 
       - name: Attest Windows build provenance
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
-          subject-path: ${{ runner.temp }}/windows-release/*.msi
+          subject-path: |
+            ${{ runner.temp }}/windows-release/*.msi
+            ${{ runner.temp }}/windows-release/*.exe
 
       - name: Upload signed Windows release candidate
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: usque-release-windows-${{ matrix.variant }}
-          path: ${{ runner.temp }}/windows-release/*.msi
+          path: |
+            ${{ runner.temp }}/windows-release/*.msi
+            ${{ runner.temp }}/windows-release/*.exe
           if-no-files-found: error
           retention-days: 14
 
@@ -622,11 +708,11 @@ jobs:
             count=$((count + 1))
           done < <(
             find "$candidate" -maxdepth 1 -type f \
-              \( -name '*.msi' -o -name '*.apk' \) \
+              \( -name '*.exe' -o -name '*.msi' -o -name '*.apk' \) \
               -print0 |
               sort -z
           )
-          test "$count" -eq 6
+          test "$count" -eq 8
 
       - name: Create immutable release manifest
         run: |
@@ -652,6 +738,18 @@ jobs:
         with:
           subject-path: ${{ runner.temp }}/candidate/usque-${{ env.RELEASE_TAG }}-windows-arm64.msi
           sbom-path: ${{ runner.temp }}/candidate/usque-${{ env.RELEASE_TAG }}-windows-arm64.msi.spdx.json
+
+      - name: Attest x64-v2 installer bundle SBOM
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/candidate/usque-${{ env.RELEASE_TAG }}-windows-x64-v2.exe
+          sbom-path: ${{ runner.temp }}/candidate/usque-${{ env.RELEASE_TAG }}-windows-x64-v2.exe.spdx.json
+
+      - name: Attest ARM64 installer bundle SBOM
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/candidate/usque-${{ env.RELEASE_TAG }}-windows-arm64.exe
+          sbom-path: ${{ runner.temp }}/candidate/usque-${{ env.RELEASE_TAG }}-windows-arm64.exe.spdx.json
 
       - name: Attest arm64-v8a APK SBOM
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
@@ -997,19 +1095,19 @@ jobs:
             cp -- "$artifact" "$publish/"
           done < <(
             find "$RUNNER_TEMP/candidate" -maxdepth 1 -type f \
-              \( -name '*.msi' -o -name '*.apk' \) \
+              \( -name '*.exe' -o -name '*.msi' -o -name '*.apk' \) \
               -print0 |
               sort -z
           )
-          test "$(find "$publish" -maxdepth 1 -type f | wc -l)" -eq 6
-          test "$(find "$RUNNER_TEMP/candidate" -maxdepth 1 -type f -name '*.spdx.json' | wc -l)" -eq 6
+          test "$(find "$publish" -maxdepth 1 -type f | wc -l)" -eq 8
+          test "$(find "$RUNNER_TEMP/candidate" -maxdepth 1 -type f -name '*.spdx.json' | wc -l)" -eq 8
           cp "$RUNNER_TEMP/candidate/release-manifest.json" "$publish/"
           cp "$RUNNER_TEMP"/candidate/*.spdx.json "$publish/"
           (
             cd "$publish"
-            sha256sum -- *.msi *.apk > SHA256SUMS
+            sha256sum -- *.exe *.msi *.apk > SHA256SUMS
           )
-          test "$(find "$publish" -maxdepth 1 -type f | wc -l)" -eq 14
+          test "$(find "$publish" -maxdepth 1 -type f | wc -l)" -eq 18
 
       - name: Render English-first bilingual release notes
         env:

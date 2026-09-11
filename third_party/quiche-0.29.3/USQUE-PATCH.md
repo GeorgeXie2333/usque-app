@@ -2,7 +2,8 @@
 
 This directory starts from the complete published `quiche` 0.29.3 crate,
 not a floating branch or an upgrade. Original license and public example/test
-fixtures are retained. See [COPYING](COPYING) (BSD-2-Clause).
+fixtures are retained. See [COPYING](COPYING) (BSD-2-Clause) and
+[COPYING-BBR3](COPYING-BBR3) (Revised BSD for the added BBRv3 implementation).
 
 ## Provenance
 
@@ -13,11 +14,10 @@ fixtures are retained. See [COPYING](COPYING) (BSD-2-Clause).
   `09b125d4cfc16e78d73d8382c93926f3aba063d4`
   (also recorded in `.cargo_vcs_info.json`).
 - All 87 published files were verified byte-for-byte against that archive
-  before patching. Only `src/lib.rs` and `src/path.rs` contain behavioral
-  changes. One trailing space in a test comment in `src/recovery/mod.rs` was
-  removed to satisfy the repository's whitespace gate; its code is unchanged.
-  The other 84 published files remain byte-identical. This note is the sole
-  additional file.
+  before patching. The retained PMTU changes are in `src/lib.rs` and
+  `src/path.rs`. The congestion-control additions are confined to `recovery/`,
+  its public C algorithm enum, and license/package metadata. Original BBRv2,
+  Reno and CUBIC implementation files remain unchanged.
 - The root `[patch.crates-io]` selects this directory. The workspace lockfile
   changes only quiche's source/checksum entry; dependency versions and other
   lockfile edges are unchanged. The vendored crate is excluded from workspace
@@ -51,6 +51,35 @@ admission. These links are context, not build-time dependencies or a claim
 that upstream has merged the fixes.
 
 ## Regression coverage and removal
+
+The independent `recovery/gcongestion/bbr3.rs` state machine follows
+[draft-ietf-ccwg-bbr-06](https://www.ietf.org/archive/id/draft-ietf-ccwg-bbr-06.txt)
+(6 July 2026), sections 4 and 5. It reuses the existing delivery sampler, not
+BBRv2's state machine or tuning parameters. Its code and test adaptations are
+described in [the application contract](../../docs/congestion-control.md).
+The closed `BbrSender` enum keeps the existing BBRv2 sender and pacer behavior
+while routing `bbr3` to the new sender. Public algorithm value 5 is appended;
+removed values 2 and 3 are not reused. `bbr` still names BBRv2.
+
+The source includes a bounded virtual FIFO-link test harness with application
+limiting, ACK aggregation, injected loss, bandwidth changes and a token-bucket
+policer. Transport tests additionally exercise real pinned-TLS QUIC packets
+with all four algorithms, including DATAGRAM, PMTU, migration and closure.
+
+CI explicitly runs the standalone crate's locked unit suite on Linux, plus
+BBRv3 tests with qlog enabled. Workspace tests alone do not run that suite:
+
+```shell
+cargo test --manifest-path third_party/quiche-0.29.3/Cargo.toml --locked --lib
+cargo test --manifest-path third_party/quiche-0.29.3/Cargo.toml --locked --lib --features qlog recovery::gcongestion::bbr3::
+```
+
+On Windows, first initialize the supported environment with the root helper.
+The standalone crate also needs the root's BoringSSL dev-CRT profile settings
+(`--config profile.dev.package.boring-sys.opt-level=1` and
+`--config profile.dev.package.boring-sys.debug=false`). Its default TLS tests
+read the Windows root certificate store; an access-denied sandbox is not
+evidence of a TLS regression, and verification must never be disabled to pass.
 
 The ordinary in-memory tests live in
 [`crates/usque-transport/src/h3/pmtu_tests.rs`](../../crates/usque-transport/src/h3/pmtu_tests.rs).

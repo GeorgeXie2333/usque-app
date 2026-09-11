@@ -231,6 +231,8 @@ class AndroidEngineMethodHandlerTest {
         assertEquals("INVALID_PROFILE", badMode.errorCode)
 
         val ok = RecordingResult()
+        engineBridge.profileCatalogJson =
+            """{"profiles":[{"id":"p1","mode":"socks5","frontends":{"tunnel":false,"socks5":true,"http":false}}]}"""
         handler.handle(
             MethodCall("connect", mapOf("mode" to "socks5", "id" to "p1")),
             ok,
@@ -241,8 +243,10 @@ class AndroidEngineMethodHandlerTest {
     }
 
     @Test
-    fun connectOmitsNullMapEntriesInProfileJson() {
+    fun connectUsesSavedProfileBeforeRequestingPlatformPermission() {
         engineBridge.ready = true
+        engineBridge.profileCatalogJson =
+            """{"profiles":[{"id":"p1","mode":"socks5","mtu":1400,"frontends":{"tunnel":false,"socks5":true,"http":false}}]}"""
         val ok = RecordingResult()
         handler.handle(
             MethodCall(
@@ -265,6 +269,7 @@ class AndroidEngineMethodHandlerTest {
         assertTrue(json.contains("\"mode\":\"socks5\""))
         assertFalse(json.contains("\"optional\""))
         assertFalse(json.contains(":null"))
+        assertTrue(json.contains("\"mtu\":1400"))
     }
 
     @Test

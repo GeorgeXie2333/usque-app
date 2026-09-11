@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WixLocalization
+  xmlns="http://wixtoolset.org/schemas/v4/wxl"
+  Culture="ko-KR">
+  <String
+    Id="UsqueRemoveDataTitle"
+    Value="제거 옵션" />
+  <String
+    Id="UsqueRemoveDataDescription"
+    Value="나중에 다시 설치할 수 있도록 데이터를 유지할지 선택하세요." />
+  <String
+    Id="UsqueRemoveDataCheckbox"
+    Value="이 Windows 사용자의 프로필, 설정, 로그, 캐시, WARP 신원을 삭제합니다." />
+  <String
+    Id="UsqueRemoveDataWarning"
+    Value="이 작업은 되돌릴 수 없습니다. 선택을 해제하면 로컬 데이터가 유지됩니다. 다른 Windows 사용자에게는 영향이 없습니다." />
+  <String
+    Id="UsqueRepairTitle"
+    Value="복구는 지원되지 않음" />
+  <String
+    Id="UsqueRepairDescription"
+    Value="복구는 권한 있는 네트워크 복원 상태를 중단할 수 있습니다. 제거를 선택해 Usque를 제거한 뒤 다시 설치하세요. 삭제를 명시하지 않으면 사용자 데이터는 유지됩니다. 최신 릴리스 설치도 지원됩니다." />
+  <String
+    Id="UsqueRepairOk"
+    Value="확인" />
+</WixLocalization>

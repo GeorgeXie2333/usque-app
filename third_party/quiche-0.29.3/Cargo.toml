@@ -20,6 +20,7 @@ include = [
     "/*.md",
     "/*.toml",
     "/COPYING",
+    "/COPYING-BBR3",
     "/examples",
     "/include",
     "/quiche.svg",
@@ -37,7 +38,7 @@ keywords = [
     "http3",
 ]
 categories = ["network-programming"]
-license = "BSD-2-Clause"
+license = "BSD-2-Clause AND BSD-3-Clause"
 repository = "https://github.com/cloudflare/quiche"
 
 [package.metadata.release]

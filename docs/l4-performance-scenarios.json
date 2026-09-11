@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "kind": "sampling_contract_not_measurement_evidence",
+  "status": "not_run",
+  "minimum_repetitions": 7,
+  "baseline": {"data_plane": "connect_ip", "transport": "http3"},
+  "candidate": {"data_plane": "l4_proxy", "transport": "http3"},
+  "independent_comparisons": [
+    {"id": "h3_vs_l4", "baseline": "connect_ip_http3", "candidate": "l4_proxy", "status": "not_run"},
+    {"id": "l4_download_round_1", "baseline_commit": "92eeb6ea116e874c0c3e763abea88e72697ba372", "baseline": "l4_proxy_before", "candidate": "l4_proxy_owned_pool_ready_batch", "status": "not_run", "candidate_commit": null, "candidate_artifact_sha256": null}
+  ],
+  "internal_one_factor_controls": {
+    "production_override": false,
+    "tun_mtu": [1280, 1500, 4096, 9000],
+    "udp_receive_buffer_mib": [null, 2, 4, 8],
+    "quic_initial_stream_window_mib": [null, 1, 2],
+    "null_means": "unchanged production value; actual socket buffer must be observed",
+    "fixed": ["QUIC maximum windows", "TCP buffer tiers", "worker count", "application buffer budget", "congestion algorithm", "endpoint and target", "build grade"],
+    "implementation": "cfg(test) runtime constructor; not a CLI, environment override or saved setting"
+  },
+  "download_round_1_loads": ["continuous_download_with_16_background_connections", "continuous_download_with_32_background_connections", "32k_chunk_1k_partial_accept", "warmed_serial_receive_pool", "idle_cache_under_admission_pressure", "budget_registration_race", "cancel_before_first_poll", "two_second_tun_cleanup", "five_second_native_stop_confirmation"],
+  "frontends": ["socks5", "http_connect", "http_forward", "tun"],
+  "platforms": ["windows-x64-v2", "android-arm64", "android-armv7"],
+  "loads": ["cold_connect", "warm_connect", "single_download", "single_upload", "many_bidirectional_streams", "short_and_long_mixed", "slow_reader", "slow_writer", "cancel_burst", "long_run_idle_reuse"],
+  "network_conditions": ["low_rtt", "high_bdp", "random_loss", "rate_limited", "pmtu_blackhole", "same_family_migration", "full_rebuild"],
+  "metrics": ["application_goodput_bps", "connect_latency_p95_us", "connect_latency_p99_us", "cpu_seconds_per_gb", "rss_peak_bytes", "reclaimed_buffer_bytes", "failure_rate", "recovery_time_ms", "flow_rejections", "dns_conversion_failures"],
+  "candidate_metadata": ["commit", "artifact_sha256", "build_variant", "app_debuggable", "native_version", "native_architecture", "native_debug_assertions", "os_version", "cpu", "memory", "account_class_without_identifier", "congestion_algorithm", "tun_mtu", "tun_mtu_source", "udp_receive_buffer_requested_bytes", "udp_receive_buffer_actual_bytes", "udp_send_buffer_actual_bytes", "udp_buffer_source", "quic_initial_stream_window", "network_profile", "run_seed"],
+  "not_applicable": ["connect_ip_address_negotiation", "datagram_queue_loss", "connect_ip_payload_ceiling"],
+  "rules": ["keep existing thresholds unchanged", "record failed and not_run results", "do not merge proxy and TUN results", "do not publish raw targets or packet captures", "do not infer isolation from a label alone", "supplemental evidence is not a publication prerequisite"]
+}

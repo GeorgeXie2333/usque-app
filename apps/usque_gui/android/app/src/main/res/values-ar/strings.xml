@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="vpn_channel_name">خدمة شبكة Usque</string>
+    <string name="vpn_channel_description">حالة مستمرة لشبكة VPN الخاصة بـ Usque أو الوكيل المحلي النشط</string>
+    <string name="vpn_notif_disconnect">قطع الاتصال</string>
+    <string name="vpn_notif_preparing">جارٍ تجهيز النفق الآمن</string>
+    <string name="vpn_notif_connecting_h3">جارٍ الاتصال عبر HTTP/3</string>
+    <string name="vpn_notif_connecting_h2">جارٍ الاتصال عبر HTTP/2</string>
+    <string name="vpn_notif_connected">متصل</string>
+    <string name="vpn_notif_connected_via">متصل عبر %1$s</string>
+    <string name="vpn_notif_degraded">متصل مع دعم محدود لعائلة العناوين</string>
+    <string name="vpn_notif_reconnecting">جارٍ إعادة الاتصال بأمان</string>
+    <string name="vpn_notif_error">توقف خدمة الشبكة بعد خطأ</string>
+    <string name="vpn_notif_disconnecting">جارٍ قطع الاتصال</string>
+    <string name="vpn_notif_idle">Usque VPN</string>
+    <string name="vpn_notif_invalid_profile">ملف VPN غير صالح</string>
+    <string name="vpn_notif_invalid_network_profile">ملف الشبكة غير صالح</string>
+    <string name="vpn_notif_recovery_unavailable">استرداد VPN غير متاح</string>
+    <string name="tile_connected">متصل</string>
+    <string name="tile_disconnected">غير متصل</string>
+    <string name="tile_connecting">جارٍ الاتصال</string>
+    <string name="tile_reconnecting">جارٍ إعادة الاتصال</string>
+    <string name="tile_disconnecting">جارٍ قطع الاتصال</string>
+    <string name="tile_checking">جارٍ الفحص</string>
+    <string name="tile_working">جارٍ العمل</string>
+    <string name="tile_open_app">فتح Usque</string>
+    <string name="tile_profile_required">افتح Usque واتصل بملف VPN مرة واحدة قبل استخدام البلاط.</string>
+    <string name="tile_identity_required">افتح Usque واضبط هوية WARP لهذا الملف.</string>
+    <string name="tile_vpn_permission_required">افتح Usque لمنح إذن VPN في Android.</string>
+    <string name="tile_proxy_only">اتصال الوكيل فقط نشط. افتح Usque لتفعيل واجهة VPN.</string>
+    <string name="shortcut_connect">اتصال</string>
+    <string name="shortcut_disconnect">قطع الاتصال</string>
+    <string name="shortcut_profiles">حسابات</string>
+    <string name="shortcut_long_label">%1$s Usque</string>
+</resources>

@@ -35,6 +35,7 @@ void main() {
       for (final locale in [
         LocalePreference.english,
         LocalePreference.simplifiedChinese,
+        LocalePreference.japanese,
       ]) {
         const raw =
             'restore WintunAdapter: stage=Confirm private-token 192.0.2.1';
@@ -58,7 +59,7 @@ void main() {
   );
 
   test(
-    'recovery catalogs are complete and other locales fall back to English',
+    'recovery catalogs are complete and every locale uses its own table',
     () {
       expect(
         kWindowsRecoveryEn.keys.toSet(),
@@ -76,10 +77,11 @@ void main() {
           ).windowsRecoveryError(code),
           kWindowsRecoveryZhCn[code],
         );
-        expect(
-          AppStrings(LocalePreference.japanese).windowsRecoveryError(code),
-          kWindowsRecoveryEn[code],
-        );
+        final japanese = AppStrings(
+          LocalePreference.japanese,
+        ).windowsRecoveryError(code);
+        expect(japanese, isNotNull);
+        expect(japanese, isNot(kWindowsRecoveryEn[code]));
       }
       expect(
         AppStrings(LocalePreference.english).windowsRecoveryError('OTHER'),

@@ -8,7 +8,7 @@ Only packages attached to a GitHub Release for this repository, with matching ch
 
 Pre-1.0 official packages use two fixed, project-controlled self-signed identities:
 
-- Windows Authenticode for the MSI and the project EXE/DLL files inside it
+- Windows Authenticode for the installer bundle, its detached Burn engine, the update MSI, and the project EXE/DLL files inside that MSI
 - an Android release certificate for every official APK
 
 Those identities are not a public CA and are not in the Windows Root or Trusted Publisher stores. Windows will show an unknown-publisher warning. That is expected. The installer does not install the certificate into the machine trust stores.
@@ -32,13 +32,20 @@ before distribution. Developer verification does not authorize key rotation.
 
 | Artifact | Signer |
 | --- | --- |
+| Official Windows installer bundle and its detached Burn engine | project Authenticode identity |
 | Official Windows MSI | project Authenticode identity |
 | Project EXE/DLL files inside that MSI | same identity |
 | Official per-ABI and universal APKs | project Android release certificate |
 | Official Wintun DLL (`amd64` / `arm64`) | original vendor signature; Usque redistributes those files and does not re-sign them |
 | Local validation MSI/APK | a throwaway identity created on the build machine; never official |
 
-Unsigned project binaries must not ship in an official Windows package. A signer mismatch, a modified Wintun DLL, or a missing official fingerprint fails the release.
+Unsigned project binaries must not ship in an official Windows package. The
+release signs the MSI before embedding it, then follows WiX's detach/sign/
+reattach/sign sequence so both the Burn engine and final bundle carry the same
+project identity. A signer mismatch, a modified Wintun DLL, a malformed
+language transform, or a missing official fingerprint fails the release.
+The installed uninstall helper applies the same offline Authenticode policy
+before it runs a cached hidden bundle for registration cleanup.
 
 ## Where keys live
 
@@ -46,7 +53,7 @@ Official private keys exist only as `release-signing` GitHub Environment secrets
 
 Public fingerprints are repository or environment variables (`WINDOWS_SIGNER_SHA256`, `ANDROID_SIGNER_SHA256`) and are printed in the GitHub Release notes. The SHA-256 is over the raw certificate (DER), 64 hex characters.
 
-Only the release maintainer may approve `release-signing` and `release-publish`. A local MSI or APK cannot replace a failed or missing GitHub Actions build.
+Only the release maintainer may approve `release-signing` and `release-publish`. A local bundle, MSI, or APK cannot replace a failed or missing GitHub Actions build.
 
 ## What users should check
 
@@ -76,7 +83,7 @@ A lost backup of an official key is treated the same as a compromise: do not inv
 
 ## Local and development signing
 
-`tool/build_windows_local_validation.ps1` and similar helpers may create a temporary self-signed identity, sign a validation package, then delete the key. Those packages are for table checks and isolated VM work only. They must not be published, renamed to look like a GitHub Release, or installed on a daily-driver machine.
+`tool/build_windows_local_validation.ps1` and similar helpers may create a temporary self-signed identity, sign a validation package, then delete the key. Those packages are for table checks and isolated VM work only. They must not be published, renamed to look like a GitHub Release, or installed on a daily-driver machine. The multilingual bundle is produced only by the approved tag workflow; local MSI validation does not create an official bundle.
 
 Debug and unsigned Android builds used on a developer device are not release certificates. Do not reuse the official Android keystore on a development host.
 

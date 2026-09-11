@@ -446,19 +446,37 @@ bool FlutterWindow::OnCreate() {
             result->Error("INVALID_ARGUMENT", "Tray state is missing.");
             return;
           }
-          const auto phase_it =
-              arguments->find(flutter::EncodableValue("phase"));
+          const auto read_utf8 = [arguments](const char* key) -> std::string {
+            const auto iterator =
+                arguments->find(flutter::EncodableValue(key));
+            if (iterator == arguments->end() ||
+                !std::holds_alternative<std::string>(iterator->second)) {
+              return {};
+            }
+            return std::get<std::string>(iterator->second);
+          };
           const auto connected_it =
               arguments->find(flutter::EncodableValue("connected"));
-          if (phase_it == arguments->end() ||
-              connected_it == arguments->end() ||
-              !std::holds_alternative<std::string>(phase_it->second) ||
+          std::string status = read_utf8("status");
+          if (status.empty()) {
+            status = read_utf8("phase");
+          }
+          if (status.empty() || connected_it == arguments->end() ||
               !std::holds_alternative<bool>(connected_it->second)) {
             result->Error("INVALID_ARGUMENT", "Tray state is malformed.");
             return;
           }
-          UpdateTrayState(std::get<std::string>(phase_it->second),
-                          std::get<bool>(connected_it->second));
+          auto assign_label = [&](std::wstring& target, const char* key) {
+            const std::string value = read_utf8(key);
+            if (!value.empty()) {
+              target = Utf16FromUtf8(value);
+            }
+          };
+          assign_label(tray_open_, "open");
+          assign_label(tray_connect_, "connect");
+          assign_label(tray_disconnect_, "disconnect");
+          assign_label(tray_exit_, "disconnect_exit");
+          UpdateTrayState(status, std::get<bool>(connected_it->second));
           result->Success();
           return;
         }
@@ -649,13 +667,12 @@ void FlutterWindow::ShowTrayMenu() {
   if (menu == nullptr) return;
   ::AppendMenuW(menu, MF_STRING | MF_DISABLED, 0, tray_status_.c_str());
   ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-  ::AppendMenuW(menu, MF_STRING, kTrayOpen, L"Open Usque");
+  ::AppendMenuW(menu, MF_STRING, kTrayOpen, tray_open_.c_str());
   ::AppendMenuW(menu, MF_STRING, kTrayToggle,
-                tray_connected_ ? L"Disconnect Active Profile"
-                                : L"Connect Active Profile");
+                tray_connected_ ? tray_disconnect_.c_str()
+                                : tray_connect_.c_str());
   ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-  ::AppendMenuW(menu, MF_STRING, kTrayDisconnectExit,
-                L"Disconnect and Exit");
+  ::AppendMenuW(menu, MF_STRING, kTrayDisconnectExit, tray_exit_.c_str());
   POINT point{};
   ::GetCursorPos(&point);
   ::SetForegroundWindow(GetHandle());

@@ -2,11 +2,11 @@ use std::collections::HashSet;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 
+use crate::packet_pipe::PacketPipe as WakingPipe;
 use bytes::Bytes;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
-use ts_netstack_smoltcp::WakingPipe;
 use usque_core::{Profile, ProxyAuthCredentials, ProxyDnsMode};
 
 use crate::direct_gateway::DirectGatewayRouter;
@@ -44,6 +44,24 @@ pub struct MasqueTunIo {
 }
 
 impl MasqueTunIo {
+    /// Own the send state so platform packet pumps can continue receiving and
+    /// handling control events while this bounded enqueue waits for capacity.
+    pub(crate) fn start_send_owned_packet(
+        &self,
+        packet: Bytes,
+    ) -> impl std::future::Future<Output = Result<(), TransportError>> + Send + use<> {
+        let outgoing = self.outgoing.clone();
+        let cancellation = self.cancellation.clone();
+        async move {
+            crate::h2::validate_ip_packet(&packet)?;
+            let bytes = packet.len();
+            outgoing
+                .send_cancellable(packet, bytes, &cancellation)
+                .await
+                .map_err(|_| TransportError::TunnelClosed)
+        }
+    }
+
     /// Borrowed convenience path for low-frequency callers and tests. Platform
     /// packet pumps must prefer [`Self::send_owned_packet`].
     pub async fn send_packet(&self, packet: &[u8]) -> Result<(), TransportError> {
@@ -863,7 +881,7 @@ fn record_tun_sink_drop(dropped: usize, batches: &mut u64, packets: &mut u64) {
     }
 }
 
-fn listeners_overlap(active: &[SocketAddr], wanted: &[SocketAddr]) -> bool {
+pub(crate) fn listeners_overlap(active: &[SocketAddr], wanted: &[SocketAddr]) -> bool {
     let active: HashSet<SocketAddr> = active.iter().copied().collect();
     wanted.iter().any(|address| active.contains(address))
 }
@@ -874,7 +892,7 @@ fn listeners_overlap(active: &[SocketAddr], wanted: &[SocketAddr]) -> bool {
 /// idle are also applied at `activate` time and live in the accept-loop
 /// context until the frontend is rebuilt.
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct FrontendSpec {
+pub(crate) struct FrontendSpec {
     listeners: HashSet<SocketAddr>,
     credentials: Option<ProxyAuthCredentials>,
     dns_mode: ProxyDnsMode,
@@ -883,7 +901,7 @@ struct FrontendSpec {
 }
 
 impl FrontendSpec {
-    fn socks5(
+    pub(crate) fn socks5(
         listeners: &[SocketAddr],
         profile: &Profile,
         credentials: Option<ProxyAuthCredentials>,
@@ -897,7 +915,7 @@ impl FrontendSpec {
         }
     }
 
-    fn http(
+    pub(crate) fn http(
         listeners: &[SocketAddr],
         profile: &Profile,
         credentials: Option<ProxyAuthCredentials>,
@@ -911,7 +929,7 @@ impl FrontendSpec {
         }
     }
 
-    fn from_socks5_profile(profile: &Profile) -> Option<Self> {
+    pub(crate) fn from_socks5_profile(profile: &Profile) -> Option<Self> {
         Some(Self::socks5(
             &profile.proxy.socks5_listeners,
             profile,
@@ -919,7 +937,7 @@ impl FrontendSpec {
         ))
     }
 
-    fn from_http_profile(profile: &Profile) -> Option<Self> {
+    pub(crate) fn from_http_profile(profile: &Profile) -> Option<Self> {
         Some(Self::http(
             &profile.proxy.http_listeners,
             profile,
@@ -927,7 +945,10 @@ impl FrontendSpec {
         ))
     }
 
-    fn from_socks5_frontend(frontend: &Socks5Frontend, profile: &Profile) -> Option<Self> {
+    pub(crate) fn from_socks5_frontend(
+        frontend: &Socks5Frontend,
+        profile: &Profile,
+    ) -> Option<Self> {
         Some(Self::socks5(
             frontend.listeners(),
             profile,
@@ -935,7 +956,10 @@ impl FrontendSpec {
         ))
     }
 
-    fn from_http_frontend(frontend: &HttpProxyFrontend, profile: &Profile) -> Option<Self> {
+    pub(crate) fn from_http_frontend(
+        frontend: &HttpProxyFrontend,
+        profile: &Profile,
+    ) -> Option<Self> {
         Some(Self::http(
             frontend.listeners(),
             profile,

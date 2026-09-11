@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="vpn_channel_name">บริการเครือข่าย Usque</string>
+    <string name="vpn_channel_description">สถานะต่อเนื่องของ VPN Usque ที่ใช้งานอยู่หรือพร็อกซีในเครื่อง</string>
+    <string name="vpn_notif_disconnect">ตัดการเชื่อมต่อ</string>
+    <string name="vpn_notif_preparing">กำลังเตรียมอุโมงค์ที่ปลอดภัย</string>
+    <string name="vpn_notif_connecting_h3">กำลังเชื่อมต่อด้วย HTTP/3</string>
+    <string name="vpn_notif_connecting_h2">กำลังเชื่อมต่อด้วย HTTP/2</string>
+    <string name="vpn_notif_connected">เชื่อมต่อแล้ว</string>
+    <string name="vpn_notif_connected_via">เชื่อมต่อผ่าน %1$s</string>
+    <string name="vpn_notif_degraded">เชื่อมต่อแล้ว แต่รองรับตระกูลที่อยู่จำกัด</string>
+    <string name="vpn_notif_reconnecting">กำลังเชื่อมต่อใหม่อย่างปลอดภัย</string>
+    <string name="vpn_notif_error">บริการเครือข่ายหยุดหลังเกิดข้อผิดพลาด</string>
+    <string name="vpn_notif_disconnecting">กำลังตัดการเชื่อมต่อ</string>
+    <string name="vpn_notif_idle">Usque VPN</string>
+    <string name="vpn_notif_invalid_profile">โปรไฟล์ VPN ไม่ถูกต้อง</string>
+    <string name="vpn_notif_invalid_network_profile">โปรไฟล์เครือข่ายไม่ถูกต้อง</string>
+    <string name="vpn_notif_recovery_unavailable">กู้คืน VPN ไม่ได้</string>
+    <string name="tile_connected">เชื่อมต่อแล้ว</string>
+    <string name="tile_disconnected">ไม่ได้เชื่อมต่อ</string>
+    <string name="tile_connecting">กำลังเชื่อมต่อ</string>
+    <string name="tile_reconnecting">กำลังเชื่อมต่อใหม่</string>
+    <string name="tile_disconnecting">กำลังตัดการเชื่อมต่อ</string>
+    <string name="tile_checking">กำลังตรวจสอบ</string>
+    <string name="tile_working">กำลังดำเนินการ</string>
+    <string name="tile_open_app">เปิด Usque</string>
+    <string name="tile_profile_required">เปิด Usque และเชื่อมต่อโปรไฟล์ VPN หนึ่งครั้งก่อนใช้แผ่นทางลัด</string>
+    <string name="tile_identity_required">เปิด Usque แล้วตั้งค่าข้อมูลประจำตัว WARP ของโปรไฟล์นี้</string>
+    <string name="tile_vpn_permission_required">เปิด Usque เพื่อให้สิทธิ์ VPN ของ Android</string>
+    <string name="tile_proxy_only">กำลังใช้การเชื่อมต่อพร็อกซีอย่างเดียว เปิด Usque เพื่อเปิดส่วนหน้า VPN</string>
+    <string name="shortcut_connect">เชื่อมต่อ</string>
+    <string name="shortcut_disconnect">ตัดการเชื่อมต่อ</string>
+    <string name="shortcut_profiles">บัญชี</string>
+    <string name="shortcut_long_label">%1$s Usque</string>
+</resources>

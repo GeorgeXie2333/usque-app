@@ -15,7 +15,10 @@ pub mod udp;
 
 pub use channel::{Channel, HasChannel};
 pub use error::{Error, InternalErrorKind};
-pub use request::{ChannelClosedError, request, request_blocking, request_nonblocking};
+pub use request::{
+    ChannelClosedError, TryRequestError, request, request_blocking, request_nonblocking,
+    try_request_nonblocking,
+};
 
 /// Request to a netstack bearing a command to execute.
 ///

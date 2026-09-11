@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WixLocalization
+  xmlns="http://wixtoolset.org/schemas/v4/wxl"
+  Culture="zh-HK">
+  <String
+    Id="UsqueRemoveDataTitle"
+    Value="解除安裝選項" />
+  <String
+    Id="UsqueRemoveDataDescription"
+    Value="選擇是否保留資料以便日後重新安裝。" />
+  <String
+    Id="UsqueRemoveDataCheckbox"
+    Value="刪除此 Windows 使用者的設定檔、設定、記錄、快取及 WARP 身分。" />
+  <String
+    Id="UsqueRemoveDataWarning"
+    Value="此操作無法還原。取消勾選可保留本機資料。其他 Windows 使用者不受影響。" />
+  <String
+    Id="UsqueRepairTitle"
+    Value="不支援修復" />
+  <String
+    Id="UsqueRepairDescription"
+    Value="修復可能中斷受保護的網絡復原狀態。請選擇「移除」解除安裝 Usque，然後再安裝；除非你明確選擇刪除，否則會保留使用者資料。亦支援安裝較新版本。" />
+  <String
+    Id="UsqueRepairOk"
+    Value="確定" />
+</WixLocalization>

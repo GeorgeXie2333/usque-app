@@ -23,6 +23,9 @@ internal class ServiceSnapshotState {
     var uploadedBytes: Long = 0
     var reconnectCount: Int = 0
     var networkQualityJson: String? = null
+    var sessionCongestionControl: String? = null
+    var dataPlane: String? = null
+    var l4Json: String? = null
     var activeListeners: List<String> = emptyList()
     var activeFrontends: List<String> = emptyList()
     var tunnelIpv4Available: Boolean = false
@@ -112,6 +115,9 @@ internal class ServiceSnapshotState {
         val foregroundNotificationActive: Boolean,
         val pendingCleanup: Boolean,
         val networkQualityJson: String? = null,
+        val sessionCongestionControl: String? = null,
+        val dataPlane: String? = null,
+        val l4Json: String? = null,
     )
 
     /**
@@ -164,6 +170,9 @@ internal class ServiceSnapshotState {
         const val FOREGROUND_NOTIFICATION_STATE = "foreground_notification_state"
         const val PENDING_CLEANUP = "pending_cleanup"
         const val NETWORK_QUALITY = "network_quality_json"
+        const val SESSION_CONGESTION_CONTROL = "session_congestion_control"
+        const val DATA_PLANE = "data_plane"
+        const val L4 = "l4_json"
     }
 
     /**
@@ -188,6 +197,9 @@ internal class ServiceSnapshotState {
         uploadedBytes = 0
         reconnectCount = 0
         networkQualityJson = null
+        sessionCongestionControl = null
+        dataPlane = null
+        l4Json = null
         activeListeners = emptyList()
         activeFrontends = emptyList()
         tunnelIpv4Available = false
@@ -291,6 +303,9 @@ internal class ServiceSnapshotState {
         val exitCountryCode: String? = null,
         val exitFlagSvg: String? = null,
         val networkQualityJson: String? = null,
+        val sessionCongestionControl: String? = null,
+        val dataPlane: String? = null,
+        val l4Json: String? = null,
     )
 
     fun applyNativeSnapshot(source: JSONObject): NativeMergeResult = applyNativeSnapshot(fromNativeJson(source))
@@ -308,6 +323,9 @@ internal class ServiceSnapshotState {
         downloadedBytes = source.downloadedBytes.coerceAtLeast(0)
         uploadedBytes = source.uploadedBytes.coerceAtLeast(0)
         reconnectCount = source.reconnectCount.coerceAtLeast(0)
+        sessionCongestionControl = CongestionControlSettings.token(source.sessionCongestionControl)
+        dataPlane = L4StatusFields.mode(source.dataPlane)
+        l4Json = source.l4Json?.let { L4StatusFields.decode(it)?.let { counters -> JSONObject(counters).toString() } }
         networkQualityJson =
             source.networkQualityJson?.let { value ->
                 NetworkQualityFields.decode(value)?.let { JSONObject(it).toString() }
@@ -367,6 +385,9 @@ internal class ServiceSnapshotState {
                 uploadedBytes = source.optLong("uploaded_bytes", 0),
                 reconnectCount = source.optInt("reconnect_count", 0),
                 networkQualityJson = NetworkQualityFields.encode(source.optJSONObject("network_quality")),
+                sessionCongestionControl = CongestionControlSettings.token(source.opt("session_congestion_control")),
+                dataPlane = L4StatusFields.mode(source.opt("data_plane")),
+                l4Json = L4StatusFields.encode(source.optJSONObject("l4")),
                 activeListeners =
                     source.optJSONArray("active_listeners")?.let { listeners ->
                         List(listeners.length()) { index -> listeners.getString(index) }
@@ -461,6 +482,9 @@ internal class ServiceSnapshotState {
             foregroundNotificationActive = platform.foregroundNotificationActive,
             pendingCleanup = platform.pendingCleanup,
             networkQualityJson = networkQualityJson,
+            sessionCongestionControl = sessionCongestionControl,
+            dataPlane = dataPlane,
+            l4Json = l4Json,
         )
 
     /**
@@ -512,11 +536,20 @@ internal class ServiceSnapshotState {
             WireKeys.NETWORK_GENERATION to fields.networkGeneration,
             WireKeys.DNS_SERVER_COUNT to fields.dnsServerCount,
             WireKeys.NATIVE_RUNTIME_STATE to
-                if (fields.nativeRuntimeActive) "running" else "stopped",
+                if (fields.pendingCleanup) {
+                    "unknown"
+                } else if (fields.nativeRuntimeActive) {
+                    "running"
+                } else {
+                    "stopped"
+                },
             WireKeys.FOREGROUND_NOTIFICATION_STATE to
                 if (fields.foregroundNotificationActive) "active" else "inactive",
             WireKeys.PENDING_CLEANUP to fields.pendingCleanup,
             WireKeys.NETWORK_QUALITY to fields.networkQualityJson,
+            WireKeys.SESSION_CONGESTION_CONTROL to fields.sessionCongestionControl,
+            WireKeys.DATA_PLANE to fields.dataPlane,
+            WireKeys.L4 to fields.l4Json,
         )
     }
 
@@ -524,6 +557,9 @@ internal class ServiceSnapshotState {
         val entries = wireEntries(platform)
         return Bundle().apply {
             putString(WireKeys.NETWORK_QUALITY, entries[WireKeys.NETWORK_QUALITY] as String?)
+            putString(WireKeys.DATA_PLANE, entries[WireKeys.DATA_PLANE] as String?)
+            putString(WireKeys.L4, entries[WireKeys.L4] as String?)
+            putString(WireKeys.SESSION_CONGESTION_CONTROL, entries[WireKeys.SESSION_CONGESTION_CONTROL] as String?)
             putString(WireKeys.PHASE, entries[WireKeys.PHASE] as String?)
             putString(WireKeys.WARNING, entries[WireKeys.WARNING] as String?)
             putString(WireKeys.ERROR_CODE, entries[WireKeys.ERROR_CODE] as String?)
@@ -644,6 +680,9 @@ internal class ServiceSnapshotState {
             uploadedBytes,
             reconnectCount,
             networkQualityJson,
+            sessionCongestionControl,
+            dataPlane,
+            l4Json,
             activeListeners.joinToString("\u001f"),
             activeFrontends.joinToString("\u001f"),
             tunnelIpv4Available,

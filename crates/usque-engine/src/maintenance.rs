@@ -20,6 +20,12 @@ use usque_transport::{ConnectionEventType, ConnectionTimelineSnapshot};
 
 const MAX_DIAGNOSTIC_LOG_BYTES: usize = 2 * 1024 * 1024;
 
+#[derive(Default)]
+pub struct DiagnosticTransportContext {
+    pub timeline: ConnectionTimelineSnapshot,
+    pub socket_receive: Option<usque_transport::SocketReceiveQuality>,
+}
+
 pub struct Maintenance {
     update_checker: UpdateChecker,
     legacy_update_state_path: PathBuf,
@@ -67,7 +73,7 @@ impl Maintenance {
         config: AppConfig,
         snapshot: ConnectionSnapshot,
         diagnostic_session: Option<DiagnosticSession>,
-        timeline: ConnectionTimelineSnapshot,
+        transport: DiagnosticTransportContext,
     ) -> Result<(), MaintenanceError> {
         let log_directory = self.log_directory.clone();
         tokio::task::spawn_blocking(move || {
@@ -76,7 +82,7 @@ impl Maintenance {
                 &config,
                 &snapshot,
                 diagnostic_session.as_ref(),
-                &timeline,
+                &transport,
                 &log_directory,
             )
         })
@@ -142,7 +148,7 @@ fn write_diagnostic_bundle(
     config: &AppConfig,
     snapshot: &ConnectionSnapshot,
     diagnostic_session: Option<&DiagnosticSession>,
-    timeline: &ConnectionTimelineSnapshot,
+    transport: &DiagnosticTransportContext,
     log_directory: &Path,
 ) -> Result<(), MaintenanceError> {
     if !destination.is_absolute()
@@ -162,7 +168,7 @@ fn write_diagnostic_bundle(
     let log = collect_sanitized_logs(log_directory)?;
     let configuration = configuration_summary(config);
     let connection = connection_summary(snapshot);
-    let timeline = connection_timeline_summary(timeline);
+    let timeline = connection_timeline_summary(&transport.timeline);
     let platform = platform_health_summary(snapshot);
     let readme = concat!(
         "Usque diagnostic bundle\n\n",
@@ -193,6 +199,14 @@ fn write_diagnostic_bundle(
             readme.as_bytes().to_vec().into_boxed_slice(),
         ),
     ];
+    if snapshot.transport == Some(usque_core::Transport::Http3)
+        && let Some(socket) = &transport.socket_receive
+    {
+        entries.push((
+            "udp-receive.json".to_owned(),
+            serde_json::to_vec_pretty(&socket_receive_summary(socket))?.into_boxed_slice(),
+        ));
+    }
     if let Some(session) = diagnostic_session {
         entries.push((
             "diagnostic-session.json".to_owned(),
@@ -216,6 +230,7 @@ fn write_diagnostic_bundle(
         "schema_version": 2,
         "created_at": Utc::now(),
         "app_version": env!("CARGO_PKG_VERSION"),
+        "native_build": usque_core::NativeBuildInfo::current(),
         "operating_system": std::env::consts::OS,
         "architecture": std::env::consts::ARCH,
         "diagnostic_complete": diagnostic_session.is_some_and(|session| {
@@ -310,11 +325,37 @@ fn configuration_summary(config: &AppConfig) -> serde_json::Value {
     })
 }
 
+fn socket_receive_summary(socket: &usque_transport::SocketReceiveQuality) -> serde_json::Value {
+    let mut observation = socket.observation.clone();
+    observation.buffer_request_status = observation.buffer_request_status.filter(|s| {
+        matches!(
+            s.as_str(),
+            "accepted" | "rejected" | "not_requested" | "already_sufficient"
+        )
+    });
+    observation.overflow_monitoring = observation.overflow_monitoring.filter(|s| {
+        matches!(
+            s.as_str(),
+            "enabled" | "unavailable" | "unavailable_backend"
+        )
+    });
+    observation.receive_backend = observation
+        .receive_backend
+        .filter(|s| matches!(s.as_str(), "portable" | "recvmmsg"));
+    observation.send_backend = observation
+        .send_backend
+        .filter(|s| matches!(s.as_str(), "portable" | "sendmmsg"));
+    observation.history.truncate(120);
+    serde_json::json!({"receive_buffer_bytes": socket.receive_buffer_bytes, "send_buffer_bytes": socket.send_buffer_bytes, "observation": observation})
+}
+
 fn connection_summary(snapshot: &ConnectionSnapshot) -> serde_json::Value {
     serde_json::json!({
         "phase": snapshot.phase,
         "changed_at": snapshot.changed_at,
         "transport": snapshot.transport,
+        "data_plane": snapshot.data_plane,
+        "l4": snapshot.l4,
         "address_family": snapshot.address_family,
         "ipv4_available": snapshot.ipv4_available,
         "ipv6_available": snapshot.ipv6_available,
@@ -1011,6 +1052,74 @@ mod tests {
     };
 
     #[test]
+    fn socket_receive_export_is_optional_typed_and_allowlisted() {
+        let mut socket = usque_transport::SocketReceiveQuality {
+            receive_buffer_bytes: Some(4 << 20),
+            send_buffer_bytes: None,
+            observation: usque_core::L4ReceiveSnapshot {
+                buffer_target_bytes: Some(2 << 20),
+                buffer_request_status: Some("already_sufficient".into()),
+                receive_backend: Some("portable".into()),
+                ..Default::default()
+            },
+        };
+        let value = socket_receive_summary(&socket);
+        assert_eq!(value["receive_buffer_bytes"], 4 << 20);
+        assert!(value["send_buffer_bytes"].is_null());
+        assert_eq!(value["observation"]["buffer_target_bytes"], 2 << 20);
+        assert!(value["observation"]["requested_buffer_bytes"].is_null());
+        assert_eq!(
+            value["observation"]["buffer_request_status"],
+            "already_sufficient"
+        );
+        socket.observation.buffer_request_status = Some("private.example".into());
+        socket.observation.overflow_monitoring = Some("token=private".into());
+        socket.observation.receive_backend = Some("192.0.2.1".into());
+        socket.observation.send_backend = Some("private-secret".into());
+        let sanitized = socket_receive_summary(&socket).to_string();
+        for private in [
+            "private.example",
+            "token=private",
+            "192.0.2.1",
+            "private-secret",
+        ] {
+            assert!(!sanitized.contains(private));
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("diagnostics.zip");
+        let context = DiagnosticTransportContext {
+            socket_receive: Some(socket),
+            ..Default::default()
+        };
+        for transport in [
+            None,
+            Some(usque_core::Transport::Http2),
+            Some(usque_core::Transport::Http3),
+        ] {
+            let snapshot = ConnectionSnapshot {
+                transport,
+                ..Default::default()
+            };
+            write_diagnostic_bundle(
+                &destination,
+                &AppConfig::default(),
+                &snapshot,
+                None,
+                &context,
+                &directory.path().join("missing-logs"),
+            )
+            .unwrap();
+            let bytes = fs::read(&destination).unwrap();
+            let bundle = String::from_utf8_lossy(&bytes);
+            assert_eq!(
+                bundle.contains("udp-receive.json"),
+                transport == Some(usque_core::Transport::Http3)
+            );
+            assert!(!bundle.contains("private.example"));
+        }
+    }
+
+    #[test]
     fn diagnostic_bundle_contains_only_sanitized_summaries() {
         let directory = tempfile::tempdir().unwrap();
         let destination = directory.path().join("diagnostics.zip");
@@ -1029,7 +1138,7 @@ mod tests {
             &config,
             &ConnectionSnapshot::default(),
             None,
-            &ConnectionTimelineSnapshot::default(),
+            &DiagnosticTransportContext::default(),
             &log_directory,
         )
         .unwrap();
@@ -1051,8 +1160,8 @@ mod tests {
                 &AppConfig::default(),
                 &ConnectionSnapshot::default(),
                 None,
-                &ConnectionTimelineSnapshot::default(),
-                Path::new("missing-logs")
+                &DiagnosticTransportContext::default(),
+                Path::new("missing-logs"),
             ),
             Err(MaintenanceError::InvalidDestination(_))
         ));
@@ -1092,7 +1201,7 @@ mod tests {
             &AppConfig::default(),
             &ConnectionSnapshot::default(),
             Some(&session),
-            &ConnectionTimelineSnapshot::default(),
+            &DiagnosticTransportContext::default(),
             directory.path().join("missing-logs").as_path(),
         )
         .unwrap();

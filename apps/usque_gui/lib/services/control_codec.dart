@@ -96,6 +96,11 @@ class ControlCodec {
       writer.string(16, country);
     }
     writer.message(17, directDns.takeBytes());
+    writer.enumeration(
+      18,
+      _congestionControlWireValue(profile.congestionControl),
+    );
+    writer.enumeration(19, profile.dataPlane.index + 1);
     return writer.takeBytes();
   }
 
@@ -126,6 +131,7 @@ class ControlCodec {
       ConnectionTimeline? connectionTimeline;
       NetworkQualitySnapshot? networkQuality;
       EngineCapabilities? capabilities;
+      NetworkSettingsState? networkSettings;
       while (!reader.isDone) {
         final field = reader.field();
         switch (field.number) {
@@ -151,6 +157,8 @@ class ControlCodec {
             );
           case 21:
             networkQuality = _decodeNetworkQuality(reader.message(field));
+          case 22:
+            networkSettings = _decodeNetworkSettings(reader.message(field));
           case 15:
             capabilities = _decodeCapabilities(reader.message(field));
           default:
@@ -180,6 +188,7 @@ class ControlCodec {
         connectionTimeline: connectionTimeline,
         networkQuality: networkQuality,
         capabilities: capabilities,
+        networkSettings: networkSettings,
       );
     } on FormatException catch (error) {
       throw _invalidIpcResponse(error);
@@ -213,6 +222,7 @@ class ControlCodec {
       NetworkQualitySnapshot? networkQuality;
       EngineCapabilities? capabilities;
       var diagnosticsChanged = false;
+      NetworkSettingsState? networkSettings;
       while (!envelope.isDone) {
         final field = envelope.field();
         switch (field.number) {
@@ -273,6 +283,8 @@ class ControlCodec {
                 updated.skip(updatedField);
               }
             }
+          case 24:
+            networkSettings = _decodeNetworkSettings(envelope.message(field));
           default:
             envelope.skip(field);
         }
@@ -282,6 +294,7 @@ class ControlCodec {
         geoProgress: geoProgress,
         diagnosticSession: diagnosticSession,
         diagnosticsChanged: diagnosticsChanged,
+        networkSettings: networkSettings,
         networkQuality: networkQuality,
         capabilities: capabilities,
       );
@@ -314,6 +327,7 @@ class ControlResponse {
     this.connectionTimeline,
     this.networkQuality,
     this.capabilities,
+    this.networkSettings,
   });
 
   final EngineSnapshot? snapshot;
@@ -325,6 +339,7 @@ class ControlResponse {
   final ConnectionTimeline? connectionTimeline;
   final NetworkQualitySnapshot? networkQuality;
   final EngineCapabilities? capabilities;
+  final NetworkSettingsState? networkSettings;
 }
 
 /// Minimal protobuf field writer for control request payloads.
@@ -542,6 +557,8 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
   var name = defaults.name;
   var mode = defaults.mode;
   var transport = defaults.transport;
+  var dataPlane = defaults.dataPlane;
+  var congestionControl = defaults.congestionControl;
   var ipPolicy = defaults.ipPolicy;
   var endpointIpv4 = defaults.endpointIpv4;
   var endpointIpv6 = defaults.endpointIpv6;
@@ -650,6 +667,16 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
         geoDirectCountries.add(reader.string(field));
       case 17:
         directDns = _decodeDirectDnsSettings(reader.message(field));
+      case 18:
+        final value = reader.varint(field);
+        congestionControl = value == 0
+            ? CongestionControlAlgorithm.cubic
+            : _decodeCongestionControl(value);
+      case 19:
+        final value = reader.varint(field);
+        dataPlane = value == 0
+            ? DataPlaneMode.connectIp
+            : _decodeIndexedEnum(DataPlaneMode.values, value, 'data plane');
       default:
         reader.skip(field);
     }
@@ -666,6 +693,8 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
     name: name,
     mode: mode,
     transport: transport,
+    dataPlane: dataPlane,
+    congestionControl: congestionControl,
     ipPolicy: ipPolicy,
     endpointIpv4: endpointIpv4,
     endpointIpv6: endpointIpv6,
@@ -1269,6 +1298,11 @@ ConnectionMetrics _decodeConnectionMetrics(_ProtoReader reader) {
 }
 
 EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
+  var networkSettingsApplication = false;
+  var l4Tcp = false;
+  var l4TunTcp = false;
+  var l4DnsConversion = false;
+  final congestionAlgorithms = <CongestionControlAlgorithm>[];
   var networkQuality = false;
   var encryptedDirectDns = false;
   var quicMigration = false;
@@ -1276,6 +1310,14 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
   while (!reader.isDone) {
     final field = reader.field();
     switch (field.number) {
+      case 25:
+        networkSettingsApplication = reader.varint(field) != 0;
+      case 26:
+        l4Tcp = reader.varint(field) != 0;
+      case 27:
+        l4TunTcp = reader.varint(field) != 0;
+      case 28:
+        l4DnsConversion = reader.varint(field) != 0;
       case 20:
         networkQuality = reader.varint(field) != 0;
       case 21:
@@ -1284,11 +1326,30 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
         quicMigration = reader.varint(field) != 0;
       case 23:
         automaticPmtu = reader.varint(field) != 0;
+      case 24:
+        final values = field.wireType == 2 ? reader.message(field) : null;
+        if (values != null && values.isDone) break;
+        do {
+          final value = values == null
+              ? reader.varint(field)
+              : values._varint();
+          if (value >= 1 && value <= 4) {
+            final algorithm = _decodeCongestionControl(value);
+            if (!congestionAlgorithms.contains(algorithm)) {
+              congestionAlgorithms.add(algorithm);
+            }
+          }
+        } while (values != null && !values.isDone);
       default:
         reader.skip(field);
     }
   }
   return EngineCapabilities(
+    networkSettingsApplication: networkSettingsApplication,
+    l4Tcp: l4Tcp,
+    l4TunTcp: l4TunTcp,
+    l4DnsConversion: l4DnsConversion,
+    h3CongestionControlAlgorithms: List.unmodifiable(congestionAlgorithms),
     networkQuality: networkQuality,
     encryptedDirectDns: encryptedDirectDns,
     quicMigration: quicMigration,
@@ -1296,7 +1357,57 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
   );
 }
 
+NetworkSettingsState _decodeNetworkSettings(_ProtoReader reader) {
+  final values = <Object?, Object?>{};
+  final fields = <String>[];
+  while (!reader.isDone) {
+    final field = reader.field();
+    switch (field.number) {
+      case 1:
+        values['source_epoch'] = reader.string(field);
+      case 2:
+        values['sequence'] = reader.varint(field);
+      case 3:
+        values['operation_id'] = reader.string(field);
+      case 4:
+        values['session_id'] = reader.string(field);
+      case 5:
+        values['stored_profile'] = _decodeProfile(
+          reader.message(field),
+        ).toMap();
+      case 6:
+        values['applied_profile'] = _decodeProfile(
+          reader.message(field),
+        ).toMap();
+      case 7:
+        values['apply_status'] = switch (reader.varint(field)) {
+          1 => 'not_required',
+          2 => 'applying',
+          3 => 'applied',
+          4 => 'deferred',
+          5 => 'failed',
+          _ => 'unknown',
+        };
+      case 8:
+        if (fields.length >= 32) {
+          throw const FormatException('Too many pending settings');
+        }
+        fields.add(reader.string(field));
+      case 9:
+        values['error_code'] = _emptyToNull(reader.string(field));
+      case 10:
+        values['persisted'] = reader.varint(field) != 0;
+      default:
+        reader.skip(field);
+    }
+  }
+  values['sequence'] ??= 0;
+  values['deferred_fields'] = fields;
+  return NetworkSettingsState.fromMap(values);
+}
+
 NetworkQualitySnapshot _decodeNetworkQuality(_ProtoReader reader) {
+  UdpSocketReceiveSnapshot? udpSocketReceive;
   DateTime? sampledAt;
   String? connectionInstanceId;
   var level = NetworkQualityLevel.unknown;
@@ -1341,11 +1452,14 @@ NetworkQualitySnapshot _decodeNetworkQuality(_ProtoReader reader) {
         } else {
           reader.skip(field);
         }
+      case 10:
+        udpSocketReceive = _decodeUdpSocketReceive(reader.message(field));
       default:
         reader.skip(field);
     }
   }
   return NetworkQualitySnapshot(
+    udpSocketReceive: udpSocketReceive,
     sampledAt: sampledAt,
     connectionInstanceId: connectionInstanceId,
     level: level,
@@ -1355,6 +1469,31 @@ NetworkQualitySnapshot _decodeNetworkQuality(_ProtoReader reader) {
     migration: migration,
     directDns: directDns,
     samples: List.unmodifiable(samples),
+  );
+}
+
+UdpSocketReceiveSnapshot _decodeUdpSocketReceive(_ProtoReader reader) {
+  int? receive, send;
+  L4ReceiveSnapshot? observation;
+  while (!reader.isDone) {
+    final field = reader.field();
+    switch (field.number) {
+      case 1:
+        receive = reader.varint(field);
+      case 2:
+        send = reader.varint(field);
+      case 3:
+        observation = L4ReceiveSnapshot.from(
+          _decodeL4Receive(reader.message(field)),
+        );
+      default:
+        reader.skip(field);
+    }
+  }
+  return UdpSocketReceiveSnapshot(
+    receiveBufferBytes: receive,
+    sendBufferBytes: send,
+    observation: observation,
   );
 }
 
@@ -2074,6 +2213,9 @@ _StructuredEngineError _decodeError(_ProtoReader reader) {
 }
 
 EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
+  CongestionControlAlgorithm? sessionCongestionControl;
+  DataPlaneMode? dataPlane;
+  L4Snapshot? l4;
   var phase = ConnectionPhase.error;
   String? transport;
   String? family;
@@ -2142,6 +2284,19 @@ EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
         failure = _decodeTransportFailure(reader.message(field));
       case 17:
         networkQuality = _decodeNetworkQuality(reader.message(field));
+      case 18:
+        final value = reader.varint(field);
+        sessionCongestionControl = value >= 1 && value <= 4
+            ? _decodeCongestionControl(value)
+            : null;
+      case 19:
+        dataPlane = switch (reader.varint(field)) {
+          1 => DataPlaneMode.connectIp,
+          2 => DataPlaneMode.l4Proxy,
+          _ => null,
+        };
+      case 20:
+        l4 = _decodeL4Snapshot(reader.message(field));
       default:
         // Includes reserved field 14 (legacy captive-portal countdown).
         reader.skip(field);
@@ -2149,6 +2304,9 @@ EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
   }
   return EngineSnapshot(
     phase: phase,
+    sessionCongestionControl: sessionCongestionControl,
+    dataPlane: dataPlane,
+    l4: l4,
     transport: transport,
     addressFamily: family,
     connectedAt: connectedSeconds == 0
@@ -2172,6 +2330,167 @@ EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
   );
 }
 
+L4Snapshot _decodeL4Snapshot(_ProtoReader reader) {
+  const fields = <int, String>{
+    1: 'connect_verified',
+    2: 'sessions',
+    3: 'draining_sessions',
+    4: 'active_flows',
+    5: 'pending_flows',
+    6: 'connect_successes',
+    7: 'connect_failures',
+    8: 'connect_timeouts',
+    9: 'buffer_bytes',
+    10: 'budget_rejections',
+    11: 'send_backpressure',
+    12: 'receive_backpressure',
+    13: 'udp_rejected',
+    14: 'dns_successes',
+    15: 'dns_failures',
+    16: 'dns_timeouts',
+    17: 'migration_preserved_flows',
+    18: 'reconnect_terminated_flows',
+    19: 'tun_flows',
+    20: 'half_open_flows',
+    21: 'connect_latency_us',
+    22: 'unsupported_packets',
+  };
+  final values = <Object?, Object?>{};
+  while (!reader.isDone) {
+    final field = reader.field();
+    final key = fields[field.number];
+    if (field.number == 23) {
+      values['performance'] = _decodeL4Performance(reader.message(field));
+    } else if (key == null) {
+      reader.skip(field);
+    } else {
+      final value = reader.varint(field);
+      values[key] = field.number == 1 ? value != 0 : value;
+    }
+  }
+  return L4Snapshot.fromMap(values);
+}
+
+Map<Object?, Object?> _decodeL4Performance(_ProtoReader reader) {
+  final values = <Object?, Object?>{
+    for (final k in l4PerformanceScalarFields.take(22)) k: 0,
+    'actor_no_progress_wakeups': 0,
+  };
+  while (!reader.isDone) {
+    final field = reader.field();
+    if (field.number <= 32) {
+      final key = l4PerformanceScalarFields[field.number - 1];
+      values[key] = field.number == 27 || field.number == 29
+          ? reader.string(field)
+          : reader.varint(field);
+    } else if (field.number == 33 || field.number == 34) {
+      values[field.number == 33 ? 'command_wait' : 'tun_write_wait'] =
+          _decodeL4Wait(reader.message(field));
+    } else if (field.number >= 35 && field.number <= 38) {
+      values[l4PerformanceQueueFields[field.number - 35]] = _decodeL4Queue(
+        reader.message(field),
+      );
+    } else if (field.number == 39) {
+      values['actor_no_progress_wakeups'] = reader.varint(field);
+    } else if (field.number == 40) {
+      values['receive'] = _decodeL4Receive(reader.message(field));
+    } else {
+      reader.skip(field);
+    }
+  }
+  return values;
+}
+
+Map<Object?, Object?> _decodeL4Wait(_ProtoReader reader) {
+  final values = <Object?, Object?>{'samples': 0, 'sum_us': 0, 'max_us': 0};
+  final buckets = <int>[];
+  while (!reader.isDone) {
+    final field = reader.field();
+    if (field.number <= 3) {
+      values[['samples', 'sum_us', 'max_us'][field.number - 1]] = reader.varint(
+        field,
+      );
+    } else if (field.number == 4) {
+      if (field.wireType == 0) {
+        buckets.add(reader.varint(field));
+      } else {
+        final packed = reader.message(field);
+        while (!packed.isDone) {
+          buckets.add(packed._varint());
+          if (buckets.length > 32) {
+            throw const FormatException('L4 histogram exceeds bound');
+          }
+        }
+      }
+      if (buckets.length > 32) {
+        throw const FormatException('L4 histogram exceeds bound');
+      }
+    } else {
+      reader.skip(field);
+    }
+  }
+  values['buckets'] = buckets;
+  return values;
+}
+
+Map<Object?, Object?> _decodeL4Receive(_ProtoReader reader) {
+  final history = <Map<Object?, Object?>>[];
+  final values = <Object?, Object?>{
+    'history': history,
+    for (final key in [5, 6, 7, 8, 9, 13]) l4ReceiveCounterFields[key]: 0,
+  };
+  while (!reader.isDone) {
+    final field = reader.field();
+    final counter = l4ReceiveCounterFields[field.number];
+    final state = l4ReceiveStringFields[field.number];
+    if (counter != null) {
+      values[counter] = reader.varint(field);
+    } else if (state != null) {
+      values[state] = reader.string(field);
+    } else if (field.number == 12) {
+      if (history.length == 120) {
+        throw const FormatException('L4 receive history exceeds bound');
+      }
+      final item = <Object?, Object?>{
+        'path_reset': false,
+        for (final key in [1, 2, 4, 5, 6]) l4ReceiveIntervalFields[key]: 0,
+      };
+      final nested = reader.message(field);
+      while (!nested.isDone) {
+        final part = nested.field();
+        final key = l4ReceiveIntervalFields[part.number];
+        if (part.number == 3) {
+          item['path_reset'] = nested.varint(part) != 0;
+        } else if (key != null) {
+          item[key] = nested.varint(part);
+        } else {
+          nested.skip(part);
+        }
+      }
+      history.add(item);
+    } else {
+      reader.skip(field);
+    }
+  }
+  return values;
+}
+
+Map<Object?, Object?> _decodeL4Queue(_ProtoReader reader) {
+  const keys = ['packets', 'bytes', 'high_water_packets', 'high_water_bytes'];
+  final values = <Object?, Object?>{for (final k in keys) k: 0};
+  while (!reader.isDone) {
+    final field = reader.field();
+    if (field.number <= 4) {
+      values[keys[field.number - 1]] = reader.varint(field);
+    } else if (field.number == 5) {
+      values['wait'] = _decodeL4Wait(reader.message(field));
+    } else {
+      reader.skip(field);
+    }
+  }
+  return values;
+}
+
 String? _decodeKillSwitchState(int value) {
   return switch (value) {
     1 => 'notApplicable',
@@ -2181,6 +2500,23 @@ String? _decodeKillSwitchState(int value) {
     _ => null,
   };
 }
+
+int _congestionControlWireValue(CongestionControlAlgorithm algorithm) =>
+    switch (algorithm) {
+      CongestionControlAlgorithm.cubic => 1,
+      CongestionControlAlgorithm.reno => 2,
+      CongestionControlAlgorithm.bbr => 3,
+      CongestionControlAlgorithm.bbr3 => 4,
+    };
+
+CongestionControlAlgorithm _decodeCongestionControl(int value) =>
+    switch (value) {
+      1 => CongestionControlAlgorithm.cubic,
+      2 => CongestionControlAlgorithm.reno,
+      3 => CongestionControlAlgorithm.bbr,
+      4 => CongestionControlAlgorithm.bbr3,
+      _ => throw const FormatException('Unknown congestion control algorithm'),
+    };
 
 FrontendRuntimeStatus _decodeFrontendStatus(_ProtoReader reader) {
   var kind = FrontendKind.tunnel;

@@ -54,6 +54,7 @@ mod ipc_stream;
 pub mod logging;
 mod maintenance;
 mod network_quality;
+mod network_settings;
 mod sensitive_output;
 
 mod active_runtime;
@@ -64,6 +65,9 @@ use active_runtime::{ActiveDataPlane, ActiveProxyRuntime, ActiveRuntime};
 #[cfg(windows)]
 mod windows_agent;
 
+mod congestion;
+mod data_plane;
+
 #[cfg(target_os = "macos")]
 pub mod macos_ipc;
 
@@ -73,7 +77,21 @@ pub mod windows_ipc;
 #[cfg(windows)]
 pub mod windows_purge;
 
+#[derive(Clone)]
 pub struct ControlService {
+    inner: Arc<ControlServiceState>,
+}
+
+impl std::ops::Deref for ControlService {
+    type Target = ControlServiceState;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+#[doc(hidden)]
+pub struct ControlServiceState {
     store: ConfigStore,
     pub(crate) config: RwLock<AppConfig>,
     pub(crate) state: Arc<Mutex<StateMachine>>,
@@ -89,6 +107,14 @@ pub struct ControlService {
     network_quality_tx: watch::Sender<usque_transport::NetworkQualitySnapshot>,
     network_quality_relay: Mutex<Option<AbortOnDropHandle<()>>>,
     session_generation: AtomicU64,
+    /// Survives internal reconnects, but is reset by a new user connection.
+    session_congestion_control: Mutex<Option<(Uuid, usque_core::CongestionControlAlgorithm)>>,
+    session_profile: Mutex<Option<Profile>>,
+    settings: Mutex<usque_core::network_settings::NetworkSettingsState>,
+    settings_tx: watch::Sender<u64>,
+    settings_intent: AtomicU64,
+    settings_submission: Mutex<()>,
+    settings_applying: std::sync::atomic::AtomicBool,
     #[cfg(windows)]
     windows_recovery: Mutex<WindowsRecoveryRuntime>,
     #[cfg(windows)]
@@ -369,32 +395,42 @@ impl ControlService {
             .unwrap_or_else(|| PathBuf::from("."));
         let (geo_progress_tx, _) = tokio::sync::broadcast::channel(16);
         let (network_quality_tx, _) = watch::channel(network_quality::disconnected_snapshot());
+        let (settings_tx, _) = watch::channel(0);
         Ok(Self {
-            maintenance: maintenance::Maintenance::new(store.path()),
-            diagnostics: diagnostics::DiagnosticsManager::new(),
-            store,
-            config: RwLock::new(config),
-            state: Arc::new(Mutex::new(StateMachine::default())),
-            mutation_lock: Arc::new(Mutex::new(())),
-            vault,
-            data_plane: Arc::new(Mutex::new(None)),
-            disconnect_cleanup: Mutex::new(None),
-            exit_probe_task: Mutex::new(None),
-            cache_dir,
-            geo_progress_tx,
-            network_quality_tx,
-            network_quality_relay: Mutex::new(None),
-            session_generation: AtomicU64::new(0),
-            #[cfg(windows)]
-            windows_recovery: Mutex::new(WindowsRecoveryRuntime::default()),
-            #[cfg(windows)]
-            windows_recovery_notify: tokio::sync::Notify::new(),
-            #[cfg(windows)]
-            windows_recovery_stopping: std::sync::atomic::AtomicBool::new(false),
-            #[cfg(any(windows, test))]
-            event_sequence: AtomicU64::new(0),
-            #[cfg(test)]
-            remote_license_unbinds: Mutex::new(Vec::new()),
+            inner: Arc::new(ControlServiceState {
+                maintenance: maintenance::Maintenance::new(store.path()),
+                diagnostics: diagnostics::DiagnosticsManager::new(),
+                store,
+                config: RwLock::new(config),
+                state: Arc::new(Mutex::new(StateMachine::default())),
+                mutation_lock: Arc::new(Mutex::new(())),
+                vault,
+                data_plane: Arc::new(Mutex::new(None)),
+                disconnect_cleanup: Mutex::new(None),
+                exit_probe_task: Mutex::new(None),
+                cache_dir,
+                geo_progress_tx,
+                network_quality_tx,
+                network_quality_relay: Mutex::new(None),
+                session_generation: AtomicU64::new(0),
+                session_congestion_control: Mutex::new(None),
+                session_profile: Mutex::new(None),
+                settings: Mutex::new(Default::default()),
+                settings_tx,
+                settings_intent: AtomicU64::new(0),
+                settings_submission: Mutex::new(()),
+                settings_applying: std::sync::atomic::AtomicBool::new(false),
+                #[cfg(windows)]
+                windows_recovery: Mutex::new(WindowsRecoveryRuntime::default()),
+                #[cfg(windows)]
+                windows_recovery_notify: tokio::sync::Notify::new(),
+                #[cfg(windows)]
+                windows_recovery_stopping: std::sync::atomic::AtomicBool::new(false),
+                #[cfg(any(windows, test))]
+                event_sequence: AtomicU64::new(0),
+                #[cfg(test)]
+                remote_license_unbinds: Mutex::new(Vec::new()),
+            }),
         })
     }
 
@@ -539,12 +575,15 @@ impl ControlService {
     ) -> Result<(), ControlServiceError> {
         let _mutation = self.mutation_lock.lock().await;
         let applied = self.upsert_profile_locked(profile.clone()).await?;
+        *self.session_congestion_control.lock().await =
+            Some((applied.id, applied.congestion_control));
         {
             let mut state = self.state.lock().await;
             state.transition(ConnectionPhase::Preparing)?;
             state.transition(ConnectionPhase::ConnectingHttp3)?;
             state.mark_connected(Transport::Http3, AddressFamily::Ipv4, true, true)?;
             state.update_runtime_metadata(reconnect_count, Vec::new(), Vec::new());
+            state.update_session_congestion_control(Some(applied.congestion_control));
         }
         let runtime = ActiveRuntime::Harness(active_runtime::HarnessRuntime::from_profile(
             &applied,
@@ -555,6 +594,7 @@ impl ControlService {
         let frontends = applied.frontends;
         *self.data_plane.lock().await = Some(ActiveDataPlane {
             profile_id: applied.id,
+            profile: applied.clone(),
             session_generation: self.next_session_generation(),
             frontends,
             connected_at: Instant::now(),
@@ -566,6 +606,15 @@ impl ControlService {
         });
         self.install_network_quality_source(quality_source).await;
         self.apply_hot_profile_state(&applied).await;
+        *self.session_profile.lock().await = Some(applied.clone());
+        let generation = self
+            .data_plane
+            .lock()
+            .await
+            .as_ref()
+            .map(|active| active.session_generation);
+        self.publish_settings_runtime(Some(applied), generation)
+            .await;
         Ok(())
     }
 
@@ -597,6 +646,7 @@ impl ControlService {
     /// Stops forwarding immediately, then waits for privileged platform state
     /// to be restored before the Engine process is allowed to exit.
     pub async fn shutdown(&self) -> Result<(), ControlServiceError> {
+        self.settings_intent.fetch_add(1, Ordering::SeqCst);
         #[cfg(windows)]
         self.clear_windows_connection_intent().await;
         let _mutation = self.mutation_lock.lock().await;
@@ -647,6 +697,15 @@ impl ControlService {
         payload: control_request::Payload,
     ) -> Result<control_response::Payload, ControlServiceError> {
         match payload {
+            control_request::Payload::SaveNetworkSettings(request) => {
+                let state = self.save_network_settings(*request).await?;
+                Ok(control_response::Payload::NetworkSettings(Box::new(state)))
+            }
+            control_request::Payload::GetNetworkSettingsState(_) => {
+                Ok(control_response::Payload::NetworkSettings(Box::new(
+                    self.network_settings_state().await,
+                )))
+            }
             control_request::Payload::GetStatus(_) => {
                 let snapshot = self.status_snapshot().await;
                 Ok(control_response::Payload::Status(Box::new(
@@ -826,7 +885,10 @@ impl ControlService {
                         config,
                         snapshot,
                         diagnostic_session,
-                        timeline,
+                        maintenance::DiagnosticTransportContext {
+                            timeline,
+                            socket_receive: self.network_quality_snapshot().socket_receive,
+                        },
                     )
                     .await?;
                 Ok(control_response::Payload::Empty(v1::Empty {}))
@@ -909,6 +971,7 @@ impl ControlService {
         let mut data_plane = self.data_plane.lock().await;
         let mut state = self.state.lock().await;
         if let Some(active) = data_plane.as_mut() {
+            state.update_data_plane(active.profile.data_plane, active.runtime.l4_snapshot());
             if !platform_recovery_pending {
                 match active.runtime.health() {
                     RuntimeHealth::Connected { path, .. }
@@ -1107,7 +1170,7 @@ impl ControlService {
             if let Some(active) = data_plane.as_ref() {
                 let (protector, runtime_cancel) = active.runtime.diagnostic_dns_context()?;
                 return Some(diagnostics::DiagnosticProbeContext {
-                    settings: profile.direct_dns.clone(),
+                    settings: active.profile.direct_dns.clone(),
                     protector,
                     runtime_cancel,
                     h3: None,
@@ -1138,8 +1201,18 @@ impl ControlService {
             protector,
             runtime_cancel: tokio_util::sync::CancellationToken::new(),
             h3: identity
-                .filter(|_| profile.transport != TransportPolicy::Http2)
-                .map(|identity| (endpoints, profile.endpoint.sni.clone(), identity)),
+                .filter(|_| {
+                    profile.data_plane == usque_core::DataPlaneMode::L4Proxy
+                        || profile.transport != TransportPolicy::Http2
+                })
+                .and_then(|identity| {
+                    let sni = if profile.data_plane == usque_core::DataPlaneMode::L4Proxy {
+                        identity.l4_server_name()?.to_owned()
+                    } else {
+                        profile.endpoint.sni.clone()
+                    };
+                    Some((endpoints, sni, identity))
+                }),
             _lifecycle: Some(lifecycle),
         })
     }
@@ -1629,6 +1702,10 @@ impl ControlService {
 
     async fn connect(&self, profile_id: Uuid) -> Result<ConnectionSnapshot, ControlServiceError> {
         let _mutation = self.mutation_lock.lock().await;
+        if self.data_plane.lock().await.is_none() {
+            *self.session_congestion_control.lock().await = None;
+            *self.session_profile.lock().await = None;
+        }
         #[cfg(windows)]
         let intent_generation = self.begin_windows_connection_intent(profile_id).await;
         let result = self.connect_locked(profile_id).await;
@@ -1665,7 +1742,31 @@ impl ControlService {
                 .runtime_profile(profile_id)
                 .ok_or(ControlServiceError::ProfileNotFound(profile_id))?
         };
+        if let Some(session) = self
+            .session_profile
+            .lock()
+            .await
+            .as_ref()
+            .filter(|session| session.id == profile_id)
+        {
+            profile = session.clone();
+        }
         self.attach_proxy_auth(&mut profile).await?;
+        {
+            let mut session = self.session_congestion_control.lock().await;
+            let algorithm = match *session {
+                Some((id, algorithm)) if id == profile_id => algorithm,
+                _ => {
+                    *session = Some((profile_id, profile.congestion_control));
+                    profile.congestion_control
+                }
+            };
+            profile.congestion_control = algorithm;
+            self.state
+                .lock()
+                .await
+                .update_session_congestion_control(Some(algorithm));
+        }
         if !usque_transport::ENCRYPTED_DIRECT_DNS_ENABLED
             && profile.direct_dns.mode != ConfigDirectDnsMode::PhysicalSystem
         {
@@ -1712,7 +1813,12 @@ impl ControlService {
 
         {
             let mut state = self.state.lock().await;
-            match profile.transport {
+            state.update_data_plane(profile.data_plane, None);
+            match if profile.data_plane == usque_core::DataPlaneMode::L4Proxy {
+                TransportPolicy::Http3
+            } else {
+                profile.transport
+            } {
                 TransportPolicy::Auto => {
                     state.transition(ConnectionPhase::ConnectingHttp3)?;
                 }
@@ -1833,6 +1939,7 @@ impl ControlService {
         );
         let snapshot = {
             let mut state = self.state.lock().await;
+            state.update_data_plane(profile.data_plane, runtime.l4_snapshot());
             if profile.transport == TransportPolicy::Auto && path.transport == Transport::Http2 {
                 state.transition(ConnectionPhase::ConnectingHttp2)?;
             }
@@ -1857,7 +1964,10 @@ impl ControlService {
                     },
                 });
             }
-            if profile.proxy.dns_mode != ProxyDnsMode::Remote {
+            if matches!(
+                profile.proxy.dns_mode,
+                ProxyDnsMode::LocalConfigured | ProxyDnsMode::System
+            ) {
                 warnings.push(ConnectionWarning {
                     code: "LOCAL_DNS_LEAK_RISK".to_owned(),
                     message:
@@ -1898,9 +2008,11 @@ impl ControlService {
             state.snapshot().clone()
         };
         let session_generation = self.next_session_generation();
+        *self.session_profile.lock().await = Some(profile.clone());
         let quality_source = runtime.subscribe_network_quality();
         *self.data_plane.lock().await = Some(ActiveDataPlane {
             profile_id,
+            profile: profile.clone(),
             session_generation,
             frontends: profile.frontends,
             connected_at: Instant::now(),
@@ -1915,6 +2027,8 @@ impl ControlService {
         // later, matching the Android runtime. Probe failure must not delay or
         // tear down a healthy session.
         self.spawn_exit_probe(exit_probe, profile_id, session_generation)
+            .await;
+        self.publish_settings_runtime(Some(profile), Some(session_generation))
             .await;
         Ok(snapshot)
     }
@@ -1946,9 +2060,12 @@ impl ControlService {
     }
 
     async fn disconnect(&self) -> Result<ConnectionSnapshot, ControlServiceError> {
+        self.settings_intent.fetch_add(1, Ordering::SeqCst);
         #[cfg(windows)]
         self.clear_windows_connection_intent().await;
         let _mutation = self.mutation_lock.lock().await;
+        *self.session_congestion_control.lock().await = None;
+        *self.session_profile.lock().await = None;
         self.disconnect_locked().await
     }
 
@@ -1996,6 +2113,7 @@ impl ControlService {
             .await
             .transition(ConnectionPhase::Disconnected)?
             .clone();
+        self.publish_settings_runtime(None, None).await;
         Ok(snapshot)
     }
 
@@ -2010,7 +2128,10 @@ impl ControlService {
     }
 
     async fn retry(&self) -> Result<ConnectionSnapshot, ControlServiceError> {
+        self.settings_intent.fetch_add(1, Ordering::SeqCst);
         let _mutation = self.mutation_lock.lock().await;
+        *self.session_congestion_control.lock().await = None;
+        *self.session_profile.lock().await = None;
         let connected_profile = self
             .data_plane
             .lock()
@@ -2140,6 +2261,7 @@ impl ControlService {
         if !confirmed {
             return Err(ControlServiceError::ConfirmationRequired);
         }
+        self.settings_intent.fetch_add(1, Ordering::SeqCst);
         #[cfg(windows)]
         self.clear_windows_connection_intent().await;
         let _mutation = self.mutation_lock.lock().await;
@@ -2166,7 +2288,11 @@ impl ControlService {
         self.vault
             .delete(SHARED_NETWORK_SECRET_ID, SecretRecord::ProxyPassword)
             .await?;
-        self.persist(AppConfig::default()).await?;
+        self.update_config(|latest| {
+            *latest = AppConfig::default();
+            Ok(())
+        })
+        .await?;
         self.maintenance.clear_local_state().await?;
         Ok(())
     }
@@ -2367,6 +2493,17 @@ impl ControlService {
             );
         } else {
             state.mark_error(connection_error_for(error));
+        }
+        drop(state);
+        let mut settings = self.settings.lock().await;
+        if settings.apply_status == usque_core::network_settings::ApplyStatus::Applying
+            && !self.settings_applying.load(Ordering::SeqCst)
+        {
+            settings.apply_status = usque_core::network_settings::ApplyStatus::Failed;
+            settings.applied_profile = None;
+            settings.error_code = Some("NETWORK_SETTINGS_APPLY_FAILED".into());
+            settings.advance();
+            self.settings_tx.send_replace(settings.sequence);
         }
     }
 
@@ -2955,7 +3092,12 @@ impl ControlService {
                 )
                 .await?;
         }
-        self.persist(next).await
+        self.update_config(move |latest| {
+            latest.network.proxy.auth_username = next.network.proxy.auth_username;
+            latest.network.proxy.auth_password = None;
+            Ok(())
+        })
+        .await
     }
 
     async fn attach_proxy_auth(&self, profile: &mut Profile) -> Result<(), ControlServiceError> {
@@ -3166,15 +3308,16 @@ impl ControlService {
         &self,
         profile: Profile,
     ) -> Result<Profile, ControlServiceError> {
-        let mut next = self.config.read().await.clone();
-        let stored = next
-            .upsert_runtime_profile(profile)
-            .map_err(ControlServiceError::configuration)?;
-        if next.active_profile_id.is_none() {
-            next.active_profile_id = Some(stored.id);
-        }
-        self.persist(next).await?;
-        Ok(stored)
+        self.update_config(move |latest| {
+            let stored = latest
+                .upsert_runtime_profile(profile)
+                .map_err(ControlServiceError::configuration)?;
+            if latest.active_profile_id.is_none() {
+                latest.active_profile_id = Some(stored.id);
+            }
+            Ok(stored)
+        })
+        .await
     }
 
     async fn import_legacy_profiles(
@@ -3239,13 +3382,18 @@ impl ControlService {
                 next.active_profile_id = next.profiles.first().map(|account| account.id);
             }
             next.preferences.profiles_migrated_from_flutter = true;
-            self.persist(next).await?;
+            self.update_config(move |latest| {
+                *latest = next;
+                Ok(())
+            })
+            .await?;
         }
         let config = self.config.read().await;
         Ok(profile_list_to_proto(&config))
     }
 
     async fn delete_profile(&self, id: Uuid) -> Result<(), ControlServiceError> {
+        self.settings_intent.fetch_add(1, Ordering::SeqCst);
         {
             let config = self.config.read().await;
             if !config.profiles.iter().any(|profile| profile.id == id) {
@@ -3278,6 +3426,7 @@ impl ControlService {
     }
 
     async fn set_active_profile(&self, id: Uuid) -> Result<(), ControlServiceError> {
+        self.settings_intent.fetch_add(1, Ordering::SeqCst);
         if !self
             .config
             .read()
@@ -3362,11 +3511,14 @@ impl ControlService {
         self.vault
             .delete(SHARED_NETWORK_SECRET_ID, SecretRecord::ProxyPassword)
             .await?;
-        let profile = next
-            .runtime_profile(id)
-            .ok_or(ControlServiceError::ProfileNotFound(id))?;
-        self.persist(next).await?;
-        Ok(profile)
+        self.update_config(move |latest| {
+            latest.network.reset_user_defaults();
+            latest.network.proxy.auth_username = None;
+            latest
+                .runtime_profile(id)
+                .ok_or(ControlServiceError::ProfileNotFound(id))
+        })
+        .await
     }
 
     async fn reap_pending_identity_deletions_locked(&self) -> Result<(), ControlServiceError> {
@@ -3466,16 +3618,28 @@ impl ControlService {
         }
     }
 
-    async fn persist(&self, next: AppConfig) -> Result<(), ControlServiceError> {
-        next.validate()
-            .map_err(ControlServiceError::profile_configuration)?;
+    /// Account operations are serialized by the lifecycle lock, but settings
+    /// saves are independent. Never copy their older network snapshot back.
+    async fn persist(&self, mut next: AppConfig) -> Result<(), ControlServiceError> {
+        self.update_config(move |latest| {
+            next.network = latest.network.clone();
+            *latest = next;
+            Ok(())
+        })
+        .await
+    }
+
+    async fn update_config<T: Send + 'static>(
+        &self,
+        change: impl FnOnce(&mut AppConfig) -> Result<T, ControlServiceError> + Send + 'static,
+    ) -> Result<T, ControlServiceError> {
+        let mut config = self.config.write().await;
         let store = self.store.clone();
-        let persisted = next.clone();
-        tokio::task::spawn_blocking(move || store.save(&persisted))
+        let (next, result) = tokio::task::spawn_blocking(move || store.update(change))
             .await
             .map_err(|error| ControlServiceError::PersistenceWorker(error.to_string()))??;
-        *self.config.write().await = next;
-        Ok(())
+        *config = next;
+        Ok(result)
     }
 }
 
@@ -3893,6 +4057,7 @@ fn parse_profile_id(value: &str) -> Result<Uuid, ControlServiceError> {
 
 fn profile_from_proto(source: v1::Profile) -> Result<Profile, ControlServiceError> {
     let defaults = Profile::default();
+    let congestion_control = congestion::from_proto(source.congestion_control)?;
     let endpoint = source.endpoint.ok_or_else(|| {
         ControlServiceError::InvalidRequest("profile endpoint is missing".to_owned())
     })?;
@@ -3981,6 +4146,7 @@ fn profile_from_proto(source: v1::Profile) -> Result<Profile, ControlServiceErro
 
     let mut profile = Profile {
         id: parse_profile_id(&source.id)?,
+        data_plane: data_plane::from_proto(source.data_plane)?,
         name: source.name,
         mode,
         frontends,
@@ -3995,6 +4161,7 @@ fn profile_from_proto(source: v1::Profile) -> Result<Profile, ControlServiceErro
                 ));
             }
         },
+        congestion_control,
         endpoint: EndpointSettings {
             ipv4: endpoint
                 .ipv4
@@ -4065,6 +4232,9 @@ fn profile_from_proto(source: v1::Profile) -> Result<Profile, ControlServiceErro
                     ProxyDnsMode::LocalConfigured
                 }
                 value if value == v1::ProxyDnsMode::System as i32 => ProxyDnsMode::System,
+                value if value == v1::ProxyDnsMode::EdgeResolved as i32 => {
+                    ProxyDnsMode::EdgeResolved
+                }
                 _ => {
                     return Err(ControlServiceError::InvalidRequest(
                         "unknown proxy DNS mode".to_owned(),
@@ -4120,6 +4290,8 @@ fn parse_listeners(values: &[String]) -> Result<Vec<SocketAddr>, ControlServiceE
 
 pub(crate) fn profile_to_proto(profile: &Profile) -> v1::Profile {
     v1::Profile {
+        data_plane: data_plane::to_proto(profile.data_plane),
+        congestion_control: congestion::to_proto(profile.congestion_control),
         id: profile.id.to_string(),
         name: profile.name.clone(),
         mode: match profile.mode {
@@ -4270,6 +4442,7 @@ fn proxy_to_proto(proxy: &ProxySettings) -> v1::ProxySettings {
             ProxyDnsMode::Remote => v1::ProxyDnsMode::Remote as i32,
             ProxyDnsMode::LocalConfigured => v1::ProxyDnsMode::LocalConfigured as i32,
             ProxyDnsMode::System => v1::ProxyDnsMode::System as i32,
+            ProxyDnsMode::EdgeResolved => v1::ProxyDnsMode::EdgeResolved as i32,
         },
         dns_servers: proxy.dns_servers.iter().map(ToString::to_string).collect(),
         auth_username: proxy
@@ -4281,6 +4454,14 @@ fn proxy_to_proto(proxy: &ProxySettings) -> v1::ProxySettings {
 
 fn current_capabilities() -> v1::Capabilities {
     v1::Capabilities {
+        l4_tcp: true,
+        l4_tun_tcp: cfg!(windows),
+        l4_dns_conversion: true,
+        network_settings_application: true,
+        h3_congestion_control_algorithms: usque_core::CongestionControlAlgorithm::ALL
+            .into_iter()
+            .map(congestion::to_proto)
+            .collect(),
         vpn: cfg!(windows),
         socks5: true,
         http_proxy: true,
@@ -4309,6 +4490,15 @@ fn current_capabilities() -> v1::Capabilities {
 
 pub(crate) fn snapshot_to_proto(snapshot: &ConnectionSnapshot) -> v1::ConnectionSnapshot {
     v1::ConnectionSnapshot {
+        data_plane: snapshot
+            .data_plane
+            .map(data_plane::to_proto)
+            .unwrap_or_default(),
+        l4: snapshot.l4.as_ref().map(data_plane::snapshot_to_proto),
+        session_congestion_control: snapshot
+            .session_congestion_control
+            .map(congestion::to_proto)
+            .unwrap_or_default(),
         phase: match snapshot.phase {
             ConnectionPhase::Disconnected => v1::ConnectionPhase::Disconnected as i32,
             ConnectionPhase::Preparing => v1::ConnectionPhase::Preparing as i32,
@@ -4968,7 +5158,7 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct MemoryVault {
+    pub(super) struct MemoryVault {
         records: Mutex<HashMap<(Uuid, SecretRecord), Vec<u8>>>,
     }
 
@@ -6438,7 +6628,13 @@ mod tests {
                 armed: false,
             },
         );
-        service.persist(pending).await.unwrap();
+        service
+            .update_config(move |latest| {
+                *latest = pending;
+                Ok(())
+            })
+            .await
+            .unwrap();
         assert_eq!(
             service
                 .load_identity_provisioning_boundary(profile_id)
@@ -6451,7 +6647,13 @@ mod tests {
         let mut bound = service.config_snapshot().await;
         bound.pending_identity_replacements.remove(&profile_id);
         bound.identity_bindings.insert(profile_id, provider.clone());
-        service.persist(bound).await.unwrap();
+        service
+            .update_config(move |latest| {
+                *latest = bound;
+                Ok(())
+            })
+            .await
+            .unwrap();
         assert_eq!(
             service
                 .load_identity_provisioning_boundary(profile_id)
@@ -6648,7 +6850,13 @@ mod tests {
             port: 443,
             sni: usque_core::ZERO_TRUST_SNI.to_owned(),
         };
-        service.persist(config).await.unwrap();
+        service
+            .update_config(move |latest| {
+                *latest = config;
+                Ok(())
+            })
+            .await
+            .unwrap();
 
         assert_eq!(
             service
@@ -6710,7 +6918,13 @@ mod tests {
         config
             .identity_bindings
             .insert(profile_id, provider.clone());
-        service.persist(config).await.unwrap();
+        service
+            .update_config(move |latest| {
+                *latest = config;
+                Ok(())
+            })
+            .await
+            .unwrap();
         vault
             .delete(profile_id, SecretRecord::IdentityMetadata)
             .await
@@ -6777,7 +6991,13 @@ mod tests {
         let mut config = service.config_snapshot().await;
         config.network.endpoint.port = 8443;
         config.network.endpoint.sni = "shared.example.com".to_owned();
-        service.persist(config).await.unwrap();
+        service
+            .update_config(move |latest| {
+                *latest = config;
+                Ok(())
+            })
+            .await
+            .unwrap();
         let first_ips = ManagedEndpointIps {
             ipv4: "162.159.197.8".parse().unwrap(),
             ipv6: "2606:4700:102::8".parse().unwrap(),
@@ -6914,7 +7134,13 @@ mod tests {
                 armed: true,
             },
         );
-        service.persist(interrupted).await.unwrap();
+        service
+            .update_config(move |latest| {
+                *latest = interrupted;
+                Ok(())
+            })
+            .await
+            .unwrap();
 
         service.reap_pending_identity_deletions().await.unwrap();
 
@@ -6956,7 +7182,13 @@ mod tests {
         let mut pending = service.config_snapshot().await;
         pending.network.dns_servers = vec![IpAddr::V4(managed.ipv4)];
         pending.pending_identity_creations.push(profile_id);
-        service.persist(pending).await.unwrap();
+        service
+            .update_config(move |latest| {
+                *latest = pending;
+                Ok(())
+            })
+            .await
+            .unwrap();
         service
             .persist_identity(
                 profile_id,
@@ -7013,7 +7245,13 @@ mod tests {
             .unwrap();
         let mut config = service.config_snapshot().await;
         config.identity_bindings.insert(profile_id, provider);
-        service.persist(config).await.unwrap();
+        service
+            .update_config(move |latest| {
+                *latest = config;
+                Ok(())
+            })
+            .await
+            .unwrap();
 
         let catalog = service.profile_catalog().await;
         assert_eq!(
@@ -7243,7 +7481,13 @@ mod tests {
         config
             .set_managed_endpoint_ips(profile_id, managed.clone())
             .unwrap();
-        service.persist(config).await.unwrap();
+        service
+            .update_config(move |latest| {
+                *latest = config;
+                Ok(())
+            })
+            .await
+            .unwrap();
 
         let reset = service.reset_profile(profile_id).await.unwrap();
         assert_eq!(reset.endpoint.ipv4, managed.ipv4);
@@ -7268,6 +7512,154 @@ mod tests {
                 response.error
             ),
         }
+    }
+
+    #[test]
+    fn congestion_proto_defaults_and_round_trips_are_explicit() {
+        for algorithm in usque_core::CongestionControlAlgorithm::ALL {
+            let profile = Profile {
+                congestion_control: algorithm,
+                ..Profile::default()
+            };
+            assert_eq!(
+                profile_from_proto(profile_to_proto(&profile))
+                    .unwrap()
+                    .congestion_control,
+                algorithm
+            );
+        }
+        let mut legacy = profile_to_proto(&Profile::default());
+        legacy.congestion_control = 0;
+        assert_eq!(
+            profile_from_proto(legacy.clone())
+                .unwrap()
+                .congestion_control,
+            usque_core::CongestionControlAlgorithm::Cubic
+        );
+        legacy.congestion_control = 99;
+        assert!(profile_from_proto(legacy).is_err());
+        assert_eq!(
+            current_capabilities().h3_congestion_control_algorithms,
+            [1, 2, 3, 4]
+        );
+        assert_eq!(
+            snapshot_to_proto(&ConnectionSnapshot::default()).session_congestion_control,
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn congestion_save_is_persist_only_and_hot_frontends_keep_session_selection() {
+        use usque_core::CongestionControlAlgorithm as Algorithm;
+        let directory = tempfile::tempdir().unwrap();
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(MemoryVault::default()),
+        )
+        .unwrap();
+        let profile = service.config_snapshot().await.active_profile().unwrap();
+        service
+            .install_test_session(profile.clone(), false, 7)
+            .await
+            .unwrap();
+        let before = service.test_harness_counts().await;
+        let mut next = profile.clone();
+        next.congestion_control = Algorithm::Bbr3;
+        let result = service
+            .reconfigure_active_profile(next.clone())
+            .await
+            .unwrap();
+        assert_eq!(service.test_harness_counts().await, before);
+        assert_eq!(result.profile.unwrap().congestion_control, 4);
+        assert_eq!(result.snapshot.unwrap().session_congestion_control, 1);
+        assert_eq!(
+            service.config_snapshot().await.network.congestion_control,
+            Algorithm::Bbr3
+        );
+        next.proxy.socks5_listeners[0].set_port(1081);
+        service.reconfigure_active_profile(next).await.unwrap();
+        let confirmed = service
+            .network_settings_state()
+            .await
+            .applied_profile
+            .unwrap();
+        assert_eq!(confirmed.congestion_control, 1);
+        assert_eq!(
+            confirmed.proxy.unwrap().socks5_listeners[0],
+            "127.0.0.1:1081"
+        );
+        assert_eq!(
+            service
+                .state
+                .lock()
+                .await
+                .snapshot()
+                .session_congestion_control,
+            Some(Algorithm::Cubic)
+        );
+        assert_eq!(
+            *service.session_congestion_control.lock().await,
+            Some((profile.id, Algorithm::Cubic))
+        );
+        service.reconfigure_active_profile(profile).await.unwrap();
+        assert_eq!(
+            service.config_snapshot().await.network.congestion_control,
+            Algorithm::Cubic
+        );
+    }
+
+    #[tokio::test]
+    async fn manual_retry_captures_saved_congestion_control_before_connecting() {
+        use usque_core::CongestionControlAlgorithm as Algorithm;
+        let directory = tempfile::tempdir().unwrap();
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(MemoryVault::default()),
+        )
+        .unwrap();
+        let mut profile = service.config_snapshot().await.active_profile().unwrap();
+        // Harness only, no TUN; the empty vault stops the subsequent connection
+        // at credential validation before any socket or platform operation.
+        profile.frontends.tunnel = false;
+        profile.canonicalize_mode();
+        service
+            .install_test_session(profile.clone(), false, 3)
+            .await
+            .unwrap();
+        profile.congestion_control = Algorithm::Bbr3;
+        service
+            .reconfigure_active_profile(profile.clone())
+            .await
+            .unwrap();
+        assert_eq!(
+            service
+                .state
+                .lock()
+                .await
+                .snapshot()
+                .session_congestion_control,
+            Some(Algorithm::Cubic)
+        );
+        assert!(matches!(
+            service.retry().await,
+            Err(ControlServiceError::MissingCredential(_))
+        ));
+        assert_eq!(
+            *service.session_congestion_control.lock().await,
+            Some((profile.id, Algorithm::Bbr3))
+        );
+        service.disconnect().await.unwrap();
+        assert!(service.session_congestion_control.lock().await.is_none());
+        profile.congestion_control = Algorithm::Reno;
+        service.upsert_profile(profile.clone()).await.unwrap();
+        assert!(matches!(
+            service.connect(profile.id).await,
+            Err(ControlServiceError::MissingCredential(_))
+        ));
+        assert_eq!(
+            *service.session_congestion_control.lock().await,
+            Some((profile.id, Algorithm::Reno))
+        );
     }
 
     #[tokio::test]

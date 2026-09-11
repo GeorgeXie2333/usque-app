@@ -27,6 +27,7 @@ class _ProxyScreenState extends State<ProxyScreen> {
   final _focus = List.generate(8, (_) => FocusNode());
   late ProxyDnsMode _dnsMode;
   late List<Object> _baseline;
+  late String _editingAccountId;
   bool _saving = false;
   bool _saved = false;
   bool _loading = false;
@@ -52,7 +53,10 @@ class _ProxyScreenState extends State<ProxyScreen> {
     // overwrite a shared-network draft or an in-flight apply with a snapshot.
     if (!_dirty && !_saving) {
       final proxy = widget.controller.activeProfile.proxy;
-      if (!listEquals(_proxyValues(proxy), _baseline)) _load(proxy);
+      if (_editingAccountId != widget.controller.activeProfile.id ||
+          !listEquals(_proxyValues(proxy), _baseline)) {
+        _load(proxy);
+      }
     }
   }
 
@@ -69,6 +73,7 @@ class _ProxyScreenState extends State<ProxyScreen> {
   ];
 
   void _load(ProxySettings proxy) {
+    _editingAccountId = widget.controller.activeProfile.id;
     _loading = true;
     final values = _proxyValues(proxy);
     for (var i = 0; i < _fields.length; i++) {
@@ -115,7 +120,7 @@ class _ProxyScreenState extends State<ProxyScreen> {
   }
 
   Future<void> _save() async {
-    if (_saving || widget.controller.busy) return;
+    if (_saving) return;
     setState(() => _validationAttempted = true);
     if (!(_formKey.currentState?.validate() ?? false)) {
       setState(() => _saveError = widget.controller.strings.get('form_errors'));
@@ -144,8 +149,24 @@ class _ProxyScreenState extends State<ProxyScreen> {
     // Merge only this form's fields into the latest shared settings so a
     // separate credential update cannot be overwritten by an older draft.
     final profile = widget.controller.activeProfile;
+    const paths = [
+      'proxy.socks5_listeners',
+      'proxy.socks5_listeners',
+      'proxy.socks5_listeners',
+      'proxy.http_listeners',
+      'proxy.http_listeners',
+      'proxy.http_listeners',
+      'proxy.dns_servers',
+      'proxy.dns_servers',
+      'proxy.dns_mode',
+    ];
+    final changedFields = <String>{
+      for (var i = 0; i < paths.length; i++)
+        if (_values[i] != _baseline[i]) paths[i],
+    }.toList();
     final applied = await widget.controller.saveNetwork(
       profile.copyWith(
+        id: _editingAccountId,
         proxy: profile.proxy.copyWith(
           socksIpv4: _fields[0].text.trim(),
           socksIpv6: _fields[1].text.trim(),
@@ -162,14 +183,13 @@ class _ProxyScreenState extends State<ProxyScreen> {
               : profile.proxy.dnsIpv6,
         ),
       ),
+      changedFields: changedFields,
     );
     if (!mounted) return;
     setState(() {
       _saving = false;
       _saved = applied;
-      // saveNetwork reloads the authoritative catalog on failure. Reflect
-      // that result rather than leaving an apparently applied text value.
-      _load(widget.controller.activeProfile.proxy);
+      if (applied) _load(widget.controller.activeProfile.proxy);
       _saveError = applied
           ? null
           : widget.controller.strings.get('changes_failed');
@@ -217,8 +237,14 @@ class _ProxyScreenState extends State<ProxyScreen> {
                   ),
                   BannerSlot(
                     child:
-                        _dnsMode != ProxyDnsMode.remote ||
-                            profile.proxy.dnsMode != ProxyDnsMode.remote
+                        const {
+                              ProxyDnsMode.localConfigured,
+                              ProxyDnsMode.system,
+                            }.contains(_dnsMode) ||
+                            const {
+                              ProxyDnsMode.localConfigured,
+                              ProxyDnsMode.system,
+                            }.contains(profile.proxy.dnsMode)
                         ? WarningBanner(
                             title: strings.get('dns_leak_warning'),
                             message: strings.get('dns_leak_warning_body'),
@@ -233,7 +259,11 @@ class _ProxyScreenState extends State<ProxyScreen> {
                       ContentSection(
                         icon: LucideIcons.server,
                         title: strings.get('proxy_dns_mode'),
-                        subtitle: strings.get('proxy_dns_subtitle'),
+                        subtitle: strings.get(
+                          profile.dataPlane == DataPlaneMode.l4Proxy
+                              ? 'l4_explanation'
+                              : 'proxy_dns_subtitle',
+                        ),
                         children: [
                           DropdownButtonFormField<ProxyDnsMode>(
                             key: const ValueKey<String>('proxy-dns-mode'),
@@ -243,6 +273,12 @@ class _ProxyScreenState extends State<ProxyScreen> {
                               labelText: strings.get('proxy_dns_mode'),
                             ),
                             items: ProxyDnsMode.values
+                                .where(
+                                  (mode) =>
+                                      mode != ProxyDnsMode.edgeResolved ||
+                                      profile.dataPlane ==
+                                          DataPlaneMode.l4Proxy,
+                                )
                                 .map(
                                   (mode) => DropdownMenuItem(
                                     value: mode,
@@ -254,6 +290,8 @@ class _ProxyScreenState extends State<ProxyScreen> {
                                           'proxy_dns_configured',
                                         ProxyDnsMode.system =>
                                           'proxy_dns_system',
+                                        ProxyDnsMode.edgeResolved =>
+                                          'proxy_dns_edge_resolved',
                                       }),
                                       overflow: TextOverflow.ellipsis,
                                     ),
@@ -322,8 +360,17 @@ class _ProxyScreenState extends State<ProxyScreen> {
           dirty: _dirty,
           saving: _saving,
           saved: _saved,
+          statusLabel:
+              !_dirty ||
+                  widget.controller.networkSettings.unconfirmed ||
+                  widget.controller.networkSettings.saveError != null
+              ? widget.controller.networkSettingsMessage
+              : null,
+          onReconnect: widget.controller.networkSettingsCanReconnect
+              ? widget.controller.retry
+              : null,
           error: _saveError,
-          onSave: widget.controller.busy ? null : _save,
+          onSave: _save,
         ),
       ],
     );

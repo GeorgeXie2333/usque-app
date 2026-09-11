@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 
 import 'diagnostics_models.dart';
+import 'l4_performance.dart';
+export 'l4_performance.dart';
 
 enum AppSection { home, profiles, proxy, settings }
 
@@ -18,13 +20,33 @@ enum ConnectionPhase {
 
 enum OperatingMode { vpn, socks5, httpProxy }
 
+enum DataPlaneMode {
+  connectIp('connect_ip'),
+  l4Proxy('l4_proxy');
+
+  const DataPlaneMode(this.wireName);
+  final String wireName;
+  static DataPlaneMode? fromWire(Object? value) =>
+      values.where((mode) => mode.wireName == value).firstOrNull;
+}
+
 enum TransportPolicy { automatic, http3, http2 }
+
+enum CongestionControlAlgorithm {
+  cubic('cubic'),
+  reno('reno'),
+  bbr('BBRv2'),
+  bbr3('BBRv3');
+
+  const CongestionControlAlgorithm(this.label);
+  final String label;
+}
 
 enum IpPolicy { automatic, preferIpv4, preferIpv6, ipv4Only, ipv6Only }
 
 enum DnsMode { tunnel, localConfigured, system }
 
-enum ProxyDnsMode { remote, localConfigured, system }
+enum ProxyDnsMode { remote, localConfigured, system, edgeResolved }
 
 enum DirectDnsMode { unknown, physicalSystem, doh, dot }
 
@@ -651,6 +673,8 @@ class UsqueProfile {
     required this.name,
     this.mode = OperatingMode.vpn,
     this.transport = TransportPolicy.automatic,
+    this.dataPlane = DataPlaneMode.connectIp,
+    this.congestionControl = CongestionControlAlgorithm.cubic,
     this.ipPolicy = IpPolicy.automatic,
     this.endpointIpv4 = defaultEndpointIpv4,
     this.endpointIpv6 = defaultEndpointIpv6,
@@ -683,6 +707,8 @@ class UsqueProfile {
   final String name;
   final OperatingMode mode;
   final TransportPolicy transport;
+  final DataPlaneMode dataPlane;
+  final CongestionControlAlgorithm congestionControl;
   final IpPolicy ipPolicy;
   final String endpointIpv4;
   final String endpointIpv6;
@@ -726,7 +752,9 @@ class UsqueProfile {
 
   UsqueProfile resetAdvancedDefaults() {
     return copyWith(
+      congestionControl: CongestionControlAlgorithm.cubic,
       transport: TransportPolicy.automatic,
+      dataPlane: DataPlaneMode.connectIp,
       ipPolicy: IpPolicy.automatic,
       endpointIpv4: defaultEndpointIpv4,
       endpointIpv6: defaultEndpointIpv6,
@@ -748,6 +776,8 @@ class UsqueProfile {
     String? name,
     OperatingMode? mode,
     TransportPolicy? transport,
+    DataPlaneMode? dataPlane,
+    CongestionControlAlgorithm? congestionControl,
     IpPolicy? ipPolicy,
     String? endpointIpv4,
     String? endpointIpv6,
@@ -775,6 +805,8 @@ class UsqueProfile {
       name: name ?? this.name,
       mode: nextMode,
       transport: transport ?? this.transport,
+      dataPlane: dataPlane ?? this.dataPlane,
+      congestionControl: congestionControl ?? this.congestionControl,
       ipPolicy: ipPolicy ?? this.ipPolicy,
       endpointIpv4: endpointIpv4 ?? this.endpointIpv4,
       endpointIpv6: endpointIpv6 ?? this.endpointIpv6,
@@ -801,6 +833,8 @@ class UsqueProfile {
       'name': name,
       'mode': modeFromFrontends(frontends).name,
       'transport': transport.name,
+      'data_plane': dataPlane.wireName,
+      'congestion_control': congestionControl.name,
       'ip_policy': ipPolicy.name,
       'endpoint_v4': endpointIpv4,
       'endpoint_v6': endpointIpv6,
@@ -864,6 +898,16 @@ class UsqueProfile {
       name: name,
       mode: modeFromFrontends(migratedFrontends),
       transport: _enumByName(TransportPolicy.values, _string(map, 'transport')),
+      dataPlane: map.containsKey('data_plane')
+          ? DataPlaneMode.fromWire(map['data_plane']) ??
+                (throw const FormatException('Invalid data_plane'))
+          : DataPlaneMode.connectIp,
+      congestionControl: map.containsKey('congestion_control')
+          ? _enumByName(
+              CongestionControlAlgorithm.values,
+              _string(map, 'congestion_control'),
+            )
+          : CongestionControlAlgorithm.cubic,
       ipPolicy: _enumByName(IpPolicy.values, _string(map, 'ip_policy')),
       endpointIpv4: _string(map, 'endpoint_v4'),
       endpointIpv6: _string(map, 'endpoint_v6'),
@@ -1471,6 +1515,7 @@ class NetworkQualitySample {
 
 class NetworkQualitySnapshot {
   const NetworkQualitySnapshot({
+    this.udpSocketReceive,
     this.sampledAt,
     this.connectionInstanceId,
     this.level = NetworkQualityLevel.unknown,
@@ -1491,6 +1536,7 @@ class NetworkQualitySnapshot {
   final MigrationQualityInfo migration;
   final DirectDnsQualityInfo directDns;
   final List<NetworkQualitySample> samples;
+  final UdpSocketReceiveSnapshot? udpSocketReceive;
 
   factory NetworkQualitySnapshot.fromMap(Map<Object?, Object?> map) {
     final metricsMap = _objectMap(map['metrics']);
@@ -1500,6 +1546,9 @@ class NetworkQualitySnapshot {
     final sampledAtMilliseconds = _mapInt(map, 'sampled_at_unix_ms');
     final connectionId = _mapString(map, 'connection_instance_id');
     return NetworkQualitySnapshot(
+      udpSocketReceive: UdpSocketReceiveSnapshot.from(
+        map['udp_socket_receive'],
+      ),
       samples: List.unmodifiable(
         (map['samples'] is List<Object?>
                 ? map['samples'] as List<Object?>
@@ -1779,6 +1828,11 @@ class NetworkQualitySnapshot {
 
 class EngineCapabilities {
   const EngineCapabilities({
+    this.networkSettingsApplication = false,
+    this.l4Tcp = false,
+    this.l4TunTcp = false,
+    this.l4DnsConversion = false,
+    this.h3CongestionControlAlgorithms = const <CongestionControlAlgorithm>[],
     this.networkQuality = false,
     this.encryptedDirectDns = false,
     this.quicMigration = false,
@@ -1787,6 +1841,19 @@ class EngineCapabilities {
 
   factory EngineCapabilities.fromMap(Map<Object?, Object?> map) =>
       EngineCapabilities(
+        networkSettingsApplication: map['network_settings_application'] == true,
+        l4Tcp: map['l4_tcp'] == true,
+        l4TunTcp: map['l4_tun_tcp'] == true,
+        l4DnsConversion: map['l4_dns_conversion'] == true,
+        h3CongestionControlAlgorithms: CongestionControlAlgorithm.values
+            .where(
+              (algorithm) =>
+                  (map['h3_congestion_control_algorithms'] as List?)?.contains(
+                    algorithm.name,
+                  ) ??
+                  false,
+            )
+            .toList(growable: false),
         networkQuality: map['network_quality'] == true,
         encryptedDirectDns: map['encrypted_direct_dns'] == true,
         quicMigration: map['quic_migration'] == true,
@@ -1794,6 +1861,12 @@ class EngineCapabilities {
       );
 
   final bool networkQuality;
+  final bool networkSettingsApplication;
+  final bool l4Tcp;
+  final bool l4TunTcp;
+  final bool l4DnsConversion;
+  bool get l4Available => l4Tcp && l4TunTcp && l4DnsConversion;
+  final List<CongestionControlAlgorithm> h3CongestionControlAlgorithms;
   final bool encryptedDirectDns;
   final bool quicMigration;
   final bool automaticPmtu;
@@ -1802,6 +1875,14 @@ class EngineCapabilities {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is EngineCapabilities &&
+          networkSettingsApplication == other.networkSettingsApplication &&
+          l4Tcp == other.l4Tcp &&
+          l4TunTcp == other.l4TunTcp &&
+          l4DnsConversion == other.l4DnsConversion &&
+          listEquals(
+            h3CongestionControlAlgorithms,
+            other.h3CongestionControlAlgorithms,
+          ) &&
           networkQuality == other.networkQuality &&
           encryptedDirectDns == other.encryptedDirectDns &&
           quicMigration == other.quicMigration &&
@@ -1809,6 +1890,11 @@ class EngineCapabilities {
 
   @override
   int get hashCode => Object.hash(
+    networkSettingsApplication,
+    l4Tcp,
+    l4TunTcp,
+    l4DnsConversion,
+    Object.hashAll(h3CongestionControlAlgorithms),
     networkQuality,
     encryptedDirectDns,
     quicMigration,
@@ -1816,8 +1902,144 @@ class EngineCapabilities {
   );
 }
 
+class L4Snapshot {
+  const L4Snapshot({
+    this.connectVerified = false,
+    this.sessions = 0,
+    this.drainingSessions = 0,
+    this.activeFlows = 0,
+    this.pendingFlows = 0,
+    this.connectSuccesses = 0,
+    this.connectFailures = 0,
+    this.connectTimeouts = 0,
+    this.bufferBytes = 0,
+    this.budgetRejections = 0,
+    this.sendBackpressure = 0,
+    this.receiveBackpressure = 0,
+    this.udpRejected = 0,
+    this.dnsSuccesses = 0,
+    this.dnsFailures = 0,
+    this.dnsTimeouts = 0,
+    this.migrationPreservedFlows = 0,
+    this.reconnectTerminatedFlows = 0,
+    this.tunFlows = 0,
+    this.halfOpenFlows = 0,
+    this.connectLatencyUs = 0,
+    this.unsupportedPackets = 0,
+    this.performance,
+  });
+  final bool connectVerified;
+  final int sessions;
+  final int drainingSessions;
+  final int activeFlows;
+  final int pendingFlows;
+  final int connectSuccesses;
+  final int connectFailures;
+  final int connectTimeouts;
+  final int bufferBytes;
+  final int budgetRejections;
+  final int sendBackpressure;
+  final int receiveBackpressure;
+  final int udpRejected;
+  final int dnsSuccesses;
+  final int dnsFailures;
+  final int dnsTimeouts;
+  final int migrationPreservedFlows;
+  final int reconnectTerminatedFlows;
+  final int tunFlows;
+  final int halfOpenFlows;
+  final int connectLatencyUs;
+  final int unsupportedPackets;
+  final L4PerformanceSnapshot? performance;
+  factory L4Snapshot.fromMap(Map<Object?, Object?> map) => L4Snapshot(
+    connectVerified: map['connect_verified'] == true,
+    sessions: (map['sessions'] as num?)?.toInt() ?? 0,
+    drainingSessions: (map['draining_sessions'] as num?)?.toInt() ?? 0,
+    activeFlows: (map['active_flows'] as num?)?.toInt() ?? 0,
+    pendingFlows: (map['pending_flows'] as num?)?.toInt() ?? 0,
+    connectSuccesses: (map['connect_successes'] as num?)?.toInt() ?? 0,
+    connectFailures: (map['connect_failures'] as num?)?.toInt() ?? 0,
+    connectTimeouts: (map['connect_timeouts'] as num?)?.toInt() ?? 0,
+    bufferBytes: (map['buffer_bytes'] as num?)?.toInt() ?? 0,
+    budgetRejections: (map['budget_rejections'] as num?)?.toInt() ?? 0,
+    sendBackpressure: (map['send_backpressure'] as num?)?.toInt() ?? 0,
+    receiveBackpressure: (map['receive_backpressure'] as num?)?.toInt() ?? 0,
+    udpRejected: (map['udp_rejected'] as num?)?.toInt() ?? 0,
+    dnsSuccesses: (map['dns_successes'] as num?)?.toInt() ?? 0,
+    dnsFailures: (map['dns_failures'] as num?)?.toInt() ?? 0,
+    dnsTimeouts: (map['dns_timeouts'] as num?)?.toInt() ?? 0,
+    migrationPreservedFlows:
+        (map['migration_preserved_flows'] as num?)?.toInt() ?? 0,
+    reconnectTerminatedFlows:
+        (map['reconnect_terminated_flows'] as num?)?.toInt() ?? 0,
+    tunFlows: (map['tun_flows'] as num?)?.toInt() ?? 0,
+    halfOpenFlows: (map['half_open_flows'] as num?)?.toInt() ?? 0,
+    connectLatencyUs: (map['connect_latency_us'] as num?)?.toInt() ?? 0,
+    unsupportedPackets: (map['unsupported_packets'] as num?)?.toInt() ?? 0,
+    performance: map['performance'] is Map
+        ? L4PerformanceSnapshot.fromMap(map['performance'] as Map)
+        : null,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is L4Snapshot &&
+          connectVerified == other.connectVerified &&
+          sessions == other.sessions &&
+          drainingSessions == other.drainingSessions &&
+          activeFlows == other.activeFlows &&
+          pendingFlows == other.pendingFlows &&
+          connectSuccesses == other.connectSuccesses &&
+          connectFailures == other.connectFailures &&
+          connectTimeouts == other.connectTimeouts &&
+          bufferBytes == other.bufferBytes &&
+          budgetRejections == other.budgetRejections &&
+          sendBackpressure == other.sendBackpressure &&
+          receiveBackpressure == other.receiveBackpressure &&
+          udpRejected == other.udpRejected &&
+          dnsSuccesses == other.dnsSuccesses &&
+          dnsFailures == other.dnsFailures &&
+          dnsTimeouts == other.dnsTimeouts &&
+          migrationPreservedFlows == other.migrationPreservedFlows &&
+          reconnectTerminatedFlows == other.reconnectTerminatedFlows &&
+          tunFlows == other.tunFlows &&
+          halfOpenFlows == other.halfOpenFlows &&
+          connectLatencyUs == other.connectLatencyUs &&
+          unsupportedPackets == other.unsupportedPackets &&
+          performance == other.performance;
+  @override
+  int get hashCode => Object.hashAll([
+    connectVerified,
+    sessions,
+    drainingSessions,
+    activeFlows,
+    pendingFlows,
+    connectSuccesses,
+    connectFailures,
+    connectTimeouts,
+    bufferBytes,
+    budgetRejections,
+    sendBackpressure,
+    receiveBackpressure,
+    udpRejected,
+    dnsSuccesses,
+    dnsFailures,
+    dnsTimeouts,
+    migrationPreservedFlows,
+    reconnectTerminatedFlows,
+    tunFlows,
+    halfOpenFlows,
+    connectLatencyUs,
+    unsupportedPackets,
+    performance,
+  ]);
+}
+
 class EngineSnapshot {
   const EngineSnapshot({
+    this.sessionCongestionControl,
+    this.dataPlane,
+    this.l4,
     this.phase = ConnectionPhase.disconnected,
     this.transport,
     this.addressFamily,
@@ -1841,6 +2063,9 @@ class EngineSnapshot {
   });
 
   final ConnectionPhase phase;
+  final CongestionControlAlgorithm? sessionCongestionControl;
+  final DataPlaneMode? dataPlane;
+  final L4Snapshot? l4;
   final String? transport;
   final String? addressFamily;
   final DateTime? connectedAt;
@@ -1882,6 +2107,13 @@ class EngineSnapshot {
     final connectedAt = map['connected_at'] as String?;
     return EngineSnapshot(
       phase: parsePhase(map['phase'] as String?),
+      dataPlane: DataPlaneMode.fromWire(map['data_plane']),
+      l4: map['l4'] is Map ? L4Snapshot.fromMap(map['l4'] as Map) : null,
+      sessionCongestionControl: CongestionControlAlgorithm.values
+          .where(
+            (algorithm) => algorithm.name == map['session_congestion_control'],
+          )
+          .firstOrNull,
       transport: map['transport'] as String?,
       addressFamily: map['address_family'] as String?,
       connectedAt: connectedAt == null ? null : DateTime.tryParse(connectedAt),
@@ -1953,6 +2185,9 @@ class EngineSnapshot {
   bool operator ==(Object other) {
     return identical(this, other) ||
         other is EngineSnapshot &&
+            sessionCongestionControl == other.sessionCongestionControl &&
+            dataPlane == other.dataPlane &&
+            l4 == other.l4 &&
             phase == other.phase &&
             transport == other.transport &&
             addressFamily == other.addressFamily &&
@@ -1977,6 +2212,9 @@ class EngineSnapshot {
 
   @override
   int get hashCode => Object.hashAll(<Object?>[
+    sessionCongestionControl,
+    dataPlane,
+    l4,
     phase,
     transport,
     addressFamily,

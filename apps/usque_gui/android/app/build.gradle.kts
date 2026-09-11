@@ -25,6 +25,14 @@ android {
         versionName = flutter.versionName
     }
 
+    bundle {
+        language {
+            // Native notification/tile copy follows the in-app locale picker,
+            // so every supported resource must remain in the base install.
+            enableSplit = false
+        }
+    }
+
     signingConfigs {
         create("release") {
             val keystorePath = System.getenv("USQUE_ANDROID_KEYSTORE")

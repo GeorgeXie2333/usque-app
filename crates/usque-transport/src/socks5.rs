@@ -8,11 +8,13 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, UdpSocket as TokioUdpSocket};
 use tokio::sync::{Mutex, mpsc, watch};
 use tokio::task::JoinHandle;
-use tokio::time::{Instant, timeout};
+use tokio::time::Instant;
+#[cfg(test)]
+use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 use ts_netstack_smoltcp::CreateSocket;
 use ts_netstack_smoltcp::netcore::Channel;
-use ts_netstack_smoltcp::netsock::{TcpStream as StackTcpStream, UdpSocket as StackUdpSocket};
+use ts_netstack_smoltcp::netsock::UdpSocket as StackUdpSocket;
 use usque_core::{OperatingMode, Profile, ProxyAuthCredentials};
 
 use crate::dns::Resolver;
@@ -25,7 +27,9 @@ use crate::netstack::{
     TrafficSnapshot,
 };
 use crate::pin_refresh::EndpointPinRefresher;
-use crate::port_allocator::{next_tcp_port, next_udp_port};
+#[cfg(test)]
+use crate::port_allocator::next_tcp_port;
+use crate::port_allocator::next_udp_port;
 use crate::socket::{
     DirectEgressLease, DirectProtocol, SocketProtector, noop_socket_protector, socket_handle,
 };
@@ -183,39 +187,46 @@ impl Socks5Frontend {
         stack: &PacketStack,
         bound: Vec<TcpListener>,
     ) -> Result<Self, TransportError> {
+        Self::activate_services(
+            profile,
+            crate::tcp::ProxyServices::from_stack(profile, assigned_ipv4, assigned_ipv6, stack),
+            bound,
+        )
+    }
+
+    pub(crate) fn activate_services(
+        profile: &Profile,
+        services: crate::tcp::ProxyServices,
+        bound: Vec<TcpListener>,
+    ) -> Result<Self, TransportError> {
         let auth = match profile.proxy.listener_credentials() {
             Ok(credentials) => credentials.map(Arc::new),
             Err(error) => return Err(TransportError::Socks5(error.to_string())),
         };
-        let cancellation = stack.cancellation.child_token();
+        let cancellation = services.cancellation.child_token();
         let (failure_tx, failure) = watch::channel(None);
-        let dns_servers = if profile.proxy.dns_mode == usque_core::ProxyDnsMode::LocalConfigured {
-            profile.proxy.dns_servers.clone()
-        } else {
-            profile.dns_servers.clone()
-        };
-        let resolver = Resolver::new(
-            stack.channel.clone(),
-            assigned_ipv4,
-            assigned_ipv6,
-            dns_servers,
-            profile.proxy.dns_mode,
-            Arc::clone(&stack.protector),
-        );
         let context = Arc::new(SocksContext {
-            channel: stack.channel.clone(),
-            resolver,
-            protector: Arc::clone(&stack.protector),
-            geo_policy: Arc::clone(&stack.geo_policy),
-            counters: Arc::clone(&stack.counters),
-            assigned_ipv4,
-            assigned_ipv6,
+            relay_buffer: if profile.data_plane == usque_core::DataPlaneMode::L4Proxy {
+                crate::l4::Limits::platform().relay
+            } else {
+                crate::relay::RELAY_BUFFER_SIZE
+            },
+            admission: services.admission,
+            channel: services.udp,
+            resolver: services.resolver,
+            dialer: services.dialer,
+            edge_resolved: profile.proxy.dns_mode == usque_core::ProxyDnsMode::EdgeResolved,
+            protector: services.protector,
+            geo_policy: services.geo_policy,
+            counters: services.counters,
+            assigned_ipv4: services.ipv4,
+            assigned_ipv6: services.ipv6,
             udp_idle_timeout: Duration::from_secs(u64::from(
                 profile.proxy.udp_idle_timeout_seconds.max(1),
             )),
             cancellation: cancellation.clone(),
             failure: failure_tx,
-            health: stack.subscribe_health(),
+            health: services.health,
             auth,
         });
         let listeners = bound
@@ -269,7 +280,11 @@ impl Drop for Socks5Frontend {
 }
 
 struct SocksContext {
-    channel: Channel,
+    relay_buffer: usize,
+    admission: Option<Arc<crate::tcp::FrontendAdmission>>,
+    channel: Option<Channel>,
+    dialer: Arc<dyn crate::tcp::TcpDialer>,
+    edge_resolved: bool,
     resolver: Resolver,
     protector: Arc<dyn SocketProtector>,
     geo_policy: Arc<GeoDirectPolicy>,
@@ -312,10 +327,24 @@ async fn run_listener(listener: TcpListener, context: Arc<SocksContext>) {
             tracing::warn!(%peer, "rejected non-loopback peer on a loopback SOCKS5 listener");
             continue;
         }
+        let permit = if let Some(admission) = &context.admission {
+            let Some(permit) = admission.acquire() else {
+                continue;
+            };
+            Some(permit)
+        } else {
+            None
+        };
         let connection_context = Arc::clone(&context);
+        let l4 = context.channel.is_none();
         tokio::spawn(async move {
+            let _permit = permit;
             if let Err(error) = serve_client(stream, peer, connection_context).await {
-                tracing::debug!(%peer, %error, "SOCKS5 session ended");
+                if l4 {
+                    tracing::debug!("L4 SOCKS5 session ended");
+                } else {
+                    tracing::debug!(%peer, %error, "SOCKS5 session ended");
+                }
             }
         });
     }
@@ -326,9 +355,17 @@ async fn serve_client(
     peer: SocketAddr,
     context: Arc<SocksContext>,
 ) -> Result<(), TransportError> {
-    negotiate_auth(&mut client, context.auth.as_deref()).await?;
-    let request = read_request(&mut client).await?;
-    if !matches!(&*context.health.borrow(), RuntimeHealth::Connected { .. }) {
+    let request = tokio::select! {
+        _ = context.cancellation.cancelled() => return Ok(()),
+        result = tokio::time::timeout(REMOTE_CONNECT_TIMEOUT, async {
+            negotiate_auth(&mut client, context.auth.as_deref()).await?;
+            read_request(&mut client).await
+        }) => result.map_err(|_| TransportError::Socks5("SOCKS5 negotiation timed out".to_owned()))??,
+    };
+    if matches!(&*context.health.borrow(), RuntimeHealth::Failed { .. })
+        || (context.channel.is_some()
+            && !matches!(&*context.health.borrow(), RuntimeHealth::Connected { .. }))
+    {
         send_reply(
             &mut client,
             REPLY_NETWORK_UNREACHABLE,
@@ -384,7 +421,7 @@ async fn serve_connect(
     send_reply(&mut client, REPLY_SUCCEEDED, remote.local_addr()?).await?;
     tokio::select! {
         _ = context.cancellation.cancelled() => Ok(()),
-        result = crate::relay::copy_bidirectional(&mut client, &mut remote) => {
+        result = crate::relay::copy_bidirectional_with_buffer(&mut client, &mut remote, context.relay_buffer) => {
             result
                 .map(|_| ())
                 .map_err(|error| TransportError::Socks5(error.to_string()))
@@ -398,6 +435,15 @@ async fn serve_udp_association(
     context: Arc<SocksContext>,
     request: SocksRequest,
 ) -> Result<(), TransportError> {
+    let Some(channel) = context.channel.as_ref() else {
+        send_reply(
+            &mut control,
+            REPLY_COMMAND_UNSUPPORTED,
+            unspecified_for(peer),
+        )
+        .await?;
+        return Ok(());
+    };
     let requested_ip = match request.target {
         Target::Address(address) if !address.is_unspecified() => Some(address),
         Target::Address(_) | Target::Domain(_) => None,
@@ -423,8 +469,7 @@ async fn serve_udp_association(
     let (response_tx, mut response_rx) = mpsc::channel(UDP_RESPONSE_CAPACITY);
     let mut response_tasks = Vec::with_capacity(4);
     let v4_socket = Arc::new(
-        context
-            .channel
+        channel
             .udp_bind(SocketAddr::new(
                 IpAddr::V4(context.assigned_ipv4),
                 next_udp_port(),
@@ -439,8 +484,7 @@ async fn serve_udp_association(
         context.cancellation.clone(),
     ));
     let v6_socket = Arc::new(
-        context
-            .channel
+        channel
             .udp_bind(SocketAddr::new(
                 IpAddr::V6(context.assigned_ipv6),
                 next_udp_port(),
@@ -1071,6 +1115,26 @@ async fn connect_remote(
     target: &Target,
     port: u16,
 ) -> Result<RoutedTcpStream, ConnectFailure> {
+    let operation = connect_remote_inner(context, target, port);
+    if context.channel.is_none() {
+        tokio::time::timeout(REMOTE_CONNECT_TIMEOUT, operation)
+            .await
+            .unwrap_or_else(|_| {
+                Err(ConnectFailure {
+                    reply: REPLY_HOST_UNREACHABLE,
+                    message: "L4_CONNECT_TIMEOUT".to_owned(),
+                })
+            })
+    } else {
+        operation.await
+    }
+}
+
+async fn connect_remote_inner(
+    context: &SocksContext,
+    target: &Target,
+    port: u16,
+) -> Result<RoutedTcpStream, ConnectFailure> {
     let geo_target = match target {
         Target::Address(address) => GeoTarget::Ip(*address),
         Target::Domain(name) => GeoTarget::Host(name),
@@ -1085,6 +1149,22 @@ async fn connect_remote(
             message: "encrypted_direct_dns_failed".to_owned(),
         },
         |resolved| async {
+            if resolved.is_none()
+                && context.edge_resolved
+                && let Target::Domain(name) = target
+            {
+                let target = crate::tcp::TcpTarget::new(name, port).map_err(connect_failure)?;
+                return context
+                    .dialer
+                    .connect(
+                        target,
+                        tokio::time::Instant::now() + REMOTE_CONNECT_TIMEOUT,
+                        &context.cancellation,
+                        crate::tcp::FlowClass::Business,
+                    )
+                    .await
+                    .map_err(connect_failure);
+            }
             let addresses =
                 if let Some(addresses) = resolved {
                     addresses
@@ -1111,51 +1191,45 @@ async fn connect_tunnel_remote(
     context: &SocksContext,
     addresses: &[IpAddr],
     port: u16,
-) -> Result<StackTcpStream, ConnectFailure> {
-    let mut failures = Vec::new();
+) -> Result<crate::tcp::TcpStream, ConnectFailure> {
+    let deadline = tokio::time::Instant::now() + REMOTE_CONNECT_TIMEOUT;
+    let mut last = crate::tcp::DialError::Network;
     for address in addresses.iter().take(MAX_TARGET_ADDRESSES) {
-        let local_ip = match address {
-            IpAddr::V4(_) => IpAddr::V4(context.assigned_ipv4),
-            IpAddr::V6(_) => IpAddr::V6(context.assigned_ipv6),
-        };
-        let local = SocketAddr::new(local_ip, next_tcp_port());
-        let remote = SocketAddr::new(*address, port);
-        match timeout(
-            REMOTE_CONNECT_TIMEOUT,
-            context.channel.tcp_connect(local, remote),
-        )
-        .await
+        let target = crate::tcp::TcpTarget::address(SocketAddr::new(*address, port));
+        match context
+            .dialer
+            .connect(
+                target,
+                deadline,
+                &context.cancellation,
+                crate::tcp::FlowClass::Business,
+            )
+            .await
         {
-            Ok(Ok(stream)) => return Ok(stream),
-            Ok(Err(error)) if error.is_tcp_buffer_budget_exhausted() => {
-                return Err(ConnectFailure {
-                    reply: REPLY_GENERAL_FAILURE,
-                    message: "the proxy connection memory budget is temporarily exhausted"
-                        .to_owned(),
-                });
-            }
-            Ok(Err(error)) => failures.push(format!("{remote}: {error}")),
-            Err(_) => failures.push(format!("{remote}: timed out")),
+            Ok(stream) => return Ok(stream),
+            Err(
+                error @ (crate::tcp::DialError::Budget
+                | crate::tcp::DialError::Cancelled
+                | crate::tcp::DialError::Rejected(401 | 403)),
+            ) => return Err(connect_failure(error)),
+            Err(error) => last = error,
         }
     }
-    let reply = if failures.iter().any(|value| {
-        value.to_ascii_lowercase().contains("refused")
-            || value.to_ascii_lowercase().contains("reset")
-    }) {
-        REPLY_CONNECTION_REFUSED
-    } else if addresses.is_empty() {
-        REPLY_HOST_UNREACHABLE
-    } else {
-        REPLY_NETWORK_UNREACHABLE
-    };
-    Err(ConnectFailure {
-        reply,
-        message: if failures.is_empty() {
-            "no usable target address".to_owned()
-        } else {
-            failures.join("; ")
+    Err(connect_failure(last))
+}
+
+fn connect_failure(error: crate::tcp::DialError) -> ConnectFailure {
+    use crate::tcp::DialError;
+    ConnectFailure {
+        reply: match error {
+            DialError::Refused => REPLY_CONNECTION_REFUSED,
+            DialError::InvalidTarget => REPLY_ADDRESS_UNSUPPORTED,
+            DialError::Rejected(401 | 403) => REPLY_CONNECTION_NOT_ALLOWED,
+            DialError::Budget => REPLY_GENERAL_FAILURE,
+            _ => REPLY_NETWORK_UNREACHABLE,
         },
-    })
+        message: error.to_string(),
+    }
 }
 
 async fn send_reply(
@@ -1270,7 +1344,15 @@ mod tests {
             reconnect_count: 0,
         });
         let context = SocksContext {
-            channel: channel.clone(),
+            channel: Some(channel.clone()),
+            dialer: Arc::new(crate::tcp::StackDialer {
+                channel: channel.clone(),
+                ipv4: assigned_ipv4,
+                ipv6: Ipv6Addr::LOCALHOST,
+            }),
+            edge_resolved: false,
+            relay_buffer: crate::relay::RELAY_BUFFER_SIZE,
+            admission: None,
             resolver: Resolver::new(
                 channel,
                 assigned_ipv4,

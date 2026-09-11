@@ -220,7 +220,20 @@ Do not run a plain `cargo build --release` in a fresh Windows shell. Use the hel
 & .\tool\build_windows_rust_release.ps1 -Variant x64-v2
 ```
 
-Why the helper exists is in [AGENTS.md](AGENTS.md). For MSI work, restore the pinned .NET tool and follow the CI fixture build. Table and ICE validation are safe; installing the MSI is not.
+Why the helper exists is in [AGENTS.md](AGENTS.md). For MSI or installer-bundle work, restore the pinned .NET tool and follow the multilingual CI fixture build. Table, transform, bundle extraction, detach/reattach, and ICE validation are safe; running the bundle or installing the MSI is not.
+
+For quiet-uninstall changes, run `pwsh -NoProfile -File
+tool/test_windows_quiet_uninstall.ps1` and the same test script with Windows
+PowerShell 5.1. These use inert process/registry doubles and a harmless child
+process to check completion, exit codes, copy locking, and launcher encoding.
+They do not run an MSI or uninstall a product.
+
+For MSI argument changes, run `pwsh -NoProfile -File
+tool/test_windows_wix_arguments.ps1` with `-Variant x64-v2` and `-Variant arm64`.
+It compiles inert MSIs from the real authoring in Legacy, Standard, and Windows
+argument-passing modes and checks their Registry tables. CI runs this gate for
+both architectures. Pass only the Base64 quiet-launcher script through WiX
+`-define`; the quoted executable prefix belongs in the WXS source.
 
 ### Windows Flutter and runner
 

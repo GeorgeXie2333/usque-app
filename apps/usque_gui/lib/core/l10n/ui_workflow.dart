@@ -1,6 +1,32 @@
-// Shared workflow copy follows the English/Simplified Chinese supplemental
-// catalog convention used by network quality. Other locales fall back to English.
+import 'features_ar.dart';
+import 'features_de.dart';
+import 'features_es.dart';
+import 'features_fa.dart';
+import 'features_fr.dart';
+import 'features_id.dart';
+import 'features_it.dart';
+import 'features_ja.dart';
+import 'features_ko.dart';
+import 'features_nl.dart';
+import 'features_pl.dart';
+import 'features_pt.dart';
+import 'features_ru.dart';
+import 'features_th.dart';
+import 'features_tr.dart';
+import 'features_uk.dart';
+import 'features_vi.dart';
+import 'features_zh_hk.dart';
+import 'features_zh_tw.dart';
+
+// Shared workflow copy is keyed by AppStrings catalog id. Missing ids fall
+// back to English. Companion locale maps live in features_*.dart.
 const Map<String, String> kUiWorkflowEn = <String, String>{
+  'cc_label': 'HTTP/3 congestion control',
+  'cc_help': 'Applies on your next manual connection.',
+  'cc_upgrade': 'Engine update required.',
+  'cc_h2': 'HTTP/2 uses system TCP.',
+  'cc_saved': 'Saved',
+  'cc_pending': 'Pending next manual connection.',
   'save_changes': 'Apply changes',
   'saving_changes': 'Applying changes…',
   'unsaved_changes': 'Unapplied changes',
@@ -51,6 +77,12 @@ const Map<String, String> kUiWorkflowEn = <String, String>{
 };
 
 const Map<String, String> kUiWorkflowZhCn = <String, String>{
+  'cc_label': 'HTTP/3 拥塞控制算法',
+  'cc_help': '下次手动连接生效。',
+  'cc_upgrade': '需要更新 Engine。',
+  'cc_h2': 'HTTP/2 使用系统 TCP。',
+  'cc_saved': '已保存',
+  'cc_pending': '待下次手动连接生效。',
   'save_changes': '应用修改',
   'saving_changes': '正在应用修改…',
   'unsaved_changes': '有未应用的修改',
@@ -79,7 +111,7 @@ const Map<String, String> kUiWorkflowZhCn = <String, String>{
   'connection_details': '连接详情',
   'home_overview': '连接概览',
   'home_exit_region': '出口地区',
-  'home_kill_switch': '断线保护',
+  'home_kill_switch': 'Kill Switch',
   'home_traffic': '实时流量',
   'home_traffic_window': '最近 60 秒',
   'home_traffic_idle': '连接后开始采样',
@@ -95,3 +127,28 @@ const Map<String, String> kUiWorkflowZhCn = <String, String>{
   'proxy_auth_separate': '凭据需单独点击“保存凭据”，不随网络修改一起提交。',
   'reset_draft_hint': '默认值将填入表单，点击“应用修改”后才会生效。',
 };
+
+const Map<String, Map<String, String>> kUiWorkflowCatalogs =
+    <String, Map<String, String>>{
+      'en': kUiWorkflowEn,
+      'zh_CN': kUiWorkflowZhCn,
+      'zh_HK': kUiWorkflowZhHk,
+      'zh_TW': kUiWorkflowZhTw,
+      'ja': kUiWorkflowJa,
+      'ko': kUiWorkflowKo,
+      'es': kUiWorkflowEs,
+      'pt': kUiWorkflowPt,
+      'fr': kUiWorkflowFr,
+      'nl': kUiWorkflowNl,
+      'tr': kUiWorkflowTr,
+      'ru': kUiWorkflowRu,
+      'fa': kUiWorkflowFa,
+      'ar': kUiWorkflowAr,
+      'de': kUiWorkflowDe,
+      'id': kUiWorkflowId,
+      'it': kUiWorkflowIt,
+      'pl': kUiWorkflowPl,
+      'th': kUiWorkflowTh,
+      'uk': kUiWorkflowUk,
+      'vi': kUiWorkflowVi,
+    };

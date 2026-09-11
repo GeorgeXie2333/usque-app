@@ -217,10 +217,13 @@ void main() {
   );
 
   test(
-    'Engine validation remains authoritative and failed save rolls back without downgrade',
+    'Engine validation remains authoritative and failed save preserves confirmed DNS',
     () async {
       SharedPreferences.setMockInitialValues(<String, Object>{});
-      final engine = QualityEngineStub();
+      final engine = QualityEngineStub()
+        ..capabilities = const EngineCapabilities(
+          networkSettingsApplication: true,
+        );
       final app = AppController(engine);
       await app.initialize();
       const custom = DirectDnsSettings(
@@ -244,7 +247,7 @@ void main() {
         isFalse,
       );
       expect(app.activeProfile.directDns, custom);
-      expect(app.lastError, isNotNull);
+      expect(app.networkSettings.saveError, isNotNull);
       app.dispose();
     },
   );

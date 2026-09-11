@@ -1,10 +1,20 @@
 /// Ukrainian UI catalog.
 const Map<String, String> kUkCatalog = <String, String>{
   'app_name': 'Usque',
+  'diag_fail_L4_SESSION_UNAVAILABLE': 'Сеанс L4 недоступний',
+  'diag_fail_L4_PROTOCOL_ERROR': 'Помилка протоколу L4',
+  'diag_fail_L4_CONNECT_REJECTED': 'L4 CONNECT відхилено',
+  'diag_fail_L4_CONNECT_TIMEOUT': 'Час очікування L4 CONNECT вичерпано',
+  'diag_fail_L4_RESOURCE_EXHAUSTED': 'Ліміт ресурсів L4 вичерпано',
+  'diag_fail_L4_DNS_FAILED': 'Помилка DNS-запиту L4',
   'window_minimize': 'Згорнути',
   'window_maximize': 'Розгорнути',
   'window_restore': 'Відновити розмір вікна',
   'window_close': 'Закрити',
+  'tray_open': 'Відкрити Usque',
+  'tray_connect_profile': 'Зʼєднати поточний обліковий запис',
+  'tray_disconnect_profile': 'Відʼєднати поточний обліковий запис',
+  'tray_disconnect_exit': 'Відʼєднати й вийти',
   'connection_status': 'Стан зʼєднання',
   'outputs': 'Мережеві виходи',
   'home': 'Головна',
@@ -14,7 +24,7 @@ const Map<String, String> kUkCatalog = <String, String>{
   'proxy_subtitle':
       'Локальні слухачі та DNS спільні для всіх облікових записів.',
   'settings': 'Налаштування',
-  'settings_subtitle': 'Поведінка програми на цьому пристрої.',
+  'settings_subtitle': 'Налаштування зʼєднання, проксі та програми.',
   'diagnostics': 'Діагностика',
   'nav_home': 'Головна',
   'nav_profiles': 'Акаунти',
@@ -85,7 +95,7 @@ const Map<String, String> kUkCatalog = <String, String>{
   'zero_trust_repair_same_team':
       'Увійдіть знову до тієї самої організації, щоб оновити реєстрацію цього пристрою.',
   'zero_trust_metadata_missing':
-      'Збережену привʼязку організації втрачено. З міркувань безпеки цей профіль не можна виправити на місці; створіть новий профіль Zero Trust.',
+      'Збережену привʼязку організації втрачено. З міркувань безпеки цей запис облікового запису не можна виправити на місці; додайте новий обліковий запис Zero Trust.',
   'zero_trust_endpoint_managed':
       'Цією кінцевою точкою керує реєстрація пристрою Zero Trust, тому її не можна змінити тут.',
   'experimental': 'Експериментально',
@@ -101,13 +111,13 @@ const Map<String, String> kUkCatalog = <String, String>{
   'delete': 'Видалити',
   'delete_profile': 'Видалити обліковий запис?',
   'delete_profile_body':
-      'Це видаляє несекретні налаштування цього профілю. Збережені дані ідентичності не видаляються.',
+      'Це видаляє несекретні налаштування цього облікового запису. Збережені дані ідентичності не видаляються.',
   'delete_zero_trust_profile_body':
-      'Це видаляє лише локальний профіль і облікові дані. Попросіть адміністратора організації вилучити залишкову реєстрацію пристрою в Zero Trust.',
+      'Це видаляє лише локальний обліковий запис і облікові дані. Попросіть адміністратора організації вилучити залишкову реєстрацію пристрою в Zero Trust.',
   'license_not_applicable': 'Ліцензія не застосовується · Експериментально',
   'zero_trust_reauthenticate': 'Увійти знову до цієї організації',
   'zero_trust_admin_cleanup_note':
-      'Видалення цього профілю не відкликає пристрій на панелі Zero Trust.',
+      'Видалення цього облікового запису не відкликає пристрій на панелі Zero Trust.',
   'mode': 'Режим зʼєднання',
   'vpn_mode': 'VPN',
   'socks_mode': 'SOCKS5',
@@ -196,7 +206,7 @@ const Map<String, String> kUkCatalog = <String, String>{
   'already_latest': 'Ця інсталяція вже актуальна.',
   'open_release': 'Відкрити сторінку випуску',
   'update_startup_description':
-      'Перевірка виконується один раз після запуску Usque; повернення до програми не запускає її повторно. Негайна перевірка виконується в реальному часі.',
+      'Перевірка виконується один раз після запуску Usque; повернення до програми не запускає її повторно. «Перевірити зараз» завжди запитує найновіші відомості про випуск.',
   'update_checking': 'Перевірка оновлень…',
   'update_downloading': 'Завантаження перевіреного пакета оновлення…',
   'update_verifying': 'Перевірка пакета оновлення…',
@@ -296,7 +306,7 @@ const Map<String, String> kUkCatalog = <String, String>{
       'Стан Usque Engine, експорт журналів і локальні дані.',
   'engine_status': 'Стан Usque Engine',
   'version': 'Версія',
-  'app_version': 'Usque 0.2.5',
+  'app_version': 'Usque 0.2.6',
   'logs': 'Локальні журнали',
   'export_diagnostics': 'Експортувати діагностичний пакет',
   'diagnostics_saved': 'Діагностичний пакет збережено до',
@@ -306,9 +316,9 @@ const Map<String, String> kUkCatalog = <String, String>{
   'license': 'Ліцензія',
   'clear_all_data': 'Очистити всі дані',
   'clear_all_data_help':
-      'Відʼєднайтеся та назавжди видаліть із цього пристрою кожен профіль, ідентичність Consumer WARP, параметри, кеш і локальні діагностичні записи.',
+      'Відʼєднайтеся та назавжди видаліть із цього пристрою кожен обліковий запис, ідентичність Consumer WARP, параметри, кеш і локальні діагностичні записи.',
   'clear_all_data_confirm':
-      'Цю дію не можна скасувати. Usque спочатку відʼєднається, зітре всі збережені ідентичності та профілі й повернеться до початкового налаштування.',
+      'Цю дію не можна скасувати. Usque спочатку відʼєднається, зітре всі збережені ідентичності та облікові записи й повернеться до початкового налаштування.',
   'clear_all_data_complete': 'Усі локальні дані Usque очищено.',
   'unofficial':
       'Неофіційний клієнт, сумісний із Cloudflare WARP. Не повʼязаний із Cloudflare і не схвалений Cloudflare.',
@@ -335,7 +345,7 @@ const Map<String, String> kUkCatalog = <String, String>{
   'permission_note':
       'Операційна система може показати додаткове підтвердження під час першого зʼєднання.',
   'setup_failed': 'Не вдалося завершити налаштування',
-  'profile_required': 'Залиште принаймні один профіль.',
+  'profile_required': 'Залиште принаймні один обліковий запис.',
   'socks_capabilities': 'TCP і UDP',
   'http_capabilities': 'CONNECT і звичайне пересилання',
   'geo_direct': 'Країни з прямою маршрутизацією',
@@ -354,7 +364,7 @@ const Map<String, String> kUkCatalog = <String, String>{
   'geo_chip': 'Пряма маршрутизація: {current}',
   'geo_download_first': 'Завантажте геодані цієї країни, перш ніж вмикати її.',
   'geo_update_complete':
-      'Геодані: оновлено {updated}, уже актуальні {current}.',
+      'Геодані: оновлено {updated}, вже актуальні {current}.',
   'geo_update_failed': 'Не вдалося оновити геодані: {current}',
   'diagnostics_page_subtitle':
       'Перевірте з’єднання, захист платформи та стан відновлення. Результати лишаються на пристрої.',
@@ -509,7 +519,7 @@ const Map<String, String> kUkCatalog = <String, String>{
       'Стан системного проксі не збігається',
   'diag_fail_ROUTE_RESTORE_INCOMPLETE': 'Відновлення маршрутів неповне',
   'diag_fail_DNS_RESTORE_INCOMPLETE': 'Відновлення DNS неповне',
-  'diag_fail_SYSTEM_PROXY_STALE': 'Залишковий стан системного проксі Usque',
+  'diag_fail_SYSTEM_PROXY_STALE': 'Стан системного проксі Usque не очищено',
   'diag_fail_PLATFORM_RECOVERY_PENDING':
       'Очікується відновлення мережевого стану платформи',
   'diag_fail_PACKET_SEND_FAILED': 'Збій надсилання пакета',

@@ -18,6 +18,36 @@ param(
     [ValidatePattern("^v?[0-9]+\.[0-9]+\.[0-9]+(?:-beta\.[0-9]+)?$")]
     [string]$Version,
 
+    [ValidateSet(
+        "ar-SA",
+        "de-DE",
+        "en-US",
+        "es-ES",
+        "fa-IR",
+        "fr-FR",
+        "id-ID",
+        "it-IT",
+        "ja-JP",
+        "ko-KR",
+        "nl-NL",
+        "pl-PL",
+        "pt-BR",
+        "ru-RU",
+        "th-TH",
+        "tr-TR",
+        "uk-UA",
+        "vi-VN",
+        "zh-CN",
+        "zh-HK",
+        "zh-TW"
+    )]
+    [string]$Culture = "en-US",
+
+    [ValidatePattern("^\{?[0-9A-Fa-f]{8}-(?:[0-9A-Fa-f]{4}-){3}[0-9A-Fa-f]{12}\}?$")]
+    [string]$ProductCode,
+
+    [string]$CabCacheDirectory,
+
     [switch]$AllowPinnedUntrustedRoot
 )
 
@@ -155,6 +185,7 @@ function Assert-OfficialWintun {
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $sourcePath = Join-Path $repositoryRoot "packaging\windows\Usque.wxs"
 $uiSourcePath = Join-Path $repositoryRoot "packaging\windows\UsqueUI.wxs"
+$locDirectory = Join-Path $repositoryRoot "packaging\windows\loc"
 $licensePath = Join-Path $repositoryRoot "packaging\windows\LICENSE.rtf"
 $iconPath = Join-Path $repositoryRoot "assets\branding\usque-app-icon.ico"
 $uiExtension = "WixToolset.UI.wixext/5.0.2"
@@ -205,6 +236,16 @@ if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath $uiSourcePath -PathType Leaf)) {
     throw "WiX UI authoring is missing: $uiSourcePath"
 }
+if (-not (Test-Path -LiteralPath $locDirectory -PathType Container)) {
+    throw "WiX localization directory is missing: $locDirectory"
+}
+$englishLocPath = Join-Path $locDirectory "en-US.wxl"
+$selectedLocPath = Join-Path $locDirectory "$Culture.wxl"
+foreach ($locPath in @($englishLocPath, $selectedLocPath)) {
+    if (-not (Test-Path -LiteralPath $locPath -PathType Leaf)) {
+        throw "WiX localization file is missing: $locPath"
+    }
+}
 if (-not (Test-Path -LiteralPath $licensePath -PathType Leaf)) {
     throw "Installer license is missing: $licensePath"
 }
@@ -242,9 +283,31 @@ if (
     }
     throw "Agent PE FileVersion must match the mapped MSI version. Expected $expectedAgentFileVersion, got $actualAgentFileVersion."
 }
-$outputPath = Join-Path $outputRoot "usque-v$displayVersion-windows-$Variant.msi"
-$intermediatePath = Join-Path $outputRoot "wix-$Variant"
+$cultureSuffix = if ($Culture -eq "en-US") { "" } else { "-$Culture" }
+$outputPath = Join-Path $outputRoot "usque-v$displayVersion-windows-$Variant$cultureSuffix.msi"
+$intermediatePath = Join-Path $outputRoot "wix-$Variant-$Culture"
+$cultureInfo = [Globalization.CultureInfo]::GetCultureInfo($Culture)
+$msiLanguage = $cultureInfo.LCID
+$msiCodepage = 65001
+$wixCultures = if ($Culture -eq "en-US") { @("en-US") } else { @($Culture, "en-US") }
 New-Item -ItemType Directory -Path $intermediatePath -Force | Out-Null
+$localizationIncludePath = Join-Path $intermediatePath "UsqueLocalization.wxi"
+& (Join-Path $PSScriptRoot "render_windows_wix_localization.ps1") `
+    -LocalizationPath $selectedLocPath `
+    -OutputPath $localizationIncludePath `
+    -ExpectedCulture $Culture | Out-Null
+$normalizedProductCode = if ([string]::IsNullOrWhiteSpace($ProductCode)) {
+    ([guid]::NewGuid()).ToString("D").ToUpperInvariant()
+}
+else {
+    ([guid]$ProductCode).ToString("D").ToUpperInvariant()
+}
+$cabCachePath = $null
+if (-not [string]::IsNullOrWhiteSpace($CabCacheDirectory)) {
+    New-Item -ItemType Directory -Path $CabCacheDirectory -Force | Out-Null
+    $cabCachePath = (Resolve-Path -LiteralPath $CabCacheDirectory).Path
+}
+$quietUninstallScript = & (Join-Path $PSScriptRoot "get_windows_quiet_uninstall_command.ps1") -EncodedScriptOnly
 
 Push-Location $repositoryRoot
 try {
@@ -259,22 +322,41 @@ try {
     }
 
     $architecture = if ($Variant -eq "arm64") { "arm64" } else { "x64" }
-    & dotnet tool run wix -- build `
-        -arch $architecture `
-        -ext $uiExtension `
-        -bindpath "app=$appRoot" `
-        -define "DisplayVersion=$displayVersion" `
-        -define "MsiVersion=$msiVersion" `
-        -define "Variant=$Variant" `
-        -define "SignerSha256=$normalizedSigner" `
-        -define "IconPath=$iconPath" `
-        -define "LicensePath=$licensePath" `
-        -defaultcompressionlevel high `
-        -intermediateFolder $intermediatePath `
-        -pdbtype none `
-        -out $outputPath `
-        $sourcePath `
-        $uiSourcePath
+    $wixArguments = [System.Collections.Generic.List[string]]::new()
+    foreach ($argument in @(
+            "build",
+            "-arch", $architecture,
+            "-ext", $uiExtension,
+            "-bindpath", "app=$appRoot",
+            "-define", "DisplayVersion=$displayVersion",
+            "-define", "MsiVersion=$msiVersion",
+            "-define", "MsiLanguage=$msiLanguage",
+            "-define", "MsiCodepage=$msiCodepage",
+            "-define", "ProductCode=$normalizedProductCode",
+            "-define", "Variant=$Variant",
+            "-define", "SignerSha256=$normalizedSigner",
+            "-define", "IconPath=$iconPath",
+            "-define", "LicensePath=$licensePath",
+            "-define", "UsqueLocalizationPath=$localizationIncludePath",
+            "-define", "UsqueQuietUninstallScript=$quietUninstallScript",
+            "-defaultcompressionlevel", "high",
+            "-intermediateFolder", $intermediatePath,
+            "-pdbtype", "none",
+            "-out", $outputPath
+        )) {
+        $wixArguments.Add($argument)
+    }
+    foreach ($wixCulture in $wixCultures) {
+        $wixArguments.Add("-culture")
+        $wixArguments.Add($wixCulture)
+    }
+    if ($null -ne $cabCachePath) {
+        $wixArguments.Add("-cabcache")
+        $wixArguments.Add($cabCachePath)
+    }
+    $wixArguments.Add($sourcePath)
+    $wixArguments.Add($uiSourcePath)
+    & dotnet tool run wix -- @($wixArguments)
     if ($LASTEXITCODE -ne 0) {
         throw "WiX build failed with exit code $LASTEXITCODE."
     }
@@ -293,6 +375,8 @@ if (-not (Test-Path -LiteralPath $outputPath -PathType Leaf)) {
     -ExpectedMsiVersion $msiVersion `
     -ExpectedDisplayVersion $displayVersion `
     -ExpectedAgentFileVersion $expectedAgentFileVersion `
+    -ExpectedMsiLanguage $msiLanguage `
+    -ExpectedProductCode $normalizedProductCode `
     -SignerSha256 $normalizedSigner
 if ($LASTEXITCODE -ne 0) {
     throw "MSI table contract verification failed with exit code $LASTEXITCODE."

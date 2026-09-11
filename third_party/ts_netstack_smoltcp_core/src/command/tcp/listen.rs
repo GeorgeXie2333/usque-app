@@ -9,6 +9,11 @@ use crate::{command, socket_impl::tcp::ListenerHandle};
 /// Commands to control TCP listeners.
 #[derive(Debug)]
 pub enum Command {
+    /// Listen for exactly one flow without allocating replacement sockets.
+    ListenOnce {
+        /// The endpoint to begin listening on.
+        local_endpoint: SocketAddr,
+    },
     /// Begin listening on the given endpoint.
     Listen {
         /// The endpoint to begin listening on.

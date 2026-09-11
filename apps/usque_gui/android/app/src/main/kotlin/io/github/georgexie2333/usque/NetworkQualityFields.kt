@@ -51,6 +51,8 @@ internal object NetworkQualityFields {
             "bytes_in_flight",
             "send_rate_bits_per_second",
             "packets_lost",
+            "local_quic_packets_lost_observed",
+            "local_quic_pto_count_observed",
             "bytes_lost",
             "tun_sink_drop_count",
             "quic_datagram_drop_count",
@@ -122,10 +124,48 @@ internal object NetworkQualityFields {
 
     fun capabilities(value: String?): Map<String, Boolean> {
         val source = if (value != null && value.length <= 1024) runCatching { JSONObject(value) }.getOrNull() else null
-        return listOf("network_quality", "encrypted_direct_dns", "quic_migration", "automatic_pmtu").associateWith {
+        return listOf(
+            "network_quality",
+            "encrypted_direct_dns",
+            "quic_migration",
+            "automatic_pmtu",
+            "l4_tcp",
+            "l4_tun_tcp",
+            "l4_dns_conversion",
+        ).associateWith {
             source?.opt(it) ==
                 true
         }
+    }
+
+    /** Export only the existing typed allowlist; strip instance identifiers and
+     * legacy zero-filled loss fields. Local QUIC loss is NOT downstream loss. */
+    fun diagnostic(
+        value: Any?,
+        l4: Boolean,
+    ): JSONObject? {
+        val source =
+            when (value) {
+                is Map<*, *> -> JSONObject(value).toString()
+                is String -> value
+                else -> return null
+            }
+        val result = JSONObject(decode(source) ?: return null)
+        result.remove("connection_instance_id")
+        result.put("loss_scope", "local_quic_sender_not_peer_downlink")
+        val metrics = result.optJSONObject("metrics")
+        metrics?.remove("packets_lost")
+        metrics?.remove("bytes_lost")
+        if (l4 && metrics != null) {
+            metrics.remove("quic_datagram_drop_count")
+            metrics
+                .keys()
+                .asSequence()
+                .filter { it.startsWith("h2_") }
+                .toList()
+                .forEach(metrics::remove)
+        }
+        return result
     }
 
     private fun sanitize(source: JSONObject): Map<String, Any?> {
@@ -173,6 +213,15 @@ internal object NetworkQualityFields {
                     )
             }
         return mapOf(
+            "udp_socket_receive" to
+                source.optJSONObject("udp_socket_receive")?.let { socket ->
+                    val observation = L4StatusFields.receive(socket.optJSONObject("observation"))?.toMutableMap()
+                    // H3 CONNECT-IP uses DATAGRAM, not the L4 body/TUN bridge series.
+                    observation?.remove("history")
+                    observation?.remove("history_dropped")
+                    numbers(socket, setOf("receive_buffer_bytes", "send_buffer_bytes")) +
+                        mapOf("observation" to observation)
+                },
             "samples" to sampleOutput,
             "sampled_at_unix_ms" to number(source, "sampled_at_unix_ms"),
             "connection_instance_id" to (source.opt("connection_instance_id") as? String)?.takeIf(instanceId::matches),

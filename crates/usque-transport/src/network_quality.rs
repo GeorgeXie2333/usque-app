@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -201,6 +201,14 @@ pub struct UdpIoQuality {
     pub receive_truncations: u64,
 }
 
+/// Socket observation; loss is socket-local, never peer QUIC loss.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SocketReceiveQuality {
+    pub receive_buffer_bytes: Option<u64>,
+    pub send_buffer_bytes: Option<u64>,
+    pub observation: usque_core::L4ReceiveSnapshot,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AllocationQuality {
     pub packet_buffer_pool_hits: u64,
@@ -334,6 +342,7 @@ pub struct NetworkQualitySnapshot {
     pub pmtu: PmtuQuality,
     pub queues: Vec<QueueQuality>,
     pub udp_io: UdpIoQuality,
+    pub socket_receive: Option<SocketReceiveQuality>,
     pub allocations: AllocationQuality,
     pub migration: MigrationQuality,
     pub direct_dns: DirectDnsQuality,
@@ -475,6 +484,7 @@ struct QualityState {
     transport: Option<Transport>,
     endpoint_family: Option<AddressFamily>,
     h3: Option<TimedH3Sample>,
+    socket_receive: Option<crate::udp_io::receive_observation::SocketReceiveState>,
     h2: H2State,
     pmtu: PmtuState,
     migration: MigrationState,
@@ -509,6 +519,7 @@ pub struct NetworkQualityTelemetry {
 }
 
 struct NetworkQualityTelemetryInner {
+    stream_data_plane: AtomicBool,
     features: crate::NetworkFeatureFlags,
     #[cfg(any(test, feature = "fault-injection"))]
     faults: std::sync::Mutex<Option<crate::fault_injection::NetworkFaults>>,
@@ -539,6 +550,7 @@ impl NetworkQualityTelemetry {
             std::array::from_fn(|index| QueueMetrics::unregistered(ALL_QUEUE_KINDS[index]));
         Self {
             inner: Arc::new(NetworkQualityTelemetryInner {
+                stream_data_plane: AtomicBool::new(false),
                 features,
                 #[cfg(any(test, feature = "fault-injection"))]
                 faults: std::sync::Mutex::new(None),
@@ -555,6 +567,10 @@ impl NetworkQualityTelemetry {
 impl NetworkQualityTelemetry {
     pub fn features(&self) -> crate::NetworkFeatureFlags {
         self.inner.features
+    }
+
+    pub(crate) fn use_stream_data_plane(&self) {
+        self.inner.stream_data_plane.store(true, Ordering::Release);
     }
 
     #[cfg(any(test, feature = "fault-injection"))]
@@ -593,6 +609,7 @@ impl NetworkQualityTelemetry {
         state.transport = Some(transport);
         state.endpoint_family = Some(endpoint_family);
         state.h3 = None;
+        state.socket_receive = None;
         state.h2 = H2State::default();
         state.pmtu = if transport == Transport::Http3 {
             PmtuState {
@@ -613,6 +630,7 @@ impl NetworkQualityTelemetry {
         state.transport = None;
         state.endpoint_family = None;
         state.h3 = None;
+        state.socket_receive = None;
         state.h2 = H2State::default();
         state.pmtu = PmtuState::default();
         state.migration.phase = MigrationPhase::Idle;
@@ -656,6 +674,23 @@ impl NetworkQualityTelemetry {
         match state.transport? {
             Transport::Http3 => state.h3.map(|h3| h3.sample.rtt),
             Transport::Http2 => state.h2.smoothed_rtt,
+        }
+    }
+
+    pub(crate) fn observe_socket_receive(
+        &self,
+        sizes: (Option<u64>, Option<u64>),
+        source: Option<crate::udp_io::receive_observation::ReceiveSource>,
+    ) {
+        let mut state = self.state_write();
+        if state.transport == Some(Transport::Http3) && state.connection_id.is_some() {
+            state.socket_receive =
+                source.map(
+                    |source| crate::udp_io::receive_observation::SocketReceiveState {
+                        sizes,
+                        source,
+                    },
+                );
         }
     }
 
@@ -1159,12 +1194,31 @@ impl NetworkQualitySampler {
             pmtu,
             queues,
             udp_io,
+            socket_receive: state
+                .socket_receive
+                .as_ref()
+                .map(|socket| socket.snapshot()),
             allocations,
             migration,
             direct_dns,
             h2_flow_control: state.h2.flow_control,
             samples: Vec::new(),
         };
+        if self
+            .telemetry
+            .inner
+            .stream_data_plane
+            .load(Ordering::Acquire)
+        {
+            snapshot.pmtu.effective_connect_ip_payload_bytes = MetricValue::unsupported();
+            snapshot.loss.datagrams_sent = MetricValue::unsupported();
+            snapshot.loss.datagrams_received = MetricValue::unsupported();
+            snapshot.loss.datagrams_lost = MetricValue::unsupported();
+            snapshot.loss.datagram_receive_drops = MetricValue::unsupported();
+            snapshot
+                .queues
+                .retain(|queue| queue.kind != QueueKind::H3DatagramSend);
+        }
         snapshot.level = self.classify(&snapshot);
         if snapshot.connection_id.is_some() {
             let origin = *self.clock_origin.get_or_insert(sampled_at);
@@ -2045,6 +2099,51 @@ mod tests {
         for forbidden in ["127.0.0.1", "example.com", "ssid", "token="] {
             assert!(!debug.contains(forbidden));
         }
+    }
+
+    #[tokio::test]
+    async fn receive_observations_follow_bearing_attempt_and_clear_on_end() {
+        use crate::udp_io::{
+            UdpBatchMode,
+            receive_observation::{ReceiveObservation, ReceiveSource},
+        };
+        let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let source = ReceiveSource {
+            observation: ReceiveObservation::attach(&socket, None),
+            receive_mode: UdpBatchMode::SendMmsgRecvMmsg,
+            send_mode: UdpBatchMode::SendMmsgRecvMmsg,
+        };
+        let root = NetworkQualityTelemetry::default();
+        let first = root.new_attempt(Transport::Http3, AddressFamily::Ipv4);
+        first.observe_socket_receive((Some(111), Some(112)), Some(source.clone()));
+        root.activate_attempt(&first);
+        let mut sampler = NetworkQualitySampler::new(root.clone());
+        assert_eq!(
+            sampler
+                .sample()
+                .socket_receive
+                .unwrap()
+                .receive_buffer_bytes,
+            Some(111)
+        );
+        let probe = root.new_attempt(Transport::Http3, AddressFamily::Ipv4);
+        probe.observe_socket_receive((Some(222), Some(223)), Some(source));
+        assert_eq!(
+            sampler
+                .sample()
+                .socket_receive
+                .unwrap()
+                .receive_buffer_bytes,
+            Some(111)
+        );
+        root.activate_attempt(&probe);
+        let value = sampler.sample().socket_receive.unwrap();
+        assert_eq!(value.receive_buffer_bytes, Some(222));
+        assert!(value.observation.socket_drops_reported.is_none());
+        probe.end_connection();
+        assert!(sampler.sample().socket_receive.is_none());
+        root.begin_connection(Transport::Http2, AddressFamily::Ipv4);
+        assert!(sampler.sample().socket_receive.is_none());
     }
 
     #[test]

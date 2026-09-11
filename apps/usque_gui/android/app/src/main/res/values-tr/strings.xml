@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="vpn_channel_name">Usque ağ hizmeti</string>
+    <string name="vpn_channel_description">Etkin Usque VPN veya yerel vekilin kalıcı durumu</string>
+    <string name="vpn_notif_disconnect">Bağlantıyı kes</string>
+    <string name="vpn_notif_preparing">Güvenli tünel hazırlanıyor</string>
+    <string name="vpn_notif_connecting_h3">HTTP/3 ile bağlanılıyor</string>
+    <string name="vpn_notif_connecting_h2">HTTP/2 ile bağlanılıyor</string>
+    <string name="vpn_notif_connected">Bağlandı</string>
+    <string name="vpn_notif_connected_via">%1$s üzerinden bağlandı</string>
+    <string name="vpn_notif_degraded">Bağlandı, adres ailesi desteği sınırlı</string>
+    <string name="vpn_notif_reconnecting">Güvenli yeniden bağlanma</string>
+    <string name="vpn_notif_error">Ağ hizmeti bir hatadan sonra durdu</string>
+    <string name="vpn_notif_disconnecting">Bağlantı kesiliyor</string>
+    <string name="vpn_notif_idle">Usque VPN</string>
+    <string name="vpn_notif_invalid_profile">Geçersiz VPN profili</string>
+    <string name="vpn_notif_invalid_network_profile">Geçersiz ağ profili</string>
+    <string name="vpn_notif_recovery_unavailable">VPN kurtarma kullanılamıyor</string>
+    <string name="tile_connected">Bağlandı</string>
+    <string name="tile_disconnected">Bağlı değil</string>
+    <string name="tile_connecting">Bağlanıyor</string>
+    <string name="tile_reconnecting">Yeniden bağlanıyor</string>
+    <string name="tile_disconnecting">Bağlantı kesiliyor</string>
+    <string name="tile_checking">Denetleniyor</string>
+    <string name="tile_working">İşleniyor</string>
+    <string name="tile_open_app">Usque’yu aç</string>
+    <string name="tile_profile_required">Karo kullanmadan önce Usque’yu açın ve bir VPN profiline bir kez bağlanın.</string>
+    <string name="tile_identity_required">Usque’yu açın ve bu profil için WARP kimliğini yapılandırın.</string>
+    <string name="tile_vpn_permission_required">Android VPN iznini vermek için Usque’yu açın.</string>
+    <string name="tile_proxy_only">Yalnızca vekil bağlantısı etkin. VPN ön ucunu açmak için Usque’yu açın.</string>
+    <string name="shortcut_connect">Bağlan</string>
+    <string name="shortcut_disconnect">Bağlantıyı kes</string>
+    <string name="shortcut_profiles">Hesaplar</string>
+    <string name="shortcut_long_label">%1$s Usque</string>
+</resources>

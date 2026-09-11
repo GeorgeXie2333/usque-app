@@ -11,11 +11,9 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, MissedTickBehavior, interval_at, sleep, timeout};
 use tokio_util::sync::CancellationToken;
+use ts_netstack_smoltcp::Netstack;
 use ts_netstack_smoltcp::netcore::{
     Channel, Config, HasChannel, NetstackControl, TcpBufferMetrics, TcpBufferPolicy, TcpBufferTier,
-};
-use ts_netstack_smoltcp::{
-    Netstack, WakingPipe, WakingPipeDev, WakingPipeReceiver, WakingPipeSender,
 };
 use usque_core::{
     AddressFamily, IpPolicy, Profile, Transport, TransportFailure, TransportFailureCode,
@@ -29,6 +27,10 @@ use crate::h3::{H3MigrationResult, connect_h3_with_protector};
 use crate::network_quality::{NetworkQualitySnapshot, spawn_network_quality_sampler_with_counters};
 use crate::packet_batch::{
     MAX_PACKET_BATCH_BYTES, PACKET_BATCH_CHANNEL_CAPACITY, PacketBatch, PacketBatchResult,
+};
+use crate::packet_pipe::{
+    PacketDevice, PacketPipe as WakingPipe, PacketReceiver as WakingPipeReceiver,
+    PacketSender as WakingPipeSender,
 };
 use crate::pin_refresh::EndpointPinRefresher;
 use crate::queue_metrics::{
@@ -415,13 +417,16 @@ pub(crate) fn proxy_netstack_config(profile: &Profile) -> (Config, TcpBufferMetr
     (config, metrics)
 }
 
-pub(crate) fn bounded_piped(config: Config) -> (Netstack<WakingPipeDev>, WakingPipe) {
-    let (stack_pipe, remote_pipe) = WakingPipe::bounded(PROXY_PACKET_PIPE_CAPACITY);
-    let device = WakingPipeDev {
-        pipe: stack_pipe,
-        mtu: config.mtu,
-        medium: ts_netstack_smoltcp::netcore::smoltcp::phy::Medium::Ip,
-    };
+pub(crate) fn bounded_piped(config: Config) -> (Netstack<PacketDevice>, WakingPipe) {
+    bounded_piped_with_capacity(config, PROXY_PACKET_PIPE_CAPACITY)
+}
+
+pub(crate) fn bounded_piped_with_capacity(
+    config: Config,
+    capacity: usize,
+) -> (Netstack<PacketDevice>, WakingPipe) {
+    let (stack_pipe, remote_pipe) = WakingPipe::bounded(capacity);
+    let device = PacketDevice::new(stack_pipe, config.mtu);
     (Netstack::new(device, config), remote_pipe)
 }
 
@@ -521,6 +526,22 @@ impl ManagedTunnelSender {
 }
 
 impl ManagedTunnelMonitor {
+    pub(crate) fn for_streams(
+        health: watch::Receiver<RuntimeHealth>,
+        counters: Arc<TrafficCounters>,
+        telemetry: ConnectionTelemetry,
+        quality: watch::Receiver<NetworkQualitySnapshot>,
+    ) -> Self {
+        Self {
+            failure: watch::channel(None).1,
+            health,
+            control: watch::channel(PeerNetworkState::default()).1,
+            counters,
+            telemetry,
+            quality,
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn stub() -> Self {
         let path = RuntimePath {
@@ -925,6 +946,9 @@ async fn connect_with_policy(
     protector: Arc<dyn SocketProtector>,
     telemetry: &ConnectionTelemetry,
 ) -> Result<(MasqueTunnel, AddressFamily), TransportError> {
+    if profile.data_plane != usque_core::DataPlaneMode::ConnectIp {
+        return Err(TransportError::UnsupportedOperatingMode);
+    }
     match profile.transport {
         TransportPolicy::Http3 => {
             connect_happy_eyeballs(profile, identity, Transport::Http3, protector, telemetry).await
@@ -1022,6 +1046,7 @@ async fn connect_happy_eyeballs(
             &profile.endpoint.sni,
             identity,
             usize::from(profile.mtu),
+            profile.congestion_control,
             protector,
             telemetry,
         )
@@ -1035,6 +1060,7 @@ async fn connect_happy_eyeballs(
         &profile.endpoint.sni,
         identity,
         usize::from(profile.mtu),
+        profile.congestion_control,
         Arc::clone(&protector),
         telemetry,
     );
@@ -1058,6 +1084,7 @@ async fn connect_happy_eyeballs(
         &profile.endpoint.sni,
         identity,
         usize::from(profile.mtu),
+        profile.congestion_control,
         protector,
         telemetry,
     );
@@ -1142,6 +1169,7 @@ async fn connect_endpoint(
     sni: &str,
     identity: &MasqueTlsIdentity,
     profile_inner_mtu: usize,
+    congestion_control: usque_core::CongestionControlAlgorithm,
     protector: Arc<dyn SocketProtector>,
     telemetry: &ConnectionTelemetry,
 ) -> Result<MasqueTunnel, TransportError> {
@@ -1164,7 +1192,10 @@ async fn connect_endpoint(
                     endpoint,
                     sni,
                     identity,
-                    profile_inner_mtu,
+                    crate::h3::H3ConnectSettings {
+                        inner_mtu: profile_inner_mtu,
+                        congestion_control,
+                    },
                     Arc::clone(&protector),
                     Some(&attempt),
                 )

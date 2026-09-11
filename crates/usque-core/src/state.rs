@@ -44,6 +44,13 @@ pub struct Statistics {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ConnectionSnapshot {
+    #[serde(default)]
+    pub data_plane: Option<crate::DataPlaneMode>,
+    #[serde(default)]
+    pub l4: Option<crate::L4Snapshot>,
+    /// Immutable selection captured by the current user connection session.
+    #[serde(default)]
+    pub session_congestion_control: Option<crate::CongestionControlAlgorithm>,
     pub phase: ConnectionPhase,
     pub changed_at: DateTime<Utc>,
     pub transport: Option<Transport>,
@@ -68,6 +75,9 @@ impl Default for ConnectionSnapshot {
     fn default() -> Self {
         Self {
             phase: ConnectionPhase::Disconnected,
+            data_plane: None,
+            l4: None,
+            session_congestion_control: None,
             changed_at: Utc::now(),
             transport: None,
             address_family: None,
@@ -170,6 +180,9 @@ impl StateMachine {
             self.snapshot.failure = None;
         }
         if phase == ConnectionPhase::Disconnected {
+            self.snapshot.data_plane = None;
+            self.snapshot.l4 = None;
+            self.snapshot.session_congestion_control = None;
             self.snapshot.transport = None;
             self.snapshot.address_family = None;
             self.snapshot.ipv4_available = false;
@@ -238,6 +251,11 @@ impl StateMachine {
         self.snapshot.statistics = statistics;
     }
 
+    pub fn update_data_plane(&mut self, mode: crate::DataPlaneMode, l4: Option<crate::L4Snapshot>) {
+        self.snapshot.data_plane = Some(mode);
+        self.snapshot.l4 = l4;
+    }
+
     pub fn update_runtime_metadata(
         &mut self,
         reconnect_count: u32,
@@ -251,6 +269,13 @@ impl StateMachine {
 
     pub fn update_reconnect_count(&mut self, reconnect_count: u32) {
         self.snapshot.reconnect_count = reconnect_count;
+    }
+
+    pub fn update_session_congestion_control(
+        &mut self,
+        algorithm: Option<crate::CongestionControlAlgorithm>,
+    ) {
+        self.snapshot.session_congestion_control = algorithm;
     }
 
     pub fn update_failure(&mut self, failure: Option<TransportFailure>) {

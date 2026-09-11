@@ -39,11 +39,11 @@ Usque is an independent project. It is not affiliated with, sponsored by, or end
 
 ## Download and install
 
-The release target is **v0.2.5**, a feature and reliability release for Windows and Android. Its tag workflow produces six packages:
+The release target is **v0.2.6**, a feature and reliability release for Windows and Android. Its tag workflow produces six user-facing installers plus two Windows MSI payloads reserved for automatic updates:
 
 | Platform | Minimum OS | Packages |
 | --- | --- | --- |
-| Windows | Windows 10 22H2, build 19045 | x64-v2 MSI or ARM64 MSI |
+| Windows | Windows 10 22H2, build 19045 | x64-v2 installer EXE or ARM64 installer EXE |
 | Android / Android TV | Android 8.0, API 26 | arm64-v8a, x86_64, or armeabi-v7a APK |
 | Android / Android TV | Android 8.0, API 26 | Universal APK containing all three ABIs |
 
@@ -70,12 +70,16 @@ VPN, SOCKS5, and HTTP are enabled by default on both platforms; Windows system p
 
 ## Features
 
+- Opt-in [experimental L4 proxy mode](docs/L4_PROXY.md): TCP CONNECT over H3
+  for SOCKS5, HTTP and Windows/Android TUN, with DNS conversion and
+  identity-derived Consumer/Zero Trust SNI. Auto still excludes L4.
+
 - Consumer WARP accounts, optional License Key registration, and explicit, confirmed Secret export to a file you choose. Export does not provide an import/restore workflow in Usque.
 - Auto HTTP/3 (QUIC) with HTTP/2 (TLS) fallback and IPv4/IPv6 Happy Eyeballs for the physical path. H3 supports same-family path migration and automatic outer-path PMTU discovery.
 - Full-tunnel VPN, tunneled DNS, Kill Switch, LAN access, and custom CIDR bypass rules.
 - Optional country-based direct routing: separately downloaded per-country GeoIP data and one verified global V2Fly GeoSite catalog. Known names use GeoSite; destinations without a visible name use GeoIP. Unknown destinations stay on MASQUE.
 - A local Network Quality page with RTT, loss availability, queues, PMTU, migration, direct DNS, and 60-second trends. Network Doctor offers read-only Standard checks and explicitly authorized Deep checks.
-- Windows tray, single-instance activation, start on boot, and close-to-tray; Android Quick Settings tile, launcher shortcuts, boot recovery, and TV navigation. English and Simplified Chinese, light and dark themes.
+- Windows tray, single-instance activation, start on boot, and close-to-tray; Android Quick Settings tile, launcher shortcuts, boot recovery, and TV navigation. Twenty-one language catalogs, plus light and dark themes.
 
 Android per-app proxy is an app-wide include-only setting, not an account setting. When off, all apps use the VPN. When on, only selected apps do; newly installed apps stay outside the tunnel until selected. With Android **Block connections without VPN**, unselected apps are blocked instead of bypassing it.
 
@@ -88,7 +92,7 @@ Android per-app proxy is an app-wide include-only setting, not an account settin
 
 Direct-country DNS is an explicit choice: **System** (default), **DoH**, or **DoT**. System exposes matching domains to the physical DNS provider; DoH/DoT exposes them to your chosen encrypted resolver, with numeric bootstrap, strict TLS, and no plaintext fallback. Other VPN queries continue through WARP DNS; proxy DNS settings remain separate. Application-owned encrypted DNS hides names from Usque, so classification uses GeoIP. Rule downloads still obey Android Lockdown and any surviving Windows Kill Switch while disconnected. See [Direct DNS](docs/encrypted-direct-dns.md).
 
-There is only one data-bearing transport, not multipath bandwidth aggregation. Either physical endpoint family can carry IPv4 and IPv6 inside CONNECT-IP. Migration is same-family only; automatic PMTU does not raise the configured TUN MTU, and H2 loss and PMTU are N/A. Doctor results do not prove zero externally observed leaks or measured performance gains. Protected-runner validation is optional for publication; missing or failed evidence is never a pass.
+There is one selected data plane, not multipath bandwidth aggregation. L4 may briefly keep a draining QUIC session during GOAWAY. Either physical endpoint family can carry IPv4 and IPv6 inside CONNECT-IP. Migration is same-family only; automatic PMTU does not raise the configured TUN MTU, and H2 loss and PMTU are N/A. Doctor results do not prove zero externally observed leaks or measured performance gains. Protected-runner validation is optional for publication; missing or failed evidence is never a pass.
 
 Zero Trust enrollment is **experimental**, limited to an organization identity using the existing MASQUE Internet tunnel. It is not production-supported Cloudflare One Client compatibility. Read its [scope and validation requirements](docs/ZERO_TRUST_EXPERIMENTAL.md) before using it. macOS source is retained but not built or released; iOS, store distribution, and a public CLI are outside the current release scope.
 
@@ -100,12 +104,18 @@ Zero Trust enrollment is **experimental**, limited to an organization identity u
 | Consumer endpoint IPv6 | `2606:4700:103::2` |
 | Port / SNI | `443` / `speed.cloudflare.com` |
 | Transport | Auto: HTTP/3, then HTTP/2 |
+| HTTP/3 congestion control | `cubic`; BBRv2, experimental BBRv3, and `reno` are selectable |
+| QUIC UDP receive buffer | [2 MiB target](docs/UDP_RECEIVE_BUFFER.md) on Windows/Android for H3 and L4; actual capacity is OS-dependent |
 | TUN MTU | `1280` |
 | Fallback DNS | `1.1.1.1`, `2606:4700:4700::1111` |
 | SOCKS5 | `127.0.0.1:1080`, `[::1]:1080` |
 | HTTP proxy | `127.0.0.1:8080`, `[::1]:8080` |
 
 Proxy address, port, and DNS edits are drafts until applied. Advanced settings reset loads defaults into the draft; it does not apply them immediately. Zero Trust endpoint addresses come from registration and are not editable.
+
+Congestion-control changes are saved for the next manual connection or retry,
+not applied to the current session or its automatic reconnections. HTTP/2 uses
+system TCP. See [HTTP/3 congestion control](docs/congestion-control.md).
 
 ## Documentation and development
 
