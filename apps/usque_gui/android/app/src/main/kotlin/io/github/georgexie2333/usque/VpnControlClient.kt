@@ -37,7 +37,7 @@ internal class VpnControlClient(
         const val CLEAR_ALL_TIMEOUT_MILLIS = 45_000L
 
         // Native reconfigure and attach_tun each wait up to 30s; NEED_ATTACH runs both.
-        const val RECONFIGURE_TIMEOUT_MILLIS = 65_000L
+        const val RECONFIGURE_TIMEOUT_MILLIS = 95_000L
 
         fun create(
             context: Context,
@@ -110,6 +110,69 @@ internal class VpnControlClient(
     )
 
     private val pendingSettings = mutableMapOf<Int, SettingsRequest>()
+    private val pendingVpnGate = mutableMapOf<Int, SettingsRequest>()
+    var vpnGateRefreshPending = false
+        private set
+
+    fun requestVpnGate(
+        json: String,
+        result: MethodChannel.Result,
+    ) {
+        if (destroyed) {
+            result.error("VPN_GATE_UNAVAILABLE", "The catalogue service is unavailable.", null)
+            return
+        }
+        val id = allocateRequestId()
+        val request = org.json.JSONObject(json)
+        if (request.optString("command") == "refresh" && !request.optBoolean("cancel")) vpnGateRefreshPending = true
+        pendingVpnGate[id] = SettingsRequest(json, result)
+        scheduler.postDelayed(50_000L, "vpn-gate-$id") {
+            pendingVpnGate
+                .remove(
+                    id,
+                )?.result
+                ?.error("VPN_GATE_UNAVAILABLE", "The catalogue service did not respond.", null)
+        }
+        bind()
+        flushVpnGate()
+    }
+
+    private fun flushVpnGate() {
+        val service = endpoint ?: return
+        pendingVpnGate.toMap().forEach { (id, request) ->
+            if (!request.sent) {
+                request.sent = true
+                if (!service.send(UsqueVpnService.MSG_VPN_GATE, id, mapOf("vpn_gate_request" to request.json))) {
+                    scheduler.cancel("vpn-gate-$id")
+                    pendingVpnGate
+                        .remove(
+                            id,
+                        )?.result
+                        ?.error("VPN_GATE_UNAVAILABLE", "The catalogue service is unavailable.", null)
+                }
+            }
+        }
+    }
+
+    internal fun deliverVpnGateReply(
+        id: Int,
+        json: String?,
+        error: String?,
+    ) {
+        scheduler.cancel("vpn-gate-$id")
+        val request = pendingVpnGate.remove(id) ?: return
+        val parsed = json?.let { runCatching { VpnGateFields.directory(it) }.getOrNull() }
+        if (parsed == null) {
+            request.result.error(error ?: "VPN_GATE_UNAVAILABLE", "The catalogue request failed.", null)
+        } else {
+            if (parsed["refresh_stage"] in setOf("complete", "failed", "cancelled") ||
+                org.json.JSONObject(request.json.orEmpty()).optBoolean("cancel")
+            ) {
+                vpnGateRefreshPending = false
+            }
+            request.result.success(parsed)
+        }
+    }
 
     fun requestNetworkSettings(
         json: String?,
@@ -239,6 +302,7 @@ internal class VpnControlClient(
                 }
                 flushPendingReconfigure()
                 flushSettings()
+                flushVpnGate()
                 flushLocale()
             }
 
@@ -679,6 +743,11 @@ internal class VpnControlClient(
     }
 
     fun destroy() {
+        pendingVpnGate.forEach { (id, request) ->
+            scheduler.cancel("vpn-gate-$id")
+            request.result.error("VPN_GATE_UNAVAILABLE", "The catalogue service was closed.", null)
+        }
+        pendingVpnGate.clear()
         pendingSettings.forEach { (id, request) ->
             scheduler.cancel("settings-$id")
             request.result.error("NETWORK_SETTINGS_UNCONFIRMED", "The settings result is not confirmed.", null)
@@ -910,6 +979,11 @@ internal class VpnControlClient(
         data: Bundle,
     ): Boolean =
         when (what) {
+            UsqueVpnService.MSG_VPN_GATE -> {
+                deliverVpnGateReply(arg1, data.getString("vpn_gate_directory"), data.getString("vpn_gate_error"))
+                true
+            }
+
             UsqueVpnService.MSG_SAVE_SETTINGS, UsqueVpnService.MSG_GET_SETTINGS -> {
                 deliverSettingsReply(arg1, data.getString("network_settings"), data.getString("settings_error"))
                 true
@@ -1044,6 +1118,7 @@ internal class VpnControlClient(
                 "transport" to bundle.getString("transport"),
                 "data_plane" to L4StatusFields.mode(bundle.getString(ServiceSnapshotState.WireKeys.DATA_PLANE)),
                 "l4" to L4StatusFields.decode(bundle.getString(ServiceSnapshotState.WireKeys.L4)),
+                "vpn_gate" to VpnGateFields.decodeStatus(bundle.getString(ServiceSnapshotState.WireKeys.VPN_GATE)),
                 "address_family" to bundle.getString("address_family"),
                 "connected_at" to bundle.getString("connected_at"),
                 "download_bytes_per_second" to bundle.getLong("download_bytes_per_second"),

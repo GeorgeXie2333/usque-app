@@ -688,16 +688,28 @@ pub(crate) struct WindowsVpnRuntime {
     operation_id: Uuid,
     monitor: WindowsVpnMonitor,
     cancellation: CancellationToken,
-    mapping: Arc<PacketSessionMapping>,
+    mapping: Option<Arc<PacketSessionMapping>>,
     tasks: Vec<JoinHandle<()>>,
+    lifetime: CancellationToken,
+    liveness: Option<tokio_util::task::AbortOnDropHandle<()>>,
+    startup_lease: Option<NamedPipeClient>,
+    pump_failure_tx: watch::Sender<Option<WindowsPumpFailure>>,
     listeners: Vec<SocketAddr>,
     socks5_listeners: Vec<SocketAddr>,
     http_listeners: Vec<SocketAddr>,
     system_proxy: Option<WindowsSystemProxyGuard>,
     transaction_open: bool,
     tunnel: Option<DataPlaneRuntime>,
+    bootstrap: Option<WarpBootstrap>,
     // Present when this runtime created the VPN-bound MASQUE protector.
     socket_protector: Option<Arc<WindowsVpnSocketProtector>>,
+}
+
+struct WarpBootstrap {
+    identity: MasqueTlsIdentity,
+    refresher: Arc<dyn EndpointPinRefresher>,
+    registration_api: Vec<SocketAddr>,
+    status: usque_core::vpngate::GateStatus,
 }
 
 #[derive(Clone)]
@@ -783,6 +795,56 @@ impl WindowsVpnMonitor {
 }
 
 impl WindowsVpnRuntime {
+    fn blocked_chain(
+        agent: WindowsAgentClient,
+        operation_id: Uuid,
+        startup_lease: Option<NamedPipeClient>,
+        mut bootstrap: WarpBootstrap,
+        protector: Option<Arc<WindowsVpnSocketProtector>>,
+        error: &TransportError,
+    ) -> Self {
+        let failure = error.failure(None, None);
+        bootstrap.status.failure = Some(match error {
+            TransportError::VpnGate(reason) => *reason,
+            _ if !failure.retryable => usque_core::vpngate::GateFailure::Configuration,
+            _ => usque_core::vpngate::GateFailure::Transport,
+        });
+        let path = RuntimePath {
+            transport: failure.transport.unwrap_or(usque_core::Transport::Http2),
+            endpoint_family: failure
+                .address_family
+                .unwrap_or(usque_core::AddressFamily::Ipv4),
+            ipv4_available: false,
+            ipv6_available: false,
+        };
+        let lifetime = CancellationToken::new();
+        let (pump_failure_tx, pump_failure) = watch::channel(None);
+        Self {
+            agent,
+            operation_id,
+            monitor: WindowsVpnMonitor {
+                tunnel: ManagedTunnelMonitor::failed(path, error),
+                pump_failure,
+                agent_disconnected: watch::channel(false).1,
+            },
+            cancellation: lifetime.child_token(),
+            lifetime,
+            mapping: None,
+            tasks: Vec::new(),
+            liveness: None,
+            startup_lease,
+            pump_failure_tx,
+            listeners: Vec::new(),
+            socks5_listeners: Vec::new(),
+            http_listeners: Vec::new(),
+            system_proxy: None,
+            transaction_open: true,
+            tunnel: None,
+            bootstrap: Some(bootstrap),
+            socket_protector: protector,
+        }
+    }
+
     pub(crate) fn l4_snapshot(&self) -> Option<usque_core::L4Snapshot> {
         self.tunnel.as_ref().and_then(DataPlaneRuntime::l4_snapshot)
     }
@@ -791,11 +853,21 @@ impl WindowsVpnRuntime {
         identity: MasqueTlsIdentity,
         pin_refresher: Arc<dyn EndpointPinRefresher>,
         geo_policy: Arc<GeoDirectPolicy>,
+        selected_gate: Option<(
+            usque_core::vpngate::ServerSummary,
+            usque_core::vpngate::PreparedProfile,
+        )>,
+        gate_status: Option<watch::Sender<usque_core::vpngate::GateStatus>>,
     ) -> Result<Self, WindowsVpnError> {
         let geo_enabled = geo_policy.is_enabled();
         let agent = WindowsAgentClient::production();
         let capabilities = agent.get_capabilities().await?;
         validate_capabilities(&capabilities, profile.kill_switch)?;
+        if profile.vpn_gate.enabled && !capabilities.deferred_network_configuration {
+            return Err(WindowsVpnError::MissingCapabilities(
+                "deferred_network_configuration".into(),
+            ));
+        }
         // Old DNS/WFP state can itself prevent endpoint resolution. Complete
         // guarded local recovery before ANY startup DNS or MASQUE operation.
         let state = agent.connection_state(&capabilities).await?;
@@ -812,7 +884,12 @@ impl WindowsVpnRuntime {
                 Ok(agent_v1::AgentPhase::Active) if state.profile_id == profile.id.to_string() => {
                     let operation_id = Uuid::parse_str(&state.operation_id)
                         .map_err(|_| WindowsVpnError::InvalidAgentOperationId)?;
-                    (operation_id, true, None)
+                    let lease = if profile.vpn_gate.enabled {
+                        Some(agent.begin_chain_transition_lease(operation_id).await?)
+                    } else {
+                        None
+                    };
+                    (operation_id, true, lease)
                 }
                 Ok(agent_v1::AgentPhase::Active) => {
                     return Err(WindowsVpnError::ActiveProfileMismatch {
@@ -828,75 +905,76 @@ impl WindowsVpnRuntime {
                 }
             };
 
-        let physical_info = match agent.get_physical_network_info(operation_id).await {
-            Ok(info) => info,
-            Err(error) => {
-                return Err(fail_startup(
-                    &agent,
-                    operation_id,
-                    resuming,
-                    "PHYSICAL_NETWORK_SNAPSHOT_FAILED",
-                    error,
-                )
-                .await);
-            }
-        };
-        let physical_dns = match physical_dns_endpoints(&physical_info) {
-            Ok(servers) => servers,
-            Err(error) => {
-                return Err(fail_startup(
-                    &agent,
-                    operation_id,
-                    resuming,
-                    "PHYSICAL_DNS_SNAPSHOT_INVALID",
-                    error,
-                )
-                .await);
-            }
-        };
-        if let Err(error) =
-            validate_physical_dns(geo_enabled, profile.direct_dns.mode, &physical_dns)
-        {
-            return Err(fail_startup(
-                &agent,
-                operation_id,
-                resuming,
-                "PHYSICAL_DNS_UNAVAILABLE",
-                error,
-            )
-            .await);
-        }
-        let initial_generation = physical_info.generation;
-        let protector = Arc::new(WindowsVpnSocketProtector {
-            registration_api,
-            agent: agent.clone(),
-            operation_id,
-            physical: RwLock::new(WindowsPhysicalState {
-                generation: initial_generation,
-                agent_generation: Some(initial_generation),
-                dns_servers: physical_dns,
-                family_mask: physical_info
-                    .interfaces
-                    .iter()
-                    .fold(0, |mask, interface| mask | interface.address_family_mask),
-            }),
-            monitor_cancel: CancellationToken::new(),
-            proxy_mode: AtomicBool::new(false),
+        let bootstrap = profile.vpn_gate.enabled.then(|| WarpBootstrap {
+            identity: identity.clone(),
+            refresher: pin_refresher.clone(),
+            registration_api: registration_api.clone(),
+            status: usque_core::vpngate::GateStatus {
+                stage: usque_core::vpngate::GateStage::Error,
+                warp_stage: Some("error".into()),
+                current_server: selected_gate.as_ref().map(|(server, _)| server.clone()),
+                failure: Some(usque_core::vpngate::GateFailure::Transport),
+                ..Default::default()
+            },
         });
-        start_physical_network_monitor(&protector);
+        let protector = match prepare_vpn_protector(
+            &agent,
+            operation_id,
+            registration_api,
+            profile,
+            geo_enabled,
+        )
+        .await
+        {
+            Ok(protector) => protector,
+            Err(error) => {
+                if let Some(bootstrap) = bootstrap {
+                    return Ok(Self::blocked_chain(
+                        agent,
+                        operation_id,
+                        startup_lease,
+                        bootstrap,
+                        None,
+                        &TransportError::VpnGate(error.gate_failure()),
+                    ));
+                }
+                return Err(fail_startup(
+                    &agent,
+                    operation_id,
+                    resuming,
+                    "PHYSICAL_NETWORK_PREPARATION_FAILED",
+                    error,
+                )
+                .await);
+            }
+        };
         let transport_protector: Arc<dyn SocketProtector> = protector.clone();
 
-        let tunnel = match DataPlaneRuntime::start_with_geo_policy(
+        let tunnel = match Box::pin(DataPlaneRuntime::start_with_vpngate(
             profile,
             identity,
             transport_protector,
             Some(pin_refresher),
             geo_policy,
-        )
+            usque_transport::VpnGateStart {
+                selected: selected_gate,
+                status: gate_status,
+            },
+        ))
         .await
         {
             Ok(tunnel) => tunnel,
             Err(error) => {
+                if let Some(bootstrap) = bootstrap {
+                    return Ok(Self::blocked_chain(
+                        agent,
+                        operation_id,
+                        startup_lease,
+                        bootstrap,
+                        Some(protector),
+                        &error,
+                    ));
+                }
                 return Err(fail_startup(
                     &agent,
                     operation_id,
@@ -907,6 +985,41 @@ impl WindowsVpnRuntime {
                 .await);
             }
         };
+        if profile.vpn_gate.enabled {
+            let lifetime = CancellationToken::new();
+            let (pump_failure_tx, pump_failure) = watch::channel(None);
+            let (_, agent_disconnected) = watch::channel(false);
+            let mut runtime = Self {
+                agent,
+                operation_id,
+                monitor: WindowsVpnMonitor {
+                    tunnel: tunnel.monitor(),
+                    pump_failure,
+                    agent_disconnected,
+                },
+                cancellation: lifetime.child_token(),
+                lifetime,
+                mapping: None,
+                tasks: Vec::new(),
+                liveness: None,
+                startup_lease,
+                pump_failure_tx,
+                listeners: Vec::new(),
+                socks5_listeners: Vec::new(),
+                http_listeners: Vec::new(),
+                system_proxy: None,
+                transaction_open: true,
+                tunnel: Some(tunnel),
+                bootstrap: None,
+                socket_protector: Some(protector),
+            };
+            if runtime.gate_status().stage != usque_core::vpngate::GateStage::Error {
+                // The helper records an error and closes admission on failure.
+                // Ownership of the WFP guard remains until explicit disconnect.
+                let _ = runtime.finish_chain_network(profile).await;
+            }
+            return Ok(runtime);
+        }
         match bind_agent_session(
             profile,
             tunnel,
@@ -933,6 +1046,12 @@ impl WindowsVpnRuntime {
     }
 
     pub(crate) fn health(&self) -> RuntimeHealth {
+        if let Some(tunnel) = &self.tunnel {
+            let health = tunnel.health();
+            if !matches!(health, RuntimeHealth::Connected { .. }) {
+                return health;
+            }
+        }
         self.monitor.health()
     }
 
@@ -960,6 +1079,32 @@ impl WindowsVpnRuntime {
 
     pub(crate) fn failure(&self) -> Option<String> {
         self.monitor.failure()
+    }
+
+    pub(crate) fn internal_networks(
+        &self,
+    ) -> Option<(
+        usque_transport::InternalNetwork,
+        usque_transport::InternalNetwork,
+    )> {
+        self.tunnel
+            .as_ref()
+            .map(|r| (r.internal_network(), r.warp_internal_network()))
+    }
+    pub(crate) fn gate_status(&self) -> usque_core::vpngate::GateStatus {
+        self.tunnel.as_ref().map_or_else(
+            || {
+                self.bootstrap
+                    .as_ref()
+                    .map(|pending| pending.status.clone())
+                    .unwrap_or_default()
+            },
+            DataPlaneRuntime::gate_status,
+        )
+    }
+
+    pub(crate) fn needs_warp_bootstrap(&self) -> bool {
+        self.bootstrap.is_some()
     }
 
     pub(crate) fn listeners(&self) -> &[SocketAddr] {
@@ -990,6 +1135,218 @@ impl WindowsVpnRuntime {
         Ok(())
     }
 
+    pub(crate) async fn replace_gate(
+        &mut self,
+        profile: &Profile,
+        selected: Option<(
+            usque_core::vpngate::ServerSummary,
+            usque_core::vpngate::PreparedProfile,
+        )>,
+        policy: Arc<GeoDirectPolicy>,
+        status: watch::Sender<usque_core::vpngate::GateStatus>,
+    ) -> Result<(), WindowsVpnError> {
+        self.quiesce_final();
+        require_open_vpn_transaction(self.transaction_open, self.operation_id)?;
+        self.agent.begin_chain_transition(self.operation_id).await?;
+        self.stop_packet_pumps().await;
+        if self.mapping.is_some() {
+            self.agent.close_packet_session(self.operation_id).await?;
+        }
+        if let Some(bootstrap) = &self.bootstrap {
+            if self.socket_protector.is_none() {
+                self.socket_protector = Some(
+                    prepare_vpn_protector(
+                        &self.agent,
+                        self.operation_id,
+                        bootstrap.registration_api.clone(),
+                        profile,
+                        policy.is_enabled(),
+                    )
+                    .await
+                    .map_err(|error| TransportError::VpnGate(error.gate_failure()))?,
+                );
+            }
+            let protector = self
+                .socket_protector
+                .clone()
+                .ok_or(WindowsVpnError::MissingMasqueRuntime)?;
+            let tunnel = DataPlaneRuntime::start_with_vpngate(
+                profile,
+                bootstrap.identity.clone(),
+                protector,
+                Some(bootstrap.refresher.clone()),
+                policy,
+                usque_transport::VpnGateStart {
+                    selected,
+                    status: Some(status),
+                },
+            )
+            .await?;
+            self.monitor.tunnel = tunnel.monitor();
+            self.tunnel = Some(tunnel);
+            self.bootstrap = None;
+            return self.finish_chain_network(profile).await;
+        }
+        let tunnel = self
+            .tunnel
+            .as_mut()
+            .ok_or(WindowsVpnError::MissingMasqueRuntime)?;
+        tunnel.detach_tun();
+        if let Err(error) = tunnel.replace_gate(profile, selected, policy, status).await {
+            let reason = match &error {
+                TransportError::VpnGate(reason) => *reason,
+                _ => usque_core::vpngate::GateFailure::Transport,
+            };
+            tunnel.fail_gate(reason).await;
+            return Err(error.into());
+        }
+        self.finish_chain_network(profile).await
+    }
+
+    /// Retain the operation's guard and underlay on every finalization failure.
+    async fn finish_chain_network(&mut self, profile: &Profile) -> Result<(), WindowsVpnError> {
+        let tunnel = self
+            .tunnel
+            .as_mut()
+            .ok_or(WindowsVpnError::MissingMasqueRuntime)?;
+        if profile.vpn_gate.enabled
+            && tunnel.gate_status().stage == usque_core::vpngate::GateStage::Error
+        {
+            return Err(TransportError::VpnGate(
+                tunnel
+                    .gate_status()
+                    .failure
+                    .unwrap_or(usque_core::vpngate::GateFailure::Transport),
+            )
+            .into());
+        }
+        let result = async {
+            let network = tunnel.network_parameters();
+            let mut final_profile = profile.clone();
+            final_profile.mtu = network.mtu;
+            if profile.dns_mode == usque_core::DnsMode::Tunnel {
+                final_profile.dns_servers = network.dns_servers;
+            }
+            // Use the immutable bootstrap policy recorded for this operation.
+            let agent_state = self.agent.get_state().await?;
+            let mut plan = *agent_state
+                .plan
+                .ok_or(WindowsVpnError::MissingMasqueRuntime)?;
+            let final_values = tunnel_plan_from_assignment(
+                &final_profile,
+                tunnel.assigned_ipv4(),
+                tunnel.assigned_ipv6(),
+                &[],
+                !profile.geo_direct_countries.is_empty(),
+            );
+            plan.assigned_ipv4 = final_values.assigned_ipv4;
+            plan.assigned_ipv6 = final_values.assigned_ipv6;
+            plan.dns_servers = final_values.dns_servers;
+            plan.split_dns = final_values.split_dns;
+            plan.mtu = final_values.mtu;
+            plan.defer_network_configuration = false;
+            self.agent.finalize_tunnel(self.operation_id, plan).await?;
+            let io = tunnel.attach_tun()?;
+            let handles = self
+                .agent
+                .open_packet_session(self.operation_id, DEFAULT_PACKET_RING_CAPACITY)
+                .await?;
+            let mapping = Arc::new(PacketSessionMapping::attach(handles)?);
+            self.mapping = Some(mapping.clone());
+            self.cancellation = self.lifetime.child_token();
+            self.pump_failure_tx.send_replace(None);
+            self.monitor.tunnel = tunnel.monitor();
+            self.tasks = start_packet_pumps(
+                io,
+                mapping.clone(),
+                self.monitor.tunnel.clone(),
+                self.cancellation.clone(),
+                self.pump_failure_tx.clone(),
+            );
+            self.agent.commit(self.operation_id).await?;
+            if self.liveness.is_none() {
+                let lease = match self.startup_lease.take() {
+                    Some(lease) => {
+                        self.agent
+                            .promote_liveness_lease(self.operation_id, lease)
+                            .await?
+                    }
+                    None => self.agent.open_liveness_lease(self.operation_id).await?,
+                };
+                let (disconnected_tx, disconnected_rx) = watch::channel(false);
+                self.monitor.agent_disconnected = disconnected_rx;
+                self.liveness = Some(tokio_util::task::AbortOnDropHandle::new(
+                    start_agent_liveness_watch(
+                        lease,
+                        mapping,
+                        self.lifetime.clone(),
+                        self.pump_failure_tx.clone(),
+                        disconnected_tx,
+                    ),
+                ));
+            }
+            if profile.frontends.http && profile.proxy.system_proxy && self.system_proxy.is_none() {
+                let listener = loopback_http_listener(tunnel.http_listeners())
+                    .ok_or(WindowsVpnError::MissingSystemProxyListener)?;
+                self.system_proxy = Some(
+                    WindowsSystemProxyGuard::start_for_tunnel(listener, self.operation_id).await?,
+                );
+            }
+            tunnel.activate_final().await?;
+            Ok::<_, WindowsVpnError>(())
+        }
+        .await;
+        if let Err(error) = &result {
+            let reason = error.gate_failure();
+            tunnel.fail_gate(reason).await;
+            let path = tunnel.path();
+            self.pump_failure_tx.send_replace(Some(match error {
+                WindowsVpnError::Transport(error) => {
+                    WindowsPumpFailure::transport("VPN Gate switch failed", error, path)
+                }
+                _ => WindowsPumpFailure::agent("VPN Gate final network configuration failed"),
+            }));
+            self.cancellation.cancel();
+            if let Some(mapping) = &self.mapping {
+                mapping.signal_shutdown();
+            }
+        }
+        self.listeners = if result.is_ok() {
+            tunnel.listeners().to_vec()
+        } else {
+            Vec::new()
+        };
+        self.socks5_listeners = if result.is_ok() {
+            tunnel.socks5_listeners().to_vec()
+        } else {
+            Vec::new()
+        };
+        self.http_listeners = if result.is_ok() {
+            tunnel.http_listeners().to_vec()
+        } else {
+            Vec::new()
+        };
+        result.map_err(|error| TransportError::VpnGate(error.gate_failure()).into())
+    }
+
+    pub(crate) fn quiesce_final(&mut self) {
+        if let Some(tunnel) = &mut self.tunnel {
+            tunnel.quiesce_final();
+        }
+        self.listeners.clear();
+        self.socks5_listeners.clear();
+        self.http_listeners.clear();
+    }
+    pub(crate) async fn fail_gate(&mut self, reason: usque_core::vpngate::GateFailure) {
+        self.quiesce_final();
+        if let Some(tunnel) = &mut self.tunnel {
+            tunnel.fail_gate(reason).await;
+        }
+        if let Some(bootstrap) = &mut self.bootstrap {
+            bootstrap.status.failure = Some(reason);
+        }
+    }
+
     /// Wrap an already-running MASQUE session with Wintun/WFP. On failure the
     /// caller receives the live MASQUE runtime back so SOCKS/HTTP survive.
     pub(crate) async fn attach_existing(
@@ -1003,6 +1360,12 @@ impl WindowsVpnRuntime {
         };
         if let Err(error) = validate_capabilities(&capabilities, profile.kill_switch) {
             return Err((tunnel, error));
+        }
+        if profile.vpn_gate.enabled && !capabilities.deferred_network_configuration {
+            return Err((
+                tunnel,
+                WindowsVpnError::MissingCapabilities("deferred_network_configuration".into()),
+            ));
         }
         let state = match agent.connection_state(&capabilities).await {
             Ok(state) => state,
@@ -1022,8 +1385,16 @@ impl WindowsVpnRuntime {
             Err(error) => return Err((tunnel, error)),
         };
         let operation_id = Uuid::new_v4();
+        let mut effective = profile.clone();
+        if profile.vpn_gate.enabled {
+            let network = tunnel.network_parameters();
+            effective.mtu = network.mtu;
+            if profile.dns_mode == usque_core::DnsMode::Tunnel {
+                effective.dns_servers = network.dns_servers;
+            }
+        }
         let plan = tunnel_plan_from_assignment(
-            profile,
+            &effective,
             tunnel.assigned_ipv4(),
             tunnel.assigned_ipv6(),
             &registration_api,
@@ -1134,6 +1505,7 @@ impl WindowsVpnRuntime {
         if let Some(mut tunnel) = self.tunnel.take() {
             tunnel.shutdown().await;
         }
+        self.bootstrap = None;
         // The replacement runtime must adopt the same persistent transaction.
         // Drop must therefore not perform a rollback between detach and resume.
         self.transaction_open = false;
@@ -1141,6 +1513,7 @@ impl WindowsVpnRuntime {
     }
 
     pub(crate) async fn shutdown(&mut self) -> Result<(), WindowsVpnError> {
+        self.bootstrap = None;
         // Cut packet forwarding before any Agent RPC. Rollback may need to
         // restore routes, DNS, WFP, and the adapter, but no user packet may
         // remain attached to MASQUE while that cleanup is in progress.
@@ -1171,6 +1544,8 @@ impl WindowsVpnRuntime {
     }
 
     pub(crate) fn cancel_immediately(&mut self) {
+        self.lifetime.cancel();
+        self.liveness.take();
         if let Some(tunnel) = self.tunnel.as_mut() {
             tunnel.cancel_immediately();
         }
@@ -1181,7 +1556,9 @@ impl WindowsVpnRuntime {
     }
 
     fn cancel_packet_pumps(&mut self) {
-        self.mapping.signal_shutdown();
+        if let Some(mapping) = &self.mapping {
+            mapping.signal_shutdown();
+        }
         self.cancellation.cancel();
         for task in &self.tasks {
             task.abort();
@@ -1210,6 +1587,37 @@ async fn rollback_startup(
     reason: &'static str,
 ) -> Result<(), WindowsVpnError> {
     agent.rollback(operation_id, reason).await.map(|_| ())
+}
+
+async fn prepare_vpn_protector(
+    agent: &WindowsAgentClient,
+    operation_id: Uuid,
+    registration_api: Vec<SocketAddr>,
+    profile: &Profile,
+    geo_enabled: bool,
+) -> Result<Arc<WindowsVpnSocketProtector>, WindowsVpnError> {
+    let physical_info = agent.get_physical_network_info(operation_id).await?;
+    let dns_servers = physical_dns_endpoints(&physical_info)?;
+    validate_physical_dns(geo_enabled, profile.direct_dns.mode, &dns_servers)?;
+    let generation = physical_info.generation;
+    let protector = Arc::new(WindowsVpnSocketProtector {
+        registration_api,
+        agent: agent.clone(),
+        operation_id,
+        physical: RwLock::new(WindowsPhysicalState {
+            generation,
+            agent_generation: Some(generation),
+            dns_servers,
+            family_mask: physical_info
+                .interfaces
+                .iter()
+                .fold(0, |mask, interface| mask | interface.address_family_mask),
+        }),
+        monitor_cancel: CancellationToken::new(),
+        proxy_mode: AtomicBool::new(false),
+    });
+    start_physical_network_monitor(&protector);
+    Ok(protector)
 }
 
 fn validate_physical_dns(
@@ -1343,14 +1751,15 @@ async fn bind_agent_session(
         }
     };
 
-    let cancellation = CancellationToken::new();
+    let lifetime = CancellationToken::new();
+    let cancellation = lifetime.child_token();
     let (pump_failure_tx, pump_failure) = watch::channel(None);
     let (agent_disconnected_tx, agent_disconnected) = watch::channel(false);
     let listeners = tunnel.listeners().to_vec();
     let socks5_listeners = tunnel.socks5_listeners().to_vec();
     let http_listeners = tunnel.http_listeners().to_vec();
     let tunnel_monitor = tunnel.monitor();
-    let mut tasks = start_packet_pumps(
+    let tasks = start_packet_pumps(
         tun_io,
         Arc::clone(&mapping),
         tunnel_monitor.clone(),
@@ -1389,11 +1798,11 @@ async fn bind_agent_session(
             return Err((tunnel, error));
         }
     };
-    tasks.push(start_agent_liveness_watch(
+    let liveness = tokio_util::task::AbortOnDropHandle::new(start_agent_liveness_watch(
         lease,
         Arc::clone(&mapping),
-        cancellation.clone(),
-        pump_failure_tx,
+        lifetime.clone(),
+        pump_failure_tx.clone(),
         agent_disconnected_tx,
     ));
 
@@ -1443,6 +1852,24 @@ async fn bind_agent_session(
         );
     }
 
+    if let Err(error) = tunnel.activate_final().await {
+        mapping.signal_shutdown();
+        cancellation.cancel();
+        stop_tasks(tasks).await;
+        tunnel.detach_tun();
+        if let Some(mut guard) = system_proxy {
+            let _ = guard.shutdown().await;
+        }
+        let error = fail_startup(
+            &agent,
+            operation_id,
+            resuming,
+            "FINAL_ADMISSION_FAILED",
+            error.into(),
+        )
+        .await;
+        return Err((tunnel, error));
+    }
     Ok(WindowsVpnRuntime {
         agent,
         operation_id,
@@ -1452,16 +1879,29 @@ async fn bind_agent_session(
             agent_disconnected,
         },
         cancellation,
-        mapping,
+        mapping: Some(mapping),
         tasks,
+        lifetime,
+        liveness: Some(liveness),
+        startup_lease: None,
+        pump_failure_tx,
         listeners,
         socks5_listeners,
         http_listeners,
         system_proxy,
         transaction_open: true,
         tunnel: Some(tunnel),
+        bootstrap: None,
         socket_protector: None,
     })
+}
+
+pub(crate) async fn catalogue_physical_network_permitted() -> bool {
+    // Read only. A refresh never starts recovery or changes an Agent policy.
+    WindowsAgentClient::production()
+        .get_state()
+        .await
+        .is_ok_and(|state| state.phase == agent_v1::AgentPhase::Clean as i32)
 }
 
 fn tunnel_plan(
@@ -1470,13 +1910,15 @@ fn tunnel_plan(
     registration_api: &[SocketAddr],
     split_dns: bool,
 ) -> agent_v1::TunnelPlan {
-    tunnel_plan_from_assignment(
+    let mut plan = tunnel_plan_from_assignment(
         profile,
         identity.assigned_ipv4,
         identity.assigned_ipv6,
         registration_api,
         split_dns,
-    )
+    );
+    plan.defer_network_configuration = profile.vpn_gate.enabled;
+    plan
 }
 
 fn tunnel_plan_from_assignment(
@@ -1486,7 +1928,9 @@ fn tunnel_plan_from_assignment(
     registration_api: &[SocketAddr],
     split_dns: bool,
 ) -> agent_v1::TunnelPlan {
-    let split_dns = split_dns || profile.data_plane == usque_core::DataPlaneMode::L4Proxy;
+    let split_dns = split_dns
+        || profile.vpn_gate.enabled && profile.dns_mode == usque_core::DnsMode::Tunnel
+        || profile.data_plane == usque_core::DataPlaneMode::L4Proxy && !profile.vpn_gate.enabled;
     let ipv4 = profile.endpoint.ipv4_socket();
     let ipv6 = profile.endpoint.ipv6_socket();
     let endpoint = match profile.ip_policy {
@@ -1507,7 +1951,13 @@ fn tunnel_plan_from_assignment(
         // Endpoint policy selects the physical MASQUE ingress only. DNS is
         // carried inside CONNECT-IP and remains dual-stack over either ingress.
         dns_servers: if split_dns {
-            vec![SPLIT_DNS_IPV4.to_string(), SPLIT_DNS_IPV6.to_string()]
+            [
+                (!assigned_ipv4.is_unspecified()).then_some(SPLIT_DNS_IPV4.to_string()),
+                (!assigned_ipv6.is_unspecified()).then_some(SPLIT_DNS_IPV6.to_string()),
+            ]
+            .into_iter()
+            .flatten()
+            .collect()
         } else {
             profile
                 .dns_servers
@@ -1522,11 +1972,21 @@ fn tunnel_plan_from_assignment(
             .collect(),
         allow_lan: profile.allow_lan,
         kill_switch: profile.kill_switch,
-        assigned_ipv4: format!("{assigned_ipv4}/32"),
-        assigned_ipv6: format!("{assigned_ipv6}/128"),
+        assigned_ipv4: if assigned_ipv4.is_unspecified() {
+            String::new()
+        } else {
+            format!("{assigned_ipv4}/32")
+        },
+        assigned_ipv6: if assigned_ipv6.is_unspecified() {
+            String::new()
+        } else {
+            format!("{assigned_ipv6}/128")
+        },
         endpoint_candidates,
         control_api_candidates: registration_api.iter().map(ToString::to_string).collect(),
         split_dns,
+        vpn_chain: profile.vpn_gate.enabled,
+        defer_network_configuration: false,
     }
 }
 
@@ -2400,7 +2860,10 @@ impl WindowsAgentClient {
             .await?
         {
             agent_response::Payload::State(state)
-                if state.phase == agent_v1::AgentPhase::Active as i32 =>
+                if matches!(
+                    agent_v1::AgentPhase::try_from(state.phase),
+                    Ok(agent_v1::AgentPhase::Active | agent_v1::AgentPhase::Prepared)
+                ) && state.operation_id == operation_id.to_string() =>
             {
                 Ok(state)
             }
@@ -2442,6 +2905,86 @@ impl WindowsAgentClient {
                     && state.packet_session_active =>
             {
                 Ok(pipe)
+            }
+            agent_response::Payload::State(state) => {
+                Err(WindowsVpnError::UnexpectedAgentPhase(state.phase))
+            }
+            payload => Err(WindowsVpnError::UnexpectedResponse(payload_name(&payload))),
+        }
+    }
+
+    async fn begin_chain_transition(
+        &self,
+        operation_id: Uuid,
+    ) -> Result<AgentState, WindowsVpnError> {
+        match self
+            .call(agent_request::Payload::BeginChainTransition(
+                agent_v1::BeginChainTransitionRequest {
+                    operation_id: operation_id.to_string(),
+                    retain_startup_lease: false,
+                },
+            ))
+            .await?
+        {
+            agent_response::Payload::State(state) => Ok(state),
+            payload => Err(WindowsVpnError::UnexpectedResponse(payload_name(&payload))),
+        }
+    }
+
+    async fn begin_chain_transition_lease(
+        &self,
+        operation_id: Uuid,
+    ) -> Result<NamedPipeClient, WindowsVpnError> {
+        let mut pipe = self.open_pipe().await?;
+        let response = timeout(
+            AGENT_RPC_TIMEOUT,
+            self.exchange(
+                &mut pipe,
+                agent_request::Payload::BeginChainTransition(
+                    agent_v1::BeginChainTransitionRequest {
+                        operation_id: operation_id.to_string(),
+                        retain_startup_lease: true,
+                    },
+                ),
+            ),
+        )
+        .await
+        .map_err(|_| WindowsVpnError::RpcTimeout)??;
+        match response {
+            agent_response::Payload::State(state)
+                if state.operation_id == operation_id.to_string()
+                    && matches!(
+                        agent_v1::AgentPhase::try_from(state.phase),
+                        Ok(agent_v1::AgentPhase::Active | agent_v1::AgentPhase::Prepared)
+                    ) =>
+            {
+                Ok(pipe)
+            }
+            agent_response::Payload::State(state) => {
+                Err(WindowsVpnError::UnexpectedAgentPhase(state.phase))
+            }
+            payload => Err(WindowsVpnError::UnexpectedResponse(payload_name(&payload))),
+        }
+    }
+
+    async fn finalize_tunnel(
+        &self,
+        operation_id: Uuid,
+        plan: agent_v1::TunnelPlan,
+    ) -> Result<AgentState, WindowsVpnError> {
+        match self
+            .call(agent_request::Payload::FinalizeTunnel(
+                agent_v1::FinalizeTunnelRequest {
+                    operation_id: operation_id.to_string(),
+                    plan: Some(plan),
+                },
+            ))
+            .await?
+        {
+            agent_response::Payload::State(state)
+                if state.phase == agent_v1::AgentPhase::Prepared as i32 =>
+            {
+                Ok(state)
             }
             agent_response::Payload::State(state) => {
                 Err(WindowsVpnError::UnexpectedAgentPhase(state.phase))
@@ -3095,6 +3638,19 @@ pub(crate) enum WindowsVpnError {
 }
 
 impl WindowsVpnError {
+    fn gate_failure(&self) -> usque_core::vpngate::GateFailure {
+        use usque_core::vpngate::GateFailure;
+        match self {
+            Self::Transport(TransportError::VpnGate(reason)) => *reason,
+            Self::Transport(error) if error.failure(None, None).retryable => GateFailure::Transport,
+            Self::Io(_) | Self::RpcTimeout | Self::PhysicalDnsUnavailable => GateFailure::Transport,
+            Self::Remote {
+                retryable: true, ..
+            } => GateFailure::Transport,
+            _ => GateFailure::Configuration,
+        }
+    }
+
     fn diagnostic_code(&self) -> &'static str {
         match self {
             Self::PhysicalDnsUnavailable => "PHYSICAL_DNS_UNAVAILABLE",
@@ -4103,6 +4659,36 @@ mod tests {
         );
 
         assert_eq!(plan.dns_servers, vec!["1.1.1.1", "2606:4700:4700::1111"]);
+    }
+
+    #[test]
+    fn gate_private_dns_is_advertised_through_internal_host_routes_without_geo() {
+        let mut profile = Profile {
+            allow_lan: true,
+            dns_servers: vec!["10.8.0.1".parse().unwrap()],
+            ..Profile::default()
+        };
+        profile.vpn_gate.enabled = true;
+        let plan = tunnel_plan_from_assignment(
+            &profile,
+            "10.8.0.2".parse().unwrap(),
+            Ipv6Addr::UNSPECIFIED,
+            &[],
+            false,
+        );
+        assert!(plan.split_dns);
+        assert_eq!(plan.dns_servers, [SPLIT_DNS_IPV4.to_string()]);
+        assert!(plan.assigned_ipv6.is_empty());
+        profile.dns_mode = usque_core::DnsMode::LocalConfigured;
+        let local = tunnel_plan_from_assignment(
+            &profile,
+            "10.8.0.2".parse().unwrap(),
+            Ipv6Addr::UNSPECIFIED,
+            &[],
+            false,
+        );
+        assert!(!local.split_dns);
+        assert_eq!(local.dns_servers, ["10.8.0.1"]);
     }
 
     #[test]

@@ -49,6 +49,7 @@ class HomeScreen extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           if (!compact) _ErrorSlot(controller: controller, strings: strings),
+          _VpnGateReadout(controller: controller, strings: strings),
           if (compact)
             PanelStack(
               spacing: 24 + mobileHomeExpansion(context) * 8,
@@ -144,6 +145,70 @@ class _NarrowBrandHeader extends StatelessWidget {
       ),
     );
   }
+}
+
+class _VpnGateReadout extends StatelessWidget {
+  const _VpnGateReadout({required this.controller, required this.strings});
+  final AppController controller;
+  final AppStrings strings;
+
+  @override
+  Widget build(
+    BuildContext context,
+  ) => ControllerSelector<({bool enabled, VpnGateStatus status})>(
+    controller: controller,
+    active: (app) => app.section == AppSection.home,
+    selector: (app) => (
+      enabled: app.activeProfile.vpnGate.enabled,
+      status: app.snapshot.vpnGate,
+    ),
+    builder: (context, view) {
+      if (!view.enabled && view.status.stage == 'disabled') {
+        return const SizedBox.shrink();
+      }
+      final status = view.status;
+      final phaseKey = switch (status.stage) {
+        'connecting_warp' => 'gate_connecting_warp',
+        'connecting_server' => 'gate_connecting_server',
+        'negotiating' => 'gate_negotiating',
+        'configuring_network' => 'gate_configuring_network',
+        'connected' => 'connected',
+        'reconnecting' => 'reconnecting',
+        'error' => 'error',
+        _ => 'disconnected',
+      };
+      final server = status.server;
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 24),
+        child: Semantics(
+          container: true,
+          liveRegion: true,
+          child: ContentSection(
+            title: 'WARP → VPN Gate',
+            subtitle: strings.get(phaseKey),
+            children: [
+              if (status.warpStage != null)
+                Text(
+                  'WARP: ${strings.get(status.warpStage == 'connected'
+                      ? 'connected'
+                      : status.warpStage == 'reconnecting'
+                      ? 'reconnecting'
+                      : status.warpStage == 'error'
+                      ? 'error'
+                      : 'connecting')}',
+                ),
+              if (server != null)
+                Text(
+                  '${strings.get(status.connected ? 'gate_current' : 'gate_draft')}: ${server.countryCode ?? '—'} · ${server.ip}',
+                  style: const TextStyle(fontFamily: UsqueFonts.mono),
+                ),
+              if (!status.connected) Text(strings.get('gate_proxy_blocked')),
+            ],
+          ),
+        ),
+      );
+    },
+  );
 }
 
 class _ErrorSlot extends StatelessWidget {

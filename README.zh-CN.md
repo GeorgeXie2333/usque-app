@@ -72,6 +72,7 @@ Usque 为独立项目，与 Cloudflare 无隶属、赞助或背书关系。Cloud
 
 - 可选启用[实验性 L4 代理模式](docs/L4_PROXY.md)：通过 H3 上的 TCP CONNECT 支持 SOCKS5、HTTP 及 Windows/Android TUN，提供 DNS 转换，并根据身份派生 Consumer/Zero Trust SNI。Auto 模式仍不包含 L4。
 
+- 可选启用 [WARP → VPN Gate 出口](docs/VPN_GATE.md)：在“代理 → VPN Gate”按国家选择 TCP 节点。进入代理链的 TUN、SOCKS5、HTTP 流量共用该出口，显式直连规则继续生效；默认关闭。
 - 个人版 WARP 账户、可选的 License Key 注册，以及经明确确认后导出到指定文件的 Secret。导出不代表 Usque 提供重新导入或恢复流程。
 - 自动选择 HTTP/3（QUIC），并支持 HTTP/2（TLS）回退和物理路径的 IPv4/IPv6 Happy Eyeballs。H3 支持同地址族路径迁移及外层路径 PMTU 自动探测。
 - 全隧道 VPN、隧道内 DNS、Kill Switch、局域网访问和自定义 CIDR 绕过规则。
@@ -83,12 +84,12 @@ Android 分应用代理是应用级的“仅包含所选应用”设置，不属
 
 ## 隐私与限制
 
-- 端点固定是强制策略，不提供不安全的 TLS 模式。身份材料保存在 Windows 凭据管理器或 Android Keystore 中。Windows 界面与引擎以非特权方式运行，由独立 Agent 管理特权网络状态；Android 使用独立的 `:vpn` 进程。
+- WARP 端点固定是强制策略，不提供不安全的 TLS 模式。身份材料保存在 Windows 凭据管理器或 Android Keystore 中。Windows 界面与引擎以非特权方式运行，由独立 Agent 管理特权网络状态；Android 使用独立的 `:vpn` 进程。
 - 代理默认仅监听回环地址。非回环监听没有认证，并会显示警告。仅代理模式不提供系统级 VPN Kill Switch。
 - 诊断仅在本地生成并脱敏，不进行统计分析或自动上传；质量历史只保留在内存中。日志默认为 INFO，最多保留 7 天或 20 MiB。不要将凭据或原始诊断包放入公开 Issue；漏洞请通过 [SECURITY.md](SECURITY.md) 私密报告。
 - Android 应用内 Kill Switch 无法在 VPN 进程被杀死后继续提供保护。此场景需同时启用系统“始终开启的 VPN”和“阻止未使用 VPN 的连接”，详见 [Android 安装说明](docs/INSTALLATION.md#android-and-android-tv)。
 
-按国家直连的 DNS 可明确选择 **System**（默认）、**DoH** 或 **DoT**。System 会将匹配域名暴露给物理 DNS 提供商；DoH/DoT 则使用数字 IP 引导和严格 TLS，将查询发送给指定的加密解析器，失败不回退到明文。其他 VPN 查询继续通过 WARP DNS；代理 DNS 设置保持独立。应用自行建立的加密 DNS 会隐藏域名，此时使用 GeoIP 分类。断开连接时，规则下载仍遵循 Android Lockdown 和残留的 Windows Kill Switch。详见[直连 DNS](docs/encrypted-direct-dns.md)。
+按国家直连的 DNS 可明确选择 **System**（默认）、**DoH** 或 **DoT**。System 会将匹配域名暴露给物理 DNS 提供商；DoH/DoT 则使用数字 IP 引导和严格 TLS，将查询发送给指定的加密解析器，失败不回退到明文。其他远程 VPN 查询使用最终隧道的 DNS：通常为 WARP，启用 VPN Gate 后改为 VPN Gate；仍保留显式本地 DNS 和代理 DNS 设置。应用自行建立的加密 DNS 会隐藏域名，此时使用 GeoIP 分类。断开连接时，规则下载仍遵循 Android Lockdown 和残留的 Windows Kill Switch。详见[直连 DNS](docs/encrypted-direct-dns.md)。
 
 Usque 同一时间只选择一种数据面，不聚合多路径带宽。L4 在收到 GOAWAY 后，可能短暂保留一个用于完成已有流的旧 QUIC 会话。任一物理入口地址族均可在 CONNECT-IP 内承载 IPv4 和 IPv6。迁移仅限同地址族；自动 PMTU 不会提高配置的 TUN MTU，H2 的丢包率和 PMTU 显示 N/A。Doctor 结果不能证明外部观察到的零泄漏或实测性能提升。受保护环境验证不是发布前提，但缺失或失败的证据绝不计为通过。
 
@@ -131,4 +132,4 @@ Zero Trust 注册仍属**实验性功能**，仅用于以组织身份使用现�
 
 协议与行为参考 [Diniboy1123/usque](https://github.com/Diniboy1123/usque)。本仓库在 `oracle/go` 中保存一份快照，供互操作测试使用。Flutter 界面与 Rust 引擎为本项目新实现。上游版权声明见许可证。
 
-源码采用 [MIT License](LICENSE.md)，第三方组件保留各自许可证。
+第一方源码采用 [MIT License](LICENSE.md)，第三方组件保留各自许可证。可选的 [WARP → VPN Gate 出口](docs/VPN_GATE.md) 内嵌 OpenVPN 3 Core（MPL-2.0）和 Mbed TLS（Apache-2.0）。对应源码、补丁和许可文本保存在 `third_party`；应用中的 VPN Gate 页面可查看原生依赖许可声明。

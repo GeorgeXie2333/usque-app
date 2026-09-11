@@ -419,12 +419,31 @@ where
         // The persistent WFP policy is deliberately deferred until commit,
         // after the packet session exists and immediately before default
         // routes are installed.
-        let kinds = [
-            MutationKind::WintunAdapter,
-            MutationKind::EndpointBypass,
-            MutationKind::InterfaceConfiguration,
-            MutationKind::Dns,
-        ];
+        let kinds = if plan.defer_network_configuration {
+            // A chain cannot open ordinary egress while it negotiates the
+            // final network. This policy is persistent only when requested by
+            // Kill Switch; otherwise its filters live in an Agent session.
+            vec![
+                MutationKind::WintunAdapter,
+                MutationKind::EndpointBypass,
+                MutationKind::KillSwitch,
+            ]
+        } else if plan.vpn_chain {
+            vec![
+                MutationKind::WintunAdapter,
+                MutationKind::EndpointBypass,
+                MutationKind::KillSwitch,
+                MutationKind::InterfaceConfiguration,
+                MutationKind::Dns,
+            ]
+        } else {
+            vec![
+                MutationKind::WintunAdapter,
+                MutationKind::EndpointBypass,
+                MutationKind::InterfaceConfiguration,
+                MutationKind::Dns,
+            ]
+        };
 
         for kind in kinds {
             if let Err(error) = self
@@ -451,6 +470,177 @@ where
                     recovery: recovery.to_string(),
                 }),
             };
+        }
+        Ok(journal.clone())
+    }
+
+    /// Add protection before a live WARP frontend becomes a VPN chain. Once
+    /// installed, the guard stays for this operation, including explicit Gate
+    /// disable, and is restored by the ordinary disconnect journal.
+    pub async fn begin_chain_transition(
+        &self,
+        operation_id: Uuid,
+        caller: &AuthenticatedCaller,
+    ) -> Result<RecoveryJournal, CoordinatorError> {
+        validate_caller(caller)?;
+        let mut journal = self.journal.lock().await;
+        if journal.owner_process_id != Some(caller.process_id) {
+            // Same authenticated Engine/SID takeover follows ResumeTunnel's
+            // detached-session boundary, before negotiating a replacement exit.
+            if journal.operation_id != Some(operation_id)
+                || journal.phase != RecoveryPhase::Active
+                || journal.owner_sid.as_deref() != Some(caller.user_sid.as_str())
+                || self.packet_session_attached()
+                || self.tunnel_lease_attached()
+                || self.backend.inspect_tunnel(&journal).await? != TunnelInspection::Reattachable
+            {
+                return Err(CoordinatorError::OwnerMismatch);
+            }
+            journal.owner_process_id = Some(caller.process_id);
+        }
+        ensure_owner(&journal, operation_id, caller)?;
+        ensure_operation_kind(&journal, OperationKind::Tunnel)?;
+        if !matches!(
+            journal.phase,
+            RecoveryPhase::Active | RecoveryPhase::Prepared
+        ) {
+            return Err(CoordinatorError::InvalidPhase {
+                expected: "active or prepared tunnel",
+                actual: journal.phase,
+            });
+        }
+        let mut plan = journal.plan.clone().ok_or(CoordinatorError::MissingPlan)?;
+        plan.vpn_chain = true;
+        journal.plan = Some(plan.clone());
+        self.store.save(&mut journal)?;
+        if !self.tunnel_lease_attached() {
+            // A retained startup pipe supersedes an earlier orphan watchdog.
+            self.tunnel_lease_epoch.fetch_add(1, Ordering::AcqRel);
+        }
+        if !journal.steps.iter().any(|step| {
+            step.kind == MutationKind::KillSwitch && step.state == MutationState::Applied
+        }) {
+            if journal
+                .steps
+                .iter()
+                .any(|step| step.kind == MutationKind::KillSwitch)
+            {
+                return Err(CoordinatorError::MissingAppliedStep(
+                    MutationKind::KillSwitch,
+                ));
+            }
+            self.apply_new_step(
+                &mut journal,
+                MutationKind::KillSwitch,
+                &plan,
+                caller,
+                StepParameter::None,
+            )
+            .await?;
+        }
+        Ok(journal.clone())
+    }
+
+    /// Apply only the final address/DNS/MTU portion of a prepared chain. The
+    /// immutable bootstrap destinations and direct exceptions remain pinned.
+    pub async fn finalize_tunnel(
+        &self,
+        operation_id: Uuid,
+        plan: ValidatedTunnelPlan,
+        caller: &AuthenticatedCaller,
+    ) -> Result<RecoveryJournal, CoordinatorError> {
+        plan.validate()
+            .map_err(|error| CoordinatorError::InvalidPlan(error.to_string()))?;
+        validate_caller(caller)?;
+        let mut journal = self.journal.lock().await;
+        ensure_operation_kind(&journal, OperationKind::Tunnel)?;
+        if journal.operation_id != Some(operation_id) {
+            return Err(CoordinatorError::OperationMismatch);
+        }
+        let previous = journal.plan.clone().ok_or(CoordinatorError::MissingPlan)?;
+        if !previous.vpn_chain || !plan.vpn_chain || plan.defer_network_configuration {
+            return Err(CoordinatorError::InvalidPlan(
+                "finalization requires a VPN chain".into(),
+            ));
+        }
+        let mut allowed = previous.clone();
+        allowed.assigned_ipv4 = plan.assigned_ipv4;
+        allowed.assigned_ipv6 = plan.assigned_ipv6;
+        allowed.dns_servers = plan.dns_servers.clone();
+        allowed.split_dns = plan.split_dns;
+        allowed.mtu = plan.mtu;
+        allowed.defer_network_configuration = false;
+        if allowed != plan {
+            return Err(CoordinatorError::InvalidPlan(
+                "bootstrap or direct policy changed during finalization".into(),
+            ));
+        }
+        if self.packet_session_attached() {
+            return Err(CoordinatorError::PacketSessionAlreadyAttached);
+        }
+        if !matches!(
+            journal.phase,
+            RecoveryPhase::Prepared | RecoveryPhase::Active
+        ) {
+            return Err(CoordinatorError::InvalidPhase {
+                expected: "prepared or detached active chain",
+                actual: journal.phase,
+            });
+        }
+        if journal.owner_process_id != Some(caller.process_id) {
+            // Same-SID, authenticated Engine takeover has the same detached
+            // lifetime constraints as ResumeTunnel. It never changes identity.
+            if journal.phase != RecoveryPhase::Active
+                || self.tunnel_lease_attached()
+                || journal.owner_sid.as_deref() != Some(caller.user_sid.as_str())
+            {
+                return Err(CoordinatorError::OwnerMismatch);
+            }
+            if self.backend.inspect_tunnel(&journal).await? != TunnelInspection::Reattachable {
+                return Err(CoordinatorError::InvalidPlan(
+                    "previous chain requires platform recovery".into(),
+                ));
+            }
+            journal.owner_process_id = Some(caller.process_id);
+            self.store.save(&mut journal)?;
+        }
+        ensure_owner(&journal, operation_id, caller)?;
+        if !journal.steps.iter().any(|step| {
+            step.kind == MutationKind::KillSwitch && step.state == MutationState::Applied
+        }) {
+            return Err(CoordinatorError::MissingAppliedStep(
+                MutationKind::KillSwitch,
+            ));
+        }
+        // During a same-account switch, retain the adapter, endpoint routes,
+        // and blocking policy while replacing the old final network receipts.
+        let adapter = journal
+            .steps
+            .iter()
+            .find(|step| step.kind == MutationKind::WintunAdapter)
+            .map(|step| step.receipt.clone());
+        for kind in [
+            MutationKind::DefaultRoutes,
+            MutationKind::Dns,
+            MutationKind::InterfaceConfiguration,
+            MutationKind::PacketSession,
+        ] {
+            if let Some(index) = journal.steps.iter().position(|step| step.kind == kind) {
+                if journal.steps[index].state != MutationState::Restored {
+                    self.backend
+                        .restore_step_with_adapter(&journal.steps[index].receipt, adapter.as_ref())
+                        .await?;
+                }
+                journal.steps.remove(index);
+                self.store.save(&mut journal)?;
+            }
+        }
+        journal.phase = RecoveryPhase::Prepared;
+        journal.plan = Some(plan.clone());
+        self.store.save(&mut journal)?;
+        for kind in [MutationKind::InterfaceConfiguration, MutationKind::Dns] {
+            self.apply_new_step(&mut journal, kind, &plan, caller, StepParameter::None)
+                .await?;
         }
         Ok(journal.clone())
     }
@@ -486,6 +676,11 @@ where
             return Err(CoordinatorError::DuplicatePacketSession);
         }
         let plan = journal.plan.clone().ok_or(CoordinatorError::MissingPlan)?;
+        if plan.defer_network_configuration {
+            return Err(CoordinatorError::InvalidPlan(
+                "final network configuration is pending".into(),
+            ));
+        }
         let output = match self
             .apply_new_step(
                 &mut journal,
@@ -498,6 +693,11 @@ where
         {
             Ok(output) => output,
             Err(error) => {
+                if plan.vpn_chain {
+                    // Final setup failures retain the already applied chain
+                    // guard. Explicit disconnect still restores the journal.
+                    return Err(error);
+                }
                 let recovery = self.recover_locked(&mut journal).await;
                 return match recovery {
                     Ok(()) => Err(error),
@@ -796,8 +996,31 @@ where
             return Err(CoordinatorError::PacketSessionRequired);
         }
         let plan = journal.plan.clone().ok_or(CoordinatorError::MissingPlan)?;
+        if plan.defer_network_configuration {
+            return Err(CoordinatorError::InvalidPlan(
+                "final network configuration is pending".into(),
+            ));
+        }
         let mut commit_steps = Vec::with_capacity(2);
-        if plan.kill_switch {
+        for kind in [
+            MutationKind::WintunAdapter,
+            MutationKind::EndpointBypass,
+            MutationKind::InterfaceConfiguration,
+            MutationKind::Dns,
+        ] {
+            if !journal
+                .steps
+                .iter()
+                .any(|step| step.kind == kind && step.state == MutationState::Applied)
+            {
+                return Err(CoordinatorError::MissingAppliedStep(kind));
+            }
+        }
+        if (plan.kill_switch || plan.vpn_chain)
+            && !journal.steps.iter().any(|step| {
+                step.kind == MutationKind::KillSwitch && step.state == MutationState::Applied
+            })
+        {
             commit_steps.push(MutationKind::KillSwitch);
         }
         commit_steps.push(MutationKind::DefaultRoutes);
@@ -806,6 +1029,9 @@ where
                 .apply_new_step(&mut journal, kind, &plan, caller, StepParameter::None)
                 .await
             {
+                if plan.vpn_chain {
+                    return Err(error);
+                }
                 let recovery = self.recover_locked(&mut journal).await;
                 return match recovery {
                     Ok(()) => Err(error),
@@ -818,6 +1044,9 @@ where
         }
         journal.phase = RecoveryPhase::Active;
         if let Err(error) = self.store.save(&mut journal) {
+            if plan.vpn_chain {
+                return Err(error.into());
+            }
             let recovery = self.recover_locked(&mut journal).await;
             return match recovery {
                 Ok(()) => Err(error.into()),
@@ -2066,6 +2295,8 @@ mod tests {
 
     fn plan() -> ValidatedTunnelPlan {
         ValidatedTunnelPlan {
+            vpn_chain: false,
+            defer_network_configuration: false,
             profile_id: Uuid::new_v4(),
             endpoint: SocketAddrV4::new(Ipv4Addr::new(162, 159, 198, 2), 443).into(),
             endpoint_candidates: vec![
@@ -2133,6 +2364,172 @@ mod tests {
             .store
             .save(&mut journal)
             .expect("legacy recovery fixture");
+    }
+
+    #[tokio::test]
+    async fn live_chain_guard_is_owner_scoped_idempotent_and_retained_on_final_failure() {
+        let backend = Arc::new(MockBackend::default());
+        let (_directory, coordinator) = coordinator(Arc::clone(&backend));
+        let operation = Uuid::new_v4();
+        let owner = caller();
+        let mut requested = plan();
+        requested.kill_switch = false;
+        coordinator
+            .prepare(operation, requested, owner.clone())
+            .await
+            .unwrap();
+        coordinator
+            .open_packet_session(operation, MIN_PACKET_RING_CAPACITY, &owner)
+            .await
+            .unwrap();
+        coordinator.commit(operation, &owner).await.unwrap();
+        let mut stranger = owner.clone();
+        stranger.process_id += 1;
+        assert!(
+            coordinator
+                .begin_chain_transition(operation, &stranger)
+                .await
+                .is_err()
+        );
+        assert!(
+            !backend
+                .applied
+                .lock()
+                .await
+                .contains(&MutationKind::KillSwitch)
+        );
+        let guarded = coordinator
+            .begin_chain_transition(operation, &owner)
+            .await
+            .unwrap();
+        coordinator
+            .begin_chain_transition(operation, &owner)
+            .await
+            .unwrap();
+        assert_eq!(
+            backend
+                .applied
+                .lock()
+                .await
+                .iter()
+                .filter(|kind| **kind == MutationKind::KillSwitch)
+                .count(),
+            1
+        );
+        coordinator
+            .close_packet_session(operation, &owner)
+            .await
+            .unwrap();
+        let mut final_plan = guarded.plan.unwrap();
+        final_plan.assigned_ipv4 = Some("10.8.0.2/32".parse().unwrap());
+        final_plan.split_dns = true;
+        final_plan.dns_servers = vec!["198.18.0.1".parse().unwrap()];
+        coordinator
+            .finalize_tunnel(operation, final_plan, &owner)
+            .await
+            .unwrap();
+        backend
+            .fail_apply
+            .lock()
+            .await
+            .insert(MutationKind::PacketSession);
+        assert!(
+            coordinator
+                .open_packet_session(operation, MIN_PACKET_RING_CAPACITY, &owner)
+                .await
+                .is_err()
+        );
+        assert!(
+            !backend
+                .restored
+                .lock()
+                .await
+                .contains(&MutationKind::KillSwitch)
+        );
+        let journal = coordinator.state().await;
+        assert!(
+            journal
+                .steps
+                .iter()
+                .any(|step| step.kind == MutationKind::KillSwitch
+                    && step.state == MutationState::Applied)
+        );
+        coordinator.rollback(operation, &owner).await.unwrap();
+        assert!(
+            backend
+                .restored
+                .lock()
+                .await
+                .contains(&MutationKind::KillSwitch)
+        );
+    }
+
+    #[tokio::test]
+    async fn vpn_chain_defers_addresses_until_negotiation_under_protection() {
+        let backend = Arc::new(MockBackend::default());
+        let (_directory, coordinator) = coordinator(Arc::clone(&backend));
+        let operation = Uuid::new_v4();
+        let owner = caller();
+        let mut requested = plan();
+        requested.vpn_chain = true;
+        requested.defer_network_configuration = true;
+        requested.kill_switch = false;
+        coordinator
+            .prepare(operation, requested.clone(), owner.clone())
+            .await
+            .unwrap();
+        assert_eq!(
+            *backend.applied.lock().await,
+            [
+                MutationKind::WintunAdapter,
+                MutationKind::EndpointBypass,
+                MutationKind::KillSwitch
+            ]
+        );
+        assert!(
+            coordinator
+                .open_packet_session(operation, MIN_PACKET_RING_CAPACITY, &owner)
+                .await
+                .is_err()
+        );
+        assert!(coordinator.commit(operation, &owner).await.is_err());
+        let mut final_plan = requested.clone();
+        final_plan.defer_network_configuration = false;
+        final_plan.assigned_ipv4 = Some("10.8.0.2/32".parse().unwrap());
+        let mut changed_bootstrap = final_plan.clone();
+        changed_bootstrap.endpoint.set_port(8443);
+        assert!(
+            coordinator
+                .finalize_tunnel(operation, changed_bootstrap, &owner)
+                .await
+                .is_err()
+        );
+        let prepared = coordinator
+            .finalize_tunnel(operation, final_plan.clone(), &owner)
+            .await
+            .unwrap();
+        assert_eq!(prepared.plan.as_ref(), Some(&final_plan));
+        coordinator
+            .open_packet_session(operation, MIN_PACKET_RING_CAPACITY, &owner)
+            .await
+            .unwrap();
+        coordinator.commit(operation, &owner).await.unwrap();
+        assert_eq!(
+            backend
+                .applied
+                .lock()
+                .await
+                .iter()
+                .filter(|kind| **kind == MutationKind::KillSwitch)
+                .count(),
+            1
+        );
+        assert!(
+            coordinator
+                .finalize_tunnel(operation, final_plan, &owner)
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
@@ -3436,6 +3833,104 @@ mod tests {
                 .expect("startup EOF")
                 .is_none()
         );
+    }
+
+    #[tokio::test]
+    async fn chain_takeover_keeps_guard_and_invalidates_the_previous_watchdog() {
+        let backend = Arc::new(MockBackend::default());
+        let (_directory, coordinator) = coordinator(Arc::clone(&backend));
+        let operation = Uuid::new_v4();
+        let owner = caller();
+        coordinator
+            .prepare(operation, plan(), owner.clone())
+            .await
+            .unwrap();
+        coordinator
+            .open_packet_session(operation, MIN_PACKET_RING_CAPACITY, &owner)
+            .await
+            .unwrap();
+        coordinator.commit(operation, &owner).await.unwrap();
+        coordinator
+            .acquire_tunnel_lease(operation, &owner)
+            .await
+            .unwrap();
+        let epoch = coordinator
+            .release_tunnel_lease(operation, &owner)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let mut successor = owner.clone();
+        successor.process_id += 1;
+        let mut other_user = successor.clone();
+        other_user.user_sid.push_str("-1");
+        assert!(matches!(
+            coordinator
+                .begin_chain_transition(operation, &other_user)
+                .await,
+            Err(CoordinatorError::OwnerMismatch)
+        ));
+        assert!(matches!(
+            coordinator
+                .begin_chain_transition(Uuid::new_v4(), &successor)
+                .await,
+            Err(CoordinatorError::OwnerMismatch)
+        ));
+        *backend.inspection.lock().await = Some(TunnelInspection::NeedsRecovery);
+        assert!(matches!(
+            coordinator
+                .begin_chain_transition(operation, &successor)
+                .await,
+            Err(CoordinatorError::OwnerMismatch)
+        ));
+        *backend.inspection.lock().await = Some(TunnelInspection::Reattachable);
+        let guarded = coordinator
+            .begin_chain_transition(operation, &successor)
+            .await
+            .unwrap();
+        assert_eq!(guarded.owner_process_id, Some(successor.process_id));
+        assert!(guarded.plan.unwrap().vpn_chain);
+        assert!(
+            !coordinator
+                .recover_orphaned_tunnel(operation, epoch)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !coordinator
+                .recover_orphaned_startup_tunnel(operation, epoch)
+                .await
+                .unwrap()
+        );
+        assert!(
+            backend
+                .restored
+                .lock()
+                .await
+                .iter()
+                .all(|kind| *kind != MutationKind::KillSwitch)
+        );
+        // The retained setup pipe still has ordinary crash cleanup when its
+        // actual owner exits. A stale pipe cannot release the new owner.
+        assert!(
+            coordinator
+                .release_startup_tunnel_lease(operation, &owner)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let new_epoch = coordinator
+            .release_startup_tunnel_lease(operation, &successor)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            coordinator
+                .recover_orphaned_startup_tunnel(operation, new_epoch)
+                .await
+                .unwrap()
+        );
+        assert_eq!(coordinator.state().await.phase, RecoveryPhase::Clean);
     }
 
     #[tokio::test]

@@ -13,6 +13,7 @@ import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
 import '../widgets/save_changes_bar.dart';
+import 'vpn_gate_screen.dart';
 
 class ProxyScreen extends StatefulWidget {
   const ProxyScreen({required this.controller, super.key});
@@ -254,6 +255,19 @@ class _ProxyScreenState extends State<ProxyScreen> {
                   PanelStack(
                     spacing: 32,
                     children: [
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(LucideIcons.globe),
+                        title: const Text('VPN Gate'),
+                        subtitle: Text(strings.get('gate_subtitle')),
+                        trailing: const Icon(LucideIcons.chevronRight),
+                        onTap: () => Navigator.of(context).push<void>(
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                VpnGateScreen(controller: widget.controller),
+                          ),
+                        ),
+                      ),
                       _listenerPanel(profile, socks5: true),
                       _listenerPanel(profile, socks5: false),
                       ContentSection(

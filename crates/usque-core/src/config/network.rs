@@ -32,6 +32,8 @@ pub struct SharedNetworkSettings {
     pub geo_direct_countries: Vec<String>,
     #[serde(default)]
     pub direct_dns: DirectDnsSettings,
+    #[serde(default)]
+    pub vpn_gate: crate::vpngate::VpnGateSettings,
 }
 
 impl Default for SharedNetworkSettings {
@@ -61,6 +63,7 @@ impl SharedNetworkSettings {
             proxy: profile.proxy.clone(),
             geo_direct_countries: profile.geo_direct_countries.clone(),
             direct_dns: profile.direct_dns.clone(),
+            vpn_gate: profile.vpn_gate.clone(),
         }
     }
 
@@ -90,6 +93,7 @@ impl SharedNetworkSettings {
             proxy: self.proxy.clone(),
             geo_direct_countries: self.geo_direct_countries.clone(),
             direct_dns: self.direct_dns.clone(),
+            vpn_gate: self.vpn_gate.clone(),
         };
         profile.canonicalize_mode();
         profile.proxy.normalize_auth();

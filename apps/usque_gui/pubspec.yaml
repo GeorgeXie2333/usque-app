@@ -25,6 +25,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/branding/usque-ui-icon.png
+    - assets/licenses/vpngate.txt
   fonts:
     - family: SpaceGrotesk
       fonts:

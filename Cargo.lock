@@ -2755,6 +2755,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+ "tokio-util",
  "tracing",
  "usque-geo",
  "usque-protocol",
@@ -2823,6 +2824,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "usque-openvpn"
+version = "0.2.6"
+dependencies = [
+ "bytes",
+ "cmake",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "usque-platform"
 version = "0.2.6"
 dependencies = [
@@ -2875,6 +2886,7 @@ dependencies = [
  "ts_netstack_smoltcp",
  "usque-core",
  "usque-geo",
+ "usque-openvpn",
  "usque-protocol",
  "uuid",
  "webpki-roots",

@@ -1,0 +1,319 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:usque/core/app_strings.dart';
+import 'package:usque/models/app_models.dart';
+import 'package:usque/screens/vpn_gate_screen.dart';
+import 'package:usque/services/control_codec.dart';
+import 'package:usque/services/engine_client.dart';
+import 'package:usque/state/app_controller.dart';
+
+import 'app_test.dart' show FakeEngineClient;
+import 'ui_workflow_test.dart' show workflowHost;
+
+const server = VpnGateServer(
+  id: 'v1:node',
+  ip: '203.0.113.7',
+  hostname: 'volunteer.example',
+  configSha256: 'config-one',
+  countryCode: 'JP',
+  countryName: 'Japan',
+  score: 1200,
+  pingMs: 25,
+  speedBps: 25000000,
+);
+
+class GateEngine extends FakeEngineClient implements VpnGateClient {
+  @override
+  Future<EngineCapabilities?> getCapabilities() async =>
+      const EngineCapabilities(
+        vpnGateTcp: true,
+        networkSettingsApplication: true,
+      );
+  int refreshes = 0, cancellations = 0, saves = 0;
+  String? country;
+  List<String>? fields;
+  Completer<VpnGateDirectory>? pending;
+  bool failSave = false;
+  DateTime? fetchedAt;
+
+  @override
+  Future<VpnGateDirectory> listVpnGate({
+    String? countryCode,
+    bool unknownCountry = false,
+    int offset = 0,
+    int limit = 50,
+  }) async {
+    country = countryCode;
+    return pending?.future ??
+        VpnGateDirectory(
+          servers: const [server],
+          countries: const [
+            VpnGateCountry(code: 'JP', name: 'Japan', count: 1),
+          ],
+          total: 1,
+          fetchedAt: fetchedAt ?? DateTime.now(),
+          refreshStage: 'complete',
+          cached: true,
+          savedServer: server,
+        );
+  }
+
+  @override
+  Future<void> refreshVpnGate({bool cancel = false}) async {
+    if (cancel) {
+      cancellations++;
+    } else {
+      refreshes++;
+    }
+  }
+
+  @override
+  Future<NetworkSettingsState> saveNetworkSettings(
+    String operationId,
+    String accountId,
+    UsqueProfile values,
+    List<String> changedFields,
+  ) async {
+    saves++;
+    fields = changedFields;
+    if (failSave) {
+      throw const EngineException(
+        'VPN_GATE_SELECTION_STALE',
+        'Select the server again.',
+      );
+    }
+    return super.saveNetworkSettings(
+      operationId,
+      accountId,
+      values,
+      changedFields,
+    );
+  }
+}
+
+Future<AppController> host(
+  WidgetTester tester,
+  GateEngine engine, {
+  bool dark = false,
+  double scale = 1,
+  LocalePreference locale = LocalePreference.english,
+  Size size = const Size(980, 1000),
+}) async {
+  SharedPreferences.setMockInitialValues({});
+  tester.view.devicePixelRatio = 1;
+  tester.view.physicalSize = size;
+  addTearDown(tester.view.resetDevicePixelRatio);
+  addTearDown(tester.view.resetPhysicalSize);
+  final app = AppController(engine);
+  await app.initialize();
+  app.localePreference = locale;
+  addTearDown(app.dispose);
+  await tester.pumpWidget(
+    workflowHost(
+      app,
+      dark: dark,
+      scale: scale,
+      home: VpnGateScreen(controller: app),
+    ),
+  );
+  await tester.pumpAndSettle();
+  return app;
+}
+
+void main() {
+  test(
+    'old profiles keep Gate disabled and new settings round-trip without configuration bytes',
+    () {
+      final original = UsqueProfile.defaultProfile();
+      final enabled = original.copyWith(
+        vpnGate: const VpnGateSettings(enabled: true).copyWith(server: server),
+      );
+      expect(UsqueProfile.fromMap(original.toMap()).vpnGate.enabled, isFalse);
+      expect(UsqueProfile.fromMap(enabled.toMap()).vpnGate, enabled.vpnGate);
+      expect(networkSettingsChangedFields(original, enabled), ['vpn_gate']);
+      const codec = ControlCodec();
+      final response = codec.frame(
+        (ControlPayloadWriter()
+              ..string(1, 'r')
+              ..message(
+                22,
+                (ControlPayloadWriter()
+                      ..string(1, 'epoch')
+                      ..message(5, codec.encodeProfile(enabled)))
+                    .takeBytes(),
+              ))
+            .takeBytes(),
+      );
+      // JSON carries only an immutable ID/hash reference, never an .ovpn body.
+      expect(
+        enabled.toMap().toString(),
+        isNot(contains('openvpn_config_base64')),
+      );
+      expect(
+        codec
+            .decodeResponse(response, 'r')
+            .networkSettings!
+            .storedProfile!
+            .vpnGate,
+        enabled.vpnGate,
+      );
+    },
+  );
+
+  test(
+    'directory protobuf preserves absent metrics and bounds repeated records',
+    () {
+      const codec = ControlCodec();
+      final node =
+          (ControlPayloadWriter()
+                ..string(1, server.id)
+                ..string(3, server.ip)
+                ..string(10, server.configSha256))
+              .takeBytes();
+      Uint8List frame(int count) {
+        final directory = ControlPayloadWriter()
+          ..unsigned(3, count)
+          ..boolean(9, true)
+          ..message(11, node);
+        for (var i = 0; i < count; i++) {
+          directory.message(1, node);
+        }
+        return codec.frame(
+          (ControlPayloadWriter()
+                ..string(1, 'r')
+                ..message(23, directory.takeBytes()))
+              .takeBytes(),
+        );
+      }
+
+      final list = codec.decodeResponse(frame(1), 'r').vpnGateDirectory!;
+      expect(list.servers.single.pingMs, isNull);
+      expect(list.savedServer!.configSha256, server.configSha256);
+      expect(list.cached, isTrue);
+      expect(
+        () => codec.decodeResponse(frame(101), 'r'),
+        throwsA(isA<EngineException>()),
+      );
+    },
+  );
+
+  test('Gate translations cover all catalogs and preserve placeholders', () {
+    expect(AppStrings.debugCatalogsAreComplete, isTrue);
+    expect(AppStrings.debugUntranslatedFeatureKeys(), isEmpty);
+    expect(AppStrings.debugPlaceholdersArePreserved, isTrue);
+  });
+
+  testWidgets(
+    'cache opens without refresh; choosing only changes draft; explicit save pins ID and hash',
+    (tester) async {
+      final engine = GateEngine();
+      final app = await host(tester, engine);
+      expect(engine.refreshes, 0);
+      expect(find.text('Connected server'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('vpn-gate-node-v1:node')));
+      await tester.pumpAndSettle();
+      expect(engine.saves, 0);
+      expect(app.activeProfile.vpnGate.hasSelection, isFalse);
+      await tester.tap(find.byKey(const ValueKey('vpn-gate-toggle')));
+      await tester.pumpAndSettle();
+      expect(engine.saves, 0);
+      await tester.tap(find.byKey(const ValueKey('vpn-gate-apply')));
+      await tester.pumpAndSettle();
+      expect(engine.saves, 1);
+      expect(engine.fields, ['vpn_gate']);
+      expect(
+        app.activeProfile.vpnGate,
+        const VpnGateSettings(enabled: true).copyWith(server: server),
+      );
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets('failed save preserves draft; closing cancels an owned refresh', (
+    tester,
+  ) async {
+    final engine = GateEngine()..failSave = true;
+    final app = await host(tester, engine);
+    await tester.tap(find.byKey(const ValueKey('vpn-gate-node-v1:node')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('vpn-gate-apply')));
+    await tester.pumpAndSettle();
+    expect(app.activeProfile.vpnGate.hasSelection, isFalse);
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const ValueKey('vpn-gate-apply')))
+          .onPressed,
+      isNotNull,
+    );
+    await tester.tap(find.text('Refresh list'));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(engine.refreshes, 1);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+    expect(engine.cancellations, 1);
+  });
+
+  testWidgets(
+    'a background directory response cannot erase a stale-selection save error',
+    (tester) async {
+      final engine = GateEngine()..failSave = true;
+      final app = await host(tester, engine);
+      await tester.tap(find.byKey(const ValueKey('vpn-gate-node-v1:node')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('vpn-gate-apply')));
+      await tester.pumpAndSettle();
+      expect(engine.saves, 1);
+      final message = app.strings.get('gate_select_again');
+      expect(find.text(message), findsOneWidget);
+      await tester.tap(find.text('Refresh list'));
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pumpAndSettle();
+      expect(find.text(message), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
+    'phone at 200 percent supports light, dark, Chinese and keyboard activation',
+    (tester) async {
+      for (final dark in [false, true]) {
+        for (final locale in [
+          LocalePreference.english,
+          LocalePreference.simplifiedChinese,
+        ]) {
+          final engine = GateEngine();
+          final app = await host(
+            tester,
+            engine,
+            dark: dark,
+            scale: 2,
+            locale: locale,
+            size: const Size(390, 844),
+          );
+          final node = find.byKey(const ValueKey('vpn-gate-node-v1:node'));
+          await tester.ensureVisible(node);
+          await tester.pumpAndSettle();
+          await tester.tap(node);
+          await tester.pumpAndSettle();
+          final apply = find.byKey(const ValueKey('vpn-gate-apply'));
+          await tester.ensureVisible(apply);
+          await tester.pumpAndSettle();
+          expect(app.activeProfile.vpnGate.hasSelection, isFalse);
+          Focus.of(
+            tester.element(find.text(app.strings.get('gate_save'))),
+          ).requestFocus();
+          await tester.pump();
+          await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+          await tester.pumpAndSettle();
+          expect(engine.saves, 1);
+          expect(tester.takeException(), isNull);
+          await tester.pumpWidget(const SizedBox());
+        }
+      }
+    },
+  );
+}

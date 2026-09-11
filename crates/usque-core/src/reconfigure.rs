@@ -18,6 +18,8 @@ pub enum ReconfigureClass {
     /// Only the VPN/TUN frontend flag flipped and no mode-dependent GEO policy
     /// needs to be rebuilt.
     HotTunnelAttach,
+    /// Replace the final OpenVPN session while retaining the WARP underlay.
+    HotVpnGate,
 }
 
 /// Decide how to apply `next` over the currently connected `previous` profile.
@@ -30,6 +32,14 @@ pub fn classify_reconfigure(previous: &Profile, next: &Profile) -> ReconfigureCl
     runtime_next.congestion_control = previous.congestion_control;
     if previous == &runtime_next {
         return ReconfigureClass::PersistOnly;
+    }
+    if previous.vpn_gate != next.vpn_gate {
+        let mut without_gate = runtime_next.clone();
+        without_gate.vpn_gate = previous.vpn_gate.clone();
+        if previous == &without_gate {
+            return ReconfigureClass::HotVpnGate;
+        }
+        return ReconfigureClass::ColdReconnect;
     }
 
     let cold = previous.data_plane != next.data_plane

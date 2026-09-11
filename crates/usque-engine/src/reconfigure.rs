@@ -34,6 +34,9 @@ impl ControlService {
             .ok_or(ControlServiceError::ProfileNotFound(profile.id))?;
 
         let class = classify_reconfigure(&previous, &profile);
+        if previous.vpn_gate != profile.vpn_gate {
+            self.pin_gate_settings(&profile.vpn_gate).await?;
+        }
         match class {
             ReconfigureClass::PersistOnly => {
                 let applied = self.upsert_profile_locked(profile).await?;
@@ -51,6 +54,7 @@ impl ControlService {
             }
             ReconfigureClass::HotFrontends
             | ReconfigureClass::HotSystemProxy
+            | ReconfigureClass::HotVpnGate
             | ReconfigureClass::HotTunnelAttach => {
                 return self.commit_hot(profile, previous, class).await;
             }
@@ -70,6 +74,9 @@ impl ControlService {
         let snapshot = match self.connect_locked(profile_id).await {
             Ok(snapshot) => snapshot,
             Err(error) => {
+                if previous.vpn_gate != applied.vpn_gate {
+                    return Err(error);
+                }
                 self.upsert_profile_locked(previous.clone()).await?;
                 *self.session_profile.lock().await = Some(previous.clone());
                 if let Err(rollback_error) = self.connect_locked(previous.id).await {
@@ -96,6 +103,7 @@ impl ControlService {
             ReconfigureClass::HotFrontends => self.hot_reconfigure_frontends(&applied).await,
             ReconfigureClass::HotSystemProxy => self.hot_apply_system_proxy(&applied).await,
             ReconfigureClass::HotTunnelAttach => self.hot_tunnel_attach(&applied).await,
+            ReconfigureClass::HotVpnGate => self.hot_replace_gate(&applied).await,
             ReconfigureClass::Reject
             | ReconfigureClass::ColdReconnect
             | ReconfigureClass::PersistOnly => {
@@ -103,6 +111,9 @@ impl ControlService {
             }
         };
         if let Err(error) = applied_result {
+            if class == ReconfigureClass::HotVpnGate {
+                return Err(error);
+            }
             #[cfg(windows)]
             if let ControlServiceError::PlatformRecoveryPending {
                 operation_id,

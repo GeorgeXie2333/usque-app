@@ -296,15 +296,23 @@ impl DirectGatewayRouter {
         let (incoming_tx, incoming_rx) = mpsc::channel(DIRECT_PACKET_CAPACITY);
         let cancellation = parent_cancellation.child_token();
         let flows = Arc::new(Mutex::new(NatTable::default()));
-        let split_dns_enabled = profile.frontends.tunnel
-            && !profile.geo_direct_countries.is_empty()
-            && policy.is_enabled();
-        if split_dns_enabled && !protector.tun_direct_available() {
+        // A pushed resolver may be inside a LAN bypass. Publish our synthetic
+        // DNS address to the OS and forward its queries inside the final stack.
+        let gate_dns = profile.frontends.tunnel
+            && profile.vpn_gate.enabled
+            && profile.dns_mode == usque_core::DnsMode::Tunnel;
+        let split_dns_enabled = gate_dns
+            || (profile.frontends.tunnel
+                && !profile.geo_direct_countries.is_empty()
+                && policy.is_enabled());
+        if split_dns_enabled && policy.is_enabled() && !protector.tun_direct_available() {
             return Err(TransportError::Dns(
                 "platform cannot safely bypass the TUN for Split DNS".to_owned(),
             ));
         }
-        if (!policy.is_enabled() && !split_dns_enabled) || !protector.tun_direct_available() {
+        if (!policy.is_enabled() && !split_dns_enabled)
+            || (!protector.tun_direct_available() && !gate_dns)
+        {
             return Ok((
                 Self {
                     channel: None,
@@ -1049,6 +1057,79 @@ mod tests {
             self.client_task.abort();
             self.pump_task.abort();
         }
+    }
+
+    #[tokio::test]
+    async fn gate_private_dns_uses_final_packets_without_physical_dns_or_lan_egress() {
+        let mut profile = Profile {
+            allow_lan: true,
+            dns_servers: vec!["10.8.0.1".parse().unwrap()],
+            ..Profile::default()
+        };
+        profile.frontends.tunnel = true;
+        profile.vpn_gate.enabled = true;
+        let (client, mut client_pipe) = bounded_piped(proxy_netstack_config(&profile).0);
+        let client_channel = client.command_channel();
+        let client_task = tokio_util::task::AbortOnDropHandle::new(client.spawn_tokio());
+        client_channel
+            .set_ips([IpAddr::V4(CLIENT_IPV4)])
+            .await
+            .unwrap();
+        let (final_stack, mut final_pipe) = bounded_piped(proxy_netstack_config(&profile).0);
+        let final_channel = final_stack.command_channel();
+        let final_task = tokio_util::task::AbortOnDropHandle::new(final_stack.spawn_tokio());
+        let final_ipv4: Ipv4Addr = "10.8.0.2".parse().unwrap();
+        final_channel
+            .set_ips([IpAddr::V4(final_ipv4)])
+            .await
+            .unwrap();
+        let protector = Arc::new(TestProtector {
+            direct_available: false,
+            reject_protection: true,
+            protect_calls: AtomicUsize::new(0),
+        });
+        let cancellation = CancellationToken::new();
+        let (mut gateway, _incoming) = DirectGatewayRouter::start(
+            &profile,
+            Arc::new(GeoDirectPolicy::disabled()),
+            protector.clone(),
+            Arc::new(TrafficCounters::default()),
+            Some((final_channel, (final_ipv4, Ipv6Addr::UNSPECIFIED))),
+            &cancellation,
+        )
+        .await
+        .unwrap();
+        let query = [
+            0x12, 0x34, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, b'a', 0, 0, 1, 0, 1,
+        ];
+        let socket = client_channel
+            .udp_bind(SocketAddr::new(CLIENT_IPV4.into(), 50_003))
+            .await
+            .unwrap();
+        socket
+            .send_to(SocketAddr::new(SPLIT_DNS_IPV4.into(), 53), &query)
+            .await
+            .unwrap();
+        let packet = timeout(TEST_TIMEOUT, client_pipe.rx.recv_async())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            gateway
+                .route_outgoing(&mut BytesMut::from(packet.as_ref()))
+                .await
+        );
+        let forwarded = timeout(TEST_TIMEOUT, final_pipe.rx.recv_async())
+            .await
+            .unwrap()
+            .unwrap();
+        let parsed = NatPacket::parse(&forwarded).unwrap();
+        assert_eq!(parsed.source, IpAddr::V4(final_ipv4));
+        assert_eq!(parsed.destination, "10.8.0.1".parse::<IpAddr>().unwrap());
+        assert!(forwarded.ends_with(&query));
+        assert_eq!(protector.protect_calls.load(Ordering::SeqCst), 0);
+        cancellation.cancel();
+        drop((gateway, client_task, final_task));
     }
 
     #[tokio::test]

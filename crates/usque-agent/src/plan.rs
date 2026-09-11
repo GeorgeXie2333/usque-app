@@ -34,6 +34,10 @@ pub struct ValidatedTunnelPlan {
     pub split_dns: bool,
     pub assigned_ipv4: Option<IpNet>,
     pub assigned_ipv6: Option<IpNet>,
+    #[serde(default)]
+    pub vpn_chain: bool,
+    #[serde(default)]
+    pub defer_network_configuration: bool,
 }
 
 impl TryFrom<agent_v1::TunnelPlan> for ValidatedTunnelPlan {
@@ -137,6 +141,8 @@ impl TryFrom<agent_v1::TunnelPlan> for ValidatedTunnelPlan {
             split_dns: value.split_dns,
             assigned_ipv4,
             assigned_ipv6,
+            vpn_chain: value.vpn_chain,
+            defer_network_configuration: value.defer_network_configuration,
         };
         plan.validate()?;
         Ok(plan)
@@ -144,7 +150,46 @@ impl TryFrom<agent_v1::TunnelPlan> for ValidatedTunnelPlan {
 }
 
 impl ValidatedTunnelPlan {
+    pub fn to_proto(&self) -> agent_v1::TunnelPlan {
+        agent_v1::TunnelPlan {
+            profile_id: self.profile_id.to_string(),
+            endpoint: self.endpoint.to_string(),
+            endpoint_candidates: self
+                .endpoint_candidates
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+            control_api_candidates: self
+                .control_api_candidates
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+            mtu: self.mtu.into(),
+            dns_servers: self.dns_servers.iter().map(ToString::to_string).collect(),
+            split_exclusions: self
+                .split_exclusions
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+            allow_lan: self.allow_lan,
+            kill_switch: self.kill_switch,
+            split_dns: self.split_dns,
+            assigned_ipv4: self
+                .assigned_ipv4
+                .map(|ip| ip.to_string())
+                .unwrap_or_default(),
+            assigned_ipv6: self
+                .assigned_ipv6
+                .map(|ip| ip.to_string())
+                .unwrap_or_default(),
+            vpn_chain: self.vpn_chain,
+            defer_network_configuration: self.defer_network_configuration,
+        }
+    }
     pub fn validate(&self) -> Result<(), PlanError> {
+        if self.defer_network_configuration && !self.vpn_chain {
+            return Err(PlanError::MissingAssignment);
+        }
         if !(MIN_MTU..=MAX_MTU).contains(&self.mtu) {
             return Err(PlanError::Mtu(u32::from(self.mtu)));
         }
@@ -324,6 +369,8 @@ mod tests {
 
     fn valid_plan() -> agent_v1::TunnelPlan {
         agent_v1::TunnelPlan {
+            vpn_chain: false,
+            defer_network_configuration: false,
             profile_id: Uuid::new_v4().to_string(),
             endpoint: "162.159.198.2:443".to_owned(),
             endpoint_candidates: vec![

@@ -25,7 +25,33 @@ export 'control_codec.dart'
 /// Desktop [EngineClient] that coordinates request serialization, codec, and
 /// transport. Public API, MethodChannel names, named pipes, and protobuf wire
 /// data are unchanged from the pre-split client.
-class DesktopEngineClient implements EngineClient {
+class DesktopEngineClient implements EngineClient, VpnGateClient {
+  @override
+  Future<VpnGateDirectory> listVpnGate({
+    String? countryCode,
+    bool unknownCountry = false,
+    int offset = 0,
+    int limit = 50,
+  }) => _serialized(() async {
+    final request = ControlPayloadWriter()
+      ..string(1, countryCode ?? '')
+      ..boolean(2, unknownCountry)
+      ..unsigned(3, offset)
+      ..unsigned(4, limit);
+    final response = await _request(43, request.takeBytes());
+    return response.vpnGateDirectory ??
+        (throw const EngineException(
+          'VPN_GATE_UNAVAILABLE',
+          'The catalogue service is unavailable.',
+        ));
+  });
+  @override
+  Future<void> refreshVpnGate({bool cancel = false}) => _serialized(() async {
+    await _request(
+      44,
+      (ControlPayloadWriter()..boolean(1, cancel)).takeBytes(),
+    );
+  });
   @override
   Future<NetworkSettingsState> saveNetworkSettings(
     String operationId,

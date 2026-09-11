@@ -243,6 +243,9 @@ impl RecoveryJournal {
             OperationKind::Tunnel => {
                 let plan = self.plan.as_ref().ok_or(JournalError::MissingPlan)?;
                 plan.validate()?;
+                if plan.defer_network_configuration && self.phase == RecoveryPhase::Active {
+                    return Err(JournalError::InvalidOperationShape);
+                }
                 Some(plan)
             }
             OperationKind::SystemProxy => {
@@ -737,6 +740,8 @@ mod tests {
 
     fn plan() -> ValidatedTunnelPlan {
         ValidatedTunnelPlan {
+            vpn_chain: false,
+            defer_network_configuration: false,
             profile_id: Uuid::new_v4(),
             endpoint: SocketAddrV4::new(Ipv4Addr::new(162, 159, 198, 2), 443).into(),
             endpoint_candidates: vec![

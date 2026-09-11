@@ -13,6 +13,7 @@ pub mod registration;
 pub mod state;
 pub mod storage;
 pub mod update;
+pub mod vpngate;
 
 pub use config::{
     Account, AppConfig, AppPreferences, CONSUMER_L4_SNI, ConfigError, CongestionControlAlgorithm,

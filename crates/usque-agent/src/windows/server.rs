@@ -1147,6 +1147,39 @@ where
                     .map_err(|error| (request_id.clone(), ServiceError::Lifecycle(error)))?;
                 agent_response::Payload::State(self.proto_state(&state).await)
             }
+            agent_request::Payload::BeginChainTransition(request) => {
+                let operation_id = parse_operation_id(&request.operation_id)
+                    .map_err(|error| (request_id.clone(), error))?;
+                let caller = caller.clone();
+                let state = self
+                    .mutate(MutationPolicy::Forward, move |coordinator| async move {
+                        coordinator
+                            .begin_chain_transition(operation_id, &caller)
+                            .await
+                    })
+                    .await
+                    .map_err(|error| (request_id.clone(), ServiceError::Lifecycle(error)))?;
+                agent_response::Payload::State(self.proto_state(&state).await)
+            }
+            agent_request::Payload::FinalizeTunnel(request) => {
+                let operation_id = parse_operation_id(&request.operation_id)
+                    .map_err(|error| (request_id.clone(), error))?;
+                let plan = request
+                    .plan
+                    .ok_or_else(|| (request_id.clone(), ServiceError::MissingTunnelPlan))?;
+                let plan = ValidatedTunnelPlan::try_from(plan)
+                    .map_err(|error| (request_id.clone(), ServiceError::Plan(error.to_string())))?;
+                let caller = caller.clone();
+                let state = self
+                    .mutate(MutationPolicy::Forward, move |coordinator| async move {
+                        coordinator
+                            .finalize_tunnel(operation_id, plan, &caller)
+                            .await
+                    })
+                    .await
+                    .map_err(|error| (request_id.clone(), ServiceError::Lifecycle(error)))?;
+                agent_response::Payload::State(self.proto_state(&state).await)
+            }
             agent_request::Payload::RollbackTunnel(request) => {
                 validate_reason_code(&request.reason_code)
                     .map_err(|error| (request_id.clone(), error))?;
@@ -1671,6 +1704,13 @@ where
                             .ok()
                             .map(TunnelConnectionLease::Startup)
                     }
+                    Some(agent_request::Payload::BeginChainTransition(request))
+                        if request.retain_startup_lease =>
+                    {
+                        Uuid::parse_str(request.operation_id.trim())
+                            .ok()
+                            .map(TunnelConnectionLease::Startup)
+                    }
                     Some(agent_request::Payload::AcquireTunnelLease(request)) => {
                         Uuid::parse_str(request.operation_id.trim())
                             .ok()
@@ -1933,6 +1973,7 @@ fn state_to_proto(
         warnings.push("PACKET_SESSION_REATTACH_REQUIRED".to_owned());
     }
     AgentState {
+        plan: journal.plan.as_ref().map(|plan| Box::new(plan.to_proto())),
         phase: match journal.phase {
             RecoveryPhase::Clean => agent_v1::AgentPhase::Clean as i32,
             RecoveryPhase::Preparing => agent_v1::AgentPhase::Preparing as i32,
@@ -1953,7 +1994,8 @@ fn state_to_proto(
             .as_ref()
             .map(|plan| plan.profile_id.to_string())
             .unwrap_or_default(),
-        kill_switch_active: applied(crate::journal::MutationKind::KillSwitch),
+        kill_switch_active: journal.plan.as_ref().is_some_and(|plan| plan.kill_switch)
+            && applied(crate::journal::MutationKind::KillSwitch),
         system_proxy_active: applied(crate::journal::MutationKind::SystemProxy),
         packet_session_active: packet_session_attached,
         journal_generation: journal.generation,
@@ -3223,6 +3265,7 @@ mod tests {
         let service = Arc::new(AgentService::new(
             coordinator,
             AgentCapabilities {
+                deferred_network_configuration: true,
                 wintun: false,
                 wfp_kill_switch: false,
                 interface_addresses: false,

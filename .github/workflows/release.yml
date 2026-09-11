@@ -704,6 +704,7 @@ jobs:
             "$SYFT" scan "dir:$context" \
               -o "spdx-json=$artifact.spdx.json"
             test -s "$artifact.spdx.json"
+            python tool/check_openvpn_sources.py --append-sbom "$artifact.spdx.json"
             rm -rf -- "$context"
             count=$((count + 1))
           done < <(

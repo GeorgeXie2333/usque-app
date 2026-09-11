@@ -177,7 +177,44 @@ abstract interface class EngineClient {
   void dispose();
 }
 
-class MethodChannelEngineClient implements EngineClient {
+abstract interface class VpnGateClient {
+  Future<VpnGateDirectory> listVpnGate({
+    String? countryCode,
+    bool unknownCountry = false,
+    int offset = 0,
+    int limit = 50,
+  });
+  Future<void> refreshVpnGate({bool cancel = false});
+}
+
+class MethodChannelEngineClient implements EngineClient, VpnGateClient {
+  @override
+  Future<VpnGateDirectory> listVpnGate({
+    String? countryCode,
+    bool unknownCountry = false,
+    int offset = 0,
+    int limit = 50,
+  }) async {
+    final result = await _invoke<Map<Object?, Object?>>('listVpnGate', {
+      'country_code': countryCode,
+      'unknown_country': unknownCountry,
+      'offset': offset,
+      'limit': limit,
+    });
+    if (result == null) {
+      throw const EngineException(
+        'VPN_GATE_UNAVAILABLE',
+        'The catalogue service is unavailable.',
+      );
+    }
+    return VpnGateDirectory.fromMap(result);
+  }
+
+  @override
+  Future<void> refreshVpnGate({bool cancel = false}) async {
+    await _invoke<Object?>('refreshVpnGate', {'cancel': cancel});
+  }
+
   @override
   Future<NetworkSettingsState> saveNetworkSettings(
     String operationId,

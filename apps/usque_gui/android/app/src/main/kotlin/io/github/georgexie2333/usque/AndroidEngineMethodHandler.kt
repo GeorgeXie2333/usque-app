@@ -254,7 +254,54 @@ internal class AndroidEngineMethodHandler(
         call: MethodCall,
         result: MethodChannel.Result,
     ) {
+        if (controlClient.vpnGateRefreshPending && call.method in
+            setOf(
+                "setActiveProfile",
+                "deleteProfile",
+                "clearAllData",
+                "resetProfile",
+                "reconfigureActiveProfile",
+                "createProfileWithIdentity",
+                "provisionIdentity",
+                "importWarpSecret",
+                "saveNetworkSettings",
+            )
+        ) {
+            controlClient.requestVpnGate(
+                """{"command":"refresh","cancel":true}""",
+                object : MethodChannel.Result {
+                    override fun success(value: Any?) {
+                        handle(call, result)
+                    }
+
+                    override fun error(
+                        code: String,
+                        message: String?,
+                        details: Any?,
+                    ) {
+                        result.error(code, message, details)
+                    }
+
+                    override fun notImplemented() {
+                        result.error("VPN_GATE_UNAVAILABLE", "Catalogue cleanup could not be confirmed.", null)
+                    }
+                },
+            )
+            return
+        }
         when (call.method) {
+            "listVpnGate", "refreshVpnGate" -> {
+                val values =
+                    (call.arguments as? Map<*, *>)
+                        ?.entries
+                        ?.associate {
+                            it.key.toString() to it.value
+                        }.orEmpty()
+                        .toMutableMap()
+                values["command"] = if (call.method == "listVpnGate") "list" else "refresh"
+                controlClient.requestVpnGate(flutterValueToJson(values), result)
+            }
+
             "saveNetworkSettings", "getNetworkSettingsState" -> {
                 val request =
                     if (call.method == "saveNetworkSettings") {

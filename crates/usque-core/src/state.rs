@@ -247,6 +247,10 @@ impl StateMachine {
         self.snapshot.exit = Some(exit);
     }
 
+    pub fn clear_exit_info(&mut self) {
+        self.snapshot.exit = None;
+    }
+
     pub fn update_statistics(&mut self, statistics: Statistics) {
         self.snapshot.statistics = statistics;
     }

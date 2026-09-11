@@ -209,6 +209,7 @@ class ServiceSnapshotStateTest {
                 keys.SESSION_CONGESTION_CONTROL,
                 keys.DATA_PLANE,
                 keys.L4,
+                keys.VPN_GATE,
             ),
             wire.keys,
         )
@@ -218,6 +219,8 @@ class ServiceSnapshotStateTest {
         assertEquals("session_congestion_control", keys.SESSION_CONGESTION_CONTROL)
         assertEquals("data_plane", keys.DATA_PLANE)
         assertEquals("l4_json", keys.L4)
+        assertEquals("vpn_gate_json", keys.VPN_GATE)
+        assertNull(wire[keys.VPN_GATE])
         assertNull(wire[keys.SESSION_CONGESTION_CONTROL])
         assertEquals("warning", keys.WARNING)
         assertEquals("error_code", keys.ERROR_CODE)

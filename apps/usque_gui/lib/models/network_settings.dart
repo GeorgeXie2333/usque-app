@@ -94,6 +94,7 @@ Map<String, Object?> _fields(UsqueProfile p) => {
   'frontends.http': p.frontends.http,
   'transport': p.transport,
   'data_plane': p.dataPlane,
+  'vpn_gate': p.vpnGate,
   'congestion_control': p.congestionControl,
   'endpoint.ipv4': p.endpointIpv4,
   'endpoint.ipv6': p.endpointIpv6,

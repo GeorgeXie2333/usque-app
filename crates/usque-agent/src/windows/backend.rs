@@ -39,6 +39,7 @@ struct WindowsResources {
     library: Option<Arc<WintunLibrary>>,
     adapter: Option<WintunAdapter>,
     pump: Option<PacketPump>,
+    session_guard: Option<wfp::SessionGuard>,
 }
 
 impl WindowsBackend {
@@ -54,6 +55,7 @@ impl WindowsBackend {
                     library: Some(library),
                     adapter: None,
                     pump: None,
+                    session_guard: None,
                 }),
             }),
         })
@@ -76,6 +78,7 @@ impl WindowsBackend {
             exact_generation_egress: true,
             guarded_recovery: true,
             automatic_recovery: true,
+            deferred_network_configuration: true,
         }
     }
 }
@@ -267,7 +270,7 @@ fn inspect_tunnel_sync(journal: &RecoveryJournal) -> Result<TunnelInspection, Ba
     if !network::tunnel_configuration_present(journal).map_err(inspection_backend_error)? {
         return Ok(TunnelInspection::NeedsRecovery);
     }
-    if plan.kill_switch {
+    if plan.kill_switch || plan.vpn_chain {
         let Some(step) = journal
             .steps
             .iter()
@@ -275,7 +278,7 @@ fn inspect_tunnel_sync(journal: &RecoveryJournal) -> Result<TunnelInspection, Ba
         else {
             return Ok(TunnelInspection::NeedsRecovery);
         };
-        if !wfp::kill_switch_present(&step.receipt).map_err(wfp_backend_error)? {
+        if !wfp::policy_present(&step.receipt, plan.kill_switch).map_err(wfp_backend_error)? {
             return Ok(TunnelInspection::NeedsRecovery);
         }
     }
@@ -345,6 +348,17 @@ fn apply_sync(
         }
         other @ MutationReceipt::KillSwitch { .. } => {
             let interface_luid = current_adapter_luid(inner)?;
+            if plan.vpn_chain && !plan.kill_switch {
+                let (receipt, guard) =
+                    wfp::apply_session_guard(other, plan, interface_luid, &caller.executable_path)
+                        .map_err(wfp_backend_error)?;
+                inner
+                    .resources
+                    .lock()
+                    .map_err(|_| backend_error("resource lock poisoned"))?
+                    .session_guard = Some(guard);
+                return Ok((receipt, StepOutput::default()));
+            }
             let receipt =
                 wfp::apply_kill_switch(other, plan, interface_luid, &caller.executable_path)
                     .map_err(|error| backend_error(error.to_string()))?;
@@ -556,6 +570,12 @@ fn restore_sync(
         )
         .map_err(network_backend_error),
         receipt @ MutationReceipt::KillSwitch { .. } => {
+            inner
+                .resources
+                .lock()
+                .map_err(|_| backend_error("resource lock poisoned"))?
+                .session_guard
+                .take();
             wfp::restore_kill_switch(receipt).map_err(wfp_backend_error)
         }
         receipt @ MutationReceipt::SystemProxy { .. } => {

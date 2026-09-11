@@ -40,6 +40,42 @@ class AppController extends ChangeNotifier {
   ];
 
   final EngineClient _engine;
+  Future<VpnGateDirectory> listVpnGate({
+    String? countryCode,
+    bool unknownCountry = false,
+    int offset = 0,
+    int limit = 50,
+  }) {
+    final engine = _engine;
+    if (engine is VpnGateClient) {
+      return (engine as VpnGateClient).listVpnGate(
+        countryCode: countryCode,
+        unknownCountry: unknownCountry,
+        offset: offset,
+        limit: limit,
+      );
+    }
+    return Future.error(
+      const EngineException(
+        'VPN_GATE_UNAVAILABLE',
+        'The catalogue service is unavailable.',
+      ),
+    );
+  }
+
+  Future<void> refreshVpnGate({bool cancel = false}) {
+    final engine = _engine;
+    if (engine is VpnGateClient) {
+      return (engine as VpnGateClient).refreshVpnGate(cancel: cancel);
+    }
+    return Future.error(
+      const EngineException(
+        'VPN_GATE_UNAVAILABLE',
+        'The catalogue service is unavailable.',
+      ),
+    );
+  }
+
   final UpdateDownloader _updateDownloader;
   final DiagnosticsController diagnostics;
   final NetworkQualityController quality;
@@ -408,6 +444,9 @@ class AppController extends ChangeNotifier {
   }
 
   void _requireDataPlaneCapability(UsqueProfile profile) {
+    if (profile.vpnGate.enabled && !(engineCapabilities?.vpnGateTcp ?? false)) {
+      throw EngineException('VPN_GATE_UNSUPPORTED', strings.vpnGateUnsupported);
+    }
     if (profile.dataPlane == DataPlaneMode.l4Proxy &&
         !(engineCapabilities?.l4Available ?? false)) {
       throw EngineException('L4_UNSUPPORTED', strings.get('l4_unsupported'));
@@ -989,6 +1028,7 @@ class AppController extends ChangeNotifier {
           sessionCongestionControl: snapshot.sessionCongestionControl,
           dataPlane: snapshot.dataPlane,
           l4: snapshot.l4,
+          vpnGate: snapshot.vpnGate,
           warning: lastError,
           errorCode: error is EngineException ? error.code : null,
           errorRetryable: error is EngineException ? error.retryable : null,
@@ -1239,6 +1279,11 @@ class AppController extends ChangeNotifier {
     List<String>? changedFields,
   }) {
     if (updated.id != activeProfileId) return Future.value(false);
+    if (updated.vpnGate.enabled && !(engineCapabilities?.vpnGateTcp ?? false)) {
+      lastError = strings.vpnGateUnsupported;
+      _notifyListeners();
+      return Future.value(false);
+    }
     if (updated.dataPlane == DataPlaneMode.l4Proxy &&
         !(engineCapabilities?.l4Available ?? false)) {
       lastError = strings.get('l4_unsupported');

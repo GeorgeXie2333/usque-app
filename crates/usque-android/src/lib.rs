@@ -122,6 +122,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCap
             "l4_tcp": engine_ready(),
             "l4_tun_tcp": engine_ready(),
             "l4_dns_conversion": engine_ready(),
+            "vpn_gate_tcp": engine_ready(),
             "network_quality": engine_ready() && usque_transport::PRODUCTION_NETWORK_FEATURES.network_quality_metrics,
             "encrypted_direct_dns": engine_ready() && usque_transport::ENCRYPTED_DIRECT_DNS_ENABLED,
             "quic_migration": engine_ready() && usque_transport::PRODUCTION_NETWORK_FEATURES.quic_migration,
@@ -300,7 +301,7 @@ fn native_start_proxy<'local>(
         Err(_) => return INVALID_WARP_SECRET,
     };
     let profile = match parse_android_profile(&profile_json) {
-        Ok(profile) if !profile.frontends.tunnel => profile,
+        Ok(profile) if !profile.frontends.tunnel || profile.vpn_gate.enabled => profile,
         _ => return START_INVALID_PROFILE,
     };
     let proxy_password = match environment.convert_byte_array(&proxy_password) {
@@ -337,6 +338,11 @@ fn native_start_proxy<'local>(
         Ok(service) => service,
         Err(_) => return START_PLATFORM_FAILURE,
     };
+    let policy = if profile.frontends.tunnel {
+        AndroidSocketRoutePolicy::Vpn
+    } else {
+        AndroidSocketRoutePolicy::Proxy
+    };
     start_proxy_engine(
         profile,
         identity,
@@ -344,7 +350,7 @@ fn native_start_proxy<'local>(
         Arc::new(AndroidSocketProtector {
             java_vm,
             service,
-            policy: AndroidSocketRoutePolicy::Proxy,
+            policy,
             network_generation: AtomicU64::new(network_generation),
         }),
     )
@@ -459,6 +465,25 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeAtt
             Err(_) => return START_INVALID_PROFILE,
         };
         attach_tun_engine(tun_file_descriptor, profile)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeRejectFinalNetwork<
+    'local,
+>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
+) -> jint {
+    with_jni_code(&mut environment, |_| {
+        #[cfg(target_os = "android")]
+        {
+            android_runtime::reject_final_network()
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            START_PLATFORM_FAILURE
+        }
     })
 }
 
@@ -796,6 +821,116 @@ fn native_apply_profile_command(
 }
 
 mod network_settings;
+mod vpngate;
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeVpnGate<'local>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    config_path: JString<'local>,
+    request_json: JString<'local>,
+    warp_secret: JByteArray<'local>,
+    vpn_service: JObject<'local>,
+) -> jstring {
+    with_jni_env(&mut environment, |environment| {
+        let result = (|| -> Result<String, String> {
+            let path = PathBuf::from(
+                config_path
+                    .try_to_string(environment)
+                    .map_err(|_| "VPN_GATE_REQUEST_INVALID")?,
+            );
+            let request = request_json
+                .try_to_string(environment)
+                .map_err(|_| "VPN_GATE_REQUEST_INVALID")?;
+            let request = vpngate::parse_request(&request)?;
+            #[cfg(target_os = "android")]
+            let networks = android_runtime::internal_networks();
+            #[cfg(not(target_os = "android"))]
+            let networks = None;
+            let context = if request.command == "refresh" && !request.cancel {
+                let secret = Zeroizing::new(
+                    environment
+                        .convert_byte_array(&warp_secret)
+                        .map_err(|_| "VPN_GATE_REQUEST_INVALID")?,
+                );
+                let identity = if secret.is_empty() {
+                    None
+                } else {
+                    Some(
+                        warp_identity_from_secret(&secret)
+                            .map_err(|_| "VPN_GATE_IDENTITY_INVALID")?,
+                    )
+                };
+                let allow_physical = environment
+                    .call_method(
+                        &vpn_service,
+                        jni_str!("cataloguePhysicalAllowed"),
+                        jni_sig!("()Z"),
+                        &[],
+                    )
+                    .and_then(|v| v.z())
+                    .unwrap_or(false)
+                    && networks.is_none();
+                let generation = environment
+                    .call_method(
+                        &vpn_service,
+                        jni_str!("getUnderlyingNetworkGeneration"),
+                        jni_sig!("()J"),
+                        &[],
+                    )
+                    .and_then(|v| v.j())
+                    .unwrap_or_default()
+                    .max(0) as u64;
+                let protector = Arc::new(AndroidSocketProtector {
+                    java_vm: environment
+                        .get_java_vm()
+                        .map_err(|_| "VPN_GATE_UNAVAILABLE")?,
+                    service: environment
+                        .new_global_ref(vpn_service)
+                        .map_err(|_| "VPN_GATE_UNAVAILABLE")?,
+                    policy: AndroidSocketRoutePolicy::Proxy,
+                    network_generation: AtomicU64::new(generation),
+                });
+                Some(vpngate::FetchContext {
+                    #[cfg(target_os = "android")]
+                    refresher: identity.as_ref().and_then(|_| {
+                        let profile = ConfigStore::new(&path).load().ok()?.active_profile()?;
+                        Some(Arc::new(AndroidEndpointPinRefresher {
+                            profile_id: profile.id.to_string(),
+                            identity: tokio::sync::Mutex::new(
+                                warp_identity_from_secret(&secret).ok()?,
+                            ),
+                            protector: protector.clone(),
+                        }) as Arc<dyn EndpointPinRefresher>)
+                    }),
+                    #[cfg(not(target_os = "android"))]
+                    refresher: None,
+                    identity,
+                    protector,
+                    networks,
+                    allow_physical,
+                })
+            } else {
+                None
+            };
+            vpngate::command(
+                &path,
+                request,
+                context,
+                engine_snapshot().vpn_gate.unwrap_or_default(),
+            )
+        })();
+        match result {
+            Ok(value) => environment
+                .new_string(value)
+                .map_or(std::ptr::null_mut(), |v| v.into_raw()),
+            Err(error) => {
+                throw_io_error(environment, &error);
+                std::ptr::null_mut()
+            }
+        }
+    })
+}
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeNetworkSettings<
@@ -880,6 +1015,8 @@ fn identity_metadata(secret: &[u8]) -> Result<IdentityMetadata, String> {
 
 #[derive(Debug, Deserialize)]
 struct AndroidProfile {
+    #[serde(default)]
+    vpn_gate: usque_core::vpngate::VpnGateSettings,
     #[serde(default)]
     data_plane: usque_core::DataPlaneMode,
     id: String,
@@ -1045,6 +1182,7 @@ fn android_profile_to_core(source: AndroidProfile) -> Result<Profile, String> {
     let http_ipv4: IpAddr = parse_value(&source.proxy.http_ipv4, "HTTP IPv4 listener")?;
     let http_ipv6: IpAddr = parse_value(&source.proxy.http_ipv6, "HTTP IPv6 listener")?;
     let mut profile = Profile {
+        vpn_gate: source.vpn_gate,
         id: parse_value(&source.id, "profile ID")?,
         data_plane: source.data_plane,
         name: source.name,
@@ -1215,6 +1353,7 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
     }
     let _lock = store.lock_exclusive().map_err(|error| error.to_string())?;
     let mut config = store.load_or_default().map_err(|error| error.to_string())?;
+    let previous_gate = config.network.vpn_gate.clone();
     let mut changed = false;
 
     match command {
@@ -1523,6 +1662,9 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
 
     config.validate().map_err(|error| error.to_string())?;
     if changed {
+        if config.network.vpn_gate != previous_gate {
+            vpngate::pin_settings(store.path(), &config.network.vpn_gate, &previous_gate)?;
+        }
         store.save(&config).map_err(|error| error.to_string())?;
         if clear_all_data {
             let _ = std::fs::remove_file(store.backup_path());
@@ -1667,6 +1809,7 @@ fn android_profile_value(
     let http_ipv6 = listener_for_family(&profile.proxy.http_listeners, false);
     serde_json::json!({
         "id": profile.id.to_string(),
+        "vpn_gate": profile.vpn_gate,
         "name": profile.name,
         "mode": match profile.mode {
             OperatingMode::Vpn => "vpn",
@@ -2520,6 +2663,10 @@ fn native_direct_dns_reason(value: DirectDnsReasonCode) -> &'static str {
 #[derive(Debug, Clone, Serialize)]
 struct NativeSnapshot {
     #[serde(skip_serializing_if = "Option::is_none")]
+    vpn_gate: Option<usque_core::vpngate::GateStatus>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    final_network: Option<usque_core::vpngate::FinalNetworkParameters>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     data_plane: Option<usque_core::DataPlaneMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
     l4: Option<usque_core::L4Snapshot>,
@@ -2564,6 +2711,8 @@ struct NativeSnapshot {
 impl NativeSnapshot {
     fn disconnected() -> Self {
         Self {
+            vpn_gate: None,
+            final_network: None,
             data_plane: None,
             l4: None,
             phase: "disconnected".to_owned(),
@@ -2617,6 +2766,9 @@ fn start_engine(
     geo_cache_dir: PathBuf,
     protector: Arc<AndroidSocketProtector>,
 ) -> jint {
+    if !vpngate::cancel_refresh() {
+        return START_PLATFORM_FAILURE;
+    }
     if !usque_transport::ENCRYPTED_DIRECT_DNS_ENABLED
         && profile.direct_dns.mode != DirectDnsMode::PhysicalSystem
     {
@@ -2651,6 +2803,9 @@ fn start_proxy_engine(
     geo_cache_dir: PathBuf,
     protector: Arc<AndroidSocketProtector>,
 ) -> jint {
+    if !vpngate::cancel_refresh() {
+        return START_PLATFORM_FAILURE;
+    }
     if !usque_transport::ENCRYPTED_DIRECT_DNS_ENABLED
         && profile.direct_dns.mode != DirectDnsMode::PhysicalSystem
     {
@@ -2672,6 +2827,9 @@ fn stop_engine() {
 }
 
 fn stop_engine_confirmed() -> bool {
+    if !vpngate::cancel_refresh() {
+        return false;
+    }
     #[cfg(target_os = "android")]
     {
         android_runtime::stop()
@@ -2683,11 +2841,13 @@ fn stop_engine_confirmed() -> bool {
 }
 
 fn cancel_engine() {
+    vpngate::signal_cancel();
     #[cfg(target_os = "android")]
     android_runtime::cancel();
 }
 
 fn notify_network_changed(generation: u64) {
+    vpngate::signal_cancel();
     #[cfg(target_os = "android")]
     android_runtime::notify_network_changed(generation);
     #[cfg(not(target_os = "android"))]
@@ -2706,6 +2866,9 @@ fn engine_snapshot() -> NativeSnapshot {
 }
 
 fn reconfigure_engine(profile: Profile) -> jint {
+    if !vpngate::cancel_refresh() {
+        return START_PLATFORM_FAILURE;
+    }
     #[cfg(target_os = "android")]
     {
         android_runtime::reconfigure(profile)
@@ -3384,6 +3547,33 @@ mod tests {
         let stored = ConfigStore::new(config_path).load().unwrap();
         assert_eq!(stored.network.endpoint, EndpointSettings::default());
         assert!(stored.profiles[0].managed_endpoint_ips.is_some());
+    }
+
+    #[test]
+    fn legacy_android_profile_api_cannot_persist_an_unpinned_gate_reference() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("profiles-v2.json");
+        let mut profile: serde_json::Value = serde_json::from_str(&valid_profile_json()).unwrap();
+        profile["vpn_gate"] = serde_json::json!({
+            "enabled": true,
+            "selection": {"server_id": format!("v1:{}", "0".repeat(64)), "config_sha256": "1".repeat(64)},
+        });
+        let result = apply_profile_command(
+            path.to_str().unwrap(),
+            &serde_json::json!({
+                "command": "upsert_profile", "profile": profile,
+            })
+            .to_string(),
+        );
+        assert_eq!(result.unwrap_err(), "VPN_GATE_SELECTION_STALE");
+        assert!(
+            !ConfigStore::new(path)
+                .load_or_default()
+                .unwrap()
+                .network
+                .vpn_gate
+                .enabled
+        );
     }
 
     #[test]

@@ -76,6 +76,14 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
                 changed_fields,
             };
             let commit = store.update(|config| {
+                if patch.changed_fields.iter().any(|f| f == "vpn_gate") {
+                    crate::vpngate::pin_settings(
+                        path,
+                        &patch.values.vpn_gate,
+                        &config.network.vpn_gate,
+                    )
+                    .map_err(StoreError::NetworkSettings)?;
+                }
                 merge_patch(config, &patch)
                     .map_err(|error| StoreError::NetworkSettings(error.to_string()))
             });

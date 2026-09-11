@@ -568,10 +568,13 @@ impl SplitDnsRuntime {
         cancellation: &CancellationToken,
     ) -> Result<Self, String> {
         if config.tunnel_dns_servers.is_empty() {
-            return Err("the WARP DNS server list is empty".to_owned());
+            return Err("the final DNS server list is empty".to_owned());
         }
         let encrypted = config.protector.direct_dns_resolver().is_some();
-        if !encrypted && config.protector.physical_dns_servers().is_empty() {
+        if config.policy.is_enabled()
+            && !encrypted
+            && config.protector.physical_dns_servers().is_empty()
+        {
             return Err("the selected physical network has no DNS server".to_owned());
         }
         let udp_v4 = internal_channel
@@ -1773,11 +1776,13 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn physical_resolver_retries_truncated_udp_over_tcp() {
-        let udp = tokio::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0))
+        // Windows reserves some TCP ranges independently of UDP. Let TCP
+        // choose its ephemeral port before binding the matching UDP endpoint.
+        let tcp = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
             .await
             .unwrap();
-        let port = udp.local_addr().unwrap().port();
-        let tcp = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, port))
+        let port = tcp.local_addr().unwrap().port();
+        let udp = tokio::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, port))
             .await
             .unwrap();
         let udp_task = tokio::spawn(async move {

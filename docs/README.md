@@ -15,6 +15,7 @@ Release 的说明及标签下文档。历史验收记录只适用于其注明的
 | [Installation and removal](INSTALLATION.md) | Package verification, upgrades, uninstall, recovery, and version applicability / 校验、升级、卸载、恢复与适用版本 |
 | [Network Doctor](network-doctor.md) | Standard and Deep checks, limits, and local reports / 本地诊断与结果边界 |
 | [Encrypted direct DNS](encrypted-direct-dns.md) | System, DoH, DoT, configuration, and privacy / 直连 DNS 配置及隐私 |
+| [WARP → VPN Gate](VPN_GATE.md) | Optional final exit, server selection, lifecycle and verification / 附加出口、选服、生命周期与验证 |
 | [Experimental Zero Trust](ZERO_TRUST_EXPERIMENTAL.md) | Enrollment, unsupported features, and validation requirements / 实验性注册、限制与验证要求 |
 | [Security policy](../SECURITY.md) | Private vulnerability reporting and supported versions / 私密漏洞报告与支持范围 |
 

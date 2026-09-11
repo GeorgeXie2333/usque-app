@@ -59,6 +59,8 @@ message AgentCapabilities {
   // The Agent can run bounded, exact-operation recovery retries without an
   // Engine connection and expose their sanitized in-memory status.
   bool automatic_recovery = 14;
+  // Supports a protected bootstrap followed by final VPN address assignment.
+  bool deferred_network_configuration = 15;
 }
 
 message TunnelPlan {
@@ -81,6 +83,22 @@ message TunnelPlan {
   // The Wintun interface publishes Engine-owned Split DNS addresses and must
   // receive exact host routes for them even when LAN exclusions overlap.
   bool split_dns = 12;
+  // The final exit is carried by WARP and may expose only one payload family.
+  bool vpn_chain = 13;
+  // Prepare only bootstrap protection. Commit requires FinalizeTunnel first.
+  bool defer_network_configuration = 14;
+}
+
+message FinalizeTunnelRequest {
+  string operation_id = 1;
+  TunnelPlan plan = 2;
+}
+
+// Retains this operation's adapter and bootstrap permits, and installs chain
+// protection before the Engine replaces any final packet session.
+message BeginChainTransitionRequest {
+  string operation_id = 1;
+  bool retain_startup_lease = 2;
 }
 
 message GetCapabilitiesRequest {}
@@ -217,6 +235,9 @@ message AgentState {
   uint64 journal_generation = 7;
   repeated string warnings = 8;
   AutomaticRecoveryStatus automatic_recovery = 9;
+  // Authenticated callers can retain the original bootstrap policy when
+  // applying a newly negotiated final network to this operation.
+  TunnelPlan plan = 10;
 }
 
 message AutomaticRecoveryStatus {
@@ -264,6 +285,8 @@ message AgentRequest {
     InspectPlatformStateRequest inspect_platform_state = 25;
     RecoverOrphanedRequest recover_orphaned = 26;
     RestartAutomaticRecoveryRequest restart_automatic_recovery = 27;
+    FinalizeTunnelRequest finalize_tunnel = 28;
+    BeginChainTransitionRequest begin_chain_transition = 29;
   }
 }
 

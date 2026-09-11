@@ -7,6 +7,7 @@ import 'l10n/l4.dart';
 import 'l10n/network_quality.dart';
 import 'l10n/network_settings.dart';
 import 'l10n/ui_workflow.dart';
+import 'l10n/vpngate.dart';
 import 'l10n/windows_recovery.dart';
 
 class AppStrings {
@@ -17,6 +18,9 @@ class AppStrings {
       );
 
   final String catalogId;
+
+  String get vpnGateUnsupported =>
+      get('l4_unsupported').replaceAll('L4', 'VPN Gate');
 
   String? windowsRecoveryError(String? code, {String? details}) {
     final message =
@@ -34,6 +38,8 @@ class AppStrings {
       catalogId.startsWith('zh') ? 'zh' : catalogId.split('_').first;
 
   String get(String key) {
+    final gate = kVpnGateCatalogs[catalogId] ?? kVpnGateEn;
+    if (gate.containsKey(key)) return gate[key]!;
     final l4 = kL4Catalogs[catalogId] ?? kL4En;
     if (l4.containsKey(key)) return l4[key]!;
     final settings = kNetworkSettingsCatalogs[catalogId] ?? kNetworkSettingsEn;
@@ -67,6 +73,7 @@ class AppStrings {
         !_featureTablesComplete(kWindowsRecoveryCatalogs, kWindowsRecoveryEn) ||
         !_featureTablesComplete(kNetworkQualityCatalogs, kNetworkQualityEn) ||
         !_featureTablesComplete(kL4Catalogs, kL4En) ||
+        !_featureTablesComplete(kVpnGateCatalogs, kVpnGateEn) ||
         !_featureTablesComplete(kNetworkSettingsCatalogs, kNetworkSettingsEn)) {
       return false;
     }
@@ -153,6 +160,7 @@ class AppStrings {
     scan(kNetworkQualityCatalogs, kNetworkQualityEn);
     scan(kWindowsRecoveryCatalogs, kWindowsRecoveryEn);
     scan(kL4Catalogs, kL4En);
+    scan(kVpnGateCatalogs, kVpnGateEn);
     scan(kNetworkSettingsCatalogs, kNetworkSettingsEn);
     for (final catalogEntry in kWindowsAdapterCleanupCatalogs.entries) {
       if (catalogEntry.key == 'en') {
@@ -179,6 +187,7 @@ class AppStrings {
           kWindowsRecoveryCatalogs.values,
         ) ||
         !_placeholdersPreserved(kL4En, kL4Catalogs.values) ||
+        !_placeholdersPreserved(kVpnGateEn, kVpnGateCatalogs.values) ||
         !_placeholdersPreserved(
           kNetworkSettingsEn,
           kNetworkSettingsCatalogs.values,

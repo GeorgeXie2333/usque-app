@@ -126,6 +126,61 @@ impl HarnessRuntime {
 }
 
 impl ActiveRuntime {
+    pub(crate) fn quiesce_final(&mut self) {
+        match self {
+            Self::Proxy(r) => r.runtime.quiesce_final(),
+            #[cfg(windows)]
+            Self::Vpn(r) => r.quiesce_final(),
+            #[cfg(test)]
+            Self::Harness(r) => {
+                r.listeners.clear();
+                r.socks5_listeners.clear();
+                r.http_listeners.clear();
+            }
+        }
+    }
+    pub(crate) async fn fail_gate(&mut self, reason: usque_core::vpngate::GateFailure) {
+        match self {
+            Self::Proxy(r) => r.runtime.fail_gate(reason).await,
+            #[cfg(windows)]
+            Self::Vpn(r) => r.fail_gate(reason).await,
+            #[cfg(test)]
+            Self::Harness(_) => {}
+        }
+    }
+    pub(crate) fn internal_networks(
+        &self,
+    ) -> Option<(
+        usque_transport::InternalNetwork,
+        usque_transport::InternalNetwork,
+    )> {
+        match self {
+            Self::Proxy(r) => Some((
+                r.runtime.internal_network(),
+                r.runtime.warp_internal_network(),
+            )),
+            #[cfg(windows)]
+            Self::Vpn(r) => r.internal_networks(),
+            #[cfg(test)]
+            Self::Harness(_) => None,
+        }
+    }
+    pub(crate) fn gate_status(&self) -> usque_core::vpngate::GateStatus {
+        match self {
+            Self::Proxy(r) => r.runtime.gate_status(),
+            #[cfg(windows)]
+            Self::Vpn(r) => r.gate_status(),
+            #[cfg(test)]
+            Self::Harness(_) => Default::default(),
+        }
+    }
+    pub(crate) fn needs_warp_bootstrap(&self) -> bool {
+        #[cfg(windows)]
+        if let Self::Vpn(runtime) = self {
+            return runtime.needs_warp_bootstrap();
+        }
+        false
+    }
     pub(crate) fn l4_snapshot(&self) -> Option<usque_core::L4Snapshot> {
         match self {
             Self::Proxy(runtime) => runtime.runtime.l4_snapshot(),

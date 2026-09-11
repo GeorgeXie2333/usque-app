@@ -2,7 +2,10 @@ import 'package:flutter/foundation.dart';
 
 import 'diagnostics_models.dart';
 import 'l4_performance.dart';
+import 'vpngate_models.dart';
+
 export 'l4_performance.dart';
+export 'vpngate_models.dart';
 
 enum AppSection { home, profiles, proxy, settings }
 
@@ -692,6 +695,7 @@ class UsqueProfile {
     this.proxy = const ProxySettings(),
     this.frontends = const FrontendSettings.windowsDefault(),
     this.directDns = const DirectDnsSettings(),
+    this.vpnGate = const VpnGateSettings(),
   });
 
   static const defaultEndpointIpv4 = '162.159.198.2';
@@ -726,6 +730,7 @@ class UsqueProfile {
   final ProxySettings proxy;
   final FrontendSettings frontends;
   final DirectDnsSettings directDns;
+  final VpnGateSettings vpnGate;
 
   factory UsqueProfile.defaultProfile() {
     final android = defaultTargetPlatform == TargetPlatform.android;
@@ -795,6 +800,7 @@ class UsqueProfile {
     ProxySettings? proxy,
     FrontendSettings? frontends,
     DirectDnsSettings? directDns,
+    VpnGateSettings? vpnGate,
   }) {
     final nextFrontends = frontends ?? this.frontends;
     final nextMode = frontends != null
@@ -824,6 +830,7 @@ class UsqueProfile {
       proxy: proxy ?? this.proxy,
       frontends: nextFrontends,
       directDns: directDns ?? this.directDns,
+      vpnGate: vpnGate ?? this.vpnGate,
     );
   }
 
@@ -834,6 +841,7 @@ class UsqueProfile {
       'mode': modeFromFrontends(frontends).name,
       'transport': transport.name,
       'data_plane': dataPlane.wireName,
+      'vpn_gate': vpnGate.toMap(),
       'congestion_control': congestionControl.name,
       'ip_policy': ipPolicy.name,
       'endpoint_v4': endpointIpv4,
@@ -897,6 +905,9 @@ class UsqueProfile {
       id: id,
       name: name,
       mode: modeFromFrontends(migratedFrontends),
+      vpnGate: map['vpn_gate'] is Map
+          ? VpnGateSettings.fromMap(map['vpn_gate'] as Map)
+          : const VpnGateSettings(),
       transport: _enumByName(TransportPolicy.values, _string(map, 'transport')),
       dataPlane: map.containsKey('data_plane')
           ? DataPlaneMode.fromWire(map['data_plane']) ??
@@ -1828,6 +1839,7 @@ class NetworkQualitySnapshot {
 
 class EngineCapabilities {
   const EngineCapabilities({
+    this.vpnGateTcp = false,
     this.networkSettingsApplication = false,
     this.l4Tcp = false,
     this.l4TunTcp = false,
@@ -1841,6 +1853,7 @@ class EngineCapabilities {
 
   factory EngineCapabilities.fromMap(Map<Object?, Object?> map) =>
       EngineCapabilities(
+        vpnGateTcp: map['vpn_gate_tcp'] == true,
         networkSettingsApplication: map['network_settings_application'] == true,
         l4Tcp: map['l4_tcp'] == true,
         l4TunTcp: map['l4_tun_tcp'] == true,
@@ -1861,6 +1874,7 @@ class EngineCapabilities {
       );
 
   final bool networkQuality;
+  final bool vpnGateTcp;
   final bool networkSettingsApplication;
   final bool l4Tcp;
   final bool l4TunTcp;
@@ -1875,6 +1889,7 @@ class EngineCapabilities {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is EngineCapabilities &&
+          vpnGateTcp == other.vpnGateTcp &&
           networkSettingsApplication == other.networkSettingsApplication &&
           l4Tcp == other.l4Tcp &&
           l4TunTcp == other.l4TunTcp &&
@@ -1891,6 +1906,7 @@ class EngineCapabilities {
   @override
   int get hashCode => Object.hash(
     networkSettingsApplication,
+    vpnGateTcp,
     l4Tcp,
     l4TunTcp,
     l4DnsConversion,
@@ -2037,6 +2053,7 @@ class L4Snapshot {
 
 class EngineSnapshot {
   const EngineSnapshot({
+    this.vpnGate = const VpnGateStatus(),
     this.sessionCongestionControl,
     this.dataPlane,
     this.l4,
@@ -2063,6 +2080,7 @@ class EngineSnapshot {
   });
 
   final ConnectionPhase phase;
+  final VpnGateStatus vpnGate;
   final CongestionControlAlgorithm? sessionCongestionControl;
   final DataPlaneMode? dataPlane;
   final L4Snapshot? l4;
@@ -2109,6 +2127,9 @@ class EngineSnapshot {
       phase: parsePhase(map['phase'] as String?),
       dataPlane: DataPlaneMode.fromWire(map['data_plane']),
       l4: map['l4'] is Map ? L4Snapshot.fromMap(map['l4'] as Map) : null,
+      vpnGate: map['vpn_gate'] is Map
+          ? VpnGateStatus.fromMap(map['vpn_gate'] as Map)
+          : const VpnGateStatus(),
       sessionCongestionControl: CongestionControlAlgorithm.values
           .where(
             (algorithm) => algorithm.name == map['session_congestion_control'],
@@ -2187,6 +2208,7 @@ class EngineSnapshot {
         other is EngineSnapshot &&
             sessionCongestionControl == other.sessionCongestionControl &&
             dataPlane == other.dataPlane &&
+            vpnGate == other.vpnGate &&
             l4 == other.l4 &&
             phase == other.phase &&
             transport == other.transport &&
@@ -2214,6 +2236,7 @@ class EngineSnapshot {
   int get hashCode => Object.hashAll(<Object?>[
     sessionCongestionControl,
     dataPlane,
+    vpnGate,
     l4,
     phase,
     transport,

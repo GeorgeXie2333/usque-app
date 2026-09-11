@@ -9,6 +9,15 @@ import java.net.InetAddress
 
 class AndroidVpnConfigurationTest {
     @Test
+    fun gateRemoteDnsUsesInternalRoutesAndPreservesExplicitLocalDns() {
+        val gate = profile("automatic").copy(vpnGateEnabled = true, allowLan = true)
+        assertTrue(gate.splitDnsEnabled)
+        assertEquals(false, gate.requiresPhysicalDns)
+        assertEquals(false, gate.copy(dnsMode = "localConfigured").splitDnsEnabled)
+        assertTrue(gate.copy(dnsMode = "localConfigured", geoDirectCountries = listOf("CN")).splitDnsEnabled)
+    }
+
+    @Test
     fun l4AlwaysAddsInternalDnsWithoutRequiringPhysicalDnsOrGeo() {
         val l4 = profile("ipv4Only").copy(dataPlane = "l4_proxy")
         assertTrue(l4.splitDnsEnabled)

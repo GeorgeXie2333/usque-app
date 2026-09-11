@@ -454,6 +454,9 @@ pub struct Profile {
     /// physical network. The default preserves the system-resolver behavior.
     #[serde(default)]
     pub direct_dns: DirectDnsSettings,
+    /// Additional final exit; independent from the WARP transport/backend.
+    #[serde(default)]
+    pub vpn_gate: crate::vpngate::VpnGateSettings,
 }
 
 impl Default for Profile {
@@ -478,6 +481,7 @@ impl Default for Profile {
             proxy: ProxySettings::default(),
             geo_direct_countries: Vec::new(),
             direct_dns: DirectDnsSettings::default(),
+            vpn_gate: crate::vpngate::VpnGateSettings::default(),
         };
         profile.canonicalize_mode();
         profile
@@ -502,6 +506,10 @@ impl Profile {
             return Err(ConfigError::InvalidProfileName);
         }
         self.endpoint.validate()?;
+
+        self.vpn_gate
+            .validate()
+            .map_err(|_| ConfigError::InvalidVpnGateSelection)?;
 
         if !(1280..=9000).contains(&self.mtu) {
             return Err(ConfigError::InvalidMtu(self.mtu));
@@ -591,6 +599,7 @@ impl Profile {
         self.proxy = ProxySettings::default();
         self.geo_direct_countries.clear();
         self.direct_dns = DirectDnsSettings::default();
+        self.vpn_gate = crate::vpngate::VpnGateSettings::default();
     }
 
     pub fn canonicalize_geo_direct(&mut self) -> Result<(), ConfigError> {
@@ -1220,6 +1229,8 @@ fn valid_dns_name(value: &str) -> bool {
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ConfigError {
+    #[error("VPN Gate requires a valid pinned server selection")]
+    InvalidVpnGateSelection,
     #[error("edge-resolved proxy DNS requires the L4 data plane")]
     EdgeDnsRequiresL4,
     #[error("profile name must contain 1 to 64 visible characters")]

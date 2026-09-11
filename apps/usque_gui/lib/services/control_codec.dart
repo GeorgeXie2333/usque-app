@@ -101,6 +101,16 @@ class ControlCodec {
       _congestionControlWireValue(profile.congestionControl),
     );
     writer.enumeration(19, profile.dataPlane.index + 1);
+    if (profile.vpnGate != const VpnGateSettings()) {
+      writer.message(
+        20,
+        (ControlPayloadWriter()
+              ..boolean(1, profile.vpnGate.enabled)
+              ..string(2, profile.vpnGate.serverId)
+              ..string(3, profile.vpnGate.configSha256))
+            .takeBytes(),
+      );
+    }
     return writer.takeBytes();
   }
 
@@ -132,6 +142,7 @@ class ControlCodec {
       NetworkQualitySnapshot? networkQuality;
       EngineCapabilities? capabilities;
       NetworkSettingsState? networkSettings;
+      VpnGateDirectory? vpnGateDirectory;
       while (!reader.isDone) {
         final field = reader.field();
         switch (field.number) {
@@ -159,6 +170,10 @@ class ControlCodec {
             networkQuality = _decodeNetworkQuality(reader.message(field));
           case 22:
             networkSettings = _decodeNetworkSettings(reader.message(field));
+          case 23:
+            vpnGateDirectory = VpnGateDirectory.fromMap(
+              _decodeVpnGate(reader.message(field), 'directory'),
+            );
           case 15:
             capabilities = _decodeCapabilities(reader.message(field));
           default:
@@ -189,6 +204,7 @@ class ControlCodec {
         networkQuality: networkQuality,
         capabilities: capabilities,
         networkSettings: networkSettings,
+        vpnGateDirectory: vpnGateDirectory,
       );
     } on FormatException catch (error) {
       throw _invalidIpcResponse(error);
@@ -328,6 +344,7 @@ class ControlResponse {
     this.networkQuality,
     this.capabilities,
     this.networkSettings,
+    this.vpnGateDirectory,
   });
 
   final EngineSnapshot? snapshot;
@@ -340,6 +357,7 @@ class ControlResponse {
   final NetworkQualitySnapshot? networkQuality;
   final EngineCapabilities? capabilities;
   final NetworkSettingsState? networkSettings;
+  final VpnGateDirectory? vpnGateDirectory;
 }
 
 /// Minimal protobuf field writer for control request payloads.
@@ -397,6 +415,99 @@ class ControlPayloadWriter {
       _bytes.addByte(byte);
     } while (value != 0);
   }
+}
+
+Map<String, Object?> _decodeVpnGate(_ProtoReader reader, String kind) {
+  const schemas = <String, Map<int, (String, String)>>{
+    'settings': {
+      1: ('enabled', 'b'),
+      2: ('server_id', 's'),
+      3: ('config_sha256', 's'),
+    },
+    'server': {
+      1: ('id', 's'),
+      2: ('hostname', 's'),
+      3: ('ip', 's'),
+      4: ('country_code', 's'),
+      5: ('country_name', 's'),
+      6: ('score', 'u'),
+      7: ('ping_ms', 'u'),
+      8: ('speed_bps', 'u'),
+      9: ('num_vpn_sessions', 'u'),
+      10: ('config_sha256', 's'),
+      11: ('unsupported_reason', 's'),
+    },
+    'country': {
+      1: ('country_code', 's'),
+      2: ('country_name', 's'),
+      3: ('server_count', 'u'),
+    },
+    'network': {
+      1: ('ipv4', 's'),
+      2: ('ipv6', 's'),
+      3: ('dns_servers', 's'),
+      4: ('mtu', 'u'),
+    },
+    'status': {
+      1: ('stage', 's'),
+      2: ('generation', 'u'),
+      3: ('current_server', 'server'),
+      4: ('network', 'network'),
+      5: ('failure', 's'),
+      6: ('warp_stage', 's'),
+    },
+    'directory': {
+      1: ('servers', 'server'),
+      2: ('countries', 'country'),
+      3: ('total', 'u'),
+      4: ('source_server_count', 'u'),
+      5: ('fetched_at_unix_ms', 'u'),
+      6: ('source_url', 's'),
+      7: ('refresh_stage', 's'),
+      8: ('refresh_failures', 's'),
+      9: ('cached', 'b'),
+      10: ('status', 'status'),
+      11: ('saved_server', 'server'),
+    },
+  };
+  final schema = schemas[kind]!;
+  final result = <String, Object?>{};
+  while (!reader.isDone) {
+    final field = reader.field();
+    final definition = schema[field.number];
+    if (definition == null) {
+      reader.skip(field);
+      continue;
+    }
+    final (key, type) = definition;
+    final Object value = switch (type) {
+      's' => reader.string(field),
+      'u' => reader.varint(field),
+      'b' => reader.varint(field) != 0,
+      _ => _decodeVpnGate(reader.message(field), type),
+    };
+    if (const [
+      'servers',
+      'countries',
+      'dns_servers',
+      'refresh_failures',
+    ].contains(key)) {
+      final list = result.putIfAbsent(key, () => <Object>[]) as List<Object>;
+      list.add(value);
+      final limit = switch (key) {
+        'servers' => 100,
+        'countries' => 676,
+        'dns_servers' => 8,
+        _ => 16,
+      };
+      if (list.length > limit) {
+        throw const FormatException('VPN Gate metadata exceeds its bound');
+      }
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
 }
 
 @visibleForTesting
@@ -552,6 +663,7 @@ ProfileCatalog _decodeProfileCatalog(_ProtoReader reader) {
 }
 
 UsqueProfile _decodeProfile(_ProtoReader reader) {
+  var vpnGate = const VpnGateSettings();
   final defaults = UsqueProfile.defaultProfile();
   var id = defaults.id;
   var name = defaults.name;
@@ -677,6 +789,10 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
         dataPlane = value == 0
             ? DataPlaneMode.connectIp
             : _decodeIndexedEnum(DataPlaneMode.values, value, 'data plane');
+      case 20:
+        vpnGate = VpnGateSettings.fromMap(
+          _decodeVpnGate(reader.message(field), 'settings'),
+        );
       default:
         reader.skip(field);
     }
@@ -694,6 +810,7 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
     mode: mode,
     transport: transport,
     dataPlane: dataPlane,
+    vpnGate: vpnGate,
     congestionControl: congestionControl,
     ipPolicy: ipPolicy,
     endpointIpv4: endpointIpv4,
@@ -1302,6 +1419,7 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
   var l4Tcp = false;
   var l4TunTcp = false;
   var l4DnsConversion = false;
+  var vpnGateTcp = false;
   final congestionAlgorithms = <CongestionControlAlgorithm>[];
   var networkQuality = false;
   var encryptedDirectDns = false;
@@ -1318,6 +1436,8 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
         l4TunTcp = reader.varint(field) != 0;
       case 28:
         l4DnsConversion = reader.varint(field) != 0;
+      case 29:
+        vpnGateTcp = reader.varint(field) != 0;
       case 20:
         networkQuality = reader.varint(field) != 0;
       case 21:
@@ -1349,6 +1469,7 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
     l4Tcp: l4Tcp,
     l4TunTcp: l4TunTcp,
     l4DnsConversion: l4DnsConversion,
+    vpnGateTcp: vpnGateTcp,
     h3CongestionControlAlgorithms: List.unmodifiable(congestionAlgorithms),
     networkQuality: networkQuality,
     encryptedDirectDns: encryptedDirectDns,
@@ -2213,6 +2334,7 @@ _StructuredEngineError _decodeError(_ProtoReader reader) {
 }
 
 EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
+  var vpnGate = const VpnGateStatus();
   CongestionControlAlgorithm? sessionCongestionControl;
   DataPlaneMode? dataPlane;
   L4Snapshot? l4;
@@ -2297,6 +2419,10 @@ EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
         };
       case 20:
         l4 = _decodeL4Snapshot(reader.message(field));
+      case 21:
+        vpnGate = VpnGateStatus.fromMap(
+          _decodeVpnGate(reader.message(field), 'status'),
+        );
       default:
         // Includes reserved field 14 (legacy captive-portal countdown).
         reader.skip(field);
@@ -2307,6 +2433,7 @@ EngineSnapshot _decodeSnapshot(_ProtoReader reader) {
     sessionCongestionControl: sessionCongestionControl,
     dataPlane: dataPlane,
     l4: l4,
+    vpnGate: vpnGate,
     transport: transport,
     addressFamily: family,
     connectedAt: connectedSeconds == 0

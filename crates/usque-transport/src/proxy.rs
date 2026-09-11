@@ -22,6 +22,39 @@ pub struct ProxyRuntime {
 }
 
 impl ProxyRuntime {
+    pub fn quiesce_final(&mut self) {
+        self.inner_mut().quiesce_final();
+    }
+    pub async fn fail_gate(&mut self, reason: usque_core::vpngate::GateFailure) {
+        self.inner_mut().fail_gate(reason).await;
+    }
+    pub async fn replace_gate(
+        &mut self,
+        profile: &Profile,
+        selected: Option<(
+            usque_core::vpngate::ServerSummary,
+            usque_core::vpngate::PreparedProfile,
+        )>,
+        policy: Arc<GeoDirectPolicy>,
+        status: tokio::sync::watch::Sender<usque_core::vpngate::GateStatus>,
+    ) -> Result<(), TransportError> {
+        self.inner_mut()
+            .replace_gate(profile, selected, policy, status)
+            .await?;
+        self.activate_final().await
+    }
+    pub async fn activate_final(&mut self) -> Result<(), TransportError> {
+        self.inner_mut().activate_final().await
+    }
+    pub fn internal_network(&self) -> crate::InternalNetwork {
+        self.inner().internal_network()
+    }
+    pub fn warp_internal_network(&self) -> crate::InternalNetwork {
+        self.inner().warp_internal_network()
+    }
+    pub fn gate_status(&self) -> usque_core::vpngate::GateStatus {
+        self.inner().gate_status()
+    }
     fn inner(&self) -> &DataPlaneRuntime {
         self.runtime.as_ref().expect("proxy MASQUE runtime")
     }

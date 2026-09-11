@@ -32,6 +32,7 @@ macro_rules! network_fields {
             "auto_connect" => auto_connect,
             "geo_direct_countries" => geo_direct_countries,
             "direct_dns" => direct_dns,
+            "vpn_gate" => vpn_gate,
             "proxy.socks5_listeners" => proxy.socks5_listeners,
             "proxy.http_listeners" => proxy.http_listeners,
             "proxy.system_proxy" => proxy.system_proxy,

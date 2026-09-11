@@ -50,6 +50,9 @@ jobs:
       - name: Validate repository policy
         run: python tool/check_repository_policy.py
 
+      - name: Verify embedded VPN sources and licenses
+        run: python tool/check_openvpn_sources.py
+
   rust:
     name: Rust format, lint, and tests
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
@@ -78,6 +81,11 @@ jobs:
 
       - name: Test
         run: cargo test --workspace --all-targets --locked
+
+      - name: Verify in-memory OpenVPN TLS and data channel
+        run: |
+          cargo clippy -p usque-openvpn --all-targets --features interop-test --locked -- -D warnings
+          cargo test -p usque-openvpn --features interop-test --locked
 
       - name: Test pinned quiche recovery and BBRv3 independently
         run: |

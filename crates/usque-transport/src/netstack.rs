@@ -68,6 +68,14 @@ const RECONNECT_DELAYS: [Duration; 6] = [
     Duration::from_secs(30),
 ];
 
+pub(crate) fn reconnect_delay(attempt: u32) -> Duration {
+    jitter_duration(
+        RECONNECT_DELAYS[(attempt.saturating_sub(1) as usize).min(RECONNECT_DELAYS.len() - 1)],
+        H3_PROBE_JITTER_PERCENT,
+        attempt,
+    )
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimePath {
     pub transport: Transport,
@@ -211,7 +219,11 @@ impl PacketStack {
         let channel = stack.command_channel();
         let stack_task = stack.spawn_tokio();
         channel
-            .set_ips([IpAddr::V4(assigned_ipv4), IpAddr::V6(assigned_ipv6)])
+            .set_ips(
+                [IpAddr::V4(assigned_ipv4), IpAddr::V6(assigned_ipv6)]
+                    .into_iter()
+                    .filter(|ip| !ip.is_unspecified()),
+            )
             .await
             .map_err(|error| TransportError::Netstack(error.to_string()))?;
 
@@ -470,6 +482,17 @@ pub struct ManagedTunnelRuntime {
     tasks: Vec<JoinHandle<()>>,
 }
 
+/// Protocol-neutral packet boundary for an embedded, in-memory VPN. The
+/// producer owns cleanup; the existing mux owns these bounded packet queues.
+pub(crate) struct ExternalPacketChannels {
+    pub(crate) outgoing: TrackedReceiver<Bytes>,
+    pub(crate) incoming: TrackedSender<PacketBatch>,
+    pub(crate) health: watch::Sender<RuntimeHealth>,
+    pub(crate) failure: watch::Sender<Option<String>>,
+    pub(crate) counters: Arc<TrafficCounters>,
+    pub(crate) cancellation: CancellationToken,
+}
+
 /// Read-only, cloneable view of a managed tunnel's live state.
 ///
 /// Platform packet pumps own the mutable [`ManagedTunnelRuntime`] so they can
@@ -526,6 +549,25 @@ impl ManagedTunnelSender {
 }
 
 impl ManagedTunnelMonitor {
+    /// A platform guard can outlive a failed initial handshake. This monitor
+    /// carries the failure without constructing an IP stack or data channel.
+    pub fn failed(path: RuntimePath, error: &TransportError) -> Self {
+        let telemetry = ConnectionTelemetry::default();
+        Self {
+            failure: watch::channel(Some(error.to_string())).1,
+            health: watch::channel(RuntimeHealth::Failed {
+                last_path: path,
+                reconnect_count: 0,
+                message: error.to_string(),
+                failure: error.failure(None, None),
+            })
+            .1,
+            control: watch::channel(PeerNetworkState::default()).1,
+            counters: Arc::new(TrafficCounters::default()),
+            quality: initial_quality_receiver(&telemetry),
+            telemetry,
+        }
+    }
     pub(crate) fn for_streams(
         health: watch::Receiver<RuntimeHealth>,
         counters: Arc<TrafficCounters>,
@@ -605,7 +647,6 @@ impl ManagedTunnelMonitor {
     }
 }
 
-#[cfg(test)]
 fn initial_quality_receiver(
     telemetry: &ConnectionTelemetry,
 ) -> watch::Receiver<NetworkQualitySnapshot> {
@@ -614,6 +655,56 @@ fn initial_quality_receiver(
 }
 
 impl ManagedTunnelRuntime {
+    pub(crate) fn for_external_packets(path: RuntimePath) -> (Self, ExternalPacketChannels) {
+        let telemetry = ConnectionTelemetry::default();
+        let quality = telemetry.network_quality();
+        let cancellation = CancellationToken::new();
+        // Two MiB in each direction, independently of the native core queues.
+        let (outgoing, outgoing_rx) = tracked_channel(quality.register_queue(
+            QueueKind::TransportOutgoingPackets,
+            256,
+            2 * 1024 * 1024,
+        ));
+        let (incoming_tx, incoming) = tracked_channel(quality.register_queue(
+            QueueKind::TransportToTun,
+            256,
+            2 * 1024 * 1024,
+        ));
+        let (failure_tx, failure) = watch::channel(None);
+        let (health_tx, health) = watch::channel(RuntimeHealth::Connected {
+            path,
+            reconnect_count: 0,
+        });
+        let counters = Arc::new(TrafficCounters::default());
+        let (quality, sampler) = spawn_network_quality_sampler_with_counters(
+            quality,
+            counters.clone(),
+            cancellation.child_token(),
+        );
+        (
+            Self {
+                outgoing: Some(outgoing),
+                incoming,
+                pending_incoming: PacketBatch::new(),
+                cancellation: cancellation.clone(),
+                failure,
+                health,
+                control: watch::channel(PeerNetworkState::default()).1,
+                counters: counters.clone(),
+                telemetry,
+                quality,
+                tasks: vec![sampler],
+            },
+            ExternalPacketChannels {
+                outgoing: outgoing_rx,
+                incoming: incoming_tx,
+                health: health_tx,
+                failure: failure_tx,
+                counters,
+                cancellation,
+            },
+        )
+    }
     #[cfg(test)]
     pub(crate) fn packet_mux_test_channels(
         outgoing_capacity: usize,

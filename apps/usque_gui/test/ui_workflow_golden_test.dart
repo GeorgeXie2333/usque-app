@@ -11,6 +11,7 @@ import 'package:usque/screens/advanced_settings_screen.dart';
 import 'package:usque/screens/diagnostics_screen.dart';
 import 'package:usque/screens/onboarding_screen.dart';
 import 'package:usque/screens/shell_screen.dart';
+import 'package:usque/screens/vpn_gate_screen.dart';
 import 'package:usque/state/app_controller.dart';
 import 'package:usque/state/network_quality_controller.dart';
 import 'package:usque/state/window_frame.dart';
@@ -20,6 +21,7 @@ import 'package:usque/widgets/window_titlebar.dart';
 
 import 'quality_test_support.dart' show qualityFixture;
 import 'ui_workflow_test.dart' show WorkflowEngine, workflowHost;
+import 'vpngate_test.dart' show GateEngine;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -55,6 +57,50 @@ void main() {
           .load();
     }
   });
+
+  testWidgets('VPN Gate selection layout on desktop and phone', (tester) async {
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    tester.view.devicePixelRatio = 1;
+    for (final phone in [false, true]) {
+      tester.view.physicalSize = phone
+          ? const Size(390, 844)
+          : const Size(1080, 920);
+      final engine = GateEngine()..fetchedAt = DateTime(2026, 9, 12, 8);
+      final app = AppController(engine)
+        ..engineCapabilities = const EngineCapabilities(vpnGateTcp: true)
+        ..localePreference = phone
+            ? LocalePreference.simplifiedChinese
+            : LocalePreference.english;
+      final boundary = GlobalKey();
+      try {
+        await tester.pumpWidget(
+          RepaintBoundary(
+            key: boundary,
+            child: workflowHost(
+              app,
+              dark: phone,
+              home: VpnGateScreen(controller: app),
+            ),
+          ),
+        );
+        await tester.pump(const Duration(seconds: 2));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('vpn-gate-node-v1:node')));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        await expectLater(
+          find.byKey(boundary),
+          matchesGoldenFile(
+            'goldens/vpngate_${phone ? 'phone_dark' : 'desktop_light'}.png',
+          ),
+        );
+        await tester.pumpWidget(const SizedBox.shrink());
+      } finally {
+        app.dispose();
+      }
+    }
+  }, tags: 'golden');
 
   testWidgets(
     'Windows startup size fits Home including the native caption',

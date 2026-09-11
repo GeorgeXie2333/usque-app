@@ -40,6 +40,13 @@ pub(crate) struct L4Runtime {
 }
 
 impl L4Runtime {
+    pub(crate) fn internal_network(&self) -> crate::InternalNetwork {
+        crate::InternalNetwork::for_streams(
+            self.client.clone(),
+            self.client.health.clone(),
+            self.cancellation.clone(),
+        )
+    }
     pub(crate) async fn start(
         profile: &Profile,
         identity: MasqueTlsIdentity,
@@ -408,6 +415,48 @@ impl L4Runtime {
         }
         self.cancellation.cancel();
         self.client.cancel();
+    }
+    pub(crate) fn quiesce_frontends(&mut self) {
+        if let Some(frontend) = self.socks5.as_mut() {
+            frontend.cancel_immediately();
+        }
+        if let Some(frontend) = self.http.as_mut() {
+            frontend.cancel_immediately();
+        }
+        if let Some(bridge) = &self.bridge {
+            bridge.cancel();
+        }
+        self.listeners.clear();
+    }
+    pub(crate) async fn suspend_frontends(&mut self) {
+        self.quiesce_frontends();
+        if let Some(mut frontend) = self.socks5.take() {
+            frontend.shutdown().await;
+        }
+        if let Some(mut frontend) = self.http.take() {
+            frontend.shutdown().await;
+        }
+        if let Some(mut bridge) = self.bridge.take() {
+            bridge.shutdown().await;
+        }
+        self.socks5_spec = None;
+        self.http_spec = None;
+    }
+    pub(crate) async fn prepare_tun(&mut self, profile: &Profile) -> Result<(), TransportError> {
+        if profile.frontends.tunnel && self.bridge.is_none() {
+            self.bridge = Some(
+                TunBridge::start(
+                    profile,
+                    self.services_for(profile),
+                    self.dns.clone(),
+                    self.client.budget.clone(),
+                    self.client.metrics.clone(),
+                    self.monitor.network_quality_telemetry(),
+                )
+                .await?,
+            );
+        }
+        Ok(())
     }
     pub(crate) async fn shutdown(&mut self) {
         self.cancel_immediately();
