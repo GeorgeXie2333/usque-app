@@ -34,7 +34,10 @@ try {
         )
         # Square brackets invoke MSI formatting. This is not a valid property
         # identifier and must be rejected instead of reaching an installer UI.
-        $sql = 'UPDATE `Control` SET `Text`=''[削除]'' WHERE `Dialog_`=''UsqueRepairUnsupportedDlg'' AND `Control`=''Description'''
+        # Construct the Japanese Remove label without non-ASCII source bytes,
+        # keeping the fixture independent of the PowerShell host's encoding.
+        $invalidText = '[' + [char]0x524A + [char]0x9664 + ']'
+        $sql = 'UPDATE `Control` SET `Text`=''{0}'' WHERE `Dialog_`=''UsqueRepairUnsupportedDlg'' AND `Control`=''Description''' -f $invalidText
         $view = $database.GetType().InvokeMember(
             "OpenView", [Reflection.BindingFlags]::InvokeMethod,
             $null, $database, @($sql)
