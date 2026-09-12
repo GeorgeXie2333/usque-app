@@ -29,6 +29,8 @@ struct LogState {
     file: Option<File>,
     bytes_written: u64,
     rotation_counter: u32,
+    run_id: String,
+    event_sequence: u64,
 }
 
 impl LogWriterFactory {
@@ -48,6 +50,10 @@ impl LogWriterFactory {
                 file: Some(file),
                 bytes_written,
                 rotation_counter: 0,
+                // Ephemeral correlation only: renewed for each Engine run and
+                // unrelated to accounts, device identities or process IDs.
+                run_id: uuid::Uuid::new_v4().to_string(),
+                event_sequence: 0,
             })),
         })
     }
@@ -97,8 +103,29 @@ impl Drop for BufferedLogEvent {
             return;
         }
         if let Ok(mut state) = self.shared.lock() {
+            state.event_sequence = state.event_sequence.saturating_add(1);
+            let event = stamp_engine_event(&event, &state.run_id, state.event_sequence);
             let _ = state.write_event(&event);
         }
+    }
+}
+
+fn stamp_engine_event(event: &[u8], run_id: &str, sequence: u64) -> Vec<u8> {
+    let Ok(Value::Object(mut value)) = serde_json::from_slice(event) else {
+        return event.to_vec();
+    };
+    // Overwrite caller-supplied correlation fields at the writer boundary.
+    value.insert("engine_run_id".into(), Value::String(run_id.to_owned()));
+    value.insert("engine_event_sequence".into(), sequence.into());
+    let encoded = serde_json::to_vec(&value).unwrap_or_default();
+    if encoded.len() <= MAX_EVENT_BYTES {
+        encoded
+    } else {
+        serde_json::to_vec(&serde_json::json!({
+            "level": "WARN", "message": "oversized log event omitted",
+            "engine_run_id": run_id, "engine_event_sequence": sequence,
+        }))
+        .unwrap_or_default()
     }
 }
 
@@ -452,6 +479,45 @@ mod tests {
         ] {
             assert!(!text.contains(secret), "log retained {secret}");
         }
+    }
+
+    #[test]
+    fn restarted_writers_have_distinct_correlation_and_reject_forged_context() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = directory.path().join("config.json");
+        for count in [2, 1] {
+            let factory = LogWriterFactory::open(&config).unwrap();
+            for _ in 0..count {
+                let mut writer = factory.make_writer();
+                writer.write_all(br#"{"engine_run_id":"private-fixture","engine_event_sequence":9999,"fields":{"recovery_event":"TUNNEL_LEASES_RELEASED","startup_lease_released":true,"private_key":"private-fixture"}}"#).unwrap();
+            }
+        }
+        let contents = fs::read_to_string(log_directory(&config).join(ACTIVE_LOG_NAME)).unwrap();
+        assert!(!contents.contains("private-fixture"));
+        let events: Vec<Value> = contents
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(events.len(), 3);
+        assert_eq!(events[0]["engine_run_id"], events[1]["engine_run_id"]);
+        assert_ne!(events[0]["engine_run_id"], events[2]["engine_run_id"]);
+        for (event, sequence) in events.iter().zip([1, 2, 1]) {
+            uuid::Uuid::parse_str(event["engine_run_id"].as_str().unwrap()).unwrap();
+            assert_eq!(event["engine_event_sequence"], sequence);
+            assert_eq!(event["fields"]["startup_lease_released"], true);
+        }
+    }
+
+    #[test]
+    fn correlation_cannot_push_an_event_past_the_size_limit() {
+        let event =
+            serde_json::to_vec(&serde_json::json!({"message": "x".repeat(MAX_EVENT_BYTES)}))
+                .unwrap();
+        let stamped = stamp_engine_event(&event, "run", 1);
+        assert!(stamped.len() <= MAX_EVENT_BYTES);
+        let value: Value = serde_json::from_slice(&stamped).unwrap();
+        assert_eq!(value["message"], "oversized log event omitted");
+        assert_eq!(value["engine_event_sequence"], 1);
     }
 
     #[test]

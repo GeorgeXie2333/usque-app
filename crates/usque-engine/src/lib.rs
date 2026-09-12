@@ -665,14 +665,32 @@ impl ControlService {
     /// Stops forwarding immediately, then waits for privileged platform state
     /// to be restored before the Engine process is allowed to exit.
     pub async fn shutdown(&self) -> Result<(), ControlServiceError> {
+        tracing::info!(
+            recovery_event = "ENGINE_STOP_REQUESTED",
+            "Engine shutdown requested"
+        );
         self.gate_startup_cancel.lock().await.cancel();
         self.cancel_gate_refresh().await;
         self.settings_intent.fetch_add(1, Ordering::SeqCst);
         #[cfg(windows)]
         self.clear_windows_connection_intent().await;
+        tracing::info!(
+            recovery_event = "ENGINE_WAIT_MUTATION",
+            "Engine shutdown waiting for the connection owner"
+        );
         let _mutation = self.mutation_lock.lock().await;
+        tracing::info!(
+            recovery_event = "ENGINE_DISCONNECT_STARTED",
+            "Engine shutdown acquired connection ownership"
+        );
         self.disconnect_locked().await?;
-        self.await_disconnect_cleanup().await
+        let result = self.await_disconnect_cleanup().await;
+        tracing::info!(
+            recovery_event = "ENGINE_CLEANUP_RETURNED",
+            success = result.is_ok(),
+            "Engine shutdown cleanup returned"
+        );
+        result
     }
 
     /// Retries secure-record deletion left pending by a previous crash or

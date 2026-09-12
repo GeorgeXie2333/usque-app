@@ -74,6 +74,7 @@ pub(crate) struct GateDriver {
     admission: watch::Sender<bool>,
     cancellation: CancellationToken,
     native_input: Input,
+    diagnostic_id: u64,
     task: Option<JoinHandle<()>>,
 }
 
@@ -98,7 +99,9 @@ impl GateDriver {
         let (ready_tx, ready_rx) = oneshot::channel();
         let (admission, admitted) = watch::channel(false);
         let native_input = native.input();
+        let diagnostic_id = NEXT_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let actor = Actor {
+            diagnostic_id,
             native,
             remote: profile.remote,
             underlay_health: warp.health(),
@@ -122,6 +125,7 @@ impl GateDriver {
             admission,
             cancellation,
             native_input,
+            diagnostic_id,
             task: Some(task),
         };
         let result = tokio::select! {
@@ -152,6 +156,13 @@ impl GateDriver {
         }
     }
     pub(crate) fn cancel(&self) {
+        if !self.cancellation.is_cancelled() {
+            tracing::info!(
+                gate_event = "STOP_REQUESTED",
+                gate_driver_id = self.diagnostic_id,
+                "VPN Gate stop requested"
+            );
+        }
         self.cancellation.cancel();
         // Do not put stop behind a join that may itself be waiting for native
         // input capacity. The worker owns no OS transport or TUN resources.
@@ -171,7 +182,19 @@ impl GateDriver {
     pub(crate) async fn shutdown(&mut self) {
         self.cancel();
         if let Some(task) = self.task.take() {
+            let started = Instant::now();
+            tracing::info!(
+                gate_event = "TASK_JOIN_STARTED",
+                gate_driver_id = self.diagnostic_id,
+                "Waiting for VPN Gate task shutdown"
+            );
             let _ = task.await;
+            tracing::info!(
+                gate_event = "TASK_JOIN_FINISHED",
+                gate_driver_id = self.diagnostic_id,
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                "VPN Gate task shutdown finished"
+            );
         }
     }
 }
@@ -183,6 +206,7 @@ impl Drop for GateDriver {
 
 type Startup = Result<(ManagedTunnelRuntime, FinalNetworkParameters), GateFailure>;
 struct Actor {
+    diagnostic_id: u64,
     native: Session,
     warp: InternalNetwork,
     remote: SocketAddr,
@@ -232,11 +256,36 @@ impl Actor {
             channels.cancellation.cancel();
         }
         self.native.input().stop();
+        tracing::info!(
+            gate_event = "NATIVE_STOP_REQUESTED",
+            gate_driver_id = self.diagnostic_id,
+            protocol_generation = self.generation,
+            "VPN Gate native stop requested"
+        );
         if let Some(connection) = self.connection.take() {
+            tracing::info!(
+                gate_event = "TRANSPORT_JOIN_STARTED",
+                gate_driver_id = self.diagnostic_id,
+                "Waiting for VPN Gate transport shutdown"
+            );
             connection.shutdown().await;
+            tracing::info!(
+                gate_event = "TRANSPORT_JOIN_FINISHED",
+                gate_driver_id = self.diagnostic_id,
+                "VPN Gate transport shutdown finished"
+            );
         }
-        if let Err(error) = self.native.shutdown().await {
-            tracing::warn!(gate_event = "NATIVE_SHUTDOWN_FAILED", failure_kind = ?error, "VPN Gate native shutdown did not complete successfully");
+        let started = Instant::now();
+        match self.native.shutdown().await {
+            Ok(()) => tracing::info!(
+                gate_event = "NATIVE_STOP_FINISHED",
+                gate_driver_id = self.diagnostic_id,
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                "VPN Gate native worker exited"
+            ),
+            Err(error) => {
+                tracing::warn!(gate_event = "NATIVE_STOP_FAILED", gate_driver_id = self.diagnostic_id, worker_pending = error == usque_openvpn::Error::ShutdownTimeout, failure_kind = ?error, elapsed_ms = started.elapsed().as_millis() as u64, "VPN Gate native shutdown did not complete successfully")
+            }
         }
     }
 

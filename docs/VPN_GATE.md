@@ -104,6 +104,22 @@ each limited to 256 entries / 4 MiB; Rust IP channels have independent byte
 budgets. TCP lengths are two-byte network-order frames, read/written with
 partial-I/O handling. Cancellation stops producers and joins the core.
 
+Cancellation includes awaits inside event handlers and the final transport
+failure notification. Stop is signalled to the native core before joining the
+transport task, and it wakes backpressured input writers. Native shutdown waits
+at most five seconds. A timeout is reported as a pending worker: the worker
+retains its native allocation until it exits, while its caller-owned transport
+and final traffic admission are closed. This does not claim the native thread
+was forcibly terminated. The 35-second negotiation deadline is separate from
+the bounded shutdown wait.
+
+After the desktop service finishes platform cleanup or records its recovery
+failure, Engine runtime shutdown waits at most another five seconds for pending
+blocking workers. This avoids Tokio's default unlimited shutdown wait. The UI
+process monitor uses cancellable 100-millisecond waits and closes its process
+handle when another shutdown trigger wins. These limits do not bypass Agent
+cleanup or turn an incomplete recovery journal into Clean.
+
 The profile allowlist permits only numeric TCP remotes matching the directory
 IP and preserves the advertised port. UDP profiles are not rewritten. Scripts,
 plugins, external file references, nested proxies, compression and peer
@@ -133,6 +149,27 @@ cannot change bootstrap endpoints or direct exceptions. The transition guard
 is retained through final setup failure and ordinary node switches, and is
 restored through the disconnect journal. Persistent protection remains governed
 by the existing Kill Switch setting and Agent recovery rules.
+
+An explicit cancellation during Prepared startup drops the headless startup
+future (closing its producer guards) before releasing the startup pipe. A full
+disconnect closes final admission and packet producers before releasing either
+startup or active leases, then performs asynchronous teardown and rollback.
+Ordinary negotiation failures retain the guard for in-place retry. Finalization
+also observes cancellation, so a stopped request cannot admit a late connection.
+The Agent's existing EOF grace, operation/owner checks and lease epoch remain
+authoritative; Prepared alone never authorizes recovery of a live transaction.
+
+Engine JSONL logs carry a fresh random `engine_run_id` and a monotonic
+`engine_event_sequence` for each logging run. These distinguish an older Engine
+from a newly opened one without exporting process or device identifiers. Fixed
+stage labels record waiting for connection ownership, packet/data-plane joins,
+lease release, native stop and Agent mutation replies. Native task completion
+and a still-pending native worker have separate records. Agent replies include
+only the typed phase, journal generation, success flag and elapsed time; polling
+does not create lifecycle logs. Correlate those generations and timestamps with
+the existing `windows-recovery.json` observations and historical step results.
+Successful Wintun restoration still requires both interface and PnP absence;
+timeouts, failed probes and identity conflicts do not become absence evidence.
 
 Android uses its existing VpnService and a blocking interface during setup.
 A new final interface is established and attached before retiring the old Java
