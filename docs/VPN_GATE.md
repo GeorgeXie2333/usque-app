@@ -53,6 +53,10 @@ assignment still shows limited connectivity, as does reduced family support
 without VPN Gate.
 Exit location and public addresses still depend on a successful final-channel
 probe and may be unavailable during network fluctuations.
+Across all WARP modes, with or without VPN Gate, each failed exit IP or location
+lookup is retried once after one second. Successful lookups are retained; a
+second failure leaves that information unavailable. Disconnecting or replacing
+the probe cancels pending requests and retries for the old session.
 
 ## Directory and saved configuration
 

@@ -38,22 +38,22 @@ impl InternalNetwork {
     /// exact session. Failure never substitutes the directory's endpoint IP.
     pub async fn probe_exit(&self) -> Result<usque_core::ExitInfo, DirectoryError> {
         let cancel = self.cancellation.child_token();
-        let (ipv4, ipv6) = tokio::join!(
-            self.probe_ip("https://api-ipv4.ip.sb/ip", false, &cancel),
-            self.probe_ip("https://api-ipv6.ip.sb/ip", true, &cancel),
+        let probe = usque_core::exit_probe::probe_exit_with_retry(
+            |family| match family {
+                usque_core::AddressFamily::Ipv4 => {
+                    self.probe_ip("https://api-ipv4.ip.sb/ip", false, &cancel)
+                }
+                usque_core::AddressFamily::Ipv6 => {
+                    self.probe_ip("https://api-ipv6.ip.sb/ip", true, &cancel)
+                }
+            },
+            |ip| self.probe_geo(Some(ip), &cancel),
         );
-        if ipv4.is_none() && ipv6.is_none() {
-            return Err(DirectoryError::Request);
+        tokio::select! {
+            biased;
+            _ = cancel.cancelled() => Err(DirectoryError::Cancelled),
+            result = probe => result.map_err(|_| DirectoryError::Request),
         }
-        let (ipv4_location, ipv6_location) =
-            tokio::join!(self.probe_geo(ipv4, &cancel), self.probe_geo(ipv6, &cancel));
-        Ok(usque_core::ExitInfo {
-            ipv4,
-            ipv6,
-            ipv4_location,
-            ipv6_location,
-            checked_at: std::time::SystemTime::now().into(),
-        })
     }
     async fn probe_ip(
         &self,

@@ -17,6 +17,7 @@ use usque_transport::{
     TrafficSnapshot, TransportError, TunPacketIo,
 };
 
+use crate::exit_probe_task::{ExitProbeTask, run_probe};
 use crate::session_pump::{SessionDataEvent, next_session_data, wait_pending};
 use crate::tun_read_slab::TunReadSlab;
 
@@ -565,7 +566,14 @@ async fn run(
     update_health(&status, &tunnel);
     update_frontends(&status, &tunnel);
     let _ = started.send(START_OK);
-    spawn_exit_probe(&status, &tunnel, &profile, tun.is_some());
+    let gate_context = GateContext {
+        cache_dir,
+        status: gate_tx,
+        snapshot: status.clone(),
+        cancellation: cancellation.clone(),
+        exit_probe: ExitProbeTask::default(),
+    };
+    spawn_exit_probe(&gate_context, &tunnel, &profile, tun.is_some());
 
     let tun_io = if tun.is_some() {
         match tunnel.attach_tun() {
@@ -587,22 +595,19 @@ async fn run(
         cancellation.clone(),
         status.clone(),
         commands,
-        GateContext {
-            cache_dir,
-            status: gate_tx,
-            snapshot: status,
-            cancellation,
-        },
+        gate_context,
     )
     .await;
 }
 
 fn spawn_exit_probe(
-    status: &Arc<Mutex<NativeSnapshot>>,
+    context: &GateContext,
     tunnel: &DataPlaneRuntime,
     profile: &Profile,
     has_tun: bool,
 ) {
+    let status = &context.snapshot;
+    let cancellation = context.exit_probe.begin(&context.cancellation);
     if profile.vpn_gate.enabled {
         if !matches!(tunnel.health(), RuntimeHealth::Connected { .. }) {
             return;
@@ -611,8 +616,9 @@ fn spawn_exit_probe(
         let status = Arc::clone(status);
         let generation = tunnel.gate_status().generation;
         tokio::spawn(async move {
-            if let Ok(exit) = network.probe_exit().await
+            if let Some(Ok(exit)) = run_probe(&cancellation, network.probe_exit()).await
                 && let Ok(mut snapshot) = status.lock()
+                && !cancellation.is_cancelled()
                 && snapshot.vpn_gate.as_ref().is_some_and(|gate| {
                     gate.generation == generation
                         && gate.stage == usque_core::vpngate::GateStage::Connected
@@ -643,7 +649,15 @@ fn spawn_exit_probe(
         })
     };
     if let Some(probe) = probe {
-        tokio::spawn(populate_exit(Arc::clone(status), probe));
+        let status = Arc::clone(status);
+        tokio::spawn(async move {
+            if let Some(Ok(exit)) = run_probe(&cancellation, probe.probe()).await
+                && let Ok(mut snapshot) = status.lock()
+                && !cancellation.is_cancelled()
+            {
+                apply_exit(&mut snapshot, exit);
+            }
+        });
     }
 }
 
@@ -659,6 +673,7 @@ struct GateContext {
     status: tokio::sync::watch::Sender<usque_core::vpngate::GateStatus>,
     snapshot: Arc<Mutex<NativeSnapshot>>,
     cancellation: CancellationToken,
+    exit_probe: ExitProbeTask,
 }
 
 struct PendingPacketIo<'a, F> {
@@ -937,6 +952,7 @@ async fn run_session(
         }
     }
     super::connection_timeline::publish(tunnel.connection_timeline());
+    gate_context.exit_probe.cancel();
     tunnel.cancel_immediately();
     pending_send.set(None);
     drop(pending_write.take());
@@ -953,6 +969,7 @@ async fn retry_gate(
     status: &Arc<Mutex<NativeSnapshot>>,
     context: &GateContext,
 ) {
+    context.exit_probe.cancel();
     tunnel.quiesce_final();
     if let Ok(mut snapshot) = status.lock() {
         snapshot.phase = "reconnecting".into();
@@ -990,7 +1007,7 @@ async fn retry_gate(
             .await?;
         if !profile.frontends.tunnel {
             tunnel.activate_final().await?;
-            spawn_exit_probe(status, tunnel, profile, false);
+            spawn_exit_probe(context, tunnel, profile, false);
         }
         Ok::<_, TransportError>(())
     }
@@ -1018,6 +1035,7 @@ async fn handle_runtime_command(
     match command {
         RuntimeCommand::RejectFinalNetwork { reply, cancelled } => {
             if !super::jni_command_abandoned(&cancelled) && profile.vpn_gate.enabled {
+                gate_context.exit_probe.cancel();
                 detach_tun_locked(tunnel, tun, tun_io);
                 tunnel
                     .fail_gate(usque_core::vpngate::GateFailure::Configuration)
@@ -1046,6 +1064,7 @@ async fn handle_runtime_command(
                 ReconfigureClass::Reject => START_INVALID_PROFILE,
                 ReconfigureClass::ColdReconnect => RECONFIGURE_NEED_COLD,
                 ReconfigureClass::HotVpnGate => {
+                    gate_context.exit_probe.cancel();
                     tunnel.quiesce_final();
                     detach_tun_locked(tunnel, tun, tun_io);
                     if let Ok(mut snapshot) = status.lock() {
@@ -1099,7 +1118,7 @@ async fn handle_runtime_command(
                             match tunnel.activate_final().await {
                                 Ok(()) => {
                                     update_frontends(status, tunnel);
-                                    spawn_exit_probe(status, tunnel, profile, false);
+                                    spawn_exit_probe(gate_context, tunnel, profile, false);
                                     RECONFIGURE_OK
                                 }
                                 Err(error) => {
@@ -1114,23 +1133,29 @@ async fn handle_runtime_command(
                     *profile = next;
                     RECONFIGURE_OK
                 }
-                ReconfigureClass::HotFrontends => match tunnel.reconfigure_frontends(&next).await {
-                    Ok(()) => {
-                        *profile = next;
-                        update_frontends(status, tunnel);
-                        RECONFIGURE_OK
+                ReconfigureClass::HotFrontends => {
+                    gate_context.exit_probe.cancel();
+                    match tunnel.reconfigure_frontends(&next).await {
+                        Ok(()) => {
+                            *profile = next;
+                            update_frontends(status, tunnel);
+                            spawn_exit_probe(gate_context, tunnel, profile, tun.is_some());
+                            RECONFIGURE_OK
+                        }
+                        Err(error) => {
+                            set_transport_error_on_path(status, &error, tunnel.path());
+                            START_TRANSPORT_FAILURE
+                        }
                     }
-                    Err(error) => {
-                        set_transport_error_on_path(status, &error, tunnel.path());
-                        START_TRANSPORT_FAILURE
-                    }
-                },
+                }
                 ReconfigureClass::HotTunnelAttach => {
                     if next.frontends.tunnel && tun.is_none() {
                         RECONFIGURE_NEED_ATTACH
                     } else if !next.frontends.tunnel && tun.is_some() {
+                        gate_context.exit_probe.cancel();
                         detach_tun_locked(tunnel, tun, tun_io);
                         *profile = next;
+                        spawn_exit_probe(gate_context, tunnel, profile, false);
                         RECONFIGURE_OK
                     } else {
                         *profile = next;
@@ -1155,6 +1180,7 @@ async fn handle_runtime_command(
                 let _ = reply.send(START_ALREADY_RUNNING);
                 return;
             }
+            gate_context.exit_probe.cancel();
             if let Err(error) = set_nonblocking(&owned) {
                 set_error(
                     status,
@@ -1207,13 +1233,14 @@ async fn handle_runtime_command(
             }
             *profile = next;
             update_frontends(status, tunnel);
-            spawn_exit_probe(status, tunnel, profile, true);
+            spawn_exit_probe(gate_context, tunnel, profile, true);
         }
         RuntimeCommand::DetachTun { reply, cancelled } => {
             if super::jni_command_abandoned(&cancelled) {
                 let _ = reply.send(START_PLATFORM_FAILURE);
                 return;
             }
+            gate_context.exit_probe.cancel();
             detach_tun_locked(tunnel, tun, tun_io);
             profile.frontends.tunnel = false;
             let _ = reply.send(RECONFIGURE_OK);
@@ -1229,15 +1256,6 @@ fn detach_tun_locked(
     *tun_io = None;
     tunnel.detach_tun();
     *tun = None;
-}
-
-async fn populate_exit(status: Arc<Mutex<NativeSnapshot>>, probe: IpSbProbe) {
-    let Ok(exit) = probe.probe().await else {
-        return;
-    };
-    if let Ok(mut snapshot) = status.lock() {
-        apply_exit(&mut snapshot, exit);
-    }
 }
 
 fn apply_exit(snapshot: &mut NativeSnapshot, exit: usque_core::ExitInfo) {

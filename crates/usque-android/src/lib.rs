@@ -72,6 +72,8 @@ pub const RECONFIGURE_NOT_RUNNING: i32 = -10;
 
 mod connection_timeline;
 mod diagnostic_probe;
+#[cfg(any(test, target_os = "android"))]
+mod exit_probe_task;
 
 #[derive(Debug)]
 struct JniCode(jint);
