@@ -892,37 +892,43 @@ where
     ) -> Result<Option<u64>, CoordinatorError> {
         validate_caller(caller)?;
         let mut journal = self.journal.lock().await;
-        if journal.phase != RecoveryPhase::Active
-            || journal.operation_kind != Some(OperationKind::Tunnel)
+        if !matches!(
+            journal.phase,
+            RecoveryPhase::Active | RecoveryPhase::Prepared
+        ) || journal.operation_kind != Some(OperationKind::Tunnel)
             || journal.operation_id != Some(operation_id)
             || journal.owner_sid.as_deref() != Some(caller.user_sid.as_str())
             || journal.owner_process_id != Some(caller.process_id)
-            || !self.packet_session_attached.load(Ordering::Acquire)
             || !self.tunnel_lease_attached.load(Ordering::Acquire)
         {
             // A normal rollback may win the race with lease EOF. Never let a
             // stale lease mutate a newer transaction.
             return Ok(None);
         }
-        let index = journal
-            .steps
-            .iter()
-            .position(|step| {
-                step.kind == MutationKind::PacketSession && step.state == MutationState::Applied
-            })
-            .ok_or(CoordinatorError::MissingAppliedStep(
-                MutationKind::PacketSession,
-            ))?;
-        if let Err(error) = self
-            .backend
-            .restore_step(&journal.steps[index].receipt)
-            .await
-        {
-            warn!(
-                error = %error,
-                "packet-session restore failed; keeping the tunnel phase unchanged"
-            );
-            return Err(error.into());
+        // Gate switching retains this lease while closing the old packet
+        // session and returning to Prepared. EOF must still arm recovery in
+        // both gaps, including when no replacement PacketSession exists yet.
+        if self.packet_session_attached.load(Ordering::Acquire) {
+            let index = journal
+                .steps
+                .iter()
+                .position(|step| {
+                    step.kind == MutationKind::PacketSession && step.state == MutationState::Applied
+                })
+                .ok_or(CoordinatorError::MissingAppliedStep(
+                    MutationKind::PacketSession,
+                ))?;
+            if let Err(error) = self
+                .backend
+                .restore_step(&journal.steps[index].receipt)
+                .await
+            {
+                warn!(
+                    error = %error,
+                    "packet-session restore failed; keeping the tunnel phase unchanged"
+                );
+                return Err(error.into());
+            }
         }
         self.packet_session_attached.store(false, Ordering::Release);
         self.tunnel_lease_attached.store(false, Ordering::Release);
@@ -954,17 +960,20 @@ where
         Ok(true)
     }
 
-    /// Recovers an active tunnel whose Engine lease disappeared and was not
-    /// reattached during the bounded grace period. The operation ID prevents a
-    /// stale watchdog from rolling back a newer transaction.
+    /// Recovers a tunnel whose Engine lease disappeared and was not reattached
+    /// during the bounded grace period, including a Prepared Gate transition.
+    /// The operation ID and epoch prevent stale watchdogs from rolling back a
+    /// newer transaction or transition.
     pub async fn recover_orphaned_tunnel(
         &self,
         operation_id: Uuid,
         lease_epoch: u64,
     ) -> Result<bool, CoordinatorError> {
         let mut journal = self.journal.lock().await;
-        if journal.phase != RecoveryPhase::Active
-            || journal.operation_kind != Some(OperationKind::Tunnel)
+        if !matches!(
+            journal.phase,
+            RecoveryPhase::Active | RecoveryPhase::Prepared
+        ) || journal.operation_kind != Some(OperationKind::Tunnel)
             || journal.operation_id != Some(operation_id)
             || self.packet_session_attached.load(Ordering::Acquire)
             || self.tunnel_lease_attached.load(Ordering::Acquire)
@@ -3740,6 +3749,82 @@ mod tests {
             .resume_tunnel(operation, profile_id, &owner)
             .await
             .expect("resume after EOF");
+    }
+
+    #[tokio::test]
+    async fn gate_switch_lease_eof_arms_recovery_across_packet_and_finalize_gaps() {
+        for stage in 0..3 {
+            let backend = Arc::new(MockBackend::default());
+            let (_directory, coordinator) = coordinator(Arc::clone(&backend));
+            let operation = Uuid::new_v4();
+            let owner = caller();
+            let mut tunnel_plan = plan();
+            tunnel_plan.vpn_chain = true;
+            coordinator
+                .prepare(operation, tunnel_plan.clone(), owner.clone())
+                .await
+                .unwrap();
+            coordinator
+                .open_packet_session(operation, 1024 * 1024, &owner)
+                .await
+                .unwrap();
+            coordinator.commit(operation, &owner).await.unwrap();
+            coordinator
+                .acquire_tunnel_lease(operation, &owner)
+                .await
+                .unwrap();
+            coordinator
+                .begin_chain_transition(operation, &owner)
+                .await
+                .unwrap();
+            coordinator
+                .close_packet_session(operation, &owner)
+                .await
+                .unwrap();
+            if stage > 0 {
+                coordinator
+                    .finalize_tunnel(operation, tunnel_plan, &owner)
+                    .await
+                    .unwrap();
+            }
+            if stage == 2 {
+                coordinator
+                    .open_packet_session(operation, 1024 * 1024, &owner)
+                    .await
+                    .unwrap();
+            }
+            let mut other = owner.clone();
+            other.process_id += 1;
+            assert!(
+                coordinator
+                    .release_tunnel_lease(operation, &other)
+                    .await
+                    .unwrap()
+                    .is_none()
+            );
+            assert!(coordinator.tunnel_lease_attached());
+            let epoch = coordinator
+                .release_tunnel_lease(operation, &owner)
+                .await
+                .unwrap()
+                .expect("switch EOF must arm watchdog");
+            assert!(!coordinator.packet_session_attached());
+            assert!(!coordinator.tunnel_lease_attached());
+            assert!(
+                !backend
+                    .restored
+                    .lock()
+                    .await
+                    .contains(&MutationKind::KillSwitch)
+            );
+            assert!(
+                coordinator
+                    .recover_orphaned_tunnel(operation, epoch)
+                    .await
+                    .unwrap()
+            );
+            assert_eq!(coordinator.state().await.phase, RecoveryPhase::Clean);
+        }
     }
 
     #[tokio::test]

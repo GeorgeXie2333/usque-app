@@ -1539,9 +1539,7 @@ impl WindowsVpnRuntime {
             None => Ok(()),
         };
         let rollback = if self.transaction_open {
-            self.agent
-                .rollback(self.operation_id, "USER_DISCONNECT")
-                .await
+            self.agent.rollback_for_disconnect(self.operation_id).await
         } else {
             Ok(AgentState::default())
         };
@@ -3021,6 +3019,41 @@ impl WindowsAgentClient {
         }
     }
 
+    async fn rollback_for_disconnect(
+        &self,
+        operation_id: Uuid,
+    ) -> Result<AgentState, WindowsVpnError> {
+        let result = self.rollback(operation_id, "USER_DISCONNECT").await;
+        match result {
+            Err(WindowsVpnError::Remote {
+                ref code,
+                retryable: true,
+                ..
+            }) if code == "AGENT_RECOVERY_FAILED" => {
+                // Wintun/PnP teardown can outlive the synchronous rollback.
+                // Follow the Agent's bounded recovery for this transaction;
+                // never replay the stale failure after it has reached Clean.
+                let state = self.get_state().await?;
+                if state.phase == agent_v1::AgentPhase::Clean as i32 {
+                    require_recovered_state(&state)?;
+                    return Ok(state);
+                }
+                if state.operation_id != operation_id.to_string() {
+                    return Err(WindowsVpnError::RecoveryConflict);
+                }
+                if state.automatic_recovery.is_some() {
+                    return Err(automatic_recovery_connection_error(&state)?);
+                }
+                result
+            }
+            Ok(state) => {
+                require_recovered_state(&state)?;
+                Ok(state)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     async fn rollback(
         &self,
         operation_id: Uuid,
@@ -3916,6 +3949,91 @@ mod tests {
             })),
             ..Default::default()
         }
+    }
+
+    fn pending_adapter_removal_response() -> AgentResponse {
+        AgentResponse {
+            error: Some(agent_v1::AgentError {
+                code: "AGENT_RECOVERY_FAILED".to_owned(),
+                message: "adapter_cleanup stage=Confirm failure=Pending interface=Some(true) device=Some(false)".to_owned(),
+                retryable: true,
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn disconnect_rollback_observes_pending_recovery_and_completed_cleanup() {
+        let operation = Uuid::parse_str("00000000-0000-4000-8000-000000000001").unwrap();
+        for clean in [false, true] {
+            let observed = if clean {
+                recovery_state_response(agent_v1::AgentPhase::Clean)
+            } else {
+                automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Waiting)
+            };
+            let (client, task) =
+                scripted_recovery_client(vec![pending_adapter_removal_response(), observed]);
+            let result = client.rollback_for_disconnect(operation).await;
+            if clean {
+                require_recovered_state(&result.unwrap()).unwrap();
+            } else {
+                assert!(
+                    matches!(result, Err(WindowsVpnError::AutomaticRecoveryPending {
+                    operation_id, journal_generation: 19,
+                }) if operation_id == operation.to_string())
+                );
+            }
+            assert!(matches!(task.await.unwrap().as_slice(), [
+                agent_request::Payload::RollbackTunnel(request), agent_request::Payload::GetState(_),
+            ] if request.operation_id == operation.to_string()));
+        }
+    }
+
+    #[tokio::test]
+    async fn disconnect_rollback_never_admits_conflicting_or_incomplete_agent_state() {
+        let operation = Uuid::parse_str("00000000-0000-4000-8000-000000000001").unwrap();
+        for case in 0..5 {
+            let mut response = match case {
+                0 => automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Waiting),
+                1 => recovery_state_response(agent_v1::AgentPhase::Clean),
+                2 => recovery_state_response(agent_v1::AgentPhase::Active),
+                3 => automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Exhausted),
+                _ => automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Blocked),
+            };
+            let Some(agent_response::Payload::State(state)) = response.payload.as_mut() else {
+                unreachable!()
+            };
+            if case == 0 {
+                state.operation_id = Uuid::new_v4().to_string();
+            }
+            if case == 1 {
+                state.packet_session_active = true;
+            }
+            let (client, task) =
+                scripted_recovery_client(vec![pending_adapter_removal_response(), response]);
+            let result = client.rollback_for_disconnect(operation).await;
+            assert!(result.is_err());
+            assert!(!matches!(
+                result,
+                Err(WindowsVpnError::AutomaticRecoveryPending { .. })
+            ));
+            assert_eq!(task.await.unwrap().len(), 2);
+        }
+    }
+
+    #[tokio::test]
+    async fn disconnect_rollback_preserves_nonretryable_failures_without_polling() {
+        let mut response = pending_adapter_removal_response();
+        response.error.as_mut().unwrap().retryable = false;
+        let (client, task) = scripted_recovery_client(vec![response]);
+        assert!(matches!(
+            client.rollback_for_disconnect(Uuid::new_v4()).await,
+            Err(WindowsVpnError::Remote {
+                retryable: false,
+                ..
+            })
+        ));
+        assert_eq!(task.await.unwrap().len(), 1);
     }
 
     #[tokio::test]

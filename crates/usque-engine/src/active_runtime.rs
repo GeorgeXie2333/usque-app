@@ -37,7 +37,7 @@ pub(crate) enum ActiveRuntime {
     #[cfg(windows)]
     Vpn(Box<crate::windows_agent::WindowsVpnRuntime>),
     #[cfg(test)]
-    Harness(HarnessRuntime),
+    Harness(Box<HarnessRuntime>),
 }
 
 #[cfg(test)]
@@ -53,6 +53,9 @@ pub(crate) struct HarnessRuntime {
     system_proxy: bool,
     pub(crate) system_proxy_apply_count: u32,
     pub(crate) fail_after_detach: bool,
+    pub(crate) gate_status: usque_core::vpngate::GateStatus,
+    pub(crate) gate_replace_count: u32,
+    pub(crate) warp_ready: bool,
 }
 
 #[cfg(test)]
@@ -82,19 +85,48 @@ impl HarnessRuntime {
             system_proxy: profile.frontends.http && profile.proxy.system_proxy,
             system_proxy_apply_count: 0,
             fail_after_detach: false,
+            gate_status: Default::default(),
+            gate_replace_count: 0,
+            warp_ready: true,
         }
     }
 
     fn health(&self) -> RuntimeHealth {
+        if let Some(reason) = self.gate_status.failure {
+            let error = usque_transport::TransportError::VpnGate(reason);
+            return RuntimeHealth::Failed {
+                last_path: self.path(),
+                reconnect_count: self.reconnect_count,
+                failure: error.failure(None, None),
+                message: error.to_string(),
+            };
+        }
         RuntimeHealth::Connected {
-            path: RuntimePath {
-                transport: usque_core::Transport::Http3,
-                endpoint_family: usque_core::AddressFamily::Ipv4,
-                ipv4_available: true,
-                ipv6_available: true,
-            },
+            path: self.path(),
             reconnect_count: self.reconnect_count,
         }
+    }
+
+    fn path(&self) -> RuntimePath {
+        RuntimePath {
+            transport: usque_core::Transport::Http3,
+            endpoint_family: usque_core::AddressFamily::Ipv4,
+            ipv4_available: true,
+            ipv6_available: true,
+        }
+    }
+
+    pub(crate) fn replace_gate(&mut self, profile: &Profile) {
+        self.gate_replace_count += 1;
+        self.gate_status = usque_core::vpngate::GateStatus {
+            stage: if profile.vpn_gate.enabled {
+                usque_core::vpngate::GateStage::Connected
+            } else {
+                usque_core::vpngate::GateStage::Disabled
+            },
+            ..Default::default()
+        };
+        self.reconfigure_frontends(profile);
     }
 
     fn reconfigure_frontends(&mut self, profile: &Profile) {
@@ -145,7 +177,10 @@ impl ActiveRuntime {
             #[cfg(windows)]
             Self::Vpn(r) => r.fail_gate(reason).await,
             #[cfg(test)]
-            Self::Harness(_) => {}
+            Self::Harness(r) => {
+                r.gate_status.stage = usque_core::vpngate::GateStage::Error;
+                r.gate_status.failure = Some(reason);
+            }
         }
     }
     pub(crate) fn internal_networks(
@@ -171,7 +206,7 @@ impl ActiveRuntime {
             #[cfg(windows)]
             Self::Vpn(r) => r.gate_status(),
             #[cfg(test)]
-            Self::Harness(_) => Default::default(),
+            Self::Harness(r) => r.gate_status.clone(),
         }
     }
     pub(crate) fn needs_warp_bootstrap(&self) -> bool {
@@ -180,6 +215,20 @@ impl ActiveRuntime {
             return runtime.needs_warp_bootstrap();
         }
         false
+    }
+
+    pub(crate) fn can_retry_gate_in_place(&self) -> bool {
+        if self.requires_agent_reattach() {
+            return false;
+        }
+        #[cfg(test)]
+        if let Self::Harness(runtime) = self {
+            return runtime.warp_ready;
+        }
+        self.needs_warp_bootstrap()
+            || self.internal_networks().is_some_and(|(_, warp)| {
+                matches!(warp.health_snapshot(), RuntimeHealth::Connected { .. })
+            })
     }
     pub(crate) fn l4_snapshot(&self) -> Option<usque_core::L4Snapshot> {
         match self {
@@ -370,9 +419,12 @@ impl ActiveRuntime {
         statuses
     }
 
-    #[cfg(windows)]
     pub(crate) fn requires_agent_reattach(&self) -> bool {
-        matches!(self, Self::Vpn(runtime) if runtime.requires_agent_reattach())
+        #[cfg(windows)]
+        if let Self::Vpn(runtime) = self {
+            return runtime.requires_agent_reattach();
+        }
+        false
     }
 
     #[cfg(windows)]
@@ -658,7 +710,8 @@ mod tests {
             ..Profile::default()
         };
         profile.proxy.system_proxy = true;
-        let mut runtime = ActiveRuntime::Harness(HarnessRuntime::from_profile(&profile, false, 0));
+        let mut runtime =
+            ActiveRuntime::Harness(Box::new(HarnessRuntime::from_profile(&profile, false, 0)));
         profile.proxy.http_listeners[0].set_port(18081);
         runtime
             .reconfigure_frontends(&profile)

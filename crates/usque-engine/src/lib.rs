@@ -601,10 +601,8 @@ impl ControlService {
             state.update_runtime_metadata(reconnect_count, Vec::new(), Vec::new());
             state.update_session_congestion_control(Some(applied.congestion_control));
         }
-        let runtime = ActiveRuntime::Harness(active_runtime::HarnessRuntime::from_profile(
-            &applied,
-            vpn,
-            reconnect_count,
+        let runtime = ActiveRuntime::Harness(Box::new(
+            active_runtime::HarnessRuntime::from_profile(&applied, vpn, reconnect_count),
         ));
         let quality_source = runtime.subscribe_network_quality();
         let frontends = applied.frontends;
@@ -1755,6 +1753,16 @@ impl ControlService {
         if startup_cancel.is_cancelled() {
             return Ok(self.state.lock().await.snapshot().clone());
         }
+        let failed_gate = self.data_plane.lock().await.as_ref().is_some_and(|active| {
+            active.profile_id == profile_id
+                && active.runtime.gate_status().stage == usque_core::vpngate::GateStage::Error
+        });
+        if failed_gate {
+            self.settings_intent.fetch_add(1, Ordering::SeqCst);
+            return self
+                .retry_connection_locked(profile_id, startup_cancel)
+                .await;
+        }
         if self.data_plane.lock().await.is_none() {
             *self.session_congestion_control.lock().await = None;
             *self.session_profile.lock().await = None;
@@ -1790,7 +1798,20 @@ impl ControlService {
             return Ok(self.state.lock().await.snapshot().clone());
         }
         self.ensure_gate_supervisor().await;
-        self.await_disconnect_cleanup().await?;
+        if let Err(error) = self.await_disconnect_cleanup().await {
+            #[cfg(windows)]
+            if let ControlServiceError::PlatformRecoveryPending {
+                operation_id,
+                journal_generation,
+            } = error
+            {
+                return self
+                    .enter_windows_automatic_recovery(profile_id, operation_id, journal_generation)
+                    .await;
+            }
+            self.mark_connection_error(&error).await;
+            return Err(error);
+        }
         {
             let data_plane = self.data_plane.lock().await;
             if let Some(active) = data_plane.as_ref() {
@@ -2259,8 +2280,6 @@ impl ControlService {
         if startup_cancel.is_cancelled() {
             return Ok(self.state.lock().await.snapshot().clone());
         }
-        *self.session_congestion_control.lock().await = None;
-        *self.session_profile.lock().await = None;
         let connected_profile = self
             .data_plane
             .lock()
@@ -2275,20 +2294,61 @@ impl ControlService {
             ControlServiceError::InvalidRequest("an active profile is required".to_owned())
         })?;
 
+        self.retry_connection_locked(profile_id, startup_cancel)
+            .await
+    }
+
+    async fn retry_connection_locked(
+        &self,
+        profile_id: Uuid,
+        startup_cancel: tokio_util::sync::CancellationToken,
+    ) -> Result<ConnectionSnapshot, ControlServiceError> {
+        *self.session_congestion_control.lock().await = None;
+        *self.session_profile.lock().await = None;
         let gate_retry = self
             .data_plane
             .lock()
             .await
             .as_ref()
             .filter(|active| {
-                active.profile.vpn_gate.enabled
-                    || active.runtime.gate_status().stage == usque_core::vpngate::GateStage::Error
+                active.profile_id == profile_id
+                    && (active.profile.vpn_gate.enabled
+                        || active.runtime.gate_status().stage
+                            == usque_core::vpngate::GateStage::Error)
+                    && active.runtime.can_retry_gate_in_place()
             })
             .map(|active| active.profile.clone());
-        if let Some(profile) = gate_retry {
-            self.hot_replace_gate_with_cancellation(&profile, &startup_cancel)
-                .await?;
-            return Ok(self.status_snapshot().await);
+        if let Some(previous) = gate_retry {
+            // Explicit retry applies the saved request, including a new node or
+            // disabling Gate. The automatic supervisor keeps its session target.
+            let mut profile = self
+                .config
+                .read()
+                .await
+                .runtime_profile(profile_id)
+                .ok_or(ControlServiceError::ProfileNotFound(profile_id))?;
+            self.attach_proxy_auth(&mut profile).await?;
+            if matches!(
+                usque_core::classify_reconfigure(&previous, &profile),
+                usque_core::ReconfigureClass::PersistOnly
+                    | usque_core::ReconfigureClass::HotVpnGate
+            ) {
+                profile.congestion_control = previous.congestion_control;
+                self.hot_replace_gate_with_cancellation(&profile, &startup_cancel)
+                    .await?;
+                *self.session_congestion_control.lock().await =
+                    Some((profile_id, profile.congestion_control));
+                self.apply_hot_profile_state(&profile).await;
+                let generation = self
+                    .data_plane
+                    .lock()
+                    .await
+                    .as_ref()
+                    .map(|a| a.session_generation);
+                self.publish_settings_runtime(Some(profile), generation)
+                    .await;
+                return Ok(self.status_snapshot().await);
+            }
         }
 
         #[cfg(windows)]

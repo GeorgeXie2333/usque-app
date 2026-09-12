@@ -164,7 +164,11 @@ impl ControlService {
                     .await
                     .map_err(crate::map_windows_vpn_error),
                 #[cfg(test)]
-                crate::active_runtime::ActiveRuntime::Harness(_) => Ok(()),
+                crate::active_runtime::ActiveRuntime::Harness(runtime) => {
+                    runtime.replace_gate(profile);
+                    self.gate_status.send_replace(runtime.gate_status.clone());
+                    Ok(())
+                }
             }
         }
         .await;

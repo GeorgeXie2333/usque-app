@@ -1,6 +1,221 @@
 use super::*;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
+use usque_core::vpngate::{
+    Catalogue, CatalogueStore, GateFailure, GateStage, ListQuery, Selection,
+};
+
+fn gate_catalogue(service: &ControlService) -> Vec<Selection> {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    use serde_json::json;
+    use sha2::{Digest, Sha256};
+    let hash = |data: &str| -> String {
+        Sha256::digest(data)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
+    };
+    let servers: Vec<_> = ["8.8.8.8", "1.1.1.1"].into_iter().map(|ip| {
+        let host = format!("test-{ip}");
+        // Only the directory envelope is exercised; no native TLS is started.
+        let content = format!("client\ndev tun\nproto tcp\nremote {ip} 443\ncipher AES-128-CBC\nauth SHA1\n<ca>\nfixture\n</ca>\n");
+        json!({
+            "id": format!("v1:{}", hash(&format!("vpngate-node-v1\0{host}\0{ip}"))),
+            "hostname": host, "ip": ip, "country_code": "JP", "country_name": "Japan",
+            "score": 1, "ping_ms": null, "speed_bps": null, "num_vpn_sessions": 1,
+            "openvpn_config_base64": STANDARD.encode(&content),
+            "openvpn_config_sha256": hash(&content),
+            "openvpn_config_bytes": content.len(),
+        })
+    }).collect();
+    let bytes = serde_json::to_vec(&json!({
+        "schema_version": 1, "source_csv_sha256": "0".repeat(64),
+        "server_count": servers.len(), "servers": servers,
+    }))
+    .unwrap();
+    let catalogue = Catalogue::parse(&bytes).unwrap();
+    let store = CatalogueStore::new(&service.cache_dir);
+    store
+        .save(&catalogue, 1, usque_core::vpngate::RAW_URL)
+        .unwrap();
+    catalogue
+        .list(&ListQuery::default())
+        .servers
+        .into_iter()
+        .map(|server| Selection {
+            server_id: server.id,
+            config_sha256: server.config_sha256,
+        })
+        .collect()
+}
+
+async fn failed_gate_session() -> (tempfile::TempDir, ControlService, Profile, Vec<Selection>) {
+    let directory = tempfile::tempdir().unwrap();
+    let service = ControlService::open_with_vault(
+        ConfigStore::new(directory.path().join("config.json")),
+        Arc::new(crate::tests::MemoryVault::default()),
+    )
+    .unwrap();
+    let selections = gate_catalogue(&service);
+    let mut profile = service.config_snapshot().await.active_profile().unwrap();
+    profile.vpn_gate.enabled = true;
+    profile.vpn_gate.selection = Some(selections[0].clone());
+    service
+        .install_test_session(profile.clone(), true, 7)
+        .await
+        .unwrap();
+    service
+        .data_plane
+        .lock()
+        .await
+        .as_mut()
+        .unwrap()
+        .runtime
+        .fail_gate(GateFailure::Transport)
+        .await;
+    assert_eq!(
+        service.status_snapshot().await.phase,
+        ConnectionPhase::Error
+    );
+    (directory, service, profile, selections)
+}
+
+#[tokio::test]
+async fn failed_gate_connect_and_retry_apply_saved_node_or_disable_without_tunnel_teardown() {
+    for retry in [false, true] {
+        for disable in [false, true] {
+            let (_directory, service, mut profile, selections) = failed_gate_session().await;
+            profile.vpn_gate.enabled = !disable;
+            profile.vpn_gate.selection = Some(selections[1].clone());
+            let saved = service
+                .save_network_settings(v1::SaveNetworkSettingsRequest {
+                    operation_id: Uuid::new_v4().to_string(),
+                    account_id: profile.id.to_string(),
+                    values: Some(profile_to_proto(&profile)),
+                    changed_fields: vec!["vpn_gate".into()],
+                })
+                .await
+                .unwrap();
+            assert_eq!(
+                saved.apply_status, 4,
+                "failed sessions save until explicit connect"
+            );
+            let snapshot = if retry {
+                service.retry().await
+            } else {
+                service.connect(profile.id).await
+            }
+            .unwrap();
+            assert_eq!(snapshot.phase, ConnectionPhase::Connected);
+            let active = service.data_plane.lock().await;
+            let active = active.as_ref().unwrap();
+            assert_eq!(active.profile.vpn_gate, profile.vpn_gate);
+            let ActiveRuntime::Harness(runtime) = &active.runtime else {
+                panic!("memory runtime")
+            };
+            assert_eq!(runtime.gate_replace_count, 1);
+            assert_eq!(
+                (
+                    runtime.reconnect_count,
+                    runtime.attach_count,
+                    runtime.detach_count
+                ),
+                (7, 0, 0)
+            );
+            assert_eq!(
+                runtime.gate_status.stage,
+                if disable {
+                    GateStage::Disabled
+                } else {
+                    GateStage::Connected
+                }
+            );
+            assert!(service.disconnect_cleanup.lock().await.is_none());
+            let settings = service.network_settings_state().await;
+            assert_eq!(settings.apply_status, 3);
+            assert!(!settings.deferred_fields.contains(&"vpn_gate".to_owned()));
+        }
+    }
+}
+
+#[tokio::test]
+async fn failed_gate_retry_keeps_saved_target_and_blocks_when_its_snapshot_is_missing() {
+    let (_directory, service, mut profile, selections) = failed_gate_session().await;
+    profile.vpn_gate.selection = Some(selections[1].clone());
+    service.upsert_profile(profile.clone()).await.unwrap();
+    let selection = &selections[1];
+    std::fs::remove_file(service.cache_dir.join("vpngate/selected").join(format!(
+        "{}-{}.json",
+        &selection.server_id[3..],
+        selection.config_sha256,
+    )))
+    .unwrap();
+    assert!(matches!(
+        service.retry().await,
+        Err(ControlServiceError::VpnGate(_))
+    ));
+    let active = service.data_plane.lock().await;
+    let active = active.as_ref().unwrap();
+    assert_eq!(active.profile.vpn_gate, profile.vpn_gate);
+    assert_eq!(active.runtime.gate_status().stage, GateStage::Error);
+    assert!(active.runtime.listeners().is_empty());
+    assert!(service.disconnect_cleanup.lock().await.is_none());
+}
+
+#[tokio::test]
+async fn failed_gate_retry_with_underlay_changes_requires_a_full_reconnect() {
+    let (_directory, service, mut profile, selections) = failed_gate_session().await;
+    profile.mtu = 1400;
+    profile.vpn_gate.selection = Some(selections[1].clone());
+    service.upsert_profile(profile).await.unwrap();
+    // The memory vault has no WARP identity: a cold connect must stop there,
+    // before any Windows Agent request or real network operation is possible.
+    assert!(service.retry().await.is_err());
+    assert!(service.data_plane.lock().await.is_none());
+}
+
+#[tokio::test]
+async fn failed_gate_retry_rebuilds_a_dead_warp_underlay() {
+    let (_directory, service, _, _) = failed_gate_session().await;
+    if let ActiveRuntime::Harness(runtime) =
+        &mut service.data_plane.lock().await.as_mut().unwrap().runtime
+    {
+        runtime.warp_ready = false;
+    }
+    // A full reconnect stops at the empty identity vault, before opening sockets.
+    assert!(service.retry().await.is_err());
+    assert!(service.data_plane.lock().await.is_none());
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn connect_tracks_pending_disconnect_recovery_before_creating_another_tunnel() {
+    let directory = tempfile::tempdir().unwrap();
+    let service = ControlService::open_with_vault(
+        ConfigStore::new(directory.path().join("config.json")),
+        Arc::new(crate::tests::MemoryVault::default()),
+    )
+    .unwrap();
+    let profile = service.config_snapshot().await.active_profile().unwrap();
+    let operation_id = Uuid::new_v4().to_string();
+    let pending_operation = operation_id.clone();
+    *service.disconnect_cleanup.lock().await = Some(tokio::spawn(async move {
+        Err(ControlServiceError::PlatformRecoveryPending {
+            operation_id: pending_operation,
+            journal_generation: 19,
+        })
+    }));
+    let snapshot = service.connect(profile.id).await.unwrap();
+    assert_eq!(snapshot.phase, ConnectionPhase::Reconnecting);
+    assert!(service.data_plane.lock().await.is_none());
+    let recovery = service.windows_recovery.lock().await;
+    let watch = recovery.pending.as_ref().unwrap();
+    assert_eq!(watch.operation_id, operation_id);
+    assert_eq!(watch.journal_generation, 19);
+    drop(recovery);
+    service.disconnect().await.unwrap();
+    assert!(service.windows_recovery.lock().await.pending.is_none());
+}
 
 #[tokio::test]
 async fn disconnect_and_shutdown_cancel_gate_before_waiting_for_mutation() {
