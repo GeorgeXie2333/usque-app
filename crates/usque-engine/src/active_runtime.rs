@@ -42,6 +42,7 @@ pub(crate) enum ActiveRuntime {
 
 #[cfg(test)]
 pub(crate) struct HarnessRuntime {
+    pub(crate) path: RuntimePath,
     pub(crate) reconnect_count: u32,
     pub(crate) vpn: bool,
     pub(crate) listeners: Vec<SocketAddr>,
@@ -74,6 +75,12 @@ impl HarnessRuntime {
         let mut listeners = socks5_listeners.clone();
         listeners.extend(http_listeners.iter().copied());
         Self {
+            path: RuntimePath {
+                transport: usque_core::Transport::Http3,
+                endpoint_family: usque_core::AddressFamily::Ipv4,
+                ipv4_available: true,
+                ipv6_available: true,
+            },
             reconnect_count,
             vpn,
             listeners,
@@ -108,12 +115,7 @@ impl HarnessRuntime {
     }
 
     fn path(&self) -> RuntimePath {
-        RuntimePath {
-            transport: usque_core::Transport::Http3,
-            endpoint_family: usque_core::AddressFamily::Ipv4,
-            ipv4_available: true,
-            ipv6_available: true,
-        }
+        self.path
     }
 
     pub(crate) fn replace_gate(&mut self, profile: &Profile) {

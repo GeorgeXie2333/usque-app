@@ -39,6 +39,21 @@ In remote DNS mode, the OS uses the existing internal DNS listener and its host
 route. This keeps a VPN-pushed private resolver inside the final channel even
 when LAN bypass is enabled; Geo direct DNS exceptions still follow their rules.
 
+Traffic samples count packets entering and leaving the final VPN Gate channel.
+RTT, loss, congestion and HTTP/QUIC diagnostics describe the underlying WARP
+connection to Cloudflare; they do not measure the complete path through the
+volunteer server. The network quality page labels this scope. Replacing either
+the VPN Gate session or the active WARP transport starts a new sample history,
+so counters from different sessions cannot form a traffic-rate interval.
+WARP connection events remain available while VPN Gate is active.
+
+A connected VPN Gate node providing only IPv4 shows connected when IPv4 is
+available; unsupported proxied IPv6 stays blocked. Losing IPv6 from a dual-stack
+assignment still shows limited connectivity, as does reduced family support
+without VPN Gate.
+Exit location and public addresses still depend on a successful final-channel
+probe and may be unavailable during network fluctuations.
+
 ## Directory and saved configuration
 
 The mirror's [schema contract](https://github.com/GeorgeXie2333/vpngate-list-mirror/blob/main/docs/protocol.md)

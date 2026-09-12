@@ -1054,7 +1054,10 @@ impl WindowsVpnRuntime {
     }
 
     pub(crate) fn connection_timeline(&self) -> ConnectionTimelineSnapshot {
-        self.monitor.connection_timeline()
+        self.tunnel.as_ref().map_or_else(
+            || self.monitor.connection_timeline(),
+            DataPlaneRuntime::connection_timeline,
+        )
     }
 
     pub(crate) fn subscribe_network_quality(

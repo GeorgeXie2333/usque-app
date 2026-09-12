@@ -655,9 +655,16 @@ fn initial_quality_receiver(
 }
 
 impl ManagedTunnelRuntime {
-    pub(crate) fn for_external_packets(path: RuntimePath) -> (Self, ExternalPacketChannels) {
-        let telemetry = ConnectionTelemetry::default();
+    pub(crate) fn for_external_packets(
+        path: RuntimePath,
+        transport: crate::NetworkQualityTelemetry,
+    ) -> (Self, ExternalPacketChannels) {
+        let telemetry = ConnectionTelemetry::with_features(
+            crate::telemetry::CONNECTION_TIMELINE_CAPACITY,
+            transport.features(),
+        );
         let quality = telemetry.network_quality();
+        quality.begin_connection(path.transport, path.endpoint_family);
         let cancellation = CancellationToken::new();
         // Two MiB in each direction, independently of the native core queues.
         let (outgoing, outgoing_rx) = tracked_channel(quality.register_queue(
@@ -676,8 +683,9 @@ impl ManagedTunnelRuntime {
             reconnect_count: 0,
         });
         let counters = Arc::new(TrafficCounters::default());
-        let (quality, sampler) = spawn_network_quality_sampler_with_counters(
+        let (quality, sampler) = crate::network_quality::spawn_external_packet_quality_sampler(
             quality,
+            transport,
             counters.clone(),
             cancellation.child_token(),
         );

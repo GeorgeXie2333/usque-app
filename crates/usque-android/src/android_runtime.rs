@@ -562,7 +562,7 @@ async fn run(
         let _ = started.send(START_TRANSPORT_FAILURE);
         return;
     }
-    update_health(&status, tunnel.health());
+    update_health(&status, &tunnel);
     update_frontends(&status, &tunnel);
     let _ = started.send(START_OK);
     spawn_exit_probe(&status, &tunnel, &profile, tun.is_some());
@@ -861,7 +861,7 @@ async fn run_session(
                         }
                     }
                     super::connection_timeline::publish(tunnel.connection_timeline());
-                    update_health(&status, tunnel.health());
+                    update_health(&status, &tunnel);
                     update_frontends(&status, &tunnel);
                     let now = Instant::now();
                     let current = tunnel.statistics();
@@ -1002,7 +1002,7 @@ async fn retry_gate(
         };
         tunnel.fail_gate(reason).await;
     }
-    update_health(status, tunnel.health());
+    update_health(status, tunnel);
     update_frontends(status, tunnel);
 }
 
@@ -1022,7 +1022,7 @@ async fn handle_runtime_command(
                 tunnel
                     .fail_gate(usque_core::vpngate::GateFailure::Configuration)
                     .await;
-                update_health(status, tunnel.health());
+                update_health(status, tunnel);
                 update_frontends(status, tunnel);
             }
             let _ = reply.send(RECONFIGURE_OK);
@@ -1253,7 +1253,9 @@ fn apply_exit(snapshot: &mut NativeSnapshot, exit: usque_core::ExitInfo) {
     snapshot.exit_flag_svg = flag_svg;
 }
 
-fn update_health(status: &Arc<Mutex<NativeSnapshot>>, health: RuntimeHealth) {
+fn update_health(status: &Arc<Mutex<NativeSnapshot>>, tunnel: &DataPlaneRuntime) {
+    let health = tunnel.health();
+    let gate = tunnel.gate_status();
     let Ok(mut snapshot) = status.lock() else {
         return;
     };
@@ -1277,9 +1279,13 @@ fn update_health(status: &Arc<Mutex<NativeSnapshot>>, health: RuntimeHealth) {
         RuntimeHealth::Connected { path, .. } => {
             snapshot.tunnel_ipv4_available = path.ipv4_available;
             snapshot.tunnel_ipv6_available = path.ipv6_available;
-            let dual_stack = path.ipv4_available && path.ipv6_available;
-            snapshot.phase = if dual_stack { "connected" } else { "degraded" }.to_owned();
-            snapshot.warning = (!dual_stack).then(|| {
+            let connected = usque_core::ConnectionPhase::connected_tunnel(
+                path.ipv4_available,
+                path.ipv6_available,
+                Some(&gate),
+            ) == usque_core::ConnectionPhase::Connected;
+            snapshot.phase = if connected { "connected" } else { "degraded" }.to_owned();
+            snapshot.warning = (!connected).then(|| {
                 if path.ipv4_available {
                     "The CONNECT-IP peer is not currently routing IPv6; IPv4 remains protected."
                 } else {

@@ -190,6 +190,7 @@ impl DataPlaneRuntime {
         let (mut driver, tunnel, mut network) = crate::vpngate::GateDriver::start(
             &prepared,
             self.warp_internal_network(),
+            self.underlay_monitor().network_quality_telemetry(),
             status,
             &cancellation,
         )
@@ -503,7 +504,7 @@ impl DataPlaneRuntime {
         self.monitor().statistics()
     }
     pub fn connection_timeline(&self) -> ConnectionTimelineSnapshot {
-        self.monitor().connection_timeline()
+        self.underlay_monitor().connection_timeline()
     }
     pub fn network_quality(&self) -> NetworkQualitySnapshot {
         self.monitor().network_quality()

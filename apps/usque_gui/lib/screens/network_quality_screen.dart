@@ -104,7 +104,11 @@ class NetworkQualityScreen extends StatelessWidget {
       child: SubPage(
         title: s.get('network_quality'),
         backLabel: s.get('back'),
-        subtitle: s.get('nq_subtitle'),
+        subtitle: s.get(
+          controller.snapshot.vpnGate.stage != 'disabled'
+              ? 'gate_quality_scope'
+              : 'nq_subtitle',
+        ),
         actions: <Widget>[
           FilledButton.icon(
             key: const ValueKey<String>('network-doctor-standard'),

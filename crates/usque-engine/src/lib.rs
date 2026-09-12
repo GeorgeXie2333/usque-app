@@ -1017,7 +1017,8 @@ impl ControlService {
         let mut data_plane = self.data_plane.lock().await;
         let mut state = self.state.lock().await;
         if let Some(active) = data_plane.as_mut() {
-            self.gate_status.send_replace(active.runtime.gate_status());
+            let gate = active.runtime.gate_status();
+            self.gate_status.send_replace(gate.clone());
             state.update_data_plane(active.profile.data_plane, active.runtime.l4_snapshot());
             if !platform_recovery_pending {
                 match active.runtime.health() {
@@ -1028,13 +1029,20 @@ impl ControlService {
                                 | ConnectionPhase::Degraded
                                 | ConnectionPhase::Reconnecting
                         ) && (state.snapshot().phase == ConnectionPhase::Reconnecting
-                            || runtime_path_changed(state.snapshot(), path)) =>
+                            || runtime_path_changed(state.snapshot(), path)
+                            || state.snapshot().phase
+                                != ConnectionPhase::connected_tunnel(
+                                    path.ipv4_available,
+                                    path.ipv6_available,
+                                    Some(&gate),
+                                )) =>
                     {
-                        if let Err(error) = state.mark_connected(
+                        if let Err(error) = state.mark_connected_with_gate(
                             path.transport,
                             path.endpoint_family,
                             path.ipv4_available,
                             path.ipv6_available,
+                            Some(&gate),
                         ) {
                             state.mark_error(ConnectionError {
                                 code: ErrorCode::Internal,
@@ -2078,11 +2086,12 @@ impl ControlService {
                     state.mark_failure(failure, message);
                 }
                 _ => {
-                    state.mark_connected(
+                    state.mark_connected_with_gate(
                         path.transport,
                         path.endpoint_family,
                         path.ipv4_available,
                         path.ipv6_available,
+                        Some(&runtime.gate_status()),
                     )?;
                 }
             }
@@ -5251,6 +5260,59 @@ mod tests {
             ..unchanged
         };
         assert!(runtime_path_changed(state.snapshot(), peer_withdrew_ipv6));
+    }
+
+    #[tokio::test]
+    async fn ipv4_only_gate_status_tracks_assignment_without_changing_family_availability() {
+        use usque_core::vpngate::{FinalNetworkParameters, GateStage, GateStatus};
+        let directory = tempfile::tempdir().unwrap();
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(MemoryVault::default()),
+        )
+        .unwrap();
+        let profile = service.config_snapshot().await.active_profile().unwrap();
+        service
+            .install_test_session(profile, false, 0)
+            .await
+            .unwrap();
+        for (stage, ipv6, expected) in [
+            (GateStage::Connected, None, ConnectionPhase::Connected),
+            (GateStage::Disabled, None, ConnectionPhase::Degraded),
+            (GateStage::Connected, None, ConnectionPhase::Connected),
+            (
+                GateStage::Connected,
+                Some("fd00::2".parse().unwrap()),
+                ConnectionPhase::Degraded,
+            ),
+        ] {
+            {
+                let mut plane = service.data_plane.lock().await;
+                let ActiveRuntime::Harness(runtime) = &mut plane.as_mut().unwrap().runtime else {
+                    panic!("test requires a memory-only runtime");
+                };
+                runtime.path.ipv6_available = false;
+                runtime.gate_status = GateStatus {
+                    stage,
+                    network: Some(FinalNetworkParameters {
+                        ipv4: Some("10.8.0.2".parse().unwrap()),
+                        ipv6,
+                        dns_servers: Vec::new(),
+                        mtu: 1500,
+                    }),
+                    ..Default::default()
+                };
+            }
+            let snapshot = service.status_snapshot().await;
+            assert_eq!(snapshot.phase, expected);
+            assert!(snapshot.ipv4_available);
+            assert!(!snapshot.ipv6_available);
+            // Repeated snapshots must not restart the state timer.
+            assert_eq!(
+                service.status_snapshot().await.changed_at,
+                snapshot.changed_at
+            );
+        }
     }
 
     #[tokio::test]

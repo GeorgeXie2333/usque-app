@@ -1091,6 +1091,7 @@ impl NetworkQualityTelemetry {
 
 pub struct NetworkQualitySampler {
     telemetry: NetworkQualityTelemetry,
+    external_transport: Option<ExternalTransportTelemetry>,
     last_connection: Option<ConnectionInstanceId>,
     previous_h3: Option<H3CounterBaseline>,
     last_interval_loss: Option<u32>,
@@ -1101,6 +1102,15 @@ pub struct NetworkQualitySampler {
     delivery_history: VecDeque<NetworkQualitySample>,
     clock_origin: Option<Instant>,
     sequence: u64,
+}
+
+// An embedded packet tunnel owns its traffic counters and queues, while the
+// HTTP/QUIC observations still describe its WARP carrier. Either session
+// changing starts a new delivery history, even when WARP is reused.
+struct ExternalTransportTelemetry {
+    telemetry: NetworkQualityTelemetry,
+    sessions: (Option<ConnectionInstanceId>, Option<ConnectionInstanceId>),
+    connection_id: Option<ConnectionInstanceId>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1124,6 +1134,7 @@ impl NetworkQualitySampler {
     pub fn new(telemetry: NetworkQualityTelemetry) -> Self {
         Self {
             telemetry,
+            external_transport: None,
             last_connection: None,
             previous_h3: None,
             last_interval_loss: None,
@@ -1139,13 +1150,31 @@ impl NetworkQualitySampler {
 
     pub fn sample(&mut self) -> NetworkQualitySnapshot {
         let sampled_at = Instant::now();
-        let mut state = self.telemetry.state_read().clone();
+        let local_state = self.telemetry.state_read().clone();
+        let source = self
+            .external_transport
+            .as_ref()
+            .map_or(&self.telemetry, |external| &external.telemetry);
+        let stream_data_plane = source.inner.stream_data_plane.load(Ordering::Acquire);
+        let mut state = if self.external_transport.is_some() {
+            source.state_read().clone()
+        } else {
+            local_state.clone()
+        };
         // Capture one selected attempt for the entire snapshot: a concurrent
         // promotion cannot mix its identity with a different attempt's queues.
         let active = state.active_attempt.take();
         let mut queue_metrics = self.telemetry.queues_read().clone();
         let mut allocations = self.telemetry.allocation_snapshot();
-        let udp_io = active.as_ref().unwrap_or(&self.telemetry).udp_snapshot();
+        let udp_io = active.as_ref().unwrap_or(source).udp_snapshot();
+        if self.external_transport.is_some() {
+            allocations.add(source.allocation_snapshot());
+            let transport_queues = source.queues_read();
+            for kind in [QueueKind::H3DatagramSend, QueueKind::H3WireSend] {
+                let index = queue_index(kind);
+                queue_metrics[index] = Arc::clone(&transport_queues[index]);
+            }
+        }
         if let Some(active) = &active {
             let direct_dns = state.direct_dns;
             state = active.state_read().clone();
@@ -1156,6 +1185,18 @@ impl NetworkQualitySampler {
                 queue_metrics[index] = Arc::clone(&attempt_queues[index]);
             }
             allocations.add(active.allocation_snapshot());
+        }
+        if let Some(external) = &mut self.external_transport {
+            let sessions = (local_state.connection_id, state.connection_id);
+            if external.sessions != sessions {
+                external.sessions = sessions;
+                external.connection_id = sessions
+                    .0
+                    .zip(sessions.1)
+                    .map(|_| ConnectionInstanceId(Uuid::new_v4()));
+            }
+            state.connection_id = external.connection_id;
+            state.direct_dns = local_state.direct_dns;
         }
         let connection_changed = state.connection_id != self.last_connection;
         if connection_changed {
@@ -1204,12 +1245,7 @@ impl NetworkQualitySampler {
             h2_flow_control: state.h2.flow_control,
             samples: Vec::new(),
         };
-        if self
-            .telemetry
-            .inner
-            .stream_data_plane
-            .load(Ordering::Acquire)
-        {
+        if stream_data_plane {
             snapshot.pmtu.effective_connect_ip_payload_bytes = MetricValue::unsupported();
             snapshot.loss.datagrams_sent = MetricValue::unsupported();
             snapshot.loss.datagrams_received = MetricValue::unsupported();
@@ -1481,6 +1517,23 @@ pub(crate) fn spawn_network_quality_sampler_with_counters(
     spawn_sampler(sampler, publish, cancellation)
 }
 
+pub(crate) fn spawn_external_packet_quality_sampler(
+    telemetry: NetworkQualityTelemetry,
+    transport: NetworkQualityTelemetry,
+    counters: Arc<crate::netstack::TrafficCounters>,
+    cancellation: CancellationToken,
+) -> (watch::Receiver<NetworkQualitySnapshot>, JoinHandle<()>) {
+    let publish = telemetry.features().network_quality_metrics;
+    let mut sampler = NetworkQualitySampler::new(telemetry);
+    sampler.counters = Some(counters);
+    sampler.external_transport = Some(ExternalTransportTelemetry {
+        telemetry: transport,
+        sessions: (None, None),
+        connection_id: None,
+    });
+    spawn_sampler(sampler, publish, cancellation)
+}
+
 fn millis(duration: Duration) -> u64 {
     u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
 }
@@ -1698,6 +1751,158 @@ mod tests {
             datagrams_lost: lost,
             datagram_receive_drops: 0,
         }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn external_packets_sample_final_traffic_and_selected_warp_metrics() {
+        for transport in [Transport::Http2, Transport::Http3] {
+            for stream_mode in [false, true] {
+                let warp = NetworkQualityTelemetry::default();
+                if stream_mode {
+                    warp.use_stream_data_plane();
+                }
+                let attempt = warp.new_attempt(transport, AddressFamily::Ipv4);
+                attempt.observe_h3(h3_sample(100, 0));
+                attempt.configure_h2_connection(65535, 1048576, true);
+                attempt.observe_h2_rtt(
+                    Duration::from_millis(20),
+                    Duration::from_millis(20),
+                    Duration::from_millis(15),
+                    Duration::from_millis(2),
+                );
+                let _underlay_packets =
+                    warp.register_queue(QueueKind::TransportOutgoingPackets, 9, 900);
+                let _wire = attempt.register_queue(QueueKind::H3WireSend, 11, 1100);
+                warp.activate_attempt(&attempt);
+                let path = crate::netstack::RuntimePath {
+                    transport,
+                    endpoint_family: AddressFamily::Ipv4,
+                    ipv4_available: true,
+                    ipv6_available: false,
+                };
+                let (mut runtime, channels) =
+                    crate::netstack::ManagedTunnelRuntime::for_external_packets(path, warp.clone());
+                let monitor = runtime.monitor();
+                let mut updates = monitor.subscribe_network_quality();
+                let first = updates.borrow_and_update().clone();
+                // Let the spawned sampler install its interval before moving
+                // the deterministic clock.
+                tokio::task::yield_now().await;
+                assert!(first.connection_id.is_some());
+                assert_eq!(first.samples.len(), 1);
+                assert_eq!(
+                    first.rtt.smoothed,
+                    MetricValue::available(Duration::from_millis(20))
+                );
+                assert_eq!(
+                    first
+                        .queues
+                        .iter()
+                        .find(|q| q.kind == QueueKind::TransportOutgoingPackets)
+                        .unwrap()
+                        .item_capacity,
+                    256,
+                    "final packet queues must not be replaced by WARP's queues",
+                );
+                assert_eq!(
+                    first
+                        .queues
+                        .iter()
+                        .any(|q| q.kind == QueueKind::H3DatagramSend),
+                    !stream_mode
+                );
+                if stream_mode {
+                    assert_eq!(
+                        first.loss.datagrams_sent.availability,
+                        MetricAvailability::Unsupported
+                    );
+                }
+                channels.counters.record_received(3000);
+                channels.counters.record_sent(1000);
+                attempt.observe_h3(h3_sample(200, 1));
+                advance(Duration::from_secs(1)).await;
+                updates.changed().await.unwrap();
+                let second = updates.borrow_and_update().clone();
+                assert_eq!(second.connection_id, first.connection_id);
+                let point = second.samples.last().unwrap();
+                assert_eq!(point.downloaded_bytes, Some(3000));
+                assert_eq!(point.uploaded_bytes, Some(1000));
+                assert_eq!(point.monotonic_millis, 1000);
+                assert_eq!(point.rtt_ms, Some(20));
+                assert_eq!(
+                    point.loss_basis_points,
+                    (transport == Transport::Http3).then_some(100)
+                );
+
+                // A new node may reuse WARP but has independent counters and
+                // a new identity. Its first sample cannot form a rate interval
+                // with the old node's final traffic.
+                let (mut replacement, _) =
+                    crate::netstack::ManagedTunnelRuntime::for_external_packets(path, warp.clone());
+                let replaced = replacement.monitor().network_quality();
+                assert_ne!(replaced.connection_id, first.connection_id);
+                assert_eq!(replaced.samples.len(), 1);
+                assert_eq!(replaced.samples[0].downloaded_bytes, Some(0));
+                runtime.shutdown().await;
+                assert!(updates.changed().await.is_err());
+                assert_eq!(warp.current_smoothed_rtt(), Some(Duration::from_millis(20)));
+                replacement.shutdown().await;
+            }
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn external_samples_follow_promotions_and_do_not_fabricate_stale_rtt() {
+        let warp = NetworkQualityTelemetry::default();
+        let first = warp.new_attempt(Transport::Http3, AddressFamily::Ipv4);
+        first.observe_h3(h3_sample(100, 0));
+        warp.activate_attempt(&first);
+        let path = crate::netstack::RuntimePath {
+            transport: Transport::Http3,
+            endpoint_family: AddressFamily::Ipv4,
+            ipv4_available: true,
+            ipv6_available: false,
+        };
+        let (mut runtime, channels) =
+            crate::netstack::ManagedTunnelRuntime::for_external_packets(path, warp.clone());
+        let mut updates = runtime.monitor().subscribe_network_quality();
+        let original = updates.borrow_and_update().connection_id;
+        tokio::task::yield_now().await;
+        let candidate = warp.new_attempt(Transport::Http2, AddressFamily::Ipv6);
+        candidate.configure_h2_connection(65535, 1048576, false);
+        advance(Duration::from_secs(4)).await;
+        updates.changed().await.unwrap();
+        let stale = updates.borrow_and_update().clone();
+        assert_eq!(stale.connection_id, original);
+        assert_eq!(stale.rtt.smoothed.availability, MetricAvailability::Stale);
+        assert_eq!(stale.samples.last().unwrap().rtt_ms, None);
+        warp.activate_attempt(&candidate);
+        channels.counters.record_received(100);
+        advance(Duration::from_secs(1)).await;
+        updates.changed().await.unwrap();
+        let promoted = updates.borrow_and_update().clone();
+        assert_ne!(promoted.connection_id, original);
+        assert_eq!(promoted.transport, Some(Transport::Http2));
+        assert_eq!(promoted.endpoint_family, Some(AddressFamily::Ipv6));
+        assert_eq!(promoted.samples.len(), 1);
+        assert_eq!(promoted.samples[0].sequence, 1);
+        assert_eq!(promoted.samples[0].downloaded_bytes, Some(100));
+        assert_eq!(
+            promoted.rtt.smoothed.availability,
+            MetricAvailability::Unsupported
+        );
+        assert_eq!(
+            promoted.loss.interval_basis_points.availability,
+            MetricAvailability::Unsupported
+        );
+        warp.end_connection();
+        advance(Duration::from_secs(1)).await;
+        updates.changed().await.unwrap();
+        let ended = updates.borrow_and_update().clone();
+        assert_eq!(ended.connection_id, None);
+        assert!(ended.samples.is_empty());
+        assert_eq!(ended.level, NetworkQualityLevel::Disconnected);
+        runtime.shutdown().await;
     }
 
     #[test]

@@ -67,6 +67,7 @@ impl GateDriver {
     pub(crate) async fn start(
         profile: &PreparedProfile,
         warp: InternalNetwork,
+        transport_telemetry: crate::NetworkQualityTelemetry,
         status_sink: Option<watch::Sender<GateStatus>>,
         startup_cancel: &CancellationToken,
     ) -> Result<(Self, ManagedTunnelRuntime, FinalNetworkParameters), TransportError> {
@@ -86,6 +87,7 @@ impl GateDriver {
             native,
             remote: profile.remote,
             underlay_health: warp.health(),
+            transport_telemetry,
             warp,
             status: status_tx.clone(),
             ready: Some(ready_tx),
@@ -166,6 +168,7 @@ struct Actor {
     warp: InternalNetwork,
     remote: SocketAddr,
     underlay_health: watch::Receiver<RuntimeHealth>,
+    transport_telemetry: crate::NetworkQualityTelemetry,
     status: watch::Sender<GateStatus>,
     ready: Option<oneshot::Sender<Startup>>,
     channels: Option<ExternalPacketChannels>,
@@ -334,7 +337,10 @@ impl Actor {
                     self.connected = true;
                     let path = self.path();
                     if let Some(ready) = self.ready.take() {
-                        let (runtime, channels) = ManagedTunnelRuntime::for_external_packets(path);
+                        let (runtime, channels) = ManagedTunnelRuntime::for_external_packets(
+                            path,
+                            self.transport_telemetry.clone(),
+                        );
                         self.channels = Some(channels);
                         self.publish_connected();
                         ready
@@ -389,14 +395,6 @@ impl Actor {
     }
     fn publish_connected(&self) {
         let admitted = *self.admitted.borrow();
-        self.status.send_modify(|s| {
-            s.stage = if admitted {
-                GateStage::Connected
-            } else {
-                GateStage::ConfiguringNetwork
-            };
-            s.failure = None;
-        });
         if let Some(channels) = &self.channels {
             let path = self.path();
             let health = if admitted {
@@ -415,6 +413,16 @@ impl Actor {
             };
             channels.health.send_replace(health);
         }
+        // Connected is the admission acknowledgement. Readers may immediately
+        // start a final-exit probe, which requires the health above to be ready.
+        self.status.send_modify(|s| {
+            s.stage = if admitted {
+                GateStage::Connected
+            } else {
+                GateStage::ConfiguringNetwork
+            };
+            s.failure = None;
+        });
     }
     fn reconnecting(&mut self) {
         if self.connected {
@@ -662,7 +670,13 @@ mod tests {
             let warp =
                 InternalNetwork::for_streams(dialer.clone(), receiver, CancellationToken::new());
             let cancel = CancellationToken::new();
-            let startup = GateDriver::start(&prepared, warp, None, &cancel);
+            let startup = GateDriver::start(
+                &prepared,
+                warp,
+                crate::NetworkQualityTelemetry::default(),
+                None,
+                &cancel,
+            );
             tokio::pin!(startup);
             let stop = async {
                 dialer.dialed.notified().await;
