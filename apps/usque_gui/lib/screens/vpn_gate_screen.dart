@@ -509,8 +509,10 @@ class _VpnGateScreenState extends State<VpnGateScreen>
       );
   Widget _serverRow(VpnGateServer server, AppStrings strings) {
     final selected = server.matches(_draft);
+    final enabled = _draft.enabled && !_saving;
     return ListTile(
       key: ValueKey('vpn-gate-node-${server.id}'),
+      enabled: enabled,
       selected: selected,
       leading: Icon(selected ? LucideIcons.circleCheck : LucideIcons.circle),
       title: Text(
@@ -521,7 +523,7 @@ class _VpnGateScreenState extends State<VpnGateScreen>
         '${server.hostname}\n${strings.get('gate_score')}: ${server.score ?? '—'} · ${server.pingMs == null ? '—' : '${server.pingMs} ms'} · ${server.speedBps == null ? '—' : '${(server.speedBps! / 1000000).toStringAsFixed(1)} Mbps'}',
       ),
       isThreeLine: true,
-      onTap: _saving
+      onTap: !enabled
           ? null
           : () => setState(() {
               _draft = _draft.copyWith(server: server);

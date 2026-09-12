@@ -220,6 +220,14 @@ void main() {
       expect(app.activeProfile.vpnGate.hasSelection, isFalse);
       await tester.tap(find.byKey(const ValueKey('vpn-gate-toggle')));
       await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(const ValueKey('vpn-gate-apply')))
+            .onPressed,
+        isNull,
+      );
+      await tester.tap(find.byKey(const ValueKey('vpn-gate-node-v1:node')));
+      await tester.pumpAndSettle();
       expect(engine.saves, 0);
       await tester.tap(find.byKey(const ValueKey('vpn-gate-apply')));
       await tester.pumpAndSettle();
@@ -238,6 +246,8 @@ void main() {
   ) async {
     final engine = GateEngine()..failSave = true;
     final app = await host(tester, engine);
+    await tester.tap(find.byKey(const ValueKey('vpn-gate-toggle')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('vpn-gate-node-v1:node')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('vpn-gate-apply')));
@@ -262,6 +272,8 @@ void main() {
     (tester) async {
       final engine = GateEngine()..failSave = true;
       final app = await host(tester, engine);
+      await tester.tap(find.byKey(const ValueKey('vpn-gate-toggle')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('vpn-gate-node-v1:node')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('vpn-gate-apply')));
@@ -294,6 +306,11 @@ void main() {
             locale: locale,
             size: const Size(390, 844),
           );
+          final toggle = find.byKey(const ValueKey('vpn-gate-toggle'));
+          await tester.ensureVisible(toggle);
+          await tester.pumpAndSettle();
+          await tester.tap(toggle);
+          await tester.pumpAndSettle();
           final node = find.byKey(const ValueKey('vpn-gate-node-v1:node'));
           await tester.ensureVisible(node);
           await tester.pumpAndSettle();

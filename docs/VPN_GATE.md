@@ -4,6 +4,9 @@ VPN Gate is an optional final exit for Windows, Android and Android TV. Open
 **Proxy → VPN Gate**, refresh the directory, filter by country, select a TCP
 server, and explicitly save or apply the selection. The switch is off for old
 and new configurations. Selecting a row edits a draft; it does not reconnect.
+Server selection is available only while the page's VPN Gate switch is on.
+With the switch off, the directory remains browsable and existing selections
+are retained.
 
 The current connected server and the draft are separate. An enabled selection
 is device-wide and shared across WARP accounts. A failed apply retains the

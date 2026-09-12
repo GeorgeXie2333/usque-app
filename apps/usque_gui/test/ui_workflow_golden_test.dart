@@ -86,7 +86,11 @@ void main() {
         );
         await tester.pump(const Duration(seconds: 2));
         await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('vpn-gate-toggle')));
+        await tester.pumpAndSettle();
         await tester.tap(find.byKey(const ValueKey('vpn-gate-node-v1:node')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('vpn-gate-toggle')));
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
         await expectLater(
