@@ -281,7 +281,7 @@ async fn queued_connect_cannot_restart_after_disconnect() {
         ))
     ));
     let result = service
-        .connect_with_cancellation_locked(profile_id, stale)
+        .connect_with_cancellation_locked(profile_id, stale, true)
         .await
         .unwrap();
     assert_eq!(result.phase, ConnectionPhase::Disconnected);

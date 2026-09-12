@@ -522,6 +522,50 @@ mod tests {
     }
 
     #[test]
+    fn recovery_diagnostics_are_optional_field_eighteen_and_old_readers_skip_them() {
+        #[derive(Clone, PartialEq, prost::Message)]
+        struct LegacyPlatformState {
+            #[prost(uint64, tag = "16")]
+            journal_generation: u64,
+        }
+        let extension = agent_v1::PlatformState {
+            recovery_diagnostics: Some(agent_v1::RecoveryDiagnostics::default()),
+            ..Default::default()
+        };
+        assert_eq!(extension.encode_to_vec(), [0x92, 0x01, 0x00]);
+        let state = agent_v1::PlatformState {
+            journal_generation: 19,
+            ..extension
+        };
+        assert_eq!(
+            LegacyPlatformState::decode(state.encode_to_vec().as_slice())
+                .unwrap()
+                .journal_generation,
+            19
+        );
+        let old = LegacyPlatformState {
+            journal_generation: 7,
+        };
+        let decoded = agent_v1::PlatformState::decode(old.encode_to_vec().as_slice()).unwrap();
+        assert_eq!(decoded.journal_generation, 7);
+        assert!(decoded.recovery_diagnostics.is_none());
+        let sample = agent_v1::RecoveryDiagnostics {
+            current: Some(agent_v1::RecoveryObservation {
+                sampled_at_unix_ms: 200,
+                journal_generation: 19,
+                status: agent_v1::RecoverySampleStatus::GenerationChanged as i32,
+                ..Default::default()
+            }),
+            history_status: agent_v1::RecoveryHistoryStatus::Missing as i32,
+            history: vec![],
+        };
+        assert_eq!(
+            agent_v1::RecoveryDiagnostics::decode(sample.encode_to_vec().as_slice()).unwrap(),
+            sample
+        );
+    }
+
+    #[test]
     fn v1_control_request_wire_snapshot_is_stable() {
         let decoded: ControlRequest =
             decode_frame(Bytes::from_static(GET_STATUS_V1_FRAME)).expect("decode snapshot");

@@ -242,7 +242,7 @@ pub enum AgentLifecycleError {
 
 impl<Backend> AgentService<Backend>
 where
-    Backend: PrivilegedBackend,
+    Backend: PrivilegedBackend + 'static,
 {
     pub fn new(
         coordinator: Arc<AgentCoordinator<Backend>>,
@@ -359,7 +359,16 @@ where
                 None => self.coordinator.state().await,
             },
         };
-        self.proto_platform_state(&journal).await
+        let mut state = self.proto_platform_state(&journal).await;
+        if let Some(error) = state
+            .automatic_recovery
+            .as_mut()
+            .and_then(|status| status.terminal_error.as_mut())
+        {
+            error.message.clear();
+        }
+        state.recovery_diagnostics = Some(self.coordinator.inspect_recovery_diagnostics().await);
+        state
     }
 
     async fn reconcile_automatic_recovery_state(&self) {
@@ -1084,7 +1093,25 @@ where
                 agent_response::Payload::State(self.current_proto_state().await)
             }
             agent_request::Payload::InspectPlatformState(_) => {
-                agent_response::Payload::PlatformState(self.current_proto_platform_state().await)
+                let state = tokio::time::timeout(
+                    Duration::from_millis(1900),
+                    self.current_proto_platform_state(),
+                )
+                .await
+                .unwrap_or_else(|_| agent_v1::PlatformState {
+                    service_state: "running".to_owned(),
+                    recovery_diagnostics: Some(agent_v1::RecoveryDiagnostics {
+                        current: Some(agent_v1::RecoveryObservation {
+                            sampled_at_unix_ms: crate::recovery_diagnostics::unix_ms(),
+                            status: agent_v1::RecoverySampleStatus::Timeout as i32,
+                            ..Default::default()
+                        }),
+                        history_status: agent_v1::RecoveryHistoryStatus::Unavailable as i32,
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                });
+                agent_response::Payload::PlatformState(state)
             }
             agent_request::Payload::GetPhysicalNetworkInfo(request) => {
                 let operation_id = parse_operation_id(&request.operation_id)
@@ -2037,6 +2064,7 @@ fn platform_state_to_proto(
         .any(|step| step.state == crate::journal::MutationState::Intended);
     agent_v1::PlatformState {
         service_state: "running".to_owned(),
+        recovery_diagnostics: None,
         agent_phase: phase_to_proto(journal.phase),
         active_tunnel_lease: tunnel_lease_attached,
         packet_session_active: packet_session_attached,

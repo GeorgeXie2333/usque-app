@@ -594,18 +594,52 @@ impl PassiveCheck {
                 }
                 finding
             }
-            Kind::RecoveryJournal if context.platform_state.is_some() => passed(
-                self,
-                "diagnostic_recovery_journal_consistent",
-                ["agent_read_only_inspection"],
-            ),
-            Kind::RecoveryJournal if context.operating_system == "windows" => warning(
-                self,
-                TransportFailureCode::AgentUnreachable,
-                TransportStage::PlatformRecovery,
-                "diagnostic_recovery_journal_agent_unavailable",
-                "inspect_platform_state",
-            ),
+            Kind::RecoveryJournal
+                if context.platform_state.as_ref().is_some_and(|state| {
+                    matches!(
+                        usque_ipc::agent_v1::AgentPhase::try_from(state.agent_phase),
+                        Ok(usque_ipc::agent_v1::AgentPhase::Clean
+                            | usque_ipc::agent_v1::AgentPhase::Active)
+                    ) && state
+                        .recovery_diagnostics
+                        .as_ref()
+                        .and_then(|diagnostics| diagnostics.current.as_ref())
+                        .is_none_or(|sample| {
+                            matches!(
+                                usque_ipc::agent_v1::RecoverySampleStatus::try_from(sample.status),
+                                Ok(usque_ipc::agent_v1::RecoverySampleStatus::Complete
+                                    | usque_ipc::agent_v1::RecoverySampleStatus::NoReceipt)
+                            )
+                        })
+                }) =>
+            {
+                let mut finding = passed(
+                    self,
+                    "diagnostic_recovery_journal_consistent",
+                    ["agent_read_only_inspection"],
+                );
+                finding
+                    .sanitized_evidence
+                    .extend(automatic_recovery_evidence(
+                        context.platform_state.as_ref().unwrap(),
+                    ));
+                finding
+            }
+            Kind::RecoveryJournal if context.operating_system == "windows" => {
+                let mut finding = warning(
+                    self,
+                    TransportFailureCode::AgentUnreachable,
+                    TransportStage::PlatformRecovery,
+                    "diagnostic_recovery_journal_agent_unavailable",
+                    "inspect_platform_state",
+                );
+                if let Some(state) = &context.platform_state {
+                    finding
+                        .sanitized_evidence
+                        .extend(automatic_recovery_evidence(state));
+                }
+                finding
+            }
             Kind::RecoveryJournal => skipped(
                 self,
                 "diagnostic_recovery_journal_not_supported",
@@ -616,27 +650,48 @@ impl PassiveCheck {
 }
 
 fn automatic_recovery_evidence(state: &PlatformState) -> Vec<String> {
+    let mut evidence = Vec::new();
+    if let Some(diagnostics) = &state.recovery_diagnostics {
+        if let Some(sample) = &diagnostics.current {
+            if let Ok(status) = usque_ipc::agent_v1::RecoverySampleStatus::try_from(sample.status) {
+                evidence.push(format!("recovery_sample_status={}", status as i32));
+            }
+            evidence.push(format!(
+                "recovery_sample_time_ms={}",
+                sample.sampled_at_unix_ms
+            ));
+            evidence.push(format!(
+                "recovery_sample_generation={}",
+                sample.journal_generation
+            ));
+        }
+        evidence.push(format!(
+            "recovery_history_count={}",
+            diagnostics.history.len().min(32)
+        ));
+    }
     let Some(status) = state.automatic_recovery.as_ref() else {
-        return Vec::new();
+        return evidence;
     };
     let Ok(phase) = AutomaticRecoveryPhase::try_from(status.phase) else {
-        return Vec::new();
+        return evidence;
     };
     if phase == AutomaticRecoveryPhase::Unspecified
         || status.attempt_limit == 0
         || status.attempt_limit > 16
         || status.attempts_completed > status.attempt_limit
     {
-        return Vec::new();
+        return evidence;
     }
-    vec![
+    evidence.extend([
         format!("automatic_recovery_phase={}", phase as i32),
         format!(
             "automatic_recovery_attempts_completed={}",
             status.attempts_completed
         ),
         format!("automatic_recovery_attempt_limit={}", status.attempt_limit),
-    ]
+    ]);
+    evidence
 }
 
 #[async_trait]

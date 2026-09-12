@@ -65,6 +65,7 @@ mod reconfigure;
 
 use active_runtime::{ActiveDataPlane, ActiveProxyRuntime, ActiveRuntime};
 
+mod recovery_diagnostics;
 #[cfg(windows)]
 mod windows_agent;
 
@@ -129,6 +130,8 @@ pub struct ControlServiceState {
     windows_recovery_notify: tokio::sync::Notify,
     #[cfg(windows)]
     windows_recovery_stopping: std::sync::atomic::AtomicBool,
+    #[cfg(all(test, windows))]
+    test_windows_agent: Mutex<Option<windows_agent::WindowsAgentClient>>,
     #[cfg(any(windows, test))]
     event_sequence: AtomicU64,
     #[cfg(test)]
@@ -441,6 +444,8 @@ impl ControlService {
                 windows_recovery_notify: tokio::sync::Notify::new(),
                 #[cfg(windows)]
                 windows_recovery_stopping: std::sync::atomic::AtomicBool::new(false),
+                #[cfg(all(test, windows))]
+                test_windows_agent: Mutex::new(None),
                 #[cfg(any(windows, test))]
                 event_sequence: AtomicU64::new(0),
                 #[cfg(test)]
@@ -696,15 +701,11 @@ impl ControlService {
                 error: None,
                 payload: Some(payload),
             },
-            Err(error) => {
-                #[cfg(windows)]
-                windows_agent::log_recovery_error(&error);
-                ControlResponse {
-                    request_id,
-                    error: Some(error.as_structured_error()),
-                    payload: None,
-                }
-            }
+            Err(error) => ControlResponse {
+                request_id,
+                error: Some(error.as_structured_error()),
+                payload: None,
+            },
         }
     }
 
@@ -934,6 +935,10 @@ impl ControlService {
                         maintenance::DiagnosticTransportContext {
                             timeline,
                             socket_receive: self.network_quality_snapshot().socket_receive,
+                            #[cfg(windows)]
+                            platform_state: Some(recovery_diagnostics::capture().await),
+                            #[cfg(not(windows))]
+                            platform_state: None,
                         },
                     )
                     .await?;
@@ -1173,13 +1178,7 @@ impl ControlService {
         let active_profile = config.active_profile();
         #[cfg(windows)]
         let platform_state = if mode == usque_core::DiagnosticMode::Deep {
-            tokio::time::timeout(
-                std::time::Duration::from_millis(250),
-                windows_agent::inspect_platform_state_if_running(),
-            )
-            .await
-            .ok()
-            .and_then(Result::ok)
+            Some(recovery_diagnostics::capture().await)
         } else {
             None
         };
@@ -1778,7 +1777,7 @@ impl ControlService {
         #[cfg(windows)]
         let intent_generation = self.begin_windows_connection_intent(profile_id).await;
         let result = self
-            .connect_with_cancellation_locked(profile_id, startup_cancel)
+            .connect_with_cancellation_locked(profile_id, startup_cancel, true)
             .await;
         #[cfg(windows)]
         if result.is_err() {
@@ -1793,20 +1792,37 @@ impl ControlService {
         profile_id: Uuid,
     ) -> Result<ConnectionSnapshot, ControlServiceError> {
         let startup_cancel = self.gate_startup_cancel.lock().await.clone();
-        self.connect_with_cancellation_locked(profile_id, startup_cancel)
+        self.connect_with_cancellation_locked(profile_id, startup_cancel, false)
             .await
+    }
+
+    #[cfg(windows)]
+    async fn connection_recovery_preflight(
+        &self,
+        restart_exhausted: bool,
+    ) -> Result<Option<windows_agent::AutomaticRecoveryObservation>, windows_agent::WindowsVpnError>
+    {
+        #[cfg(test)]
+        if let Some(client) = self.test_windows_agent.lock().await.clone() {
+            return client.recovery_preflight(restart_exhausted).await;
+        }
+        windows_agent::automatic_recovery_preflight(restart_exhausted).await
     }
 
     async fn connect_with_cancellation_locked(
         &self,
         profile_id: Uuid,
         startup_cancel: tokio_util::sync::CancellationToken,
+        restart_exhausted_recovery: bool,
     ) -> Result<ConnectionSnapshot, ControlServiceError> {
         if startup_cancel.is_cancelled() {
             return Ok(self.state.lock().await.snapshot().clone());
         }
         self.ensure_gate_supervisor().await;
         if let Err(error) = self.await_disconnect_cleanup().await {
+            if startup_cancel.is_cancelled() {
+                return Ok(self.state.lock().await.snapshot().clone());
+            }
             #[cfg(windows)]
             if let ControlServiceError::PlatformRecoveryPending {
                 operation_id,
@@ -1817,8 +1833,35 @@ impl ControlService {
                     .enter_windows_automatic_recovery(profile_id, operation_id, journal_generation)
                     .await;
             }
-            self.mark_connection_error(&error).await;
-            return Err(error);
+            #[cfg(windows)]
+            let inspect_current_recovery = restart_exhausted_recovery
+                && matches!(
+                    &error,
+                    ControlServiceError::PlatformRecovery {
+                        code: "WINDOWS_RECOVERY_EXHAUSTED"
+                            | "WINDOWS_RECOVERY_BLOCKED"
+                            | "WINDOWS_RECOVERY_TIMEOUT",
+                        ..
+                    }
+                )
+                && self
+                    .config
+                    .read()
+                    .await
+                    .runtime_profile(profile_id)
+                    .is_some_and(|profile| {
+                        profile.frontends.tunnel
+                            || (profile.frontends.http && profile.proxy.system_proxy)
+                    });
+            #[cfg(not(windows))]
+            let inspect_current_recovery = false;
+            if !inspect_current_recovery {
+                self.mark_connection_error(&error).await;
+                return Err(error);
+            }
+        }
+        if startup_cancel.is_cancelled() {
+            return Ok(self.state.lock().await.snapshot().clone());
         }
         {
             let data_plane = self.data_plane.lock().await;
@@ -1896,6 +1939,59 @@ impl ControlService {
                 return Err(error);
             }
         };
+        #[cfg(not(windows))]
+        let _ = restart_exhausted_recovery;
+        #[cfg(windows)]
+        if profile.frontends.tunnel || (profile.frontends.http && profile.proxy.system_proxy) {
+            let recovery = tokio::select! {
+                biased;
+                () = startup_cancel.cancelled() => return Ok(self.state.lock().await.snapshot().clone()),
+                result = self.connection_recovery_preflight(restart_exhausted_recovery) => result,
+            };
+            // Cleanup may finish after cancellation, but the old intent must
+            // never install a reconnect watch or create another transaction.
+            if startup_cancel.is_cancelled() {
+                return Ok(self.state.lock().await.snapshot().clone());
+            }
+            match recovery {
+                Ok(Some(windows_agent::AutomaticRecoveryObservation::Pending {
+                    operation_id,
+                    journal_generation,
+                })) => {
+                    return self
+                        .enter_windows_automatic_recovery(
+                            profile_id,
+                            operation_id,
+                            journal_generation,
+                        )
+                        .await;
+                }
+                Ok(Some(windows_agent::AutomaticRecoveryObservation::Exhausted(failure))) => {
+                    let error = map_windows_vpn_error(
+                        windows_agent::WindowsVpnError::AutomaticRecoveryExhausted {
+                            message: failure.message,
+                        },
+                    );
+                    self.mark_connection_error(&error).await;
+                    return Err(error);
+                }
+                Ok(Some(windows_agent::AutomaticRecoveryObservation::Blocked(failure))) => {
+                    let error = map_windows_vpn_error(
+                        windows_agent::WindowsVpnError::AutomaticRecoveryBlocked {
+                            message: failure.message,
+                        },
+                    );
+                    self.mark_connection_error(&error).await;
+                    return Err(error);
+                }
+                Err(error) => {
+                    let error = map_windows_vpn_error(error);
+                    self.mark_connection_error(&error).await;
+                    return Err(error);
+                }
+                Ok(Some(windows_agent::AutomaticRecoveryObservation::Clean)) | Ok(None) => {}
+            }
+        }
         let pin_refresher: Arc<dyn EndpointPinRefresher> = Arc::new(VaultEndpointPinRefresher {
             profile_id,
             vault: Arc::clone(&self.vault),
@@ -1931,7 +2027,19 @@ impl ControlService {
             }
         }
 
-        let runtime = if profile.frontends.tunnel {
+        #[cfg(all(test, windows))]
+        let test_runtime = self.test_windows_agent.lock().await.as_ref().map(|_| {
+            ActiveRuntime::Harness(Box::new(active_runtime::HarnessRuntime::from_profile(
+                &profile,
+                profile.frontends.tunnel,
+                0,
+            )))
+        });
+        #[cfg(not(all(test, windows)))]
+        let test_runtime: Option<ActiveRuntime> = None;
+        let runtime = if let Some(runtime) = test_runtime {
+            runtime
+        } else if profile.frontends.tunnel {
             #[cfg(windows)]
             {
                 match windows_agent::WindowsVpnRuntime::start(
@@ -2361,80 +2469,9 @@ impl ControlService {
         }
 
         #[cfg(windows)]
-        let automatic_recovery_retry = self
-            .state
-            .lock()
-            .await
-            .snapshot()
-            .error
-            .as_ref()
-            .is_some_and(|error| {
-                matches!(
-                    error.code,
-                    ErrorCode::WindowsRecoveryExhausted
-                        | ErrorCode::WindowsRecoveryBlocked
-                        | ErrorCode::WindowsRecoveryTimeout
-                )
-            });
-        #[cfg(windows)]
         let intent_generation = self.begin_windows_connection_intent(profile_id).await;
         #[cfg(windows)]
         {
-            let recovery = if automatic_recovery_retry {
-                windows_agent::restart_automatic_recovery_if_needed().await
-            } else {
-                Ok(None)
-            };
-            match recovery {
-                Ok(Some(windows_agent::AutomaticRecoveryObservation::Pending {
-                    operation_id,
-                    journal_generation,
-                })) => {
-                    let result = self
-                        .enter_windows_automatic_recovery(
-                            profile_id,
-                            operation_id,
-                            journal_generation,
-                        )
-                        .await;
-                    if result.is_err() {
-                        self.clear_windows_connection_intent_if(intent_generation)
-                            .await;
-                    }
-                    return result;
-                }
-                Ok(Some(windows_agent::AutomaticRecoveryObservation::Exhausted(failure))) => {
-                    let error = map_windows_vpn_error(
-                        windows_agent::WindowsVpnError::AutomaticRecoveryExhausted {
-                            message: failure.message,
-                        },
-                    );
-                    self.mark_connection_error(&error).await;
-                    self.clear_windows_connection_intent_if(intent_generation)
-                        .await;
-                    return Err(error);
-                }
-                Ok(Some(windows_agent::AutomaticRecoveryObservation::Blocked(failure))) => {
-                    let error = map_windows_vpn_error(
-                        windows_agent::WindowsVpnError::AutomaticRecoveryBlocked {
-                            message: failure.message,
-                        },
-                    );
-                    self.mark_connection_error(&error).await;
-                    self.clear_windows_connection_intent_if(intent_generation)
-                        .await;
-                    return Err(error);
-                }
-                Ok(Some(windows_agent::AutomaticRecoveryObservation::Clean)) | Ok(None) => {}
-                Err(error) => {
-                    let error = map_windows_vpn_error(error);
-                    self.mark_connection_error(&error).await;
-                    self.clear_windows_connection_intent_if(intent_generation)
-                        .await;
-                    return Err(error);
-                }
-            }
-
             let mut data_plane = self.data_plane.lock().await;
             if data_plane
                 .as_ref()
@@ -2447,7 +2484,7 @@ impl ControlService {
                 // `connect_locked` detects that transaction and recreates only
                 // MASQUE plus the volatile packet session.
                 let result = self
-                    .connect_with_cancellation_locked(profile_id, startup_cancel)
+                    .connect_with_cancellation_locked(profile_id, startup_cancel, true)
                     .await;
                 if result.is_err() {
                     self.clear_windows_connection_intent_if(intent_generation)
@@ -2465,7 +2502,7 @@ impl ControlService {
         }
         disconnected?;
         let result = self
-            .connect_with_cancellation_locked(profile_id, startup_cancel)
+            .connect_with_cancellation_locked(profile_id, startup_cancel, true)
             .await;
         #[cfg(windows)]
         if result.is_err() {
@@ -2701,9 +2738,11 @@ impl ControlService {
     }
 
     async fn mark_connection_error(&self, error: &ControlServiceError) {
-        #[cfg(windows)]
-        windows_agent::log_recovery_error(error);
         let mut state = self.state.lock().await;
+        #[cfg(windows)]
+        if state.snapshot().error.as_ref() != Some(&connection_error_for(error)) {
+            windows_agent::log_recovery_error(error);
+        }
         if let ControlServiceError::Transport(transport) = error {
             state.mark_failure(
                 transport.failure(None, None),
@@ -5486,7 +5525,7 @@ mod tests {
         }
     }
 
-    fn test_identity(provider: IdentityProvider, license: Option<&str>) -> WarpIdentity {
+    pub(crate) fn test_identity(provider: IdentityProvider, license: Option<&str>) -> WarpIdentity {
         let entitlement = match provider {
             IdentityProvider::ZeroTrust { .. } => None,
             IdentityProvider::Consumer if license.is_some() => Some(ConsumerEntitlement::WarpPlus),

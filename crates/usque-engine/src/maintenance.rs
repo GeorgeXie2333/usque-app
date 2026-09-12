@@ -24,6 +24,7 @@ const MAX_DIAGNOSTIC_LOG_BYTES: usize = 2 * 1024 * 1024;
 pub struct DiagnosticTransportContext {
     pub timeline: ConnectionTimelineSnapshot,
     pub socket_receive: Option<usque_transport::SocketReceiveQuality>,
+    pub platform_state: Option<usque_ipc::agent_v1::PlatformState>,
 }
 
 pub struct Maintenance {
@@ -205,6 +206,15 @@ fn write_diagnostic_bundle(
         entries.push((
             "udp-receive.json".to_owned(),
             serde_json::to_vec_pretty(&socket_receive_summary(socket))?.into_boxed_slice(),
+        ));
+    }
+    if cfg!(windows) || transport.platform_state.is_some() {
+        entries.push((
+            "windows-recovery.json".to_owned(),
+            serde_json::to_vec_pretty(&crate::recovery_diagnostics::summary(
+                transport.platform_state.as_ref(),
+            ))?
+            .into_boxed_slice(),
         ));
     }
     if let Some(session) = diagnostic_session {
@@ -662,6 +672,10 @@ fn safe_evidence(value: &str) -> bool {
                 | "automatic_recovery_phase"
                 | "automatic_recovery_attempts_completed"
                 | "automatic_recovery_attempt_limit"
+                | "recovery_sample_status"
+                | "recovery_sample_time_ms"
+                | "recovery_sample_generation"
+                | "recovery_history_count"
         ) && !number.is_empty()
             && number.bytes().all(|byte| byte.is_ascii_digit())
             && number.parse::<u64>().is_ok();
@@ -1150,6 +1164,29 @@ mod tests {
         assert!(!combined.contains("example.com"));
         assert!(combined.contains("uses_default_sni"));
         assert!(combined.contains("WARP Secret"));
+    }
+
+    #[test]
+    fn diagnostic_archive_includes_versioned_recovery_evidence_for_an_old_agent() {
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("recovery.zip");
+        write_diagnostic_bundle(
+            &destination,
+            &AppConfig::default(),
+            &ConnectionSnapshot::default(),
+            None,
+            &DiagnosticTransportContext {
+                platform_state: Some(usque_ipc::agent_v1::PlatformState::default()),
+                ..Default::default()
+            },
+            directory.path(),
+        )
+        .unwrap();
+        let bytes = fs::read(&destination).unwrap();
+        let archive = String::from_utf8_lossy(&bytes);
+        assert!(archive.contains("windows-recovery.json"));
+        assert!(archive.contains("extension_unavailable"));
+        assert!(archive.contains("current_observation") && archive.contains("schema_version"));
     }
 
     #[test]

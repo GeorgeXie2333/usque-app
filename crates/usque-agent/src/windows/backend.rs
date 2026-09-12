@@ -176,6 +176,16 @@ impl PrivilegedBackend for WindowsBackend {
         .map_err(|_| backend_error("adapter inspection worker failed"))?
     }
 
+    fn inspect_adapter_diagnostics(
+        &self,
+        receipt: &MutationReceipt,
+    ) -> (
+        usque_ipc::agent_v1::RecoveryResourceObservation,
+        usque_ipc::agent_v1::RecoveryResourceObservation,
+    ) {
+        wintun::inspect_adapter_diagnostics(receipt)
+    }
+
     async fn inspect_tunnel(
         &self,
         journal: &RecoveryJournal,

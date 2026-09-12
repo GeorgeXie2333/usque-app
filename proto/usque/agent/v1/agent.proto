@@ -190,6 +190,121 @@ message PlatformState {
   bool pending_cleanup = 15;
   uint64 journal_generation = 16;
   AutomaticRecoveryStatus automatic_recovery = 17;
+  // Optional, read-only evidence. Absence means an older Agent, never Clean.
+  RecoveryDiagnostics recovery_diagnostics = 18;
+}
+
+enum RecoverySampleStatus {
+  RECOVERY_SAMPLE_STATUS_UNSPECIFIED = 0;
+  RECOVERY_SAMPLE_STATUS_COMPLETE = 1;
+  RECOVERY_SAMPLE_STATUS_TIMEOUT = 2;
+  RECOVERY_SAMPLE_STATUS_BUSY = 3;
+  RECOVERY_SAMPLE_STATUS_UNAVAILABLE = 4;
+  RECOVERY_SAMPLE_STATUS_GENERATION_CHANGED = 5;
+  RECOVERY_SAMPLE_STATUS_NO_RECEIPT = 6;
+}
+
+enum RecoveryPresence {
+  RECOVERY_PRESENCE_UNSPECIFIED = 0;
+  RECOVERY_PRESENCE_PRESENT = 1;
+  RECOVERY_PRESENCE_ABSENT = 2;
+}
+
+enum RecoveryIdentityCheck {
+  RECOVERY_IDENTITY_CHECK_UNSPECIFIED = 0;
+  RECOVERY_IDENTITY_CHECK_VERIFIED = 1;
+  RECOVERY_IDENTITY_CHECK_CONFLICT = 2;
+  RECOVERY_IDENTITY_CHECK_INVALID_RECEIPT = 3;
+}
+
+enum RecoveryDiagnosticApi {
+  RECOVERY_DIAGNOSTIC_API_UNSPECIFIED = 0;
+  RECOVERY_DIAGNOSTIC_API_GET_IF_TABLE2 = 1;
+  RECOVERY_DIAGNOSTIC_API_SETUP_DI_GET_CLASS_DEVS = 2;
+  RECOVERY_DIAGNOSTIC_API_SETUP_DI_ENUM_DEVICE_INFO = 3;
+  RECOVERY_DIAGNOSTIC_API_SETUP_DI_GET_DEVICE_INSTANCE_ID = 4;
+  RECOVERY_DIAGNOSTIC_API_SETUP_DI_SET_CLASS_INSTALL_PARAMS = 5;
+  RECOVERY_DIAGNOSTIC_API_SETUP_DI_CALL_CLASS_INSTALLER = 6;
+  RECOVERY_DIAGNOSTIC_API_OTHER = 7;
+}
+
+message RecoveryResourceObservation {
+  RecoveryPresence presence = 1;
+  RecoveryIdentityCheck identity_check = 2;
+  RecoveryDiagnosticApi api = 3;
+  optional uint32 win32_code = 4;
+}
+
+message RecoveryObservation {
+  uint64 sampled_at_unix_ms = 1;
+  uint64 journal_generation = 2;
+  RecoverySampleStatus status = 3;
+  RecoveryResourceObservation interface = 4;
+  RecoveryResourceObservation pnp_device = 5;
+}
+
+enum RecoveryHistoryStatus {
+  RECOVERY_HISTORY_STATUS_UNSPECIFIED = 0;
+  RECOVERY_HISTORY_STATUS_COMPLETE = 1;
+  RECOVERY_HISTORY_STATUS_MISSING = 2;
+  RECOVERY_HISTORY_STATUS_PARTIAL = 3;
+  RECOVERY_HISTORY_STATUS_TOO_LARGE = 4;
+  RECOVERY_HISTORY_STATUS_UNAVAILABLE = 5;
+}
+
+enum RecoveryStep {
+  RECOVERY_STEP_UNSPECIFIED = 0;
+  RECOVERY_STEP_WINTUN_ADAPTER = 1;
+  RECOVERY_STEP_ENDPOINT_BYPASS = 2;
+  RECOVERY_STEP_KILL_SWITCH = 3;
+  RECOVERY_STEP_INTERFACE_CONFIGURATION = 4;
+  RECOVERY_STEP_DNS = 5;
+  RECOVERY_STEP_PACKET_SESSION = 6;
+  RECOVERY_STEP_DEFAULT_ROUTES = 7;
+  RECOVERY_STEP_SYSTEM_PROXY = 8;
+}
+
+enum RecoveryRemovalStage {
+  RECOVERY_REMOVAL_STAGE_UNSPECIFIED = 0;
+  RECOVERY_REMOVAL_STAGE_OBSERVE = 1;
+  RECOVERY_REMOVAL_STAGE_REQUEST = 2;
+  RECOVERY_REMOVAL_STAGE_CONFIRM = 3;
+}
+
+enum RecoveryRemovalFailure {
+  RECOVERY_REMOVAL_FAILURE_UNSPECIFIED = 0;
+  RECOVERY_REMOVAL_FAILURE_PENDING = 1;
+  RECOVERY_REMOVAL_FAILURE_IDENTITY = 2;
+  RECOVERY_REMOVAL_FAILURE_NATIVE = 3;
+}
+
+message RecoveryRemovalResult {
+  RecoveryRemovalStage stage = 1;
+  RecoveryRemovalFailure failure = 2;
+  RecoveryPresence interface = 3;
+  RecoveryPresence pnp_device = 4;
+  bool request_accepted = 5;
+  uint64 elapsed_ms = 6;
+  RecoveryDiagnosticApi api = 7;
+  optional uint32 win32_code = 8;
+}
+
+message RecoveryHistoryEvent {
+  uint64 occurred_at_unix_ms = 1;
+  uint64 journal_generation = 2;
+  RecoveryStep step = 3;
+  bool restored = 4;
+  uint64 elapsed_ms = 5;
+  RecoveryDiagnosticApi api = 6;
+  optional uint32 win32_code = 7;
+  RecoveryRemovalResult adapter = 8;
+}
+
+message RecoveryDiagnostics {
+  RecoveryObservation current = 1;
+  RecoveryHistoryStatus history_status = 2;
+  // Latest at most 32 valid events, in file order. Never current observations.
+  repeated RecoveryHistoryEvent history = 3;
 }
 
 message PhysicalInterface {

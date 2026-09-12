@@ -9,8 +9,9 @@ use std::{
 
 use async_trait::async_trait;
 use thiserror::Error;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Semaphore};
 use tracing::warn;
+use usque_ipc::agent_v1;
 use uuid::Uuid;
 
 use crate::{
@@ -108,6 +109,18 @@ pub trait PrivilegedBackend: Send + Sync {
         Err(BackendError::Unavailable("adapter inspection".to_owned()))
     }
 
+    /// Diagnostic-only, read-only native calls. Runs on one bounded blocking
+    /// worker; it must never open Wintun or change platform state.
+    fn inspect_adapter_diagnostics(
+        &self,
+        _receipt: &MutationReceipt,
+    ) -> (
+        agent_v1::RecoveryResourceObservation,
+        agent_v1::RecoveryResourceObservation,
+    ) {
+        (Default::default(), Default::default())
+    }
+
     /// Read-only verification of the durable resources needed for reattachment.
     async fn inspect_tunnel(
         &self,
@@ -150,6 +163,7 @@ pub trait PrivilegedBackend: Send + Sync {
 }
 
 pub struct AgentCoordinator<Backend> {
+    diagnostic_sample_gate: Arc<Semaphore>,
     backend: Arc<Backend>,
     store: JournalStore,
     journal: Mutex<RecoveryJournal>,
@@ -165,6 +179,7 @@ where
     pub fn open(store: JournalStore, backend: Arc<Backend>) -> Result<Self, CoordinatorError> {
         let journal = store.load_or_clean()?;
         Ok(Self {
+            diagnostic_sample_gate: Arc::new(Semaphore::new(1)),
             backend,
             store,
             journal: Mutex::new(journal),
@@ -182,6 +197,89 @@ where
 
     pub fn try_state(&self) -> Option<RecoveryJournal> {
         self.journal.try_lock().ok().map(|journal| journal.clone())
+    }
+
+    pub async fn inspect_recovery_diagnostics(&self) -> agent_v1::RecoveryDiagnostics
+    where
+        Backend: 'static,
+    {
+        self.inspect_recovery_diagnostics_with_budget(Duration::from_millis(1800))
+            .await
+    }
+
+    async fn inspect_recovery_diagnostics_with_budget(
+        &self,
+        budget: Duration,
+    ) -> agent_v1::RecoveryDiagnostics
+    where
+        Backend: 'static,
+    {
+        use agent_v1::{
+            RecoveryHistoryStatus, RecoveryObservation, RecoverySampleStatus as Status,
+        };
+        let journal = self.try_state();
+        let current = RecoveryObservation {
+            sampled_at_unix_ms: recovery_diagnostics::unix_ms(),
+            journal_generation: journal.as_ref().map_or(0, |journal| journal.generation),
+            status: Status::Busy as i32,
+            ..Default::default()
+        };
+        let unavailable = |status| agent_v1::RecoveryDiagnostics {
+            current: Some(RecoveryObservation {
+                status: status as i32,
+                ..current
+            }),
+            history_status: RecoveryHistoryStatus::Unavailable as i32,
+            history: vec![],
+        };
+        let Ok(permit) = Arc::clone(&self.diagnostic_sample_gate).try_acquire_owned() else {
+            return unavailable(Status::Busy);
+        };
+        let backend = Arc::clone(&self.backend);
+        let path = self.store.path().to_owned();
+        let sample = current;
+        // The worker owns the permit even after a timeout or disconnected IPC
+        // caller. Native APIs cannot be cancelled; never launch a second one.
+        let task = tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            let mut sample = sample;
+            if let Some(journal) = journal {
+                let receipt = journal.steps.iter().find(|step| {
+                    step.kind == MutationKind::WintunAdapter
+                        && step.state != MutationState::Restored
+                });
+                if let Some(step) = receipt {
+                    let (interface, pnp_device) =
+                        backend.inspect_adapter_diagnostics(&step.receipt);
+                    sample.interface = Some(interface);
+                    sample.pnp_device = Some(pnp_device);
+                    sample.status = Status::Complete as i32;
+                } else {
+                    sample.status = Status::NoReceipt as i32;
+                }
+            }
+            let (status, history) = recovery_diagnostics::read_history(&path);
+            agent_v1::RecoveryDiagnostics {
+                current: Some(sample),
+                history_status: status as i32,
+                history,
+            }
+        });
+        let mut diagnostics = match tokio::time::timeout(budget, task).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) => return unavailable(Status::Unavailable),
+            Err(_) => return unavailable(Status::Timeout),
+        };
+        if self
+            .try_state()
+            .is_none_or(|journal| journal.generation != current.journal_generation)
+        {
+            diagnostics.current = Some(RecoveryObservation {
+                status: Status::GenerationChanged as i32,
+                ..current
+            });
+        }
+        diagnostics
     }
 
     /// Finalizes journal entries whose exact Wintun adapter has already been
@@ -1979,6 +2077,8 @@ mod tests {
 
     #[derive(Default)]
     struct MockBackend {
+        diagnostic_release: std::sync::Mutex<Option<std::sync::mpsc::Receiver<()>>>,
+        diagnostic_calls: AtomicU64,
         applied: Mutex<Vec<MutationKind>>,
         restored: Mutex<Vec<MutationKind>>,
         restore_identities: Mutex<Vec<(MutationKind, Option<MutationReceipt>)>>,
@@ -1996,6 +2096,24 @@ mod tests {
 
     #[async_trait]
     impl PrivilegedBackend for MockBackend {
+        fn inspect_adapter_diagnostics(
+            &self,
+            _receipt: &MutationReceipt,
+        ) -> (
+            agent_v1::RecoveryResourceObservation,
+            agent_v1::RecoveryResourceObservation,
+        ) {
+            self.diagnostic_calls.fetch_add(1, Ordering::SeqCst);
+            if let Some(release) = self.diagnostic_release.lock().unwrap().take() {
+                let _ = release.recv();
+            }
+            let absent = agent_v1::RecoveryResourceObservation {
+                presence: agent_v1::RecoveryPresence::Absent as i32,
+                identity_check: agent_v1::RecoveryIdentityCheck::Verified as i32,
+                ..Default::default()
+            };
+            (absent, absent)
+        }
         async fn plan_step(
             &self,
             kind: MutationKind,
@@ -2638,6 +2756,89 @@ mod tests {
             coordinator.state().await.phase,
             RecoveryPhase::RecoveryRequired
         );
+        assert!(backend.restored.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn diagnostic_timeout_keeps_the_worker_single_flight_and_never_recovers() {
+        use agent_v1::RecoverySampleStatus as Status;
+        let backend = Arc::new(MockBackend::default());
+        let (release, blocked) = std::sync::mpsc::channel();
+        *backend.diagnostic_release.lock().unwrap() = Some(blocked);
+        let (_directory, coordinator) = coordinator(Arc::clone(&backend));
+        coordinator
+            .prepare(Uuid::new_v4(), plan(), caller())
+            .await
+            .unwrap();
+        legacy_recovery_fixture(&coordinator, &[MutationKind::WintunAdapter]).await;
+        let before = coordinator.state().await;
+        let result = coordinator
+            .inspect_recovery_diagnostics_with_budget(Duration::from_millis(5))
+            .await;
+        assert_eq!(result.current.unwrap().status, Status::Timeout as i32);
+        let busy = coordinator.inspect_recovery_diagnostics().await;
+        assert_eq!(busy.current.unwrap().status, Status::Busy as i32);
+        release.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while coordinator.diagnostic_sample_gate.available_permits() == 0 {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(backend.diagnostic_calls.load(Ordering::SeqCst), 1);
+        assert!(backend.restored.lock().await.is_empty());
+        assert_eq!(coordinator.state().await, before);
+        let current = coordinator
+            .inspect_recovery_diagnostics()
+            .await
+            .current
+            .unwrap();
+        assert_eq!(current.status, Status::Complete as i32);
+        assert_eq!(current.journal_generation, before.generation);
+        assert_eq!(
+            current.interface.unwrap().presence,
+            agent_v1::RecoveryPresence::Absent as i32
+        );
+        assert_eq!(coordinator.state().await, before);
+    }
+
+    #[tokio::test]
+    async fn diagnostic_generation_race_discards_presence_without_changing_history() {
+        let backend = Arc::new(MockBackend::default());
+        let (release, blocked) = std::sync::mpsc::channel();
+        *backend.diagnostic_release.lock().unwrap() = Some(blocked);
+        let (directory, coordinator) = coordinator(Arc::clone(&backend));
+        coordinator
+            .prepare(Uuid::new_v4(), plan(), caller())
+            .await
+            .unwrap();
+        legacy_recovery_fixture(&coordinator, &[MutationKind::WintunAdapter]).await;
+        std::fs::write(directory.path().join(recovery_diagnostics::RECOVERY_LOG_NAME), r#"{"timestamp_ms":123,"recovery":{"journal_generation":1,"step":"wintun_adapter","restored":false,"elapsed_ms":10039}}"#).unwrap();
+        let coordinator = Arc::new(coordinator);
+        let task = {
+            let coordinator = Arc::clone(&coordinator);
+            tokio::spawn(async move { coordinator.inspect_recovery_diagnostics().await })
+        };
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while backend.diagnostic_calls.load(Ordering::SeqCst) == 0 {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        })
+        .await
+        .unwrap();
+        legacy_recovery_fixture(&coordinator, &[MutationKind::WintunAdapter]).await;
+        release.send(()).unwrap();
+        let result = task.await.unwrap();
+        let sample = result.current.unwrap();
+        assert_eq!(
+            sample.status,
+            agent_v1::RecoverySampleStatus::GenerationChanged as i32
+        );
+        assert!(sample.interface.is_none() && sample.pnp_device.is_none());
+        assert_eq!(result.history[0].occurred_at_unix_ms, 123);
+        assert_eq!(result.history[0].journal_generation, 1);
+        assert_eq!(result.history[0].elapsed_ms, 10039);
         assert!(backend.restored.lock().await.is_empty());
     }
 

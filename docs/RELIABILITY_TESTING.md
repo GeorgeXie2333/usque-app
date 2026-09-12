@@ -100,8 +100,17 @@ native calls can be forcibly cancelled. Inspection errors remain unknown,
 never absence. A request error followed by verified absence is idempotent
 success. A fresh Agent may safely retry the exact journaled device.
 
-After automatic recovery is exhausted, an authenticated manual Retry first
-rechecks the operation, generation, caller and absence of live sessions. If
+Connect and Retry share a live Agent recovery preflight on connections that
+need the Agent. This includes the first connection after an Engine restart;
+it does not depend on a cached Engine error. Waiting/Running are observed,
+Blocked remains an explicit error, and an explicit request can restart an
+Exhausted recovery once. Background reconnection and monitoring cannot refresh
+the three-attempt budget. Cancellation invalidates the connection intent even
+when the Agent still needs to finish cleanup. VPN Gate hot retry retains its
+existing underlay and bypasses this cold-connection preflight.
+
+An authenticated restart first rechecks the operation, generation, caller and
+absence of live sessions. If
 the adapter is the only unfinished step and both resources are now absent,
 it completes only the journal save. No remaining route, DNS, WFP or proxy
 receipt may be skipped; a failed save retains RecoveryRequired.
@@ -113,6 +122,35 @@ not raw messages, receipts, addresses or identities. Logging failure never
 prevents cleanup. True uninstall removes this known diagnostic file only after
 the authoritative journal is clean. Engine logs mirror allowlisted adapter
 failure details, while the UI shows localized cleanup context without raw data.
+
+`InspectPlatformState` optionally includes `recovery_diagnostics` at field 18;
+the Agent protocol remains version 3. A current observation has its own sample
+time, journal generation, separate interface/PnP presence and typed identity/API
+results. History contains up to the latest 32 valid events with their original
+timestamps, generations, step durations and outcomes. A missing, corrupt,
+oversized or unreadable event file has an explicit status. Unknown JSON fields
+are discarded, and enum values are validated before reserialization.
+
+Sampling uses only the existing IP Helper and SetupAPI readers. A single
+blocking worker owns the sampling permit until native calls actually finish,
+including after the caller times out. Agent inspection is bounded below two
+seconds and the Engine waits at most two seconds. Busy, timeout, unavailable,
+missing receipt and generation change never mean absence; a generation change
+discards the sample's presence results. Neither inspection nor exporting opens
+Wintun, starts the Agent service, or performs recovery.
+
+Windows diagnostic exports include `windows-recovery.json` (schema version 1).
+Current observations, historical events and automatic recovery state are
+separate. An older Agent still permits export with `extension_unavailable`.
+Both sides reconstruct allowlisted fields with bounded history; the export
+excludes journal contents, arbitrary error text, adapter names/GUIDs/LUIDs,
+SIDs, addresses and credentials. Existing diagnostic result evidence shows
+sample status/time/generation and bounded event counts. These observations are
+non-authoritative and do not weaken the two-resource cleanup success check.
+
+The [Issue #66 validation record](ISSUE_66_VALIDATION.md) identifies the local
+patch baseline, executed checks and unavailable isolated scenarios for this
+entry-point and diagnostic change.
 
 Deterministic tests cover delayed absence, accepted-request reuse, native
 failure followed by absence, failed probes/identity checks, cleanup ordering,

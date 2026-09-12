@@ -389,7 +389,11 @@ pub(crate) fn log_recovery_error(error: &crate::ControlServiceError) {
     } = error
     {
         let adapter = sanitized_adapter_recovery_detail(message);
-        tracing::warn!(error_code = *code, retryable, adapter_cleanup = ?adapter,
+        let historical_terminal = matches!(
+            *code,
+            "WINDOWS_RECOVERY_EXHAUSTED" | "WINDOWS_RECOVERY_BLOCKED"
+        );
+        tracing::warn!(error_code = *code, retryable, historical_terminal, adapter_cleanup = ?adapter,
             "Windows network recovery did not complete");
     }
 }
@@ -2572,12 +2576,25 @@ pub(crate) enum AgentServiceControlError {
 }
 
 #[derive(Clone)]
-struct WindowsAgentClient {
+pub(crate) struct WindowsAgentClient {
     pipe_name: Arc<str>,
     service_controller: Arc<dyn AgentServiceController>,
 }
 
 impl WindowsAgentClient {
+    pub(crate) async fn recovery_preflight(
+        &self,
+        restart_exhausted: bool,
+    ) -> Result<Option<AutomaticRecoveryObservation>, WindowsVpnError> {
+        let capabilities = self.get_capabilities().await?;
+        if capabilities.protocol_version != AGENT_PROTOCOL_VERSION {
+            return Err(WindowsVpnError::ProtocolVersion(
+                capabilities.protocol_version,
+            ));
+        }
+        self.automatic_recovery_preflight(&capabilities, restart_exhausted)
+            .await
+    }
     fn production() -> Self {
         Self {
             pipe_name: Arc::from(AGENT_PIPE_NAME),
@@ -2704,7 +2721,7 @@ impl WindowsAgentClient {
         let payload = self
             .call(agent_request::Payload::RestartAutomaticRecovery(
                 RestartAutomaticRecoveryRequest {
-                    operation_id,
+                    operation_id: operation_id.clone(),
                     expected_journal_generation,
                 },
             ))
@@ -2712,7 +2729,46 @@ impl WindowsAgentClient {
         let agent_response::Payload::State(state) = payload else {
             return Err(WindowsVpnError::RecoveryFailed);
         };
+        if state.journal_generation < expected_journal_generation
+            || (state.phase != agent_v1::AgentPhase::Clean as i32
+                && state.operation_id != operation_id)
+        {
+            return Err(WindowsVpnError::RecoveryConflict);
+        }
         automatic_recovery_observation(&state)
+    }
+
+    /// Shared by explicit Connect/Retry and observation-only internal connects.
+    /// There is deliberately no loop: one request can reset the budget once.
+    async fn automatic_recovery_preflight(
+        &self,
+        capabilities: &AgentCapabilities,
+        restart_exhausted: bool,
+    ) -> Result<Option<AutomaticRecoveryObservation>, WindowsVpnError> {
+        if !capabilities.automatic_recovery {
+            return Ok(None);
+        }
+        let state = self.get_state().await?;
+        if state.phase == agent_v1::AgentPhase::Clean as i32 {
+            require_recovered_state(&state)?;
+        }
+        if !matches!(
+            agent_v1::AgentPhase::try_from(state.phase),
+            Ok(agent_v1::AgentPhase::RecoveryRequired | agent_v1::AgentPhase::Recovering)
+        ) {
+            // The runtime's guarded connection_state check still validates
+            // Clean/Active and older Agent transactions before any prepare.
+            return Ok(None);
+        }
+        let observation = automatic_recovery_observation(&state)?;
+        if restart_exhausted && matches!(observation, AutomaticRecoveryObservation::Exhausted(_)) {
+            tracing::info!("Explicit connection requested a new Windows recovery attempt");
+            self.restart_automatic_recovery(state.operation_id, state.journal_generation)
+                .await
+                .map(Some)
+        } else {
+            Ok(Some(observation))
+        }
     }
 
     async fn inspect_platform_state_if_running(&self) -> Result<PlatformState, WindowsVpnError> {
@@ -3237,33 +3293,12 @@ pub(crate) async fn observe_automatic_recovery()
     automatic_recovery_observation(&state)
 }
 
-pub(crate) async fn restart_automatic_recovery_if_needed()
--> Result<Option<AutomaticRecoveryObservation>, WindowsVpnError> {
-    let client = WindowsAgentClient::production();
-    let capabilities = client.get_capabilities().await?;
-    if !capabilities.automatic_recovery {
-        return Ok(None);
-    }
-    let state = client.get_state().await?;
-    if !matches!(
-        agent_v1::AgentPhase::try_from(state.phase),
-        Ok(agent_v1::AgentPhase::RecoveryRequired | agent_v1::AgentPhase::Recovering)
-    ) {
-        return Ok(None);
-    }
-    match automatic_recovery_observation(&state)? {
-        AutomaticRecoveryObservation::Exhausted(_) => client
-            .restart_automatic_recovery(state.operation_id, state.journal_generation)
-            .await
-            .map(Some),
-        AutomaticRecoveryObservation::Blocked(failure) => {
-            Err(WindowsVpnError::AutomaticRecoveryBlocked {
-                message: failure.message,
-            })
-        }
-        observation @ AutomaticRecoveryObservation::Pending { .. } => Ok(Some(observation)),
-        AutomaticRecoveryObservation::Clean => Err(WindowsVpnError::RecoveryConflict),
-    }
+pub(crate) async fn automatic_recovery_preflight(
+    restart_exhausted: bool,
+) -> Result<Option<AutomaticRecoveryObservation>, WindowsVpnError> {
+    WindowsAgentClient::production()
+        .recovery_preflight(restart_exhausted)
+        .await
 }
 
 fn automatic_recovery_observation(
@@ -3872,6 +3907,13 @@ mod tests {
     fn scripted_recovery_client(
         script: Vec<AgentResponse>,
     ) -> (WindowsAgentClient, JoinHandle<Vec<agent_request::Payload>>) {
+        scripted_recovery_client_paused(script, None)
+    }
+
+    fn scripted_recovery_client_paused(
+        script: Vec<AgentResponse>,
+        pause_restart: Option<Arc<(tokio::sync::Notify, tokio::sync::Notify)>>,
+    ) -> (WindowsAgentClient, JoinHandle<Vec<agent_request::Payload>>) {
         let pipe_name = format!("{AGENT_PIPE_NAME}.test-{}", Uuid::new_v4());
         let mut next = ServerOptions::new()
             .first_pipe_instance(true)
@@ -3893,10 +3935,21 @@ mod tests {
                 let request: AgentRequest = decode_frame(frame.freeze()).unwrap();
                 assert_eq!(request.protocol_version, AGENT_PROTOCOL_VERSION);
                 response.request_id = request.request_id;
-                requests.push(request.payload.unwrap());
-                pipe.write_all(&encode_frame(&response).unwrap())
-                    .await
-                    .unwrap();
+                let payload = request.payload.unwrap();
+                if matches!(payload, agent_request::Payload::RestartAutomaticRecovery(_))
+                    && let Some(pause) = &pause_restart
+                {
+                    pause.0.notify_one();
+                    pause.1.notified().await;
+                }
+                requests.push(payload);
+                if let Err(error) = pipe.write_all(&encode_frame(&response).unwrap()).await {
+                    assert!(
+                        pause_restart.is_some(),
+                        "unexpected IPC write failure: {error}"
+                    );
+                    break;
+                }
             }
             requests
         });
@@ -4084,6 +4137,337 @@ mod tests {
             task.await.unwrap().as_slice(),
             [agent_request::Payload::GetState(_)]
         ));
+    }
+
+    #[tokio::test]
+    async fn connect_retry_and_fresh_engine_all_continue_after_exact_recovery_without_duplicate_transaction()
+     {
+        for retry in [false, true] {
+            let (directory, service, profile_id) = recovery_entry_service().await;
+            // Reopen the Engine with the same configuration/vault: recovery
+            // must not depend on a previous in-memory error snapshot.
+            let service = crate::ControlService::open_with_vault(
+                crate::ConfigStore::new(directory.path().join("config.json")),
+                Arc::clone(&service.vault),
+            )
+            .unwrap();
+            let (client, task) = scripted_recovery_client(vec![
+                recovery_capabilities_response(),
+                automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Exhausted),
+                recovery_state_response(agent_v1::AgentPhase::Clean),
+            ]);
+            *service.test_windows_agent.lock().await = Some(client);
+            assert!(service.state.lock().await.snapshot().error.is_none());
+            let connected = if retry {
+                service.retry().await
+            } else {
+                service.connect(profile_id).await
+            }
+            .unwrap();
+            assert_eq!(connected.phase, usque_core::ConnectionPhase::Connected);
+            let generation = service
+                .data_plane
+                .lock()
+                .await
+                .as_ref()
+                .unwrap()
+                .session_generation;
+            assert_eq!(
+                service.connect(profile_id).await.unwrap().phase,
+                usque_core::ConnectionPhase::Connected
+            );
+            assert_eq!(
+                service
+                    .data_plane
+                    .lock()
+                    .await
+                    .as_ref()
+                    .unwrap()
+                    .session_generation,
+                generation
+            );
+            let requests = task.await.unwrap();
+            assert_eq!(
+                requests
+                    .iter()
+                    .filter(|request| matches!(
+                        request,
+                        agent_request::Payload::RestartAutomaticRecovery(_)
+                    ))
+                    .count(),
+                1
+            );
+            service.shutdown().await.unwrap();
+        }
+    }
+
+    fn recovery_capabilities_response() -> AgentResponse {
+        AgentResponse {
+            payload: Some(agent_response::Payload::Capabilities(AgentCapabilities {
+                protocol_version: AGENT_PROTOCOL_VERSION,
+                automatic_recovery: true,
+                ..Default::default()
+            })),
+            ..Default::default()
+        }
+    }
+
+    async fn recovery_entry_service() -> (tempfile::TempDir, crate::ControlService, Uuid) {
+        let directory = tempfile::tempdir().unwrap();
+        let service = crate::ControlService::open_with_vault(
+            crate::ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(crate::tests::MemoryVault::default()),
+        )
+        .unwrap();
+        let mut profile = service.config_snapshot().await.active_profile().unwrap();
+        profile.frontends.tunnel = true;
+        profile.mode = usque_core::OperatingMode::Vpn;
+        profile.proxy.system_proxy = false;
+        let profile_id = profile.id;
+        service.upsert_profile_locked(profile).await.unwrap();
+        service
+            .persist_identity(
+                profile_id,
+                &crate::tests::test_identity(usque_core::IdentityProvider::Consumer, None),
+                None,
+            )
+            .await
+            .unwrap();
+        (directory, service, profile_id)
+    }
+
+    #[tokio::test]
+    async fn connecting_during_recovery_tracks_one_watch_and_internal_reconnect_cannot_reset_exhaustion()
+     {
+        let (_directory, service, profile_id) = recovery_entry_service().await;
+        let (client, task) = scripted_recovery_client(vec![
+            recovery_capabilities_response(),
+            automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Waiting),
+            recovery_capabilities_response(),
+            automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Running),
+            recovery_capabilities_response(),
+            automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Exhausted),
+        ]);
+        *service.test_windows_agent.lock().await = Some(client);
+        assert_eq!(
+            service.connect(profile_id).await.unwrap().phase,
+            usque_core::ConnectionPhase::Reconnecting
+        );
+        assert_eq!(
+            service.connect(profile_id).await.unwrap().phase,
+            usque_core::ConnectionPhase::Reconnecting
+        );
+        assert!(service.data_plane.lock().await.is_none());
+        let error = service.connect_locked(profile_id).await.unwrap_err();
+        assert_eq!(
+            error.as_structured_error().code,
+            "WINDOWS_RECOVERY_EXHAUSTED"
+        );
+        assert!(task.await.unwrap().iter().all(|request| !matches!(
+            request,
+            agent_request::Payload::RestartAutomaticRecovery(_)
+        )));
+        service.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn cancelled_connect_can_finish_cleanup_but_cannot_connect_or_install_a_watch() {
+        for phase in [
+            agent_v1::AgentPhase::Clean,
+            agent_v1::AgentPhase::RecoveryRequired,
+        ] {
+            let (_directory, service, profile_id) = recovery_entry_service().await;
+            let pause = Arc::new((tokio::sync::Notify::new(), tokio::sync::Notify::new()));
+            let final_response = if phase == agent_v1::AgentPhase::Clean {
+                recovery_state_response(phase)
+            } else {
+                automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Waiting)
+            };
+            let (client, task) = scripted_recovery_client_paused(
+                vec![
+                    recovery_capabilities_response(),
+                    automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Exhausted),
+                    final_response,
+                ],
+                Some(Arc::clone(&pause)),
+            );
+            *service.test_windows_agent.lock().await = Some(client);
+            let connect = {
+                let service = service.clone();
+                tokio::spawn(async move { service.connect(profile_id).await })
+            };
+            tokio::time::timeout(Duration::from_secs(2), pause.0.notified())
+                .await
+                .unwrap();
+            service.disconnect().await.unwrap();
+            pause.1.notify_one();
+            connect.await.unwrap().unwrap();
+            assert!(service.data_plane.lock().await.is_none());
+            assert!(service.windows_recovery.lock().await.pending.is_none());
+            assert_eq!(
+                service.state.lock().await.snapshot().phase,
+                usque_core::ConnectionPhase::Disconnected
+            );
+            assert_eq!(task.await.unwrap().len(), 3);
+            service.shutdown().await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn stale_cleanup_result_is_rechecked_and_recovery_failure_is_logged_once_per_request() {
+        use tracing::instrument::WithSubscriber;
+        let (directory, service, profile_id) = recovery_entry_service().await;
+        *service.disconnect_cleanup.lock().await = Some(tokio::spawn(async {
+            Err(crate::ControlServiceError::PlatformRecovery {
+                code: "WINDOWS_RECOVERY_EXHAUSTED",
+                message: "previous shutdown result".to_owned(),
+                retryable: true,
+            })
+        }));
+        let (client, task) = scripted_recovery_client(vec![
+            recovery_capabilities_response(),
+            automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Exhausted),
+            automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Exhausted),
+        ]);
+        *service.test_windows_agent.lock().await = Some(client);
+        let config = directory.path().join("config.json");
+        let subscriber = tracing_subscriber::fmt()
+            .json()
+            .with_writer(crate::logging::LogWriterFactory::open(&config).unwrap())
+            .finish();
+        let response = service
+            .handle(usque_ipc::v1::ControlRequest {
+                request_id: "recovery-entry".to_owned(),
+                payload: Some(usque_ipc::v1::control_request::Payload::Connect(
+                    usque_ipc::v1::ConnectRequest {
+                        profile_id: profile_id.to_string(),
+                    },
+                )),
+            })
+            .with_subscriber(subscriber)
+            .await;
+        assert_eq!(response.error.unwrap().code, "WINDOWS_RECOVERY_EXHAUSTED");
+        assert_eq!(task.await.unwrap().len(), 3);
+        let log =
+            std::fs::read_to_string(crate::logging::log_directory(&config).join("engine.jsonl"))
+                .unwrap();
+        assert_eq!(
+            log.matches("Windows network recovery did not complete")
+                .count(),
+            1
+        );
+        assert!(
+            log.contains("historical_terminal")
+                && log.contains("Explicit connection requested a new Windows recovery attempt")
+        );
+        service.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn preflight_rejects_a_changed_operation_or_regressed_generation() {
+        for wrong_operation in [false, true] {
+            let mut response =
+                automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Waiting);
+            let Some(agent_response::Payload::State(state)) = response.payload.as_mut() else {
+                unreachable!()
+            };
+            if wrong_operation {
+                state.operation_id = Uuid::new_v4().to_string();
+            } else {
+                state.journal_generation = 18;
+            }
+            let (client, task) = scripted_recovery_client(vec![
+                automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Exhausted),
+                response,
+            ]);
+            assert!(matches!(
+                client
+                    .automatic_recovery_preflight(
+                        &AgentCapabilities {
+                            automatic_recovery: true,
+                            ..Default::default()
+                        },
+                        true
+                    )
+                    .await,
+                Err(WindowsVpnError::RecoveryConflict)
+            ));
+            assert_eq!(task.await.unwrap().len(), 2);
+        }
+    }
+
+    #[tokio::test]
+    async fn explicit_preflight_reconciles_exhausted_recovery_without_an_engine_error_snapshot() {
+        let (client, task) = scripted_recovery_client(vec![
+            automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Exhausted),
+            recovery_state_response(agent_v1::AgentPhase::Clean),
+        ]);
+        let result = client
+            .automatic_recovery_preflight(
+                &AgentCapabilities {
+                    automatic_recovery: true,
+                    ..Default::default()
+                },
+                true,
+            )
+            .await
+            .unwrap();
+        assert!(matches!(result, Some(AutomaticRecoveryObservation::Clean)));
+        assert!(matches!(task.await.unwrap().as_slice(), [
+            agent_request::Payload::GetState(_),
+            agent_request::Payload::RestartAutomaticRecovery(request)
+        ] if request.operation_id == "00000000-0000-4000-8000-000000000001"
+            && request.expected_journal_generation == 19));
+    }
+
+    #[tokio::test]
+    async fn preflight_never_restarts_waiting_running_blocked_or_background_recovery() {
+        for (phase, explicit) in [
+            (agent_v1::AutomaticRecoveryPhase::Waiting, true),
+            (agent_v1::AutomaticRecoveryPhase::Running, true),
+            (agent_v1::AutomaticRecoveryPhase::Blocked, true),
+            (agent_v1::AutomaticRecoveryPhase::Exhausted, false),
+        ] {
+            let (client, task) =
+                scripted_recovery_client(vec![automatic_recovery_state_response(phase)]);
+            let result = client
+                .automatic_recovery_preflight(
+                    &AgentCapabilities {
+                        automatic_recovery: true,
+                        ..Default::default()
+                    },
+                    explicit,
+                )
+                .await
+                .unwrap();
+            assert!(result.is_some());
+            assert!(matches!(
+                task.await.unwrap().as_slice(),
+                [agent_request::Payload::GetState(_)]
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn preflight_cannot_reset_the_budget_twice_in_one_request() {
+        let (client, task) = scripted_recovery_client(vec![
+            automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Exhausted),
+            automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Exhausted),
+        ]);
+        assert!(matches!(
+            client
+                .automatic_recovery_preflight(
+                    &AgentCapabilities {
+                        automatic_recovery: true,
+                        ..Default::default()
+                    },
+                    true
+                )
+                .await
+                .unwrap(),
+            Some(AutomaticRecoveryObservation::Exhausted(_))
+        ));
+        assert_eq!(task.await.unwrap().len(), 2);
     }
 
     #[tokio::test]
@@ -4904,6 +5288,39 @@ mod tests {
             Err(WindowsVpnError::ResponseIdMismatch)
         ));
         server_task.await.expect("server task");
+    }
+
+    #[tokio::test]
+    async fn diagnostics_never_start_an_unavailable_agent_and_accept_an_old_response() {
+        let pipe_name = format!("{AGENT_PIPE_NAME}.test-{}", Uuid::new_v4());
+        let controller = Arc::new(StartingTestController {
+            pipe_name: pipe_name.clone(),
+            starts: AtomicUsize::new(0),
+            create_on_call: 1,
+            server: StdMutex::new(None),
+        });
+        let client = WindowsAgentClient::for_test_with_controller(
+            pipe_name,
+            Arc::clone(&controller) as Arc<dyn AgentServiceController>,
+        );
+        assert!(client.inspect_platform_state_if_running().await.is_err());
+        assert_eq!(controller.starts.load(Ordering::Acquire), 0);
+        let (client, task) = scripted_recovery_client(vec![AgentResponse {
+            payload: Some(agent_response::Payload::PlatformState(PlatformState {
+                journal_generation: 19,
+                ..Default::default()
+            })),
+            ..Default::default()
+        }]);
+        let state = client.inspect_platform_state_if_running().await.unwrap();
+        assert_eq!(
+            crate::recovery_diagnostics::summary(Some(&state))["availability"],
+            "extension_unavailable"
+        );
+        assert!(matches!(
+            task.await.unwrap().as_slice(),
+            [agent_request::Payload::InspectPlatformState(_)]
+        ));
     }
 
     #[tokio::test]

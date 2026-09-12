@@ -427,6 +427,63 @@ fn observe_adapter(receipt: &MutationReceipt, guid: Uuid) -> AdapterObservation 
     }
 }
 
+pub fn inspect_adapter_diagnostics(
+    receipt: &MutationReceipt,
+) -> (
+    usque_ipc::agent_v1::RecoveryResourceObservation,
+    usque_ipc::agent_v1::RecoveryResourceObservation,
+) {
+    use usque_ipc::agent_v1::{RecoveryIdentityCheck as Identity, RecoveryResourceObservation};
+    let MutationReceipt::WintunAdapter {
+        adapter_guid,
+        adapter_name,
+        ..
+    } = receipt
+    else {
+        let invalid = RecoveryResourceObservation {
+            identity_check: Identity::InvalidReceipt as i32,
+            ..Default::default()
+        };
+        return (invalid, invalid);
+    };
+    if adapter_guid.is_nil() || adapter_name.is_empty() {
+        let invalid = RecoveryResourceObservation {
+            identity_check: Identity::InvalidReceipt as i32,
+            ..Default::default()
+        };
+        return (invalid, invalid);
+    }
+    // Independent probes retain both errors. No library load, OpenAdapter,
+    // service action, or cleanup action is performed here.
+    (
+        resource_observation(interface_instance_present(receipt)),
+        resource_observation(device_instance_present(*adapter_guid)),
+    )
+}
+
+fn resource_observation(
+    result: Result<bool, WintunError>,
+) -> usque_ipc::agent_v1::RecoveryResourceObservation {
+    use usque_ipc::agent_v1::{RecoveryIdentityCheck as Identity, RecoveryResourceObservation};
+    let mut observation = RecoveryResourceObservation::default();
+    match result {
+        Ok(present) => {
+            observation.presence = crate::recovery_diagnostics::presence(Some(present));
+            observation.identity_check = Identity::Verified as i32;
+        }
+        Err(WintunError::InvalidRecoveryIdentity | WintunError::AdapterIdentityMismatch(_)) => {
+            observation.identity_check = Identity::Conflict as i32;
+        }
+        Err(WintunError::Windows(api, error)) => {
+            observation.api =
+                crate::recovery_diagnostics::diagnostic_api(Some(RecoveryApi::from_name(api)));
+            observation.win32_code = error.raw_os_error().map(|code| code as u32);
+        }
+        Err(_) => {}
+    }
+    observation
+}
+
 pub fn remove_adapter_if_present(
     receipt: &MutationReceipt,
     state: &mut AdapterRemovalState,
