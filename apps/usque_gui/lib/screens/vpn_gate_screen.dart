@@ -6,6 +6,7 @@ import '../core/usque_theme.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
+import '../widgets/country_flag.dart';
 import '../widgets/unsaved_changes_guard.dart';
 
 class VpnGateScreen extends StatefulWidget {
@@ -347,14 +348,17 @@ class _VpnGateScreenState extends State<VpnGateScreen>
                       items: [
                         DropdownMenuItem(
                           value: 'ALL',
-                          child: Text(strings.get('gate_all_countries')),
+                          child: _countryLabel(
+                            null,
+                            strings.get('gate_all_countries'),
+                          ),
                         ),
                         for (final country in _directory.countries)
                           DropdownMenuItem(
                             value: country.code ?? 'UNKNOWN',
-                            child: Text(
+                            child: _countryLabel(
+                              country.code,
                               '${country.code == null ? strings.get('gate_unknown_country') : country.name ?? country.code} (${country.count})',
-                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                         if (_country != 'ALL' &&
@@ -363,7 +367,7 @@ class _VpnGateScreenState extends State<VpnGateScreen>
                             ))
                           DropdownMenuItem(
                             value: _country,
-                            child: Text(_country),
+                            child: _countryLabel(_country, _country),
                           ),
                       ],
                       onChanged: _saving
@@ -496,14 +500,28 @@ class _VpnGateScreenState extends State<VpnGateScreen>
           children: [
             Text(title, style: Theme.of(context).textTheme.labelLarge),
             const SizedBox(height: 8),
-            Text(
-              server == null
-                  ? empty
-                  : '${server.countryCode ?? '—'} · ${server.ip}',
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontFamily: UsqueFonts.mono),
-            ),
+            if (server == null)
+              Text(
+                empty,
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontFamily: UsqueFonts.mono),
+              )
+            else
+              Row(
+                children: [
+                  CountryFlag(countryCode: server.countryCode),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '${server.countryCode ?? '—'} · ${server.ip}',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontFamily: UsqueFonts.mono,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
           ],
         ),
       );
@@ -515,9 +533,17 @@ class _VpnGateScreenState extends State<VpnGateScreen>
       enabled: enabled,
       selected: selected,
       leading: Icon(selected ? LucideIcons.circleCheck : LucideIcons.circle),
-      title: Text(
-        '${server.countryCode ?? '—'} · ${server.ip}',
-        style: const TextStyle(fontFamily: UsqueFonts.mono),
+      title: Row(
+        children: [
+          CountryFlag(countryCode: server.countryCode, enabled: enabled),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '${server.countryCode ?? '—'} · ${server.ip}',
+              style: const TextStyle(fontFamily: UsqueFonts.mono),
+            ),
+          ),
+        ],
       ),
       subtitle: Text(
         '${server.hostname}\n${strings.get('gate_score')}: ${server.score ?? '—'} · ${server.pingMs == null ? '—' : '${server.pingMs} ms'} · ${server.speedBps == null ? '—' : '${(server.speedBps! / 1000000).toStringAsFixed(1)} Mbps'}',
@@ -532,4 +558,12 @@ class _VpnGateScreenState extends State<VpnGateScreen>
             }),
     );
   }
+
+  Widget _countryLabel(String? code, String label) => Row(
+    children: [
+      CountryFlag(countryCode: code),
+      const SizedBox(width: 8),
+      Expanded(child: Text(label, overflow: TextOverflow.ellipsis)),
+    ],
+  );
 }

@@ -11,7 +11,6 @@ dependencies:
     sdk: flutter
   flutter_localizations:
     sdk: flutter
-  flutter_svg: ^2.3.0
   lucide_icons_flutter: ^3.1.15
   shared_preferences: ^2.5.5
   url_launcher: ^6.3.2
@@ -26,6 +25,8 @@ flutter:
   assets:
     - assets/branding/usque-ui-icon.png
     - assets/licenses/vpngate.txt
+    - assets/licenses/flagpedia.txt
+    - assets/flags/w80/
   fonts:
     - family: SpaceGrotesk
       fonts:

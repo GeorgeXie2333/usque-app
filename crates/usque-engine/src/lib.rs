@@ -2175,12 +2175,7 @@ impl ControlService {
         }
         let path = runtime.path();
         let listener_auth = profile.proxy.listener_credentials().ok().flatten();
-        let exit_probe = exit_probe_for_session(
-            &profile,
-            &runtime,
-            self.store.path(),
-            listener_auth.as_ref(),
-        );
+        let exit_probe = exit_probe_for_session(&profile, &runtime, listener_auth.as_ref());
         let snapshot = {
             let mut state = self.state.lock().await;
             state.update_data_plane(profile.data_plane, runtime.l4_snapshot());
@@ -4909,14 +4904,8 @@ fn frontend_status_to_proto(status: &FrontendStatus) -> v1::FrontendStatus {
 fn exit_probe_for_session(
     profile: &Profile,
     runtime: &ActiveRuntime,
-    store_path: &std::path::Path,
     listener_auth: Option<&ProxyAuthCredentials>,
 ) -> Option<IpSbProbe> {
-    let flag_cache = store_path
-        .parent()
-        .unwrap_or_else(|| std::path::Path::new("."))
-        .join("cache")
-        .join("flag-icons-7.5.0");
     let loopback = runtime
         .listeners()
         .iter()
@@ -4925,15 +4914,11 @@ fn exit_probe_for_session(
     if profile.frontends.socks5 {
         loopback
             .and_then(|listener| IpSbProbe::through_socks_with_auth(listener, listener_auth).ok())
-            .map(|probe| probe.with_flag_cache(&flag_cache))
     } else if profile.frontends.http {
         loopback
             .and_then(|listener| IpSbProbe::through_http_with_auth(listener, listener_auth).ok())
-            .map(|probe| probe.with_flag_cache(&flag_cache))
     } else if profile.frontends.tunnel {
-        IpSbProbe::new()
-            .ok()
-            .map(|probe| probe.with_flag_cache(&flag_cache))
+        IpSbProbe::new().ok()
     } else {
         None
     }
@@ -4980,7 +4965,8 @@ fn location_to_proto(location: &usque_core::GeoLocation) -> v1::GeoLocation {
         country: location.country.clone().unwrap_or_default(),
         region: location.region.clone().unwrap_or_default(),
         city: location.city.clone().unwrap_or_default(),
-        flag_url: location.flag_url().unwrap_or_default(),
+        // Preserve the legacy wire field without advertising a remote asset.
+        flag_url: String::new(),
         flag_svg: location.flag_svg.clone().unwrap_or_default(),
     }
 }

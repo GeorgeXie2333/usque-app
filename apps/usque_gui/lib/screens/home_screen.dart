@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/app_strings.dart';
@@ -13,6 +12,7 @@ import '../state/app_controller.dart';
 import '../widgets/common.dart';
 import '../widgets/connection_ring.dart';
 import '../widgets/controller_selector.dart';
+import '../widgets/country_flag.dart';
 import '../widgets/live_duration.dart';
 import '../widgets/mobile_home_panels.dart';
 import '../widgets/profile_identity_dialog.dart';
@@ -198,9 +198,17 @@ class _VpnGateReadout extends StatelessWidget {
                       : 'connecting')}',
                 ),
               if (server != null)
-                Text(
-                  '${strings.get(status.connected ? 'gate_current' : 'gate_draft')}: ${server.countryCode ?? '—'} · ${server.ip}',
-                  style: const TextStyle(fontFamily: UsqueFonts.mono),
+                Row(
+                  children: [
+                    CountryFlag(countryCode: server.countryCode),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '${strings.get(status.connected ? 'gate_current' : 'gate_draft')}: ${server.countryCode ?? '—'} · ${server.ip}',
+                        style: const TextStyle(fontFamily: UsqueFonts.mono),
+                      ),
+                    ),
+                  ],
                 ),
               if (!status.connected) Text(strings.get('gate_proxy_blocked')),
             ],
@@ -1015,26 +1023,12 @@ class _ExitPanel extends StatelessWidget {
       child: Divider(height: 1, color: hairline),
     );
 
-    Widget flag;
-    if (exit.flagSvg case final svg? when svg.isNotEmpty) {
-      flag = ClipRRect(
-        borderRadius: BorderRadius.circular(3),
-        child: SvgPicture.string(svg, width: 22, height: 16, fit: BoxFit.cover),
-      );
-    } else {
-      flag = Icon(
-        LucideIcons.mapPin,
-        size: 17,
-        color: Theme.of(context).colorScheme.onSurfaceVariant,
-      );
-    }
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         ReadoutRow(
           stackWhenNarrow: true,
-          leading: flag,
+          leading: CountryFlag(countryCode: exit.countryCode),
           label: strings.get('location'),
           value: exit.hasLocation
               ? Text(

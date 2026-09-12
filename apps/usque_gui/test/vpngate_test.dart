@@ -10,6 +10,7 @@ import 'package:usque/screens/vpn_gate_screen.dart';
 import 'package:usque/services/control_codec.dart';
 import 'package:usque/services/engine_client.dart';
 import 'package:usque/state/app_controller.dart';
+import 'package:usque/widgets/country_flag.dart';
 
 import 'app_test.dart' show FakeEngineClient;
 import 'ui_workflow_test.dart' show workflowHost;
@@ -39,6 +40,7 @@ class GateEngine extends FakeEngineClient implements VpnGateClient {
   Completer<VpnGateDirectory>? pending;
   bool failSave = false;
   DateTime? fetchedAt;
+  List<VpnGateServer> nodes = const [server];
 
   @override
   Future<VpnGateDirectory> listVpnGate({
@@ -50,11 +52,11 @@ class GateEngine extends FakeEngineClient implements VpnGateClient {
     country = countryCode;
     return pending?.future ??
         VpnGateDirectory(
-          servers: const [server],
+          servers: nodes,
           countries: const [
             VpnGateCountry(code: 'JP', name: 'Japan', count: 1),
           ],
-          total: 1,
+          total: nodes.length,
           fetchedAt: fetchedAt ?? DateTime.now(),
           refreshStage: 'complete',
           cached: true,
@@ -266,6 +268,61 @@ void main() {
     await tester.pump();
     expect(engine.cancellations, 1);
   });
+
+  testWidgets(
+    'current and draft flags survive a missing catalog node and a disabled list',
+    (tester) async {
+      final engine = GateEngine();
+      final app = await host(tester, engine);
+      app.snapshot = const EngineSnapshot(
+        phase: ConnectionPhase.connected,
+        vpnGate: VpnGateStatus(
+          stage: 'connected',
+          server: VpnGateServer(
+            id: 'current',
+            ip: '203.0.113.9',
+            hostname: 'connected.example',
+            configSha256: 'current-config',
+            countryCode: 'KR',
+          ),
+        ),
+      );
+      await tester.pumpWidget(
+        workflowHost(app, home: VpnGateScreen(controller: app)),
+      );
+      await tester.pumpAndSettle();
+      final toggle = find.byKey(const ValueKey('vpn-gate-toggle'));
+      final node = find.byKey(const ValueKey('vpn-gate-node-v1:node'));
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      await tester.tap(node);
+      await tester.pumpAndSettle();
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect(tester.widget<ListTile>(node).onTap, isNull);
+      expect(
+        tester
+            .widget<CountryFlag>(
+              find.descendant(of: node, matching: find.byType(CountryFlag)),
+            )
+            .enabled,
+        isFalse,
+      );
+      final connected = tester
+          .widgetList<CountryFlag>(find.byType(CountryFlag))
+          .singleWhere((flag) => flag.countryCode == 'KR');
+      expect(connected.enabled, isTrue);
+      engine.nodes = [];
+      await tester.tap(find.text('Refresh list'));
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pumpAndSettle();
+      expect(node, findsNothing);
+      expect(find.text('JP · ${server.ip}'), findsOneWidget);
+      expect(find.text('KR · 203.0.113.9'), findsOneWidget);
+      expect(engine.saves, 0);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 
   testWidgets(
     'a background directory response cannot erase a stale-selection save error',

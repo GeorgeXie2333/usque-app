@@ -1042,7 +1042,7 @@ class ExitInfo {
   final String? country;
   final String? countryCode;
 
-  /// SVG bytes fetched through the tunnel and returned from the native cache.
+  /// Legacy wire field; flags are now bundled and selected by countryCode.
   final String? flagSvg;
   final String? ipv4;
   final String? ipv6;

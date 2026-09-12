@@ -16,6 +16,7 @@ import 'package:usque/state/app_controller.dart';
 import 'package:usque/state/network_quality_controller.dart';
 import 'package:usque/state/window_frame.dart';
 import 'package:usque/widgets/common.dart';
+import 'package:usque/widgets/country_flag.dart';
 import 'package:usque/widgets/usque_dialog.dart';
 import 'package:usque/widgets/window_titlebar.dart';
 
@@ -93,6 +94,13 @@ void main() {
         await tester.tap(find.byKey(const ValueKey('vpn-gate-toggle')));
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
+        await tester.runAsync(
+          () => precacheImage(
+            const AssetImage('assets/flags/w80/jp.png'),
+            tester.element(find.byType(VpnGateScreen)),
+          ),
+        );
+        await tester.pumpAndSettle();
         await expectLater(
           find.byKey(boundary),
           matchesGoldenFile(
@@ -105,6 +113,100 @@ void main() {
       }
     }
   }, tags: 'golden');
+
+  testWidgets(
+    'country flags preserve unusual shapes in light and directional dark layouts',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(540, 430);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      const labels = <String?, String>{
+        'JP': 'Japan',
+        'CH': 'Switzerland',
+        'NP': 'Nepal',
+        'QA': 'Qatar',
+        null: 'Unknown region',
+      };
+      for (final dark in [false, true]) {
+        final app = AppController(WorkflowEngine());
+        final boundary = GlobalKey();
+        try {
+          await tester.pumpWidget(
+            RepaintBoundary(
+              key: boundary,
+              child: workflowHost(
+                app,
+                dark: dark,
+                home: Builder(
+                  builder: (context) => MediaQuery(
+                    data: MediaQuery.of(context).copyWith(
+                      navigationMode: dark
+                          ? NavigationMode.directional
+                          : NavigationMode.traditional,
+                    ),
+                    child: Scaffold(
+                      body: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Country / region',
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                            const SizedBox(height: 20),
+                            for (final entry in labels.entries)
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 12,
+                                ),
+                                child: Row(
+                                  children: [
+                                    CountryFlag(countryCode: entry.key),
+                                    const SizedBox(width: 12),
+                                    Expanded(child: Text(entry.value)),
+                                    CountryFlag(
+                                      countryCode: entry.key,
+                                      enabled: false,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+          await tester.runAsync(() async {
+            final context = tester.element(find.byType(Scaffold));
+            for (final code in labels.keys.whereType<String>()) {
+              await precacheImage(
+                AssetImage('assets/flags/w80/${code.toLowerCase()}.png'),
+                context,
+              );
+            }
+          });
+          await tester.pumpAndSettle();
+          expect(tester.takeException(), isNull);
+          await expectLater(
+            find.byKey(boundary),
+            matchesGoldenFile(
+              'goldens/country_flags_${dark ? 'directional_dark' : 'light'}.png',
+            ),
+          );
+          await tester.pumpWidget(const SizedBox.shrink());
+        } finally {
+          app.dispose();
+        }
+      }
+    },
+    tags: 'golden',
+  );
 
   testWidgets(
     'Windows startup size fits Home including the native caption',
@@ -159,6 +261,7 @@ void main() {
                 ],
                 exit: ExitInfo(
                   country: 'Singapore',
+                  countryCode: 'SG',
                   ipv4: '198.51.100.10',
                   ipv6: '2001:db8:1234:5678:abcd:ef01:2345:6789',
                 ),
@@ -642,6 +745,7 @@ void main() {
           ],
           exit: ExitInfo(
             country: 'Singapore',
+            countryCode: 'SG',
             ipv4: '198.51.100.10',
             ipv6: '2001:db8::10',
           ),
@@ -692,6 +796,7 @@ void main() {
             ],
             exit: const ExitInfo(
               country: 'Singapore',
+              countryCode: 'SG',
               ipv4: '198.51.100.10',
               ipv6: '2001:db8::10',
             ),
@@ -706,12 +811,19 @@ void main() {
             child: workflowHost(app, dark: scene.dark),
           ),
         );
-        await tester.runAsync(
-          () => precacheImage(
+        await tester.runAsync(() async {
+          final context = tester.element(find.byType(MaterialApp));
+          await precacheImage(
             const AssetImage('assets/branding/usque-ui-icon.png'),
-            tester.element(find.byType(MaterialApp)),
-          ),
-        );
+            context,
+          );
+          if (scene.connected) {
+            await precacheImage(
+              const AssetImage('assets/flags/w80/sg.png'),
+              context,
+            );
+          }
+        });
         await tester.pumpAndSettle();
         if (scene.name.startsWith('home_phone_details_expanded')) {
           final details = find.text(app.strings.get('connection_details'));

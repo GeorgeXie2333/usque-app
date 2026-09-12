@@ -1,0 +1,13 @@
+Country and region flag images
+
+Source: Flagpedia.net
+https://flagpedia.net/download/images
+https://flagcdn.com/w80.zip
+
+Flagpedia identifies these flag images as public domain and permits their
+free use, including commercial and non-commercial use:
+https://flagpedia.net/terms
+
+The bundled PNG files retain their original contents, names and proportions.
+Their source width is 80 pixels. Retrieval information and SHA-256 hashes
+are recorded in assets/flags/manifest.json in the source repository.

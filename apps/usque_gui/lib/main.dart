@@ -11,6 +11,11 @@ void main() {
   WidgetsFlutterBinding.ensureInitialized();
   LicenseRegistry.addLicense(() async* {
     yield LicenseEntryWithLineBreaks(const [
+      'Flagpedia country and region flags',
+    ], await rootBundle.loadString('assets/licenses/flagpedia.txt'));
+  });
+  LicenseRegistry.addLicense(() async* {
+    yield LicenseEntryWithLineBreaks(const [
       'OpenVPN 3 Core',
       'Mbed TLS',
       'Asio',

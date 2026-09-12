@@ -187,7 +187,7 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] Surface real Kill Switch / Always-on / Lockdown state on Home and wire Retry to the existing control retry path.
 - [x] Honor profile `auto_connect` once at process start (and Android boot when start-on-boot is also on).
 - [x] Replace controlled reconnects with true no-drop frontend hot mutation while retaining the same MASQUE channel.
-- [x] Fetch fixed-version `flag-icons` SVG through the active tunnel, validate it, cache it, and return SVG bytes to Flutter.
+- [x] Render bundled Flagpedia PNG flags by country code in Home, VPN Gate and Geo direct settings. Exit probes fetch only IP and location data; legacy flag wire fields remain compatible. See [country flag resources](COUNTRY_FLAGS.md).
 - [x] Add diagnostics content review plus Windows and Android native save pickers; exported bundles contain bounded sanitized summaries and logs.
 - [x] Add manual and rate-limited automatic GitHub release checks without automatic installation.
 - [x] Add the direct-country rule download/update/search panel, cached-state gating, partial-result feedback, and accessible enable controls.
