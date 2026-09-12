@@ -2056,6 +2056,9 @@ impl ControlService {
                 .await
                 {
                     Ok(runtime) => ActiveRuntime::Vpn(Box::new(runtime)),
+                    Err(_) if startup_cancel.is_cancelled() => {
+                        return self.disconnect_locked().await;
+                    }
                     Err(windows_agent::WindowsVpnError::AutomaticRecoveryPending {
                         operation_id,
                         journal_generation,

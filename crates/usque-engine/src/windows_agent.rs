@@ -687,6 +687,27 @@ impl Drop for WindowsSystemProxyGuard {
     }
 }
 
+// Only for a Prepared Gate transaction: final traffic is not admitted yet.
+// Drop the startup future first so its producer guards observe cancellation,
+// then release the pipe independently of asynchronous worker joins. Agent EOF
+// recovery still checks the operation, owner and lease epoch after its grace.
+async fn await_prepared_gate_startup<T, E: From<TransportError>, L>(
+    startup_cancel: &CancellationToken,
+    startup_lease: &mut Option<L>,
+    startup: impl std::future::Future<Output = Result<T, E>>,
+) -> Result<T, E> {
+    let mut startup = Box::pin(startup);
+    tokio::select! {
+        biased;
+        _ = startup_cancel.cancelled() => {
+            drop(startup);
+            startup_lease.take();
+            Err(TransportError::TunnelClosed.into())
+        }
+        result = &mut startup => result,
+    }
+}
+
 pub(crate) struct WindowsVpnRuntime {
     agent: WindowsAgentClient,
     operation_id: Uuid,
@@ -874,7 +895,10 @@ impl WindowsVpnRuntime {
         let state = agent.connection_state(&capabilities).await?;
         // Still resolve before installing a new fail-closed policy.
         let registration_api = resolve_registration_api().await?;
-        let (operation_id, resuming, startup_lease) =
+        if startup_cancel.is_cancelled() {
+            return Err(TransportError::TunnelClosed.into());
+        }
+        let (operation_id, resuming, mut startup_lease) =
             match agent_v1::AgentPhase::try_from(state.phase) {
                 Ok(agent_v1::AgentPhase::Clean) => {
                     let operation_id = Uuid::new_v4();
@@ -918,15 +942,14 @@ impl WindowsVpnRuntime {
                 ..Default::default()
             },
         });
-        let protector = match prepare_vpn_protector(
-            &agent,
-            operation_id,
-            registration_api,
-            profile,
-            geo_enabled,
-        )
-        .await
-        {
+        let preparation =
+            prepare_vpn_protector(&agent, operation_id, registration_api, profile, geo_enabled);
+        let preparation = if profile.vpn_gate.enabled {
+            await_prepared_gate_startup(&startup_cancel, &mut startup_lease, preparation).await
+        } else {
+            preparation.await
+        };
+        let protector = match preparation {
             Ok(protector) => protector,
             Err(error) => {
                 if let Some(bootstrap) = bootstrap {
@@ -951,16 +974,20 @@ impl WindowsVpnRuntime {
         };
         let transport_protector: Arc<dyn SocketProtector> = protector.clone();
 
-        let tunnel = match Box::pin(DataPlaneRuntime::start_with_vpngate(
+        let startup = Box::pin(DataPlaneRuntime::start_with_vpngate(
             profile,
             identity,
             transport_protector,
             Some(pin_refresher),
             geo_policy,
             gate,
-        ))
-        .await
-        {
+        ));
+        let startup = if profile.vpn_gate.enabled {
+            await_prepared_gate_startup(&startup_cancel, &mut startup_lease, startup).await
+        } else {
+            startup.await
+        };
+        let tunnel = match startup {
             Ok(tunnel) => tunnel,
             Err(error) => {
                 if let Some(bootstrap) = bootstrap {
@@ -1172,7 +1199,7 @@ impl WindowsVpnRuntime {
                 .socket_protector
                 .clone()
                 .ok_or(WindowsVpnError::MissingMasqueRuntime)?;
-            let tunnel = DataPlaneRuntime::start_with_vpngate(
+            let startup = Box::pin(DataPlaneRuntime::start_with_vpngate(
                 profile,
                 bootstrap.identity.clone(),
                 protector,
@@ -1183,8 +1210,10 @@ impl WindowsVpnRuntime {
                     status: Some(status),
                     cancellation: startup_cancel.clone(),
                 },
-            )
-            .await?;
+            ));
+            let tunnel =
+                await_prepared_gate_startup(startup_cancel, &mut self.startup_lease, startup)
+                    .await?;
             self.monitor.tunnel = tunnel.monitor();
             self.tunnel = Some(tunnel);
             self.bootstrap = None;
@@ -1230,10 +1259,7 @@ impl WindowsVpnRuntime {
             )
             .into());
         }
-        let result = async {
-            if startup_cancel.is_cancelled() {
-                return Err(TransportError::TunnelClosed.into());
-            }
+        let finalization = async {
             let network = tunnel.network_parameters();
             let mut final_profile = profile.clone();
             final_profile.mtu = network.mtu;
@@ -1310,9 +1336,20 @@ impl WindowsVpnRuntime {
             }
             tunnel.activate_final().await?;
             Ok::<_, WindowsVpnError>(())
-        }
-        .await;
+        };
+        let result = tokio::select! {
+            biased;
+            _ = startup_cancel.cancelled() => Err(WindowsVpnError::from(TransportError::TunnelClosed)),
+            result = finalization => result,
+        };
         if let Err(error) = &result {
+            // Close admission and packet producers before any asynchronous
+            // teardown. Failure handling must not delay the stop boundary.
+            tunnel.quiesce_final();
+            self.cancellation.cancel();
+            if let Some(mapping) = &self.mapping {
+                mapping.signal_shutdown();
+            }
             let reason = error.gate_failure();
             tunnel.fail_gate(reason).await;
             let path = tunnel.path();
@@ -1322,10 +1359,6 @@ impl WindowsVpnRuntime {
                 }
                 _ => WindowsPumpFailure::agent("VPN Gate final network configuration failed"),
             }));
-            self.cancellation.cancel();
-            if let Some(mapping) = &self.mapping {
-                mapping.signal_shutdown();
-            }
         }
         self.listeners = if result.is_ok() {
             tunnel.listeners().to_vec()
@@ -1559,14 +1592,19 @@ impl WindowsVpnRuntime {
 
     pub(crate) fn cancel_immediately(&mut self) {
         self.lifetime.cancel();
-        self.liveness.take();
         if let Some(tunnel) = self.tunnel.as_mut() {
+            tunnel.quiesce_final();
             tunnel.cancel_immediately();
         }
         if let Some(protector) = self.socket_protector.as_ref() {
             protector.monitor_cancel.cancel();
         }
         self.cancel_packet_pumps();
+        // Ordinary Gate failures retain these leases for in-place retry. An
+        // explicit stop releases both only after final forwarding is closed;
+        // recovery cannot be held hostage by the following async shutdown.
+        self.liveness.take();
+        self.startup_lease.take();
     }
 
     fn cancel_packet_pumps(&mut self) {
@@ -3773,6 +3811,67 @@ mod tests {
 
     use tokio::net::windows::named_pipe::ServerOptions;
 
+    #[tokio::test]
+    async fn cancelled_prepared_startup_quiesces_before_releasing_its_lease() {
+        let cancel = CancellationToken::new();
+        let producer_cancel = CancellationToken::new();
+        let producer_guard = producer_cancel.clone().drop_guard();
+        let (lease, mut agent) = tokio::io::duplex(64);
+        let mut lease = Some(lease);
+        let (entered, entering) = tokio::sync::oneshot::channel();
+        let startup = async move {
+            let _producer_guard = producer_guard;
+            entered.send(()).unwrap();
+            std::future::pending::<Result<(), TransportError>>().await
+        };
+        let observation = async {
+            entering.await.unwrap();
+            cancel.cancel();
+            assert_eq!(agent.read(&mut [0; 1]).await.unwrap(), 0);
+            assert!(producer_cancel.is_cancelled());
+        };
+        let (result, ()) = timeout(Duration::from_secs(1), async {
+            tokio::join!(
+                await_prepared_gate_startup(&cancel, &mut lease, startup),
+                observation
+            )
+        })
+        .await
+        .expect("lease EOF must not wait for the blocked startup");
+        assert!(matches!(result, Err(TransportError::TunnelClosed)));
+        assert!(lease.is_none());
+    }
+
+    #[tokio::test]
+    async fn ordinary_prepared_failure_retains_the_lease_for_retry() {
+        let cancel = CancellationToken::new();
+        let (pipe, mut agent) = tokio::io::duplex(64);
+        let mut lease = Some(pipe);
+        let result = await_prepared_gate_startup(&cancel, &mut lease, async {
+            Err::<(), _>(TransportError::ConnectTimeout)
+        })
+        .await;
+        assert!(matches!(result, Err(TransportError::ConnectTimeout)));
+        lease.as_mut().unwrap().write_all(b"retry").await.unwrap();
+        let mut data = [0; 5];
+        agent.read_exact(&mut data).await.unwrap();
+        assert_eq!(&data, b"retry");
+    }
+
+    #[tokio::test]
+    async fn already_cancelled_startup_cannot_poll_new_connection_work() {
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        let mut lease = Some(());
+        let result: Result<(), TransportError> =
+            await_prepared_gate_startup(&cancel, &mut lease, async {
+                panic!("cancelled startup must not initiate a new connection");
+            })
+            .await;
+        assert!(matches!(result, Err(TransportError::TunnelClosed)));
+        assert!(lease.is_none());
+    }
+
     #[test]
     fn adapter_recovery_details_keep_only_typed_observations_and_numeric_errors() {
         let detail = sanitized_adapter_recovery_detail(
@@ -5360,6 +5459,64 @@ mod tests {
         let pipe = client.open_pipe().await.expect("restarted Agent pipe");
         assert_eq!(controller.starts.load(Ordering::Acquire), 2);
         drop(pipe);
+    }
+
+    #[tokio::test]
+    async fn cancelled_gate_startup_releases_the_actual_prepare_ipc_pipe() {
+        let pipe_name = format!("{AGENT_PIPE_NAME}.test-{}", Uuid::new_v4());
+        let mut server = ServerOptions::new()
+            .first_pipe_instance(true)
+            .create(&pipe_name)
+            .unwrap();
+        let operation = Uuid::new_v4();
+        let server_task = tokio::spawn(async move {
+            server.connect().await.unwrap();
+            let mut header = [0; 4];
+            server.read_exact(&mut header).await.unwrap();
+            let mut payload = vec![0; u32::from_be_bytes(header) as usize];
+            server.read_exact(&mut payload).await.unwrap();
+            let mut frame = BytesMut::from(header.as_slice());
+            frame.extend_from_slice(&payload);
+            let request: AgentRequest = decode_frame(frame.freeze()).unwrap();
+            assert!(matches!(
+                request.payload,
+                Some(agent_request::Payload::PrepareTunnel(_))
+            ));
+            let response = AgentResponse {
+                request_id: request.request_id,
+                payload: Some(agent_response::Payload::State(AgentState {
+                    phase: agent_v1::AgentPhase::Prepared as i32,
+                    operation_id: operation.to_string(),
+                    ..Default::default()
+                })),
+                ..Default::default()
+            };
+            server
+                .write_all(&encode_frame(&response).unwrap())
+                .await
+                .unwrap();
+            match server.read(&mut [0; 1]).await {
+                Ok(0) => {}
+                Err(error) if error.kind() == io::ErrorKind::BrokenPipe => {}
+                other => panic!("expected lease EOF without promotion: {other:?}"),
+            }
+        });
+        let client = WindowsAgentClient::for_test(pipe_name);
+        let mut lease = Some(
+            client
+                .prepare(operation, agent_v1::TunnelPlan::default())
+                .await
+                .unwrap(),
+        );
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        let result: Result<(), TransportError> =
+            await_prepared_gate_startup(&cancel, &mut lease, std::future::pending()).await;
+        assert!(matches!(result, Err(TransportError::TunnelClosed)));
+        timeout(Duration::from_secs(1), server_task)
+            .await
+            .unwrap()
+            .unwrap();
     }
 
     #[tokio::test]

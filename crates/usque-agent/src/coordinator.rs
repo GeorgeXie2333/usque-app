@@ -4029,6 +4029,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cancelled_startup_watchdog_cannot_restore_a_later_prepared_transaction() {
+        let backend = Arc::new(MockBackend::default());
+        let (_directory, coordinator) = coordinator(Arc::clone(&backend));
+        let owner = caller();
+        let mut deferred = plan();
+        deferred.vpn_chain = true;
+        deferred.defer_network_configuration = true;
+        let old_operation = Uuid::new_v4();
+        coordinator
+            .prepare(old_operation, deferred.clone(), owner.clone())
+            .await
+            .unwrap();
+        let old_epoch = coordinator
+            .release_startup_tunnel_lease(old_operation, &owner)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            coordinator
+                .recover_orphaned_startup_tunnel(old_operation, old_epoch)
+                .await
+                .unwrap()
+        );
+        let new_operation = Uuid::new_v4();
+        coordinator
+            .prepare(new_operation, deferred, owner)
+            .await
+            .unwrap();
+        let before = coordinator.state().await;
+        assert!(
+            !coordinator
+                .recover_orphaned_startup_tunnel(old_operation, old_epoch)
+                .await
+                .unwrap()
+        );
+        let after = coordinator.state().await;
+        assert_eq!(after.operation_id, Some(new_operation));
+        assert_eq!(after.phase, RecoveryPhase::Prepared);
+        assert_eq!(after.generation, before.generation);
+    }
+
+    #[tokio::test]
     async fn startup_lease_eof_recovers_a_prepared_tunnel() {
         let backend = Arc::new(MockBackend::default());
         let (_directory, coordinator) = coordinator(Arc::clone(&backend));
