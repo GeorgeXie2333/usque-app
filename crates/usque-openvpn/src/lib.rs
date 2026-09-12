@@ -9,11 +9,14 @@ use std::ffi::{CString, c_char, c_void};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::ptr::NonNull;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 
 const MAX_PACKET: usize = u16::MAX as usize;
 const MAX_CONFIG: usize = 128 * 1024;
+const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum Error {
@@ -25,6 +28,8 @@ pub enum Error {
     InvalidPacket,
     #[error("OpenVPN worker failed")]
     Worker,
+    #[error("OpenVPN worker is still stopping")]
+    ShutdownTimeout,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,6 +111,7 @@ struct Native {
     pointer: NonNull<c_void>,
     // The stable allocation is the callback context; it outlives destroy().
     notify: Box<Notify>,
+    stopped: AtomicBool,
 }
 
 // SAFETY: The native ABI synchronizes input/output and stop. run() is invoked
@@ -117,6 +123,10 @@ unsafe impl Sync for Native {}
 
 impl Native {
     fn stop(&self) {
+        self.stopped.store(true, Ordering::Release);
+        // Wake backpressured inputs even if the native worker cannot make
+        // progress. Register-before-check in push() prevents a lost wakeup.
+        self.notify.notify_waiters();
         // SAFETY: Arc retains the allocation. stop is safe during/before run.
         unsafe { usque_ovpn_stop(self.pointer.as_ptr()) };
     }
@@ -125,6 +135,9 @@ impl Native {
             let notified = self.notify.notified();
             tokio::pin!(notified);
             notified.as_mut().enable();
+            if self.stopped.load(Ordering::Acquire) {
+                return Err(Error::Closed);
+            }
             // SAFETY: The live native session copies this bounded slice before
             // return. The generation is checked before publishing any input.
             let result = unsafe {
@@ -190,7 +203,8 @@ impl Input {
 
 /// One protocol worker with bounded native input and output queues. Dropping
 /// the session requests stop; its native memory remains owned by the worker
-/// until the core exits. Use shutdown() to wait for complete cleanup.
+/// until the core exits. shutdown() waits up to five seconds and reports a
+/// timeout without claiming that a pending worker has exited.
 pub struct Session {
     native: Arc<Native>,
     worker: Option<JoinHandle<Result<(), Error>>>,
@@ -220,7 +234,11 @@ impl Session {
             )
         };
         let pointer = NonNull::new(pointer).ok_or(Error::InvalidConfig)?;
-        let native = Arc::new(Native { pointer, notify });
+        let native = Arc::new(Native {
+            pointer,
+            notify,
+            stopped: AtomicBool::new(false),
+        });
         let worker_native = Arc::clone(&native);
         let worker = tokio::task::spawn_blocking(move || {
             // SAFETY: Exactly this worker invokes run. Its Arc retains the
@@ -278,12 +296,24 @@ impl Session {
     }
     pub async fn shutdown(&mut self) -> Result<(), Error> {
         self.native.stop();
-        if let Some(worker) = self.worker.take() {
-            worker.await.map_err(|_| Error::Worker)?
-        } else {
-            Ok(())
-        }
+        join_worker(&mut self.worker, SHUTDOWN_TIMEOUT).await
     }
+}
+
+async fn join_worker(
+    worker: &mut Option<JoinHandle<Result<(), Error>>>,
+    timeout: Duration,
+) -> Result<(), Error> {
+    let Some(task) = worker.as_mut() else {
+        return Ok(());
+    };
+    // Keep ownership on timeout or cancellation. A spawn_blocking worker cannot
+    // be aborted; its Arc retains native memory even if Session is then dropped.
+    let result = tokio::time::timeout(timeout, task)
+        .await
+        .map_err(|_| Error::ShutdownTimeout)?;
+    worker.take();
+    result.map_err(|_| Error::Worker)?
 }
 impl Drop for Session {
     fn drop(&mut self) {
@@ -384,6 +414,48 @@ fn validate_ip_packet(packet: &[u8]) -> Result<(), Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn shutdown_timeout_retains_worker_until_it_really_exits() {
+        let (release, pending) = std::sync::mpsc::channel();
+        let mut worker = Some(tokio::task::spawn_blocking(move || {
+            pending.recv().map_err(|_| Error::Worker)
+        }));
+        assert_eq!(
+            join_worker(&mut worker, Duration::ZERO).await,
+            Err(Error::ShutdownTimeout)
+        );
+        assert!(worker.as_ref().is_some_and(|task| !task.is_finished()));
+        release.send(()).unwrap();
+        assert_eq!(
+            join_worker(&mut worker, Duration::from_secs(3)).await,
+            Ok(())
+        );
+        assert!(worker.is_none());
+    }
+
+    #[tokio::test]
+    async fn cancelled_shutdown_keeps_the_same_worker_joinable() {
+        let (release, pending) = tokio::sync::oneshot::channel::<()>();
+        let mut worker = Some(tokio::spawn(async move {
+            pending.await.map_err(|_| Error::Worker)
+        }));
+        let id = worker.as_ref().unwrap().id();
+        assert!(
+            tokio::time::timeout(
+                Duration::ZERO,
+                join_worker(&mut worker, Duration::from_secs(60))
+            )
+            .await
+            .is_err()
+        );
+        assert_eq!(worker.as_ref().unwrap().id(), id);
+        release.send(()).unwrap();
+        assert_eq!(
+            join_worker(&mut worker, Duration::from_secs(3)).await,
+            Ok(())
+        );
+    }
     #[test]
     fn native_event_layout_matches() {
         assert_eq!(

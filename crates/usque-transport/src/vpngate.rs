@@ -20,6 +20,19 @@ use usque_openvpn::{Event, Input, NetworkConfig, Session};
 
 static NEXT_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
+// Cancellation covers the whole operation, including awaits inside a selected
+// event branch and the final native failure notification.
+async fn until_cancelled<F: std::future::Future>(
+    cancel: &CancellationToken,
+    work: F,
+) -> Option<F::Output> {
+    tokio::select! {
+        biased;
+        _ = cancel.cancelled() => None,
+        result = work => Some(result),
+    }
+}
+
 /// Shared by the desktop and Android platform owners. A reconnect replaces
 /// the whole final stack and platform assignment, using only the saved node.
 #[derive(Default)]
@@ -60,6 +73,7 @@ pub(crate) struct GateDriver {
     status_tx: watch::Sender<GateStatus>,
     admission: watch::Sender<bool>,
     cancellation: CancellationToken,
+    native_input: Input,
     task: Option<JoinHandle<()>>,
 }
 
@@ -83,6 +97,7 @@ impl GateDriver {
         let status = status_tx.subscribe();
         let (ready_tx, ready_rx) = oneshot::channel();
         let (admission, admitted) = watch::channel(false);
+        let native_input = native.input();
         let actor = Actor {
             native,
             remote: profile.remote,
@@ -106,6 +121,7 @@ impl GateDriver {
             status_tx,
             admission,
             cancellation,
+            native_input,
             task: Some(task),
         };
         let result = tokio::select! {
@@ -137,6 +153,9 @@ impl GateDriver {
     }
     pub(crate) fn cancel(&self) {
         self.cancellation.cancel();
+        // Do not put stop behind a join that may itself be waiting for native
+        // input capacity. The worker owns no OS transport or TUN resources.
+        self.native_input.stop();
     }
     pub(crate) fn fail(&self, reason: GateFailure) {
         self.cancel();
@@ -182,7 +201,10 @@ struct Actor {
 }
 impl Actor {
     async fn run(mut self) {
-        let result = self.drive().await;
+        let cancel = self.cancellation.clone();
+        let result = until_cancelled(&cancel, self.drive())
+            .await
+            .unwrap_or(Ok(()));
         self.connected = false;
         if let Err(reason) = result {
             self.status.send_modify(|s| {
@@ -206,12 +228,15 @@ impl Actor {
             }
         }
         self.cancellation.cancel();
+        if let Some(channels) = &self.channels {
+            channels.cancellation.cancel();
+        }
+        self.native.input().stop();
         if let Some(connection) = self.connection.take() {
             connection.shutdown().await;
         }
-        let _ = self.native.shutdown().await;
-        if let Some(channels) = &self.channels {
-            channels.cancellation.cancel();
+        if let Err(error) = self.native.shutdown().await {
+            tracing::warn!(gate_event = "NATIVE_SHUTDOWN_FAILED", failure_kind = ?error, "VPN Gate native shutdown did not complete successfully");
         }
     }
 
@@ -565,11 +590,11 @@ impl Connection {
                 );
                 result
             };
-            tokio::select! {
-                biased;
-                _ = cancel.cancelled() => {},
-                _ = work => { let _ = input.transport_failed(generation).await; }
-            }
+            until_cancelled(&cancel, async {
+                let _ = work.await;
+                let _ = input.transport_failed(generation).await;
+            })
+            .await;
         });
         Self {
             outgoing,
@@ -640,6 +665,54 @@ mod tests {
                 .unwrap();
             Ok(Box::new(client))
         }
+    }
+
+    #[tokio::test]
+    async fn cancellation_closes_transport_during_backpressured_failure_notification() {
+        let cancellation = CancellationToken::new();
+        let cancel = cancellation.clone();
+        let (stream, mut peer) = tokio::io::duplex(64);
+        let (reporting, reported) = oneshot::channel();
+        let task = tokio::spawn(async move {
+            until_cancelled(&cancel, async move {
+                // Model the selected TCP-failure branch with a full native
+                // queue. The stream must close without that queue progressing.
+                let _stream = stream;
+                reporting.send(()).unwrap();
+                std::future::pending::<()>().await;
+            })
+            .await;
+        });
+        let (outgoing, _) = mpsc::channel(1);
+        let connection = Connection {
+            outgoing,
+            cancellation,
+            task: AbortOnDropHandle::new(task),
+        };
+        reported.await.unwrap();
+        tokio::time::timeout(Duration::from_secs(1), connection.shutdown())
+            .await
+            .expect("failure notification must remain cancellable");
+        assert_eq!(peer.read(&mut [0; 1]).await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn cancellation_drops_an_event_before_it_can_publish_a_replacement() {
+        let cancel = CancellationToken::new();
+        let (entered, entering) = oneshot::channel();
+        let (resume, waiting) = oneshot::channel::<()>();
+        let operation = until_cancelled(&cancel, async {
+            entered.send(()).unwrap();
+            waiting.await.unwrap();
+            panic!("cancelled event must not install a replacement connection");
+        });
+        let cancellation = async {
+            entering.await.unwrap();
+            cancel.cancel();
+        };
+        let (result, ()) = tokio::join!(operation, cancellation);
+        assert!(result.is_none());
+        assert!(resume.send(()).is_err());
     }
 
     #[tokio::test]
