@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:usque/core/app_strings.dart';
 import 'package:usque/models/app_models.dart';
+import 'package:usque/screens/home_screen.dart';
 import 'package:usque/screens/vpn_gate_screen.dart';
 import 'package:usque/services/control_codec.dart';
 import 'package:usque/services/engine_client.dart';
@@ -187,6 +188,30 @@ Future<AppController> host(
 }
 
 void main() {
+  testWidgets('failed Gate shows WARP disconnected with the connection error', (
+    tester,
+  ) async {
+    final app = await host(tester, GateEngine());
+    app.snapshot = const EngineSnapshot(
+      phase: ConnectionPhase.error,
+      vpnGate: VpnGateStatus(
+        stage: 'error',
+        warpStage: 'disconnected',
+        failure: 'authentication',
+        server: server,
+      ),
+    );
+    await tester.pumpWidget(
+      workflowHost(app, home: HomeScreen(controller: app)),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.text('WARP: ${app.strings.get('disconnected')}'),
+      findsOneWidget,
+    );
+    expect(find.text('WARP: ${app.strings.get('connecting')}'), findsNothing);
+  });
+
   testWidgets(
     'favorites can be added and removed while the master switch stays off',
     (tester) async {

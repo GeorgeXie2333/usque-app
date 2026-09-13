@@ -2734,6 +2734,28 @@ struct NativeSnapshot {
 }
 
 impl NativeSnapshot {
+    #[cfg(any(test, target_os = "android"))]
+    fn finish_runtime(&mut self, mut gate: usque_core::vpngate::GateStatus) {
+        use usque_core::vpngate::{GateFailure, GateStage};
+        self.active_frontends.clear();
+        self.active_listeners.clear();
+        self.final_network = None;
+        self.tunnel_ipv4_available = false;
+        self.tunnel_ipv6_available = false;
+        self.download_bytes_per_second = 0;
+        self.upload_bytes_per_second = 0;
+        self.network_quality = None;
+        if gate.stage != GateStage::Disabled {
+            gate.warp_stage = Some("disconnected".into());
+            gate.network = None;
+            if self.phase == "error" {
+                gate.stage = GateStage::Error;
+                gate.failure.get_or_insert(GateFailure::Transport);
+            }
+        }
+        self.vpn_gate = Some(gate);
+    }
+
     fn disconnected() -> Self {
         Self {
             vpn_gate: None,
@@ -3147,6 +3169,41 @@ fn jni_command_abandoned(cancelled: &AtomicBool) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn failed_gate_runtime_clears_active_network_and_preserves_the_error() {
+        use usque_core::vpngate::{GateFailure, GateStage, GateStatus};
+        for reason in [None, Some(GateFailure::Authentication)] {
+            let mut snapshot = super::NativeSnapshot::disconnected();
+            snapshot.phase = "error".into();
+            snapshot.warning = Some("the original connection error".into());
+            snapshot.error_code = Some("PACKET_RECEIVE_FAILED".into());
+            snapshot.active_frontends = vec!["socks5".into(), "http".into()];
+            snapshot.active_listeners = vec!["127.0.0.1:1080".into()];
+            snapshot.tunnel_ipv4_available = true;
+            snapshot.download_bytes_per_second = 123;
+            snapshot.finish_runtime(GateStatus {
+                stage: GateStage::Connected,
+                warp_stage: Some("connected".into()),
+                failure: reason,
+                ..Default::default()
+            });
+            let wire = serde_json::to_value(snapshot).unwrap();
+            assert_eq!(wire["phase"], "error");
+            assert_eq!(wire["warning"], "the original connection error");
+            assert_eq!(wire["vpn_gate"]["stage"], "error");
+            assert_eq!(wire["vpn_gate"]["warp_stage"], "disconnected");
+            assert_eq!(
+                wire["vpn_gate"]["failure"],
+                serde_json::to_value(reason.unwrap_or(GateFailure::Transport)).unwrap()
+            );
+            assert_eq!(wire["active_frontends"], serde_json::json!([]));
+            assert_eq!(wire["active_listeners"], serde_json::json!([]));
+            assert_eq!(wire["tunnel_ipv4_available"], false);
+            assert_eq!(wire["download_bytes_per_second"], 0);
+            assert!(wire.get("final_network").is_none());
+        }
+    }
+
     #[test]
     fn production_build_info_explicitly_has_no_receive_experiment() {
         let value: serde_json::Value =

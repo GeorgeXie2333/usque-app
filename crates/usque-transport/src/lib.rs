@@ -102,7 +102,6 @@ pub use udp_io::{
     UdpBatchFallbackReason, UdpBatchIo, UdpBatchMode,
 };
 pub use usque_protocol::PeerNetworkState;
-pub use vpngate::VpnGateRetry;
 
 #[cfg(any(test, feature = "fault-injection"))]
 pub use fault_injection::{

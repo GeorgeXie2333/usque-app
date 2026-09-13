@@ -25,6 +25,7 @@ pub struct DataPlaneRuntime {
     gate: Option<Box<GateRuntime>>,
     warp_network: FinalNetworkParameters,
     final_blocked: bool,
+    stopped: bool,
     transition_status: GateStatus,
     pending_frontends: Option<Profile>,
 }
@@ -80,6 +81,7 @@ impl DataPlaneRuntime {
             gate: None,
             warp_network,
             final_blocked: false,
+            stopped: false,
             transition_status: GateStatus::default(),
             pending_frontends: None,
         })
@@ -149,8 +151,10 @@ impl DataPlaneRuntime {
             }
             runtime.fail_gate(reason).await;
             if let Some(status) = status_copy {
-                status.send_replace(runtime.transition_status.clone());
+                status.send_replace(runtime.gate_status());
             }
+            runtime.shutdown().await;
+            return Err(error);
         }
         Ok(runtime)
     }
@@ -242,8 +246,8 @@ impl DataPlaneRuntime {
         Ok(())
     }
     /// Close all old final flows before dialing the explicitly selected node.
-    /// On failure the closed Gate slot remains installed, so no accessor can
-    /// fall through to the headless WARP backend.
+    /// On failure the owner stops the whole chain. The closed Gate slot keeps
+    /// accessors from falling through to WARP during that cleanup.
     pub async fn replace_gate(
         &mut self,
         profile: &Profile,
@@ -252,6 +256,9 @@ impl DataPlaneRuntime {
         status: watch::Sender<GateStatus>,
         cancellation: &CancellationToken,
     ) -> Result<(), TransportError> {
+        if self.stopped {
+            return Err(TransportError::TunnelClosed);
+        }
         self.quiesce_final();
         let protector = match &self.inner {
             RuntimeInner::ConnectIp(runtime) => runtime.diagnostic_dns_context().0,
@@ -326,6 +333,9 @@ impl DataPlaneRuntime {
     }
     pub async fn fail_gate(&mut self, reason: GateFailure) {
         self.quiesce_final();
+        // A terminal Gate failure ends the entire chain, including WARP.
+        // Cancel its producers before waiting for the native worker to exit.
+        self.cancel_immediately();
         self.transition_status.stage = usque_core::vpngate::GateStage::Error;
         self.transition_status.failure = Some(reason);
         self.transition_status.network = None;
@@ -403,6 +413,7 @@ impl DataPlaneRuntime {
         if status.stage != usque_core::vpngate::GateStage::Disabled {
             status.warp_stage = Some(
                 match self.underlay_monitor().health() {
+                    _ if self.stopped => "disconnected",
                     RuntimeHealth::Connected { .. } => "connected",
                     RuntimeHealth::Reconnecting { .. } => "reconnecting",
                     RuntimeHealth::Failed { .. } => "error",
@@ -659,6 +670,12 @@ impl DataPlaneRuntime {
         }
     }
     pub fn cancel_immediately(&mut self) {
+        if !self.stopped {
+            self.transition_status = self.gate_status();
+        }
+        self.final_blocked = true;
+        self.pending_frontends = None;
+        self.stopped = true;
         if let Some(gate) = &mut self.gate {
             gate.driver.cancel();
             gate.frontend.cancel_immediately();
@@ -669,6 +686,7 @@ impl DataPlaneRuntime {
         }
     }
     pub async fn shutdown(&mut self) {
+        self.cancel_immediately();
         if let Some(mut gate) = self.gate.take() {
             gate.driver.cancel();
             gate.frontend.shutdown().await;
@@ -756,5 +774,92 @@ impl TunPacketIo {
         if let TunIoInner::ConnectIp(io) = &self.inner {
             io.record_platform_packet_buffer_allocation();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::netstack::ManagedTunnelRuntime;
+    use usque_core::vpngate::GateStage;
+
+    #[tokio::test]
+    async fn gate_failure_cancels_warp_but_a_pending_node_switch_does_not() {
+        // Memory packet queues stand in for WARP. No OS tunnel or remote
+        // connection is created, but the actual frontend shutdown runs.
+        let profile = DataPlaneRuntime::headless_profile(&Profile::default());
+        let path = RuntimePath {
+            transport: usque_core::Transport::Http3,
+            endpoint_family: usque_core::AddressFamily::Ipv4,
+            ipv4_available: true,
+            ipv6_available: true,
+        };
+        let (tunnel, channels) = ManagedTunnelRuntime::for_external_packets(
+            path,
+            crate::NetworkQualityTelemetry::default(),
+        );
+        let protector = crate::socket::noop_socket_protector();
+        let policy = Arc::new(GeoDirectPolicy::disabled());
+        let addresses = (
+            "172.16.0.2".parse().unwrap(),
+            "2001:db8::2".parse().unwrap(),
+        );
+        let warp = MasqueRuntime::start_over_tunnel(
+            &profile,
+            tunnel,
+            addresses,
+            protector,
+            policy.clone(),
+        )
+        .await
+        .unwrap();
+        let mut runtime = DataPlaneRuntime {
+            inner: RuntimeInner::ConnectIp(Box::new(warp)),
+            gate: None,
+            warp_network: FinalNetworkParameters {
+                ipv4: Some(addresses.0),
+                ipv6: Some(addresses.1),
+                mtu: 1500,
+                dns_servers: vec![],
+            },
+            final_blocked: false,
+            stopped: false,
+            transition_status: GateStatus {
+                stage: GateStage::ConnectingServer,
+                ..Default::default()
+            },
+            pending_frontends: None,
+        };
+        runtime.quiesce_final();
+        assert!(!channels.cancellation.is_cancelled());
+        runtime.fail_gate(GateFailure::Authentication).await;
+        // The mux observes the synchronous stop signal on its next poll and
+        // then closes the managed WARP channel it owns.
+        tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            channels.cancellation.cancelled(),
+        )
+        .await
+        .unwrap();
+        assert!(channels.cancellation.is_cancelled());
+        assert_eq!(
+            runtime.gate_status().warp_stage.as_deref(),
+            Some("disconnected")
+        );
+        assert!(matches!(runtime.health(), RuntimeHealth::Failed { .. }));
+        assert!(runtime.send_packet(&[0x45; 20]).await.is_err());
+        assert!(matches!(
+            runtime
+                .replace_gate(
+                    &profile,
+                    None,
+                    policy,
+                    watch::channel(GateStatus::default()).0,
+                    &CancellationToken::new()
+                )
+                .await,
+            Err(TransportError::TunnelClosed)
+        ));
+        runtime.shutdown().await;
     }
 }

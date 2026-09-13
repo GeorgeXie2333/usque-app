@@ -81,66 +81,132 @@ async fn failed_gate_session() -> (tempfile::TempDir, ControlService, Profile, V
 }
 
 #[tokio::test]
-async fn failed_gate_connect_and_retry_apply_saved_node_or_disable_without_tunnel_teardown() {
-    for retry in [false, true] {
-        for disable in [false, true] {
-            let (_directory, service, mut profile, selections) = failed_gate_session().await;
-            profile.vpn_gate.enabled = !disable;
-            profile.vpn_gate.selection = Some(selections[1].clone());
-            let saved = service
-                .save_network_settings(v1::SaveNetworkSettingsRequest {
-                    operation_id: Uuid::new_v4().to_string(),
-                    account_id: profile.id.to_string(),
-                    values: Some(profile_to_proto(&profile)),
-                    changed_fields: vec!["vpn_gate".into()],
-                })
-                .await
-                .unwrap();
-            assert_eq!(
-                saved.apply_status, 4,
-                "failed sessions save until explicit connect"
-            );
-            let snapshot = if retry {
-                service.retry().await
-            } else {
-                service.connect(profile.id).await
-            }
-            .unwrap();
-            assert_eq!(snapshot.phase, ConnectionPhase::Connected);
-            let active = service.data_plane.lock().await;
-            let active = active.as_ref().unwrap();
-            assert_eq!(active.profile.vpn_gate, profile.vpn_gate);
-            let ActiveRuntime::Harness(runtime) = &active.runtime else {
+async fn failed_gate_startup_cancels_warp_and_releases_the_runtime() {
+    for vpn in [false, true] {
+        for reason in [
+            GateFailure::Transport,
+            GateFailure::Authentication,
+            GateFailure::Certificate,
+        ] {
+            let (_directory, service, profile, _) = failed_gate_session().await;
+            // A startup result has not yet been installed as the active session.
+            let mut active = service.data_plane.lock().await.take().unwrap();
+            let ActiveRuntime::Harness(runtime) = &mut active.runtime else {
                 panic!("memory runtime")
             };
-            assert_eq!(runtime.gate_replace_count, 1);
-            assert_eq!(
-                (
-                    runtime.reconnect_count,
-                    runtime.attach_count,
-                    runtime.detach_count
-                ),
-                (7, 0, 0)
+            runtime.vpn = vpn;
+            runtime.gate_status.failure = Some(reason);
+            let stopped = runtime.stopped.clone();
+            let stop_requested = runtime.stop_requested.clone();
+            assert!(service.accept_gate_runtime(active.runtime).await.is_err());
+            assert!(stop_requested.is_cancelled());
+            assert!(service.data_plane.lock().await.is_none());
+            service.await_disconnect_cleanup().await.unwrap();
+            assert!(stopped.is_cancelled());
+            let snapshot = service.status_snapshot().await;
+            assert_eq!(snapshot.phase, ConnectionPhase::Error);
+            assert!(
+                snapshot
+                    .frontends
+                    .iter()
+                    .all(|frontend| frontend.phase != FrontendPhase::Active)
             );
+            assert_eq!(service.gate_status.borrow().failure, Some(reason));
             assert_eq!(
-                runtime.gate_status.stage,
-                if disable {
-                    GateStage::Disabled
-                } else {
-                    GateStage::Connected
-                }
+                service.gate_status.borrow().warp_stage.as_deref(),
+                Some("disconnected")
             );
-            assert!(service.disconnect_cleanup.lock().await.is_none());
-            let settings = service.network_settings_state().await;
-            assert_eq!(settings.apply_status, 3);
-            assert!(!settings.deferred_fields.contains(&"vpn_gate".to_owned()));
+            assert!(service.session_profile.lock().await.is_none());
+            assert_eq!(
+                service.config_snapshot().await.active_profile_id,
+                Some(profile.id)
+            );
         }
     }
 }
 
 #[tokio::test]
-async fn failed_gate_retry_keeps_saved_target_and_blocks_when_its_snapshot_is_missing() {
+async fn gate_supervisor_disconnects_the_failed_chain_without_an_in_place_retry() {
+    let (_directory, service, _, _) = failed_gate_session().await;
+    let stopped = {
+        let active = service.data_plane.lock().await;
+        let ActiveRuntime::Harness(runtime) = &active.as_ref().unwrap().runtime else {
+            panic!("memory runtime")
+        };
+        runtime.stopped.clone()
+    };
+    service.ensure_gate_supervisor().await;
+    tokio::time::timeout(Duration::from_secs(2), stopped.cancelled())
+        .await
+        .unwrap();
+    let _mutation = service.mutation_lock.lock().await;
+    assert!(service.data_plane.lock().await.is_none());
+    service.await_disconnect_cleanup().await.unwrap();
+    assert_eq!(
+        service.status_snapshot().await.phase,
+        ConnectionPhase::Error
+    );
+    assert_eq!(
+        service.gate_status.borrow().warp_stage.as_deref(),
+        Some("disconnected")
+    );
+}
+
+#[tokio::test]
+async fn a_fresh_warp_runtime_clears_the_previous_gate_failure_status() {
+    let (_directory, service, mut profile, _) = failed_gate_session().await;
+    service.stop_failed_gate_locked().await.unwrap();
+    service.await_disconnect_cleanup().await.unwrap();
+    profile.vpn_gate.enabled = false;
+    let runtime = ActiveRuntime::Harness(Box::new(active_runtime::HarnessRuntime::from_profile(
+        &profile, false, 0,
+    )));
+    let mut runtime = service.accept_gate_runtime(runtime).await.unwrap();
+    assert_eq!(service.gate_status.borrow().stage, GateStage::Disabled);
+    assert!(service.gate_status.borrow().failure.is_none());
+    runtime.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn failed_gate_connect_and_retry_start_a_new_warp_session_with_the_saved_target() {
+    for retry in [false, true] {
+        for disable in [false, true] {
+            let (_directory, service, mut profile, selections) = failed_gate_session().await;
+            profile.vpn_gate.enabled = !disable;
+            profile.vpn_gate.selection = Some(selections[1].clone());
+            service.upsert_profile(profile.clone()).await.unwrap();
+            // No WARP identity is installed. A fresh connect must stop at the
+            // vault instead of reviving the failed underlay or calling Agent.
+            let result = if retry {
+                service.retry().await
+            } else {
+                service.connect(profile.id).await
+            };
+            assert!(result.is_err());
+            assert!(service.data_plane.lock().await.is_none());
+            assert_eq!(
+                service.config_snapshot().await.network.vpn_gate,
+                profile.vpn_gate
+            );
+            service.await_disconnect_cleanup().await.unwrap();
+        }
+    }
+}
+
+#[tokio::test]
+async fn failed_gate_switch_keeps_saved_target_and_disconnects_when_snapshot_is_missing() {
     let (_directory, service, mut profile, selections) = failed_gate_session().await;
+    // Model a healthy old connection before selecting the missing new snapshot.
+    let stopped = {
+        let mut active = service.data_plane.lock().await;
+        let ActiveRuntime::Harness(runtime) = &mut active.as_mut().unwrap().runtime else {
+            panic!("memory runtime")
+        };
+        runtime.gate_status.stage = GateStage::Connected;
+        runtime.gate_status.failure = None;
+        runtime.warp_ready = true;
+        runtime.stopped.clone()
+    };
     profile.vpn_gate.selection = Some(selections[1].clone());
     service.upsert_profile(profile.clone()).await.unwrap();
     let selection = &selections[1];
@@ -151,40 +217,21 @@ async fn failed_gate_retry_keeps_saved_target_and_blocks_when_its_snapshot_is_mi
     )))
     .unwrap();
     assert!(matches!(
-        service.retry().await,
+        service.hot_replace_gate(&profile).await,
         Err(ControlServiceError::VpnGate(_))
     ));
-    let active = service.data_plane.lock().await;
-    let active = active.as_ref().unwrap();
-    assert_eq!(active.profile.vpn_gate, profile.vpn_gate);
-    assert_eq!(active.runtime.gate_status().stage, GateStage::Error);
-    assert!(active.runtime.listeners().is_empty());
-    assert!(service.disconnect_cleanup.lock().await.is_none());
-}
-
-#[tokio::test]
-async fn failed_gate_retry_with_underlay_changes_requires_a_full_reconnect() {
-    let (_directory, service, mut profile, selections) = failed_gate_session().await;
-    profile.mtu = 1400;
-    profile.vpn_gate.selection = Some(selections[1].clone());
-    service.upsert_profile(profile).await.unwrap();
-    // The memory vault has no WARP identity: a cold connect must stop there,
-    // before any Windows Agent request or real network operation is possible.
-    assert!(service.retry().await.is_err());
     assert!(service.data_plane.lock().await.is_none());
-}
-
-#[tokio::test]
-async fn failed_gate_retry_rebuilds_a_dead_warp_underlay() {
-    let (_directory, service, _, _) = failed_gate_session().await;
-    if let ActiveRuntime::Harness(runtime) =
-        &mut service.data_plane.lock().await.as_mut().unwrap().runtime
-    {
-        runtime.warp_ready = false;
-    }
-    // A full reconnect stops at the empty identity vault, before opening sockets.
-    assert!(service.retry().await.is_err());
-    assert!(service.data_plane.lock().await.is_none());
+    assert_eq!(
+        service.config_snapshot().await.network.vpn_gate,
+        profile.vpn_gate
+    );
+    assert_eq!(service.gate_status.borrow().stage, GateStage::Error);
+    assert_eq!(
+        service.gate_status.borrow().warp_stage.as_deref(),
+        Some("disconnected")
+    );
+    service.await_disconnect_cleanup().await.unwrap();
+    assert!(stopped.is_cancelled());
 }
 
 #[cfg(windows)]

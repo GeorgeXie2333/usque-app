@@ -1041,7 +1041,7 @@ impl WindowsVpnRuntime {
             };
             if runtime.gate_status().stage != usque_core::vpngate::GateStage::Error {
                 // The helper records an error and closes admission on failure.
-                // Ownership of the WFP guard remains until explicit disconnect.
+                // Return transaction ownership for the Engine's failure cleanup.
                 let _ = runtime.finish_chain_network(profile, &startup_cancel).await;
             }
             return Ok(runtime);
@@ -1624,8 +1624,8 @@ impl WindowsVpnRuntime {
             protector.monitor_cancel.cancel();
         }
         self.cancel_packet_pumps();
-        // Ordinary Gate failures retain these leases for in-place retry. An
-        // explicit stop releases both only after final forwarding is closed;
+        // Explicit stop and terminal Gate failure release these leases only
+        // after final forwarding is closed;
         // recovery cannot be held hostage by the following async shutdown.
         let active_released = self.liveness.take().is_some();
         let startup_released = self.startup_lease.take().is_some();
@@ -3922,7 +3922,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ordinary_prepared_failure_retains_the_lease_for_retry() {
+    async fn prepared_failure_keeps_lease_owned_until_caller_cleanup() {
         let cancel = CancellationToken::new();
         let (pipe, mut agent) = tokio::io::duplex(64);
         let mut lease = Some(pipe);
@@ -3931,10 +3931,12 @@ mod tests {
         })
         .await;
         assert!(matches!(result, Err(TransportError::ConnectTimeout)));
-        lease.as_mut().unwrap().write_all(b"retry").await.unwrap();
+        lease.as_mut().unwrap().write_all(b"owned").await.unwrap();
         let mut data = [0; 5];
         agent.read_exact(&mut data).await.unwrap();
-        assert_eq!(&data, b"retry");
+        assert_eq!(&data, b"owned");
+        drop(lease.take());
+        assert_eq!(agent.read(&mut [0; 1]).await.unwrap(), 0);
     }
 
     #[tokio::test]

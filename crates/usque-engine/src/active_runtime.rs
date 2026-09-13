@@ -57,6 +57,8 @@ pub(crate) struct HarnessRuntime {
     pub(crate) gate_status: usque_core::vpngate::GateStatus,
     pub(crate) gate_replace_count: u32,
     pub(crate) warp_ready: bool,
+    pub(crate) stop_requested: tokio_util::sync::CancellationToken,
+    pub(crate) stopped: tokio_util::sync::CancellationToken,
 }
 
 #[cfg(test)]
@@ -95,6 +97,8 @@ impl HarnessRuntime {
             gate_status: Default::default(),
             gate_replace_count: 0,
             warp_ready: true,
+            stop_requested: tokio_util::sync::CancellationToken::new(),
+            stopped: tokio_util::sync::CancellationToken::new(),
         }
     }
 
@@ -182,6 +186,8 @@ impl ActiveRuntime {
             Self::Harness(r) => {
                 r.gate_status.stage = usque_core::vpngate::GateStage::Error;
                 r.gate_status.failure = Some(reason);
+                r.stop_requested.cancel();
+                r.warp_ready = false;
             }
         }
     }
@@ -220,7 +226,9 @@ impl ActiveRuntime {
     }
 
     pub(crate) fn can_retry_gate_in_place(&self) -> bool {
-        if self.requires_agent_reattach() {
+        if self.requires_agent_reattach()
+            || self.gate_status().stage == usque_core::vpngate::GateStage::Error
+        {
             return false;
         }
         #[cfg(test)]
@@ -248,7 +256,10 @@ impl ActiveRuntime {
             #[cfg(windows)]
             Self::Vpn(runtime) => runtime.cancel_immediately(),
             #[cfg(test)]
-            Self::Harness(_) => {}
+            Self::Harness(runtime) => {
+                runtime.stop_requested.cancel();
+                runtime.warp_ready = false;
+            }
         }
     }
 
@@ -460,7 +471,10 @@ impl ActiveRuntime {
             #[cfg(windows)]
             Self::Vpn(runtime) => runtime.shutdown().await.map_err(map_windows_vpn_error),
             #[cfg(test)]
-            Self::Harness(_) => Ok(()),
+            Self::Harness(runtime) => {
+                runtime.stopped.cancel();
+                Ok(())
+            }
         }
     }
 

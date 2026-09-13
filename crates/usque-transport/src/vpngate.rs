@@ -33,41 +33,6 @@ async fn until_cancelled<F: std::future::Future>(
     }
 }
 
-/// Shared by the desktop and Android platform owners. A reconnect replaces
-/// the whole final stack and platform assignment, using only the saved node.
-#[derive(Default)]
-pub struct VpnGateRetry {
-    attempt: u32,
-    deadline: Option<Instant>,
-    stable_since: Option<Instant>,
-}
-impl VpnGateRetry {
-    pub fn due(&mut self, status: &GateStatus, warp_ready: bool, now: Instant) -> bool {
-        if status.stage == GateStage::Connected {
-            let stable = *self.stable_since.get_or_insert(now);
-            if now.duration_since(stable) >= Duration::from_secs(60) {
-                self.attempt = 0;
-            }
-            self.deadline = None;
-            return false;
-        }
-        self.stable_since = None;
-        if status.stage != GateStage::Error || !status.failure.is_some_and(GateFailure::retryable) {
-            self.deadline = None;
-            return false;
-        }
-        let deadline = *self.deadline.get_or_insert_with(|| {
-            now + crate::netstack::reconnect_delay(self.attempt.saturating_add(1))
-        });
-        if !warp_ready || now < deadline {
-            return false;
-        }
-        self.deadline = None;
-        self.attempt = self.attempt.saturating_add(1);
-        true
-    }
-}
-
 pub(crate) struct GateDriver {
     pub(crate) status: watch::Receiver<GateStatus>,
     status_tx: watch::Sender<GateStatus>,
@@ -826,27 +791,6 @@ mod tests {
             assert!(matches!(result, Err(TransportError::TunnelClosed)));
             drop(health);
         }
-    }
-    #[test]
-    fn retry_waits_for_warp_preserves_backoff_and_stops_on_terminal_errors() {
-        let mut retry = VpnGateRetry::default();
-        let start = Instant::now();
-        let mut status = GateStatus {
-            stage: GateStage::Error,
-            failure: Some(GateFailure::Transport),
-            ..Default::default()
-        };
-        assert!(!retry.due(&status, true, start));
-        assert!(!retry.due(&status, false, start + Duration::from_secs(5)));
-        assert!(retry.due(&status, true, start + Duration::from_secs(5)));
-        assert!(!retry.due(&status, true, start + Duration::from_secs(5)));
-        assert_eq!(retry.attempt, 1);
-        status.failure = Some(GateFailure::Certificate);
-        assert!(!retry.due(&status, true, start + Duration::from_secs(120)));
-        status.stage = GateStage::Connected;
-        assert!(!retry.due(&status, true, start + Duration::from_secs(121)));
-        assert!(!retry.due(&status, true, start + Duration::from_secs(182)));
-        assert_eq!(retry.attempt, 0);
     }
     #[tokio::test]
     async fn framing_survives_partial_writes_and_consecutive_frames() {

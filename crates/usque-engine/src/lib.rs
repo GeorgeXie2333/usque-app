@@ -1790,16 +1790,7 @@ impl ControlService {
         if startup_cancel.is_cancelled() {
             return Ok(self.state.lock().await.snapshot().clone());
         }
-        let failed_gate = self.data_plane.lock().await.as_ref().is_some_and(|active| {
-            active.profile_id == profile_id
-                && active.runtime.gate_status().stage == usque_core::vpngate::GateStage::Error
-        });
-        if failed_gate {
-            self.settings_intent.fetch_add(1, Ordering::SeqCst);
-            return self
-                .retry_connection_locked(profile_id, startup_cancel)
-                .await;
-        }
+        self.stop_failed_gate_locked().await?;
         if self.data_plane.lock().await.is_none() {
             *self.session_congestion_control.lock().await = None;
             *self.session_profile.lock().await = None;
@@ -2206,6 +2197,7 @@ impl ControlService {
                 Some(tokio::spawn(async move { runtime.shutdown().await }));
             return self.disconnect_locked().await;
         }
+        let runtime = self.accept_gate_runtime(runtime).await?;
         let path = runtime.path();
         let listener_auth = profile.proxy.listener_credentials().ok().flatten();
         let exit_probe = exit_probe_for_session(&profile, &runtime, listener_auth.as_ref());
@@ -2460,6 +2452,7 @@ impl ControlService {
         profile_id: Uuid,
         startup_cancel: tokio_util::sync::CancellationToken,
     ) -> Result<ConnectionSnapshot, ControlServiceError> {
+        self.stop_failed_gate_locked().await?;
         *self.session_congestion_control.lock().await = None;
         *self.session_profile.lock().await = None;
         let gate_retry = self
@@ -2477,7 +2470,7 @@ impl ControlService {
             .map(|active| active.profile.clone());
         if let Some(previous) = gate_retry {
             // Explicit retry applies the saved request, including a new node or
-            // disabling Gate. The automatic supervisor keeps its session target.
+            // disabling Gate. A failed chain has already been retired above.
             let mut profile = self
                 .config
                 .read()

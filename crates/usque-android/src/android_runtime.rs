@@ -517,6 +517,7 @@ async fn run(
                 changed = gate_rx.changed() => {
                     if changed.is_err() { break; }
                     if let Ok(mut snapshot) = gate_status.lock() {
+                        if gate_cancel.is_cancelled() { break; }
                         snapshot.vpn_gate = Some(gate_rx.borrow_and_update().clone());
                     }
                 }
@@ -548,6 +549,9 @@ async fn run(
         match started_tunnel {
             Ok(tunnel) => tunnel,
             Err(error) => {
+                if let Ok(mut snapshot) = status.lock() {
+                    snapshot.vpn_gate = Some(gate_tx.borrow().clone());
+                }
                 set_transport_error(&status, &error);
                 let _ = started.send(START_TRANSPORT_FAILURE);
                 return;
@@ -555,7 +559,6 @@ async fn run(
         }
     };
     if !profile.frontends.tunnel
-        && tunnel.gate_status().stage != usque_core::vpngate::GateStage::Error
         && let Err(error) = tunnel.activate_final().await
     {
         set_transport_error(&status, &error);
@@ -760,7 +763,6 @@ async fn run_session(
     let mut pending_write: Option<bytes::Bytes> = None;
     let mut write_observer = tun_io.as_ref().and_then(TunPacketIo::write_observer);
     let mut write_sample = None;
-    let mut gate_retry = usque_transport::VpnGateRetry::default();
 
     loop {
         let mut completed_write = None;
@@ -769,9 +771,6 @@ async fn run_session(
             _ = cancellation.cancelled() => break,
             command = commands.recv() => {
                 let Some(command) = command else { break; };
-                if matches!(&command, RuntimeCommand::Reconfigure { .. }) {
-                    gate_retry = Default::default();
-                }
                 if matches!(&command, RuntimeCommand::AttachTun { .. } | RuntimeCommand::DetachTun { .. } | RuntimeCommand::RejectFinalNetwork { .. })
                     || matches!(&command, RuntimeCommand::Reconfigure { profile: next, .. } if next.frontends.tunnel != profile.frontends.tunnel || next.vpn_gate != profile.vpn_gate)
                 {
@@ -788,6 +787,11 @@ async fn run_session(
                     &gate_context,
                 )
                 .await;
+                if tunnel.gate_status().stage == usque_core::vpngate::GateStage::Error
+                    || (profile.vpn_gate.enabled && status.lock().is_ok_and(|s| s.phase == "error"))
+                {
+                    break;
+                }
                 write_observer = tun_io.as_ref().and_then(TunPacketIo::write_observer);
             }
             event = next_owned_session_data(
@@ -802,10 +806,7 @@ async fn run_session(
                     pending_send.set(None);
                     if let Err(error) = result {
                         set_transport_error_on_path(&status, &error, tunnel.path());
-                        if profile.vpn_gate.enabled {
-                            pending_write = None;
-                            detach_tun_locked(&mut tunnel, &mut tun, &mut tun_io);
-                        } else { break; }
+                        break;
                     }
                 }
                 SessionDataEvent::Written(result) => {
@@ -853,31 +854,17 @@ async fn run_session(
                         }
                         Err(error) => {
                             set_transport_error_on_path(&status, &error, tunnel.path());
-                            if profile.vpn_gate.enabled {
-                                pending_send.set(None);
-                                detach_tun_locked(&mut tunnel, &mut tun, &mut tun_io);
-                            } else { break; }
+                            break;
                         }
                     }
                 }
                 SessionDataEvent::Tick => {
-                    let gate = tunnel.gate_status();
-                    let warp_ready = matches!(tunnel.underlay_monitor().health(), RuntimeHealth::Connected { .. });
-                    if profile.vpn_gate.enabled && gate_retry.due(&gate, warp_ready, tokio::time::Instant::now()) {
-                        pending_send.set(None);
-                        pending_write = None;
-                        write_sample = None;
-                        write_observer = None;
-                        detach_tun_locked(&mut tunnel, &mut tun, &mut tun_io);
-                        let reconnect = retry_gate(&mut tunnel, &profile, &status, &gate_context);
-                        tokio::select! {
-                            _ = cancellation.cancelled() => break,
-                            _ = reconnect => {}
-                        }
-                    }
                     super::connection_timeline::publish(tunnel.connection_timeline());
                     update_health(&status, &tunnel);
                     update_frontends(&status, &tunnel);
+                    if matches!(tunnel.health(), RuntimeHealth::Failed { .. }) {
+                        break;
+                    }
                     let now = Instant::now();
                     let current = tunnel.statistics();
                     let seconds = now.duration_since(last_sample).as_secs_f64().max(0.001);
@@ -953,7 +940,11 @@ async fn run_session(
     }
     super::connection_timeline::publish(tunnel.connection_timeline());
     gate_context.exit_probe.cancel();
+    cancellation.cancel();
     tunnel.cancel_immediately();
+    if let Ok(mut snapshot) = status.lock() {
+        snapshot.finish_runtime(tunnel.gate_status());
+    }
     pending_send.set(None);
     drop(pending_write.take());
     drop(tun_io.take());
@@ -961,66 +952,6 @@ async fn run_session(
     // own FD for fail-closed recovery unless the user explicitly disconnected.
     drop(tun.take());
     tunnel.shutdown().await;
-}
-
-async fn retry_gate(
-    tunnel: &mut DataPlaneRuntime,
-    profile: &Profile,
-    status: &Arc<Mutex<NativeSnapshot>>,
-    context: &GateContext,
-) {
-    context.exit_probe.cancel();
-    tunnel.quiesce_final();
-    if let Ok(mut snapshot) = status.lock() {
-        snapshot.phase = "reconnecting".into();
-        snapshot.exit_ipv4 = None;
-        snapshot.exit_ipv6 = None;
-        snapshot.exit_city = None;
-        snapshot.exit_country = None;
-        snapshot.exit_country_code = None;
-        snapshot.exit_flag_svg = None;
-    }
-    let result = async {
-        let selected = profile
-            .vpn_gate
-            .selection
-            .as_ref()
-            .and_then(|selection| {
-                usque_core::vpngate::CatalogueStore::new(&context.cache_dir)
-                    .load_selection(selection)
-                    .ok()
-            })
-            .ok_or(TransportError::VpnGate(
-                usque_core::vpngate::GateFailure::Configuration,
-            ))?;
-        let policy = load_geo_direct_policy(profile, &context.cache_dir).map_err(|_| {
-            TransportError::VpnGate(usque_core::vpngate::GateFailure::Configuration)
-        })?;
-        tunnel
-            .replace_gate(
-                profile,
-                Some(selected),
-                Arc::new(policy),
-                context.status.clone(),
-                &context.cancellation,
-            )
-            .await?;
-        if !profile.frontends.tunnel {
-            tunnel.activate_final().await?;
-            spawn_exit_probe(context, tunnel, profile, false);
-        }
-        Ok::<_, TransportError>(())
-    }
-    .await;
-    if let Err(error) = result {
-        let reason = match error {
-            TransportError::VpnGate(reason) => reason,
-            _ => usque_core::vpngate::GateFailure::Transport,
-        };
-        tunnel.fail_gate(reason).await;
-    }
-    update_health(status, tunnel);
-    update_frontends(status, tunnel);
 }
 
 async fn handle_runtime_command(

@@ -10,6 +10,25 @@ import org.junit.Test
 
 class VpnGateFieldsTest {
     @Test
+    fun stoppedFailureCannotKeepThePreviousWarpConnectionOrAssignmentVisible() {
+        val source =
+            JSONObject()
+                .put("stage", "connected")
+                .put("warp_stage", "connected")
+                .put("generation", 19)
+                .put("failure", "authentication")
+                .put("current_server", JSONObject().put("id", "saved-node"))
+                .put("network", JSONObject().put("ipv4", "10.8.0.2"))
+        val stopped = VpnGateFields.decodeStatus(VpnGateFields.stoppedStatus(source))!!
+        assertEquals("error", stopped["stage"])
+        assertEquals("disconnected", stopped["warp_stage"])
+        assertEquals("authentication", stopped["failure"])
+        assertEquals("saved-node", (stopped["current_server"] as Map<*, *>)["id"])
+        assertNull(stopped["network"])
+        assertNull(VpnGateFields.stoppedStatus(JSONObject().put("stage", "disabled")))
+    }
+
+    @Test
     fun poolAndFavoriteMetadataAreAllowlistedIndependently() {
         val node =
             JSONObject()

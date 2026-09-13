@@ -707,7 +707,7 @@ class UsqueVpnService : VpnService() {
 
                 else -> {
                     val failure = nativeStartFailure(result)
-                    fail(generation, failure.code, failure.message)
+                    fail(generation, failure.code, failure.message, failure.gateStatus)
                     mainHandler.post { replyWithSnapshot(request) }
                 }
             }
@@ -827,7 +827,7 @@ class UsqueVpnService : VpnService() {
                     lastTunIdentity.set(null)
                 }
                 val failure = nativeStartFailure(attached)
-                fail(generation, failure.code, failure.message)
+                fail(generation, failure.code, failure.message, failure.gateStatus)
                 mainHandler.post { replyWithSnapshot(request) }
                 return false
             }
@@ -1113,28 +1113,15 @@ class UsqueVpnService : VpnService() {
                 val splitDnsStartupFailed =
                     failure.code == "ANDROID_SPLIT_DNS_FAILED" ||
                         failure.code == "ANDROID_GEO_RULES_UNAVAILABLE"
-                if (!profile.vpnGateEnabled && (!profile.killSwitch || splitDnsStartupFailed)) {
+                if (!profile.killSwitch || splitDnsStartupFailed) {
                     tunnel.compareAndSet(descriptor, null)
                     closeQuietly(descriptor)
                     lastTunIdentity.set(null)
                 }
-                fail(generation, failure.code, failure.message)
+                fail(generation, failure.code, failure.message, failure.gateStatus)
                 return
             }
             if (profile.vpnGateEnabled) {
-                val pending = runCatching { JSONObject(NativeEngine.snapshot() ?: "{}") }.getOrNull()
-                if (pending?.optJSONObject("vpn_gate")?.optString("stage") == "error") {
-                    // The native owner retains WARP and retries only the pinned
-                    // node. Java keeps the existing blocking VPN descriptor.
-                    nativeRuntimeActive.set(true)
-                    mainHandler.post {
-                        if (isCurrent(generation)) {
-                            ensureStatusTask()
-                            refreshNativeSnapshot()
-                        }
-                    }
-                    return
-                }
                 val finalDescriptor =
                     try {
                         val native = JSONObject(NativeEngine.snapshot() ?: error("Missing final network"))
@@ -1159,7 +1146,7 @@ class UsqueVpnService : VpnService() {
                 if (attached != NativeEngine.OK) {
                     stopNativeRuntime(beginNativeStop())
                     val failure = nativeStartFailure(attached)
-                    fail(generation, failure.code, failure.message)
+                    fail(generation, failure.code, failure.message, failure.gateStatus)
                     return
                 }
             }
@@ -1229,7 +1216,7 @@ class UsqueVpnService : VpnService() {
                 }
             if (result != NativeEngine.OK) {
                 val failure = nativeStartFailure(result)
-                fail(generation, failure.code, failure.message)
+                fail(generation, failure.code, failure.message, failure.gateStatus)
                 return
             }
             if (!isCurrent(generation)) {
@@ -2027,7 +2014,8 @@ class UsqueVpnService : VpnService() {
                 }
             }
         }
-        if (merge.enteredError && (gate == null || gate.optString("stage") == "disabled")) {
+        if (merge.enteredError) {
+            VpnGateFields.stoppedStatus(gate)?.let { snapshotState.vpnGateJson = it }
             // Keep the TUN open and fail closed until the user retries or disconnects.
             stopStatusTask()
         }
@@ -2079,12 +2067,20 @@ class UsqueVpnService : VpnService() {
         generation: Long,
         code: String,
         message: String,
+        gateStatus: String? = null,
     ) {
         mainHandler.post {
             if (!isCurrent(generation)) return@post
             nativeRuntimeActive.set(false)
             snapshotState.phase = "error"
             snapshotState.errorCode = code
+            if (gateStatus != null) {
+                snapshotState.vpnGateJson = gateStatus
+                snapshotState.activeFrontends = emptyList()
+                snapshotState.activeListeners = emptyList()
+                snapshotState.tunnelIpv4Available = false
+                snapshotState.tunnelIpv6Available = false
+            }
             logStore.record(
                 AndroidLogStore.Event.CONNECTION_FAILED,
                 phase = snapshotState.phase,
@@ -2297,6 +2293,7 @@ class UsqueVpnService : VpnService() {
     private data class NativeStartFailure(
         val code: String,
         val message: String,
+        val gateStatus: String? = null,
     )
 
     private fun loadProxyPassword(
@@ -2381,6 +2378,7 @@ class UsqueVpnService : VpnService() {
         return NativeStartFailure(
             structuredCode?.take(64) ?: fallback.code,
             structuredMessage?.take(512) ?: fallback.message,
+            VpnGateFields.stoppedStatus(nativeSnapshot?.optJSONObject("vpn_gate")),
         )
     }
 

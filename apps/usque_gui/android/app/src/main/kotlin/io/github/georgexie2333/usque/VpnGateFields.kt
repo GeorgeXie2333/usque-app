@@ -8,6 +8,16 @@ internal object VpnGateFields {
     fun decodeStatus(raw: String?): Map<String, Any?>? =
         raw?.takeIf { it.length <= 16 * 1024 }?.let { runCatching { status(JSONObject(it)) }.getOrNull() }
 
+    fun stoppedStatus(source: JSONObject?): String? =
+        status(source)
+            ?.takeUnless { it["stage"] == "disabled" }
+            ?.toMutableMap()
+            ?.apply {
+                put("stage", "error")
+                put("warp_stage", "disconnected")
+                put("network", null)
+            }?.let { JSONObject(it).toString() }
+
     private val serverKeys =
         setOf(
             "id",

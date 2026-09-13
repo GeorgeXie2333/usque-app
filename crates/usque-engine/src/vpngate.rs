@@ -34,8 +34,6 @@ impl ControlService {
             async move {
                 let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
                 tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-                let mut retry = usque_transport::VpnGateRetry::default();
-                let mut target = None;
                 loop {
                     tick.tick().await;
                     let Some(inner) = weak.upgrade() else {
@@ -45,41 +43,71 @@ impl ControlService {
                     let Ok(_mutation) = service.mutation_lock.clone().try_lock_owned() else {
                         continue;
                     };
-                    let candidate = {
-                        let active = service.data_plane.lock().await;
-                        active
-                            .as_ref()
-                            .filter(|active| active.profile.vpn_gate.enabled)
-                            .map(|active| {
-                                let ready = active.runtime.needs_warp_bootstrap()
-                                    || active.runtime.internal_networks().is_some_and(
-                                        |(_, warp)| {
-                                            matches!(
-                                                warp.health_snapshot(),
-                                                RuntimeHealth::Connected { .. }
-                                            )
-                                        },
-                                    );
-                                (active.profile.clone(), active.runtime.gate_status(), ready)
-                            })
-                    };
-                    let Some((profile, status, warp_ready)) = candidate else {
-                        target = None;
-                        retry = Default::default();
-                        continue;
-                    };
-                    let key = (profile.id, profile.vpn_gate.clone());
-                    if target.as_ref() != Some(&key) {
-                        target = Some(key);
-                        retry = Default::default();
-                    }
-                    if retry.due(&status, warp_ready, tokio::time::Instant::now()) {
-                        service.cancel_gate_refresh().await;
-                        let _ = service.hot_replace_gate(&profile).await;
-                    }
+                    let _ = service.stop_failed_gate_locked().await;
                 }
             },
         )));
+    }
+    /// Called with lifecycle ownership. Preserve the selected target and error,
+    /// but release the entire failed session through the usual disconnect path.
+    pub(crate) async fn stop_gate_connection_locked(
+        &self,
+        mut status: GateStatus,
+        error: &ControlServiceError,
+    ) -> Result<(), ControlServiceError> {
+        if let Some(active) = self.data_plane.lock().await.as_mut() {
+            active.runtime.cancel_immediately();
+        }
+        self.cancel_gate_refresh().await;
+        #[cfg(windows)]
+        self.clear_windows_connection_intent().await;
+        *self.session_congestion_control.lock().await = None;
+        *self.session_profile.lock().await = None;
+        self.disconnect_locked().await?;
+        status.stage = GateStage::Error;
+        status.warp_stage = Some("disconnected".into());
+        status.network = None;
+        self.gate_status.send_replace(status);
+        self.mark_connection_error(error).await;
+        Ok(())
+    }
+
+    pub(crate) async fn stop_failed_gate_locked(&self) -> Result<(), ControlServiceError> {
+        let status = self
+            .data_plane
+            .lock()
+            .await
+            .as_ref()
+            .map(|active| active.runtime.gate_status())
+            .filter(|status| status.stage == GateStage::Error);
+        if let Some(status) = status {
+            let error = ControlServiceError::Transport(usque_transport::TransportError::VpnGate(
+                status.failure.unwrap_or(GateFailure::Transport),
+            ));
+            self.stop_gate_connection_locked(status, &error).await?;
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn accept_gate_runtime(
+        &self,
+        mut runtime: crate::active_runtime::ActiveRuntime,
+    ) -> Result<crate::active_runtime::ActiveRuntime, ControlServiceError> {
+        let status = runtime.gate_status();
+        if status.stage == GateStage::Error {
+            // A Windows startup may return its failed transaction so the
+            // Engine can own asynchronous rollback, without keeping WARP alive.
+            let error = ControlServiceError::Transport(usque_transport::TransportError::VpnGate(
+                status.failure.unwrap_or(GateFailure::Transport),
+            ));
+            runtime.cancel_immediately();
+            *self.disconnect_cleanup.lock().await =
+                Some(tokio::spawn(async move { runtime.shutdown().await }));
+            self.stop_gate_connection_locked(status, &error).await?;
+            return Err(error);
+        }
+        self.gate_status.send_replace(status);
+        Ok(runtime)
     }
     pub(crate) async fn hot_replace_gate(
         &self,
@@ -194,7 +222,8 @@ impl ControlService {
         let quality = active.runtime.subscribe_network_quality();
         *self.data_plane.lock().await = Some(active);
         if let Err(error) = result {
-            self.mark_connection_error(&error).await;
+            let status = self.gate_status.borrow().clone();
+            self.stop_gate_connection_locked(status, &error).await?;
             return Err(error);
         }
         self.install_network_quality_source(quality).await;

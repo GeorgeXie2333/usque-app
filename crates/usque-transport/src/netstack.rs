@@ -68,14 +68,6 @@ const RECONNECT_DELAYS: [Duration; 6] = [
     Duration::from_secs(30),
 ];
 
-pub(crate) fn reconnect_delay(attempt: u32) -> Duration {
-    jitter_duration(
-        RECONNECT_DELAYS[(attempt.saturating_sub(1) as usize).min(RECONNECT_DELAYS.len() - 1)],
-        H3_PROBE_JITTER_PERCENT,
-        attempt,
-    )
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimePath {
     pub transport: Transport,

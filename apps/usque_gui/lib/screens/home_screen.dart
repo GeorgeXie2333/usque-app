@@ -195,6 +195,8 @@ class _VpnGateReadout extends StatelessWidget {
                       ? 'reconnecting'
                       : status.warpStage == 'error'
                       ? 'error'
+                      : status.warpStage == 'disconnected'
+                      ? 'disconnected'
                       : 'connecting')}',
                 ),
               if (server != null)

@@ -179,23 +179,26 @@ version limits. The complete patch rationale is in
 Final traffic is admitted only after negotiation and platform attachment.
 Switching closes old final flows, retains a usable WARP session, builds a new
 OpenVPN session and applies its final assignment. No failure path intentionally
-selects WARP or physical egress as the final fallback. The retry controller
-uses the same saved node and existing bounded backoff; certificate,
-authentication and configuration errors are terminal.
+selects WARP or physical egress as the final fallback. A terminal VPN Gate
+failure (during startup, a node switch, or an established session) disconnects
+the whole chain, including WARP. The error and saved selection remain visible;
+the next explicit connection starts a new WARP session. Protocol negotiation
+may retry before reporting failure, but a failed session is never kept alive
+for an in-place retry.
 
 Windows Agent owns the sole Wintun, route, DNS and WFP journal. Chain protection
 is installed before final negotiation, including when the persistent Kill
 Switch setting is off. Finalization changes only address/DNS/MTU fields; it
 cannot change bootstrap endpoints or direct exceptions. The transition guard
-is retained through final setup failure and ordinary node switches, and is
-restored through the disconnect journal. Persistent protection remains governed
+is retained during ordinary node switches, and failure cleanup restores it
+through the disconnect journal. Persistent protection remains governed
 by the existing Kill Switch setting and Agent recovery rules.
 
 An explicit cancellation during Prepared startup drops the headless startup
 future (closing its producer guards) before releasing the startup pipe. A full
 disconnect closes final admission and packet producers before releasing either
 startup or active leases, then performs asynchronous teardown and rollback.
-Ordinary negotiation failures retain the guard for in-place retry. Finalization
+Terminal negotiation failures use the same disconnect cleanup. Finalization
 also observes cancellation, so a stopped request cannot admit a late connection.
 The Agent's existing EOF grace, operation/owner checks and lease epoch remain
 authoritative; Prepared alone never authorizes recovery of a live transaction.
@@ -214,8 +217,10 @@ timeouts, failed probes and identity conflicts do not become absence evidence.
 
 Android uses its existing VpnService and a blocking interface during setup.
 A new final interface is established and attached before retiring the old Java
-descriptor. A rejected handoff closes final admission and keeps the blocking
-interface. Only WARP outer sockets and explicit direct traffic receive physical
+descriptor. A rejected handoff closes final admission and stops WARP. Startup
+failure uses the same Kill Switch policy as ordinary WARP startup; any retained
+blocking interface provides protection, not an active WARP connection. Only
+WARP outer sockets and explicit direct traffic receive physical
 socket protection. Always-on/Lockdown and process-death guarantees retain their
 existing Android boundaries. In-process admission is not an independent OS
 Kill Switch.
