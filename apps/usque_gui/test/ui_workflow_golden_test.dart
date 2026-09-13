@@ -22,6 +22,7 @@ import 'package:usque/widgets/window_titlebar.dart';
 
 import 'quality_test_support.dart' show qualityFixture;
 import 'ui_workflow_test.dart' show WorkflowEngine, workflowHost;
+import 'vpn_gate_summary_test.dart' show current;
 import 'vpngate_test.dart' show GateEngine, server;
 
 void main() {
@@ -194,6 +195,74 @@ void main() {
       await expectLater(
         find.byKey(boundary),
         matchesGoldenFile('goldens/vpngate_shell_desktop_dark.png'),
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+    } finally {
+      app.dispose();
+    }
+  }, tags: 'golden');
+
+  testWidgets('VPN Gate live server and pending selection remain distinct', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1220, 920);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    final app =
+        AppController(GateEngine()..fetchedAt = DateTime(2026, 9, 12, 8))
+          ..engineCapabilities = const EngineCapabilities(
+            vpnGateTcp: true,
+            vpnGatePoolFavorites: true,
+          )
+          ..localePreference = LocalePreference.simplifiedChinese
+          ..sharedNetwork = UsqueProfile.defaultProfile().copyWith(
+            vpnGate: const VpnGateSettings(
+              enabled: true,
+            ).copyWith(server: current),
+          )
+          ..snapshot = const EngineSnapshot(
+            phase: ConnectionPhase.connected,
+            vpnGate: VpnGateStatus(
+              stage: 'connected',
+              warpStage: 'connected',
+              server: current,
+            ),
+          );
+    app.selectSection(AppSection.proxy);
+    final boundary = GlobalKey();
+    try {
+      await tester.pumpWidget(
+        RepaintBoundary(
+          key: boundary,
+          child: workflowHost(
+            app,
+            dark: true,
+            home: ShellScreen(controller: app),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('VPN Gate'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(ValueKey('vpn-gate-node-${server.id}')));
+      await tester.pumpAndSettle();
+      await tester.runAsync(() async {
+        final context = tester.element(find.byType(VpnGateScreen));
+        await Future.wait([
+          precacheImage(const AssetImage('assets/flags/w80/jp.png'), context),
+          precacheImage(const AssetImage('assets/flags/w80/kr.png'), context),
+          precacheImage(
+            const AssetImage('assets/branding/usque-ui-icon.png'),
+            context,
+          ),
+        ]);
+      });
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await expectLater(
+        find.byKey(boundary),
+        matchesGoldenFile('goldens/vpngate_live_draft_desktop_dark.png'),
       );
       await tester.pumpWidget(const SizedBox.shrink());
     } finally {

@@ -3,11 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../core/app_strings.dart';
 import '../core/usque_theme.dart';
+import '../core/vpn_gate_presentation.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
 import '../widgets/country_flag.dart';
 import '../widgets/unsaved_changes_guard.dart';
+import '../widgets/vpn_gate_summary.dart';
 
 class VpnGateScreen extends StatefulWidget {
   const VpnGateScreen({
@@ -40,7 +42,6 @@ class _VpnGateScreenState extends State<VpnGateScreen>
       _appResumed = true;
   bool get _foreground => _appResumed && widget.active;
   String? _fetchError, _saveError;
-  String? get _error => _saveError ?? _fetchError;
   bool get _dirty => _draft != _baseline;
   AppController get _controller => widget.controller;
   @override
@@ -398,20 +399,22 @@ class _VpnGateScreenState extends State<VpnGateScreen>
     builder: (context, _) {
       final strings = _controller.strings;
       final snapshot = _controller.snapshot;
-      final current = snapshot.isConnected && snapshot.vpnGate.connected
-          ? snapshot.vpnGate.server
-          : null;
+      final view = VpnGatePresentation(
+        snapshot,
+        configuredEnabled: _baseline.enabled,
+      );
       final action = !snapshot.isConnected
           ? 'gate_save'
           : !_draft.enabled
           ? 'gate_disable_reconnect'
-          : _controller
-                    .networkSettings
-                    .state
-                    ?.appliedProfile
-                    ?.vpnGate
-                    .enabled ==
-                true
+          : snapshot.vpnGate.connected ||
+                _controller
+                        .networkSettings
+                        .state
+                        ?.appliedProfile
+                        ?.vpnGate
+                        .enabled ==
+                    true
           ? 'gate_switch'
           : 'gate_enable_reconnect';
       final refreshing = _ownsRefresh || _directory.refreshing;
@@ -428,24 +431,27 @@ class _VpnGateScreenState extends State<VpnGateScreen>
           subtitle: strings.get('gate_subtitle'),
           backLabel: strings.get('back'),
           contentWidth: 880,
-          bottomBar: SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: FilledButton.icon(
-                key: const ValueKey('vpn-gate-apply'),
-                onPressed:
-                    _saving ||
-                        _nodeOperation != null ||
-                        !_dirty ||
-                        snapshot.isTransitional ||
-                        _draft.enabled && (!_draft.hasSelection || !supported)
-                    ? null
-                    : _save,
-                icon: const Icon(LucideIcons.check),
-                label: Text(strings.get(action)),
-              ),
-            ),
+          bottomBar: VpnGateSelectionBar(
+            strings: strings,
+            draft: _draft,
+            savedEnabled: _baseline.enabled,
+            dirty: _dirty,
+            connected: snapshot.isConnected,
+            saving: _saving,
+            preparing: _nodeOperation != null,
+            actionKey: action,
+            server: _draftServer,
+            saveError: _saveError,
+            nodeError: _nodeError,
+            onCancel: _cancelNode,
+            onApply:
+                _saving ||
+                    _nodeOperation != null ||
+                    !_dirty ||
+                    snapshot.isTransitional ||
+                    _draft.enabled && (!_draft.hasSelection || !supported)
+                ? null
+                : _save,
           ),
           actions: [
             TextButton.icon(
@@ -467,24 +473,6 @@ class _VpnGateScreenState extends State<VpnGateScreen>
                     title: strings.get('error'),
                     message: strings.vpnGateUnsupported,
                   ),
-                if (_nodeOperation != null)
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const LinearProgressIndicator(),
-                      Text(_controller.strings.get('gate_preparing')),
-                      TextButton.icon(
-                        onPressed: _cancelNode,
-                        icon: const Icon(LucideIcons.x),
-                        label: Text(strings.get('cancel')),
-                      ),
-                    ],
-                  ),
-                if (_nodeError != null)
-                  ExpansionTile(
-                    title: Text(strings.get('gate_prepare_error')),
-                    children: [SelectableText(_nodeError!)],
-                  ),
                 SwitchListTile.adaptive(
                   key: const ValueKey('vpn-gate-toggle'),
                   contentPadding: EdgeInsets.zero,
@@ -497,56 +485,28 @@ class _VpnGateScreenState extends State<VpnGateScreen>
                           () => _draft = _draft.copyWith(enabled: enabled),
                         ),
                 ),
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final width = constraints.maxWidth < 580
-                        ? constraints.maxWidth
-                        : (constraints.maxWidth - 20) / 2;
-                    return Wrap(
-                      spacing: 20,
-                      runSpacing: 16,
-                      children: [
-                        SizedBox(
-                          width: width,
-                          child: _selection(
-                            strings.get('gate_current'),
-                            current,
-                            strings.get('gate_no_connection'),
-                          ),
-                        ),
-                        SizedBox(
-                          width: width,
-                          child: _selection(
-                            strings.get('gate_draft'),
-                            _draftServer,
-                            strings.get(
-                              _draft.hasSelection
-                                  ? 'gate_saved'
-                                  : 'gate_choose',
-                            ),
-                          ),
-                        ),
-                      ],
-                    );
-                  },
+                VpnGateConnectionSummary(
+                  strings: strings,
+                  view: view,
+                  error:
+                      snapshot.warning ??
+                      _controller.lastError ??
+                      snapshot.vpnGate.failure,
                 ),
-                if (_error != null)
-                  WarningBanner(
-                    title: strings.get('error'),
-                    message: strings.get(_error!),
-                    danger: true,
-                  ),
-                if (_error == null && snapshot.vpnGate.stage == 'error')
-                  WarningBanner(
-                    title: strings.get('error'),
-                    message: strings.get('gate_proxy_blocked'),
-                    danger: true,
-                  ),
                 ContentSection(
                   title: strings.get('gate_servers'),
                   subtitle:
                       '${strings.get('gate_source_metrics')} ${strings.get('gate_tcp_scope')}',
                   children: [
+                    if (_fetchError != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: WarningBanner(
+                          title: strings.get('error'),
+                          message: strings.get(_fetchError!),
+                          danger: true,
+                        ),
+                      ),
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
@@ -751,39 +711,6 @@ class _VpnGateScreenState extends State<VpnGateScreen>
       );
     },
   );
-  Widget _selection(String title, VpnGateServer? server, String empty) =>
-      Semantics(
-        container: true,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: Theme.of(context).textTheme.labelLarge),
-            const SizedBox(height: 8),
-            if (server == null)
-              Text(
-                empty,
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontFamily: UsqueFonts.mono),
-              )
-            else
-              Row(
-                children: [
-                  CountryFlag(countryCode: server.countryCode),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      '${server.countryCode ?? '—'} · ${server.ip}',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontFamily: UsqueFonts.mono,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-          ],
-        ),
-      );
   Widget _serverRow(VpnGateServer server, AppStrings strings) {
     final selected = server.matches(_draft);
     final enabled = _draft.enabled && !_saving && _nodeOperation == null;

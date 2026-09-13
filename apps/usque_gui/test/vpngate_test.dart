@@ -458,7 +458,8 @@ void main() {
       final engine = GateEngine();
       final app = await host(tester, engine);
       expect(engine.refreshes, 0);
-      expect(find.text('Connected server'), findsOneWidget);
+      expect(find.text(app.strings.get('gate_disabled')), findsOneWidget);
+      expect(find.text('Connected server'), findsNothing);
       await tester.tap(find.byKey(const ValueKey('vpn-gate-node-v1:node')));
       await tester.pumpAndSettle();
       expect(engine.saves, 0);
