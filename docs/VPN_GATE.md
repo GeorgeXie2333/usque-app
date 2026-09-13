@@ -175,8 +175,8 @@ transport task, and it wakes backpressured input writers. Native shutdown waits
 at most five seconds. A timeout is reported as a pending worker: the worker
 retains its native allocation until it exits, while its caller-owned transport
 and final traffic admission are closed. This does not claim the native thread
-was forcibly terminated. The 35-second negotiation deadline is separate from
-the bounded shutdown wait.
+was forcibly terminated. Each connection attempt has a 35-second negotiation
+deadline, separate from the bounded shutdown wait.
 
 After the desktop service finishes platform cleanup or records its recovery
 failure, Engine runtime shutdown waits at most another five seconds for pending
@@ -209,6 +209,17 @@ the whole chain, including WARP. The error and saved selection remain visible;
 the next explicit connection starts a new WARP session. Protocol negotiation
 may retry before reporting failure, but a failed session is never kept alive
 for an in-place retry.
+
+During connection setup, OpenVPN `AUTH_FAILED` gets up to two immediate internal
+retries (three attempts total) against the same saved node and configuration.
+The existing WARP session is reused. Each rejected OpenVPN worker and its TCP
+stream must finish stopping before the next attempt starts; a pending worker
+prevents a retry. The UI keeps showing connection setup without an intermediate
+authentication error, retry indicator or reconnect count. Cancelling setup
+also cancels these attempts. A third authentication failure, any certificate or
+configuration failure, or an established-session authentication failure follows
+the normal terminal disconnect path. Diagnostic logs retain only the internal
+retry number and library event labels, not authentication contents.
 
 Windows Agent owns the sole Wintun, route, DNS and WFP journal. Chain protection
 is installed before final negotiation, including when the persistent Kill

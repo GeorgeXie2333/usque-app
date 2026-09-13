@@ -18,7 +18,48 @@ use usque_core::vpngate::{
 };
 use usque_openvpn::{Event, Input, NetworkConfig, Session};
 
+#[cfg(test)]
+mod authentication_tests;
+
 static NEXT_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+const AUTHENTICATION_RETRIES: u8 = 2;
+
+fn retry_startup_authentication(reason: GateFailure, attempt: u8) -> bool {
+    reason == GateFailure::Authentication && attempt < AUTHENTICATION_RETRIES
+}
+
+async fn with_authentication_retries<T, F, Fut>(
+    cancel: &CancellationToken,
+    mut connect: F,
+) -> Result<T, TransportError>
+where
+    F: FnMut(u8) -> Fut,
+    Fut: std::future::Future<Output = Result<T, TransportError>>,
+{
+    let mut attempt = 0;
+    loop {
+        if cancel.is_cancelled() {
+            return Err(TransportError::TunnelClosed);
+        }
+        if attempt > 0 {
+            tracing::info!(
+                gate_event = "AUTHENTICATION_RETRY",
+                attempt,
+                "Retrying VPN Gate authentication internally"
+            );
+        }
+        // Each attempt finishes its transport/native cleanup before returning
+        // an authentication failure. Never overlap workers or change the node.
+        match connect(attempt).await {
+            Err(TransportError::VpnGate(reason))
+                if retry_startup_authentication(reason, attempt) =>
+            {
+                attempt += 1;
+            }
+            result => return result,
+        }
+    }
+}
 
 // Cancellation covers the whole operation, including awaits inside a selected
 // event branch and the final native failure notification.
@@ -40,7 +81,7 @@ pub(crate) struct GateDriver {
     cancellation: CancellationToken,
     native_input: Input,
     diagnostic_id: u64,
-    task: Option<JoinHandle<()>>,
+    task: Option<JoinHandle<bool>>,
 }
 
 impl GateDriver {
@@ -51,15 +92,47 @@ impl GateDriver {
         status_sink: Option<watch::Sender<GateStatus>>,
         startup_cancel: &CancellationToken,
     ) -> Result<(Self, ManagedTunnelRuntime, FinalNetworkParameters), TransportError> {
+        let status = status_sink.unwrap_or_else(|| watch::channel(GateStatus::default()).0);
+        with_authentication_retries(startup_cancel, |attempt| {
+            Self::start_attempt(
+                profile,
+                warp.clone(),
+                transport_telemetry.clone(),
+                status.clone(),
+                startup_cancel,
+                attempt,
+            )
+        })
+        .await
+    }
+
+    async fn start_attempt(
+        profile: &PreparedProfile,
+        warp: InternalNetwork,
+        transport_telemetry: crate::NetworkQualityTelemetry,
+        status_tx: watch::Sender<GateStatus>,
+        startup_cancel: &CancellationToken,
+        auth_attempt: u8,
+    ) -> Result<(Self, ManagedTunnelRuntime, FinalNetworkParameters), TransportError> {
         if startup_cancel.is_cancelled() {
             return Err(TransportError::TunnelClosed);
+        }
+        if auth_attempt > 0 && !matches!(warp.health_snapshot(), RuntimeHealth::Connected { .. }) {
+            return Err(TransportError::VpnGate(GateFailure::Transport));
         }
         let native = Session::start(profile.content(), profile.remote)
             .map_err(|_| TransportError::VpnGate(GateFailure::Configuration))?;
         let cancellation = CancellationToken::new();
         let guard = cancellation.clone().drop_guard();
-        let status_tx = status_sink.unwrap_or_else(|| watch::channel(GateStatus::default()).0);
-        status_tx.send_modify(|s| s.stage = GateStage::ConnectingServer);
+        status_tx.send_modify(|s| {
+            s.stage = if auth_attempt == 0 {
+                GateStage::ConnectingServer
+            } else {
+                GateStage::Negotiating
+            };
+            s.failure = None;
+            s.network = None;
+        });
         let status = status_tx.subscribe();
         let (ready_tx, ready_rx) = oneshot::channel();
         let (admission, admitted) = watch::channel(false);
@@ -67,6 +140,7 @@ impl GateDriver {
         let diagnostic_id = NEXT_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let actor = Actor {
             diagnostic_id,
+            auth_attempt,
             native,
             remote: profile.remote,
             underlay_health: warp.health(),
@@ -115,7 +189,14 @@ impl GateDriver {
                     Ok(Ok(Err(reason))) => reason,
                     _ => GateFailure::Transport,
                 };
-                driver.shutdown().await;
+                let stopped = driver.shutdown().await;
+                // A pending native worker is not a completed attempt. Stop the
+                // chain instead of starting another worker alongside it.
+                let reason = if !stopped && reason == GateFailure::Authentication {
+                    GateFailure::Transport
+                } else {
+                    reason
+                };
                 Err(TransportError::VpnGate(reason))
             }
         }
@@ -144,7 +225,7 @@ impl GateDriver {
     pub(crate) fn admit(&self) {
         self.admission.send_replace(true);
     }
-    pub(crate) async fn shutdown(&mut self) {
+    pub(crate) async fn shutdown(&mut self) -> bool {
         self.cancel();
         if let Some(task) = self.task.take() {
             let started = Instant::now();
@@ -153,14 +234,16 @@ impl GateDriver {
                 gate_driver_id = self.diagnostic_id,
                 "Waiting for VPN Gate task shutdown"
             );
-            let _ = task.await;
+            let stopped = task.await.unwrap_or(false);
             tracing::info!(
                 gate_event = "TASK_JOIN_FINISHED",
                 gate_driver_id = self.diagnostic_id,
                 elapsed_ms = started.elapsed().as_millis() as u64,
                 "VPN Gate task shutdown finished"
             );
+            return stopped;
         }
+        true
     }
 }
 impl Drop for GateDriver {
@@ -172,6 +255,7 @@ impl Drop for GateDriver {
 type Startup = Result<(ManagedTunnelRuntime, FinalNetworkParameters), GateFailure>;
 struct Actor {
     diagnostic_id: u64,
+    auth_attempt: u8,
     native: Session,
     warp: InternalNetwork,
     remote: SocketAddr,
@@ -189,18 +273,18 @@ struct Actor {
     admitted: watch::Receiver<bool>,
 }
 impl Actor {
-    async fn run(mut self) {
+    async fn run(mut self) -> bool {
         let cancel = self.cancellation.clone();
         let result = until_cancelled(&cancel, self.drive())
             .await
             .unwrap_or(Ok(()));
         self.connected = false;
         if let Err(reason) = result {
-            self.status.send_modify(|s| {
-                s.stage = GateStage::Error;
-                s.failure = Some(reason);
-                s.network = None;
-            });
+            publish_failure(
+                &self.status,
+                reason,
+                self.ready.is_some().then_some(self.auth_attempt),
+            );
             if let Some(ready) = self.ready.take() {
                 let _ = ready.send(Err(reason));
             }
@@ -241,7 +325,8 @@ impl Actor {
             );
         }
         let started = Instant::now();
-        match self.native.shutdown().await {
+        let shutdown = self.native.shutdown().await;
+        match &shutdown {
             Ok(()) => tracing::info!(
                 gate_event = "NATIVE_STOP_FINISHED",
                 gate_driver_id = self.diagnostic_id,
@@ -249,9 +334,10 @@ impl Actor {
                 "VPN Gate native worker exited"
             ),
             Err(error) => {
-                tracing::warn!(gate_event = "NATIVE_STOP_FAILED", gate_driver_id = self.diagnostic_id, worker_pending = error == usque_openvpn::Error::ShutdownTimeout, failure_kind = ?error, elapsed_ms = started.elapsed().as_millis() as u64, "VPN Gate native shutdown did not complete successfully")
+                tracing::warn!(gate_event = "NATIVE_STOP_FAILED", gate_driver_id = self.diagnostic_id, worker_pending = *error == usque_openvpn::Error::ShutdownTimeout, failure_kind = ?error, elapsed_ms = started.elapsed().as_millis() as u64, "VPN Gate native shutdown did not complete successfully")
             }
         }
+        shutdown != Err(usque_openvpn::Error::ShutdownTimeout)
     }
 
     async fn drive(&mut self) -> Result<(), GateFailure> {
@@ -321,7 +407,11 @@ impl Actor {
                     NEXT_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 self.status.send_modify(|s| {
                     s.generation = status_generation;
-                    s.stage = GateStage::ConnectingServer;
+                    s.stage = if self.auth_attempt == 0 {
+                        GateStage::ConnectingServer
+                    } else {
+                        GateStage::Negotiating
+                    };
                 });
                 self.connection = Some(Connection::start(
                     self.warp.clone(),
@@ -468,8 +558,13 @@ impl Actor {
             self.reconnect_count = self.reconnect_count.saturating_add(1);
         }
         self.connected = false;
-        self.status
-            .send_modify(|s| s.stage = GateStage::Reconnecting);
+        self.status.send_modify(|s| {
+            s.stage = if self.auth_attempt > 0 && self.ready.is_some() {
+                GateStage::Negotiating
+            } else {
+                GateStage::Reconnecting
+            };
+        });
         if let Some(channels) = &self.channels {
             let path = self.path();
             let error = TransportError::VpnGate(GateFailure::Transport);
@@ -482,6 +577,23 @@ impl Actor {
             });
         }
     }
+}
+
+fn publish_failure(
+    status: &watch::Sender<GateStatus>,
+    reason: GateFailure,
+    startup_attempt: Option<u8>,
+) {
+    // Only pre-admission authentication retries are hidden. Established
+    // failures and the last failed attempt still reach normal chain cleanup.
+    if startup_attempt.is_some_and(|attempt| retry_startup_authentication(reason, attempt)) {
+        return;
+    }
+    status.send_modify(|s| {
+        s.stage = GateStage::Error;
+        s.failure = Some(reason);
+        s.network = None;
+    });
 }
 
 fn event_failure(name: &str) -> GateFailure {
@@ -738,7 +850,9 @@ mod tests {
             &format!("client\ndev tun\nproto tcp\nremote 8.8.8.8 1194\ncipher AES-128-CBC\nauth SHA1\n<ca>\n{ca}</ca>\n<cert>\n{cert}</cert>\n<key>\n{key}</key>\n"),
             "8.8.8.8".parse().unwrap(),
         ).unwrap();
-        for connected in [false, true] {
+        for (connected, auth_attempt) in [false, true].into_iter().flat_map(|connected| {
+            (0..=AUTHENTICATION_RETRIES).map(move |attempt| (connected, attempt))
+        }) {
             let (peer_tx, peer_rx) = oneshot::channel();
             let dialer = Arc::new(MemoryDialer {
                 connected,
@@ -757,13 +871,25 @@ mod tests {
             let warp =
                 InternalNetwork::for_streams(dialer.clone(), receiver, CancellationToken::new());
             let cancel = CancellationToken::new();
-            let startup = GateDriver::start(
-                &prepared,
-                warp,
-                crate::NetworkQualityTelemetry::default(),
-                None,
-                &cancel,
-            );
+            let startup = with_authentication_retries(&cancel, |attempt| {
+                let warp = warp.clone();
+                let prepared = &prepared;
+                let cancel = &cancel;
+                async move {
+                    if attempt < auth_attempt {
+                        return Err(TransportError::VpnGate(GateFailure::Authentication));
+                    }
+                    GateDriver::start_attempt(
+                        prepared,
+                        warp,
+                        crate::NetworkQualityTelemetry::default(),
+                        watch::channel(GateStatus::default()).0,
+                        cancel,
+                        attempt,
+                    )
+                    .await
+                }
+            });
             tokio::pin!(startup);
             let stop = async {
                 dialer.dialed.notified().await;
