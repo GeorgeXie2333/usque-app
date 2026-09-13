@@ -20,6 +20,9 @@ Compact layouts keep the full-screen subpage and system Back behavior. Resizing
 preserves the subpage, draft, filters and scroll position. Connection status
 describes the live session; the persistent bottom bar describes the saved or
 pending selection and provides apply and configuration-preparation controls.
+The Home page's **WARP → VPN Gate** title and connection phase open this same
+settings subpage, with the Proxy navigation destination selected. This shortcut
+does not save a selection or change the connection.
 
 ## Packet path
 

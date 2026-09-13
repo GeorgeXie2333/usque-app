@@ -39,6 +39,26 @@ class _ShellScreenState extends State<ShellScreen> {
   final _proxySection = GlobalKey<ProxySectionState>();
   bool _proxySubpageOpen = false;
   bool _changingSection = false;
+  bool _openingVpnGate = false;
+
+  Future<void> _openVpnGate() async {
+    if (_openingVpnGate) return;
+    _openingVpnGate = true;
+    final selectedController = controller;
+    try {
+      if (!await _selectSection(AppSection.proxy)) return;
+      // Activate the section before its subpage starts foreground work.
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted ||
+          controller != selectedController ||
+          controller.section != AppSection.proxy) {
+        return;
+      }
+      unawaited(_proxySection.currentState?.openVpnGate());
+    } finally {
+      _openingVpnGate = false;
+    }
+  }
 
   Future<bool> _selectSection(AppSection section) async {
     if (_changingSection) return false;
@@ -154,6 +174,7 @@ class _ShellScreenState extends State<ShellScreen> {
           HomeScreen(
             key: const ValueKey<String>('home-page'),
             controller: controller,
+            onOpenVpnGate: () => unawaited(_openVpnGate()),
           ),
           ControllerSelector<
             ({

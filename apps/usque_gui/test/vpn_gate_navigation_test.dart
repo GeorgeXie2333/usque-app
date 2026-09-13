@@ -40,6 +40,89 @@ Finder railItem(AppController app, String key) => find.descendant(
 
 void main() {
   testWidgets(
+    'Home Gate shortcut opens the shared subpage by pointer and D-pad',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      for (final (width, keyboard, stage) in [
+        (1220.0, false, 'disabled'),
+        (390.0, false, 'connected'),
+        (1220.0, true, 'error'),
+      ]) {
+        tester.view.physicalSize = Size(width, 1000);
+        final engine = GateEngine()..legacyProfilesImported = true;
+        engine.storedProfiles[0] = engine.storedProfiles[0].copyWith(
+          vpnGate: const VpnGateSettings(enabled: true),
+        );
+        engine.current = EngineSnapshot(
+          vpnGate: VpnGateStatus(
+            stage: stage,
+            server: stage == 'disabled' ? null : server,
+          ),
+        );
+        final app = AppController(engine);
+        await app.initialize();
+        final snapshot = engine.current;
+        final settings = engine.storedProfiles[0].vpnGate;
+        try {
+          await tester.pumpWidget(
+            workflowHost(
+              app,
+              scale: keyboard ? 2 : 1,
+              home: ShellScreen(controller: app),
+            ),
+          );
+          await tester.pumpAndSettle();
+          final entry = find.byKey(const ValueKey('home-vpn-gate-settings'));
+          expect(entry, findsOneWidget);
+          expect(
+            find.textContaining('Proxied traffic is blocked until'),
+            findsNothing,
+          );
+          if (keyboard) {
+            Focus.of(
+              tester.element(find.text('WARP → VPN Gate')),
+            ).requestFocus();
+            await tester.pump();
+            await tester.sendKeyEvent(LogicalKeyboardKey.select);
+          } else {
+            await tester.tap(entry);
+            // A second activation before the section paints cannot stack routes.
+            await tester.tap(entry);
+          }
+          await tester.pumpAndSettle();
+          expect(find.byType(VpnGateScreen), findsOneWidget);
+          expect(app.section, AppSection.proxy);
+          expect(app.activeProfile.vpnGate, settings);
+          expect(app.snapshot, snapshot);
+          expect(engine.saves, 0);
+          if (width >= 760) {
+            expect(
+              tester
+                  .widget<NavigationRail>(find.byType(NavigationRail))
+                  .selectedIndex,
+              2,
+            );
+            await tester.tap(find.text(app.strings.get('back')).hitTestable());
+          } else {
+            expect(find.byType(NavigationBar), findsNothing);
+            await tester.binding.handlePopRoute();
+          }
+          await tester.pumpAndSettle();
+          expect(find.byType(VpnGateScreen, skipOffstage: false), findsNothing);
+          expect(app.section, AppSection.proxy);
+          expect(tester.takeException(), isNull);
+        } finally {
+          await tester.pumpWidget(const SizedBox());
+          app.dispose();
+        }
+      }
+    },
+  );
+
+  testWidgets(
     'system back closes the country popup before leaving the subpage',
     (tester) async {
       await openGate(tester, GateEngine(), size: const Size(390, 1000));

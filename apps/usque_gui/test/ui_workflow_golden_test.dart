@@ -231,6 +231,94 @@ void main() {
     }
   }, tags: 'golden');
 
+  testWidgets('Home VPN Gate settings entry on desktop and phone', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    for (final phone in [false, true]) {
+      tester.view.physicalSize = phone
+          ? const Size(390, 844)
+          : const Size(1220, 1000);
+      debugDefaultTargetPlatformOverride = phone
+          ? TargetPlatform.android
+          : TargetPlatform.windows;
+      final app = AppController(GateEngine())
+        ..localePreference = LocalePreference.simplifiedChinese
+        ..sharedNetwork = UsqueProfile.defaultProfile().copyWith(
+          vpnGate: const VpnGateSettings(enabled: true),
+        )
+        ..snapshot = phone
+            ? const EngineSnapshot(
+                phase: ConnectionPhase.connected,
+                transport: 'HTTP/3',
+                addressFamily: 'IPv4',
+                killSwitchState: 'active',
+                frontends: [
+                  FrontendRuntimeStatus(
+                    kind: FrontendKind.tunnel,
+                    phase: FrontendPhase.active,
+                  ),
+                  FrontendRuntimeStatus(
+                    kind: FrontendKind.socks5,
+                    phase: FrontendPhase.active,
+                  ),
+                  FrontendRuntimeStatus(
+                    kind: FrontendKind.http,
+                    phase: FrontendPhase.active,
+                  ),
+                ],
+                vpnGate: VpnGateStatus(
+                  stage: 'connected',
+                  warpStage: 'connected',
+                  server: server,
+                ),
+              )
+            : const EngineSnapshot();
+      final boundary = GlobalKey();
+      try {
+        await tester.pumpWidget(
+          RepaintBoundary(
+            key: boundary,
+            child: workflowHost(
+              app,
+              dark: phone,
+              home: ShellScreen(controller: app),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.runAsync(() async {
+          final context = tester.element(find.byType(ShellScreen));
+          await Future.wait([
+            precacheImage(
+              const AssetImage('assets/branding/usque-ui-icon.png'),
+              context,
+            ),
+            if (phone)
+              precacheImage(
+                const AssetImage('assets/flags/w80/jp.png'),
+                context,
+              ),
+          ]);
+        });
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        await expectLater(
+          find.byKey(boundary),
+          matchesGoldenFile(
+            'goldens/home_vpngate_${phone ? 'phone_dark' : 'desktop_light'}.png',
+          ),
+        );
+      } finally {
+        await tester.pumpWidget(const SizedBox());
+        app.dispose();
+        debugDefaultTargetPlatformOverride = null;
+      }
+    }
+  }, tags: 'golden');
+
   testWidgets('VPN Gate preserves the wide shell navigation', (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(1220, 920);

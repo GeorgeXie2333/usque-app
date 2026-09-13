@@ -85,8 +85,6 @@ const kVpnGateEn = <String, String>{
   "gate_connecting_server": "Connecting to VPN Gate",
   "gate_negotiating": "Negotiating OpenVPN",
   "gate_configuring_network": "Applying network settings",
-  "gate_proxy_blocked":
-      "Proxied traffic is blocked until the selected VPN Gate is ready.",
 };
 
 const kVpnGateCatalogs = <String, Map<String, String>>{
@@ -171,7 +169,6 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_connecting_server": "正在连接 VPN Gate",
     "gate_negotiating": "正在协商 OpenVPN",
     "gate_configuring_network": "正在应用网络配置",
-    "gate_proxy_blocked": "所选 VPN Gate 就绪前，代理流量保持阻断。",
   },
   "zh_TW": {
     "gate_node_details": "詳細資料",
@@ -253,7 +250,6 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_connecting_server": "正在連線 VPN Gate",
     "gate_negotiating": "正在協商 OpenVPN",
     "gate_configuring_network": "正在套用網路設定",
-    "gate_proxy_blocked": "所選 VPN Gate 就緒前，代理流量保持封鎖。",
   },
   "ja": {
     "gate_node_details": "詳細",
@@ -335,7 +331,6 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_connecting_server": "VPN Gate に接続中",
     "gate_negotiating": "OpenVPN をネゴシエーション中",
     "gate_configuring_network": "ネットワーク設定を適用中",
-    "gate_proxy_blocked": "選択した VPN Gate の準備が整うまでプロキシ通信を遮断します。",
   },
   "ko": {
     "gate_node_details": "상세 정보",
@@ -417,7 +412,6 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_connecting_server": "VPN Gate 연결 중",
     "gate_negotiating": "OpenVPN 협상 중",
     "gate_configuring_network": "네트워크 설정 적용 중",
-    "gate_proxy_blocked": "선택한 VPN Gate가 준비될 때까지 프록시 트래픽이 차단됩니다.",
   },
   "es": {
     "gate_node_details": "Detalles",
@@ -506,8 +500,6 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_connecting_server": "Conectando a VPN Gate",
     "gate_negotiating": "Negociando OpenVPN",
     "gate_configuring_network": "Aplicando ajustes de red",
-    "gate_proxy_blocked":
-        "El tráfico por proxy está bloqueado hasta que VPN Gate esté listo.",
   },
   "pt": {
     "gate_node_details": "Detalhes",
@@ -596,8 +588,6 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_connecting_server": "A ligar ao VPN Gate",
     "gate_negotiating": "A negociar OpenVPN",
     "gate_configuring_network": "A aplicar definições de rede",
-    "gate_proxy_blocked":
-        "O tráfego por proxy fica bloqueado até o VPN Gate selecionado estar pronto.",
   },
   "fr": {
     "gate_node_details": "Détails",
@@ -686,8 +676,6 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_connecting_server": "Connexion à VPN Gate",
     "gate_negotiating": "Négociation OpenVPN",
     "gate_configuring_network": "Application des paramètres réseau",
-    "gate_proxy_blocked":
-        "Le trafic via proxy reste bloqué jusqu’à ce que le VPN Gate choisi soit prêt.",
   },
   "nl": {
     "gate_node_details": "Meer informatie",
@@ -777,8 +765,6 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_connecting_server": "Verbinden met VPN Gate",
     "gate_negotiating": "OpenVPN-onderhandeling",
     "gate_configuring_network": "Netwerkinstellingen toepassen",
-    "gate_proxy_blocked":
-        "Proxyverkeer blijft geblokkeerd totdat de gekozen VPN Gate gereed is.",
   },
   "tr": {
     "gate_node_details": "Ayrıntılar",
@@ -865,8 +851,6 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_connecting_server": "VPN Gate bağlantısı kuruluyor",
     "gate_negotiating": "OpenVPN anlaşması yapılıyor",
     "gate_configuring_network": "Ağ ayarları uygulanıyor",
-    "gate_proxy_blocked":
-        "Seçilen VPN Gate hazır olana kadar proxy trafiği engellenir.",
   },
   "ru": {
     "gate_node_details": "Подробности",
@@ -955,8 +939,6 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_connecting_server": "Подключение к VPN Gate",
     "gate_negotiating": "Согласование OpenVPN",
     "gate_configuring_network": "Применение настроек сети",
-    "gate_proxy_blocked":
-        "Прокси-трафик заблокирован до готовности выбранного VPN Gate.",
   },
   "de": {
     "gate_node_details": "Einzelheiten",
@@ -1047,8 +1029,6 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_connecting_server": "Verbindung mit VPN Gate wird hergestellt",
     "gate_negotiating": "OpenVPN wird ausgehandelt",
     "gate_configuring_network": "Netzwerkeinstellungen werden angewendet",
-    "gate_proxy_blocked":
-        "Proxyverkehr bleibt blockiert, bis das gewählte VPN Gate bereit ist.",
   },
   "id": {
     "gate_node_details": "Rincian",
@@ -1137,8 +1117,6 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_connecting_server": "Menghubungkan ke VPN Gate",
     "gate_negotiating": "Menegosiasikan OpenVPN",
     "gate_configuring_network": "Menerapkan pengaturan jaringan",
-    "gate_proxy_blocked":
-        "Trafik proksi diblokir hingga VPN Gate yang dipilih siap.",
   },
   "it": {
     "gate_node_details": "Dettagli",
@@ -1227,8 +1205,6 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_connecting_server": "Connessione a VPN Gate",
     "gate_negotiating": "Negoziazione OpenVPN",
     "gate_configuring_network": "Applicazione delle impostazioni di rete",
-    "gate_proxy_blocked":
-        "Il traffico proxy rimane bloccato finché il VPN Gate scelto non è pronto.",
   },
   "pl": {
     "gate_node_details": "Szczegóły",
@@ -1317,8 +1293,6 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_connecting_server": "Łączenie z VPN Gate",
     "gate_negotiating": "Negocjacja OpenVPN",
     "gate_configuring_network": "Stosowanie ustawień sieci",
-    "gate_proxy_blocked":
-        "Ruch proxy jest blokowany, dopóki wybrany VPN Gate nie będzie gotowy.",
   },
   "uk": {
     "gate_node_details": "Подробиці",
@@ -1407,8 +1381,6 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_connecting_server": "Підключення до VPN Gate",
     "gate_negotiating": "Узгодження OpenVPN",
     "gate_configuring_network": "Застосування налаштувань мережі",
-    "gate_proxy_blocked":
-        "Проксі-трафік заблоковано, доки вибраний VPN Gate не буде готовий.",
   },
   "vi": {
     "gate_node_details": "Chi tiết",
@@ -1495,8 +1467,6 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_connecting_server": "Đang kết nối VPN Gate",
     "gate_negotiating": "Đang thương lượng OpenVPN",
     "gate_configuring_network": "Đang áp dụng cài đặt mạng",
-    "gate_proxy_blocked":
-        "Lưu lượng proxy bị chặn cho đến khi VPN Gate đã chọn sẵn sàng.",
   },
   "th": {
     "gate_node_details": "รายละเอียด",
@@ -1581,8 +1551,6 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_connecting_server": "กำลังเชื่อมต่อ VPN Gate",
     "gate_negotiating": "กำลังเจรจา OpenVPN",
     "gate_configuring_network": "กำลังใช้การตั้งค่าเครือข่าย",
-    "gate_proxy_blocked":
-        "ทราฟฟิกพร็อกซีจะถูกบล็อกจนกว่า VPN Gate ที่เลือกจะพร้อม",
   },
   "ar": {
     "gate_node_details": "التفاصيل",
@@ -1668,7 +1636,6 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_connecting_server": "جارٍ الاتصال بـ VPN Gate",
     "gate_negotiating": "جارٍ التفاوض على OpenVPN",
     "gate_configuring_network": "جارٍ تطبيق إعدادات الشبكة",
-    "gate_proxy_blocked": "تُحجب حركة الوكيل حتى يصبح VPN Gate المحدد جاهزًا.",
   },
   "fa": {
     "gate_node_details": "جزئیات",
@@ -1755,8 +1722,6 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_connecting_server": "در حال اتصال به VPN Gate",
     "gate_negotiating": "در حال مذاکره OpenVPN",
     "gate_configuring_network": "در حال اعمال تنظیمات شبکه",
-    "gate_proxy_blocked":
-        "ترافیک پراکسی تا آماده شدن VPN Gate انتخابی مسدود می‌ماند.",
   },
   "zh_HK": {
     "gate_node_details": "詳情",
@@ -1838,6 +1803,5 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_connecting_server": "正在連線 VPN Gate",
     "gate_negotiating": "正在協商 OpenVPN",
     "gate_configuring_network": "正在套用網路設定",
-    "gate_proxy_blocked": "所選 VPN Gate 就緒前，代理流量保持封鎖。",
   },
 };

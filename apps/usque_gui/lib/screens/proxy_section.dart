@@ -45,7 +45,7 @@ class ProxySectionState extends State<ProxySection> {
     super.dispose();
   }
 
-  Future<void> _openGate() async {
+  Future<void> openVpnGate() async {
     if (_gateRoute != null || _closing) return;
     final route = MaterialPageRoute<void>(
       settings: const RouteSettings(name: '/proxy/vpn-gate'),
@@ -111,7 +111,7 @@ class ProxySectionState extends State<ProxySection> {
           selector: (controller) => controller.activeProfile,
           builder: (context, _) => ProxyScreen(
             controller: widget.controller,
-            onOpenVpnGate: () => unawaited(_openGate()),
+            onOpenVpnGate: () => unawaited(openVpnGate()),
           ),
         ),
       ),
