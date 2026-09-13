@@ -45,7 +45,7 @@ async fn authentication_retries_can_succeed_without_visible_errors_or_added_back
 }
 
 #[tokio::test]
-async fn third_authentication_rejection_is_terminal_and_visible() {
+async fn second_authentication_rejection_is_terminal_and_visible() {
     let calls = AtomicUsize::new(0);
     let (status, observed) = watch::channel(GateStatus {
         stage: GateStage::Negotiating,
@@ -66,7 +66,7 @@ async fn third_authentication_rejection_is_terminal_and_visible() {
         result,
         Err(TransportError::VpnGate(GateFailure::Authentication))
     ));
-    assert_eq!(calls.load(Ordering::SeqCst), 3);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
     assert_eq!(observed.borrow().stage, GateStage::Error);
     assert_eq!(observed.borrow().failure, Some(GateFailure::Authentication));
 }

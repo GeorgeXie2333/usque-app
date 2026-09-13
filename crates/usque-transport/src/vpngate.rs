@@ -22,7 +22,7 @@ use usque_openvpn::{Event, Input, NetworkConfig, Session};
 mod authentication_tests;
 
 static NEXT_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-const AUTHENTICATION_RETRIES: u8 = 2;
+const AUTHENTICATION_RETRIES: u8 = 1;
 
 fn retry_startup_authentication(reason: GateFailure, attempt: u8) -> bool {
     reason == GateFailure::Authentication && attempt < AUTHENTICATION_RETRIES
