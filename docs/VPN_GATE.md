@@ -13,6 +13,14 @@ is device-wide and shared across WARP accounts. A failed apply retains the
 requested target and its error. A node disappearing from the directory does
 not change its saved configuration or disconnect an existing session.
 
+On wide layouts, VPN Gate stays inside the Proxy content area and the side
+navigation remains available. Selecting Proxy again returns to its overview;
+selecting another section leaves the subpage after its unsaved-change guard.
+Compact layouts keep the full-screen subpage and system Back behavior. Resizing
+preserves the subpage, draft, filters and scroll position. Connection status
+describes the live session; the persistent bottom bar describes the saved or
+pending selection and provides apply and configuration-preparation controls.
+
 ## Packet path
 
 ```mermaid
@@ -105,8 +113,10 @@ configuration bodies to Flutter. Saving settings only pins a prepared local
 reference. The UI also checks account and connection intent before applying a
 completed preparation, so a late result cannot undo Disconnect.
 
-**Cumulative pool** and **Favorites** share the country filter and local flags.
-The pool retains source score ordering; favorites use descending saved time.
+**All servers** and **Favorites** share the country filter and local flags.
+All servers uses the cumulative pool with source score ordering; favorites use
+descending saved time. The controls share a row when the content area is wide
+enough and stack with explicit spacing at narrow widths or large text sizes.
 Source scores, ping and speed are not local measurements. Workers' TCP
 observations include their timestamps and do not establish OpenVPN, TLS or
 application connectivity. Missing or untested nodes are not treated as proven

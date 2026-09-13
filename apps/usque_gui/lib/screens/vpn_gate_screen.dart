@@ -9,6 +9,7 @@ import '../state/app_controller.dart';
 import '../widgets/common.dart';
 import '../widgets/country_flag.dart';
 import '../widgets/unsaved_changes_guard.dart';
+import '../widgets/vpn_gate_filters.dart';
 import '../widgets/vpn_gate_summary.dart';
 
 class VpnGateScreen extends StatefulWidget {
@@ -507,76 +508,28 @@ class _VpnGateScreenState extends State<VpnGateScreen>
                           danger: true,
                         ),
                       ),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        for (final favorites in [false, true])
-                          ChoiceChip(
-                            key: ValueKey(
-                              favorites
-                                  ? 'vpn-gate-favorites'
-                                  : 'vpn-gate-pool',
-                            ),
-                            label: Text(
-                              favorites
-                                  ? '${strings.get('gate_favorites')} (${_directory.favoriteCount})'
-                                  : strings.get('gate_pool'),
-                            ),
-                            selected: _favoritesOnly == favorites,
-                            onSelected: (_) {
+                    VpnGateFilters(
+                      strings: strings,
+                      favoritesOnly: _favoritesOnly,
+                      favoriteCount: _directory.favoriteCount,
+                      country: _country,
+                      countries: _directory.countries,
+                      onScopeChanged: (favorites) {
+                        setState(() {
+                          _favoritesOnly = favorites;
+                          _country = 'ALL';
+                          _offset = 0;
+                        });
+                        unawaited(_load());
+                      },
+                      onCountryChanged: _saving
+                          ? null
+                          : (country) {
                               setState(() {
-                                _favoritesOnly = favorites;
-                                _country = 'ALL';
+                                _country = country;
                                 _offset = 0;
                               });
                               unawaited(_load());
-                            },
-                          ),
-                      ],
-                    ),
-                    DropdownButtonFormField<String>(
-                      key: ValueKey('vpn-gate-country-$_country'),
-                      initialValue: _country,
-                      isExpanded: true,
-                      decoration: InputDecoration(
-                        labelText: strings.get('gate_country'),
-                      ),
-                      items: [
-                        DropdownMenuItem(
-                          value: 'ALL',
-                          child: _countryLabel(
-                            null,
-                            strings.get('gate_all_countries'),
-                          ),
-                        ),
-                        for (final country in _directory.countries)
-                          DropdownMenuItem(
-                            value: country.code ?? 'UNKNOWN',
-                            child: _countryLabel(
-                              country.code,
-                              '${country.code == null ? strings.get('gate_unknown_country') : country.name ?? country.code} (${country.count})',
-                            ),
-                          ),
-                        if (_country != 'ALL' &&
-                            !_directory.countries.any(
-                              (c) => (c.code ?? 'UNKNOWN') == _country,
-                            ))
-                          DropdownMenuItem(
-                            value: _country,
-                            child: _countryLabel(_country, _country),
-                          ),
-                      ],
-                      onChanged: _saving
-                          ? null
-                          : (country) {
-                              if (country != null) {
-                                setState(() {
-                                  _country = country;
-                                  _offset = 0;
-                                });
-                                unawaited(_load());
-                              }
                             },
                     ),
                     if (_loading || refreshing)
@@ -834,12 +787,4 @@ class _VpnGateScreenState extends State<VpnGateScreen>
 
   String _time(DateTime? value) =>
       value?.toLocal().toString().split('.').first ?? '—';
-
-  Widget _countryLabel(String? code, String label) => Row(
-    children: [
-      CountryFlag(countryCode: code),
-      const SizedBox(width: 8),
-      Expanded(child: Text(label, overflow: TextOverflow.ellipsis)),
-    ],
-  );
 }
