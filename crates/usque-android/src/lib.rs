@@ -125,6 +125,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCap
             "l4_tun_tcp": engine_ready(),
             "l4_dns_conversion": engine_ready(),
             "vpn_gate_tcp": engine_ready(),
+            "vpn_gate_pool_favorites": engine_ready(),
             "network_quality": engine_ready() && usque_transport::PRODUCTION_NETWORK_FEATURES.network_quality_metrics,
             "encrypted_direct_dns": engine_ready() && usque_transport::ENCRYPTED_DIRECT_DNS_ENABLED,
             "quic_migration": engine_ready() && usque_transport::PRODUCTION_NETWORK_FEATURES.quic_migration,
@@ -849,7 +850,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeVpn
             let networks = android_runtime::internal_networks();
             #[cfg(not(target_os = "android"))]
             let networks = None;
-            let context = if request.command == "refresh" && !request.cancel {
+            let context = if request.needs_fetch() {
                 let secret = Zeroizing::new(
                     environment
                         .convert_byte_array(&warp_secret)
@@ -1668,6 +1669,28 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
             vpngate::pin_settings(store.path(), &config.network.vpn_gate, &previous_gate)?;
         }
         store.save(&config).map_err(|error| error.to_string())?;
+        if config.network.vpn_gate.selection != previous_gate.selection {
+            let mut retained: Vec<_> = config
+                .network
+                .vpn_gate
+                .selection
+                .clone()
+                .into_iter()
+                .collect();
+            if let Some(server) = engine_snapshot()
+                .vpn_gate
+                .and_then(|gate| gate.current_server)
+            {
+                retained.push(usque_core::vpngate::Selection {
+                    server_id: server.id,
+                    config_sha256: server.config_sha256,
+                });
+            }
+            if let Some(directory) = store.path().parent() {
+                let _ = usque_core::vpngate::CatalogueStore::new(directory)
+                    .retain_selections(&retained);
+            }
+        }
         if clear_all_data {
             let _ = std::fs::remove_file(store.backup_path());
         }

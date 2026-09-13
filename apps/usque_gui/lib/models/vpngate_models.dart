@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+part 'vpngate_pool_models.dart';
 
 class VpnGateSettings {
   const VpnGateSettings({
@@ -52,10 +53,14 @@ class VpnGateServer {
     this.speedBps,
     this.sessions,
     this.unsupportedReason,
+    this.pool,
+    this.favorite,
   });
   final String id, ip, hostname, configSha256;
   final String? countryCode, countryName, unsupportedReason;
   final int? score, pingMs, speedBps, sessions;
+  final VpnGatePoolMetadata? pool;
+  final VpnGateFavoriteMetadata? favorite;
   factory VpnGateServer.fromMap(Map<Object?, Object?> map) => VpnGateServer(
     id: map['id'] as String? ?? '',
     ip: map['ip'] as String? ?? '',
@@ -68,6 +73,12 @@ class VpnGateServer {
     speedBps: (map['speed_bps'] as num?)?.toInt(),
     sessions: (map['num_vpn_sessions'] as num?)?.toInt(),
     unsupportedReason: _text(map['unsupported_reason']),
+    pool: map['pool'] is Map
+        ? VpnGatePoolMetadata.fromMap(map['pool'] as Map)
+        : null,
+    favorite: map['favorite'] is Map
+        ? VpnGateFavoriteMetadata.fromMap(map['favorite'] as Map)
+        : null,
   );
   bool matches(VpnGateSettings settings) =>
       id == settings.serverId && configSha256 == settings.configSha256;
@@ -84,7 +95,9 @@ class VpnGateServer {
       pingMs == other.pingMs &&
       speedBps == other.speedBps &&
       sessions == other.sessions &&
-      unsupportedReason == other.unsupportedReason;
+      unsupportedReason == other.unsupportedReason &&
+      pool == other.pool &&
+      favorite == other.favorite;
   @override
   int get hashCode => Object.hash(
     id,
@@ -98,6 +111,8 @@ class VpnGateServer {
     speedBps,
     sessions,
     unsupportedReason,
+    pool,
+    favorite,
   );
 }
 
@@ -195,6 +210,9 @@ class VpnGateDirectory {
     this.cached = false,
     this.status = const VpnGateStatus(),
     this.savedServer,
+    this.favoriteCount = 0,
+    this.sourceFetchedAt,
+    this.nodeProgress = const VpnGateNodeProgress(),
   });
   final List<VpnGateServer> servers;
   final List<VpnGateCountry> countries;
@@ -206,10 +224,20 @@ class VpnGateDirectory {
   final bool cached;
   final VpnGateStatus status;
   final VpnGateServer? savedServer;
+  final int favoriteCount;
+  final DateTime? sourceFetchedAt;
+  final VpnGateNodeProgress nodeProgress;
   bool get refreshing =>
       !const ['idle', 'complete', 'failed', 'cancelled'].contains(refreshStage);
   factory VpnGateDirectory.fromMap(Map<Object?, Object?> map) =>
       VpnGateDirectory(
+        favoriteCount: (map['favorite_count'] as num?)?.toInt() ?? 0,
+        sourceFetchedAt: DateTime.tryParse(
+          map['source_fetched_at'] as String? ?? '',
+        ),
+        nodeProgress: map['node_progress'] is Map
+            ? VpnGateNodeProgress.fromMap(map['node_progress'] as Map)
+            : const VpnGateNodeProgress(),
         servers: List<VpnGateServer>.unmodifiable(
           (map['servers'] as List? ?? const []).map(
             (e) => VpnGateServer.fromMap(e as Map),

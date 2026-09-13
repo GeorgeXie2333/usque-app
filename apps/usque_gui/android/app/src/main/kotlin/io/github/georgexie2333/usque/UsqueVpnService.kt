@@ -290,7 +290,12 @@ class UsqueVpnService : VpnService() {
                 val raw = request.data.getString("vpn_gate_request") ?: error("Missing request")
                 require(raw.length <= 4096)
                 val query = JSONObject(raw)
-                if (query.optString("command") == "refresh" && !query.optBoolean("cancel")) {
+                if ((query.optString("command") == "refresh" && !query.optBoolean("cancel")) ||
+                    (
+                        query.optString("command") == "node" &&
+                            query.optString("action") in setOf("prepare", "favorite", "update_favorite")
+                    )
+                ) {
                     val catalog =
                         JSONObject(
                             NativeEngine.applyProfileCommand(settingsPath, """{"command":"list_profiles"}""")

@@ -239,10 +239,15 @@ impl ControlService {
             offset: request.offset as usize,
             limit: request.limit as usize,
             include_unsupported: request.include_unsupported,
+            favorites_only: request.favorites_only,
+            status_only: request.status_only,
         };
         let store = CatalogueStore::new(&self.cache_dir);
         let selected = self.config.read().await.network.vpn_gate.selection.clone();
         let (list, saved) = tokio::task::spawn_blocking(move || {
+            if query.status_only {
+                return Ok((ServerList::default(), None));
+            }
             let saved = selected.and_then(|selection| {
                 store
                     .load_selection(&selection)
@@ -269,6 +274,9 @@ impl ControlService {
             (self.gate_status.borrow().clone(), None)
         };
         Ok(v1::VpnGateDirectory {
+            favorite_count: list.favorite_count as u32,
+            source_fetched_at: list.source_fetched_at.unwrap_or_default(),
+            node_progress: Some(node_progress_to_proto(&self.gate_directory.node_progress())),
             saved_server: saved.as_ref().map(server_to_proto),
             servers: list.servers.iter().map(server_to_proto).collect(),
             countries: list
@@ -297,12 +305,78 @@ impl ControlService {
                     )
                 })
                 .collect(),
-            cached: list.fetched_at_unix_ms.is_some() && progress.stage != DownloadStage::Complete,
+            cached: list.fetched_at_unix_ms.is_some()
+                && (progress.stage != DownloadStage::Complete
+                    || progress.fetched_at_unix_ms != list.fetched_at_unix_ms),
             status: Some(status_to_proto(&status, warp_stage)),
         })
     }
 
     pub(crate) async fn refresh_vpn_gate(&self) -> Result<(), ControlServiceError> {
+        self.start_gate_job(None).await
+    }
+    pub(crate) async fn vpn_gate_node(
+        &self,
+        request: v1::VpnGateNodeRequest,
+    ) -> Result<(), ControlServiceError> {
+        let action = match request.action.as_str() {
+            "prepare" => NodeAction::Prepare,
+            "favorite" => NodeAction::Favorite,
+            "update_favorite" => NodeAction::UpdateFavorite,
+            "remove_favorite" => NodeAction::RemoveFavorite,
+            "release" => NodeAction::Release,
+            "cancel" => NodeAction::Cancel,
+            _ => return Err(error(DirectoryError::StaleSelection)),
+        };
+        let request = NodeRequest {
+            operation_id: request.operation_id,
+            action,
+            server_id: request.server_id,
+            config_sha256: request.config_sha256,
+            expected_favorite_hash: request.expected_favorite_hash,
+        };
+        request.validate().map_err(error)?;
+        if action == NodeAction::Cancel {
+            self.gate_directory.cancel_node(&request.operation_id);
+            return Ok(());
+        }
+        if action == NodeAction::Release {
+            let store = CatalogueStore::new(&self.cache_dir);
+            tokio::task::spawn_blocking(move || store.release_prepared(&request.selection()))
+                .await
+                .map_err(|_| error(DirectoryError::CacheIo))?;
+            return Ok(());
+        }
+        if action == NodeAction::RemoveFavorite {
+            self.gate_directory.cancel_node_for(&request.server_id);
+            let store = CatalogueStore::new(&self.cache_dir);
+            let mut retained: Vec<_> = self
+                .config
+                .read()
+                .await
+                .network
+                .vpn_gate
+                .selection
+                .clone()
+                .into_iter()
+                .collect();
+            if let Some(active) = self.data_plane.lock().await.as_ref()
+                && let Some(selection) = &active.profile.vpn_gate.selection
+            {
+                retained.push(selection.clone());
+            }
+            return tokio::task::spawn_blocking(move || store.remove_favorite(&request, &retained))
+                .await
+                .map_err(|_| error(DirectoryError::CacheIo))?
+                .map_err(error);
+        }
+        self.cancel_gate_refresh().await;
+        self.start_gate_job(Some(request)).await
+    }
+    async fn start_gate_job(
+        &self,
+        node_request: Option<NodeRequest>,
+    ) -> Result<(), ControlServiceError> {
         let mut running = self.gate_fetch_task.lock().await;
         if running.as_ref().is_some_and(|job| !job.task.is_finished()) {
             return Ok(());
@@ -350,6 +424,9 @@ impl ControlService {
         let service = self.clone();
         let cancellation = CancellationToken::new();
         let parent = cancellation.clone();
+        if let Some(request) = &node_request {
+            self.gate_directory.begin_node(request);
+        }
         *running = Some(FetchTask {
             cancellation,
             task: tokio::spawn(async move {
@@ -360,10 +437,17 @@ impl ControlService {
                     existing: networks.map(|(_, warp)| warp),
                     allow_physical,
                 };
-                let _ = service
-                    .gate_directory
-                    .refresh(primary, &source, &parent)
-                    .await;
+                if let Some(request) = node_request {
+                    let _ = service
+                        .gate_directory
+                        .node_operation(&request, primary, &source, &parent)
+                        .await;
+                } else {
+                    let _ = service
+                        .gate_directory
+                        .refresh(primary, &source, &parent)
+                        .await;
+                }
             }),
         });
         Ok(())
@@ -544,6 +628,32 @@ fn server_to_proto(server: &ServerSummary) -> v1::VpnGateServer {
         num_vpn_sessions: server.num_vpn_sessions,
         config_sha256: server.config_sha256.clone(),
         unsupported_reason: server.unsupported_reason.map(enum_name).unwrap_or_default(),
+        pool: server.pool.as_ref().map(|p| v1::VpnGatePoolMetadata {
+            first_seen_at: p.first_seen_at.clone(),
+            last_seen_at: p.last_seen_at.clone(),
+            present_in_latest_source: p.present_in_latest_source,
+            tcp_status: p.tcp_status.clone(),
+            tcp_checked_at: p.tcp_checked_at.clone().unwrap_or_default(),
+            tcp_connect_ms: p.tcp_connect_ms,
+            in_pool: p.in_pool,
+        }),
+        favorite: server
+            .favorite
+            .as_ref()
+            .map(|f| v1::VpnGateFavoriteMetadata {
+                config_sha256: f.config_sha256.clone(),
+                saved_at_unix_ms: f.saved_at_unix_ms,
+                latest_config_sha256: f.latest_config_sha256.clone().unwrap_or_default(),
+            }),
+    }
+}
+fn node_progress_to_proto(progress: &NodeProgress) -> v1::VpnGateNodeProgress {
+    v1::VpnGateNodeProgress {
+        operation_id: progress.operation_id.clone(),
+        server_id: progress.server_id.clone(),
+        config_sha256: progress.config_sha256.clone(),
+        stage: progress.stage.clone(),
+        error: progress.error.clone().unwrap_or_default(),
     }
 }
 pub(crate) fn status_to_proto(status: &GateStatus, warp_stage: Option<&str>) -> v1::VpnGateStatus {

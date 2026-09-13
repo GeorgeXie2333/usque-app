@@ -1,6 +1,8 @@
-use super::{Catalogue, CatalogueStore, DirectoryError, MAX_DIRECTORY_BYTES};
+use super::{
+    CatalogueStore, DirectoryError, MAX_CONFIG_JSON_BYTES, MAX_DIRECTORY_BYTES, MAX_INDEX_BYTES,
+    NodeProgress,
+};
 use async_trait::async_trait;
-use futures::stream::{FuturesUnordered, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -8,7 +10,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::{Mutex, watch};
 use tokio_util::sync::CancellationToken;
 
-pub const RAW_URL: &str = "https://raw.githubusercontent.com/GeorgeXie2333/vpngate-list-mirror/refs/heads/main/data/servers.json";
+pub const RAW_URL: &str =
+    "https://raw.githubusercontent.com/GeorgeXie2333/vpngate-list-mirror/main/pool/latest.json";
 pub const CDN_HOSTS: [&str; 5] = [
     "cdn.jsdelivr.net",
     "fastly.jsdelivr.net",
@@ -16,7 +19,7 @@ pub const CDN_HOSTS: [&str; 5] = [
     "testingcf.jsdelivr.net",
     "quantil.jsdelivr.net",
 ];
-pub const CDN_PATH: &str = "/gh/GeorgeXie2333/vpngate-list-mirror@latest/data/servers.json";
+pub const CDN_PATH: &str = "/gh/GeorgeXie2333/vpngate-list-mirror@latest/pool/latest.json";
 pub const RESPONSE_TIMEOUT: Duration = Duration::from_secs(15);
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -96,6 +99,7 @@ impl CatalogueHttp for DirectCatalogueHttp {
         if !approved_url(url) {
             return Err(DirectoryError::Request);
         }
+        let limit = response_limit(url);
         let request = async {
             // All supported sources accept identity encoding. This keeps the
             // response budget independent of compressed HTTP representations.
@@ -109,10 +113,7 @@ impl CatalogueHttp for DirectCatalogueHttp {
             if response.status() != reqwest::StatusCode::OK {
                 return Err(DirectoryError::Request);
             }
-            if response
-                .content_length()
-                .is_some_and(|n| n > MAX_DIRECTORY_BYTES as u64)
-            {
+            if response.content_length().is_some_and(|n| n > limit as u64) {
                 return Err(DirectoryError::SizeLimit);
             }
             if response
@@ -124,7 +125,7 @@ impl CatalogueHttp for DirectCatalogueHttp {
             }
             let mut bytes = Vec::new();
             while let Some(chunk) = response.chunk().await.map_err(request_error)? {
-                if chunk.len() > MAX_DIRECTORY_BYTES.saturating_sub(bytes.len()) {
+                if chunk.len() > limit.saturating_sub(bytes.len()) {
                     return Err(DirectoryError::SizeLimit);
                 }
                 bytes.extend_from_slice(&chunk);
@@ -151,6 +152,58 @@ pub fn approved_url(url: &str) -> bool {
         || CDN_HOSTS
             .iter()
             .any(|host| url == format!("https://{host}{CDN_PATH}"))
+        || pinned_path(url).is_some()
+}
+pub(super) fn legacy_cache_url(url: &str) -> bool {
+    approved_url(url)
+        || url
+            == "https://raw.githubusercontent.com/GeorgeXie2333/vpngate-list-mirror/refs/heads/main/data/servers.json"
+        || CDN_HOSTS.iter().any(|host| {
+            url == format!(
+                "https://{host}/gh/GeorgeXie2333/vpngate-list-mirror@latest/data/servers.json"
+            )
+        })
+}
+
+fn pinned_path(url: &str) -> Option<&str> {
+    let rest = url
+        .strip_prefix("https://raw.githubusercontent.com/GeorgeXie2333/vpngate-list-mirror/")
+        .or_else(|| {
+            CDN_HOSTS.iter().find_map(|host| {
+                url.strip_prefix(&format!(
+                    "https://{host}/gh/GeorgeXie2333/vpngate-list-mirror@"
+                ))
+            })
+        })?;
+    let (commit, path) = rest.split_once('/')?;
+    if !super::pool::valid_commit(commit) {
+        return None;
+    }
+    if matches!(path, "pool/servers.json" | "pool/countries.json")
+        || path
+            .strip_prefix("pool/configs/")
+            .and_then(|s| s.strip_suffix(".json"))
+            .is_some_and(super::valid_hash)
+    {
+        Some(path)
+    } else {
+        None
+    }
+}
+pub fn response_limit(url: &str) -> usize {
+    match pinned_path(url) {
+        Some(path) if path.starts_with("pool/configs/") => MAX_CONFIG_JSON_BYTES,
+        Some(_) => MAX_DIRECTORY_BYTES,
+        None => MAX_INDEX_BYTES,
+    }
+}
+pub(super) fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .try_into()
+        .unwrap_or(u64::MAX)
 }
 
 struct RefreshResult {
@@ -161,11 +214,13 @@ struct RefreshResult {
 /// Shared by desktop and Android. Overlapping requests reuse one refresh result;
 /// replacing a cache is the final operation after complete validation.
 pub struct DirectoryDownloader {
-    store: CatalogueStore,
+    pub(super) store: CatalogueStore,
     generation: AtomicU64,
     refresh: Mutex<RefreshResult>,
-    progress: watch::Sender<DownloadProgress>,
+    pub(super) progress: watch::Sender<DownloadProgress>,
     cancel: std::sync::Mutex<CancellationToken>,
+    pub(super) node_progress: watch::Sender<NodeProgress>,
+    pub(super) node_cancel: std::sync::Mutex<CancellationToken>,
 }
 impl DirectoryDownloader {
     pub fn new(store: CatalogueStore) -> Self {
@@ -179,6 +234,8 @@ impl DirectoryDownloader {
             }),
             progress,
             cancel: std::sync::Mutex::new(CancellationToken::new()),
+            node_progress: watch::channel(NodeProgress::default()).0,
+            node_cancel: std::sync::Mutex::new(CancellationToken::new()),
         }
     }
     pub fn subscribe(&self) -> watch::Receiver<DownloadProgress> {
@@ -210,7 +267,7 @@ impl DirectoryDownloader {
         let cancellation = parent.child_token();
         *self.cancel.lock().unwrap_or_else(|e| e.into_inner()) = cancellation.clone();
         self.progress.send_replace(DownloadProgress::default());
-        let result = self.run(primary, warp, &cancellation).await;
+        let result = self.run_pool(primary, warp, &cancellation).await;
         self.progress.send_modify(|p| {
             p.stage = match &result {
                 Ok(_) => DownloadStage::Complete,
@@ -224,100 +281,19 @@ impl DirectoryDownloader {
         result
     }
 
-    async fn run(
-        &self,
-        primary: Arc<dyn CatalogueHttp>,
-        warp: &dyn WarpCatalogueSource,
-        cancellation: &CancellationToken,
-    ) -> Result<(), DirectoryError> {
-        let mut winner = self.attempt(primary.as_ref(), false, cancellation).await?;
-        if winner.is_none() {
-            self.set_stage(DownloadStage::PreparingWarp);
-            let source = tokio::select! {
-                biased;
-                _ = cancellation.cancelled() => return Err(DirectoryError::Cancelled),
-                result = tokio::time::timeout(Duration::from_secs(30), warp.open(cancellation)) =>
-                    result.map_err(|_| DirectoryError::Timeout).and_then(|v| v),
-            };
-            let source = match source {
-                Ok(source) => source,
-                Err(error) => {
-                    self.failure(DownloadStage::PreparingWarp, None, &error);
-                    return Err(error);
-                }
-            };
-            let result = self.attempt(source.as_ref(), true, cancellation).await;
-            source.close().await;
-            winner = result?;
-        }
-        let (catalogue, url) = winner.ok_or(DirectoryError::Unavailable)?;
-        if cancellation.is_cancelled() {
-            return Err(DirectoryError::Cancelled);
-        }
-        let fetched_at_unix_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis()
-            .try_into()
-            .unwrap_or(u64::MAX);
-        self.store.save(&catalogue, fetched_at_unix_ms, &url)?;
-        self.progress.send_modify(|p| {
-            p.source_url = Some(url);
-            p.fetched_at_unix_ms = Some(fetched_at_unix_ms);
-        });
-        Ok(())
-    }
-
-    async fn attempt(
-        &self,
-        http: &dyn CatalogueHttp,
-        through_warp: bool,
-        cancellation: &CancellationToken,
-    ) -> Result<Option<(Catalogue, String)>, DirectoryError> {
-        let raw_stage = if through_warp {
-            DownloadStage::WarpRaw
-        } else {
-            DownloadStage::PrimaryRaw
-        };
-        self.set_stage(raw_stage);
-        match fetch_validated(http, RAW_URL, cancellation).await {
-            Ok(catalogue) => return Ok(Some((catalogue, RAW_URL.to_owned()))),
-            Err(DirectoryError::Cancelled) => return Err(DirectoryError::Cancelled),
-            Err(error) => self.failure(raw_stage, Some(RAW_URL.to_owned()), &error),
-        }
-        let cdn_stage = if through_warp {
-            DownloadStage::WarpCdn
-        } else {
-            DownloadStage::PrimaryCdn
-        };
-        self.set_stage(cdn_stage);
-        let race_cancel = cancellation.child_token();
-        let mut pending = FuturesUnordered::new();
-        for host in CDN_HOSTS {
-            let cancel = race_cancel.clone();
-            pending.push(async move {
-                let url = format!("https://{host}{CDN_PATH}");
-                let result = fetch_validated(http, &url, &cancel).await;
-                (url, result)
-            });
-        }
-        while let Some((url, result)) = pending.next().await {
-            match result {
-                Ok(catalogue) => {
-                    race_cancel.cancel();
-                    return Ok(Some((catalogue, url)));
-                }
-                Err(DirectoryError::Cancelled) => return Err(DirectoryError::Cancelled),
-                Err(error) => self.failure(cdn_stage, Some(url), &error),
-            }
-        }
-        Ok(None)
-    }
-    fn set_stage(&self, stage: DownloadStage) {
+    pub(super) fn set_stage(&self, stage: DownloadStage) {
         self.progress.send_modify(|p| p.stage = stage);
     }
-    fn failure(&self, stage: DownloadStage, source_url: Option<String>, error: &DirectoryError) {
+    pub(super) fn failure(
+        &self,
+        stage: DownloadStage,
+        source_url: Option<String>,
+        error: &DirectoryError,
+    ) {
         self.progress.send_modify(|p| {
+            if p.failures.len() == 16 {
+                p.failures.remove(0);
+            }
             p.failures.push(StageFailure {
                 stage,
                 source_url,
@@ -327,26 +303,11 @@ impl DirectoryDownloader {
     }
 }
 
-async fn fetch_validated(
-    http: &dyn CatalogueHttp,
-    url: &str,
-    cancellation: &CancellationToken,
-) -> Result<Catalogue, DirectoryError> {
-    let response = tokio::select! {
-        biased;
-        _ = cancellation.cancelled() => return Err(DirectoryError::Cancelled),
-        result = tokio::time::timeout(RESPONSE_TIMEOUT, http.get(url, cancellation)) =>
-            result.map_err(|_| DirectoryError::Timeout)??,
-    };
-    if cancellation.is_cancelled() {
-        return Err(DirectoryError::Cancelled);
-    }
-    Catalogue::parse(&response)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vpngate::Catalogue;
+    use crate::vpngate::pool_tests::{COMMIT, Fixture};
     use std::collections::BTreeMap;
     use std::sync::Mutex as StdMutex;
     use std::sync::atomic::AtomicUsize;
@@ -417,15 +378,31 @@ mod tests {
         }
     }
     fn fixture() -> Vec<u8> {
-        super::super::tests::fixture()
+        Fixture::new().index
     }
 
+    fn with_assets(mut replies: BTreeMap<String, Reply>) -> BTreeMap<String, Reply> {
+        let fixture = Fixture::new();
+        for (path, bytes) in [
+            ("pool/servers.json", fixture.servers),
+            ("pool/countries.json", fixture.countries),
+        ] {
+            replies.insert(format!("https://raw.githubusercontent.com/GeorgeXie2333/vpngate-list-mirror/{COMMIT}/{path}"), reply(1, Ok(bytes.clone())));
+            for host in CDN_HOSTS {
+                replies.insert(
+                    format!("https://{host}/gh/GeorgeXie2333/vpngate-list-mirror@{COMMIT}/{path}"),
+                    reply(1, Ok(bytes.clone())),
+                );
+            }
+        }
+        replies
+    }
     #[tokio::test(start_paused = true)]
     async fn raw_success_does_not_start_cdn_or_warp() {
         let directory = tempfile::tempdir().unwrap();
         let downloader = DirectoryDownloader::new(CatalogueStore::new(directory.path()));
         let http = Arc::new(MockHttp {
-            replies: [(RAW_URL.into(), reply(5, Ok(fixture())))].into(),
+            replies: with_assets([(RAW_URL.into(), reply(5, Ok(fixture())))].into()),
             ..Default::default()
         });
         let warp = warp();
@@ -435,7 +412,7 @@ mod tests {
             .unwrap();
         assert_eq!(progress.source_url.as_deref(), Some(RAW_URL));
         assert_eq!(progress.stage, DownloadStage::Complete);
-        assert_eq!(http.calls.lock().unwrap().len(), 1);
+        assert_eq!(http.calls.lock().unwrap().len(), 3);
         assert_eq!(warp.opens.load(Ordering::SeqCst), 0);
     }
 
@@ -457,7 +434,7 @@ mod tests {
             );
         }
         let http = Arc::new(MockHttp {
-            replies,
+            replies: with_assets(replies),
             ..Default::default()
         });
         let warp = warp();
@@ -469,7 +446,7 @@ mod tests {
             progress.source_url,
             Some(format!("https://{}{CDN_PATH}", CDN_HOSTS[1]))
         );
-        assert_eq!(http.calls.lock().unwrap().len(), 6);
+        assert_eq!(http.calls.lock().unwrap().len(), 16);
         assert_eq!(http.active.load(Ordering::SeqCst), 0);
         assert_eq!(progress.failures.len(), 2);
         assert_eq!(
@@ -486,7 +463,7 @@ mod tests {
         let http = Arc::new(MockHttp::default());
         let warp = Warp {
             http: Arc::new(MockHttp {
-                replies: [(RAW_URL.into(), reply(1, Ok(fixture())))].into(),
+                replies: with_assets([(RAW_URL.into(), reply(1, Ok(fixture())))].into()),
                 ..Default::default()
             }),
             opens: AtomicUsize::new(0),
@@ -497,10 +474,7 @@ mod tests {
             .unwrap();
         assert_eq!(progress.failures.len(), 6);
         assert_eq!(http.calls.lock().unwrap().len(), 6);
-        assert_eq!(
-            warp.http.calls.lock().unwrap().as_slice(),
-            &[RAW_URL.to_string()]
-        );
+        assert_eq!(warp.http.calls.lock().unwrap().len(), 3);
         assert_eq!(warp.http.closed.load(Ordering::SeqCst), 1);
         assert_eq!(warp.opens.load(Ordering::SeqCst), 1);
     }
@@ -510,7 +484,11 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let store = CatalogueStore::new(directory.path());
         store
-            .save(&Catalogue::parse(&fixture()).unwrap(), 42, RAW_URL)
+            .save(
+                &Catalogue::parse(&super::super::tests::fixture()).unwrap(),
+                42,
+                RAW_URL,
+            )
             .unwrap();
         let downloader = DirectoryDownloader::new(store.clone());
         let http = Arc::new(MockHttp {
@@ -559,5 +537,167 @@ mod tests {
         assert_eq!(warp.http.closed.load(Ordering::SeqCst), 1);
         assert_eq!(warp.http.active.load(Ordering::SeqCst), 0);
         assert!(store.load().unwrap().is_none());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn raw_timeout_skips_raw_in_warp_and_lazy_configuration_but_resets_next_refresh() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = CatalogueStore::new(directory.path());
+        let downloader = DirectoryDownloader::new(store.clone());
+        let http = Arc::new(MockHttp {
+            replies: [(RAW_URL.into(), reply(1, Err(DirectoryError::Timeout)))].into(),
+            ..Default::default()
+        });
+        let source = Warp {
+            http: Arc::new(MockHttp {
+                replies: with_assets(
+                    [(
+                        format!("https://{}{CDN_PATH}", CDN_HOSTS[0]),
+                        reply(1, Ok(fixture())),
+                    )]
+                    .into(),
+                ),
+                ..Default::default()
+            }),
+            opens: AtomicUsize::new(0),
+        };
+        downloader
+            .refresh(http.clone(), &source, &CancellationToken::new())
+            .await
+            .unwrap();
+        assert!(
+            source
+                .http
+                .calls
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|url| !url.contains("raw.githubusercontent.com"))
+        );
+        assert_eq!(source.http.closed.load(Ordering::SeqCst), 1);
+        let server = store.list(&Default::default()).unwrap().servers.remove(0);
+        let request =
+            super::super::pool_tests::node_request(&server, super::super::NodeAction::Prepare);
+        let f = Fixture::new();
+        let replies = f
+            .configs
+            .iter()
+            .map(|(path, bytes)| {
+                (
+                    format!(
+                        "https://{}/gh/GeorgeXie2333/vpngate-list-mirror@{COMMIT}/{path}",
+                        CDN_HOSTS[0]
+                    ),
+                    reply(1, Ok(bytes.clone())),
+                )
+            })
+            .collect();
+        let configs = Arc::new(MockHttp {
+            replies,
+            ..Default::default()
+        });
+        downloader.begin_node(&request);
+        downloader
+            .node_operation(
+                &request,
+                configs.clone(),
+                &warp(),
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert!(
+            configs
+                .calls
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|url| !url.contains("raw.githubusercontent.com"))
+        );
+        assert!(store.load_selection(&request.selection()).is_ok());
+        downloader
+            .refresh(http.clone(), &source, &CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(
+            http.calls
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|url| url.as_str() == RAW_URL)
+                .count(),
+            2
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn warp_retries_only_missing_files_at_the_already_chosen_commit() {
+        let directory = tempfile::tempdir().unwrap();
+        let downloader = DirectoryDownloader::new(CatalogueStore::new(directory.path()));
+        let f = Fixture::new();
+        let servers = format!(
+            "https://raw.githubusercontent.com/GeorgeXie2333/vpngate-list-mirror/{COMMIT}/pool/servers.json"
+        );
+        let countries = format!(
+            "https://raw.githubusercontent.com/GeorgeXie2333/vpngate-list-mirror/{COMMIT}/pool/countries.json"
+        );
+        let http = Arc::new(MockHttp {
+            replies: [
+                (RAW_URL.into(), reply(1, Ok(f.index))),
+                (servers, reply(1, Ok(f.servers))),
+            ]
+            .into(),
+            ..Default::default()
+        });
+        let source = Warp {
+            http: Arc::new(MockHttp {
+                replies: [(countries.clone(), reply(1, Ok(f.countries)))].into(),
+                ..Default::default()
+            }),
+            opens: AtomicUsize::new(0),
+        };
+        downloader
+            .refresh(http, &source, &CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(*source.http.calls.lock().unwrap(), vec![countries]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn cancelling_a_favorite_download_closes_warp_and_never_saves_membership() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = CatalogueStore::new(directory.path());
+        let fixture = Fixture::new();
+        store
+            .save_pool(&fixture.pool(), 42, RAW_URL, false)
+            .unwrap();
+        let server = store.list(&Default::default()).unwrap().servers.remove(0);
+        let request =
+            super::super::pool_tests::node_request(&server, super::super::NodeAction::Favorite);
+        let replies = fixture.configs.into_iter().map(|(path, bytes)| (format!("https://raw.githubusercontent.com/GeorgeXie2333/vpngate-list-mirror/{COMMIT}/{path}"), reply(100_000, Ok(bytes)))).collect();
+        let warp = Warp {
+            http: Arc::new(MockHttp {
+                replies,
+                ..Default::default()
+            }),
+            opens: AtomicUsize::new(0),
+        };
+        let downloader = DirectoryDownloader::new(store.clone());
+        downloader.begin_node(&request);
+        let parent = CancellationToken::new();
+        let cancellation = async {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            parent.cancel();
+        };
+        let (result, ()) = tokio::join!(
+            downloader.node_operation(&request, Arc::new(MockHttp::default()), &warp, &parent),
+            cancellation
+        );
+        assert_eq!(result, Err(DirectoryError::Cancelled));
+        assert_eq!(downloader.node_progress().stage, "cancelled");
+        assert_eq!(warp.http.closed.load(Ordering::SeqCst), 1);
+        assert_eq!(warp.http.active.load(Ordering::SeqCst), 0);
+        assert_eq!(store.list(&Default::default()).unwrap().favorite_count, 0);
+        assert!(store.load_selection(&request.selection()).is_err());
     }
 }

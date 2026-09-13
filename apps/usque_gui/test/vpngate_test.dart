@@ -32,8 +32,47 @@ class GateEngine extends FakeEngineClient implements VpnGateClient {
   Future<EngineCapabilities?> getCapabilities() async =>
       const EngineCapabilities(
         vpnGateTcp: true,
+        vpnGatePoolFavorites: true,
         networkSettingsApplication: true,
       );
+  final favorites = <String, VpnGateServer>{};
+  VpnGateNodeProgress nodeProgress = const VpnGateNodeProgress();
+  bool holdPreparation = false;
+  final nodeRequests = <VpnGateNodeRequest>[];
+  @override
+  Future<void> vpnGateNode(VpnGateNodeRequest request) async {
+    nodeRequests.add(request);
+    if (request.action == 'release') return;
+    if (request.action == 'remove_favorite') {
+      favorites.remove(request.serverId);
+      return;
+    }
+    nodeProgress = VpnGateNodeProgress(
+      operationId: request.operationId,
+      serverId: request.serverId,
+      configSha256: request.configSha256,
+      stage: request.action == 'cancel'
+          ? 'cancelled'
+          : holdPreparation
+          ? 'preparing'
+          : 'complete',
+    );
+    if ((request.action == 'favorite' || request.action == 'update_favorite') &&
+        !holdPreparation) {
+      favorites[request.serverId] = VpnGateServer(
+        id: server.id,
+        ip: server.ip,
+        hostname: server.hostname,
+        configSha256: request.configSha256,
+        countryCode: server.countryCode,
+        favorite: VpnGateFavoriteMetadata(
+          configSha256: request.configSha256,
+          savedAt: DateTime(2026),
+        ),
+      );
+    }
+  }
+
   int refreshes = 0, cancellations = 0, saves = 0;
   String? country;
   List<String>? fields;
@@ -48,15 +87,36 @@ class GateEngine extends FakeEngineClient implements VpnGateClient {
     bool unknownCountry = false,
     int offset = 0,
     int limit = 50,
+    bool favoritesOnly = false,
+    bool statusOnly = false,
   }) async {
     country = countryCode;
     return pending?.future ??
         VpnGateDirectory(
-          servers: nodes,
+          servers: favoritesOnly
+              ? favorites.values.toList()
+              : nodes.map((node) {
+                  final favorite = favorites[node.id]?.favorite;
+                  if (favorite == null) return node;
+                  return VpnGateServer(
+                    id: node.id,
+                    ip: node.ip,
+                    hostname: node.hostname,
+                    configSha256: node.configSha256,
+                    countryCode: node.countryCode,
+                    countryName: node.countryName,
+                    score: node.score,
+                    pingMs: node.pingMs,
+                    speedBps: node.speedBps,
+                    favorite: favorite,
+                  );
+                }).toList(),
+          favoriteCount: favorites.length,
+          nodeProgress: nodeProgress,
           countries: const [
             VpnGateCountry(code: 'JP', name: 'Japan', count: 1),
           ],
-          total: nodes.length,
+          total: favoritesOnly ? favorites.length : nodes.length,
           fetchedAt: fetchedAt ?? DateTime.now(),
           refreshStage: 'complete',
           cached: true,
@@ -127,6 +187,164 @@ Future<AppController> host(
 }
 
 void main() {
+  testWidgets(
+    'favorites can be added and removed while the master switch stays off',
+    (tester) async {
+      final engine = GateEngine();
+      final app = await host(tester, engine);
+      final star = find.byKey(const ValueKey('vpn-gate-favorite-v1:node'));
+      await tester.ensureVisible(star);
+      await tester.tap(star);
+      await tester.pumpAndSettle();
+      expect(engine.favorites.length, 1);
+      expect(app.activeProfile.vpnGate, const VpnGateSettings());
+      expect(engine.saves, 0);
+      final tab = find.byKey(const ValueKey('vpn-gate-favorites'));
+      await tester.ensureVisible(tab);
+      await tester.tap(tab);
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<ListTile>(
+              find.byKey(const ValueKey('vpn-gate-node-v1:node')),
+            )
+            .onTap,
+        isNull,
+      );
+      engine.nodes = [];
+      await tester.tap(find.text('Refresh list'));
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('vpn-gate-node-v1:node')),
+        findsOneWidget,
+      );
+      await tester.ensureVisible(star);
+      await tester.tap(star);
+      await tester.pumpAndSettle();
+      expect(engine.favorites, isEmpty);
+      expect(engine.saves, 0);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets('updating a favorite retains the exact pending configuration', (
+    tester,
+  ) async {
+    final engine = GateEngine();
+    engine.favorites[server.id] = VpnGateServer(
+      id: server.id,
+      ip: server.ip,
+      hostname: server.hostname,
+      countryCode: server.countryCode,
+      configSha256: server.configSha256,
+      favorite: VpnGateFavoriteMetadata(
+        configSha256: server.configSha256,
+        savedAt: DateTime(2026),
+        latestConfigSha256: 'config-two',
+      ),
+    );
+    final app = await host(tester, engine);
+    await tester.tap(find.byKey(const ValueKey('vpn-gate-favorites')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('vpn-gate-toggle')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('vpn-gate-node-v1:node')));
+    await tester.pumpAndSettle();
+    final update = find.text('Update saved configuration');
+    await tester.ensureVisible(update);
+    await tester.tap(update);
+    await tester.pumpAndSettle();
+    expect(engine.nodeRequests.map((r) => r.action), [
+      'prepare',
+      'update_favorite',
+    ]);
+    expect(engine.favorites[server.id]!.configSha256, 'config-two');
+    expect(engine.saves, 0);
+    final apply = find.byKey(const ValueKey('vpn-gate-apply'));
+    await tester.ensureVisible(apply);
+    await tester.tap(apply);
+    await tester.pumpAndSettle();
+    expect(app.activeProfile.vpnGate.configSha256, 'config-one');
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets(
+    'disconnect during preparation prevents a late save or reconnect',
+    (tester) async {
+      final engine = GateEngine()..holdPreparation = true;
+      final app = await host(tester, engine);
+      await tester.tap(find.byKey(const ValueKey('vpn-gate-toggle')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('vpn-gate-node-v1:node')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('vpn-gate-apply')));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(engine.nodeRequests.single.action, 'prepare');
+      expect(engine.saves, 0);
+      await app.disconnectForExit();
+      final request = engine.nodeRequests.first;
+      engine.nodeProgress = VpnGateNodeProgress(
+        operationId: request.operationId,
+        stage: 'complete',
+      );
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+      expect(engine.saves, 0);
+      expect(engine.nodeRequests.last.action, 'cancel');
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  test(
+    'pool, favorites and task metadata survive protobuf decoding without config bodies',
+    () {
+      const codec = ControlCodec();
+      final node = ControlPayloadWriter()
+        ..string(1, 'id')
+        ..string(10, 'current-hash')
+        ..message(
+          12,
+          (ControlPayloadWriter()
+                ..string(2, '2026-09-13T00:00:00.000Z')
+                ..boolean(3, true)
+                ..string(4, 'unknown')
+                ..boolean(7, true))
+              .takeBytes(),
+        )
+        ..message(
+          13,
+          (ControlPayloadWriter()
+                ..string(1, 'saved-hash')
+                ..unsigned(2, 42)
+                ..string(3, 'current-hash'))
+              .takeBytes(),
+        );
+      final directory = ControlPayloadWriter()
+        ..message(1, node.takeBytes())
+        ..unsigned(12, 1)
+        ..string(13, '2026-09-13T00:00:00.000Z')
+        ..message(
+          14,
+          (ControlPayloadWriter()
+                ..string(1, 'operation')
+                ..string(4, 'preparing'))
+              .takeBytes(),
+        );
+      final frame = codec.frame(
+        (ControlPayloadWriter()
+              ..string(1, 'r')
+              ..message(23, directory.takeBytes()))
+            .takeBytes(),
+      );
+      final result = codec.decodeResponse(frame, 'r').vpnGateDirectory!;
+      expect(result.favoriteCount, 1);
+      expect(result.servers.single.favorite!.configSha256, 'saved-hash');
+      expect(result.servers.single.pool!.tcpStatus, 'unknown');
+      expect(result.nodeProgress.running, isTrue);
+      expect(result.sourceFetchedAt, DateTime.utc(2026, 9, 13));
+    },
+  );
   test(
     'old profiles keep Gate disabled and new settings round-trip without configuration bytes',
     () {

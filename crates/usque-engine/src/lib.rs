@@ -404,6 +404,14 @@ impl ControlService {
             .parent()
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
+        let retained: Vec<_> = config
+            .network
+            .vpn_gate
+            .selection
+            .clone()
+            .into_iter()
+            .collect();
+        let _ = usque_core::vpngate::CatalogueStore::new(&cache_dir).recover_references(&retained);
         let (geo_progress_tx, _) = tokio::sync::broadcast::channel(16);
         let (network_quality_tx, _) = watch::channel(network_quality::disconnected_snapshot());
         let (settings_tx, _) = watch::channel(0);
@@ -749,6 +757,10 @@ impl ControlService {
             self.cancel_gate_refresh().await;
         }
         match payload {
+            control_request::Payload::VpnGateNode(request) => {
+                self.vpn_gate_node(request).await?;
+                Ok(control_response::Payload::Empty(v1::Empty {}))
+            }
             control_request::Payload::ListVpnGate(request) => {
                 Ok(control_response::Payload::VpnGateDirectory(Box::new(
                     self.list_vpn_gate(request).await?,
@@ -2393,6 +2405,18 @@ impl ControlService {
             .transition(ConnectionPhase::Disconnected)?
             .clone();
         self.publish_settings_runtime(None, None).await;
+        let retained: Vec<_> = self
+            .config
+            .read()
+            .await
+            .network
+            .vpn_gate
+            .selection
+            .clone()
+            .into_iter()
+            .collect();
+        let store = usque_core::vpngate::CatalogueStore::new(&self.cache_dir);
+        let _ = tokio::task::spawn_blocking(move || store.retain_selections(&retained)).await;
         Ok(snapshot)
     }
 
@@ -3915,7 +3939,25 @@ impl ControlService {
         let (next, result) = tokio::task::spawn_blocking(move || store.update(change))
             .await
             .map_err(|error| ControlServiceError::PersistenceWorker(error.to_string()))??;
+        let gate_changed = next.network.vpn_gate.selection != config.network.vpn_gate.selection;
         *config = next;
+        if gate_changed {
+            let mut retained: Vec<_> = config
+                .network
+                .vpn_gate
+                .selection
+                .clone()
+                .into_iter()
+                .collect();
+            if let Some(server) = &self.gate_status.borrow().current_server {
+                retained.push(usque_core::vpngate::Selection {
+                    server_id: server.id.clone(),
+                    config_sha256: server.config_sha256.clone(),
+                });
+            }
+            let store = usque_core::vpngate::CatalogueStore::new(&self.cache_dir);
+            let _ = tokio::task::spawn_blocking(move || store.retain_selections(&retained)).await;
+        }
         Ok(result)
     }
 }
@@ -4744,6 +4786,7 @@ fn proxy_to_proto(proxy: &ProxySettings) -> v1::ProxySettings {
 fn current_capabilities() -> v1::Capabilities {
     v1::Capabilities {
         vpn_gate_tcp: true,
+        vpn_gate_pool_favorites: true,
         l4_tcp: true,
         l4_tun_tcp: cfg!(windows),
         l4_dns_conversion: true,

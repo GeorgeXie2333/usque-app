@@ -183,8 +183,11 @@ abstract interface class VpnGateClient {
     bool unknownCountry = false,
     int offset = 0,
     int limit = 50,
+    bool favoritesOnly = false,
+    bool statusOnly = false,
   });
   Future<void> refreshVpnGate({bool cancel = false});
+  Future<void> vpnGateNode(VpnGateNodeRequest request);
 }
 
 class MethodChannelEngineClient implements EngineClient, VpnGateClient {
@@ -194,12 +197,16 @@ class MethodChannelEngineClient implements EngineClient, VpnGateClient {
     bool unknownCountry = false,
     int offset = 0,
     int limit = 50,
+    bool favoritesOnly = false,
+    bool statusOnly = false,
   }) async {
     final result = await _invoke<Map<Object?, Object?>>('listVpnGate', {
       'country_code': countryCode,
       'unknown_country': unknownCountry,
       'offset': offset,
       'limit': limit,
+      'favorites_only': favoritesOnly,
+      'status_only': statusOnly,
     });
     if (result == null) {
       throw const EngineException(
@@ -213,6 +220,11 @@ class MethodChannelEngineClient implements EngineClient, VpnGateClient {
   @override
   Future<void> refreshVpnGate({bool cancel = false}) async {
     await _invoke<Object?>('refreshVpnGate', {'cancel': cancel});
+  }
+
+  @override
+  Future<void> vpnGateNode(VpnGateNodeRequest request) async {
+    await _invoke<Object?>('vpnGateNode', request.toMap());
   }
 
   @override

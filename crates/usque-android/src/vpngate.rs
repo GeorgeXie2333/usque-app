@@ -81,12 +81,31 @@ pub(crate) struct Request {
     pub cancel: bool,
     #[serde(flatten)]
     query: ListQuery,
+    #[serde(flatten)]
+    node: NodeRequest,
+}
+impl Request {
+    pub fn needs_fetch(&self) -> bool {
+        (self.command == "refresh" && !self.cancel)
+            || (self.command == "node"
+                && matches!(
+                    self.node.action,
+                    NodeAction::Prepare | NodeAction::Favorite | NodeAction::UpdateFavorite
+                ))
+    }
 }
 pub(crate) fn parse_request(json: &str) -> Result<Request, String> {
     if json.len() > 4096 {
         return Err("VPN_GATE_REQUEST_INVALID".into());
     }
-    serde_json::from_str(json).map_err(|_| "VPN_GATE_REQUEST_INVALID".into())
+    let request: Request = serde_json::from_str(json).map_err(|_| "VPN_GATE_REQUEST_INVALID")?;
+    if request.command == "node" {
+        request
+            .node
+            .validate()
+            .map_err(|_| "VPN_GATE_REQUEST_INVALID")?;
+    }
+    Ok(request)
 }
 
 pub(crate) struct FetchContext {
@@ -116,6 +135,17 @@ pub(crate) fn command(
         .lock()
         .map_err(|_| "VPN_GATE_UNAVAILABLE")?;
     if slot.is_none() {
+        let config = ConfigStore::new(path)
+            .load()
+            .map_err(|_| "VPN_GATE_UNAVAILABLE")?;
+        let mut retained: Vec<_> = config.network.vpn_gate.selection.into_iter().collect();
+        if let Some(server) = &status.current_server {
+            retained.push(Selection {
+                server_id: server.id.clone(),
+                config_sha256: server.config_sha256.clone(),
+            });
+        }
+        let _ = CatalogueStore::new(cache).recover_references(&retained);
         *slot = Some(Controller {
             path: path.into(),
             downloader: Arc::new(DirectoryDownloader::new(CatalogueStore::new(cache))),
@@ -126,10 +156,53 @@ pub(crate) fn command(
     if controller.path != path {
         return Err("VPN_GATE_REQUEST_INVALID".into());
     }
+    if request.command == "node" {
+        match request.node.action {
+            NodeAction::Cancel => controller
+                .downloader
+                .cancel_node(&request.node.operation_id),
+            NodeAction::Release => {
+                CatalogueStore::new(cache).release_prepared(&request.node.selection());
+            }
+            NodeAction::RemoveFavorite => {
+                controller
+                    .downloader
+                    .cancel_node_for(&request.node.server_id);
+                let mut retained: Vec<_> = ConfigStore::new(path)
+                    .load()
+                    .map_err(|_| "VPN_GATE_UNAVAILABLE")?
+                    .network
+                    .vpn_gate
+                    .selection
+                    .into_iter()
+                    .collect();
+                if let Some(server) = &status.current_server {
+                    retained.push(Selection {
+                        server_id: server.id.clone(),
+                        config_sha256: server.config_sha256.clone(),
+                    });
+                }
+                CatalogueStore::new(cache)
+                    .remove_favorite(&request.node, &retained)
+                    .map_err(|e| e.to_string())?;
+            }
+            _ => {
+                if let Some(mut previous) = controller.job.take()
+                    && !previous.stop()
+                {
+                    controller.job = Some(previous);
+                    return Err("VPN_GATE_CLEANUP_PENDING".into());
+                }
+                controller.downloader.begin_node(&request.node);
+            }
+        }
+    }
+    let node_request = (request.command == "node").then(|| request.node.clone());
     match request.command.as_str() {
         "list" => {}
         "refresh" if request.cancel => {}
-        "refresh" => {
+        "node" if !request.needs_fetch() => {}
+        "refresh" | "node" => {
             if !controller.job.as_ref().is_some_and(|job| !job.finished()) {
                 if let Some(mut previous) = controller.job.take() {
                     previous.stop();
@@ -184,7 +257,11 @@ pub(crate) fn command(
                                     if !same { watch_cancel.cancel(); break; }
                                 }
                             }));
-                            let _ = downloader.refresh(primary, &source, &cancel).await;
+                            if let Some(request) = node_request {
+                                let _ = downloader.node_operation(&request, primary, &source, &cancel).await;
+                            } else {
+                                let _ = downloader.refresh(primary, &source, &cancel).await;
+                            }
                         });
                     }
                 }).map_err(|_| "VPN_GATE_UNAVAILABLE")?;
@@ -198,7 +275,15 @@ pub(crate) fn command(
         _ => return Err("VPN_GATE_REQUEST_INVALID".into()),
     }
     let store = CatalogueStore::new(cache);
-    let list = match store.list(&request.query) {
+    // Node commands acknowledge a local mutation/job dispatch. A corrupt
+    // disposable pool cache must not turn that successful command into an error.
+    let mut query = request.query;
+    if request.command == "node" {
+        query.favorites_only = true;
+        query.limit = 1;
+        query.status_only = true;
+    }
+    let list = match store.list(&query) {
         Ok(list) => list,
         Err(_) if request.cancel => Default::default(),
         Err(_) => return Err("VPN_GATE_CACHE_INVALID".into()),
@@ -228,6 +313,7 @@ pub(crate) fn command(
         });
     }
     let mut value = serde_json::to_value(&list).map_err(|_| "VPN_GATE_UNAVAILABLE")?;
+    value["node_progress"] = json!(controller.downloader.node_progress());
     value["refresh_stage"] = json!(progress.stage);
     value["refresh_failures"] = json!(
         progress
@@ -241,19 +327,26 @@ pub(crate) fn command(
             ))
             .collect::<Vec<_>>()
     );
-    value["cached"] =
-        json!(list.fetched_at_unix_ms.is_some() && progress.stage != DownloadStage::Complete);
+    value["cached"] = json!(
+        list.fetched_at_unix_ms.is_some()
+            && (progress.stage != DownloadStage::Complete
+                || progress.fetched_at_unix_ms != list.fetched_at_unix_ms)
+    );
     value["status"] = serde_json::to_value(status).unwrap_or(Value::Null);
-    let saved = ConfigStore::new(path)
-        .load()
-        .ok()
-        .and_then(|config| config.network.vpn_gate.selection)
-        .and_then(|selection| {
-            store
-                .load_selection(&selection)
-                .ok()
-                .map(|(server, _)| server)
-        });
+    let saved = if query.status_only {
+        None
+    } else {
+        ConfigStore::new(path)
+            .load()
+            .ok()
+            .and_then(|config| config.network.vpn_gate.selection)
+            .and_then(|selection| {
+                store
+                    .load_selection(&selection)
+                    .ok()
+                    .map(|(server, _)| server)
+            })
+    };
     value["saved_server"] = json!(saved);
     serde_json::to_string(&value).map_err(|_| "VPN_GATE_UNAVAILABLE".into())
 }

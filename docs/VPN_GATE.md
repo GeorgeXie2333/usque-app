@@ -63,36 +63,77 @@ the probe cancels pending requests and retries for the old session.
 
 ## Directory and saved configuration
 
-The mirror's [schema contract](https://github.com/GeorgeXie2333/vpngate-list-mirror/blob/main/docs/protocol.md)
-is validated in `usque-core::vpngate`. The client requests the exact Raw
-`refs/heads/main/data/servers.json` first. Only after failure does it race the
-five complete, validated CDN responses at `cdn`, `fastly`, `gcore`, `testingcf`
-and `quantil.jsdelivr.net`, using the mirror's `@latest/data/servers.json` path.
-A fast invalid response cannot win. Remaining requests are dropped after a
-validated winner. If all fail, the same sequence runs once through WARP.
+The mirror's [cumulative pool contract](https://github.com/GeorgeXie2333/vpngate-list-mirror/blob/main/docs/pool.md)
+is validated in `usque-core::vpngate`. Discovery requests Raw
+`main/pool/latest.json`, then races the five complete, validated CDN responses
+at `cdn`, `fastly`, `gcore`, `testingcf` and `quantil.jsdelivr.net`, using
+`@latest/pool/latest.json`. A fast invalid response cannot win.
 
-Connected refreshes use the final session first and reuse its WARP underlay
-for fallback. Offline fallback creates an account-bound headless WARP session
-and releases it after completion or cancellation. It creates no user listener,
-TUN or system proxy. Refresh operations coalesce, cancel on account/lifecycle
-changes and expose bounded stage errors. Each request has a 5-second connect
-deadline and a 15-second response deadline. Redirects and system proxies are
-disabled. Identity encoding is requested; other encodings are rejected, so
-decompression cannot bypass the 16 MiB entity limit.
+The chosen index pins the complete data commit. Both `pool/servers.json` and
+`pool/countries.json` must match their byte lengths, SHA-256 and schema, and
+agree on countries, counts and source acquisition time before an atomic cache
+switch. Country filters derive from that node snapshot. Older indexes cannot
+replace a newer valid cache. A corrupt downloadable cache can be repaired by
+a completely validated refresh without deleting favorites.
 
-Schema version, count, stable IDs, field types, canonical Base64, configuration
-size and SHA-256 are checked before atomic cache replacement. Limits are 5,000
-records and 128 KiB per OpenVPN configuration. Country counts and pages derive
-from that same snapshot. The source score controls ordering; source Ping and
-speed are not measurements from this device. Cached data appears immediately;
-the foreground page refreshes after an hour and supports manual refresh.
-Acquisition time is not an upstream update timestamp. CDN cache freshness is
-not guaranteed to match the mirror's hourly schedule.
+A Raw timeout disables Raw for the rest of that acquisition and its WARP
+fallback. Lazy configuration requests inherit the selected snapshot's download
+policy. A new directory refresh evaluates Raw again. All remaining requests
+race the five CDN hosts at the fixed commit; only discovery uses `@latest`.
+Other Raw errors enter CDN fallback without permanently disabling Raw. If a
+primary acquisition fails, WARP retries once, retaining the already selected
+index and completed files. Failures preserve the previous cache.
 
-A saved selection pins both node ID and configuration SHA-256, with its own
-configuration snapshot. IPC and Kotlin expose bounded metadata pages, not
-configuration bodies. Applying a stale draft requires reselection. Refresh
-does not rewrite the pinned snapshot.
+Connected refreshes and configuration downloads use the final session first
+and reuse its WARP underlay for fallback. Offline fallback creates an
+account-bound headless WARP session and releases it on completion or
+cancellation. It creates no user listener, TUN or system proxy. Jobs cancel on
+account/lifecycle changes. Each request has a five-second connection deadline
+and a fifteen-second complete-response deadline. Redirects and system proxies
+are disabled. Identity encoding is required. Limits are 64 KiB per index,
+16 MiB per directory, 5,000 nodes, 256 KiB per configuration JSON and 128 KiB
+per decoded OpenVPN configuration.
+
+Configuration is fetched only for explicit save, favorite or favorite-update
+operations. The configuration JSON and its decoded original Base64 content
+have separate byte lengths and hashes. Both are checked before applying the
+existing OpenVPN profile allowlist. A metadata TCP candidate is not a promise
+of native compatibility or a successful VPN connection. Node jobs acknowledge
+immediately and query in-memory progress without repeatedly parsing the pool;
+neither IPC nor Kotlin sends
+configuration bodies to Flutter. Saving settings only pins a prepared local
+reference. The UI also checks account and connection intent before applying a
+completed preparation, so a late result cannot undo Disconnect.
+
+**Cumulative pool** and **Favorites** share the country filter and local flags.
+The pool retains source score ordering; favorites use descending saved time.
+Source scores, ping and speed are not local measurements. Workers' TCP
+observations include their timestamps and do not establish OpenVPN, TLS or
+application connectivity. Missing or untested nodes are not treated as proven
+offline. The page marks observations older than twelve hours and source data
+older than three or twenty-four hours. Local acquisition time and the mirror's
+source acquisition time are displayed separately; neither is an upstream
+update timestamp. Hourly foreground refreshes do not guarantee CDN freshness.
+
+Favorites are device-local and shared across WARP accounts. Each stable node ID
+has one saved configuration snapshot, stored beside application configuration
+(Android uses `noBackupFilesDir`), separately from the downloadable pool cache.
+Configurations are deduplicated by content hash. Refresh, node disappearance
+and ordinary cache cleanup do not delete favorites or replace their bytes.
+New configurations are explicitly updated with an expected-old-hash check.
+Membership revision checks prevent a removed favorite from being resurrected
+by an old update. Limits are 5,000 favorites and 64 MiB of referenced local
+configuration objects; favorites are never automatically evicted.
+
+Removing a favorite does not disconnect or change the saved selection. Current
+and prepared selections retain independent references. Updating or removing a
+favorite also retains any pending local draft until it is saved or discarded.
+Unreferenced objects are collected after membership/settings changes; startup
+clears abandoned preparation references. Legacy inline saved selections remain
+readable and migrate on demand; they are not automatically added to favorites.
+The master switch must be on to select a server, while favorite management
+remains available with it off. Current, saved and pending selections retain
+their own node metadata and configuration hashes.
 
 ## Native boundary and verification
 

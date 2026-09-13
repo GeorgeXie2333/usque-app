@@ -1,13 +1,20 @@
 //! Public directory validation and pinned VPN Gate selection. Downloaded
 //! configuration bytes remain in the engine; UI responses contain metadata.
 mod download;
+mod favorites;
+mod pool;
 mod profile;
+mod transfer;
+pub use favorites::{FavoriteMetadata, NodeAction, NodeProgress, NodeRequest};
+pub use pool::{MAX_CONFIG_JSON_BYTES, MAX_INDEX_BYTES, PoolCatalogue, PoolIndex, PoolMetadata};
+#[cfg(test)]
+mod pool_tests;
 #[cfg(test)]
 mod tests;
 pub use download::{
     CDN_HOSTS, CDN_PATH, CONNECT_TIMEOUT, CatalogueHttp, DirectCatalogueHttp, DirectoryDownloader,
     DownloadProgress, DownloadStage, RAW_URL, RESPONSE_TIMEOUT, StageFailure, WarpCatalogueSource,
-    approved_url,
+    approved_url, response_limit,
 };
 pub use profile::{MAX_CONFIG_BYTES, PreparedProfile, UnsupportedReason, prepare_profile};
 
@@ -48,6 +55,10 @@ pub enum DirectoryError {
     Cancelled,
     #[error("VPN Gate directory sources and WARP fallback are unavailable")]
     Unavailable,
+    #[error("VPN Gate favorite changed; reload before updating it")]
+    FavoriteChanged,
+    #[error("VPN Gate favorites storage is full")]
+    FavoriteLimit,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -147,6 +158,10 @@ pub struct ServerSummary {
     pub num_vpn_sessions: Option<u64>,
     pub config_sha256: String,
     pub unsupported_reason: Option<UnsupportedReason>,
+    #[serde(default)]
+    pub pool: Option<PoolMetadata>,
+    #[serde(default)]
+    pub favorite: Option<FavoriteMetadata>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -167,6 +182,10 @@ pub struct ListQuery {
     pub limit: usize,
     #[serde(default)]
     pub include_unsupported: bool,
+    #[serde(default)]
+    pub favorites_only: bool,
+    #[serde(default)]
+    pub status_only: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -177,6 +196,8 @@ pub struct ServerList {
     pub source_server_count: usize,
     pub fetched_at_unix_ms: Option<u64>,
     pub source_url: Option<String>,
+    pub source_fetched_at: Option<String>,
+    pub favorite_count: usize,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -196,6 +217,7 @@ struct WireServer {
     speed_bps: Option<u64>,
     #[serde(deserialize_with = "required_nullable")]
     num_vpn_sessions: Option<u64>,
+    #[serde(default)]
     openvpn_config_base64: String,
     openvpn_config_sha256: String,
     openvpn_config_bytes: usize,
@@ -341,6 +363,29 @@ impl Catalogue {
 fn validate_server(
     server: &WireServer,
 ) -> Result<(ServerSummary, Zeroizing<String>), DirectoryError> {
+    let ip = validate_server_metadata(server)?;
+    let invalid = DirectoryError::InvalidDirectory;
+    let decoded = Zeroizing::new(
+        STANDARD
+            .decode(&server.openvpn_config_base64)
+            .map_err(|_| invalid.clone())?,
+    );
+    if decoded.len() != server.openvpn_config_bytes
+        || STANDARD.encode(&decoded) != server.openvpn_config_base64
+        || hash(&decoded) != server.openvpn_config_sha256
+    {
+        return Err(invalid);
+    }
+    let content = Zeroizing::new(
+        std::str::from_utf8(&decoded)
+            .map_err(|_| invalid.clone())?
+            .to_owned(),
+    );
+    let unsupported_reason = prepare_profile(&content, ip).err();
+    Ok((server_summary(server, ip, unsupported_reason), content))
+}
+
+fn validate_server_metadata(server: &WireServer) -> Result<IpAddr, DirectoryError> {
     let invalid = DirectoryError::InvalidDirectory;
     let ip: IpAddr = server.ip.parse().map_err(|_| invalid.clone())?;
     if server.ip != ip.to_string()
@@ -403,39 +448,29 @@ fn validate_server(
     {
         return Err(invalid);
     }
-    let decoded = Zeroizing::new(
-        STANDARD
-            .decode(&server.openvpn_config_base64)
-            .map_err(|_| invalid.clone())?,
-    );
-    if decoded.len() != server.openvpn_config_bytes
-        || STANDARD.encode(&decoded) != server.openvpn_config_base64
-        || hash(&decoded) != server.openvpn_config_sha256
-    {
-        return Err(invalid);
+    Ok(ip)
+}
+
+fn server_summary(
+    server: &WireServer,
+    ip: IpAddr,
+    unsupported_reason: Option<UnsupportedReason>,
+) -> ServerSummary {
+    ServerSummary {
+        id: server.id.clone(),
+        hostname: server.hostname.clone(),
+        ip,
+        country_code: server.country_code.clone(),
+        country_name: server.country_name.clone(),
+        score: server.score,
+        ping_ms: server.ping_ms,
+        speed_bps: server.speed_bps,
+        num_vpn_sessions: server.num_vpn_sessions,
+        config_sha256: server.openvpn_config_sha256.clone(),
+        unsupported_reason,
+        pool: None,
+        favorite: None,
     }
-    let content = Zeroizing::new(
-        std::str::from_utf8(&decoded)
-            .map_err(|_| invalid.clone())?
-            .to_owned(),
-    );
-    let unsupported_reason = prepare_profile(&content, ip).err();
-    Ok((
-        ServerSummary {
-            id: server.id.clone(),
-            hostname: server.hostname.clone(),
-            ip,
-            country_code: server.country_code.clone(),
-            country_name: server.country_name.clone(),
-            score: server.score,
-            ping_ms: server.ping_ms,
-            speed_bps: server.speed_bps,
-            num_vpn_sessions: server.num_vpn_sessions,
-            config_sha256: server.openvpn_config_sha256.clone(),
-            unsupported_reason,
-        },
-        content,
-    ))
 }
 
 pub fn valid_hash(value: &str) -> bool {
@@ -484,7 +519,7 @@ impl CatalogueStore {
         if record.version != 1 {
             return Err(DirectoryError::UnsupportedVersion);
         }
-        if !approved_url(&record.source_url) {
+        if !download::legacy_cache_url(&record.source_url) {
             return Err(DirectoryError::InvalidDirectory);
         }
         Ok(Some((
@@ -494,13 +529,7 @@ impl CatalogueStore {
         )))
     }
     pub fn list(&self, query: &ListQuery) -> Result<ServerList, DirectoryError> {
-        let Some((catalogue, time, source)) = self.load()? else {
-            return Ok(ServerList::default());
-        };
-        let mut result = catalogue.list(query);
-        result.fetched_at_unix_ms = Some(time);
-        result.source_url = Some(source);
-        Ok(result)
+        self.list_with_favorites(query)
     }
     pub fn save(
         &self,
@@ -520,8 +549,17 @@ impl CatalogueStore {
         atomic_json(&self.directory.join("directory.json"), &record)
     }
     pub fn pin(&self, selection: &Selection) -> Result<ServerSummary, DirectoryError> {
+        let _guard = favorites::STORE_WRITE
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         if !valid_id(&selection.server_id) || !valid_hash(&selection.config_sha256) {
             return Err(DirectoryError::StaleSelection);
+        }
+        if let Ok(node) = self.local_node(selection) {
+            let summary = self.validate_node(&node)?.0;
+            atomic_json(&self.node_path("selected", selection), &node)?;
+            let _ = std::fs::remove_file(self.node_path("prepared", selection));
+            return Ok(summary);
         }
         let (catalogue, _, _) = self.load()?.ok_or(DirectoryError::StaleSelection)?;
         let (summary, _) = catalogue.prepare(selection)?;
@@ -535,6 +573,9 @@ impl CatalogueStore {
     ) -> Result<(ServerSummary, PreparedProfile), DirectoryError> {
         if !valid_id(&selection.server_id) || !valid_hash(&selection.config_sha256) {
             return Err(DirectoryError::StaleSelection);
+        }
+        if let Ok(node) = self.local_node(selection) {
+            return self.validate_node(&node);
         }
         let bytes = bounded_read(&self.selection_path(selection), 256 * 1024)
             .map_err(|_| DirectoryError::CacheIo)?;

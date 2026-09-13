@@ -40,11 +40,15 @@ class AppController extends ChangeNotifier {
   ];
 
   final EngineClient _engine;
+  String newVpnGateOperationId() => _newUuidV4();
+  int get connectionIntent => _connectionIntent;
   Future<VpnGateDirectory> listVpnGate({
     String? countryCode,
     bool unknownCountry = false,
     int offset = 0,
     int limit = 50,
+    bool favoritesOnly = false,
+    bool statusOnly = false,
   }) {
     final engine = _engine;
     if (engine is VpnGateClient) {
@@ -53,6 +57,8 @@ class AppController extends ChangeNotifier {
         unknownCountry: unknownCountry,
         offset: offset,
         limit: limit,
+        favoritesOnly: favoritesOnly,
+        statusOnly: statusOnly,
       );
     }
     return Future.error(
@@ -72,6 +78,20 @@ class AppController extends ChangeNotifier {
       const EngineException(
         'VPN_GATE_UNAVAILABLE',
         'The catalogue service is unavailable.',
+      ),
+    );
+  }
+
+  Future<void> vpnGateNode(VpnGateNodeRequest request) {
+    final engine = _engine;
+    if (engine is VpnGateClient &&
+        (engineCapabilities?.vpnGatePoolFavorites ?? false)) {
+      return (engine as VpnGateClient).vpnGateNode(request);
+    }
+    return Future.error(
+      const EngineException(
+        'VPN_GATE_UNAVAILABLE',
+        'The node preparation service is unavailable.',
       ),
     );
   }

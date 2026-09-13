@@ -124,7 +124,15 @@ internal class VpnControlClient(
         }
         val id = allocateRequestId()
         val request = org.json.JSONObject(json)
-        if (request.optString("command") == "refresh" && !request.optBoolean("cancel")) vpnGateRefreshPending = true
+        if ((request.optString("command") == "refresh" && !request.optBoolean("cancel")) ||
+            (
+                request.optString("command") == "node" &&
+                    request.optString("action") in setOf("prepare", "favorite", "update_favorite")
+            )
+        ) {
+            vpnGateRefreshPending =
+                true
+        }
         pendingVpnGate[id] = SettingsRequest(json, result)
         scheduler.postDelayed(50_000L, "vpn-gate-$id") {
             pendingVpnGate
@@ -165,7 +173,8 @@ internal class VpnControlClient(
         if (parsed == null) {
             request.result.error(error ?: "VPN_GATE_UNAVAILABLE", "The catalogue request failed.", null)
         } else {
-            if (parsed["refresh_stage"] in setOf("complete", "failed", "cancelled") ||
+            val nodeRunning = (parsed["node_progress"] as? Map<*, *>)?.get("stage") == "preparing"
+            if ((!nodeRunning && parsed["refresh_stage"] in setOf("complete", "failed", "cancelled")) ||
                 org.json.JSONObject(request.json.orEmpty()).optBoolean("cancel")
             ) {
                 vpnGateRefreshPending = false

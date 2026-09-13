@@ -32,12 +32,16 @@ class DesktopEngineClient implements EngineClient, VpnGateClient {
     bool unknownCountry = false,
     int offset = 0,
     int limit = 50,
+    bool favoritesOnly = false,
+    bool statusOnly = false,
   }) => _serialized(() async {
     final request = ControlPayloadWriter()
       ..string(1, countryCode ?? '')
       ..boolean(2, unknownCountry)
       ..unsigned(3, offset)
-      ..unsigned(4, limit);
+      ..unsigned(4, limit)
+      ..boolean(6, favoritesOnly)
+      ..boolean(7, statusOnly);
     final response = await _request(43, request.takeBytes());
     return response.vpnGateDirectory ??
         (throw const EngineException(
@@ -50,6 +54,19 @@ class DesktopEngineClient implements EngineClient, VpnGateClient {
     await _request(
       44,
       (ControlPayloadWriter()..boolean(1, cancel)).takeBytes(),
+    );
+  });
+  @override
+  Future<void> vpnGateNode(VpnGateNodeRequest request) => _serialized(() async {
+    await _request(
+      45,
+      (ControlPayloadWriter()
+            ..string(1, request.operationId)
+            ..string(2, request.action)
+            ..string(3, request.serverId)
+            ..string(4, request.configSha256)
+            ..string(5, request.expectedFavoriteHash))
+          .takeBytes(),
     );
   });
   @override

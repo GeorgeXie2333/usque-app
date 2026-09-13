@@ -436,6 +436,29 @@ Map<String, Object?> _decodeVpnGate(_ProtoReader reader, String kind) {
       9: ('num_vpn_sessions', 'u'),
       10: ('config_sha256', 's'),
       11: ('unsupported_reason', 's'),
+      12: ('pool', 'pool'),
+      13: ('favorite', 'favorite'),
+    },
+    'pool': {
+      1: ('first_seen_at', 's'),
+      2: ('last_seen_at', 's'),
+      3: ('present_in_latest_source', 'b'),
+      4: ('tcp_status', 's'),
+      5: ('tcp_checked_at', 's'),
+      6: ('tcp_connect_ms', 'u'),
+      7: ('in_pool', 'b'),
+    },
+    'favorite': {
+      1: ('config_sha256', 's'),
+      2: ('saved_at_unix_ms', 'u'),
+      3: ('latest_config_sha256', 's'),
+    },
+    'node_progress': {
+      1: ('operation_id', 's'),
+      2: ('server_id', 's'),
+      3: ('config_sha256', 's'),
+      4: ('stage', 's'),
+      5: ('error', 's'),
     },
     'country': {
       1: ('country_code', 's'),
@@ -468,6 +491,9 @@ Map<String, Object?> _decodeVpnGate(_ProtoReader reader, String kind) {
       9: ('cached', 'b'),
       10: ('status', 'status'),
       11: ('saved_server', 'server'),
+      12: ('favorite_count', 'u'),
+      13: ('source_fetched_at', 's'),
+      14: ('node_progress', 'node_progress'),
     },
   };
   final schema = schemas[kind]!;
@@ -1420,6 +1446,7 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
   var l4TunTcp = false;
   var l4DnsConversion = false;
   var vpnGateTcp = false;
+  var vpnGatePoolFavorites = false;
   final congestionAlgorithms = <CongestionControlAlgorithm>[];
   var networkQuality = false;
   var encryptedDirectDns = false;
@@ -1438,6 +1465,8 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
         l4DnsConversion = reader.varint(field) != 0;
       case 29:
         vpnGateTcp = reader.varint(field) != 0;
+      case 30:
+        vpnGatePoolFavorites = reader.varint(field) != 0;
       case 20:
         networkQuality = reader.varint(field) != 0;
       case 21:
@@ -1470,6 +1499,7 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
     l4TunTcp: l4TunTcp,
     l4DnsConversion: l4DnsConversion,
     vpnGateTcp: vpnGateTcp,
+    vpnGatePoolFavorites: vpnGatePoolFavorites,
     h3CongestionControlAlgorithms: List.unmodifiable(congestionAlgorithms),
     networkQuality: networkQuality,
     encryptedDirectDns: encryptedDirectDns,

@@ -192,20 +192,28 @@ impl InternalNetwork {
                 result = timeout_at(deadline, resolver.resolve(host)) =>
                     result.map_err(|_| DirectoryError::Timeout)?.map_err(|_| DirectoryError::Request)?,
             };
+            let mut failure = DirectoryError::Request;
             for ip in addresses {
-                if let Ok(stream) = self
+                match self
                     .connect_address(SocketAddr::new(ip, port), cancel, deadline)
                     .await
                 {
-                    return Ok(stream);
+                    Ok(stream) => return Ok(stream),
+                    Err(DialError::Cancelled) => return Err(DirectoryError::Cancelled),
+                    Err(DialError::Timeout) => failure = DirectoryError::Timeout,
+                    Err(_) => {}
                 }
             }
-            Err(DirectoryError::Request)
+            Err(failure)
         } else {
             let target = TcpTarget::new(host, port).map_err(|_| DirectoryError::Request)?;
             self.connect(target, cancel, deadline)
                 .await
-                .map_err(|_| DirectoryError::Request)
+                .map_err(|error| match error {
+                    DialError::Timeout => DirectoryError::Timeout,
+                    DialError::Cancelled => DirectoryError::Cancelled,
+                    _ => DirectoryError::Request,
+                })
         }
     }
 
@@ -322,6 +330,54 @@ impl CatalogueHttp for InternalNetwork {
         if !approved_url(url) {
             return Err(DirectoryError::Request);
         }
-        self.get_https(url, MAX_DIRECTORY_BYTES, cancellation).await
+        self.get_https(url, usque_core::vpngate::response_limit(url), cancellation)
+            .await
+    }
+}
+
+#[cfg(test)]
+mod catalogue_tests {
+    use super::*;
+    struct FailureDialer(DialError);
+    #[async_trait::async_trait]
+    impl TcpDialer for FailureDialer {
+        async fn connect(
+            &self,
+            _: TcpTarget,
+            _: Instant,
+            _: &CancellationToken,
+            _: FlowClass,
+        ) -> Result<TcpStream, DialError> {
+            Err(self.0)
+        }
+    }
+    #[tokio::test]
+    async fn immediate_underlay_timeouts_and_cancellation_keep_their_type() {
+        for (dial, expected) in [
+            (DialError::Timeout, DirectoryError::Timeout),
+            (DialError::Cancelled, DirectoryError::Cancelled),
+            (DialError::Refused, DirectoryError::Request),
+        ] {
+            let (_sender, health) = watch::channel(RuntimeHealth::Connected {
+                path: crate::netstack::RuntimePath {
+                    transport: usque_core::Transport::Http3,
+                    endpoint_family: usque_core::AddressFamily::Ipv4,
+                    ipv4_available: true,
+                    ipv6_available: false,
+                },
+                reconnect_count: 0,
+            });
+            let network = InternalNetwork::for_streams(
+                Arc::new(FailureDialer(dial)),
+                health,
+                CancellationToken::new(),
+            );
+            assert_eq!(
+                network
+                    .get(usque_core::vpngate::RAW_URL, &CancellationToken::new())
+                    .await,
+                Err(expected)
+            );
+        }
     }
 }

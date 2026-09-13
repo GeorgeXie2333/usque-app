@@ -1840,6 +1840,7 @@ class NetworkQualitySnapshot {
 class EngineCapabilities {
   const EngineCapabilities({
     this.vpnGateTcp = false,
+    this.vpnGatePoolFavorites = false,
     this.networkSettingsApplication = false,
     this.l4Tcp = false,
     this.l4TunTcp = false,
@@ -1854,6 +1855,7 @@ class EngineCapabilities {
   factory EngineCapabilities.fromMap(Map<Object?, Object?> map) =>
       EngineCapabilities(
         vpnGateTcp: map['vpn_gate_tcp'] == true,
+        vpnGatePoolFavorites: map['vpn_gate_pool_favorites'] == true,
         networkSettingsApplication: map['network_settings_application'] == true,
         l4Tcp: map['l4_tcp'] == true,
         l4TunTcp: map['l4_tun_tcp'] == true,
@@ -1875,6 +1877,7 @@ class EngineCapabilities {
 
   final bool networkQuality;
   final bool vpnGateTcp;
+  final bool vpnGatePoolFavorites;
   final bool networkSettingsApplication;
   final bool l4Tcp;
   final bool l4TunTcp;
@@ -1890,6 +1893,7 @@ class EngineCapabilities {
       identical(this, other) ||
       other is EngineCapabilities &&
           vpnGateTcp == other.vpnGateTcp &&
+          vpnGatePoolFavorites == other.vpnGatePoolFavorites &&
           networkSettingsApplication == other.networkSettingsApplication &&
           l4Tcp == other.l4Tcp &&
           l4TunTcp == other.l4TunTcp &&
@@ -1907,6 +1911,7 @@ class EngineCapabilities {
   int get hashCode => Object.hash(
     networkSettingsApplication,
     vpnGateTcp,
+    vpnGatePoolFavorites,
     l4Tcp,
     l4TunTcp,
     l4DnsConversion,

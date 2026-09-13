@@ -33,10 +33,37 @@ internal object VpnGateFields {
             .filter { it in keys }
             .associateWith { convert(source.opt(it)) }
 
+    private fun server(source: JSONObject): Map<String, Any?> =
+        fields(source, serverKeys).toMutableMap().apply {
+            put(
+                "pool",
+                source.optJSONObject("pool")?.let {
+                    fields(
+                        it,
+                        setOf(
+                            "first_seen_at",
+                            "last_seen_at",
+                            "present_in_latest_source",
+                            "tcp_status",
+                            "tcp_checked_at",
+                            "tcp_connect_ms",
+                            "in_pool",
+                        ),
+                    )
+                },
+            )
+            put(
+                "favorite",
+                source.optJSONObject("favorite")?.let {
+                    fields(it, setOf("config_sha256", "saved_at_unix_ms", "latest_config_sha256"))
+                },
+            )
+        }
+
     fun status(source: JSONObject?): Map<String, Any?>? =
         source?.let {
             fields(it, setOf("stage", "generation", "failure", "warp_stage")).toMutableMap().apply {
-                put("current_server", it.optJSONObject("current_server")?.let { server -> fields(server, serverKeys) })
+                put("current_server", it.optJSONObject("current_server")?.let { node -> server(node) })
                 put(
                     "network",
                     it.optJSONObject("network")?.let { network ->
@@ -62,9 +89,11 @@ internal object VpnGateFields {
                 "refresh_stage",
                 "refresh_failures",
                 "cached",
+                "favorite_count",
+                "source_fetched_at",
             ),
         ).toMutableMap().apply {
-            put("servers", List(servers.length()) { fields(servers.getJSONObject(it), serverKeys) })
+            put("servers", List(servers.length()) { server(servers.getJSONObject(it)) })
             put(
                 "countries",
                 List(countries.length()) {
@@ -72,7 +101,13 @@ internal object VpnGateFields {
                 },
             )
             put("status", status(source.optJSONObject("status")))
-            put("saved_server", source.optJSONObject("saved_server")?.let { fields(it, serverKeys) })
+            put("saved_server", source.optJSONObject("saved_server")?.let { server(it) })
+            put(
+                "node_progress",
+                source.optJSONObject("node_progress")?.let {
+                    fields(it, setOf("operation_id", "server_id", "config_sha256", "stage", "error"))
+                },
+            )
         }
     }
 

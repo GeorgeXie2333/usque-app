@@ -22,7 +22,7 @@ import 'package:usque/widgets/window_titlebar.dart';
 
 import 'quality_test_support.dart' show qualityFixture;
 import 'ui_workflow_test.dart' show WorkflowEngine, workflowHost;
-import 'vpngate_test.dart' show GateEngine;
+import 'vpngate_test.dart' show GateEngine, server;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -69,7 +69,10 @@ void main() {
           : const Size(1080, 920);
       final engine = GateEngine()..fetchedAt = DateTime(2026, 9, 12, 8);
       final app = AppController(engine)
-        ..engineCapabilities = const EngineCapabilities(vpnGateTcp: true)
+        ..engineCapabilities = const EngineCapabilities(
+          vpnGateTcp: true,
+          vpnGatePoolFavorites: true,
+        )
         ..localePreference = phone
             ? LocalePreference.simplifiedChinese
             : LocalePreference.english;
@@ -105,6 +108,40 @@ void main() {
           find.byKey(boundary),
           matchesGoldenFile(
             'goldens/vpngate_${phone ? 'phone_dark' : 'desktop_light'}.png',
+          ),
+        );
+        engine.favorites[server.id] = VpnGateServer(
+          id: server.id,
+          ip: server.ip,
+          hostname: server.hostname,
+          configSha256: 'saved-configuration',
+          countryCode: 'JP',
+          countryName: 'Japan',
+          favorite: VpnGateFavoriteMetadata(
+            configSha256: 'saved-configuration',
+            savedAt: DateTime(2020),
+            latestConfigSha256: 'new-configuration',
+          ),
+          pool: VpnGatePoolMetadata(
+            firstSeenAt: DateTime.utc(2020),
+            lastSeenAt: DateTime.utc(2020, 1, 2),
+            checkedAt: DateTime.utc(2020, 1, 2),
+            tcpStatus: 'reachable',
+            inPool: false,
+          ),
+        );
+        final favoritesTab = find.byKey(const ValueKey('vpn-gate-favorites'));
+        await tester.ensureVisible(favoritesTab);
+        await tester.tap(favoritesTab);
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey('vpn-gate-update-v1:node')),
+        );
+        await tester.pumpAndSettle();
+        await expectLater(
+          find.byKey(boundary),
+          matchesGoldenFile(
+            'goldens/vpngate_favorites_${phone ? 'phone_dark' : 'desktop_light'}.png',
           ),
         );
         await tester.pumpWidget(const SizedBox.shrink());

@@ -290,7 +290,7 @@ internal class AndroidEngineMethodHandler(
             return
         }
         when (call.method) {
-            "listVpnGate", "refreshVpnGate" -> {
+            "listVpnGate", "refreshVpnGate", "vpnGateNode" -> {
                 val values =
                     (call.arguments as? Map<*, *>)
                         ?.entries
@@ -298,7 +298,12 @@ internal class AndroidEngineMethodHandler(
                             it.key.toString() to it.value
                         }.orEmpty()
                         .toMutableMap()
-                values["command"] = if (call.method == "listVpnGate") "list" else "refresh"
+                values["command"] =
+                    when (call.method) {
+                        "listVpnGate" -> "list"
+                        "vpnGateNode" -> "node"
+                        else -> "refresh"
+                    }
                 controlClient.requestVpnGate(flutterValueToJson(values), result)
             }
 

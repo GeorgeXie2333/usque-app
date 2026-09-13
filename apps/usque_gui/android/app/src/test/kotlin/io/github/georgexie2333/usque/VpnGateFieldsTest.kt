@@ -10,6 +10,34 @@ import org.junit.Test
 
 class VpnGateFieldsTest {
     @Test
+    fun poolAndFavoriteMetadataAreAllowlistedIndependently() {
+        val node =
+            JSONObject()
+                .put(
+                    "id",
+                    "node",
+                ).put("pool", JSONObject().put("tcp_status", "unknown").put("config", "hidden"))
+                .put("favorite", JSONObject().put("config_sha256", "saved-hash").put("openvpn_config_base64", "hidden"))
+        val wire =
+            VpnGateFields.directory(
+                JSONObject()
+                    .put("servers", JSONArray().put(node))
+                    .put("countries", JSONArray())
+                    .put("favorite_count", 1)
+                    .put("source_fetched_at", "2026-09-13T00:00:00.000Z")
+                    .put(
+                        "node_progress",
+                        JSONObject().put("operation_id", "operation").put("stage", "preparing").put("config", "hidden"),
+                    ).toString(),
+            )
+        val server = (wire["servers"] as List<*>).single() as Map<*, *>
+        assertEquals(mapOf("tcp_status" to "unknown"), server["pool"])
+        assertEquals(mapOf("config_sha256" to "saved-hash"), server["favorite"])
+        assertEquals(1, wire["favorite_count"])
+        assertEquals(mapOf("operation_id" to "operation", "stage" to "preparing"), wire["node_progress"])
+    }
+
+    @Test
     fun directoryOnlyExportsMetadataAndRetainsMissingMetrics() {
         val server =
             JSONObject()
