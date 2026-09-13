@@ -1535,6 +1535,7 @@ class UsqueVpnService : VpnService() {
     private fun disconnect(
         stopService: Boolean,
         request: Message? = null,
+        terminalFailure: ConnectionFailure? = null,
     ) {
         diagnosticProbes.cancel()
         recoveryPreferences.edit().remove(RECOVERY_PROFILE).commit()
@@ -1542,6 +1543,7 @@ class UsqueVpnService : VpnService() {
         pendingTunRestart = TunRestartDecision.TEARDOWN
         val generation = connectionGeneration.incrementAndGet()
         settingsApplication.cancel()
+        runtimeReconfigureInFlight = false
         networkMonitor.bumpGeneration()
         activeProfileJson.set(null)
         val stoppedMode = activeMode.getAndSet(null)
@@ -1551,7 +1553,7 @@ class UsqueVpnService : VpnService() {
         NativeEngine.cancel()
         val descriptor = tunnel.getAndSet(null)
         closeQuietly(descriptor)
-        snapshotState.reset("disconnected")
+        snapshotState.resetForDisconnect(terminalFailure)
         notifyTileStateChanged()
         logStore.record(
             AndroidLogStore.Event.CONNECTION_STOPPED,
@@ -1571,10 +1573,14 @@ class UsqueVpnService : VpnService() {
                     broadcastSnapshot()
                     if (confirmed && stopService) stopSelf()
                     if (!confirmed) {
-                        fail(
-                            generation,
-                            "Native cleanup is not confirmed. Retry before reconnecting.",
-                        )
+                        val cleanupWarning = "Native cleanup is not confirmed. Retry before reconnecting."
+                        if (terminalFailure == null) {
+                            fail(generation, cleanupWarning)
+                        } else {
+                            // Keep the original error and pending-cleanup evidence.
+                            snapshotState.warning = "${terminalFailure.message.take(384)}\n$cleanupWarning"
+                            broadcastSnapshot()
+                        }
                     }
                 }
             }
@@ -2015,6 +2021,15 @@ class UsqueVpnService : VpnService() {
             }
         }
         if (merge.enteredError) {
+            if (
+                disconnectFailedVpnGate(
+                    snapshotState.errorCode ?: "ANDROID_RUNTIME_FAILED",
+                    snapshotState.warning ?: "The VPN Gate connection failed.",
+                    VpnGateFields.stoppedStatus(gate),
+                )
+            ) {
+                return
+            }
             VpnGateFields.stoppedStatus(gate)?.let { snapshotState.vpnGateJson = it }
             // Keep the TUN open and fail closed until the user retries or disconnects.
             stopStatusTask()
@@ -2056,6 +2071,37 @@ class UsqueVpnService : VpnService() {
         }
     }
 
+    /** Called on the main thread only after a generation-checked terminal failure. */
+    private fun disconnectFailedVpnGate(
+        code: String,
+        message: String,
+        gateStatus: String?,
+    ): Boolean {
+        val requestedGate =
+            activeProfileJson.get()?.let { profile ->
+                runCatching { JSONObject(profile).optJSONObject("vpn_gate")?.optBoolean("enabled") == true }
+                    .getOrDefault(false)
+            } == true
+        if (!requestedGate) return false
+        val source = (gateStatus ?: snapshotState.vpnGateJson)?.let { runCatching { JSONObject(it) }.getOrNull() }
+        val stoppedGate =
+            VpnGateFields.stoppedStatus(source)
+                ?: VpnGateFields.stoppedStatus(JSONObject().put("stage", "error"))
+        logStore.record(
+            AndroidLogStore.Event.CONNECTION_FAILED,
+            phase = "error",
+            mode = activeMode.get(),
+        )
+        // End this connection intent, including its recovery record and Java
+        // TUN. Cancellation precedes FD closure; native duplicate-FD cleanup
+        // remains tracked by the same stop owner as an explicit Disconnect.
+        disconnect(
+            stopService = true,
+            terminalFailure = ConnectionFailure(code, message, stoppedGate, snapshotState.failure),
+        )
+        return true
+    }
+
     private fun fail(
         generation: Long,
         message: String,
@@ -2071,6 +2117,7 @@ class UsqueVpnService : VpnService() {
     ) {
         mainHandler.post {
             if (!isCurrent(generation)) return@post
+            if (disconnectFailedVpnGate(code, message, gateStatus)) return@post
             nativeRuntimeActive.set(false)
             snapshotState.phase = "error"
             snapshotState.errorCode = code

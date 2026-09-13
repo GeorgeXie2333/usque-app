@@ -218,6 +218,14 @@ internal class ServiceSnapshotState {
         killSwitchEnabled = false
     }
 
+    fun resetForDisconnect(reason: ConnectionFailure? = null) {
+        reset(if (reason == null) "disconnected" else "error")
+        warning = reason?.message?.take(512)
+        errorCode = reason?.code
+        failure = reason?.details
+        vpnGateJson = reason?.gateStatus
+    }
+
     fun killSwitchState(
         tunnelOpen: Boolean,
         activeMode: String?,

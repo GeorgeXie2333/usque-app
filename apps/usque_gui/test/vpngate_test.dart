@@ -188,29 +188,36 @@ Future<AppController> host(
 }
 
 void main() {
-  testWidgets('failed Gate shows WARP disconnected with the connection error', (
-    tester,
-  ) async {
-    final app = await host(tester, GateEngine());
-    app.snapshot = const EngineSnapshot(
-      phase: ConnectionPhase.error,
-      vpnGate: VpnGateStatus(
-        stage: 'error',
-        warpStage: 'disconnected',
-        failure: 'authentication',
-        server: server,
-      ),
-    );
-    await tester.pumpWidget(
-      workflowHost(app, home: HomeScreen(controller: app)),
-    );
-    await tester.pumpAndSettle();
-    expect(
-      find.text('WARP: ${app.strings.get('disconnected')}'),
-      findsOneWidget,
-    );
-    expect(find.text('WARP: ${app.strings.get('connecting')}'), findsNothing);
-  });
+  for (final protection in ['active', 'notApplicable']) {
+    testWidgets('failed Gate reflects remaining protection: $protection', (
+      tester,
+    ) async {
+      final app = await host(tester, GateEngine());
+      app.snapshot = EngineSnapshot(
+        phase: ConnectionPhase.error,
+        killSwitchState: protection,
+        vpnGate: const VpnGateStatus(
+          stage: 'error',
+          warpStage: 'disconnected',
+          failure: 'authentication',
+          server: server,
+        ),
+      );
+      await tester.pumpWidget(
+        workflowHost(app, home: HomeScreen(controller: app)),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.text('WARP: ${app.strings.get('disconnected')}'),
+        findsOneWidget,
+      );
+      expect(find.text('WARP: ${app.strings.get('connecting')}'), findsNothing);
+      expect(
+        find.text(app.strings.get('gate_proxy_blocked')),
+        protection == 'active' ? findsOneWidget : findsNothing,
+      );
+    });
+  }
 
   testWidgets(
     'favorites can be added and removed while the master switch stays off',

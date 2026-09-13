@@ -1,5 +1,6 @@
 package io.github.georgexie2333.usque
 
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -10,8 +11,69 @@ import org.junit.Test
 
 class ServiceSnapshotStateTest {
     @Test
+    fun failedGateDisconnectClearsProtectionAndLiveDataButPreservesTheError() {
+        for (stage in listOf("connecting_server", "negotiating", "configuring_network", "connected")) {
+            val snapshot = state()
+            snapshot.phase = "error"
+            snapshot.killSwitchEnabled = true
+            snapshot.transport = "h3"
+            snapshot.activeFrontends = listOf("vpn", "socks5", "http")
+            snapshot.activeListeners = listOf("127.0.0.1:1080")
+            snapshot.tunnelIpv4Available = true
+            snapshot.downloadBytesPerSecond = 123
+            snapshot.exitIpv4 = "203.0.113.7"
+            val gate =
+                JSONObject()
+                    .put("stage", stage)
+                    .put("warp_stage", "connected")
+                    .put("generation", 4)
+                    .put("current_server", JSONObject().put("id", "saved-node").put("config_sha256", "saved-hash"))
+                    .put("network", JSONObject().put("ipv4", "10.8.0.2"))
+            val details = ServiceSnapshotState.FailureFields("PACKET_RECEIVE_FAILED", "packet_receive")
+            snapshot.resetForDisconnect(
+                ConnectionFailure(
+                    "PACKET_RECEIVE_FAILED",
+                    "VPN Gate connection failed (Transport)",
+                    VpnGateFields.stoppedStatus(gate),
+                    details,
+                ),
+            )
+            val flags = platform(tunnelOpen = false, activeMode = null, platformLockdown = true, alwaysOn = true)
+            val fields = snapshot.snapshotFields(flags)
+            assertEquals("error", fields.phase)
+            assertEquals("PACKET_RECEIVE_FAILED", fields.errorCode)
+            assertEquals("VPN Gate connection failed (Transport)", fields.warning)
+            assertEquals(details, fields.failure)
+            assertEquals("notApplicable", fields.killSwitchState)
+            assertTrue(fields.activeFrontends.isEmpty())
+            assertTrue(fields.activeListeners.isEmpty())
+            assertFalse(fields.tunnelIpv4Available)
+            assertNull(fields.transport)
+            assertNull(fields.exitIpv4)
+            assertEquals(0L, fields.downloadBytesPerSecond)
+            assertTrue(fields.platformLockdown)
+            assertTrue(fields.alwaysOn)
+            val stopped = VpnGateFields.decodeStatus(fields.vpnGateJson)!!
+            assertEquals("disconnected", stopped["warp_stage"])
+            assertEquals("error", stopped["stage"])
+            assertEquals("saved-hash", (stopped["current_server"] as Map<*, *>)["config_sha256"])
+            assertNull(stopped["network"])
+
+            // The same explicit Disconnect path clears an earlier failure.
+            snapshot.resetForDisconnect()
+            assertEquals("disconnected", snapshot.phase)
+            assertNull(snapshot.warning)
+            assertNull(snapshot.errorCode)
+            assertNull(snapshot.vpnGateJson)
+        }
+    }
+
+    @Test
     fun pendingNativeCleanupCannotClaimThatTheRuntimeStopped() {
         val snapshot = ServiceSnapshotState()
+        snapshot.resetForDisconnect(
+            ConnectionFailure("PACKET_RECEIVE_FAILED", "VPN Gate connection failed (Transport)"),
+        )
         val pending =
             ServiceSnapshotState.PlatformFlags(
                 tunnelOpen = false,

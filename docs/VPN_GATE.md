@@ -201,8 +201,9 @@ is installed before final negotiation, including when the persistent Kill
 Switch setting is off. Finalization changes only address/DNS/MTU fields; it
 cannot change bootstrap endpoints or direct exceptions. The transition guard
 is retained during ordinary node switches, and failure cleanup restores it
-through the disconnect journal. Persistent protection remains governed
-by the existing Kill Switch setting and Agent recovery rules.
+through the disconnect journal, including removal of this transaction's WFP
+Kill Switch filters. Incomplete cleanup remains RecoveryRequired; it must not
+claim that system networking has been fully restored.
 
 An explicit cancellation during Prepared startup drops the headless startup
 future (closing its producer guards) before releasing the startup pipe. A full
@@ -227,10 +228,15 @@ timeouts, failed probes and identity conflicts do not become absence evidence.
 
 Android uses its existing VpnService and a blocking interface during setup.
 A new final interface is established and attached before retiring the old Java
-descriptor. A rejected handoff closes final admission and stops WARP. Startup
-failure uses the same Kill Switch policy as ordinary WARP startup; any retained
-blocking interface provides protection, not an active WARP connection. Only
-WARP outer sockets and explicit direct traffic receive physical
+descriptor. A rejected handoff closes final admission and stops WARP. A terminal
+failure with VPN Gate enabled uses the complete disconnect path, including
+startup, handoff and established-session failures. It invalidates old tasks,
+removes the active recovery record, cancels the native runtime, closes Java's
+TUN and ends this connection's Kill Switch protection. Native duplicate-FD and
+worker cleanup remain tracked; an unconfirmed stop cannot claim completion.
+The original error and selected node remain available for an explicit retry.
+Outside Android Lockdown, ending the VPN restores ordinary network access.
+Only WARP outer sockets and explicit direct traffic receive physical
 socket protection. Always-on/Lockdown and process-death guarantees retain their
 existing Android boundaries. In-process admission is not an independent OS
 Kill Switch.
