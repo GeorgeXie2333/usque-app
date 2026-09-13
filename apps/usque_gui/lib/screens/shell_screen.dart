@@ -12,7 +12,7 @@ import '../widgets/animated_index_stack.dart';
 import '../widgets/controller_selector.dart';
 import 'home_screen.dart';
 import 'profiles_screen.dart';
-import 'proxy_screen.dart';
+import 'proxy_section.dart';
 import 'settings_screen.dart';
 
 const double _railMinWidth = 78;
@@ -36,6 +36,27 @@ class ShellScreen extends StatefulWidget {
 
 class _ShellScreenState extends State<ShellScreen> {
   AppController get controller => widget.controller;
+  final _proxySection = GlobalKey<ProxySectionState>();
+  bool _proxySubpageOpen = false;
+  bool _changingSection = false;
+
+  Future<bool> _selectSection(AppSection section) async {
+    if (_changingSection) return false;
+    _changingSection = true;
+    final selectedController = controller;
+    try {
+      if (controller.section == AppSection.proxy &&
+          !await (_proxySection.currentState?.closeSubpage() ??
+              Future.value(true))) {
+        return false;
+      }
+      if (!mounted || controller != selectedController) return false;
+      controller.selectSection(section);
+      return true;
+    } finally {
+      _changingSection = false;
+    }
+  }
 
   final _destinationKeys = <AppSection, GlobalKey<TooltipState>>{
     for (final section in AppSection.values) section: GlobalKey<TooltipState>(),
@@ -81,26 +102,30 @@ class _ShellScreenState extends State<ShellScreen> {
         sections.length;
     final selected = sections[next];
     final selectedController = controller;
-    controller.selectSection(selected);
-    if (vertical) {
-      // Selection alone does not reveal destinations in a scrollable rail.
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted ||
-            controller != selectedController ||
-            controller.section != selected) {
-          return;
+    unawaited(
+      _selectSection(selected).then((changed) {
+        if (changed && vertical) {
+          // Selection alone does not reveal destinations in a scrollable rail.
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted ||
+                controller != selectedController ||
+                controller.section != selected) {
+              return;
+            }
+            final destinationContext =
+                _destinationKeys[selected]?.currentContext;
+            if (destinationContext == null) return;
+            final destinationFocus = Focus.of(destinationContext);
+            destinationFocus.requestFocus();
+            unawaited(
+              Scrollable.ensureVisible(
+                destinationFocus.context ?? destinationContext,
+              ),
+            );
+          });
         }
-        final destinationContext = _destinationKeys[selected]?.currentContext;
-        if (destinationContext == null) return;
-        final destinationFocus = Focus.of(destinationContext);
-        destinationFocus.requestFocus();
-        unawaited(
-          Scrollable.ensureVisible(
-            destinationFocus.context ?? destinationContext,
-          ),
-        );
-      });
-    }
+      }),
+    );
     return KeyEventResult.handled;
   }
 
@@ -149,12 +174,13 @@ class _ShellScreenState extends State<ShellScreen> {
             ),
             builder: (context, _) => ProfilesScreen(controller: controller),
           ),
-          ControllerSelector<UsqueProfile>(
-            key: const ValueKey<String>('proxy-controller-selector'),
+          ProxySection(
+            key: _proxySection,
             controller: controller,
-            active: (controller) => controller.section == AppSection.proxy,
-            selector: (controller) => controller.activeProfile,
-            builder: (context, _) => ProxyScreen(controller: controller),
+            active: section == AppSection.proxy,
+            onSubpageChanged: (open) {
+              if (mounted) setState(() => _proxySubpageOpen = open);
+            },
           ),
           ControllerSelector<
             ({
@@ -222,7 +248,7 @@ class _ShellScreenState extends State<ShellScreen> {
                           minExtendedWidth: _railMinExtendedWidth,
                           selectedIndex: selected,
                           onDestinationSelected: (index) =>
-                              controller.selectSection(sections[index]),
+                              unawaited(_selectSection(sections[index])),
                           labelType: extended
                               ? NavigationRailLabelType.none
                               : NavigationRailLabelType.all,
@@ -262,6 +288,7 @@ class _ShellScreenState extends State<ShellScreen> {
                       ),
                     ],
                     Expanded(
+                      key: const ValueKey('shell-content'),
                       child: AnimatedIndexStack(
                         index: selected,
                         children: pages,
@@ -270,7 +297,8 @@ class _ShellScreenState extends State<ShellScreen> {
                   ],
                 ),
               ),
-              bottomNavigationBar: useRail
+              bottomNavigationBar:
+                  useRail || section == AppSection.proxy && _proxySubpageOpen
                   ? null
                   : DecoratedBox(
                       decoration: BoxDecoration(
@@ -289,7 +317,7 @@ class _ShellScreenState extends State<ShellScreen> {
                           child: NavigationBar(
                             selectedIndex: selected,
                             onDestinationSelected: (index) =>
-                                controller.selectSection(sections[index]),
+                                unawaited(_selectSection(sections[index])),
                             destinations: List<NavigationDestination>.generate(
                               labels.length,
                               (index) => NavigationDestination(

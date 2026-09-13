@@ -151,6 +151,56 @@ void main() {
     }
   }, tags: 'golden');
 
+  testWidgets('VPN Gate preserves the wide shell navigation', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1220, 920);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    final engine = GateEngine()..fetchedAt = DateTime(2026, 9, 12, 8);
+    final app = AppController(engine)
+      ..engineCapabilities = const EngineCapabilities(
+        vpnGateTcp: true,
+        vpnGatePoolFavorites: true,
+      )
+      ..localePreference = LocalePreference.simplifiedChinese;
+    app.selectSection(AppSection.proxy);
+    final boundary = GlobalKey();
+    try {
+      await tester.pumpWidget(
+        RepaintBoundary(
+          key: boundary,
+          child: workflowHost(
+            app,
+            dark: true,
+            home: ShellScreen(controller: app),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('VPN Gate'));
+      await tester.pumpAndSettle();
+      await tester.runAsync(() async {
+        final context = tester.element(find.byType(VpnGateScreen));
+        await Future.wait([
+          precacheImage(const AssetImage('assets/flags/w80/jp.png'), context),
+          precacheImage(
+            const AssetImage('assets/branding/usque-ui-icon.png'),
+            context,
+          ),
+        ]);
+      });
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await expectLater(
+        find.byKey(boundary),
+        matchesGoldenFile('goldens/vpngate_shell_desktop_dark.png'),
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+    } finally {
+      app.dispose();
+    }
+  }, tags: 'golden');
+
   testWidgets(
     'country flags preserve unusual shapes in light and directional dark layouts',
     (tester) async {

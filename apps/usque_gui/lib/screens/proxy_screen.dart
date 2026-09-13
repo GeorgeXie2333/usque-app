@@ -16,8 +16,9 @@ import '../widgets/save_changes_bar.dart';
 import 'vpn_gate_screen.dart';
 
 class ProxyScreen extends StatefulWidget {
-  const ProxyScreen({required this.controller, super.key});
+  const ProxyScreen({required this.controller, this.onOpenVpnGate, super.key});
   final AppController controller;
+  final VoidCallback? onOpenVpnGate;
   @override
   State<ProxyScreen> createState() => _ProxyScreenState();
 }
@@ -261,12 +262,15 @@ class _ProxyScreenState extends State<ProxyScreen> {
                         title: const Text('VPN Gate'),
                         subtitle: Text(strings.get('gate_subtitle')),
                         trailing: const Icon(LucideIcons.chevronRight),
-                        onTap: () => Navigator.of(context).push<void>(
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                VpnGateScreen(controller: widget.controller),
-                          ),
-                        ),
+                        onTap:
+                            widget.onOpenVpnGate ??
+                            () => Navigator.of(context).push<void>(
+                              MaterialPageRoute(
+                                builder: (_) => VpnGateScreen(
+                                  controller: widget.controller,
+                                ),
+                              ),
+                            ),
                       ),
                       _listenerPanel(profile, socks5: true),
                       _listenerPanel(profile, socks5: false),

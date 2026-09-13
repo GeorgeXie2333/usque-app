@@ -10,8 +10,15 @@ import '../widgets/country_flag.dart';
 import '../widgets/unsaved_changes_guard.dart';
 
 class VpnGateScreen extends StatefulWidget {
-  const VpnGateScreen({required this.controller, super.key});
+  const VpnGateScreen({
+    required this.controller,
+    this.active = true,
+    this.leaveGuardKey,
+    super.key,
+  });
   final AppController controller;
+  final bool active;
+  final GlobalKey<UnsavedChangesGuardState>? leaveGuardKey;
   @override
   State<VpnGateScreen> createState() => _VpnGateScreenState();
 }
@@ -30,7 +37,8 @@ class _VpnGateScreenState extends State<VpnGateScreen>
   bool _loading = false,
       _saving = false,
       _ownsRefresh = false,
-      _foreground = true;
+      _appResumed = true;
+  bool get _foreground => _appResumed && widget.active;
   String? _fetchError, _saveError;
   String? get _error => _saveError ?? _fetchError;
   bool get _dirty => _draft != _baseline;
@@ -72,6 +80,7 @@ class _VpnGateScreenState extends State<VpnGateScreen>
   @override
   void didUpdateWidget(covariant VpnGateScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.active != widget.active) _visibilityChanged();
     if (oldWidget.controller == _controller) return;
     oldWidget.controller.removeListener(_settingsChanged);
     _controller.addListener(_settingsChanged);
@@ -82,7 +91,11 @@ class _VpnGateScreenState extends State<VpnGateScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    _foreground = state == AppLifecycleState.resumed;
+    _appResumed = state == AppLifecycleState.resumed;
+    _visibilityChanged();
+  }
+
+  void _visibilityChanged() {
     if (_foreground) {
       unawaited(_load(refreshIfOld: true));
     } else if (_ownsRefresh) {
@@ -97,7 +110,7 @@ class _VpnGateScreenState extends State<VpnGateScreen>
     _controller.removeListener(_settingsChanged);
     _hourly?.cancel();
     _poll?.cancel();
-    if (_nodeOperation != null) unawaited(_cancelNode());
+    if (_nodeOperation != null) unawaited(_cancelNode(rebuild: false));
     unawaited(_releaseDraft());
     if (_ownsRefresh) {
       unawaited(
@@ -108,7 +121,7 @@ class _VpnGateScreenState extends State<VpnGateScreen>
   }
 
   Future<void> _load({bool refreshIfOld = false}) async {
-    if (!mounted) return;
+    if (!mounted || !_foreground) return;
     final query = ++_query;
     setState(() => _loading = true);
     try {
@@ -260,11 +273,11 @@ class _VpnGateScreenState extends State<VpnGateScreen>
     }
   }
 
-  Future<void> _cancelNode() async {
+  Future<void> _cancelNode({bool rebuild = true}) async {
     final operation = _nodeOperation;
     _nodeOperation = null;
     if (operation == null) return;
-    if (mounted) setState(() {});
+    if (mounted && rebuild) setState(() {});
     try {
       await _controller.vpnGateNode(
         VpnGateNodeRequest(operationId: operation, action: 'cancel'),
@@ -406,6 +419,7 @@ class _VpnGateScreenState extends State<VpnGateScreen>
           (_controller.engineCapabilities?.vpnGateTcp ?? false) &&
           (_controller.engineCapabilities?.vpnGatePoolFavorites ?? false);
       return UnsavedChangesGuard(
+        key: widget.leaveGuardKey,
         strings: strings,
         dirty: _dirty,
         saving: _saving,
