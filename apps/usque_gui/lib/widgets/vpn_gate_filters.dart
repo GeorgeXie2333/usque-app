@@ -26,6 +26,15 @@ class VpnGateFilters extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final sortedCountries = [...countries]
+      ..sort((a, b) {
+        if (a.code == null) return b.code == null ? 0 : 1;
+        if (b.code == null) return -1;
+        final byName = (a.name ?? a.code!).trim().toLowerCase().compareTo(
+          (b.name ?? b.code!).trim().toLowerCase(),
+        );
+        return byName != 0 ? byName : a.code!.compareTo(b.code!);
+      });
     final scopes = Wrap(
       key: const ValueKey('vpn-gate-scopes'),
       spacing: 8,
@@ -68,7 +77,7 @@ class VpnGateFilters extends StatelessWidget {
                 value: 'ALL',
                 child: _countryLabel(null, strings.get('gate_all_countries')),
               ),
-              for (final item in countries)
+              for (final item in sortedCountries)
                 DropdownMenuItem(
                   value: item.code ?? 'UNKNOWN',
                   child: _countryLabel(
