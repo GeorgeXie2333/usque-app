@@ -757,9 +757,7 @@ class _VpnGateScreenState extends State<VpnGateScreen>
                         const Duration(hours: 12))
                   Text(strings.get('gate_probe_old')),
                 if (!metadata.inPool)
-                  Text(strings.get('gate_pool_absent'))
-                else if (!metadata.present)
-                  Text(strings.get('gate_source_absent')),
+                  Text(strings.get('gate_pool_absent')),
               ],
               if (favorite?.latestConfigSha256 != null) ...[
                 Text(

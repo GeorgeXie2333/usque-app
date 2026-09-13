@@ -125,6 +125,9 @@ older than three or twenty-four hours. Local acquisition time and the mirror's
 source acquisition time are displayed separately; neither is an upstream
 update timestamp. Hourly foreground refreshes do not guarantee CDN freshness.
 
+Absence from the latest source list has no separate label; favorites removed
+from the server pool retain their listing-status label.
+
 Favorites are device-local and shared across WARP accounts. Each stable node ID
 has one saved configuration snapshot, stored beside application configuration
 (Android uses `noBackupFilesDir`), separately from the downloadable pool cache.
