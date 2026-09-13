@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:usque/core/app_strings.dart';
+import 'package:usque/core/usque_theme.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/models/network_settings.dart';
 import 'package:usque/screens/advanced_settings_screen.dart';
@@ -18,10 +20,12 @@ import 'package:usque/state/window_frame.dart';
 import 'package:usque/widgets/common.dart';
 import 'package:usque/widgets/country_flag.dart';
 import 'package:usque/widgets/usque_dialog.dart';
+import 'package:usque/widgets/vpn_gate_server_row.dart';
 import 'package:usque/widgets/window_titlebar.dart';
 
 import 'quality_test_support.dart' show qualityFixture;
 import 'ui_workflow_test.dart' show WorkflowEngine, workflowHost;
+import 'vpn_gate_server_row_test.dart' show observationNow, observationServer;
 import 'vpn_gate_summary_test.dart' show current;
 import 'vpngate_test.dart' show GateEngine, server;
 
@@ -85,7 +89,10 @@ void main() {
             child: workflowHost(
               app,
               dark: phone,
-              home: VpnGateScreen(controller: app),
+              home: VpnGateScreen(
+                controller: app,
+                now: () => DateTime(2020, 1, 3, 14),
+              ),
             ),
           ),
         );
@@ -149,6 +156,78 @@ void main() {
       } finally {
         app.dispose();
       }
+    }
+  }, tags: 'golden');
+
+  testWidgets('VPN Gate observation summaries and details', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    for (final variant in [
+      'desktop_light',
+      'desktop_disabled_dark',
+      'phone_details_dark',
+    ]) {
+      final phone = variant.startsWith('phone');
+      final enabled = variant == 'desktop_light';
+      tester.view.physicalSize = phone
+          ? const Size(390, 844)
+          : const Size(980, 610);
+      final boundary = GlobalKey();
+      final strings = AppStrings(LocalePreference.simplifiedChinese);
+      final nodes = [
+        observationServer(),
+        observationServer(id: 'stale', expired: true, tcpStatus: 'unreachable'),
+        observationServer(id: 'removed', inPool: false, tcpStatus: 'unknown'),
+      ];
+      await tester.pumpWidget(
+        RepaintBoundary(
+          key: boundary,
+          child: MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: enabled ? UsqueTheme.light() : UsqueTheme.dark(),
+            home: Scaffold(
+              body: SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    for (final server in phone ? nodes.take(1) : nodes)
+                      VpnGateServerRow(
+                        key: ValueKey(server.id),
+                        server: server,
+                        strings: strings,
+                        now: observationNow,
+                        selected: false,
+                        onSelect: enabled ? () {} : null,
+                        onFavorite: () {},
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      if (phone) {
+        await tester.tap(
+          find.byKey(const ValueKey('vpn-gate-details-observed')),
+        );
+        await tester.pumpAndSettle();
+      }
+      await tester.runAsync(
+        () => precacheImage(
+          const AssetImage('assets/flags/w80/us.png'),
+          tester.element(find.byType(VpnGateServerRow).first),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await expectLater(
+        find.byKey(boundary),
+        matchesGoldenFile('goldens/vpngate_observations_$variant.png'),
+      );
+      await tester.pumpWidget(const SizedBox());
     }
   }, tags: 'golden');
 

@@ -2,14 +2,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../core/app_strings.dart';
-import '../core/usque_theme.dart';
 import '../core/vpn_gate_presentation.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
-import '../widgets/country_flag.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import '../widgets/vpn_gate_filters.dart';
+import '../widgets/vpn_gate_server_row.dart';
 import '../widgets/vpn_gate_summary.dart';
 
 class VpnGateScreen extends StatefulWidget {
@@ -17,11 +16,13 @@ class VpnGateScreen extends StatefulWidget {
     required this.controller,
     this.active = true,
     this.leaveGuardKey,
+    this.now = DateTime.now,
     super.key,
   });
   final AppController controller;
   final bool active;
   final GlobalKey<UnsavedChangesGuardState>? leaveGuardKey;
+  final DateTime Function() now;
   @override
   State<VpnGateScreen> createState() => _VpnGateScreenState();
 }
@@ -32,7 +33,7 @@ class _VpnGateScreenState extends State<VpnGateScreen>
   VpnGateServer? _draftServer;
   VpnGateSettings? _preparedDraft;
   VpnGateDirectory _directory = const VpnGateDirectory();
-  Timer? _hourly, _poll;
+  Timer? _hourly, _poll, _ageTick;
   String _country = 'ALL';
   bool _favoritesOnly = false;
   String? _nodeOperation, _nodeError;
@@ -54,6 +55,9 @@ class _VpnGateScreenState extends State<VpnGateScreen>
     unawaited(_load(refreshIfOld: true));
     _hourly = Timer.periodic(const Duration(hours: 1), (_) {
       if (_foreground) unawaited(_refresh());
+    });
+    _ageTick = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (_foreground) setState(() {});
     });
     _poll = Timer.periodic(const Duration(seconds: 1), (_) {
       if (_foreground &&
@@ -112,6 +116,7 @@ class _VpnGateScreenState extends State<VpnGateScreen>
     _controller.removeListener(_settingsChanged);
     _hourly?.cancel();
     _poll?.cancel();
+    _ageTick?.cancel();
     if (_nodeOperation != null) unawaited(_cancelNode(rebuild: false));
     unawaited(_releaseDraft());
     if (_ownsRefresh) {
@@ -669,117 +674,31 @@ class _VpnGateScreenState extends State<VpnGateScreen>
     final enabled = _draft.enabled && !_saving && _nodeOperation == null;
     final supported =
         _controller.engineCapabilities?.vpnGatePoolFavorites ?? false;
-    final metadata = server.pool;
     final favorite = server.favorite;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: ListTile(
-                key: ValueKey('vpn-gate-node-${server.id}'),
-                enabled: enabled,
-                selected: selected,
-                leading: Icon(
-                  selected ? LucideIcons.circleCheck : LucideIcons.circle,
-                ),
-                title: Row(
-                  children: [
-                    CountryFlag(
-                      countryCode: server.countryCode,
-                      enabled: enabled,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        '${server.countryCode ?? '—'} · ${server.ip}',
-                        style: const TextStyle(fontFamily: UsqueFonts.mono),
-                      ),
-                    ),
-                  ],
-                ),
-                subtitle: Text(
-                  '${server.hostname}\n${strings.get('gate_score')}: ${server.score ?? '—'} · ${server.pingMs == null ? '—' : '${server.pingMs} ms'} · ${server.speedBps == null ? '—' : '${(server.speedBps! / 1000000).toStringAsFixed(1)} Mbps'}',
-                ),
-                isThreeLine: true,
-                onTap: !enabled
-                    ? null
-                    : () {
-                        if (!selected) unawaited(_releaseDraft());
-                        setState(() {
-                          _draft = _draft.copyWith(server: server);
-                          _draftServer = server;
-                          _saveError = null;
-                        });
-                      },
-              ),
-            ),
-            IconButton(
-              key: ValueKey('vpn-gate-favorite-${server.id}'),
-              tooltip: strings.get(
-                favorite == null ? 'gate_favorite_add' : 'gate_favorite_remove',
-              ),
-              isSelected: favorite != null,
-              onPressed:
-                  !supported ||
-                      (favorite == null && (_saving || _nodeOperation != null))
-                  ? null
-                  : () => _favorite(server),
-              icon: Icon(
-                favorite == null ? LucideIcons.star : LucideIcons.starOff,
-              ),
-            ),
-          ],
-        ),
-        Padding(
-          padding: const EdgeInsetsDirectional.only(
-            start: 16,
-            end: 16,
-            bottom: 12,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (metadata != null) ...[
-                Text(
-                  '${strings.get('gate_last_seen')}: ${_time(metadata.lastSeenAt)}',
-                ),
-                Text(
-                  '${strings.get('gate_tcp_probe')}: ${strings.get(switch (metadata.tcpStatus) {
-                    'reachable' => 'gate_tcp_reachable',
-                    'unreachable' => 'gate_tcp_unreachable',
-                    _ => 'gate_tcp_unknown',
-                  })} · ${_time(metadata.checkedAt)}',
-                ),
-                if (metadata.checkedAt != null &&
-                    DateTime.now().difference(metadata.checkedAt!) >
-                        const Duration(hours: 12))
-                  Text(strings.get('gate_probe_old')),
-                if (!metadata.inPool)
-                  Text(strings.get('gate_pool_absent')),
-              ],
-              if (favorite?.latestConfigSha256 != null) ...[
-                Text(
-                  strings.get(
-                    favorite!.configSha256 == server.configSha256
-                        ? 'gate_favorite_new'
-                        : 'gate_favorite_old',
-                  ),
-                ),
-                TextButton.icon(
-                  key: ValueKey('vpn-gate-update-${server.id}'),
-                  onPressed: !supported || _saving || _nodeOperation != null
-                      ? null
-                      : () => _favorite(server, update: true),
-                  icon: const Icon(LucideIcons.refreshCw),
-                  label: Text(strings.get('gate_favorite_update')),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ],
+    return VpnGateServerRow(
+      key: ValueKey((server.id, server.configSha256)),
+      server: server,
+      strings: strings,
+      now: widget.now(),
+      selected: selected,
+      onSelect: !enabled
+          ? null
+          : () {
+              if (!selected) unawaited(_releaseDraft());
+              setState(() {
+                _draft = _draft.copyWith(server: server);
+                _draftServer = server;
+                _saveError = null;
+              });
+            },
+      onFavorite:
+          !supported ||
+              (favorite == null && (_saving || _nodeOperation != null))
+          ? null
+          : () => _favorite(server),
+      onUpdateFavorite: !supported || _saving || _nodeOperation != null
+          ? null
+          : () => _favorite(server, update: true),
     );
   }
 

@@ -125,8 +125,16 @@ older than three or twenty-four hours. Local acquisition time and the mirror's
 source acquisition time are displayed separately; neither is an upstream
 update timestamp. Hourly foreground refreshes do not guarantee CDN freshness.
 
-Absence from the latest source list has no separate label; favorites removed
-from the server pool retain their listing-status label.
+Server rows show relative observation times, updated once a minute while the
+page is active. Absence from the latest source list has no separate label;
+favorites removed from the server pool retain their listing-status label.
+**Details** exposes
+the first/last source appearance and TCP observation with full local timestamps;
+hover hints are optional shortcuts, not the only way to read them. Summaries
+wrap at narrow widths and large text sizes. Historical TCP success uses a
+neutral style, and observations older than twelve hours are marked expired.
+Details and favorite actions remain available when server selection is disabled
+and do not change the pending selection.
 
 Favorites are device-local and shared across WARP accounts. Each stable node ID
 has one saved configuration snapshot, stored beside application configuration
