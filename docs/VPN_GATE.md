@@ -201,6 +201,10 @@ version limits. The complete patch rationale is in
 ## Lifecycle, cleanup and privacy
 
 Final traffic is admitted only after negotiation and platform attachment.
+When explicitly disabling VPN Gate, WARP frontend settings remain staged
+through Android's replacement TUN handoff. Reconfiguration updates that pending
+profile without admitting traffic; final activation starts its listeners only
+after platform attachment. Cancellation discards the pending profile.
 Switching closes old final flows, retains a usable WARP session, builds a new
 OpenVPN session and applies its final assignment. No failure path intentionally
 selects WARP or physical egress as the final fallback. A terminal VPN Gate

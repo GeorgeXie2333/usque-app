@@ -587,6 +587,16 @@ impl DataPlaneRuntime {
         }
     }
     pub async fn reconfigure_frontends(&mut self, profile: &Profile) -> Result<(), TransportError> {
+        if let Some(pending) = &mut self.pending_frontends {
+            if profile.data_plane != pending.data_plane || profile.vpn_gate != pending.vpn_gate {
+                return Err(TransportError::VpnGate(GateFailure::Configuration));
+            }
+            // Android reconfigures frontends between attaching the replacement
+            // TUN and activating it. Keep those settings pending while leaving
+            // final admission closed; activate_final applies them after handoff.
+            *pending = profile.clone();
+            return Ok(());
+        }
         if self.final_blocked {
             return Err(TransportError::VpnGate(
                 self.transition_status
@@ -780,11 +790,10 @@ impl TunPacketIo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::netstack::ManagedTunnelRuntime;
+    use crate::netstack::{ExternalPacketChannels, ManagedTunnelRuntime};
     use usque_core::vpngate::GateStage;
 
-    #[tokio::test]
-    async fn gate_failure_cancels_warp_but_a_pending_node_switch_does_not() {
+    async fn memory_warp() -> (DataPlaneRuntime, ExternalPacketChannels) {
         // Memory packet queues stand in for WARP. No OS tunnel or remote
         // connection is created, but the actual frontend shutdown runs.
         let profile = DataPlaneRuntime::headless_profile(&Profile::default());
@@ -813,7 +822,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let mut runtime = DataPlaneRuntime {
+        let runtime = DataPlaneRuntime {
             inner: RuntimeInner::ConnectIp(Box::new(warp)),
             gate: None,
             warp_network: FinalNetworkParameters {
@@ -830,7 +839,79 @@ mod tests {
             },
             pending_frontends: None,
         };
+        (runtime, channels)
+    }
+
+    #[tokio::test]
+    async fn disabling_gate_defers_frontends_until_tun_handoff_activation() {
+        let (mut runtime, channels) = memory_warp().await;
+        let mut profile = DataPlaneRuntime::headless_profile(&Profile::default());
+        profile.frontends.tunnel = true;
+        runtime
+            .replace_gate(
+                &profile,
+                None,
+                Arc::new(GeoDirectPolicy::disabled()),
+                watch::channel(GateStatus::default()).0,
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        let _tun = runtime.attach_tun().unwrap();
+        // Use a loopback ephemeral listener to prove that reconfiguration is
+        // deferred, rather than admitting proxy traffic before platform setup.
+        profile.frontends.socks5 = true;
+        profile.proxy.socks5_listeners = vec!["127.0.0.1:0".parse().unwrap()];
+        runtime.reconfigure_frontends(&profile).await.unwrap();
+        assert!(runtime.final_blocked);
+        assert!(runtime.listeners().is_empty());
+        if let RuntimeInner::ConnectIp(warp) = &runtime.inner {
+            assert!(warp.listeners().is_empty());
+        }
+        assert!(runtime.send_packet(&[0x45; 20]).await.is_err());
+        assert!(!channels.cancellation.is_cancelled());
+
+        runtime.activate_final().await.unwrap();
+        assert!(!runtime.final_blocked);
+        assert!(runtime.pending_frontends.is_none());
+        assert_eq!(runtime.socks5_listeners().len(), 1);
+        assert_eq!(runtime.gate_status().stage, GateStage::Disabled);
+        assert!(!channels.cancellation.is_cancelled());
+        runtime.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn cancelled_handoff_cannot_reconfigure_or_activate_pending_frontends() {
+        let (mut runtime, _) = memory_warp().await;
+        let profile = DataPlaneRuntime::headless_profile(&Profile::default());
+        runtime
+            .replace_gate(
+                &profile,
+                None,
+                Arc::new(GeoDirectPolicy::disabled()),
+                watch::channel(GateStatus::default()).0,
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        let mut wrong_target = profile.clone();
+        wrong_target.vpn_gate.enabled = true;
+        assert!(runtime.reconfigure_frontends(&wrong_target).await.is_err());
+        assert!(runtime.final_blocked);
+        runtime.cancel_immediately();
+        assert!(runtime.reconfigure_frontends(&profile).await.is_err());
+        assert!(runtime.attach_tun().is_err());
+        assert!(runtime.activate_final().await.is_err());
+        assert!(runtime.final_blocked);
+        runtime.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn gate_failure_cancels_warp_but_a_pending_node_switch_does_not() {
+        let (mut runtime, channels) = memory_warp().await;
+        let profile = DataPlaneRuntime::headless_profile(&Profile::default());
         runtime.quiesce_final();
+        assert!(runtime.reconfigure_frontends(&profile).await.is_err());
         assert!(!channels.cancellation.is_cancelled());
         runtime.fail_gate(GateFailure::Authentication).await;
         // The mux observes the synchronous stop signal on its next poll and
@@ -853,7 +934,7 @@ mod tests {
                 .replace_gate(
                     &profile,
                     None,
-                    policy,
+                    Arc::new(GeoDirectPolicy::disabled()),
                     watch::channel(GateStatus::default()).0,
                     &CancellationToken::new()
                 )
