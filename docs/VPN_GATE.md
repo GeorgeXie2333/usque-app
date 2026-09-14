@@ -52,6 +52,10 @@ session and never substitute the node's advertised IP for a measured exit.
 In remote DNS mode, the OS uses the existing internal DNS listener and its host
 route. This keeps a VPN-pushed private resolver inside the final channel even
 when LAN bypass is enabled; Geo direct DNS exceptions still follow their rules.
+With VPN Gate and tunnel DNS enabled, toggling the system VPN frontend rebuilds
+the runtime so the internal DNS service matches the new platform configuration.
+It reconnects the same saved Gate node; ordinary WARP and explicit local DNS
+keep their existing frontend-switch behavior.
 
 Traffic samples count packets entering and leaving the final VPN Gate channel.
 RTT, loss, congestion and HTTP/QUIC diagnostics describe the underlying WARP

@@ -15,8 +15,8 @@ pub enum ReconfigureClass {
     HotSystemProxy,
     /// SOCKS/HTTP listeners or those frontend toggles (and proxy DNS/auth).
     HotFrontends,
-    /// Only the VPN/TUN frontend flag flipped and no mode-dependent GEO policy
-    /// needs to be rebuilt.
+    /// Only the VPN/TUN frontend flag flipped and no mode-dependent GEO or DNS
+    /// policy needs to be rebuilt.
     HotTunnelAttach,
     /// Replace the final OpenVPN session while retaining the WARP underlay.
     HotVpnGate,
@@ -57,7 +57,12 @@ pub fn classify_reconfigure(previous: &Profile, next: &Profile) -> ReconfigureCl
         || previous.geo_direct_countries != next.geo_direct_countries
         || previous.direct_dns != next.direct_dns
         || previous.frontends.tunnel != next.frontends.tunnel
-            && (!previous.geo_direct_countries.is_empty() || !next.geo_direct_countries.is_empty());
+            && (!previous.geo_direct_countries.is_empty()
+                || !next.geo_direct_countries.is_empty()
+                // The final Gate gateway creates its synthetic DNS service at
+                // startup only when TUN is enabled. A hot attach cannot supply
+                // the resolver that both platforms advertise to the OS.
+                || previous.vpn_gate.enabled && previous.dns_mode == crate::DnsMode::Tunnel);
     if cold {
         return ReconfigureClass::ColdReconnect;
     }
@@ -168,6 +173,45 @@ mod tests {
             classify_reconfigure(&previous, &next),
             ReconfigureClass::HotTunnelAttach
         );
+    }
+
+    #[test]
+    fn gate_tunnel_dns_toggle_rebuilds_gateway_but_other_connect_ip_toggles_stay_hot() {
+        for transport in [
+            crate::TransportPolicy::Auto,
+            crate::TransportPolicy::Http3,
+            crate::TransportPolicy::Http2,
+        ] {
+            for enabled in [false, true] {
+                for dns_mode in [
+                    crate::DnsMode::Tunnel,
+                    crate::DnsMode::LocalConfigured,
+                    crate::DnsMode::System,
+                ] {
+                    let mut proxy = base();
+                    proxy.transport = transport;
+                    proxy.vpn_gate.enabled = enabled;
+                    proxy.dns_mode = dns_mode;
+                    proxy.frontends.tunnel = false;
+                    let mut vpn = proxy.clone();
+                    vpn.frontends.tunnel = true;
+                    let expected = if enabled && dns_mode == crate::DnsMode::Tunnel {
+                        ReconfigureClass::ColdReconnect
+                    } else {
+                        ReconfigureClass::HotTunnelAttach
+                    };
+                    assert_eq!(classify_reconfigure(&proxy, &vpn), expected);
+                    assert_eq!(classify_reconfigure(&vpn, &proxy), expected);
+
+                    let mut listeners = proxy.clone();
+                    listeners.proxy.socks5_listeners[0].set_port(1081);
+                    assert_eq!(
+                        classify_reconfigure(&proxy, &listeners),
+                        ReconfigureClass::HotFrontends
+                    );
+                }
+            }
+        }
     }
 
     #[test]
