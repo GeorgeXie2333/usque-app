@@ -429,18 +429,11 @@ impl ControlService {
             .await
             .as_ref()
             .and_then(|active| active.runtime.internal_networks());
-        let allow_physical = if networks.is_none() {
-            #[cfg(windows)]
-            {
-                crate::windows_agent::catalogue_physical_network_permitted().await
-            }
-            #[cfg(not(windows))]
-            {
-                true
-            }
-        } else {
-            false
-        };
+        #[cfg(windows)]
+        let allow_physical = networks.is_none()
+            && crate::windows_agent::catalogue_physical_network_permitted().await;
+        #[cfg(not(windows))]
+        let allow_physical = networks.is_none();
         let primary: Arc<dyn CatalogueHttp> = match &networks {
             Some((network, _))
                 if matches!(network.health_snapshot(), RuntimeHealth::Connected { .. }) =>

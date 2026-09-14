@@ -1,5 +1,6 @@
 use super::*;
 use std::time::Duration;
+#[cfg(windows)]
 use tokio_util::sync::CancellationToken;
 use usque_core::vpngate::{
     Catalogue, CatalogueStore, GateFailure, GateStage, ListQuery, Selection,
