@@ -81,6 +81,7 @@ class GateEngine extends FakeEngineClient implements VpnGateClient {
   bool failSave = false;
   DateTime? fetchedAt;
   List<VpnGateServer> nodes = const [server];
+  List<String> failures = const [];
 
   @override
   Future<VpnGateDirectory> listVpnGate({
@@ -120,6 +121,7 @@ class GateEngine extends FakeEngineClient implements VpnGateClient {
           total: favoritesOnly ? favorites.length : nodes.length,
           fetchedAt: fetchedAt ?? DateTime.now(),
           refreshStage: 'complete',
+          failures: failures,
           cached: true,
           savedServer: server,
         );

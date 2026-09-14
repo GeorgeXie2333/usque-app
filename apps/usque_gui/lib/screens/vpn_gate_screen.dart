@@ -33,6 +33,10 @@ class _VpnGateScreenState extends State<VpnGateScreen>
   VpnGateServer? _draftServer;
   VpnGateSettings? _preparedDraft;
   VpnGateDirectory _directory = const VpnGateDirectory();
+  // Directory text needs no persisted scroll offset. A storage boundary with
+  // no descendant PageStorageKeys keeps its internal scrollables from sharing
+  // the page's double offset or the failure tile's bool expansion state.
+  final _directoryTextStorage = PageStorageBucket();
   Timer? _hourly, _poll, _ageTick;
   String _country = 'ALL';
   bool _favoritesOnly = false;
@@ -624,8 +628,11 @@ class _VpnGateScreenState extends State<VpnGateScreen>
                               : 'gate_source_old',
                         ),
                       ),
-                    SelectableText(
-                      '${strings.get('gate_source')}: ${_directory.sourceUrl ?? '—'}',
+                    PageStorage(
+                      bucket: _directoryTextStorage,
+                      child: SelectableText(
+                        '${strings.get('gate_source')}: ${_directory.sourceUrl ?? '—'}',
+                      ),
                     ),
                     Text(
                       strings.get(
@@ -651,12 +658,18 @@ class _VpnGateScreenState extends State<VpnGateScreen>
                     ),
                     if (_directory.failures.isNotEmpty)
                       ExpansionTile(
+                        key: const PageStorageKey<String>(
+                          'vpn-gate-directory-failures',
+                        ),
                         title: Text(strings.get('gate_fetch_error')),
                         children: [
                           for (final failure in _directory.failures)
                             Padding(
                               padding: const EdgeInsets.all(8),
-                              child: SelectableText(failure),
+                              child: PageStorage(
+                                bucket: _directoryTextStorage,
+                                child: SelectableText(failure),
+                              ),
                             ),
                         ],
                       ),
