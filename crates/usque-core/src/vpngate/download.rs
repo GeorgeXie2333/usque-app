@@ -221,6 +221,7 @@ pub struct DirectoryDownloader {
     cancel: std::sync::Mutex<CancellationToken>,
     pub(super) node_progress: watch::Sender<NodeProgress>,
     pub(super) node_cancel: std::sync::Mutex<CancellationToken>,
+    pub(super) prepared_operation: std::sync::Mutex<Option<(String, super::Selection)>>,
 }
 impl DirectoryDownloader {
     pub fn new(store: CatalogueStore) -> Self {
@@ -236,6 +237,7 @@ impl DirectoryDownloader {
             cancel: std::sync::Mutex::new(CancellationToken::new()),
             node_progress: watch::channel(NodeProgress::default()).0,
             node_cancel: std::sync::Mutex::new(CancellationToken::new()),
+            prepared_operation: std::sync::Mutex::new(None),
         }
     }
     pub fn subscribe(&self) -> watch::Receiver<DownloadProgress> {
@@ -306,8 +308,8 @@ impl DirectoryDownloader {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vpngate::Catalogue;
-    use crate::vpngate::pool_tests::{COMMIT, Fixture};
+    use crate::vpngate::pool_tests::{COMMIT, Fixture, node_request};
+    use crate::vpngate::{Catalogue, NodeAction, NodeRequest};
     use std::collections::BTreeMap;
     use std::sync::Mutex as StdMutex;
     use std::sync::atomic::AtomicUsize;
@@ -661,6 +663,100 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(*source.http.calls.lock().unwrap(), vec![countries]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn favorite_cycles_failures_and_cancellation_preserve_the_prepared_draft() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = CatalogueStore::new(directory.path());
+        store
+            .save(
+                &Catalogue::parse(&crate::vpngate::tests::fixture()).unwrap(),
+                42,
+                RAW_URL,
+            )
+            .unwrap();
+        let server = store.list(&Default::default()).unwrap().servers.remove(0);
+        let downloader = DirectoryDownloader::new(store.clone());
+        let parent = CancellationToken::new();
+        let favorite = node_request(&server, NodeAction::Favorite);
+        run_local_node(&downloader, &favorite, &parent)
+            .await
+            .unwrap();
+        let prepare = node_request(&server, NodeAction::Prepare);
+        run_local_node(&downloader, &prepare, &parent)
+            .await
+            .unwrap();
+        let selection = prepare.selection();
+        let before = store
+            .load_selection(&selection)
+            .unwrap()
+            .1
+            .content()
+            .to_owned();
+        // The pool may no longer contain this configuration. From this point
+        // only local references can keep the user's exact draft usable.
+        std::fs::remove_file(directory.path().join("vpngate/directory.json")).unwrap();
+        let mut remove = node_request(&server, NodeAction::RemoveFavorite);
+        remove.expected_favorite_hash = server.config_sha256.clone();
+        store.remove_favorite(&remove, &[]).unwrap();
+
+        let second_favorite = node_request(&server, NodeAction::Favorite);
+        run_local_node(&downloader, &second_favorite, &parent)
+            .await
+            .unwrap();
+        // Cancelling a completed favorite must not release an earlier Prepare.
+        downloader.cancel_node(&second_favorite.operation_id);
+        let duplicate = node_request(&server, NodeAction::Favorite);
+        assert_eq!(
+            run_local_node(&downloader, &duplicate, &parent).await,
+            Err(DirectoryError::FavoriteChanged)
+        );
+        store.remove_favorite(&remove, &[]).unwrap();
+        let cancelled = CancellationToken::new();
+        cancelled.cancel();
+        let third_favorite = node_request(&server, NodeAction::Favorite);
+        assert_eq!(
+            run_local_node(&downloader, &third_favorite, &cancelled).await,
+            Err(DirectoryError::Cancelled)
+        );
+        assert_eq!(
+            store.load_selection(&selection).unwrap().1.content(),
+            before
+        );
+        assert_eq!(store.list(&Default::default()).unwrap().favorite_count, 0);
+        assert_eq!(
+            std::fs::read_dir(directory.path().join("vpngate/preparing"))
+                .unwrap()
+                .count(),
+            0
+        );
+        // Save is still completely local; disposing the draft after Save does
+        // not remove the durable selected snapshot.
+        store.pin(&selection).unwrap();
+        store.release_prepared(&selection);
+        assert_eq!(
+            store.load_selection(&selection).unwrap().1.content(),
+            before
+        );
+        store.retain_selections(&[]).unwrap();
+        assert!(store.load_selection(&selection).is_err());
+    }
+
+    async fn run_local_node(
+        downloader: &DirectoryDownloader,
+        request: &NodeRequest,
+        parent: &CancellationToken,
+    ) -> Result<(), DirectoryError> {
+        let http = Arc::new(MockHttp::default());
+        let warp = warp();
+        downloader.begin_node(request);
+        let result = downloader
+            .node_operation(request, http.clone(), &warp, parent)
+            .await;
+        assert!(http.calls.lock().unwrap().is_empty());
+        assert_eq!(warp.opens.load(Ordering::SeqCst), 0);
+        result
     }
 
     #[tokio::test(start_paused = true)]

@@ -111,7 +111,88 @@ struct ConfigObject {
     base64: String,
 }
 
+/// Each download owns a separate reference. Its cleanup must never release a
+/// prepared UI draft, even when both refer to the same configuration object.
+pub(super) struct NodePreparation<'a> {
+    store: &'a CatalogueStore,
+    selection: Selection,
+    path: PathBuf,
+}
+impl NodePreparation<'_> {
+    pub(super) fn prepare_local(
+        &self,
+        cancel: &CancellationToken,
+    ) -> Result<Option<ServerSummary>, DirectoryError> {
+        self.store
+            .prepare_local_at(&self.selection, &self.path, cancel)
+    }
+    pub(super) fn stage_configuration(
+        &self,
+        summary: ServerSummary,
+        wire: WireServer,
+        cancel: &CancellationToken,
+    ) -> Result<ServerSummary, DirectoryError> {
+        if summary.id != self.selection.server_id
+            || summary.config_sha256 != self.selection.config_sha256
+        {
+            return Err(DirectoryError::StaleSelection);
+        }
+        self.store
+            .stage_configuration_at(summary, wire, &self.path, cancel)
+    }
+    fn node(&self) -> Result<StoredNode, DirectoryError> {
+        let bytes =
+            bounded_read(&self.path, MAX_CONFIG_JSON_BYTES).map_err(|_| DirectoryError::CacheIo)?;
+        let node: StoredNode =
+            serde_json::from_slice(&bytes).map_err(|_| DirectoryError::InvalidDirectory)?;
+        if !node.matches(&self.selection) {
+            return Err(DirectoryError::StaleSelection);
+        }
+        self.store.validate_node(&node)?;
+        Ok(node)
+    }
+    pub(super) fn retain_draft(&self, cancel: &CancellationToken) -> Result<(), DirectoryError> {
+        let _guard = STORE_WRITE.lock().unwrap_or_else(|e| e.into_inner());
+        let node = self.node()?;
+        if cancel.is_cancelled() {
+            return Err(DirectoryError::Cancelled);
+        }
+        atomic_json(&self.store.node_path("prepared", &self.selection), &node)
+    }
+    pub(super) fn set_favorite(
+        &self,
+        request: &NodeRequest,
+        revision: u64,
+        cancel: &CancellationToken,
+    ) -> Result<(), DirectoryError> {
+        let _guard = STORE_WRITE.lock().unwrap_or_else(|e| e.into_inner());
+        self.store
+            .set_favorite_locked(request, revision, cancel, || self.node())
+    }
+}
+impl Drop for NodePreparation<'_> {
+    fn drop(&mut self) {
+        self.store.release_reference(&self.path);
+    }
+}
+
 impl CatalogueStore {
+    pub(super) fn prepare_operation(
+        &self,
+        selection: &Selection,
+    ) -> Result<NodePreparation<'_>, DirectoryError> {
+        if !valid_id(&selection.server_id) || !valid_hash(&selection.config_sha256) {
+            return Err(DirectoryError::StaleSelection);
+        }
+        Ok(NodePreparation {
+            store: self,
+            selection: selection.clone(),
+            path: self
+                .directory
+                .join("preparing")
+                .join(format!("{}.json", uuid::Uuid::new_v4())),
+        })
+    }
     pub(super) fn node_path(&self, category: &str, selection: &Selection) -> PathBuf {
         self.directory.join(category).join(format!(
             "{}-{}.json",
@@ -194,10 +275,11 @@ impl CatalogueStore {
         summary.unsupported_reason = None;
         Ok((summary, profile))
     }
-    pub(super) fn stage_configuration(
+    fn stage_configuration_at(
         &self,
         summary: ServerSummary,
         mut wire: WireServer,
+        reference: &Path,
         cancel: &CancellationToken,
     ) -> Result<ServerSummary, DirectoryError> {
         let _guard = STORE_WRITE.lock().unwrap_or_else(|e| e.into_inner());
@@ -218,29 +300,25 @@ impl CatalogueStore {
             wire,
             pool: summary.pool.clone(),
         };
-        let selection = Selection {
-            server_id: summary.id.clone(),
-            config_sha256: summary.config_sha256.clone(),
-        };
-        atomic_json(&self.node_path("prepared", &selection), &node)?;
+        atomic_json(reference, &node)?;
         Ok(summary)
     }
-    pub(super) fn prepare_local(
+    fn prepare_local_at(
         &self,
         selection: &Selection,
+        reference: &Path,
         cancel: &CancellationToken,
     ) -> Result<Option<ServerSummary>, DirectoryError> {
         if let Ok(node) = self.local_node(selection) {
             let (summary, _) = self.validate_node(&node)?;
-            // The prepare result owns a local reference until it is pinned or
-            // explicitly released. Removing/updating its favorite cannot take
-            // the configuration away from an in-flight Save or a retained draft.
+            // Hold this operation's own reference before another local action
+            // can release the source favorite or draft.
             let _guard = STORE_WRITE.lock().unwrap_or_else(|e| e.into_inner());
             if cancel.is_cancelled() {
                 return Err(DirectoryError::Cancelled);
             }
             self.validate_node(&node)?;
-            atomic_json(&self.node_path("prepared", selection), &node)?;
+            atomic_json(reference, &node)?;
             return Ok(Some(summary));
         }
         // Read old inline snapshots and old cached catalogues without rewriting them.
@@ -258,7 +336,9 @@ impl CatalogueStore {
             });
         if let Some(wire) = old {
             let (summary, _) = validate_server(&wire)?;
-            return self.stage_configuration(summary, wire, cancel).map(Some);
+            return self
+                .stage_configuration_at(summary, wire, reference, cancel)
+                .map(Some);
         }
         Ok(None)
     }
@@ -269,6 +349,17 @@ impl CatalogueStore {
         cancel: &CancellationToken,
     ) -> Result<(), DirectoryError> {
         let _guard = STORE_WRITE.lock().unwrap_or_else(|e| e.into_inner());
+        self.set_favorite_locked(request, revision, cancel, || {
+            self.local_node(&request.selection())
+        })
+    }
+    fn set_favorite_locked(
+        &self,
+        request: &NodeRequest,
+        revision: u64,
+        cancel: &CancellationToken,
+        read_node: impl FnOnce() -> Result<StoredNode, DirectoryError>,
+    ) -> Result<(), DirectoryError> {
         let mut favorites = self.favorites()?;
         if favorites.revision != revision || self.favorite_revision(request)? != revision {
             return Err(DirectoryError::FavoriteChanged);
@@ -276,7 +367,10 @@ impl CatalogueStore {
         if cancel.is_cancelled() {
             return Err(DirectoryError::Cancelled);
         }
-        let node = self.local_node(&request.selection())?;
+        let node = read_node()?;
+        if !node.matches(&request.selection()) {
+            return Err(DirectoryError::StaleSelection);
+        }
         self.validate_node(&node)?;
         let time = favorites
             .entries
@@ -357,7 +451,7 @@ impl CatalogueStore {
             .collect();
         hashes.extend(retained.iter().map(|s| s.config_sha256.clone()));
         // Pins are independent durable references, including legacy selections.
-        for category in ["selected", "prepared"] {
+        for category in ["selected", "prepared", "preparing"] {
             let directory = self.directory.join(category);
             if let Ok(entries) = std::fs::read_dir(directory) {
                 for entry in entries {
@@ -387,11 +481,14 @@ impl CatalogueStore {
     }
     pub fn release_prepared(&self, selection: &Selection) {
         if valid_id(&selection.server_id) && valid_hash(&selection.config_sha256) {
-            let _guard = STORE_WRITE.lock().unwrap_or_else(|e| e.into_inner());
-            let _ = std::fs::remove_file(self.node_path("prepared", selection));
-            if let Ok(favorites) = self.favorites() {
-                let _ = self.collect_objects(&favorites, &[]);
-            }
+            self.release_reference(&self.node_path("prepared", selection));
+        }
+    }
+    fn release_reference(&self, reference: &Path) {
+        let _guard = STORE_WRITE.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = std::fs::remove_file(reference);
+        if let Ok(favorites) = self.favorites() {
+            let _ = self.collect_objects(&favorites, &[]);
         }
     }
     /// Called after settings commit, with the saved and live session references.
@@ -418,7 +515,10 @@ impl CatalogueStore {
     pub fn recover_references(&self, retained: &[Selection]) -> Result<(), DirectoryError> {
         {
             let _guard = STORE_WRITE.lock().unwrap_or_else(|e| e.into_inner());
-            if let Ok(entries) = std::fs::read_dir(self.directory.join("prepared")) {
+            for category in ["prepared", "preparing"] {
+                let Ok(entries) = std::fs::read_dir(self.directory.join(category)) else {
+                    continue;
+                };
                 for entry in entries {
                     let entry = entry.map_err(|_| DirectoryError::CacheIo)?;
                     let bytes = bounded_read(&entry.path(), MAX_CONFIG_JSON_BYTES)

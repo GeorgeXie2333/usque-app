@@ -25,10 +25,15 @@ impl DirectoryDownloader {
                 .unwrap_or_else(|e| e.into_inner())
                 .cancel();
             if progress.stage == "complete" {
-                self.store.release_prepared(&Selection {
-                    server_id: progress.server_id,
-                    config_sha256: progress.config_sha256,
-                });
+                let mut prepared = self
+                    .prepared_operation
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                if prepared.as_ref().is_some_and(|(id, _)| id == operation)
+                    && let Some((_, selection)) = prepared.take()
+                {
+                    self.store.release_prepared(&selection);
+                }
             }
         }
     }
@@ -74,6 +79,7 @@ impl DirectoryDownloader {
             child
         };
         self.progress.send_replace(DownloadProgress::default());
+        let preparation = self.store.prepare_operation(&request.selection())?;
         let result = async {
             let revision = if matches!(
                 request.action,
@@ -83,21 +89,27 @@ impl DirectoryDownloader {
             } else {
                 None
             };
-            self.prepare_node(&request.selection(), primary, warp, &cancel)
+            self.prepare_node(&request.selection(), &preparation, primary, warp, &cancel)
                 .await?;
             if cancel.is_cancelled() {
                 return Err(DirectoryError::Cancelled);
             }
             if let Some(revision) = revision {
-                self.store.set_favorite(request, revision, &cancel)?;
-                self.store.release_prepared(&request.selection());
+                preparation.set_favorite(request, revision, &cancel)?;
+            } else {
+                preparation.retain_draft(&cancel)?;
+                *self
+                    .prepared_operation
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner()) =
+                    Some((request.operation_id.clone(), request.selection()));
             }
             Ok(())
         }
         .await;
-        if result.is_err() {
-            self.store.release_prepared(&request.selection());
-        }
+        // Release only this operation's lease, also on errors and cancellation.
+        // A prepared draft and committed favorite have independent references.
+        drop(preparation);
         self.node_progress.send_modify(|p| {
             if p.operation_id != request.operation_id {
                 return;
@@ -120,11 +132,12 @@ impl DirectoryDownloader {
     async fn prepare_node(
         &self,
         selection: &Selection,
+        preparation: &super::favorites::NodePreparation<'_>,
         primary: Arc<dyn CatalogueHttp>,
         warp: &dyn WarpCatalogueSource,
         cancel: &CancellationToken,
     ) -> Result<ServerSummary, DirectoryError> {
-        if let Some(summary) = self.store.prepare_local(selection, cancel)? {
+        if let Some(summary) = preparation.prepare_local(cancel)? {
             return Ok(summary);
         }
         let (pool, _, _, mut skip_raw) = self
@@ -160,7 +173,7 @@ impl DirectoryDownloader {
             result = retry?;
         }
         let ((summary, wire), _) = result.ok_or(DirectoryError::Unavailable)?;
-        self.store.stage_configuration(summary, wire, cancel)
+        preparation.stage_configuration(summary, wire, cancel)
     }
     pub(super) async fn run_pool(
         &self,

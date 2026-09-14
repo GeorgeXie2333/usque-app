@@ -156,3 +156,45 @@ resolver changes, same-node retries, failed node changes and explicit disconnect
 Use the isolation and sanitized-evidence contracts in
 [RELIABILITY_TESTING.md](RELIABILITY_TESTING.md). Missing protected-runner
 evidence is never a pass and is not a publication prerequisite.
+
+## Review fixes on 2026-09-14
+
+This section records the four fixes following `3cd5a4248171b644161861a8da5ccb903c844b3a`:
+pool hostname underscores, deferred WARP frontend activation during Android
+Gate handoff, Gate tunnel-DNS rebuilding on a system VPN toggle, and independent
+references for favorite operations and prepared drafts. It does not extend the
+earlier implementation snapshot's results to other intervening changes.
+
+All checks below completed on the Windows development host with the repository's
+pinned Rust, Flutter, Android NDK/CMake and JDK 17. Commands start at the repository
+root unless another working directory is given.
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Rust formatting | `cargo fmt --all --check` | Passed |
+| Windows Rust lint | `./tool/build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction clippy` | Passed, workspace/all targets, locked |
+| Windows Rust tests | `./tool/build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction test` | 1,047 passed, 0 failed; 3 credential-dependent live network tests ignored |
+| Windows Rust release | `./tool/build_windows_rust_release.ps1 -Variant x64-v2` | Passed, compile only |
+| Android Rust lint | `./tool/build_android_rust.ps1 -AbiFilter arm64-v8a -CargoAction clippy` | Passed |
+| Locked Flutter resolve | `flutter pub get --enforce-lockfile` in `apps/usque_gui` | Passed with Flutter 3.44.7, pinned full commit verified |
+| Android configuration | `flutter build apk --debug --config-only --no-pub` in `apps/usque_gui` | Passed |
+| Kotlin formatting | `./gradlew.bat --no-daemon :app:ktlintCheck` in `apps/usque_gui/android` | Passed |
+| Kotlin unit tests and lint | `./gradlew.bat --no-daemon :app:testDebugUnitTest :app:lintDebug` in `apps/usque_gui/android` | Passed; 190 unit tests, 0 failures/skips; debug JNI rebuilt for all 3 ABIs |
+| Repository policy | `python tool/check_repository_policy.py` | Passed using the bundled Python runtime |
+| Patch whitespace | `git diff --check` | Passed |
+
+Deterministic regressions exercise the real deferred frontend configuration and
+activation path with memory packet queues and an ephemeral loopback listener;
+failed/cancelled handoffs retain closed admission. Shared reconfiguration tests
+cover H3/H2/Auto and local/system/tunnel DNS choices in both toggle directions.
+The real downloader's local node operations retain an unsaved draft through
+repeated favorite removal/addition, failed and cancelled requests, and directory
+removal. Store tests cover independent operation cleanup, garbage collection,
+draft release and restart recovery. Pool fixtures accept underscores while still
+rejecting mismatched node identities and validating the selected configuration.
+
+No Flutter UI, protobuf, native OpenVPN/vendor or build-tool source changed in
+these fixes; their separate UI/bitmap, IPC, interop-feature and tooling suites
+were not rerun. No MSI/release APK was built or installed. Real Android/Windows
+TUN handoff, DNS reachability, WFP and leak observation remain **not run** and
+require the isolated environments above.

@@ -156,6 +156,11 @@ configuration objects; favorites are never automatically evicted.
 Removing a favorite does not disconnect or change the saved selection. Current
 and prepared selections retain independent references. Updating or removing a
 favorite also retains any pending local draft until it is saved or discarded.
+Each configuration operation holds a separate temporary reference. Completing,
+failing or cancelling a favorite operation releases only that reference; a
+successful Prepare publishes the draft reference independently. Cancelling a
+completed Prepare releases its draft, whereas cancelling a completed favorite
+does not release a draft belonging to another operation.
 Unreferenced objects are collected after membership/settings changes; startup
 clears abandoned preparation references. Legacy inline saved selections remain
 readable and migrate on demand; they are not automatically added to favorites.

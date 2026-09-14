@@ -76,6 +76,19 @@ pub(super) fn node_request(server: &ServerSummary, action: NodeAction) -> NodeRe
     }
 }
 
+fn prepare_draft(
+    store: &CatalogueStore,
+    summary: ServerSummary,
+    wire: WireServer,
+    cancel: &CancellationToken,
+) -> Result<ServerSummary, DirectoryError> {
+    let selection = node_request(&summary, NodeAction::Prepare).selection();
+    let preparation = store.prepare_operation(&selection)?;
+    let summary = preparation.stage_configuration(summary, wire, cancel)?;
+    preparation.retain_draft(cancel)?;
+    Ok(summary)
+}
+
 #[test]
 fn pool_metadata_countries_and_two_layers_of_configuration_integrity() {
     let fixture = Fixture::new();
@@ -90,9 +103,7 @@ fn pool_metadata_countries_and_two_layers_of_configuration_integrity() {
     for node in &pool.nodes[..2] {
         let bytes = &fixture.configs[node.config_path()];
         let (summary, wire) = node.configuration(bytes).unwrap();
-        store
-            .stage_configuration(summary.clone(), wire, &CancellationToken::new())
-            .unwrap();
+        prepare_draft(&store, summary.clone(), wire, &CancellationToken::new()).unwrap();
         let selection = Selection {
             server_id: summary.id,
             config_sha256: summary.config_sha256,
@@ -145,9 +156,7 @@ fn pool_hostnames_with_underscores_keep_identity_and_config_validation() {
             .configuration(&fixture.configs[node.config_path()])
             .unwrap();
         let selection = node_request(&summary, NodeAction::Prepare).selection();
-        store
-            .stage_configuration(summary, wire, &CancellationToken::new())
-            .unwrap();
+        prepare_draft(&store, summary, wire, &CancellationToken::new()).unwrap();
         assert_eq!(
             store.load_selection(&selection).unwrap().1.remote.ip(),
             "8.8.8.8".parse::<IpAddr>().unwrap()
@@ -234,7 +243,7 @@ fn favorites_survive_cache_removal_and_restart_and_removal_cannot_resurrect_upda
     let (summary, wire) = node.configuration(&f.configs[node.config_path()]).unwrap();
     let request = node_request(&summary, NodeAction::Favorite);
     let cancel = CancellationToken::new();
-    store.stage_configuration(summary, wire, &cancel).unwrap();
+    prepare_draft(&store, summary, wire, &cancel).unwrap();
     store.set_favorite(&request, 0, &cancel).unwrap();
     store.release_prepared(&request.selection());
     let mut remove = request.clone();
@@ -283,7 +292,7 @@ fn manual_update_keeps_the_current_pin_and_collects_an_unreferenced_removed_favo
     let cancel = CancellationToken::new();
     let (summary, wire) = node.configuration(&f.configs[node.config_path()]).unwrap();
     let request = node_request(&summary, NodeAction::Favorite);
-    store.stage_configuration(summary, wire, &cancel).unwrap();
+    prepare_draft(&store, summary, wire, &cancel).unwrap();
     store.set_favorite(&request, 0, &cancel).unwrap();
     store.pin(&request.selection()).unwrap();
 
@@ -328,7 +337,7 @@ fn manual_update_keeps_the_current_pin_and_collects_an_unreferenced_removed_favo
     let (summary, wire) = new_pool.nodes[0].configuration(&bytes).unwrap();
     let mut update = node_request(&summary, NodeAction::UpdateFavorite);
     update.expected_favorite_hash = request.config_sha256.clone();
-    store.stage_configuration(summary, wire, &cancel).unwrap();
+    prepare_draft(&store, summary, wire, &cancel).unwrap();
     let revision = store.favorite_revision(&update).unwrap();
     store.set_favorite(&update, revision, &cancel).unwrap();
     store.release_prepared(&update.selection());
@@ -374,13 +383,13 @@ fn prepared_favorite_survives_removal_until_release_and_unused_pins_are_collecte
     let (summary, wire) = node.configuration(&f.configs[node.config_path()]).unwrap();
     let request = node_request(&summary, NodeAction::Favorite);
     let cancel = CancellationToken::new();
-    store.stage_configuration(summary, wire, &cancel).unwrap();
+    prepare_draft(&store, summary, wire, &cancel).unwrap();
     store.set_favorite(&request, 0, &cancel).unwrap();
     store.release_prepared(&request.selection());
-    store
-        .prepare_local(&request.selection(), &cancel)
-        .unwrap()
-        .unwrap();
+    let preparation = store.prepare_operation(&request.selection()).unwrap();
+    preparation.prepare_local(&cancel).unwrap().unwrap();
+    preparation.retain_draft(&cancel).unwrap();
+    drop(preparation);
     let mut remove = request.clone();
     remove.action = NodeAction::RemoveFavorite;
     remove.expected_favorite_hash = request.config_sha256.clone();
@@ -400,6 +409,47 @@ fn prepared_favorite_survives_removal_until_release_and_unused_pins_are_collecte
 }
 
 #[test]
+fn operation_references_survive_gc_without_resurrecting_a_released_draft() {
+    let fixture = Fixture::new();
+    let pool = fixture.pool();
+    let directory = tempfile::tempdir().unwrap();
+    let store = CatalogueStore::new(directory.path());
+    let node = &pool.nodes[0];
+    let (summary, wire) = node
+        .configuration(&fixture.configs[node.config_path()])
+        .unwrap();
+    let request = node_request(&summary, NodeAction::Favorite);
+    let selection = request.selection();
+    let cancel = CancellationToken::new();
+    prepare_draft(&store, summary, wire, &cancel).unwrap();
+    let favorite = store.prepare_operation(&selection).unwrap();
+    favorite.prepare_local(&cancel).unwrap().unwrap();
+    let cancelled = store.prepare_operation(&selection).unwrap();
+    cancelled.prepare_local(&cancel).unwrap().unwrap();
+
+    store.release_prepared(&selection);
+    drop(cancelled);
+    store.retain_selections(&[]).unwrap();
+    // Neither releasing the draft nor cleaning up a sibling operation can
+    // delete the configuration still owned by this favorite operation.
+    favorite.set_favorite(&request, 0, &cancel).unwrap();
+    drop(favorite);
+    assert!(store.load_selection(&selection).is_ok());
+    assert!(!store.node_path("prepared", &selection).exists());
+    let mut remove = request;
+    remove.action = NodeAction::RemoveFavorite;
+    remove.expected_favorite_hash = selection.config_sha256.clone();
+    store.remove_favorite(&remove, &[]).unwrap();
+    assert!(store.load_selection(&selection).is_err());
+    assert_eq!(
+        std::fs::read_dir(directory.path().join("vpngate/objects"))
+            .unwrap()
+            .count(),
+        0
+    );
+}
+
+#[test]
 fn restart_drops_abandoned_preparations_but_keeps_saved_snapshot() {
     let f = Fixture::new();
     let p = f.pool();
@@ -409,17 +459,26 @@ fn restart_drops_abandoned_preparations_but_keeps_saved_snapshot() {
     for node in &p.nodes[..2] {
         let (summary, wire) = node.configuration(&f.configs[node.config_path()]).unwrap();
         let request = node_request(&summary, NodeAction::Prepare);
-        store
-            .stage_configuration(summary, wire, &CancellationToken::new())
-            .unwrap();
+        prepare_draft(&store, summary, wire, &CancellationToken::new()).unwrap();
         selections.push(request.selection());
     }
     store.pin(&selections[0]).unwrap();
+    let unfinished = store.prepare_operation(&selections[1]).unwrap();
+    unfinished
+        .prepare_local(&CancellationToken::new())
+        .unwrap()
+        .unwrap();
     CatalogueStore::new(directory.path())
         .recover_references(&selections[..1])
         .unwrap();
     assert!(store.load_selection(&selections[0]).is_ok());
     assert!(store.load_selection(&selections[1]).is_err());
+    assert_eq!(
+        std::fs::read_dir(directory.path().join("vpngate/preparing"))
+            .unwrap()
+            .count(),
+        0
+    );
 }
 
 #[test]
