@@ -72,7 +72,8 @@ The Windows bundle and MSI do not install the publisher certificate into the mac
 
 `.github/RELEASE_NOTES_TEMPLATE.md` is the publication source for the GitHub
 Release body. Before creating a new release tag, replace the **Highlights**
-items with that release's user-visible changes. Every statement is written in
+items and version summary with that release's user-visible changes. Keep the
+upgrade notes and folded technical and DNS details in sync with that version. Every statement is written in
 English first, followed immediately by its Simplified Chinese translation.
 Keep the standard sections for official downloads, installation requirements,
 signature and evidence verification, and issue feedback.
@@ -85,6 +86,12 @@ affiliate links, and referral codes. GitHub-generated release notes stay off
 because an automatically appended monolingual changelog would break the
 bilingual ordering. The publish job fails instead of falling back to an
 unrendered or partially rendered body.
+
+Download badges and platform icons live in `docs/assets/release/` and use
+repository image URLs pinned to the release tag. Keep all six installer links,
+accurate system requirements, and descriptive image alt text when updating the
+table. Do not add third-party badge services or update-only MSI download buttons.
+Keep the four required bilingual section names; decorative emoji may follow them.
 
 Primary files:
 
