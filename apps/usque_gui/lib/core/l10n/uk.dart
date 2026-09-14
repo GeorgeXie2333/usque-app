@@ -86,10 +86,6 @@ const Map<String, String> kUkCatalog = <String, String>{
   'zero_trust_paste_clipboard': 'Заповнити з буфера обміну',
   'zero_trust_clipboard_empty':
       'Буфер обміну не містить URL-адреси зворотного виклику.',
-  'zero_trust_protocol_association':
-      'Відкривати зворотні виклики Access у Usque (лише для цього користувача)',
-  'zero_trust_protocol_association_help':
-      'Необовʼязково. Реєструє com.cloudflare.warp для користувача Windows, який увійшов у систему. Офіційний клієнт WARP може залишатися встановленим. Залиште вимкненим, щоб обробником лишався WARP; вставлення й надалі працює.',
   'zero_trust_scope_note':
       'Експериментально: використовує реєстрацію пристрою організації для доступу до Інтернету; синхронізацію політик і перевірку стану пристрою не реалізовано.',
   'zero_trust_repair_same_team':

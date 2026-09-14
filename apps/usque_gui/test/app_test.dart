@@ -412,11 +412,6 @@ class FakeEngineClient implements EngineClient {
   Future<void> setCloseToTray(bool enabled) async {}
 
   @override
-  Future<void> setWarpProtocolAssociation(bool enabled) async {
-    calls.add('setWarpProtocolAssociation');
-  }
-
-  @override
   Future<void> requestAddQuickSettingsTile() async {}
 
   PerAppProxySettings storedPerAppProxy = const PerAppProxySettings();
@@ -3020,6 +3015,7 @@ void main() {
     );
     await tester.pump();
 
+    expect(engine.zeroTrustCancelCount, greaterThan(0));
     final finish = tester.widget<FilledButton>(
       find.widgetWithText(FilledButton, 'Finish setup'),
     );
@@ -3072,6 +3068,7 @@ void main() {
       find.widgetWithText(FilledButton, 'Finish setup'),
     );
     expect(finish.onPressed, isNull);
+    expect(engine.zeroTrustCancelCount, 0);
     expect(engine.lastProvisioningMethod, isNull);
     expect(engine.lastZeroTrustCallback, isNull);
   });
@@ -3183,6 +3180,7 @@ void main() {
     final callbackField = tester.widget<TextField>(
       find.widgetWithText(TextField, 'Complete callback URL'),
     );
+    expect(engine.zeroTrustCancelCount, greaterThan(0));
     expect(callbackField.controller?.text, callback);
     await tester.tap(find.text('Finish setup'));
     await tester.pumpAndSettle();

@@ -88,10 +88,6 @@ const Map<String, String> kPlCatalog = <String, String>{
   'zero_trust_paste_clipboard': 'Uzupełnij ze schowka',
   'zero_trust_clipboard_empty':
       'Schowek nie zawiera adresu URL wywołania zwrotnego.',
-  'zero_trust_protocol_association':
-      'Otwieraj wywołania zwrotne Access w Usque (tylko ten użytkownik)',
-  'zero_trust_protocol_association_help':
-      'Opcjonalne. Rejestruje com.cloudflare.warp dla zalogowanego użytkownika Windows. Oficjalny klient WARP może pozostać zainstalowany. Pozostaw wyłączone, aby WARP pozostał programem obsługi; wklejanie nadal działa.',
   'zero_trust_scope_note':
       'Eksperymentalne: korzysta z rejestracji urządzenia organizacji do dostępu do Internetu; synchronizacja zasad i stan urządzenia nie są zaimplementowane.',
   'zero_trust_repair_same_team':

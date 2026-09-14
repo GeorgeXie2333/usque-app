@@ -84,10 +84,6 @@ const Map<String, String> kViCatalog = <String, String>{
       'Dùng callback Access com.cloudflare.warp cho tổ chức này.',
   'zero_trust_paste_clipboard': 'Điền từ bộ nhớ tạm',
   'zero_trust_clipboard_empty': 'Bộ nhớ tạm không chứa URL callback.',
-  'zero_trust_protocol_association':
-      'Mở callback Access trong Usque (chỉ người dùng này)',
-  'zero_trust_protocol_association_help':
-      'Tùy chọn. Đăng ký com.cloudflare.warp cho người dùng Windows đang đăng nhập. Có thể giữ ứng dụng WARP chính thức. Tắt mục này để WARP vẫn là trình xử lý; dán URL vẫn hoạt động.',
   'zero_trust_scope_note':
       'Thử nghiệm: dùng đăng ký thiết bị của tổ chức để truy cập Internet; đồng bộ chính sách và trạng thái bảo mật của thiết bị chưa được triển khai.',
   'zero_trust_repair_same_team':

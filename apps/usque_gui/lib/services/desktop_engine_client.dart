@@ -355,15 +355,6 @@ class DesktopEngineClient implements EngineClient, VpnGateClient {
       });
 
   @override
-  Future<void> setWarpProtocolAssociation(bool enabled) async {
-    if (!Platform.isWindows) return;
-    await _transport.invokePlatformMethod<void>(
-      'setWarpProtocolAssociation',
-      <String, Object?>{'enabled': enabled},
-    );
-  }
-
-  @override
   Future<void> requestAddQuickSettingsTile() async {}
 
   @override

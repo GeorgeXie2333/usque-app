@@ -147,7 +147,6 @@ class AppController extends ChangeNotifier {
   bool updateChecksEnabled = true;
   bool startOnBoot = false;
   bool closeToTray = true;
-  bool warpProtocolAssociation = false;
   PerAppProxySettings perAppProxy = const PerAppProxySettings();
   int zeroTrustCallbackTicket = 0;
   ThemePreference themePreference = ThemePreference.system;
@@ -317,7 +316,6 @@ class AppController extends ChangeNotifier {
       final platformPreferences = await _engine.platformPreferences();
       startOnBoot = platformPreferences.startOnBoot;
       closeToTray = platformPreferences.closeToTray;
-      warpProtocolAssociation = platformPreferences.warpProtocolAssociation;
     } on Object {
       // Native shell preferences are optional in unsupported test hosts.
     }
@@ -1154,19 +1152,6 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  Future<void> setWarpProtocolAssociation(bool value) async {
-    final previous = warpProtocolAssociation;
-    warpProtocolAssociation = value;
-    _notifyListeners();
-    try {
-      await _engine.setWarpProtocolAssociation(value);
-    } on Object catch (error) {
-      warpProtocolAssociation = previous;
-      lastError = error is EngineException ? error.message : error.toString();
-      _notifyListeners();
-    }
-  }
-
   void noteZeroTrustCallbackArrived() {
     zeroTrustCallbackTicket += 1;
     _notifyListeners();
@@ -1282,7 +1267,14 @@ class AppController extends ChangeNotifier {
   Future<String?> consumeZeroTrustCallback() =>
       _engine.consumeZeroTrustCallback();
 
-  Future<void> cancelZeroTrustLogin() => _engine.cancelZeroTrustLogin();
+  Future<void> cancelZeroTrustLogin() async {
+    try {
+      await _engine.cancelZeroTrustLogin();
+    } on Object catch (error) {
+      lastError = error is EngineException ? error.message : error.toString();
+      _notifyListeners();
+    }
+  }
 
   void updateProfile(UsqueProfile updated) {
     updateNetwork(updated);

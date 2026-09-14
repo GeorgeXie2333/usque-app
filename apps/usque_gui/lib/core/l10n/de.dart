@@ -89,10 +89,6 @@ const Map<String, String> kDeCatalog = <String, String>{
   'zero_trust_paste_clipboard': 'Aus Zwischenablage übernehmen',
   'zero_trust_clipboard_empty':
       'Die Zwischenablage enthält keine Callback-URL.',
-  'zero_trust_protocol_association':
-      'Access-Callbacks in Usque öffnen (nur dieser Benutzer)',
-  'zero_trust_protocol_association_help':
-      'Optional. Registriert com.cloudflare.warp für den angemeldeten Windows-Benutzer. Der offizielle WARP-Client kann installiert bleiben. Lassen Sie dies deaktiviert, damit WARP der Handler bleibt; Einfügen funktioniert weiterhin.',
   'zero_trust_scope_note':
       'Experimentell: verwendet die Geräteregistrierung der Organisation für den Internetzugang; Richtliniensynchronisierung und Geräte-Posture sind nicht implementiert.',
   'zero_trust_repair_same_team':

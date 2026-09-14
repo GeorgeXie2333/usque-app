@@ -83,10 +83,6 @@ const Map<String, String> kIdCatalog = <String, String>{
       'Gunakan callback Access com.cloudflare.warp untuk organisasi ini.',
   'zero_trust_paste_clipboard': 'Isi dari papan klip',
   'zero_trust_clipboard_empty': 'Papan klip tidak berisi URL callback.',
-  'zero_trust_protocol_association':
-      'Buka callback Access di Usque (hanya pengguna ini)',
-  'zero_trust_protocol_association_help':
-      'Opsional. Mendaftarkan com.cloudflare.warp untuk pengguna Windows yang masuk. Klien WARP resmi dapat tetap terpasang. Biarkan opsi ini nonaktif agar WARP tetap menjadi penangan; menempel tetap berfungsi.',
   'zero_trust_scope_note':
       'Eksperimental: menggunakan pendaftaran perangkat organisasi untuk akses Internet; sinkronisasi kebijakan dan postur perangkat belum diimplementasikan.',
   'zero_trust_repair_same_team':

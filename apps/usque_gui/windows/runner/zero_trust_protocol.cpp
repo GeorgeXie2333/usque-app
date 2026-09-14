@@ -128,16 +128,77 @@ bool SetWarpProtocolAssociation(HKEY root, const wchar_t* protocol_key,
   return wrote_command;
 }
 
-bool IsCurrentUserWarpProtocolAssociated() {
-  const std::wstring exe = CurrentExecutablePath();
-  if (exe.empty()) return false;
-  return WarpProtocolAssociationPointsAtExe(HKEY_CURRENT_USER,
-                                            kUsqueWarpProtocolKey, exe.c_str());
+bool SetTemporaryWarpProtocolAssociation(HKEY root, const wchar_t* protocol_key,
+                                         const wchar_t* exe_path, bool enabled) {
+  if (protocol_key == nullptr || exe_path == nullptr || exe_path[0] == L'\0') {
+    return false;
+  }
+  const std::wstring path(protocol_key);
+  const auto separator = path.find_last_of(L'\\');
+  if (separator == std::wstring::npos) return false;
+  HKEY parent = nullptr;
+  if (::RegCreateKeyExW(root, path.substr(0, separator).c_str(), 0, nullptr, 0,
+                        KEY_ALL_ACCESS, nullptr, &parent, nullptr) !=
+      ERROR_SUCCESS) {
+    return false;
+  }
+  const std::wstring name = path.substr(separator + 1);
+  const std::wstring backup = name + L".UsqueBackup";
+  const std::wstring pending = name + L".UsquePending";
+  const auto exists = [parent](const std::wstring& key) {
+    HKEY opened = nullptr;
+    const LSTATUS status = ::RegOpenKeyExW(parent, key.c_str(), 0, KEY_READ,
+                                          &opened);
+    if (opened != nullptr) ::RegCloseKey(opened);
+    // Access failures must never be mistaken for an absent key.
+    return status != ERROR_FILE_NOT_FOUND;
+  };
+  const auto owned = [parent, exe_path](const std::wstring& key) {
+    return WarpProtocolAssociationPointsAtExe(parent, key.c_str(), exe_path);
+  };
+  const auto restore = [&]() {
+    if (exists(pending)) {
+      if (!owned(pending) ||
+          ::RegDeleteTreeW(parent, pending.c_str()) != ERROR_SUCCESS) {
+        return false;
+      }
+    }
+    if (owned(name) &&
+        ::RegDeleteTreeW(parent, name.c_str()) != ERROR_SUCCESS) {
+      return false;
+    }
+    if (!exists(name) && exists(backup)) {
+      return ::RegRenameKey(parent, backup.c_str(), name.c_str()) ==
+             ERROR_SUCCESS;
+    }
+    return true;
+  };
+  bool success = restore();
+  if (enabled && success) {
+    // A third party may have claimed the protocol while we were active. Keep
+    // its registration and the saved original intact; require recovery first.
+    success = !exists(backup);
+    if (success) {
+      success = SetWarpProtocolAssociation(parent, pending.c_str(), exe_path,
+                                            true);
+    }
+    if (success && exists(name)) {
+      success = ::RegRenameKey(parent, name.c_str(), backup.c_str()) ==
+                ERROR_SUCCESS;
+    }
+    if (success) {
+      success = ::RegRenameKey(parent, pending.c_str(), name.c_str()) ==
+                ERROR_SUCCESS;
+    }
+    if (!success) restore();
+  }
+  ::RegCloseKey(parent);
+  return success;
 }
 
 bool SetCurrentUserWarpProtocolAssociation(bool enabled) {
   const std::wstring exe = CurrentExecutablePath();
   if (exe.empty()) return false;
-  return SetWarpProtocolAssociation(HKEY_CURRENT_USER, kUsqueWarpProtocolKey,
-                                    exe.c_str(), enabled);
+  return SetTemporaryWarpProtocolAssociation(
+      HKEY_CURRENT_USER, kUsqueWarpProtocolKey, exe.c_str(), enabled);
 }

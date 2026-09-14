@@ -85,10 +85,6 @@ const Map<String, String> kTrCatalog = <String, String>{
       'Bu kuruluş için bir com.cloudflare.warp Access geri çağrısı kullanın.',
   'zero_trust_paste_clipboard': 'Panodan doldur',
   'zero_trust_clipboard_empty': 'Panoda bir geri çağrı URL’si yok.',
-  'zero_trust_protocol_association':
-      'Access geri çağrılarını Usque’de aç (yalnızca bu kullanıcı)',
-  'zero_trust_protocol_association_help':
-      'İsteğe bağlı. Oturum açmış Windows kullanıcısı için com.cloudflare.warp kaydını oluşturur. Resmi WARP istemcisi yüklü kalabilir. İşleyici olarak WARP’ı tutmak için bunu kapalı bırakın; yapıştırma yine çalışır.',
   'zero_trust_scope_note':
       'Deneysel: İnternet erişimi için kuruluş cihaz kaydını kullanır; ilke eşitlemesi ve cihaz duruşu uygulanmamıştır.',
   'zero_trust_repair_same_team':

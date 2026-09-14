@@ -83,10 +83,6 @@ const Map<String, String> kArCatalog = <String, String>{
       'استخدم استدعاء Access من نوع com.cloudflare.warp لهذه المؤسسة.',
   'zero_trust_paste_clipboard': 'تعبئة من الحافظة',
   'zero_trust_clipboard_empty': 'الحافظة لا تحتوي على عنوان URL للاستدعاء.',
-  'zero_trust_protocol_association':
-      'فتح استدعاءات Access في Usque (لهذا المستخدم فقط)',
-  'zero_trust_protocol_association_help':
-      'اختياري. يسجّل com.cloudflare.warp لمستخدم Windows المسجَّل دخوله. يمكن أن يبقى عميل WARP الرسمي مثبَّتًا. اترك هذا الخيار معطَّلًا للإبقاء على WARP معالجًا للبروتوكول؛ واللصق ما زال يعمل.',
   'zero_trust_scope_note':
       'تجريبي: يستخدم تسجيل جهاز المؤسسة للوصول إلى الإنترنت؛ مزامنة السياسات ووضعية أمان الجهاز غير منفَّذتين.',
   'zero_trust_repair_same_team':

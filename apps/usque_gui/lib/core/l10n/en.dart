@@ -85,10 +85,6 @@ const Map<String, String> kEnCatalog = <String, String>{
   'zero_trust_paste_clipboard': 'Fill from clipboard',
   'zero_trust_clipboard_empty':
       'The clipboard does not contain a callback URL.',
-  'zero_trust_protocol_association':
-      'Open Access callbacks in Usque (this user only)',
-  'zero_trust_protocol_association_help':
-      'Optional. Registers com.cloudflare.warp for the signed-in Windows user. The official WARP client can stay installed. Leave this off to keep WARP as the handler; paste still works.',
   'zero_trust_scope_note':
       'Experimental: uses the organization device registration for Internet access; policy sync and device posture are not implemented.',
   'zero_trust_repair_same_team':

@@ -113,8 +113,6 @@ abstract interface class EngineClient {
 
   Future<void> setCloseToTray(bool enabled);
 
-  Future<void> setWarpProtocolAssociation(bool enabled);
-
   Future<void> requestAddQuickSettingsTile();
 
   Future<PerAppProxySettings> perAppProxy();
@@ -419,9 +417,6 @@ class MethodChannelEngineClient implements EngineClient, VpnGateClient {
 
   @override
   Future<void> setCloseToTray(bool enabled) async {}
-
-  @override
-  Future<void> setWarpProtocolAssociation(bool enabled) async {}
 
   @override
   Future<void> requestAddQuickSettingsTile() =>

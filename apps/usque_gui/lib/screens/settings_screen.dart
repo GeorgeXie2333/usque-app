@@ -199,18 +199,6 @@ class SettingsScreen extends StatelessWidget {
                           value: controller.closeToTray,
                           onChanged: controller.setCloseToTray,
                         ),
-                        SwitchListTile(
-                          contentPadding: EdgeInsets.zero,
-                          secondary: const Icon(LucideIcons.link),
-                          title: Text(
-                            strings.get('zero_trust_protocol_association'),
-                          ),
-                          subtitle: Text(
-                            strings.get('zero_trust_protocol_association_help'),
-                          ),
-                          value: controller.warpProtocolAssociation,
-                          onChanged: controller.setWarpProtocolAssociation,
-                        ),
                       ],
                       if (android) ...<Widget>[
                         ListTile(

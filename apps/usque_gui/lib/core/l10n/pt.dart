@@ -88,10 +88,6 @@ const Map<String, String> kPtCatalog = <String, String>{
   'zero_trust_paste_clipboard': 'Preencher da área de transferência',
   'zero_trust_clipboard_empty':
       'A área de transferência não contém um URL de callback.',
-  'zero_trust_protocol_association':
-      'Abrir callbacks do Access no Usque (somente este usuário)',
-  'zero_trust_protocol_association_help':
-      'Opcional. Registra com.cloudflare.warp para o usuário do Windows com sessão iniciada. O cliente oficial do WARP pode permanecer instalado. Deixe desativado para manter o WARP como o aplicativo associado; colar continua funcionando.',
   'zero_trust_scope_note':
       'Experimental: usa o registro de dispositivo da organização para acesso à Internet; a sincronização de políticas e a postura do dispositivo não estão implementadas.',
   'zero_trust_repair_same_team':

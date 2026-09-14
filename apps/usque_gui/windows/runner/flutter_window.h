@@ -43,6 +43,7 @@ class FlutterWindow : public Win32Window {
   void RequestDisconnectAndExit();
   void ShowAndActivate();
   void NotifyZeroTrustCallbackArrived();
+  bool ReleaseZeroTrustProtocol();
   bool HandleZeroTrustCopyData(const COPYDATASTRUCT* data);
 
   // The project to run.

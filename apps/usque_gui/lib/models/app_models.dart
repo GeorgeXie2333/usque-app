@@ -473,19 +473,15 @@ class PlatformPreferences {
   const PlatformPreferences({
     this.startOnBoot = false,
     this.closeToTray = true,
-    this.warpProtocolAssociation = false,
   });
 
   final bool startOnBoot;
   final bool closeToTray;
-  final bool warpProtocolAssociation;
 
   factory PlatformPreferences.fromMap(Map<Object?, Object?> map) {
     return PlatformPreferences(
       startOnBoot: map['start_on_boot'] as bool? ?? false,
       closeToTray: map['close_to_tray'] as bool? ?? true,
-      warpProtocolAssociation:
-          map['warp_protocol_association'] as bool? ?? false,
     );
   }
 }

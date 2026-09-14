@@ -85,10 +85,6 @@ const Map<String, String> kNlCatalog = <String, String>{
       'Gebruik een com.cloudflare.warp Access-callback voor deze organisatie.',
   'zero_trust_paste_clipboard': 'Invullen vanuit klembord',
   'zero_trust_clipboard_empty': 'Het klembord bevat geen callback-URL.',
-  'zero_trust_protocol_association':
-      'Access-callbacks in Usque openen (alleen deze gebruiker)',
-  'zero_trust_protocol_association_help':
-      'Optioneel. Registreert com.cloudflare.warp voor de aangemelde Windows-gebruiker. De officiële WARP-client mag geïnstalleerd blijven. Laat dit uitgeschakeld om WARP als handler te houden; plakken blijft werken.',
   'zero_trust_scope_note':
       'Experimenteel: gebruikt de apparaatregistratie van de organisatie voor internettoegang; beleidssynchronisatie en controle van de apparaatstatus zijn niet geïmplementeerd.',
   'zero_trust_repair_same_team':

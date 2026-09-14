@@ -81,9 +81,6 @@ const Map<String, String> kJaCatalog = <String, String>{
       'この組織向けの com.cloudflare.warp Access コールバックを使用してください。',
   'zero_trust_paste_clipboard': 'クリップボードから入力',
   'zero_trust_clipboard_empty': 'クリップボードにコールバック URL が含まれていません。',
-  'zero_trust_protocol_association': 'Access のコールバックを Usque で開く（このユーザーのみ）',
-  'zero_trust_protocol_association_help':
-      '任意です。サインイン中の Windows ユーザー向けに com.cloudflare.warp を登録します。公式 WARP クライアントはインストールしたままにできます。オフのままにすると、ハンドラーは WARP のままです。貼り付けは引き続き利用できます。',
   'zero_trust_scope_note':
       '実験的です。組織のデバイス登録をインターネットアクセスに使用します。ポリシー同期とデバイスポスチャは実装されていません。',
   'zero_trust_repair_same_team': '同じ組織にもう一度サインインして、このデバイス登録を更新してください。',

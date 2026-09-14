@@ -79,9 +79,6 @@ const Map<String, String> kZhTwCatalog = <String, String>{
   'zero_trust_callback_invalid': '請使用此組織的 com.cloudflare.warp Access 回呼。',
   'zero_trust_paste_clipboard': '從剪貼簿填入',
   'zero_trust_clipboard_empty': '剪貼簿中沒有回呼 URL。',
-  'zero_trust_protocol_association': '在 Usque 中開啟 Access 回呼（僅此使用者）',
-  'zero_trust_protocol_association_help':
-      '選用。僅為目前登入的 Windows 使用者註冊 com.cloudflare.warp。官方 WARP 用戶端可繼續保留安裝。關閉此選項則維持由 WARP 作為處理常式；貼上功能仍可使用。',
   'zero_trust_scope_note': '實驗性：使用組織裝置註冊以存取網際網路；尚未實作原則同步與裝置態勢。',
   'zero_trust_repair_same_team': '請重新登入同一組織，以重新整理此裝置註冊。',
   'zero_trust_metadata_missing':

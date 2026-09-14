@@ -89,10 +89,6 @@ const Map<String, String> kEsCatalog = <String, String>{
   'zero_trust_paste_clipboard': 'Rellenar desde el portapapeles',
   'zero_trust_clipboard_empty':
       'El portapapeles no contiene una URL de callback.',
-  'zero_trust_protocol_association':
-      'Abrir callbacks de Access en Usque (solo este usuario)',
-  'zero_trust_protocol_association_help':
-      'Opcional. Registra com.cloudflare.warp para el usuario de Windows que ha iniciado sesión. El cliente oficial de WARP puede permanecer instalado. Déjelo desactivado para conservar WARP como controlador; pegar sigue funcionando.',
   'zero_trust_scope_note':
       'Experimental: usa el registro de dispositivo de la organización para el acceso a Internet; la sincronización de políticas y la postura del dispositivo no están implementadas.',
   'zero_trust_repair_same_team':

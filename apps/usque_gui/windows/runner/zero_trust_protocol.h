@@ -21,7 +21,10 @@ bool WarpProtocolAssociationPointsAtExe(HKEY root, const wchar_t* protocol_key,
 bool SetWarpProtocolAssociation(HKEY root, const wchar_t* protocol_key,
                                 const wchar_t* exe_path, bool enabled);
 
-bool IsCurrentUserWarpProtocolAssociated();
+// Temporarily takes ownership, retaining the complete previous key for restore.
+// Recovery is safe to repeat on startup; never replaces a new third-party owner.
+bool SetTemporaryWarpProtocolAssociation(HKEY root, const wchar_t* protocol_key,
+                                         const wchar_t* exe_path, bool enabled);
 bool SetCurrentUserWarpProtocolAssociation(bool enabled);
 
 #endif  // RUNNER_ZERO_TRUST_PROTOCOL_H_
