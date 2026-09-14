@@ -214,6 +214,11 @@ When explicitly disabling VPN Gate, WARP frontend settings remain staged
 through Android's replacement TUN handoff. Reconfiguration updates that pending
 profile without admitting traffic; final activation starts its listeners only
 after platform attachment. Cancellation discards the pending profile.
+Android exit IP and Location probes always use the current final internal
+network, including after disabling VPN Gate: Gate while enabled, WARP otherwise.
+They do not rely on system TUN routing or local proxy listeners. Failed lookups
+retain the existing single retry and never retry over the physical network;
+session cancellation and Gate generation checks still reject obsolete results.
 Switching closes old final flows, retains a usable WARP session, builds a new
 OpenVPN session and applies its final assignment. No failure path intentionally
 selects WARP or physical egress as the final fallback. A terminal VPN Gate

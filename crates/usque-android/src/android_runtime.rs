@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use tokio::io::unix::AsyncFd;
 use tokio::time::{MissedTickBehavior, interval};
 use tokio_util::sync::CancellationToken;
-use usque_core::{AddressFamily, IpSbProbe, Transport, WarpIdentity};
+use usque_core::{AddressFamily, Transport, WarpIdentity};
 use usque_core::{ReconfigureClass, classify_reconfigure};
 use usque_geo::CountryCode;
 use usque_transport::{
@@ -576,7 +576,7 @@ async fn run(
         cancellation: cancellation.clone(),
         exit_probe: ExitProbeTask::default(),
     };
-    spawn_exit_probe(&gate_context, &tunnel, &profile, tun.is_some());
+    spawn_exit_probe(&gate_context, &tunnel, &profile);
 
     let tun_io = if tun.is_some() {
         match tunnel.attach_tun() {
@@ -603,65 +603,34 @@ async fn run(
     .await;
 }
 
-fn spawn_exit_probe(
-    context: &GateContext,
-    tunnel: &DataPlaneRuntime,
-    profile: &Profile,
-    has_tun: bool,
-) {
-    let status = &context.snapshot;
+fn spawn_exit_probe(context: &GateContext, tunnel: &DataPlaneRuntime, profile: &Profile) {
     let cancellation = context.exit_probe.begin(&context.cancellation);
-    if profile.vpn_gate.enabled {
-        if !matches!(tunnel.health(), RuntimeHealth::Connected { .. }) {
-            return;
-        }
-        let network = tunnel.internal_network();
-        let status = Arc::clone(status);
-        let generation = tunnel.gate_status().generation;
-        tokio::spawn(async move {
-            if let Some(Ok(exit)) = run_probe(&cancellation, network.probe_exit()).await
-                && let Ok(mut snapshot) = status.lock()
-                && !cancellation.is_cancelled()
-                && snapshot.vpn_gate.as_ref().is_some_and(|gate| {
+    if profile.vpn_gate.enabled && !matches!(tunnel.health(), RuntimeHealth::Connected { .. }) {
+        return;
+    }
+    // Keep both WARP and Gate diagnostics inside the selected final session.
+    // OS-routed sockets can observe the physical exit during a TUN handoff;
+    // local frontend listeners can also apply explicit direct-routing rules.
+    let network = tunnel.internal_network();
+    let status = Arc::clone(&context.snapshot);
+    let gate_generation = profile
+        .vpn_gate
+        .enabled
+        .then(|| tunnel.gate_status().generation);
+    tokio::spawn(async move {
+        if let Some(Ok(exit)) = run_probe(&cancellation, network.probe_exit()).await
+            && let Ok(mut snapshot) = status.lock()
+            && !cancellation.is_cancelled()
+            && gate_generation.is_none_or(|generation| {
+                snapshot.vpn_gate.as_ref().is_some_and(|gate| {
                     gate.generation == generation
                         && gate.stage == usque_core::vpngate::GateStage::Connected
                 })
-            {
-                apply_exit(&mut snapshot, exit);
-            }
-        });
-        return;
-    }
-    let probe = if has_tun {
-        IpSbProbe::new().ok()
-    } else {
-        let listener = tunnel
-            .listeners()
-            .iter()
-            .copied()
-            .find(|address| address.ip().is_loopback());
-        let listener_auth = profile.proxy.listener_credentials().ok().flatten();
-        listener.and_then(|listener| {
-            if profile.frontends.socks5 {
-                IpSbProbe::through_socks_with_auth(listener, listener_auth.as_ref()).ok()
-            } else if profile.frontends.http {
-                IpSbProbe::through_http_with_auth(listener, listener_auth.as_ref()).ok()
-            } else {
-                None
-            }
-        })
-    };
-    if let Some(probe) = probe {
-        let status = Arc::clone(status);
-        tokio::spawn(async move {
-            if let Some(Ok(exit)) = run_probe(&cancellation, probe.probe()).await
-                && let Ok(mut snapshot) = status.lock()
-                && !cancellation.is_cancelled()
-            {
-                apply_exit(&mut snapshot, exit);
-            }
-        });
-    }
+            })
+        {
+            apply_exit(&mut snapshot, exit);
+        }
+    });
 }
 
 type OwnedSessionDataEvent = SessionDataEvent<
@@ -1049,7 +1018,7 @@ async fn handle_runtime_command(
                             match tunnel.activate_final().await {
                                 Ok(()) => {
                                     update_frontends(status, tunnel);
-                                    spawn_exit_probe(gate_context, tunnel, profile, false);
+                                    spawn_exit_probe(gate_context, tunnel, profile);
                                     RECONFIGURE_OK
                                 }
                                 Err(error) => {
@@ -1070,7 +1039,7 @@ async fn handle_runtime_command(
                         Ok(()) => {
                             *profile = next;
                             update_frontends(status, tunnel);
-                            spawn_exit_probe(gate_context, tunnel, profile, tun.is_some());
+                            spawn_exit_probe(gate_context, tunnel, profile);
                             RECONFIGURE_OK
                         }
                         Err(error) => {
@@ -1086,7 +1055,7 @@ async fn handle_runtime_command(
                         gate_context.exit_probe.cancel();
                         detach_tun_locked(tunnel, tun, tun_io);
                         *profile = next;
-                        spawn_exit_probe(gate_context, tunnel, profile, false);
+                        spawn_exit_probe(gate_context, tunnel, profile);
                         RECONFIGURE_OK
                     } else {
                         *profile = next;
@@ -1164,7 +1133,7 @@ async fn handle_runtime_command(
             }
             *profile = next;
             update_frontends(status, tunnel);
-            spawn_exit_probe(gate_context, tunnel, profile, true);
+            spawn_exit_probe(gate_context, tunnel, profile);
         }
         RuntimeCommand::DetachTun { reply, cancelled } => {
             if super::jni_command_abandoned(&cancelled) {
