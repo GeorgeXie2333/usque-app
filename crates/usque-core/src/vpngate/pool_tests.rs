@@ -120,6 +120,54 @@ fn pool_metadata_countries_and_two_layers_of_configuration_integrity() {
 }
 
 #[test]
+fn pool_hostnames_with_underscores_keep_identity_and_config_validation() {
+    for hostname in ["vpn_gate", "VPN_Gate.Example.", "_relay", "relay_"] {
+        let mut fixture = Fixture::new();
+        let mut document: Value = serde_json::from_slice(&fixture.servers).unwrap();
+        let node = &mut document["servers"][0];
+        node["hostname"] = json!(hostname);
+        let normalized = hostname.trim().trim_end_matches('.').to_ascii_lowercase();
+        node["id"] = json!(format!(
+            "v1:{}",
+            hash(format!("vpngate-node-v1\0{normalized}\08.8.8.8").as_bytes())
+        ));
+        fixture.servers = serde_json::to_vec(&document).unwrap();
+        fixture.reindex();
+        let pool = fixture.pool();
+        let directory = tempfile::tempdir().unwrap();
+        let store = CatalogueStore::new(directory.path());
+        store.save_pool(&pool, 42, RAW_URL, false).unwrap();
+        let list = store.list(&ListQuery::default()).unwrap();
+        assert_eq!((list.total, list.source_server_count), (2, 3));
+        assert!(list.servers.iter().any(|s| s.hostname == hostname));
+        let node = &pool.nodes[0];
+        let (summary, wire) = node
+            .configuration(&fixture.configs[node.config_path()])
+            .unwrap();
+        let selection = node_request(&summary, NodeAction::Prepare).selection();
+        store
+            .stage_configuration(summary, wire, &CancellationToken::new())
+            .unwrap();
+        assert_eq!(
+            store.load_selection(&selection).unwrap().1.remote.ip(),
+            "8.8.8.8".parse::<IpAddr>().unwrap()
+        );
+
+        document["servers"][0]["hostname"] = json!("other_host");
+        fixture.servers = serde_json::to_vec(&document).unwrap();
+        fixture.reindex();
+        assert!(
+            PoolCatalogue::parse(
+                PoolIndex::parse(&fixture.index).unwrap(),
+                &fixture.servers,
+                &fixture.countries,
+            )
+            .is_err()
+        );
+    }
+}
+
+#[test]
 fn malformed_pool_fields_paths_counts_hashes_and_rollback_are_rejected() {
     let fixture = Fixture::new();
     for (pointer, value) in [

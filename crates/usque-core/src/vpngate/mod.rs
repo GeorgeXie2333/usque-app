@@ -414,7 +414,7 @@ fn validate_server_metadata(server: &WireServer) -> Result<IpAddr, DirectoryErro
                 || label.len() > 63
                 || !label
                     .bytes()
-                    .all(|c| c.is_ascii_alphanumeric() || c == b'-')
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_'))
                 || label.starts_with('-')
                 || label.ends_with('-')
         })
