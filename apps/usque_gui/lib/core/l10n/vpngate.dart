@@ -1,5 +1,8 @@
 // VPN Gate copy follows the same catalog IDs as AppStrings.
 const kVpnGateEn = <String, String>{
+  "gate_manage": "Manage servers",
+  "gate_enabled_idle": "Enabled · not connected",
+  "gate_saved_server": "Saved server",
   "gate_node_details": "Details",
   "gate_local_time": "Local time",
   "gate_first_seen": "First seen in source",
@@ -90,6 +93,9 @@ const kVpnGateEn = <String, String>{
 const kVpnGateCatalogs = <String, Map<String, String>>{
   "en": kVpnGateEn,
   "zh_CN": {
+    "gate_manage": "管理节点",
+    "gate_enabled_idle": "已启用 · 未连接",
+    "gate_saved_server": "已保存节点",
     "gate_node_details": "详情",
     "gate_local_time": "本地时间",
     "gate_first_seen": "源站首次出现",
@@ -171,6 +177,9 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_configuring_network": "正在应用网络配置",
   },
   "zh_TW": {
+    "gate_manage": "管理節點",
+    "gate_enabled_idle": "已啟用 · 未連線",
+    "gate_saved_server": "已儲存節點",
     "gate_node_details": "詳細資料",
     "gate_local_time": "本地時間",
     "gate_first_seen": "來源站首次出現",
@@ -252,6 +261,9 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_configuring_network": "正在套用網路設定",
   },
   "ja": {
+    "gate_manage": "サーバーを管理",
+    "gate_enabled_idle": "有効 · 未接続",
+    "gate_saved_server": "保存済みサーバー",
     "gate_node_details": "詳細",
     "gate_local_time": "現地時刻",
     "gate_first_seen": "配信元での初確認",
@@ -333,6 +345,9 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_configuring_network": "ネットワーク設定を適用中",
   },
   "ko": {
+    "gate_manage": "서버 관리",
+    "gate_enabled_idle": "활성화됨 · 연결 안 됨",
+    "gate_saved_server": "저장된 서버",
     "gate_node_details": "상세 정보",
     "gate_local_time": "현지 시간",
     "gate_first_seen": "원본에서 처음 확인",
@@ -414,6 +429,9 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_configuring_network": "네트워크 설정 적용 중",
   },
   "es": {
+    "gate_manage": "Gestionar servidores",
+    "gate_enabled_idle": "Activado · sin conectar",
+    "gate_saved_server": "Servidor guardado",
     "gate_node_details": "Detalles",
     "gate_local_time": "Hora local",
     "gate_first_seen": "Primera aparición en origen",
@@ -502,6 +520,9 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_configuring_network": "Aplicando ajustes de red",
   },
   "pt": {
+    "gate_manage": "Gerir servidores",
+    "gate_enabled_idle": "Ativado · sem ligação",
+    "gate_saved_server": "Servidor guardado",
     "gate_node_details": "Detalhes",
     "gate_local_time": "Hora local",
     "gate_first_seen": "Primeira aparição na origem",
@@ -590,6 +611,9 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_configuring_network": "A aplicar definições de rede",
   },
   "fr": {
+    "gate_manage": "Gérer les serveurs",
+    "gate_enabled_idle": "Activé · non connecté",
+    "gate_saved_server": "Serveur enregistré",
     "gate_node_details": "Détails",
     "gate_local_time": "Heure locale",
     "gate_first_seen": "Première présence à la source",
@@ -678,6 +702,9 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_configuring_network": "Application des paramètres réseau",
   },
   "nl": {
+    "gate_manage": "Servers beheren",
+    "gate_enabled_idle": "Ingeschakeld · niet verbonden",
+    "gate_saved_server": "Opgeslagen server",
     "gate_node_details": "Meer informatie",
     "gate_local_time": "Lokale tijd",
     "gate_first_seen": "Eerst gezien bij de bron",
@@ -767,6 +794,9 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_configuring_network": "Netwerkinstellingen toepassen",
   },
   "tr": {
+    "gate_manage": "Sunucuları yönet",
+    "gate_enabled_idle": "Etkin · bağlı değil",
+    "gate_saved_server": "Kayıtlı sunucu",
     "gate_node_details": "Ayrıntılar",
     "gate_local_time": "Yerel saat",
     "gate_first_seen": "Kaynakta ilk görülme",
@@ -853,6 +883,9 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_configuring_network": "Ağ ayarları uygulanıyor",
   },
   "ru": {
+    "gate_manage": "Управление серверами",
+    "gate_enabled_idle": "Включено · не подключено",
+    "gate_saved_server": "Сохранённый сервер",
     "gate_node_details": "Подробности",
     "gate_local_time": "Местное время",
     "gate_first_seen": "Первое появление в источнике",
@@ -941,6 +974,9 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_configuring_network": "Применение настроек сети",
   },
   "de": {
+    "gate_manage": "Server verwalten",
+    "gate_enabled_idle": "Aktiviert · nicht verbunden",
+    "gate_saved_server": "Gespeicherter Server",
     "gate_node_details": "Einzelheiten",
     "gate_local_time": "Ortszeit",
     "gate_first_seen": "Erstmals in der Quelle gesehen",
@@ -1031,6 +1067,9 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_configuring_network": "Netzwerkeinstellungen werden angewendet",
   },
   "id": {
+    "gate_manage": "Kelola server",
+    "gate_enabled_idle": "Diaktifkan · belum terhubung",
+    "gate_saved_server": "Server tersimpan",
     "gate_node_details": "Rincian",
     "gate_local_time": "Waktu setempat",
     "gate_first_seen": "Pertama terlihat di sumber",
@@ -1119,6 +1158,9 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_configuring_network": "Menerapkan pengaturan jaringan",
   },
   "it": {
+    "gate_manage": "Gestisci server",
+    "gate_enabled_idle": "Attivo · non connesso",
+    "gate_saved_server": "Server salvato",
     "gate_node_details": "Dettagli",
     "gate_local_time": "Ora locale",
     "gate_first_seen": "Prima apparizione nella fonte",
@@ -1207,6 +1249,9 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_configuring_network": "Applicazione delle impostazioni di rete",
   },
   "pl": {
+    "gate_manage": "Zarządzaj serwerami",
+    "gate_enabled_idle": "Włączono · brak połączenia",
+    "gate_saved_server": "Zapisany serwer",
     "gate_node_details": "Szczegóły",
     "gate_local_time": "Czas lokalny",
     "gate_first_seen": "Pierwsze wystąpienie w źródle",
@@ -1295,6 +1340,9 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_configuring_network": "Stosowanie ustawień sieci",
   },
   "uk": {
+    "gate_manage": "Керування серверами",
+    "gate_enabled_idle": "Увімкнено · не підключено",
+    "gate_saved_server": "Збережений сервер",
     "gate_node_details": "Подробиці",
     "gate_local_time": "Місцевий час",
     "gate_first_seen": "Перша поява в джерелі",
@@ -1383,6 +1431,9 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_configuring_network": "Застосування налаштувань мережі",
   },
   "vi": {
+    "gate_manage": "Quản lý máy chủ",
+    "gate_enabled_idle": "Đã bật · chưa kết nối",
+    "gate_saved_server": "Máy chủ đã lưu",
     "gate_node_details": "Chi tiết",
     "gate_local_time": "Giờ địa phương",
     "gate_first_seen": "Xuất hiện đầu tiên ở nguồn",
@@ -1469,6 +1520,9 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_configuring_network": "Đang áp dụng cài đặt mạng",
   },
   "th": {
+    "gate_manage": "จัดการเซิร์ฟเวอร์",
+    "gate_enabled_idle": "เปิดใช้งาน · ยังไม่เชื่อมต่อ",
+    "gate_saved_server": "เซิร์ฟเวอร์ที่บันทึกไว้",
     "gate_node_details": "รายละเอียด",
     "gate_local_time": "เวลาท้องถิ่น",
     "gate_first_seen": "พบครั้งแรกที่ต้นทาง",
@@ -1553,6 +1607,9 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_configuring_network": "กำลังใช้การตั้งค่าเครือข่าย",
   },
   "ar": {
+    "gate_manage": "إدارة الخوادم",
+    "gate_enabled_idle": "مفعّل · غير متصل",
+    "gate_saved_server": "الخادم المحفوظ",
     "gate_node_details": "التفاصيل",
     "gate_local_time": "التوقيت المحلي",
     "gate_first_seen": "أول ظهور في المصدر",
@@ -1638,6 +1695,9 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_configuring_network": "جارٍ تطبيق إعدادات الشبكة",
   },
   "fa": {
+    "gate_manage": "مدیریت سرورها",
+    "gate_enabled_idle": "فعال · متصل نیست",
+    "gate_saved_server": "سرور ذخیره‌شده",
     "gate_node_details": "جزئیات",
     "gate_local_time": "زمان محلی",
     "gate_first_seen": "اولین مشاهده در منبع",
@@ -1724,6 +1784,9 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_configuring_network": "در حال اعمال تنظیمات شبکه",
   },
   "zh_HK": {
+    "gate_manage": "管理節點",
+    "gate_enabled_idle": "已啟用 · 未連線",
+    "gate_saved_server": "已儲存節點",
     "gate_node_details": "詳情",
     "gate_local_time": "本地時間",
     "gate_first_seen": "來源站首次出現",

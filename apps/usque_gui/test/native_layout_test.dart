@@ -222,7 +222,7 @@ void main() {
     },
   );
 
-  testWidgets('every primary page is card-free without losing its actions', (
+  testWidgets('primary pages reserve the sole shortcut card for VPN Gate', (
     tester,
   ) async {
     for (final section in AppSection.values) {
@@ -233,7 +233,17 @@ void main() {
       try {
         await tester.pumpWidget(workflowHost(app));
         await tester.pumpAndSettle();
-        expect(find.byType(Panel), findsNothing, reason: section.name);
+        if (section == AppSection.proxy) {
+          final entry = find.byKey(const ValueKey('proxy-vpn-gate-entry'));
+          expect(find.byType(Panel), findsOneWidget);
+          expect(tester.widget<Panel>(entry).onTap, isNotNull);
+          expect(
+            find.descendant(of: entry, matching: find.text('Manage servers')),
+            findsOneWidget,
+          );
+        } else {
+          expect(find.byType(Panel), findsNothing, reason: section.name);
+        }
         expect(find.byType(StatusPill), findsNothing, reason: section.name);
         expect(tester.takeException(), isNull);
         await tester.pumpWidget(const SizedBox.shrink());

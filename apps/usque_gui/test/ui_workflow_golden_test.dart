@@ -20,6 +20,7 @@ import 'package:usque/state/window_frame.dart';
 import 'package:usque/widgets/common.dart';
 import 'package:usque/widgets/country_flag.dart';
 import 'package:usque/widgets/usque_dialog.dart';
+import 'package:usque/widgets/vpn_gate_entry.dart';
 import 'package:usque/widgets/vpn_gate_server_row.dart';
 import 'package:usque/widgets/window_titlebar.dart';
 
@@ -63,6 +64,59 @@ void main() {
           .load();
     }
   });
+
+  testWidgets('VPN Gate proxy entry on desktop and phone', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    for (final phone in [false, true]) {
+      tester.view.physicalSize = Size(phone ? 375 : 880, 600);
+      final app = AppController(GateEngine())
+        ..section = AppSection.proxy
+        ..localePreference = phone
+            ? LocalePreference.simplifiedChinese
+            : LocalePreference.english
+        ..snapshot = const EngineSnapshot(
+          phase: ConnectionPhase.connected,
+          vpnGate: VpnGateStatus(stage: 'connected', server: server),
+        );
+      final boundary = GlobalKey();
+      try {
+        await tester.pumpWidget(
+          workflowHost(
+            app,
+            dark: phone,
+            home: Scaffold(
+              body: Padding(
+                padding: const EdgeInsets.all(16),
+                child: RepaintBoundary(
+                  key: boundary,
+                  child: VpnGateEntry(controller: app, onOpen: () {}),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.runAsync(
+          () => precacheImage(
+            const AssetImage('assets/flags/w80/jp.png'),
+            tester.element(find.byType(VpnGateEntry)),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        await expectLater(
+          find.byKey(boundary),
+          matchesGoldenFile(
+            'goldens/proxy_gate_${phone ? 'phone_dark' : 'desktop_light'}.png',
+          ),
+        );
+        await tester.pumpWidget(const SizedBox.shrink());
+      } finally {
+        app.dispose();
+      }
+    }
+  }, tags: 'golden');
 
   testWidgets('VPN Gate selection layout on desktop and phone', (tester) async {
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -1169,6 +1223,10 @@ void main() {
               .first;
           await tester.enterText(port, '9090');
           FocusManager.instance.primaryFocus?.unfocus();
+          await tester.pumpAndSettle();
+          Scrollable.of(
+            tester.element(find.byType(VpnGateEntry)),
+          ).position.jumpTo(0);
           await tester.pumpAndSettle();
         }
         expect(tester.takeException(), isNull);
