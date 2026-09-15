@@ -445,7 +445,6 @@ where
             return;
         }
         self.reconcile_automatic_recovery_state().await;
-        let mut observed_exhaustion = None;
         loop {
             if self.stopping.load(Ordering::Acquire) {
                 return;
@@ -470,42 +469,6 @@ where
                     })
             };
             let Some((operation_id, attempts_completed, revision, delay)) = next else {
-                let exhausted = {
-                    let runtime = self.automatic_recovery.lock().await;
-                    (runtime.stage == AutomaticRecoveryStage::Exhausted)
-                        .then(|| {
-                            runtime
-                                .operation_id
-                                .zip(
-                                    runtime
-                                        .journal_snapshot
-                                        .as_ref()
-                                        .filter(|j| {
-                                            j.steps.iter().any(|s| {
-                                                s.kind
-                                                    == crate::journal::MutationKind::WintunAdapter
-                                                    && s.state
-                                                        != crate::journal::MutationState::Restored
-                                            })
-                                        })
-                                        .map(|j| j.generation),
-                                )
-                                .map(|(operation, generation)| {
-                                    (operation, generation, runtime.revision)
-                                })
-                        })
-                        .flatten()
-                };
-                if let Some(key) = exhausted.filter(|key| Some(*key) != observed_exhaustion) {
-                    observed_exhaustion = Some(key);
-                    self.observe_exhausted_recovery(
-                        key,
-                        Duration::from_secs(5),
-                        Duration::from_secs(600),
-                    )
-                    .await;
-                    continue;
-                }
                 notified.await;
                 continue;
             };
@@ -536,111 +499,6 @@ where
             let result = self.automatic_recovery_attempt(operation_id).await;
             self.finish_automatic_recovery_attempt(operation_id, result)
                 .await;
-        }
-    }
-
-    /// Finite observation only. It never calls a mutation, saves Clean, resets
-    /// the retry budget, or extends the observation window on status polling.
-    async fn observe_exhausted_recovery(
-        &self,
-        key: (Uuid, u64, u64),
-        interval: Duration,
-        duration: Duration,
-    ) {
-        use agent_v1::{
-            RecoveryIdentityCheck, RecoveryPresence, RecoverySampleStatus,
-            RecoveryTraceStage as Stage,
-        };
-        let trace = self.coordinator.trace_resource(key.1);
-        trace.record(Stage::ObservationStarted);
-        let deadline = tokio::time::Instant::now() + duration;
-        let mut previous = None;
-        loop {
-            let notified = self.automatic_recovery_notify.notified();
-            tokio::pin!(notified);
-            let _ = notified.as_mut().enable();
-            let current = {
-                let runtime = self.automatic_recovery.lock().await;
-                !self.stopping.load(Ordering::Acquire)
-                    && runtime.stage == AutomaticRecoveryStage::Exhausted
-                    && runtime.operation_id == Some(key.0)
-                    && runtime.revision == key.2
-            };
-            if !current
-                || self
-                    .coordinator
-                    .try_state()
-                    .is_some_and(|j| j.generation != key.1)
-            {
-                trace.record(Stage::ObservationCancelled);
-                return;
-            }
-            let diagnostics = tokio::select! {
-                biased;
-                () = &mut notified => continue,
-                () = tokio::time::sleep_until(deadline) => {
-                    trace.record(Stage::ObservationDeadline);
-                    return;
-                }
-                sample = self.coordinator.inspect_recovery_diagnostics() => sample,
-            };
-            if let Some(mut sample) = diagnostics.current {
-                // The Coordinator discards resource data on a generation race.
-                // Recheck the service revision too: an explicit retry can change
-                // the budget before its first journal mutation starts.
-                let valid = {
-                    let runtime = self.automatic_recovery.lock().await;
-                    runtime.stage == AutomaticRecoveryStage::Exhausted
-                        && runtime.operation_id == Some(key.0)
-                        && runtime.revision == key.2
-                        && !self.stopping.load(Ordering::Acquire)
-                };
-                if !valid
-                    || self
-                        .coordinator
-                        .try_state()
-                        .is_some_and(|j| j.generation != key.1)
-                    || sample.status == RecoverySampleStatus::GenerationChanged as i32
-                {
-                    trace.record(Stage::ObservationCancelled);
-                    return;
-                }
-                let absent = sample.status == RecoverySampleStatus::Complete as i32
-                    && [&sample.interface, &sample.pnp_device].iter().all(|value| {
-                        value.as_ref().is_some_and(|r| {
-                            r.presence == RecoveryPresence::Absent as i32
-                                && r.identity_check == RecoveryIdentityCheck::Verified as i32
-                                && r.win32_code.is_none()
-                                && r.configret_code.is_none()
-                        })
-                    });
-                let timestamp = sample.sampled_at_unix_ms;
-                sample.sampled_at_unix_ms = 0;
-                if previous.as_ref() != Some(&sample) || absent {
-                    previous = Some(sample);
-                    let mut sample = previous.expect("sample stored");
-                    sample.sampled_at_unix_ms = timestamp;
-                    let mut event = trace.event(if absent {
-                        Stage::ObservationAbsent
-                    } else {
-                        Stage::ObservationChanged
-                    });
-                    event.observation = Some(sample);
-                    trace.emit(event);
-                }
-                if absent {
-                    return;
-                }
-            }
-            tokio::select! {
-                biased;
-                () = &mut notified => {},
-                () = tokio::time::sleep_until(deadline) => {
-                    trace.record(Stage::ObservationDeadline);
-                    return;
-                }
-                () = tokio::time::sleep(interval) => {},
-            }
         }
     }
 
@@ -1840,8 +1698,13 @@ async fn wait_for_idle_exit_after<Backend>(
             continue;
         }
 
+        let remaining = if service.coordinator.device_retirement_finished() {
+            Duration::ZERO
+        } else {
+            idle_timeout
+        };
         tokio::select! {
-            () = tokio::time::sleep(idle_timeout) => {
+            () = tokio::time::sleep(remaining) => {
                 if service.activity.generation.load(Ordering::Acquire) == generation
                     && service.activity.is_empty()
                     && service.coordinator.may_exit_idle().await
@@ -2912,9 +2775,6 @@ mod tests {
         transient_failures_remaining: AtomicUsize,
         blocked: AtomicBool,
         restore_calls: AtomicUsize,
-        diagnostic_present: AtomicBool,
-        diagnostic_calls: AtomicUsize,
-        diagnostic_release: std::sync::Mutex<Option<std::sync::mpsc::Receiver<()>>>,
     }
 
     impl ScriptedRecoveryBackend {
@@ -2923,9 +2783,6 @@ mod tests {
                 transient_failures_remaining: AtomicUsize::new(failures),
                 blocked: AtomicBool::new(false),
                 restore_calls: AtomicUsize::new(0),
-                diagnostic_present: AtomicBool::new(true),
-                diagnostic_calls: AtomicUsize::new(0),
-                diagnostic_release: std::sync::Mutex::new(None),
             }
         }
 
@@ -2934,9 +2791,6 @@ mod tests {
                 transient_failures_remaining: AtomicUsize::new(0),
                 blocked: AtomicBool::new(true),
                 restore_calls: AtomicUsize::new(0),
-                diagnostic_present: AtomicBool::new(true),
-                diagnostic_calls: AtomicUsize::new(0),
-                diagnostic_release: std::sync::Mutex::new(None),
             }
         }
     }
@@ -3051,35 +2905,6 @@ mod tests {
 
     #[async_trait]
     impl PrivilegedBackend for ScriptedRecoveryBackend {
-        fn inspect_adapter_diagnostics(
-            &self,
-            _: &MutationReceipt,
-        ) -> (
-            agent_v1::RecoveryResourceObservation,
-            agent_v1::RecoveryResourceObservation,
-        ) {
-            self.diagnostic_calls.fetch_add(1, Ordering::SeqCst);
-            if let Some(receiver) = self.diagnostic_release.lock().unwrap().take() {
-                let _ = receiver.recv();
-            }
-            let interface = agent_v1::RecoveryResourceObservation {
-                presence: if self.diagnostic_present.load(Ordering::SeqCst) {
-                    1
-                } else {
-                    2
-                },
-                identity_check: 1,
-                ..Default::default()
-            };
-            (
-                interface,
-                agent_v1::RecoveryResourceObservation {
-                    presence: 2,
-                    identity_check: 1,
-                    ..Default::default()
-                },
-            )
-        }
         async fn plan_step(
             &self,
             kind: MutationKind,
@@ -3143,180 +2968,6 @@ mod tests {
             automatic_recovery: true,
             ..Default::default()
         }
-    }
-
-    async fn observation_fixture() -> (
-        tempfile::TempDir,
-        Arc<ScriptedRecoveryBackend>,
-        Arc<AgentService<ScriptedRecoveryBackend>>,
-        (Uuid, u64, u64),
-        std::sync::mpsc::Receiver<agent_v1::RecoveryTraceEvent>,
-    ) {
-        use crate::{
-            journal::{MutationRecord, MutationState, OperationKind},
-            recovery_trace::TraceSink,
-        };
-        let directory = tempfile::tempdir().unwrap();
-        let store = JournalStore::new(directory.path().join("recovery.json"));
-        let operation = Uuid::new_v4();
-        let caller = test_caller();
-        let mut journal = RecoveryJournal {
-            phase: RecoveryPhase::RecoveryRequired,
-            operation_kind: Some(OperationKind::Tunnel),
-            operation_id: Some(operation),
-            owner_sid: Some(caller.user_sid),
-            owner_process_id: Some(caller.process_id),
-            plan: Some(egress_plan()),
-            steps: vec![MutationRecord {
-                kind: MutationKind::WintunAdapter,
-                state: MutationState::Applied,
-                receipt: MutationReceipt::WintunAdapter {
-                    adapter_name: "Usque-0123456789ab".into(),
-                    adapter_guid: Uuid::new_v4(),
-                    interface_luid: 42,
-                },
-            }],
-            ..RecoveryJournal::clean(0)
-        };
-        store.save(&mut journal).unwrap();
-        let generation = journal.generation;
-        let (trace, receiver) = TraceSink::channel(128);
-        let backend = Arc::new(ScriptedRecoveryBackend::transient(0));
-        let coordinator = Arc::new(
-            AgentCoordinator::open_with_trace(store, Arc::clone(&backend), trace).unwrap(),
-        );
-        let service = Arc::new(AgentService::new(
-            coordinator,
-            automatic_recovery_capabilities(),
-        ));
-        *service.automatic_recovery.lock().await = AutomaticRecoveryRuntime {
-            operation_id: Some(operation),
-            stage: AutomaticRecoveryStage::Exhausted,
-            attempts_completed: 3,
-            journal_snapshot: Some(journal),
-            revision: 7,
-            ..Default::default()
-        };
-        (
-            directory,
-            backend,
-            service,
-            (operation, generation, 7),
-            receiver,
-        )
-    }
-
-    async fn wait_for_diagnostic_calls(backend: &ScriptedRecoveryBackend, count: usize) {
-        tokio::time::timeout(Duration::from_secs(2), async {
-            while backend.diagnostic_calls.load(Ordering::SeqCst) < count {
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .unwrap();
-    }
-
-    #[tokio::test]
-    async fn exhausted_observation_records_late_absence_without_saving_clean_or_restoring() {
-        use agent_v1::RecoveryTraceStage as Stage;
-        let (directory, backend, service, key, receiver) = observation_fixture().await;
-        let path = directory.path().join("recovery.json");
-        let before = std::fs::read(&path).unwrap();
-        let observing = Arc::clone(&service);
-        let task = tokio::spawn(async move {
-            observing
-                .observe_exhausted_recovery(key, Duration::from_millis(2), Duration::from_secs(2))
-                .await;
-        });
-        wait_for_diagnostic_calls(&backend, 3).await;
-        backend.diagnostic_present.store(false, Ordering::SeqCst);
-        tokio::time::timeout(Duration::from_secs(2), task)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(before, std::fs::read(&path).unwrap());
-        assert_eq!(backend.restore_calls.load(Ordering::SeqCst), 0);
-        let runtime = service.automatic_recovery.lock().await;
-        assert_eq!(runtime.stage, AutomaticRecoveryStage::Exhausted);
-        assert_eq!(runtime.attempts_completed, 3);
-        let rows: Vec<_> = receiver.try_iter().collect();
-        assert_eq!(
-            rows.iter()
-                .filter(|r| r.stage == Stage::ObservationChanged as i32)
-                .count(),
-            1
-        );
-        assert_eq!(rows.last().unwrap().stage, Stage::ObservationAbsent as i32);
-        assert_eq!(
-            rows.last()
-                .unwrap()
-                .observation
-                .as_ref()
-                .unwrap()
-                .journal_generation,
-            key.1
-        );
-    }
-
-    #[tokio::test]
-    async fn exhausted_observation_deadline_and_generation_change_are_terminal() {
-        use agent_v1::RecoveryTraceStage as Stage;
-        let (_directory, backend, service, key, receiver) = observation_fixture().await;
-        service
-            .observe_exhausted_recovery(key, Duration::from_millis(1), Duration::from_millis(20))
-            .await;
-        assert_eq!(
-            receiver.try_iter().last().unwrap().stage,
-            Stage::ObservationDeadline as i32
-        );
-        assert_eq!(backend.restore_calls.load(Ordering::SeqCst), 0);
-        let (release, blocked) = std::sync::mpsc::channel();
-        *backend.diagnostic_release.lock().unwrap() = Some(blocked);
-        let prior_calls = backend.diagnostic_calls.load(Ordering::SeqCst);
-        let observing = Arc::clone(&service);
-        let task = tokio::spawn(async move {
-            observing
-                .observe_exhausted_recovery(key, Duration::from_millis(1), Duration::from_secs(2))
-                .await;
-        });
-        wait_for_diagnostic_calls(&backend, prior_calls + 1).await;
-        service.coordinator.recover_stale().await.unwrap(); // mock mutation, no Windows resources
-        release.send(()).unwrap();
-        tokio::time::timeout(Duration::from_secs(2), task)
-            .await
-            .unwrap()
-            .unwrap();
-        let rows: Vec<_> = receiver.try_iter().collect();
-        assert_eq!(
-            rows.last().unwrap().stage,
-            Stage::ObservationCancelled as i32
-        );
-        assert!(
-            rows.iter()
-                .all(|r| r.stage != Stage::ObservationAbsent as i32)
-        );
-    }
-
-    #[tokio::test]
-    async fn exhausted_supervisor_does_not_restart_finished_observation_or_budget() {
-        let (_directory, backend, service, _key, _receiver) = observation_fixture().await;
-        backend.diagnostic_present.store(false, Ordering::SeqCst);
-        let task = tokio::spawn(Arc::clone(&service).run_automatic_recovery());
-        wait_for_diagnostic_calls(&backend, 1).await;
-        for _ in 0..100 {
-            tokio::task::yield_now().await;
-        }
-        service.begin_shutdown();
-        tokio::time::timeout(Duration::from_secs(2), task)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(backend.diagnostic_calls.load(Ordering::SeqCst), 1);
-        assert_eq!(backend.restore_calls.load(Ordering::SeqCst), 0);
-        assert_eq!(
-            service.automatic_recovery.lock().await.attempts_completed,
-            3
-        );
     }
 
     fn test_caller() -> AuthenticatedCaller {

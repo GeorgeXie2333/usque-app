@@ -306,6 +306,38 @@ fn is_reparse(metadata: &fs::Metadata) -> bool {
     }
 }
 
+pub fn sanitize_resource(
+    mut value: usque_ipc::agent_v1::RecoveryResourceObservation,
+) -> usque_ipc::agent_v1::RecoveryResourceObservation {
+    use usque_ipc::agent_v1::{
+        RecoveryDiagnosticApi as Api, RecoveryIdentityCheck as Identity, RecoveryPresence,
+    };
+    if Api::try_from(value.api).is_err() {
+        value.api = 0;
+    }
+    if Identity::try_from(value.identity_check).is_err() {
+        value.identity_check = 0;
+    }
+    if RecoveryPresence::try_from(value.presence).is_err()
+        || value.identity_check != Identity::Verified as i32
+        || value.win32_code.is_some()
+        || value.configret_code.is_some()
+    {
+        value.presence = 0;
+    }
+    value.interface_oper_status = value.interface_oper_status.filter(|n| (1..=7).contains(n));
+    value.interface_admin_status = value.interface_admin_status.filter(|n| (1..=3).contains(n));
+    value.media_connect_state = value.media_connect_state.filter(|n| *n <= 2);
+    if value.presence != RecoveryPresence::Present as i32 {
+        value.interface_oper_status = None;
+        value.interface_admin_status = None;
+        value.media_connect_state = None;
+        value.devnode_status = None;
+        value.problem_code = None;
+    }
+    value
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

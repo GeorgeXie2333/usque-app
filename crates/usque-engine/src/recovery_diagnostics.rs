@@ -2,9 +2,6 @@
 use serde_json::{Value, json};
 use usque_ipc::agent_v1::{self, PlatformState};
 
-#[cfg(test)]
-mod trace_tests;
-
 macro_rules! label {
     ($kind:ident, $value:expr, $prefix:literal) => {
         agent_v1::$kind::try_from($value)
@@ -19,11 +16,6 @@ macro_rules! label {
             .unwrap_or_else(|| "unknown".to_owned())
     };
 }
-
-pub(crate) mod cache;
-#[cfg(windows)]
-pub(crate) mod recorder;
-mod trace;
 
 #[cfg(windows)]
 pub(crate) async fn capture() -> PlatformState {
@@ -88,7 +80,7 @@ pub(crate) fn summary(platform: Option<&PlatformState>) -> Value {
         });
     let current = diagnostics
         .and_then(|diagnostics| diagnostics.current.as_ref())
-        .map(|sample| observation(sample, sample.journal_generation));
+        .map(|sample| observation(sample, platform.map_or(0, |state| state.journal_generation)));
     let mut history: Vec<_> = diagnostics.into_iter().flat_map(|diagnostics| diagnostics.history.iter()).rev()
         .filter(|event| event.occurred_at_unix_ms != 0 && event.journal_generation != 0
             && agent_v1::RecoveryStep::try_from(event.step).is_ok_and(|step| step != agent_v1::RecoveryStep::Unspecified))
@@ -113,7 +105,7 @@ pub(crate) fn summary(platform: Option<&PlatformState>) -> Value {
         })).collect();
     history.reverse();
     json!({
-        "schema_version": 1,
+        "schema_version": 2,
         "availability": availability,
         "agent_phase": platform.map(|state| label!(AgentPhase, state.agent_phase, "AGENT_PHASE_")),
         "pending_cleanup": platform.filter(|state| state.agent_phase != 0).map(|state| state.pending_cleanup),
@@ -121,7 +113,11 @@ pub(crate) fn summary(platform: Option<&PlatformState>) -> Value {
         "current_observation": current,
         "history_status": diagnostics.map(|value| label!(RecoveryHistoryStatus, value.history_status, "RECOVERY_HISTORY_STATUS_")),
         "history": history,
-        "trace": trace::summary(diagnostics.and_then(|value| value.trace.as_ref()), availability),
+        "device": platform.and_then(|state| state.device.as_ref()).map(|device| json!({
+            "phase": label!(ManagedDevicePhase, device.phase, "MANAGED_DEVICE_PHASE_"),
+            "lease_attached": device.lease_attached,
+            "device_generation": device.device_generation,
+        })),
     })
 }
 
@@ -182,57 +178,60 @@ fn resource(value: Option<&agent_v1::RecoveryResourceObservation>, kind: Resourc
     })
 }
 
-// Persist only fields already accepted by the independent export allowlist.
-fn cache_observation(sample: &agent_v1::RecoveryObservation) -> agent_v1::RecoveryObservation {
-    let value = observation(sample, sample.journal_generation);
-    let complete = value["status"] == "complete";
-    agent_v1::RecoveryObservation {
-        sampled_at_unix_ms: sample.sampled_at_unix_ms,
-        journal_generation: sample.journal_generation,
-        status: if complete {
-            agent_v1::RecoverySampleStatus::Complete as i32
-        } else if value["status"] == "generation_changed" {
-            agent_v1::RecoverySampleStatus::GenerationChanged as i32
-        } else if value["status"] == "unavailable" {
-            agent_v1::RecoverySampleStatus::Unavailable as i32
-        } else {
-            agent_v1::RecoverySampleStatus::try_from(sample.status).unwrap_or_default() as i32
-        },
-        interface: complete
-            .then(|| cache_resource(sample.interface.as_ref(), ResourceKind::Interface)),
-        pnp_device: complete.then(|| cache_resource(sample.pnp_device.as_ref(), ResourceKind::Pnp)),
-    }
-}
-
-fn cache_resource(
-    value: Option<&agent_v1::RecoveryResourceObservation>,
-    kind: ResourceKind,
-) -> agent_v1::RecoveryResourceObservation {
-    let row = resource(value, kind);
-    let value = value.copied().unwrap_or_default();
-    let number = |key: &str| row[key].as_u64().and_then(|n| u32::try_from(n).ok());
-    agent_v1::RecoveryResourceObservation {
-        presence: match row["presence"].as_str() {
-            Some("present") => agent_v1::RecoveryPresence::Present as i32,
-            Some("absent") => agent_v1::RecoveryPresence::Absent as i32,
-            _ => 0,
-        },
-        identity_check: agent_v1::RecoveryIdentityCheck::try_from(value.identity_check)
-            .unwrap_or_default() as i32,
-        api: agent_v1::RecoveryDiagnosticApi::try_from(value.api).unwrap_or_default() as i32,
-        win32_code: number("win32_code"),
-        configret_code: number("configret_code"),
-        interface_oper_status: number("interface_oper_status"),
-        interface_admin_status: number("interface_admin_status"),
-        media_connect_state: number("media_connect_state"),
-        devnode_status: number("devnode_status"),
-        problem_code: number("problem_code"),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[allow(deprecated)] // An old Agent can still send occupied trace fields.
+    fn device_state_is_allowlisted_and_legacy_trace_is_never_exported() {
+        let device: agent_v1::ManagedDeviceStatus = serde_json::from_value(json!({
+            "phase": agent_v1::ManagedDevicePhase::Idle as i32,
+            "lease_attached": true, "device_generation": 4,
+            "device_id": "private-device", "owner_sid": "private-user",
+            "interface_luid": 99, "adapter_name": "private-adapter",
+        }))
+        .unwrap();
+        let mut state = PlatformState {
+            journal_generation: 10,
+            device: Some(device),
+            recovery_diagnostics: Some(Box::new(agent_v1::RecoveryDiagnostics {
+                current: Some(agent_v1::RecoveryObservation {
+                    sampled_at_unix_ms: 200,
+                    journal_generation: 9,
+                    status: 1,
+                    interface: Some(agent_v1::RecoveryResourceObservation {
+                        presence: 2,
+                        identity_check: 1,
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }),
+                trace: Some(agent_v1::RecoveryTrace {
+                    status: 1,
+                    events: vec![agent_v1::RecoveryTraceEvent::default(); 128],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+        let value = summary(Some(&state));
+        assert_eq!(value["schema_version"], 2);
+        assert_eq!(value["device"]["phase"], "idle");
+        assert_eq!(value["device"].as_object().unwrap().len(), 3);
+        assert_eq!(value["current_observation"]["status"], "generation_changed");
+        assert_eq!(
+            value["current_observation"]["interface"]["presence"],
+            "unknown"
+        );
+        for removed in ["trace", "cached_evidence"] {
+            assert!(value.get(removed).is_none());
+        }
+        assert!(!value.to_string().contains("private-"));
+        state.device.as_mut().unwrap().phase = i32::MAX;
+        assert_eq!(summary(Some(&state))["device"]["phase"], "unknown");
+    }
 
     #[test]
     fn old_agent_and_unavailable_sampling_never_imply_absence() {
@@ -271,6 +270,7 @@ mod tests {
     fn export_is_bounded_typed_and_separates_current_sample_from_original_event_time() {
         let hostile = "SID GUID LUID 192.0.2.1 password token adapter-name".repeat(4096);
         let state = PlatformState {
+            journal_generation: 10,
             service_state: hostile.clone(),
             wintun_adapter_state: hostile.clone(),
             automatic_recovery: Some(agent_v1::AutomaticRecoveryStatus {
@@ -299,7 +299,7 @@ mod tests {
                         ..Default::default()
                     })
                     .collect(),
-                trace: None,
+                ..Default::default()
             })),
             ..Default::default()
         };

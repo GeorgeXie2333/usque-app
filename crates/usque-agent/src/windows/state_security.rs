@@ -84,7 +84,7 @@ pub fn finalize_uninstall_state(journal_path: &Path) -> Result<(), StateSecurity
 fn remove_recovery_evidence(agent_directory: &Path) -> Result<(), StateSecurityError> {
     for name in [
         crate::recovery_diagnostics::RECOVERY_LOG_NAME,
-        crate::recovery_trace::TRACE_LOG_NAME,
+        "recovery-trace-v1.jsonl",
     ] {
         let evidence = agent_directory.join(name);
         match fs::symlink_metadata(&evidence) {
@@ -235,7 +235,7 @@ mod tests {
     fn evidence_cleanup_removes_only_the_two_allowlisted_files() {
         let directory = tempfile::tempdir().unwrap();
         for name in [
-            crate::recovery_trace::TRACE_LOG_NAME,
+            "recovery-trace-v1.jsonl",
             crate::recovery_diagnostics::RECOVERY_LOG_NAME,
             "unrelated.json",
         ] {
@@ -243,20 +243,10 @@ mod tests {
         }
         remove_recovery_evidence(directory.path()).unwrap();
         assert!(directory.path().join("unrelated.json").exists());
-        assert!(
-            !directory
-                .path()
-                .join(crate::recovery_trace::TRACE_LOG_NAME)
-                .exists()
-        );
-        fs::create_dir(directory.path().join(crate::recovery_trace::TRACE_LOG_NAME)).unwrap();
+        assert!(!directory.path().join("recovery-trace-v1.jsonl").exists());
+        fs::create_dir(directory.path().join("recovery-trace-v1.jsonl")).unwrap();
         assert!(remove_recovery_evidence(directory.path()).is_err());
-        assert!(
-            directory
-                .path()
-                .join(crate::recovery_trace::TRACE_LOG_NAME)
-                .is_dir()
-        );
+        assert!(directory.path().join("recovery-trace-v1.jsonl").is_dir());
     }
 
     #[test]

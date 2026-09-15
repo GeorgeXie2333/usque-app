@@ -16,7 +16,6 @@ use crate::{
     },
     journal::{MutationKind, MutationReceipt, MutationState, RecoveryJournal},
     plan::ValidatedTunnelPlan,
-    recovery_trace::{TraceResource, TraceSink},
     windows::{
         network,
         packet_session::{PacketMapping, PacketPump, close_remote_packet_handles},
@@ -83,14 +82,6 @@ impl WindowsBackend {
             reusable_tun_device: true,
         }
     }
-
-    pub fn enable_recovery_trace(&self, sink: TraceSink) {
-        if let Ok(resources) = self.inner.resources.lock()
-            && let Some(library) = &resources.library
-        {
-            library.enable_recovery_trace(sink);
-        }
-    }
 }
 
 #[async_trait]
@@ -112,7 +103,7 @@ impl PrivilegedBackend for WindowsBackend {
             if *adapter_name != crate::journal::ManagedDevice::name(*adapter_guid) {
                 return Err(BackendError::AdapterIdentity);
             }
-            create_adapter_receipt(&inner, receipt, TraceResource::default())
+            create_adapter_receipt(&inner, receipt)
         })
         .await
         .map_err(|_| backend_error("device creation worker failed"))?
@@ -206,21 +197,10 @@ impl PrivilegedBackend for WindowsBackend {
         plan: &ValidatedTunnelPlan,
         caller: &AuthenticatedCaller,
     ) -> Result<(MutationReceipt, StepOutput), BackendError> {
-        self.apply_step_traced(receipt, plan, caller, TraceResource::default())
-            .await
-    }
-
-    async fn apply_step_traced(
-        &self,
-        receipt: MutationReceipt,
-        plan: &ValidatedTunnelPlan,
-        caller: &AuthenticatedCaller,
-        trace: TraceResource,
-    ) -> Result<(MutationReceipt, StepOutput), BackendError> {
         let inner = Arc::clone(&self.inner);
         let plan = plan.clone();
         let caller = caller.clone();
-        tokio::task::spawn_blocking(move || apply_sync(&inner, receipt, &plan, &caller, trace))
+        tokio::task::spawn_blocking(move || apply_sync(&inner, receipt, &plan, &caller))
             .await
             .map_err(|error| backend_error(format!("privileged worker failed: {error}")))?
     }
@@ -234,20 +214,10 @@ impl PrivilegedBackend for WindowsBackend {
         receipt: &MutationReceipt,
         adapter: Option<&MutationReceipt>,
     ) -> Result<(), BackendError> {
-        self.restore_step_traced(receipt, adapter, TraceResource::default())
-            .await
-    }
-
-    async fn restore_step_traced(
-        &self,
-        receipt: &MutationReceipt,
-        adapter: Option<&MutationReceipt>,
-        trace: TraceResource,
-    ) -> Result<(), BackendError> {
         let inner = Arc::clone(&self.inner);
         let receipt = receipt.clone();
         let adapter = adapter.cloned();
-        tokio::task::spawn_blocking(move || restore_sync(&inner, &receipt, adapter.as_ref(), trace))
+        tokio::task::spawn_blocking(move || restore_sync(&inner, &receipt, adapter.as_ref()))
             .await
             .map_err(|error| backend_error(format!("privileged recovery worker failed: {error}")))?
     }
@@ -288,25 +258,13 @@ impl PrivilegedBackend for WindowsBackend {
         plan: &ValidatedTunnelPlan,
         caller: &AuthenticatedCaller,
     ) -> Result<crate::coordinator::PacketSessionHandles, BackendError> {
-        self.resume_packet_session_traced(adapter, session, plan, caller, TraceResource::default())
-            .await
-    }
-
-    async fn resume_packet_session_traced(
-        &self,
-        adapter: &MutationReceipt,
-        session: &MutationReceipt,
-        plan: &ValidatedTunnelPlan,
-        caller: &AuthenticatedCaller,
-        trace: TraceResource,
-    ) -> Result<crate::coordinator::PacketSessionHandles, BackendError> {
         let inner = Arc::clone(&self.inner);
         let adapter = adapter.clone();
         let session = session.clone();
         let plan = plan.clone();
         let caller = caller.clone();
         tokio::task::spawn_blocking(move || {
-            resume_packet_session_sync(&inner, &adapter, &session, &plan, &caller, trace)
+            resume_packet_session_sync(&inner, &adapter, &session, &plan, &caller)
         })
         .await
         .map_err(|error| backend_error(format!("packet-session resume worker failed: {error}")))?
@@ -398,7 +356,6 @@ fn apply_sync(
     receipt: MutationReceipt,
     plan: &ValidatedTunnelPlan,
     caller: &AuthenticatedCaller,
-    trace: TraceResource,
 ) -> Result<(MutationReceipt, StepOutput), BackendError> {
     match receipt {
         MutationReceipt::WintunAdapter {
@@ -417,7 +374,6 @@ fn apply_sync(
                         adapter_guid,
                         interface_luid: 0,
                     },
-                    trace,
                 )?,
                 StepOutput::default(),
             ))
@@ -425,7 +381,7 @@ fn apply_sync(
         MutationReceipt::PacketSession {
             session_id,
             ring_capacity,
-        } => apply_packet_session(inner, session_id, ring_capacity, caller, trace),
+        } => apply_packet_session(inner, session_id, ring_capacity, caller),
         other @ MutationReceipt::EndpointBypass { .. } => {
             apply_enriched(other, network::apply_endpoint_bypass)
         }
@@ -467,7 +423,6 @@ fn apply_sync(
 fn create_adapter_receipt(
     inner: &BackendInner,
     receipt: MutationReceipt,
-    trace: TraceResource,
 ) -> Result<MutationReceipt, BackendError> {
     let MutationReceipt::WintunAdapter {
         adapter_name,
@@ -487,7 +442,7 @@ fn create_adapter_receipt(
         .cloned()
         .ok_or_else(|| backend_error("Wintun library is unavailable"))?;
     let adapter = library
-        .create_adapter(&adapter_name, adapter_guid, trace)
+        .create_adapter(&adapter_name, adapter_guid)
         .map_err(wintun_backend_error)?;
     let interface_luid = adapter.luid();
     resources.adapter = Some(adapter);
@@ -507,7 +462,6 @@ fn resume_packet_session_sync(
     session_receipt: &MutationReceipt,
     plan: &ValidatedTunnelPlan,
     caller: &AuthenticatedCaller,
-    trace: TraceResource,
 ) -> Result<crate::coordinator::PacketSessionHandles, BackendError> {
     let (
         MutationReceipt::WintunAdapter {
@@ -557,7 +511,7 @@ fn resume_packet_session_sync(
                 .cloned()
                 .ok_or_else(|| backend_error("Wintun library is unavailable"))?;
             library
-                .open_adapter(journal_adapter_name, trace.child())
+                .open_adapter(journal_adapter_name)
                 .map_err(|error| backend_error(error.to_string()))?
         }
     };
@@ -567,7 +521,7 @@ fn resume_packet_session_sync(
         ));
     }
     resources.adapter = Some(adapter);
-    let handles = start_packet_session(&mut resources, *ring_capacity, caller, trace)?;
+    let handles = start_packet_session(&mut resources, *ring_capacity, caller)?;
     // The journaled session ID is deliberately retained. It identifies the
     // logical packet step across Agent process generations.
     let _ = session_id;
@@ -579,10 +533,9 @@ fn apply_packet_session(
     session_id: Uuid,
     ring_capacity: u32,
     caller: &AuthenticatedCaller,
-    trace: TraceResource,
 ) -> Result<(MutationReceipt, StepOutput), BackendError> {
     let mut resources = lock_resources(inner)?;
-    let handles = start_packet_session(&mut resources, ring_capacity, caller, trace)?;
+    let handles = start_packet_session(&mut resources, ring_capacity, caller)?;
     Ok((
         MutationReceipt::PacketSession {
             session_id,
@@ -598,7 +551,6 @@ fn start_packet_session(
     resources: &mut WindowsResources,
     ring_capacity: u32,
     caller: &AuthenticatedCaller,
-    trace: TraceResource,
 ) -> Result<crate::coordinator::PacketSessionHandles, BackendError> {
     let target = caller
         .process_handle
@@ -618,7 +570,7 @@ fn start_packet_session(
         .cloned()
         .ok_or_else(|| backend_error("Wintun adapter is not prepared"))?;
     let session = adapter
-        .start_session(ring_capacity, trace)
+        .start_session(ring_capacity)
         .map_err(|error| backend_error(error.to_string()))?;
     let (mapping, handles) = PacketMapping::create(ring_capacity, target)
         .map_err(|error| backend_error(error.to_string()))?;
@@ -637,14 +589,11 @@ fn restore_sync(
     inner: &BackendInner,
     receipt: &MutationReceipt,
     adapter_identity: Option<&MutationReceipt>,
-    trace: TraceResource,
 ) -> Result<(), BackendError> {
-    let generation = trace.generation();
     match receipt {
         MutationReceipt::PacketSession { .. } => {
             let pump = lock_resources(inner)?.pump.take();
             if let Some(pump) = pump {
-                pump.set_trace_generation(generation);
                 pump.stop()
                     .map_err(|error| backend_error(error.to_string()))?;
             }
@@ -662,11 +611,7 @@ fn restore_sync(
                 let mut resources = lock_resources(inner)?;
                 (resources.pump.take(), resources.adapter.take())
             };
-            if let Some(adapter) = &adapter {
-                adapter.release_requested(generation);
-            }
             if let Some(pump) = pump {
-                pump.set_trace_generation(generation);
                 pump.stop()
                     .map_err(|error| backend_error(error.to_string()))?;
             }
@@ -686,7 +631,6 @@ fn restore_sync(
             let result = wintun::remove_adapter_if_present(
                 receipt,
                 &mut removal.as_mut().expect("initialized removal state").1,
-                &trace,
             )
             .map_err(wintun_backend_error);
             if result.is_ok() {

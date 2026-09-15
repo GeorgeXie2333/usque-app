@@ -15,11 +15,7 @@ fn main() {
 
     let mut config = prost_build::Config::new();
     config.type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]");
-    for message in [
-        "RecoveryTraceEvent",
-        "RecoveryObservation",
-        "RecoveryResourceObservation",
-    ] {
+    for message in ["RecoveryObservation", "RecoveryResourceObservation"] {
         config.type_attribute(format!(".usque.agent.v1.{message}"), "#[serde(default)]");
     }
     // Keep control envelopes small enough to pass cheaply across async queues.

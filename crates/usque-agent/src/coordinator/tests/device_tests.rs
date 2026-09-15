@@ -55,6 +55,7 @@ async fn hundred_connections_keep_one_device_and_close_it_only_on_release() {
         1
     );
     assert!(coordinator.state().await.is_fully_clean());
+    assert!(coordinator.device_retirement_finished());
 }
 
 #[tokio::test]
@@ -404,6 +405,25 @@ async fn unknown_missing_and_conflicting_device_never_create_a_second_session() 
             .is_err()
     );
     backend.inspection_fails.store(false, Ordering::Release);
+    assert_eq!(
+        coordinator
+            .store
+            .load_or_clean()
+            .unwrap()
+            .device
+            .unwrap()
+            .state,
+        DeviceState::RecoveryRequired
+    );
+    // Each failure is checked from a fresh, validated idle starting point.
+    coordinator
+        .journal
+        .lock()
+        .await
+        .device
+        .as_mut()
+        .unwrap()
+        .state = DeviceState::Idle;
     *backend.adapter_guid.lock().await = None;
     assert!(
         coordinator
@@ -417,6 +437,14 @@ async fn unknown_missing_and_conflicting_device_never_create_a_second_session() 
             .await
             .is_err()
     );
+    coordinator
+        .journal
+        .lock()
+        .await
+        .device
+        .as_mut()
+        .unwrap()
+        .state = DeviceState::Idle;
     *backend.adapter_guid.lock().await = Some(Uuid::new_v4());
     assert!(
         coordinator
@@ -479,4 +507,137 @@ async fn sidecar_and_standalone_proxy_restore_preserve_the_idle_device() {
             .await
             .contains(&MutationKind::WintunAdapter)
     );
+}
+
+#[tokio::test]
+async fn profile_and_gate_changes_keep_one_device_and_replace_network_receipts() {
+    let backend = Arc::new(MockBackend::default());
+    let (_dir, coordinator) = coordinator(Arc::clone(&backend));
+    let key = coordinator.acquire_device_lease(&caller()).await.unwrap();
+    let mut binding = None;
+    for chain in [false, true, false, true] {
+        let mut requested = plan();
+        requested.profile_id = Uuid::new_v4();
+        requested.vpn_chain = chain;
+        let op = Uuid::new_v4();
+        coordinator
+            .prepare_managed(
+                op,
+                requested,
+                caller(),
+                key,
+                coordinator.state().await.generation,
+            )
+            .await
+            .unwrap();
+        let current = coordinator.state().await.device_binding.unwrap();
+        assert_eq!(*binding.get_or_insert(current), current);
+        coordinator
+            .open_packet_session(op, MIN_PACKET_RING_CAPACITY, &caller())
+            .await
+            .unwrap();
+        coordinator.commit(op, &caller()).await.unwrap();
+        for node in 1..=3 {
+            coordinator
+                .begin_chain_transition(op, &caller())
+                .await
+                .unwrap();
+            coordinator
+                .close_packet_session(op, &caller())
+                .await
+                .unwrap();
+            let mut next = coordinator.state().await.plan.unwrap();
+            next.assigned_ipv4 = Some(format!("10.8.0.{node}/32").parse().unwrap());
+            next.dns_servers = vec![format!("198.18.0.{node}").parse().unwrap()];
+            coordinator
+                .finalize_tunnel(op, next.clone(), &caller())
+                .await
+                .unwrap();
+            coordinator
+                .open_packet_session(op, MIN_PACKET_RING_CAPACITY, &caller())
+                .await
+                .unwrap();
+            coordinator.commit(op, &caller()).await.unwrap();
+            assert_eq!(coordinator.state().await.plan, Some(next));
+            assert_eq!(coordinator.state().await.device_binding, binding);
+        }
+        coordinator.rollback(op, &caller()).await.unwrap();
+        assert!(coordinator.state().await.steps.is_empty());
+        assert_eq!(
+            coordinator.state().await.device.unwrap().state,
+            DeviceState::Idle
+        );
+    }
+    let applied = backend.applied.lock().await;
+    assert_eq!(
+        applied
+            .iter()
+            .filter(|kind| **kind == MutationKind::WintunAdapter)
+            .count(),
+        1
+    );
+    drop(applied);
+    let restored = backend.restored.lock().await;
+    for kind in [
+        MutationKind::Dns,
+        MutationKind::InterfaceConfiguration,
+        MutationKind::DefaultRoutes,
+    ] {
+        assert_eq!(
+            restored.iter().filter(|value| **value == kind).count(),
+            16,
+            "{kind:?}"
+        );
+    }
+    assert!(!restored.contains(&MutationKind::WintunAdapter));
+}
+
+#[tokio::test]
+async fn proxy_restore_failure_with_idle_device_still_blocks_reuse_and_exit() {
+    let backend = Arc::new(MockBackend::default());
+    let (_dir, coordinator) = coordinator(Arc::clone(&backend));
+    let key = coordinator.acquire_device_lease(&caller()).await.unwrap();
+    let op = prepare_device(&coordinator, key).await;
+    coordinator
+        .open_packet_session(op, MIN_PACKET_RING_CAPACITY, &caller())
+        .await
+        .unwrap();
+    coordinator.commit(op, &caller()).await.unwrap();
+    coordinator
+        .apply_system_proxy(
+            op,
+            SystemProxySettings {
+                proxy_uri: "http://127.0.0.1:8080".into(),
+                bypass_hosts: vec![],
+            },
+            caller(),
+        )
+        .await
+        .unwrap();
+    backend
+        .fail_restore
+        .lock()
+        .await
+        .insert(MutationKind::SystemProxy);
+    assert!(coordinator.rollback(op, &caller()).await.is_err());
+    assert!(
+        coordinator
+            .prepare_managed(
+                Uuid::new_v4(),
+                plan(),
+                caller(),
+                key,
+                coordinator.state().await.generation
+            )
+            .await
+            .is_err()
+    );
+    assert!(
+        coordinator
+            .release_device_lease(key, &caller())
+            .await
+            .is_err()
+    );
+    assert!(!coordinator.may_exit_idle().await);
+    assert!(!coordinator.device_retirement_finished());
 }

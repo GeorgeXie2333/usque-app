@@ -67,8 +67,6 @@ use active_runtime::{ActiveDataPlane, ActiveProxyRuntime, ActiveRuntime};
 
 mod recovery_diagnostics;
 #[cfg(windows)]
-pub use recovery_diagnostics::recorder::Recorder as RecoveryEvidenceRecorder;
-#[cfg(windows)]
 mod windows_agent;
 
 mod congestion;
@@ -679,24 +677,12 @@ impl ControlService {
     /// Stops forwarding immediately, then waits for privileged platform state
     /// to be restored before the Engine process is allowed to exit.
     pub async fn shutdown(&self) -> Result<(), ControlServiceError> {
-        tracing::info!(
-            recovery_event = "ENGINE_STOP_REQUESTED",
-            "Engine shutdown requested"
-        );
         self.gate_startup_cancel.lock().await.cancel();
         self.cancel_gate_refresh().await;
         self.settings_intent.fetch_add(1, Ordering::SeqCst);
         #[cfg(windows)]
         self.clear_windows_connection_intent().await;
-        tracing::info!(
-            recovery_event = "ENGINE_WAIT_MUTATION",
-            "Engine shutdown waiting for the connection owner"
-        );
         let _mutation = self.mutation_lock.lock().await;
-        tracing::info!(
-            recovery_event = "ENGINE_DISCONNECT_STARTED",
-            "Engine shutdown acquired connection ownership"
-        );
         let disconnect = self.disconnect_locked().await;
         let cleanup = self.await_disconnect_cleanup().await;
         #[cfg(windows)]
@@ -708,11 +694,6 @@ impl ControlService {
         let result = disconnect.and(cleanup);
         #[cfg(windows)]
         let result = result.and(release);
-        tracing::info!(
-            recovery_event = "ENGINE_CLEANUP_RETURNED",
-            success = result.is_ok(),
-            "Engine shutdown cleanup returned"
-        );
         result
     }
 

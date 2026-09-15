@@ -704,8 +704,7 @@ async fn await_prepared_gate_startup<T, E: From<TransportError>, L>(
         biased;
         _ = startup_cancel.cancelled() => {
             drop(startup);
-            let released = startup_lease.take().is_some();
-            tracing::info!(recovery_event = "PREPARED_STARTUP_CANCELLED", startup_lease_released = released, "Cancelled prepared startup released its recovery lease");
+            drop(startup_lease.take());
             Err(TransportError::TunnelClosed.into())
         }
         result = &mut startup => result,
@@ -1595,34 +1594,17 @@ impl WindowsVpnRuntime {
     }
 
     pub(crate) async fn shutdown(&mut self) -> Result<(), WindowsVpnError> {
-        let started = tokio::time::Instant::now();
         self.bootstrap = None;
         // Cut packet forwarding before any Agent RPC. Rollback may need to
-        // restore routes, DNS, WFP, and the adapter, but no user packet may
+        // restore routes, DNS and WFP, but no user packet may
         // remain attached to MASQUE while that cleanup is in progress.
         self.cancel_immediately();
-        tracing::info!(
-            recovery_event = "PACKET_PUMPS_JOIN_STARTED",
-            "Waiting for Windows packet pumps to stop"
-        );
         self.stop_packet_pumps().await;
-        tracing::info!(
-            recovery_event = "PACKET_PUMPS_JOIN_FINISHED",
-            "Windows packet pumps stopped"
-        );
         // Join/cancel all MASQUE, proxy and GEO producers before asking the
         // Agent to roll back. Otherwise a stopped TUN consumer still receives
         // packets and direct-egress leases can outlive platform cleanup.
         if let Some(mut tunnel) = self.tunnel.take() {
-            tracing::info!(
-                recovery_event = "DATAPLANE_JOIN_STARTED",
-                "Waiting for Windows data plane shutdown"
-            );
             tunnel.shutdown().await;
-            tracing::info!(
-                recovery_event = "DATAPLANE_JOIN_FINISHED",
-                "Windows data plane shutdown finished"
-            );
         }
         let system_proxy_result = match self.system_proxy.as_mut() {
             Some(system_proxy) => system_proxy.shutdown().await,
@@ -1636,12 +1618,6 @@ impl WindowsVpnRuntime {
         if rollback.is_ok() {
             self.transaction_open = false;
         }
-        tracing::info!(
-            recovery_event = "WINDOWS_ROLLBACK_RETURNED",
-            success = rollback.is_ok(),
-            elapsed_ms = started.elapsed().as_millis() as u64,
-            "Windows disconnect rollback returned"
-        );
         system_proxy_result?;
         rollback.map(|_| ())
     }
@@ -1659,16 +1635,8 @@ impl WindowsVpnRuntime {
         // Explicit stop and terminal Gate failure release these leases only
         // after final forwarding is closed;
         // recovery cannot be held hostage by the following async shutdown.
-        let active_released = self.liveness.take().is_some();
-        let startup_released = self.startup_lease.take().is_some();
-        if active_released || startup_released {
-            tracing::info!(
-                recovery_event = "TUNNEL_LEASES_RELEASED",
-                startup_lease_released = startup_released,
-                active_lease_released = active_released,
-                "Stopped forwarding and released Windows tunnel leases"
-            );
-        }
+        drop(self.liveness.take());
+        drop(self.startup_lease.take());
     }
 
     fn cancel_packet_pumps(&mut self) {
@@ -3346,21 +3314,6 @@ impl WindowsAgentClient {
         pipe: &mut NamedPipeClient,
         payload: agent_request::Payload,
     ) -> Result<agent_response::Payload, WindowsVpnError> {
-        let lifecycle = agent_lifecycle_method(&payload);
-        let observe_state = matches!(payload, agent_request::Payload::GetState(_));
-        // Cancellation and RPC errors must also request evidence. This guard
-        // only notifies a bounded reader; it never delays a networking request.
-        let _evidence = crate::recovery_diagnostics::recorder::Boundary(matches!(
-            lifecycle,
-            Some(
-                "rollback"
-                    | "close_packet_session"
-                    | "chain_transition"
-                    | "recover_orphaned"
-                    | "restart_recovery"
-            )
-        ));
-        let started = tokio::time::Instant::now();
         let request_id = Uuid::new_v4().to_string();
         let request = AgentRequest {
             request_id: request_id.clone(),
@@ -3370,13 +3323,6 @@ impl WindowsAgentClient {
         let encoded = encode_frame(&request)?;
         if encoded.len() > MAX_AGENT_FRAME_BYTES + 4 {
             return Err(WindowsVpnError::FrameTooLarge(encoded.len() - 4));
-        }
-        if let Some(method) = lifecycle {
-            tracing::info!(
-                recovery_event = "AGENT_REQUEST_STARTED",
-                method,
-                "Windows Agent lifecycle request started"
-            );
         }
         pipe.write_all(&encoded).await?;
 
@@ -3393,31 +3339,6 @@ impl WindowsAgentClient {
         let response: AgentResponse = decode_frame(frame.freeze())?;
         if response.request_id != request_id {
             return Err(WindowsVpnError::ResponseIdMismatch);
-        }
-        if observe_state
-            && matches!(response.payload.as_ref(), Some(agent_response::Payload::State(state))
-            if matches!(agent_v1::AgentPhase::try_from(state.phase),
-                Ok(agent_v1::AgentPhase::Clean | agent_v1::AgentPhase::Recovering | agent_v1::AgentPhase::RecoveryRequired)))
-        {
-            crate::recovery_diagnostics::recorder::request();
-        }
-        if let Some(method) = lifecycle {
-            let (journal_generation, agent_phase) = match response.payload.as_ref() {
-                Some(agent_response::Payload::State(state)) => (
-                    state.journal_generation,
-                    agent_v1::AgentPhase::try_from(state.phase).unwrap_or_default() as i32,
-                ),
-                _ => (0, 0),
-            };
-            tracing::info!(
-                recovery_event = "AGENT_REQUEST_RETURNED",
-                method,
-                success = response.error.is_none() && response.payload.is_some(),
-                journal_generation,
-                agent_phase,
-                elapsed_ms = started.elapsed().as_millis() as u64,
-                "Windows Agent lifecycle request returned"
-            );
         }
         if let Some(error) = response.error {
             return Err(WindowsVpnError::Remote {
@@ -3466,26 +3387,6 @@ impl WindowsAgentClient {
             }
         }
     }
-}
-
-// Only mutation/ownership boundaries are logged. Periodic observations remain
-// quiet; labels and numeric journal generations cannot copy plan/receipt data.
-fn agent_lifecycle_method(payload: &agent_request::Payload) -> Option<&'static str> {
-    use agent_request::Payload;
-    Some(match payload {
-        Payload::PrepareTunnel(_) => "prepare",
-        Payload::FinalizeTunnel(_) => "finalize",
-        Payload::BeginChainTransition(_) => "chain_transition",
-        Payload::OpenPacketSession(_) => "open_packet_session",
-        Payload::ClosePacketSession(_) => "close_packet_session",
-        Payload::AcquireTunnelLease(_) => "promote_lease",
-        Payload::CommitTunnel(_) => "commit",
-        Payload::RollbackTunnel(_) => "rollback",
-        Payload::ResumeTunnel(_) => "resume",
-        Payload::RecoverOrphaned(_) => "recover_orphaned",
-        Payload::RestartAutomaticRecovery(_) => "restart_recovery",
-        _ => return None,
-    })
 }
 
 pub(crate) async fn inspect_platform_state_if_running() -> Result<PlatformState, WindowsVpnError> {
@@ -5905,109 +5806,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn lifecycle_evidence_reaches_the_archive_through_only_read_only_agent_ipc() {
-        let trace_event =
-            serde_json::from_value::<agent_v1::RecoveryTraceEvent>(serde_json::json!({
-                "schema_version": 1, "agent_run_id": 42, "event_sequence": 7,
-                "occurred_at_unix_ms": 150, "monotonic_ms": 50,
-                "stage": agent_v1::RecoveryTraceStage::NativeRemoveFailed as i32,
-                "native_level": 3,
-                "native_message": "fixture-secret S-1-5-21-999 192.0.2.44 device-guid",
-            }))
-            .unwrap();
-        let (client, task) = scripted_recovery_client(vec![AgentResponse {
-            payload: Some(agent_response::Payload::PlatformState(PlatformState {
-                journal_generation: 20,
-                wintun_adapter_state: "fixture-secret".to_owned(),
-                automatic_recovery: Some(agent_v1::AutomaticRecoveryStatus {
-                    phase: agent_v1::AutomaticRecoveryPhase::Exhausted as i32,
-                    attempts_completed: 3,
-                    attempt_limit: 3,
-                    ..Default::default()
-                }),
-                recovery_diagnostics: Some(Box::new(agent_v1::RecoveryDiagnostics {
-                    current: Some(agent_v1::RecoveryObservation {
-                        sampled_at_unix_ms: 200,
-                        journal_generation: 20,
-                        status: 1,
-                        ..Default::default()
-                    }),
-                    trace: Some(agent_v1::RecoveryTrace {
-                        status: agent_v1::RecoveryHistoryStatus::Complete as i32,
-                        events: vec![trace_event],
-                        ..Default::default()
-                    }),
-                    ..Default::default()
-                })),
-                ..Default::default()
-            })),
-            ..Default::default()
-        }]);
-        let state = client.inspect_platform_state_if_running().await.unwrap();
-        let directory = tempfile::tempdir().unwrap();
-        let destination = directory.path().join("evidence.zip");
-        crate::maintenance::Maintenance::new(&directory.path().join("config.json"))
-            .export_diagnostics(
-                destination.clone(),
-                usque_core::AppConfig::default(),
-                usque_core::ConnectionSnapshot::default(),
-                None,
-                crate::maintenance::DiagnosticTransportContext {
-                    platform_state: Some(state),
-                    ..Default::default()
-                },
-            )
-            .await
-            .unwrap();
-        let bytes = std::fs::read(destination).unwrap();
-        let archive = String::from_utf8_lossy(&bytes);
-        assert!(archive.contains("windows-recovery.json"));
-        assert!(archive.contains("native_remove_failed"));
-        assert!(archive.contains("exhausted"));
-        for forbidden in [
-            "fixture-secret",
-            "S-1-5-21-999",
-            "192.0.2.44",
-            "device-guid",
-            "native_message",
-        ] {
-            assert!(!archive.contains(forbidden));
-        }
-        assert!(matches!(
-            task.await.unwrap().as_slice(),
-            [agent_request::Payload::InspectPlatformState(_)]
-        ));
-        // The scripted Agent has exited. A second export must retain the
-        // previous evidence, without reopening the service or inventing a sample.
-        assert!(client.inspect_platform_state_if_running().await.is_err());
-        let unavailable = PlatformState {
-            service_state: "unavailable".into(),
-            ..Default::default()
-        };
-        let destination = directory.path().join("after-agent-exit.zip");
-        crate::maintenance::Maintenance::new(&directory.path().join("config.json"))
-            .export_diagnostics(
-                destination.clone(),
-                usque_core::AppConfig::default(),
-                usque_core::ConnectionSnapshot::default(),
-                None,
-                crate::maintenance::DiagnosticTransportContext {
-                    platform_state: Some(unavailable),
-                    ..Default::default()
-                },
-            )
-            .await
-            .unwrap();
-        let bytes = std::fs::read(destination).unwrap();
-        let archive = String::from_utf8_lossy(&bytes);
-        assert!(archive.contains("agent_unavailable"));
-        assert!(archive.contains("previous_agent_response"));
-        assert!(archive.contains("native_remove_failed"));
-        assert!(archive.contains("observation_at_capture"));
-        assert!(!archive.contains("fixture-secret"));
-    }
-
-    #[tokio::test]
     async fn missing_pipe_starts_the_service_controller_only_once() {
         let pipe_name = format!("{AGENT_PIPE_NAME}.test-{}", Uuid::new_v4());
         let controller = Arc::new(StartingTestController {
@@ -6044,75 +5842,6 @@ mod tests {
         let pipe = client.open_pipe().await.expect("restarted Agent pipe");
         assert_eq!(controller.starts.load(Ordering::Acquire), 2);
         drop(pipe);
-    }
-
-    #[tokio::test]
-    async fn lifecycle_logs_link_journal_generations_without_copying_ipc_data_or_poll_noise() {
-        use tracing::instrument::WithSubscriber;
-
-        let directory = tempfile::tempdir().unwrap();
-        let config = directory.path().join("config.json");
-        let writer = crate::logging::LogWriterFactory::open(&config).unwrap();
-        let subscriber = tracing_subscriber::fmt()
-            .json()
-            .with_writer(writer)
-            .finish();
-        let dispatch = tracing::Dispatch::new(subscriber);
-        let mut prepared = recovery_state_response(agent_v1::AgentPhase::Prepared);
-        if let Some(agent_response::Payload::State(state)) = prepared.payload.as_mut() {
-            state.profile_id = "private-agent-fixture".into();
-        }
-        let (client, server) =
-            scripted_recovery_client(vec![prepared.clone(), prepared, AgentResponse::default()]);
-        let lease = client
-            .prepare(
-                Uuid::new_v4(),
-                agent_v1::TunnelPlan {
-                    profile_id: "private-request-fixture".into(),
-                    ..Default::default()
-                },
-                &test_device_lease(),
-                19,
-            )
-            .with_subscriber(dispatch.clone())
-            .await
-            .unwrap();
-        drop(lease);
-        client
-            .get_state()
-            .with_subscriber(dispatch.clone())
-            .await
-            .unwrap();
-        assert!(matches!(
-            client
-                .commit(Uuid::new_v4())
-                .with_subscriber(dispatch)
-                .await,
-            Err(WindowsVpnError::MissingResponse)
-        ));
-        server.await.unwrap();
-        let text =
-            std::fs::read_to_string(crate::logging::log_directory(&config).join("engine.jsonl"))
-                .unwrap();
-        assert!(!text.contains("private-agent-fixture"));
-        assert!(!text.contains("private-request-fixture"));
-        let events: Vec<serde_json::Value> = text
-            .lines()
-            .map(|line| serde_json::from_str(line).unwrap())
-            .collect();
-        assert_eq!(events.len(), 4, "GetState polling must remain quiet");
-        assert_eq!(events[0]["fields"]["method"], "prepare");
-        assert_eq!(events[1]["fields"]["journal_generation"], 19);
-        assert_eq!(
-            events[1]["fields"]["agent_phase"],
-            agent_v1::AgentPhase::Prepared as i32
-        );
-        assert_eq!(events[1]["fields"]["success"], true);
-        assert_eq!(
-            events[3]["fields"]["success"], false,
-            "an empty reply cannot be logged as success"
-        );
-        assert_eq!(events[0]["engine_run_id"], events[1]["engine_run_id"]);
     }
 
     #[tokio::test]

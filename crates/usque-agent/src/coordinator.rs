@@ -24,7 +24,6 @@ use crate::{
     recovery_diagnostics::{
         self, AdapterRemovalDiagnostic, RecoveryApi, RecoveryEvent, RemovalFailure,
     },
-    recovery_trace::{self, TraceResource, TraceSink},
 };
 
 mod device_lifecycle;
@@ -87,37 +86,6 @@ pub trait PrivilegedBackend: Send + Sync {
         Err(BackendError::Unavailable(
             "managed device inspection".to_owned(),
         ))
-    }
-
-    async fn apply_step_traced(
-        &self,
-        receipt: MutationReceipt,
-        plan: &ValidatedTunnelPlan,
-        caller: &AuthenticatedCaller,
-        _trace: TraceResource,
-    ) -> Result<(MutationReceipt, StepOutput), BackendError> {
-        self.apply_step(receipt, plan, caller).await
-    }
-
-    async fn restore_step_traced(
-        &self,
-        receipt: &MutationReceipt,
-        adapter: Option<&MutationReceipt>,
-        _trace: TraceResource,
-    ) -> Result<(), BackendError> {
-        self.restore_step_with_adapter(receipt, adapter).await
-    }
-
-    async fn resume_packet_session_traced(
-        &self,
-        adapter: &MutationReceipt,
-        session: &MutationReceipt,
-        plan: &ValidatedTunnelPlan,
-        caller: &AuthenticatedCaller,
-        _trace: TraceResource,
-    ) -> Result<PacketSessionHandles, BackendError> {
-        self.resume_packet_session(adapter, session, plan, caller)
-            .await
     }
 
     /// Performs read-only discovery and creates deterministic resource
@@ -217,7 +185,6 @@ pub trait PrivilegedBackend: Send + Sync {
 
 pub struct AgentCoordinator<Backend> {
     diagnostic_sample_gate: Arc<Semaphore>,
-    trace: TraceSink,
     backend: Arc<Backend>,
     store: JournalStore,
     journal: Mutex<RecoveryJournal>,
@@ -228,6 +195,7 @@ pub struct AgentCoordinator<Backend> {
     device_lease: std::sync::Mutex<Option<device_lifecycle::DeviceOwnerLease>>,
     device_lease_epoch: AtomicU64,
     device_retirement_deferred: AtomicBool,
+    device_retirement_completed: AtomicBool,
 }
 
 impl<Backend> AgentCoordinator<Backend>
@@ -235,17 +203,8 @@ where
     Backend: PrivilegedBackend + 'static,
 {
     pub fn open(store: JournalStore, backend: Arc<Backend>) -> Result<Self, CoordinatorError> {
-        Self::open_with_trace(store, backend, TraceSink::default())
-    }
-
-    pub fn open_with_trace(
-        store: JournalStore,
-        backend: Arc<Backend>,
-        trace: TraceSink,
-    ) -> Result<Self, CoordinatorError> {
         let journal = store.load_or_clean()?;
         Ok(Self {
-            trace,
             diagnostic_sample_gate: Arc::new(Semaphore::new(1)),
             backend,
             store,
@@ -259,6 +218,7 @@ where
             device_lease: std::sync::Mutex::new(None),
             device_lease_epoch: AtomicU64::new(0),
             device_retirement_deferred: AtomicBool::new(false),
+            device_retirement_completed: AtomicBool::new(false),
         })
     }
 
@@ -268,10 +228,6 @@ where
 
     pub fn try_state(&self) -> Option<RecoveryJournal> {
         self.journal.try_lock().ok().map(|journal| journal.clone())
-    }
-
-    pub fn trace_resource(&self, generation: u64) -> TraceResource {
-        self.trace.resource(generation)
     }
 
     pub async fn inspect_recovery_diagnostics(&self) -> agent_v1::RecoveryDiagnostics
@@ -306,12 +262,7 @@ where
             }),
             history_status: RecoveryHistoryStatus::Unavailable as i32,
             history: vec![],
-            trace: Some(agent_v1::RecoveryTrace {
-                status: RecoveryHistoryStatus::Unavailable as i32,
-                dropped_events: self.trace.losses().0,
-                write_failures: self.trace.losses().1,
-                ..Default::default()
-            }),
+            ..Default::default()
         };
         let Ok(permit) = Arc::clone(&self.diagnostic_sample_gate).try_acquire_owned() else {
             return unavailable(Status::Busy);
@@ -328,8 +279,8 @@ where
                 let receipt = journal.adapter_receipt();
                 if let Some(receipt) = receipt {
                     let (interface, pnp_device) = backend.inspect_adapter_diagnostics(receipt);
-                    sample.interface = Some(recovery_trace::sanitize_resource(interface));
-                    sample.pnp_device = Some(recovery_trace::sanitize_resource(pnp_device));
+                    sample.interface = Some(recovery_diagnostics::sanitize_resource(interface));
+                    sample.pnp_device = Some(recovery_diagnostics::sanitize_resource(pnp_device));
                     sample.status = Status::Complete as i32;
                 } else {
                     sample.status = Status::NoReceipt as i32;
@@ -340,7 +291,7 @@ where
                 current: Some(sample),
                 history_status: status as i32,
                 history,
-                trace: Some(recovery_trace::read(&path)),
+                ..Default::default()
             }
         });
         let mut diagnostics = match tokio::time::timeout(budget, task).await {
@@ -348,9 +299,6 @@ where
             Ok(Err(_)) => return unavailable(Status::Unavailable),
             Err(_) => return unavailable(Status::Timeout),
         };
-        if let Some(trace) = &mut diagnostics.trace {
-            (trace.dropped_events, trace.write_failures) = self.trace.losses();
-        }
         if self
             .try_state()
             .is_none_or(|journal| journal.generation != current.journal_generation)
@@ -568,7 +516,10 @@ where
         Ok(())
     }
 
-    pub async fn prepare(
+    /// Builds a legacy v2-shaped transaction for recovery regression fixtures.
+    /// Production Prepare always requires the independent device lease.
+    #[cfg(test)]
+    pub(crate) async fn prepare_legacy_fixture(
         &self,
         operation_id: Uuid,
         plan: ValidatedTunnelPlan,
@@ -829,11 +780,7 @@ where
             if let Some(index) = journal.steps.iter().position(|step| step.kind == kind) {
                 if journal.steps[index].state != MutationState::Restored {
                     self.backend
-                        .restore_step_traced(
-                            &journal.steps[index].receipt,
-                            adapter.as_ref(),
-                            self.trace.resource(journal.generation),
-                        )
+                        .restore_step_with_adapter(&journal.steps[index].receipt, adapter.as_ref())
                         .await?;
                 }
                 journal.steps.remove(index);
@@ -952,11 +899,7 @@ where
         if journal.steps[index].state != MutationState::Restored
             && let Err(error) = self
                 .backend
-                .restore_step_traced(
-                    &journal.steps[index].receipt,
-                    None,
-                    self.trace.resource(journal.generation),
-                )
+                .restore_step_with_adapter(&journal.steps[index].receipt, None)
                 .await
         {
             warn!(
@@ -1045,13 +988,7 @@ where
         self.store.save(&mut journal)?;
         let handles = self
             .backend
-            .resume_packet_session_traced(
-                &adapter,
-                &session,
-                &plan,
-                caller,
-                self.trace.resource(journal.generation),
-            )
+            .resume_packet_session(&adapter, &session, &plan, caller)
             .await?;
         self.packet_session_attached.store(true, Ordering::Release);
         Ok(handles)
@@ -1145,11 +1082,7 @@ where
                 ))?;
             if let Err(error) = self
                 .backend
-                .restore_step_traced(
-                    &journal.steps[index].receipt,
-                    None,
-                    self.trace.resource(journal.generation),
-                )
+                .restore_step_with_adapter(&journal.steps[index].receipt, None)
                 .await
             {
                 warn!(
@@ -1655,12 +1588,7 @@ where
         let index = journal.steps.len() - 1;
         match self
             .backend
-            .apply_step_traced(
-                journal.steps[index].receipt.clone(),
-                plan,
-                caller,
-                self.trace.resource(journal.generation),
-            )
+            .apply_step(journal.steps[index].receipt.clone(), plan, caller)
             .await
         {
             Ok((receipt, output)) => {
@@ -1845,11 +1773,7 @@ where
             let started = Instant::now();
             let restored = self
                 .backend
-                .restore_step_traced(
-                    &journal.steps[index].receipt,
-                    adapter.as_ref(),
-                    self.trace.resource(journal.generation),
-                )
+                .restore_step_with_adapter(&journal.steps[index].receipt, adapter.as_ref())
                 .await;
             self.record_step_result(journal, kind, started.elapsed(), &restored);
             match restored {
@@ -2505,21 +2429,6 @@ mod tests {
             self.restore_step(receipt).await
         }
 
-        async fn restore_step_traced(
-            &self,
-            receipt: &MutationReceipt,
-            adapter: Option<&MutationReceipt>,
-            trace: TraceResource,
-        ) -> Result<(), BackendError> {
-            let result = self.restore_step_with_adapter(receipt, adapter).await;
-            if receipt.kind() == MutationKind::PacketSession {
-                let mut event = trace.event(agent_v1::RecoveryTraceStage::PumpJoinReturned);
-                event.succeeded = Some(result.is_ok());
-                trace.emit(event);
-            }
-            result
-        }
-
         async fn inspect_adapter(&self, _receipt: &MutationReceipt) -> Result<bool, BackendError> {
             if self.inspection_fails.load(Ordering::Acquire) {
                 Err(BackendError::AdapterIdentity)
@@ -2721,7 +2630,7 @@ mod tests {
         let mut requested = plan();
         requested.kill_switch = false;
         coordinator
-            .prepare(operation, requested, owner.clone())
+            .prepare_legacy_fixture(operation, requested, owner.clone())
             .await
             .unwrap();
         coordinator
@@ -2821,7 +2730,7 @@ mod tests {
         requested.defer_network_configuration = true;
         requested.kill_switch = false;
         coordinator
-            .prepare(operation, requested.clone(), owner.clone())
+            .prepare_legacy_fixture(operation, requested.clone(), owner.clone())
             .await
             .unwrap();
         assert_eq!(
@@ -2885,7 +2794,7 @@ mod tests {
         let operation = Uuid::new_v4();
         let owner = caller();
         coordinator
-            .prepare(operation, plan(), owner.clone())
+            .prepare_legacy_fixture(operation, plan(), owner.clone())
             .await
             .unwrap();
         legacy_recovery_fixture(&coordinator, &[MutationKind::WintunAdapter]).await;
@@ -2918,7 +2827,7 @@ mod tests {
         let operation = Uuid::new_v4();
         let owner = caller();
         coordinator
-            .prepare(operation, plan(), owner.clone())
+            .prepare_legacy_fixture(operation, plan(), owner.clone())
             .await
             .unwrap();
         legacy_recovery_fixture(&coordinator, &[MutationKind::WintunAdapter]).await;
@@ -2986,7 +2895,7 @@ mod tests {
         *backend.diagnostic_release.lock().unwrap() = Some(blocked);
         let (_directory, coordinator) = coordinator(Arc::clone(&backend));
         coordinator
-            .prepare(Uuid::new_v4(), plan(), caller())
+            .prepare_legacy_fixture(Uuid::new_v4(), plan(), caller())
             .await
             .unwrap();
         legacy_recovery_fixture(&coordinator, &[MutationKind::WintunAdapter]).await;
@@ -3029,7 +2938,7 @@ mod tests {
         *backend.diagnostic_release.lock().unwrap() = Some(blocked);
         let (directory, coordinator) = coordinator(Arc::clone(&backend));
         coordinator
-            .prepare(Uuid::new_v4(), plan(), caller())
+            .prepare_legacy_fixture(Uuid::new_v4(), plan(), caller())
             .await
             .unwrap();
         legacy_recovery_fixture(&coordinator, &[MutationKind::WintunAdapter]).await;
@@ -3068,7 +2977,7 @@ mod tests {
         let operation = Uuid::new_v4();
         let owner = caller();
         coordinator
-            .prepare(operation, plan(), owner.clone())
+            .prepare_legacy_fixture(operation, plan(), owner.clone())
             .await
             .unwrap();
         legacy_recovery_fixture(&coordinator, &[MutationKind::WintunAdapter]).await;
@@ -3098,7 +3007,7 @@ mod tests {
         let operation = Uuid::new_v4();
         let owner = caller();
         coordinator
-            .prepare(operation, plan(), owner.clone())
+            .prepare_legacy_fixture(operation, plan(), owner.clone())
             .await
             .unwrap();
         coordinator
@@ -3129,7 +3038,7 @@ mod tests {
         let operation = Uuid::new_v4();
         let owner = caller();
         coordinator
-            .prepare(operation, plan(), owner.clone())
+            .prepare_legacy_fixture(operation, plan(), owner.clone())
             .await
             .unwrap();
         coordinator
@@ -3172,7 +3081,7 @@ mod tests {
         let operation = Uuid::new_v4();
         let owner = caller();
         coordinator
-            .prepare(operation, plan(), owner.clone())
+            .prepare_legacy_fixture(operation, plan(), owner.clone())
             .await
             .unwrap();
         std::fs::create_dir(
@@ -3196,7 +3105,7 @@ mod tests {
         let operation = Uuid::new_v4();
         let owner = caller();
         coordinator
-            .prepare(operation, plan(), owner.clone())
+            .prepare_legacy_fixture(operation, plan(), owner.clone())
             .await
             .unwrap();
         coordinator.store.fail_next_clean_save();
@@ -3218,7 +3127,7 @@ mod tests {
         );
         assert!(matches!(
             coordinator
-                .prepare(Uuid::new_v4(), plan(), owner.clone())
+                .prepare_legacy_fixture(Uuid::new_v4(), plan(), owner.clone())
                 .await,
             Err(CoordinatorError::RecoveryRequired(_))
         ));
@@ -3246,7 +3155,7 @@ mod tests {
         let backend = Arc::new(MockBackend::default());
         let (_directory, coordinator) = coordinator(Arc::clone(&backend));
         coordinator
-            .prepare(Uuid::new_v4(), plan(), caller())
+            .prepare_legacy_fixture(Uuid::new_v4(), plan(), caller())
             .await
             .unwrap();
         legacy_recovery_fixture(&coordinator, &[]).await;
@@ -3267,7 +3176,7 @@ mod tests {
         let operation = Uuid::new_v4();
         let owner = caller();
         coordinator
-            .prepare(operation, plan(), owner.clone())
+            .prepare_legacy_fixture(operation, plan(), owner.clone())
             .await
             .unwrap();
         legacy_recovery_fixture(
@@ -3380,7 +3289,7 @@ mod tests {
         let owner = caller();
         let operation = Uuid::new_v4();
         coordinator
-            .prepare(operation, plan(), owner.clone())
+            .prepare_legacy_fixture(operation, plan(), owner.clone())
             .await
             .unwrap();
         for active in [false, true] {
@@ -3411,7 +3320,7 @@ mod tests {
         let owner = caller();
         let operation = Uuid::new_v4();
         coordinator
-            .prepare(operation, plan(), owner.clone())
+            .prepare_legacy_fixture(operation, plan(), owner.clone())
             .await
             .unwrap();
         legacy_recovery_fixture(
@@ -3453,7 +3362,7 @@ mod tests {
         let owner = caller();
         let operation = Uuid::new_v4();
         original
-            .prepare(operation, plan(), owner.clone())
+            .prepare_legacy_fixture(operation, plan(), owner.clone())
             .await
             .unwrap();
         original
@@ -3489,7 +3398,7 @@ mod tests {
         let owner = caller();
         let operation = Uuid::new_v4();
         coordinator
-            .prepare(operation, plan(), owner.clone())
+            .prepare_legacy_fixture(operation, plan(), owner.clone())
             .await
             .unwrap();
         coordinator
@@ -3639,7 +3548,7 @@ mod tests {
             let owner = caller();
             let operation = Uuid::new_v4();
             coordinator
-                .prepare(operation, plan(), owner.clone())
+                .prepare_legacy_fixture(operation, plan(), owner.clone())
                 .await
                 .unwrap();
             coordinator
@@ -3704,7 +3613,7 @@ mod tests {
         let owner = caller();
 
         let prepared = coordinator
-            .prepare(operation, plan(), owner.clone())
+            .prepare_legacy_fixture(operation, plan(), owner.clone())
             .await
             .expect("prepare");
         assert_eq!(prepared.phase, RecoveryPhase::Prepared);
@@ -3763,7 +3672,7 @@ mod tests {
         let operation = Uuid::new_v4();
         let owner = caller();
         coordinator
-            .prepare(operation, plan(), owner.clone())
+            .prepare_legacy_fixture(operation, plan(), owner.clone())
             .await
             .expect("prepare");
         coordinator
@@ -3798,7 +3707,7 @@ mod tests {
         let operation = Uuid::new_v4();
         let owner = caller();
         coordinator
-            .prepare(operation, plan(), owner.clone())
+            .prepare_legacy_fixture(operation, plan(), owner.clone())
             .await
             .expect("prepare");
         coordinator
@@ -3829,7 +3738,7 @@ mod tests {
 
         assert!(
             coordinator
-                .prepare(Uuid::new_v4(), plan(), caller())
+                .prepare_legacy_fixture(Uuid::new_v4(), plan(), caller())
                 .await
                 .is_err()
         );
@@ -3857,7 +3766,7 @@ mod tests {
         let operation = Uuid::new_v4();
         let owner = caller();
         coordinator
-            .prepare(operation, plan(), owner.clone())
+            .prepare_legacy_fixture(operation, plan(), owner.clone())
             .await
             .expect("prepare");
         coordinator
@@ -3900,7 +3809,7 @@ mod tests {
         let operation = Uuid::new_v4();
         let owner = caller();
         coordinator
-            .prepare(operation, plan(), owner.clone())
+            .prepare_legacy_fixture(operation, plan(), owner.clone())
             .await
             .expect("prepare");
         let adapter = coordinator
@@ -3970,7 +3879,7 @@ mod tests {
         let operation = Uuid::new_v4();
         let owner = caller();
         coordinator
-            .prepare(operation, plan(), owner.clone())
+            .prepare_legacy_fixture(operation, plan(), owner.clone())
             .await
             .expect("prepare");
         legacy_recovery_fixture(
@@ -3998,7 +3907,7 @@ mod tests {
         let operation = Uuid::new_v4();
         let owner = caller();
         coordinator
-            .prepare(operation, plan(), owner.clone())
+            .prepare_legacy_fixture(operation, plan(), owner.clone())
             .await
             .expect("prepare");
         coordinator
@@ -4033,7 +3942,7 @@ mod tests {
         let operation = Uuid::new_v4();
         let owner = caller();
         coordinator
-            .prepare(operation, plan(), owner.clone())
+            .prepare_legacy_fixture(operation, plan(), owner.clone())
             .await
             .expect("prepare");
         let mut stranger = owner;
@@ -4059,7 +3968,7 @@ mod tests {
         let profile_id = tunnel_plan.profile_id;
         let owner = caller();
         first
-            .prepare(operation, tunnel_plan, owner.clone())
+            .prepare_legacy_fixture(operation, tunnel_plan, owner.clone())
             .await
             .expect("prepare");
         first
@@ -4103,7 +4012,7 @@ mod tests {
         let profile_id = tunnel_plan.profile_id;
         let owner = caller();
         coordinator
-            .prepare(operation, tunnel_plan, owner.clone())
+            .prepare_legacy_fixture(operation, tunnel_plan, owner.clone())
             .await
             .expect("prepare");
         coordinator
@@ -4132,58 +4041,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn explicit_detach_and_lease_eof_keep_packet_trace_generation() {
-        for lease_eof in [false, true] {
-            let directory = tempfile::tempdir().unwrap();
-            let backend = Arc::new(MockBackend::default());
-            let (sink, events) = TraceSink::channel(32);
-            let coordinator = AgentCoordinator::open_with_trace(
-                JournalStore::new(directory.path().join("recovery.json")),
-                backend,
-                sink,
-            )
-            .unwrap();
-            let operation = Uuid::new_v4();
-            let owner = caller();
-            coordinator
-                .prepare(operation, plan(), owner.clone())
-                .await
-                .unwrap();
-            coordinator
-                .open_packet_session(operation, 1024 * 1024, &owner)
-                .await
-                .unwrap();
-            coordinator.commit(operation, &owner).await.unwrap();
-            if lease_eof {
-                coordinator
-                    .acquire_tunnel_lease(operation, &owner)
-                    .await
-                    .unwrap();
-            }
-            let generation = coordinator.state().await.generation;
-            if lease_eof {
-                coordinator
-                    .release_tunnel_lease(operation, &owner)
-                    .await
-                    .unwrap();
-            } else {
-                coordinator
-                    .close_packet_session(operation, &owner)
-                    .await
-                    .unwrap();
-            }
-            let rows: Vec<_> = events
-                .try_iter()
-                .filter_map(recovery_trace::sanitize_event)
-                .collect();
-            assert_eq!(rows.len(), 1, "detach must survive the export filter");
-            assert_eq!(rows[0].journal_generation, generation);
-            assert_eq!(rows[0].succeeded, Some(true));
-            assert_eq!(coordinator.state().await.phase, RecoveryPhase::Active);
-        }
-    }
-
-    #[tokio::test]
     async fn tunnel_lease_eof_detaches_only_the_volatile_packet_session() {
         let backend = Arc::new(MockBackend::default());
         let (_directory, coordinator) = coordinator(Arc::clone(&backend));
@@ -4192,7 +4049,7 @@ mod tests {
         let profile_id = tunnel_plan.profile_id;
         let owner = caller();
         coordinator
-            .prepare(operation, tunnel_plan, owner.clone())
+            .prepare_legacy_fixture(operation, tunnel_plan, owner.clone())
             .await
             .expect("prepare");
         coordinator
@@ -4233,7 +4090,7 @@ mod tests {
             let mut tunnel_plan = plan();
             tunnel_plan.vpn_chain = true;
             coordinator
-                .prepare(operation, tunnel_plan.clone(), owner.clone())
+                .prepare_legacy_fixture(operation, tunnel_plan.clone(), owner.clone())
                 .await
                 .unwrap();
             coordinator
@@ -4309,7 +4166,7 @@ mod tests {
         deferred.defer_network_configuration = true;
         let old_operation = Uuid::new_v4();
         coordinator
-            .prepare(old_operation, deferred.clone(), owner.clone())
+            .prepare_legacy_fixture(old_operation, deferred.clone(), owner.clone())
             .await
             .unwrap();
         let old_epoch = coordinator
@@ -4325,7 +4182,7 @@ mod tests {
         );
         let new_operation = Uuid::new_v4();
         coordinator
-            .prepare(new_operation, deferred, owner)
+            .prepare_legacy_fixture(new_operation, deferred, owner)
             .await
             .unwrap();
         let before = coordinator.state().await;
@@ -4348,7 +4205,7 @@ mod tests {
         let operation = Uuid::new_v4();
         let owner = caller();
         coordinator
-            .prepare(operation, plan(), owner.clone())
+            .prepare_legacy_fixture(operation, plan(), owner.clone())
             .await
             .expect("prepare");
 
@@ -4373,7 +4230,7 @@ mod tests {
         let operation = Uuid::new_v4();
         let owner = caller();
         coordinator
-            .prepare(operation, plan(), owner.clone())
+            .prepare_legacy_fixture(operation, plan(), owner.clone())
             .await
             .expect("prepare");
         coordinator
@@ -4401,7 +4258,7 @@ mod tests {
         let operation = Uuid::new_v4();
         let owner = caller();
         coordinator
-            .prepare(operation, plan(), owner.clone())
+            .prepare_legacy_fixture(operation, plan(), owner.clone())
             .await
             .expect("prepare");
         coordinator
@@ -4441,7 +4298,7 @@ mod tests {
         let operation = Uuid::new_v4();
         let owner = caller();
         coordinator
-            .prepare(operation, plan(), owner.clone())
+            .prepare_legacy_fixture(operation, plan(), owner.clone())
             .await
             .unwrap();
         coordinator
@@ -4541,7 +4398,7 @@ mod tests {
         let profile_id = tunnel_plan.profile_id;
         let owner = caller();
         coordinator
-            .prepare(operation, tunnel_plan, owner.clone())
+            .prepare_legacy_fixture(operation, tunnel_plan, owner.clone())
             .await
             .expect("prepare");
         coordinator
@@ -4606,7 +4463,7 @@ mod tests {
         let profile_id = tunnel_plan.profile_id;
         let owner = caller();
         first
-            .prepare(operation, tunnel_plan, owner.clone())
+            .prepare_legacy_fixture(operation, tunnel_plan, owner.clone())
             .await
             .expect("prepare");
         first
@@ -4715,7 +4572,7 @@ mod tests {
         let operation = Uuid::new_v4();
         let owner = caller();
         coordinator
-            .prepare(operation, plan(), owner.clone())
+            .prepare_legacy_fixture(operation, plan(), owner.clone())
             .await
             .expect("prepare");
         coordinator
@@ -4811,7 +4668,7 @@ mod tests {
         let operation = Uuid::new_v4();
         let owner = caller();
         coordinator
-            .prepare(operation, plan(), owner.clone())
+            .prepare_legacy_fixture(operation, plan(), owner.clone())
             .await
             .expect("prepare");
         coordinator
@@ -4887,7 +4744,7 @@ mod tests {
         let operation = Uuid::new_v4();
         let owner = caller();
         coordinator
-            .prepare(operation, plan(), owner.clone())
+            .prepare_legacy_fixture(operation, plan(), owner.clone())
             .await
             .expect("prepare");
         coordinator
@@ -4991,7 +4848,7 @@ mod tests {
         let operation = Uuid::new_v4();
         let owner = caller();
         coordinator
-            .prepare(operation, plan(), owner.clone())
+            .prepare_legacy_fixture(operation, plan(), owner.clone())
             .await
             .expect("prepare");
         coordinator
@@ -5030,7 +4887,7 @@ mod tests {
         let operation = Uuid::new_v4();
         let owner = caller();
         coordinator
-            .prepare(operation, plan(), owner.clone())
+            .prepare_legacy_fixture(operation, plan(), owner.clone())
             .await
             .expect("prepare");
         coordinator

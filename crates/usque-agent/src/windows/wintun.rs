@@ -6,14 +6,13 @@ use std::{
     os::windows::ffi::OsStrExt,
     path::{Path, PathBuf},
     ptr,
-    sync::{Arc, OnceLock},
+    sync::Arc,
     thread,
     time::{Duration, Instant},
 };
 
 use sha2::{Digest, Sha256};
 use thiserror::Error;
-use usque_ipc::agent_v1::RecoveryTraceStage as TraceStage;
 use uuid::Uuid;
 use windows_sys::{
     Win32::{
@@ -38,7 +37,6 @@ use crate::journal::MutationReceipt;
 use crate::recovery_diagnostics::{
     AdapterRemovalDiagnostic, RecoveryApi, RemovalFailure, RemovalStage,
 };
-use crate::recovery_trace::{TraceResource, TraceSink};
 
 const WINTUN_DLL_NAME: &str = "wintun.dll";
 const WINTUN_MIN_RING_CAPACITY: u32 = 0x20_000;
@@ -75,45 +73,6 @@ type ReceivePacket = unsafe extern "system" fn(SessionHandle, *mut u32) -> *mut 
 type ReleaseReceivePacket = unsafe extern "system" fn(SessionHandle, *const u8);
 type AllocateSendPacket = unsafe extern "system" fn(SessionHandle, u32) -> *mut u8;
 type SendPacket = unsafe extern "system" fn(SessionHandle, *const u8);
-type LoggerCallback = unsafe extern "system" fn(i32, u64, *const u16);
-type SetLogger = unsafe extern "system" fn(Option<LoggerCallback>);
-
-// Wintun's callback is global and may outlive the foreign call that queued it.
-// Keep only the evidence producer alive; never associate it with the last VPN.
-static NATIVE_TRACE: OnceLock<TraceSink> = OnceLock::new();
-
-unsafe extern "system" fn native_logger(level: i32, timestamp: u64, message: *const u16) {
-    // No panic may cross the FFI boundary. The callback performs bounded work,
-    // uses try_send, and never obtains a journal/network lock or writes a file.
-    let _ = std::panic::catch_unwind(|| {
-        let Some(sink) = NATIVE_TRACE.get() else {
-            return;
-        };
-        if message.is_null() {
-            return;
-        }
-        let mut units = [0u16; 1024];
-        let mut length = 0;
-        while length < units.len() {
-            // SAFETY: the Wintun callback contract supplies a live, terminated
-            // UTF-16 string. Read sequentially and stop at the first terminator.
-            let unit = unsafe { *message.add(length) };
-            if unit == 0 {
-                break;
-            }
-            units[length] = unit;
-            length += 1;
-        }
-        let text = String::from_utf16_lossy(&units[..length]);
-        let unix_ms = timestamp.saturating_sub(116_444_736_000_000_000) / 10_000;
-        sink.native_message(
-            u32::try_from(level.saturating_add(1)).unwrap_or(0),
-            unix_ms,
-            &text,
-        );
-    });
-}
-
 pub struct WintunLibrary {
     module: HMODULE,
     create_adapter: CreateAdapter,
@@ -128,7 +87,6 @@ pub struct WintunLibrary {
     release_receive_packet: ReleaseReceivePacket,
     allocate_send_packet: AllocateSendPacket,
     send_packet: SendPacket,
-    set_logger: SetLogger,
 }
 
 // SAFETY: a loaded module and immutable function table may be called
@@ -188,7 +146,6 @@ impl WintunLibrary {
                     release_receive_packet: resolve(module, b"WintunReleaseReceivePacket\0")?,
                     allocate_send_packet: resolve(module, b"WintunAllocateSendPacket\0")?,
                     send_packet: resolve(module, b"WintunSendPacket\0")?,
-                    set_logger: resolve(module, b"WintunSetLogger\0")?,
                 })
             }
         })();
@@ -209,7 +166,6 @@ impl WintunLibrary {
         self: &Arc<Self>,
         name: &str,
         requested_guid: Uuid,
-        trace: TraceResource,
     ) -> Result<WintunAdapter, WintunError> {
         let name = wide_name(name)?;
         let tunnel_type = wide_name("Usque")?;
@@ -227,15 +183,10 @@ impl WintunLibrary {
             library: Arc::clone(self),
             handle,
             name: name_to_string(&name),
-            trace,
         })))
     }
 
-    pub fn open_adapter(
-        self: &Arc<Self>,
-        name: &str,
-        trace: TraceResource,
-    ) -> Result<WintunAdapter, WintunError> {
+    pub fn open_adapter(self: &Arc<Self>, name: &str) -> Result<WintunAdapter, WintunError> {
         let name = wide_name(name)?;
         // SAFETY: name is valid and null-terminated; returned handle ownership
         // is transferred into AdapterInner.
@@ -250,7 +201,6 @@ impl WintunLibrary {
             library: Arc::clone(self),
             handle,
             name: name_to_string(&name),
-            trace,
         })))
     }
 
@@ -264,16 +214,6 @@ impl WintunLibrary {
             ))
         } else {
             Ok(version)
-        }
-    }
-
-    pub fn enable_recovery_trace(&self, sink: TraceSink) {
-        if sink.enabled() && NATIVE_TRACE.set(sink).is_ok() {
-            // SAFETY: the pinned function signature matches wintun.h. The
-            // callback and its producer live for the rest of this process.
-            unsafe {
-                (self.set_logger)(Some(native_logger));
-            }
         }
     }
 }
@@ -307,11 +247,7 @@ impl WintunAdapter {
         }
     }
 
-    pub fn start_session(
-        &self,
-        capacity: u32,
-        trace: TraceResource,
-    ) -> Result<WintunSession, WintunError> {
+    pub fn start_session(&self, capacity: u32) -> Result<WintunSession, WintunError> {
         if !(WINTUN_MIN_RING_CAPACITY..=WINTUN_MAX_RING_CAPACITY).contains(&capacity)
             || !capacity.is_power_of_two()
         {
@@ -328,16 +264,7 @@ impl WintunAdapter {
         Ok(WintunSession {
             adapter: self.clone(),
             handle,
-            trace,
         })
-    }
-
-    pub fn release_requested(&self, generation: u64) {
-        self.0.trace.set_generation(generation);
-        let mut event = self.0.trace.event(TraceStage::AdapterReleaseRequested);
-        // This is diagnostic evidence only, never a liveness/safety decision.
-        event.reference_count = u32::try_from(Arc::strong_count(&self.0)).ok();
-        self.0.trace.emit(event);
     }
 }
 
@@ -345,7 +272,6 @@ struct AdapterInner {
     library: Arc<WintunLibrary>,
     handle: AdapterHandle,
     name: String,
-    trace: TraceResource,
 }
 
 // SAFETY: adapter handle is owned uniquely; WintunLibrary is already Send.
@@ -357,17 +283,10 @@ unsafe impl Sync for AdapterInner {}
 impl Drop for AdapterInner {
     fn drop(&mut self) {
         if !self.handle.is_null() {
-            self.trace.call(
-                TraceStage::CloseAdapterStarted,
-                TraceStage::CloseAdapterReturned,
-                || {
-                    // SAFETY: this object uniquely owns the adapter handle. A VOID
-                    // return records completion of the call, not device absence.
-                    unsafe {
-                        (self.library.close_adapter)(self.handle);
-                    }
-                },
-            );
+            // SAFETY: unique ownership; all packet sessions and references are gone.
+            unsafe {
+                (self.library.close_adapter)(self.handle);
+            }
         }
     }
 }
@@ -375,7 +294,6 @@ impl Drop for AdapterInner {
 pub struct WintunSession {
     adapter: WintunAdapter,
     handle: SessionHandle,
-    trace: TraceResource,
 }
 
 // SAFETY: session handle is uniquely owned; adapter is Send and Sync.
@@ -386,9 +304,6 @@ unsafe impl Send for WintunSession {}
 unsafe impl Sync for WintunSession {}
 
 impl WintunSession {
-    pub fn trace(&self) -> TraceResource {
-        self.trace.clone()
-    }
     pub fn adapter(&self) -> &WintunAdapter {
         &self.adapter
     }
@@ -470,16 +385,10 @@ impl WintunSession {
 impl Drop for WintunSession {
     fn drop(&mut self) {
         if !self.handle.is_null() {
-            self.trace.call(
-                TraceStage::EndSessionStarted,
-                TraceStage::EndSessionReturned,
-                || {
-                    // SAFETY: this object uniquely owns the session handle.
-                    unsafe {
-                        (self.adapter.0.library.end_session)(self.handle);
-                    }
-                },
-            );
+            // SAFETY: unique session ownership; packet work has stopped.
+            unsafe {
+                (self.adapter.0.library.end_session)(self.handle);
+            }
         }
     }
 }
@@ -496,8 +405,6 @@ struct AdapterObservation {
     interface_present: Option<bool>,
     device_present: Option<bool>,
     error: Option<WintunError>,
-    interface: usque_ipc::agent_v1::RecoveryResourceObservation,
-    pnp_device: usque_ipc::agent_v1::RecoveryResourceObservation,
 }
 
 impl AdapterObservation {
@@ -510,28 +417,14 @@ impl AdapterObservation {
 
 fn observe_adapter(receipt: &MutationReceipt, guid: Uuid) -> AdapterObservation {
     // Observe both independently so an error is never reported as absence.
-    let interface_state = network::inspect_adapter_state(receipt).map_err(interface_error);
-    let mut details = resource_observation_ref(interface_state.as_ref().map(|s| s.is_some()));
-    if details.api == 0 {
-        details.api = usque_ipc::agent_v1::RecoveryDiagnosticApi::GetIfTable2 as i32;
-    }
-    if let Ok(Some(state)) = &interface_state {
-        details.interface_oper_status = Some(state.oper_status);
-        details.interface_admin_status = Some(state.admin_status);
-        details.media_connect_state = Some(state.media_connect_state);
-    }
-    let interface = interface_state.map(|state| state.is_some());
+    let interface = network::inspect_adapter_state(receipt)
+        .map(|state| state.is_some())
+        .map_err(interface_error);
     let device = device_instance_present(guid);
-    let mut pnp_device = resource_observation_ref(device.as_ref().copied());
-    if pnp_device.api == 0 {
-        pnp_device.api = usque_ipc::agent_v1::RecoveryDiagnosticApi::SetupDiEnumDeviceInfo as i32;
-    }
     AdapterObservation {
         interface_present: interface.as_ref().ok().copied(),
         device_present: device.as_ref().ok().copied(),
         error: interface.err().or_else(|| device.err()),
-        interface: details,
-        pnp_device,
     }
 }
 
@@ -566,6 +459,7 @@ pub fn inspect_adapter_diagnostics(
     let interface = match network::inspect_adapter_state(receipt).map_err(interface_error) {
         Ok(state) => {
             let mut observation = resource_observation(Ok(state.is_some()));
+            observation.api = usque_ipc::agent_v1::RecoveryDiagnosticApi::GetIfTable2 as i32;
             if let Some(state) = state {
                 observation.interface_oper_status = Some(state.oper_status);
                 observation.interface_admin_status = Some(state.admin_status);
@@ -578,6 +472,8 @@ pub fn inspect_adapter_diagnostics(
     let device = match find_device_instance(*adapter_guid) {
         Ok(Some((_set, device))) => {
             let mut observation = resource_observation(Ok(true));
+            observation.api =
+                usque_ipc::agent_v1::RecoveryDiagnosticApi::SetupDiEnumDeviceInfo as i32;
             let mut flags = 0;
             let mut problem = 0;
             // SAFETY: SetupAPI returned this devnode; writable outputs remain
@@ -595,7 +491,12 @@ pub fn inspect_adapter_diagnostics(
             }
             observation
         }
-        Ok(None) => resource_observation(Ok(false)),
+        Ok(None) => {
+            let mut observation = resource_observation(Ok(false));
+            observation.api =
+                usque_ipc::agent_v1::RecoveryDiagnosticApi::SetupDiEnumDeviceInfo as i32;
+            observation
+        }
         Err(error) => resource_observation(Err(error)),
     };
     (interface, device)
@@ -633,7 +534,6 @@ fn resource_observation_ref(
 pub fn remove_adapter_if_present(
     receipt: &MutationReceipt,
     state: &mut AdapterRemovalState,
-    trace: &TraceResource,
 ) -> Result<(), WintunError> {
     let MutationReceipt::WintunAdapter {
         adapter_name,
@@ -645,69 +545,14 @@ pub fn remove_adapter_if_present(
     };
     wide_name(adapter_name)?;
     let started = Instant::now();
-    trace_adapter_removal(
+    remove_adapter_observed(
         state,
         ADAPTER_REMOVAL_CONFIRM_TIMEOUT,
-        (trace, || observe_adapter(receipt, *adapter_guid)),
+        || observe_adapter(receipt, *adapter_guid),
         || remove_device_instance(*adapter_guid),
         || started.elapsed(),
         || thread::sleep(ADAPTER_REMOVAL_CONFIRM_INTERVAL),
     )
-}
-
-/// Record the checks cleanup already performs. This adds no native probe,
-/// worker, wait, or change to the conditions that authorize removal/Clean.
-fn trace_adapter_removal(
-    state: &mut AdapterRemovalState,
-    timeout: Duration,
-    (trace, mut observe): (&TraceResource, impl FnMut() -> AdapterObservation),
-    remove: impl FnMut() -> Result<bool, WintunError>,
-    elapsed: impl FnMut() -> Duration,
-    wait: impl FnMut(),
-) -> Result<(), WintunError> {
-    use usque_ipc::agent_v1::{RecoveryObservation, RecoverySampleStatus};
-    trace.record(TraceStage::RemovalAttemptStarted);
-    let started = Instant::now();
-    let mut last: Option<RecoveryObservation> = None;
-    let mut changes = 0;
-    let result = remove_adapter_observed(
-        state,
-        timeout,
-        || {
-            let observed = observe();
-            let sample = RecoveryObservation {
-                sampled_at_unix_ms: crate::recovery_diagnostics::unix_ms(),
-                journal_generation: trace.generation(),
-                status: RecoverySampleStatus::Complete as i32,
-                interface: Some(crate::recovery_trace::sanitize_resource(observed.interface)),
-                pnp_device: Some(crate::recovery_trace::sanitize_resource(
-                    observed.pnp_device,
-                )),
-            };
-            if changes < 8
-                && last.as_ref().is_none_or(|previous| {
-                    previous.interface != sample.interface
-                        || previous.pnp_device != sample.pnp_device
-                })
-            {
-                changes += 1;
-                let mut event = trace.event(TraceStage::ObservationChanged);
-                event.observation = Some(sample);
-                trace.emit(event);
-            }
-            last = Some(sample);
-            observed
-        },
-        remove,
-        elapsed,
-        wait,
-    );
-    let mut event = trace.event(TraceStage::RemovalAttemptReturned);
-    event.elapsed_ms = Some(crate::recovery_trace::milliseconds(started.elapsed()));
-    event.succeeded = Some(result.is_ok());
-    event.observation = last;
-    trace.emit(event);
-    result
 }
 
 fn remove_adapter_observed(
@@ -1107,18 +952,39 @@ impl WintunError {
 mod tests {
     use super::*;
 
+    thread_local! {
+        static NATIVE_CALLS: std::cell::Cell<(u32, u32, u32)> = const { std::cell::Cell::new((0, 0, 0)) };
+    }
+
+    // Only Rust function pointers. This fixture never loads a DLL or creates
+    // native devices, sessions, or network state.
     fn memory_library() -> Arc<WintunLibrary> {
         unsafe extern "system" fn create(
             _: *const u16,
             _: *const u16,
             _: *const GUID,
         ) -> AdapterHandle {
+            NATIVE_CALLS.with(|calls| {
+                let (created, ended, closed) = calls.get();
+                calls.set((created + 1, ended, closed));
+            });
             ptr::dangling_mut()
         }
         unsafe extern "system" fn open(_: *const u16) -> AdapterHandle {
             ptr::dangling_mut()
         }
-        unsafe extern "system" fn close(_: AdapterHandle) {}
+        unsafe extern "system" fn close(_: AdapterHandle) {
+            NATIVE_CALLS.with(|calls| {
+                let (created, ended, closed) = calls.get();
+                calls.set((created, ended, closed + 1));
+            });
+        }
+        unsafe extern "system" fn end(_: SessionHandle) {
+            NATIVE_CALLS.with(|calls| {
+                let (created, ended, closed) = calls.get();
+                calls.set((created, ended + 1, closed));
+            });
+        }
         unsafe extern "system" fn luid(_: AdapterHandle, _: *mut NET_LUID_LH) {}
         unsafe extern "system" fn version() -> u32 {
             1
@@ -1136,7 +1002,6 @@ mod tests {
         unsafe extern "system" fn allocate(_: SessionHandle, _: u32) -> *mut u8 {
             ptr::null_mut()
         }
-        unsafe extern "system" fn logger(_: Option<LoggerCallback>) {}
         Arc::new(WintunLibrary {
             module: ptr::null_mut(),
             create_adapter: create,
@@ -1145,59 +1010,30 @@ mod tests {
             get_adapter_luid: luid,
             get_running_driver_version: version,
             start_session: start,
-            end_session: close,
+            end_session: end,
             get_read_wait_event: event,
             receive_packet: receive,
             release_receive_packet: release,
             allocate_send_packet: allocate,
             send_packet: release,
-            set_logger: logger,
         })
     }
 
     #[test]
-    fn session_and_last_adapter_reference_emit_the_actual_foreign_call_boundaries() {
-        let (sink, receiver) = TraceSink::channel(16);
+    fn retained_creator_ends_hundred_sessions_and_closes_only_after_last_owner() {
+        NATIVE_CALLS.with(|calls| calls.set((0, 0, 0)));
         let adapter = memory_library()
-            .create_adapter("memory-only", Uuid::new_v4(), sink.resource(8))
+            .create_adapter("memory-only", Uuid::new_v4())
             .unwrap();
-        let session = adapter
-            .start_session(WINTUN_MIN_RING_CAPACITY, sink.resource(11))
-            .unwrap();
+        for ended in 1..=100 {
+            drop(adapter.start_session(WINTUN_MIN_RING_CAPACITY).unwrap());
+            assert_eq!(NATIVE_CALLS.with(|calls| calls.get()), (1, ended, 0));
+        }
         let retained = adapter.clone();
-        adapter.release_requested(20);
         drop(adapter);
-        let rows: Vec<_> = receiver.try_iter().collect();
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].stage, TraceStage::AdapterReleaseRequested as i32);
-        assert_eq!(rows[0].reference_count, Some(3));
-        session.trace().set_generation(19);
-        drop(session);
-        let rows: Vec<_> = receiver.try_iter().collect();
-        assert_eq!(
-            rows.iter().map(|e| e.stage).collect::<Vec<_>>(),
-            [
-                TraceStage::EndSessionStarted as i32,
-                TraceStage::EndSessionReturned as i32
-            ]
-        );
-        assert!(
-            rows.iter()
-                .all(|e| e.journal_generation == 19 && e.succeeded.is_none())
-        );
+        assert_eq!(NATIVE_CALLS.with(|calls| calls.get()), (1, 100, 0));
         drop(retained);
-        let rows: Vec<_> = receiver.try_iter().collect();
-        assert_eq!(
-            rows.iter().map(|e| e.stage).collect::<Vec<_>>(),
-            [
-                TraceStage::CloseAdapterStarted as i32,
-                TraceStage::CloseAdapterReturned as i32
-            ]
-        );
-        assert!(
-            rows.iter()
-                .all(|e| e.journal_generation == 20 && e.succeeded.is_none())
-        );
+        assert_eq!(NATIVE_CALLS.with(|calls| calls.get()), (1, 100, 1));
     }
 
     fn observation(interface: bool, device: bool) -> AdapterObservation {
@@ -1205,115 +1041,6 @@ mod tests {
             interface_present: Some(interface),
             device_present: Some(device),
             error: None,
-            interface: resource_observation(Ok(interface)),
-            pnp_device: resource_observation(Ok(device)),
-        }
-    }
-
-    #[test]
-    fn every_removal_attempt_records_final_interface_state_including_eventual_success() {
-        let (sink, receiver) = TraceSink::channel(64);
-        let mut state = AdapterRemovalState::default();
-        for (generation, absent) in [(25, false), (27, false), (29, false), (31, true)] {
-            let clock = std::cell::Cell::new(Duration::ZERO);
-            let calls = std::cell::Cell::new(0);
-            let trace = sink.resource(generation);
-            let result = trace_adapter_removal(
-                &mut state,
-                Duration::from_secs(10),
-                (&trace, || {
-                    calls.set(calls.get() + 1);
-                    let mut sample = observation(!absent, false);
-                    sample.interface.interface_oper_status = Some(2);
-                    sample.interface.interface_admin_status = Some(1);
-                    sample.interface.media_connect_state = Some(2);
-                    sample
-                }),
-                || panic!("PnP is absent: no removal request"),
-                || clock.get(),
-                || clock.set(clock.get() + Duration::from_secs(1)),
-            );
-            assert_eq!(result.is_ok(), absent);
-            assert_eq!(
-                calls.get(),
-                if absent { 1 } else { 11 },
-                "trace adds no probe"
-            );
-            let rows: Vec<_> = receiver
-                .try_iter()
-                .filter_map(crate::recovery_trace::sanitize_event)
-                .collect();
-            assert_eq!(rows.len(), 3);
-            assert_eq!(rows[0].stage, TraceStage::RemovalAttemptStarted as i32);
-            assert!(rows.iter().all(|row| row.journal_generation == generation));
-            let last = rows.last().unwrap();
-            assert_eq!(last.stage, TraceStage::RemovalAttemptReturned as i32);
-            assert_eq!(last.succeeded, Some(absent));
-            let sample = last.observation.as_ref().unwrap();
-            assert_ne!(sample.sampled_at_unix_ms, 0);
-            assert_eq!(
-                sample.interface.as_ref().unwrap().interface_oper_status,
-                (!absent).then_some(2)
-            );
-            assert_eq!(
-                sample.pnp_device.as_ref().unwrap().presence,
-                usque_ipc::agent_v1::RecoveryPresence::Absent as i32
-            );
-        }
-    }
-
-    #[test]
-    fn tracing_identity_failure_and_full_writer_queue_cannot_change_cleanup_result() {
-        for capacity in [0, 16] {
-            let (sink, receiver) = TraceSink::channel(capacity);
-            let trace = sink.resource(25);
-            let error = trace_adapter_removal(
-                &mut AdapterRemovalState::default(),
-                Duration::from_secs(10),
-                (&trace, || {
-                    let error =
-                        WintunError::Windows("GetIfTable2", io::Error::from_raw_os_error(5));
-                    let interface = resource_observation_ref(Err(&error));
-                    AdapterObservation {
-                        interface_present: None,
-                        device_present: Some(false),
-                        error: Some(error),
-                        interface,
-                        pnp_device: resource_observation(Ok(false)),
-                    }
-                }),
-                || panic!("unknown cannot authorize removal"),
-                || Duration::ZERO,
-                || panic!("identity failure does not wait"),
-            )
-            .unwrap_err();
-            assert!(matches!(
-                error,
-                WintunError::Removal(AdapterRemovalDiagnostic {
-                    win32_code: Some(5),
-                    ..
-                })
-            ));
-            let rows: Vec<_> = receiver
-                .try_iter()
-                .filter_map(crate::recovery_trace::sanitize_event)
-                .collect();
-            if capacity == 0 {
-                assert!(rows.is_empty());
-                assert_eq!(sink.losses().0, 3);
-            } else {
-                let last = rows.last().unwrap();
-                assert_eq!(last.succeeded, Some(false));
-                let interface = last
-                    .observation
-                    .as_ref()
-                    .unwrap()
-                    .interface
-                    .as_ref()
-                    .unwrap();
-                assert_eq!(interface.presence, 0);
-                assert_eq!(interface.win32_code, Some(5));
-            }
         }
     }
 
@@ -1418,8 +1145,6 @@ mod tests {
                     } else {
                         WintunError::InvalidRecoveryIdentity
                     }),
-                    interface: Default::default(),
-                    pnp_device: resource_observation(Ok(false)),
                 },
                 || panic!("unverified identity must not be deleted"),
                 || Duration::ZERO,

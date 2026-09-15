@@ -240,18 +240,8 @@ mod windows_main {
         }
         secure_agent_state_path(journal_path)?;
         let backend = Arc::new(WindowsBackend::open(wintun_path)?);
-        let trace = if arguments.validate_only {
-            usque_agent::recovery_trace::TraceSink::default()
-        } else {
-            usque_agent::recovery_trace::TraceSink::open(journal_path)
-        };
-        backend.enable_recovery_trace(trace.clone());
         let capabilities = backend.capabilities();
-        let coordinator = match AgentCoordinator::open_with_trace(
-            JournalStore::new(journal_path),
-            backend,
-            trace,
-        ) {
+        let coordinator = match AgentCoordinator::open(JournalStore::new(journal_path), backend) {
             Ok(coordinator) => Arc::new(coordinator),
             Err(error) => {
                 // A corrupt journal must fail closed with respect to arbitrary
@@ -464,7 +454,7 @@ mod windows_main {
                     }
                 }
             }
-            ServeExit::Idle => info!("Agent exited after the clean idle grace period"),
+            ServeExit::Idle => info!("Agent exited after device retirement or clean idle"),
         }
         Ok(())
     }

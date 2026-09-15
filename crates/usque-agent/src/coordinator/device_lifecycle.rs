@@ -36,6 +36,11 @@ impl<Backend: PrivilegedBackend + 'static> AgentCoordinator<Backend> {
         self.device_retirement_deferred.load(Ordering::Acquire)
     }
 
+    pub fn device_retirement_finished(&self) -> bool {
+        self.device_retirement_deferred()
+            || self.device_retirement_completed.load(Ordering::Acquire)
+    }
+
     pub async fn may_exit_idle(&self) -> bool {
         let journal = self.journal.lock().await;
         !self.device_lease_attached()
@@ -126,6 +131,8 @@ impl<Backend: PrivilegedBackend + 'static> AgentCoordinator<Backend> {
         });
         self.device_retirement_deferred
             .store(false, Ordering::Release);
+        self.device_retirement_completed
+            .store(false, Ordering::Release);
         Ok(key)
     }
 
@@ -170,8 +177,16 @@ impl<Backend: PrivilegedBackend + 'static> AgentCoordinator<Backend> {
             {
                 return Err(CoordinatorError::DeviceRecoveryRequired);
             }
-            if !self.backend.inspect_idle_device(&device.receipt).await? {
-                return Err(CoordinatorError::DeviceRecoveryRequired);
+            match self.backend.inspect_idle_device(&device.receipt).await {
+                Ok(true) => {}
+                result => {
+                    journal.device.as_mut().expect("device").state = DeviceState::RecoveryRequired;
+                    self.store.save(&mut journal)?;
+                    return Err(match result {
+                        Err(error) => error.into(),
+                        _ => CoordinatorError::DeviceRecoveryRequired,
+                    });
+                }
             }
         } else {
             let device_id = Uuid::new_v4();
@@ -345,6 +360,8 @@ impl<Backend: PrivilegedBackend + 'static> AgentCoordinator<Backend> {
             return Err(error.into());
         }
         *journal = clean;
+        self.device_retirement_completed
+            .store(true, Ordering::Release);
         Ok(DeviceRetirement::Complete)
     }
 

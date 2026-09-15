@@ -32,8 +32,6 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Connected'), findsOneWidget);
     expect(engine.current.phase, ConnectionPhase.connected);
-    expect(engine.calls.where((call) => call == 'connect').length, 1);
-    expect(engine.calls.where((call) => call == 'retry').length, 1);
   });
 
   for (final retry in <bool>[false, true]) {

@@ -257,17 +257,14 @@ also observes cancellation, so a stopped request cannot admit a late connection.
 The Agent's existing EOF grace, operation/owner checks and lease epoch remain
 authoritative; Prepared alone never authorizes recovery of a live transaction.
 
-Engine JSONL logs carry a fresh random `engine_run_id` and a monotonic
-`engine_event_sequence` for each logging run. These distinguish an older Engine
-from a newly opened one without exporting process or device identifiers. Fixed
-stage labels record waiting for connection ownership, packet/data-plane joins,
-lease release, native stop and Agent mutation replies. Native task completion
-and a still-pending native worker have separate records. Agent replies include
-only the typed phase, journal generation, success flag and elapsed time; polling
-does not create lifecycle logs. Correlate those generations and timestamps with
-the existing `windows-recovery.json` observations and historical step results.
-Successful Wintun restoration still requires both interface and PnP absence;
-timeouts, failed probes and identity conflicts do not become absence evidence.
+Windows retains the Agent-managed device across disconnects and node/account
+switches, while each replacement session restores its own network receipts.
+The independent device lease belongs to the Engine application lifetime;
+startup/active packet leases still protect cancellation and reattachment.
+Final device retirement happens after full application exit, and still requires
+both interface and PnP absence. Failed or unknown probes remain pending.
+See [device lifetime and recovery](RELIABILITY_TESTING.md#windows-wintun-device-and-connection-lifetimes)
+for persistence, ownership and diagnostic limits.
 
 Android uses its existing VpnService and a blocking interface during setup.
 A new final interface is established and attached before retiring the old Java

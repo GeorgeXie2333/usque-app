@@ -349,8 +349,8 @@ message RecoveryDiagnostics {
   RecoveryHistoryStatus history_status = 2;
   // Latest at most 32 valid events, in file order. Never current observations.
   repeated RecoveryHistoryEvent history = 3;
-  // Separate process/resource lifecycle evidence; absence means an older Agent.
-  RecoveryTrace trace = 4;
+  // Legacy investigation data. New Agents never produce or export this field.
+  RecoveryTrace trace = 4 [deprecated = true];
 }
 
 enum RecoveryTraceStage {
@@ -377,33 +377,33 @@ enum RecoveryTraceStage {
 }
 
 message RecoveryTraceEvent {
-  uint32 schema_version = 1;
+  uint32 schema_version = 1 [deprecated = true];
   // Random per-process nonce and per-process counter, never PID/GUID/LUID.
-  uint64 agent_run_id = 2;
-  uint64 event_sequence = 3;
-  uint64 occurred_at_unix_ms = 4;
-  uint64 monotonic_ms = 5;
+  uint64 agent_run_id = 2 [deprecated = true];
+  uint64 event_sequence = 3 [deprecated = true];
+  uint64 occurred_at_unix_ms = 4 [deprecated = true];
+  uint64 monotonic_ms = 5 [deprecated = true];
   // Zero denotes an unassociated callback, not the latest transaction.
-  uint64 journal_generation = 6;
-  uint64 resource_id = 7;
-  RecoveryTraceStage stage = 8;
-  optional uint64 elapsed_ms = 9;
-  optional uint32 reference_count = 10;
+  uint64 journal_generation = 6 [deprecated = true];
+  uint64 resource_id = 7 [deprecated = true];
+  RecoveryTraceStage stage = 8 [deprecated = true];
+  optional uint64 elapsed_ms = 9 [deprecated = true];
+  optional uint32 reference_count = 10 [deprecated = true];
   // Packet-pump joins and removal attempts have results; Wintun VOID returns do not.
-  optional bool succeeded = 11;
-  RecoveryObservation observation = 12;
+  optional bool succeeded = 11 [deprecated = true];
+  RecoveryObservation observation = 12 [deprecated = true];
   // 1 info, 2 warning, 3 error. No native message text crosses the boundary.
-  optional uint32 native_level = 13;
-  uint64 dropped_events = 14;
-  uint64 write_failures = 15;
+  optional uint32 native_level = 13 [deprecated = true];
+  uint64 dropped_events = 14 [deprecated = true];
+  uint64 write_failures = 15 [deprecated = true];
 }
 
 message RecoveryTrace {
-  RecoveryHistoryStatus status = 1;
+  RecoveryHistoryStatus status = 1 [deprecated = true];
   // Latest at most 128 valid records, with original event times.
-  repeated RecoveryTraceEvent events = 2;
-  uint64 dropped_events = 3;
-  uint64 write_failures = 4;
+  repeated RecoveryTraceEvent events = 2 [deprecated = true];
+  uint64 dropped_events = 3 [deprecated = true];
+  uint64 write_failures = 4 [deprecated = true];
 }
 
 message PhysicalInterface {

@@ -559,7 +559,7 @@ mod tests {
             }),
             history_status: agent_v1::RecoveryHistoryStatus::Missing as i32,
             history: vec![],
-            trace: None,
+            ..Default::default()
         };
         assert_eq!(
             agent_v1::RecoveryDiagnostics::decode(sample.encode_to_vec().as_slice()).unwrap(),
@@ -630,7 +630,8 @@ mod tests {
     }
 
     #[test]
-    fn recovery_trace_and_resource_metrics_are_append_only_optional_wire_fields() {
+    #[allow(deprecated)] // Frozen legacy wire contract; production no longer emits trace data.
+    fn legacy_trace_and_resource_metrics_keep_their_wire_numbers() {
         #[derive(Clone, PartialEq, prost::Message)]
         struct LegacyDiagnostics {
             #[prost(enumeration = "agent_v1::RecoveryHistoryStatus", tag = "2")]

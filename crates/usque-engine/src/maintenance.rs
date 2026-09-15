@@ -138,7 +138,7 @@ fn clear_engine_logs(directory: &Path) -> io::Result<()> {
                 .truncate(true)
                 .open(entry.path())?;
         } else if (name.starts_with("engine-") && name.ends_with(".jsonl"))
-            || name == crate::recovery_diagnostics::cache::FILE_NAME
+            || name == "windows-recovery-cache-v1.json"
         {
             fs::remove_file(entry.path())?;
         }
@@ -211,19 +211,10 @@ fn write_diagnostic_bundle(
         ));
     }
     if cfg!(windows) || transport.platform_state.is_some() {
-        if let Some(state) = &transport.platform_state {
-            let now = Utc::now().timestamp_millis().max(0) as u64;
-            if crate::recovery_diagnostics::cache::store(log_directory, state, now).is_err() {
-                tracing::warn!(
-                    "Windows recovery evidence cache could not be written during export"
-                );
-            }
-        }
         entries.push((
             "windows-recovery.json".to_owned(),
-            serde_json::to_vec_pretty(&crate::recovery_diagnostics::cache::summary(
+            serde_json::to_vec_pretty(&crate::recovery_diagnostics::summary(
                 transport.platform_state.as_ref(),
-                log_directory,
             ))?
             .into_boxed_slice(),
         ));
@@ -1282,11 +1273,7 @@ mod tests {
         fs::create_dir_all(&logs).unwrap();
         fs::write(logs.join("engine.jsonl"), b"active").unwrap();
         fs::write(logs.join("engine-1-0.jsonl"), b"rotated").unwrap();
-        fs::write(
-            logs.join(crate::recovery_diagnostics::cache::FILE_NAME),
-            b"historical",
-        )
-        .unwrap();
+        fs::write(logs.join("windows-recovery-cache-v1.json"), b"historical").unwrap();
 
         maintenance.clear_local_state().await.unwrap();
 
@@ -1295,10 +1282,6 @@ mod tests {
         assert!(!flag_cache.exists());
         assert_eq!(fs::read(logs.join("engine.jsonl")).unwrap(), b"");
         assert!(!logs.join("engine-1-0.jsonl").exists());
-        assert!(
-            !logs
-                .join(crate::recovery_diagnostics::cache::FILE_NAME)
-                .exists()
-        );
+        assert!(!logs.join("windows-recovery-cache-v1.json").exists());
     }
 }
