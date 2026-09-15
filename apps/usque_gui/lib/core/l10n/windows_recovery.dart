@@ -27,6 +27,10 @@ const String kWindowsAdapterCleanupZhCn =
     '未能移除旧的 Wintun 适配器，或无法确认已移除。尚未建立新的 VPN 连接。';
 
 const Map<String, String> kWindowsRecoveryEn = <String, String>{
+  'WINDOWS_DEVICE_REUSE_UNSUPPORTED':
+      'The application and Windows Agent must be updated together to reuse the TUN device. No new VPN connection was started.',
+  'WINDOWS_DEVICE_RECOVERY_REQUIRED':
+      'The previous TUN device still needs recovery. Fully exit Usque, then reopen it and retry, or inspect local diagnostics.',
   'WINDOWS_RECOVERY_FAILED':
       'The previous VPN network state could not be fully restored. No new VPN connection was started. Retry the connection or inspect local diagnostics.',
   'WINDOWS_RECOVERY_EXHAUSTED':
@@ -42,6 +46,10 @@ const Map<String, String> kWindowsRecoveryEn = <String, String>{
 };
 
 const Map<String, String> kWindowsRecoveryZhCn = <String, String>{
+  'WINDOWS_DEVICE_REUSE_UNSUPPORTED':
+      '当前 Windows Agent 不支持复用 TUN 设备。请同时更新应用和 Agent，尚未建立新的 VPN 连接。',
+  'WINDOWS_DEVICE_RECOVERY_REQUIRED':
+      '旧的 TUN 设备仍需恢复。请彻底退出 Usque 后重新打开并重试，或查看本地诊断。',
   'WINDOWS_RECOVERY_FAILED': '未能完整恢复上次 VPN 的网络状态，尚未建立新 VPN 连接。请重试连接，或查看本地诊断。',
   'WINDOWS_RECOVERY_EXHAUSTED':
       'Windows 在三次自动尝试后仍未能恢复上次 VPN 网络状态。请稍后重试，或查看本地诊断。',

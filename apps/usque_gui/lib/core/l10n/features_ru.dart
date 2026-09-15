@@ -313,6 +313,10 @@ const kNetworkQualityRu = <String, String>{
 };
 
 const Map<String, String> kWindowsRecoveryRu = <String, String>{
+  'WINDOWS_DEVICE_REUSE_UNSUPPORTED':
+      "Для повторного использования устройства TUN обновите приложение и Windows Agent вместе. Новое VPN-соединение не запущено.",
+  'WINDOWS_DEVICE_RECOVERY_REQUIRED':
+      "Предыдущее устройство TUN ещё требует восстановления. Полностью закройте Usque, откройте снова и повторите попытку или проверьте локальную диагностику.",
   'WINDOWS_RECOVERY_FAILED':
       'Предыдущее сетевое состояние VPN не удалось полностью '
       'восстановить. Новое VPN-подключение не запускалось. '

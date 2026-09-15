@@ -87,6 +87,9 @@ const PACKET_RING_RETRY_INTERVAL: Duration = Duration::from_millis(1);
 const PHYSICAL_NETWORK_POLL_INTERVAL: Duration = Duration::from_millis(500);
 const AUTOMATIC_RECOVERY_ATTEMPT_LIMIT: u32 = 3;
 
+mod device_owner;
+pub(crate) use device_owner::WindowsDeviceOwner;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AutomaticRecoveryFailure {
     pub(crate) operation_id: String,
@@ -880,6 +883,7 @@ impl WindowsVpnRuntime {
         pin_refresher: Arc<dyn EndpointPinRefresher>,
         geo_policy: Arc<GeoDirectPolicy>,
         gate: usque_transport::VpnGateStart,
+        device: &WindowsDeviceOwner,
     ) -> Result<Self, WindowsVpnError> {
         let startup_cancel = gate.cancellation.clone();
         let geo_enabled = geo_policy.is_enabled();
@@ -894,6 +898,7 @@ impl WindowsVpnRuntime {
         // Old DNS/WFP state can itself prevent endpoint resolution. Complete
         // guarded local recovery before ANY startup DNS or MASQUE operation.
         let state = agent.connection_state(&capabilities).await?;
+        let device_lease = device.acquire(&agent, &capabilities).await?;
         // Still resolve before installing a new fail-closed policy.
         let registration_api = resolve_registration_api().await?;
         if startup_cancel.is_cancelled() {
@@ -904,7 +909,9 @@ impl WindowsVpnRuntime {
                 Ok(agent_v1::AgentPhase::Clean) => {
                     let operation_id = Uuid::new_v4();
                     let plan = tunnel_plan(profile, &identity, &registration_api, geo_enabled);
-                    let lease = agent.prepare(operation_id, plan).await?;
+                    let lease = agent
+                        .prepare(operation_id, plan, &device_lease, state.journal_generation)
+                        .await?;
                     (operation_id, false, Some(lease))
                 }
                 Ok(agent_v1::AgentPhase::Active) if state.profile_id == profile.id.to_string() => {
@@ -930,6 +937,12 @@ impl WindowsVpnRuntime {
                     });
                 }
             };
+        if startup_cancel.is_cancelled() {
+            if !resuming {
+                agent.rollback_for_disconnect(operation_id).await?;
+            }
+            return Err(TransportError::TunnelClosed.into());
+        }
 
         let bootstrap = profile.vpn_gate.enabled.then(|| WarpBootstrap {
             identity: identity.clone(),
@@ -988,7 +1001,7 @@ impl WindowsVpnRuntime {
         } else {
             startup.await
         };
-        let tunnel = match startup {
+        let mut tunnel = match startup {
             Ok(tunnel) => tunnel,
             Err(error) => {
                 if let Some(bootstrap) = bootstrap {
@@ -1011,6 +1024,17 @@ impl WindowsVpnRuntime {
                 .await);
             }
         };
+        if startup_cancel.is_cancelled() {
+            tunnel.shutdown().await;
+            return Err(fail_startup(
+                &agent,
+                operation_id,
+                resuming,
+                "STARTUP_CANCELLED",
+                TransportError::TunnelClosed.into(),
+            )
+            .await);
+        }
         if profile.vpn_gate.enabled {
             let lifetime = CancellationToken::new();
             let (pump_failure_tx, pump_failure) = watch::channel(None);
@@ -1402,6 +1426,7 @@ impl WindowsVpnRuntime {
     pub(crate) async fn attach_existing(
         profile: &Profile,
         tunnel: DataPlaneRuntime,
+        device: &WindowsDeviceOwner,
     ) -> Result<Self, (DataPlaneRuntime, WindowsVpnError)> {
         let agent = WindowsAgentClient::production();
         let capabilities = match agent.get_capabilities().await {
@@ -1430,6 +1455,10 @@ impl WindowsVpnRuntime {
                 },
             ));
         }
+        let device_lease = match device.acquire(&agent, &capabilities).await {
+            Ok(lease) => lease,
+            Err(error) => return Err((tunnel, error)),
+        };
         let registration_api = match resolve_registration_api().await {
             Ok(addresses) => addresses,
             Err(error) => return Err((tunnel, error)),
@@ -1450,7 +1479,10 @@ impl WindowsVpnRuntime {
             &registration_api,
             false,
         );
-        let startup_lease = match agent.prepare(operation_id, plan).await {
+        let startup_lease = match agent
+            .prepare(operation_id, plan, &device_lease, state.journal_generation)
+            .await
+        {
             Ok(lease) => lease,
             Err(error) => return Err((tunnel, error)),
         };
@@ -2085,6 +2117,9 @@ fn validate_capabilities(
         return Err(WindowsVpnError::ProtocolVersion(
             capabilities.protocol_version,
         ));
+    }
+    if !capabilities.reusable_tun_device {
+        return Err(WindowsVpnError::DeviceReuseUnsupported);
     }
     let mut missing = Vec::new();
     if !capabilities.wintun {
@@ -2756,6 +2791,9 @@ impl WindowsAgentClient {
         timeout(budget, async {
             loop {
                 let state = self.get_state().await.map_err(recovery_rpc_error)?;
+                if capabilities.reusable_tun_device && state.device.is_none() {
+                    return Err(WindowsVpnError::DeviceRecoveryRequired);
+                }
                 match agent_v1::AgentPhase::try_from(state.phase) {
                     Ok(agent_v1::AgentPhase::Clean) => {
                         require_recovered_state(&state)?;
@@ -2947,6 +2985,8 @@ impl WindowsAgentClient {
         &self,
         operation_id: Uuid,
         plan: agent_v1::TunnelPlan,
+        device_lease: &agent_v1::DeviceLease,
+        expected_journal_generation: u64,
     ) -> Result<NamedPipeClient, WindowsVpnError> {
         let mut pipe = self.open_pipe().await?;
         let response = timeout(
@@ -2956,7 +2996,9 @@ impl WindowsAgentClient {
                 agent_request::Payload::PrepareTunnel(PrepareTunnelRequest {
                     operation_id: operation_id.to_string(),
                     plan: Some(plan),
-                    ..Default::default()
+                    device_lease_id: device_lease.lease_id.clone(),
+                    device_lease_generation: device_lease.lease_generation,
+                    expected_journal_generation,
                 }),
             ),
         )
@@ -3582,6 +3624,7 @@ fn payload_name(payload: &agent_response::Payload) -> &'static str {
 }
 
 fn require_recovered_state(state: &AgentState) -> Result<(), WindowsVpnError> {
+    device_owner::require_idle_device(state)?;
     if state.phase == agent_v1::AgentPhase::Clean as i32
         && !state.packet_session_active
         && !state.kill_switch_active
@@ -3786,6 +3829,14 @@ fn system_proxy_restore_succeeded(
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum WindowsVpnError {
+    #[error(
+        "this Windows Agent cannot reuse TUN devices; update the application and Agent together"
+    )]
+    DeviceReuseUnsupported,
+    #[error("the managed TUN device still requires recovery; no new VPN transaction was started")]
+    DeviceRecoveryRequired,
+    #[error("Windows Agent returned an invalid device lease")]
+    InvalidDeviceLease,
     #[error("Windows Agent I/O failed: {0}")]
     Io(#[from] io::Error),
     #[error("Windows Agent service startup failed: {0}")]
@@ -3929,6 +3980,15 @@ impl WindowsVpnError {
 
 #[cfg(test)]
 mod tests {
+    mod device_tests;
+
+    fn test_device_lease() -> agent_v1::DeviceLease {
+        agent_v1::DeviceLease {
+            lease_id: "00000000-0000-4000-8000-000000000099".into(),
+            lease_generation: 1,
+            journal_generation: 19,
+        }
+    }
     use std::{
         net::{Ipv4Addr, Ipv6Addr},
         sync::{
@@ -5536,6 +5596,7 @@ mod tests {
     #[test]
     fn windows_vpn_requires_the_exact_generation_lease_capability() {
         let mut capabilities = AgentCapabilities {
+            reusable_tun_device: true,
             protocol_version: AGENT_PROTOCOL_VERSION,
             wintun: true,
             interface_addresses: true,
@@ -6010,6 +6071,8 @@ mod tests {
                     profile_id: "private-request-fixture".into(),
                     ..Default::default()
                 },
+                &test_device_lease(),
+                19,
             )
             .with_subscriber(dispatch.clone())
             .await
@@ -6095,7 +6158,12 @@ mod tests {
         let client = WindowsAgentClient::for_test(pipe_name);
         let mut lease = Some(
             client
-                .prepare(operation, agent_v1::TunnelPlan::default())
+                .prepare(
+                    operation,
+                    agent_v1::TunnelPlan::default(),
+                    &test_device_lease(),
+                    19,
+                )
                 .await
                 .unwrap(),
         );
@@ -6148,7 +6216,12 @@ mod tests {
         });
         let client = WindowsAgentClient::for_test(pipe_name);
         let startup = client
-            .prepare(operation_id, agent_v1::TunnelPlan::default())
+            .prepare(
+                operation_id,
+                agent_v1::TunnelPlan::default(),
+                &test_device_lease(),
+                19,
+            )
             .await
             .expect("prepare lease");
         let active = client

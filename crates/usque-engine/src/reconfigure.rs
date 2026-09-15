@@ -214,7 +214,15 @@ impl ControlService {
                 "a connected session is required".to_owned(),
             ));
         };
-        match active.runtime.with_tunnel(profile).await {
+        match active
+            .runtime
+            .with_tunnel(
+                profile,
+                #[cfg(windows)]
+                &self.windows_device,
+            )
+            .await
+        {
             Ok(runtime) => {
                 active.runtime = runtime;
                 active.frontends = profile.frontends;

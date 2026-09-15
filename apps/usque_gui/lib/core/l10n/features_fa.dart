@@ -259,6 +259,10 @@ const kNetworkQualityFa = <String, String>{
 };
 
 const Map<String, String> kWindowsRecoveryFa = <String, String>{
+  'WINDOWS_DEVICE_REUSE_UNSUPPORTED':
+      "برای استفادهٔ مجدد از دستگاه TUN، برنامه و Windows Agent را با هم به‌روزرسانی کنید. اتصال VPN جدیدی آغاز نشده است.",
+  'WINDOWS_DEVICE_RECOVERY_REQUIRED':
+      "دستگاه TUN قبلی هنوز به بازیابی نیاز دارد. Usque را کاملاً ببندید و دوباره باز کنید، یا گزارش عیب‌یابی محلی را بررسی کنید.",
   'WINDOWS_RECOVERY_FAILED':
       'وضعیت شبکهٔ VPN قبلی به‌طور کامل بازیابی نشد. اتصال VPN جدیدی شروع نشد. اتصال را دوباره امتحان کنید یا عیب‌یابی محلی را بررسی کنید.',
   'WINDOWS_RECOVERY_EXHAUSTED':

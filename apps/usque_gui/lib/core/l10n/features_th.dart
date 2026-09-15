@@ -256,6 +256,10 @@ const Map<String, String> kNetworkQualityTh = <String, String>{
 };
 
 const Map<String, String> kWindowsRecoveryTh = <String, String>{
+  'WINDOWS_DEVICE_REUSE_UNSUPPORTED':
+      "โปรดอัปเดตแอปและ Windows Agent พร้อมกันเพื่อใช้อุปกรณ์ TUN ซ้ำ ยังไม่ได้เริ่มการเชื่อมต่อ VPN ใหม่",
+  'WINDOWS_DEVICE_RECOVERY_REQUIRED':
+      "อุปกรณ์ TUN เดิมยังต้องกู้คืน โปรดออกจาก Usque ให้หมดแล้วเปิดใหม่เพื่อลองอีกครั้ง หรือตรวจสอบการวินิจฉัยในเครื่อง",
   'WINDOWS_RECOVERY_FAILED':
       'ไม่สามารถคืนค่าสถานะเครือข่าย VPN ก่อนหน้าได้ครบ ยังไม่ได้เริ่มการเชื่อมต่อ VPN ใหม่ ลองเชื่อมต่ออีกครั้ง หรือตรวจการวินิจฉัยในเครื่อง',
   'WINDOWS_RECOVERY_EXHAUSTED':

@@ -129,6 +129,8 @@ pub struct ControlServiceState {
     #[cfg(windows)]
     windows_recovery: Mutex<WindowsRecoveryRuntime>,
     #[cfg(windows)]
+    windows_device: windows_agent::WindowsDeviceOwner,
+    #[cfg(windows)]
     windows_recovery_notify: tokio::sync::Notify,
     #[cfg(windows)]
     windows_recovery_stopping: std::sync::atomic::AtomicBool,
@@ -451,6 +453,8 @@ impl ControlService {
                 #[cfg(windows)]
                 windows_recovery: Mutex::new(WindowsRecoveryRuntime::default()),
                 #[cfg(windows)]
+                windows_device: windows_agent::WindowsDeviceOwner::default(),
+                #[cfg(windows)]
                 windows_recovery_notify: tokio::sync::Notify::new(),
                 #[cfg(windows)]
                 windows_recovery_stopping: std::sync::atomic::AtomicBool::new(false),
@@ -693,8 +697,17 @@ impl ControlService {
             recovery_event = "ENGINE_DISCONNECT_STARTED",
             "Engine shutdown acquired connection ownership"
         );
-        self.disconnect_locked().await?;
-        let result = self.await_disconnect_cleanup().await;
+        let disconnect = self.disconnect_locked().await;
+        let cleanup = self.await_disconnect_cleanup().await;
+        #[cfg(windows)]
+        let release = self
+            .windows_device
+            .shutdown()
+            .await
+            .map_err(map_windows_vpn_error);
+        let result = disconnect.and(cleanup);
+        #[cfg(windows)]
+        let result = result.and(release);
         tracing::info!(
             recovery_event = "ENGINE_CLEANUP_RETURNED",
             success = result.is_ok(),
@@ -2082,6 +2095,7 @@ impl ControlService {
                         status: Some(self.gate_status.clone()),
                         cancellation: startup_cancel.clone(),
                     },
+                    &self.windows_device,
                 )
                 .await
                 {
@@ -4266,6 +4280,12 @@ pub(crate) fn map_windows_vpn_error(error: windows_agent::WindowsVpnError) -> Co
         }
         windows_agent::WindowsVpnError::RecoveryUnsupported => {
             Some(("WINDOWS_RECOVERY_UNSUPPORTED", false))
+        }
+        windows_agent::WindowsVpnError::DeviceReuseUnsupported => {
+            Some(("WINDOWS_DEVICE_REUSE_UNSUPPORTED", false))
+        }
+        windows_agent::WindowsVpnError::DeviceRecoveryRequired => {
+            Some(("WINDOWS_DEVICE_RECOVERY_REQUIRED", false))
         }
         windows_agent::WindowsVpnError::AutomaticRecoveryExhausted { .. } => {
             Some(("WINDOWS_RECOVERY_EXHAUSTED", true))

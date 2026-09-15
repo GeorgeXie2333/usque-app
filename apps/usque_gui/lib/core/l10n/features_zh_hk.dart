@@ -223,6 +223,10 @@ const Map<String, String> kNetworkQualityZhHk = <String, String>{
 };
 
 const Map<String, String> kWindowsRecoveryZhHk = <String, String>{
+  'WINDOWS_DEVICE_REUSE_UNSUPPORTED':
+      "目前 Windows Agent 不支援重用 TUN 裝置。請同時更新應用程式及 Agent，尚未建立新的 VPN 連線。",
+  'WINDOWS_DEVICE_RECOVERY_REQUIRED':
+      "舊 TUN 裝置仍需復原。請完全退出 Usque 後重新開啟並重試，或查看本機診斷。",
   'WINDOWS_RECOVERY_FAILED': '未能完整復原上次 VPN 的網絡狀態，尚未建立新 VPN 連線。請重試連線，或查看本機診斷。',
   'WINDOWS_RECOVERY_EXHAUSTED':
       'Windows 在三次自動嘗試後仍未能復原上次 VPN 網絡狀態。請稍後重試，或查看本機診斷。',

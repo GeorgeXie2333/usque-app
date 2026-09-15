@@ -267,6 +267,10 @@ const kNetworkQualityTr = <String, String>{
 };
 
 const Map<String, String> kWindowsRecoveryTr = <String, String>{
+  'WINDOWS_DEVICE_REUSE_UNSUPPORTED':
+      "TUN aygıtını yeniden kullanmak için uygulamayı ve Windows Agent’ı birlikte güncelleyin. Yeni VPN bağlantısı başlatılmadı.",
+  'WINDOWS_DEVICE_RECOVERY_REQUIRED':
+      "Önceki TUN aygıtının hâlâ kurtarılması gerekiyor. Usque’yi tamamen kapatıp yeniden açarak tekrar deneyin veya yerel tanılamayı inceleyin.",
   'WINDOWS_RECOVERY_FAILED':
       'Önceki VPN ağ durumu tam olarak geri yüklenemedi. Yeni bir VPN bağlantısı başlatılmadı. Bağlantıyı yeniden deneyin veya yerel tanılamayı inceleyin.',
   'WINDOWS_RECOVERY_EXHAUSTED':

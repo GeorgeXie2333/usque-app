@@ -271,6 +271,10 @@ const Map<String, String> kNetworkQualityId = <String, String>{
 };
 
 const Map<String, String> kWindowsRecoveryId = <String, String>{
+  'WINDOWS_DEVICE_REUSE_UNSUPPORTED':
+      "Perbarui aplikasi dan Windows Agent bersamaan untuk memakai ulang perangkat TUN. Belum ada koneksi VPN baru.",
+  'WINDOWS_DEVICE_RECOVERY_REQUIRED':
+      "Perangkat TUN sebelumnya masih perlu dipulihkan. Tutup Usque sepenuhnya, buka kembali dan coba lagi, atau periksa diagnostik lokal.",
   'WINDOWS_RECOVERY_FAILED':
       'Status jaringan VPN sebelumnya tidak dapat dipulihkan sepenuhnya. Koneksi VPN baru belum dimulai. Coba sambungkan lagi atau tinjau diagnostik lokal.',
   'WINDOWS_RECOVERY_EXHAUSTED':

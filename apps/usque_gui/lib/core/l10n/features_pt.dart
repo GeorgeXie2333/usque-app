@@ -309,6 +309,10 @@ const Map<String, String> kNetworkQualityPt = <String, String>{
 };
 
 const Map<String, String> kWindowsRecoveryPt = <String, String>{
+  'WINDOWS_DEVICE_REUSE_UNSUPPORTED':
+      "Atualize o aplicativo e o Windows Agent juntos para reutilizar o dispositivo TUN. Nenhuma nova conexão VPN foi iniciada.",
+  'WINDOWS_DEVICE_RECOVERY_REQUIRED':
+      "O dispositivo TUN anterior ainda precisa de recuperação. Encerre o Usque completamente e abra-o novamente para tentar, ou consulte o diagnóstico local.",
   'WINDOWS_RECOVERY_FAILED':
       'Não foi possível restaurar por completo o estado de rede VPN '
       'anterior. Nenhuma nova conexão VPN foi iniciada. Tente conectar '

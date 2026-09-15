@@ -560,6 +560,7 @@ impl ActiveRuntime {
     pub(crate) async fn with_tunnel(
         self,
         profile: &Profile,
+        #[cfg(windows)] device: &crate::windows_agent::WindowsDeviceOwner,
     ) -> Result<Self, (Self, ControlServiceError)> {
         #[cfg(test)]
         if let Self::Harness(mut harness) = self {
@@ -582,7 +583,7 @@ impl ActiveRuntime {
         #[cfg(windows)]
         {
             return if profile.frontends.tunnel {
-                attach_vpn(self, profile).await
+                attach_vpn(self, profile, device).await
             } else {
                 detach_vpn(self, profile).await
             };
@@ -630,6 +631,7 @@ fn output_status(
 async fn attach_vpn(
     runtime: ActiveRuntime,
     profile: &Profile,
+    device: &crate::windows_agent::WindowsDeviceOwner,
 ) -> Result<ActiveRuntime, (ActiveRuntime, ControlServiceError)> {
     let ActiveRuntime::Proxy(proxy) = runtime else {
         return Ok(runtime);
@@ -649,7 +651,7 @@ async fn attach_vpn(
         ));
     }
     let masque = proxy.runtime.into_data_plane();
-    match crate::windows_agent::WindowsVpnRuntime::attach_existing(profile, masque).await {
+    match crate::windows_agent::WindowsVpnRuntime::attach_existing(profile, masque, device).await {
         Ok(vpn) => Ok(ActiveRuntime::Vpn(Box::new(vpn))),
         Err((masque, error)) => Err((
             ActiveRuntime::Proxy(Box::new(ActiveProxyRuntime {
