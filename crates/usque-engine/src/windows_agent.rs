@@ -3304,6 +3304,19 @@ impl WindowsAgentClient {
         payload: agent_request::Payload,
     ) -> Result<agent_response::Payload, WindowsVpnError> {
         let lifecycle = agent_lifecycle_method(&payload);
+        let observe_state = matches!(payload, agent_request::Payload::GetState(_));
+        // Cancellation and RPC errors must also request evidence. This guard
+        // only notifies a bounded reader; it never delays a networking request.
+        let _evidence = crate::recovery_diagnostics::recorder::Boundary(matches!(
+            lifecycle,
+            Some(
+                "rollback"
+                    | "close_packet_session"
+                    | "chain_transition"
+                    | "recover_orphaned"
+                    | "restart_recovery"
+            )
+        ));
         let started = tokio::time::Instant::now();
         let request_id = Uuid::new_v4().to_string();
         let request = AgentRequest {
@@ -3337,6 +3350,13 @@ impl WindowsAgentClient {
         let response: AgentResponse = decode_frame(frame.freeze())?;
         if response.request_id != request_id {
             return Err(WindowsVpnError::ResponseIdMismatch);
+        }
+        if observe_state
+            && matches!(response.payload.as_ref(), Some(agent_response::Payload::State(state))
+            if matches!(agent_v1::AgentPhase::try_from(state.phase),
+                Ok(agent_v1::AgentPhase::Clean | agent_v1::AgentPhase::Recovering | agent_v1::AgentPhase::RecoveryRequired)))
+        {
+            crate::recovery_diagnostics::recorder::request();
         }
         if let Some(method) = lifecycle {
             let (journal_generation, agent_phase) = match response.payload.as_ref() {
@@ -5894,6 +5914,34 @@ mod tests {
             task.await.unwrap().as_slice(),
             [agent_request::Payload::InspectPlatformState(_)]
         ));
+        // The scripted Agent has exited. A second export must retain the
+        // previous evidence, without reopening the service or inventing a sample.
+        assert!(client.inspect_platform_state_if_running().await.is_err());
+        let unavailable = PlatformState {
+            service_state: "unavailable".into(),
+            ..Default::default()
+        };
+        let destination = directory.path().join("after-agent-exit.zip");
+        crate::maintenance::Maintenance::new(&directory.path().join("config.json"))
+            .export_diagnostics(
+                destination.clone(),
+                usque_core::AppConfig::default(),
+                usque_core::ConnectionSnapshot::default(),
+                None,
+                crate::maintenance::DiagnosticTransportContext {
+                    platform_state: Some(unavailable),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        let bytes = std::fs::read(destination).unwrap();
+        let archive = String::from_utf8_lossy(&bytes);
+        assert!(archive.contains("agent_unavailable"));
+        assert!(archive.contains("previous_agent_response"));
+        assert!(archive.contains("native_remove_failed"));
+        assert!(archive.contains("observation_at_capture"));
+        assert!(!archive.contains("fixture-secret"));
     }
 
     #[tokio::test]

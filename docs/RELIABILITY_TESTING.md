@@ -175,6 +175,17 @@ not raw text. Callbacks on other threads have generation/resource zero; they
 are never attributed to the latest VPN transaction. Run IDs are fresh random
 nonces and resource IDs are process-local counters, not OS identifiers.
 
+Every adapter removal attempt also emits `removal_attempt_started` and
+`removal_attempt_returned` (append-only stage numbers 18 and 19). The first
+observation after `CloseAdapter` returns, up to eight changed observations per
+attempt, and the final observation retain IP Helper operational/admin/media
+status and independent PnP presence/identity/API errors. These are the checks
+cleanup already performs, with no additional native probe or sampling worker.
+PnP devnode flags remain optional and are obtained only by the separate existing
+diagnostic sampler. The returned result describes this cleanup attempt, not
+the success of the Wintun VOID call or a successful journal save. Direct packet
+detach and tunnel-lease EOF carry the current journal generation into pump joins.
+
 After Exhausted with an unfinished adapter, the recovery supervisor observes
 the same operation/generation/revision about every five seconds for at most ten
 minutes. It shares the diagnostic sampling permit and deadline, records changed
@@ -192,6 +203,35 @@ refer to the current Agent writer, while each stored event retains the counters
 from its original run. Old Agents export normally with evidence unavailable.
 The [lifecycle evidence record](ISSUE_66_TRACE_VALIDATION.md) describes collection,
 validation and remaining limits.
+
+While the Engine is running, lifecycle boundaries and recovery-state replies
+notify one bounded evidence reader. It uses only `InspectPlatformState` on an
+already-openable Agent pipe, retains the existing two-second diagnostic deadline,
+coalesces notifications, and takes one delayed follow-up for trace writes. It
+does not poll while idle, start a stopped Agent, or change recovery budgets.
+Engine shutdown requests one final capture with a bounded wait. The recorder
+awaits at most one separate file-writer thread, which owns no network resources
+and cannot pin Tokio runtime shutdown. A busy cache write is skipped rather
+than waited on. Diagnostics cannot block network cleanup or prevent process exit.
+
+The Engine atomically stores a field-rebuilt historical cache at
+`logs/windows-recovery-cache-v1.json`, capped at 192 KiB, 32 history events and
+128 trace events. Older concurrent captures cannot overwrite newer ones;
+temporarily unreadable history/trace does not erase retained events. Cache
+writes are best effort and local-state clearing removes this file. Cache reads
+reject unsupported versions, corrupt/oversized files and reparse entries, then
+independently apply the export allowlist again. There are no journal/receipt,
+device identity, account, address, credential or raw native-message fields.
+
+When live evidence is missing, `windows-recovery.json.cached_evidence` contains
+`source=previous_agent_response`, the capture time and a historical snapshot
+with `observation_at_capture`. Top-level availability/current observation remain
+the result of the current request: a stopped Agent is still unavailable, and
+cached Clean/absence never authorizes a connection. Original event/sample times
+are preserved. Live evidence takes precedence, so the full export remains under
+256 KiB without duplicating two complete traces. A crash before capture or a
+failed cache write can still leave evidence unavailable; no service is started
+just to recreate it. See the [post-fix reproduction](ISSUE_66_POST_FIX_REPRODUCTION.md).
 
 The [Issue #66 validation record](ISSUE_66_VALIDATION.md) identifies the local
 patch baseline, executed checks and unavailable isolated scenarios for this

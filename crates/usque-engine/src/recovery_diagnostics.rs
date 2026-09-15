@@ -20,6 +20,9 @@ macro_rules! label {
     };
 }
 
+pub(crate) mod cache;
+#[cfg(windows)]
+pub(crate) mod recorder;
 mod trace;
 
 #[cfg(windows)]
@@ -177,6 +180,54 @@ fn resource(value: Option<&agent_v1::RecoveryResourceObservation>, kind: Resourc
         "devnode_status": value.devnode_status.filter(|_| pnp),
         "problem_code": value.problem_code.filter(|_| pnp),
     })
+}
+
+// Persist only fields already accepted by the independent export allowlist.
+fn cache_observation(sample: &agent_v1::RecoveryObservation) -> agent_v1::RecoveryObservation {
+    let value = observation(sample, sample.journal_generation);
+    let complete = value["status"] == "complete";
+    agent_v1::RecoveryObservation {
+        sampled_at_unix_ms: sample.sampled_at_unix_ms,
+        journal_generation: sample.journal_generation,
+        status: if complete {
+            agent_v1::RecoverySampleStatus::Complete as i32
+        } else if value["status"] == "generation_changed" {
+            agent_v1::RecoverySampleStatus::GenerationChanged as i32
+        } else if value["status"] == "unavailable" {
+            agent_v1::RecoverySampleStatus::Unavailable as i32
+        } else {
+            agent_v1::RecoverySampleStatus::try_from(sample.status).unwrap_or_default() as i32
+        },
+        interface: complete
+            .then(|| cache_resource(sample.interface.as_ref(), ResourceKind::Interface)),
+        pnp_device: complete.then(|| cache_resource(sample.pnp_device.as_ref(), ResourceKind::Pnp)),
+    }
+}
+
+fn cache_resource(
+    value: Option<&agent_v1::RecoveryResourceObservation>,
+    kind: ResourceKind,
+) -> agent_v1::RecoveryResourceObservation {
+    let row = resource(value, kind);
+    let value = value.copied().unwrap_or_default();
+    let number = |key: &str| row[key].as_u64().and_then(|n| u32::try_from(n).ok());
+    agent_v1::RecoveryResourceObservation {
+        presence: match row["presence"].as_str() {
+            Some("present") => agent_v1::RecoveryPresence::Present as i32,
+            Some("absent") => agent_v1::RecoveryPresence::Absent as i32,
+            _ => 0,
+        },
+        identity_check: agent_v1::RecoveryIdentityCheck::try_from(value.identity_check)
+            .unwrap_or_default() as i32,
+        api: agent_v1::RecoveryDiagnosticApi::try_from(value.api).unwrap_or_default() as i32,
+        win32_code: number("win32_code"),
+        configret_code: number("configret_code"),
+        interface_oper_status: number("interface_oper_status"),
+        interface_admin_status: number("interface_admin_status"),
+        media_connect_state: number("media_connect_state"),
+        devnode_status: number("devnode_status"),
+        problem_code: number("problem_code"),
+    }
 }
 
 #[cfg(test)]

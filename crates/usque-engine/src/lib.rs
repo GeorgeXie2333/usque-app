@@ -67,6 +67,8 @@ use active_runtime::{ActiveDataPlane, ActiveProxyRuntime, ActiveRuntime};
 
 mod recovery_diagnostics;
 #[cfg(windows)]
+pub use recovery_diagnostics::recorder::Recorder as RecoveryEvidenceRecorder;
+#[cfg(windows)]
 mod windows_agent;
 
 mod congestion;

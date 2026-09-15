@@ -59,6 +59,40 @@ fn lifecycle_export_keeps_original_times_and_never_calls_a_void_return_success()
 }
 
 #[test]
+fn removal_attempt_export_keeps_results_and_rejects_unproven_success() {
+    for (status, generation, presence, expected) in [
+        (1, 9, 2, Some(true)),
+        (1, 9, 1, None),
+        (2, 9, 2, None),
+        (1, 10, 2, None),
+    ] {
+        let mut row = event(RecoveryTraceStage::RemovalAttemptReturned);
+        row.succeeded = Some(true);
+        row.elapsed_ms = Some(10039);
+        let resource = agent_v1::RecoveryResourceObservation {
+            identity_check: 1,
+            presence,
+            ..Default::default()
+        };
+        row.observation = Some(agent_v1::RecoveryObservation {
+            sampled_at_unix_ms: 99,
+            journal_generation: generation,
+            status,
+            interface: Some(resource),
+            pnp_device: Some(resource),
+        });
+        let value = summary(Some(&platform(vec![row])));
+        assert_eq!(value["trace"]["events"][0]["succeeded"].as_bool(), expected);
+        assert_eq!(value["trace"]["events"][0]["elapsed_ms"], 10039);
+        let cached = trace::cache_event(&row).unwrap();
+        assert_eq!(cached.succeeded, expected);
+        if generation != 9 {
+            assert!(cached.observation.unwrap().interface.is_none());
+        }
+    }
+}
+
+#[test]
 fn lifecycle_export_bounds_count_and_bytes_and_rejects_unknown_or_sensitive_fields() {
     let hostile = json!({
         "schema_version": 1, "agent_run_id": 42, "event_sequence": 1,

@@ -81,7 +81,10 @@ fn event_summary(event: &RecoveryTraceEvent) -> Option<Value> {
     if !native && (event.journal_generation == 0 || event.resource_id == 0) {
         return None;
     }
-    let sample = if matches!(stage, Stage::ObservationChanged | Stage::ObservationAbsent) {
+    let sample = if matches!(
+        stage,
+        Stage::ObservationChanged | Stage::ObservationAbsent | Stage::RemovalAttemptReturned
+    ) {
         let sample = observation(event.observation.as_ref()?, event.journal_generation);
         if stage == Stage::ObservationAbsent
             && (sample["status"] != "complete"
@@ -94,6 +97,18 @@ fn event_summary(event: &RecoveryTraceEvent) -> Option<Value> {
     } else {
         None
     };
+    let succeeded = if stage == Stage::PumpJoinReturned
+        || (stage == Stage::RemovalAttemptReturned
+            && (event.succeeded != Some(true)
+                || sample.as_ref().is_some_and(|sample| {
+                    sample["status"] == "complete"
+                        && sample["interface"]["presence"] == "absent"
+                        && sample["pnp_device"]["presence"] == "absent"
+                }))) {
+        event.succeeded
+    } else {
+        None
+    };
     Some(json!({
         "schema_version": 1,
         "agent_run_id": event.agent_run_id,
@@ -103,12 +118,47 @@ fn event_summary(event: &RecoveryTraceEvent) -> Option<Value> {
         "journal_generation": event.journal_generation,
         "resource_id": event.resource_id,
         "stage": label!(RecoveryTraceStage, event.stage, "RECOVERY_TRACE_STAGE_"),
-        "elapsed_ms": event.elapsed_ms.filter(|_| matches!(stage, Stage::PumpJoinReturned | Stage::EndSessionReturned | Stage::CloseAdapterReturned)),
+        "elapsed_ms": event.elapsed_ms.filter(|_| matches!(stage, Stage::PumpJoinReturned | Stage::EndSessionReturned | Stage::CloseAdapterReturned | Stage::RemovalAttemptReturned)),
         "reference_count": event.reference_count.filter(|n| stage == Stage::AdapterReleaseRequested && (1..=1_000_000).contains(n)),
-        "succeeded": if stage == Stage::PumpJoinReturned { event.succeeded } else { None },
+        "succeeded": succeeded,
         "observation": sample,
         "native_level": event.native_level.filter(|n| native && (1..=3).contains(n)),
         "dropped_events": event.dropped_events,
         "write_failures": event.write_failures,
     }))
+}
+
+pub(super) fn cache_event(event: &RecoveryTraceEvent) -> Option<RecoveryTraceEvent> {
+    let row = event_summary(event)?;
+    Some(RecoveryTraceEvent {
+        schema_version: 1,
+        agent_run_id: event.agent_run_id,
+        event_sequence: event.event_sequence,
+        occurred_at_unix_ms: event.occurred_at_unix_ms,
+        monotonic_ms: event.monotonic_ms,
+        journal_generation: event.journal_generation,
+        resource_id: event.resource_id,
+        stage: event.stage,
+        elapsed_ms: row["elapsed_ms"].as_u64(),
+        reference_count: row["reference_count"]
+            .as_u64()
+            .and_then(|n| u32::try_from(n).ok()),
+        succeeded: row["succeeded"].as_bool(),
+        observation: if row["observation"].is_null() {
+            None
+        } else {
+            event.observation.as_ref().map(|sample| {
+                let mut sample = *sample;
+                if sample.journal_generation != event.journal_generation {
+                    sample.status = agent_v1::RecoverySampleStatus::GenerationChanged as i32;
+                }
+                super::cache_observation(&sample)
+            })
+        },
+        native_level: row["native_level"]
+            .as_u64()
+            .and_then(|n| u32::try_from(n).ok()),
+        dropped_events: event.dropped_events,
+        write_failures: event.write_failures,
+    })
 }
