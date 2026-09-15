@@ -1,6 +1,9 @@
 /// Supplemental feature strings for Thai.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowTh = <String, String>{
+  'local_proxy_settings': 'การตั้งค่าพร็อกซีในเครื่อง',
+  'proxy_switches_hint':
+      'การเปลี่ยนสวิตช์จะบันทึกอัตโนมัติ ใช้ปุ่มใช้การเปลี่ยนแปลงเพื่อยืนยันการแก้ไขการรับฟังและ DNS',
   'cc_label': 'การควบคุมความแออัด HTTP/3',
   'cc_help': 'มีผลเมื่อคุณเชื่อมต่อด้วยตนเองครั้งถัดไป',
   'cc_upgrade': 'ต้องอัปเดต Engine',

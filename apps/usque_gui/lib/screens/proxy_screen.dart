@@ -12,6 +12,7 @@ import '../core/usque_motion.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
+import '../widgets/local_proxy_outputs.dart';
 import '../widgets/save_changes_bar.dart';
 import 'vpn_gate_screen.dart';
 
@@ -276,6 +277,10 @@ class _ProxyScreenState extends State<ProxyScreen> {
                                 ),
                               ),
                             ),
+                      ),
+                      LocalProxyOutputs(
+                        controller: widget.controller,
+                        enabled: !_saving,
                       ),
                       _listenerPanel(profile, socks5: true),
                       _listenerPanel(profile, socks5: false),

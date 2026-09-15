@@ -1,6 +1,8 @@
 /// Supplemental feature strings for Korean.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowKo = <String, String>{
+  'local_proxy_settings': '로컬 프록시 설정',
+  'proxy_switches_hint': '스위치 변경은 자동 저장됩니다. 수신 주소와 DNS 편집은 변경 사항 적용으로 반영하세요.',
   'cc_label': 'HTTP/3 혼잡 제어',
   'cc_help': '다음 수동 연결 시 적용됩니다.',
   'cc_upgrade': 'Engine 업데이트가 필요합니다.',

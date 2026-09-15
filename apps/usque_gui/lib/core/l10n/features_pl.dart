@@ -1,6 +1,9 @@
 /// Supplemental feature strings for Polish.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowPl = <String, String>{
+  'local_proxy_settings': 'Ustawienia lokalnego proxy',
+  'proxy_switches_hint':
+      'Zmiany przełączników są zapisywane automatycznie. Zmiany nasłuchu i DNS zatwierdź przyciskiem Zastosuj zmiany.',
   'cc_label': 'Kontrola przeciążenia HTTP/3',
   'cc_help': 'Zacznie obowiązywać przy następnym ręcznym połączeniu.',
   'cc_upgrade': 'Wymagana aktualizacja Engine.',

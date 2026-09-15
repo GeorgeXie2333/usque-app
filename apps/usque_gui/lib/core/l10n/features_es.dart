@@ -1,6 +1,9 @@
 /// Supplemental feature strings for Spanish.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowEs = <String, String>{
+  'local_proxy_settings': 'Configuración del proxy local',
+  'proxy_switches_hint':
+      'Los interruptores se guardan automáticamente. Aplica las ediciones de escucha y DNS con Aplicar cambios.',
   'cc_label': 'Control de congestión HTTP/3',
   'cc_help': 'Se aplica en la próxima conexión manual.',
   'cc_upgrade': 'Se requiere una actualización del Engine.',

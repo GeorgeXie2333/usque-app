@@ -1,6 +1,9 @@
 /// Supplemental feature strings for Ukrainian.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowUk = <String, String>{
+  'local_proxy_settings': 'Налаштування локального проксі',
+  'proxy_switches_hint':
+      'Зміни перемикачів зберігаються автоматично. Для адрес прослуховування та DNS натисніть «Застосувати зміни».',
   'cc_label': 'Керування перевантаженням HTTP/3',
   'cc_help': 'Набирає чинності під час наступного ручного зʼєднання.',
   'cc_upgrade': 'Потрібне оновлення Engine.',

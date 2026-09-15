@@ -1,6 +1,8 @@
 /// Supplemental feature strings for Japanese.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowJa = <String, String>{
+  'local_proxy_settings': 'ローカルプロキシ設定',
+  'proxy_switches_hint': 'スイッチの変更は自動保存されます。リスナーと DNS の編集は「変更を適用」で反映します。',
   'cc_label': 'HTTP/3 輻輳制御',
   'cc_help': '次回の手動接続時に適用されます。',
   'cc_upgrade': 'Engine の更新が必要です。',

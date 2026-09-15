@@ -84,12 +84,11 @@ class SettingsScreen extends StatelessWidget {
               _SettingsGroup(
                 title: strings.get('proxy_routing_group'),
                 children: [
-                  _NetworkOutputsPanel(controller: controller, proxyOnly: true),
                   ActionRow(
                     onTap: () => controller.selectSection(AppSection.proxy),
                     child: ContentHeading(
                       icon: LucideIcons.slidersHorizontal,
-                      title: strings.get('proxy'),
+                      title: strings.get('local_proxy_settings'),
                       subtitle: strings.get('proxy_settings_link'),
                       trailing: const Icon(
                         LucideIcons.chevronRightDir,
@@ -469,12 +468,7 @@ String _formatUpdateBytes(int bytes) {
 }
 
 class _NetworkOutputsPanel extends StatelessWidget {
-  const _NetworkOutputsPanel({
-    required this.controller,
-    this.proxyOnly = false,
-  });
-
-  final bool proxyOnly;
+  const _NetworkOutputsPanel({required this.controller});
 
   final AppController controller;
 
@@ -483,74 +477,34 @@ class _NetworkOutputsPanel extends StatelessWidget {
     final strings = controller.strings;
     final profile = controller.activeProfile;
     final frontends = profile.frontends;
-    final bool windows = defaultTargetPlatform == TargetPlatform.windows;
     return ContentSection(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 16),
       icon: LucideIcons.share2,
-      title: strings.get(proxyOnly ? 'proxy' : 'outputs'),
+      title: strings.get('outputs'),
       subtitle: strings.get('shared_network_scope'),
       gap: 10,
       children: <Widget>[
-        if (!proxyOnly)
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            secondary: const Icon(LucideIcons.shield),
-            title: Text(strings.tunnelOutputLabel(defaultTargetPlatform)),
-            value: frontends.tunnel,
-            onChanged: (value) => controller.updateNetwork(
-              profile.copyWith(frontends: frontends.copyWith(tunnel: value)),
-              changedFields: const ['frontends.tunnel'],
-            ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          secondary: const Icon(LucideIcons.shield),
+          title: Text(strings.tunnelOutputLabel(defaultTargetPlatform)),
+          value: frontends.tunnel,
+          onChanged: (value) => controller.updateNetwork(
+            profile.copyWith(frontends: frontends.copyWith(tunnel: value)),
+            changedFields: const ['frontends.tunnel'],
           ),
-        if (proxyOnly)
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            secondary: const Icon(LucideIcons.network),
-            title: const Text('SOCKS5'),
-            value: frontends.socks5,
-            onChanged: (value) => controller.updateNetwork(
-              profile.copyWith(frontends: frontends.copyWith(socks5: value)),
-              changedFields: const ['frontends.socks5'],
-            ),
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          secondary: const Icon(LucideIcons.zap),
+          title: Text(strings.get('auto_connect')),
+          value: profile.autoConnect,
+          onChanged: (value) => controller.updateNetwork(
+            profile.copyWith(autoConnect: value),
+            changedFields: const ['auto_connect'],
           ),
-        if (proxyOnly)
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            secondary: const Icon(LucideIcons.globe2),
-            title: const Text('HTTP'),
-            value: frontends.http,
-            onChanged: (value) => controller.updateNetwork(
-              profile.copyWith(frontends: frontends.copyWith(http: value)),
-              changedFields: const ['frontends.http'],
-            ),
-          ),
-        if (proxyOnly && windows)
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            secondary: const Icon(LucideIcons.link),
-            title: Text(strings.get('system_proxy')),
-            value: profile.proxy.systemProxy,
-            onChanged: frontends.http
-                ? (value) => controller.updateNetwork(
-                    profile.copyWith(
-                      proxy: profile.proxy.copyWith(systemProxy: value),
-                    ),
-                    changedFields: const ['proxy.system_proxy'],
-                  )
-                : null,
-          ),
-        if (!proxyOnly)
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            secondary: const Icon(LucideIcons.zap),
-            title: Text(strings.get('auto_connect')),
-            value: profile.autoConnect,
-            onChanged: (value) => controller.updateNetwork(
-              profile.copyWith(autoConnect: value),
-              changedFields: const ['auto_connect'],
-            ),
-          ),
-        if (!proxyOnly && !frontends.any) ...<Widget>[
+        ),
+        if (!frontends.any) ...<Widget>[
           const SizedBox(height: 8),
           WarningBanner(
             title: strings.get('channel_only'),

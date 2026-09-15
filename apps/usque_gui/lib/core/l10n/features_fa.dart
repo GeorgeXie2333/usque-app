@@ -1,6 +1,9 @@
 /// Supplemental feature strings for Persian.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowFa = <String, String>{
+  'local_proxy_settings': 'تنظیمات پراکسی محلی',
+  'proxy_switches_hint':
+      'تغییر کلیدها خودکار ذخیره می‌شود. ویرایش آدرس‌های شنود و DNS را با «اعمال تغییرات» اعمال کنید.',
   'cc_label': 'کنترل ازدحام HTTP/3',
   'cc_help': 'در اتصال دستی بعدی‌تان اعمال می‌شود.',
   'cc_upgrade': 'به‌روزرسانی Engine لازم است.',

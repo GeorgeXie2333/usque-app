@@ -1,6 +1,9 @@
 /// Supplemental feature strings for Turkish.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowTr = <String, String>{
+  'local_proxy_settings': 'Yerel proxy ayarları',
+  'proxy_switches_hint':
+      'Anahtar değişiklikleri otomatik kaydedilir. Dinleme ve DNS düzenlemeleri için Değişiklikleri uygula seçeneğini kullanın.',
   'cc_label': 'HTTP/3 tıkanıklık denetimi',
   'cc_help': 'Sonraki manuel bağlantınızda uygulanır.',
   'cc_upgrade': 'Engine güncellemesi gerekli.',

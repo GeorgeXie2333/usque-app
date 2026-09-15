@@ -1,6 +1,9 @@
 /// Supplemental feature strings for Russian.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowRu = <String, String>{
+  'local_proxy_settings': 'Настройки локального прокси',
+  'proxy_switches_hint':
+      'Переключатели сохраняются автоматически. Для адресов прослушивания и DNS нажмите «Применить изменения».',
   'cc_label': 'Контроль перегрузки HTTP/3',
   'cc_help': 'Вступает в силу при следующем ручном подключении.',
   'cc_upgrade': 'Требуется обновление Engine.',

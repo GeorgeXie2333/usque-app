@@ -1,6 +1,9 @@
 /// Supplemental feature strings for Vietnamese.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowVi = <String, String>{
+  'local_proxy_settings': 'Cài đặt proxy cục bộ',
+  'proxy_switches_hint':
+      'Thay đổi công tắc được lưu tự động. Dùng Áp dụng thay đổi để lưu chỉnh sửa địa chỉ lắng nghe và DNS.',
   'cc_label': 'Kiểm soát tắc nghẽn HTTP/3',
   'cc_help': 'Có hiệu lực ở lần kết nối thủ công tiếp theo.',
   'cc_upgrade': 'Cần cập nhật Engine.',

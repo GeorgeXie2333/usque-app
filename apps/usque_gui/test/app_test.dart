@@ -4667,7 +4667,7 @@ void main() {
     },
   );
 
-  testWidgets('Settings network outputs edit the active profile immediately', (
+  testWidgets('Network output switches save immediately from their own pages', (
     tester,
   ) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.windows;
@@ -4704,6 +4704,7 @@ void main() {
 
       SettingsScreen settings() =>
           tester.widget<SettingsScreen>(find.byType(SettingsScreen));
+      final controller = settings().controller;
 
       expect(find.text('Network outputs'), findsOneWidget);
       expect(settings().controller.activeProfile.frontends.tunnel, isTrue);
@@ -4715,19 +4716,24 @@ void main() {
       await toggle('VPN (TUN)');
       expect(settings().controller.activeProfile.frontends.tunnel, isFalse);
 
-      await toggle('SOCKS5');
-      expect(settings().controller.activeProfile.frontends.socks5, isFalse);
-
       await toggle('Connect the current account automatically on start');
       expect(settings().controller.activeProfile.autoConnect, isTrue);
 
+      final proxyLink = find.text('Local proxy settings');
+      await tester.ensureVisible(proxyLink);
+      await tester.pumpAndSettle();
+      await tester.tap(proxyLink);
+      await tester.pumpAndSettle();
+      await toggle('SOCKS5');
+      expect(controller.activeProfile.frontends.socks5, isFalse);
+
       await toggle('Configure system proxy');
-      expect(settings().controller.activeProfile.proxy.systemProxy, isTrue);
+      expect(controller.activeProfile.proxy.systemProxy, isTrue);
 
       await toggle('HTTP');
-      expect(settings().controller.activeProfile.frontends.http, isFalse);
-      expect(settings().controller.activeProfile.proxy.systemProxy, isFalse);
-      expect(settings().controller.activeProfile.frontends.any, isFalse);
+      expect(controller.activeProfile.frontends.http, isFalse);
+      expect(controller.activeProfile.proxy.systemProxy, isFalse);
+      expect(controller.activeProfile.frontends.any, isFalse);
       expect(find.text('No network output is enabled.'), findsOneWidget);
     } finally {
       debugDefaultTargetPlatformOverride = null;

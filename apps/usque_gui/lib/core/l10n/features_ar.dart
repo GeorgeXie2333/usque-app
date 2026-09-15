@@ -1,6 +1,9 @@
 /// Supplemental feature strings for Arabic.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowAr = <String, String>{
+  'local_proxy_settings': 'إعدادات الوكيل المحلي',
+  'proxy_switches_hint':
+      'تُحفظ تغييرات المفاتيح تلقائيًا. استخدم «تطبيق التغييرات» لتعديلات الاستماع وDNS.',
   'cc_label': 'التحكم في ازدحام HTTP/3',
   'cc_help': 'يسري عند اتصالك اليدوي التالي.',
   'cc_upgrade': 'يلزم تحديث Engine.',

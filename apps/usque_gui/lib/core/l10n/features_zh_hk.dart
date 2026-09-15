@@ -1,6 +1,8 @@
 /// Supplemental feature strings for Traditional Chinese (Hong Kong).
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowZhHk = <String, String>{
+  'local_proxy_settings': '本機代理設定',
+  'proxy_switches_hint': '開關變更會自動儲存；監聽位址、連接埠與 DNS 的修改須按「套用修改」。',
   'cc_label': 'HTTP/3 擁塞控制',
   'cc_help': '下次手動連線時生效。',
   'cc_upgrade': '需要更新 Engine。',

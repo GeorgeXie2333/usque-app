@@ -1,6 +1,9 @@
 /// Supplemental feature strings for Indonesian.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowId = <String, String>{
+  'local_proxy_settings': 'Pengaturan proksi lokal',
+  'proxy_switches_hint':
+      'Perubahan sakelar disimpan otomatis. Terapkan perubahan alamat pendengar dan DNS dengan Terapkan perubahan.',
   'cc_label': 'Kontrol kongesti HTTP/3',
   'cc_help': 'Berlaku pada koneksi manual berikutnya.',
   'cc_upgrade': 'Pembaruan Engine diperlukan.',
