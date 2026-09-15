@@ -35,6 +35,7 @@ class _ProxyScreenState extends State<ProxyScreen> {
   bool _loading = false;
   bool _validationAttempted = false;
   String? _saveError;
+  String? _validationError;
 
   List<Object> get _values => [
     for (final field in _fields) field.text.trim(),
@@ -101,6 +102,7 @@ class _ProxyScreenState extends State<ProxyScreen> {
     if (_loading || _saving) return;
     setState(() {
       _saved = false;
+      _validationError = null;
       _saveError = null;
     });
   }
@@ -125,7 +127,9 @@ class _ProxyScreenState extends State<ProxyScreen> {
     if (_saving) return;
     setState(() => _validationAttempted = true);
     if (!(_formKey.currentState?.validate() ?? false)) {
-      setState(() => _saveError = widget.controller.strings.get('form_errors'));
+      setState(
+        () => _validationError = widget.controller.strings.get('form_errors'),
+      );
       for (
         var i = 0;
         i < (_dnsMode == ProxyDnsMode.localConfigured ? 8 : 6);
@@ -147,6 +151,7 @@ class _ProxyScreenState extends State<ProxyScreen> {
       _saving = true;
       _saveError = null;
       _saved = false;
+      _validationError = null;
     });
     // Merge only this form's fields into the latest shared settings so a
     // separate credential update cannot be overwritten by an older draft.
@@ -323,6 +328,7 @@ class _ProxyScreenState extends State<ProxyScreen> {
                                       setState(() {
                                         _dnsMode = mode;
                                         _saved = false;
+                                        _validationError = null;
                                         _saveError = null;
                                       });
                                     }
@@ -388,6 +394,7 @@ class _ProxyScreenState extends State<ProxyScreen> {
               ? widget.controller.retry
               : null,
           error: _saveError,
+          validationError: _validationError,
           onSave: _save,
         ),
       ],
