@@ -25,7 +25,7 @@ Wintun DLL 在普通断开时提前卸载。
 | --- | --- | --- |
 | Engine 断开任务 | `disconnect_locked` 将整个运行时移入后台清理任务；下一次连接等待该任务结果 | 断开按钮返回不等于底层清理完成，但新建连接仍有清理等待与 Agent 状态检查 |
 | Engine 包通知线程 | 外层 Tokio 任务等待一个 `spawn_blocking` 任务 | 停止逻辑先 abort 外层，可能失去对内层真实退出的等待 |
-| Agent 包收发线程 | `PacketPump` 的专用线程拥有 `WintunSession`；`stop` 与 `Drop` 调用 join | 正常返回前会结束原生会话；仍需修复诊断事件的 generation 漏传 |
+| Agent 包收发线程 | `PacketPump` 的专用线程拥有 `WintunSession`；`stop` 与 `Drop` 调用 join | 正常返回前会结束原生会话；后续日志增强已修复关闭会话和租约 EOF 的 generation 漏传 |
 | Agent 恢复工作线程 | `spawn_blocking` 闭包拥有 `Arc<BackendInner>`；恢复调用持有 journal 与 mutation gate | Engine 断开 IPC 不会直接取消正在执行的 Agent 恢复调用 |
 | Wintun DLL | `WindowsResources.library` 保留 `Arc<WintunLibrary>`，与 Agent Backend 同寿命 | 普通断开仅取走 pump 和 adapter，不取走 library |
 | Wintun 内部清理 | DLL 会排队执行孤儿设备清理；Windows 继续处理设备移除 | 原生调用返回不代表该队列和 Windows 网络接口状态均已完成收尾 |

@@ -192,11 +192,9 @@ impl PrivilegedBackend for WindowsBackend {
         let inner = Arc::clone(&self.inner);
         let receipt = receipt.clone();
         let adapter = adapter.cloned();
-        tokio::task::spawn_blocking(move || {
-            restore_sync(&inner, &receipt, adapter.as_ref(), trace.generation())
-        })
-        .await
-        .map_err(|error| backend_error(format!("privileged recovery worker failed: {error}")))?
+        tokio::task::spawn_blocking(move || restore_sync(&inner, &receipt, adapter.as_ref(), trace))
+            .await
+            .map_err(|error| backend_error(format!("privileged recovery worker failed: {error}")))?
     }
 
     async fn inspect_adapter(&self, receipt: &MutationReceipt) -> Result<bool, BackendError> {
@@ -558,8 +556,9 @@ fn restore_sync(
     inner: &BackendInner,
     receipt: &MutationReceipt,
     adapter_identity: Option<&MutationReceipt>,
-    generation: u64,
+    trace: TraceResource,
 ) -> Result<(), BackendError> {
+    let generation = trace.generation();
     match receipt {
         MutationReceipt::PacketSession { .. } => {
             let pump = lock_resources(inner)?.pump.take();
@@ -606,6 +605,7 @@ fn restore_sync(
             let result = wintun::remove_adapter_if_present(
                 receipt,
                 &mut removal.as_mut().expect("initialized removal state").1,
+                &trace,
             )
             .map_err(wintun_backend_error);
             if result.is_ok() {

@@ -337,6 +337,8 @@ enum RecoveryTraceStage {
   RECOVERY_TRACE_STAGE_OBSERVATION_ABSENT = 15;
   RECOVERY_TRACE_STAGE_OBSERVATION_DEADLINE = 16;
   RECOVERY_TRACE_STAGE_OBSERVATION_CANCELLED = 17;
+  RECOVERY_TRACE_STAGE_REMOVAL_ATTEMPT_STARTED = 18;
+  RECOVERY_TRACE_STAGE_REMOVAL_ATTEMPT_RETURNED = 19;
 }
 
 message RecoveryTraceEvent {
@@ -352,7 +354,7 @@ message RecoveryTraceEvent {
   RecoveryTraceStage stage = 8;
   optional uint64 elapsed_ms = 9;
   optional uint32 reference_count = 10;
-  // Only packet-pump joins have a result. Wintun VOID returns are not success.
+  // Packet-pump joins and removal attempts have results; Wintun VOID returns do not.
   optional bool succeeded = 11;
   RecoveryObservation observation = 12;
   // 1 info, 2 warning, 3 error. No native message text crosses the boundary.

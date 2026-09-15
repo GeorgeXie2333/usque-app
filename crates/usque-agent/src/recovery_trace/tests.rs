@@ -40,6 +40,36 @@ fn a_void_return_is_not_cleanup_success_and_keeps_the_resource_generation() {
 }
 
 #[test]
+fn removal_attempt_success_requires_verified_absence_in_the_same_generation() {
+    for (status, generation, presence, success) in [
+        (1, 9, 2, true),
+        (1, 9, 1, false),
+        (2, 9, 2, false),
+        (1, 10, 2, false),
+    ] {
+        let (sink, receiver) = TraceSink::channel(1);
+        let resource = sink.resource(9);
+        let mut event = resource.event(Stage::RemovalAttemptReturned);
+        event.succeeded = Some(true);
+        let observed = agent_v1::RecoveryResourceObservation {
+            presence,
+            identity_check: 1,
+            ..Default::default()
+        };
+        event.observation = Some(agent_v1::RecoveryObservation {
+            sampled_at_unix_ms: 100,
+            journal_generation: generation,
+            status,
+            interface: Some(observed),
+            pnp_device: Some(observed),
+        });
+        resource.emit(event);
+        let event = sanitize_event(receiver.recv().unwrap()).unwrap();
+        assert_eq!(event.succeeded, success.then_some(true));
+    }
+}
+
+#[test]
 fn blocked_native_call_emits_start_without_fabricating_a_return() {
     let (sink, receiver) = TraceSink::channel(4);
     let (release, blocked) = mpsc::channel();

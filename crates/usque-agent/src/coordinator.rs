@@ -902,7 +902,11 @@ where
         if journal.steps[index].state != MutationState::Restored
             && let Err(error) = self
                 .backend
-                .restore_step(&journal.steps[index].receipt)
+                .restore_step_traced(
+                    &journal.steps[index].receipt,
+                    None,
+                    self.trace.resource(journal.generation),
+                )
                 .await
         {
             warn!(
@@ -1084,7 +1088,11 @@ where
                 ))?;
             if let Err(error) = self
                 .backend
-                .restore_step(&journal.steps[index].receipt)
+                .restore_step_traced(
+                    &journal.steps[index].receipt,
+                    None,
+                    self.trace.resource(journal.generation),
+                )
                 .await
             {
                 warn!(
@@ -2374,6 +2382,21 @@ mod tests {
                 .await
                 .push((receipt.kind(), adapter.cloned()));
             self.restore_step(receipt).await
+        }
+
+        async fn restore_step_traced(
+            &self,
+            receipt: &MutationReceipt,
+            adapter: Option<&MutationReceipt>,
+            trace: TraceResource,
+        ) -> Result<(), BackendError> {
+            let result = self.restore_step_with_adapter(receipt, adapter).await;
+            if receipt.kind() == MutationKind::PacketSession {
+                let mut event = trace.event(agent_v1::RecoveryTraceStage::PumpJoinReturned);
+                event.succeeded = Some(result.is_ok());
+                trace.emit(event);
+            }
+            result
         }
 
         async fn inspect_adapter(&self, _receipt: &MutationReceipt) -> Result<bool, BackendError> {
@@ -3985,6 +4008,58 @@ mod tests {
             .await
             .expect("reattach");
         assert!(coordinator.packet_session_attached());
+    }
+
+    #[tokio::test]
+    async fn explicit_detach_and_lease_eof_keep_packet_trace_generation() {
+        for lease_eof in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let backend = Arc::new(MockBackend::default());
+            let (sink, events) = TraceSink::channel(32);
+            let coordinator = AgentCoordinator::open_with_trace(
+                JournalStore::new(directory.path().join("recovery.json")),
+                backend,
+                sink,
+            )
+            .unwrap();
+            let operation = Uuid::new_v4();
+            let owner = caller();
+            coordinator
+                .prepare(operation, plan(), owner.clone())
+                .await
+                .unwrap();
+            coordinator
+                .open_packet_session(operation, 1024 * 1024, &owner)
+                .await
+                .unwrap();
+            coordinator.commit(operation, &owner).await.unwrap();
+            if lease_eof {
+                coordinator
+                    .acquire_tunnel_lease(operation, &owner)
+                    .await
+                    .unwrap();
+            }
+            let generation = coordinator.state().await.generation;
+            if lease_eof {
+                coordinator
+                    .release_tunnel_lease(operation, &owner)
+                    .await
+                    .unwrap();
+            } else {
+                coordinator
+                    .close_packet_session(operation, &owner)
+                    .await
+                    .unwrap();
+            }
+            let rows: Vec<_> = events
+                .try_iter()
+                .filter_map(recovery_trace::sanitize_event)
+                .collect();
+            assert_eq!(rows.len(), 1, "detach must survive the export filter");
+            assert_eq!(rows[0].journal_generation, generation);
+            assert_eq!(rows[0].succeeded, Some(true));
+            assert_eq!(coordinator.state().await.phase, RecoveryPhase::Active);
+        }
     }
 
     #[tokio::test]

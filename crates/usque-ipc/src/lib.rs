@@ -628,6 +628,20 @@ mod tests {
             agent_v1::RecoveryDiagnosticApi::CmGetDevNodeStatus as i32,
             8
         );
+        for (stage, number) in [
+            (agent_v1::RecoveryTraceStage::RemovalAttemptStarted, 18),
+            (agent_v1::RecoveryTraceStage::RemovalAttemptReturned, 19),
+        ] {
+            let event = agent_v1::RecoveryTraceEvent {
+                stage: stage as i32,
+                ..Default::default()
+            };
+            assert_eq!(event.encode_to_vec(), [0x40, number]);
+            assert_eq!(
+                agent_v1::RecoveryTraceEvent::decode([0x40, number].as_slice()).unwrap(),
+                event
+            );
+        }
     }
 
     #[test]

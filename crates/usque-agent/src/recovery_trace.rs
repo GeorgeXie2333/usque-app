@@ -403,24 +403,35 @@ pub fn sanitize_event(mut event: Event) -> Option<Event> {
         .filter(|n| stage == Stage::AdapterReleaseRequested && (1..=1_000_000).contains(n));
     if !matches!(
         stage,
-        Stage::PumpJoinReturned | Stage::EndSessionReturned | Stage::CloseAdapterReturned
+        Stage::PumpJoinReturned
+            | Stage::EndSessionReturned
+            | Stage::CloseAdapterReturned
+            | Stage::RemovalAttemptReturned
     ) {
         event.elapsed_ms = None;
     }
-    if stage != Stage::PumpJoinReturned {
+    if !matches!(
+        stage,
+        Stage::PumpJoinReturned | Stage::RemovalAttemptReturned
+    ) {
         event.succeeded = None;
     }
-    if matches!(stage, Stage::ObservationChanged | Stage::ObservationAbsent) {
+    if matches!(
+        stage,
+        Stage::ObservationChanged | Stage::ObservationAbsent | Stage::RemovalAttemptReturned
+    ) {
         let sample = sanitize_observation(event.observation.take()?, event.journal_generation);
-        if stage == Stage::ObservationAbsent
-            && (sample.status != agent_v1::RecoverySampleStatus::Complete as i32
-                || [&sample.interface, &sample.pnp_device].iter().any(|value| {
-                    value
-                        .as_ref()
-                        .is_none_or(|r| r.presence != agent_v1::RecoveryPresence::Absent as i32)
-                }))
-        {
+        let absent = !(sample.status != agent_v1::RecoverySampleStatus::Complete as i32
+            || [&sample.interface, &sample.pnp_device].iter().any(|value| {
+                value
+                    .as_ref()
+                    .is_none_or(|r| r.presence != agent_v1::RecoveryPresence::Absent as i32)
+            }));
+        if stage == Stage::ObservationAbsent && !absent {
             return None;
+        }
+        if stage == Stage::RemovalAttemptReturned && event.succeeded == Some(true) && !absent {
+            event.succeeded = None;
         }
         event.observation = Some(sample);
     } else {

@@ -496,6 +496,8 @@ struct AdapterObservation {
     interface_present: Option<bool>,
     device_present: Option<bool>,
     error: Option<WintunError>,
+    interface: usque_ipc::agent_v1::RecoveryResourceObservation,
+    pnp_device: usque_ipc::agent_v1::RecoveryResourceObservation,
 }
 
 impl AdapterObservation {
@@ -508,12 +510,28 @@ impl AdapterObservation {
 
 fn observe_adapter(receipt: &MutationReceipt, guid: Uuid) -> AdapterObservation {
     // Observe both independently so an error is never reported as absence.
-    let interface = interface_instance_present(receipt);
+    let interface_state = network::inspect_adapter_state(receipt).map_err(interface_error);
+    let mut details = resource_observation_ref(interface_state.as_ref().map(|s| s.is_some()));
+    if details.api == 0 {
+        details.api = usque_ipc::agent_v1::RecoveryDiagnosticApi::GetIfTable2 as i32;
+    }
+    if let Ok(Some(state)) = &interface_state {
+        details.interface_oper_status = Some(state.oper_status);
+        details.interface_admin_status = Some(state.admin_status);
+        details.media_connect_state = Some(state.media_connect_state);
+    }
+    let interface = interface_state.map(|state| state.is_some());
     let device = device_instance_present(guid);
+    let mut pnp_device = resource_observation_ref(device.as_ref().copied());
+    if pnp_device.api == 0 {
+        pnp_device.api = usque_ipc::agent_v1::RecoveryDiagnosticApi::SetupDiEnumDeviceInfo as i32;
+    }
     AdapterObservation {
         interface_present: interface.as_ref().ok().copied(),
         device_present: device.as_ref().ok().copied(),
         error: interface.err().or_else(|| device.err()),
+        interface: details,
+        pnp_device,
     }
 }
 
@@ -586,6 +604,12 @@ pub fn inspect_adapter_diagnostics(
 fn resource_observation(
     result: Result<bool, WintunError>,
 ) -> usque_ipc::agent_v1::RecoveryResourceObservation {
+    resource_observation_ref(result.as_ref().copied())
+}
+
+fn resource_observation_ref(
+    result: Result<bool, &WintunError>,
+) -> usque_ipc::agent_v1::RecoveryResourceObservation {
     use usque_ipc::agent_v1::{RecoveryIdentityCheck as Identity, RecoveryResourceObservation};
     let mut observation = RecoveryResourceObservation::default();
     match result {
@@ -609,6 +633,7 @@ fn resource_observation(
 pub fn remove_adapter_if_present(
     receipt: &MutationReceipt,
     state: &mut AdapterRemovalState,
+    trace: &TraceResource,
 ) -> Result<(), WintunError> {
     let MutationReceipt::WintunAdapter {
         adapter_name,
@@ -620,14 +645,69 @@ pub fn remove_adapter_if_present(
     };
     wide_name(adapter_name)?;
     let started = Instant::now();
-    remove_adapter_observed(
+    trace_adapter_removal(
         state,
         ADAPTER_REMOVAL_CONFIRM_TIMEOUT,
-        || observe_adapter(receipt, *adapter_guid),
+        (trace, || observe_adapter(receipt, *adapter_guid)),
         || remove_device_instance(*adapter_guid),
         || started.elapsed(),
         || thread::sleep(ADAPTER_REMOVAL_CONFIRM_INTERVAL),
     )
+}
+
+/// Record the checks cleanup already performs. This adds no native probe,
+/// worker, wait, or change to the conditions that authorize removal/Clean.
+fn trace_adapter_removal(
+    state: &mut AdapterRemovalState,
+    timeout: Duration,
+    (trace, mut observe): (&TraceResource, impl FnMut() -> AdapterObservation),
+    remove: impl FnMut() -> Result<bool, WintunError>,
+    elapsed: impl FnMut() -> Duration,
+    wait: impl FnMut(),
+) -> Result<(), WintunError> {
+    use usque_ipc::agent_v1::{RecoveryObservation, RecoverySampleStatus};
+    trace.record(TraceStage::RemovalAttemptStarted);
+    let started = Instant::now();
+    let mut last: Option<RecoveryObservation> = None;
+    let mut changes = 0;
+    let result = remove_adapter_observed(
+        state,
+        timeout,
+        || {
+            let observed = observe();
+            let sample = RecoveryObservation {
+                sampled_at_unix_ms: crate::recovery_diagnostics::unix_ms(),
+                journal_generation: trace.generation(),
+                status: RecoverySampleStatus::Complete as i32,
+                interface: Some(crate::recovery_trace::sanitize_resource(observed.interface)),
+                pnp_device: Some(crate::recovery_trace::sanitize_resource(
+                    observed.pnp_device,
+                )),
+            };
+            if changes < 8
+                && last.as_ref().is_none_or(|previous| {
+                    previous.interface != sample.interface
+                        || previous.pnp_device != sample.pnp_device
+                })
+            {
+                changes += 1;
+                let mut event = trace.event(TraceStage::ObservationChanged);
+                event.observation = Some(sample);
+                trace.emit(event);
+            }
+            last = Some(sample);
+            observed
+        },
+        remove,
+        elapsed,
+        wait,
+    );
+    let mut event = trace.event(TraceStage::RemovalAttemptReturned);
+    event.elapsed_ms = Some(crate::recovery_trace::milliseconds(started.elapsed()));
+    event.succeeded = Some(result.is_ok());
+    event.observation = last;
+    trace.emit(event);
+    result
 }
 
 fn remove_adapter_observed(
@@ -766,10 +846,6 @@ fn adapter_resources_present_with(
     let interface = inspect_interface(receipt)?;
     let device = inspect_device(*adapter_guid)?;
     Ok(interface || device)
-}
-
-fn interface_instance_present(receipt: &MutationReceipt) -> Result<bool, WintunError> {
-    network::inspect_adapter_identity(receipt).map_err(interface_error)
 }
 
 fn interface_error(error: network::NetworkError) -> WintunError {
@@ -1129,6 +1205,115 @@ mod tests {
             interface_present: Some(interface),
             device_present: Some(device),
             error: None,
+            interface: resource_observation(Ok(interface)),
+            pnp_device: resource_observation(Ok(device)),
+        }
+    }
+
+    #[test]
+    fn every_removal_attempt_records_final_interface_state_including_eventual_success() {
+        let (sink, receiver) = TraceSink::channel(64);
+        let mut state = AdapterRemovalState::default();
+        for (generation, absent) in [(25, false), (27, false), (29, false), (31, true)] {
+            let clock = std::cell::Cell::new(Duration::ZERO);
+            let calls = std::cell::Cell::new(0);
+            let trace = sink.resource(generation);
+            let result = trace_adapter_removal(
+                &mut state,
+                Duration::from_secs(10),
+                (&trace, || {
+                    calls.set(calls.get() + 1);
+                    let mut sample = observation(!absent, false);
+                    sample.interface.interface_oper_status = Some(2);
+                    sample.interface.interface_admin_status = Some(1);
+                    sample.interface.media_connect_state = Some(2);
+                    sample
+                }),
+                || panic!("PnP is absent: no removal request"),
+                || clock.get(),
+                || clock.set(clock.get() + Duration::from_secs(1)),
+            );
+            assert_eq!(result.is_ok(), absent);
+            assert_eq!(
+                calls.get(),
+                if absent { 1 } else { 11 },
+                "trace adds no probe"
+            );
+            let rows: Vec<_> = receiver
+                .try_iter()
+                .filter_map(crate::recovery_trace::sanitize_event)
+                .collect();
+            assert_eq!(rows.len(), 3);
+            assert_eq!(rows[0].stage, TraceStage::RemovalAttemptStarted as i32);
+            assert!(rows.iter().all(|row| row.journal_generation == generation));
+            let last = rows.last().unwrap();
+            assert_eq!(last.stage, TraceStage::RemovalAttemptReturned as i32);
+            assert_eq!(last.succeeded, Some(absent));
+            let sample = last.observation.as_ref().unwrap();
+            assert_ne!(sample.sampled_at_unix_ms, 0);
+            assert_eq!(
+                sample.interface.as_ref().unwrap().interface_oper_status,
+                (!absent).then_some(2)
+            );
+            assert_eq!(
+                sample.pnp_device.as_ref().unwrap().presence,
+                usque_ipc::agent_v1::RecoveryPresence::Absent as i32
+            );
+        }
+    }
+
+    #[test]
+    fn tracing_identity_failure_and_full_writer_queue_cannot_change_cleanup_result() {
+        for capacity in [0, 16] {
+            let (sink, receiver) = TraceSink::channel(capacity);
+            let trace = sink.resource(25);
+            let error = trace_adapter_removal(
+                &mut AdapterRemovalState::default(),
+                Duration::from_secs(10),
+                (&trace, || {
+                    let error =
+                        WintunError::Windows("GetIfTable2", io::Error::from_raw_os_error(5));
+                    let interface = resource_observation_ref(Err(&error));
+                    AdapterObservation {
+                        interface_present: None,
+                        device_present: Some(false),
+                        error: Some(error),
+                        interface,
+                        pnp_device: resource_observation(Ok(false)),
+                    }
+                }),
+                || panic!("unknown cannot authorize removal"),
+                || Duration::ZERO,
+                || panic!("identity failure does not wait"),
+            )
+            .unwrap_err();
+            assert!(matches!(
+                error,
+                WintunError::Removal(AdapterRemovalDiagnostic {
+                    win32_code: Some(5),
+                    ..
+                })
+            ));
+            let rows: Vec<_> = receiver
+                .try_iter()
+                .filter_map(crate::recovery_trace::sanitize_event)
+                .collect();
+            if capacity == 0 {
+                assert!(rows.is_empty());
+                assert_eq!(sink.losses().0, 3);
+            } else {
+                let last = rows.last().unwrap();
+                assert_eq!(last.succeeded, Some(false));
+                let interface = last
+                    .observation
+                    .as_ref()
+                    .unwrap()
+                    .interface
+                    .as_ref()
+                    .unwrap();
+                assert_eq!(interface.presence, 0);
+                assert_eq!(interface.win32_code, Some(5));
+            }
         }
     }
 
@@ -1233,6 +1418,8 @@ mod tests {
                     } else {
                         WintunError::InvalidRecoveryIdentity
                     }),
+                    interface: Default::default(),
+                    pnp_device: resource_observation(Ok(false)),
                 },
                 || panic!("unverified identity must not be deleted"),
                 || Duration::ZERO,
