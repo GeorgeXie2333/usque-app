@@ -9,31 +9,31 @@ This guide follows the source checkout. On a development branch it can describe
 changes not yet available in an official package. For an installed release,
 read its release notes and this guide at the matching Git tag.
 
-The package names below show the workflow's currently pinned `v0.2.6` version.
+The package names below show the workflow's currently pinned `v0.2.7` version.
 This release includes the Windows upgrade bridge and complete same-version
 payload replacement described under **Upgrade**. Those fixes are not present
 in the original `v0.2.4` MSI. Use only packages published by the approved
-v0.2.6 tag workflow; a source checkout alone is not proof of publication or
+v0.2.7 tag workflow; a source checkout alone is not proof of publication or
 of isolated upgrade testing.
 
 The multilingual EXE installer and hidden-bundle uninstall lifecycle are new
 in v0.2.6; they are not features of the original v0.2.5 MSI-only release.
 v0.2.5 introduced the newer-Agent-first upgrade bridge retained here.
 
-## Official package names (v0.2.6)
+## Official package names (v0.2.7)
 
-- `usque-v0.2.6-windows-x64-v2.exe`
-- `usque-v0.2.6-windows-arm64.exe`
-- `usque-v0.2.6-android-arm64-v8a.apk`
-- `usque-v0.2.6-android-x86_64.apk`
-- `usque-v0.2.6-android-armeabi-v7a.apk`
-- `usque-v0.2.6-android-universal.apk`
+- `usque-v0.2.7-windows-x64-v2.exe`
+- `usque-v0.2.7-windows-arm64.exe`
+- `usque-v0.2.7-android-arm64-v8a.apk`
+- `usque-v0.2.7-android-x86_64.apk`
+- `usque-v0.2.7-android-armeabi-v7a.apk`
+- `usque-v0.2.7-android-universal.apk`
 
 The six files above are the user-facing installers. The release also contains
 these two signed, update-only payloads for `usque-update.exe`:
 
-- `usque-v0.2.6-windows-x64-v2.msi`
-- `usque-v0.2.6-windows-arm64.msi`
+- `usque-v0.2.7-windows-x64-v2.msi`
+- `usque-v0.2.7-windows-arm64.msi`
 
 The GitHub Release attaches those eight primary artifacts plus
 `release-manifest.json`, `SHA256SUMS`, and each artifact's SPDX SBOM. GitHub
@@ -156,7 +156,7 @@ unsupported. The setting is not a request to run an MSI repair.
 
 This ordering is also the supported bridge from `v0.2.4`, whose Agent could
 mistake asynchronous Wintun device removal for a permanent cleanup failure. A
-user whose `v0.2.4` uninstall failed should use a verified official `v0.2.6`
+user whose `v0.2.4` uninstall failed should use a verified official `v0.2.7`
 Windows package containing this bridge, then uninstall the newer version if
 removal was the original goal. If recovery still fails, stop and report the
 failure with sanitized diagnostics; development artifacts are not substitutes

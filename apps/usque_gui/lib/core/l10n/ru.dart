@@ -301,7 +301,7 @@ const Map<String, String> kRuCatalog = <String, String>{
       'Состояние Usque Engine, экспорт журналов и локальные данные.',
   'engine_status': 'Состояние Usque Engine',
   'version': 'Версия',
-  'app_version': 'Usque 0.2.6',
+  'app_version': 'Usque 0.2.7',
   'logs': 'Локальные журналы',
   'export_diagnostics': 'Экспортировать диагностический пакет',
   'diagnostics_saved': 'Диагностический пакет сохранён в',
