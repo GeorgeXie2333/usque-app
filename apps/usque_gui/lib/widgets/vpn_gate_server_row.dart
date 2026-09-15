@@ -50,6 +50,31 @@ class VpnGateServerRow extends StatefulWidget {
 class _VpnGateServerRowState extends State<VpnGateServerRow> {
   bool _expanded = false;
 
+  Object get _expansionKey => (
+    'vpn-gate-node-details',
+    widget.key,
+    widget.server.id,
+    widget.server.configSha256,
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Offscreen rows can be discarded by the sliver. Store only the user's
+    // expansion choice, with an identity separate from the page scroll offset.
+    final stored = PageStorage.maybeOf(
+      context,
+    )?.readState(context, identifier: _expansionKey);
+    if (stored is bool) _expanded = stored;
+  }
+
+  void _toggleDetails() {
+    setState(() => _expanded = !_expanded);
+    PageStorage.maybeOf(
+      context,
+    )?.writeState(context, _expanded, identifier: _expansionKey);
+  }
+
   String _time(DateTime? value) =>
       value?.toLocal().toString().split('.').first ?? '—';
 
@@ -97,7 +122,7 @@ class _VpnGateServerRowState extends State<VpnGateServerRow> {
       child: TextButton.icon(
         key: ValueKey('vpn-gate-details-${server.id}'),
         style: TextButton.styleFrom(foregroundColor: scheme.onSurfaceVariant),
-        onPressed: () => setState(() => _expanded = !_expanded),
+        onPressed: _toggleDetails,
         iconAlignment: IconAlignment.end,
         icon: Icon(
           _expanded ? LucideIcons.chevronUp : LucideIcons.chevronDown,

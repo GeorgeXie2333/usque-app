@@ -626,7 +626,11 @@ void main() {
           await tester.tap(toggle);
           await tester.pumpAndSettle();
           final node = find.byKey(const ValueKey('vpn-gate-node-v1:node'));
-          await tester.ensureVisible(node);
+          await tester.scrollUntilVisible(
+            node,
+            250,
+            scrollable: find.byType(Scrollable).first,
+          );
           await tester.pumpAndSettle();
           await tester.tap(node);
           await tester.pumpAndSettle();

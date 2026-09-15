@@ -237,7 +237,11 @@ void main() {
       final engine = GateEngine()..holdPreparation = true;
       await host(tester, engine, size: const Size(780, 650));
       final star = find.byKey(ValueKey('vpn-gate-favorite-${server.id}'));
-      await tester.ensureVisible(star);
+      await tester.scrollUntilVisible(
+        star,
+        250,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.pumpAndSettle();
       expect(tester.widget<IconButton>(star).onPressed, isNotNull);
       await tester.tap(star);

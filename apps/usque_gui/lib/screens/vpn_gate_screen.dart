@@ -6,10 +6,22 @@ import '../core/vpn_gate_presentation.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
+import '../widgets/controller_selector.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import '../widgets/vpn_gate_filters.dart';
 import '../widgets/vpn_gate_server_row.dart';
 import '../widgets/vpn_gate_summary.dart';
+
+typedef _GateView = ({
+  String catalogId,
+  ConnectionPhase phase,
+  VpnGateStatus gate,
+  String? warning,
+  String? error,
+  bool tcpSupported,
+  bool favoritesSupported,
+  bool appliedEnabled,
+});
 
 class VpnGateScreen extends StatefulWidget {
   const VpnGateScreen({
@@ -43,6 +55,7 @@ class _VpnGateScreenState extends State<VpnGateScreen>
   String? _nodeOperation, _nodeError;
   int _offset = 0, _query = 0;
   bool _loading = false,
+      _pollingRefresh = false,
       _saving = false,
       _ownsRefresh = false,
       _appResumed = true;
@@ -66,9 +79,10 @@ class _VpnGateScreenState extends State<VpnGateScreen>
     _poll = Timer.periodic(const Duration(seconds: 1), (_) {
       if (_foreground &&
           !_loading &&
+          !_pollingRefresh &&
           _nodeOperation == null &&
           (_ownsRefresh || _directory.refreshing)) {
-        unawaited(_load());
+        unawaited(_pollRefresh());
       }
     });
   }
@@ -178,6 +192,29 @@ class _VpnGateScreenState extends State<VpnGateScreen>
       if (refreshIfOld && mounted) await _refresh();
     } finally {
       if (mounted && query == _query) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _pollRefresh() async {
+    final query = _query;
+    _pollingRefresh = true;
+    try {
+      // A directory query validates and sorts the entire pool before paging.
+      // Status-only queries bypass that work and keep the visible rows intact.
+      final value = await _controller.listVpnGate(statusOnly: true, limit: 1);
+      if (!mounted ||
+          !_foreground ||
+          query != _query ||
+          _nodeOperation != null) {
+        return;
+      }
+      if (!value.refreshing) await _load();
+    } on Object {
+      if (mounted && _foreground && query == _query && _fetchError == null) {
+        setState(() => _fetchError = 'gate_fetch_error');
+      }
+    } finally {
+      _pollingRefresh = false;
     }
   }
 
@@ -404,8 +441,23 @@ class _VpnGateScreenState extends State<VpnGateScreen>
   }
 
   @override
-  Widget build(BuildContext context) => ListenableBuilder(
-    listenable: _controller,
+  Widget build(BuildContext context) => ControllerSelector<_GateView>(
+    controller: _controller,
+    active: (_) => _foreground,
+    // Throughput and network-quality samples do not change this page.
+    selector: (controller) => (
+      catalogId: controller.strings.catalogId,
+      phase: controller.snapshot.phase,
+      gate: controller.snapshot.vpnGate,
+      warning: controller.snapshot.warning,
+      error: controller.lastError,
+      tcpSupported: controller.engineCapabilities?.vpnGateTcp ?? false,
+      favoritesSupported:
+          controller.engineCapabilities?.vpnGatePoolFavorites ?? false,
+      appliedEnabled:
+          controller.networkSettings.state?.appliedProfile?.vpnGate.enabled ??
+          false,
+    ),
     builder: (context, _) {
       final strings = _controller.strings;
       final snapshot = _controller.snapshot;
@@ -474,210 +526,233 @@ class _VpnGateScreenState extends State<VpnGateScreen>
               label: Text(strings.get(refreshing ? 'cancel' : 'gate_refresh')),
             ),
           ],
-          child: FocusTraversalGroup(
-            child: PanelStack(
-              spacing: 28,
-              children: [
-                if (!supported)
-                  WarningBanner(
-                    title: strings.get('error'),
-                    message: strings.vpnGateUnsupported,
-                  ),
-                SwitchListTile.adaptive(
-                  key: const ValueKey('vpn-gate-toggle'),
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('WARP → VPN Gate'),
-                  subtitle: Text(strings.get('gate_scope')),
-                  value: _draft.enabled,
-                  onChanged: _saving || !supported
-                      ? null
-                      : (enabled) => setState(
-                          () => _draft = _draft.copyWith(enabled: enabled),
-                        ),
-                ),
-                VpnGateConnectionSummary(
-                  strings: strings,
-                  view: view,
-                  error:
-                      snapshot.warning ??
-                      _controller.lastError ??
-                      snapshot.vpnGate.failure,
-                ),
-                ContentSection(
-                  title: strings.get('gate_servers'),
-                  subtitle:
-                      '${strings.get('gate_source_metrics')} ${strings.get('gate_tcp_scope')}',
+          slivers: [
+            SliverToBoxAdapter(
+              child: FocusTraversalGroup(
+                child: PanelStack(
+                  spacing: 28,
                   children: [
-                    if (_fetchError != null)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 16),
-                        child: WarningBanner(
-                          title: strings.get('error'),
-                          message: strings.get(_fetchError!),
-                          danger: true,
-                        ),
+                    if (!supported)
+                      WarningBanner(
+                        title: strings.get('error'),
+                        message: strings.vpnGateUnsupported,
                       ),
-                    VpnGateFilters(
-                      strings: strings,
-                      favoritesOnly: _favoritesOnly,
-                      favoriteCount: _directory.favoriteCount,
-                      country: _country,
-                      countries: _directory.countries,
-                      onScopeChanged: (favorites) {
-                        setState(() {
-                          _favoritesOnly = favorites;
-                          _country = 'ALL';
-                          _offset = 0;
-                        });
-                        unawaited(_load());
-                      },
-                      onCountryChanged: _saving
+                    SwitchListTile.adaptive(
+                      key: const ValueKey('vpn-gate-toggle'),
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('WARP → VPN Gate'),
+                      subtitle: Text(strings.get('gate_scope')),
+                      value: _draft.enabled,
+                      onChanged: _saving || !supported
                           ? null
-                          : (country) {
-                              setState(() {
-                                _country = country;
-                                _offset = 0;
-                              });
-                              unawaited(_load());
-                            },
+                          : (enabled) => setState(
+                              () => _draft = _draft.copyWith(enabled: enabled),
+                            ),
                     ),
-                    if (_loading || refreshing)
-                      const LinearProgressIndicator(minHeight: 2),
-                    if (_directory.servers.isEmpty && !_loading)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 24),
-                        child: Text(
-                          strings.get(
-                            _favoritesOnly
-                                ? 'gate_favorites_empty'
-                                : 'gate_empty',
-                          ),
-                        ),
-                      ),
-                    for (final server in _directory.servers)
-                      _serverRow(server, strings),
-                    Wrap(
-                      alignment: WrapAlignment.spaceBetween,
-                      crossAxisAlignment: WrapCrossAlignment.center,
+                    VpnGateConnectionSummary(
+                      strings: strings,
+                      view: view,
+                      error:
+                          snapshot.warning ??
+                          _controller.lastError ??
+                          snapshot.vpnGate.failure,
+                    ),
+                    ContentSection(
+                      title: strings.get('gate_servers'),
+                      subtitle:
+                          '${strings.get('gate_source_metrics')} ${strings.get('gate_tcp_scope')}',
                       children: [
-                        Text(
-                          strings
-                              .get('gate_paging')
-                              .replaceAll(
-                                '{current}',
-                                '${_directory.total == 0 ? 0 : _offset + 1}–${_offset + _directory.servers.length}',
-                              )
-                              .replaceAll('{total}', '${_directory.total}'),
-                        ),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              tooltip: strings.get('gate_previous'),
-                              onPressed: _offset == 0 || _loading
-                                  ? null
-                                  : () {
-                                      setState(
-                                        () => _offset = (_offset - 50).clamp(
-                                          0,
-                                          _directory.total,
-                                        ),
-                                      );
-                                      unawaited(_load());
-                                    },
-                              icon: const Icon(LucideIcons.chevronLeft),
+                        if (_fetchError != null)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 16),
+                            child: WarningBanner(
+                              title: strings.get('error'),
+                              message: strings.get(_fetchError!),
+                              danger: true,
                             ),
-                            IconButton(
-                              tooltip: strings.get('gate_next'),
-                              onPressed:
-                                  _offset + _directory.servers.length >=
-                                          _directory.total ||
-                                      _loading
-                                  ? null
-                                  : () {
-                                      setState(() => _offset += 50);
-                                      unawaited(_load());
-                                    },
-                              icon: const Icon(LucideIcons.chevronRight),
-                            ),
-                          ],
+                          ),
+                        VpnGateFilters(
+                          strings: strings,
+                          favoritesOnly: _favoritesOnly,
+                          favoriteCount: _directory.favoriteCount,
+                          country: _country,
+                          countries: _directory.countries,
+                          onScopeChanged: (favorites) {
+                            setState(() {
+                              _favoritesOnly = favorites;
+                              _country = 'ALL';
+                              _offset = 0;
+                            });
+                            unawaited(_load());
+                          },
+                          onCountryChanged: _saving
+                              ? null
+                              : (country) {
+                                  setState(() {
+                                    _country = country;
+                                    _offset = 0;
+                                  });
+                                  unawaited(_load());
+                                },
                         ),
+                        if (_loading || refreshing)
+                          const LinearProgressIndicator(minHeight: 2),
+                        if (_directory.servers.isEmpty && !_loading)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 24),
+                            child: Text(
+                              strings.get(
+                                _favoritesOnly
+                                    ? 'gate_favorites_empty'
+                                    : 'gate_empty',
+                              ),
+                            ),
+                          ),
                       ],
                     ),
                   ],
                 ),
-                ContentSection(
-                  title: strings.get('gate_directory'),
-                  children: [
-                    Text(
-                      '${strings.get('gate_received')}: ${_directory.fetchedAt?.toLocal().toString().split('.').first ?? '—'}',
-                    ),
-                    Text(
-                      '${strings.get('gate_source_fetched')}: ${_time(_directory.sourceFetchedAt)}',
-                    ),
-                    if (_directory.sourceFetchedAt != null &&
-                        DateTime.now().difference(_directory.sourceFetchedAt!) >
-                            const Duration(hours: 3))
+              ),
+            ),
+            SliverList.builder(
+              itemCount: _directory.servers.length,
+              findChildIndexCallback: (key) {
+                if (key is! ValueKey<(String, String)>) return null;
+                final index = _directory.servers.indexWhere(
+                  (server) => (server.id, server.configSha256) == key.value,
+                );
+                return index < 0 ? null : index;
+              },
+              itemBuilder: (context, index) =>
+                  _serverRow(_directory.servers[index], strings),
+            ),
+            SliverToBoxAdapter(
+              child: PanelStack(
+                spacing: 28,
+                children: [
+                  Wrap(
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
                       Text(
-                        strings.get(
-                          DateTime.now().difference(
-                                    _directory.sourceFetchedAt!,
-                                  ) >
-                                  const Duration(hours: 24)
-                              ? 'gate_source_very_old'
-                              : 'gate_source_old',
-                        ),
+                        strings
+                            .get('gate_paging')
+                            .replaceAll(
+                              '{current}',
+                              '${_directory.total == 0 ? 0 : _offset + 1}–${_offset + _directory.servers.length}',
+                            )
+                            .replaceAll('{total}', '${_directory.total}'),
                       ),
-                    PageStorage(
-                      bucket: _directoryTextStorage,
-                      child: SelectableText(
-                        '${strings.get('gate_source')}: ${_directory.sourceUrl ?? '—'}',
-                      ),
-                    ),
-                    Text(
-                      strings.get(
-                        _directory.fetchedAt == null
-                            ? 'gate_no_cache'
-                            : _directory.cached
-                            ? 'gate_cached'
-                            : 'gate_verified',
-                      ),
-                    ),
-                    Text(strings.get('gate_freshness')),
-                    Align(
-                      alignment: AlignmentDirectional.centerStart,
-                      child: TextButton(
-                        onPressed: () => showLicensePage(
-                          context: context,
-                          applicationName: 'Usque',
-                        ),
-                        child: Text(
-                          MaterialLocalizations.of(context).licensesPageTitle,
-                        ),
-                      ),
-                    ),
-                    if (_directory.failures.isNotEmpty)
-                      ExpansionTile(
-                        key: const PageStorageKey<String>(
-                          'vpn-gate-directory-failures',
-                        ),
-                        title: Text(strings.get('gate_fetch_error')),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          for (final failure in _directory.failures)
-                            Padding(
-                              padding: const EdgeInsets.all(8),
-                              child: PageStorage(
-                                bucket: _directoryTextStorage,
-                                child: SelectableText(failure),
-                              ),
-                            ),
+                          IconButton(
+                            tooltip: strings.get('gate_previous'),
+                            onPressed: _offset == 0 || _loading
+                                ? null
+                                : () {
+                                    setState(
+                                      () => _offset = (_offset - 50).clamp(
+                                        0,
+                                        _directory.total,
+                                      ),
+                                    );
+                                    unawaited(_load());
+                                  },
+                            icon: const Icon(LucideIcons.chevronLeft),
+                          ),
+                          IconButton(
+                            tooltip: strings.get('gate_next'),
+                            onPressed:
+                                _offset + _directory.servers.length >=
+                                        _directory.total ||
+                                    _loading
+                                ? null
+                                : () {
+                                    setState(() => _offset += 50);
+                                    unawaited(_load());
+                                  },
+                            icon: const Icon(LucideIcons.chevronRight),
+                          ),
                         ],
                       ),
-                  ],
-                ),
-              ],
+                    ],
+                  ),
+                  ContentSection(
+                    title: strings.get('gate_directory'),
+                    children: [
+                      Text(
+                        '${strings.get('gate_received')}: ${_directory.fetchedAt?.toLocal().toString().split('.').first ?? '—'}',
+                      ),
+                      Text(
+                        '${strings.get('gate_source_fetched')}: ${_time(_directory.sourceFetchedAt)}',
+                      ),
+                      if (_directory.sourceFetchedAt != null &&
+                          DateTime.now().difference(
+                                _directory.sourceFetchedAt!,
+                              ) >
+                              const Duration(hours: 3))
+                        Text(
+                          strings.get(
+                            DateTime.now().difference(
+                                      _directory.sourceFetchedAt!,
+                                    ) >
+                                    const Duration(hours: 24)
+                                ? 'gate_source_very_old'
+                                : 'gate_source_old',
+                          ),
+                        ),
+                      PageStorage(
+                        bucket: _directoryTextStorage,
+                        child: SelectableText(
+                          '${strings.get('gate_source')}: ${_directory.sourceUrl ?? '—'}',
+                        ),
+                      ),
+                      Text(
+                        strings.get(
+                          _directory.fetchedAt == null
+                              ? 'gate_no_cache'
+                              : _directory.cached
+                              ? 'gate_cached'
+                              : 'gate_verified',
+                        ),
+                      ),
+                      Text(strings.get('gate_freshness')),
+                      Align(
+                        alignment: AlignmentDirectional.centerStart,
+                        child: TextButton(
+                          onPressed: () => showLicensePage(
+                            context: context,
+                            applicationName: 'Usque',
+                          ),
+                          child: Text(
+                            MaterialLocalizations.of(context).licensesPageTitle,
+                          ),
+                        ),
+                      ),
+                      if (_directory.failures.isNotEmpty)
+                        ExpansionTile(
+                          key: const PageStorageKey<String>(
+                            'vpn-gate-directory-failures',
+                          ),
+                          title: Text(strings.get('gate_fetch_error')),
+                          children: [
+                            for (final failure in _directory.failures)
+                              Padding(
+                                padding: const EdgeInsets.all(8),
+                                child: PageStorage(
+                                  bucket: _directoryTextStorage,
+                                  child: SelectableText(failure),
+                                ),
+                              ),
+                          ],
+                        ),
+                    ],
+                  ),
+                ],
+              ),
             ),
-          ),
+          ],
         ),
       );
     },
