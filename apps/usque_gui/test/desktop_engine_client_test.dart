@@ -77,6 +77,15 @@ const List<int> _goldenProfileBytes = <int>[
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('LAN bypass defaults on but preserves saved settings', () {
+    const profile = UsqueProfile(
+      id: UsqueProfile.defaultProfileId,
+      name: 'Default',
+    );
+    expect(profile.allowLan, isTrue);
+    final saved = profile.copyWith(allowLan: false).toMap();
+    expect(UsqueProfile.fromMap(saved).allowLan, isFalse);
+  });
   test(
     'settings submission bypasses a pending connection and connect never upserts',
     () async {
@@ -212,6 +221,7 @@ void main() {
       expect(catalog.profiles.single.sni, 'c');
       expect(catalog.profiles.single.mtu, 1280);
       expect(catalog.profiles.single.killSwitch, isTrue);
+      expect(catalog.profiles.single.allowLan, isFalse);
       expect(catalog.profiles.single.proxy.socksPort, 1);
       expect(catalog.profiles.single.proxy.httpPort, 1);
       expect(catalog.profiles.single.proxy.dnsIpv4, 'j.j');

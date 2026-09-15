@@ -5719,7 +5719,7 @@ mod tests {
             format!("{}/128", identity.assigned_ipv6)
         );
         assert_eq!(plan.endpoint_candidates.len(), 2);
-        assert!(!plan.allow_lan);
+        assert!(plan.allow_lan);
     }
 
     #[test]

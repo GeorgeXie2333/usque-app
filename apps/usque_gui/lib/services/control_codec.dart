@@ -704,7 +704,7 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
   var sni = defaults.sni;
   var mtu = defaults.mtu;
   final dnsServers = <String>[];
-  var allowLan = defaults.allowLan;
+  var allowLan = false;
   final bypassCidrs = <String>[];
   var killSwitch = defaults.killSwitch;
   var autoConnect = defaults.autoConnect;

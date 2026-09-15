@@ -684,7 +684,7 @@ class UsqueProfile {
     this.dnsIpv6 = defaultDnsIpv6,
     this.dnsMode = DnsMode.tunnel,
     this.killSwitch = true,
-    this.allowLan = false,
+    this.allowLan = true,
     this.autoConnect = false,
     this.bypassCidrs = const <String>[],
     this.geoDirectCountries = const <String>[],

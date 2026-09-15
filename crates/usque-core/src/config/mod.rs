@@ -474,7 +474,7 @@ impl Default for Profile {
             mtu: DEFAULT_MTU,
             dns_mode: DnsMode::Tunnel,
             dns_servers: default_dns_servers(),
-            allow_lan: false,
+            allow_lan: true,
             split_exclusions: Vec::new(),
             kill_switch: true,
             auto_connect: false,
@@ -1375,6 +1375,17 @@ impl ConfigError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lan_bypass_defaults_on_but_preserves_saved_settings() {
+        let mut network = SharedNetworkSettings::default();
+        assert!(network.allow_lan);
+        network.allow_lan = false;
+        let saved = serde_json::to_string(&network).expect("serialize settings");
+        let restored: SharedNetworkSettings =
+            serde_json::from_str(&saved).expect("deserialize settings");
+        assert!(!restored.allow_lan);
+    }
 
     #[test]
     fn defaults_match_the_product_contract() {

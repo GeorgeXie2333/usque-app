@@ -736,6 +736,7 @@ void main() {
         );
       addTearDown(app.dispose);
       app.sharedNetwork = app.sharedNetwork.copyWith(
+        allowLan: false,
         congestionControl: CongestionControlAlgorithm.bbr3,
       );
       app.networkSettings.accept(
