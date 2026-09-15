@@ -1644,6 +1644,9 @@ impl WindowsVpnRuntime {
             mapping.signal_shutdown();
         }
         self.cancellation.cancel();
+        // The waiter handle owns the blocking task itself. Aborting a running
+        // blocking task cannot stop it: signal the event above and retain the
+        // handle until stop_tasks observes its actual exit.
         for task in &self.tasks {
             task.abort();
         }
@@ -1652,7 +1655,7 @@ impl WindowsVpnRuntime {
     async fn stop_packet_pumps(&mut self) {
         // Hot TUN detach must keep the shared MASQUE/proxy runtime alive.
         self.cancel_packet_pumps();
-        stop_tasks(std::mem::take(&mut self.tasks)).await;
+        stop_tasks(&mut self.tasks).await;
     }
 }
 
@@ -1843,7 +1846,7 @@ async fn bind_agent_session(
     let socks5_listeners = tunnel.socks5_listeners().to_vec();
     let http_listeners = tunnel.http_listeners().to_vec();
     let tunnel_monitor = tunnel.monitor();
-    let tasks = start_packet_pumps(
+    let mut tasks = start_packet_pumps(
         tun_io,
         Arc::clone(&mapping),
         tunnel_monitor.clone(),
@@ -1854,7 +1857,7 @@ async fn bind_agent_session(
     if !resuming && let Err(error) = agent.commit(operation_id).await {
         mapping.signal_shutdown();
         cancellation.cancel();
-        stop_tasks(tasks).await;
+        stop_tasks(&mut tasks).await;
         tunnel.detach_tun();
         let error = fail_startup(&agent, operation_id, resuming, "COMMIT_FAILED", error).await;
         return Err((tunnel, error));
@@ -1869,7 +1872,7 @@ async fn bind_agent_session(
         Err(error) => {
             mapping.signal_shutdown();
             cancellation.cancel();
-            stop_tasks(tasks).await;
+            stop_tasks(&mut tasks).await;
             tunnel.detach_tun();
             let error = fail_startup(
                 &agent,
@@ -1894,7 +1897,7 @@ async fn bind_agent_session(
         let Some(listener) = loopback_http_listener(&http_listeners) else {
             mapping.signal_shutdown();
             cancellation.cancel();
-            stop_tasks(tasks).await;
+            stop_tasks(&mut tasks).await;
             tunnel.detach_tun();
             let error = fail_startup(
                 &agent,
@@ -1911,7 +1914,7 @@ async fn bind_agent_session(
             Err(error) => {
                 mapping.signal_shutdown();
                 cancellation.cancel();
-                stop_tasks(tasks).await;
+                stop_tasks(&mut tasks).await;
                 tunnel.detach_tun();
                 let error = fail_startup(
                     &agent,
@@ -1939,7 +1942,7 @@ async fn bind_agent_session(
     if let Err(error) = tunnel.activate_final().await {
         mapping.signal_shutdown();
         cancellation.cancel();
-        stop_tasks(tasks).await;
+        stop_tasks(&mut tasks).await;
         tunnel.detach_tun();
         if let Some(mut guard) = system_proxy {
             let _ = guard.shutdown().await;
@@ -2125,27 +2128,11 @@ fn start_packet_pumps(
     let (packet_ready_tx, mut packet_ready_rx) = mpsc::channel(1);
 
     let wait_mapping = Arc::clone(&mapping);
-    let wait_cancel = cancellation.clone();
-    let wait_failure = failure.clone();
-    let wait_task = tokio::spawn(async move {
-        let result = tokio::task::spawn_blocking(move || {
-            wait_for_agent_packets(&wait_mapping, packet_ready_tx)
-        })
-        .await;
-        match result {
-            Ok(Ok(())) => {}
-            Ok(Err(error)) => report_pump_failure(
-                &wait_failure,
-                &wait_cancel,
-                WindowsPumpFailure::agent(error.to_string()),
-            ),
-            Err(error) => report_pump_failure(
-                &wait_failure,
-                &wait_cancel,
-                WindowsPumpFailure::agent(format!("Agent packet wait task failed: {error}")),
-            ),
-        }
-    });
+    let wait_task = spawn_packet_waiter(
+        move || wait_for_agent_packets(&wait_mapping, packet_ready_tx),
+        cancellation.clone(),
+        failure.clone(),
+    );
 
     let pump_mapping = Arc::clone(&mapping);
     let pump_cancel = cancellation.clone();
@@ -2368,6 +2355,24 @@ fn start_agent_liveness_watch(
     })
 }
 
+fn spawn_packet_waiter(
+    wait: impl FnOnce() -> Result<(), WindowsVpnError> + Send + 'static,
+    cancellation: CancellationToken,
+    failure: watch::Sender<Option<WindowsPumpFailure>>,
+) -> JoinHandle<()> {
+    // Return the real blocking task, not an abortable async wrapper whose Drop
+    // would detach a still-running native wait and its mapping/event handles.
+    tokio::task::spawn_blocking(move || {
+        if let Err(error) = wait() {
+            report_pump_failure(
+                &failure,
+                &cancellation,
+                WindowsPumpFailure::agent(error.to_string()),
+            );
+        }
+    })
+}
+
 fn wait_for_agent_packets(
     mapping: &PacketSessionMapping,
     ready: mpsc::Sender<()>,
@@ -2394,12 +2399,34 @@ fn wait_for_agent_packets(
     }
 }
 
-async fn stop_tasks(tasks: Vec<JoinHandle<()>>) {
-    for mut task in tasks {
-        if timeout(PUMP_SHUTDOWN_TIMEOUT, &mut task).await.is_err() {
-            task.abort();
-            let _ = task.await;
+async fn stop_tasks(tasks: &mut Vec<JoinHandle<()>>) {
+    // Borrow each handle until completion so cancellation of this wait does
+    // not detach unfinished work from the runtime. The async pump is joined
+    // first; the blocking waiter then releases its last mapping reference.
+    while let Some(task) = tasks.last_mut() {
+        let result = match timeout(PUMP_SHUTDOWN_TIMEOUT, &mut *task).await {
+            Ok(result) => result,
+            Err(_) => {
+                task.abort();
+                // A started blocking task ignores abort. The grace period is
+                // a reporting deadline, not evidence that its resources died.
+                // Keep cleanup pending until the actual task has returned.
+                tracing::warn!(
+                    recovery_event = "PACKET_PUMPS_JOIN_PENDING",
+                    "Windows packet worker has not exited; retaining pending cleanup"
+                );
+                task.await
+            }
+        };
+        if let Err(error) = result
+            && !error.is_cancelled()
+        {
+            tracing::warn!(
+                recovery_event = "PACKET_PUMP_TASK_PANICKED",
+                "Windows packet worker exited with a panic"
+            );
         }
+        tasks.pop();
     }
 }
 
@@ -3890,6 +3917,159 @@ mod tests {
 
     use tokio::net::windows::named_pipe::ServerOptions;
 
+    // Anonymous memory and events only: no Agent, Wintun DLL or network mutation.
+    fn packet_mapping_fixture() -> Arc<PacketSessionMapping> {
+        use windows_sys::Win32::{
+            Foundation::INVALID_HANDLE_VALUE,
+            System::{
+                Memory::{CreateFileMappingW, PAGE_READWRITE},
+                Threading::CreateEventW,
+            },
+        };
+
+        let capacity = DEFAULT_PACKET_RING_CAPACITY;
+        let bytes = SharedPacketRing::mapped_bytes(capacity).unwrap();
+        // SAFETY: a page-file-backed anonymous mapping, with a validated size;
+        // the returned handle is uniquely owned and closed by OwnedHandle.
+        let mapping = OwnedHandle(unsafe {
+            CreateFileMappingW(
+                INVALID_HANDLE_VALUE,
+                ptr::null(),
+                PAGE_READWRITE,
+                0,
+                bytes.try_into().unwrap(),
+                ptr::null(),
+            )
+        });
+        assert!(!mapping.0.is_null());
+        // SAFETY: the mapping owns at least `bytes` writable bytes.
+        let view =
+            MappedView::new(unsafe { MapViewOfFile(mapping.0, FILE_MAP_ALL_ACCESS, 0, 0, bytes) })
+                .unwrap();
+        // SAFETY: the fresh page-aligned view has exclusive initialization
+        // access, and remains owned alongside its ring until the last Arc drops.
+        let ring =
+            unsafe { SharedPacketRing::initialize(view.pointer(), bytes, capacity) }.unwrap();
+        let event = |manual_reset| {
+            // SAFETY: create an unnamed event with no borrowed attributes/name;
+            // OwnedHandle closes this uniquely owned kernel object.
+            let handle = OwnedHandle(unsafe {
+                CreateEventW(ptr::null(), i32::from(manual_reset), 0, ptr::null())
+            });
+            assert!(!handle.0.is_null());
+            handle
+        };
+        Arc::new(PacketSessionMapping {
+            _mapping: mapping,
+            engine_to_agent_event: event(false),
+            agent_to_engine_event: event(false),
+            shutdown_event: event(true),
+            view,
+            ring,
+        })
+    }
+
+    async fn assert_packet_waiter_joined(abort: bool, observation: Duration) {
+        let mapping = packet_mapping_fixture();
+        let resource = Arc::downgrade(&mapping);
+        let worker_mapping = mapping.clone();
+        let (ready, _receiver) = mpsc::channel(1);
+        let (entered, entering) = tokio::sync::oneshot::channel();
+        let (returned, returning) = tokio::sync::oneshot::channel();
+        let (release, released) = std::sync::mpsc::channel();
+        let (finished, finishing) = tokio::sync::oneshot::channel();
+        let cancellation = CancellationToken::new();
+        let (failure, _) = watch::channel(None);
+        let waiter = spawn_packet_waiter(
+            move || {
+                entered.send(()).unwrap();
+                let result = wait_for_agent_packets(&worker_mapping, ready);
+                returned.send(()).unwrap();
+                // Bound the fixture even if the async assertion panics.
+                let _ = released.recv_timeout(Duration::from_secs(30));
+                drop(worker_mapping);
+                let _ = finished.send(());
+                result
+            },
+            cancellation.clone(),
+            failure,
+        );
+        entering.await.unwrap();
+        mapping.signal_shutdown();
+        cancellation.cancel();
+        returning.await.unwrap();
+        drop(mapping);
+        if abort {
+            waiter.abort();
+        }
+        let mut tasks = vec![waiter];
+        let mut stopping = Box::pin(stop_tasks(&mut tasks));
+        let returned_early = timeout(observation, &mut stopping).await.is_ok();
+        let resource_still_owned = resource.upgrade().is_some();
+        drop(stopping);
+        let task_retained = tasks.len() == 1;
+        release.send(()).unwrap();
+        if !returned_early {
+            stop_tasks(&mut tasks).await;
+        }
+        finishing.await.unwrap();
+        assert!(
+            resource_still_owned,
+            "fixture must delay the actual worker exit"
+        );
+        assert!(!returned_early, "stop must join the actual blocking worker");
+        assert!(
+            task_retained,
+            "cancelled join must retain the real task handle"
+        );
+        assert!(tasks.is_empty());
+        assert!(
+            resource.upgrade().is_none(),
+            "join must release the mapping"
+        );
+    }
+
+    #[tokio::test]
+    async fn packet_waiter_abort_does_not_complete_join_before_worker_exit() {
+        assert_packet_waiter_joined(true, Duration::from_millis(50)).await;
+    }
+
+    #[tokio::test]
+    async fn packet_waiter_timeout_keeps_waiting_for_worker_exit() {
+        assert_packet_waiter_joined(false, PUMP_SHUTDOWN_TIMEOUT + Duration::from_secs(1)).await;
+    }
+
+    #[tokio::test]
+    async fn packet_waiter_shutdown_wakes_idle_and_saturated_notifications() {
+        for saturated in [false, true] {
+            let mapping = packet_mapping_fixture();
+            let worker_mapping = mapping.clone();
+            let (ready, _receiver) = mpsc::channel(1);
+            if saturated {
+                ready.try_send(()).unwrap();
+                // SAFETY: the fixture owns the live notification event.
+                assert_ne!(unsafe { SetEvent(mapping.agent_to_engine_event.0) }, 0);
+            }
+            let (entered, entering) = tokio::sync::oneshot::channel();
+            let (failure, observed_failure) = watch::channel(None);
+            let waiter = spawn_packet_waiter(
+                move || {
+                    entered.send(()).unwrap();
+                    wait_for_agent_packets(&worker_mapping, ready)
+                },
+                CancellationToken::new(),
+                failure,
+            );
+            entering.await.unwrap();
+            mapping.signal_shutdown();
+            timeout(Duration::from_secs(1), stop_tasks(&mut vec![waiter]))
+                .await
+                .expect("manual-reset shutdown must wake the native wait");
+            assert_eq!(Arc::strong_count(&mapping), 1);
+            assert!(observed_failure.borrow().is_none());
+        }
+    }
+
     #[tokio::test]
     async fn cancelled_prepared_startup_quiesces_before_releasing_its_lease() {
         let cancel = CancellationToken::new();
@@ -4414,6 +4594,144 @@ mod tests {
             .await
             .unwrap();
         (directory, service, profile_id)
+    }
+
+    #[tokio::test]
+    async fn connect_and_retry_wait_for_retained_cleanup_before_starting_a_new_session() {
+        for retry in [false, true] {
+            let (_directory, service, profile_id) = recovery_entry_service().await;
+            let (client, requests) = scripted_recovery_client(vec![
+                recovery_capabilities_response(),
+                recovery_state_response(agent_v1::AgentPhase::Clean),
+            ]);
+            *service.test_windows_agent.lock().await = Some(client);
+            let (release, released) = tokio::sync::oneshot::channel();
+            *service.disconnect_cleanup.lock().await = Some(tokio::spawn(async move {
+                released.await.unwrap();
+                Ok(())
+            }));
+            let connecting = async {
+                if retry {
+                    service.retry().await
+                } else {
+                    service.connect(profile_id).await
+                }
+            };
+            tokio::pin!(connecting);
+            assert!(
+                timeout(Duration::from_millis(20), &mut connecting)
+                    .await
+                    .is_err()
+            );
+            assert!(service.data_plane.lock().await.is_none());
+            assert!(!requests.is_finished());
+            release.send(()).unwrap();
+            assert_eq!(
+                connecting.await.unwrap().phase,
+                usque_core::ConnectionPhase::Connected
+            );
+            assert_eq!(requests.await.unwrap().len(), 2);
+            let generation = service
+                .data_plane
+                .lock()
+                .await
+                .as_ref()
+                .unwrap()
+                .session_generation;
+            service.connect(profile_id).await.unwrap();
+            assert_eq!(
+                service
+                    .data_plane
+                    .lock()
+                    .await
+                    .as_ref()
+                    .unwrap()
+                    .session_generation,
+                generation,
+                "a duplicate Connect must keep the existing transaction"
+            );
+            service.shutdown().await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn disconnect_cancels_duplicate_connects_without_losing_pending_cleanup() {
+        let (_directory, service, profile_id) = recovery_entry_service().await;
+        let (client, requests) = scripted_recovery_client(vec![
+            recovery_capabilities_response(),
+            recovery_state_response(agent_v1::AgentPhase::Clean),
+        ]);
+        *service.test_windows_agent.lock().await = Some(client);
+        let (release, released) = tokio::sync::oneshot::channel();
+        *service.disconnect_cleanup.lock().await = Some(tokio::spawn(async move {
+            let _ = released.await;
+            Ok(())
+        }));
+        let mut connects = Vec::new();
+        for _ in 0..2 {
+            let service = service.clone();
+            connects.push(tokio::spawn(
+                async move { service.connect(profile_id).await },
+            ));
+        }
+        timeout(Duration::from_secs(1), async {
+            while service.disconnect_cleanup.try_lock().is_ok() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("Connect must enter its cleanup wait");
+        timeout(Duration::from_secs(1), service.disconnect())
+            .await
+            .expect("Disconnect must cancel the foreground wait without joining cleanup")
+            .unwrap();
+        for connect in connects {
+            assert_eq!(
+                connect.await.unwrap().unwrap().phase,
+                usque_core::ConnectionPhase::Disconnected
+            );
+        }
+        assert!(service.disconnect_cleanup.lock().await.is_some());
+        assert!(!requests.is_finished());
+        release.send(()).unwrap();
+        service.await_disconnect_cleanup().await.unwrap();
+        assert!(service.data_plane.lock().await.is_none());
+        assert!(service.windows_recovery.lock().await.intent.is_none());
+        assert!(service.windows_recovery.lock().await.pending.is_none());
+        service.connect(profile_id).await.unwrap();
+        assert_eq!(requests.await.unwrap().len(), 2);
+        service.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn retained_cleanup_failure_still_prevents_a_new_session() {
+        let (_directory, service, profile_id) = recovery_entry_service().await;
+        let (client, requests) = scripted_recovery_client(vec![]);
+        *service.test_windows_agent.lock().await = Some(client);
+        let (release, released) = tokio::sync::oneshot::channel();
+        *service.disconnect_cleanup.lock().await = Some(tokio::spawn(async move {
+            released.await.unwrap();
+            Err(crate::ControlServiceError::DisconnectCleanup(
+                "fixture failure".into(),
+            ))
+        }));
+        assert!(
+            timeout(
+                Duration::from_millis(10),
+                service.await_disconnect_cleanup()
+            )
+            .await
+            .is_err()
+        );
+        release.send(()).unwrap();
+        let error = service.connect(profile_id).await.unwrap_err();
+        assert_eq!(
+            error.as_structured_error().code,
+            "DISCONNECT_CLEANUP_FAILED"
+        );
+        assert!(service.data_plane.lock().await.is_none());
+        assert!(requests.await.unwrap().is_empty());
+        service.shutdown().await.unwrap();
     }
 
     #[tokio::test]

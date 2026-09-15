@@ -90,6 +90,14 @@ bounded batches even when the input ring never becomes empty. Authenticated
 rollback revokes dynamic egress only after packet-session quiescence and before
 removing persistent WFP resources; failed quiescence retains protection.
 
+Engine packet shutdown owns and joins the actual blocking notification task.
+The five-second join threshold records `PACKET_PUMPS_JOIN_PENDING` and retains
+unfinished work; it does not authorize a new packet session or claim that the
+worker exited. Cancelling a foreground connection wait leaves the background
+cleanup handle owned by the service, so later Connect/Retry requests still
+wait for the same cleanup. The [lifecycle investigation and first fix](ISSUE_66_LIFECYCLE_INVESTIGATION.md)
+records the memory/event regression coverage and its limits.
+
 Wintun removal first observes the exact journaled interface and PnP identity.
 Both must be absent before cleanup succeeds. Closing a handle gets a two-second
 observation grace; an exact-device removal request then has a ten-second total

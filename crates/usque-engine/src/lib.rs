@@ -1840,7 +1840,14 @@ impl ControlService {
             return Ok(self.state.lock().await.snapshot().clone());
         }
         self.ensure_gate_supervisor().await;
-        if let Err(error) = self.await_disconnect_cleanup().await {
+        let cleanup_result = tokio::select! {
+            biased;
+            _ = startup_cancel.cancelled() => {
+                return Ok(self.state.lock().await.snapshot().clone());
+            }
+            result = self.await_disconnect_cleanup() => result,
+        };
+        if let Err(error) = cleanup_result {
             if startup_cancel.is_cancelled() {
                 return Ok(self.state.lock().await.snapshot().clone());
             }
@@ -2413,13 +2420,17 @@ impl ControlService {
     }
 
     async fn await_disconnect_cleanup(&self) -> Result<(), ControlServiceError> {
-        let cleanup = self.disconnect_cleanup.lock().await.take();
-        let Some(cleanup) = cleanup else {
+        let mut pending = self.disconnect_cleanup.lock().await;
+        let Some(cleanup) = pending.as_mut() else {
             return Ok(());
         };
-        cleanup
+        // Keep the handle in its owner while awaiting. Cancelling one Connect
+        // request must not let a later request bypass unfinished cleanup.
+        let result = cleanup
             .await
-            .map_err(|error| ControlServiceError::DisconnectCleanup(error.to_string()))?
+            .map_err(|error| ControlServiceError::DisconnectCleanup(error.to_string()));
+        pending.take();
+        result?
     }
 
     async fn retry(&self) -> Result<ConnectionSnapshot, ControlServiceError> {
@@ -5043,6 +5054,35 @@ mod tests {
     };
 
     use super::*;
+
+    #[tokio::test]
+    async fn cancelled_disconnect_wait_retains_cleanup_for_the_next_request() {
+        let directory = tempfile::tempdir().unwrap();
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(MemoryVault::default()),
+        )
+        .unwrap();
+        let (release, released) = tokio::sync::oneshot::channel();
+        *service.disconnect_cleanup.lock().await = Some(tokio::spawn(async move {
+            let _ = released.await;
+            Ok(())
+        }));
+        let timed_out = tokio::time::timeout(
+            std::time::Duration::from_millis(10),
+            service.await_disconnect_cleanup(),
+        )
+        .await;
+        assert!(timed_out.is_err());
+        let retained = service.disconnect_cleanup.lock().await.is_some();
+        release.send(()).unwrap();
+        service.await_disconnect_cleanup().await.unwrap();
+        assert!(
+            retained,
+            "cancelled wait must keep ownership of unfinished cleanup"
+        );
+        assert!(service.disconnect_cleanup.lock().await.is_none());
+    }
 
     #[cfg(windows)]
     #[test]
