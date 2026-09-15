@@ -557,6 +557,8 @@ where
         ensure_clean(&journal)?;
         *journal = RecoveryJournal {
             schema_version: crate::journal::JOURNAL_SCHEMA_VERSION,
+            device: None,
+            device_binding: None,
             generation: journal.generation,
             phase: RecoveryPhase::Preparing,
             operation_kind: Some(OperationKind::Tunnel),
@@ -1371,6 +1373,8 @@ where
         ensure_clean(&journal)?;
         *journal = RecoveryJournal {
             schema_version: crate::journal::JOURNAL_SCHEMA_VERSION,
+            device: None,
+            device_binding: None,
             generation: journal.generation,
             phase: RecoveryPhase::Preparing,
             operation_kind: Some(OperationKind::SystemProxy),
@@ -1963,7 +1967,7 @@ fn dependency_satisfied_by_restored_wintun(
 }
 
 fn ensure_clean(journal: &RecoveryJournal) -> Result<(), CoordinatorError> {
-    if journal.phase == RecoveryPhase::Clean {
+    if journal.is_fully_clean() {
         Ok(())
     } else {
         Err(CoordinatorError::RecoveryRequired(journal.phase))
@@ -4525,6 +4529,8 @@ mod tests {
         let owner = caller();
         let mut legacy = RecoveryJournal {
             schema_version: crate::journal::JOURNAL_SCHEMA_VERSION,
+            device: None,
+            device_binding: None,
             generation: 1,
             phase: RecoveryPhase::Paused,
             operation_kind: Some(OperationKind::Tunnel),

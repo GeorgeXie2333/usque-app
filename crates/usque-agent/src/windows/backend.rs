@@ -928,6 +928,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires an isolated Windows VM: loading Wintun can schedule native orphan cleanup"]
     fn opening_backend_only_verifies_and_loads_the_dependency() {
         let backend = WindowsBackend::open(&official_dll()).expect("backend");
         let capabilities = backend.capabilities();

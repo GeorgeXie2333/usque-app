@@ -1514,6 +1514,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires an isolated Windows VM: loading Wintun can schedule native orphan cleanup"]
     fn pinned_official_library_loads_all_required_exports_without_installing_driver() {
         let library = WintunLibrary::load(&official_dll()).expect("load function table");
         assert!(Arc::strong_count(&library) == 1);
