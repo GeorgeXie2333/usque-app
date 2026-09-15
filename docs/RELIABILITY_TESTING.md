@@ -119,7 +119,8 @@ The Agent writes bounded, non-authoritative `recovery-events-v1.jsonl` beside
 its protected journal (at most 1 MiB). It records step results, durations,
 allowlisted API names, numeric errors and optional device/interface observations,
 not raw messages, receipts, addresses or identities. Logging failure never
-prevents cleanup. True uninstall removes this known diagnostic file only after
+prevents cleanup. True uninstall removes the two allowlisted recovery evidence
+files (`recovery-events-v1.jsonl` and `recovery-trace-v1.jsonl`) only after
 the authoritative journal is clean. Engine logs mirror allowlisted adapter
 failure details, while the UI shows localized cleanup context without raw data.
 
@@ -131,7 +132,10 @@ timestamps, generations, step durations and outcomes. A missing, corrupt,
 oversized or unreadable event file has an explicit status. Unknown JSON fields
 are discarded, and enum values are validated before reserialization.
 
-Sampling uses only the existing IP Helper and SetupAPI readers. A single
+Sampling uses IP Helper, SetupAPI and read-only `CM_Get_DevNode_Status`. Interface
+operational/admin/media states and devnode status/problem codes supplement the
+presence results. `CONFIGRET` errors have a separate field from Win32 errors;
+neither can be interpreted as resource absence. A single
 blocking worker owns the sampling permit until native calls actually finish,
 including after the caller times out. Agent inspection is bounded below two
 seconds and the Engine waits at most two seconds. Busy, timeout, unavailable,
@@ -147,6 +151,39 @@ excludes journal contents, arbitrary error text, adapter names/GUIDs/LUIDs,
 SIDs, addresses and credentials. Existing diagnostic result evidence shows
 sample status/time/generation and bounded event counts. These observations are
 non-authoritative and do not weaken the two-resource cleanup success check.
+
+The Agent additionally writes `recovery-trace-v1.jsonl` in the protected journal
+directory. A 128-record queue feeds a dedicated writer; the file is capped at
+1 MiB and each record at 4096 bytes. Producers never wait for file I/O or queue
+space. Queue drops and write failures are counted, but process termination can
+lose records still in memory. A missing return record alone does not prove a
+native call remained blocked.
+
+Trace stages distinguish packet-pump stop/join, the actual last-reference
+`WintunEndSession`/`WintunCloseAdapter` call boundaries, and the adapter release
+request/reference count. A VOID return is recorded only as returned, never as
+successful cleanup. The Wintun logger retains an allowlisted category and level,
+not raw text. Callbacks on other threads have generation/resource zero; they
+are never attributed to the latest VPN transaction. Run IDs are fresh random
+nonces and resource IDs are process-local counters, not OS identifiers.
+
+After Exhausted with an unfinished adapter, the recovery supervisor observes
+the same operation/generation/revision about every five seconds for at most ten
+minutes. It shares the diagnostic sampling permit and deadline, records changed
+observations, and stops on verified absence, deadline, shutdown or changed
+ownership/generation/revision. A finished window cannot restart by polling.
+Observation never saves Clean, refreshes the retry budget or starts a connection.
+
+`RecoveryDiagnostics.trace` is optional field 4; existing protocol version,
+field numbers and recovery-event fields remain intact. The export's separate
+`trace` section has its own schema version 1 and at most 128 valid records in
+file order. Both Agent and Engine filter fields and contradictory observations.
+The Engine additionally budgets trace event JSON to 128 KiB and the complete recovery
+summary below 256 KiB; truncation is explicit. Top-level trace loss counters
+refer to the current Agent writer, while each stored event retains the counters
+from its original run. Old Agents export normally with evidence unavailable.
+The [lifecycle evidence record](ISSUE_66_TRACE_VALIDATION.md) describes collection,
+validation and remaining limits.
 
 The [Issue #66 validation record](ISSUE_66_VALIDATION.md) identifies the local
 patch baseline, executed checks and unavailable isolated scenarios for this

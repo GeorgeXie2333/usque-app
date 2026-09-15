@@ -5504,6 +5504,81 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn lifecycle_evidence_reaches_the_archive_through_only_read_only_agent_ipc() {
+        let trace_event =
+            serde_json::from_value::<agent_v1::RecoveryTraceEvent>(serde_json::json!({
+                "schema_version": 1, "agent_run_id": 42, "event_sequence": 7,
+                "occurred_at_unix_ms": 150, "monotonic_ms": 50,
+                "stage": agent_v1::RecoveryTraceStage::NativeRemoveFailed as i32,
+                "native_level": 3,
+                "native_message": "fixture-secret S-1-5-21-999 192.0.2.44 device-guid",
+            }))
+            .unwrap();
+        let (client, task) = scripted_recovery_client(vec![AgentResponse {
+            payload: Some(agent_response::Payload::PlatformState(PlatformState {
+                journal_generation: 20,
+                wintun_adapter_state: "fixture-secret".to_owned(),
+                automatic_recovery: Some(agent_v1::AutomaticRecoveryStatus {
+                    phase: agent_v1::AutomaticRecoveryPhase::Exhausted as i32,
+                    attempts_completed: 3,
+                    attempt_limit: 3,
+                    ..Default::default()
+                }),
+                recovery_diagnostics: Some(Box::new(agent_v1::RecoveryDiagnostics {
+                    current: Some(agent_v1::RecoveryObservation {
+                        sampled_at_unix_ms: 200,
+                        journal_generation: 20,
+                        status: 1,
+                        ..Default::default()
+                    }),
+                    trace: Some(agent_v1::RecoveryTrace {
+                        status: agent_v1::RecoveryHistoryStatus::Complete as i32,
+                        events: vec![trace_event],
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                })),
+                ..Default::default()
+            })),
+            ..Default::default()
+        }]);
+        let state = client.inspect_platform_state_if_running().await.unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("evidence.zip");
+        crate::maintenance::Maintenance::new(&directory.path().join("config.json"))
+            .export_diagnostics(
+                destination.clone(),
+                usque_core::AppConfig::default(),
+                usque_core::ConnectionSnapshot::default(),
+                None,
+                crate::maintenance::DiagnosticTransportContext {
+                    platform_state: Some(state),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        let bytes = std::fs::read(destination).unwrap();
+        let archive = String::from_utf8_lossy(&bytes);
+        assert!(archive.contains("windows-recovery.json"));
+        assert!(archive.contains("native_remove_failed"));
+        assert!(archive.contains("exhausted"));
+        for forbidden in [
+            "fixture-secret",
+            "S-1-5-21-999",
+            "192.0.2.44",
+            "device-guid",
+            "native_message",
+        ] {
+            assert!(!archive.contains(forbidden));
+        }
+        assert!(matches!(
+            task.await.unwrap().as_slice(),
+            [agent_request::Payload::InspectPlatformState(_)]
+        ));
+    }
+
+    #[tokio::test]
     async fn missing_pipe_starts_the_service_controller_only_once() {
         let pipe_name = format!("{AGENT_PIPE_NAME}.test-{}", Uuid::new_v4());
         let controller = Arc::new(StartingTestController {

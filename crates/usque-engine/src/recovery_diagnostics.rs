@@ -2,6 +2,9 @@
 use serde_json::{Value, json};
 use usque_ipc::agent_v1::{self, PlatformState};
 
+#[cfg(test)]
+mod trace_tests;
+
 macro_rules! label {
     ($kind:ident, $value:expr, $prefix:literal) => {
         agent_v1::$kind::try_from($value)
@@ -16,6 +19,8 @@ macro_rules! label {
             .unwrap_or_else(|| "unknown".to_owned())
     };
 }
+
+mod trace;
 
 #[cfg(windows)]
 pub(crate) async fn capture() -> PlatformState {
@@ -80,16 +85,7 @@ pub(crate) fn summary(platform: Option<&PlatformState>) -> Value {
         });
     let current = diagnostics
         .and_then(|diagnostics| diagnostics.current.as_ref())
-        .map(|sample| {
-            let complete = sample.status == agent_v1::RecoverySampleStatus::Complete as i32;
-            json!({
-                "sampled_at_unix_ms": sample.sampled_at_unix_ms,
-                "journal_generation": sample.journal_generation,
-                "status": label!(RecoverySampleStatus, sample.status, "RECOVERY_SAMPLE_STATUS_"),
-                "interface": resource(complete.then_some(sample.interface.as_ref()).flatten()),
-                "pnp_device": resource(complete.then_some(sample.pnp_device.as_ref()).flatten()),
-            })
-        });
+        .map(|sample| observation(sample, sample.journal_generation));
     let mut history: Vec<_> = diagnostics.into_iter().flat_map(|diagnostics| diagnostics.history.iter()).rev()
         .filter(|event| event.occurred_at_unix_ms != 0 && event.journal_generation != 0
             && agent_v1::RecoveryStep::try_from(event.step).is_ok_and(|step| step != agent_v1::RecoveryStep::Unspecified))
@@ -122,6 +118,7 @@ pub(crate) fn summary(platform: Option<&PlatformState>) -> Value {
         "current_observation": current,
         "history_status": diagnostics.map(|value| label!(RecoveryHistoryStatus, value.history_status, "RECOVERY_HISTORY_STATUS_")),
         "history": history,
+        "trace": trace::summary(diagnostics.and_then(|value| value.trace.as_ref()), availability),
     })
 }
 
@@ -132,17 +129,53 @@ fn presence(value: i32) -> String {
     label!(RecoveryPresence, value, "RECOVERY_PRESENCE_")
 }
 
-fn resource(value: Option<&agent_v1::RecoveryResourceObservation>) -> Value {
-    let value = value.cloned().unwrap_or_default();
+fn observation(sample: &agent_v1::RecoveryObservation, generation: u64) -> Value {
+    use agent_v1::RecoverySampleStatus as Status;
+    let mut status = sample.status;
+    if status == Status::Complete as i32 {
+        if generation == 0 || sample.journal_generation != generation {
+            status = Status::GenerationChanged as i32;
+        } else if sample.sampled_at_unix_ms == 0 {
+            status = Status::Unavailable as i32;
+        }
+    }
+    let complete = status == Status::Complete as i32;
+    json!({
+        "sampled_at_unix_ms": sample.sampled_at_unix_ms,
+        "journal_generation": sample.journal_generation,
+        "status": label!(RecoverySampleStatus, status, "RECOVERY_SAMPLE_STATUS_"),
+        "interface": resource(complete.then_some(sample.interface.as_ref()).flatten(), ResourceKind::Interface),
+        "pnp_device": resource(complete.then_some(sample.pnp_device.as_ref()).flatten(), ResourceKind::Pnp),
+    })
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum ResourceKind {
+    Interface,
+    Pnp,
+}
+
+fn resource(value: Option<&agent_v1::RecoveryResourceObservation>, kind: ResourceKind) -> Value {
+    let value = value.copied().unwrap_or_default();
     // An identity error or native failure cannot be presented as absence even
     // if a buggy or hostile Agent supplies a contradictory presence enum.
     let verified = value.identity_check == agent_v1::RecoveryIdentityCheck::Verified as i32
-        && value.win32_code.is_none();
+        && value.win32_code.is_none()
+        && value.configret_code.is_none();
+    let present = verified && value.presence == agent_v1::RecoveryPresence::Present as i32;
+    let interface = present && kind == ResourceKind::Interface;
+    let pnp = present && kind == ResourceKind::Pnp;
     json!({
         "presence": presence(if verified { value.presence } else { 0 }),
         "identity_check": label!(RecoveryIdentityCheck, value.identity_check, "RECOVERY_IDENTITY_CHECK_"),
         "api": api(value.api),
         "win32_code": value.win32_code,
+        "configret_code": value.configret_code,
+        "interface_oper_status": value.interface_oper_status.filter(|n| interface && (1..=7).contains(n)),
+        "interface_admin_status": value.interface_admin_status.filter(|n| interface && (1..=3).contains(n)),
+        "media_connect_state": value.media_connect_state.filter(|n| interface && *n <= 2),
+        "devnode_status": value.devnode_status.filter(|_| pnp),
+        "problem_code": value.problem_code.filter(|_| pnp),
     })
 }
 
