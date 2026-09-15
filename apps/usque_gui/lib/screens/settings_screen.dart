@@ -148,6 +148,7 @@ class SettingsScreen extends StatelessWidget {
                         icon: LucideIcons.sunMoon,
                         title: strings.get('theme'),
                         control: _Picker<ThemePreference>(
+                          semanticLabel: strings.get('theme'),
                           value: controller.themePreference,
                           values: ThemePreference.values,
                           onChanged: controller.setTheme,
@@ -163,6 +164,7 @@ class SettingsScreen extends StatelessWidget {
                         icon: LucideIcons.languages,
                         title: strings.get('language'),
                         control: _Picker<LocalePreference>(
+                          semanticLabel: strings.get('language'),
                           value: controller.localePreference,
                           values: LocalePreference.pickerOrder,
                           onChanged: controller.setLocale,
@@ -773,12 +775,14 @@ class _SettingRow extends StatelessWidget {
 /// dropdown, so it matches the text fields elsewhere in the app.
 class _Picker<T> extends StatelessWidget {
   const _Picker({
+    required this.semanticLabel,
     required this.value,
     required this.values,
     required this.labelOf,
     required this.onChanged,
   });
 
+  final String semanticLabel;
   final T value;
   final List<T> values;
   final String Function(T value) labelOf;
@@ -799,36 +803,39 @@ class _Picker<T> extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: DropdownButtonHideUnderline(
-            child: DropdownButton<T>(
-              value: value,
-              isExpanded: true,
-              isDense: true,
-              borderRadius: BorderRadius.circular(UsqueRadii.control),
-              icon: const Padding(
-                padding: EdgeInsetsDirectional.only(start: 6),
-                child: Icon(LucideIcons.chevronDown, size: 16),
-              ),
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurface,
-              ),
-              padding: const EdgeInsets.symmetric(vertical: 11),
-              onChanged: (next) {
-                if (next != null) {
-                  onChanged(next);
-                }
-              },
-              items: values
-                  .map(
-                    (item) => DropdownMenuItem<T>(
-                      value: item,
-                      child: Text(
-                        labelOf(item),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+            child: Semantics(
+              label: semanticLabel,
+              child: DropdownButton<T>(
+                value: value,
+                isExpanded: true,
+                isDense: true,
+                borderRadius: BorderRadius.circular(UsqueRadii.control),
+                icon: const Padding(
+                  padding: EdgeInsetsDirectional.only(start: 6),
+                  child: Icon(LucideIcons.chevronDown, size: 16),
+                ),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurface,
+                ),
+                padding: const EdgeInsets.symmetric(vertical: 11),
+                onChanged: (next) {
+                  if (next != null) {
+                    onChanged(next);
+                  }
+                },
+                items: values
+                    .map(
+                      (item) => DropdownMenuItem<T>(
+                        value: item,
+                        child: Text(
+                          labelOf(item),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
-                    ),
-                  )
-                  .toList(growable: false),
+                    )
+                    .toList(growable: false),
+              ),
             ),
           ),
         ),
