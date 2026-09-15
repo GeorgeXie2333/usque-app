@@ -400,7 +400,7 @@ mod tests {
         );
         let text = String::from_utf8(sanitized).unwrap();
         for secret in ["listener-secret", "vault-secret", "Basic dXNlcjpwYXNz"] {
-            assert!(!text.contains(secret), "log retained {secret}");
+            assert!(!text.contains(secret), "log retained a sensitive fixture");
         }
         assert!(text.contains("[REDACTED]"));
     }
@@ -450,7 +450,7 @@ mod tests {
             "com.cloudflare.warp",
             "eyJhbGciOiJIUzI1NiJ9",
         ] {
-            assert!(!text.contains(secret), "log retained {secret}");
+            assert!(!text.contains(secret), "log retained a sensitive fixture");
         }
     }
 
