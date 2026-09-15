@@ -24,6 +24,7 @@ use crate::{
     recovery_diagnostics::{
         self, AdapterRemovalDiagnostic, RecoveryApi, RecoveryEvent, RemovalFailure,
     },
+    recovery_trace::{self, TraceResource, TraceSink},
 };
 
 pub const MIN_PACKET_RING_CAPACITY: u32 = 128 * 1024;
@@ -67,6 +68,37 @@ pub enum TunnelInspection {
 
 #[async_trait]
 pub trait PrivilegedBackend: Send + Sync {
+    async fn apply_step_traced(
+        &self,
+        receipt: MutationReceipt,
+        plan: &ValidatedTunnelPlan,
+        caller: &AuthenticatedCaller,
+        _trace: TraceResource,
+    ) -> Result<(MutationReceipt, StepOutput), BackendError> {
+        self.apply_step(receipt, plan, caller).await
+    }
+
+    async fn restore_step_traced(
+        &self,
+        receipt: &MutationReceipt,
+        adapter: Option<&MutationReceipt>,
+        _trace: TraceResource,
+    ) -> Result<(), BackendError> {
+        self.restore_step_with_adapter(receipt, adapter).await
+    }
+
+    async fn resume_packet_session_traced(
+        &self,
+        adapter: &MutationReceipt,
+        session: &MutationReceipt,
+        plan: &ValidatedTunnelPlan,
+        caller: &AuthenticatedCaller,
+        _trace: TraceResource,
+    ) -> Result<PacketSessionHandles, BackendError> {
+        self.resume_packet_session(adapter, session, plan, caller)
+            .await
+    }
+
     /// Performs read-only discovery and creates deterministic resource
     /// identifiers. The returned receipt is persisted before any mutation.
     async fn plan_step(
@@ -164,6 +196,7 @@ pub trait PrivilegedBackend: Send + Sync {
 
 pub struct AgentCoordinator<Backend> {
     diagnostic_sample_gate: Arc<Semaphore>,
+    trace: TraceSink,
     backend: Arc<Backend>,
     store: JournalStore,
     journal: Mutex<RecoveryJournal>,
@@ -177,8 +210,17 @@ where
     Backend: PrivilegedBackend,
 {
     pub fn open(store: JournalStore, backend: Arc<Backend>) -> Result<Self, CoordinatorError> {
+        Self::open_with_trace(store, backend, TraceSink::default())
+    }
+
+    pub fn open_with_trace(
+        store: JournalStore,
+        backend: Arc<Backend>,
+        trace: TraceSink,
+    ) -> Result<Self, CoordinatorError> {
         let journal = store.load_or_clean()?;
         Ok(Self {
+            trace,
             diagnostic_sample_gate: Arc::new(Semaphore::new(1)),
             backend,
             store,
@@ -197,6 +239,10 @@ where
 
     pub fn try_state(&self) -> Option<RecoveryJournal> {
         self.journal.try_lock().ok().map(|journal| journal.clone())
+    }
+
+    pub fn trace_resource(&self, generation: u64) -> TraceResource {
+        self.trace.resource(generation)
     }
 
     pub async fn inspect_recovery_diagnostics(&self) -> agent_v1::RecoveryDiagnostics
@@ -231,6 +277,12 @@ where
             }),
             history_status: RecoveryHistoryStatus::Unavailable as i32,
             history: vec![],
+            trace: Some(agent_v1::RecoveryTrace {
+                status: RecoveryHistoryStatus::Unavailable as i32,
+                dropped_events: self.trace.losses().0,
+                write_failures: self.trace.losses().1,
+                ..Default::default()
+            }),
         };
         let Ok(permit) = Arc::clone(&self.diagnostic_sample_gate).try_acquire_owned() else {
             return unavailable(Status::Busy);
@@ -251,8 +303,8 @@ where
                 if let Some(step) = receipt {
                     let (interface, pnp_device) =
                         backend.inspect_adapter_diagnostics(&step.receipt);
-                    sample.interface = Some(interface);
-                    sample.pnp_device = Some(pnp_device);
+                    sample.interface = Some(recovery_trace::sanitize_resource(interface));
+                    sample.pnp_device = Some(recovery_trace::sanitize_resource(pnp_device));
                     sample.status = Status::Complete as i32;
                 } else {
                     sample.status = Status::NoReceipt as i32;
@@ -263,6 +315,7 @@ where
                 current: Some(sample),
                 history_status: status as i32,
                 history,
+                trace: Some(recovery_trace::read(&path)),
             }
         });
         let mut diagnostics = match tokio::time::timeout(budget, task).await {
@@ -270,6 +323,9 @@ where
             Ok(Err(_)) => return unavailable(Status::Unavailable),
             Err(_) => return unavailable(Status::Timeout),
         };
+        if let Some(trace) = &mut diagnostics.trace {
+            (trace.dropped_events, trace.write_failures) = self.trace.losses();
+        }
         if self
             .try_state()
             .is_none_or(|journal| journal.generation != current.journal_generation)
@@ -726,7 +782,11 @@ where
             if let Some(index) = journal.steps.iter().position(|step| step.kind == kind) {
                 if journal.steps[index].state != MutationState::Restored {
                     self.backend
-                        .restore_step_with_adapter(&journal.steps[index].receipt, adapter.as_ref())
+                        .restore_step_traced(
+                            &journal.steps[index].receipt,
+                            adapter.as_ref(),
+                            self.trace.resource(journal.generation),
+                        )
                         .await?;
                 }
                 journal.steps.remove(index);
@@ -927,7 +987,13 @@ where
         self.store.save(&mut journal)?;
         let handles = self
             .backend
-            .resume_packet_session(&adapter, &session, &plan, caller)
+            .resume_packet_session_traced(
+                &adapter,
+                &session,
+                &plan,
+                caller,
+                self.trace.resource(journal.generation),
+            )
             .await?;
         self.packet_session_attached.store(true, Ordering::Release);
         Ok(handles)
@@ -1501,7 +1567,12 @@ where
         let index = journal.steps.len() - 1;
         match self
             .backend
-            .apply_step(journal.steps[index].receipt.clone(), plan, caller)
+            .apply_step_traced(
+                journal.steps[index].receipt.clone(),
+                plan,
+                caller,
+                self.trace.resource(journal.generation),
+            )
             .await
         {
             Ok((receipt, output)) => {
@@ -1687,7 +1758,11 @@ where
             let started = Instant::now();
             let restored = self
                 .backend
-                .restore_step_with_adapter(&journal.steps[index].receipt, adapter.as_ref())
+                .restore_step_traced(
+                    &journal.steps[index].receipt,
+                    adapter.as_ref(),
+                    self.trace.resource(journal.generation),
+                )
                 .await;
             self.record_step_result(journal, kind, started.elapsed(), &restored);
             match restored {

@@ -3,9 +3,11 @@ use std::{
     ptr::{self, NonNull},
     sync::{Arc, Mutex},
     thread::{self, JoinHandle},
+    time::Instant,
 };
 
 use thiserror::Error;
+use usque_ipc::agent_v1::RecoveryTraceStage as TraceStage;
 use usque_platform::packet_ring::{
     PACKET_RING_LAYOUT_VERSION, PacketDirection, PacketRingError, SharedPacketRing,
 };
@@ -28,6 +30,7 @@ use windows_sys::Win32::{
 
 use crate::{
     coordinator::PacketSessionHandles,
+    recovery_trace::{TraceResource, milliseconds},
     windows::wintun::{WintunError, WintunSession},
 };
 
@@ -167,6 +170,7 @@ pub struct PacketPump {
     mapping: Arc<PacketMapping>,
     thread: Option<JoinHandle<Result<(), PacketSessionError>>>,
     terminal_error: Arc<Mutex<Option<String>>>,
+    trace: TraceResource,
 }
 
 impl PacketPump {
@@ -174,6 +178,7 @@ impl PacketPump {
         session: WintunSession,
         mapping: Arc<PacketMapping>,
     ) -> Result<Self, PacketSessionError> {
+        let trace = session.trace();
         let thread_mapping = Arc::clone(&mapping);
         let terminal_error = Arc::new(Mutex::new(None));
         let thread_error = Arc::clone(&terminal_error);
@@ -193,6 +198,7 @@ impl PacketPump {
             mapping,
             thread: Some(thread),
             terminal_error,
+            trace,
         })
     }
 
@@ -208,7 +214,14 @@ impl PacketPump {
         self.join()
     }
 
+    pub fn set_trace_generation(&self, generation: u64) {
+        self.trace.set_generation(generation);
+    }
+
     fn signal_shutdown(&self) {
+        if self.thread.is_some() {
+            self.trace.record(TraceStage::PumpStopRequested);
+        }
         // SAFETY: mapping owns this live event handle.
         unsafe {
             SetEvent(self.mapping.shutdown_event());
@@ -219,9 +232,17 @@ impl PacketPump {
         let Some(thread) = self.thread.take() else {
             return Ok(());
         };
-        thread
+        self.trace.record(TraceStage::PumpJoinStarted);
+        let started = Instant::now();
+        let result = thread
             .join()
-            .map_err(|_| PacketSessionError::PumpPanicked)?
+            .map_err(|_| PacketSessionError::PumpPanicked)
+            .and_then(|result| result);
+        let mut event = self.trace.event(TraceStage::PumpJoinReturned);
+        event.elapsed_ms = Some(milliseconds(started.elapsed()));
+        event.succeeded = Some(result.is_ok());
+        self.trace.emit(event);
+        result
     }
 }
 

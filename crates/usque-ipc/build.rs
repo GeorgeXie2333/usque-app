@@ -15,6 +15,13 @@ fn main() {
 
     let mut config = prost_build::Config::new();
     config.type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]");
+    for message in [
+        "RecoveryTraceEvent",
+        "RecoveryObservation",
+        "RecoveryResourceObservation",
+    ] {
+        config.type_attribute(format!(".usque.agent.v1.{message}"), "#[serde(default)]");
+    }
     // Keep control envelopes small enough to pass cheaply across async queues.
     config.boxed(".usque.v1.ControlRequest.payload.upsert_profile");
     config.boxed(".usque.v1.ControlRequest.payload.create_profile_with_identity");
@@ -34,6 +41,8 @@ fn main() {
     config.boxed(".usque.v1.ConnectionSnapshot.network_quality");
     config.boxed(".usque.v1.NetworkQualityUpdated.snapshot");
     config.boxed(".usque.agent.v1.AgentState.plan");
+    // The optional diagnostic extension must not inflate every Agent envelope.
+    config.boxed(".usque.agent.v1.PlatformState.recovery_diagnostics");
     config
         .compile_protos(&[control, agent], &[proto_root])
         .expect("compile protobuf contracts");

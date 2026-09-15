@@ -6,18 +6,19 @@ use std::{
     os::windows::ffi::OsStrExt,
     path::{Path, PathBuf},
     ptr,
-    sync::Arc,
+    sync::{Arc, OnceLock},
     thread,
     time::{Duration, Instant},
 };
 
 use sha2::{Digest, Sha256};
 use thiserror::Error;
+use usque_ipc::agent_v1::RecoveryTraceStage as TraceStage;
 use uuid::Uuid;
 use windows_sys::{
     Win32::{
         Devices::DeviceAndDriverInstallation::{
-            DI_REMOVEDEVICE_GLOBAL, DIF_REMOVE, GUID_DEVCLASS_NET, HDEVINFO,
+            CM_Get_DevNode_Status, DI_REMOVEDEVICE_GLOBAL, DIF_REMOVE, GUID_DEVCLASS_NET, HDEVINFO,
             SP_CLASSINSTALL_HEADER, SP_DEVINFO_DATA, SP_REMOVEDEVICE_PARAMS,
             SetupDiCallClassInstaller, SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInfo,
             SetupDiGetClassDevsW, SetupDiGetDeviceInstanceIdW, SetupDiSetClassInstallParamsW,
@@ -37,6 +38,7 @@ use crate::journal::MutationReceipt;
 use crate::recovery_diagnostics::{
     AdapterRemovalDiagnostic, RecoveryApi, RemovalFailure, RemovalStage,
 };
+use crate::recovery_trace::{TraceResource, TraceSink};
 
 const WINTUN_DLL_NAME: &str = "wintun.dll";
 const WINTUN_MIN_RING_CAPACITY: u32 = 0x20_000;
@@ -73,6 +75,44 @@ type ReceivePacket = unsafe extern "system" fn(SessionHandle, *mut u32) -> *mut 
 type ReleaseReceivePacket = unsafe extern "system" fn(SessionHandle, *const u8);
 type AllocateSendPacket = unsafe extern "system" fn(SessionHandle, u32) -> *mut u8;
 type SendPacket = unsafe extern "system" fn(SessionHandle, *const u8);
+type LoggerCallback = unsafe extern "system" fn(i32, u64, *const u16);
+type SetLogger = unsafe extern "system" fn(Option<LoggerCallback>);
+
+// Wintun's callback is global and may outlive the foreign call that queued it.
+// Keep only the evidence producer alive; never associate it with the last VPN.
+static NATIVE_TRACE: OnceLock<TraceSink> = OnceLock::new();
+
+unsafe extern "system" fn native_logger(level: i32, timestamp: u64, message: *const u16) {
+    // No panic may cross the FFI boundary. The callback performs bounded work,
+    // uses try_send, and never obtains a journal/network lock or writes a file.
+    let _ = std::panic::catch_unwind(|| {
+        let Some(sink) = NATIVE_TRACE.get() else {
+            return;
+        };
+        if message.is_null() {
+            return;
+        }
+        let mut units = [0u16; 1024];
+        let mut length = 0;
+        while length < units.len() {
+            // SAFETY: the Wintun callback contract supplies a live, terminated
+            // UTF-16 string. Read sequentially and stop at the first terminator.
+            let unit = unsafe { *message.add(length) };
+            if unit == 0 {
+                break;
+            }
+            units[length] = unit;
+            length += 1;
+        }
+        let text = String::from_utf16_lossy(&units[..length]);
+        let unix_ms = timestamp.saturating_sub(116_444_736_000_000_000) / 10_000;
+        sink.native_message(
+            u32::try_from(level.saturating_add(1)).unwrap_or(0),
+            unix_ms,
+            &text,
+        );
+    });
+}
 
 pub struct WintunLibrary {
     module: HMODULE,
@@ -88,6 +128,7 @@ pub struct WintunLibrary {
     release_receive_packet: ReleaseReceivePacket,
     allocate_send_packet: AllocateSendPacket,
     send_packet: SendPacket,
+    set_logger: SetLogger,
 }
 
 // SAFETY: a loaded module and immutable function table may be called
@@ -147,6 +188,7 @@ impl WintunLibrary {
                     release_receive_packet: resolve(module, b"WintunReleaseReceivePacket\0")?,
                     allocate_send_packet: resolve(module, b"WintunAllocateSendPacket\0")?,
                     send_packet: resolve(module, b"WintunSendPacket\0")?,
+                    set_logger: resolve(module, b"WintunSetLogger\0")?,
                 })
             }
         })();
@@ -167,6 +209,7 @@ impl WintunLibrary {
         self: &Arc<Self>,
         name: &str,
         requested_guid: Uuid,
+        trace: TraceResource,
     ) -> Result<WintunAdapter, WintunError> {
         let name = wide_name(name)?;
         let tunnel_type = wide_name("Usque")?;
@@ -184,10 +227,15 @@ impl WintunLibrary {
             library: Arc::clone(self),
             handle,
             name: name_to_string(&name),
+            trace,
         })))
     }
 
-    pub fn open_adapter(self: &Arc<Self>, name: &str) -> Result<WintunAdapter, WintunError> {
+    pub fn open_adapter(
+        self: &Arc<Self>,
+        name: &str,
+        trace: TraceResource,
+    ) -> Result<WintunAdapter, WintunError> {
         let name = wide_name(name)?;
         // SAFETY: name is valid and null-terminated; returned handle ownership
         // is transferred into AdapterInner.
@@ -202,6 +250,7 @@ impl WintunLibrary {
             library: Arc::clone(self),
             handle,
             name: name_to_string(&name),
+            trace,
         })))
     }
 
@@ -215,6 +264,16 @@ impl WintunLibrary {
             ))
         } else {
             Ok(version)
+        }
+    }
+
+    pub fn enable_recovery_trace(&self, sink: TraceSink) {
+        if sink.enabled() && NATIVE_TRACE.set(sink).is_ok() {
+            // SAFETY: the pinned function signature matches wintun.h. The
+            // callback and its producer live for the rest of this process.
+            unsafe {
+                (self.set_logger)(Some(native_logger));
+            }
         }
     }
 }
@@ -248,7 +307,11 @@ impl WintunAdapter {
         }
     }
 
-    pub fn start_session(&self, capacity: u32) -> Result<WintunSession, WintunError> {
+    pub fn start_session(
+        &self,
+        capacity: u32,
+        trace: TraceResource,
+    ) -> Result<WintunSession, WintunError> {
         if !(WINTUN_MIN_RING_CAPACITY..=WINTUN_MAX_RING_CAPACITY).contains(&capacity)
             || !capacity.is_power_of_two()
         {
@@ -265,7 +328,16 @@ impl WintunAdapter {
         Ok(WintunSession {
             adapter: self.clone(),
             handle,
+            trace,
         })
+    }
+
+    pub fn release_requested(&self, generation: u64) {
+        self.0.trace.set_generation(generation);
+        let mut event = self.0.trace.event(TraceStage::AdapterReleaseRequested);
+        // This is diagnostic evidence only, never a liveness/safety decision.
+        event.reference_count = u32::try_from(Arc::strong_count(&self.0)).ok();
+        self.0.trace.emit(event);
     }
 }
 
@@ -273,6 +345,7 @@ struct AdapterInner {
     library: Arc<WintunLibrary>,
     handle: AdapterHandle,
     name: String,
+    trace: TraceResource,
 }
 
 // SAFETY: adapter handle is owned uniquely; WintunLibrary is already Send.
@@ -284,10 +357,17 @@ unsafe impl Sync for AdapterInner {}
 impl Drop for AdapterInner {
     fn drop(&mut self) {
         if !self.handle.is_null() {
-            // SAFETY: this object uniquely owns the adapter handle.
-            unsafe {
-                (self.library.close_adapter)(self.handle);
-            }
+            self.trace.call(
+                TraceStage::CloseAdapterStarted,
+                TraceStage::CloseAdapterReturned,
+                || {
+                    // SAFETY: this object uniquely owns the adapter handle. A VOID
+                    // return records completion of the call, not device absence.
+                    unsafe {
+                        (self.library.close_adapter)(self.handle);
+                    }
+                },
+            );
         }
     }
 }
@@ -295,6 +375,7 @@ impl Drop for AdapterInner {
 pub struct WintunSession {
     adapter: WintunAdapter,
     handle: SessionHandle,
+    trace: TraceResource,
 }
 
 // SAFETY: session handle is uniquely owned; adapter is Send and Sync.
@@ -305,6 +386,9 @@ unsafe impl Send for WintunSession {}
 unsafe impl Sync for WintunSession {}
 
 impl WintunSession {
+    pub fn trace(&self) -> TraceResource {
+        self.trace.clone()
+    }
     pub fn adapter(&self) -> &WintunAdapter {
         &self.adapter
     }
@@ -386,10 +470,16 @@ impl WintunSession {
 impl Drop for WintunSession {
     fn drop(&mut self) {
         if !self.handle.is_null() {
-            // SAFETY: this object uniquely owns the session handle.
-            unsafe {
-                (self.adapter.0.library.end_session)(self.handle);
-            }
+            self.trace.call(
+                TraceStage::EndSessionStarted,
+                TraceStage::EndSessionReturned,
+                || {
+                    // SAFETY: this object uniquely owns the session handle.
+                    unsafe {
+                        (self.adapter.0.library.end_session)(self.handle);
+                    }
+                },
+            );
         }
     }
 }
@@ -455,10 +545,42 @@ pub fn inspect_adapter_diagnostics(
     }
     // Independent probes retain both errors. No library load, OpenAdapter,
     // service action, or cleanup action is performed here.
-    (
-        resource_observation(interface_instance_present(receipt)),
-        resource_observation(device_instance_present(*adapter_guid)),
-    )
+    let interface = match network::inspect_adapter_state(receipt).map_err(interface_error) {
+        Ok(state) => {
+            let mut observation = resource_observation(Ok(state.is_some()));
+            if let Some(state) = state {
+                observation.interface_oper_status = Some(state.oper_status);
+                observation.interface_admin_status = Some(state.admin_status);
+                observation.media_connect_state = Some(state.media_connect_state);
+            }
+            observation
+        }
+        Err(error) => resource_observation(Err(error)),
+    };
+    let device = match find_device_instance(*adapter_guid) {
+        Ok(Some((_set, device))) => {
+            let mut observation = resource_observation(Ok(true));
+            let mut flags = 0;
+            let mut problem = 0;
+            // SAFETY: SetupAPI returned this devnode; writable outputs remain
+            // valid for the read-only CONFIGRET call. No device is opened.
+            let result =
+                unsafe { CM_Get_DevNode_Status(&mut flags, &mut problem, device.DevInst, 0) };
+            if result == 0 {
+                observation.devnode_status = Some(flags);
+                observation.problem_code = Some(problem);
+            } else {
+                observation.presence = 0;
+                observation.api =
+                    usque_ipc::agent_v1::RecoveryDiagnosticApi::CmGetDevNodeStatus as i32;
+                observation.configret_code = Some(result);
+            }
+            observation
+        }
+        Ok(None) => resource_observation(Ok(false)),
+        Err(error) => resource_observation(Err(error)),
+    };
+    (interface, device)
 }
 
 fn resource_observation(
@@ -647,12 +769,16 @@ fn adapter_resources_present_with(
 }
 
 fn interface_instance_present(receipt: &MutationReceipt) -> Result<bool, WintunError> {
-    network::inspect_adapter_identity(receipt).map_err(|error| match error {
+    network::inspect_adapter_identity(receipt).map_err(interface_error)
+}
+
+fn interface_error(error: network::NetworkError) -> WintunError {
+    match error {
         network::NetworkError::Windows { operation, code } => {
             WintunError::Windows(operation, io::Error::from_raw_os_error(code as i32))
         }
         _ => WintunError::InvalidRecoveryIdentity,
-    })
+    }
 }
 
 fn remove_device_instance(expected_guid: Uuid) -> Result<bool, WintunError> {
@@ -904,6 +1030,99 @@ impl WintunError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn memory_library() -> Arc<WintunLibrary> {
+        unsafe extern "system" fn create(
+            _: *const u16,
+            _: *const u16,
+            _: *const GUID,
+        ) -> AdapterHandle {
+            ptr::dangling_mut()
+        }
+        unsafe extern "system" fn open(_: *const u16) -> AdapterHandle {
+            ptr::dangling_mut()
+        }
+        unsafe extern "system" fn close(_: AdapterHandle) {}
+        unsafe extern "system" fn luid(_: AdapterHandle, _: *mut NET_LUID_LH) {}
+        unsafe extern "system" fn version() -> u32 {
+            1
+        }
+        unsafe extern "system" fn start(_: AdapterHandle, _: u32) -> SessionHandle {
+            ptr::dangling_mut()
+        }
+        unsafe extern "system" fn event(_: SessionHandle) -> HANDLE {
+            ptr::null_mut()
+        }
+        unsafe extern "system" fn receive(_: SessionHandle, _: *mut u32) -> *mut u8 {
+            ptr::null_mut()
+        }
+        unsafe extern "system" fn release(_: SessionHandle, _: *const u8) {}
+        unsafe extern "system" fn allocate(_: SessionHandle, _: u32) -> *mut u8 {
+            ptr::null_mut()
+        }
+        unsafe extern "system" fn logger(_: Option<LoggerCallback>) {}
+        Arc::new(WintunLibrary {
+            module: ptr::null_mut(),
+            create_adapter: create,
+            open_adapter: open,
+            close_adapter: close,
+            get_adapter_luid: luid,
+            get_running_driver_version: version,
+            start_session: start,
+            end_session: close,
+            get_read_wait_event: event,
+            receive_packet: receive,
+            release_receive_packet: release,
+            allocate_send_packet: allocate,
+            send_packet: release,
+            set_logger: logger,
+        })
+    }
+
+    #[test]
+    fn session_and_last_adapter_reference_emit_the_actual_foreign_call_boundaries() {
+        let (sink, receiver) = TraceSink::channel(16);
+        let adapter = memory_library()
+            .create_adapter("memory-only", Uuid::new_v4(), sink.resource(8))
+            .unwrap();
+        let session = adapter
+            .start_session(WINTUN_MIN_RING_CAPACITY, sink.resource(11))
+            .unwrap();
+        let retained = adapter.clone();
+        adapter.release_requested(20);
+        drop(adapter);
+        let rows: Vec<_> = receiver.try_iter().collect();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].stage, TraceStage::AdapterReleaseRequested as i32);
+        assert_eq!(rows[0].reference_count, Some(3));
+        session.trace().set_generation(19);
+        drop(session);
+        let rows: Vec<_> = receiver.try_iter().collect();
+        assert_eq!(
+            rows.iter().map(|e| e.stage).collect::<Vec<_>>(),
+            [
+                TraceStage::EndSessionStarted as i32,
+                TraceStage::EndSessionReturned as i32
+            ]
+        );
+        assert!(
+            rows.iter()
+                .all(|e| e.journal_generation == 19 && e.succeeded.is_none())
+        );
+        drop(retained);
+        let rows: Vec<_> = receiver.try_iter().collect();
+        assert_eq!(
+            rows.iter().map(|e| e.stage).collect::<Vec<_>>(),
+            [
+                TraceStage::CloseAdapterStarted as i32,
+                TraceStage::CloseAdapterReturned as i32
+            ]
+        );
+        assert!(
+            rows.iter()
+                .all(|e| e.journal_generation == 20 && e.succeeded.is_none())
+        );
+    }
 
     fn observation(interface: bool, device: bool) -> AdapterObservation {
         AdapterObservation {

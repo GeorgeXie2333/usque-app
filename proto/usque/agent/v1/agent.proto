@@ -226,6 +226,7 @@ enum RecoveryDiagnosticApi {
   RECOVERY_DIAGNOSTIC_API_SETUP_DI_SET_CLASS_INSTALL_PARAMS = 5;
   RECOVERY_DIAGNOSTIC_API_SETUP_DI_CALL_CLASS_INSTALLER = 6;
   RECOVERY_DIAGNOSTIC_API_OTHER = 7;
+  RECOVERY_DIAGNOSTIC_API_CM_GET_DEV_NODE_STATUS = 8;
 }
 
 message RecoveryResourceObservation {
@@ -233,6 +234,14 @@ message RecoveryResourceObservation {
   RecoveryIdentityCheck identity_check = 2;
   RecoveryDiagnosticApi api = 3;
   optional uint32 win32_code = 4;
+  // IP Helper state enums, never interface identifiers.
+  optional uint32 interface_oper_status = 5;
+  optional uint32 interface_admin_status = 6;
+  optional uint32 media_connect_state = 7;
+  optional uint32 devnode_status = 8;
+  optional uint32 problem_code = 9;
+  // CONFIGRET is a different error namespace from GetLastError/Win32.
+  optional uint32 configret_code = 10;
 }
 
 message RecoveryObservation {
@@ -305,6 +314,59 @@ message RecoveryDiagnostics {
   RecoveryHistoryStatus history_status = 2;
   // Latest at most 32 valid events, in file order. Never current observations.
   repeated RecoveryHistoryEvent history = 3;
+  // Separate process/resource lifecycle evidence; absence means an older Agent.
+  RecoveryTrace trace = 4;
+}
+
+enum RecoveryTraceStage {
+  RECOVERY_TRACE_STAGE_UNSPECIFIED = 0;
+  RECOVERY_TRACE_STAGE_PUMP_STOP_REQUESTED = 1;
+  RECOVERY_TRACE_STAGE_PUMP_JOIN_STARTED = 2;
+  RECOVERY_TRACE_STAGE_PUMP_JOIN_RETURNED = 3;
+  RECOVERY_TRACE_STAGE_END_SESSION_STARTED = 4;
+  RECOVERY_TRACE_STAGE_END_SESSION_RETURNED = 5;
+  RECOVERY_TRACE_STAGE_ADAPTER_RELEASE_REQUESTED = 6;
+  RECOVERY_TRACE_STAGE_CLOSE_ADAPTER_STARTED = 7;
+  RECOVERY_TRACE_STAGE_CLOSE_ADAPTER_RETURNED = 8;
+  RECOVERY_TRACE_STAGE_NATIVE_REMOVE_FAILED = 9;
+  RECOVERY_TRACE_STAGE_NATIVE_ORPHAN_REMOVE_FAILED = 10;
+  RECOVERY_TRACE_STAGE_NATIVE_ORPHAN_REMOVED = 11;
+  RECOVERY_TRACE_STAGE_NATIVE_OTHER = 12;
+  RECOVERY_TRACE_STAGE_OBSERVATION_STARTED = 13;
+  RECOVERY_TRACE_STAGE_OBSERVATION_CHANGED = 14;
+  RECOVERY_TRACE_STAGE_OBSERVATION_ABSENT = 15;
+  RECOVERY_TRACE_STAGE_OBSERVATION_DEADLINE = 16;
+  RECOVERY_TRACE_STAGE_OBSERVATION_CANCELLED = 17;
+}
+
+message RecoveryTraceEvent {
+  uint32 schema_version = 1;
+  // Random per-process nonce and per-process counter, never PID/GUID/LUID.
+  uint64 agent_run_id = 2;
+  uint64 event_sequence = 3;
+  uint64 occurred_at_unix_ms = 4;
+  uint64 monotonic_ms = 5;
+  // Zero denotes an unassociated callback, not the latest transaction.
+  uint64 journal_generation = 6;
+  uint64 resource_id = 7;
+  RecoveryTraceStage stage = 8;
+  optional uint64 elapsed_ms = 9;
+  optional uint32 reference_count = 10;
+  // Only packet-pump joins have a result. Wintun VOID returns are not success.
+  optional bool succeeded = 11;
+  RecoveryObservation observation = 12;
+  // 1 info, 2 warning, 3 error. No native message text crosses the boundary.
+  optional uint32 native_level = 13;
+  uint64 dropped_events = 14;
+  uint64 write_failures = 15;
+}
+
+message RecoveryTrace {
+  RecoveryHistoryStatus status = 1;
+  // Latest at most 128 valid records, with original event times.
+  repeated RecoveryTraceEvent events = 2;
+  uint64 dropped_events = 3;
+  uint64 write_failures = 4;
 }
 
 message PhysicalInterface {

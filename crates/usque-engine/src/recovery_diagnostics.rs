@@ -33,7 +33,7 @@ pub(crate) async fn capture() -> PlatformState {
                 "unavailable"
             }
             .to_owned(),
-            recovery_diagnostics: Some(agent_v1::RecoveryDiagnostics {
+            recovery_diagnostics: Some(Box::new(agent_v1::RecoveryDiagnostics {
                 current: Some(agent_v1::RecoveryObservation {
                     status: if result.is_err() {
                         agent_v1::RecoverySampleStatus::Timeout
@@ -44,7 +44,7 @@ pub(crate) async fn capture() -> PlatformState {
                 }),
                 history_status: agent_v1::RecoveryHistoryStatus::Unavailable as i32,
                 ..Default::default()
-            }),
+            })),
             ..Default::default()
         },
     }
@@ -162,7 +162,7 @@ mod tests {
             agent_v1::RecoverySampleStatus::Unavailable,
         ] {
             let state = PlatformState {
-                recovery_diagnostics: Some(agent_v1::RecoveryDiagnostics {
+                recovery_diagnostics: Some(Box::new(agent_v1::RecoveryDiagnostics {
                     current: Some(agent_v1::RecoveryObservation {
                         status: status as i32,
                         interface: Some(agent_v1::RecoveryResourceObservation {
@@ -173,7 +173,7 @@ mod tests {
                         ..Default::default()
                     }),
                     ..Default::default()
-                }),
+                })),
                 ..Default::default()
             };
             assert_eq!(
@@ -197,7 +197,7 @@ mod tests {
                 }),
                 ..Default::default()
             }),
-            recovery_diagnostics: Some(agent_v1::RecoveryDiagnostics {
+            recovery_diagnostics: Some(Box::new(agent_v1::RecoveryDiagnostics {
                 current: Some(agent_v1::RecoveryObservation {
                     sampled_at_unix_ms: 200,
                     journal_generation: 10,
@@ -215,7 +215,8 @@ mod tests {
                         ..Default::default()
                     })
                     .collect(),
-            }),
+                trace: None,
+            })),
             ..Default::default()
         };
         let value = summary(Some(&state));

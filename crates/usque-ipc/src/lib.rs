@@ -529,7 +529,7 @@ mod tests {
             journal_generation: u64,
         }
         let extension = agent_v1::PlatformState {
-            recovery_diagnostics: Some(agent_v1::RecoveryDiagnostics::default()),
+            recovery_diagnostics: Some(Box::default()),
             ..Default::default()
         };
         assert_eq!(extension.encode_to_vec(), [0x92, 0x01, 0x00]);
@@ -558,10 +558,75 @@ mod tests {
             }),
             history_status: agent_v1::RecoveryHistoryStatus::Missing as i32,
             history: vec![],
+            trace: None,
         };
         assert_eq!(
             agent_v1::RecoveryDiagnostics::decode(sample.encode_to_vec().as_slice()).unwrap(),
             sample
+        );
+    }
+
+    #[test]
+    fn recovery_trace_and_resource_metrics_are_append_only_optional_wire_fields() {
+        #[derive(Clone, PartialEq, prost::Message)]
+        struct LegacyDiagnostics {
+            #[prost(enumeration = "agent_v1::RecoveryHistoryStatus", tag = "2")]
+            history_status: i32,
+        }
+        #[derive(Clone, PartialEq, prost::Message)]
+        struct LegacyResource {
+            #[prost(enumeration = "agent_v1::RecoveryPresence", tag = "1")]
+            presence: i32,
+        }
+        let trace = agent_v1::RecoveryDiagnostics {
+            history_status: 1,
+            trace: Some(agent_v1::RecoveryTrace {
+                status: 1,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert_eq!(trace.encode_to_vec(), [0x10, 1, 0x22, 2, 0x08, 1]);
+        assert_eq!(
+            LegacyDiagnostics::decode(trace.encode_to_vec().as_slice())
+                .unwrap()
+                .history_status,
+            1
+        );
+        assert!(
+            agent_v1::RecoveryDiagnostics::decode([0x10, 1].as_slice())
+                .unwrap()
+                .trace
+                .is_none()
+        );
+        let resource = agent_v1::RecoveryResourceObservation {
+            presence: 1,
+            interface_oper_status: Some(7),
+            interface_admin_status: Some(2),
+            media_connect_state: Some(0),
+            devnode_status: Some(1),
+            problem_code: Some(0),
+            configret_code: Some(5),
+            ..Default::default()
+        };
+        assert_eq!(
+            resource.encode_to_vec(),
+            [
+                0x08, 1, 0x28, 7, 0x30, 2, 0x38, 0, 0x40, 1, 0x48, 0, 0x50, 5
+            ]
+        );
+        assert_eq!(
+            LegacyResource::decode(resource.encode_to_vec().as_slice())
+                .unwrap()
+                .presence,
+            1
+        );
+        let old = agent_v1::RecoveryResourceObservation::decode([0x08, 1].as_slice()).unwrap();
+        assert!(old.configret_code.is_none());
+        assert!(old.interface_oper_status.is_none());
+        assert_eq!(
+            agent_v1::RecoveryDiagnosticApi::CmGetDevNodeStatus as i32,
+            8
         );
     }
 
