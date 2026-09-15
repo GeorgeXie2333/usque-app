@@ -122,6 +122,13 @@ affect an immediate application restart; device reuse does not prove those
 delays are fixed. A native worker owns its resources until completion or process
 exit; a timeout never authorizes another native owner in that process.
 An Engine crash or broken lease retains the 30-second reattachment grace.
+If a retirement journal write fails with an I/O error, the existing service
+supervisor retries the outstanding write every five seconds until it succeeds
+or the service stops. It retains the native retirement result, so a completed
+or timed-out deletion is never started again by a persistence retry. A failed
+intent write must succeed before the single native attempt can start. These
+retries do not consume or refresh the connection recovery budget; reuse and
+idle exit remain blocked until the required record is durable.
 An unused service with no device, clients or recovery jobs keeps its 10-second
 idle-exit grace; an application-held idle device outlives it.
 

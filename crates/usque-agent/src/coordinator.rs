@@ -196,6 +196,8 @@ pub struct AgentCoordinator<Backend> {
     device_lease_epoch: AtomicU64,
     device_retirement_deferred: AtomicBool,
     device_retirement_completed: AtomicBool,
+    device_retirement_result: std::sync::Mutex<Option<DeviceRetirement>>,
+    device_retirement_retry_pending: AtomicBool,
 }
 
 impl<Backend> AgentCoordinator<Backend>
@@ -219,6 +221,8 @@ where
             device_lease_epoch: AtomicU64::new(0),
             device_retirement_deferred: AtomicBool::new(false),
             device_retirement_completed: AtomicBool::new(false),
+            device_retirement_result: std::sync::Mutex::new(None),
+            device_retirement_retry_pending: AtomicBool::new(false),
         })
     }
 

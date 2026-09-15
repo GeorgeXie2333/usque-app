@@ -468,6 +468,118 @@ async fn unknown_missing_and_conflicting_device_never_create_a_second_session() 
 }
 
 #[tokio::test]
+async fn retirement_persistence_failure_recovers_without_repeating_native_removal() {
+    for successful_saves in [0, 1] {
+        let backend = Arc::new(MockBackend::default());
+        let (_dir, coordinator) = coordinator(Arc::clone(&backend));
+        let key = coordinator.acquire_device_lease(&caller()).await.unwrap();
+        let op = prepare_device(&coordinator, key).await;
+        coordinator.rollback(op, &caller()).await.unwrap();
+        coordinator.store.fail_clean_save_after(successful_saves);
+        assert!(
+            coordinator
+                .release_device_lease(key, &caller())
+                .await
+                .is_err()
+        );
+        assert!(!coordinator.device_lease_attached());
+        assert!(
+            !coordinator.detach_device_lease(key, &caller()),
+            "Release already detached before EOF"
+        );
+
+        // A continuing disk failure must never permit another session or exit.
+        for _ in 0..2 {
+            assert!(!coordinator.may_exit_idle().await);
+            assert!(coordinator.acquire_device_lease(&caller()).await.is_err());
+            coordinator.store.fail_next_clean_save();
+            assert!(coordinator.retire_device().await.is_err());
+        }
+        assert_eq!(
+            coordinator.retire_device().await.unwrap(),
+            DeviceRetirement::Complete
+        );
+        assert!(coordinator.store.load_or_clean().unwrap().is_fully_clean());
+        assert!(coordinator.may_exit_idle().await);
+        assert_eq!(
+            backend
+                .restored
+                .lock()
+                .await
+                .iter()
+                .filter(|kind| **kind == MutationKind::WintunAdapter)
+                .count(),
+            1
+        );
+
+        let current = coordinator.acquire_device_lease(&caller()).await.unwrap();
+        assert!(!coordinator.retire_orphaned_device(key).await.unwrap());
+        let op = prepare_device(&coordinator, current).await;
+        coordinator.rollback(op, &caller()).await.unwrap();
+        coordinator
+            .release_device_lease(current, &caller())
+            .await
+            .unwrap();
+        assert_eq!(
+            backend
+                .restored
+                .lock()
+                .await
+                .iter()
+                .filter(|kind| **kind == MutationKind::WintunAdapter)
+                .count(),
+            2
+        );
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn timed_out_retirement_with_failed_save_never_starts_another_native_worker() {
+    let backend = Arc::new(MockBackend::default());
+    let (_dir, coordinator) = coordinator(Arc::clone(&backend));
+    let key = coordinator.acquire_device_lease(&caller()).await.unwrap();
+    let op = prepare_device(&coordinator, key).await;
+    coordinator.rollback(op, &caller()).await.unwrap();
+    backend.block_restore.store(true, Ordering::Release);
+    coordinator.store.fail_clean_save_after(1);
+    assert!(
+        coordinator
+            .release_device_lease(key, &caller())
+            .await
+            .is_err()
+    );
+    assert!(!coordinator.may_exit_idle().await);
+    assert_eq!(
+        coordinator.retire_device().await.unwrap(),
+        DeviceRetirement::Deferred
+    );
+    assert_eq!(
+        coordinator
+            .store
+            .load_or_clean()
+            .unwrap()
+            .device
+            .unwrap()
+            .state,
+        DeviceState::RecoveryRequired
+    );
+    assert!(coordinator.may_exit_idle().await);
+    assert!(coordinator.acquire_device_lease(&caller()).await.is_err());
+    assert_eq!(
+        backend
+            .restored
+            .lock()
+            .await
+            .iter()
+            .filter(|kind| **kind == MutationKind::WintunAdapter)
+            .count(),
+        1
+    );
+    backend.restore_release.notify_one();
+    tokio::task::yield_now().await;
+}
+
+#[tokio::test]
 async fn sidecar_and_standalone_proxy_restore_preserve_the_idle_device() {
     let backend = Arc::new(MockBackend::default());
     let (_dir, coordinator) = coordinator(Arc::clone(&backend));

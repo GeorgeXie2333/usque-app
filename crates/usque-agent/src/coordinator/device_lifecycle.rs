@@ -41,6 +41,31 @@ impl<Backend: PrivilegedBackend + 'static> AgentCoordinator<Backend> {
             || self.device_retirement_completed.load(Ordering::Acquire)
     }
 
+    pub fn device_retirement_retry_pending(&self) -> bool {
+        self.device_retirement_retry_pending.load(Ordering::Acquire)
+    }
+
+    /// The service owns persistence retries even after the releasing pipe is gone.
+    pub async fn retry_device_retirement_persistence(&self) -> Result<(), CoordinatorError> {
+        let mut journal = self.journal.lock().await;
+        if !self.device_retirement_retry_pending() {
+            return Ok(());
+        }
+        if journal.phase != RecoveryPhase::Clean || self.device_lease_attached() {
+            return Err(CoordinatorError::RecoveryBusy);
+        }
+        self.retire_device_locked(&mut journal).await.map(|_| ())
+    }
+
+    fn save_device_retirement(&self, journal: &mut RecoveryJournal) -> Result<(), JournalError> {
+        let result = self.store.save(journal);
+        self.device_retirement_retry_pending.store(
+            matches!(&result, Err(JournalError::Io(_))),
+            Ordering::Release,
+        );
+        result
+    }
+
     pub async fn may_exit_idle(&self) -> bool {
         let journal = self.journal.lock().await;
         !self.device_lease_attached()
@@ -132,6 +157,12 @@ impl<Backend: PrivilegedBackend + 'static> AgentCoordinator<Backend> {
         self.device_retirement_deferred
             .store(false, Ordering::Release);
         self.device_retirement_completed
+            .store(false, Ordering::Release);
+        *self
+            .device_retirement_result
+            .lock()
+            .expect("device retirement lock") = None;
+        self.device_retirement_retry_pending
             .store(false, Ordering::Release);
         Ok(key)
     }
@@ -322,39 +353,64 @@ impl<Backend: PrivilegedBackend + 'static> AgentCoordinator<Backend> {
         if journal.phase != RecoveryPhase::Clean || self.packet_session_attached() {
             return Err(CoordinatorError::RecoveryBusy);
         }
-        device.state = DeviceState::Retiring;
-        let receipt = device.receipt.clone();
-        // Failure here prevents the device-only exit exception.
-        self.store.save(journal)?;
-        let started = Instant::now();
-        let backend = Arc::clone(&self.backend);
-        // A timed-out native worker retains its backend/handle ownership. It is
-        // never aborted. The durable retirement state bars every new session
-        // until this process exits and startup verifies removal again.
-        let mut worker = tokio::spawn(async move { backend.restore_step(&receipt).await });
-        let result = match tokio::time::timeout(DEVICE_RETIREMENT_TIMEOUT, &mut worker).await {
-            Ok(Ok(result)) => result,
-            Ok(Err(_)) => Err(BackendError::Operation(
-                "device retirement worker failed".into(),
-            )),
-            Err(_) => Err(BackendError::AdapterRemovalPending),
+        let previous_result = *self
+            .device_retirement_result
+            .lock()
+            .expect("device retirement lock");
+        let retirement = match previous_result {
+            Some(result) => result,
+            None => {
+                device.state = DeviceState::Retiring;
+                let receipt = device.receipt.clone();
+                // A failed intent write cannot start native work or allow exit.
+                self.save_device_retirement(journal)?;
+                let started = Instant::now();
+                let backend = Arc::clone(&self.backend);
+                // Remember the attempt before spawning. A timed-out worker owns
+                // its handles until completion/process exit; saving its pending
+                // result must never start a second native worker.
+                *self
+                    .device_retirement_result
+                    .lock()
+                    .expect("device retirement lock") = Some(DeviceRetirement::Deferred);
+                let mut worker = tokio::spawn(async move { backend.restore_step(&receipt).await });
+                let result =
+                    match tokio::time::timeout(DEVICE_RETIREMENT_TIMEOUT, &mut worker).await {
+                        Ok(Ok(result)) => result,
+                        Ok(Err(_)) => Err(BackendError::Operation(
+                            "device retirement worker failed".into(),
+                        )),
+                        Err(_) => Err(BackendError::AdapterRemovalPending),
+                    };
+                self.record_step_result(
+                    journal,
+                    MutationKind::WintunAdapter,
+                    started.elapsed(),
+                    &result,
+                );
+                let retirement = match result {
+                    Ok(()) => DeviceRetirement::Complete,
+                    Err(error) => {
+                        warn!(summary = %CoordinatorError::Backend(error).sanitized_recovery_summary(), "device retirement remains pending; retaining its recovery record");
+                        DeviceRetirement::Deferred
+                    }
+                };
+                *self
+                    .device_retirement_result
+                    .lock()
+                    .expect("device retirement lock") = Some(retirement);
+                retirement
+            }
         };
-        self.record_step_result(
-            journal,
-            MutationKind::WintunAdapter,
-            started.elapsed(),
-            &result,
-        );
-        if let Err(error) = result {
+        if retirement == DeviceRetirement::Deferred {
             journal.device.as_mut().expect("device").state = DeviceState::RecoveryRequired;
-            self.store.save(journal)?;
+            self.save_device_retirement(journal)?;
             self.device_retirement_deferred
                 .store(true, Ordering::Release);
-            warn!(summary = %CoordinatorError::Backend(error).sanitized_recovery_summary(), "device retirement deferred until next Agent start");
             return Ok(DeviceRetirement::Deferred);
         }
         let mut clean = RecoveryJournal::clean(journal.generation);
-        if let Err(error) = self.store.save(&mut clean) {
+        if let Err(error) = self.save_device_retirement(&mut clean) {
             journal.generation = clean.generation;
             journal.device.as_mut().expect("device").state = DeviceState::RecoveryRequired;
             return Err(error.into());

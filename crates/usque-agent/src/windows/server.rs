@@ -73,6 +73,7 @@ const AUTOMATIC_RECOVERY_DELAYS: [Duration; AUTOMATIC_RECOVERY_ATTEMPT_LIMIT as 
     Duration::from_secs(5),
     Duration::from_secs(30),
 ];
+const DEVICE_RETIREMENT_PERSIST_RETRY_DELAY: Duration = Duration::from_secs(5);
 
 pub struct AgentService<Backend> {
     coordinator: Arc<AgentCoordinator<Backend>>,
@@ -441,7 +442,7 @@ where
         self: Arc<Self>,
         delays: [Duration; AUTOMATIC_RECOVERY_ATTEMPT_LIMIT as usize],
     ) {
-        if !self.capabilities.automatic_recovery {
+        if !self.capabilities.automatic_recovery && !self.capabilities.reusable_tun_device {
             return;
         }
         self.reconcile_automatic_recovery_state().await;
@@ -469,7 +470,27 @@ where
                     })
             };
             let Some((operation_id, attempts_completed, revision, delay)) = next else {
-                notified.await;
+                if !self.coordinator.device_retirement_retry_pending() {
+                    notified.await;
+                    continue;
+                }
+                tokio::select! {
+                    () = &mut notified => continue,
+                    () = tokio::time::sleep(DEVICE_RETIREMENT_PERSIST_RETRY_DELAY) => {}
+                }
+                let _activity = self.activity.begin(ActivityKind::Background);
+                // Only retry the failed device journal write. The coordinator
+                // remembers any native result, including an unfinished worker.
+                // This neither consumes nor refreshes the connection budget.
+                if let Err(error) = self
+                    .mutate(MutationPolicy::Cleanup, |coordinator| async move {
+                        coordinator.retry_device_retirement_persistence().await
+                    })
+                    .await
+                    && !self.coordinator.device_retirement_retry_pending()
+                {
+                    warn!(%error, "device retirement persistence retry stopped");
+                }
                 continue;
             };
 
@@ -1013,6 +1034,9 @@ where
             .map_err(AgentLifecycleError::Coordinator);
         self.reconcile_start_mode_locked().await;
         self.reconcile_automatic_recovery_state().await;
+        if self.coordinator.device_retirement_retry_pending() {
+            self.automatic_recovery_notify.notify_waiters();
+        }
         result
     }
 
@@ -2905,6 +2929,17 @@ mod tests {
 
     #[async_trait]
     impl PrivilegedBackend for ScriptedRecoveryBackend {
+        async fn create_device(
+            &self,
+            mut receipt: MutationReceipt,
+        ) -> Result<MutationReceipt, BackendError> {
+            let MutationReceipt::WintunAdapter { interface_luid, .. } = &mut receipt else {
+                return Err(BackendError::AdapterIdentity);
+            };
+            *interface_luid = 7;
+            Ok(receipt)
+        }
+
         async fn plan_step(
             &self,
             kind: MutationKind,

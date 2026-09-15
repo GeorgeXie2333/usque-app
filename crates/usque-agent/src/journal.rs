@@ -679,7 +679,7 @@ fn valid_adapter_name(value: &str) -> bool {
 pub struct JournalStore {
     path: PathBuf,
     #[cfg(test)]
-    fail_clean_save: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    fail_clean_save: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl JournalStore {
@@ -731,7 +731,12 @@ impl JournalStore {
         if journal.phase == RecoveryPhase::Clean
             && self
                 .fail_clean_save
-                .swap(false, std::sync::atomic::Ordering::AcqRel)
+                .fetch_update(
+                    std::sync::atomic::Ordering::AcqRel,
+                    std::sync::atomic::Ordering::Acquire,
+                    |remaining| remaining.checked_sub(1),
+                )
+                .is_ok_and(|remaining| remaining == 1)
         {
             return Err(io::Error::other("injected final journal save failure").into());
         }
@@ -755,8 +760,13 @@ impl JournalStore {
 
     #[cfg(test)]
     pub(crate) fn fail_next_clean_save(&self) {
+        self.fail_clean_save_after(0);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_clean_save_after(&self, successful_saves: usize) {
         self.fail_clean_save
-            .store(true, std::sync::atomic::Ordering::Release);
+            .store(successful_saves + 1, std::sync::atomic::Ordering::Release);
     }
 
     /// Removes the durable recovery journal only after it proves that no
