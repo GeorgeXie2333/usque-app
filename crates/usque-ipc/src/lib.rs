@@ -304,6 +304,7 @@ mod tests {
                     control_api_candidates,
                     ..
                 }),
+                ..
             })) if operation_id == "o"
                 && control_api_candidates == &["198.51.100.10:443"]
         ));
@@ -563,6 +564,68 @@ mod tests {
         assert_eq!(
             agent_v1::RecoveryDiagnostics::decode(sample.encode_to_vec().as_slice()).unwrap(),
             sample
+        );
+    }
+
+    #[test]
+    fn reusable_device_contract_is_append_only_and_absent_on_legacy_peers() {
+        let capabilities = AgentCapabilities {
+            reusable_tun_device: true,
+            ..Default::default()
+        };
+        assert_eq!(capabilities.encode_to_vec(), [0x80, 0x01, 0x01]);
+        assert!(
+            !AgentCapabilities::decode(&[][..])
+                .unwrap()
+                .reusable_tun_device
+        );
+        assert_eq!(
+            AgentState {
+                device: Some(Default::default()),
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0x5a, 0]
+        );
+        assert_eq!(
+            agent_v1::PlatformState {
+                device: Some(Default::default()),
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0x9a, 1, 0]
+        );
+        let prepare = PrepareTunnelRequest {
+            device_lease_id: "x".into(),
+            device_lease_generation: 2,
+            expected_journal_generation: 3,
+            ..Default::default()
+        };
+        assert_eq!(prepare.encode_to_vec(), [0x1a, 1, b'x', 0x20, 2, 0x28, 3]);
+        let acquire = AgentRequest {
+            payload: Some(agent_request::Payload::AcquireDeviceLease(
+                agent_v1::AcquireDeviceLeaseRequest {},
+            )),
+            ..Default::default()
+        };
+        assert_eq!(acquire.encode_to_vec(), [0xf2, 1, 0]);
+        let release = AgentRequest {
+            payload: Some(agent_request::Payload::ReleaseDeviceLease(
+                Default::default(),
+            )),
+            ..Default::default()
+        };
+        assert_eq!(release.encode_to_vec(), [0xfa, 1, 0]);
+        let granted = agent_v1::AgentResponse {
+            payload: Some(agent_v1::agent_response::Payload::DeviceLease(
+                Default::default(),
+            )),
+            ..Default::default()
+        };
+        assert_eq!(granted.encode_to_vec(), [0x8a, 1, 0]);
+        assert_eq!(
+            decode_frame::<AgentRequest>(encode_frame(&acquire).unwrap()).unwrap(),
+            acquire
         );
     }
 

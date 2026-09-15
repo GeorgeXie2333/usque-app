@@ -2956,6 +2956,7 @@ impl WindowsAgentClient {
                 agent_request::Payload::PrepareTunnel(PrepareTunnelRequest {
                     operation_id: operation_id.to_string(),
                     plan: Some(plan),
+                    ..Default::default()
                 }),
             ),
         )
@@ -3576,6 +3577,7 @@ fn payload_name(payload: &agent_response::Payload) -> &'static str {
         agent_response::Payload::PhysicalNetworkInfo(_) => "physical_network_info",
         agent_response::Payload::DirectEgressLease(_) => "direct_egress_lease",
         agent_response::Payload::PlatformState(_) => "platform_state",
+        agent_response::Payload::DeviceLease(_) => "device_lease",
     }
 }
 

@@ -312,20 +312,24 @@ where
     }
 
     async fn proto_state(&self, journal: &RecoveryJournal) -> AgentState {
-        state_to_proto(
+        let mut state = state_to_proto(
             journal,
             self.coordinator.packet_session_attached(),
             self.automatic_recovery_status().await,
-        )
+        );
+        state.device = Some(self.coordinator.device_status(journal));
+        state
     }
 
     async fn proto_platform_state(&self, journal: &RecoveryJournal) -> agent_v1::PlatformState {
-        platform_state_to_proto(
+        let mut state = platform_state_to_proto(
             journal,
             self.coordinator.packet_session_attached(),
             self.coordinator.tunnel_lease_attached(),
             self.automatic_recovery_status().await,
-        )
+        );
+        state.device = Some(self.coordinator.device_status(journal));
+        state
     }
 
     async fn current_proto_state(&self) -> AgentState {
@@ -876,10 +880,17 @@ where
         let _gate = self.mutation_gate.lock().await;
         let result = self
             .coordinator
-            .recover_stale_with_egress(self.clear_direct_egress())
+            .recover_for_process_exit(self.clear_direct_egress())
             .await;
         self.reconcile_start_mode_locked().await;
-        result.map_err(AgentLifecycleError::Coordinator)
+        result.map(|_| ()).map_err(AgentLifecycleError::Coordinator)
+    }
+
+    pub async fn retire_startup_device(&self) -> Result<(), AgentLifecycleError> {
+        self.mutate(MutationPolicy::Cleanup, |coordinator| async move {
+            coordinator.retire_device().await.map(|_| ())
+        })
+        .await
     }
 
     pub async fn inspect_startup_tunnel(&self) -> Result<TunnelInspection, AgentLifecycleError> {
@@ -1190,7 +1201,11 @@ where
         };
         let cacheable = !matches!(
             request.payload.as_ref(),
-            Some(agent_request::Payload::AcquireDirectEgress(_))
+            Some(
+                agent_request::Payload::AcquireDirectEgress(_)
+                    | agent_request::Payload::AcquireDeviceLease(_)
+                    | agent_request::Payload::ReleaseDeviceLease(_)
+            )
         );
         if cacheable {
             let replay = self.replay.lock().await;
@@ -1289,6 +1304,17 @@ where
                 agent_response::Payload::DirectEgressLease(lease)
             }
             agent_request::Payload::PrepareTunnel(request) => {
+                let key = crate::coordinator::DeviceLeaseKey {
+                    id: parse_operation_id(&request.device_lease_id).map_err(|_| {
+                        (
+                            request_id.clone(),
+                            ServiceError::Lifecycle(AgentLifecycleError::Coordinator(
+                                CoordinatorError::DeviceLeaseRequired,
+                            )),
+                        )
+                    })?,
+                    generation: request.device_lease_generation,
+                };
                 let operation_id = parse_operation_id(&request.operation_id)
                     .map_err(|error| (request_id.clone(), error))?;
                 let plan = request
@@ -1299,12 +1325,50 @@ where
                 let caller = caller.clone();
                 let state = self
                     .mutate(MutationPolicy::Forward, move |coordinator| async move {
-                        coordinator.prepare(operation_id, plan, caller).await
+                        coordinator
+                            .prepare_managed(
+                                operation_id,
+                                plan,
+                                caller,
+                                key,
+                                request.expected_journal_generation,
+                            )
+                            .await
                     })
                     .await
                     .map_err(|error| (request_id.clone(), ServiceError::Lifecycle(error)))?;
                 self.clear_direct_egress().await;
                 agent_response::Payload::State(self.proto_state(&state).await)
+            }
+            agent_request::Payload::AcquireDeviceLease(_) => {
+                let owner = caller.clone();
+                let key = self
+                    .mutate(MutationPolicy::Cleanup, move |coordinator| async move {
+                        coordinator.acquire_device_lease(&owner).await
+                    })
+                    .await
+                    .map_err(|error| (request_id.clone(), ServiceError::Lifecycle(error)))?;
+                agent_response::Payload::DeviceLease(agent_v1::DeviceLease {
+                    lease_id: key.id.to_string(),
+                    lease_generation: key.generation,
+                    journal_generation: self.state().await.generation,
+                })
+            }
+            agent_request::Payload::ReleaseDeviceLease(request) => {
+                let key = crate::coordinator::DeviceLeaseKey {
+                    id: parse_operation_id(&request.lease_id)
+                        .map_err(|error| (request_id.clone(), error))?,
+                    generation: request.lease_generation,
+                };
+                let owner = caller.clone();
+                self.mutate(MutationPolicy::Cleanup, |coordinator| async move {
+                    coordinator
+                        .release_device_lease_with_egress(key, &owner, self.clear_direct_egress())
+                        .await
+                })
+                .await
+                .map_err(|error| (request_id.clone(), ServiceError::Lifecycle(error)))?;
+                agent_response::Payload::State(self.proto_state(&self.state().await).await)
             }
             agent_request::Payload::CommitTunnel(request) => {
                 let operation_id = parse_operation_id(&request.operation_id)
@@ -1771,7 +1835,7 @@ async fn wait_for_idle_exit_after<Backend>(
         // between the sample and the await cannot leave this waiter asleep.
         let _ = notified.as_mut().enable();
         let generation = service.activity.generation.load(Ordering::Acquire);
-        if !service.activity.is_empty() || service.state().await.phase != RecoveryPhase::Clean {
+        if !service.activity.is_empty() || !service.coordinator.may_exit_idle().await {
             notified.await;
             continue;
         }
@@ -1780,7 +1844,7 @@ async fn wait_for_idle_exit_after<Backend>(
             () = tokio::time::sleep(idle_timeout) => {
                 if service.activity.generation.load(Ordering::Acquire) == generation
                     && service.activity.is_empty()
-                    && service.state().await.phase == RecoveryPhase::Clean
+                    && service.coordinator.may_exit_idle().await
                 {
                     return;
                 }
@@ -1829,6 +1893,7 @@ where
     let mut system_proxy_lease = None;
     let mut tunnel_lease = None;
     let mut direct_egress_lease = None;
+    let mut device_lease = None;
 
     let result = async {
         loop {
@@ -1852,6 +1917,21 @@ where
                     return Err(ServerError::FrameTooLarge(frame.len() - 4));
                 }
                 let request: AgentRequest = decode_frame(frame)?;
+                let acquiring_device = matches!(
+                    request.payload.as_ref(),
+                    Some(agent_request::Payload::AcquireDeviceLease(_))
+                );
+                let releasing_device = match request.payload.as_ref() {
+                    Some(agent_request::Payload::ReleaseDeviceLease(request)) => {
+                        Uuid::parse_str(&request.lease_id).ok().map(|id| {
+                            crate::coordinator::DeviceLeaseKey {
+                                id,
+                                generation: request.lease_generation,
+                            }
+                        })
+                    }
+                    _ => None,
+                };
                 let direct_operation_id = match request.payload.as_ref() {
                     Some(agent_request::Payload::AcquireDirectEgress(request)) => {
                         Uuid::parse_str(request.operation_id.trim()).ok()
@@ -1889,7 +1969,14 @@ where
                     }
                     _ => None,
                 };
-                let response = if direct_egress_lease.is_some() && direct_operation_id.is_some() {
+                let response = if acquiring_device && device_lease.is_some() {
+                    error_response(
+                        request.request_id,
+                        ServiceError::Lifecycle(AgentLifecycleError::Coordinator(
+                            CoordinatorError::DeviceLeaseRequired,
+                        )),
+                    )
+                } else if direct_egress_lease.is_some() && direct_operation_id.is_some() {
                     error_response(
                         request.request_id,
                         ServiceError::DirectEgressLeaseAlreadyAcquired,
@@ -1897,6 +1984,18 @@ where
                 } else {
                     service.handle(request, &caller).await
                 };
+                if response.error.is_none() {
+                    if let Some(agent_response::Payload::DeviceLease(lease)) =
+                        response.payload.as_ref()
+                    {
+                        device_lease = Some(crate::coordinator::DeviceLeaseKey {
+                            id: Uuid::parse_str(&lease.lease_id).expect("Agent lease ID"),
+                            generation: lease.lease_generation,
+                        });
+                    } else if releasing_device.is_some() && releasing_device == device_lease {
+                        device_lease = None;
+                    }
+                }
                 if response.error.is_none()
                     && let Some(next_lease) = lease_action
                 {
@@ -1953,6 +2052,27 @@ where
     if let Some(key) = direct_egress_lease {
         service.release_direct_egress(key).await;
     }
+    if let Some(key) = device_lease
+        && service.coordinator.detach_device_lease(key, &caller)
+    {
+        let guard = service.activity.begin(ActivityKind::Background);
+        let watchdog = Arc::clone(&service);
+        tokio::spawn(async move {
+            let _guard = guard;
+            tokio::time::sleep(ORPHANED_TUNNEL_RECOVERY_GRACE).await;
+            let cleanup = Arc::clone(&watchdog);
+            if let Err(error) = watchdog
+                .mutate(MutationPolicy::Cleanup, |coordinator| async move {
+                    coordinator
+                        .retire_orphaned_device_with_egress(key, cleanup.clear_direct_egress())
+                        .await
+                })
+                .await
+            {
+                warn!(%error, "orphaned device cleanup incomplete");
+            }
+        });
+    }
     result
 }
 
@@ -2008,11 +2128,10 @@ fn physical_route_context(
     journal: &RecoveryJournal,
 ) -> Result<(u64, Vec<RouteReceipt>), ServiceError> {
     let tunnel_luid = journal
-        .steps
-        .iter()
-        .find_map(|step| match step.receipt {
-            MutationReceipt::WintunAdapter { interface_luid, .. } if interface_luid != 0 => {
-                Some(interface_luid)
+        .adapter_receipt()
+        .and_then(|receipt| match receipt {
+            MutationReceipt::WintunAdapter { interface_luid, .. } if *interface_luid != 0 => {
+                Some(*interface_luid)
             }
             _ => None,
         })
@@ -2144,6 +2263,7 @@ fn state_to_proto(
         warnings.push("PACKET_SESSION_REATTACH_REQUIRED".to_owned());
     }
     AgentState {
+        device: None,
         plan: journal.plan.as_ref().map(|plan| Box::new(plan.to_proto())),
         phase: match journal.phase {
             RecoveryPhase::Clean => agent_v1::AgentPhase::Clean as i32,
@@ -2207,12 +2327,15 @@ fn platform_state_to_proto(
         .iter()
         .any(|step| step.state == crate::journal::MutationState::Intended);
     agent_v1::PlatformState {
+        device: None,
         service_state: "running".to_owned(),
         recovery_diagnostics: None,
         agent_phase: phase_to_proto(journal.phase),
         active_tunnel_lease: tunnel_lease_attached,
         packet_session_active: packet_session_attached,
-        wintun_adapter_state: if expected(crate::journal::MutationKind::WintunAdapter) {
+        wintun_adapter_state: if journal.device.is_some()
+            || expected(crate::journal::MutationKind::WintunAdapter)
+        {
             "expected"
         } else {
             "not_expected"
@@ -2249,7 +2372,13 @@ fn platform_state_to_proto(
             RecoveryPhase::RecoveryRequired => "recovery_required",
         }
         .to_owned(),
-        pending_cleanup,
+        pending_cleanup: pending_cleanup
+            || journal.device.as_ref().is_some_and(|device| {
+                !matches!(
+                    device.state,
+                    crate::journal::DeviceState::Idle | crate::journal::DeviceState::InUse
+                )
+            }),
         journal_generation: journal.generation,
         automatic_recovery: Some(automatic_recovery),
     }
@@ -2455,6 +2584,12 @@ impl ServiceError {
             Self::Lifecycle(AgentLifecycleError::Coordinator(CoordinatorError::OwnerMismatch)) => {
                 ("AGENT_OWNER_MISMATCH", false)
             }
+            Self::Lifecycle(AgentLifecycleError::Coordinator(
+                CoordinatorError::DeviceLeaseRequired,
+            )) => ("AGENT_DEVICE_LEASE_REQUIRED", false),
+            Self::Lifecycle(AgentLifecycleError::Coordinator(
+                CoordinatorError::DeviceRecoveryRequired,
+            )) => ("AGENT_DEVICE_RECOVERY_REQUIRED", false),
             Self::Lifecycle(AgentLifecycleError::Coordinator(CoordinatorError::Backend(
                 BackendError::EndpointUnreachable,
             ))) => ("AGENT_ENDPOINT_UNREACHABLE", true),
@@ -2493,6 +2628,7 @@ pub enum ServerError {
 
 #[cfg(test)]
 mod tests {
+    mod device_tests;
     use std::{
         io,
         sync::atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -3650,6 +3786,7 @@ mod tests {
             coordinator,
             AgentCapabilities {
                 deferred_network_configuration: true,
+                reusable_tun_device: true,
                 wintun: false,
                 wfp_kill_switch: false,
                 interface_addresses: false,

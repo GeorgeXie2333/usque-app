@@ -27,6 +27,9 @@ use crate::{
     recovery_trace::{self, TraceResource, TraceSink},
 };
 
+mod device_lifecycle;
+pub use device_lifecycle::{DeviceLeaseKey, DeviceRetirement};
+
 pub const MIN_PACKET_RING_CAPACITY: u32 = 128 * 1024;
 pub const MAX_PACKET_RING_CAPACITY: u32 = 64 * 1024 * 1024;
 pub const PACKET_RING_LAYOUT_VERSION: u32 = 1;
@@ -68,6 +71,24 @@ pub enum TunnelInspection {
 
 #[async_trait]
 pub trait PrivilegedBackend: Send + Sync {
+    /// Creates the independent device described by a persisted creation intent.
+    async fn create_device(
+        &self,
+        _receipt: MutationReceipt,
+    ) -> Result<MutationReceipt, BackendError> {
+        Err(BackendError::Unavailable(
+            "managed device creation".to_owned(),
+        ))
+    }
+
+    /// Requires the retained creator handle, no packet session, and exact
+    /// interface AND PnP identity. Unknown is an error, never reusable.
+    async fn inspect_idle_device(&self, _receipt: &MutationReceipt) -> Result<bool, BackendError> {
+        Err(BackendError::Unavailable(
+            "managed device inspection".to_owned(),
+        ))
+    }
+
     async fn apply_step_traced(
         &self,
         receipt: MutationReceipt,
@@ -203,11 +224,15 @@ pub struct AgentCoordinator<Backend> {
     packet_session_attached: AtomicBool,
     tunnel_lease_attached: AtomicBool,
     tunnel_lease_epoch: AtomicU64,
+    agent_instance: Uuid,
+    device_lease: std::sync::Mutex<Option<device_lifecycle::DeviceOwnerLease>>,
+    device_lease_epoch: AtomicU64,
+    device_retirement_deferred: AtomicBool,
 }
 
 impl<Backend> AgentCoordinator<Backend>
 where
-    Backend: PrivilegedBackend,
+    Backend: PrivilegedBackend + 'static,
 {
     pub fn open(store: JournalStore, backend: Arc<Backend>) -> Result<Self, CoordinatorError> {
         Self::open_with_trace(store, backend, TraceSink::default())
@@ -230,6 +255,10 @@ where
             packet_session_attached: AtomicBool::new(false),
             tunnel_lease_attached: AtomicBool::new(false),
             tunnel_lease_epoch: AtomicU64::new(0),
+            agent_instance: Uuid::new_v4(),
+            device_lease: std::sync::Mutex::new(None),
+            device_lease_epoch: AtomicU64::new(0),
+            device_retirement_deferred: AtomicBool::new(false),
         })
     }
 
@@ -296,13 +325,9 @@ where
             let _permit = permit;
             let mut sample = sample;
             if let Some(journal) = journal {
-                let receipt = journal.steps.iter().find(|step| {
-                    step.kind == MutationKind::WintunAdapter
-                        && step.state != MutationState::Restored
-                });
-                if let Some(step) = receipt {
-                    let (interface, pnp_device) =
-                        backend.inspect_adapter_diagnostics(&step.receipt);
+                let receipt = journal.adapter_receipt();
+                if let Some(receipt) = receipt {
+                    let (interface, pnp_device) = backend.inspect_adapter_diagnostics(receipt);
                     sample.interface = Some(recovery_trace::sanitize_resource(interface));
                     sample.pnp_device = Some(recovery_trace::sanitize_resource(pnp_device));
                     sample.status = Status::Complete as i32;
@@ -370,8 +395,7 @@ where
             .iter()
             .all(|step| step.state == MutationState::Restored)
         {
-            let generation = journal.generation;
-            *journal = RecoveryJournal::clean(generation);
+            *journal = journal.disconnected();
         }
         if let Err(error) = self.store.save(&mut journal) {
             *journal = original;
@@ -555,10 +579,26 @@ where
         validate_caller(&caller)?;
         let mut journal = self.journal.lock().await;
         ensure_clean(&journal)?;
+        self.prepare_locked(&mut journal, operation_id, plan, caller)
+            .await
+    }
+
+    async fn prepare_locked(
+        &self,
+        journal: &mut RecoveryJournal,
+        operation_id: Uuid,
+        plan: ValidatedTunnelPlan,
+        caller: AuthenticatedCaller,
+    ) -> Result<RecoveryJournal, CoordinatorError> {
+        let device = journal.device.clone().map(|mut device| {
+            device.state = crate::journal::DeviceState::InUse;
+            device.owner_process_id = caller.process_id;
+            device
+        });
         *journal = RecoveryJournal {
             schema_version: crate::journal::JOURNAL_SCHEMA_VERSION,
-            device: None,
-            device_binding: None,
+            device_binding: device.as_ref().map(crate::journal::ManagedDevice::binding),
+            device,
             generation: journal.generation,
             phase: RecoveryPhase::Preparing,
             operation_kind: Some(OperationKind::Tunnel),
@@ -569,7 +609,7 @@ where
             pause_deadline_unix_seconds: None,
             steps: Vec::new(),
         };
-        self.store.save(&mut journal)?;
+        self.store.save(journal)?;
 
         // Complete every fallible, non-blocking interface preparation here.
         // The persistent WFP policy is deliberately deferred until commit,
@@ -602,11 +642,14 @@ where
         };
 
         for kind in kinds {
+            if kind == MutationKind::WintunAdapter && journal.device.is_some() {
+                continue;
+            }
             if let Err(error) = self
-                .apply_new_step(&mut journal, kind, &plan, &caller, StepParameter::None)
+                .apply_new_step(journal, kind, &plan, &caller, StepParameter::None)
                 .await
             {
-                let recovery = self.recover_locked(&mut journal).await;
+                let recovery = self.recover_locked(journal).await;
                 return match recovery {
                     Ok(()) => Err(error),
                     Err(recovery) => Err(CoordinatorError::ApplyAndRecovery {
@@ -617,8 +660,8 @@ where
             }
         }
         journal.phase = RecoveryPhase::Prepared;
-        if let Err(error) = self.store.save(&mut journal) {
-            let recovery = self.recover_locked(&mut journal).await;
+        if let Err(error) = self.store.save(journal) {
+            let recovery = self.recover_locked(journal).await;
             return match recovery {
                 Ok(()) => Err(error.into()),
                 Err(recovery) => Err(CoordinatorError::ApplyAndRecovery {
@@ -640,6 +683,9 @@ where
     ) -> Result<RecoveryJournal, CoordinatorError> {
         validate_caller(caller)?;
         let mut journal = self.journal.lock().await;
+        if journal.device.is_some() {
+            self.require_device_owner(caller, None)?;
+        }
         if journal.owner_process_id != Some(caller.process_id) {
             // Same authenticated Engine/SID takeover follows ResumeTunnel's
             // detached-session boundary, before negotiating a replacement exit.
@@ -709,6 +755,9 @@ where
             .map_err(|error| CoordinatorError::InvalidPlan(error.to_string()))?;
         validate_caller(caller)?;
         let mut journal = self.journal.lock().await;
+        if journal.device.is_some() {
+            self.require_device_owner(caller, None)?;
+        }
         ensure_operation_kind(&journal, OperationKind::Tunnel)?;
         if journal.operation_id != Some(operation_id) {
             return Err(CoordinatorError::OperationMismatch);
@@ -770,11 +819,7 @@ where
         }
         // During a same-account switch, retain the adapter, endpoint routes,
         // and blocking policy while replacing the old final network receipts.
-        let adapter = journal
-            .steps
-            .iter()
-            .find(|step| step.kind == MutationKind::WintunAdapter)
-            .map(|step| step.receipt.clone());
+        let adapter = journal.adapter_receipt().cloned();
         for kind in [
             MutationKind::DefaultRoutes,
             MutationKind::Dns,
@@ -817,6 +862,9 @@ where
             return Err(CoordinatorError::InvalidRingCapacity(capacity));
         }
         let mut journal = self.journal.lock().await;
+        if journal.device.is_some() {
+            self.require_device_owner(caller, None)?;
+        }
         ensure_owner(&journal, operation_id, caller)?;
         ensure_operation_kind(&journal, OperationKind::Tunnel)?;
         if journal.phase != RecoveryPhase::Prepared {
@@ -940,6 +988,9 @@ where
     ) -> Result<PacketSessionHandles, CoordinatorError> {
         validate_caller(caller)?;
         let mut journal = self.journal.lock().await;
+        if journal.device.is_some() {
+            self.require_device_owner(caller, None)?;
+        }
         if journal.operation_id != Some(operation_id) {
             return Err(CoordinatorError::OperationMismatch);
         }
@@ -963,16 +1014,13 @@ where
                 actual: profile_id,
             });
         }
-        let adapter = journal
-            .steps
-            .iter()
-            .find(|step| {
-                step.kind == MutationKind::WintunAdapter && step.state == MutationState::Applied
-            })
-            .map(|step| step.receipt.clone())
-            .ok_or(CoordinatorError::MissingAppliedStep(
-                MutationKind::WintunAdapter,
-            ))?;
+        let adapter =
+            journal
+                .adapter_receipt()
+                .cloned()
+                .ok_or(CoordinatorError::MissingAppliedStep(
+                    MutationKind::WintunAdapter,
+                ))?;
         let session = journal
             .steps
             .iter()
@@ -990,6 +1038,10 @@ where
         // exact owner PID. Persist the new owner before creating volatile
         // handles so a crash cannot leave an unowned resumed transaction.
         journal.owner_process_id = Some(caller.process_id);
+        if let Some(device) = journal.device.as_mut() {
+            device.owner_process_id = caller.process_id;
+            device.agent_instance = self.agent_instance;
+        }
         self.store.save(&mut journal)?;
         let handles = self
             .backend
@@ -1011,6 +1063,9 @@ where
         caller: &AuthenticatedCaller,
     ) -> Result<RecoveryJournal, CoordinatorError> {
         let journal = self.journal.lock().await;
+        if journal.device.is_some() {
+            self.require_device_owner(caller, None)?;
+        }
         ensure_owner(&journal, operation_id, caller)?;
         ensure_operation_kind(&journal, OperationKind::Tunnel)?;
         if journal.phase != RecoveryPhase::Active {
@@ -1165,6 +1220,9 @@ where
         caller: &AuthenticatedCaller,
     ) -> Result<RecoveryJournal, CoordinatorError> {
         let mut journal = self.journal.lock().await;
+        if journal.device.is_some() {
+            self.require_device_owner(caller, None)?;
+        }
         ensure_owner(&journal, operation_id, caller)?;
         ensure_operation_kind(&journal, OperationKind::Tunnel)?;
         if journal.phase != RecoveryPhase::Prepared {
@@ -1191,6 +1249,9 @@ where
             MutationKind::InterfaceConfiguration,
             MutationKind::Dns,
         ] {
+            if kind == MutationKind::WintunAdapter && journal.device_binding.is_some() {
+                continue;
+            }
             if !journal
                 .steps
                 .iter()
@@ -1293,7 +1354,7 @@ where
         {
             return Ok(None);
         }
-        let mut clean = RecoveryJournal::clean(journal.generation);
+        let mut clean = journal.disconnected();
         self.store.save(&mut clean)?;
         *journal = clean;
         Ok(Some(journal.clone()))
@@ -1307,6 +1368,9 @@ where
     ) -> Result<RecoveryJournal, CoordinatorError> {
         validate_caller(&caller)?;
         let mut journal = self.journal.lock().await;
+        if journal.device.is_some() {
+            self.require_device_owner(&caller, None)?;
+        }
         if journal.phase == RecoveryPhase::Active
             && journal.operation_kind == Some(OperationKind::Tunnel)
         {
@@ -1370,10 +1434,22 @@ where
             }
             return Ok(journal.clone());
         }
-        ensure_clean(&journal)?;
+        if journal.device.is_some() {
+            self.require_device_owner(&caller, None)?;
+            if journal.phase != RecoveryPhase::Clean
+                || journal.device.as_ref().is_none_or(|device| {
+                    device.state != crate::journal::DeviceState::Idle
+                        || device.agent_instance != self.agent_instance
+                })
+            {
+                return Err(CoordinatorError::DeviceRecoveryRequired);
+            }
+        } else {
+            ensure_clean(&journal)?;
+        }
         *journal = RecoveryJournal {
             schema_version: crate::journal::JOURNAL_SCHEMA_VERSION,
-            device: None,
+            device: journal.device.clone(),
             device_binding: None,
             generation: journal.generation,
             phase: RecoveryPhase::Preparing,
@@ -1693,7 +1769,7 @@ where
         // Publish Clean only after durable replacement succeeds. In particular,
         // a failed final write must not admit Prepare against an in-memory Clean
         // while the next process will still load an unfinished transaction.
-        let mut clean = RecoveryJournal::clean(journal.generation);
+        let mut clean = journal.disconnected();
         if let Err(error) = self.store.save(&mut clean) {
             journal.generation = clean.generation;
             journal.phase = RecoveryPhase::RecoveryRequired;
@@ -1704,6 +1780,9 @@ where
             return Err(recovery_error(&failures));
         }
         *journal = clean;
+        if journal.device.is_some() && !self.device_lease_attached() {
+            self.retire_device_locked(journal).await?;
+        }
         Ok(())
     }
 
@@ -1736,11 +1815,7 @@ where
             ) && journal.steps[*index].state != MutationState::Restored
         }));
 
-        let adapter = journal
-            .steps
-            .iter()
-            .find(|step| step.kind == MutationKind::WintunAdapter)
-            .map(|step| step.receipt.clone());
+        let adapter = journal.adapter_receipt().cloned();
         let mut failures = Vec::new();
         for index in order {
             if journal.steps[index].state == MutationState::Restored {
@@ -2046,6 +2121,10 @@ pub enum BackendError {
 
 #[derive(Debug, Error)]
 pub enum CoordinatorError {
+    #[error("a valid exclusive device lease is required; use matching Engine and Agent versions")]
+    DeviceLeaseRequired,
+    #[error("the managed TUN device requires recovery before reuse")]
+    DeviceRecoveryRequired,
     #[error("recovery journal failed: {0}")]
     Journal(#[from] JournalError),
     #[error(transparent)]
@@ -2149,6 +2228,7 @@ impl CoordinatorError {
 
 #[cfg(test)]
 mod tests {
+    mod device_tests;
     use std::{
         collections::HashSet,
         fs,
@@ -2183,6 +2263,43 @@ mod tests {
 
     #[async_trait]
     impl PrivilegedBackend for MockBackend {
+        async fn create_device(
+            &self,
+            mut receipt: MutationReceipt,
+        ) -> Result<MutationReceipt, BackendError> {
+            self.applied.lock().await.push(MutationKind::WintunAdapter);
+            if self
+                .fail_apply
+                .lock()
+                .await
+                .contains(&MutationKind::WintunAdapter)
+            {
+                return Err(BackendError::Operation("device creation failed".into()));
+            }
+            if let MutationReceipt::WintunAdapter {
+                adapter_guid,
+                interface_luid,
+                ..
+            } = &mut receipt
+            {
+                *interface_luid = 7;
+                *self.adapter_guid.lock().await = Some(*adapter_guid);
+            }
+            Ok(receipt)
+        }
+
+        async fn inspect_idle_device(
+            &self,
+            receipt: &MutationReceipt,
+        ) -> Result<bool, BackendError> {
+            if self.inspection_fails.load(Ordering::Acquire) {
+                return Err(BackendError::AdapterIdentity);
+            }
+            Ok(
+                matches!(receipt, MutationReceipt::WintunAdapter { adapter_guid, .. } if Some(*adapter_guid) == *self.adapter_guid.lock().await),
+            )
+        }
+
         fn inspect_adapter_diagnostics(
             &self,
             _receipt: &MutationReceipt,

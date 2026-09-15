@@ -61,6 +61,8 @@ message AgentCapabilities {
   bool automatic_recovery = 14;
   // Supports a protected bootstrap followed by final VPN address assignment.
   bool deferred_network_configuration = 15;
+  // A process-scoped device lease outlives individual packet sessions.
+  bool reusable_tun_device = 16;
 }
 
 message TunnelPlan {
@@ -118,6 +120,38 @@ message RestartAutomaticRecoveryRequest {
 message PrepareTunnelRequest {
   string operation_id = 1;
   TunnelPlan plan = 2;
+  string device_lease_id = 3;
+  uint64 device_lease_generation = 4;
+  uint64 expected_journal_generation = 5;
+}
+
+message AcquireDeviceLeaseRequest {}
+
+message ReleaseDeviceLeaseRequest {
+  string lease_id = 1;
+  uint64 lease_generation = 2;
+}
+
+message DeviceLease {
+  string lease_id = 1;
+  uint64 lease_generation = 2;
+  uint64 journal_generation = 3;
+}
+
+enum ManagedDevicePhase {
+  MANAGED_DEVICE_PHASE_UNSPECIFIED = 0;
+  MANAGED_DEVICE_PHASE_ABSENT = 1;
+  MANAGED_DEVICE_PHASE_CREATING = 2;
+  MANAGED_DEVICE_PHASE_IDLE = 3;
+  MANAGED_DEVICE_PHASE_IN_USE = 4;
+  MANAGED_DEVICE_PHASE_RETIRING = 5;
+  MANAGED_DEVICE_PHASE_RECOVERY_REQUIRED = 6;
+}
+
+message ManagedDeviceStatus {
+  ManagedDevicePhase phase = 1;
+  bool lease_attached = 2;
+  uint64 device_generation = 3;
 }
 
 message CommitTunnelRequest {
@@ -192,6 +226,7 @@ message PlatformState {
   AutomaticRecoveryStatus automatic_recovery = 17;
   // Optional, read-only evidence. Absence means an older Agent, never Clean.
   RecoveryDiagnostics recovery_diagnostics = 18;
+  ManagedDeviceStatus device = 19;
 }
 
 enum RecoverySampleStatus {
@@ -417,6 +452,7 @@ message AgentState {
   // Authenticated callers can retain the original bootstrap policy when
   // applying a newly negotiated final network to this operation.
   TunnelPlan plan = 10;
+  ManagedDeviceStatus device = 11;
 }
 
 message AutomaticRecoveryStatus {
@@ -466,6 +502,8 @@ message AgentRequest {
     RestartAutomaticRecoveryRequest restart_automatic_recovery = 27;
     FinalizeTunnelRequest finalize_tunnel = 28;
     BeginChainTransitionRequest begin_chain_transition = 29;
+    AcquireDeviceLeaseRequest acquire_device_lease = 30;
+    ReleaseDeviceLeaseRequest release_device_lease = 31;
   }
 }
 
@@ -480,5 +518,6 @@ message AgentResponse {
     PhysicalNetworkInfo physical_network_info = 14;
     DirectEgressLease direct_egress_lease = 15;
     PlatformState platform_state = 16;
+    DeviceLease device_lease = 17;
   }
 }
