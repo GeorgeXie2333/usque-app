@@ -66,6 +66,18 @@ const MAX_ADAPTER_DNS_SERVERS: usize = 64;
 /// Uses IP Helper only: opening Wintun itself may enqueue orphan-device
 /// cleanup, so it is not an appropriate read-only startup probe.
 pub fn inspect_adapter_identity(receipt: &MutationReceipt) -> Result<bool, NetworkError> {
+    inspect_adapter_state(receipt).map(|state| state.is_some())
+}
+
+pub struct AdapterInterfaceState {
+    pub oper_status: u32,
+    pub admin_status: u32,
+    pub media_connect_state: u32,
+}
+
+pub fn inspect_adapter_state(
+    receipt: &MutationReceipt,
+) -> Result<Option<AdapterInterfaceState>, NetworkError> {
     let mut table = ptr::null_mut();
     // SAFETY: table is writable output storage; a successful allocation is
     // owned by the guard and released exactly once with FreeMibTable.
@@ -85,7 +97,22 @@ pub fn inspect_adapter_identity(receipt: &MutationReceipt) -> Result<bool, Netwo
             count,
         )
     };
-    inspect_adapter_rows(receipt, rows)
+    if !inspect_adapter_rows(receipt, rows)? {
+        return Ok(None);
+    }
+    let MutationReceipt::WintunAdapter { adapter_guid, .. } = receipt else {
+        return Err(NetworkError::ReceiptKind("Wintun adapter"));
+    };
+    // The same snapshot passed the full name/GUID/LUID/uniqueness check.
+    let row = rows
+        .iter()
+        .find(|row| uuid_from_guid(row.InterfaceGuid) == *adapter_guid)
+        .ok_or(NetworkError::AdapterIdentity)?;
+    Ok(Some(AdapterInterfaceState {
+        oper_status: row.OperStatus as u32,
+        admin_status: row.AdminStatus as u32,
+        media_connect_state: row.MediaConnectState as u32,
+    }))
 }
 
 fn inspect_adapter_rows(

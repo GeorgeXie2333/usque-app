@@ -264,6 +264,11 @@ mod windows_main {
             } else {
                 info!("Agent recovery journal is already clean");
             }
+            if coordinator.retire_device().await?
+                == usque_agent::coordinator::DeviceRetirement::Deferred
+            {
+                return Err(io::Error::other("managed device retirement remains pending").into());
+            }
             return Ok(());
         }
 
@@ -382,6 +387,13 @@ mod windows_main {
         // Repair any stale service configuration left by an interrupted mode
         // transition or an upgrade. In particular, a clean journal must not
         // leave the Agent configured to start again at the next boot.
+        let state = service.state().await;
+        if state.phase == RecoveryPhase::Clean
+            && state.device.is_some()
+            && let Err(error) = service.retire_startup_device().await
+        {
+            error!(%error, "startup device retirement is incomplete; new sessions remain blocked");
+        }
         service.synchronize_start_mode().await;
 
         let state = service.state().await;
@@ -442,7 +454,7 @@ mod windows_main {
                     }
                 }
             }
-            ServeExit::Idle => info!("Agent exited after the clean idle grace period"),
+            ServeExit::Idle => info!("Agent exited after device retirement or clean idle"),
         }
         Ok(())
     }

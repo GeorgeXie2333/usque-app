@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="105" height="26" viewBox="0 0 105 26" role="img" aria-labelledby="title">
+  <title id="title">EXE ARM64</title>
+  <path fill="#30363d" d="M0 0h43v26H0z"/>
+  <path fill="#086bc1" d="M43 0h62v26H43z"/>
+  <g fill="#fff" font-family="Verdana,DejaVu Sans,sans-serif" font-size="12" text-anchor="middle">
+    <text x="21.5" y="17">EXE</text>
+    <text x="74" y="17">ARM64</text>
+  </g>
+</svg>

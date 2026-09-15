@@ -40,6 +40,62 @@ class AppController extends ChangeNotifier {
   ];
 
   final EngineClient _engine;
+  String newVpnGateOperationId() => _newUuidV4();
+  int get connectionIntent => _connectionIntent;
+  Future<VpnGateDirectory> listVpnGate({
+    String? countryCode,
+    bool unknownCountry = false,
+    int offset = 0,
+    int limit = 50,
+    bool favoritesOnly = false,
+    bool statusOnly = false,
+  }) {
+    final engine = _engine;
+    if (engine is VpnGateClient) {
+      return (engine as VpnGateClient).listVpnGate(
+        countryCode: countryCode,
+        unknownCountry: unknownCountry,
+        offset: offset,
+        limit: limit,
+        favoritesOnly: favoritesOnly,
+        statusOnly: statusOnly,
+      );
+    }
+    return Future.error(
+      const EngineException(
+        'VPN_GATE_UNAVAILABLE',
+        'The catalogue service is unavailable.',
+      ),
+    );
+  }
+
+  Future<void> refreshVpnGate({bool cancel = false}) {
+    final engine = _engine;
+    if (engine is VpnGateClient) {
+      return (engine as VpnGateClient).refreshVpnGate(cancel: cancel);
+    }
+    return Future.error(
+      const EngineException(
+        'VPN_GATE_UNAVAILABLE',
+        'The catalogue service is unavailable.',
+      ),
+    );
+  }
+
+  Future<void> vpnGateNode(VpnGateNodeRequest request) {
+    final engine = _engine;
+    if (engine is VpnGateClient &&
+        (engineCapabilities?.vpnGatePoolFavorites ?? false)) {
+      return (engine as VpnGateClient).vpnGateNode(request);
+    }
+    return Future.error(
+      const EngineException(
+        'VPN_GATE_UNAVAILABLE',
+        'The node preparation service is unavailable.',
+      ),
+    );
+  }
+
   final UpdateDownloader _updateDownloader;
   final DiagnosticsController diagnostics;
   final NetworkQualityController quality;
@@ -91,7 +147,6 @@ class AppController extends ChangeNotifier {
   bool updateChecksEnabled = true;
   bool startOnBoot = false;
   bool closeToTray = true;
-  bool warpProtocolAssociation = false;
   PerAppProxySettings perAppProxy = const PerAppProxySettings();
   int zeroTrustCallbackTicket = 0;
   ThemePreference themePreference = ThemePreference.system;
@@ -261,7 +316,6 @@ class AppController extends ChangeNotifier {
       final platformPreferences = await _engine.platformPreferences();
       startOnBoot = platformPreferences.startOnBoot;
       closeToTray = platformPreferences.closeToTray;
-      warpProtocolAssociation = platformPreferences.warpProtocolAssociation;
     } on Object {
       // Native shell preferences are optional in unsupported test hosts.
     }
@@ -408,6 +462,9 @@ class AppController extends ChangeNotifier {
   }
 
   void _requireDataPlaneCapability(UsqueProfile profile) {
+    if (profile.vpnGate.enabled && !(engineCapabilities?.vpnGateTcp ?? false)) {
+      throw EngineException('VPN_GATE_UNSUPPORTED', strings.vpnGateUnsupported);
+    }
     if (profile.dataPlane == DataPlaneMode.l4Proxy &&
         !(engineCapabilities?.l4Available ?? false)) {
       throw EngineException('L4_UNSUPPORTED', strings.get('l4_unsupported'));
@@ -415,18 +472,28 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> connectOrDisconnect() async {
+    if (snapshot.phase == ConnectionPhase.disconnecting) return;
     final intent = ++_connectionIntent;
     if (snapshot.isConnected || snapshot.isTransitional) {
+      snapshot = EngineSnapshot(
+        phase: ConnectionPhase.disconnecting,
+        vpnGate: snapshot.vpnGate,
+        killSwitchState: snapshot.killSwitchState,
+        platformLockdown: snapshot.platformLockdown,
+        alwaysOn: snapshot.alwaysOn,
+      );
       await _run(() async {
         _userDisconnectedThisSession = true;
-        snapshot = await _engine.disconnect();
+        final next = await _engine.disconnect();
+        if (intent != _connectionIntent) return;
+        snapshot = next;
         if (snapshot.phase == ConnectionPhase.disconnected &&
             !snapshotStreamDegraded) {
           _stopPolling();
         } else if (!_engine.supportsSnapshotEvents || snapshotStreamDegraded) {
           _startPolling(force: snapshotStreamDegraded);
         }
-      });
+      }, connectionIntent: intent);
       return;
     }
 
@@ -442,8 +509,9 @@ class AppController extends ChangeNotifier {
       await flushProfileWrites();
       if (intent != _connectionIntent) return;
       _requireDataPlaneCapability(activeProfile);
-      snapshot = await _engine.connect(activeProfile);
-    });
+      final next = await _engine.connect(activeProfile);
+      if (intent == _connectionIntent) snapshot = next;
+    }, connectionIntent: intent);
     if (success && (snapshot.isConnected || snapshot.isTransitional)) {
       if (!_engine.supportsSnapshotEvents || snapshotStreamDegraded) {
         _startPolling(force: snapshotStreamDegraded);
@@ -457,8 +525,9 @@ class AppController extends ChangeNotifier {
       await flushProfileWrites();
       if (intent != _connectionIntent) return;
       _requireDataPlaneCapability(activeProfile);
-      snapshot = await _engine.retry();
-    });
+      final next = await _engine.retry();
+      if (intent == _connectionIntent) snapshot = next;
+    }, connectionIntent: intent);
     if (success && (snapshot.isConnected || snapshot.isTransitional)) {
       if (!_engine.supportsSnapshotEvents || snapshotStreamDegraded) {
         _startPolling(force: snapshotStreamDegraded);
@@ -970,6 +1039,7 @@ class AppController extends ChangeNotifier {
   Future<bool> _run(
     Future<void> Function() operation, {
     bool affectsConnection = true,
+    int? connectionIntent,
   }) async {
     _activeOperations += 1;
     busy = true;
@@ -979,6 +1049,9 @@ class AppController extends ChangeNotifier {
       await operation();
       return true;
     } catch (error) {
+      if (connectionIntent != null && connectionIntent != _connectionIntent) {
+        return false;
+      }
       lastError = error is EngineException
           ? strings.windowsRecoveryError(error.code, details: error.message) ??
                 error.message
@@ -989,6 +1062,7 @@ class AppController extends ChangeNotifier {
           sessionCongestionControl: snapshot.sessionCongestionControl,
           dataPlane: snapshot.dataPlane,
           l4: snapshot.l4,
+          vpnGate: snapshot.vpnGate,
           warning: lastError,
           errorCode: error is EngineException ? error.code : null,
           errorRetryable: error is EngineException ? error.retryable : null,
@@ -1073,19 +1147,6 @@ class AppController extends ChangeNotifier {
       await _engine.setCloseToTray(value);
     } on Object catch (error) {
       closeToTray = previous;
-      lastError = error is EngineException ? error.message : error.toString();
-      _notifyListeners();
-    }
-  }
-
-  Future<void> setWarpProtocolAssociation(bool value) async {
-    final previous = warpProtocolAssociation;
-    warpProtocolAssociation = value;
-    _notifyListeners();
-    try {
-      await _engine.setWarpProtocolAssociation(value);
-    } on Object catch (error) {
-      warpProtocolAssociation = previous;
       lastError = error is EngineException ? error.message : error.toString();
       _notifyListeners();
     }
@@ -1206,7 +1267,14 @@ class AppController extends ChangeNotifier {
   Future<String?> consumeZeroTrustCallback() =>
       _engine.consumeZeroTrustCallback();
 
-  Future<void> cancelZeroTrustLogin() => _engine.cancelZeroTrustLogin();
+  Future<void> cancelZeroTrustLogin() async {
+    try {
+      await _engine.cancelZeroTrustLogin();
+    } on Object catch (error) {
+      lastError = error is EngineException ? error.message : error.toString();
+      _notifyListeners();
+    }
+  }
 
   void updateProfile(UsqueProfile updated) {
     updateNetwork(updated);
@@ -1239,6 +1307,11 @@ class AppController extends ChangeNotifier {
     List<String>? changedFields,
   }) {
     if (updated.id != activeProfileId) return Future.value(false);
+    if (updated.vpnGate.enabled && !(engineCapabilities?.vpnGateTcp ?? false)) {
+      lastError = strings.vpnGateUnsupported;
+      _notifyListeners();
+      return Future.value(false);
+    }
     if (updated.dataPlane == DataPlaneMode.l4Proxy &&
         !(engineCapabilities?.l4Available ?? false)) {
       lastError = strings.get('l4_unsupported');

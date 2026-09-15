@@ -1,0 +1,73 @@
+[
+  {
+    "name": "openvpn3",
+    "directory": "third_party/openvpn3-3.11.7",
+    "url": "https://codeload.github.com/OpenVPN/openvpn3/tar.gz/18edfae7e7fd8051c93bd4746ec69be91eb02dbb",
+    "sha256": "94df957ac9782ce077b55dc4451fc7aa087ebfaaa26962fbb3fad7596e91d97a",
+    "files": 563,
+    "version": "3.11.7",
+    "license": "MPL-2.0",
+    "patches": [
+      {
+        "path": "openvpn/client/cliopt.hpp",
+        "upstream_sha256": "2fe1b963c668ee235fe805a7ac673b9ee669b29a0e39d65e57b0bdcce3b23484",
+        "sha256": "75cdd1e2cf7f48b218ea1bf12fd315b6341eb797665199df5ec07292cc1e68d3"
+      },
+      {
+        "path": "openvpn/mbedtls/crypto/cipher.hpp",
+        "upstream_sha256": "2ba367900a8af9afed7c20e920905b7601cb4d0a379f5d0cf01104b65f7e493e",
+        "sha256": "68cb6cdb0042f0bedd7a3d1e80fb854eab022bc3688d39fc65a76de82818e42b"
+      },
+      {
+        "path": "openvpn/mbedtls/ssl/sslctx.hpp",
+        "upstream_sha256": "d3f8ec39f9b25ccfe9d8d194859ccc401f9c8da4234bd77ffe6eb91db7af7604",
+        "sha256": "a39dca7989e347fb93916f2baae04d67e9e28779a2855062a85f069de33c0fc7"
+      },
+      {
+        "path": "openvpn/transport/dco.hpp",
+        "upstream_sha256": "17adc99f12574e3bc4f594199124e3901b59079406862b19e78ae5cd6935c7f4",
+        "sha256": "eb4325ec972c58c534971cfadca605384b26917cb1ea42a891fc7bd1429805db"
+      }
+    ]
+  },
+  {
+    "name": "mbedtls",
+    "directory": "third_party/mbedtls-3.6.7",
+    "url": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.7/mbedtls-3.6.7.tar.bz2",
+    "sha256": "a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6",
+    "files": 369,
+    "version": "3.6.7",
+    "license": "Apache-2.0",
+    "patches": []
+  },
+  {
+    "name": "asio",
+    "directory": "third_party/asio-1.30.2",
+    "url": "https://codeload.github.com/chriskohlhoff/asio/tar.gz/asio-1-30-2",
+    "sha256": "755bd7f85a4b269c67ae0ea254907c078d408cce8e1a352ad2ed664d233780e8",
+    "files": 625,
+    "version": "1.30.2",
+    "license": "BSL-1.0",
+    "patches": []
+  },
+  {
+    "name": "lz4",
+    "directory": "third_party/lz4-1.10.0",
+    "url": "https://codeload.github.com/lz4/lz4/tar.gz/v1.10.0",
+    "sha256": "537512904744b35e232912055ccf8ec66d768639ff3abe5788d90d792ec5f48b",
+    "files": 22,
+    "version": "1.10.0",
+    "license": "BSD-2-Clause",
+    "patches": []
+  },
+  {
+    "name": "xxhash",
+    "directory": "third_party/xxhash-0.8.3",
+    "url": "https://codeload.github.com/Cyan4973/xxHash/tar.gz/v0.8.3",
+    "sha256": "aae608dfe8213dfd05d909a57718ef82f30722c392344583d3f39050c7f29a80",
+    "files": 3,
+    "version": "0.8.3",
+    "license": "BSD-2-Clause",
+    "patches": []
+  }
+]

@@ -39,7 +39,7 @@ Usque is an independent project. It is not affiliated with, sponsored by, or end
 
 ## Download and install
 
-The release target is **v0.2.6**, a feature and reliability release for Windows and Android. Its tag workflow produces six user-facing installers plus two Windows MSI payloads reserved for automatic updates:
+The release target is **v0.2.7**, a feature and reliability release for Windows and Android. Its tag workflow produces six user-facing installers plus two Windows MSI payloads reserved for automatic updates:
 
 | Platform | Minimum OS | Packages |
 | --- | --- | --- |
@@ -74,6 +74,9 @@ VPN, SOCKS5, and HTTP are enabled by default on both platforms; Windows system p
   for SOCKS5, HTTP and Windows/Android TUN, with DNS conversion and
   identity-derived Consumer/Zero Trust SNI. Auto still excludes L4.
 
+- Optional [WARP → VPN Gate exit](docs/VPN_GATE.md): select a TCP server by
+  country in **Proxy → VPN Gate**. Proxied TUN, SOCKS5 and HTTP traffic shares
+  that exit; explicit direct rules remain effective. Disabled by default.
 - Consumer WARP accounts, optional License Key registration, and explicit, confirmed Secret export to a file you choose. Export does not provide an import/restore workflow in Usque.
 - Auto HTTP/3 (QUIC) with HTTP/2 (TLS) fallback and IPv4/IPv6 Happy Eyeballs for the physical path. H3 supports same-family path migration and automatic outer-path PMTU discovery.
 - Full-tunnel VPN, tunneled DNS, Kill Switch, LAN access, and custom CIDR bypass rules.
@@ -85,12 +88,12 @@ Android per-app proxy is an app-wide include-only setting, not an account settin
 
 ## Privacy and limits
 
-- Endpoint pinning is mandatory; there is no insecure TLS mode. Identity material is kept in Windows Credential Manager or Android Keystore. The Windows UI and Engine are unprivileged; a separate Agent manages privileged network state. Android uses a dedicated `:vpn` process.
+- WARP endpoint pinning is mandatory; there is no insecure TLS mode. Identity material is kept in Windows Credential Manager or Android Keystore. The Windows UI and Engine are unprivileged; a separate Agent manages privileged network state. Android uses a dedicated `:vpn` process.
 - Proxy listeners default to loopback. Non-loopback listeners have no authentication and display a warning. Proxy-only mode is not a system-wide VPN Kill Switch.
 - Diagnostics are local and redacted, with no analytics or automatic upload; quality history stays in memory. Logs default to INFO and are limited to 7 days or 20 MiB. Never post credentials or raw diagnostic bundles in a public Issue; report vulnerabilities through [SECURITY.md](SECURITY.md).
 - Android's in-app Kill Switch does not survive the VPN process being killed. Use system **Always-on VPN** together with **Block connections without VPN** for that protection; see the [Android installation guidance](docs/INSTALLATION.md#android-and-android-tv).
 
-Direct-country DNS is an explicit choice: **System** (default), **DoH**, or **DoT**. System exposes matching domains to the physical DNS provider; DoH/DoT exposes them to your chosen encrypted resolver, with numeric bootstrap, strict TLS, and no plaintext fallback. Other VPN queries continue through WARP DNS; proxy DNS settings remain separate. Application-owned encrypted DNS hides names from Usque, so classification uses GeoIP. Rule downloads still obey Android Lockdown and any surviving Windows Kill Switch while disconnected. See [Direct DNS](docs/encrypted-direct-dns.md).
+Direct-country DNS is an explicit choice: **System** (default), **DoH**, or **DoT**. System exposes matching domains to the physical DNS provider; DoH/DoT exposes them to your chosen encrypted resolver, with numeric bootstrap, strict TLS, and no plaintext fallback. Other remote VPN queries use the final tunnel's DNS: WARP normally, or VPN Gate when enabled; explicit local and proxy DNS settings remain available. Application-owned encrypted DNS hides names from Usque, so classification uses GeoIP. Rule downloads still obey Android Lockdown and any surviving Windows Kill Switch while disconnected. See [Direct DNS](docs/encrypted-direct-dns.md).
 
 There is one selected data plane, not multipath bandwidth aggregation. L4 may briefly keep a draining QUIC session during GOAWAY. Either physical endpoint family can carry IPv4 and IPv6 inside CONNECT-IP. Migration is same-family only; automatic PMTU does not raise the configured TUN MTU, and H2 loss and PMTU are N/A. Doctor results do not prove zero externally observed leaks or measured performance gains. Protected-runner validation is optional for publication; missing or failed evidence is never a pass.
 
@@ -135,4 +138,8 @@ Use the pinned toolchains and change-scoped checks in the contribution guide. Co
 
 Protocol behavior follows [Diniboy1123/usque](https://github.com/Diniboy1123/usque). This repository keeps a snapshot of that client in `oracle/go` for interoperability tests. The Flutter UI and Rust engine are new code. Upstream copyright stays in the license.
 
-Source is [MIT](LICENSE.md). Third-party components keep their own licenses.
+First-party source is [MIT](LICENSE.md). Third-party components keep their own
+licenses. The optional [WARP → VPN Gate exit](docs/VPN_GATE.md) embeds OpenVPN 3
+Core under MPL-2.0 and Mbed TLS under Apache-2.0. Corresponding source, reviewed
+patches and license texts are included in `third_party`; the application exposes
+the notices from its VPN Gate page.

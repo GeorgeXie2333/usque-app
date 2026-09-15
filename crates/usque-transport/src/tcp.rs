@@ -167,10 +167,13 @@ impl TcpDialer for StackDialer {
             .filter(|v| v.port() != 0)
             .ok_or(DialError::InvalidTarget)?;
         let ip = if remote.is_ipv4() {
-            self.ipv4.into()
+            IpAddr::V4(self.ipv4)
         } else {
-            self.ipv6.into()
+            IpAddr::V6(self.ipv6)
         };
+        if ip.is_unspecified() {
+            return Err(DialError::Network);
+        }
         let local = SocketAddr::new(ip, crate::port_allocator::next_tcp_port());
         tokio::select! {
             _ = cancellation.cancelled() => Err(DialError::Cancelled),

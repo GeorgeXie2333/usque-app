@@ -1,0 +1,22 @@
+[package]
+name = "usque-openvpn"
+description = "Bounded in-memory OpenVPN 3 client with caller-owned transport and TUN"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+interop-test = []
+
+[dependencies]
+bytes.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+[build-dependencies]
+cmake = "=0.1.58"
+
+[lints]
+workspace = true

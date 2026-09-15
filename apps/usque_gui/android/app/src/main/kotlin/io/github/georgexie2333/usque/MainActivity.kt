@@ -407,6 +407,14 @@ class MainActivity : FlutterFragmentActivity() {
         super.onStart()
         ensureEngineComponents()
         controlClient.bind()
+        controlClient.setUiVisible(true)
+    }
+
+    override fun onStop() {
+        if (::controlClient.isInitialized) {
+            controlClient.setUiVisible(false)
+        }
+        super.onStop()
     }
 
     override fun onDestroy() {

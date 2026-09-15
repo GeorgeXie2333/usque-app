@@ -194,6 +194,115 @@ message Profile {
   DirectDnsSettings direct_dns = 17;
   CongestionControlAlgorithm congestion_control = 18;
   DataPlaneMode data_plane = 19;
+  VpnGateSettings vpn_gate = 20;
+}
+
+message VpnGateSettings {
+  bool enabled = 1;
+  string server_id = 2;
+  string config_sha256 = 3;
+}
+
+message VpnGateServer {
+  string id = 1;
+  string hostname = 2;
+  string ip = 3;
+  string country_code = 4;
+  string country_name = 5;
+  optional uint64 score = 6;
+  optional uint64 ping_ms = 7;
+  optional uint64 speed_bps = 8;
+  optional uint64 num_vpn_sessions = 9;
+  string config_sha256 = 10;
+  string unsupported_reason = 11;
+  VpnGatePoolMetadata pool = 12;
+  VpnGateFavoriteMetadata favorite = 13;
+}
+
+message VpnGatePoolMetadata {
+  string first_seen_at = 1;
+  string last_seen_at = 2;
+  bool present_in_latest_source = 3;
+  string tcp_status = 4;
+  string tcp_checked_at = 5;
+  optional uint64 tcp_connect_ms = 6;
+  bool in_pool = 7;
+}
+
+message VpnGateFavoriteMetadata {
+  string config_sha256 = 1;
+  uint64 saved_at_unix_ms = 2;
+  string latest_config_sha256 = 3;
+}
+
+message VpnGateNodeRequest {
+  string operation_id = 1;
+  string action = 2;
+  string server_id = 3;
+  string config_sha256 = 4;
+  string expected_favorite_hash = 5;
+}
+
+message VpnGateNodeProgress {
+  string operation_id = 1;
+  string server_id = 2;
+  string config_sha256 = 3;
+  string stage = 4;
+  string error = 5;
+}
+
+message VpnGateCountry {
+  string country_code = 1;
+  string country_name = 2;
+  uint32 server_count = 3;
+}
+
+message FinalNetworkParameters {
+  string ipv4 = 1;
+  string ipv6 = 2;
+  repeated string dns_servers = 3;
+  uint32 mtu = 4;
+}
+
+message VpnGateStatus {
+  string stage = 1;
+  uint64 generation = 2;
+  VpnGateServer current_server = 3;
+  FinalNetworkParameters network = 4;
+  string failure = 5;
+  string warp_stage = 6;
+}
+
+message ListVpnGateRequest {
+  string country_code = 1;
+  bool unknown_country = 2;
+  uint32 offset = 3;
+  uint32 limit = 4;
+  bool include_unsupported = 5;
+  bool favorites_only = 6;
+  // Query in-memory job status without reading directory/configuration files.
+  bool status_only = 7;
+}
+
+message RefreshVpnGateRequest {
+  bool cancel = 1;
+}
+
+message VpnGateDirectory {
+  repeated VpnGateServer servers = 1;
+  repeated VpnGateCountry countries = 2;
+  uint32 total = 3;
+  uint32 source_server_count = 4;
+  optional uint64 fetched_at_unix_ms = 5;
+  string source_url = 6;
+  string refresh_stage = 7;
+  repeated string refresh_failures = 8;
+  bool cached = 9;
+  VpnGateStatus status = 10;
+  VpnGateServer saved_server = 11;
+  uint32 favorite_count = 12;
+  string source_fetched_at = 13;
+  VpnGateNodeProgress node_progress = 14;
 }
 
 message Statistics {
@@ -282,6 +391,8 @@ message Capabilities {
   bool l4_tcp = 26;
   bool l4_tun_tcp = 27;
   bool l4_dns_conversion = 28;
+  bool vpn_gate_tcp = 29;
+  bool vpn_gate_pool_favorites = 30;
 }
 
 message FrontendStatus {
@@ -313,6 +424,7 @@ message ConnectionSnapshot {
   CongestionControlAlgorithm session_congestion_control = 18;
   DataPlaneMode data_plane = 19;
   L4Snapshot l4 = 20;
+  VpnGateStatus vpn_gate = 21;
 }
 
 // No destinations, DNS content, connection IDs, or credential material.
@@ -977,6 +1089,9 @@ message ControlRequest {
     GetNetworkQualityRequest get_network_quality = 40;
     SaveNetworkSettingsRequest save_network_settings = 41;
     GetNetworkSettingsStateRequest get_network_settings_state = 42;
+    ListVpnGateRequest list_vpn_gate = 43;
+    RefreshVpnGateRequest refresh_vpn_gate = 44;
+    VpnGateNodeRequest vpn_gate_node = 45;
   }
 }
 
@@ -1019,6 +1134,7 @@ message ControlResponse {
     ConnectionTimeline connection_timeline = 20;
     NetworkQualitySnapshot network_quality = 21;
     NetworkSettingsState network_settings = 22;
+    VpnGateDirectory vpn_gate_directory = 23;
   }
 }
 

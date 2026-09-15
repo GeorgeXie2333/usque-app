@@ -1,6 +1,8 @@
 /// Supplemental feature strings for Traditional Chinese (Hong Kong).
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowZhHk = <String, String>{
+  'local_proxy_settings': '本機代理設定',
+  'proxy_switches_hint': '開關變更會自動儲存；監聽位址、連接埠與 DNS 的修改須按「套用修改」。',
   'cc_label': 'HTTP/3 擁塞控制',
   'cc_help': '下次手動連線時生效。',
   'cc_upgrade': '需要更新 Engine。',
@@ -221,6 +223,10 @@ const Map<String, String> kNetworkQualityZhHk = <String, String>{
 };
 
 const Map<String, String> kWindowsRecoveryZhHk = <String, String>{
+  'WINDOWS_DEVICE_REUSE_UNSUPPORTED':
+      "目前 Windows Agent 不支援重用 TUN 裝置。請同時更新應用程式及 Agent，尚未建立新的 VPN 連線。",
+  'WINDOWS_DEVICE_RECOVERY_REQUIRED':
+      "舊 TUN 裝置仍需復原。請完全退出 Usque 後重新開啟並重試，或查看本機診斷。",
   'WINDOWS_RECOVERY_FAILED': '未能完整復原上次 VPN 的網絡狀態，尚未建立新 VPN 連線。請重試連線，或查看本機診斷。',
   'WINDOWS_RECOVERY_EXHAUSTED':
       'Windows 在三次自動嘗試後仍未能復原上次 VPN 網絡狀態。請稍後重試，或查看本機診斷。',

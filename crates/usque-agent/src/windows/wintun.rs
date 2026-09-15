@@ -17,7 +17,7 @@ use uuid::Uuid;
 use windows_sys::{
     Win32::{
         Devices::DeviceAndDriverInstallation::{
-            DI_REMOVEDEVICE_GLOBAL, DIF_REMOVE, GUID_DEVCLASS_NET, HDEVINFO,
+            CM_Get_DevNode_Status, DI_REMOVEDEVICE_GLOBAL, DIF_REMOVE, GUID_DEVCLASS_NET, HDEVINFO,
             SP_CLASSINSTALL_HEADER, SP_DEVINFO_DATA, SP_REMOVEDEVICE_PARAMS,
             SetupDiCallClassInstaller, SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInfo,
             SetupDiGetClassDevsW, SetupDiGetDeviceInstanceIdW, SetupDiSetClassInstallParamsW,
@@ -73,7 +73,6 @@ type ReceivePacket = unsafe extern "system" fn(SessionHandle, *mut u32) -> *mut 
 type ReleaseReceivePacket = unsafe extern "system" fn(SessionHandle, *const u8);
 type AllocateSendPacket = unsafe extern "system" fn(SessionHandle, u32) -> *mut u8;
 type SendPacket = unsafe extern "system" fn(SessionHandle, *const u8);
-
 pub struct WintunLibrary {
     module: HMODULE,
     create_adapter: CreateAdapter,
@@ -284,7 +283,7 @@ unsafe impl Sync for AdapterInner {}
 impl Drop for AdapterInner {
     fn drop(&mut self) {
         if !self.handle.is_null() {
-            // SAFETY: this object uniquely owns the adapter handle.
+            // SAFETY: unique ownership; all packet sessions and references are gone.
             unsafe {
                 (self.library.close_adapter)(self.handle);
             }
@@ -386,7 +385,7 @@ impl WintunSession {
 impl Drop for WintunSession {
     fn drop(&mut self) {
         if !self.handle.is_null() {
-            // SAFETY: this object uniquely owns the session handle.
+            // SAFETY: unique session ownership; packet work has stopped.
             unsafe {
                 (self.adapter.0.library.end_session)(self.handle);
             }
@@ -418,13 +417,118 @@ impl AdapterObservation {
 
 fn observe_adapter(receipt: &MutationReceipt, guid: Uuid) -> AdapterObservation {
     // Observe both independently so an error is never reported as absence.
-    let interface = interface_instance_present(receipt);
+    let interface = network::inspect_adapter_state(receipt)
+        .map(|state| state.is_some())
+        .map_err(interface_error);
     let device = device_instance_present(guid);
     AdapterObservation {
         interface_present: interface.as_ref().ok().copied(),
         device_present: device.as_ref().ok().copied(),
         error: interface.err().or_else(|| device.err()),
     }
+}
+
+pub fn inspect_adapter_diagnostics(
+    receipt: &MutationReceipt,
+) -> (
+    usque_ipc::agent_v1::RecoveryResourceObservation,
+    usque_ipc::agent_v1::RecoveryResourceObservation,
+) {
+    use usque_ipc::agent_v1::{RecoveryIdentityCheck as Identity, RecoveryResourceObservation};
+    let MutationReceipt::WintunAdapter {
+        adapter_guid,
+        adapter_name,
+        ..
+    } = receipt
+    else {
+        let invalid = RecoveryResourceObservation {
+            identity_check: Identity::InvalidReceipt as i32,
+            ..Default::default()
+        };
+        return (invalid, invalid);
+    };
+    if adapter_guid.is_nil() || adapter_name.is_empty() {
+        let invalid = RecoveryResourceObservation {
+            identity_check: Identity::InvalidReceipt as i32,
+            ..Default::default()
+        };
+        return (invalid, invalid);
+    }
+    // Independent probes retain both errors. No library load, OpenAdapter,
+    // service action, or cleanup action is performed here.
+    let interface = match network::inspect_adapter_state(receipt).map_err(interface_error) {
+        Ok(state) => {
+            let mut observation = resource_observation(Ok(state.is_some()));
+            observation.api = usque_ipc::agent_v1::RecoveryDiagnosticApi::GetIfTable2 as i32;
+            if let Some(state) = state {
+                observation.interface_oper_status = Some(state.oper_status);
+                observation.interface_admin_status = Some(state.admin_status);
+                observation.media_connect_state = Some(state.media_connect_state);
+            }
+            observation
+        }
+        Err(error) => resource_observation(Err(error)),
+    };
+    let device = match find_device_instance(*adapter_guid) {
+        Ok(Some((_set, device))) => {
+            let mut observation = resource_observation(Ok(true));
+            observation.api =
+                usque_ipc::agent_v1::RecoveryDiagnosticApi::SetupDiEnumDeviceInfo as i32;
+            let mut flags = 0;
+            let mut problem = 0;
+            // SAFETY: SetupAPI returned this devnode; writable outputs remain
+            // valid for the read-only CONFIGRET call. No device is opened.
+            let result =
+                unsafe { CM_Get_DevNode_Status(&mut flags, &mut problem, device.DevInst, 0) };
+            if result == 0 {
+                observation.devnode_status = Some(flags);
+                observation.problem_code = Some(problem);
+            } else {
+                observation.presence = 0;
+                observation.api =
+                    usque_ipc::agent_v1::RecoveryDiagnosticApi::CmGetDevNodeStatus as i32;
+                observation.configret_code = Some(result);
+            }
+            observation
+        }
+        Ok(None) => {
+            let mut observation = resource_observation(Ok(false));
+            observation.api =
+                usque_ipc::agent_v1::RecoveryDiagnosticApi::SetupDiEnumDeviceInfo as i32;
+            observation
+        }
+        Err(error) => resource_observation(Err(error)),
+    };
+    (interface, device)
+}
+
+fn resource_observation(
+    result: Result<bool, WintunError>,
+) -> usque_ipc::agent_v1::RecoveryResourceObservation {
+    resource_observation_ref(result.as_ref().copied())
+}
+
+fn resource_observation_ref(
+    result: Result<bool, &WintunError>,
+) -> usque_ipc::agent_v1::RecoveryResourceObservation {
+    use usque_ipc::agent_v1::{RecoveryIdentityCheck as Identity, RecoveryResourceObservation};
+    let mut observation = RecoveryResourceObservation::default();
+    match result {
+        Ok(present) => {
+            observation.presence = crate::recovery_diagnostics::presence(Some(present));
+            observation.identity_check = Identity::Verified as i32;
+        }
+        Err(WintunError::InvalidRecoveryIdentity | WintunError::AdapterIdentityMismatch(_)) => {
+            observation.identity_check = Identity::Conflict as i32;
+        }
+        Err(WintunError::Windows(api, error)) => {
+            observation.api =
+                crate::recovery_diagnostics::diagnostic_api(Some(RecoveryApi::from_name(api)));
+            observation.win32_code = error.raw_os_error().map(|code| code as u32);
+        }
+        Err(_) => {}
+    }
+    observation
 }
 
 pub fn remove_adapter_if_present(
@@ -589,13 +693,13 @@ fn adapter_resources_present_with(
     Ok(interface || device)
 }
 
-fn interface_instance_present(receipt: &MutationReceipt) -> Result<bool, WintunError> {
-    network::inspect_adapter_identity(receipt).map_err(|error| match error {
+fn interface_error(error: network::NetworkError) -> WintunError {
+    match error {
         network::NetworkError::Windows { operation, code } => {
             WintunError::Windows(operation, io::Error::from_raw_os_error(code as i32))
         }
         _ => WintunError::InvalidRecoveryIdentity,
-    })
+    }
 }
 
 fn remove_device_instance(expected_guid: Uuid) -> Result<bool, WintunError> {
@@ -848,6 +952,90 @@ impl WintunError {
 mod tests {
     use super::*;
 
+    thread_local! {
+        static NATIVE_CALLS: std::cell::Cell<(u32, u32, u32)> = const { std::cell::Cell::new((0, 0, 0)) };
+    }
+
+    // Only Rust function pointers. This fixture never loads a DLL or creates
+    // native devices, sessions, or network state.
+    fn memory_library() -> Arc<WintunLibrary> {
+        unsafe extern "system" fn create(
+            _: *const u16,
+            _: *const u16,
+            _: *const GUID,
+        ) -> AdapterHandle {
+            NATIVE_CALLS.with(|calls| {
+                let (created, ended, closed) = calls.get();
+                calls.set((created + 1, ended, closed));
+            });
+            ptr::dangling_mut()
+        }
+        unsafe extern "system" fn open(_: *const u16) -> AdapterHandle {
+            ptr::dangling_mut()
+        }
+        unsafe extern "system" fn close(_: AdapterHandle) {
+            NATIVE_CALLS.with(|calls| {
+                let (created, ended, closed) = calls.get();
+                calls.set((created, ended, closed + 1));
+            });
+        }
+        unsafe extern "system" fn end(_: SessionHandle) {
+            NATIVE_CALLS.with(|calls| {
+                let (created, ended, closed) = calls.get();
+                calls.set((created, ended + 1, closed));
+            });
+        }
+        unsafe extern "system" fn luid(_: AdapterHandle, _: *mut NET_LUID_LH) {}
+        unsafe extern "system" fn version() -> u32 {
+            1
+        }
+        unsafe extern "system" fn start(_: AdapterHandle, _: u32) -> SessionHandle {
+            ptr::dangling_mut()
+        }
+        unsafe extern "system" fn event(_: SessionHandle) -> HANDLE {
+            ptr::null_mut()
+        }
+        unsafe extern "system" fn receive(_: SessionHandle, _: *mut u32) -> *mut u8 {
+            ptr::null_mut()
+        }
+        unsafe extern "system" fn release(_: SessionHandle, _: *const u8) {}
+        unsafe extern "system" fn allocate(_: SessionHandle, _: u32) -> *mut u8 {
+            ptr::null_mut()
+        }
+        Arc::new(WintunLibrary {
+            module: ptr::null_mut(),
+            create_adapter: create,
+            open_adapter: open,
+            close_adapter: close,
+            get_adapter_luid: luid,
+            get_running_driver_version: version,
+            start_session: start,
+            end_session: end,
+            get_read_wait_event: event,
+            receive_packet: receive,
+            release_receive_packet: release,
+            allocate_send_packet: allocate,
+            send_packet: release,
+        })
+    }
+
+    #[test]
+    fn retained_creator_ends_hundred_sessions_and_closes_only_after_last_owner() {
+        NATIVE_CALLS.with(|calls| calls.set((0, 0, 0)));
+        let adapter = memory_library()
+            .create_adapter("memory-only", Uuid::new_v4())
+            .unwrap();
+        for ended in 1..=100 {
+            drop(adapter.start_session(WINTUN_MIN_RING_CAPACITY).unwrap());
+            assert_eq!(NATIVE_CALLS.with(|calls| calls.get()), (1, ended, 0));
+        }
+        let retained = adapter.clone();
+        drop(adapter);
+        assert_eq!(NATIVE_CALLS.with(|calls| calls.get()), (1, 100, 0));
+        drop(retained);
+        assert_eq!(NATIVE_CALLS.with(|calls| calls.get()), (1, 100, 1));
+    }
+
     fn observation(interface: bool, device: bool) -> AdapterObservation {
         AdapterObservation {
             interface_present: Some(interface),
@@ -1051,6 +1239,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires an isolated Windows VM: loading Wintun can schedule native orphan cleanup"]
     fn pinned_official_library_loads_all_required_exports_without_installing_driver() {
         let library = WintunLibrary::load(&official_dll()).expect("load function table");
         assert!(Arc::strong_count(&library) == 1);

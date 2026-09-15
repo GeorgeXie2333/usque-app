@@ -88,10 +88,6 @@ const Map<String, String> kFrCatalog = <String, String>{
   'zero_trust_paste_clipboard': 'Remplir depuis le presse-papiers',
   'zero_trust_clipboard_empty':
       'Le presse-papiers ne contient pas d’URL de callback.',
-  'zero_trust_protocol_association':
-      'Ouvrir les callbacks Access dans Usque (cet utilisateur uniquement)',
-  'zero_trust_protocol_association_help':
-      'Facultatif. Enregistre com.cloudflare.warp pour l’utilisateur Windows connecté. Le client WARP officiel peut rester installé. Laissez cette option désactivée pour conserver WARP comme gestionnaire ; le collage fonctionne toujours.',
   'zero_trust_scope_note':
       'Expérimental : utilise l’enregistrement d’appareil de l’organisation pour l’accès Internet ; la synchronisation des politiques et la posture de l’appareil ne sont pas implémentées.',
   'zero_trust_repair_same_team':
@@ -312,7 +308,7 @@ const Map<String, String> kFrCatalog = <String, String>{
       'État de l’Usque Engine, export des journaux et données locales.',
   'engine_status': 'État de l’Usque Engine',
   'version': 'Version',
-  'app_version': 'Usque 0.2.6',
+  'app_version': 'Usque 0.2.7',
   'logs': 'Journaux locaux',
   'export_diagnostics': 'Exporter l’archive de diagnostics',
   'diagnostics_saved': 'Archive de diagnostics enregistrée dans',

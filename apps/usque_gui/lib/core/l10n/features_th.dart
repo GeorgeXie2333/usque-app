@@ -1,6 +1,9 @@
 /// Supplemental feature strings for Thai.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowTh = <String, String>{
+  'local_proxy_settings': 'การตั้งค่าพร็อกซีในเครื่อง',
+  'proxy_switches_hint':
+      'การเปลี่ยนสวิตช์จะบันทึกอัตโนมัติ ใช้ปุ่มใช้การเปลี่ยนแปลงเพื่อยืนยันการแก้ไขการรับฟังและ DNS',
   'cc_label': 'การควบคุมความแออัด HTTP/3',
   'cc_help': 'มีผลเมื่อคุณเชื่อมต่อด้วยตนเองครั้งถัดไป',
   'cc_upgrade': 'ต้องอัปเดต Engine',
@@ -253,6 +256,10 @@ const Map<String, String> kNetworkQualityTh = <String, String>{
 };
 
 const Map<String, String> kWindowsRecoveryTh = <String, String>{
+  'WINDOWS_DEVICE_REUSE_UNSUPPORTED':
+      "โปรดอัปเดตแอปและ Windows Agent พร้อมกันเพื่อใช้อุปกรณ์ TUN ซ้ำ ยังไม่ได้เริ่มการเชื่อมต่อ VPN ใหม่",
+  'WINDOWS_DEVICE_RECOVERY_REQUIRED':
+      "อุปกรณ์ TUN เดิมยังต้องกู้คืน โปรดออกจาก Usque ให้หมดแล้วเปิดใหม่เพื่อลองอีกครั้ง หรือตรวจสอบการวินิจฉัยในเครื่อง",
   'WINDOWS_RECOVERY_FAILED':
       'ไม่สามารถคืนค่าสถานะเครือข่าย VPN ก่อนหน้าได้ครบ ยังไม่ได้เริ่มการเชื่อมต่อ VPN ใหม่ ลองเชื่อมต่ออีกครั้ง หรือตรวจการวินิจฉัยในเครื่อง',
   'WINDOWS_RECOVERY_EXHAUSTED':

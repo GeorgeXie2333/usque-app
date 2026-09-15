@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="101" height="26" viewBox="0 0 101 26" role="img" aria-labelledby="title">
+  <title id="title">APK ARMv8</title>
+  <path fill="#30363d" d="M0 0h43v26H0z"/>
+  <path fill="#278447" d="M43 0h58v26H43z"/>
+  <g fill="#fff" font-family="Verdana,DejaVu Sans,sans-serif" font-size="12" text-anchor="middle">
+    <text x="21.5" y="17">APK</text>
+    <text x="72" y="17">ARMv8</text>
+  </g>
+</svg>

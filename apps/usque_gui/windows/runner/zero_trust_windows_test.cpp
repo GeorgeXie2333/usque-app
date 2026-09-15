@@ -170,6 +170,81 @@ void unregisterDeletesOnlyAssociationPointingAtThisExe() {
   ::RegDeleteTreeW(HKEY_CURRENT_USER, key);
 }
 
+
+void temporaryAssociationRestoresPreviousHandler() {
+  const std::wstring fixture =
+      L"Software\\io.github.georgexie2333\\Usque\\zt-temporary-test-" +
+      std::to_wstring(::GetCurrentProcessId());
+  const std::wstring key = fixture + L"\\protocol";
+  const std::wstring backup = key + L".UsqueBackup";
+  const std::wstring pending = key + L".UsquePending";
+  const wchar_t* ours = L"C:\\Usque\\usque.exe";
+  const wchar_t* other = L"C:\\WARP\\warp.exe";
+  const wchar_t* replacement = L"C:\\Other\\handler.exe";
+  const auto temporary = [&](bool enabled) {
+    return SetTemporaryWarpProtocolAssociation(HKEY_CURRENT_USER, key.c_str(),
+                                               ours, enabled);
+  };
+  const auto points = [&](const std::wstring& path, const wchar_t* exe) {
+    return WarpProtocolAssociationPointsAtExe(HKEY_CURRENT_USER, path.c_str(),
+                                              exe);
+  };
+  Expect(temporary(true) && points(key, ours), "temporary.absentBegin");
+  Expect(temporary(false) && !points(key, ours), "temporary.absentEnd");
+  Expect(temporary(false), "temporary.idempotentEnd");
+
+  Expect(SetWarpProtocolAssociation(HKEY_CURRENT_USER, key.c_str(), other, true),
+         "temporary.original");
+  HKEY original = nullptr;
+  Expect(::RegOpenKeyExW(HKEY_CURRENT_USER, key.c_str(), 0, KEY_SET_VALUE,
+                         &original) == ERROR_SUCCESS, "temporary.openMetadata");
+  if (original != nullptr) {
+    const DWORD metadata = 42;
+    Expect(::RegSetValueExW(original, L"FixtureMetadata", 0, REG_DWORD,
+                            reinterpret_cast<const BYTE*>(&metadata),
+                            sizeof(metadata)) == ERROR_SUCCESS,
+           "temporary.writeMetadata");
+    ::RegCloseKey(original);
+  }
+  Expect(temporary(true) && points(key, ours) && points(backup, other),
+         "temporary.beginBacksUpOriginal");
+  Expect(temporary(true) && points(key, ours) && points(backup, other),
+         "temporary.repeatedBeginPreservesOriginal");
+  Expect(temporary(false) && points(key, other), "temporary.restoreOriginal");
+  DWORD metadata = 0;
+  DWORD size = sizeof(metadata);
+  Expect(::RegGetValueW(HKEY_CURRENT_USER, key.c_str(), L"FixtureMetadata",
+                        RRF_RT_REG_DWORD, nullptr, &metadata, &size) ==
+             ERROR_SUCCESS && metadata == 42,
+         "temporary.restoresEntireKey");
+
+  Expect(temporary(true), "temporary.beginBeforeReplacement");
+  Expect(SetWarpProtocolAssociation(HKEY_CURRENT_USER, key.c_str(), replacement,
+                                    true), "temporary.thirdPartyReplacement");
+  Expect(temporary(false) && points(key, replacement) && points(backup, other),
+         "temporary.neverClobbersNewOwner");
+  Expect(!temporary(true) && points(key, replacement) && points(backup, other),
+         "temporary.unresolvedBackupFailsClosed");
+  ::RegDeleteTreeW(HKEY_CURRENT_USER, key.c_str());
+  Expect(temporary(false) && points(key, other),
+         "temporary.recoversCrashBeforePublishOrAfterDelete");
+
+  Expect(SetWarpProtocolAssociation(HKEY_CURRENT_USER, pending.c_str(), ours,
+                                    true), "temporary.interruptedPreparation");
+  Expect(temporary(false) && points(key, other) && !points(pending, ours),
+         "temporary.recoversPreparedKey");
+  Expect(SetWarpProtocolAssociation(HKEY_CURRENT_USER, pending.c_str(), other,
+                                    true), "temporary.pendingCollision");
+  Expect(!temporary(true) && points(key, other) && points(pending, other),
+         "temporary.foreignPendingFailsClosed");
+  ::RegDeleteTreeW(HKEY_CURRENT_USER, pending.c_str());
+
+  Expect(SetWarpProtocolAssociation(HKEY_CURRENT_USER, key.c_str(), ours, true),
+         "temporary.legacyPersistentToggle");
+  Expect(temporary(false) && !points(key, ours), "temporary.migratesLegacyToggle");
+  ::RegDeleteTreeW(HKEY_CURRENT_USER, fixture.c_str());
+}
+
 std::string TestPipeName(const char* suffix) {
   return R"(\\.\pipe\io.github.georgexie2333.usque.engine.v1-ui-test-)" +
          std::to_string(::GetCurrentProcessId()) + "-" + suffix;
@@ -377,6 +452,7 @@ int main() {
   cancellationAndProcessReplacementDiscardState();
   malformedCallbacksAndTeamsAreRejected();
   unregisterDeletesOnlyAssociationPointingAtThisExe();
+  temporaryAssociationRestoresPreviousHandler();
   enginePipeReadinessRetriesAInitiallyMissingPipe();
   enginePipeReadinessUsesAnOverallDeadline();
   engineEventPipeReadsFramesWithReadOnlyClientAccess();

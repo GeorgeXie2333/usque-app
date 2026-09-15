@@ -89,10 +89,6 @@ const Map<String, String> kEsCatalog = <String, String>{
   'zero_trust_paste_clipboard': 'Rellenar desde el portapapeles',
   'zero_trust_clipboard_empty':
       'El portapapeles no contiene una URL de callback.',
-  'zero_trust_protocol_association':
-      'Abrir callbacks de Access en Usque (solo este usuario)',
-  'zero_trust_protocol_association_help':
-      'Opcional. Registra com.cloudflare.warp para el usuario de Windows que ha iniciado sesión. El cliente oficial de WARP puede permanecer instalado. Déjelo desactivado para conservar WARP como controlador; pegar sigue funcionando.',
   'zero_trust_scope_note':
       'Experimental: usa el registro de dispositivo de la organización para el acceso a Internet; la sincronización de políticas y la postura del dispositivo no están implementadas.',
   'zero_trust_repair_same_team':
@@ -311,7 +307,7 @@ const Map<String, String> kEsCatalog = <String, String>{
       'Estado de Usque Engine, exportación de registros y datos locales.',
   'engine_status': 'Estado de Usque Engine',
   'version': 'Versión',
-  'app_version': 'Usque 0.2.6',
+  'app_version': 'Usque 0.2.7',
   'logs': 'Registros locales',
   'export_diagnostics': 'Exportar paquete de diagnóstico',
   'diagnostics_saved': 'Paquete de diagnóstico guardado en',

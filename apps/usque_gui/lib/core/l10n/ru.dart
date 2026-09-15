@@ -85,10 +85,6 @@ const Map<String, String> kRuCatalog = <String, String>{
   'zero_trust_paste_clipboard': 'Заполнить из буфера обмена',
   'zero_trust_clipboard_empty':
       'Буфер обмена не содержит URL обратного вызова.',
-  'zero_trust_protocol_association':
-      'Открывать обратные вызовы Access в Usque (только для этого пользователя)',
-  'zero_trust_protocol_association_help':
-      'Необязательно. Регистрирует com.cloudflare.warp для текущего пользователя Windows. Официальный клиент WARP может оставаться установленным. Оставьте параметр выключенным, чтобы обработчиком оставался WARP; вставка по-прежнему работает.',
   'zero_trust_scope_note':
       'Экспериментально: используется регистрация устройства организации для доступа в Интернет; синхронизация политик и проверка состояния устройства не реализованы.',
   'zero_trust_repair_same_team':
@@ -305,7 +301,7 @@ const Map<String, String> kRuCatalog = <String, String>{
       'Состояние Usque Engine, экспорт журналов и локальные данные.',
   'engine_status': 'Состояние Usque Engine',
   'version': 'Версия',
-  'app_version': 'Usque 0.2.6',
+  'app_version': 'Usque 0.2.7',
   'logs': 'Локальные журналы',
   'export_diagnostics': 'Экспортировать диагностический пакет',
   'diagnostics_saved': 'Диагностический пакет сохранён в',

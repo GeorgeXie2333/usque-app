@@ -35,15 +35,17 @@ internal class VpnControlClient(
     companion object {
         const val SNAPSHOT_TIMEOUT_MILLIS = 2_000L
         const val CLEAR_ALL_TIMEOUT_MILLIS = 45_000L
+        const val EVENT_REFRESH_INTERVAL_MILLIS = 5_000L
 
         // Native reconfigure and attach_tun each wait up to 30s; NEED_ATTACH runs both.
-        const val RECONFIGURE_TIMEOUT_MILLIS = 65_000L
+        const val RECONFIGURE_TIMEOUT_MILLIS = 95_000L
 
         fun create(
             context: Context,
             looper: Looper = Looper.getMainLooper(),
         ): VpnControlClient {
             val handler = Handler(looper)
+            var replies: Messenger? = null
             return VpnControlClient(
                 scheduler = HandlerMainScheduler(handler),
                 serviceBinder = { connection ->
@@ -58,12 +60,14 @@ internal class VpnControlClient(
                     context.unbindService(connection)
                 },
                 endpointFromBinder = { binder, replyHandler ->
+                    // A retry may bind the same live service. Reuse the callback
+                    // Binder so its subscriber list cannot accumulate old listeners.
                     val replyMessenger =
-                        Messenger(
+                        replies ?: Messenger(
                             Handler(looper) { message ->
                                 replyHandler(message.what, message.arg1, message.data)
                             },
-                        )
+                        ).also { replies = it }
                     MessengerControlEndpoint(Messenger(binder), replyMessenger)
                 },
             )
@@ -110,6 +114,78 @@ internal class VpnControlClient(
     )
 
     private val pendingSettings = mutableMapOf<Int, SettingsRequest>()
+    private val pendingVpnGate = mutableMapOf<Int, SettingsRequest>()
+    var vpnGateRefreshPending = false
+        private set
+
+    fun requestVpnGate(
+        json: String,
+        result: MethodChannel.Result,
+    ) {
+        if (destroyed) {
+            result.error("VPN_GATE_UNAVAILABLE", "The catalogue service is unavailable.", null)
+            return
+        }
+        val id = allocateRequestId()
+        val request = org.json.JSONObject(json)
+        if ((request.optString("command") == "refresh" && !request.optBoolean("cancel")) ||
+            (
+                request.optString("command") == "node" &&
+                    request.optString("action") in setOf("prepare", "favorite", "update_favorite")
+            )
+        ) {
+            vpnGateRefreshPending =
+                true
+        }
+        pendingVpnGate[id] = SettingsRequest(json, result)
+        scheduler.postDelayed(50_000L, "vpn-gate-$id") {
+            pendingVpnGate
+                .remove(
+                    id,
+                )?.result
+                ?.error("VPN_GATE_UNAVAILABLE", "The catalogue service did not respond.", null)
+        }
+        bind()
+        flushVpnGate()
+    }
+
+    private fun flushVpnGate() {
+        val service = endpoint ?: return
+        pendingVpnGate.toMap().forEach { (id, request) ->
+            if (!request.sent) {
+                request.sent = true
+                if (!service.send(UsqueVpnService.MSG_VPN_GATE, id, mapOf("vpn_gate_request" to request.json))) {
+                    scheduler.cancel("vpn-gate-$id")
+                    pendingVpnGate
+                        .remove(
+                            id,
+                        )?.result
+                        ?.error("VPN_GATE_UNAVAILABLE", "The catalogue service is unavailable.", null)
+                }
+            }
+        }
+    }
+
+    internal fun deliverVpnGateReply(
+        id: Int,
+        json: String?,
+        error: String?,
+    ) {
+        scheduler.cancel("vpn-gate-$id")
+        val request = pendingVpnGate.remove(id) ?: return
+        val parsed = json?.let { runCatching { VpnGateFields.directory(it) }.getOrNull() }
+        if (parsed == null) {
+            request.result.error(error ?: "VPN_GATE_UNAVAILABLE", "The catalogue request failed.", null)
+        } else {
+            val nodeRunning = (parsed["node_progress"] as? Map<*, *>)?.get("stage") == "preparing"
+            if ((!nodeRunning && parsed["refresh_stage"] in setOf("complete", "failed", "cancelled")) ||
+                org.json.JSONObject(request.json.orEmpty()).optBoolean("cancel")
+            ) {
+                vpnGateRefreshPending = false
+            }
+            request.result.success(parsed)
+        }
+    }
 
     fun requestNetworkSettings(
         json: String?,
@@ -181,7 +257,10 @@ internal class VpnControlClient(
     private var endpoint: ControlEndpoint? = null
     private var controlBound = false
     private var eventsWanted = false
+    private var uiVisible = false
     private var eventSubscriptionReachable = false
+    private val eventRefreshToken = Any()
+    private var eventRefreshGeneration = 0L
     private var pendingDisconnectResult: MethodChannel.Result? = null
     private var pendingReconfigure: PendingReconfigure? = null
     private var desiredLocaleCatalog: String? = null
@@ -209,7 +288,10 @@ internal class VpnControlClient(
         get() = endpoint != null
 
     val eventStreamReachable: Boolean
-        get() = eventsWanted && eventSubscriptionReachable && endpoint != null
+        get() = eventDeliveryWanted && eventSubscriptionReachable && endpoint != null
+
+    private val eventDeliveryWanted: Boolean
+        get() = !destroyed && eventsWanted && uiVisible
 
     data class SnapshotProbe(
         val snapshot: Map<String, Any?>,
@@ -229,7 +311,7 @@ internal class VpnControlClient(
                     } else {
                         endpointFromBinder(binder, ::onReply)
                     }
-                if (eventsWanted) {
+                if (eventDeliveryWanted) {
                     registerForEvents()
                 }
                 pendingDisconnectResult?.let { result ->
@@ -239,6 +321,7 @@ internal class VpnControlClient(
                 }
                 flushPendingReconfigure()
                 flushSettings()
+                flushVpnGate()
                 flushLocale()
             }
 
@@ -281,9 +364,25 @@ internal class VpnControlClient(
     fun setEventsWanted(wanted: Boolean) {
         if (destroyed) return
         eventsWanted = wanted
-        if (wanted) {
+        if (eventDeliveryWanted) {
+            bind()
             registerForEvents()
-        } else {
+        } else if (!wanted) {
+            unregisterForEvents()
+        }
+    }
+
+    /** Keep the Dart subscription intent across Activity stops, without queuing background status IPC. */
+    fun setUiVisible(visible: Boolean) {
+        if (destroyed || uiVisible == visible) return
+        uiVisible = visible
+        if (eventDeliveryWanted) {
+            bind()
+            // The service may have dropped this subscriber while the UI was frozen,
+            // even though its Binder connection is still alive. Registration is
+            // idempotent and immediately returns the authoritative snapshot.
+            registerForEvents()
+        } else if (!visible) {
             unregisterForEvents()
         }
     }
@@ -679,6 +778,11 @@ internal class VpnControlClient(
     }
 
     fun destroy() {
+        pendingVpnGate.forEach { (id, request) ->
+            scheduler.cancel("vpn-gate-$id")
+            request.result.error("VPN_GATE_UNAVAILABLE", "The catalogue service was closed.", null)
+        }
+        pendingVpnGate.clear()
         pendingSettings.forEach { (id, request) ->
             scheduler.cancel("settings-$id")
             request.result.error("NETWORK_SETTINGS_UNCONFIRMED", "The settings result is not confirmed.", null)
@@ -857,9 +961,11 @@ internal class VpnControlClient(
     }
 
     fun deliverEvent(snapshot: Map<String, Any?>) {
-        if (eventsWanted) {
-            eventSubscriptionReachable = true
-        }
+        if (!eventDeliveryWanted) return
+        eventSubscriptionReachable = true
+        // Queued replies can still arrive after a send lost the control endpoint.
+        // They must not postpone the deadline that repairs that binding.
+        if (endpoint != null) scheduleEventRefresh()
         lastSnapshot = snapshot
         eventListener?.onEvent(snapshot)
     }
@@ -867,7 +973,7 @@ internal class VpnControlClient(
     /** Simulates [ServiceConnection.onServiceConnected] for JVM tests. */
     fun attachEndpointForTest(testEndpoint: ControlEndpoint) {
         endpoint = testEndpoint
-        if (eventsWanted) {
+        if (eventDeliveryWanted) {
             registerForEvents()
         }
         pendingDisconnectResult?.let { result ->
@@ -910,15 +1016,22 @@ internal class VpnControlClient(
         data: Bundle,
     ): Boolean =
         when (what) {
+            UsqueVpnService.MSG_VPN_GATE -> {
+                deliverVpnGateReply(arg1, data.getString("vpn_gate_directory"), data.getString("vpn_gate_error"))
+                true
+            }
+
             UsqueVpnService.MSG_SAVE_SETTINGS, UsqueVpnService.MSG_GET_SETTINGS -> {
                 deliverSettingsReply(arg1, data.getString("network_settings"), data.getString("settings_error"))
                 true
             }
 
             UsqueVpnService.MSG_SETTINGS_EVENT -> {
-                data.getString("network_settings")?.let { json ->
-                    runCatching { NetworkSettingsFields.decode(json) }.getOrNull()?.let {
-                        eventListener?.onEvent(mapOf("network_settings" to it))
+                if (eventDeliveryWanted) {
+                    data.getString("network_settings")?.let { json ->
+                        runCatching { NetworkSettingsFields.decode(json) }.getOrNull()?.let {
+                            eventListener?.onEvent(mapOf("network_settings" to it))
+                        }
                     }
                 }
                 true
@@ -953,7 +1066,9 @@ internal class VpnControlClient(
             }
 
             UsqueVpnService.MSG_EVENT -> {
-                deliverEvent(snapshotFromBundle(data))
+                if (eventDeliveryWanted) {
+                    deliverEvent(snapshotFromBundle(data))
+                }
                 true
             }
 
@@ -963,13 +1078,40 @@ internal class VpnControlClient(
         }
 
     private fun registerForEvents() {
+        if (!eventDeliveryWanted) return
         eventSubscriptionReachable = false
+        scheduleEventRefresh()
         sendEventControlMessage(UsqueVpnService.MSG_REGISTER_EVENTS)
     }
 
     private fun unregisterForEvents() {
+        cancelEventRefresh()
         sendEventControlMessage(UsqueVpnService.MSG_UNREGISTER_EVENTS)
         eventSubscriptionReachable = false
+    }
+
+    private fun cancelEventRefresh() {
+        eventRefreshGeneration++
+        scheduler.cancel(eventRefreshToken)
+    }
+
+    private fun scheduleEventRefresh() {
+        cancelEventRefresh()
+        if (!eventDeliveryWanted) return
+        val generation = eventRefreshGeneration
+        scheduler.postDelayed(EVENT_REFRESH_INTERVAL_MILLIS, eventRefreshToken) {
+            if (!eventDeliveryWanted || generation != eventRefreshGeneration) return@postDelayed
+            if (endpoint == null) {
+                // A failed send or a missing service callback can leave controlBound
+                // true without a usable endpoint. Only retry the read-only binding;
+                // never retry a command that was already sent.
+                unbind()
+                bind()
+            }
+            // Quiet snapshots are normally deduplicated. Silence is not proof of
+            // a failed tunnel: ask for a fresh snapshot and renew the subscription.
+            registerForEvents()
+        }
     }
 
     private fun sendEventControlMessage(what: Int): Boolean {
@@ -1044,6 +1186,7 @@ internal class VpnControlClient(
                 "transport" to bundle.getString("transport"),
                 "data_plane" to L4StatusFields.mode(bundle.getString(ServiceSnapshotState.WireKeys.DATA_PLANE)),
                 "l4" to L4StatusFields.decode(bundle.getString(ServiceSnapshotState.WireKeys.L4)),
+                "vpn_gate" to VpnGateFields.decodeStatus(bundle.getString(ServiceSnapshotState.WireKeys.VPN_GATE)),
                 "address_family" to bundle.getString("address_family"),
                 "connected_at" to bundle.getString("connected_at"),
                 "download_bytes_per_second" to bundle.getLong("download_bytes_per_second"),

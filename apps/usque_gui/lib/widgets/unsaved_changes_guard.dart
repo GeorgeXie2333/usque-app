@@ -18,16 +18,29 @@ class UnsavedChangesGuard extends StatefulWidget {
   final bool saving;
   final Widget child;
   @override
-  State<UnsavedChangesGuard> createState() => _UnsavedChangesGuardState();
+  State<UnsavedChangesGuard> createState() => UnsavedChangesGuardState();
 }
 
-class _UnsavedChangesGuardState extends State<UnsavedChangesGuard> {
+class UnsavedChangesGuardState extends State<UnsavedChangesGuard> {
   bool _discarding = false;
-  bool _confirming = false;
+  Future<bool>? _confirmation;
 
-  Future<void> _confirmDiscard() async {
-    if (_confirming || widget.saving || !widget.dirty) return;
-    _confirming = true;
+  /// Shares the route's discard decision with navigation outside this route.
+  Future<bool> confirmLeave() async {
+    if (widget.saving) return false;
+    if (_discarding || !widget.dirty) return true;
+    final pending = _confirmation;
+    if (pending != null) return pending;
+    final confirmation = _confirmDiscard();
+    _confirmation = confirmation;
+    try {
+      return await confirmation;
+    } finally {
+      _confirmation = null;
+    }
+  }
+
+  Future<bool> _confirmDiscard() async {
     final strings = widget.strings;
     final discard = await showDialog<bool>(
       context: context,
@@ -48,19 +61,22 @@ class _UnsavedChangesGuardState extends State<UnsavedChangesGuard> {
         ],
       ),
     );
-    _confirming = false;
-    if (!mounted || discard != true || widget.saving) return;
+    if (!mounted || discard != true || widget.saving) return false;
     setState(() => _discarding = true);
     // Pop only after the updated PopScope registration permits it.
     await WidgetsBinding.instance.endOfFrame;
-    if (mounted && Navigator.of(context).canPop()) Navigator.of(context).pop();
+    return mounted && !widget.saving;
   }
 
   @override
   Widget build(BuildContext context) => PopScope<Object?>(
     canPop: _discarding || !widget.dirty && !widget.saving,
     onPopInvokedWithResult: (didPop, _) async {
-      if (!didPop) await _confirmDiscard();
+      if (didPop) return;
+      final navigator = Navigator.of(context);
+      if (await confirmLeave() && mounted && navigator.mounted) {
+        if (navigator.canPop()) navigator.pop();
+      }
     },
     child: widget.child,
   );

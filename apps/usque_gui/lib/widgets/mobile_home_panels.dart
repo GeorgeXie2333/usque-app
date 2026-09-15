@@ -8,6 +8,7 @@ import '../screens/network_quality_screen.dart';
 import '../state/app_controller.dart';
 import 'common.dart';
 import 'controller_selector.dart';
+import 'country_flag.dart';
 import 'live_duration.dart';
 import 'sparkline.dart';
 
@@ -282,11 +283,22 @@ class MobileConnectionOverview extends StatelessWidget {
                               child: Tooltip(
                                 message:
                                     location ?? strings.get('not_available'),
-                                child: Text(
-                                  location ?? strings.get('not_available'),
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.titleSmall,
+                                child: Row(
+                                  children: [
+                                    CountryFlag(
+                                      countryCode: view.exit.countryCode,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        location ??
+                                            strings.get('not_available'),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: theme.textTheme.titleSmall,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),

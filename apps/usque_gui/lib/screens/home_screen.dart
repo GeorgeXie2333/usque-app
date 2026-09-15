@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/app_strings.dart';
@@ -13,12 +12,14 @@ import '../state/app_controller.dart';
 import '../widgets/common.dart';
 import '../widgets/connection_ring.dart';
 import '../widgets/controller_selector.dart';
+import '../widgets/country_flag.dart';
 import '../widgets/live_duration.dart';
 import '../widgets/mobile_home_panels.dart';
 import '../widgets/profile_identity_dialog.dart';
 import '../widgets/sparkline.dart';
 import 'diagnostics_screen.dart';
 import 'network_quality_screen.dart';
+import 'vpn_gate_screen.dart';
 
 /// The instrument panel: one connection control, one status readout, and the
 /// live numbers that prove the tunnel is doing something.
@@ -26,9 +27,10 @@ import 'network_quality_screen.dart';
 /// Each block subscribes to its own slice of the controller, so a traffic
 /// sample arriving every second repaints two counters instead of the page.
 class HomeScreen extends StatelessWidget {
-  const HomeScreen({required this.controller, super.key});
+  const HomeScreen({required this.controller, this.onOpenVpnGate, super.key});
 
   final AppController controller;
+  final VoidCallback? onOpenVpnGate;
 
   /// Below this the hero and the readout stack instead of sitting side by side.
   static const double _splitWidth = 820;
@@ -49,6 +51,17 @@ class HomeScreen extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           if (!compact) _ErrorSlot(controller: controller, strings: strings),
+          _VpnGateReadout(
+            controller: controller,
+            strings: strings,
+            onOpen:
+                onOpenVpnGate ??
+                () => Navigator.of(context).push<void>(
+                  MaterialPageRoute(
+                    builder: (_) => VpnGateScreen(controller: controller),
+                  ),
+                ),
+          ),
           if (compact)
             PanelStack(
               spacing: 24 + mobileHomeExpansion(context) * 8,
@@ -146,6 +159,126 @@ class _NarrowBrandHeader extends StatelessWidget {
   }
 }
 
+class _VpnGateReadout extends StatelessWidget {
+  const _VpnGateReadout({
+    required this.controller,
+    required this.strings,
+    required this.onOpen,
+  });
+  final AppController controller;
+  final AppStrings strings;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(
+    BuildContext context,
+  ) => ControllerSelector<({bool enabled, VpnGateStatus status})>(
+    controller: controller,
+    active: (app) => app.section == AppSection.home,
+    selector: (app) => (
+      enabled: app.activeProfile.vpnGate.enabled,
+      status: app.snapshot.vpnGate,
+    ),
+    builder: (context, view) {
+      if (!view.enabled && view.status.stage == 'disabled') {
+        return const SizedBox.shrink();
+      }
+      final status = view.status;
+      final phaseKey = switch (status.stage) {
+        'connecting_warp' => 'gate_connecting_warp',
+        'connecting_server' => 'gate_connecting_server',
+        'negotiating' => 'gate_negotiating',
+        'configuring_network' => 'gate_configuring_network',
+        'connected' => 'connected',
+        'reconnecting' => 'reconnecting',
+        'error' => 'error',
+        _ => 'disconnected',
+      };
+      final server = status.server;
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 24),
+        child: Semantics(
+          container: true,
+          liveRegion: true,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: TextButton(
+                  key: const ValueKey('home-vpn-gate-settings'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Theme.of(context).colorScheme.onSurface,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    alignment: AlignmentDirectional.centerStart,
+                  ),
+                  onPressed: onOpen,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'WARP → VPN Gate',
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              strings.get(phaseKey),
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onSurfaceVariant,
+                                  ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      const Icon(LucideIcons.chevronRight, size: 18),
+                    ],
+                  ),
+                ),
+              ),
+              if (status.warpStage != null || server != null)
+                const SizedBox(height: 8),
+              if (status.warpStage != null)
+                Text(
+                  'WARP: ${strings.get(status.warpStage == 'connected'
+                      ? 'connected'
+                      : status.warpStage == 'reconnecting'
+                      ? 'reconnecting'
+                      : status.warpStage == 'error'
+                      ? 'error'
+                      : status.warpStage == 'disconnected'
+                      ? 'disconnected'
+                      : 'connecting')}',
+                ),
+              if (server != null)
+                Row(
+                  children: [
+                    CountryFlag(countryCode: server.countryCode),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '${strings.get(status.connected ? 'gate_current' : 'gate_draft')}: ${server.countryCode ?? '—'} · ${server.ip}',
+                        style: const TextStyle(fontFamily: UsqueFonts.mono),
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
 class _ErrorSlot extends StatelessWidget {
   const _ErrorSlot({required this.controller, required this.strings});
 
@@ -177,6 +310,7 @@ typedef _HeroView = ({
   bool busy,
   String? errorCode,
   String profileName,
+  bool identityReady,
   FrontendSettings frontends,
   bool systemProxy,
   String geoDirect,
@@ -215,6 +349,9 @@ _HeroView _heroView(AppController controller) => (
   busy: controller.busy,
   errorCode: controller.snapshot.errorCode,
   profileName: controller.activeProfile.name,
+  identityReady:
+      controller.identityState(controller.activeProfileId) ==
+      ProfileIdentityState.ready,
   frontends: controller.activeProfile.frontends,
   systemProxy: controller.activeProfile.proxy.systemProxy,
   geoDirect: controller.activeProfile.geoDirectCountries.join(','),
@@ -247,11 +384,25 @@ class _ConnectionHero extends StatelessWidget {
     final theme = Theme.of(context);
     final presentation = ConnectionPresentation.of(view.phase);
     final status = strings.get(presentation.labelKey);
-    final action = strings.get(presentation.actionKey);
+    final error = view.phase == ConnectionPhase.error;
+    final recoveryBlocked =
+        error && view.errorCode == 'WINDOWS_RECOVERY_BLOCKED';
+    final primaryRetry = error && !recoveryBlocked && view.identityReady;
+    final action = strings.get(
+      primaryRetry
+          ? 'retry'
+          : error && !recoveryBlocked && !view.identityReady
+          ? 'configure_identity'
+          : presentation.actionKey,
+    );
     final canAct =
-        !view.busy &&
-        !(view.phase == ConnectionPhase.error &&
-            view.errorCode == 'WINDOWS_RECOVERY_BLOCKED');
+        (!view.busy ||
+            view.phase == ConnectionPhase.preparing ||
+            view.phase == ConnectionPhase.connectingH3 ||
+            view.phase == ConnectionPhase.connectingH2 ||
+            view.phase == ConnectionPhase.reconnecting) &&
+        view.phase != ConnectionPhase.disconnecting &&
+        !recoveryBlocked;
     Widget ring(double size) => ConnectionRing(
       phase: view.phase,
       busy: view.busy,
@@ -259,7 +410,11 @@ class _ConnectionHero extends StatelessWidget {
       semanticLabel: '${strings.get('connection_status')}: $status',
       size: size,
       compactControl: compact,
-      onPressed: canAct ? () => _connectOrRepairIdentity(context) : null,
+      onPressed: !canAct
+          ? null
+          : primaryRetry
+          ? controller.retry
+          : () => _connectOrRepairIdentity(context),
     );
     Widget account() => Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -298,7 +453,7 @@ class _ConnectionHero extends StatelessWidget {
       spacing: 8,
       runSpacing: 8,
       children: [
-        if (view.errorCode != 'WINDOWS_RECOVERY_BLOCKED')
+        if (!error)
           OutlinedButton.icon(
             onPressed: view.busy ? null : controller.retry,
             icon: const Icon(LucideIcons.refreshCw),
@@ -360,8 +515,7 @@ class _ConnectionHero extends StatelessWidget {
             statusText(),
             const SizedBox(height: 10),
             _ErrorSlot(controller: controller, strings: strings),
-            if (presentation.recoverable &&
-                view.errorCode != 'WINDOWS_RECOVERY_BLOCKED') ...[
+            if (presentation.recoverable && !error) ...[
               Center(
                 child: OutlinedButton.icon(
                   onPressed: view.busy ? null : controller.retry,
@@ -945,26 +1099,12 @@ class _ExitPanel extends StatelessWidget {
       child: Divider(height: 1, color: hairline),
     );
 
-    Widget flag;
-    if (exit.flagSvg case final svg? when svg.isNotEmpty) {
-      flag = ClipRRect(
-        borderRadius: BorderRadius.circular(3),
-        child: SvgPicture.string(svg, width: 22, height: 16, fit: BoxFit.cover),
-      );
-    } else {
-      flag = Icon(
-        LucideIcons.mapPin,
-        size: 17,
-        color: Theme.of(context).colorScheme.onSurfaceVariant,
-      );
-    }
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         ReadoutRow(
           stackWhenNarrow: true,
-          leading: flag,
+          leading: CountryFlag(countryCode: exit.countryCode),
           label: strings.get('location'),
           value: exit.hasLocation
               ? Text(

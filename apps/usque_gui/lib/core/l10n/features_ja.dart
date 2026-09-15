@@ -1,6 +1,8 @@
 /// Supplemental feature strings for Japanese.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowJa = <String, String>{
+  'local_proxy_settings': 'ローカルプロキシ設定',
+  'proxy_switches_hint': 'スイッチの変更は自動保存されます。リスナーと DNS の編集は「変更を適用」で反映します。',
   'cc_label': 'HTTP/3 輻輳制御',
   'cc_help': '次回の手動接続時に適用されます。',
   'cc_upgrade': 'Engine の更新が必要です。',
@@ -228,6 +230,10 @@ const Map<String, String> kNetworkQualityJa = <String, String>{
 };
 
 const Map<String, String> kWindowsRecoveryJa = <String, String>{
+  'WINDOWS_DEVICE_REUSE_UNSUPPORTED':
+      "TUN デバイスを再利用するには、アプリと Windows Agent を一緒に更新してください。新しい VPN 接続は開始していません。",
+  'WINDOWS_DEVICE_RECOVERY_REQUIRED':
+      "以前の TUN デバイスの復旧が必要です。Usque を完全に終了して開き直し、再試行するか、ローカル診断を確認してください。",
   'WINDOWS_RECOVERY_FAILED':
       '前回の VPN ネットワーク状態を完全には復元できませんでした。新しい VPN '
       '接続は開始されていません。再接続を試すか、ローカル診断を確認してください。',

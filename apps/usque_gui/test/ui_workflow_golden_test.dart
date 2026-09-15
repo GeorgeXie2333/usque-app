@@ -5,21 +5,30 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:usque/core/app_strings.dart';
+import 'package:usque/core/usque_theme.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/models/network_settings.dart';
 import 'package:usque/screens/advanced_settings_screen.dart';
 import 'package:usque/screens/diagnostics_screen.dart';
 import 'package:usque/screens/onboarding_screen.dart';
 import 'package:usque/screens/shell_screen.dart';
+import 'package:usque/screens/vpn_gate_screen.dart';
 import 'package:usque/state/app_controller.dart';
 import 'package:usque/state/network_quality_controller.dart';
 import 'package:usque/state/window_frame.dart';
 import 'package:usque/widgets/common.dart';
+import 'package:usque/widgets/country_flag.dart';
 import 'package:usque/widgets/usque_dialog.dart';
+import 'package:usque/widgets/vpn_gate_entry.dart';
+import 'package:usque/widgets/vpn_gate_server_row.dart';
 import 'package:usque/widgets/window_titlebar.dart';
 
 import 'quality_test_support.dart' show qualityFixture;
 import 'ui_workflow_test.dart' show WorkflowEngine, workflowHost;
+import 'vpn_gate_server_row_test.dart' show observationNow, observationServer;
+import 'vpn_gate_summary_test.dart' show current;
+import 'vpngate_test.dart' show GateEngine, server;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -55,6 +64,526 @@ void main() {
           .load();
     }
   });
+
+  testWidgets('VPN Gate proxy entry on desktop and phone', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    for (final phone in [false, true]) {
+      tester.view.physicalSize = Size(phone ? 375 : 880, 600);
+      final app = AppController(GateEngine())
+        ..section = AppSection.proxy
+        ..localePreference = phone
+            ? LocalePreference.simplifiedChinese
+            : LocalePreference.english
+        ..snapshot = const EngineSnapshot(
+          phase: ConnectionPhase.connected,
+          vpnGate: VpnGateStatus(stage: 'connected', server: server),
+        );
+      final boundary = GlobalKey();
+      try {
+        await tester.pumpWidget(
+          workflowHost(
+            app,
+            dark: phone,
+            home: Scaffold(
+              body: Padding(
+                padding: const EdgeInsets.all(16),
+                child: RepaintBoundary(
+                  key: boundary,
+                  child: VpnGateEntry(controller: app, onOpen: () {}),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.runAsync(
+          () => precacheImage(
+            const AssetImage('assets/flags/w80/jp.png'),
+            tester.element(find.byType(VpnGateEntry)),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        await expectLater(
+          find.byKey(boundary),
+          matchesGoldenFile(
+            'goldens/proxy_gate_${phone ? 'phone_dark' : 'desktop_light'}.png',
+          ),
+        );
+        await tester.pumpWidget(const SizedBox.shrink());
+      } finally {
+        app.dispose();
+      }
+    }
+  }, tags: 'golden');
+
+  testWidgets('VPN Gate selection layout on desktop and phone', (tester) async {
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    tester.view.devicePixelRatio = 1;
+    for (final phone in [false, true]) {
+      tester.view.physicalSize = phone
+          ? const Size(390, 844)
+          : const Size(1080, 920);
+      final engine = GateEngine()..fetchedAt = DateTime(2026, 9, 12, 8);
+      final app = AppController(engine)
+        ..engineCapabilities = const EngineCapabilities(
+          vpnGateTcp: true,
+          vpnGatePoolFavorites: true,
+        )
+        ..localePreference = phone
+            ? LocalePreference.simplifiedChinese
+            : LocalePreference.english;
+      final boundary = GlobalKey();
+      try {
+        await tester.pumpWidget(
+          RepaintBoundary(
+            key: boundary,
+            child: workflowHost(
+              app,
+              dark: phone,
+              home: VpnGateScreen(
+                controller: app,
+                now: () => DateTime(2020, 1, 3, 14),
+              ),
+            ),
+          ),
+        );
+        await tester.pump(const Duration(seconds: 2));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('vpn-gate-toggle')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('vpn-gate-node-v1:node')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('vpn-gate-toggle')));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        await tester.runAsync(
+          () => precacheImage(
+            const AssetImage('assets/flags/w80/jp.png'),
+            tester.element(find.byType(VpnGateScreen)),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await expectLater(
+          find.byKey(boundary),
+          matchesGoldenFile(
+            'goldens/vpngate_${phone ? 'phone_dark' : 'desktop_light'}.png',
+          ),
+        );
+        engine.favorites[server.id] = VpnGateServer(
+          id: server.id,
+          ip: server.ip,
+          hostname: server.hostname,
+          configSha256: 'saved-configuration',
+          countryCode: 'JP',
+          countryName: 'Japan',
+          favorite: VpnGateFavoriteMetadata(
+            configSha256: 'saved-configuration',
+            savedAt: DateTime(2020),
+            latestConfigSha256: 'new-configuration',
+          ),
+          pool: VpnGatePoolMetadata(
+            firstSeenAt: DateTime.utc(2020),
+            lastSeenAt: DateTime.utc(2020, 1, 2),
+            checkedAt: DateTime.utc(2020, 1, 2),
+            tcpStatus: 'reachable',
+            inPool: false,
+          ),
+        );
+        final favoritesTab = find.byKey(const ValueKey('vpn-gate-favorites'));
+        await tester.ensureVisible(favoritesTab);
+        await tester.tap(favoritesTab);
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey('vpn-gate-update-v1:node')),
+        );
+        await tester.pumpAndSettle();
+        await expectLater(
+          find.byKey(boundary),
+          matchesGoldenFile(
+            'goldens/vpngate_favorites_${phone ? 'phone_dark' : 'desktop_light'}.png',
+          ),
+        );
+        await tester.pumpWidget(const SizedBox.shrink());
+      } finally {
+        app.dispose();
+      }
+    }
+  }, tags: 'golden');
+
+  testWidgets('VPN Gate observation summaries and details', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    for (final variant in [
+      'desktop_light',
+      'desktop_disabled_dark',
+      'phone_details_dark',
+    ]) {
+      final phone = variant.startsWith('phone');
+      final enabled = variant == 'desktop_light';
+      tester.view.physicalSize = phone
+          ? const Size(390, 844)
+          : const Size(980, 610);
+      final boundary = GlobalKey();
+      final strings = AppStrings(LocalePreference.simplifiedChinese);
+      final nodes = [
+        observationServer(),
+        observationServer(id: 'stale', expired: true, tcpStatus: 'unreachable'),
+        observationServer(id: 'removed', inPool: false, tcpStatus: 'unknown'),
+      ];
+      await tester.pumpWidget(
+        RepaintBoundary(
+          key: boundary,
+          child: MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: enabled ? UsqueTheme.light() : UsqueTheme.dark(),
+            home: Scaffold(
+              body: SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    for (final server in phone ? nodes.take(1) : nodes)
+                      VpnGateServerRow(
+                        key: ValueKey(server.id),
+                        server: server,
+                        strings: strings,
+                        now: observationNow,
+                        selected: false,
+                        onSelect: enabled ? () {} : null,
+                        onFavorite: () {},
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      if (phone) {
+        await tester.tap(
+          find.byKey(const ValueKey('vpn-gate-details-observed')),
+        );
+        await tester.pumpAndSettle();
+      }
+      await tester.runAsync(
+        () => precacheImage(
+          const AssetImage('assets/flags/w80/us.png'),
+          tester.element(find.byType(VpnGateServerRow).first),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await expectLater(
+        find.byKey(boundary),
+        matchesGoldenFile('goldens/vpngate_observations_$variant.png'),
+      );
+      await tester.pumpWidget(const SizedBox());
+    }
+  }, tags: 'golden');
+
+  testWidgets('Home VPN Gate settings entry on desktop and phone', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    for (final phone in [false, true]) {
+      tester.view.physicalSize = phone
+          ? const Size(390, 844)
+          : const Size(1220, 1000);
+      debugDefaultTargetPlatformOverride = phone
+          ? TargetPlatform.android
+          : TargetPlatform.windows;
+      final app = AppController(GateEngine())
+        ..localePreference = LocalePreference.simplifiedChinese
+        ..sharedNetwork = UsqueProfile.defaultProfile().copyWith(
+          vpnGate: const VpnGateSettings(enabled: true),
+        )
+        ..snapshot = phone
+            ? const EngineSnapshot(
+                phase: ConnectionPhase.connected,
+                transport: 'HTTP/3',
+                addressFamily: 'IPv4',
+                killSwitchState: 'active',
+                frontends: [
+                  FrontendRuntimeStatus(
+                    kind: FrontendKind.tunnel,
+                    phase: FrontendPhase.active,
+                  ),
+                  FrontendRuntimeStatus(
+                    kind: FrontendKind.socks5,
+                    phase: FrontendPhase.active,
+                  ),
+                  FrontendRuntimeStatus(
+                    kind: FrontendKind.http,
+                    phase: FrontendPhase.active,
+                  ),
+                ],
+                vpnGate: VpnGateStatus(
+                  stage: 'connected',
+                  warpStage: 'connected',
+                  server: server,
+                ),
+              )
+            : const EngineSnapshot();
+      final boundary = GlobalKey();
+      try {
+        await tester.pumpWidget(
+          RepaintBoundary(
+            key: boundary,
+            child: workflowHost(
+              app,
+              dark: phone,
+              home: ShellScreen(controller: app),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.runAsync(() async {
+          final context = tester.element(find.byType(ShellScreen));
+          await Future.wait([
+            precacheImage(
+              const AssetImage('assets/branding/usque-ui-icon.png'),
+              context,
+            ),
+            if (phone)
+              precacheImage(
+                const AssetImage('assets/flags/w80/jp.png'),
+                context,
+              ),
+          ]);
+        });
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        await expectLater(
+          find.byKey(boundary),
+          matchesGoldenFile(
+            'goldens/home_vpngate_${phone ? 'phone_dark' : 'desktop_light'}.png',
+          ),
+        );
+      } finally {
+        await tester.pumpWidget(const SizedBox());
+        app.dispose();
+        debugDefaultTargetPlatformOverride = null;
+      }
+    }
+  }, tags: 'golden');
+
+  testWidgets('VPN Gate preserves the wide shell navigation', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1220, 920);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    final engine = GateEngine()..fetchedAt = DateTime(2026, 9, 12, 8);
+    final app = AppController(engine)
+      ..engineCapabilities = const EngineCapabilities(
+        vpnGateTcp: true,
+        vpnGatePoolFavorites: true,
+      )
+      ..localePreference = LocalePreference.simplifiedChinese;
+    app.selectSection(AppSection.proxy);
+    final boundary = GlobalKey();
+    try {
+      await tester.pumpWidget(
+        RepaintBoundary(
+          key: boundary,
+          child: workflowHost(
+            app,
+            dark: true,
+            home: ShellScreen(controller: app),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('VPN Gate'));
+      await tester.pumpAndSettle();
+      await tester.runAsync(() async {
+        final context = tester.element(find.byType(VpnGateScreen));
+        await Future.wait([
+          precacheImage(const AssetImage('assets/flags/w80/jp.png'), context),
+          precacheImage(
+            const AssetImage('assets/branding/usque-ui-icon.png'),
+            context,
+          ),
+        ]);
+      });
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await expectLater(
+        find.byKey(boundary),
+        matchesGoldenFile('goldens/vpngate_shell_desktop_dark.png'),
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+    } finally {
+      app.dispose();
+    }
+  }, tags: 'golden');
+
+  testWidgets('VPN Gate live server and pending selection remain distinct', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1220, 920);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    final app =
+        AppController(GateEngine()..fetchedAt = DateTime(2026, 9, 12, 8))
+          ..engineCapabilities = const EngineCapabilities(
+            vpnGateTcp: true,
+            vpnGatePoolFavorites: true,
+          )
+          ..localePreference = LocalePreference.simplifiedChinese
+          ..sharedNetwork = UsqueProfile.defaultProfile().copyWith(
+            vpnGate: const VpnGateSettings(
+              enabled: true,
+            ).copyWith(server: current),
+          )
+          ..snapshot = const EngineSnapshot(
+            phase: ConnectionPhase.connected,
+            vpnGate: VpnGateStatus(
+              stage: 'connected',
+              warpStage: 'connected',
+              server: current,
+            ),
+          );
+    app.selectSection(AppSection.proxy);
+    final boundary = GlobalKey();
+    try {
+      await tester.pumpWidget(
+        RepaintBoundary(
+          key: boundary,
+          child: workflowHost(
+            app,
+            dark: true,
+            home: ShellScreen(controller: app),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('VPN Gate'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(ValueKey('vpn-gate-node-${server.id}')));
+      await tester.pumpAndSettle();
+      await tester.runAsync(() async {
+        final context = tester.element(find.byType(VpnGateScreen));
+        await Future.wait([
+          precacheImage(const AssetImage('assets/flags/w80/jp.png'), context),
+          precacheImage(const AssetImage('assets/flags/w80/kr.png'), context),
+          precacheImage(
+            const AssetImage('assets/branding/usque-ui-icon.png'),
+            context,
+          ),
+        ]);
+      });
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await expectLater(
+        find.byKey(boundary),
+        matchesGoldenFile('goldens/vpngate_live_draft_desktop_dark.png'),
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+    } finally {
+      app.dispose();
+    }
+  }, tags: 'golden');
+
+  testWidgets(
+    'country flags preserve unusual shapes in light and directional dark layouts',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(540, 430);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      const labels = <String?, String>{
+        'JP': 'Japan',
+        'CH': 'Switzerland',
+        'NP': 'Nepal',
+        'QA': 'Qatar',
+        null: 'Unknown region',
+      };
+      for (final dark in [false, true]) {
+        final app = AppController(WorkflowEngine());
+        final boundary = GlobalKey();
+        try {
+          await tester.pumpWidget(
+            RepaintBoundary(
+              key: boundary,
+              child: workflowHost(
+                app,
+                dark: dark,
+                home: Builder(
+                  builder: (context) => MediaQuery(
+                    data: MediaQuery.of(context).copyWith(
+                      navigationMode: dark
+                          ? NavigationMode.directional
+                          : NavigationMode.traditional,
+                    ),
+                    child: Scaffold(
+                      body: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Country / region',
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                            const SizedBox(height: 20),
+                            for (final entry in labels.entries)
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 12,
+                                ),
+                                child: Row(
+                                  children: [
+                                    CountryFlag(countryCode: entry.key),
+                                    const SizedBox(width: 12),
+                                    Expanded(child: Text(entry.value)),
+                                    CountryFlag(
+                                      countryCode: entry.key,
+                                      enabled: false,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+          await tester.runAsync(() async {
+            final context = tester.element(find.byType(Scaffold));
+            for (final code in labels.keys.whereType<String>()) {
+              await precacheImage(
+                AssetImage('assets/flags/w80/${code.toLowerCase()}.png'),
+                context,
+              );
+            }
+          });
+          await tester.pumpAndSettle();
+          expect(tester.takeException(), isNull);
+          await expectLater(
+            find.byKey(boundary),
+            matchesGoldenFile(
+              'goldens/country_flags_${dark ? 'directional_dark' : 'light'}.png',
+            ),
+          );
+          await tester.pumpWidget(const SizedBox.shrink());
+        } finally {
+          app.dispose();
+        }
+      }
+    },
+    tags: 'golden',
+  );
 
   testWidgets(
     'Windows startup size fits Home including the native caption',
@@ -109,6 +638,7 @@ void main() {
                 ],
                 exit: ExitInfo(
                   country: 'Singapore',
+                  countryCode: 'SG',
                   ipv4: '198.51.100.10',
                   ipv6: '2001:db8:1234:5678:abcd:ef01:2345:6789',
                 ),
@@ -592,6 +1122,7 @@ void main() {
           ],
           exit: ExitInfo(
             country: 'Singapore',
+            countryCode: 'SG',
             ipv4: '198.51.100.10',
             ipv6: '2001:db8::10',
           ),
@@ -642,6 +1173,7 @@ void main() {
             ],
             exit: const ExitInfo(
               country: 'Singapore',
+              countryCode: 'SG',
               ipv4: '198.51.100.10',
               ipv6: '2001:db8::10',
             ),
@@ -656,12 +1188,19 @@ void main() {
             child: workflowHost(app, dark: scene.dark),
           ),
         );
-        await tester.runAsync(
-          () => precacheImage(
+        await tester.runAsync(() async {
+          final context = tester.element(find.byType(MaterialApp));
+          await precacheImage(
             const AssetImage('assets/branding/usque-ui-icon.png'),
-            tester.element(find.byType(MaterialApp)),
-          ),
-        );
+            context,
+          );
+          if (scene.connected) {
+            await precacheImage(
+              const AssetImage('assets/flags/w80/sg.png'),
+              context,
+            );
+          }
+        });
         await tester.pumpAndSettle();
         if (scene.name.startsWith('home_phone_details_expanded')) {
           final details = find.text(app.strings.get('connection_details'));
@@ -684,6 +1223,10 @@ void main() {
               .first;
           await tester.enterText(port, '9090');
           FocusManager.instance.primaryFocus?.unfocus();
+          await tester.pumpAndSettle();
+          Scrollable.of(
+            tester.element(find.byType(VpnGateEntry)),
+          ).position.jumpTo(0);
           await tester.pumpAndSettle();
         }
         expect(tester.takeException(), isNull);

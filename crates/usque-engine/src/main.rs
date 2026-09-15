@@ -42,8 +42,34 @@ struct Arguments {
     socket: Option<PathBuf>,
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    let result = runtime.block_on(run());
+    // run() finishes privileged cleanup (or records its failure) first. A
+    // pending in-memory native worker must not hold process exit indefinitely.
+    finish_runtime(runtime, std::time::Duration::from_secs(5));
+    result
+}
+
+fn finish_runtime(runtime: tokio::runtime::Runtime, grace: std::time::Duration) {
+    let started = std::time::Instant::now();
+    info!(
+        recovery_event = "ENGINE_RUNTIME_WAIT_STARTED",
+        "Waiting for Engine runtime shutdown"
+    );
+    // This bounds waiting; it does not abort native threads or free their Arc-
+    // owned memory. Any remaining threads end when this process exits.
+    runtime.shutdown_timeout(grace);
+    info!(
+        recovery_event = "ENGINE_RUNTIME_WAIT_FINISHED",
+        elapsed_ms = started.elapsed().as_millis() as u64,
+        "Engine runtime shutdown wait finished"
+    );
+}
+
+async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let arguments = Arguments::parse();
     let config_path = arguments.config.clone();
 
@@ -191,10 +217,12 @@ async fn wait_for_parent_exit(parent_pid: Option<u32>) -> std::io::Result<()> {
         std::future::pending::<()>().await;
         unreachable!();
     };
+    let cancellation = tokio_util::sync::CancellationToken::new();
+    let _guard = cancellation.clone().drop_guard();
     tokio::task::spawn_blocking(move || {
-        use windows_sys::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
+        use windows_sys::Win32::Foundation::CloseHandle;
         use windows_sys::Win32::System::Threading::{
-            INFINITE, OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject,
+            OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject,
         };
 
         // SAFETY: OpenProcess may be called with any PID; on success the HANDLE
@@ -203,20 +231,92 @@ async fn wait_for_parent_exit(parent_pid: Option<u32>) -> std::io::Result<()> {
         if process.is_null() {
             return Err(std::io::Error::last_os_error());
         }
-        // SAFETY: process is a live handle owned by this task.
-        let wait_result = unsafe { WaitForSingleObject(process, INFINITE) };
+        let result = wait_for_parent_signal(&cancellation, || {
+            // SAFETY: process is a live handle owned by this task. A bounded
+            // wait lets cancellation release the handle when another exit
+            // trigger wins the select in run().
+            unsafe { WaitForSingleObject(process, 100) }
+        });
         // SAFETY: process is still owned here and is closed exactly once.
         unsafe {
             CloseHandle(process);
         }
-        if wait_result == WAIT_OBJECT_0 {
-            Ok(())
-        } else {
-            Err(std::io::Error::other(format!(
-                "WaitForSingleObject returned {wait_result}"
-            )))
-        }
+        result
     })
     .await
     .map_err(|error| std::io::Error::other(error.to_string()))?
+}
+
+#[cfg(windows)]
+fn wait_for_parent_signal(
+    cancellation: &tokio_util::sync::CancellationToken,
+    mut wait: impl FnMut() -> u32,
+) -> std::io::Result<()> {
+    use windows_sys::Win32::Foundation::{WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT};
+    while !cancellation.is_cancelled() {
+        match wait() {
+            WAIT_OBJECT_0 => return Ok(()),
+            WAIT_TIMEOUT => {}
+            WAIT_FAILED => return Err(std::io::Error::last_os_error()),
+            status => {
+                return Err(std::io::Error::other(format!(
+                    "unexpected process wait status {status}"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn runtime_shutdown_returns_with_a_pending_worker_without_destroying_its_state() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let (release, waiting) = std::sync::mpsc::channel();
+        let (started, entered) = std::sync::mpsc::channel();
+        let (exited, finished) = std::sync::mpsc::channel();
+        let state = Arc::new(());
+        let worker_state = Arc::clone(&state);
+        runtime.spawn_blocking(move || {
+            let _ = started.send(());
+            let _ = waiting.recv();
+            drop(worker_state);
+            let _ = exited.send(());
+        });
+        entered
+            .recv_timeout(std::time::Duration::from_secs(3))
+            .unwrap();
+        finish_runtime(runtime, std::time::Duration::ZERO);
+        assert_eq!(Arc::strong_count(&state), 2);
+        release.send(()).unwrap();
+        finished
+            .recv_timeout(std::time::Duration::from_secs(3))
+            .unwrap();
+        assert_eq!(Arc::strong_count(&state), 1);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn cancelled_parent_monitor_does_not_wait_for_the_parent_to_exit() {
+        use windows_sys::Win32::Foundation::WAIT_TIMEOUT;
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let mut waits = 0;
+        wait_for_parent_signal(&cancel, || {
+            waits += 1;
+            cancel.cancel();
+            WAIT_TIMEOUT
+        })
+        .unwrap();
+        assert_eq!(waits, 1);
+        wait_for_parent_signal(&cancel, || {
+            panic!("already cancelled monitor must not wait")
+        })
+        .unwrap();
+    }
 }

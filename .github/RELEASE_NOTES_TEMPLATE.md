@@ -4,48 +4,36 @@ that release. Keep English first and put the Simplified Chinese translation
 immediately below the matching English text.
 -->
 
-## Highlights / 更新亮点
-
-- Usque v0.2.6 is a feature and reliability release that adds experimental L4 proxying, selectable HTTP/3 congestion control, and multilingual Windows installers, while improving network settings and cross-platform lifecycle handling.
-  <br>Usque v0.2.6 是一个功能与可靠性版本，新增实验性 L4 代理、可选 HTTP/3 拥塞控制及多语言 Windows 安装程序，并改进网络设置与跨平台生命周期处理。
-- Experimental L4 carries TCP over HTTP/3 CONNECT for SOCKS5, HTTP, and the bounded VPN/TUN bridge. It is explicitly selected, excludes general UDP, and never silently falls back to CONNECT-IP/H2 or replays established TCP connections. Backpressure fixes preserve accepted data and reverse-direction progress; download paths reduce copies and reuse receive buffers. CONNECT-IP with Auto remains the default.
-  <br>实验性 L4 通过 HTTP/3 CONNECT 承载 SOCKS5、HTTP 及有界 VPN/TUN 桥接中的 TCP 流量。它必须显式选择，不支持通用 UDP，不会静默回退至 CONNECT-IP/H2，也不会重放已建立的 TCP 连接。背压修复保留已接收数据及反向传输进度；下载路径减少复制并复用接收缓冲。默认仍为 CONNECT-IP 与 Auto。
-- HTTP/3 now offers CUBIC, Reno, BBRv2, and an independent experimental BBRv3, with fixes for stalled BBRv2 sending. CUBIC remains the default; a saved algorithm applies to the next manually started session, not an already running connection. Windows and Android QUIC sockets make a best-effort 2 MiB receive-buffer request and report actual OS values. These implementation changes are not measured throughput or fairness claims.
-  <br>HTTP/3 现在提供 CUBIC、Reno、BBRv2 和独立的实验性 BBRv3，并修复 BBRv2 发送停滞。默认仍为 CUBIC；保存的算法会在下次手动启动会话时生效，不会改变正在运行的连接。Windows 与 Android 的 QUIC 套接字会尽力请求 2 MiB 接收缓冲，并报告操作系统实际值。这些实现改动不代表已测得吞吐或公平性提升。
-- Network settings distinguish durable saves from runtime application and track each uncertain operation independently. Late replies cannot confirm a different save or overwrite newer state. Android application tokens, session generations, and supported profile-store file locking preserve ownership; native stop completion must be confirmed before replacing an unfinished runtime.
-  <br>网络设置区分持久化保存与运行时生效，并独立跟踪每个状态未确认的操作。迟到的回复不能确认另一次保存或覆盖较新状态。Android 通过应用令牌、会话代次及受支持的配置文件锁保留操作归属；未完成的原生运行实例必须确认停止后才能被替换。
-- v0.2.6 introduces signed Windows installer EXEs with 21 interface languages, while retaining signed MSI assets for verified in-app updates. Localized uninstall and quiet-launcher fixes preserve command quoting, wait for the final result, and clean up the hidden bundle registration. The newer-Agent-first upgrade bridge introduced in v0.2.5 remains in place for upgrades from v0.2.4.
-  <br>v0.2.6 新增支持 21 种界面语言的签名 Windows EXE 安装程序，同时保留签名 MSI 资产供经过验证的应用内更新使用。本地化卸载及静默启动器修复保留命令引号、等待最终结果，并清理隐藏的安装包注册信息。v0.2.5 引入的新版 Agent 优先安装机制继续为 v0.2.4 升级提供兼容桥接。
-- Feature translations, account terminology, Windows tray/uninstall text, and Android notifications, Quick Settings, and shortcuts are completed across the 21 supported languages. Updated guides explain L4 limitations, congestion settings, and diagnostic evidence. Real installation, upgrade, VPN recovery, leak, and performance validation requires isolated environments; deterministic tests and package inspection are not those runtime results.
-  <br>补全 21 种支持语言中的功能翻译、账户术语、Windows 托盘与卸载文案，以及 Android 通知、快捷设置和快捷方式。更新的指南说明 L4 限制、拥塞设置及诊断证据。真实安装、升级、VPN 恢复、泄漏及性能验证需要隔离环境；确定性测试和软件包检查不等同于这些运行时验证结果。
-
-### DNS privacy / DNS 隐私
-
-GeoSite-matched direct-country queries use the selected direct DNS mode. System (the default) exposes them to the physical DNS provider; DoH or DoT exposes them to the configured encrypted resolver using numeric bootstrap and strict TLS, with no plaintext fallback. Other queries continue through WARP DNS. Apps that use their own encrypted DNS hide the domain from Usque, so those connections fall back to GeoIP routing.
-
-与 GeoSite 匹配的直连国家规则查询会使用所选的直连 DNS 模式。System（默认）会将查询暴露给物理 DNS 提供商；DoH 或 DoT 则使用数字 IP 引导和严格 TLS，将查询发送给配置的加密解析器，且不会回退到明文。其他查询继续通过 WARP DNS。应用自行使用加密 DNS 时，Usque 无法获知域名，相应连接会回退到 GeoIP 路由。
-
-In experimental L4, valid tunneled UDP/53 queries are converted to TCP DNS; an application-selected resolver IP is preserved. Remote proxy DNS uses L4 TCP DNS, while explicitly selected LocalConfigured/System modes retain their existing resolver exposure. L4-only EdgeResolved for SOCKS5/HTTP sends the hostname to the CONNECT edge without a local lookup; it does not recover hostnames from TUN IP traffic. General UDP remains unsupported, and failed traffic does not silently become direct traffic.
-
-在实验性 L4 中，有效的隧道 UDP/53 查询会转换为 TCP DNS，并保留应用指定的解析器 IP。远端代理 DNS 使用 L4 TCP DNS；显式选择的 LocalConfigured/System 模式仍保留原有的解析器可见性。仅适用于 L4 SOCKS5/HTTP 的 EdgeResolved 会将域名发送至 CONNECT 边缘节点而不进行本地查询，不能从 TUN IP 流量还原域名。通用 UDP 仍不受支持，失败流量不会静默转为直连。
-
 ## Usque {{release_tag}} official release / Usque {{release_tag}} 正式版发布
 
-The packages below are the only official installers for this release.
+Usque {{release_tag}} is a feature and reliability release that adds optional WARP-chained VPN Gate exits, improves Windows TUN device lifecycle and recovery handling, and refines the Windows and Android experience.
 
-以下安装包是此版本唯一的官方安装程序。
+Usque {{release_tag}} 是一个功能与可靠性版本，新增可选的 WARP 串联 VPN Gate 出口，改进 Windows TUN 设备生命周期与恢复处理，并优化 Windows 与 Android 使用体验。
 
-## Download / 下载
+## Highlights / 更新亮点 ✨
+
+- **Optional VPN Gate exits** — Send proxied traffic through a selected volunteer exit over WARP, with a shared final session for system VPN, SOCKS5 and HTTP.
+  <br>**可选 VPN Gate 出口** — 经 WARP 将代理流量发送至选定的志愿出口，系统 VPN、SOCKS5 和 HTTP 共用最终会话。
+- **Server pool and local favorites** — Browse by country, keep local configuration snapshots, and distinguish the connected server from a pending selection.
+  <br>**服务器池与本地收藏** — 按国家浏览、保存本地配置快照，并区分当前连接节点与待应用的选择。
+- **Windows device reuse and recovery** — Retain the managed TUN device between connections and strengthen ownership, cleanup and recovery-record persistence.
+  <br>**Windows 设备复用与恢复** — 在连接之间保留受管理的 TUN 设备，并强化所有权、清理与恢复记录持久化。
+- **Android lifecycle fixes** — Restore status subscriptions after background resume and coordinate final-tunnel handoff, stop confirmation and failure cleanup.
+  <br>**Android 生命周期修复** — 后台恢复后重新订阅状态，并协调最终隧道交接、停止确认与失败清理。
+- **Clearer controls and feedback** — Refine proxy navigation, connection retry, form validation and screen-reader labels, with bundled offline country flags.
+  <br>**更清晰的操作与反馈** — 优化代理导航、连接重试、表单验证和屏幕阅读器标签，并内置离线国家旗帜。
+
+## Download / 下载 📥
 
 > [!IMPORTANT]
 > Download packages only from this release. Do not install Pull Request artifacts, local builds, or files redistributed elsewhere.
 >
 > 请仅从此 Release 下载软件包。不要安装 Pull Request 产物、本地构建或其他渠道转载的文件。
 
-| OS / 系统 | Requirements / 版本要求 | Direct downloads / 直接下载 |
-| --- | --- | --- |
-| Windows | Windows 10 22H2 (build 19045) or later.<br>Windows 10 22H2（内部版本 19045）或更高版本。 | [x64-v2 installer](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-windows-x64-v2.exe)<br>[ARM64 installer](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-windows-arm64.exe) |
-| Android / Android TV | Android 8.0 (API 26) or later. Android TV is supported.<br>Android 8.0（API 26）或更高版本，支持 Android TV。 | [ARM64-v8a APK](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-android-arm64-v8a.apk)<br>[x86_64 APK](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-android-x86_64.apk)<br>[ARMv7 APK](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-android-armeabi-v7a.apk)<br>[Universal APK](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-android-universal.apk) |
+| OS / 系统 | Requirements / 版本要求 | Direct links / 点击直链下载 |
+| :---: | --- | --- |
+| ![Android](https://github.com/{{repository}}/blob/{{release_tag}}/docs/assets/release/android.svg?raw=true)<br>**Android** | **Android 8.0+ (API 26)**<br>Compatible with Android TV<br>支持 Android TV | [![APK ARMv8 (arm64-v8a)](https://github.com/{{repository}}/blob/{{release_tag}}/docs/assets/release/android-arm64-v8a.svg?raw=true)](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-android-arm64-v8a.apk) [![APK x64 (x86_64)](https://github.com/{{repository}}/blob/{{release_tag}}/docs/assets/release/android-x86_64.svg?raw=true)](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-android-x86_64.apk)<br>[![APK ARMv7 (armeabi-v7a)](https://github.com/{{repository}}/blob/{{release_tag}}/docs/assets/release/android-armeabi-v7a.svg?raw=true)](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-android-armeabi-v7a.apk) [![APK Universal](https://github.com/{{repository}}/blob/{{release_tag}}/docs/assets/release/android-universal.svg?raw=true)](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-android-universal.apk) |
+| ![Windows](https://github.com/{{repository}}/blob/{{release_tag}}/docs/assets/release/windows.svg?raw=true)<br>**Windows** | **Windows 10 22H2+ (build 19045)**<br>Build 19045 or later<br>内部版本 19045 或更高 | [![EXE x64-v2](https://github.com/{{repository}}/blob/{{release_tag}}/docs/assets/release/windows-x64-v2.svg?raw=true)](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-windows-x64-v2.exe) [![EXE ARM64](https://github.com/{{repository}}/blob/{{release_tag}}/docs/assets/release/windows-arm64.svg?raw=true)](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-windows-arm64.exe) |
 
 For Windows, use the linked installer EXE. The similarly named MSI assets are
 reserved for Usque's verified in-app update flow.
@@ -60,7 +48,51 @@ For complete installation, upgrade, and uninstall guidance, see the [installatio
 
 完整的安装、升级和卸载说明请参阅[安装指南](https://github.com/{{repository}}/blob/{{release_tag}}/docs/INSTALLATION.md)。
 
-## Verify before installing / 安装前验证
+## Before upgrading / 升级须知
+
+- **VPN Gate is off by default.** Select and save a server explicitly. A terminal Gate failure disconnects the whole chain; it does not silently use WARP or physical egress as a final fallback. Existing explicit direct exceptions remain direct.
+  <br>**VPN Gate 默认关闭。** 请显式选择并保存服务器。Gate 终止失败会断开整条连接，不会静默将 WARP 或物理出口作为最终回退；已有的显式直连例外仍保持直连。
+- **An idle Windows device is not an active connection.** Ordinary disconnect restores the connection's network state while retaining the application-owned device. Full application exit starts final device retirement; native deletion delays can still affect an immediate restart.
+  <br>**Windows 闲置设备不代表仍在连接。** 普通断开会恢复连接的网络状态，同时保留应用持有的设备。完整退出应用后才进行最终设备退役；原生删除延迟仍可能影响立即重启。
+- **Defaults and validation limits remain explicit.** CONNECT-IP with Auto and CUBIC remain the defaults; L4 and BBRv3 remain experimental. Volunteer availability, measured performance, real upgrades, VPN recovery and leak behavior are not established by deterministic tests or package inspection.
+  <br>**默认值与验证边界保持明确。** 默认仍为 CONNECT-IP、Auto 和 CUBIC；L4 与 BBRv3 仍为实验性功能。确定性测试和软件包检查不能证明志愿节点可用性、实测性能、真实升级、VPN 恢复或泄漏行为。
+
+<details>
+<summary>Technical changes / 技术改动详情</summary>
+
+- VPN Gate embeds an OpenVPN TCP session carried by the private WARP dialer, without a second OS VPN interface or an external OpenVPN process. The final tunnel supplies addresses, DNS and MTU; unsupported proxied IPv6 is blocked. One internal startup authentication retry reuses the same saved node only after the rejected worker stops. Cancellation closes admission, and an unconfirmed bounded stop remains pending rather than being reported as complete.
+  <br>VPN Gate 内嵌由私有 WARP 拨号器承载的 OpenVPN TCP 会话，不创建第二个系统 VPN 接口或外部 OpenVPN 进程。地址、DNS 与 MTU 来自最终隧道；不支持的代理 IPv6 会被阻止。启动认证仅内部重试一次，并且必须在被拒绝的工作线程停止后才复用同一已保存节点。取消会关闭流量准入，有界停止未确认时仍记为待完成，不冒充停止成功。
+- The cumulative directory validates pinned snapshots and configuration hashes before use. Local favorites, saved selections, drafts and in-flight preparations retain independent references. Refresh failures or disappearing nodes do not silently replace saved configurations. Traffic samples describe the final Gate channel, while RTT, loss and congestion observations describe the WARP underlay, not the full volunteer-exit path.
+  <br>累积目录在使用前验证固定快照和配置哈希。本地收藏、已保存选择、草稿与进行中的配置准备分别持有独立引用。刷新失败或节点消失不会静默替换已保存配置。流量采样描述最终 Gate 通道，而 RTT、丢包与拥塞观测描述 WARP 底层连接，并非经过志愿出口的完整路径。
+- Windows separates application-lifetime device leases from connection packet leases, joins packet waiters before replacement, and rejects stale ownership and generation results. Recovery journal schema 3 conservatively reads schema 2; failed retirement-record writes retry without repeating native deletion or restarting the connection recovery budget. Configuration schema stays at 15, Agent protocol is 3, and sanitized recovery exports remain schema 2. Sensitive identity and configuration data are excluded from diagnostic exports.
+  <br>Windows 将应用生命周期设备租约与连接数据包租约分离，在替换前等待数据包等待线程结束，并拒绝过期所有权及代次结果。恢复日志 schema 3 保守读取 schema 2；设备退役记录写入失败会重试，但不会重复原生删除或重置连接恢复预算。配置 schema 保持 15，Agent 协议为 3，脱敏恢复导出仍为 schema 2。诊断导出排除敏感身份与配置数据。
+- Android restores status subscriptions after resume, binds exit probes to the final tunnel, and coordinates interface handoff and terminal cleanup. Ending a failed VPN restores ordinary network access outside Android Lockdown; in-process traffic admission is not an independent OS Kill Switch. UI changes improve proxy status cards, country filtering, local proxy controls, validation priority and appearance-picker accessibility.
+  <br>Android 在恢复后重新订阅状态，将出口探测绑定至最终隧道，并协调接口交接与终止清理。在 Android Lockdown 之外，结束失败的 VPN 会恢复普通网络访问；进程内流量准入不等于独立的系统 Kill Switch。界面改进涵盖代理状态卡、国家筛选、本地代理控制、验证反馈优先级和外观选择器无障碍标签。
+- The multilingual Windows EXE installers introduced in v0.2.6 remain the user-facing packages; signed MSIs remain reserved for verified in-app updates. The newer-Agent-first upgrade bridge introduced in v0.2.5 remains in place for v0.2.4 upgrades. Dependency maintenance includes reviewed Rust, Flutter, Kotlin and Actions updates, with locked native source and license inventories included in release SBOMs. No measured performance improvement or real-machine upgrade result is claimed.
+  <br>v0.2.6 引入的多语言 Windows EXE 安装程序仍为用户安装入口；签名 MSI 仍仅供经过验证的应用内更新。v0.2.5 引入的新版 Agent 优先安装机制继续为 v0.2.4 升级提供兼容桥接。依赖维护包含经审查的 Rust、Flutter、Kotlin 和 Actions 更新，发布 SBOM 纳入锁定的原生源码与许可证清单。不宣称已测得性能提升或已完成真实机器升级验证。
+
+</details>
+
+<details>
+<summary>DNS privacy, VPN Gate and L4 behavior / DNS 隐私、VPN Gate 与 L4 行为</summary>
+
+### DNS privacy / DNS 隐私
+
+GeoSite-matched direct-country queries use the selected direct DNS mode. System (the default) exposes them to the physical DNS provider; DoH or DoT exposes them to the configured encrypted resolver using numeric bootstrap and strict TLS, with no plaintext fallback. Other remote queries use the final tunnel's DNS: WARP normally, or VPN Gate when enabled. Explicit local/direct DNS choices remain in effect. Apps using their own encrypted DNS hide domains from Usque, so routing falls back to GeoIP classification.
+
+与 GeoSite 匹配的直连国家规则查询会使用所选直连 DNS 模式。System（默认）会将查询暴露给物理 DNS 提供商；DoH 或 DoT 使用数字 IP 引导和严格 TLS，将查询发送给配置的加密解析器，且不回退至明文。其他远端查询使用最终隧道的 DNS：通常为 WARP，启用 VPN Gate 后则为 VPN Gate。显式本地或直连 DNS 选择仍然生效。应用自行使用加密 DNS 时，Usque 无法获知域名，路由会回退至 GeoIP 分类。
+
+VPN Gate directory services learn directory requests, the WARP provider carries the OpenVPN connection, and the selected volunteer provides final egress and can observe traffic leaving that tunnel subject to application encryption. Existing Geo, CIDR, LAN, system-proxy bypass and Android application exceptions retain their direct behavior. Public node scores and TCP observations are not local end-to-end measurements or promises of availability. No automatic telemetry or diagnostic upload is added. See the [VPN Gate guide](https://github.com/{{repository}}/blob/{{release_tag}}/docs/VPN_GATE.md) for the complete boundaries.
+
+VPN Gate 目录服务可见目录请求，WARP 提供商承载 OpenVPN 连接，所选志愿节点提供最终出口，并可在应用加密的边界内观察离开该隧道的流量。已有 Geo、CIDR、LAN、系统代理绕过及 Android 应用例外保留直连行为。公共节点评分与 TCP 观测不是本地端到端测量，也不保证可用性。不新增自动遥测或诊断上传。完整边界请参阅 [VPN Gate 指南](https://github.com/{{repository}}/blob/{{release_tag}}/docs/VPN_GATE.md)。
+
+Without VPN Gate, experimental L4 remains TCP-only: valid tunneled UDP/53 queries are converted to TCP DNS and preserve the application-selected resolver IP. EdgeResolved for L4 SOCKS5/HTTP sends hostnames to the CONNECT edge without a local lookup; it cannot recover names from TUN IP traffic. VPN Gate can carry business UDP as IP packets inside its OpenVPN TCP channel. Neither mode silently converts failed proxied traffic into direct traffic.
+
+未启用 VPN Gate 时，实验性 L4 仍仅支持 TCP：有效的隧道 UDP/53 查询转换为 TCP DNS，并保留应用指定的解析器 IP。L4 SOCKS5/HTTP 的 EdgeResolved 会将域名发送至 CONNECT 边缘节点而不进行本地查询，不能从 TUN IP 流量还原域名。VPN Gate 可将业务 UDP 作为 IP 数据包承载于其 OpenVPN TCP 通道。两种模式都不会静默将失败的代理流量转为直连。
+
+</details>
+
+## Verify before installing / 安装前验证 🔐
 
 1. Compare the package SHA-256 with both [SHA256SUMS](https://github.com/{{repository}}/releases/download/{{release_tag}}/SHA256SUMS) and the digest displayed by GitHub.
    <br>将软件包 SHA-256 同时与 [SHA256SUMS](https://github.com/{{repository}}/releases/download/{{release_tag}}/SHA256SUMS) 及 GitHub 显示的摘要进行比对。
@@ -81,12 +113,11 @@ Release evidence: [manifest](https://github.com/{{repository}}/releases/download
 
 发布验证材料：[清单](https://github.com/{{repository}}/releases/download/{{release_tag}}/release-manifest.json) · [SHA-256 校验和](https://github.com/{{repository}}/releases/download/{{release_tag}}/SHA256SUMS) · 此 Release 附带的逐包 SPDX SBOM
 
-## Feedback / 问题反馈
+## Feedback / 问题反馈 💬
 
-> [!NOTE]
-> Detailed, reproducible reports are prioritized. Include the exact version, platform, expected result, actual result, and minimal reproduction steps. Remove credentials, tokens, device identifiers, endpoint pins, and personal addresses from logs and attachments.
->
-> 信息完整且可复现的报告会被优先处理。请提供准确版本、平台、预期结果、实际结果和最小复现步骤，并从日志与附件中移除凭据、令牌、设备标识符、端点 Pin 和个人地址。
+Detailed, reproducible reports are prioritized. Include the exact version, platform, expected result, actual result, and minimal reproduction steps. Remove credentials, tokens, device identifiers, endpoint pins, and personal addresses from logs and attachments.
+
+信息完整且可复现的报告会被优先处理。请提供准确版本、平台、预期结果、实际结果和最小复现步骤，并从日志与附件中移除凭据、令牌、设备标识符、端点 Pin 和个人地址。
 
 - Bug report / 错误反馈: [Open the bug form / 打开错误反馈表单](https://github.com/{{repository}}/issues/new?template=bug.yml)
 - Feature request / 功能建议: [Open the feature form / 打开功能建议表单](https://github.com/{{repository}}/issues/new?template=feature.yml)

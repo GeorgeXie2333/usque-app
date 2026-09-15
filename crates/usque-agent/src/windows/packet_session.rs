@@ -221,7 +221,8 @@ impl PacketPump {
         };
         thread
             .join()
-            .map_err(|_| PacketSessionError::PumpPanicked)?
+            .map_err(|_| PacketSessionError::PumpPanicked)
+            .and_then(|result| result)
     }
 }
 

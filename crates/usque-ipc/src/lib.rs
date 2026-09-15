@@ -304,6 +304,7 @@ mod tests {
                     control_api_candidates,
                     ..
                 }),
+                ..
             })) if operation_id == "o"
                 && control_api_candidates == &["198.51.100.10:443"]
         ));
@@ -519,6 +520,192 @@ mod tests {
             .encode_to_vec(),
             [0x8a, 0x01, 6, 0x08, 4, 0x10, 3, 0x18, 3]
         );
+    }
+
+    #[test]
+    fn recovery_diagnostics_are_optional_field_eighteen_and_old_readers_skip_them() {
+        #[derive(Clone, PartialEq, prost::Message)]
+        struct LegacyPlatformState {
+            #[prost(uint64, tag = "16")]
+            journal_generation: u64,
+        }
+        let extension = agent_v1::PlatformState {
+            recovery_diagnostics: Some(Box::default()),
+            ..Default::default()
+        };
+        assert_eq!(extension.encode_to_vec(), [0x92, 0x01, 0x00]);
+        let state = agent_v1::PlatformState {
+            journal_generation: 19,
+            ..extension
+        };
+        assert_eq!(
+            LegacyPlatformState::decode(state.encode_to_vec().as_slice())
+                .unwrap()
+                .journal_generation,
+            19
+        );
+        let old = LegacyPlatformState {
+            journal_generation: 7,
+        };
+        let decoded = agent_v1::PlatformState::decode(old.encode_to_vec().as_slice()).unwrap();
+        assert_eq!(decoded.journal_generation, 7);
+        assert!(decoded.recovery_diagnostics.is_none());
+        let sample = agent_v1::RecoveryDiagnostics {
+            current: Some(agent_v1::RecoveryObservation {
+                sampled_at_unix_ms: 200,
+                journal_generation: 19,
+                status: agent_v1::RecoverySampleStatus::GenerationChanged as i32,
+                ..Default::default()
+            }),
+            history_status: agent_v1::RecoveryHistoryStatus::Missing as i32,
+            history: vec![],
+            ..Default::default()
+        };
+        assert_eq!(
+            agent_v1::RecoveryDiagnostics::decode(sample.encode_to_vec().as_slice()).unwrap(),
+            sample
+        );
+    }
+
+    #[test]
+    fn reusable_device_contract_is_append_only_and_absent_on_legacy_peers() {
+        let capabilities = AgentCapabilities {
+            reusable_tun_device: true,
+            ..Default::default()
+        };
+        assert_eq!(capabilities.encode_to_vec(), [0x80, 0x01, 0x01]);
+        assert!(
+            !AgentCapabilities::decode(&[][..])
+                .unwrap()
+                .reusable_tun_device
+        );
+        assert_eq!(
+            AgentState {
+                device: Some(Default::default()),
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0x5a, 0]
+        );
+        assert_eq!(
+            agent_v1::PlatformState {
+                device: Some(Default::default()),
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0x9a, 1, 0]
+        );
+        let prepare = PrepareTunnelRequest {
+            device_lease_id: "x".into(),
+            device_lease_generation: 2,
+            expected_journal_generation: 3,
+            ..Default::default()
+        };
+        assert_eq!(prepare.encode_to_vec(), [0x1a, 1, b'x', 0x20, 2, 0x28, 3]);
+        let acquire = AgentRequest {
+            payload: Some(agent_request::Payload::AcquireDeviceLease(
+                agent_v1::AcquireDeviceLeaseRequest {},
+            )),
+            ..Default::default()
+        };
+        assert_eq!(acquire.encode_to_vec(), [0xf2, 1, 0]);
+        let release = AgentRequest {
+            payload: Some(agent_request::Payload::ReleaseDeviceLease(
+                Default::default(),
+            )),
+            ..Default::default()
+        };
+        assert_eq!(release.encode_to_vec(), [0xfa, 1, 0]);
+        let granted = agent_v1::AgentResponse {
+            payload: Some(agent_v1::agent_response::Payload::DeviceLease(
+                Default::default(),
+            )),
+            ..Default::default()
+        };
+        assert_eq!(granted.encode_to_vec(), [0x8a, 1, 0]);
+        assert_eq!(
+            decode_frame::<AgentRequest>(encode_frame(&acquire).unwrap()).unwrap(),
+            acquire
+        );
+    }
+
+    #[test]
+    #[allow(deprecated)] // Frozen legacy wire contract; production no longer emits trace data.
+    fn legacy_trace_and_resource_metrics_keep_their_wire_numbers() {
+        #[derive(Clone, PartialEq, prost::Message)]
+        struct LegacyDiagnostics {
+            #[prost(enumeration = "agent_v1::RecoveryHistoryStatus", tag = "2")]
+            history_status: i32,
+        }
+        #[derive(Clone, PartialEq, prost::Message)]
+        struct LegacyResource {
+            #[prost(enumeration = "agent_v1::RecoveryPresence", tag = "1")]
+            presence: i32,
+        }
+        let trace = agent_v1::RecoveryDiagnostics {
+            history_status: 1,
+            trace: Some(agent_v1::RecoveryTrace {
+                status: 1,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert_eq!(trace.encode_to_vec(), [0x10, 1, 0x22, 2, 0x08, 1]);
+        assert_eq!(
+            LegacyDiagnostics::decode(trace.encode_to_vec().as_slice())
+                .unwrap()
+                .history_status,
+            1
+        );
+        assert!(
+            agent_v1::RecoveryDiagnostics::decode([0x10, 1].as_slice())
+                .unwrap()
+                .trace
+                .is_none()
+        );
+        let resource = agent_v1::RecoveryResourceObservation {
+            presence: 1,
+            interface_oper_status: Some(7),
+            interface_admin_status: Some(2),
+            media_connect_state: Some(0),
+            devnode_status: Some(1),
+            problem_code: Some(0),
+            configret_code: Some(5),
+            ..Default::default()
+        };
+        assert_eq!(
+            resource.encode_to_vec(),
+            [
+                0x08, 1, 0x28, 7, 0x30, 2, 0x38, 0, 0x40, 1, 0x48, 0, 0x50, 5
+            ]
+        );
+        assert_eq!(
+            LegacyResource::decode(resource.encode_to_vec().as_slice())
+                .unwrap()
+                .presence,
+            1
+        );
+        let old = agent_v1::RecoveryResourceObservation::decode([0x08, 1].as_slice()).unwrap();
+        assert!(old.configret_code.is_none());
+        assert!(old.interface_oper_status.is_none());
+        assert_eq!(
+            agent_v1::RecoveryDiagnosticApi::CmGetDevNodeStatus as i32,
+            8
+        );
+        for (stage, number) in [
+            (agent_v1::RecoveryTraceStage::RemovalAttemptStarted, 18),
+            (agent_v1::RecoveryTraceStage::RemovalAttemptReturned, 19),
+        ] {
+            let event = agent_v1::RecoveryTraceEvent {
+                stage: stage as i32,
+                ..Default::default()
+            };
+            assert_eq!(event.encode_to_vec(), [0x40, number]);
+            assert_eq!(
+                agent_v1::RecoveryTraceEvent::decode([0x40, number].as_slice()).unwrap(),
+                event
+            );
+        }
     }
 
     #[test]

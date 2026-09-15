@@ -132,6 +132,8 @@ internal object NetworkQualityFields {
             "l4_tcp",
             "l4_tun_tcp",
             "l4_dns_conversion",
+            "vpn_gate_tcp",
+            "vpn_gate_pool_favorites",
         ).associateWith {
             source?.opt(it) ==
                 true

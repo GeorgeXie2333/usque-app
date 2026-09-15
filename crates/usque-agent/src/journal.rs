@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use crate::plan::{PlanError, ValidatedTunnelPlan};
 
-pub const JOURNAL_SCHEMA_VERSION: u32 = 2;
+pub const JOURNAL_SCHEMA_VERSION: u32 = 3;
 pub const MAX_JOURNAL_BYTES: u64 = 1024 * 1024;
 pub const MAX_JOURNAL_STEPS: usize = 16;
 
@@ -153,11 +153,82 @@ pub struct MutationRecord {
     pub receipt: MutationReceipt,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DeviceState {
+    Creating,
+    Idle,
+    InUse,
+    Retiring,
+    RecoveryRequired,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct DeviceBinding {
+    pub device_id: Uuid,
+    pub generation: u64,
+}
+
+/// The creator handle is process-local; this record proves ownership for
+/// recovery, never that a handle survived an Agent restart.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ManagedDevice {
+    pub device_id: Uuid,
+    pub generation: u64,
+    pub agent_instance: Uuid,
+    pub owner_sid: String,
+    pub owner_process_id: u32,
+    pub state: DeviceState,
+    pub receipt: MutationReceipt,
+}
+
+impl ManagedDevice {
+    pub fn name(device_id: Uuid) -> String {
+        format!("Usque-{}", &device_id.simple().to_string()[..12])
+    }
+
+    pub fn binding(&self) -> DeviceBinding {
+        DeviceBinding {
+            device_id: self.device_id,
+            generation: self.generation,
+        }
+    }
+
+    fn validate(&self) -> Result<(), JournalError> {
+        let MutationReceipt::WintunAdapter {
+            adapter_name,
+            adapter_guid,
+            interface_luid,
+        } = &self.receipt
+        else {
+            return Err(JournalError::InvalidDevice);
+        };
+        if self.device_id.is_nil()
+            || self.generation == 0
+            || self.agent_instance.is_nil()
+            || self.owner_process_id == 0
+            || !valid_sid_text(&self.owner_sid)
+            || *adapter_name != Self::name(self.device_id)
+            || *adapter_guid != self.device_id
+            || matches!(self.state, DeviceState::Idle | DeviceState::InUse) && *interface_luid == 0
+        {
+            return Err(JournalError::InvalidDevice);
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct RecoveryJournal {
     pub schema_version: u32,
     pub generation: u64,
+    #[serde(default)]
+    pub device: Option<ManagedDevice>,
+    #[serde(default)]
+    pub device_binding: Option<DeviceBinding>,
     pub phase: RecoveryPhase,
     pub operation_kind: Option<OperationKind>,
     pub operation_id: Option<Uuid>,
@@ -176,9 +247,38 @@ impl Default for RecoveryJournal {
 }
 
 impl RecoveryJournal {
+    pub fn is_fully_clean(&self) -> bool {
+        self.phase == RecoveryPhase::Clean && self.device.is_none()
+    }
+
+    pub fn adapter_receipt(&self) -> Option<&MutationReceipt> {
+        self.device
+            .as_ref()
+            .map(|device| &device.receipt)
+            .or_else(|| {
+                self.steps.iter().find_map(|step| {
+                    (step.kind == MutationKind::WintunAdapter).then_some(&step.receipt)
+                })
+            })
+    }
+
+    /// Called only after every connection mutation has been restored.
+    pub fn disconnected(&self) -> Self {
+        let mut clean = Self::clean(self.generation);
+        clean.device = self.device.clone();
+        if let Some(device) = clean.device.as_mut()
+            && device.state == DeviceState::InUse
+        {
+            device.state = DeviceState::Idle;
+        }
+        clean
+    }
+
     pub fn clean(generation: u64) -> Self {
         Self {
             schema_version: JOURNAL_SCHEMA_VERSION,
+            device: None,
+            device_binding: None,
             generation,
             phase: RecoveryPhase::Clean,
             operation_kind: None,
@@ -201,6 +301,41 @@ impl RecoveryJournal {
         if self.steps.len() > MAX_JOURNAL_STEPS {
             return Err(JournalError::TooManySteps(self.steps.len()));
         }
+        if let Some(device) = &self.device {
+            device.validate()?;
+            if self
+                .steps
+                .iter()
+                .any(|step| step.kind == MutationKind::WintunAdapter)
+            {
+                return Err(JournalError::InvalidDevice);
+            }
+            if device.state == DeviceState::InUse && self.device_binding.is_none() {
+                return Err(JournalError::InvalidDevice);
+            }
+            if self.operation_kind == Some(OperationKind::Tunnel)
+                && self.phase != RecoveryPhase::Clean
+                && self.device_binding.is_none()
+            {
+                return Err(JournalError::InvalidDevice);
+            }
+        }
+        if let Some(binding) = self.device_binding {
+            let Some(device) = &self.device else {
+                return Err(JournalError::InvalidDevice);
+            };
+            if binding != device.binding()
+                || self.phase == RecoveryPhase::Clean
+                || self.operation_kind != Some(OperationKind::Tunnel)
+                || self.owner_sid.as_deref() != Some(device.owner_sid.as_str())
+                || !matches!(
+                    device.state,
+                    DeviceState::Creating | DeviceState::InUse | DeviceState::RecoveryRequired
+                )
+            {
+                return Err(JournalError::InvalidDevice);
+            }
+        }
         let mut kinds = HashSet::new();
         for step in &self.steps {
             if step.kind != step.receipt.kind() {
@@ -219,6 +354,7 @@ impl RecoveryJournal {
                 || self.plan.is_some()
                 || self.pause_deadline_unix_seconds.is_some()
                 || !self.steps.is_empty()
+                || self.device_binding.is_some()
             {
                 return Err(JournalError::InvalidCleanState);
             }
@@ -243,6 +379,9 @@ impl RecoveryJournal {
             OperationKind::Tunnel => {
                 let plan = self.plan.as_ref().ok_or(JournalError::MissingPlan)?;
                 plan.validate()?;
+                if plan.defer_network_configuration && self.phase == RecoveryPhase::Active {
+                    return Err(JournalError::InvalidOperationShape);
+                }
                 Some(plan)
             }
             OperationKind::SystemProxy => {
@@ -259,12 +398,9 @@ impl RecoveryJournal {
                 None
             }
         };
-        let wintun_luid = self.steps.iter().find_map(|step| {
-            if let MutationReceipt::WintunAdapter { interface_luid, .. } = step.receipt {
-                Some(interface_luid)
-            } else {
-                None
-            }
+        let wintun_luid = self.adapter_receipt().and_then(|receipt| match receipt {
+            MutationReceipt::WintunAdapter { interface_luid, .. } => Some(*interface_luid),
+            _ => None,
         });
         let operation_id = self.operation_id.expect("checked above");
         for step in &self.steps {
@@ -543,7 +679,7 @@ fn valid_adapter_name(value: &str) -> bool {
 pub struct JournalStore {
     path: PathBuf,
     #[cfg(test)]
-    fail_clean_save: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    fail_clean_save: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl JournalStore {
@@ -574,7 +710,13 @@ impl JournalStore {
         if bytes.len() as u64 > MAX_JOURNAL_BYTES {
             return Err(JournalError::TooLarge(bytes.len() as u64));
         }
-        let journal: RecoveryJournal = serde_json::from_slice(&bytes)?;
+        let mut journal: RecoveryJournal = serde_json::from_slice(&bytes)?;
+        if journal.schema_version == 2 {
+            if journal.device.is_some() || journal.device_binding.is_some() {
+                return Err(JournalError::InvalidDevice);
+            }
+            journal.schema_version = JOURNAL_SCHEMA_VERSION;
+        }
         journal.validate()?;
         Ok(journal)
     }
@@ -589,7 +731,12 @@ impl JournalStore {
         if journal.phase == RecoveryPhase::Clean
             && self
                 .fail_clean_save
-                .swap(false, std::sync::atomic::Ordering::AcqRel)
+                .fetch_update(
+                    std::sync::atomic::Ordering::AcqRel,
+                    std::sync::atomic::Ordering::Acquire,
+                    |remaining| remaining.checked_sub(1),
+                )
+                .is_ok_and(|remaining| remaining == 1)
         {
             return Err(io::Error::other("injected final journal save failure").into());
         }
@@ -613,8 +760,13 @@ impl JournalStore {
 
     #[cfg(test)]
     pub(crate) fn fail_next_clean_save(&self) {
+        self.fail_clean_save_after(0);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_clean_save_after(&self, successful_saves: usize) {
         self.fail_clean_save
-            .store(true, std::sync::atomic::Ordering::Release);
+            .store(successful_saves + 1, std::sync::atomic::Ordering::Release);
     }
 
     /// Removes the durable recovery journal only after it proves that no
@@ -623,7 +775,7 @@ impl JournalStore {
     /// true uninstall can remove machine-owned state.
     pub fn remove_if_clean(&self) -> Result<bool, JournalError> {
         let journal = self.load_or_clean()?;
-        if journal.phase != RecoveryPhase::Clean {
+        if !journal.is_fully_clean() {
             return Err(JournalError::RemovalRequiresClean(journal.phase));
         }
         match fs::remove_file(&self.path) {
@@ -687,6 +839,8 @@ fn replace_file(source: &Path, destination: &Path) -> io::Result<()> {
 
 #[derive(Debug, Error)]
 pub enum JournalError {
+    #[error("journal device ownership, identity, state, or connection binding is inconsistent")]
+    InvalidDevice,
     #[error("journal I/O failed: {0}")]
     Io(#[from] io::Error),
     #[error("journal JSON is invalid: {0}")]
@@ -728,6 +882,9 @@ pub enum JournalError {
 }
 
 #[cfg(test)]
+mod device_tests;
+
+#[cfg(test)]
 mod tests {
     use std::net::{Ipv4Addr, Ipv6Addr, SocketAddrV4, SocketAddrV6};
 
@@ -735,8 +892,10 @@ mod tests {
 
     use super::*;
 
-    fn plan() -> ValidatedTunnelPlan {
+    pub(super) fn plan() -> ValidatedTunnelPlan {
         ValidatedTunnelPlan {
+            vpn_chain: false,
+            defer_network_configuration: false,
             profile_id: Uuid::new_v4(),
             endpoint: SocketAddrV4::new(Ipv4Addr::new(162, 159, 198, 2), 443).into(),
             endpoint_candidates: vec![
@@ -770,6 +929,8 @@ mod tests {
         let store = JournalStore::new(directory.path().join("recovery.json"));
         let mut journal = RecoveryJournal {
             schema_version: JOURNAL_SCHEMA_VERSION,
+            device: None,
+            device_binding: None,
             generation: 0,
             phase: RecoveryPhase::Preparing,
             operation_kind: Some(OperationKind::Tunnel),
@@ -812,6 +973,8 @@ mod tests {
         let store = JournalStore::new(directory.path().join("recovery.json"));
         let mut journal = RecoveryJournal {
             schema_version: JOURNAL_SCHEMA_VERSION,
+            device: None,
+            device_binding: None,
             generation: 0,
             phase: RecoveryPhase::Preparing,
             operation_kind: Some(OperationKind::Tunnel),
@@ -871,6 +1034,8 @@ mod tests {
     fn recovery_receipt_cannot_target_an_unrelated_route() {
         let journal = RecoveryJournal {
             schema_version: JOURNAL_SCHEMA_VERSION,
+            device: None,
+            device_binding: None,
             generation: 1,
             phase: RecoveryPhase::Preparing,
             operation_kind: Some(OperationKind::Tunnel),
@@ -947,6 +1112,8 @@ mod tests {
         };
         let journal = RecoveryJournal {
             schema_version: JOURNAL_SCHEMA_VERSION,
+            device: None,
+            device_binding: None,
             generation: 1,
             phase: RecoveryPhase::Preparing,
             operation_kind: Some(OperationKind::Tunnel),
@@ -994,6 +1161,8 @@ mod tests {
         };
         let journal = RecoveryJournal {
             schema_version: JOURNAL_SCHEMA_VERSION,
+            device: None,
+            device_binding: None,
             generation: 1,
             phase: RecoveryPhase::Preparing,
             operation_kind: Some(OperationKind::Tunnel),

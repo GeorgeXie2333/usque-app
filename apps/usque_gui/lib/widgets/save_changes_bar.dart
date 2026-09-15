@@ -13,6 +13,7 @@ class SaveChangesBar extends StatelessWidget {
     required this.saving,
     required this.onSave,
     this.error,
+    this.validationError,
     this.saved = false,
     this.savedLabel,
     this.idleHint,
@@ -30,12 +31,16 @@ class SaveChangesBar extends StatelessWidget {
   final String? statusLabel;
   final VoidCallback? onReconnect;
   final String? error;
+
+  /// Current form validation takes precedence over an earlier engine result.
+  final String? validationError;
   final VoidCallback? onSave;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final message =
+        validationError ??
         statusLabel ??
         error ??
         (saving
@@ -70,7 +75,7 @@ class SaveChangesBar extends StatelessWidget {
                       child: Text(
                         message,
                         style: theme.textTheme.bodyMedium?.copyWith(
-                          color: error != null
+                          color: validationError != null || error != null
                               ? theme.colorScheme.error
                               : theme.colorScheme.onSurfaceVariant,
                         ),

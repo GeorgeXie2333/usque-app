@@ -79,9 +79,6 @@ const Map<String, String> kZhHkCatalog = <String, String>{
   'zero_trust_callback_invalid': '請使用此機構的 com.cloudflare.warp Access 回調。',
   'zero_trust_paste_clipboard': '從剪貼簿填入',
   'zero_trust_clipboard_empty': '剪貼簿中沒有回調 URL。',
-  'zero_trust_protocol_association': '在 Usque 中開啟 Access 回調（僅限此使用者）',
-  'zero_trust_protocol_association_help':
-      '選用。為已登入的 Windows 使用者註冊 com.cloudflare.warp。官方 WARP 用戶端可繼續保留安裝。關閉此選項則繼續由 WARP 處理；貼上功能仍然可用。',
   'zero_trust_scope_note': '實驗性：使用機構裝置註冊以連接互聯網；尚未實作政策同步及裝置狀態檢查。',
   'zero_trust_repair_same_team': '請重新登入同一機構，以重新整理此裝置註冊。',
   'zero_trust_metadata_missing':
@@ -277,7 +274,7 @@ const Map<String, String> kZhHkCatalog = <String, String>{
   'diagnostics_subtitle': 'Usque Engine 狀態、日誌匯出及本機資料。',
   'engine_status': 'Usque Engine 狀態',
   'version': '版本',
-  'app_version': 'Usque 0.2.6',
+  'app_version': 'Usque 0.2.7',
   'logs': '本機日誌',
   'export_diagnostics': '匯出診斷套件',
   'diagnostics_saved': '診斷套件已儲存至',

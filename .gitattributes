@@ -23,3 +23,8 @@
 # historical licenses, and patch fixtures intentionally contain whitespace
 # that Git would otherwise report as project-authored errors.
 third_party/boring-sys-4.22.0/** whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab
+
+# The native source inventory hashes these upstream MSVC examples with CRLF.
+# Preserve their bytes when staging and checking out on any host.
+third_party/lz4-1.10.0/lib/dll/example/fullbench-dll.sln -text
+third_party/lz4-1.10.0/lib/dll/example/fullbench-dll.vcxproj -text

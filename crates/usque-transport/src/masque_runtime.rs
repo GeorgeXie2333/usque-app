@@ -36,11 +36,16 @@ const PACKET_QUEUE_BYTE_CAPACITY: usize = PACKET_QUEUE_CAPACITY * u16::MAX as us
 /// Dropping this detaches TUN from the mux without closing MASQUE. Inbound
 /// TUN-origin packets are discarded until [`MasqueRuntime::attach_tun`].
 pub struct MasqueTunIo {
-    outgoing: TrackedSender<Bytes>,
+    outgoing: TrackedSender<TunOutbound>,
     incoming: TrackedReceiver<PacketBatch>,
     pending_incoming: PacketBatch,
     cancellation: CancellationToken,
     quality: NetworkQualityTelemetry,
+}
+
+struct TunOutbound {
+    packet: Bytes,
+    attachment: CancellationToken,
 }
 
 impl MasqueTunIo {
@@ -56,7 +61,14 @@ impl MasqueTunIo {
             crate::h2::validate_ip_packet(&packet)?;
             let bytes = packet.len();
             outgoing
-                .send_cancellable(packet, bytes, &cancellation)
+                .send_cancellable(
+                    TunOutbound {
+                        packet,
+                        attachment: cancellation.clone(),
+                    },
+                    bytes,
+                    &cancellation,
+                )
                 .await
                 .map_err(|_| TransportError::TunnelClosed)
         }
@@ -75,7 +87,14 @@ impl MasqueTunIo {
         crate::h2::validate_ip_packet(&packet)?;
         let packet_len = packet.len();
         self.outgoing
-            .send_cancellable(packet, packet_len, &self.cancellation)
+            .send_cancellable(
+                TunOutbound {
+                    packet,
+                    attachment: self.cancellation.clone(),
+                },
+                packet_len,
+                &self.cancellation,
+            )
             .await
             .map_err(|error| match error.kind {
                 TrackedSendErrorKind::Closed
@@ -129,7 +148,8 @@ pub struct MasqueRuntime {
     http: Option<HttpProxyFrontend>,
     http_spec: Option<FrontendSpec>,
     listeners: Vec<SocketAddr>,
-    raw_outgoing: Option<TrackedSender<Bytes>>,
+    raw_outgoing: Option<TrackedSender<TunOutbound>>,
+    tun_cancellation: CancellationToken,
     tun_sink: watch::Sender<Option<TrackedSender<PacketBatch>>>,
     _tun_sink_rx: watch::Receiver<Option<TrackedSender<PacketBatch>>>,
     quality: NetworkQualityTelemetry,
@@ -137,6 +157,13 @@ pub struct MasqueRuntime {
     mux_task: Option<JoinHandle<()>>,
     assigned_ipv4: Ipv4Addr,
     assigned_ipv6: Ipv6Addr,
+    internal_network: crate::InternalNetwork,
+}
+
+struct BoundFrontends {
+    socks5: Option<Vec<tokio::net::TcpListener>>,
+    http: Option<Vec<tokio::net::TcpListener>>,
+    credentials: Option<ProxyAuthCredentials>,
 }
 
 impl MasqueRuntime {
@@ -244,7 +271,7 @@ impl MasqueRuntime {
 
         let assigned_ipv4 = identity.assigned_ipv4;
         let assigned_ipv6 = identity.assigned_ipv6;
-        let mut tunnel = ManagedTunnelRuntime::start_with_network_features(
+        let tunnel = ManagedTunnelRuntime::start_with_network_features(
             profile,
             identity,
             Arc::clone(&protector),
@@ -252,6 +279,73 @@ impl MasqueRuntime {
             features,
         )
         .await?;
+        Self::start_bound(
+            profile,
+            tunnel,
+            (assigned_ipv4, assigned_ipv6),
+            protector,
+            geo_policy,
+            BoundFrontends {
+                socks5: socks5_bound,
+                http: http_bound,
+                credentials,
+            },
+        )
+        .await
+    }
+
+    /// Reuses the final packet stack, routing and frontend machinery for an
+    /// embedded VPN. There is still exactly one system TUN consumer.
+    pub(crate) async fn start_over_tunnel(
+        profile: &Profile,
+        tunnel: ManagedTunnelRuntime,
+        addresses: (Ipv4Addr, Ipv6Addr),
+        protector: Arc<dyn SocketProtector>,
+        policy: Arc<GeoDirectPolicy>,
+    ) -> Result<Self, TransportError> {
+        let credentials = profile
+            .proxy
+            .listener_credentials()
+            .map_err(|_| TransportError::InvalidIdentity)?;
+        let socks5 = profile
+            .frontends
+            .socks5
+            .then(|| Socks5Frontend::prebind(profile))
+            .transpose()?;
+        let http = profile
+            .frontends
+            .http
+            .then(|| HttpProxyFrontend::prebind(profile))
+            .transpose()?;
+        Self::start_bound(
+            profile,
+            tunnel,
+            addresses,
+            protector,
+            policy,
+            BoundFrontends {
+                socks5,
+                http,
+                credentials,
+            },
+        )
+        .await
+    }
+
+    async fn start_bound(
+        profile: &Profile,
+        mut tunnel: ManagedTunnelRuntime,
+        addresses: (Ipv4Addr, Ipv6Addr),
+        protector: Arc<dyn SocketProtector>,
+        geo_policy: Arc<GeoDirectPolicy>,
+        bound: BoundFrontends,
+    ) -> Result<Self, TransportError> {
+        let (assigned_ipv4, assigned_ipv6) = addresses;
+        let BoundFrontends {
+            socks5: socks5_bound,
+            http: http_bound,
+            credentials,
+        } = bound;
         let monitor = tunnel.monitor();
         let quality = monitor.network_quality_telemetry();
         let cancellation = CancellationToken::new();
@@ -265,6 +359,8 @@ impl MasqueRuntime {
             geo_policy,
         )
         .await?;
+        let internal_network =
+            crate::InternalNetwork::for_stack(profile, &stack, assigned_ipv4, assigned_ipv6);
         let gateway_protector = Arc::clone(&stack.protector);
         let (direct_gateway, direct_incoming) = match DirectGatewayRouter::start_with_quality(
             profile,
@@ -359,6 +455,7 @@ impl MasqueRuntime {
             http_spec,
             listeners,
             raw_outgoing: Some(raw_outgoing),
+            tun_cancellation: cancellation.child_token(),
             tun_sink,
             _tun_sink_rx: tun_sink_rx,
             quality,
@@ -366,7 +463,12 @@ impl MasqueRuntime {
             mux_task: Some(mux_task),
             assigned_ipv4,
             assigned_ipv6,
+            internal_network,
         })
+    }
+
+    pub fn internal_network(&self) -> crate::InternalNetwork {
+        self.internal_network.clone()
     }
 
     /// Replace SOCKS5/HTTP listeners without tearing the MASQUE mux.
@@ -535,6 +637,8 @@ impl MasqueRuntime {
 
     /// Attach TUN I/O. Replaces any previous attach; the old receiver closes.
     pub fn attach_tun(&mut self) -> Result<MasqueTunIo, TransportError> {
+        self.tun_cancellation.cancel();
+        self.tun_cancellation = self.cancellation.child_token();
         let outgoing = self
             .raw_outgoing
             .clone()
@@ -550,13 +654,14 @@ impl MasqueRuntime {
             outgoing,
             incoming,
             pending_incoming: PacketBatch::new(),
-            cancellation: self.cancellation.child_token(),
+            cancellation: self.tun_cancellation.clone(),
             quality: self.quality.clone(),
         })
     }
 
     /// Stop delivering TUN-origin packets. SOCKS/HTTP and MASQUE stay up.
     pub fn detach_tun(&mut self) {
+        self.tun_cancellation.cancel();
         self.tun_sink.send_replace(None);
     }
 
@@ -574,7 +679,14 @@ impl MasqueRuntime {
         self.raw_outgoing
             .as_ref()
             .ok_or(TransportError::TunnelClosed)?
-            .send_cancellable(packet, packet_len, &self.cancellation)
+            .send_cancellable(
+                TunOutbound {
+                    packet,
+                    attachment: self.tun_cancellation.clone(),
+                },
+                packet_len,
+                &self.tun_cancellation,
+            )
             .await
             .map_err(|error| match error.kind {
                 TrackedSendErrorKind::Closed
@@ -670,6 +782,30 @@ impl MasqueRuntime {
         }
     }
 
+    /// Revoke user entry points while keeping the internal WARP stack alive.
+    pub(crate) fn quiesce_frontends(&mut self) {
+        self.detach_tun();
+        if let Some(frontend) = self.socks5.as_mut() {
+            frontend.cancel_immediately();
+        }
+        if let Some(frontend) = self.http.as_mut() {
+            frontend.cancel_immediately();
+        }
+        self.listeners.clear();
+    }
+
+    pub(crate) async fn suspend_frontends(&mut self) {
+        self.quiesce_frontends();
+        if let Some(mut frontend) = self.socks5.take() {
+            frontend.shutdown().await;
+        }
+        if let Some(mut frontend) = self.http.take() {
+            frontend.shutdown().await;
+        }
+        self.socks5_spec = None;
+        self.http_spec = None;
+    }
+
     pub async fn shutdown(&mut self) {
         self.cancel_immediately();
         if let Some(frontend) = self.socks5.as_mut() {
@@ -698,7 +834,7 @@ impl Drop for MasqueRuntime {
 async fn run_packet_mux(
     tunnel: &mut ManagedTunnelRuntime,
     proxy_pipe: WakingPipe,
-    mut raw_outgoing: TrackedReceiver<Bytes>,
+    mut raw_outgoing: TrackedReceiver<TunOutbound>,
     direct_gateway: DirectGatewayMux,
     tun_sink: watch::Sender<Option<TrackedSender<PacketBatch>>>,
     cancellation: &CancellationToken,
@@ -738,17 +874,30 @@ async fn run_packet_mux(
             _ = cancellation.cancelled() => break,
             packet = raw_outgoing.recv() => {
                 let Some(packet) = packet else { break; };
+                let TunOutbound { packet, attachment } = packet;
+                if attachment.is_cancelled() { continue; }
                 let mut packet = packet
                     .try_into_mut()
                     .unwrap_or_else(|packet| bytes::BytesMut::from(packet.as_ref()));
                 let inspection = flows.inspect_outgoing(PacketOrigin::Tunnel, &packet);
-                if !inspection.is_owned() && router.route_outgoing(&mut packet).await {
-                    continue;
+                if !inspection.is_owned() {
+                    let direct = tokio::select! {
+                        biased;
+                        _ = cancellation.cancelled() => break,
+                        _ = attachment.cancelled() => continue,
+                        direct = router.route_outgoing(&mut packet) => direct,
+                    };
+                    if direct { continue; }
                 }
                 // DirectGatewayRouter guarantees that a false result leaves
                 // the packet unchanged, so the earlier parse remains valid.
                 if flows.route_inspected_outgoing(&mut packet, inspection) {
-                    match sender.send_owned_packet(packet.freeze()).await {
+                    let sent = tokio::select! {
+                        biased;
+                        _ = attachment.cancelled() => continue,
+                        result = sender.send_owned_packet(packet.freeze()) => result,
+                    };
+                    match sent {
                         Ok(()) => {}
                         Err(TransportError::TunnelClosed) => break,
                         Err(error) => {
@@ -983,7 +1132,7 @@ mod tests {
     fn tracked_bytes(
         kind: QueueKind,
         capacity: usize,
-    ) -> (TrackedSender<Bytes>, TrackedReceiver<Bytes>) {
+    ) -> (TrackedSender<TunOutbound>, TrackedReceiver<TunOutbound>) {
         tracked_channel(QueueMetrics::new(
             kind,
             capacity,
@@ -1007,7 +1156,7 @@ mod tests {
         incoming_capacity: usize,
     ) -> (
         MasqueTunIo,
-        TrackedReceiver<Bytes>,
+        TrackedReceiver<TunOutbound>,
         TrackedSender<PacketBatch>,
     ) {
         let (outgoing, outgoing_rx) = tracked_bytes(QueueKind::TunToTransport, outgoing_capacity);
@@ -1310,6 +1459,23 @@ mod tests {
             cancellation: CancellationToken::new(),
             quality: NetworkQualityTelemetry::default(),
         };
+        // A packet queued by a detached system TUN must not enter this mux
+        // when a later attachment starts, even if the transport was saturated.
+        let old_attachment = CancellationToken::new();
+        old_attachment.cancel();
+        let old_packet = mux_udp_packet(49_999);
+        let length = old_packet.len();
+        tun_io
+            .outgoing
+            .send(
+                TunOutbound {
+                    packet: old_packet,
+                    attachment: old_attachment,
+                },
+                length,
+            )
+            .await
+            .unwrap();
         let (proxy_pipe, proxy_client) = WakingPipe::bounded(4);
         let WakingPipe {
             rx: _proxy_responses,
@@ -1392,9 +1558,9 @@ mod tests {
             () = tokio::time::sleep(Duration::from_millis(10)) => {}
         }
 
-        assert_eq!(outgoing_rx.recv().await.unwrap().as_ref(), packet);
+        assert_eq!(outgoing_rx.recv().await.unwrap().packet.as_ref(), packet);
         second_send.await.unwrap();
-        assert_eq!(outgoing_rx.recv().await.unwrap().as_ref(), packet);
+        assert_eq!(outgoing_rx.recv().await.unwrap().packet.as_ref(), packet);
     }
 
     #[tokio::test]
@@ -1405,7 +1571,7 @@ mod tests {
         let allocation = packet.as_ptr();
 
         io.send_owned_packet(packet).await.unwrap();
-        let received = outgoing_rx.recv().await.unwrap();
+        let received = outgoing_rx.recv().await.unwrap().packet;
 
         assert_eq!(received.as_ptr(), allocation);
         assert_eq!(
@@ -1473,7 +1639,7 @@ mod tests {
 
         cancellation.cancel();
         assert!(blocked_send.await.is_none());
-        assert_eq!(outgoing_rx.recv().await.unwrap().as_ref(), packet);
+        assert_eq!(outgoing_rx.recv().await.unwrap().packet.as_ref(), packet);
         assert!(outgoing_rx.try_recv().is_err());
     }
 
@@ -1584,6 +1750,12 @@ mod tests {
         let (tun_sink, tun_sink_rx) = watch::channel(None);
         tokio::task::yield_now().await;
         MasqueRuntime {
+            internal_network: crate::InternalNetwork::for_stack(
+                profile,
+                &stack,
+                assigned_ipv4,
+                assigned_ipv6,
+            ),
             monitor,
             stack,
             socks5,
@@ -1592,6 +1764,7 @@ mod tests {
             http_spec,
             listeners,
             raw_outgoing: None,
+            tun_cancellation: cancellation.child_token(),
             tun_sink,
             _tun_sink_rx: tun_sink_rx,
             quality,

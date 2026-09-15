@@ -1,6 +1,9 @@
 /// Supplemental feature strings for Russian.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowRu = <String, String>{
+  'local_proxy_settings': 'Настройки локального прокси',
+  'proxy_switches_hint':
+      'Переключатели сохраняются автоматически. Для адресов прослушивания и DNS нажмите «Применить изменения».',
   'cc_label': 'Контроль перегрузки HTTP/3',
   'cc_help': 'Вступает в силу при следующем ручном подключении.',
   'cc_upgrade': 'Требуется обновление Engine.',
@@ -310,6 +313,10 @@ const kNetworkQualityRu = <String, String>{
 };
 
 const Map<String, String> kWindowsRecoveryRu = <String, String>{
+  'WINDOWS_DEVICE_REUSE_UNSUPPORTED':
+      "Для повторного использования устройства TUN обновите приложение и Windows Agent вместе. Новое VPN-соединение не запущено.",
+  'WINDOWS_DEVICE_RECOVERY_REQUIRED':
+      "Предыдущее устройство TUN ещё требует восстановления. Полностью закройте Usque, откройте снова и повторите попытку или проверьте локальную диагностику.",
   'WINDOWS_RECOVERY_FAILED':
       'Предыдущее сетевое состояние VPN не удалось полностью '
       'восстановить. Новое VPN-подключение не запускалось. '

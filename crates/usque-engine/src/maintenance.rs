@@ -24,6 +24,7 @@ const MAX_DIAGNOSTIC_LOG_BYTES: usize = 2 * 1024 * 1024;
 pub struct DiagnosticTransportContext {
     pub timeline: ConnectionTimelineSnapshot,
     pub socket_receive: Option<usque_transport::SocketReceiveQuality>,
+    pub platform_state: Option<usque_ipc::agent_v1::PlatformState>,
 }
 
 pub struct Maintenance {
@@ -136,7 +137,9 @@ fn clear_engine_logs(directory: &Path) -> io::Result<()> {
                 .write(true)
                 .truncate(true)
                 .open(entry.path())?;
-        } else if name.starts_with("engine-") && name.ends_with(".jsonl") {
+        } else if (name.starts_with("engine-") && name.ends_with(".jsonl"))
+            || name == "windows-recovery-cache-v1.json"
+        {
             fs::remove_file(entry.path())?;
         }
     }
@@ -205,6 +208,15 @@ fn write_diagnostic_bundle(
         entries.push((
             "udp-receive.json".to_owned(),
             serde_json::to_vec_pretty(&socket_receive_summary(socket))?.into_boxed_slice(),
+        ));
+    }
+    if cfg!(windows) || transport.platform_state.is_some() {
+        entries.push((
+            "windows-recovery.json".to_owned(),
+            serde_json::to_vec_pretty(&crate::recovery_diagnostics::summary(
+                transport.platform_state.as_ref(),
+            ))?
+            .into_boxed_slice(),
         ));
     }
     if let Some(session) = diagnostic_session {
@@ -662,6 +674,10 @@ fn safe_evidence(value: &str) -> bool {
                 | "automatic_recovery_phase"
                 | "automatic_recovery_attempts_completed"
                 | "automatic_recovery_attempt_limit"
+                | "recovery_sample_status"
+                | "recovery_sample_time_ms"
+                | "recovery_sample_generation"
+                | "recovery_history_count"
         ) && !number.is_empty()
             && number.bytes().all(|byte| byte.is_ascii_digit())
             && number.parse::<u64>().is_ok();
@@ -1153,6 +1169,29 @@ mod tests {
     }
 
     #[test]
+    fn diagnostic_archive_includes_versioned_recovery_evidence_for_an_old_agent() {
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("recovery.zip");
+        write_diagnostic_bundle(
+            &destination,
+            &AppConfig::default(),
+            &ConnectionSnapshot::default(),
+            None,
+            &DiagnosticTransportContext {
+                platform_state: Some(usque_ipc::agent_v1::PlatformState::default()),
+                ..Default::default()
+            },
+            directory.path(),
+        )
+        .unwrap();
+        let bytes = fs::read(&destination).unwrap();
+        let archive = String::from_utf8_lossy(&bytes);
+        assert!(archive.contains("windows-recovery.json"));
+        assert!(archive.contains("extension_unavailable"));
+        assert!(archive.contains("current_observation") && archive.contains("schema_version"));
+    }
+
+    #[test]
     fn diagnostic_bundle_rejects_relative_or_non_zip_destinations() {
         assert!(matches!(
             write_diagnostic_bundle(
@@ -1234,6 +1273,7 @@ mod tests {
         fs::create_dir_all(&logs).unwrap();
         fs::write(logs.join("engine.jsonl"), b"active").unwrap();
         fs::write(logs.join("engine-1-0.jsonl"), b"rotated").unwrap();
+        fs::write(logs.join("windows-recovery-cache-v1.json"), b"historical").unwrap();
 
         maintenance.clear_local_state().await.unwrap();
 
@@ -1242,5 +1282,6 @@ mod tests {
         assert!(!flag_cache.exists());
         assert_eq!(fs::read(logs.join("engine.jsonl")).unwrap(), b"");
         assert!(!logs.join("engine-1-0.jsonl").exists());
+        assert!(!logs.join("windows-recovery-cache-v1.json").exists());
     }
 }

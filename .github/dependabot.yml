@@ -63,9 +63,9 @@ updates:
         patterns: ["*"]
         update-types: [minor, patch]
     ignore:
-      # Kotlin 2.4.10 is fully supported only through AGP 9.1.x and Gradle
-      # 9.5.x. Keep accepting patch releases, but defer later minor lines
-      # until the upstream compatibility matrices overlap again.
+      # Keep AGP 9.1.x and Gradle 9.5.x on the validated Flutter toolchain.
+      # Kotlin 2.4.20 supports these versions; evaluate later AGP/Gradle
+      # minor lines separately with the pinned Flutter SDK.
       - dependency-name: com.android.application
         update-types: ["version-update:semver-minor"]
       - dependency-name: gradle-wrapper

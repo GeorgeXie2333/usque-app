@@ -20,6 +20,7 @@ internal data class AndroidVpnProfile(
     val geoDirectCountries: List<String> = emptyList(),
     val directDnsMode: String = "physicalSystem",
     val dataPlane: String = "connect_ip",
+    val vpnGateEnabled: Boolean = false,
 ) {
     // ipPolicy controls only the physical MASQUE endpoint. CONNECT-IP remains
     // dual-stack regardless of which outer address family carries it.
@@ -37,7 +38,9 @@ internal data class AndroidVpnProfile(
             }
 
     val splitDnsEnabled: Boolean
-        get() = geoDirectCountries.isNotEmpty() || dataPlane == "l4_proxy"
+        get() =
+            geoDirectCountries.isNotEmpty() ||
+                (vpnGateEnabled && dnsMode == "tunnel") || (dataPlane == "l4_proxy" && !vpnGateEnabled)
 
     val requiresPhysicalDns: Boolean
         get() = geoDirectCountries.isNotEmpty() && directDnsMode == "physicalSystem"
@@ -130,6 +133,7 @@ internal data class AndroidVpnProfile(
                 mtu = mtu,
                 dnsMode = dnsMode,
                 dataPlane = dataPlane,
+                vpnGateEnabled = source.optJSONObject("vpn_gate")?.optBoolean("enabled") == true,
                 dnsIpv4 = dnsIpv4,
                 dnsIpv6 = dnsIpv6,
                 killSwitch = source.getBoolean("kill_switch"),
@@ -153,6 +157,45 @@ internal data class WarpAddressAssignment(
                 ipv4 = parseNumericAddress(source.requiredString("ipv4", 64), false) as Inet4Address,
                 ipv6 = parseNumericAddress(source.requiredString("ipv6", 128), true) as Inet6Address,
             )
+        }
+    }
+}
+
+/** Negotiated addresses are separate from the outer WARP identity. */
+internal data class VpnGateNetwork(
+    val ipv4: Inet4Address?,
+    val ipv6: Inet6Address?,
+    val dns: List<InetAddress>,
+    val mtu: Int,
+) {
+    companion object {
+        fun parse(source: JSONObject): VpnGateNetwork {
+            val ipv4 =
+                if (source.isNull("ipv4")) {
+                    null
+                } else {
+                    parseNumericAddress(source.requiredString("ipv4", 64), false) as Inet4Address
+                }
+            val ipv6 =
+                if (source.isNull("ipv6")) {
+                    null
+                } else {
+                    parseNumericAddress(source.requiredString("ipv6", 128), true) as Inet6Address
+                }
+            require(ipv4 != null || ipv6 != null) { "VPN Gate assigned no addresses" }
+            val mtu = source.getInt("mtu")
+            require(mtu in 1280..9000) { "Invalid VPN Gate MTU" }
+            val values = source.getJSONArray("dns_servers")
+            require(values.length() in 1..8) { "Invalid VPN Gate DNS" }
+            val dns =
+                List(values.length()) { index ->
+                    val text = values.getString(index)
+                    parseNumericAddress(text, ':' in text).also { address ->
+                        require(!address.isAnyLocalAddress && !address.isLoopbackAddress && !address.isMulticastAddress)
+                        require(if (address is Inet4Address) ipv4 != null else ipv6 != null)
+                    }
+                }
+            return VpnGateNetwork(ipv4, ipv6, dns, mtu)
         }
     }
 }

@@ -23,8 +23,9 @@ separate static-configuration snapshot for rollback; DHCP values must not be
 persisted as static DNS. Bounded native-buffer fixtures cover IPv4/IPv6,
 missing interfaces, malformed pointers/lengths, cycles and duplicate LUIDs.
 
-Recovery retains journal schema v2 and its existing operation/owner/generation
-guards. The adapter GUID is the RequestedGUID passed to pinned Wintun 0.14.1;
+Recovery uses journal schema v3, reads v2 conservatively, and retains the
+operation/owner/generation guards. Device ownership and connection receipts
+are recorded in the same atomically replaced protected journal. The adapter GUID is the RequestedGUID passed to pinned Wintun 0.14.1;
 its exact `SWD\Wintun\{GUID}` device-instance identity is checked using SetupAPI,
 including non-present devices. Recovery does not call `WintunOpenAdapter` as
 an existence probe. A registry-read failure is no longer convertible into
@@ -81,7 +82,55 @@ failure followed by rollback and retry. Use the independent network observer
 to verify post-commit direct traffic, permit revocation and no unexpected
 physical packets. Missing protected infrastructure means `not_run`, not a pass.
 
-## Windows Wintun cleanup lifecycle
+## Windows Wintun device and connection lifetimes
+
+The first TUN connection lazily creates one Agent-managed device. Its name and
+RequestedGUID come from a device ID, independent of the account Profile. The
+Agent retains the creator handle while the application holds its device lease.
+An idle device is normal, not pending cleanup. Ordinary disconnect, account or
+settings replacement, and VPN Gate node changes do not call
+`WintunCloseAdapter` or wait for interface-table disappearance. Each replacement
+still ends its packet session and restores that connection's address, DNS,
+route, WFP, dynamic-egress and proxy receipts before another session starts.
+Hot Gate transitions retain their existing guard and refresh final configuration.
+
+Schema v3 separates the managed device (creating, idle, in use, retiring or
+recovery required; an absent record means absent) from each connection
+transaction. A transaction binds a device ID and generation. Creation, binding
+and retirement intents are saved before native work; failed idle or final saves
+bar reuse. A v2 adapter remains a legacy transaction receipt until recovered.
+An idle record from an earlier Agent process is never proof of a live creator
+handle. Existing Active reattachment still validates exact resources and owner.
+
+Protocol version 3 adds the `reusable_tun_device` capability, independent
+Acquire/ReleaseDeviceLease requests, lease ID/generation and expected journal
+generation in Prepare, and typed device status. Engine owns the long-lived
+device pipe in its application service, outside each VPN runtime. Other users
+and simultaneous owners cannot take over it. Stale replies, lease EOF and
+30-second orphan timers cannot retire a newer lease. Engine without prior TUN
+use creates no idle device. New TUN setup requires a matching Agent capability;
+diagnostics remain compatible with old Agents without that capability.
+
+On complete application exit, Engine finishes connection cleanup and explicitly
+releases the device lease. Final retirement retains the exact interface AND
+PnP absence check. One bounded retirement attempt may leave only a device
+record; after that record is durably saved, Agent can stop normally. This
+exception cannot bypass network cleanup or failed persistence, and performs
+no terminal-state sampling or recovery-budget restart. Startup retires the old
+device before permitting a new creation. Native deletion delays can still
+affect an immediate application restart; device reuse does not prove those
+delays are fixed. A native worker owns its resources until completion or process
+exit; a timeout never authorizes another native owner in that process.
+An Engine crash or broken lease retains the 30-second reattachment grace.
+If a retirement journal write fails with an I/O error, the existing service
+supervisor retries the outstanding write every five seconds until it succeeds
+or the service stops. It retains the native retirement result, so a completed
+or timed-out deletion is never started again by a persistence retry. A failed
+intent write must succeed before the single native attempt can start. These
+retries do not consume or refresh the connection recovery budget; reuse and
+idle exit remain blocked until the required record is durable.
+An unused service with no device, clients or recovery jobs keeps its 10-second
+idle-exit grace; an application-held idle device outlives it.
 
 Cold reconfiguration stops MASQUE, proxy and GEO producers as well as the
 Windows packet consumers before platform rollback. Hot TUN detach retains its
@@ -89,6 +138,13 @@ separate platform-only stop path. Agent packet drains check shutdown after
 bounded batches even when the input ring never becomes empty. Authenticated
 rollback revokes dynamic egress only after packet-session quiescence and before
 removing persistent WFP resources; failed quiescence retains protection.
+
+Engine packet shutdown owns and joins the actual blocking notification task.
+The five-second join threshold records `PACKET_PUMPS_JOIN_PENDING` and retains
+unfinished work; it does not authorize a new packet session or claim that the
+worker exited. Cancelling a foreground connection wait leaves the background
+cleanup handle owned by the service, so later Connect/Retry requests still
+wait for the same cleanup.
 
 Wintun removal first observes the exact journaled interface and PnP identity.
 Both must be absent before cleanup succeeds. Closing a handle gets a two-second
@@ -100,8 +156,17 @@ native calls can be forcibly cancelled. Inspection errors remain unknown,
 never absence. A request error followed by verified absence is idempotent
 success. A fresh Agent may safely retry the exact journaled device.
 
-After automatic recovery is exhausted, an authenticated manual Retry first
-rechecks the operation, generation, caller and absence of live sessions. If
+Connect and Retry share a live Agent recovery preflight on connections that
+need the Agent. This includes the first connection after an Engine restart;
+it does not depend on a cached Engine error. Waiting/Running are observed,
+Blocked remains an explicit error, and an explicit request can restart an
+Exhausted recovery once. Background reconnection and monitoring cannot refresh
+the three-attempt budget. Cancellation invalidates the connection intent even
+when the Agent still needs to finish cleanup. VPN Gate hot retry retains its
+existing underlay and bypasses this cold-connection preflight.
+
+An authenticated restart first rechecks the operation, generation, caller and
+absence of live sessions. If
 the adapter is the only unfinished step and both resources are now absent,
 it completes only the journal save. No remaining route, DNS, WFP or proxy
 receipt may be skipped; a failed save retains RecoveryRequired.
@@ -110,19 +175,60 @@ The Agent writes bounded, non-authoritative `recovery-events-v1.jsonl` beside
 its protected journal (at most 1 MiB). It records step results, durations,
 allowlisted API names, numeric errors and optional device/interface observations,
 not raw messages, receipts, addresses or identities. Logging failure never
-prevents cleanup. True uninstall removes this known diagnostic file only after
+prevents cleanup. True uninstall removes the two allowlisted recovery evidence
+files (`recovery-events-v1.jsonl` and `recovery-trace-v1.jsonl`) only after
 the authoritative journal is clean. Engine logs mirror allowlisted adapter
 failure details, while the UI shows localized cleanup context without raw data.
 
-Deterministic tests cover delayed absence, accepted-request reuse, native
-failure followed by absence, failed probes/identity checks, cleanup ordering,
-retry guards, failed clean saves, bounded diagnostic persistence and UI privacy.
-In the snapshot VM, additionally test direct-country off/on/off, repeated
-country changes, high-rate traffic during disconnect, process exit during
-recovery and coexistence with another Wintun VPN. Verify exact-device removal,
-no orphan sessions, preservation of unrelated adapters and no unexpected
-physical packets with the independent observer. Those scenarios remain
-`not_run` on a workstation; unit results do not prove native removal.
+`InspectPlatformState` optionally includes `recovery_diagnostics` at field 18;
+the Agent protocol remains version 3. A current observation has its own sample
+time, journal generation, separate interface/PnP presence and typed identity/API
+results. History contains up to the latest 32 valid events with their original
+timestamps, generations, step durations and outcomes. A missing, corrupt,
+oversized or unreadable event file has an explicit status. Unknown JSON fields
+are discarded, and enum values are validated before reserialization.
+
+Sampling uses IP Helper, SetupAPI and read-only `CM_Get_DevNode_Status`. Interface
+operational/admin/media states and devnode status/problem codes supplement the
+presence results. `CONFIGRET` errors have a separate field from Win32 errors;
+neither can be interpreted as resource absence. A single
+blocking worker owns the sampling permit until native calls actually finish,
+including after the caller times out. Agent inspection is bounded below two
+seconds and the Engine waits at most two seconds. Busy, timeout, unavailable,
+missing receipt and generation change never mean absence; a generation change
+discards the sample's presence results. Neither inspection nor exporting opens
+Wintun, starts the Agent service, or performs recovery.
+
+Windows diagnostic exports include `windows-recovery.json` (schema version 2).
+Current observations, historical events, automatic recovery and typed device
+state are separate. Version 2 removes the trace and cached-evidence sections. An older Agent still permits export with `extension_unavailable`.
+Both sides reconstruct allowlisted fields with bounded history; the export
+excludes journal contents, arbitrary error text, adapter names/GUIDs/LUIDs,
+SIDs, addresses and credentials. Existing diagnostic result evidence shows
+sample status/time/generation and bounded event counts. These observations are
+non-authoritative and do not weaken the two-resource cleanup success check.
+
+Legacy protobuf trace fields remain deprecated with their occupied numbers.
+Current code does not produce/export native logger callbacks, reference-count
+or function-boundary traces, periodic exhausted-state samples, an Engine
+evidence recorder/cache, or a final shutdown capture. Only fixed-name legacy
+file deletion remains in uninstall/local-data clearing; source cleanup never
+deletes user diagnostic archives or the live recovery journal.
+
+Deterministic tests exercise at least 100 disconnect/reconnect cycles with one
+device creation, one session end per cycle, and one final close. Additional
+fixtures cover idle reuse, profile and Gate changes, independent proxy cleanup,
+bounded recovery, actual packet-thread joins, stale/parallel ownership,
+cancelled and late requests, v2/v3 persistence, failed writes, unknown identity,
+device-only deferred exit, and diagnostic compatibility/privacy. The two tests
+that load Wintun are ignored by default and require an isolated snapshot VM;
+function-pointer/backend fixtures are not native lifecycle evidence.
+
+In a snapshot VM with an independent management channel, additionally validate
+long-lived traffic followed by immediate reconnect, full queues at disconnect,
+process exit, sleep/resume, rapid reopen and another Wintun VPN. Use the network
+observer for leak claims. Workstation native scenarios are `not_run`; these
+supplemental checks are not a publication prerequisite.
 
 ## Protected release runners
 

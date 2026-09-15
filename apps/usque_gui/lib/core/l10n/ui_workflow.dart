@@ -70,6 +70,9 @@ const Map<String, String> kUiWorkflowEn = <String, String>{
   'proxy_routing_group': 'Proxy & routing',
   'application_group': 'Application',
   'proxy_settings_link': 'Listener addresses, ports, authentication and DNS.',
+  'local_proxy_settings': 'Local proxy settings',
+  'proxy_switches_hint':
+      'Switch changes are saved automatically. Apply listener and DNS edits with Apply changes.',
   'proxy_auth_separate':
       'Credentials are saved separately with Save credentials.',
   'reset_draft_hint':
@@ -124,6 +127,8 @@ const Map<String, String> kUiWorkflowZhCn = <String, String>{
   'proxy_routing_group': '代理与分流',
   'application_group': '应用',
   'proxy_settings_link': '监听地址、端口、认证与 DNS。',
+  'local_proxy_settings': '本地代理设置',
+  'proxy_switches_hint': '开关更改会自动保存；监听地址、端口与 DNS 的修改需点击“应用修改”。',
   'proxy_auth_separate': '凭据需单独点击“保存凭据”，不随网络修改一起提交。',
   'reset_draft_hint': '默认值将填入表单，点击“应用修改”后才会生效。',
 };

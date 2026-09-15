@@ -586,7 +586,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1173,9 +1173,9 @@ dependencies = [
 
 [[package]]
 name = "ipnet"
-version = "2.12.1"
+version = "2.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a756c3fac73139e83f14c2d742155dd2b78d3ee56597b419a0579b7bdd6dd78"
+checksum = "791930b43c0d5973160d90a8f3894509f2b273430f5c5c73b668636d0287c5c0"
 dependencies = [
  "serde",
 ]
@@ -1779,7 +1779,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1989,14 +1989,14 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "rustls"
-version = "0.23.43"
+version = "0.23.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0283386ce02abc0151e1761d08802dfe86c173b0b494af5cbc086574e453da06"
+checksum = "6725596c3f2c3a0aef021139e145d4eafe314a6623e4680ca83852b2c67ab2ba"
 dependencies = [
  "log",
  "once_cell",
@@ -2019,9 +2019,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.13"
+version = "0.103.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61c429a8649f110dddef65e2a5ad240f747e85f7758a6bccc7e5777bd33f756e"
+checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"
 dependencies = [
  "ring",
  "rustls-pki-types",
@@ -2368,7 +2368,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2465,9 +2465,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-rustls"
-version = "0.26.4"
+version = "0.26.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1729aa945f29d91ba541258c8df89027d5792d85a8841fb65e8bf0f4ede4ef61"
+checksum = "b0c85f2c3ef0b1cd58b36682f4b17aaa995f0e5db534d85692b4903abce21f67"
 dependencies = [
  "rustls",
  "tokio",
@@ -2689,7 +2689,7 @@ dependencies = [
 
 [[package]]
 name = "usque-agent"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2713,7 +2713,7 @@ dependencies = [
 
 [[package]]
 name = "usque-android"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2735,7 +2735,7 @@ dependencies = [
 
 [[package]]
 name = "usque-core"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -2755,6 +2755,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+ "tokio-util",
  "tracing",
  "usque-geo",
  "usque-protocol",
@@ -2765,7 +2766,7 @@ dependencies = [
 
 [[package]]
 name = "usque-engine"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -2796,7 +2797,7 @@ dependencies = [
 
 [[package]]
 name = "usque-geo"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "bytes",
  "futures",
@@ -2812,7 +2813,7 @@ dependencies = [
 
 [[package]]
 name = "usque-ipc"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "bytes",
  "prost",
@@ -2823,8 +2824,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "usque-openvpn"
+version = "0.2.7"
+dependencies = [
+ "bytes",
+ "cmake",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "usque-platform"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "async-trait",
  "security-framework",
@@ -2838,7 +2849,7 @@ dependencies = [
 
 [[package]]
 name = "usque-protocol"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "bytes",
  "proptest",
@@ -2849,7 +2860,7 @@ dependencies = [
 
 [[package]]
 name = "usque-transport"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "async-trait",
  "boring",
@@ -2875,6 +2886,7 @@ dependencies = [
  "ts_netstack_smoltcp",
  "usque-core",
  "usque-geo",
+ "usque-openvpn",
  "usque-protocol",
  "uuid",
  "webpki-roots",
@@ -2884,7 +2896,7 @@ dependencies = [
 
 [[package]]
 name = "usque-uninstall"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "thiserror",
  "usque-platform",
@@ -2893,7 +2905,7 @@ dependencies = [
 
 [[package]]
 name = "usque-update"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "clap",
  "sha2",
@@ -2916,9 +2928,9 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "uuid"
-version = "1.26.0"
+version = "1.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5772d71c9be8a8a6ac2117d949c5b224c1b72241bb611d9a3012edcf8af7812"
+checksum = "2ef6dac1e96601b4fb3acccccff2139741fcb757cb9a36089bf5be91cfb285ce"
 dependencies = [
  "getrandom 0.4.3",
  "js-sys",
@@ -3100,7 +3112,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

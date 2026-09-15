@@ -59,6 +59,10 @@ message AgentCapabilities {
   // The Agent can run bounded, exact-operation recovery retries without an
   // Engine connection and expose their sanitized in-memory status.
   bool automatic_recovery = 14;
+  // Supports a protected bootstrap followed by final VPN address assignment.
+  bool deferred_network_configuration = 15;
+  // A process-scoped device lease outlives individual packet sessions.
+  bool reusable_tun_device = 16;
 }
 
 message TunnelPlan {
@@ -81,6 +85,22 @@ message TunnelPlan {
   // The Wintun interface publishes Engine-owned Split DNS addresses and must
   // receive exact host routes for them even when LAN exclusions overlap.
   bool split_dns = 12;
+  // The final exit is carried by WARP and may expose only one payload family.
+  bool vpn_chain = 13;
+  // Prepare only bootstrap protection. Commit requires FinalizeTunnel first.
+  bool defer_network_configuration = 14;
+}
+
+message FinalizeTunnelRequest {
+  string operation_id = 1;
+  TunnelPlan plan = 2;
+}
+
+// Retains this operation's adapter and bootstrap permits, and installs chain
+// protection before the Engine replaces any final packet session.
+message BeginChainTransitionRequest {
+  string operation_id = 1;
+  bool retain_startup_lease = 2;
 }
 
 message GetCapabilitiesRequest {}
@@ -100,6 +120,38 @@ message RestartAutomaticRecoveryRequest {
 message PrepareTunnelRequest {
   string operation_id = 1;
   TunnelPlan plan = 2;
+  string device_lease_id = 3;
+  uint64 device_lease_generation = 4;
+  uint64 expected_journal_generation = 5;
+}
+
+message AcquireDeviceLeaseRequest {}
+
+message ReleaseDeviceLeaseRequest {
+  string lease_id = 1;
+  uint64 lease_generation = 2;
+}
+
+message DeviceLease {
+  string lease_id = 1;
+  uint64 lease_generation = 2;
+  uint64 journal_generation = 3;
+}
+
+enum ManagedDevicePhase {
+  MANAGED_DEVICE_PHASE_UNSPECIFIED = 0;
+  MANAGED_DEVICE_PHASE_ABSENT = 1;
+  MANAGED_DEVICE_PHASE_CREATING = 2;
+  MANAGED_DEVICE_PHASE_IDLE = 3;
+  MANAGED_DEVICE_PHASE_IN_USE = 4;
+  MANAGED_DEVICE_PHASE_RETIRING = 5;
+  MANAGED_DEVICE_PHASE_RECOVERY_REQUIRED = 6;
+}
+
+message ManagedDeviceStatus {
+  ManagedDevicePhase phase = 1;
+  bool lease_attached = 2;
+  uint64 device_generation = 3;
 }
 
 message CommitTunnelRequest {
@@ -172,6 +224,186 @@ message PlatformState {
   bool pending_cleanup = 15;
   uint64 journal_generation = 16;
   AutomaticRecoveryStatus automatic_recovery = 17;
+  // Optional, read-only evidence. Absence means an older Agent, never Clean.
+  RecoveryDiagnostics recovery_diagnostics = 18;
+  ManagedDeviceStatus device = 19;
+}
+
+enum RecoverySampleStatus {
+  RECOVERY_SAMPLE_STATUS_UNSPECIFIED = 0;
+  RECOVERY_SAMPLE_STATUS_COMPLETE = 1;
+  RECOVERY_SAMPLE_STATUS_TIMEOUT = 2;
+  RECOVERY_SAMPLE_STATUS_BUSY = 3;
+  RECOVERY_SAMPLE_STATUS_UNAVAILABLE = 4;
+  RECOVERY_SAMPLE_STATUS_GENERATION_CHANGED = 5;
+  RECOVERY_SAMPLE_STATUS_NO_RECEIPT = 6;
+}
+
+enum RecoveryPresence {
+  RECOVERY_PRESENCE_UNSPECIFIED = 0;
+  RECOVERY_PRESENCE_PRESENT = 1;
+  RECOVERY_PRESENCE_ABSENT = 2;
+}
+
+enum RecoveryIdentityCheck {
+  RECOVERY_IDENTITY_CHECK_UNSPECIFIED = 0;
+  RECOVERY_IDENTITY_CHECK_VERIFIED = 1;
+  RECOVERY_IDENTITY_CHECK_CONFLICT = 2;
+  RECOVERY_IDENTITY_CHECK_INVALID_RECEIPT = 3;
+}
+
+enum RecoveryDiagnosticApi {
+  RECOVERY_DIAGNOSTIC_API_UNSPECIFIED = 0;
+  RECOVERY_DIAGNOSTIC_API_GET_IF_TABLE2 = 1;
+  RECOVERY_DIAGNOSTIC_API_SETUP_DI_GET_CLASS_DEVS = 2;
+  RECOVERY_DIAGNOSTIC_API_SETUP_DI_ENUM_DEVICE_INFO = 3;
+  RECOVERY_DIAGNOSTIC_API_SETUP_DI_GET_DEVICE_INSTANCE_ID = 4;
+  RECOVERY_DIAGNOSTIC_API_SETUP_DI_SET_CLASS_INSTALL_PARAMS = 5;
+  RECOVERY_DIAGNOSTIC_API_SETUP_DI_CALL_CLASS_INSTALLER = 6;
+  RECOVERY_DIAGNOSTIC_API_OTHER = 7;
+  RECOVERY_DIAGNOSTIC_API_CM_GET_DEV_NODE_STATUS = 8;
+}
+
+message RecoveryResourceObservation {
+  RecoveryPresence presence = 1;
+  RecoveryIdentityCheck identity_check = 2;
+  RecoveryDiagnosticApi api = 3;
+  optional uint32 win32_code = 4;
+  // IP Helper state enums, never interface identifiers.
+  optional uint32 interface_oper_status = 5;
+  optional uint32 interface_admin_status = 6;
+  optional uint32 media_connect_state = 7;
+  optional uint32 devnode_status = 8;
+  optional uint32 problem_code = 9;
+  // CONFIGRET is a different error namespace from GetLastError/Win32.
+  optional uint32 configret_code = 10;
+}
+
+message RecoveryObservation {
+  uint64 sampled_at_unix_ms = 1;
+  uint64 journal_generation = 2;
+  RecoverySampleStatus status = 3;
+  RecoveryResourceObservation interface = 4;
+  RecoveryResourceObservation pnp_device = 5;
+}
+
+enum RecoveryHistoryStatus {
+  RECOVERY_HISTORY_STATUS_UNSPECIFIED = 0;
+  RECOVERY_HISTORY_STATUS_COMPLETE = 1;
+  RECOVERY_HISTORY_STATUS_MISSING = 2;
+  RECOVERY_HISTORY_STATUS_PARTIAL = 3;
+  RECOVERY_HISTORY_STATUS_TOO_LARGE = 4;
+  RECOVERY_HISTORY_STATUS_UNAVAILABLE = 5;
+}
+
+enum RecoveryStep {
+  RECOVERY_STEP_UNSPECIFIED = 0;
+  RECOVERY_STEP_WINTUN_ADAPTER = 1;
+  RECOVERY_STEP_ENDPOINT_BYPASS = 2;
+  RECOVERY_STEP_KILL_SWITCH = 3;
+  RECOVERY_STEP_INTERFACE_CONFIGURATION = 4;
+  RECOVERY_STEP_DNS = 5;
+  RECOVERY_STEP_PACKET_SESSION = 6;
+  RECOVERY_STEP_DEFAULT_ROUTES = 7;
+  RECOVERY_STEP_SYSTEM_PROXY = 8;
+}
+
+enum RecoveryRemovalStage {
+  RECOVERY_REMOVAL_STAGE_UNSPECIFIED = 0;
+  RECOVERY_REMOVAL_STAGE_OBSERVE = 1;
+  RECOVERY_REMOVAL_STAGE_REQUEST = 2;
+  RECOVERY_REMOVAL_STAGE_CONFIRM = 3;
+}
+
+enum RecoveryRemovalFailure {
+  RECOVERY_REMOVAL_FAILURE_UNSPECIFIED = 0;
+  RECOVERY_REMOVAL_FAILURE_PENDING = 1;
+  RECOVERY_REMOVAL_FAILURE_IDENTITY = 2;
+  RECOVERY_REMOVAL_FAILURE_NATIVE = 3;
+}
+
+message RecoveryRemovalResult {
+  RecoveryRemovalStage stage = 1;
+  RecoveryRemovalFailure failure = 2;
+  RecoveryPresence interface = 3;
+  RecoveryPresence pnp_device = 4;
+  bool request_accepted = 5;
+  uint64 elapsed_ms = 6;
+  RecoveryDiagnosticApi api = 7;
+  optional uint32 win32_code = 8;
+}
+
+message RecoveryHistoryEvent {
+  uint64 occurred_at_unix_ms = 1;
+  uint64 journal_generation = 2;
+  RecoveryStep step = 3;
+  bool restored = 4;
+  uint64 elapsed_ms = 5;
+  RecoveryDiagnosticApi api = 6;
+  optional uint32 win32_code = 7;
+  RecoveryRemovalResult adapter = 8;
+}
+
+message RecoveryDiagnostics {
+  RecoveryObservation current = 1;
+  RecoveryHistoryStatus history_status = 2;
+  // Latest at most 32 valid events, in file order. Never current observations.
+  repeated RecoveryHistoryEvent history = 3;
+  // Legacy investigation data. New Agents never produce or export this field.
+  RecoveryTrace trace = 4 [deprecated = true];
+}
+
+enum RecoveryTraceStage {
+  RECOVERY_TRACE_STAGE_UNSPECIFIED = 0;
+  RECOVERY_TRACE_STAGE_PUMP_STOP_REQUESTED = 1;
+  RECOVERY_TRACE_STAGE_PUMP_JOIN_STARTED = 2;
+  RECOVERY_TRACE_STAGE_PUMP_JOIN_RETURNED = 3;
+  RECOVERY_TRACE_STAGE_END_SESSION_STARTED = 4;
+  RECOVERY_TRACE_STAGE_END_SESSION_RETURNED = 5;
+  RECOVERY_TRACE_STAGE_ADAPTER_RELEASE_REQUESTED = 6;
+  RECOVERY_TRACE_STAGE_CLOSE_ADAPTER_STARTED = 7;
+  RECOVERY_TRACE_STAGE_CLOSE_ADAPTER_RETURNED = 8;
+  RECOVERY_TRACE_STAGE_NATIVE_REMOVE_FAILED = 9;
+  RECOVERY_TRACE_STAGE_NATIVE_ORPHAN_REMOVE_FAILED = 10;
+  RECOVERY_TRACE_STAGE_NATIVE_ORPHAN_REMOVED = 11;
+  RECOVERY_TRACE_STAGE_NATIVE_OTHER = 12;
+  RECOVERY_TRACE_STAGE_OBSERVATION_STARTED = 13;
+  RECOVERY_TRACE_STAGE_OBSERVATION_CHANGED = 14;
+  RECOVERY_TRACE_STAGE_OBSERVATION_ABSENT = 15;
+  RECOVERY_TRACE_STAGE_OBSERVATION_DEADLINE = 16;
+  RECOVERY_TRACE_STAGE_OBSERVATION_CANCELLED = 17;
+  RECOVERY_TRACE_STAGE_REMOVAL_ATTEMPT_STARTED = 18;
+  RECOVERY_TRACE_STAGE_REMOVAL_ATTEMPT_RETURNED = 19;
+}
+
+message RecoveryTraceEvent {
+  uint32 schema_version = 1 [deprecated = true];
+  // Random per-process nonce and per-process counter, never PID/GUID/LUID.
+  uint64 agent_run_id = 2 [deprecated = true];
+  uint64 event_sequence = 3 [deprecated = true];
+  uint64 occurred_at_unix_ms = 4 [deprecated = true];
+  uint64 monotonic_ms = 5 [deprecated = true];
+  // Zero denotes an unassociated callback, not the latest transaction.
+  uint64 journal_generation = 6 [deprecated = true];
+  uint64 resource_id = 7 [deprecated = true];
+  RecoveryTraceStage stage = 8 [deprecated = true];
+  optional uint64 elapsed_ms = 9 [deprecated = true];
+  optional uint32 reference_count = 10 [deprecated = true];
+  // Packet-pump joins and removal attempts have results; Wintun VOID returns do not.
+  optional bool succeeded = 11 [deprecated = true];
+  RecoveryObservation observation = 12 [deprecated = true];
+  // 1 info, 2 warning, 3 error. No native message text crosses the boundary.
+  optional uint32 native_level = 13 [deprecated = true];
+  uint64 dropped_events = 14 [deprecated = true];
+  uint64 write_failures = 15 [deprecated = true];
+}
+
+message RecoveryTrace {
+  RecoveryHistoryStatus status = 1 [deprecated = true];
+  // Latest at most 128 valid records, with original event times.
+  repeated RecoveryTraceEvent events = 2 [deprecated = true];
+  uint64 dropped_events = 3 [deprecated = true];
+  uint64 write_failures = 4 [deprecated = true];
 }
 
 message PhysicalInterface {
@@ -217,6 +449,10 @@ message AgentState {
   uint64 journal_generation = 7;
   repeated string warnings = 8;
   AutomaticRecoveryStatus automatic_recovery = 9;
+  // Authenticated callers can retain the original bootstrap policy when
+  // applying a newly negotiated final network to this operation.
+  TunnelPlan plan = 10;
+  ManagedDeviceStatus device = 11;
 }
 
 message AutomaticRecoveryStatus {
@@ -264,6 +500,10 @@ message AgentRequest {
     InspectPlatformStateRequest inspect_platform_state = 25;
     RecoverOrphanedRequest recover_orphaned = 26;
     RestartAutomaticRecoveryRequest restart_automatic_recovery = 27;
+    FinalizeTunnelRequest finalize_tunnel = 28;
+    BeginChainTransitionRequest begin_chain_transition = 29;
+    AcquireDeviceLeaseRequest acquire_device_lease = 30;
+    ReleaseDeviceLeaseRequest release_device_lease = 31;
   }
 }
 
@@ -278,5 +518,6 @@ message AgentResponse {
     PhysicalNetworkInfo physical_network_info = 14;
     DirectEgressLease direct_egress_lease = 15;
     PlatformState platform_state = 16;
+    DeviceLease device_lease = 17;
   }
 }

@@ -19,6 +19,31 @@ pub enum ConnectionPhase {
     Error,
 }
 
+impl ConnectionPhase {
+    /// Classify an already connected tunnel without changing the available
+    /// address families. An IPv4-only Gate assignment is an expected capability,
+    /// while losing a family from a dual-stack assignment remains degraded.
+    pub fn connected_tunnel(
+        ipv4_available: bool,
+        ipv6_available: bool,
+        gate: Option<&crate::vpngate::GateStatus>,
+    ) -> Self {
+        let ipv4_only_gate = gate.is_some_and(|gate| {
+            gate.stage == crate::vpngate::GateStage::Connected
+                && gate.failure.is_none()
+                && gate
+                    .network
+                    .as_ref()
+                    .is_some_and(|network| network.ipv4.is_some() && network.ipv6.is_none())
+        });
+        if ipv4_available && (ipv6_available || ipv4_only_gate) {
+            Self::Connected
+        } else {
+            Self::Degraded
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum Transport {
@@ -206,11 +231,18 @@ impl StateMachine {
         ipv4_available: bool,
         ipv6_available: bool,
     ) -> Result<&ConnectionSnapshot, TransitionError> {
-        let phase = if ipv4_available && ipv6_available {
-            ConnectionPhase::Connected
-        } else {
-            ConnectionPhase::Degraded
-        };
+        self.mark_connected_with_gate(transport, family, ipv4_available, ipv6_available, None)
+    }
+
+    pub fn mark_connected_with_gate(
+        &mut self,
+        transport: Transport,
+        family: AddressFamily,
+        ipv4_available: bool,
+        ipv6_available: bool,
+        gate: Option<&crate::vpngate::GateStatus>,
+    ) -> Result<&ConnectionSnapshot, TransitionError> {
+        let phase = ConnectionPhase::connected_tunnel(ipv4_available, ipv6_available, gate);
         self.transition(phase)?;
         self.snapshot.transport = Some(transport);
         self.snapshot.address_family = Some(family);
@@ -245,6 +277,10 @@ impl StateMachine {
 
     pub fn set_exit_info(&mut self, exit: ExitInfo) {
         self.snapshot.exit = Some(exit);
+    }
+
+    pub fn clear_exit_info(&mut self) {
+        self.snapshot.exit = None;
     }
 
     pub fn update_statistics(&mut self, statistics: Statistics) {
@@ -396,6 +432,79 @@ mod tests {
             .mark_connected(Transport::Http2, AddressFamily::Ipv4, true, false)
             .unwrap();
         assert_eq!(state.snapshot().phase, ConnectionPhase::Degraded);
+    }
+
+    #[test]
+    fn ipv4_only_gate_is_connected_without_advertising_ipv6() {
+        use crate::vpngate::{FinalNetworkParameters, GateStage, GateStatus};
+        let mut gate = GateStatus {
+            stage: GateStage::Connected,
+            network: Some(FinalNetworkParameters {
+                ipv4: Some("10.8.0.2".parse().unwrap()),
+                ipv6: None,
+                dns_servers: Vec::new(),
+                mtu: 1500,
+            }),
+            ..Default::default()
+        };
+        let mut state = StateMachine::default();
+        state.transition(ConnectionPhase::Preparing).unwrap();
+        state.transition(ConnectionPhase::ConnectingHttp3).unwrap();
+        for transport in [Transport::Http3, Transport::Http2] {
+            for previous in [ConnectionPhase::Reconnecting, ConnectionPhase::Degraded] {
+                state.transition(previous).unwrap();
+                let snapshot = state
+                    .mark_connected_with_gate(
+                        transport,
+                        AddressFamily::Ipv4,
+                        true,
+                        false,
+                        Some(&gate),
+                    )
+                    .unwrap();
+                assert_eq!(snapshot.phase, ConnectionPhase::Connected);
+                assert!(snapshot.ipv4_available);
+                assert!(!snapshot.ipv6_available);
+            }
+        }
+        // Turning Gate off restores the ordinary WARP family requirement.
+        assert_eq!(
+            state
+                .mark_connected(Transport::Http3, AddressFamily::Ipv4, true, false)
+                .unwrap()
+                .phase,
+            ConnectionPhase::Degraded,
+        );
+        for stage in [
+            GateStage::Disabled,
+            GateStage::ConfiguringNetwork,
+            GateStage::Reconnecting,
+            GateStage::Error,
+        ] {
+            gate.stage = stage;
+            assert_eq!(
+                ConnectionPhase::connected_tunnel(true, false, Some(&gate)),
+                ConnectionPhase::Degraded
+            );
+        }
+        gate.stage = GateStage::Connected;
+        assert_eq!(
+            ConnectionPhase::connected_tunnel(false, false, Some(&gate)),
+            ConnectionPhase::Degraded
+        );
+        assert_eq!(
+            ConnectionPhase::connected_tunnel(false, true, Some(&gate)),
+            ConnectionPhase::Degraded
+        );
+        gate.network.as_mut().unwrap().ipv6 = Some("fd00::2".parse().unwrap());
+        assert_eq!(
+            ConnectionPhase::connected_tunnel(true, false, Some(&gate)),
+            ConnectionPhase::Degraded
+        );
+        assert_eq!(
+            ConnectionPhase::connected_tunnel(true, true, Some(&gate)),
+            ConnectionPhase::Connected
+        );
     }
 
     #[test]

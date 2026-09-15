@@ -1,6 +1,9 @@
 /// Supplemental feature strings for Vietnamese.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowVi = <String, String>{
+  'local_proxy_settings': 'Cài đặt proxy cục bộ',
+  'proxy_switches_hint':
+      'Thay đổi công tắc được lưu tự động. Dùng Áp dụng thay đổi để lưu chỉnh sửa địa chỉ lắng nghe và DNS.',
   'cc_label': 'Kiểm soát tắc nghẽn HTTP/3',
   'cc_help': 'Có hiệu lực ở lần kết nối thủ công tiếp theo.',
   'cc_upgrade': 'Cần cập nhật Engine.',
@@ -256,6 +259,10 @@ const Map<String, String> kNetworkQualityVi = <String, String>{
 };
 
 const Map<String, String> kWindowsRecoveryVi = <String, String>{
+  'WINDOWS_DEVICE_REUSE_UNSUPPORTED':
+      "Hãy cập nhật ứng dụng và Windows Agent cùng nhau để tái sử dụng thiết bị TUN. Chưa bắt đầu kết nối VPN mới.",
+  'WINDOWS_DEVICE_RECOVERY_REQUIRED':
+      "Thiết bị TUN cũ vẫn cần khôi phục. Thoát hoàn toàn Usque rồi mở lại để thử, hoặc xem chẩn đoán cục bộ.",
   'WINDOWS_RECOVERY_FAILED':
       'Không thể khôi phục đầy đủ trạng thái mạng VPN trước đó. Chưa khởi động kết nối VPN mới. Hãy thử kết nối lại hoặc xem chẩn đoán cục bộ.',
   'WINDOWS_RECOVERY_EXHAUSTED':

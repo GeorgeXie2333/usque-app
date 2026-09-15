@@ -1,6 +1,9 @@
 /// Supplemental feature strings for Indonesian.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowId = <String, String>{
+  'local_proxy_settings': 'Pengaturan proksi lokal',
+  'proxy_switches_hint':
+      'Perubahan sakelar disimpan otomatis. Terapkan perubahan alamat pendengar dan DNS dengan Terapkan perubahan.',
   'cc_label': 'Kontrol kongesti HTTP/3',
   'cc_help': 'Berlaku pada koneksi manual berikutnya.',
   'cc_upgrade': 'Pembaruan Engine diperlukan.',
@@ -268,6 +271,10 @@ const Map<String, String> kNetworkQualityId = <String, String>{
 };
 
 const Map<String, String> kWindowsRecoveryId = <String, String>{
+  'WINDOWS_DEVICE_REUSE_UNSUPPORTED':
+      "Perbarui aplikasi dan Windows Agent bersamaan untuk memakai ulang perangkat TUN. Belum ada koneksi VPN baru.",
+  'WINDOWS_DEVICE_RECOVERY_REQUIRED':
+      "Perangkat TUN sebelumnya masih perlu dipulihkan. Tutup Usque sepenuhnya, buka kembali dan coba lagi, atau periksa diagnostik lokal.",
   'WINDOWS_RECOVERY_FAILED':
       'Status jaringan VPN sebelumnya tidak dapat dipulihkan sepenuhnya. Koneksi VPN baru belum dimulai. Coba sambungkan lagi atau tinjau diagnostik lokal.',
   'WINDOWS_RECOVERY_EXHAUSTED':

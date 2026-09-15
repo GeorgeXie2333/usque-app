@@ -26,6 +26,7 @@ internal class ServiceSnapshotState {
     var sessionCongestionControl: String? = null
     var dataPlane: String? = null
     var l4Json: String? = null
+    var vpnGateJson: String? = null
     var activeListeners: List<String> = emptyList()
     var activeFrontends: List<String> = emptyList()
     var tunnelIpv4Available: Boolean = false
@@ -118,6 +119,7 @@ internal class ServiceSnapshotState {
         val sessionCongestionControl: String? = null,
         val dataPlane: String? = null,
         val l4Json: String? = null,
+        val vpnGateJson: String? = null,
     )
 
     /**
@@ -173,6 +175,7 @@ internal class ServiceSnapshotState {
         const val SESSION_CONGESTION_CONTROL = "session_congestion_control"
         const val DATA_PLANE = "data_plane"
         const val L4 = "l4_json"
+        const val VPN_GATE = "vpn_gate_json"
     }
 
     /**
@@ -200,6 +203,7 @@ internal class ServiceSnapshotState {
         sessionCongestionControl = null
         dataPlane = null
         l4Json = null
+        vpnGateJson = null
         activeListeners = emptyList()
         activeFrontends = emptyList()
         tunnelIpv4Available = false
@@ -212,6 +216,14 @@ internal class ServiceSnapshotState {
         exitFlagSvg = null
         flagCacheLookupCode = null
         killSwitchEnabled = false
+    }
+
+    fun resetForDisconnect(reason: ConnectionFailure? = null) {
+        reset(if (reason == null) "disconnected" else "error")
+        warning = reason?.message?.take(512)
+        errorCode = reason?.code
+        failure = reason?.details
+        vpnGateJson = reason?.gateStatus
     }
 
     fun killSwitchState(
@@ -306,6 +318,7 @@ internal class ServiceSnapshotState {
         val sessionCongestionControl: String? = null,
         val dataPlane: String? = null,
         val l4Json: String? = null,
+        val vpnGateJson: String? = null,
     )
 
     fun applyNativeSnapshot(source: JSONObject): NativeMergeResult = applyNativeSnapshot(fromNativeJson(source))
@@ -325,6 +338,7 @@ internal class ServiceSnapshotState {
         reconnectCount = source.reconnectCount.coerceAtLeast(0)
         sessionCongestionControl = CongestionControlSettings.token(source.sessionCongestionControl)
         dataPlane = L4StatusFields.mode(source.dataPlane)
+        vpnGateJson = VpnGateFields.decodeStatus(source.vpnGateJson)?.let { JSONObject(it).toString() }
         l4Json = source.l4Json?.let { L4StatusFields.decode(it)?.let { counters -> JSONObject(counters).toString() } }
         networkQualityJson =
             source.networkQualityJson?.let { value ->
@@ -388,6 +402,7 @@ internal class ServiceSnapshotState {
                 sessionCongestionControl = CongestionControlSettings.token(source.opt("session_congestion_control")),
                 dataPlane = L4StatusFields.mode(source.opt("data_plane")),
                 l4Json = L4StatusFields.encode(source.optJSONObject("l4")),
+                vpnGateJson = VpnGateFields.status(source.optJSONObject("vpn_gate"))?.let { JSONObject(it).toString() },
                 activeListeners =
                     source.optJSONArray("active_listeners")?.let { listeners ->
                         List(listeners.length()) { index -> listeners.getString(index) }
@@ -485,6 +500,7 @@ internal class ServiceSnapshotState {
             sessionCongestionControl = sessionCongestionControl,
             dataPlane = dataPlane,
             l4Json = l4Json,
+            vpnGateJson = vpnGateJson,
         )
 
     /**
@@ -550,6 +566,7 @@ internal class ServiceSnapshotState {
             WireKeys.SESSION_CONGESTION_CONTROL to fields.sessionCongestionControl,
             WireKeys.DATA_PLANE to fields.dataPlane,
             WireKeys.L4 to fields.l4Json,
+            WireKeys.VPN_GATE to fields.vpnGateJson,
         )
     }
 
@@ -559,6 +576,7 @@ internal class ServiceSnapshotState {
             putString(WireKeys.NETWORK_QUALITY, entries[WireKeys.NETWORK_QUALITY] as String?)
             putString(WireKeys.DATA_PLANE, entries[WireKeys.DATA_PLANE] as String?)
             putString(WireKeys.L4, entries[WireKeys.L4] as String?)
+            putString(WireKeys.VPN_GATE, entries[WireKeys.VPN_GATE] as String?)
             putString(WireKeys.SESSION_CONGESTION_CONTROL, entries[WireKeys.SESSION_CONGESTION_CONTROL] as String?)
             putString(WireKeys.PHASE, entries[WireKeys.PHASE] as String?)
             putString(WireKeys.WARNING, entries[WireKeys.WARNING] as String?)
@@ -683,6 +701,7 @@ internal class ServiceSnapshotState {
             sessionCongestionControl,
             dataPlane,
             l4Json,
+            vpnGateJson,
             activeListeners.joinToString("\u001f"),
             activeFrontends.joinToString("\u001f"),
             tunnelIpv4Available,

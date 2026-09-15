@@ -7,6 +7,7 @@ import '../core/usque_theme.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
+import '../widgets/country_flag.dart';
 
 class GeoDirectSettingsScreen extends StatefulWidget {
   const GeoDirectSettingsScreen({required this.controller, super.key});
@@ -189,6 +190,7 @@ class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
               final date = _entryDate(entry);
               return ListTile(
                 contentPadding: EdgeInsets.zero,
+                leading: CountryFlag(countryCode: country.code),
                 title: Text(
                   '${country.code}  ${country.name}',
                   maxLines: 1,

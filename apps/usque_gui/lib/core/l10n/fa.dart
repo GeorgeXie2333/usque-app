@@ -83,10 +83,6 @@ const Map<String, String> kFaCatalog = <String, String>{
       'از یک callback مربوط به Access با com.cloudflare.warp برای این سازمان استفاده کنید.',
   'zero_trust_paste_clipboard': 'پر کردن از کلیپ‌بورد',
   'zero_trust_clipboard_empty': 'کلیپ‌بورد حاوی نشانی callback نیست.',
-  'zero_trust_protocol_association':
-      'باز کردن callbackهای Access در Usque (فقط همین کاربر)',
-  'zero_trust_protocol_association_help':
-      'اختیاری. com.cloudflare.warp را برای کاربر Windows واردشده ثبت می‌کند. کلاینت رسمی WARP می‌تواند نصب بماند. برای ماندن WARP به‌عنوان گرداننده، این گزینه را خاموش بگذارید؛ جای‌گذاری همچنان کار می‌کند.',
   'zero_trust_scope_note':
       'آزمایشی: از ثبت دستگاه سازمان برای دسترسی به اینترنت استفاده می‌کند؛ همگام‌سازی سیاست و وضعیت امنیتی دستگاه پیاده‌سازی نشده است.',
   'zero_trust_repair_same_team':
@@ -302,7 +298,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'diagnostics_subtitle': 'وضعیت موتور Usque، صادر کردن گزارش و داده‌های محلی.',
   'engine_status': 'وضعیت Usque Engine',
   'version': 'نسخه',
-  'app_version': 'Usque 0.2.6',
+  'app_version': 'Usque 0.2.7',
   'logs': 'گزارش‌های محلی',
   'export_diagnostics': 'صادر کردن بستهٔ عیب‌یابی',
   'diagnostics_saved': 'بستهٔ عیب‌یابی در این مسیر ذخیره شد:',

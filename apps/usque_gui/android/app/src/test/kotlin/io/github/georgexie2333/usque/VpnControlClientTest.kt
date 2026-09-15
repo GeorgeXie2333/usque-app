@@ -566,6 +566,8 @@ class VpnControlClientTest {
 
     @Test
     fun eventDeliveryUpdatesLastSnapshot() {
+        client.setUiVisible(true)
+        client.setEventsWanted(true)
         client.deliverEvent(mapOf("phase" to "connected", "transport" to "h3"))
         assertEquals("connected", client.lastSnapshot["phase"])
         assertEquals(1, events.size)
@@ -576,6 +578,7 @@ class VpnControlClientTest {
         val endpoint = RecordingEndpoint()
         client.attachEndpointForTest(endpoint)
 
+        client.setUiVisible(true)
         client.setEventsWanted(true)
         assertFalse(client.eventStreamReachable)
 
@@ -584,6 +587,235 @@ class VpnControlClientTest {
 
         client.setEventsWanted(false)
         assertFalse(client.eventStreamReachable)
+    }
+
+    @Test
+    fun backgroundSuspendsEventsAndResumeRenewsTheExistingBinding() {
+        val endpoint = RecordingEndpoint()
+        client.bind()
+        client.attachEndpointForTest(endpoint)
+        client.setEventsWanted(true)
+        assertTrue(endpoint.messages.isEmpty())
+        assertEquals(0, scheduler.pendingTimeoutCount())
+
+        client.setUiVisible(true)
+        client.deliverEvent(mapOf("phase" to "connected"))
+        assertTrue(client.eventStreamReachable)
+
+        client.setUiVisible(false)
+        assertFalse(client.eventStreamReachable)
+        assertTrue(client.isBound)
+        assertTrue(client.hasEndpoint)
+        assertEquals(0, scheduler.pendingTimeoutCount())
+        // Already queued events must not replace the last visible state.
+        client.deliverEvent(mapOf("phase" to "preparing"))
+        assertEquals("connected", client.lastSnapshot["phase"])
+        assertEquals(1, events.size)
+        scheduler.advanceBy(7_200_000L)
+
+        // Flutter can also replace its subscription while the Activity is stopped.
+        client.setEventsWanted(true)
+        assertEquals(2, endpoint.messages.size)
+        client.setUiVisible(true)
+        assertEquals(
+            listOf(
+                UsqueVpnService.MSG_REGISTER_EVENTS,
+                UsqueVpnService.MSG_UNREGISTER_EVENTS,
+                UsqueVpnService.MSG_REGISTER_EVENTS,
+            ),
+            endpoint.messages.map { it.what },
+        )
+        assertEquals(1, binder.bindCount)
+        assertEquals(0, binder.unbindCount)
+        assertFalse(client.eventStreamReachable)
+        client.deliverEvent(mapOf("phase" to "connected", "transport" to "h2"))
+        assertEquals("h2", events.last()["transport"])
+        assertTrue(client.eventStreamReachable)
+    }
+
+    @Test
+    fun cancelledDartSubscriptionIsNotRestoredOnResume() {
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        client.setUiVisible(true)
+        client.setEventsWanted(true)
+        client.setUiVisible(false)
+        client.setEventsWanted(false)
+        val messagesBeforeResume = endpoint.messages.size
+
+        client.setUiVisible(true)
+        scheduler.advanceBy(20_000L)
+        client.deliverEvent(mapOf("phase" to "connected"))
+        assertEquals(messagesBeforeResume, endpoint.messages.size)
+        assertTrue(events.isEmpty())
+        assertEquals(0, scheduler.pendingTimeoutCount())
+    }
+
+    @Test
+    fun serviceRebindingWhileHiddenWaitsForTheVisibleSubscriber() {
+        val endpoint = RecordingEndpoint()
+        client.setEventsWanted(true)
+        client.attachEndpointForTest(endpoint)
+        assertTrue(endpoint.messages.isEmpty())
+
+        client.setUiVisible(true)
+        assertEquals(UsqueVpnService.MSG_REGISTER_EVENTS, endpoint.messages.single().what)
+    }
+
+    @Test
+    fun silentPushLossAfterReconnectRecoversTheUiWithoutReplayingCommands() {
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        client.setUiVisible(true)
+        client.setEventsWanted(true)
+        client.deliverEvent(mapOf("phase" to "connected"))
+
+        // The disconnect request/reply remains usable after the event subscriber
+        // disappears. A new connection is started by MainActivity's Intent path.
+        val disconnected = RecordingResult()
+        client.requestDisconnect(disconnected)
+        client.deliverSnapshotReply(
+            endpoint.messages.last().requestId,
+            null,
+            null,
+            mapOf("phase" to "disconnected"),
+        )
+        assertEquals("disconnected", (disconnected.successValue as Map<*, *>)["phase"])
+        var uiPhase = "preparing" // MainActivity's initial connect acknowledgement.
+        client.eventListener = VpnControlClient.EventListener { uiPhase = it["phase"] as String }
+        // Like MSG_REGISTER_EVENTS in the real service, re-registration returns
+        // its current snapshot even when ordinary broadcasts were deduplicated.
+        endpoint.onSend = { message ->
+            if (message.what == UsqueVpnService.MSG_REGISTER_EVENTS) {
+                client.deliverEvent(mapOf("phase" to "connected"))
+            }
+        }
+
+        scheduler.advanceBy(VpnControlClient.EVENT_REFRESH_INTERVAL_MILLIS - 1)
+        assertEquals("preparing", uiPhase)
+        scheduler.advanceBy(1)
+        assertEquals("connected", uiPhase)
+        assertTrue(client.eventStreamReachable)
+        assertEquals(
+            listOf(
+                UsqueVpnService.MSG_REGISTER_EVENTS,
+                UsqueVpnService.MSG_DISCONNECT,
+                UsqueVpnService.MSG_REGISTER_EVENTS,
+            ),
+            endpoint.messages.map { it.what },
+        )
+        assertEquals(0, client.pendingSnapshotCountForTest())
+        assertEquals(1, scheduler.pendingTimeoutCount())
+    }
+
+    @Test
+    fun liveSnapshotsPostponeTheSingleRefreshDeadline() {
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        client.setUiVisible(true)
+        client.setEventsWanted(true)
+        scheduler.advanceBy(VpnControlClient.EVENT_REFRESH_INTERVAL_MILLIS - 1)
+
+        client.deliverEvent(mapOf("phase" to "connected"))
+        scheduler.advanceBy(1)
+        assertEquals(1, endpoint.messages.size)
+        assertEquals(1, scheduler.pendingTimeoutCount())
+        scheduler.advanceBy(VpnControlClient.EVENT_REFRESH_INTERVAL_MILLIS - 1)
+        assertEquals(2, endpoint.messages.size)
+        assertEquals(1, scheduler.pendingTimeoutCount())
+    }
+
+    @Test
+    fun missingRefreshRepliesNeverInventConnectedStateOrAccumulateRequests() {
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        client.setUiVisible(true)
+        client.setEventsWanted(true)
+        client.deliverEvent(mapOf("phase" to "preparing"))
+
+        scheduler.advanceBy(3 * VpnControlClient.EVENT_REFRESH_INTERVAL_MILLIS)
+        assertEquals("preparing", client.lastSnapshot["phase"])
+        assertEquals(1, events.size)
+        assertFalse(client.eventStreamReachable)
+        assertEquals(4, endpoint.messages.size)
+        assertTrue(endpoint.messages.all { it.what == UsqueVpnService.MSG_REGISTER_EVENTS })
+        assertEquals(0, client.pendingSnapshotCountForTest())
+        assertEquals(1, scheduler.pendingTimeoutCount())
+    }
+
+    @Test
+    fun failedEventSendRebindsAndRecoversWithoutReplayingTheDisconnect() {
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        client.setUiVisible(true)
+        client.setEventsWanted(true)
+        client.deliverEvent(mapOf("phase" to "connected"))
+
+        val disconnect = RecordingResult()
+        endpoint.succeeds = false
+        client.requestDisconnect(disconnect)
+        assertEquals("ENGINE_IPC_UNAVAILABLE", disconnect.errorCode)
+        assertFalse(client.hasEndpoint)
+        assertTrue(client.isBound)
+
+        scheduler.advanceBy(VpnControlClient.EVENT_REFRESH_INTERVAL_MILLIS - 1)
+        client.deliverEvent(mapOf("phase" to "connected"))
+        scheduler.advanceBy(1)
+        assertEquals(1, binder.unbindCount)
+        assertEquals(2, binder.bindCount)
+        val replacement = RecordingEndpoint()
+        client.attachEndpointForTest(replacement)
+        assertEquals(UsqueVpnService.MSG_REGISTER_EVENTS, replacement.messages.single().what)
+        client.deliverEvent(mapOf("phase" to "disconnected"))
+        assertEquals("disconnected", events.last()["phase"])
+        assertTrue(client.eventStreamReachable)
+        assertEquals(1, disconnect.completionCount)
+    }
+
+    @Test
+    fun missingServiceConnectionCallbackIsRetriedOnlyWhileVisible() {
+        client.setUiVisible(true)
+        client.setEventsWanted(true)
+        assertEquals(1, binder.bindCount)
+        scheduler.advanceBy(VpnControlClient.EVENT_REFRESH_INTERVAL_MILLIS)
+        assertEquals(2, binder.bindCount)
+        assertEquals(1, binder.unbindCount)
+
+        client.setUiVisible(false)
+        scheduler.advanceBy(20_000L)
+        assertEquals(2, binder.bindCount)
+        assertEquals(0, scheduler.pendingTimeoutCount())
+    }
+
+    @Test
+    fun stoppedCancelledAndDestroyedSubscribersRejectQueuedRefreshes() {
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        client.setUiVisible(true)
+        client.setEventsWanted(true)
+        val beforeStop = scheduler.pendingActions().single()
+        client.setUiVisible(false)
+        client.setUiVisible(true)
+        val messagesAfterResume = endpoint.messages.size
+        beforeStop()
+        assertEquals(messagesAfterResume, endpoint.messages.size)
+
+        val beforeCancel = scheduler.pendingActions().single()
+        client.setEventsWanted(false)
+        client.setEventsWanted(true)
+        val messagesAfterListen = endpoint.messages.size
+        beforeCancel()
+        assertEquals(messagesAfterListen, endpoint.messages.size)
+
+        val beforeDestroy = scheduler.pendingActions().single()
+        client.destroy()
+        val messagesAfterDestroy = endpoint.messages.size
+        beforeDestroy()
+        client.setUiVisible(true)
+        client.setEventsWanted(true)
+        scheduler.advanceBy(20_000L)
+        assertEquals(messagesAfterDestroy, endpoint.messages.size)
+        assertEquals(0, scheduler.pendingTimeoutCount())
     }
 
     @Test
@@ -617,25 +849,31 @@ class VpnControlClientTest {
         )
 
         val messages = mutableListOf<Sent>()
+        var succeeds = true
+        var onSend: ((Sent) -> Unit)? = null
 
         override fun send(
             what: Int,
             requestId: Int,
             extras: Map<String, Any?>?,
         ): Boolean {
-            messages.add(Sent(what, requestId, extras))
-            return true
+            val message = Sent(what, requestId, extras)
+            messages.add(message)
+            if (succeeds) onSend?.invoke(message)
+            return succeeds
         }
     }
 
     private class FakeMainScheduler : VpnControlClient.MainScheduler {
         private data class Delayed(
             val delayMillis: Long,
+            val dueAtMillis: Long,
             val token: Any,
             val action: () -> Unit,
         )
 
         private val delayed = mutableListOf<Delayed>()
+        private var nowMillis = 0L
 
         override fun post(action: () -> Unit) {
             action()
@@ -647,7 +885,7 @@ class VpnControlClientTest {
             action: () -> Unit,
         ) {
             cancel(token)
-            delayed.add(Delayed(delayMillis, token, action))
+            delayed.add(Delayed(delayMillis, nowMillis + delayMillis, token, action))
         }
 
         override fun cancel(token: Any) {
@@ -663,6 +901,20 @@ class VpnControlClientTest {
         fun pendingTimeoutCount(): Int = delayed.size
 
         fun pendingDelays(): List<Long> = delayed.map { it.delayMillis }
+
+        fun pendingActions(): List<() -> Unit> = delayed.map { it.action }
+
+        fun advanceBy(millis: Long) {
+            val end = nowMillis + millis
+            while (true) {
+                val next = delayed.minByOrNull { it.dueAtMillis } ?: break
+                if (next.dueAtMillis > end) break
+                delayed.remove(next)
+                nowMillis = next.dueAtMillis
+                next.action()
+            }
+            nowMillis = end
+        }
     }
 
     private class RecordingResult : MethodChannel.Result {

@@ -9,7 +9,8 @@ import '../core/usque_theme.dart';
 class PageFrame extends StatelessWidget {
   const PageFrame({
     required this.title,
-    required this.child,
+    this.child,
+    this.slivers,
     this.subtitle,
     this.header,
     this.titleWidget,
@@ -17,10 +18,13 @@ class PageFrame extends StatelessWidget {
     this.contentWidth = maxContentWidth,
     this.actions = const <Widget>[],
     super.key,
-  });
+  }) : assert((child == null) != (slivers == null));
 
   final String title;
-  final Widget child;
+  final Widget? child;
+
+  /// Use slivers for long content that must be built and laid out on demand.
+  final List<Widget>? slivers;
   final String? subtitle;
   final Widget? header;
   final Widget? titleWidget;
@@ -122,15 +126,29 @@ class PageFrame extends StatelessWidget {
               gutter,
               34,
             ),
-            sliver: SliverToBoxAdapter(
-              child: Align(
-                alignment: Alignment.topCenter,
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(maxWidth: contentWidth),
-                  child: child,
-                ),
-              ),
-            ),
+            sliver: slivers != null
+                ? SliverLayoutBuilder(
+                    builder: (context, constraints) => SliverPadding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal:
+                            (constraints.crossAxisExtent - contentWidth).clamp(
+                              0,
+                              double.infinity,
+                            ) /
+                            2,
+                      ),
+                      sliver: SliverMainAxisGroup(slivers: slivers!),
+                    ),
+                  )
+                : SliverToBoxAdapter(
+                    child: Align(
+                      alignment: Alignment.topCenter,
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(maxWidth: contentWidth),
+                        child: child,
+                      ),
+                    ),
+                  ),
           ),
         ],
       ),
@@ -147,17 +165,19 @@ class SubPage extends StatelessWidget {
   const SubPage({
     required this.title,
     required this.backLabel,
-    required this.child,
+    this.child,
+    this.slivers,
     this.subtitle,
     this.actions = const <Widget>[],
     this.bottomBar,
     this.contentWidth = PageFrame.maxContentWidth,
     super.key,
-  });
+  }) : assert((child == null) != (slivers == null));
 
   final String title;
   final String backLabel;
-  final Widget child;
+  final Widget? child;
+  final List<Widget>? slivers;
   final String? subtitle;
   final List<Widget> actions;
   final Widget? bottomBar;
@@ -186,6 +206,7 @@ class SubPage extends StatelessWidget {
               ),
             ),
           ),
+          slivers: slivers,
           child: child,
         ),
       ),

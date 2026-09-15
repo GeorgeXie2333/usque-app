@@ -400,9 +400,22 @@ mod tests {
         );
         let text = String::from_utf8(sanitized).unwrap();
         for secret in ["listener-secret", "vault-secret", "Basic dXNlcjpwYXNz"] {
-            assert!(!text.contains(secret), "log retained {secret}");
+            assert!(!text.contains(secret), "log retained a sensitive fixture");
         }
         assert!(text.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn gate_stage_diagnostics_survive_export_without_endpoint_or_credentials() {
+        let sanitized = sanitize_log_bytes(
+            br#"{"fields":{"gate_event":"TCP_READ_FAILED","io_error_kind":"UnexpectedEof","received_frames":0,"sent_frames":1,"remote":"203.0.113.1:443","private_key":"fixture-secret"}}"#,
+        );
+        let value: Value = serde_json::from_slice(&sanitized).unwrap();
+        assert_eq!(value["fields"]["gate_event"], "TCP_READ_FAILED");
+        assert_eq!(value["fields"]["io_error_kind"], "UnexpectedEof");
+        assert_eq!(value["fields"]["sent_frames"], 1);
+        assert_eq!(value["fields"]["remote"], "[REDACTED]");
+        assert_eq!(value["fields"]["private_key"], "[REDACTED]");
     }
 
     #[test]
@@ -437,7 +450,7 @@ mod tests {
             "com.cloudflare.warp",
             "eyJhbGciOiJIUzI1NiJ9",
         ] {
-            assert!(!text.contains(secret), "log retained {secret}");
+            assert!(!text.contains(secret), "log retained a sensitive fixture");
         }
     }
 

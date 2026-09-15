@@ -93,6 +93,7 @@ impl H2FlowControlConfig {
 ///
 /// The SEC1 key bytes remain zeroizing from secure-vault read through BoringSSL
 /// import. Public pin and assigned addresses are safe to retain for the session.
+#[derive(Clone)]
 pub struct MasqueTlsIdentity {
     private_key_sec1_der: Zeroizing<Vec<u8>>,
     endpoint_pin: EndpointPin,
@@ -1135,6 +1136,8 @@ pub(crate) fn validate_ip_packet(packet: &[u8]) -> Result<(), TransportError> {
 
 #[derive(Debug, Error)]
 pub enum TransportError {
+    #[error("VPN Gate connection failed ({0:?})")]
+    VpnGate(usque_core::vpngate::GateFailure),
     #[error("L4 data plane unavailable ({})", .0.code.as_str())]
     L4(Box<TransportFailure>),
     #[error("the secure identity records are incomplete or invalid")]
@@ -1248,6 +1251,26 @@ impl TransportError {
         use TransportStage as Stage;
 
         let (code, stage) = match self {
+            Self::VpnGate(reason) => {
+                use usque_core::vpngate::GateFailure;
+                let (code, stage) = match reason {
+                    GateFailure::Transport => (Code::PacketReceiveFailed, Stage::PacketReceive),
+                    GateFailure::Authentication => {
+                        (Code::AuthenticationFailed, Stage::TlsHandshake)
+                    }
+                    GateFailure::Certificate => (Code::EndpointPinMismatch, Stage::TlsHandshake),
+                    GateFailure::Configuration => {
+                        (Code::ConfigurationInvalid, Stage::TunnelStartup)
+                    }
+                    GateFailure::AddressChanged => {
+                        (Code::AddressAssignmentInvalid, Stage::AddressAssignment)
+                    }
+                };
+                let mut failure = TransportFailure::new(code, stage);
+                failure.retryable = reason.retryable();
+                failure.fallback_allowed = false;
+                return failure;
+            }
             Self::L4(failure) => return failure.as_ref().clone(),
             Self::InvalidIdentity | Self::InvalidPrivateKey | Self::InvalidEndpointPin => {
                 (Code::IdentityInvalid, Stage::TunnelStartup)

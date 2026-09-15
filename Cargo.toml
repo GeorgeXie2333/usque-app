@@ -9,6 +9,7 @@ members = [
     "crates/usque-engine",
     "crates/usque-geo",
     "crates/usque-ipc",
+    "crates/usque-openvpn",
     "crates/usque-platform",
     "crates/usque-protocol",
     "crates/usque-transport",
@@ -22,6 +23,7 @@ default-members = [
     "crates/usque-engine",
     "crates/usque-geo",
     "crates/usque-ipc",
+    "crates/usque-openvpn",
     "crates/usque-platform",
     "crates/usque-protocol",
     "crates/usque-transport",
@@ -30,7 +32,7 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.2.6"
+version = "0.2.7"
 edition = "2024"
 rust-version = "1.97.1"
 license = "MIT"

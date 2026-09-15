@@ -9,31 +9,31 @@ This guide follows the source checkout. On a development branch it can describe
 changes not yet available in an official package. For an installed release,
 read its release notes and this guide at the matching Git tag.
 
-The package names below show the workflow's currently pinned `v0.2.6` version.
+The package names below show the workflow's currently pinned `v0.2.7` version.
 This release includes the Windows upgrade bridge and complete same-version
 payload replacement described under **Upgrade**. Those fixes are not present
 in the original `v0.2.4` MSI. Use only packages published by the approved
-v0.2.6 tag workflow; a source checkout alone is not proof of publication or
+v0.2.7 tag workflow; a source checkout alone is not proof of publication or
 of isolated upgrade testing.
 
 The multilingual EXE installer and hidden-bundle uninstall lifecycle are new
 in v0.2.6; they are not features of the original v0.2.5 MSI-only release.
 v0.2.5 introduced the newer-Agent-first upgrade bridge retained here.
 
-## Official package names (v0.2.6)
+## Official package names (v0.2.7)
 
-- `usque-v0.2.6-windows-x64-v2.exe`
-- `usque-v0.2.6-windows-arm64.exe`
-- `usque-v0.2.6-android-arm64-v8a.apk`
-- `usque-v0.2.6-android-x86_64.apk`
-- `usque-v0.2.6-android-armeabi-v7a.apk`
-- `usque-v0.2.6-android-universal.apk`
+- `usque-v0.2.7-windows-x64-v2.exe`
+- `usque-v0.2.7-windows-arm64.exe`
+- `usque-v0.2.7-android-arm64-v8a.apk`
+- `usque-v0.2.7-android-x86_64.apk`
+- `usque-v0.2.7-android-armeabi-v7a.apk`
+- `usque-v0.2.7-android-universal.apk`
 
 The six files above are the user-facing installers. The release also contains
 these two signed, update-only payloads for `usque-update.exe`:
 
-- `usque-v0.2.6-windows-x64-v2.msi`
-- `usque-v0.2.6-windows-arm64.msi`
+- `usque-v0.2.7-windows-x64-v2.msi`
+- `usque-v0.2.7-windows-arm64.msi`
 
 The GitHub Release attaches those eight primary artifacts plus
 `release-manifest.json`, `SHA256SUMS`, and each artifact's SPDX SBOM. GitHub
@@ -89,8 +89,11 @@ After installation, an interactive Windows user can start the Agent through
 Usque without another UAC prompt. The service ACL grants that user only start
 and status-query access; stopping, deleting, or reconfiguring the service still
 requires an administrator. The Agent starts when the Engine first needs a
-privileged operation and exits after the recovery journal has been clean, with
-no clients or recovery jobs, for 10 seconds.
+privileged operation. Without a managed device, it exits after 10 clean idle
+seconds with no clients or recovery jobs. After the first TUN use, Engine holds
+an independent device lease until the application fully exits. Normal
+disconnect/reconnect reuses that device; it does not keep network configuration
+or a packet session active while disconnected.
 
 The service temporarily changes itself to automatic start before Usque records
 or applies privileged network state. This lets the next boot recover an
@@ -106,13 +109,17 @@ forwarding, and restores network state within a 30-second service preshutdown
 budget. Ordinary service stops retain the existing maintenance/reattachment
 behavior. Interrupted or failed cleanup keeps its journal for the next start.
 
-`RecoveryRequired` keeps the Agent available and automatic. Starting a connection
+Unrestored connection effects keep the Agent available and automatic. When
+only final device retirement remains, one bounded attempt can save a pending
+device record and stop normally; the next Agent startup must recover it before
+creating another device. Failed network cleanup or journal persistence cannot
+use this exit exception. Starting a connection
 first makes at most one authenticated, operation- and generation-checked recovery
 attempt, before DNS or VPN startup. It never recovers an active session or another
 user's transaction. Failed or timed-out recovery does not start a new tunnel;
 the journal is retained and the app displays a recovery-specific error. Older
-Agents without guarded recovery support require a matching application/Agent
-update, not a fallback to unguarded maintenance recovery. Do not delete the
+Agents without device-reuse capability require a matching application/Agent
+update; new TUN requests cannot fall back to the old per-connection device path. Do not delete the
 recovery journal to bypass an error.
 
 ### Upgrade
@@ -149,7 +156,7 @@ unsupported. The setting is not a request to run an MSI repair.
 
 This ordering is also the supported bridge from `v0.2.4`, whose Agent could
 mistake asynchronous Wintun device removal for a permanent cleanup failure. A
-user whose `v0.2.4` uninstall failed should use a verified official `v0.2.6`
+user whose `v0.2.4` uninstall failed should use a verified official `v0.2.7`
 Windows package containing this bridge, then uninstall the newer version if
 removal was the original goal. If recovery still fails, stop and report the
 failure with sanitized diagnostics; development artifacts are not substitutes

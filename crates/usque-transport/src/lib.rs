@@ -18,6 +18,7 @@ mod h3;
 mod h3_buffer;
 mod http_proxy;
 mod icmp;
+mod internal_network;
 mod l4;
 mod masque_runtime;
 mod migration_barrier;
@@ -42,6 +43,7 @@ mod telemetry;
 mod tunnel;
 mod udp_io;
 mod udp_options;
+mod vpngate;
 
 #[cfg(any(test, feature = "fault-injection"))]
 mod fault_injection;
@@ -49,7 +51,7 @@ mod fault_injection;
 #[cfg(all(feature = "fault-injection", not(debug_assertions), not(test)))]
 compile_error!("fault-injection is restricted to test/debug lab builds");
 
-pub use data_plane::{DataPlaneRuntime, TunPacketIo};
+pub use data_plane::{DataPlaneRuntime, TunPacketIo, VpnGateStart};
 pub use diagnostic_probe::{
     NetworkProbeResult, h3_probe_endpoints, probe_encrypted_dns, probe_h3_handshake,
     probe_h3_handshake_candidates,
@@ -66,6 +68,7 @@ pub use h3::{
     H3Driver, H3MigrationHandle, H3MigrationResult, H3ReceiveHalf, H3SendHalf, H3Tunnel, connect_h3,
 };
 pub use http_proxy::HttpProxyRuntime;
+pub use internal_network::InternalNetwork;
 pub use l4::performance::{TunWriteObserver, TunWriteSample};
 pub use masque_runtime::{MasqueRuntime, MasqueTunIo};
 pub use netstack::{

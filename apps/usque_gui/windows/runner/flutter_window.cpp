@@ -26,6 +26,9 @@ constexpr UINT kEngineIpcComplete = WM_APP + 17;
 constexpr UINT kEngineEventAvailable = WM_APP + 18;
 constexpr UINT kTrayCallback = WM_APP + 19;
 constexpr UINT kEngineReadyComplete = WM_APP + 20;
+constexpr UINT_PTR kZeroTrustLoginTimer = 41004;
+constexpr UINT kZeroTrustLoginTimeoutMs = 10 * 60 * 1000;
+constexpr UINT kZeroTrustCleanupRetryMs = 10 * 1000;
 constexpr UINT kTrayOpen = 41001;
 constexpr UINT kTrayToggle = 41002;
 constexpr UINT kTrayDisconnectExit = 41003;
@@ -210,6 +213,8 @@ bool FlutterWindow::OnCreate() {
   RegisterPlugins(flutter_controller_->engine());
   usque::BindWindowFrameChannel(flutter_controller_->engine()->messenger(),
                                 GetHandle());
+  // Recover a previous interrupted login or migrate the old persistent toggle.
+  ReleaseZeroTrustProtocol();
   close_to_tray_ = ReadCloseToTray();
   AddTrayIcon();
   engine_channel_ =
@@ -340,8 +345,6 @@ bool FlutterWindow::OnCreate() {
               flutter::EncodableValue(IsStartOnLoginEnabled());
           preferences[flutter::EncodableValue("close_to_tray")] =
               flutter::EncodableValue(close_to_tray_);
-          preferences[flutter::EncodableValue("warp_protocol_association")] =
-              flutter::EncodableValue(IsCurrentUserWarpProtocolAssociated());
           result->Success(flutter::EncodableValue(preferences));
           return;
         }
@@ -367,6 +370,16 @@ bool FlutterWindow::OnCreate() {
                           "Enter one Cloudflare Zero Trust team name.");
             return;
           }
+          if (!ReleaseZeroTrustProtocol() ||
+              !SetCurrentUserWarpProtocolAssociation(true) ||
+              ::SetTimer(GetHandle(), kZeroTrustLoginTimer,
+                         kZeroTrustLoginTimeoutMs, nullptr) == 0) {
+            zero_trust_session_.Cancel();
+            ReleaseZeroTrustProtocol();
+            result->Error("ZERO_TRUST_PROTOCOL_FAILED",
+                          "Windows could not prepare the Access callback handler.");
+            return;
+          }
           result->Success(flutter::EncodableValue(*login));
           return;
         }
@@ -381,28 +394,9 @@ bool FlutterWindow::OnCreate() {
         }
         if (call.method_name() == "cancelZeroTrustLogin") {
           zero_trust_session_.Cancel();
-          result->Success();
-          return;
-        }
-        if (call.method_name() == "setWarpProtocolAssociation") {
-          const auto* arguments =
-              std::get_if<flutter::EncodableMap>(call.arguments());
-          const auto iterator =
-              arguments == nullptr
-                  ? flutter::EncodableMap::const_iterator{}
-                  : arguments->find(flutter::EncodableValue("enabled"));
-          const bool valid = arguments != nullptr &&
-                             iterator != arguments->end() &&
-                             std::holds_alternative<bool>(iterator->second);
-          if (!valid) {
-            result->Error("INVALID_ARGUMENT",
-                          "The Windows shell setting is malformed.");
-            return;
-          }
-          if (!SetCurrentUserWarpProtocolAssociation(
-                  std::get<bool>(iterator->second))) {
-            result->Error("WINDOWS_SHELL_SETTING_FAILED",
-                          "Windows could not save the shell integration setting.");
+          if (!ReleaseZeroTrustProtocol()) {
+            result->Error("ZERO_TRUST_PROTOCOL_FAILED",
+                          "Windows could not restore the Access callback handler.");
             return;
           }
           result->Success();
@@ -576,6 +570,9 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  zero_trust_session_.Cancel();
+  ReleaseZeroTrustProtocol();
+  ::KillTimer(GetHandle(), kZeroTrustLoginTimer);
   usque::UnbindWindowFrameChannel();
   usque::DetachFlutterView();
   StopEngineEventStream();
@@ -641,8 +638,19 @@ void FlutterWindow::NotifyZeroTrustCallbackArrived() {
   engine_channel_->InvokeMethod("zeroTrustCallbackArrived", nullptr);
 }
 
+bool FlutterWindow::ReleaseZeroTrustProtocol() {
+  if (!SetCurrentUserWarpProtocolAssociation(false)) {
+    ::SetTimer(GetHandle(), kZeroTrustLoginTimer, kZeroTrustCleanupRetryMs,
+               nullptr);
+    return false;
+  }
+  ::KillTimer(GetHandle(), kZeroTrustLoginTimer);
+  return true;
+}
+
 void FlutterWindow::OfferZeroTrustCallback(std::string_view callback_uri) {
   if (!zero_trust_session_.Accept(callback_uri)) return;
+  ReleaseZeroTrustProtocol();
   NotifyZeroTrustCallbackArrived();
 }
 
@@ -735,6 +743,11 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+  if (message == WM_TIMER && wparam == kZeroTrustLoginTimer) {
+    zero_trust_session_.Cancel();
+    ReleaseZeroTrustProtocol();
+    return 0;
+  }
   if (message == WM_COPYDATA) {
     return HandleZeroTrustCopyData(
                reinterpret_cast<const COPYDATASTRUCT*>(lparam))

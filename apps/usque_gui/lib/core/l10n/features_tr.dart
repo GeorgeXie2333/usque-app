@@ -1,6 +1,9 @@
 /// Supplemental feature strings for Turkish.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowTr = <String, String>{
+  'local_proxy_settings': 'Yerel proxy ayarları',
+  'proxy_switches_hint':
+      'Anahtar değişiklikleri otomatik kaydedilir. Dinleme ve DNS düzenlemeleri için Değişiklikleri uygula seçeneğini kullanın.',
   'cc_label': 'HTTP/3 tıkanıklık denetimi',
   'cc_help': 'Sonraki manuel bağlantınızda uygulanır.',
   'cc_upgrade': 'Engine güncellemesi gerekli.',
@@ -264,6 +267,10 @@ const kNetworkQualityTr = <String, String>{
 };
 
 const Map<String, String> kWindowsRecoveryTr = <String, String>{
+  'WINDOWS_DEVICE_REUSE_UNSUPPORTED':
+      "TUN aygıtını yeniden kullanmak için uygulamayı ve Windows Agent’ı birlikte güncelleyin. Yeni VPN bağlantısı başlatılmadı.",
+  'WINDOWS_DEVICE_RECOVERY_REQUIRED':
+      "Önceki TUN aygıtının hâlâ kurtarılması gerekiyor. Usque’yi tamamen kapatıp yeniden açarak tekrar deneyin veya yerel tanılamayı inceleyin.",
   'WINDOWS_RECOVERY_FAILED':
       'Önceki VPN ağ durumu tam olarak geri yüklenemedi. Yeni bir VPN bağlantısı başlatılmadı. Bağlantıyı yeniden deneyin veya yerel tanılamayı inceleyin.',
   'WINDOWS_RECOVERY_EXHAUSTED':

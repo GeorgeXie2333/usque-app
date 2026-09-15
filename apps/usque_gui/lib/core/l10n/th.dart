@@ -83,10 +83,6 @@ const Map<String, String> kThCatalog = <String, String>{
       'ใช้คอลแบ็ก Access แบบ com.cloudflare.warp สำหรับองค์กรนี้',
   'zero_trust_paste_clipboard': 'กรอกจากคลิปบอร์ด',
   'zero_trust_clipboard_empty': 'คลิปบอร์ดไม่มี URL คอลแบ็ก',
-  'zero_trust_protocol_association':
-      'เปิดคอลแบ็ก Access ใน Usque (ผู้ใช้นี้เท่านั้น)',
-  'zero_trust_protocol_association_help':
-      'ไม่บังคับ ลงทะเบียน com.cloudflare.warp สำหรับผู้ใช้ Windows ที่ลงชื่อเข้าใช้อยู่ ไคลเอนต์ WARP อย่างเป็นทางการสามารถติดตั้งค้างไว้ได้ ปิดตัวเลือกนี้เพื่อให้ WARP เป็นตัวจัดการต่อ การวางยังใช้ได้',
   'zero_trust_scope_note':
       'ทดลองใช้: ใช้การลงทะเบียนอุปกรณ์ขององค์กรเพื่อเข้าถึงอินเทอร์เน็ต ยังไม่รองรับการซิงก์นโยบายและสถานะความปลอดภัยของอุปกรณ์',
   'zero_trust_repair_same_team':
@@ -302,7 +298,7 @@ const Map<String, String> kThCatalog = <String, String>{
       'สถานะ Usque Engine การส่งออกบันทึก และข้อมูลในเครื่อง',
   'engine_status': 'สถานะ Usque Engine',
   'version': 'เวอร์ชัน',
-  'app_version': 'Usque 0.2.6',
+  'app_version': 'Usque 0.2.7',
   'logs': 'บันทึกในเครื่อง',
   'export_diagnostics': 'ส่งออกชุดการวินิจฉัย',
   'diagnostics_saved': 'บันทึกชุดการวินิจฉัยไปที่',

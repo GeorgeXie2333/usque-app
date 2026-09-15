@@ -165,6 +165,20 @@ internal object NativeEngine {
         return nativeSnapshot()
     }
 
+    fun vpnGate(
+        configPath: String,
+        request: String,
+        secret: ByteArray,
+        service: UsqueVpnService,
+    ): String? = if (libraryLoaded) nativeVpnGate(configPath, request, secret, service) else null
+
+    private external fun nativeVpnGate(
+        configPath: String,
+        request: String,
+        secret: ByteArray,
+        service: UsqueVpnService,
+    ): String?
+
     fun registerConsumerWarp(locale: String): ByteArray? {
         if (!libraryLoaded) return null
         return nativeRegisterConsumerWarp(locale)
@@ -221,6 +235,11 @@ internal object NativeEngine {
     fun detachTun(): Int {
         if (!libraryLoaded) return ERROR_NOT_LINKED
         return nativeDetachTun()
+    }
+
+    fun rejectFinalNetwork(): Int {
+        if (!libraryLoaded) return ERROR_NOT_LINKED
+        return nativeRejectFinalNetwork()
     }
 
     private external fun nativeIsReady(): Boolean
@@ -286,6 +305,8 @@ internal object NativeEngine {
     ): Int
 
     private external fun nativeDetachTun(): Int
+
+    private external fun nativeRejectFinalNetwork(): Int
 
     const val OK = 0
     const val RECONFIGURE_NEED_COLD = 1

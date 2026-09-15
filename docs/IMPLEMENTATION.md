@@ -178,7 +178,7 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] Make versioned Rust configuration the authoritative Profile store on Windows and Android, then remove the migrated Flutter draft.
 - [x] Connect desktop and Android identity provisioning to their platform vaults.
 - [x] Add Windows manual Zero Trust callback entry and an Android process-local, same-team, single-consumption protocol callback.
-- [x] Add Windows clipboard fill, live Access-callback validation, optional current-user HKCU protocol association, and single-instance URI forwarding.
+- [x] Add Windows clipboard fill, live Access-callback validation, login-scoped current-user HKCU protocol association with automatic restoration, and single-instance URI forwarding.
 - [x] Keep identity plaintext hidden while supporting explicit, confirmed Secret export to a user-selected destination.
 - [x] Add shared network-output toggles across accounts, runtime-aware frontend status chips, shared-session totals, WARP License Key management, and platform quick actions.
 - [x] Validate and explicitly apply proxy drafts, report local save outcomes, guard unapplied advanced edits, and keep apply actions visible while scrolling.
@@ -187,7 +187,7 @@ Desktop UI and engine remain unprivileged. The desktop agent accepts only versio
 - [x] Surface real Kill Switch / Always-on / Lockdown state on Home and wire Retry to the existing control retry path.
 - [x] Honor profile `auto_connect` once at process start (and Android boot when start-on-boot is also on).
 - [x] Replace controlled reconnects with true no-drop frontend hot mutation while retaining the same MASQUE channel.
-- [x] Fetch fixed-version `flag-icons` SVG through the active tunnel, validate it, cache it, and return SVG bytes to Flutter.
+- [x] Render bundled Flagpedia PNG flags by country code in Home, VPN Gate and Geo direct settings. Exit probes fetch only IP and location data; legacy flag wire fields remain compatible. See [country flag resources](COUNTRY_FLAGS.md).
 - [x] Add diagnostics content review plus Windows and Android native save pickers; exported bundles contain bounded sanitized summaries and logs.
 - [x] Add manual and rate-limited automatic GitHub release checks without automatic installation.
 - [x] Add the direct-country rule download/update/search panel, cached-state gating, partial-result feedback, and accessible enable controls.

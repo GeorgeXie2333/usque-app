@@ -56,12 +56,16 @@ mod maintenance;
 mod network_quality;
 mod network_settings;
 mod sensitive_output;
+mod vpngate;
+#[cfg(test)]
+mod vpngate_connection_tests;
 
 mod active_runtime;
 mod reconfigure;
 
 use active_runtime::{ActiveDataPlane, ActiveProxyRuntime, ActiveRuntime};
 
+mod recovery_diagnostics;
 #[cfg(windows)]
 mod windows_agent;
 
@@ -104,6 +108,11 @@ pub struct ControlServiceState {
     diagnostics: diagnostics::DiagnosticsManager,
     cache_dir: PathBuf,
     geo_progress_tx: tokio::sync::broadcast::Sender<v1::GeoRulesProgress>,
+    gate_directory: usque_core::vpngate::DirectoryDownloader,
+    gate_fetch_task: Mutex<Option<vpngate::FetchTask>>,
+    gate_status: watch::Sender<usque_core::vpngate::GateStatus>,
+    gate_supervisor: Mutex<Option<AbortOnDropHandle<()>>>,
+    gate_startup_cancel: Mutex<tokio_util::sync::CancellationToken>,
     network_quality_tx: watch::Sender<usque_transport::NetworkQualitySnapshot>,
     network_quality_relay: Mutex<Option<AbortOnDropHandle<()>>>,
     session_generation: AtomicU64,
@@ -118,9 +127,13 @@ pub struct ControlServiceState {
     #[cfg(windows)]
     windows_recovery: Mutex<WindowsRecoveryRuntime>,
     #[cfg(windows)]
+    windows_device: windows_agent::WindowsDeviceOwner,
+    #[cfg(windows)]
     windows_recovery_notify: tokio::sync::Notify,
     #[cfg(windows)]
     windows_recovery_stopping: std::sync::atomic::AtomicBool,
+    #[cfg(all(test, windows))]
+    test_windows_agent: Mutex<Option<windows_agent::WindowsAgentClient>>,
     #[cfg(any(windows, test))]
     event_sequence: AtomicU64,
     #[cfg(test)]
@@ -393,6 +406,14 @@ impl ControlService {
             .parent()
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
+        let retained: Vec<_> = config
+            .network
+            .vpn_gate
+            .selection
+            .clone()
+            .into_iter()
+            .collect();
+        let _ = usque_core::vpngate::CatalogueStore::new(&cache_dir).recover_references(&retained);
         let (geo_progress_tx, _) = tokio::sync::broadcast::channel(16);
         let (network_quality_tx, _) = watch::channel(network_quality::disconnected_snapshot());
         let (settings_tx, _) = watch::channel(0);
@@ -408,6 +429,13 @@ impl ControlService {
                 data_plane: Arc::new(Mutex::new(None)),
                 disconnect_cleanup: Mutex::new(None),
                 exit_probe_task: Mutex::new(None),
+                gate_directory: usque_core::vpngate::DirectoryDownloader::new(
+                    usque_core::vpngate::CatalogueStore::new(&cache_dir),
+                ),
+                gate_fetch_task: Mutex::new(None),
+                gate_status: watch::channel(Default::default()).0,
+                gate_supervisor: Mutex::new(None),
+                gate_startup_cancel: Mutex::new(tokio_util::sync::CancellationToken::new()),
                 cache_dir,
                 geo_progress_tx,
                 network_quality_tx,
@@ -423,9 +451,13 @@ impl ControlService {
                 #[cfg(windows)]
                 windows_recovery: Mutex::new(WindowsRecoveryRuntime::default()),
                 #[cfg(windows)]
+                windows_device: windows_agent::WindowsDeviceOwner::default(),
+                #[cfg(windows)]
                 windows_recovery_notify: tokio::sync::Notify::new(),
                 #[cfg(windows)]
                 windows_recovery_stopping: std::sync::atomic::AtomicBool::new(false),
+                #[cfg(all(test, windows))]
+                test_windows_agent: Mutex::new(None),
                 #[cfg(any(windows, test))]
                 event_sequence: AtomicU64::new(0),
                 #[cfg(test)]
@@ -496,6 +528,7 @@ impl ControlService {
     ) -> v1::ConnectionSnapshot {
         let mut proto = snapshot_to_proto(snapshot);
         proto.network_quality = self.network_quality_payload().map(Box::new);
+        proto.vpn_gate = Some(vpngate::status_to_proto(&self.gate_status.borrow(), None));
         proto
     }
 
@@ -585,10 +618,8 @@ impl ControlService {
             state.update_runtime_metadata(reconnect_count, Vec::new(), Vec::new());
             state.update_session_congestion_control(Some(applied.congestion_control));
         }
-        let runtime = ActiveRuntime::Harness(active_runtime::HarnessRuntime::from_profile(
-            &applied,
-            vpn,
-            reconnect_count,
+        let runtime = ActiveRuntime::Harness(Box::new(
+            active_runtime::HarnessRuntime::from_profile(&applied, vpn, reconnect_count),
         ));
         let quality_source = runtime.subscribe_network_quality();
         let frontends = applied.frontends;
@@ -646,12 +677,24 @@ impl ControlService {
     /// Stops forwarding immediately, then waits for privileged platform state
     /// to be restored before the Engine process is allowed to exit.
     pub async fn shutdown(&self) -> Result<(), ControlServiceError> {
+        self.gate_startup_cancel.lock().await.cancel();
+        self.cancel_gate_refresh().await;
         self.settings_intent.fetch_add(1, Ordering::SeqCst);
         #[cfg(windows)]
         self.clear_windows_connection_intent().await;
         let _mutation = self.mutation_lock.lock().await;
-        self.disconnect_locked().await?;
-        self.await_disconnect_cleanup().await
+        let disconnect = self.disconnect_locked().await;
+        let cleanup = self.await_disconnect_cleanup().await;
+        #[cfg(windows)]
+        let release = self
+            .windows_device
+            .shutdown()
+            .await
+            .map_err(map_windows_vpn_error);
+        let result = disconnect.and(cleanup);
+        #[cfg(windows)]
+        let result = result.and(release);
+        result
     }
 
     /// Retries secure-record deletion left pending by a previous crash or
@@ -680,15 +723,11 @@ impl ControlService {
                 error: None,
                 payload: Some(payload),
             },
-            Err(error) => {
-                #[cfg(windows)]
-                windows_agent::log_recovery_error(&error);
-                ControlResponse {
-                    request_id,
-                    error: Some(error.as_structured_error()),
-                    payload: None,
-                }
-            }
+            Err(error) => ControlResponse {
+                request_id,
+                error: Some(error.as_structured_error()),
+                payload: None,
+            },
         }
     }
 
@@ -696,7 +735,41 @@ impl ControlService {
         &self,
         payload: control_request::Payload,
     ) -> Result<control_response::Payload, ControlServiceError> {
+        if matches!(
+            &payload,
+            control_request::Payload::Connect(_)
+                | control_request::Payload::Disconnect(_)
+                | control_request::Payload::Retry(_)
+                | control_request::Payload::SetActiveProfile(_)
+                | control_request::Payload::DeleteProfile(_)
+                | control_request::Payload::ResetProfile(_)
+                | control_request::Payload::ClearAllData(_)
+                | control_request::Payload::SaveNetworkSettings(_)
+                | control_request::Payload::ReconfigureActiveProfile(_)
+                | control_request::Payload::ProvisionIdentity(_)
+                | control_request::Payload::UpsertProfile(_)
+                | control_request::Payload::CreateProfileWithIdentity(_)
+        ) {
+            self.cancel_gate_refresh().await;
+        }
         match payload {
+            control_request::Payload::VpnGateNode(request) => {
+                self.vpn_gate_node(request).await?;
+                Ok(control_response::Payload::Empty(v1::Empty {}))
+            }
+            control_request::Payload::ListVpnGate(request) => {
+                Ok(control_response::Payload::VpnGateDirectory(Box::new(
+                    self.list_vpn_gate(request).await?,
+                )))
+            }
+            control_request::Payload::RefreshVpnGate(request) => {
+                if request.cancel {
+                    self.cancel_gate_refresh().await;
+                } else {
+                    self.refresh_vpn_gate().await?;
+                }
+                Ok(control_response::Payload::Empty(v1::Empty {}))
+            }
             control_request::Payload::SaveNetworkSettings(request) => {
                 let state = self.save_network_settings(*request).await?;
                 Ok(control_response::Payload::NetworkSettings(Box::new(state)))
@@ -888,6 +961,10 @@ impl ControlService {
                         maintenance::DiagnosticTransportContext {
                             timeline,
                             socket_receive: self.network_quality_snapshot().socket_receive,
+                            #[cfg(windows)]
+                            platform_state: Some(recovery_diagnostics::capture().await),
+                            #[cfg(not(windows))]
+                            platform_state: None,
                         },
                     )
                     .await?;
@@ -971,6 +1048,8 @@ impl ControlService {
         let mut data_plane = self.data_plane.lock().await;
         let mut state = self.state.lock().await;
         if let Some(active) = data_plane.as_mut() {
+            let gate = active.runtime.gate_status();
+            self.gate_status.send_replace(gate.clone());
             state.update_data_plane(active.profile.data_plane, active.runtime.l4_snapshot());
             if !platform_recovery_pending {
                 match active.runtime.health() {
@@ -981,13 +1060,20 @@ impl ControlService {
                                 | ConnectionPhase::Degraded
                                 | ConnectionPhase::Reconnecting
                         ) && (state.snapshot().phase == ConnectionPhase::Reconnecting
-                            || runtime_path_changed(state.snapshot(), path)) =>
+                            || runtime_path_changed(state.snapshot(), path)
+                            || state.snapshot().phase
+                                != ConnectionPhase::connected_tunnel(
+                                    path.ipv4_available,
+                                    path.ipv6_available,
+                                    Some(&gate),
+                                )) =>
                     {
-                        if let Err(error) = state.mark_connected(
+                        if let Err(error) = state.mark_connected_with_gate(
                             path.transport,
                             path.endpoint_family,
                             path.ipv4_available,
                             path.ipv6_available,
+                            Some(&gate),
                         ) {
                             state.mark_error(ConnectionError {
                                 code: ErrorCode::Internal,
@@ -1118,13 +1204,7 @@ impl ControlService {
         let active_profile = config.active_profile();
         #[cfg(windows)]
         let platform_state = if mode == usque_core::DiagnosticMode::Deep {
-            tokio::time::timeout(
-                std::time::Duration::from_millis(250),
-                windows_agent::inspect_platform_state_if_running(),
-            )
-            .await
-            .ok()
-            .and_then(Result::ok)
+            Some(recovery_diagnostics::capture().await)
         } else {
             None
         };
@@ -1701,14 +1781,21 @@ impl ControlService {
     }
 
     async fn connect(&self, profile_id: Uuid) -> Result<ConnectionSnapshot, ControlServiceError> {
+        let startup_cancel = self.gate_connection_request().await;
         let _mutation = self.mutation_lock.lock().await;
+        if startup_cancel.is_cancelled() {
+            return Ok(self.state.lock().await.snapshot().clone());
+        }
+        self.stop_failed_gate_locked().await?;
         if self.data_plane.lock().await.is_none() {
             *self.session_congestion_control.lock().await = None;
             *self.session_profile.lock().await = None;
         }
         #[cfg(windows)]
         let intent_generation = self.begin_windows_connection_intent(profile_id).await;
-        let result = self.connect_locked(profile_id).await;
+        let result = self
+            .connect_with_cancellation_locked(profile_id, startup_cancel, true)
+            .await;
         #[cfg(windows)]
         if result.is_err() {
             self.clear_windows_connection_intent_if(intent_generation)
@@ -1721,7 +1808,85 @@ impl ControlService {
         &self,
         profile_id: Uuid,
     ) -> Result<ConnectionSnapshot, ControlServiceError> {
-        self.await_disconnect_cleanup().await?;
+        let startup_cancel = self.gate_startup_cancel.lock().await.clone();
+        self.connect_with_cancellation_locked(profile_id, startup_cancel, false)
+            .await
+    }
+
+    #[cfg(windows)]
+    async fn connection_recovery_preflight(
+        &self,
+        restart_exhausted: bool,
+    ) -> Result<Option<windows_agent::AutomaticRecoveryObservation>, windows_agent::WindowsVpnError>
+    {
+        #[cfg(test)]
+        if let Some(client) = self.test_windows_agent.lock().await.clone() {
+            return client.recovery_preflight(restart_exhausted).await;
+        }
+        windows_agent::automatic_recovery_preflight(restart_exhausted).await
+    }
+
+    async fn connect_with_cancellation_locked(
+        &self,
+        profile_id: Uuid,
+        startup_cancel: tokio_util::sync::CancellationToken,
+        restart_exhausted_recovery: bool,
+    ) -> Result<ConnectionSnapshot, ControlServiceError> {
+        if startup_cancel.is_cancelled() {
+            return Ok(self.state.lock().await.snapshot().clone());
+        }
+        self.ensure_gate_supervisor().await;
+        let cleanup_result = tokio::select! {
+            biased;
+            _ = startup_cancel.cancelled() => {
+                return Ok(self.state.lock().await.snapshot().clone());
+            }
+            result = self.await_disconnect_cleanup() => result,
+        };
+        if let Err(error) = cleanup_result {
+            if startup_cancel.is_cancelled() {
+                return Ok(self.state.lock().await.snapshot().clone());
+            }
+            #[cfg(windows)]
+            if let ControlServiceError::PlatformRecoveryPending {
+                operation_id,
+                journal_generation,
+            } = error
+            {
+                return self
+                    .enter_windows_automatic_recovery(profile_id, operation_id, journal_generation)
+                    .await;
+            }
+            #[cfg(windows)]
+            let inspect_current_recovery = restart_exhausted_recovery
+                && matches!(
+                    &error,
+                    ControlServiceError::PlatformRecovery {
+                        code: "WINDOWS_RECOVERY_EXHAUSTED"
+                            | "WINDOWS_RECOVERY_BLOCKED"
+                            | "WINDOWS_RECOVERY_TIMEOUT",
+                        ..
+                    }
+                )
+                && self
+                    .config
+                    .read()
+                    .await
+                    .runtime_profile(profile_id)
+                    .is_some_and(|profile| {
+                        profile.frontends.tunnel
+                            || (profile.frontends.http && profile.proxy.system_proxy)
+                    });
+            #[cfg(not(windows))]
+            let inspect_current_recovery = false;
+            if !inspect_current_recovery {
+                self.mark_connection_error(&error).await;
+                return Err(error);
+            }
+        }
+        if startup_cancel.is_cancelled() {
+            return Ok(self.state.lock().await.snapshot().clone());
+        }
         {
             let data_plane = self.data_plane.lock().await;
             if let Some(active) = data_plane.as_ref() {
@@ -1752,6 +1917,7 @@ impl ControlService {
             profile = session.clone();
         }
         self.attach_proxy_auth(&mut profile).await?;
+        self.gate_status.send_replace(Default::default());
         {
             let mut session = self.session_congestion_control.lock().await;
             let algorithm = match *session {
@@ -1797,12 +1963,66 @@ impl ControlService {
                 return Err(error);
             }
         };
+        #[cfg(not(windows))]
+        let _ = restart_exhausted_recovery;
+        #[cfg(windows)]
+        if profile.frontends.tunnel || (profile.frontends.http && profile.proxy.system_proxy) {
+            let recovery = tokio::select! {
+                biased;
+                () = startup_cancel.cancelled() => return Ok(self.state.lock().await.snapshot().clone()),
+                result = self.connection_recovery_preflight(restart_exhausted_recovery) => result,
+            };
+            // Cleanup may finish after cancellation, but the old intent must
+            // never install a reconnect watch or create another transaction.
+            if startup_cancel.is_cancelled() {
+                return Ok(self.state.lock().await.snapshot().clone());
+            }
+            match recovery {
+                Ok(Some(windows_agent::AutomaticRecoveryObservation::Pending {
+                    operation_id,
+                    journal_generation,
+                })) => {
+                    return self
+                        .enter_windows_automatic_recovery(
+                            profile_id,
+                            operation_id,
+                            journal_generation,
+                        )
+                        .await;
+                }
+                Ok(Some(windows_agent::AutomaticRecoveryObservation::Exhausted(failure))) => {
+                    let error = map_windows_vpn_error(
+                        windows_agent::WindowsVpnError::AutomaticRecoveryExhausted {
+                            message: failure.message,
+                        },
+                    );
+                    self.mark_connection_error(&error).await;
+                    return Err(error);
+                }
+                Ok(Some(windows_agent::AutomaticRecoveryObservation::Blocked(failure))) => {
+                    let error = map_windows_vpn_error(
+                        windows_agent::WindowsVpnError::AutomaticRecoveryBlocked {
+                            message: failure.message,
+                        },
+                    );
+                    self.mark_connection_error(&error).await;
+                    return Err(error);
+                }
+                Err(error) => {
+                    let error = map_windows_vpn_error(error);
+                    self.mark_connection_error(&error).await;
+                    return Err(error);
+                }
+                Ok(Some(windows_agent::AutomaticRecoveryObservation::Clean)) | Ok(None) => {}
+            }
+        }
         let pin_refresher: Arc<dyn EndpointPinRefresher> = Arc::new(VaultEndpointPinRefresher {
             profile_id,
             vault: Arc::clone(&self.vault),
             identity: Mutex::new(warp_identity),
         });
         let geo_policy = load_geo_direct_policy(&profile, &self.cache_dir);
+        let selected_gate = self.prepare_gate_selection(&profile)?;
         if !profile.geo_direct_countries.is_empty() && !geo_policy.is_enabled() {
             let error = ControlServiceError::GeoRules(
                 "the configured GeoIP/GeoSite cache is missing or invalid".to_owned(),
@@ -1831,7 +2051,19 @@ impl ControlService {
             }
         }
 
-        let runtime = if profile.frontends.tunnel {
+        #[cfg(all(test, windows))]
+        let test_runtime = self.test_windows_agent.lock().await.as_ref().map(|_| {
+            ActiveRuntime::Harness(Box::new(active_runtime::HarnessRuntime::from_profile(
+                &profile,
+                profile.frontends.tunnel,
+                0,
+            )))
+        });
+        #[cfg(not(all(test, windows)))]
+        let test_runtime: Option<ActiveRuntime> = None;
+        let runtime = if let Some(runtime) = test_runtime {
+            runtime
+        } else if profile.frontends.tunnel {
             #[cfg(windows)]
             {
                 match windows_agent::WindowsVpnRuntime::start(
@@ -1839,10 +2071,19 @@ impl ControlService {
                     identity,
                     Arc::clone(&pin_refresher),
                     Arc::new(geo_policy.clone()),
+                    usque_transport::VpnGateStart {
+                        selected: selected_gate,
+                        status: Some(self.gate_status.clone()),
+                        cancellation: startup_cancel.clone(),
+                    },
+                    &self.windows_device,
                 )
                 .await
                 {
                     Ok(runtime) => ActiveRuntime::Vpn(Box::new(runtime)),
+                    Err(_) if startup_cancel.is_cancelled() => {
+                        return self.disconnect_locked().await;
+                    }
                     Err(windows_agent::WindowsVpnError::AutomaticRecoveryPending {
                         operation_id,
                         journal_generation,
@@ -1867,20 +2108,31 @@ impl ControlService {
                 unreachable!("non-Windows VPN mode was rejected before identity loading")
             }
         } else {
-            match ProxyRuntime::start_with_geo_policy(
+            match Box::pin(usque_transport::DataPlaneRuntime::start_with_vpngate(
                 &profile,
                 identity,
                 Arc::new(NoopSocketProtector),
                 Some(pin_refresher),
-                geo_policy,
-            )
+                Arc::new(geo_policy),
+                usque_transport::VpnGateStart {
+                    selected: selected_gate,
+                    status: Some(self.gate_status.clone()),
+                    cancellation: startup_cancel.clone(),
+                },
+            ))
             .await
             {
                 Ok(runtime) => {
+                    let mut runtime = ProxyRuntime::from_data_plane(runtime);
+                    if startup_cancel.is_cancelled() {
+                        runtime.quiesce_final();
+                    }
                     #[cfg(windows)]
-                    let mut runtime = runtime;
-                    #[cfg(windows)]
-                    let system_proxy = if profile.frontends.http && profile.proxy.system_proxy {
+                    let system_proxy = if profile.frontends.http
+                        && profile.proxy.system_proxy
+                        && runtime.gate_status().stage != usque_core::vpngate::GateStage::Error
+                        && !startup_cancel.is_cancelled()
+                    {
                         let Some(listener) =
                             windows_agent::loopback_http_listener(runtime.http_listeners())
                         else {
@@ -1916,6 +2168,19 @@ impl ControlService {
                     } else {
                         None
                     };
+                    if runtime.gate_status().stage != usque_core::vpngate::GateStage::Error
+                        && !startup_cancel.is_cancelled()
+                        && let Err(error) = runtime.activate_final().await
+                    {
+                        runtime.shutdown().await;
+                        #[cfg(windows)]
+                        if let Some(mut guard) = system_proxy {
+                            let _ = guard.shutdown().await;
+                        }
+                        let error = ControlServiceError::Transport(error);
+                        self.mark_connection_error(&error).await;
+                        return Err(error);
+                    }
                     ActiveRuntime::Proxy(Box::new(ActiveProxyRuntime {
                         runtime,
                         #[cfg(windows)]
@@ -1929,26 +2194,39 @@ impl ControlService {
                 }
             }
         };
+        if startup_cancel.is_cancelled() {
+            let mut runtime = runtime;
+            runtime.cancel_immediately();
+            *self.disconnect_cleanup.lock().await =
+                Some(tokio::spawn(async move { runtime.shutdown().await }));
+            return self.disconnect_locked().await;
+        }
+        let runtime = self.accept_gate_runtime(runtime).await?;
         let path = runtime.path();
         let listener_auth = profile.proxy.listener_credentials().ok().flatten();
-        let exit_probe = exit_probe_for_session(
-            &profile,
-            &runtime,
-            self.store.path(),
-            listener_auth.as_ref(),
-        );
+        let exit_probe = exit_probe_for_session(&profile, &runtime, listener_auth.as_ref());
         let snapshot = {
             let mut state = self.state.lock().await;
             state.update_data_plane(profile.data_plane, runtime.l4_snapshot());
             if profile.transport == TransportPolicy::Auto && path.transport == Transport::Http2 {
                 state.transition(ConnectionPhase::ConnectingHttp2)?;
             }
-            state.mark_connected(
-                path.transport,
-                path.endpoint_family,
-                path.ipv4_available,
-                path.ipv6_available,
-            )?;
+            match runtime.health() {
+                RuntimeHealth::Failed {
+                    failure, message, ..
+                } => {
+                    state.mark_failure(failure, message);
+                }
+                _ => {
+                    state.mark_connected_with_gate(
+                        path.transport,
+                        path.endpoint_family,
+                        path.ipv4_available,
+                        path.ipv6_available,
+                        Some(&runtime.gate_status()),
+                    )?;
+                }
+            }
             let mut warnings = Vec::new();
             if (profile.frontends.socks5 && profile.proxy.socks5_exposes_lan())
                 || (profile.frontends.http && profile.proxy.http_exposes_lan())
@@ -2026,8 +2304,13 @@ impl ControlService {
         // Location is diagnostic: report Connected immediately and fill ip.sb
         // later, matching the Android runtime. Probe failure must not delay or
         // tear down a healthy session.
-        self.spawn_exit_probe(exit_probe, profile_id, session_generation)
-            .await;
+        if profile.vpn_gate.enabled {
+            self.spawn_gate_exit_probe(profile_id, session_generation)
+                .await;
+        } else {
+            self.spawn_exit_probe(exit_probe, profile_id, session_generation)
+                .await;
+        }
         self.publish_settings_runtime(Some(profile), Some(session_generation))
             .await;
         Ok(snapshot)
@@ -2060,6 +2343,9 @@ impl ControlService {
     }
 
     async fn disconnect(&self) -> Result<ConnectionSnapshot, ControlServiceError> {
+        // The startup owner must finish/retain its platform guard before the
+        // serialized teardown runs. Signal it without waiting for that lock.
+        self.gate_startup_cancel.lock().await.cancel();
         self.settings_intent.fetch_add(1, Ordering::SeqCst);
         #[cfg(windows)]
         self.clear_windows_connection_intent().await;
@@ -2072,6 +2358,7 @@ impl ControlService {
     pub(crate) async fn disconnect_locked(
         &self,
     ) -> Result<ConnectionSnapshot, ControlServiceError> {
+        self.gate_status.send_replace(Default::default());
         self.abort_exit_probe().await;
         self.clear_network_quality_source().await;
         let mut data_plane = self.data_plane.lock().await;
@@ -2114,24 +2401,42 @@ impl ControlService {
             .transition(ConnectionPhase::Disconnected)?
             .clone();
         self.publish_settings_runtime(None, None).await;
+        let retained: Vec<_> = self
+            .config
+            .read()
+            .await
+            .network
+            .vpn_gate
+            .selection
+            .clone()
+            .into_iter()
+            .collect();
+        let store = usque_core::vpngate::CatalogueStore::new(&self.cache_dir);
+        let _ = tokio::task::spawn_blocking(move || store.retain_selections(&retained)).await;
         Ok(snapshot)
     }
 
     async fn await_disconnect_cleanup(&self) -> Result<(), ControlServiceError> {
-        let cleanup = self.disconnect_cleanup.lock().await.take();
-        let Some(cleanup) = cleanup else {
+        let mut pending = self.disconnect_cleanup.lock().await;
+        let Some(cleanup) = pending.as_mut() else {
             return Ok(());
         };
-        cleanup
+        // Keep the handle in its owner while awaiting. Cancelling one Connect
+        // request must not let a later request bypass unfinished cleanup.
+        let result = cleanup
             .await
-            .map_err(|error| ControlServiceError::DisconnectCleanup(error.to_string()))?
+            .map_err(|error| ControlServiceError::DisconnectCleanup(error.to_string()));
+        pending.take();
+        result?
     }
 
     async fn retry(&self) -> Result<ConnectionSnapshot, ControlServiceError> {
+        let startup_cancel = self.gate_connection_request().await;
         self.settings_intent.fetch_add(1, Ordering::SeqCst);
         let _mutation = self.mutation_lock.lock().await;
-        *self.session_congestion_control.lock().await = None;
-        *self.session_profile.lock().await = None;
+        if startup_cancel.is_cancelled() {
+            return Ok(self.state.lock().await.snapshot().clone());
+        }
         let connected_profile = self
             .data_plane
             .lock()
@@ -2146,81 +2451,68 @@ impl ControlService {
             ControlServiceError::InvalidRequest("an active profile is required".to_owned())
         })?;
 
-        #[cfg(windows)]
-        let automatic_recovery_retry = self
-            .state
+        self.retry_connection_locked(profile_id, startup_cancel)
+            .await
+    }
+
+    async fn retry_connection_locked(
+        &self,
+        profile_id: Uuid,
+        startup_cancel: tokio_util::sync::CancellationToken,
+    ) -> Result<ConnectionSnapshot, ControlServiceError> {
+        self.stop_failed_gate_locked().await?;
+        *self.session_congestion_control.lock().await = None;
+        *self.session_profile.lock().await = None;
+        let gate_retry = self
+            .data_plane
             .lock()
             .await
-            .snapshot()
-            .error
             .as_ref()
-            .is_some_and(|error| {
-                matches!(
-                    error.code,
-                    ErrorCode::WindowsRecoveryExhausted
-                        | ErrorCode::WindowsRecoveryBlocked
-                        | ErrorCode::WindowsRecoveryTimeout
-                )
-            });
+            .filter(|active| {
+                active.profile_id == profile_id
+                    && (active.profile.vpn_gate.enabled
+                        || active.runtime.gate_status().stage
+                            == usque_core::vpngate::GateStage::Error)
+                    && active.runtime.can_retry_gate_in_place()
+            })
+            .map(|active| active.profile.clone());
+        if let Some(previous) = gate_retry {
+            // Explicit retry applies the saved request, including a new node or
+            // disabling Gate. A failed chain has already been retired above.
+            let mut profile = self
+                .config
+                .read()
+                .await
+                .runtime_profile(profile_id)
+                .ok_or(ControlServiceError::ProfileNotFound(profile_id))?;
+            self.attach_proxy_auth(&mut profile).await?;
+            if matches!(
+                usque_core::classify_reconfigure(&previous, &profile),
+                usque_core::ReconfigureClass::PersistOnly
+                    | usque_core::ReconfigureClass::HotVpnGate
+            ) {
+                profile.congestion_control = previous.congestion_control;
+                self.hot_replace_gate_with_cancellation(&profile, &startup_cancel)
+                    .await?;
+                *self.session_congestion_control.lock().await =
+                    Some((profile_id, profile.congestion_control));
+                self.apply_hot_profile_state(&profile).await;
+                let generation = self
+                    .data_plane
+                    .lock()
+                    .await
+                    .as_ref()
+                    .map(|a| a.session_generation);
+                self.publish_settings_runtime(Some(profile), generation)
+                    .await;
+                return Ok(self.status_snapshot().await);
+            }
+        }
+
         #[cfg(windows)]
         let intent_generation = self.begin_windows_connection_intent(profile_id).await;
         #[cfg(windows)]
         {
-            let recovery = if automatic_recovery_retry {
-                windows_agent::restart_automatic_recovery_if_needed().await
-            } else {
-                Ok(None)
-            };
-            match recovery {
-                Ok(Some(windows_agent::AutomaticRecoveryObservation::Pending {
-                    operation_id,
-                    journal_generation,
-                })) => {
-                    let result = self
-                        .enter_windows_automatic_recovery(
-                            profile_id,
-                            operation_id,
-                            journal_generation,
-                        )
-                        .await;
-                    if result.is_err() {
-                        self.clear_windows_connection_intent_if(intent_generation)
-                            .await;
-                    }
-                    return result;
-                }
-                Ok(Some(windows_agent::AutomaticRecoveryObservation::Exhausted(failure))) => {
-                    let error = map_windows_vpn_error(
-                        windows_agent::WindowsVpnError::AutomaticRecoveryExhausted {
-                            message: failure.message,
-                        },
-                    );
-                    self.mark_connection_error(&error).await;
-                    self.clear_windows_connection_intent_if(intent_generation)
-                        .await;
-                    return Err(error);
-                }
-                Ok(Some(windows_agent::AutomaticRecoveryObservation::Blocked(failure))) => {
-                    let error = map_windows_vpn_error(
-                        windows_agent::WindowsVpnError::AutomaticRecoveryBlocked {
-                            message: failure.message,
-                        },
-                    );
-                    self.mark_connection_error(&error).await;
-                    self.clear_windows_connection_intent_if(intent_generation)
-                        .await;
-                    return Err(error);
-                }
-                Ok(Some(windows_agent::AutomaticRecoveryObservation::Clean)) | Ok(None) => {}
-                Err(error) => {
-                    let error = map_windows_vpn_error(error);
-                    self.mark_connection_error(&error).await;
-                    self.clear_windows_connection_intent_if(intent_generation)
-                        .await;
-                    return Err(error);
-                }
-            }
-
             let mut data_plane = self.data_plane.lock().await;
             if data_plane
                 .as_ref()
@@ -2232,7 +2524,9 @@ impl ControlService {
                 // The Agent journal remains Active and WFP stays fail-closed.
                 // `connect_locked` detects that transaction and recreates only
                 // MASQUE plus the volatile packet session.
-                let result = self.connect_locked(profile_id).await;
+                let result = self
+                    .connect_with_cancellation_locked(profile_id, startup_cancel, true)
+                    .await;
                 if result.is_err() {
                     self.clear_windows_connection_intent_if(intent_generation)
                         .await;
@@ -2248,7 +2542,9 @@ impl ControlService {
                 .await;
         }
         disconnected?;
-        let result = self.connect_locked(profile_id).await;
+        let result = self
+            .connect_with_cancellation_locked(profile_id, startup_cancel, true)
+            .await;
         #[cfg(windows)]
         if result.is_err() {
             self.clear_windows_connection_intent_if(intent_generation)
@@ -2483,9 +2779,11 @@ impl ControlService {
     }
 
     async fn mark_connection_error(&self, error: &ControlServiceError) {
-        #[cfg(windows)]
-        windows_agent::log_recovery_error(error);
         let mut state = self.state.lock().await;
+        #[cfg(windows)]
+        if state.snapshot().error.as_ref() != Some(&connection_error_for(error)) {
+            windows_agent::log_recovery_error(error);
+        }
         if let ControlServiceError::Transport(transport) = error {
             state.mark_failure(
                 transport.failure(None, None),
@@ -3308,6 +3606,9 @@ impl ControlService {
         &self,
         profile: Profile,
     ) -> Result<Profile, ControlServiceError> {
+        // All profile APIs, including older clients, must pin an exact Gate
+        // configuration before persisting its reference.
+        self.pin_gate_settings(&profile.vpn_gate).await?;
         self.update_config(move |latest| {
             let stored = latest
                 .upsert_runtime_profile(profile)
@@ -3359,6 +3660,7 @@ impl ControlService {
                 .iter()
                 .find(|profile| Some(profile.id) == next.active_profile_id)
             {
+                self.pin_gate_settings(&active.vpn_gate).await?;
                 let mut network = SharedNetworkSettings::from_profile(active);
                 if active.endpoint.is_zero_trust_managed() {
                     network.endpoint = profiles
@@ -3638,13 +3940,33 @@ impl ControlService {
         let (next, result) = tokio::task::spawn_blocking(move || store.update(change))
             .await
             .map_err(|error| ControlServiceError::PersistenceWorker(error.to_string()))??;
+        let gate_changed = next.network.vpn_gate.selection != config.network.vpn_gate.selection;
         *config = next;
+        if gate_changed {
+            let mut retained: Vec<_> = config
+                .network
+                .vpn_gate
+                .selection
+                .clone()
+                .into_iter()
+                .collect();
+            if let Some(server) = &self.gate_status.borrow().current_server {
+                retained.push(usque_core::vpngate::Selection {
+                    server_id: server.id.clone(),
+                    config_sha256: server.config_sha256.clone(),
+                });
+            }
+            let store = usque_core::vpngate::CatalogueStore::new(&self.cache_dir);
+            let _ = tokio::task::spawn_blocking(move || store.retain_selections(&retained)).await;
+        }
         Ok(result)
     }
 }
 
 #[derive(Debug, Error)]
 pub enum ControlServiceError {
+    #[error("{0}")]
+    VpnGate(usque_core::vpngate::DirectoryError),
     #[error("invalid request: {0}")]
     InvalidRequest(String),
     #[error("the requested feature is not available yet: {0}")]
@@ -3841,6 +4163,14 @@ impl ControlServiceError {
             }
             Self::DisconnectCleanup(_) => ("DISCONNECT_CLEANUP_FAILED", true),
             Self::GeoRules(_) => ("GEO_RULES_FAILED", true),
+            Self::VpnGate(error) => (
+                if *error == usque_core::vpngate::DirectoryError::StaleSelection {
+                    "VPN_GATE_SELECTION_STALE"
+                } else {
+                    "VPN_GATE_FAILED"
+                },
+                false,
+            ),
         };
         StructuredError {
             code: code.to_owned(),
@@ -3931,6 +4261,12 @@ pub(crate) fn map_windows_vpn_error(error: windows_agent::WindowsVpnError) -> Co
         }
         windows_agent::WindowsVpnError::RecoveryUnsupported => {
             Some(("WINDOWS_RECOVERY_UNSUPPORTED", false))
+        }
+        windows_agent::WindowsVpnError::DeviceReuseUnsupported => {
+            Some(("WINDOWS_DEVICE_REUSE_UNSUPPORTED", false))
+        }
+        windows_agent::WindowsVpnError::DeviceRecoveryRequired => {
+            Some(("WINDOWS_DEVICE_RECOVERY_REQUIRED", false))
         }
         windows_agent::WindowsVpnError::AutomaticRecoveryExhausted { .. } => {
             Some(("WINDOWS_RECOVERY_EXHAUSTED", true))
@@ -4266,6 +4602,7 @@ fn profile_from_proto(source: v1::Profile) -> Result<Profile, ControlServiceErro
         },
         geo_direct_countries: source.geo_direct_countries,
         direct_dns,
+        vpn_gate: vpngate::settings_from_proto(source.vpn_gate)?,
     };
     profile.canonicalize_mode();
     profile
@@ -4290,6 +4627,7 @@ fn parse_listeners(values: &[String]) -> Result<Vec<SocketAddr>, ControlServiceE
 
 pub(crate) fn profile_to_proto(profile: &Profile) -> v1::Profile {
     v1::Profile {
+        vpn_gate: Some(vpngate::settings_to_proto(&profile.vpn_gate)),
         data_plane: data_plane::to_proto(profile.data_plane),
         congestion_control: congestion::to_proto(profile.congestion_control),
         id: profile.id.to_string(),
@@ -4454,6 +4792,8 @@ fn proxy_to_proto(proxy: &ProxySettings) -> v1::ProxySettings {
 
 fn current_capabilities() -> v1::Capabilities {
     v1::Capabilities {
+        vpn_gate_tcp: true,
+        vpn_gate_pool_favorites: true,
         l4_tcp: true,
         l4_tun_tcp: cfg!(windows),
         l4_dns_conversion: true,
@@ -4490,6 +4830,7 @@ fn current_capabilities() -> v1::Capabilities {
 
 pub(crate) fn snapshot_to_proto(snapshot: &ConnectionSnapshot) -> v1::ConnectionSnapshot {
     v1::ConnectionSnapshot {
+        vpn_gate: None,
         data_plane: snapshot
             .data_plane
             .map(data_plane::to_proto)
@@ -4634,14 +4975,8 @@ fn frontend_status_to_proto(status: &FrontendStatus) -> v1::FrontendStatus {
 fn exit_probe_for_session(
     profile: &Profile,
     runtime: &ActiveRuntime,
-    store_path: &std::path::Path,
     listener_auth: Option<&ProxyAuthCredentials>,
 ) -> Option<IpSbProbe> {
-    let flag_cache = store_path
-        .parent()
-        .unwrap_or_else(|| std::path::Path::new("."))
-        .join("cache")
-        .join("flag-icons-7.5.0");
     let loopback = runtime
         .listeners()
         .iter()
@@ -4650,15 +4985,11 @@ fn exit_probe_for_session(
     if profile.frontends.socks5 {
         loopback
             .and_then(|listener| IpSbProbe::through_socks_with_auth(listener, listener_auth).ok())
-            .map(|probe| probe.with_flag_cache(&flag_cache))
     } else if profile.frontends.http {
         loopback
             .and_then(|listener| IpSbProbe::through_http_with_auth(listener, listener_auth).ok())
-            .map(|probe| probe.with_flag_cache(&flag_cache))
     } else if profile.frontends.tunnel {
-        IpSbProbe::new()
-            .ok()
-            .map(|probe| probe.with_flag_cache(&flag_cache))
+        IpSbProbe::new().ok()
     } else {
         None
     }
@@ -4705,7 +5036,8 @@ fn location_to_proto(location: &usque_core::GeoLocation) -> v1::GeoLocation {
         country: location.country.clone().unwrap_or_default(),
         region: location.region.clone().unwrap_or_default(),
         city: location.city.clone().unwrap_or_default(),
-        flag_url: location.flag_url().unwrap_or_default(),
+        // Preserve the legacy wire field without advertising a remote asset.
+        flag_url: String::new(),
         flag_svg: location.flag_svg.clone().unwrap_or_default(),
     }
 }
@@ -4725,6 +5057,35 @@ mod tests {
     };
 
     use super::*;
+
+    #[tokio::test]
+    async fn cancelled_disconnect_wait_retains_cleanup_for_the_next_request() {
+        let directory = tempfile::tempdir().unwrap();
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(MemoryVault::default()),
+        )
+        .unwrap();
+        let (release, released) = tokio::sync::oneshot::channel();
+        *service.disconnect_cleanup.lock().await = Some(tokio::spawn(async move {
+            let _ = released.await;
+            Ok(())
+        }));
+        let timed_out = tokio::time::timeout(
+            std::time::Duration::from_millis(10),
+            service.await_disconnect_cleanup(),
+        )
+        .await;
+        assert!(timed_out.is_err());
+        let retained = service.disconnect_cleanup.lock().await.is_some();
+        release.send(()).unwrap();
+        service.await_disconnect_cleanup().await.unwrap();
+        assert!(
+            retained,
+            "cancelled wait must keep ownership of unfinished cleanup"
+        );
+        assert!(service.disconnect_cleanup.lock().await.is_none());
+    }
 
     #[cfg(windows)]
     #[test]
@@ -5027,6 +5388,59 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn ipv4_only_gate_status_tracks_assignment_without_changing_family_availability() {
+        use usque_core::vpngate::{FinalNetworkParameters, GateStage, GateStatus};
+        let directory = tempfile::tempdir().unwrap();
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(MemoryVault::default()),
+        )
+        .unwrap();
+        let profile = service.config_snapshot().await.active_profile().unwrap();
+        service
+            .install_test_session(profile, false, 0)
+            .await
+            .unwrap();
+        for (stage, ipv6, expected) in [
+            (GateStage::Connected, None, ConnectionPhase::Connected),
+            (GateStage::Disabled, None, ConnectionPhase::Degraded),
+            (GateStage::Connected, None, ConnectionPhase::Connected),
+            (
+                GateStage::Connected,
+                Some("fd00::2".parse().unwrap()),
+                ConnectionPhase::Degraded,
+            ),
+        ] {
+            {
+                let mut plane = service.data_plane.lock().await;
+                let ActiveRuntime::Harness(runtime) = &mut plane.as_mut().unwrap().runtime else {
+                    panic!("test requires a memory-only runtime");
+                };
+                runtime.path.ipv6_available = false;
+                runtime.gate_status = GateStatus {
+                    stage,
+                    network: Some(FinalNetworkParameters {
+                        ipv4: Some("10.8.0.2".parse().unwrap()),
+                        ipv6,
+                        dns_servers: Vec::new(),
+                        mtu: 1500,
+                    }),
+                    ..Default::default()
+                };
+            }
+            let snapshot = service.status_snapshot().await;
+            assert_eq!(snapshot.phase, expected);
+            assert!(snapshot.ipv4_available);
+            assert!(!snapshot.ipv6_available);
+            // Repeated snapshots must not restart the state timer.
+            assert_eq!(
+                service.status_snapshot().await.changed_at,
+                snapshot.changed_at
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn late_exit_probe_applies_only_while_the_same_session_is_up() {
         let directory = tempfile::tempdir().unwrap();
         let service = ControlService::open_with_vault(
@@ -5197,7 +5611,7 @@ mod tests {
         }
     }
 
-    fn test_identity(provider: IdentityProvider, license: Option<&str>) -> WarpIdentity {
+    pub(crate) fn test_identity(provider: IdentityProvider, license: Option<&str>) -> WarpIdentity {
         let entitlement = match provider {
             IdentityProvider::ZeroTrust { .. } => None,
             IdentityProvider::Consumer if license.is_some() => Some(ConsumerEntitlement::WarpPlus),
@@ -5474,6 +5888,38 @@ mod tests {
         service.upsert_profile(spare).await.unwrap();
         service.delete_profile(extra.id).await.unwrap();
         assert_eq!(*service.remote_license_unbinds.lock().await, vec![original]);
+    }
+
+    #[tokio::test]
+    async fn legacy_profile_api_rejects_an_unpinned_gate_reference_without_persisting_it() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ConfigStore::new(directory.path().join("config.json"));
+        let service =
+            ControlService::open_with_vault(store.clone(), Arc::new(MemoryVault::default()))
+                .unwrap();
+        let before = service.config_snapshot().await;
+        let mut profile = before.active_profile().unwrap();
+        profile.vpn_gate = usque_core::vpngate::VpnGateSettings {
+            enabled: true,
+            selection: Some(usque_core::vpngate::Selection {
+                server_id: format!("v1:{}", "0".repeat(64)),
+                config_sha256: "1".repeat(64),
+            }),
+        };
+        assert!(matches!(
+            service.upsert_profile(profile).await,
+            Err(ControlServiceError::VpnGate(
+                usque_core::vpngate::DirectoryError::StaleSelection
+            ))
+        ));
+        assert_eq!(
+            service.config_snapshot().await.network.vpn_gate,
+            before.network.vpn_gate
+        );
+        assert_eq!(
+            store.load_or_default().unwrap().network.vpn_gate,
+            before.network.vpn_gate
+        );
     }
 
     #[tokio::test]

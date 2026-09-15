@@ -1,6 +1,9 @@
 /// Supplemental feature strings for Portuguese (Brazil).
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowPt = <String, String>{
+  'local_proxy_settings': 'Configurações do proxy local',
+  'proxy_switches_hint':
+      'As alterações dos interruptores são salvas automaticamente. Use Aplicar alterações para editar a escuta e o DNS.',
   'cc_label': 'Controle de congestionamento HTTP/3',
   'cc_help': 'Vale na próxima conexão manual.',
   'cc_upgrade': 'É necessária uma atualização do Engine.',
@@ -306,6 +309,10 @@ const Map<String, String> kNetworkQualityPt = <String, String>{
 };
 
 const Map<String, String> kWindowsRecoveryPt = <String, String>{
+  'WINDOWS_DEVICE_REUSE_UNSUPPORTED':
+      "Atualize o aplicativo e o Windows Agent juntos para reutilizar o dispositivo TUN. Nenhuma nova conexão VPN foi iniciada.",
+  'WINDOWS_DEVICE_RECOVERY_REQUIRED':
+      "O dispositivo TUN anterior ainda precisa de recuperação. Encerre o Usque completamente e abra-o novamente para tentar, ou consulte o diagnóstico local.",
   'WINDOWS_RECOVERY_FAILED':
       'Não foi possível restaurar por completo o estado de rede VPN '
       'anterior. Nenhuma nova conexão VPN foi iniciada. Tente conectar '

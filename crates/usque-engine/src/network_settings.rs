@@ -78,6 +78,9 @@ impl ControlService {
             })?)?,
             changed_fields: request.changed_fields,
         };
+        if patch.changed_fields.iter().any(|field| field == "vpn_gate") {
+            self.pin_gate_settings(&patch.values.vpn_gate).await?;
+        }
         // Only local read/modify/write work holds the configuration guard.
         let mut config = self.config.write().await;
         let store = self.store.clone();
@@ -239,7 +242,13 @@ impl ControlService {
                                 operation_id,
                                 journal_generation,
                             } => {
-                                *service.session_profile.lock().await = Some(previous.clone());
+                                let recovery_target = if target.vpn_gate == previous.vpn_gate {
+                                    &previous
+                                } else {
+                                    &target
+                                };
+                                *service.session_profile.lock().await =
+                                    Some(recovery_target.clone());
                                 if service.settings_intent.load(Ordering::SeqCst) == intent
                                     && service
                                         .enter_windows_automatic_recovery(
@@ -287,6 +296,7 @@ impl ControlService {
             ReconfigureClass::HotFrontends => self.hot_reconfigure_frontends(target).await?,
             ReconfigureClass::HotSystemProxy => self.hot_apply_system_proxy(target).await?,
             ReconfigureClass::HotTunnelAttach => self.hot_tunnel_attach(target).await?,
+            ReconfigureClass::HotVpnGate => self.hot_replace_gate(target).await?,
             ReconfigureClass::ColdReconnect => {
                 self.disconnect_locked().await?;
                 self.await_disconnect_cleanup().await?;
@@ -297,7 +307,9 @@ impl ControlService {
                 }
                 *self.session_profile.lock().await = Some(target.clone());
                 if let Err(error) = self.connect_locked(target.id).await {
-                    if self.settings_intent.load(Ordering::SeqCst) == intent {
+                    if self.settings_intent.load(Ordering::SeqCst) == intent
+                        && previous.vpn_gate == target.vpn_gate
+                    {
                         *self.session_profile.lock().await = Some(previous.clone());
                         let _ = self.connect_locked(previous.id).await;
                     }

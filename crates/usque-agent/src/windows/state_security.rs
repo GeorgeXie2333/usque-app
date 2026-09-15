@@ -64,18 +64,7 @@ pub fn finalize_uninstall_state(journal_path: &Path) -> Result<(), StateSecurity
     let agent_directory = journal_path
         .parent()
         .ok_or_else(|| StateSecurityError::InvalidPath(journal_path.to_path_buf()))?;
-    let evidence = agent_directory.join(crate::recovery_diagnostics::RECOVERY_LOG_NAME);
-    match fs::symlink_metadata(&evidence) {
-        Ok(metadata)
-            if metadata.is_file()
-                && metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT == 0 =>
-        {
-            fs::remove_file(&evidence)?;
-        }
-        Ok(_) => return Err(StateSecurityError::UnsafeEntry(evidence)),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error.into()),
-    }
+    remove_recovery_evidence(agent_directory)?;
     if agent_directory
         .file_name()
         .is_some_and(|name| name.eq_ignore_ascii_case("agent"))
@@ -87,6 +76,27 @@ pub fn finalize_uninstall_state(journal_path: &Path) -> Result<(), StateSecurity
                 .is_some_and(|name| name.eq_ignore_ascii_case("Usque"))
         {
             remove_directory_if_empty(product_directory)?;
+        }
+    }
+    Ok(())
+}
+
+fn remove_recovery_evidence(agent_directory: &Path) -> Result<(), StateSecurityError> {
+    for name in [
+        crate::recovery_diagnostics::RECOVERY_LOG_NAME,
+        "recovery-trace-v1.jsonl",
+    ] {
+        let evidence = agent_directory.join(name);
+        match fs::symlink_metadata(&evidence) {
+            Ok(metadata)
+                if metadata.is_file()
+                    && metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT == 0 =>
+            {
+                fs::remove_file(&evidence)?;
+            }
+            Ok(_) => return Err(StateSecurityError::UnsafeEntry(evidence)),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
         }
     }
     Ok(())
@@ -220,6 +230,24 @@ pub enum StateSecurityError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn evidence_cleanup_removes_only_the_two_allowlisted_files() {
+        let directory = tempfile::tempdir().unwrap();
+        for name in [
+            "recovery-trace-v1.jsonl",
+            crate::recovery_diagnostics::RECOVERY_LOG_NAME,
+            "unrelated.json",
+        ] {
+            fs::write(directory.path().join(name), "fixture").unwrap();
+        }
+        remove_recovery_evidence(directory.path()).unwrap();
+        assert!(directory.path().join("unrelated.json").exists());
+        assert!(!directory.path().join("recovery-trace-v1.jsonl").exists());
+        fs::create_dir(directory.path().join("recovery-trace-v1.jsonl")).unwrap();
+        assert!(remove_recovery_evidence(directory.path()).is_err());
+        assert!(directory.path().join("recovery-trace-v1.jsonl").is_dir());
+    }
 
     #[test]
     fn recovery_acl_has_no_regular_user_or_everyone_ace() {

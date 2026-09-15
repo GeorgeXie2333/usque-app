@@ -1,6 +1,9 @@
 /// Supplemental feature strings for Arabic.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowAr = <String, String>{
+  'local_proxy_settings': 'إعدادات الوكيل المحلي',
+  'proxy_switches_hint':
+      'تُحفظ تغييرات المفاتيح تلقائيًا. استخدم «تطبيق التغييرات» لتعديلات الاستماع وDNS.',
   'cc_label': 'التحكم في ازدحام HTTP/3',
   'cc_help': 'يسري عند اتصالك اليدوي التالي.',
   'cc_upgrade': 'يلزم تحديث Engine.',
@@ -251,6 +254,10 @@ const kNetworkQualityAr = <String, String>{
 };
 
 const Map<String, String> kWindowsRecoveryAr = <String, String>{
+  'WINDOWS_DEVICE_REUSE_UNSUPPORTED':
+      "يجب تحديث التطبيق وWindows Agent معًا لإعادة استخدام جهاز TUN. لم يبدأ اتصال VPN جديد.",
+  'WINDOWS_DEVICE_RECOVERY_REQUIRED':
+      "لا يزال جهاز TUN السابق بحاجة إلى استعادة. أغلق Usque تمامًا ثم افتحه وأعد المحاولة، أو افحص التشخيصات المحلية.",
   'WINDOWS_RECOVERY_FAILED':
       'تعذّر استعادة حالة شبكة VPN السابقة بالكامل. لم يبدأ أي اتصال VPN جديد. أعد محاولة الاتصال أو راجع التشخيص المحلي.',
   'WINDOWS_RECOVERY_EXHAUSTED':

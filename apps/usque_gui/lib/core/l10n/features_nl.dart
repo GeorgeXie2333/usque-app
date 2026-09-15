@@ -1,6 +1,9 @@
 /// Supplemental feature strings for Dutch.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowNl = <String, String>{
+  'local_proxy_settings': 'Lokale proxyinstellingen',
+  'proxy_switches_hint':
+      'Schakelaars worden automatisch opgeslagen. Bevestig wijzigingen aan luisteradressen en DNS met Wijzigingen toepassen.',
   'cc_label': 'HTTP/3-congestiecontrole',
   'cc_help': 'Wordt bij de volgende handmatige verbinding toegepast.',
   'cc_upgrade': 'Update van de Engine vereist.',
@@ -311,6 +314,10 @@ const Map<String, String> kNetworkQualityNl = <String, String>{
 };
 
 const Map<String, String> kWindowsRecoveryNl = <String, String>{
+  'WINDOWS_DEVICE_REUSE_UNSUPPORTED':
+      "Werk de app en Windows Agent samen bij om het TUN-apparaat opnieuw te gebruiken. Er is geen nieuwe VPN-verbinding gestart.",
+  'WINDOWS_DEVICE_RECOVERY_REQUIRED':
+      "Het vorige TUN-apparaat moet nog worden hersteld. Sluit Usque volledig af en open het opnieuw om het nogmaals te proberen, of bekijk de lokale diagnostiek.",
   'WINDOWS_RECOVERY_FAILED':
       'De vorige VPN-netwerkstatus kon niet volledig worden hersteld. Er is '
       'geen nieuwe VPN-verbinding gestart. Probeer de verbinding opnieuw of '

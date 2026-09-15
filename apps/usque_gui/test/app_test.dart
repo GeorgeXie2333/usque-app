@@ -412,11 +412,6 @@ class FakeEngineClient implements EngineClient {
   Future<void> setCloseToTray(bool enabled) async {}
 
   @override
-  Future<void> setWarpProtocolAssociation(bool enabled) async {
-    calls.add('setWarpProtocolAssociation');
-  }
-
-  @override
   Future<void> requestAddQuickSettingsTile() async {}
 
   PerAppProxySettings storedPerAppProxy = const PerAppProxySettings();
@@ -832,14 +827,14 @@ void main() {
     final downloader = RecordingUpdateDownloader(engine);
     final controller = AppController(engine, updateDownloader: downloader);
     await controller.initialize();
-    const path = 'test-update-cache/usque-v0.2.7-android-arm64-v8a.apk';
+    const path = 'test-update-cache/usque-v0.2.8-android-arm64-v8a.apk';
     controller.updateResult = const UpdateCheckResult(
       available: true,
-      version: 'v0.2.7',
+      version: 'v0.2.8',
       package: UpdatePackage(
-        name: 'usque-v0.2.7-android-arm64-v8a.apk',
+        name: 'usque-v0.2.8-android-arm64-v8a.apk',
         downloadUrl:
-            'https://github.com/GeorgeXie2333/usque-app/releases/download/v0.2.7/usque-v0.2.7-android-arm64-v8a.apk',
+            'https://github.com/GeorgeXie2333/usque-app/releases/download/v0.2.8/usque-v0.2.8-android-arm64-v8a.apk',
         size: 1024,
         sha256:
             'a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5',
@@ -1003,6 +998,72 @@ void main() {
     expect(controller.busy, isFalse);
     controller.dispose();
   });
+
+  for (final failsLate in <bool>[false, true]) {
+    test(
+      'disconnect wins over a late connect response (error=$failsLate)',
+      () async {
+        SharedPreferences.setMockInitialValues(<String, Object>{});
+        final engine = ConcurrentGeoEngineClient();
+        final controller = AppController(engine);
+        await controller.initialize();
+        final connecting = controller.connectOrDisconnect();
+        await engine.connectStarted.future;
+        expect(controller.busy, isTrue);
+        await controller.connectOrDisconnect();
+        expect(
+          engine.calls.where((call) => call == 'disconnect'),
+          hasLength(1),
+        );
+        expect(controller.snapshot.phase, ConnectionPhase.disconnected);
+        if (failsLate) {
+          engine.connectResult.completeError(
+            const EngineException('PACKET_RECEIVE_FAILED', 'Transport'),
+          );
+        } else {
+          engine.connectResult.complete(
+            const EngineSnapshot(phase: ConnectionPhase.connected),
+          );
+        }
+        await connecting;
+        expect(controller.snapshot.phase, ConnectionPhase.disconnected);
+        expect(controller.lastError, isNull);
+        expect(controller.busy, isFalse);
+        controller.dispose();
+      },
+    );
+  }
+
+  testWidgets(
+    'home allows cancelling while the connection request is pending',
+    (tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final engine = ConcurrentGeoEngineClient();
+      final controller = AppController(engine);
+      await controller.initialize();
+      final connecting = controller.connectOrDisconnect();
+      await engine.connectStarted.future;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: UsqueTheme.light(),
+          home: Scaffold(body: HomeScreen(controller: controller)),
+        ),
+      );
+      final ring = tester.widget<ConnectionRing>(find.byType(ConnectionRing));
+      expect(ring.busy, isTrue);
+      expect(ring.onPressed, isNotNull);
+      ring.onPressed!();
+      await tester.pump();
+      expect(engine.calls, contains('disconnect'));
+      engine.connectResult.complete(
+        const EngineSnapshot(phase: ConnectionPhase.connected),
+      );
+      await connecting;
+      await tester.pumpWidget(const SizedBox());
+      expect(controller.snapshot.phase, ConnectionPhase.disconnected);
+      controller.dispose();
+    },
+  );
 
   test('advanced defaults preserve countries managed on their own page', () {
     final reset = UsqueProfile.defaultProfile()
@@ -2954,6 +3015,7 @@ void main() {
     );
     await tester.pump();
 
+    expect(engine.zeroTrustCancelCount, greaterThan(0));
     final finish = tester.widget<FilledButton>(
       find.widgetWithText(FilledButton, 'Finish setup'),
     );
@@ -3006,6 +3068,7 @@ void main() {
       find.widgetWithText(FilledButton, 'Finish setup'),
     );
     expect(finish.onPressed, isNull);
+    expect(engine.zeroTrustCancelCount, 0);
     expect(engine.lastProvisioningMethod, isNull);
     expect(engine.lastZeroTrustCallback, isNull);
   });
@@ -3117,6 +3180,7 @@ void main() {
     final callbackField = tester.widget<TextField>(
       find.widgetWithText(TextField, 'Complete callback URL'),
     );
+    expect(engine.zeroTrustCancelCount, greaterThan(0));
     expect(callbackField.controller?.text, callback);
     await tester.tap(find.text('Finish setup'));
     await tester.pumpAndSettle();
@@ -3765,13 +3829,13 @@ void main() {
         addTearDown(controller.dispose);
         controller.updateResult = const UpdateCheckResult(
           available: true,
-          version: 'v0.2.7',
+          version: 'v0.2.8',
           releaseUrl:
-              'https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.2.7',
+              'https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.2.8',
           package: UpdatePackage(
-            name: 'usque-v0.2.7-windows-x64-v2.msi',
+            name: 'usque-v0.2.8-windows-x64-v2.msi',
             downloadUrl:
-                'https://github.com/GeorgeXie2333/usque-app/releases/download/v0.2.7/usque-v0.2.7-windows-x64-v2.msi',
+                'https://github.com/GeorgeXie2333/usque-app/releases/download/v0.2.8/usque-v0.2.8-windows-x64-v2.msi',
             size: 20 * 1024 * 1024,
             sha256:
                 'a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5',
@@ -3789,7 +3853,7 @@ void main() {
         );
 
         await tester.pumpWidget(app());
-        expect(find.text('v0.2.7  •  x64-v2  •  20.0 MiB'), findsOneWidget);
+        expect(find.text('v0.2.8  •  x64-v2  •  20.0 MiB'), findsOneWidget);
         expect(find.byType(LinearProgressIndicator), findsOneWidget);
         expect(find.text('5.0 MiB / 20.0 MiB'), findsOneWidget);
         expect(find.text('Cancel'), findsOneWidget);
@@ -4603,7 +4667,7 @@ void main() {
     },
   );
 
-  testWidgets('Settings network outputs edit the active profile immediately', (
+  testWidgets('Network output switches save immediately from their own pages', (
     tester,
   ) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.windows;
@@ -4640,6 +4704,7 @@ void main() {
 
       SettingsScreen settings() =>
           tester.widget<SettingsScreen>(find.byType(SettingsScreen));
+      final controller = settings().controller;
 
       expect(find.text('Network outputs'), findsOneWidget);
       expect(settings().controller.activeProfile.frontends.tunnel, isTrue);
@@ -4651,19 +4716,24 @@ void main() {
       await toggle('VPN (TUN)');
       expect(settings().controller.activeProfile.frontends.tunnel, isFalse);
 
-      await toggle('SOCKS5');
-      expect(settings().controller.activeProfile.frontends.socks5, isFalse);
-
       await toggle('Connect the current account automatically on start');
       expect(settings().controller.activeProfile.autoConnect, isTrue);
 
+      final proxyLink = find.text('Local proxy settings');
+      await tester.ensureVisible(proxyLink);
+      await tester.pumpAndSettle();
+      await tester.tap(proxyLink);
+      await tester.pumpAndSettle();
+      await toggle('SOCKS5');
+      expect(controller.activeProfile.frontends.socks5, isFalse);
+
       await toggle('Configure system proxy');
-      expect(settings().controller.activeProfile.proxy.systemProxy, isTrue);
+      expect(controller.activeProfile.proxy.systemProxy, isTrue);
 
       await toggle('HTTP');
-      expect(settings().controller.activeProfile.frontends.http, isFalse);
-      expect(settings().controller.activeProfile.proxy.systemProxy, isFalse);
-      expect(settings().controller.activeProfile.frontends.any, isFalse);
+      expect(controller.activeProfile.frontends.http, isFalse);
+      expect(controller.activeProfile.proxy.systemProxy, isFalse);
+      expect(controller.activeProfile.frontends.any, isFalse);
       expect(find.text('No network output is enabled.'), findsOneWidget);
     } finally {
       debugDefaultTargetPlatformOverride = null;

@@ -1,6 +1,8 @@
 /// Supplemental feature strings for Korean.
 /// Not a full catalog: do not define app_version.
 const Map<String, String> kUiWorkflowKo = <String, String>{
+  'local_proxy_settings': '로컬 프록시 설정',
+  'proxy_switches_hint': '스위치 변경은 자동 저장됩니다. 수신 주소와 DNS 편집은 변경 사항 적용으로 반영하세요.',
   'cc_label': 'HTTP/3 혼잡 제어',
   'cc_help': '다음 수동 연결 시 적용됩니다.',
   'cc_upgrade': 'Engine 업데이트가 필요합니다.',
@@ -231,6 +233,10 @@ const Map<String, String> kNetworkQualityKo = <String, String>{
 };
 
 const Map<String, String> kWindowsRecoveryKo = <String, String>{
+  'WINDOWS_DEVICE_REUSE_UNSUPPORTED':
+      "TUN 장치를 재사용하려면 앱과 Windows Agent를 함께 업데이트하세요. 새 VPN 연결은 시작되지 않았습니다.",
+  'WINDOWS_DEVICE_RECOVERY_REQUIRED':
+      "이전 TUN 장치를 아직 복구해야 합니다. Usque를 완전히 종료한 뒤 다시 열어 재시도하거나 로컬 진단을 확인하세요.",
   'WINDOWS_RECOVERY_FAILED':
       '이전 VPN 네트워크 상태를 완전히 복원하지 못했습니다. 새 VPN 연결은 '
       '시작되지 않았습니다. 연결을 다시 시도하거나 로컬 진단을 확인하세요.',

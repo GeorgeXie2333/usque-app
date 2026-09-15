@@ -88,10 +88,6 @@ const Map<String, String> kItCatalog = <String, String>{
   'zero_trust_paste_clipboard': 'Compila dagli appunti',
   'zero_trust_clipboard_empty':
       'Gli appunti non contengono un URL di callback.',
-  'zero_trust_protocol_association':
-      'Apri i callback Access in Usque (solo questo utente)',
-  'zero_trust_protocol_association_help':
-      'Facoltativo. Registra com.cloudflare.warp per l’utente Windows connesso. Il client WARP ufficiale può restare installato. Lasciare disattivato per mantenere WARP come gestore; l’incollaggio continua a funzionare.',
   'zero_trust_scope_note':
       'Sperimentale: usa la registrazione del dispositivo dell’organizzazione per l’accesso a Internet; la sincronizzazione delle policy e la postura del dispositivo non sono implementate.',
   'zero_trust_repair_same_team':
@@ -310,7 +306,7 @@ const Map<String, String> kItCatalog = <String, String>{
       'Stato dell’Usque Engine, esportazione dei log e dati locali.',
   'engine_status': 'Stato dell’Usque Engine',
   'version': 'Versione',
-  'app_version': 'Usque 0.2.6',
+  'app_version': 'Usque 0.2.7',
   'logs': 'Log locali',
   'export_diagnostics': 'Esporta pacchetto diagnostico',
   'diagnostics_saved': 'Pacchetto diagnostico salvato in',

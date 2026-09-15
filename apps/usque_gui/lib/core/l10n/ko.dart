@@ -81,9 +81,6 @@ const Map<String, String> kKoCatalog = <String, String>{
       '이 조직의 com.cloudflare.warp Access 콜백을 사용해야 합니다.',
   'zero_trust_paste_clipboard': '클립보드에서 채우기',
   'zero_trust_clipboard_empty': '클립보드에 콜백 URL이 없습니다.',
-  'zero_trust_protocol_association': 'Access 콜백을 Usque에서 열기(이 사용자만)',
-  'zero_trust_protocol_association_help':
-      '선택 사항입니다. 로그인한 Windows 사용자에 대해 com.cloudflare.warp를 등록합니다. 공식 WARP 클라이언트는 설치된 채로 둘 수 있습니다. WARP를 처리기로 유지하려면 이 옵션을 끄면 됩니다. 붙여넣기는 계속 사용할 수 있습니다.',
   'zero_trust_scope_note':
       '실험적 기능: 조직 기기 등록을 인터넷 접속에 사용합니다. 정책 동기화와 디바이스 포스처는 구현되지 않았습니다.',
   'zero_trust_repair_same_team': '이 기기 등록을 새로고치려면 같은 조직에 다시 로그인해야 합니다.',
@@ -291,7 +288,7 @@ const Map<String, String> kKoCatalog = <String, String>{
   'diagnostics_subtitle': 'Usque Engine 상태, 로그 내보내기, 로컬 데이터입니다.',
   'engine_status': 'Usque Engine 상태',
   'version': '버전',
-  'app_version': 'Usque 0.2.6',
+  'app_version': 'Usque 0.2.7',
   'logs': '로컬 로그',
   'export_diagnostics': '진단 번들 내보내기',
   'diagnostics_saved': '진단 번들을 저장한 위치',

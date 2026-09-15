@@ -25,7 +25,50 @@ export 'control_codec.dart'
 /// Desktop [EngineClient] that coordinates request serialization, codec, and
 /// transport. Public API, MethodChannel names, named pipes, and protobuf wire
 /// data are unchanged from the pre-split client.
-class DesktopEngineClient implements EngineClient {
+class DesktopEngineClient implements EngineClient, VpnGateClient {
+  @override
+  Future<VpnGateDirectory> listVpnGate({
+    String? countryCode,
+    bool unknownCountry = false,
+    int offset = 0,
+    int limit = 50,
+    bool favoritesOnly = false,
+    bool statusOnly = false,
+  }) => _serialized(() async {
+    final request = ControlPayloadWriter()
+      ..string(1, countryCode ?? '')
+      ..boolean(2, unknownCountry)
+      ..unsigned(3, offset)
+      ..unsigned(4, limit)
+      ..boolean(6, favoritesOnly)
+      ..boolean(7, statusOnly);
+    final response = await _request(43, request.takeBytes());
+    return response.vpnGateDirectory ??
+        (throw const EngineException(
+          'VPN_GATE_UNAVAILABLE',
+          'The catalogue service is unavailable.',
+        ));
+  });
+  @override
+  Future<void> refreshVpnGate({bool cancel = false}) => _serialized(() async {
+    await _request(
+      44,
+      (ControlPayloadWriter()..boolean(1, cancel)).takeBytes(),
+    );
+  });
+  @override
+  Future<void> vpnGateNode(VpnGateNodeRequest request) => _serialized(() async {
+    await _request(
+      45,
+      (ControlPayloadWriter()
+            ..string(1, request.operationId)
+            ..string(2, request.action)
+            ..string(3, request.serverId)
+            ..string(4, request.configSha256)
+            ..string(5, request.expectedFavoriteHash))
+          .takeBytes(),
+    );
+  });
   @override
   Future<NetworkSettingsState> saveNetworkSettings(
     String operationId,
@@ -310,15 +353,6 @@ class DesktopEngineClient implements EngineClient {
       _transport.invokePlatformMethod<void>('setCloseToTray', <String, Object?>{
         'enabled': enabled,
       });
-
-  @override
-  Future<void> setWarpProtocolAssociation(bool enabled) async {
-    if (!Platform.isWindows) return;
-    await _transport.invokePlatformMethod<void>(
-      'setWarpProtocolAssociation',
-      <String, Object?>{'enabled': enabled},
-    );
-  }
 
   @override
   Future<void> requestAddQuickSettingsTile() async {}

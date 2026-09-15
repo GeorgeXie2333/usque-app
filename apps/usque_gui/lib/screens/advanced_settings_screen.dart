@@ -44,6 +44,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   final _directDnsKey = GlobalKey<DirectDnsEditorState>();
   bool _saving = false;
   String? _saveError;
+  String? _validationError;
   bool _loading = false;
   bool _saved = false;
   bool _validationAttempted = false;
@@ -77,6 +78,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     if (_loading || _saving) return;
     setState(() {
       _saved = false;
+      _validationError = null;
       _saveError = null;
     });
   }
@@ -183,6 +185,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                 ? widget.controller.retry
                 : null,
             error: _saveError,
+            validationError: _validationError,
             onSave: _save,
           ),
         ),
@@ -259,6 +262,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                                               .byName(selection.first);
                                         }
                                         _saved = false;
+                                        _validationError = null;
                                         _saveError = null;
                                       });
                                     },
@@ -476,6 +480,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                     onChanged: (value) => setState(() {
                       _directDns = value;
                       _saved = false;
+                      _validationError = null;
                     }),
                   ),
                 ],
@@ -626,7 +631,8 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     if (_dataPlane == DataPlaneMode.l4Proxy &&
         !(widget.controller.engineCapabilities?.l4Available ?? false)) {
       setState(
-        () => _saveError = widget.controller.strings.get('l4_unsupported'),
+        () =>
+            _validationError = widget.controller.strings.get('l4_unsupported'),
       );
       return;
     }
@@ -634,13 +640,17 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
         widget.controller.activeProfile.proxy.dnsMode ==
             ProxyDnsMode.edgeResolved) {
       setState(
-        () => _saveError = widget.controller.strings.get('l4_edge_requires_l4'),
+        () => _validationError = widget.controller.strings.get(
+          'l4_edge_requires_l4',
+        ),
       );
       return;
     }
     setState(() => _validationAttempted = true);
     if (!(_formKey.currentState?.validate() ?? false)) {
-      setState(() => _saveError = widget.controller.strings.get('form_errors'));
+      setState(
+        () => _validationError = widget.controller.strings.get('form_errors'),
+      );
       for (var i = 0; i < _fieldKeys.length; i++) {
         if (_fieldKeys[i].currentState?.hasError ?? false) {
           _focus[i].requestFocus();
@@ -654,6 +664,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     FocusScope.of(context).unfocus();
     setState(() {
       _saved = false;
+      _validationError = null;
       _saving = true;
       _saveError = null;
     });
@@ -767,6 +778,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     setState(() {
       _load(reset, baseline: false);
       _saved = false;
+      _validationError = null;
       _saveError = null;
     });
   }

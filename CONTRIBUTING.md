@@ -115,6 +115,17 @@ cargo test --workspace --all-targets --locked
 
 Every `unsafe` block needs a `// SAFETY:` comment that states the invariants. A public unsafe API needs a rustdoc `# Safety` section.
 
+Embedded OpenVPN changes additionally require the source/notice lock check and
+the memory-only TLS/CBC peer. Initialize the Windows native environment using
+the helper above before these Cargo commands. The peer opens no OS socket or
+TUN and is excluded from production builds.
+
+```shell
+python tool/check_openvpn_sources.py
+cargo clippy -p usque-openvpn --all-targets --features interop-test --locked -- -D warnings
+cargo test -p usque-openvpn --features interop-test --locked
+```
+
 ### Flutter and Dart
 
 Analyzer settings live in `apps/usque_gui/analysis_options.yaml`.

@@ -87,6 +87,9 @@ const PACKET_RING_RETRY_INTERVAL: Duration = Duration::from_millis(1);
 const PHYSICAL_NETWORK_POLL_INTERVAL: Duration = Duration::from_millis(500);
 const AUTOMATIC_RECOVERY_ATTEMPT_LIMIT: u32 = 3;
 
+mod device_owner;
+pub(crate) use device_owner::WindowsDeviceOwner;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AutomaticRecoveryFailure {
     pub(crate) operation_id: String,
@@ -389,7 +392,11 @@ pub(crate) fn log_recovery_error(error: &crate::ControlServiceError) {
     } = error
     {
         let adapter = sanitized_adapter_recovery_detail(message);
-        tracing::warn!(error_code = *code, retryable, adapter_cleanup = ?adapter,
+        let historical_terminal = matches!(
+            *code,
+            "WINDOWS_RECOVERY_EXHAUSTED" | "WINDOWS_RECOVERY_BLOCKED"
+        );
+        tracing::warn!(error_code = *code, retryable, historical_terminal, adapter_cleanup = ?adapter,
             "Windows network recovery did not complete");
     }
 }
@@ -683,21 +690,54 @@ impl Drop for WindowsSystemProxyGuard {
     }
 }
 
+// Only for a Prepared Gate transaction: final traffic is not admitted yet.
+// Drop the startup future first so its producer guards observe cancellation,
+// then release the pipe independently of asynchronous worker joins. Agent EOF
+// recovery still checks the operation, owner and lease epoch after its grace.
+async fn await_prepared_gate_startup<T, E: From<TransportError>, L>(
+    startup_cancel: &CancellationToken,
+    startup_lease: &mut Option<L>,
+    startup: impl std::future::Future<Output = Result<T, E>>,
+) -> Result<T, E> {
+    let mut startup = Box::pin(startup);
+    tokio::select! {
+        biased;
+        _ = startup_cancel.cancelled() => {
+            drop(startup);
+            drop(startup_lease.take());
+            Err(TransportError::TunnelClosed.into())
+        }
+        result = &mut startup => result,
+    }
+}
+
 pub(crate) struct WindowsVpnRuntime {
     agent: WindowsAgentClient,
     operation_id: Uuid,
     monitor: WindowsVpnMonitor,
     cancellation: CancellationToken,
-    mapping: Arc<PacketSessionMapping>,
+    mapping: Option<Arc<PacketSessionMapping>>,
     tasks: Vec<JoinHandle<()>>,
+    lifetime: CancellationToken,
+    liveness: Option<tokio_util::task::AbortOnDropHandle<()>>,
+    startup_lease: Option<NamedPipeClient>,
+    pump_failure_tx: watch::Sender<Option<WindowsPumpFailure>>,
     listeners: Vec<SocketAddr>,
     socks5_listeners: Vec<SocketAddr>,
     http_listeners: Vec<SocketAddr>,
     system_proxy: Option<WindowsSystemProxyGuard>,
     transaction_open: bool,
     tunnel: Option<DataPlaneRuntime>,
+    bootstrap: Option<WarpBootstrap>,
     // Present when this runtime created the VPN-bound MASQUE protector.
     socket_protector: Option<Arc<WindowsVpnSocketProtector>>,
+}
+
+struct WarpBootstrap {
+    identity: MasqueTlsIdentity,
+    refresher: Arc<dyn EndpointPinRefresher>,
+    registration_api: Vec<SocketAddr>,
+    status: usque_core::vpngate::GateStatus,
 }
 
 #[derive(Clone)]
@@ -783,6 +823,56 @@ impl WindowsVpnMonitor {
 }
 
 impl WindowsVpnRuntime {
+    fn blocked_chain(
+        agent: WindowsAgentClient,
+        operation_id: Uuid,
+        startup_lease: Option<NamedPipeClient>,
+        mut bootstrap: WarpBootstrap,
+        protector: Option<Arc<WindowsVpnSocketProtector>>,
+        error: &TransportError,
+    ) -> Self {
+        let failure = error.failure(None, None);
+        bootstrap.status.failure = Some(match error {
+            TransportError::VpnGate(reason) => *reason,
+            _ if !failure.retryable => usque_core::vpngate::GateFailure::Configuration,
+            _ => usque_core::vpngate::GateFailure::Transport,
+        });
+        let path = RuntimePath {
+            transport: failure.transport.unwrap_or(usque_core::Transport::Http2),
+            endpoint_family: failure
+                .address_family
+                .unwrap_or(usque_core::AddressFamily::Ipv4),
+            ipv4_available: false,
+            ipv6_available: false,
+        };
+        let lifetime = CancellationToken::new();
+        let (pump_failure_tx, pump_failure) = watch::channel(None);
+        Self {
+            agent,
+            operation_id,
+            monitor: WindowsVpnMonitor {
+                tunnel: ManagedTunnelMonitor::failed(path, error),
+                pump_failure,
+                agent_disconnected: watch::channel(false).1,
+            },
+            cancellation: lifetime.child_token(),
+            lifetime,
+            mapping: None,
+            tasks: Vec::new(),
+            liveness: None,
+            startup_lease,
+            pump_failure_tx,
+            listeners: Vec::new(),
+            socks5_listeners: Vec::new(),
+            http_listeners: Vec::new(),
+            system_proxy: None,
+            transaction_open: true,
+            tunnel: None,
+            bootstrap: Some(bootstrap),
+            socket_protector: protector,
+        }
+    }
+
     pub(crate) fn l4_snapshot(&self) -> Option<usque_core::L4Snapshot> {
         self.tunnel.as_ref().and_then(DataPlaneRuntime::l4_snapshot)
     }
@@ -791,28 +881,47 @@ impl WindowsVpnRuntime {
         identity: MasqueTlsIdentity,
         pin_refresher: Arc<dyn EndpointPinRefresher>,
         geo_policy: Arc<GeoDirectPolicy>,
+        gate: usque_transport::VpnGateStart,
+        device: &WindowsDeviceOwner,
     ) -> Result<Self, WindowsVpnError> {
+        let startup_cancel = gate.cancellation.clone();
         let geo_enabled = geo_policy.is_enabled();
         let agent = WindowsAgentClient::production();
         let capabilities = agent.get_capabilities().await?;
         validate_capabilities(&capabilities, profile.kill_switch)?;
+        if profile.vpn_gate.enabled && !capabilities.deferred_network_configuration {
+            return Err(WindowsVpnError::MissingCapabilities(
+                "deferred_network_configuration".into(),
+            ));
+        }
         // Old DNS/WFP state can itself prevent endpoint resolution. Complete
         // guarded local recovery before ANY startup DNS or MASQUE operation.
         let state = agent.connection_state(&capabilities).await?;
+        let device_lease = device.acquire(&agent, &capabilities).await?;
         // Still resolve before installing a new fail-closed policy.
         let registration_api = resolve_registration_api().await?;
-        let (operation_id, resuming, startup_lease) =
+        if startup_cancel.is_cancelled() {
+            return Err(TransportError::TunnelClosed.into());
+        }
+        let (operation_id, resuming, mut startup_lease) =
             match agent_v1::AgentPhase::try_from(state.phase) {
                 Ok(agent_v1::AgentPhase::Clean) => {
                     let operation_id = Uuid::new_v4();
                     let plan = tunnel_plan(profile, &identity, &registration_api, geo_enabled);
-                    let lease = agent.prepare(operation_id, plan).await?;
+                    let lease = agent
+                        .prepare(operation_id, plan, &device_lease, state.journal_generation)
+                        .await?;
                     (operation_id, false, Some(lease))
                 }
                 Ok(agent_v1::AgentPhase::Active) if state.profile_id == profile.id.to_string() => {
                     let operation_id = Uuid::parse_str(&state.operation_id)
                         .map_err(|_| WindowsVpnError::InvalidAgentOperationId)?;
-                    (operation_id, true, None)
+                    let lease = if profile.vpn_gate.enabled {
+                        Some(agent.begin_chain_transition_lease(operation_id).await?)
+                    } else {
+                        None
+                    };
+                    (operation_id, true, lease)
                 }
                 Ok(agent_v1::AgentPhase::Active) => {
                     return Err(WindowsVpnError::ActiveProfileMismatch {
@@ -827,76 +936,83 @@ impl WindowsVpnRuntime {
                     });
                 }
             };
-
-        let physical_info = match agent.get_physical_network_info(operation_id).await {
-            Ok(info) => info,
-            Err(error) => {
-                return Err(fail_startup(
-                    &agent,
-                    operation_id,
-                    resuming,
-                    "PHYSICAL_NETWORK_SNAPSHOT_FAILED",
-                    error,
-                )
-                .await);
+        if startup_cancel.is_cancelled() {
+            if !resuming {
+                agent.rollback_for_disconnect(operation_id).await?;
             }
-        };
-        let physical_dns = match physical_dns_endpoints(&physical_info) {
-            Ok(servers) => servers,
-            Err(error) => {
-                return Err(fail_startup(
-                    &agent,
-                    operation_id,
-                    resuming,
-                    "PHYSICAL_DNS_SNAPSHOT_INVALID",
-                    error,
-                )
-                .await);
-            }
-        };
-        if let Err(error) =
-            validate_physical_dns(geo_enabled, profile.direct_dns.mode, &physical_dns)
-        {
-            return Err(fail_startup(
-                &agent,
-                operation_id,
-                resuming,
-                "PHYSICAL_DNS_UNAVAILABLE",
-                error,
-            )
-            .await);
+            return Err(TransportError::TunnelClosed.into());
         }
-        let initial_generation = physical_info.generation;
-        let protector = Arc::new(WindowsVpnSocketProtector {
-            registration_api,
-            agent: agent.clone(),
-            operation_id,
-            physical: RwLock::new(WindowsPhysicalState {
-                generation: initial_generation,
-                agent_generation: Some(initial_generation),
-                dns_servers: physical_dns,
-                family_mask: physical_info
-                    .interfaces
-                    .iter()
-                    .fold(0, |mask, interface| mask | interface.address_family_mask),
-            }),
-            monitor_cancel: CancellationToken::new(),
-            proxy_mode: AtomicBool::new(false),
+
+        let bootstrap = profile.vpn_gate.enabled.then(|| WarpBootstrap {
+            identity: identity.clone(),
+            refresher: pin_refresher.clone(),
+            registration_api: registration_api.clone(),
+            status: usque_core::vpngate::GateStatus {
+                stage: usque_core::vpngate::GateStage::Error,
+                warp_stage: Some("error".into()),
+                current_server: gate.selected.as_ref().map(|(server, _)| server.clone()),
+                failure: Some(usque_core::vpngate::GateFailure::Transport),
+                ..Default::default()
+            },
         });
-        start_physical_network_monitor(&protector);
+        let preparation =
+            prepare_vpn_protector(&agent, operation_id, registration_api, profile, geo_enabled);
+        let preparation = if profile.vpn_gate.enabled {
+            await_prepared_gate_startup(&startup_cancel, &mut startup_lease, preparation).await
+        } else {
+            preparation.await
+        };
+        let protector = match preparation {
+            Ok(protector) => protector,
+            Err(error) => {
+                if let Some(bootstrap) = bootstrap {
+                    return Ok(Self::blocked_chain(
+                        agent,
+                        operation_id,
+                        startup_lease,
+                        bootstrap,
+                        None,
+                        &TransportError::VpnGate(error.gate_failure()),
+                    ));
+                }
+                return Err(fail_startup(
+                    &agent,
+                    operation_id,
+                    resuming,
+                    "PHYSICAL_NETWORK_PREPARATION_FAILED",
+                    error,
+                )
+                .await);
+            }
+        };
         let transport_protector: Arc<dyn SocketProtector> = protector.clone();
 
-        let tunnel = match DataPlaneRuntime::start_with_geo_policy(
+        let startup = Box::pin(DataPlaneRuntime::start_with_vpngate(
             profile,
             identity,
             transport_protector,
             Some(pin_refresher),
             geo_policy,
-        )
-        .await
-        {
+            gate,
+        ));
+        let startup = if profile.vpn_gate.enabled {
+            await_prepared_gate_startup(&startup_cancel, &mut startup_lease, startup).await
+        } else {
+            startup.await
+        };
+        let mut tunnel = match startup {
             Ok(tunnel) => tunnel,
             Err(error) => {
+                if let Some(bootstrap) = bootstrap {
+                    return Ok(Self::blocked_chain(
+                        agent,
+                        operation_id,
+                        startup_lease,
+                        bootstrap,
+                        Some(protector),
+                        &error,
+                    ));
+                }
                 return Err(fail_startup(
                     &agent,
                     operation_id,
@@ -907,6 +1023,52 @@ impl WindowsVpnRuntime {
                 .await);
             }
         };
+        if startup_cancel.is_cancelled() {
+            tunnel.shutdown().await;
+            return Err(fail_startup(
+                &agent,
+                operation_id,
+                resuming,
+                "STARTUP_CANCELLED",
+                TransportError::TunnelClosed.into(),
+            )
+            .await);
+        }
+        if profile.vpn_gate.enabled {
+            let lifetime = CancellationToken::new();
+            let (pump_failure_tx, pump_failure) = watch::channel(None);
+            let (_, agent_disconnected) = watch::channel(false);
+            let mut runtime = Self {
+                agent,
+                operation_id,
+                monitor: WindowsVpnMonitor {
+                    tunnel: tunnel.monitor(),
+                    pump_failure,
+                    agent_disconnected,
+                },
+                cancellation: lifetime.child_token(),
+                lifetime,
+                mapping: None,
+                tasks: Vec::new(),
+                liveness: None,
+                startup_lease,
+                pump_failure_tx,
+                listeners: Vec::new(),
+                socks5_listeners: Vec::new(),
+                http_listeners: Vec::new(),
+                system_proxy: None,
+                transaction_open: true,
+                tunnel: Some(tunnel),
+                bootstrap: None,
+                socket_protector: Some(protector),
+            };
+            if runtime.gate_status().stage != usque_core::vpngate::GateStage::Error {
+                // The helper records an error and closes admission on failure.
+                // Return transaction ownership for the Engine's failure cleanup.
+                let _ = runtime.finish_chain_network(profile, &startup_cancel).await;
+            }
+            return Ok(runtime);
+        }
         match bind_agent_session(
             profile,
             tunnel,
@@ -933,6 +1095,12 @@ impl WindowsVpnRuntime {
     }
 
     pub(crate) fn health(&self) -> RuntimeHealth {
+        if let Some(tunnel) = &self.tunnel {
+            let health = tunnel.health();
+            if !matches!(health, RuntimeHealth::Connected { .. }) {
+                return health;
+            }
+        }
         self.monitor.health()
     }
 
@@ -941,7 +1109,10 @@ impl WindowsVpnRuntime {
     }
 
     pub(crate) fn connection_timeline(&self) -> ConnectionTimelineSnapshot {
-        self.monitor.connection_timeline()
+        self.tunnel.as_ref().map_or_else(
+            || self.monitor.connection_timeline(),
+            DataPlaneRuntime::connection_timeline,
+        )
     }
 
     pub(crate) fn subscribe_network_quality(
@@ -960,6 +1131,32 @@ impl WindowsVpnRuntime {
 
     pub(crate) fn failure(&self) -> Option<String> {
         self.monitor.failure()
+    }
+
+    pub(crate) fn internal_networks(
+        &self,
+    ) -> Option<(
+        usque_transport::InternalNetwork,
+        usque_transport::InternalNetwork,
+    )> {
+        self.tunnel
+            .as_ref()
+            .map(|r| (r.internal_network(), r.warp_internal_network()))
+    }
+    pub(crate) fn gate_status(&self) -> usque_core::vpngate::GateStatus {
+        self.tunnel.as_ref().map_or_else(
+            || {
+                self.bootstrap
+                    .as_ref()
+                    .map(|pending| pending.status.clone())
+                    .unwrap_or_default()
+            },
+            DataPlaneRuntime::gate_status,
+        )
+    }
+
+    pub(crate) fn needs_warp_bootstrap(&self) -> bool {
+        self.bootstrap.is_some()
     }
 
     pub(crate) fn listeners(&self) -> &[SocketAddr] {
@@ -990,11 +1187,245 @@ impl WindowsVpnRuntime {
         Ok(())
     }
 
+    pub(crate) async fn replace_gate(
+        &mut self,
+        profile: &Profile,
+        selected: Option<(
+            usque_core::vpngate::ServerSummary,
+            usque_core::vpngate::PreparedProfile,
+        )>,
+        policy: Arc<GeoDirectPolicy>,
+        status: watch::Sender<usque_core::vpngate::GateStatus>,
+        startup_cancel: &CancellationToken,
+    ) -> Result<(), WindowsVpnError> {
+        self.quiesce_final();
+        require_open_vpn_transaction(self.transaction_open, self.operation_id)?;
+        self.agent.begin_chain_transition(self.operation_id).await?;
+        self.stop_packet_pumps().await;
+        if self.mapping.is_some() {
+            self.agent.close_packet_session(self.operation_id).await?;
+        }
+        if let Some(bootstrap) = &self.bootstrap {
+            if self.socket_protector.is_none() {
+                self.socket_protector = Some(
+                    prepare_vpn_protector(
+                        &self.agent,
+                        self.operation_id,
+                        bootstrap.registration_api.clone(),
+                        profile,
+                        policy.is_enabled(),
+                    )
+                    .await
+                    .map_err(|error| TransportError::VpnGate(error.gate_failure()))?,
+                );
+            }
+            let protector = self
+                .socket_protector
+                .clone()
+                .ok_or(WindowsVpnError::MissingMasqueRuntime)?;
+            let startup = Box::pin(DataPlaneRuntime::start_with_vpngate(
+                profile,
+                bootstrap.identity.clone(),
+                protector,
+                Some(bootstrap.refresher.clone()),
+                policy,
+                usque_transport::VpnGateStart {
+                    selected,
+                    status: Some(status),
+                    cancellation: startup_cancel.clone(),
+                },
+            ));
+            let tunnel =
+                await_prepared_gate_startup(startup_cancel, &mut self.startup_lease, startup)
+                    .await?;
+            self.monitor.tunnel = tunnel.monitor();
+            self.tunnel = Some(tunnel);
+            self.bootstrap = None;
+            return self.finish_chain_network(profile, startup_cancel).await;
+        }
+        let tunnel = self
+            .tunnel
+            .as_mut()
+            .ok_or(WindowsVpnError::MissingMasqueRuntime)?;
+        tunnel.detach_tun();
+        if let Err(error) = tunnel
+            .replace_gate(profile, selected, policy, status, startup_cancel)
+            .await
+        {
+            let reason = match &error {
+                TransportError::VpnGate(reason) => *reason,
+                _ => usque_core::vpngate::GateFailure::Transport,
+            };
+            tunnel.fail_gate(reason).await;
+            return Err(error.into());
+        }
+        self.finish_chain_network(profile, startup_cancel).await
+    }
+
+    /// Retain the operation's guard and underlay on every finalization failure.
+    async fn finish_chain_network(
+        &mut self,
+        profile: &Profile,
+        startup_cancel: &CancellationToken,
+    ) -> Result<(), WindowsVpnError> {
+        let tunnel = self
+            .tunnel
+            .as_mut()
+            .ok_or(WindowsVpnError::MissingMasqueRuntime)?;
+        if profile.vpn_gate.enabled
+            && tunnel.gate_status().stage == usque_core::vpngate::GateStage::Error
+        {
+            return Err(TransportError::VpnGate(
+                tunnel
+                    .gate_status()
+                    .failure
+                    .unwrap_or(usque_core::vpngate::GateFailure::Transport),
+            )
+            .into());
+        }
+        let finalization = async {
+            let network = tunnel.network_parameters();
+            let mut final_profile = profile.clone();
+            final_profile.mtu = network.mtu;
+            if profile.dns_mode == usque_core::DnsMode::Tunnel {
+                final_profile.dns_servers = network.dns_servers;
+            }
+            // Use the immutable bootstrap policy recorded for this operation.
+            let agent_state = self.agent.get_state().await?;
+            let mut plan = *agent_state
+                .plan
+                .ok_or(WindowsVpnError::MissingMasqueRuntime)?;
+            let final_values = tunnel_plan_from_assignment(
+                &final_profile,
+                tunnel.assigned_ipv4(),
+                tunnel.assigned_ipv6(),
+                &[],
+                !profile.geo_direct_countries.is_empty(),
+            );
+            plan.assigned_ipv4 = final_values.assigned_ipv4;
+            plan.assigned_ipv6 = final_values.assigned_ipv6;
+            plan.dns_servers = final_values.dns_servers;
+            plan.split_dns = final_values.split_dns;
+            plan.mtu = final_values.mtu;
+            plan.defer_network_configuration = false;
+            self.agent.finalize_tunnel(self.operation_id, plan).await?;
+            let io = tunnel.attach_tun()?;
+            let handles = self
+                .agent
+                .open_packet_session(self.operation_id, DEFAULT_PACKET_RING_CAPACITY)
+                .await?;
+            let mapping = Arc::new(PacketSessionMapping::attach(handles)?);
+            self.mapping = Some(mapping.clone());
+            self.cancellation = self.lifetime.child_token();
+            self.pump_failure_tx.send_replace(None);
+            self.monitor.tunnel = tunnel.monitor();
+            self.tasks = start_packet_pumps(
+                io,
+                mapping.clone(),
+                self.monitor.tunnel.clone(),
+                self.cancellation.clone(),
+                self.pump_failure_tx.clone(),
+            );
+            self.agent.commit(self.operation_id).await?;
+            if self.liveness.is_none() {
+                let lease = match self.startup_lease.take() {
+                    Some(lease) => {
+                        self.agent
+                            .promote_liveness_lease(self.operation_id, lease)
+                            .await?
+                    }
+                    None => self.agent.open_liveness_lease(self.operation_id).await?,
+                };
+                let (disconnected_tx, disconnected_rx) = watch::channel(false);
+                self.monitor.agent_disconnected = disconnected_rx;
+                self.liveness = Some(tokio_util::task::AbortOnDropHandle::new(
+                    start_agent_liveness_watch(
+                        lease,
+                        mapping,
+                        self.lifetime.clone(),
+                        self.pump_failure_tx.clone(),
+                        disconnected_tx,
+                    ),
+                ));
+            }
+            if profile.frontends.http && profile.proxy.system_proxy && self.system_proxy.is_none() {
+                let listener = loopback_http_listener(tunnel.http_listeners())
+                    .ok_or(WindowsVpnError::MissingSystemProxyListener)?;
+                self.system_proxy = Some(
+                    WindowsSystemProxyGuard::start_for_tunnel(listener, self.operation_id).await?,
+                );
+            }
+            if startup_cancel.is_cancelled() {
+                return Err(TransportError::TunnelClosed.into());
+            }
+            tunnel.activate_final().await?;
+            Ok::<_, WindowsVpnError>(())
+        };
+        let result = tokio::select! {
+            biased;
+            _ = startup_cancel.cancelled() => Err(WindowsVpnError::from(TransportError::TunnelClosed)),
+            result = finalization => result,
+        };
+        if let Err(error) = &result {
+            // Close admission and packet producers before any asynchronous
+            // teardown. Failure handling must not delay the stop boundary.
+            tunnel.quiesce_final();
+            self.cancellation.cancel();
+            if let Some(mapping) = &self.mapping {
+                mapping.signal_shutdown();
+            }
+            let reason = error.gate_failure();
+            tunnel.fail_gate(reason).await;
+            let path = tunnel.path();
+            self.pump_failure_tx.send_replace(Some(match error {
+                WindowsVpnError::Transport(error) => {
+                    WindowsPumpFailure::transport("VPN Gate switch failed", error, path)
+                }
+                _ => WindowsPumpFailure::agent("VPN Gate final network configuration failed"),
+            }));
+        }
+        self.listeners = if result.is_ok() {
+            tunnel.listeners().to_vec()
+        } else {
+            Vec::new()
+        };
+        self.socks5_listeners = if result.is_ok() {
+            tunnel.socks5_listeners().to_vec()
+        } else {
+            Vec::new()
+        };
+        self.http_listeners = if result.is_ok() {
+            tunnel.http_listeners().to_vec()
+        } else {
+            Vec::new()
+        };
+        result.map_err(|error| TransportError::VpnGate(error.gate_failure()).into())
+    }
+
+    pub(crate) fn quiesce_final(&mut self) {
+        if let Some(tunnel) = &mut self.tunnel {
+            tunnel.quiesce_final();
+        }
+        self.listeners.clear();
+        self.socks5_listeners.clear();
+        self.http_listeners.clear();
+    }
+    pub(crate) async fn fail_gate(&mut self, reason: usque_core::vpngate::GateFailure) {
+        self.quiesce_final();
+        if let Some(tunnel) = &mut self.tunnel {
+            tunnel.fail_gate(reason).await;
+        }
+        if let Some(bootstrap) = &mut self.bootstrap {
+            bootstrap.status.failure = Some(reason);
+        }
+    }
+
     /// Wrap an already-running MASQUE session with Wintun/WFP. On failure the
     /// caller receives the live MASQUE runtime back so SOCKS/HTTP survive.
     pub(crate) async fn attach_existing(
         profile: &Profile,
         tunnel: DataPlaneRuntime,
+        device: &WindowsDeviceOwner,
     ) -> Result<Self, (DataPlaneRuntime, WindowsVpnError)> {
         let agent = WindowsAgentClient::production();
         let capabilities = match agent.get_capabilities().await {
@@ -1003,6 +1434,12 @@ impl WindowsVpnRuntime {
         };
         if let Err(error) = validate_capabilities(&capabilities, profile.kill_switch) {
             return Err((tunnel, error));
+        }
+        if profile.vpn_gate.enabled && !capabilities.deferred_network_configuration {
+            return Err((
+                tunnel,
+                WindowsVpnError::MissingCapabilities("deferred_network_configuration".into()),
+            ));
         }
         let state = match agent.connection_state(&capabilities).await {
             Ok(state) => state,
@@ -1017,19 +1454,34 @@ impl WindowsVpnRuntime {
                 },
             ));
         }
+        let device_lease = match device.acquire(&agent, &capabilities).await {
+            Ok(lease) => lease,
+            Err(error) => return Err((tunnel, error)),
+        };
         let registration_api = match resolve_registration_api().await {
             Ok(addresses) => addresses,
             Err(error) => return Err((tunnel, error)),
         };
         let operation_id = Uuid::new_v4();
+        let mut effective = profile.clone();
+        if profile.vpn_gate.enabled {
+            let network = tunnel.network_parameters();
+            effective.mtu = network.mtu;
+            if profile.dns_mode == usque_core::DnsMode::Tunnel {
+                effective.dns_servers = network.dns_servers;
+            }
+        }
         let plan = tunnel_plan_from_assignment(
-            profile,
+            &effective,
             tunnel.assigned_ipv4(),
             tunnel.assigned_ipv6(),
             &registration_api,
             false,
         );
-        let startup_lease = match agent.prepare(operation_id, plan).await {
+        let startup_lease = match agent
+            .prepare(operation_id, plan, &device_lease, state.journal_generation)
+            .await
+        {
             Ok(lease) => lease,
             Err(error) => return Err((tunnel, error)),
         };
@@ -1134,6 +1586,7 @@ impl WindowsVpnRuntime {
         if let Some(mut tunnel) = self.tunnel.take() {
             tunnel.shutdown().await;
         }
+        self.bootstrap = None;
         // The replacement runtime must adopt the same persistent transaction.
         // Drop must therefore not perform a rollback between detach and resume.
         self.transaction_open = false;
@@ -1141,8 +1594,9 @@ impl WindowsVpnRuntime {
     }
 
     pub(crate) async fn shutdown(&mut self) -> Result<(), WindowsVpnError> {
+        self.bootstrap = None;
         // Cut packet forwarding before any Agent RPC. Rollback may need to
-        // restore routes, DNS, WFP, and the adapter, but no user packet may
+        // restore routes, DNS and WFP, but no user packet may
         // remain attached to MASQUE while that cleanup is in progress.
         self.cancel_immediately();
         self.stop_packet_pumps().await;
@@ -1157,9 +1611,7 @@ impl WindowsVpnRuntime {
             None => Ok(()),
         };
         let rollback = if self.transaction_open {
-            self.agent
-                .rollback(self.operation_id, "USER_DISCONNECT")
-                .await
+            self.agent.rollback_for_disconnect(self.operation_id).await
         } else {
             Ok(AgentState::default())
         };
@@ -1171,18 +1623,30 @@ impl WindowsVpnRuntime {
     }
 
     pub(crate) fn cancel_immediately(&mut self) {
+        self.lifetime.cancel();
         if let Some(tunnel) = self.tunnel.as_mut() {
+            tunnel.quiesce_final();
             tunnel.cancel_immediately();
         }
         if let Some(protector) = self.socket_protector.as_ref() {
             protector.monitor_cancel.cancel();
         }
         self.cancel_packet_pumps();
+        // Explicit stop and terminal Gate failure release these leases only
+        // after final forwarding is closed;
+        // recovery cannot be held hostage by the following async shutdown.
+        drop(self.liveness.take());
+        drop(self.startup_lease.take());
     }
 
     fn cancel_packet_pumps(&mut self) {
-        self.mapping.signal_shutdown();
+        if let Some(mapping) = &self.mapping {
+            mapping.signal_shutdown();
+        }
         self.cancellation.cancel();
+        // The waiter handle owns the blocking task itself. Aborting a running
+        // blocking task cannot stop it: signal the event above and retain the
+        // handle until stop_tasks observes its actual exit.
         for task in &self.tasks {
             task.abort();
         }
@@ -1191,7 +1655,7 @@ impl WindowsVpnRuntime {
     async fn stop_packet_pumps(&mut self) {
         // Hot TUN detach must keep the shared MASQUE/proxy runtime alive.
         self.cancel_packet_pumps();
-        stop_tasks(std::mem::take(&mut self.tasks)).await;
+        stop_tasks(&mut self.tasks).await;
     }
 }
 
@@ -1210,6 +1674,37 @@ async fn rollback_startup(
     reason: &'static str,
 ) -> Result<(), WindowsVpnError> {
     agent.rollback(operation_id, reason).await.map(|_| ())
+}
+
+async fn prepare_vpn_protector(
+    agent: &WindowsAgentClient,
+    operation_id: Uuid,
+    registration_api: Vec<SocketAddr>,
+    profile: &Profile,
+    geo_enabled: bool,
+) -> Result<Arc<WindowsVpnSocketProtector>, WindowsVpnError> {
+    let physical_info = agent.get_physical_network_info(operation_id).await?;
+    let dns_servers = physical_dns_endpoints(&physical_info)?;
+    validate_physical_dns(geo_enabled, profile.direct_dns.mode, &dns_servers)?;
+    let generation = physical_info.generation;
+    let protector = Arc::new(WindowsVpnSocketProtector {
+        registration_api,
+        agent: agent.clone(),
+        operation_id,
+        physical: RwLock::new(WindowsPhysicalState {
+            generation,
+            agent_generation: Some(generation),
+            dns_servers,
+            family_mask: physical_info
+                .interfaces
+                .iter()
+                .fold(0, |mask, interface| mask | interface.address_family_mask),
+        }),
+        monitor_cancel: CancellationToken::new(),
+        proxy_mode: AtomicBool::new(false),
+    });
+    start_physical_network_monitor(&protector);
+    Ok(protector)
 }
 
 fn validate_physical_dns(
@@ -1343,7 +1838,8 @@ async fn bind_agent_session(
         }
     };
 
-    let cancellation = CancellationToken::new();
+    let lifetime = CancellationToken::new();
+    let cancellation = lifetime.child_token();
     let (pump_failure_tx, pump_failure) = watch::channel(None);
     let (agent_disconnected_tx, agent_disconnected) = watch::channel(false);
     let listeners = tunnel.listeners().to_vec();
@@ -1361,7 +1857,7 @@ async fn bind_agent_session(
     if !resuming && let Err(error) = agent.commit(operation_id).await {
         mapping.signal_shutdown();
         cancellation.cancel();
-        stop_tasks(tasks).await;
+        stop_tasks(&mut tasks).await;
         tunnel.detach_tun();
         let error = fail_startup(&agent, operation_id, resuming, "COMMIT_FAILED", error).await;
         return Err((tunnel, error));
@@ -1376,7 +1872,7 @@ async fn bind_agent_session(
         Err(error) => {
             mapping.signal_shutdown();
             cancellation.cancel();
-            stop_tasks(tasks).await;
+            stop_tasks(&mut tasks).await;
             tunnel.detach_tun();
             let error = fail_startup(
                 &agent,
@@ -1389,11 +1885,11 @@ async fn bind_agent_session(
             return Err((tunnel, error));
         }
     };
-    tasks.push(start_agent_liveness_watch(
+    let liveness = tokio_util::task::AbortOnDropHandle::new(start_agent_liveness_watch(
         lease,
         Arc::clone(&mapping),
-        cancellation.clone(),
-        pump_failure_tx,
+        lifetime.clone(),
+        pump_failure_tx.clone(),
         agent_disconnected_tx,
     ));
 
@@ -1401,7 +1897,7 @@ async fn bind_agent_session(
         let Some(listener) = loopback_http_listener(&http_listeners) else {
             mapping.signal_shutdown();
             cancellation.cancel();
-            stop_tasks(tasks).await;
+            stop_tasks(&mut tasks).await;
             tunnel.detach_tun();
             let error = fail_startup(
                 &agent,
@@ -1418,7 +1914,7 @@ async fn bind_agent_session(
             Err(error) => {
                 mapping.signal_shutdown();
                 cancellation.cancel();
-                stop_tasks(tasks).await;
+                stop_tasks(&mut tasks).await;
                 tunnel.detach_tun();
                 let error = fail_startup(
                     &agent,
@@ -1443,6 +1939,24 @@ async fn bind_agent_session(
         );
     }
 
+    if let Err(error) = tunnel.activate_final().await {
+        mapping.signal_shutdown();
+        cancellation.cancel();
+        stop_tasks(&mut tasks).await;
+        tunnel.detach_tun();
+        if let Some(mut guard) = system_proxy {
+            let _ = guard.shutdown().await;
+        }
+        let error = fail_startup(
+            &agent,
+            operation_id,
+            resuming,
+            "FINAL_ADMISSION_FAILED",
+            error.into(),
+        )
+        .await;
+        return Err((tunnel, error));
+    }
     Ok(WindowsVpnRuntime {
         agent,
         operation_id,
@@ -1452,16 +1966,29 @@ async fn bind_agent_session(
             agent_disconnected,
         },
         cancellation,
-        mapping,
+        mapping: Some(mapping),
         tasks,
+        lifetime,
+        liveness: Some(liveness),
+        startup_lease: None,
+        pump_failure_tx,
         listeners,
         socks5_listeners,
         http_listeners,
         system_proxy,
         transaction_open: true,
         tunnel: Some(tunnel),
+        bootstrap: None,
         socket_protector: None,
     })
+}
+
+pub(crate) async fn catalogue_physical_network_permitted() -> bool {
+    // Read only. A refresh never starts recovery or changes an Agent policy.
+    WindowsAgentClient::production()
+        .get_state()
+        .await
+        .is_ok_and(|state| state.phase == agent_v1::AgentPhase::Clean as i32)
 }
 
 fn tunnel_plan(
@@ -1470,13 +1997,15 @@ fn tunnel_plan(
     registration_api: &[SocketAddr],
     split_dns: bool,
 ) -> agent_v1::TunnelPlan {
-    tunnel_plan_from_assignment(
+    let mut plan = tunnel_plan_from_assignment(
         profile,
         identity.assigned_ipv4,
         identity.assigned_ipv6,
         registration_api,
         split_dns,
-    )
+    );
+    plan.defer_network_configuration = profile.vpn_gate.enabled;
+    plan
 }
 
 fn tunnel_plan_from_assignment(
@@ -1486,7 +2015,9 @@ fn tunnel_plan_from_assignment(
     registration_api: &[SocketAddr],
     split_dns: bool,
 ) -> agent_v1::TunnelPlan {
-    let split_dns = split_dns || profile.data_plane == usque_core::DataPlaneMode::L4Proxy;
+    let split_dns = split_dns
+        || profile.vpn_gate.enabled && profile.dns_mode == usque_core::DnsMode::Tunnel
+        || profile.data_plane == usque_core::DataPlaneMode::L4Proxy && !profile.vpn_gate.enabled;
     let ipv4 = profile.endpoint.ipv4_socket();
     let ipv6 = profile.endpoint.ipv6_socket();
     let endpoint = match profile.ip_policy {
@@ -1507,7 +2038,13 @@ fn tunnel_plan_from_assignment(
         // Endpoint policy selects the physical MASQUE ingress only. DNS is
         // carried inside CONNECT-IP and remains dual-stack over either ingress.
         dns_servers: if split_dns {
-            vec![SPLIT_DNS_IPV4.to_string(), SPLIT_DNS_IPV6.to_string()]
+            [
+                (!assigned_ipv4.is_unspecified()).then_some(SPLIT_DNS_IPV4.to_string()),
+                (!assigned_ipv6.is_unspecified()).then_some(SPLIT_DNS_IPV6.to_string()),
+            ]
+            .into_iter()
+            .flatten()
+            .collect()
         } else {
             profile
                 .dns_servers
@@ -1522,11 +2059,21 @@ fn tunnel_plan_from_assignment(
             .collect(),
         allow_lan: profile.allow_lan,
         kill_switch: profile.kill_switch,
-        assigned_ipv4: format!("{assigned_ipv4}/32"),
-        assigned_ipv6: format!("{assigned_ipv6}/128"),
+        assigned_ipv4: if assigned_ipv4.is_unspecified() {
+            String::new()
+        } else {
+            format!("{assigned_ipv4}/32")
+        },
+        assigned_ipv6: if assigned_ipv6.is_unspecified() {
+            String::new()
+        } else {
+            format!("{assigned_ipv6}/128")
+        },
         endpoint_candidates,
         control_api_candidates: registration_api.iter().map(ToString::to_string).collect(),
         split_dns,
+        vpn_chain: profile.vpn_gate.enabled,
+        defer_network_configuration: false,
     }
 }
 
@@ -1538,6 +2085,9 @@ fn validate_capabilities(
         return Err(WindowsVpnError::ProtocolVersion(
             capabilities.protocol_version,
         ));
+    }
+    if !capabilities.reusable_tun_device {
+        return Err(WindowsVpnError::DeviceReuseUnsupported);
     }
     let mut missing = Vec::new();
     if !capabilities.wintun {
@@ -1581,27 +2131,11 @@ fn start_packet_pumps(
     let (packet_ready_tx, mut packet_ready_rx) = mpsc::channel(1);
 
     let wait_mapping = Arc::clone(&mapping);
-    let wait_cancel = cancellation.clone();
-    let wait_failure = failure.clone();
-    let wait_task = tokio::spawn(async move {
-        let result = tokio::task::spawn_blocking(move || {
-            wait_for_agent_packets(&wait_mapping, packet_ready_tx)
-        })
-        .await;
-        match result {
-            Ok(Ok(())) => {}
-            Ok(Err(error)) => report_pump_failure(
-                &wait_failure,
-                &wait_cancel,
-                WindowsPumpFailure::agent(error.to_string()),
-            ),
-            Err(error) => report_pump_failure(
-                &wait_failure,
-                &wait_cancel,
-                WindowsPumpFailure::agent(format!("Agent packet wait task failed: {error}")),
-            ),
-        }
-    });
+    let wait_task = spawn_packet_waiter(
+        move || wait_for_agent_packets(&wait_mapping, packet_ready_tx),
+        cancellation.clone(),
+        failure.clone(),
+    );
 
     let pump_mapping = Arc::clone(&mapping);
     let pump_cancel = cancellation.clone();
@@ -1824,6 +2358,24 @@ fn start_agent_liveness_watch(
     })
 }
 
+fn spawn_packet_waiter(
+    wait: impl FnOnce() -> Result<(), WindowsVpnError> + Send + 'static,
+    cancellation: CancellationToken,
+    failure: watch::Sender<Option<WindowsPumpFailure>>,
+) -> JoinHandle<()> {
+    // Return the real blocking task, not an abortable async wrapper whose Drop
+    // would detach a still-running native wait and its mapping/event handles.
+    tokio::task::spawn_blocking(move || {
+        if let Err(error) = wait() {
+            report_pump_failure(
+                &failure,
+                &cancellation,
+                WindowsPumpFailure::agent(error.to_string()),
+            );
+        }
+    })
+}
+
 fn wait_for_agent_packets(
     mapping: &PacketSessionMapping,
     ready: mpsc::Sender<()>,
@@ -1850,12 +2402,34 @@ fn wait_for_agent_packets(
     }
 }
 
-async fn stop_tasks(tasks: Vec<JoinHandle<()>>) {
-    for mut task in tasks {
-        if timeout(PUMP_SHUTDOWN_TIMEOUT, &mut task).await.is_err() {
-            task.abort();
-            let _ = task.await;
+async fn stop_tasks(tasks: &mut Vec<JoinHandle<()>>) {
+    // Borrow each handle until completion so cancellation of this wait does
+    // not detach unfinished work from the runtime. The async pump is joined
+    // first; the blocking waiter then releases its last mapping reference.
+    while let Some(task) = tasks.last_mut() {
+        let result = match timeout(PUMP_SHUTDOWN_TIMEOUT, &mut *task).await {
+            Ok(result) => result,
+            Err(_) => {
+                task.abort();
+                // A started blocking task ignores abort. The grace period is
+                // a reporting deadline, not evidence that its resources died.
+                // Keep cleanup pending until the actual task has returned.
+                tracing::warn!(
+                    recovery_event = "PACKET_PUMPS_JOIN_PENDING",
+                    "Windows packet worker has not exited; retaining pending cleanup"
+                );
+                task.await
+            }
+        };
+        if let Err(error) = result
+            && !error.is_cancelled()
+        {
+            tracing::warn!(
+                recovery_event = "PACKET_PUMP_TASK_PANICKED",
+                "Windows packet worker exited with a panic"
+            );
         }
+        tasks.pop();
     }
 }
 
@@ -2102,12 +2676,25 @@ pub(crate) enum AgentServiceControlError {
 }
 
 #[derive(Clone)]
-struct WindowsAgentClient {
+pub(crate) struct WindowsAgentClient {
     pipe_name: Arc<str>,
     service_controller: Arc<dyn AgentServiceController>,
 }
 
 impl WindowsAgentClient {
+    pub(crate) async fn recovery_preflight(
+        &self,
+        restart_exhausted: bool,
+    ) -> Result<Option<AutomaticRecoveryObservation>, WindowsVpnError> {
+        let capabilities = self.get_capabilities().await?;
+        if capabilities.protocol_version != AGENT_PROTOCOL_VERSION {
+            return Err(WindowsVpnError::ProtocolVersion(
+                capabilities.protocol_version,
+            ));
+        }
+        self.automatic_recovery_preflight(&capabilities, restart_exhausted)
+            .await
+    }
     fn production() -> Self {
         Self {
             pipe_name: Arc::from(AGENT_PIPE_NAME),
@@ -2172,6 +2759,9 @@ impl WindowsAgentClient {
         timeout(budget, async {
             loop {
                 let state = self.get_state().await.map_err(recovery_rpc_error)?;
+                if capabilities.reusable_tun_device && state.device.is_none() {
+                    return Err(WindowsVpnError::DeviceRecoveryRequired);
+                }
                 match agent_v1::AgentPhase::try_from(state.phase) {
                     Ok(agent_v1::AgentPhase::Clean) => {
                         require_recovered_state(&state)?;
@@ -2234,7 +2824,7 @@ impl WindowsAgentClient {
         let payload = self
             .call(agent_request::Payload::RestartAutomaticRecovery(
                 RestartAutomaticRecoveryRequest {
-                    operation_id,
+                    operation_id: operation_id.clone(),
                     expected_journal_generation,
                 },
             ))
@@ -2242,7 +2832,46 @@ impl WindowsAgentClient {
         let agent_response::Payload::State(state) = payload else {
             return Err(WindowsVpnError::RecoveryFailed);
         };
+        if state.journal_generation < expected_journal_generation
+            || (state.phase != agent_v1::AgentPhase::Clean as i32
+                && state.operation_id != operation_id)
+        {
+            return Err(WindowsVpnError::RecoveryConflict);
+        }
         automatic_recovery_observation(&state)
+    }
+
+    /// Shared by explicit Connect/Retry and observation-only internal connects.
+    /// There is deliberately no loop: one request can reset the budget once.
+    async fn automatic_recovery_preflight(
+        &self,
+        capabilities: &AgentCapabilities,
+        restart_exhausted: bool,
+    ) -> Result<Option<AutomaticRecoveryObservation>, WindowsVpnError> {
+        if !capabilities.automatic_recovery {
+            return Ok(None);
+        }
+        let state = self.get_state().await?;
+        if state.phase == agent_v1::AgentPhase::Clean as i32 {
+            require_recovered_state(&state)?;
+        }
+        if !matches!(
+            agent_v1::AgentPhase::try_from(state.phase),
+            Ok(agent_v1::AgentPhase::RecoveryRequired | agent_v1::AgentPhase::Recovering)
+        ) {
+            // The runtime's guarded connection_state check still validates
+            // Clean/Active and older Agent transactions before any prepare.
+            return Ok(None);
+        }
+        let observation = automatic_recovery_observation(&state)?;
+        if restart_exhausted && matches!(observation, AutomaticRecoveryObservation::Exhausted(_)) {
+            tracing::info!("Explicit connection requested a new Windows recovery attempt");
+            self.restart_automatic_recovery(state.operation_id, state.journal_generation)
+                .await
+                .map(Some)
+        } else {
+            Ok(Some(observation))
+        }
     }
 
     async fn inspect_platform_state_if_running(&self) -> Result<PlatformState, WindowsVpnError> {
@@ -2324,6 +2953,8 @@ impl WindowsAgentClient {
         &self,
         operation_id: Uuid,
         plan: agent_v1::TunnelPlan,
+        device_lease: &agent_v1::DeviceLease,
+        expected_journal_generation: u64,
     ) -> Result<NamedPipeClient, WindowsVpnError> {
         let mut pipe = self.open_pipe().await?;
         let response = timeout(
@@ -2333,6 +2964,9 @@ impl WindowsAgentClient {
                 agent_request::Payload::PrepareTunnel(PrepareTunnelRequest {
                     operation_id: operation_id.to_string(),
                     plan: Some(plan),
+                    device_lease_id: device_lease.lease_id.clone(),
+                    device_lease_generation: device_lease.lease_generation,
+                    expected_journal_generation,
                 }),
             ),
         )
@@ -2400,7 +3034,10 @@ impl WindowsAgentClient {
             .await?
         {
             agent_response::Payload::State(state)
-                if state.phase == agent_v1::AgentPhase::Active as i32 =>
+                if matches!(
+                    agent_v1::AgentPhase::try_from(state.phase),
+                    Ok(agent_v1::AgentPhase::Active | agent_v1::AgentPhase::Prepared)
+                ) && state.operation_id == operation_id.to_string() =>
             {
                 Ok(state)
             }
@@ -2450,6 +3087,86 @@ impl WindowsAgentClient {
         }
     }
 
+    async fn begin_chain_transition(
+        &self,
+        operation_id: Uuid,
+    ) -> Result<AgentState, WindowsVpnError> {
+        match self
+            .call(agent_request::Payload::BeginChainTransition(
+                agent_v1::BeginChainTransitionRequest {
+                    operation_id: operation_id.to_string(),
+                    retain_startup_lease: false,
+                },
+            ))
+            .await?
+        {
+            agent_response::Payload::State(state) => Ok(state),
+            payload => Err(WindowsVpnError::UnexpectedResponse(payload_name(&payload))),
+        }
+    }
+
+    async fn begin_chain_transition_lease(
+        &self,
+        operation_id: Uuid,
+    ) -> Result<NamedPipeClient, WindowsVpnError> {
+        let mut pipe = self.open_pipe().await?;
+        let response = timeout(
+            AGENT_RPC_TIMEOUT,
+            self.exchange(
+                &mut pipe,
+                agent_request::Payload::BeginChainTransition(
+                    agent_v1::BeginChainTransitionRequest {
+                        operation_id: operation_id.to_string(),
+                        retain_startup_lease: true,
+                    },
+                ),
+            ),
+        )
+        .await
+        .map_err(|_| WindowsVpnError::RpcTimeout)??;
+        match response {
+            agent_response::Payload::State(state)
+                if state.operation_id == operation_id.to_string()
+                    && matches!(
+                        agent_v1::AgentPhase::try_from(state.phase),
+                        Ok(agent_v1::AgentPhase::Active | agent_v1::AgentPhase::Prepared)
+                    ) =>
+            {
+                Ok(pipe)
+            }
+            agent_response::Payload::State(state) => {
+                Err(WindowsVpnError::UnexpectedAgentPhase(state.phase))
+            }
+            payload => Err(WindowsVpnError::UnexpectedResponse(payload_name(&payload))),
+        }
+    }
+
+    async fn finalize_tunnel(
+        &self,
+        operation_id: Uuid,
+        plan: agent_v1::TunnelPlan,
+    ) -> Result<AgentState, WindowsVpnError> {
+        match self
+            .call(agent_request::Payload::FinalizeTunnel(
+                agent_v1::FinalizeTunnelRequest {
+                    operation_id: operation_id.to_string(),
+                    plan: Some(plan),
+                },
+            ))
+            .await?
+        {
+            agent_response::Payload::State(state)
+                if state.phase == agent_v1::AgentPhase::Prepared as i32 =>
+            {
+                Ok(state)
+            }
+            agent_response::Payload::State(state) => {
+                Err(WindowsVpnError::UnexpectedAgentPhase(state.phase))
+            }
+            payload => Err(WindowsVpnError::UnexpectedResponse(payload_name(&payload))),
+        }
+    }
+
     async fn commit(&self, operation_id: Uuid) -> Result<AgentState, WindowsVpnError> {
         match self
             .call(agent_request::Payload::CommitTunnel(CommitTunnelRequest {
@@ -2466,6 +3183,41 @@ impl WindowsAgentClient {
                 Err(WindowsVpnError::UnexpectedAgentPhase(state.phase))
             }
             payload => Err(WindowsVpnError::UnexpectedResponse(payload_name(&payload))),
+        }
+    }
+
+    async fn rollback_for_disconnect(
+        &self,
+        operation_id: Uuid,
+    ) -> Result<AgentState, WindowsVpnError> {
+        let result = self.rollback(operation_id, "USER_DISCONNECT").await;
+        match result {
+            Err(WindowsVpnError::Remote {
+                ref code,
+                retryable: true,
+                ..
+            }) if code == "AGENT_RECOVERY_FAILED" => {
+                // Wintun/PnP teardown can outlive the synchronous rollback.
+                // Follow the Agent's bounded recovery for this transaction;
+                // never replay the stale failure after it has reached Clean.
+                let state = self.get_state().await?;
+                if state.phase == agent_v1::AgentPhase::Clean as i32 {
+                    require_recovered_state(&state)?;
+                    return Ok(state);
+                }
+                if state.operation_id != operation_id.to_string() {
+                    return Err(WindowsVpnError::RecoveryConflict);
+                }
+                if state.automatic_recovery.is_some() {
+                    return Err(automatic_recovery_connection_error(&state)?);
+                }
+                result
+            }
+            Ok(state) => {
+                require_recovered_state(&state)?;
+                Ok(state)
+            }
+            Err(error) => Err(error),
         }
     }
 
@@ -2649,33 +3401,12 @@ pub(crate) async fn observe_automatic_recovery()
     automatic_recovery_observation(&state)
 }
 
-pub(crate) async fn restart_automatic_recovery_if_needed()
--> Result<Option<AutomaticRecoveryObservation>, WindowsVpnError> {
-    let client = WindowsAgentClient::production();
-    let capabilities = client.get_capabilities().await?;
-    if !capabilities.automatic_recovery {
-        return Ok(None);
-    }
-    let state = client.get_state().await?;
-    if !matches!(
-        agent_v1::AgentPhase::try_from(state.phase),
-        Ok(agent_v1::AgentPhase::RecoveryRequired | agent_v1::AgentPhase::Recovering)
-    ) {
-        return Ok(None);
-    }
-    match automatic_recovery_observation(&state)? {
-        AutomaticRecoveryObservation::Exhausted(_) => client
-            .restart_automatic_recovery(state.operation_id, state.journal_generation)
-            .await
-            .map(Some),
-        AutomaticRecoveryObservation::Blocked(failure) => {
-            Err(WindowsVpnError::AutomaticRecoveryBlocked {
-                message: failure.message,
-            })
-        }
-        observation @ AutomaticRecoveryObservation::Pending { .. } => Ok(Some(observation)),
-        AutomaticRecoveryObservation::Clean => Err(WindowsVpnError::RecoveryConflict),
-    }
+pub(crate) async fn automatic_recovery_preflight(
+    restart_exhausted: bool,
+) -> Result<Option<AutomaticRecoveryObservation>, WindowsVpnError> {
+    WindowsAgentClient::production()
+        .recovery_preflight(restart_exhausted)
+        .await
 }
 
 fn automatic_recovery_observation(
@@ -2789,10 +3520,12 @@ fn payload_name(payload: &agent_response::Payload) -> &'static str {
         agent_response::Payload::PhysicalNetworkInfo(_) => "physical_network_info",
         agent_response::Payload::DirectEgressLease(_) => "direct_egress_lease",
         agent_response::Payload::PlatformState(_) => "platform_state",
+        agent_response::Payload::DeviceLease(_) => "device_lease",
     }
 }
 
 fn require_recovered_state(state: &AgentState) -> Result<(), WindowsVpnError> {
+    device_owner::require_idle_device(state)?;
     if state.phase == agent_v1::AgentPhase::Clean as i32
         && !state.packet_session_active
         && !state.kill_switch_active
@@ -2997,6 +3730,14 @@ fn system_proxy_restore_succeeded(
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum WindowsVpnError {
+    #[error(
+        "this Windows Agent cannot reuse TUN devices; update the application and Agent together"
+    )]
+    DeviceReuseUnsupported,
+    #[error("the managed TUN device still requires recovery; no new VPN transaction was started")]
+    DeviceRecoveryRequired,
+    #[error("Windows Agent returned an invalid device lease")]
+    InvalidDeviceLease,
     #[error("Windows Agent I/O failed: {0}")]
     Io(#[from] io::Error),
     #[error("Windows Agent service startup failed: {0}")]
@@ -3095,6 +3836,19 @@ pub(crate) enum WindowsVpnError {
 }
 
 impl WindowsVpnError {
+    fn gate_failure(&self) -> usque_core::vpngate::GateFailure {
+        use usque_core::vpngate::GateFailure;
+        match self {
+            Self::Transport(TransportError::VpnGate(reason)) => *reason,
+            Self::Transport(error) if error.failure(None, None).retryable => GateFailure::Transport,
+            Self::Io(_) | Self::RpcTimeout | Self::PhysicalDnsUnavailable => GateFailure::Transport,
+            Self::Remote {
+                retryable: true, ..
+            } => GateFailure::Transport,
+            _ => GateFailure::Configuration,
+        }
+    }
+
     fn diagnostic_code(&self) -> &'static str {
         match self {
             Self::PhysicalDnsUnavailable => "PHYSICAL_DNS_UNAVAILABLE",
@@ -3127,6 +3881,15 @@ impl WindowsVpnError {
 
 #[cfg(test)]
 mod tests {
+    mod device_tests;
+
+    fn test_device_lease() -> agent_v1::DeviceLease {
+        agent_v1::DeviceLease {
+            lease_id: "00000000-0000-4000-8000-000000000099".into(),
+            lease_generation: 1,
+            journal_generation: 19,
+        }
+    }
     use std::{
         net::{Ipv4Addr, Ipv6Addr},
         sync::{
@@ -3136,6 +3899,222 @@ mod tests {
     };
 
     use tokio::net::windows::named_pipe::ServerOptions;
+
+    // Anonymous memory and events only: no Agent, Wintun DLL or network mutation.
+    fn packet_mapping_fixture() -> Arc<PacketSessionMapping> {
+        use windows_sys::Win32::{
+            Foundation::INVALID_HANDLE_VALUE,
+            System::{
+                Memory::{CreateFileMappingW, PAGE_READWRITE},
+                Threading::CreateEventW,
+            },
+        };
+
+        let capacity = DEFAULT_PACKET_RING_CAPACITY;
+        let bytes = SharedPacketRing::mapped_bytes(capacity).unwrap();
+        // SAFETY: a page-file-backed anonymous mapping, with a validated size;
+        // the returned handle is uniquely owned and closed by OwnedHandle.
+        let mapping = OwnedHandle(unsafe {
+            CreateFileMappingW(
+                INVALID_HANDLE_VALUE,
+                ptr::null(),
+                PAGE_READWRITE,
+                0,
+                bytes.try_into().unwrap(),
+                ptr::null(),
+            )
+        });
+        assert!(!mapping.0.is_null());
+        // SAFETY: the mapping owns at least `bytes` writable bytes.
+        let view =
+            MappedView::new(unsafe { MapViewOfFile(mapping.0, FILE_MAP_ALL_ACCESS, 0, 0, bytes) })
+                .unwrap();
+        // SAFETY: the fresh page-aligned view has exclusive initialization
+        // access, and remains owned alongside its ring until the last Arc drops.
+        let ring =
+            unsafe { SharedPacketRing::initialize(view.pointer(), bytes, capacity) }.unwrap();
+        let event = |manual_reset| {
+            // SAFETY: create an unnamed event with no borrowed attributes/name;
+            // OwnedHandle closes this uniquely owned kernel object.
+            let handle = OwnedHandle(unsafe {
+                CreateEventW(ptr::null(), i32::from(manual_reset), 0, ptr::null())
+            });
+            assert!(!handle.0.is_null());
+            handle
+        };
+        Arc::new(PacketSessionMapping {
+            _mapping: mapping,
+            engine_to_agent_event: event(false),
+            agent_to_engine_event: event(false),
+            shutdown_event: event(true),
+            view,
+            ring,
+        })
+    }
+
+    async fn assert_packet_waiter_joined(abort: bool, observation: Duration) {
+        let mapping = packet_mapping_fixture();
+        let resource = Arc::downgrade(&mapping);
+        let worker_mapping = mapping.clone();
+        let (ready, _receiver) = mpsc::channel(1);
+        let (entered, entering) = tokio::sync::oneshot::channel();
+        let (returned, returning) = tokio::sync::oneshot::channel();
+        let (release, released) = std::sync::mpsc::channel();
+        let (finished, finishing) = tokio::sync::oneshot::channel();
+        let cancellation = CancellationToken::new();
+        let (failure, _) = watch::channel(None);
+        let waiter = spawn_packet_waiter(
+            move || {
+                entered.send(()).unwrap();
+                let result = wait_for_agent_packets(&worker_mapping, ready);
+                returned.send(()).unwrap();
+                // Bound the fixture even if the async assertion panics.
+                let _ = released.recv_timeout(Duration::from_secs(30));
+                drop(worker_mapping);
+                let _ = finished.send(());
+                result
+            },
+            cancellation.clone(),
+            failure,
+        );
+        entering.await.unwrap();
+        mapping.signal_shutdown();
+        cancellation.cancel();
+        returning.await.unwrap();
+        drop(mapping);
+        if abort {
+            waiter.abort();
+        }
+        let mut tasks = vec![waiter];
+        let mut stopping = Box::pin(stop_tasks(&mut tasks));
+        let returned_early = timeout(observation, &mut stopping).await.is_ok();
+        let resource_still_owned = resource.upgrade().is_some();
+        drop(stopping);
+        let task_retained = tasks.len() == 1;
+        release.send(()).unwrap();
+        if !returned_early {
+            stop_tasks(&mut tasks).await;
+        }
+        finishing.await.unwrap();
+        assert!(
+            resource_still_owned,
+            "fixture must delay the actual worker exit"
+        );
+        assert!(!returned_early, "stop must join the actual blocking worker");
+        assert!(
+            task_retained,
+            "cancelled join must retain the real task handle"
+        );
+        assert!(tasks.is_empty());
+        assert!(
+            resource.upgrade().is_none(),
+            "join must release the mapping"
+        );
+    }
+
+    #[tokio::test]
+    async fn packet_waiter_abort_does_not_complete_join_before_worker_exit() {
+        assert_packet_waiter_joined(true, Duration::from_millis(50)).await;
+    }
+
+    #[tokio::test]
+    async fn packet_waiter_timeout_keeps_waiting_for_worker_exit() {
+        assert_packet_waiter_joined(false, PUMP_SHUTDOWN_TIMEOUT + Duration::from_secs(1)).await;
+    }
+
+    #[tokio::test]
+    async fn packet_waiter_shutdown_wakes_idle_and_saturated_notifications() {
+        for saturated in [false, true] {
+            let mapping = packet_mapping_fixture();
+            let worker_mapping = mapping.clone();
+            let (ready, _receiver) = mpsc::channel(1);
+            if saturated {
+                ready.try_send(()).unwrap();
+                // SAFETY: the fixture owns the live notification event.
+                assert_ne!(unsafe { SetEvent(mapping.agent_to_engine_event.0) }, 0);
+            }
+            let (entered, entering) = tokio::sync::oneshot::channel();
+            let (failure, observed_failure) = watch::channel(None);
+            let waiter = spawn_packet_waiter(
+                move || {
+                    entered.send(()).unwrap();
+                    wait_for_agent_packets(&worker_mapping, ready)
+                },
+                CancellationToken::new(),
+                failure,
+            );
+            entering.await.unwrap();
+            mapping.signal_shutdown();
+            timeout(Duration::from_secs(1), stop_tasks(&mut vec![waiter]))
+                .await
+                .expect("manual-reset shutdown must wake the native wait");
+            assert_eq!(Arc::strong_count(&mapping), 1);
+            assert!(observed_failure.borrow().is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn cancelled_prepared_startup_quiesces_before_releasing_its_lease() {
+        let cancel = CancellationToken::new();
+        let producer_cancel = CancellationToken::new();
+        let producer_guard = producer_cancel.clone().drop_guard();
+        let (lease, mut agent) = tokio::io::duplex(64);
+        let mut lease = Some(lease);
+        let (entered, entering) = tokio::sync::oneshot::channel();
+        let startup = async move {
+            let _producer_guard = producer_guard;
+            entered.send(()).unwrap();
+            std::future::pending::<Result<(), TransportError>>().await
+        };
+        let observation = async {
+            entering.await.unwrap();
+            cancel.cancel();
+            assert_eq!(agent.read(&mut [0; 1]).await.unwrap(), 0);
+            assert!(producer_cancel.is_cancelled());
+        };
+        let (result, ()) = timeout(Duration::from_secs(1), async {
+            tokio::join!(
+                await_prepared_gate_startup(&cancel, &mut lease, startup),
+                observation
+            )
+        })
+        .await
+        .expect("lease EOF must not wait for the blocked startup");
+        assert!(matches!(result, Err(TransportError::TunnelClosed)));
+        assert!(lease.is_none());
+    }
+
+    #[tokio::test]
+    async fn prepared_failure_keeps_lease_owned_until_caller_cleanup() {
+        let cancel = CancellationToken::new();
+        let (pipe, mut agent) = tokio::io::duplex(64);
+        let mut lease = Some(pipe);
+        let result = await_prepared_gate_startup(&cancel, &mut lease, async {
+            Err::<(), _>(TransportError::ConnectTimeout)
+        })
+        .await;
+        assert!(matches!(result, Err(TransportError::ConnectTimeout)));
+        lease.as_mut().unwrap().write_all(b"owned").await.unwrap();
+        let mut data = [0; 5];
+        agent.read_exact(&mut data).await.unwrap();
+        assert_eq!(&data, b"owned");
+        drop(lease.take());
+        assert_eq!(agent.read(&mut [0; 1]).await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn already_cancelled_startup_cannot_poll_new_connection_work() {
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        let mut lease = Some(());
+        let result: Result<(), TransportError> =
+            await_prepared_gate_startup(&cancel, &mut lease, async {
+                panic!("cancelled startup must not initiate a new connection");
+            })
+            .await;
+        assert!(matches!(result, Err(TransportError::TunnelClosed)));
+        assert!(lease.is_none());
+    }
 
     #[test]
     fn adapter_recovery_details_keep_only_typed_observations_and_numeric_errors() {
@@ -3271,6 +4250,13 @@ mod tests {
     fn scripted_recovery_client(
         script: Vec<AgentResponse>,
     ) -> (WindowsAgentClient, JoinHandle<Vec<agent_request::Payload>>) {
+        scripted_recovery_client_paused(script, None)
+    }
+
+    fn scripted_recovery_client_paused(
+        script: Vec<AgentResponse>,
+        pause_restart: Option<Arc<(tokio::sync::Notify, tokio::sync::Notify)>>,
+    ) -> (WindowsAgentClient, JoinHandle<Vec<agent_request::Payload>>) {
         let pipe_name = format!("{AGENT_PIPE_NAME}.test-{}", Uuid::new_v4());
         let mut next = ServerOptions::new()
             .first_pipe_instance(true)
@@ -3292,10 +4278,21 @@ mod tests {
                 let request: AgentRequest = decode_frame(frame.freeze()).unwrap();
                 assert_eq!(request.protocol_version, AGENT_PROTOCOL_VERSION);
                 response.request_id = request.request_id;
-                requests.push(request.payload.unwrap());
-                pipe.write_all(&encode_frame(&response).unwrap())
-                    .await
-                    .unwrap();
+                let payload = request.payload.unwrap();
+                if matches!(payload, agent_request::Payload::RestartAutomaticRecovery(_))
+                    && let Some(pause) = &pause_restart
+                {
+                    pause.0.notify_one();
+                    pause.1.notified().await;
+                }
+                requests.push(payload);
+                if let Err(error) = pipe.write_all(&encode_frame(&response).unwrap()).await {
+                    assert!(
+                        pause_restart.is_some(),
+                        "unexpected IPC write failure: {error}"
+                    );
+                    break;
+                }
             }
             requests
         });
@@ -3353,6 +4350,91 @@ mod tests {
         }
     }
 
+    fn pending_adapter_removal_response() -> AgentResponse {
+        AgentResponse {
+            error: Some(agent_v1::AgentError {
+                code: "AGENT_RECOVERY_FAILED".to_owned(),
+                message: "adapter_cleanup stage=Confirm failure=Pending interface=Some(true) device=Some(false)".to_owned(),
+                retryable: true,
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn disconnect_rollback_observes_pending_recovery_and_completed_cleanup() {
+        let operation = Uuid::parse_str("00000000-0000-4000-8000-000000000001").unwrap();
+        for clean in [false, true] {
+            let observed = if clean {
+                recovery_state_response(agent_v1::AgentPhase::Clean)
+            } else {
+                automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Waiting)
+            };
+            let (client, task) =
+                scripted_recovery_client(vec![pending_adapter_removal_response(), observed]);
+            let result = client.rollback_for_disconnect(operation).await;
+            if clean {
+                require_recovered_state(&result.unwrap()).unwrap();
+            } else {
+                assert!(
+                    matches!(result, Err(WindowsVpnError::AutomaticRecoveryPending {
+                    operation_id, journal_generation: 19,
+                }) if operation_id == operation.to_string())
+                );
+            }
+            assert!(matches!(task.await.unwrap().as_slice(), [
+                agent_request::Payload::RollbackTunnel(request), agent_request::Payload::GetState(_),
+            ] if request.operation_id == operation.to_string()));
+        }
+    }
+
+    #[tokio::test]
+    async fn disconnect_rollback_never_admits_conflicting_or_incomplete_agent_state() {
+        let operation = Uuid::parse_str("00000000-0000-4000-8000-000000000001").unwrap();
+        for case in 0..5 {
+            let mut response = match case {
+                0 => automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Waiting),
+                1 => recovery_state_response(agent_v1::AgentPhase::Clean),
+                2 => recovery_state_response(agent_v1::AgentPhase::Active),
+                3 => automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Exhausted),
+                _ => automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Blocked),
+            };
+            let Some(agent_response::Payload::State(state)) = response.payload.as_mut() else {
+                unreachable!()
+            };
+            if case == 0 {
+                state.operation_id = Uuid::new_v4().to_string();
+            }
+            if case == 1 {
+                state.packet_session_active = true;
+            }
+            let (client, task) =
+                scripted_recovery_client(vec![pending_adapter_removal_response(), response]);
+            let result = client.rollback_for_disconnect(operation).await;
+            assert!(result.is_err());
+            assert!(!matches!(
+                result,
+                Err(WindowsVpnError::AutomaticRecoveryPending { .. })
+            ));
+            assert_eq!(task.await.unwrap().len(), 2);
+        }
+    }
+
+    #[tokio::test]
+    async fn disconnect_rollback_preserves_nonretryable_failures_without_polling() {
+        let mut response = pending_adapter_removal_response();
+        response.error.as_mut().unwrap().retryable = false;
+        let (client, task) = scripted_recovery_client(vec![response]);
+        assert!(matches!(
+            client.rollback_for_disconnect(Uuid::new_v4()).await,
+            Err(WindowsVpnError::Remote {
+                retryable: false,
+                ..
+            })
+        ));
+        assert_eq!(task.await.unwrap().len(), 1);
+    }
+
     #[tokio::test]
     async fn guarded_connection_recovery_is_one_compare_and_recover_then_a_fresh_clean_read() {
         let (client, task) = scripted_recovery_client(vec![
@@ -3398,6 +4480,475 @@ mod tests {
             task.await.unwrap().as_slice(),
             [agent_request::Payload::GetState(_)]
         ));
+    }
+
+    #[tokio::test]
+    async fn connect_retry_and_fresh_engine_all_continue_after_exact_recovery_without_duplicate_transaction()
+     {
+        for retry in [false, true] {
+            let (directory, service, profile_id) = recovery_entry_service().await;
+            // Reopen the Engine with the same configuration/vault: recovery
+            // must not depend on a previous in-memory error snapshot.
+            let service = crate::ControlService::open_with_vault(
+                crate::ConfigStore::new(directory.path().join("config.json")),
+                Arc::clone(&service.vault),
+            )
+            .unwrap();
+            let (client, task) = scripted_recovery_client(vec![
+                recovery_capabilities_response(),
+                automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Exhausted),
+                recovery_state_response(agent_v1::AgentPhase::Clean),
+            ]);
+            *service.test_windows_agent.lock().await = Some(client);
+            assert!(service.state.lock().await.snapshot().error.is_none());
+            let connected = if retry {
+                service.retry().await
+            } else {
+                service.connect(profile_id).await
+            }
+            .unwrap();
+            assert_eq!(connected.phase, usque_core::ConnectionPhase::Connected);
+            let generation = service
+                .data_plane
+                .lock()
+                .await
+                .as_ref()
+                .unwrap()
+                .session_generation;
+            assert_eq!(
+                service.connect(profile_id).await.unwrap().phase,
+                usque_core::ConnectionPhase::Connected
+            );
+            assert_eq!(
+                service
+                    .data_plane
+                    .lock()
+                    .await
+                    .as_ref()
+                    .unwrap()
+                    .session_generation,
+                generation
+            );
+            let requests = task.await.unwrap();
+            assert_eq!(
+                requests
+                    .iter()
+                    .filter(|request| matches!(
+                        request,
+                        agent_request::Payload::RestartAutomaticRecovery(_)
+                    ))
+                    .count(),
+                1
+            );
+            service.shutdown().await.unwrap();
+        }
+    }
+
+    fn recovery_capabilities_response() -> AgentResponse {
+        AgentResponse {
+            payload: Some(agent_response::Payload::Capabilities(AgentCapabilities {
+                protocol_version: AGENT_PROTOCOL_VERSION,
+                automatic_recovery: true,
+                ..Default::default()
+            })),
+            ..Default::default()
+        }
+    }
+
+    async fn recovery_entry_service() -> (tempfile::TempDir, crate::ControlService, Uuid) {
+        let directory = tempfile::tempdir().unwrap();
+        let service = crate::ControlService::open_with_vault(
+            crate::ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(crate::tests::MemoryVault::default()),
+        )
+        .unwrap();
+        let mut profile = service.config_snapshot().await.active_profile().unwrap();
+        profile.frontends.tunnel = true;
+        profile.mode = usque_core::OperatingMode::Vpn;
+        profile.proxy.system_proxy = false;
+        let profile_id = profile.id;
+        service.upsert_profile_locked(profile).await.unwrap();
+        service
+            .persist_identity(
+                profile_id,
+                &crate::tests::test_identity(usque_core::IdentityProvider::Consumer, None),
+                None,
+            )
+            .await
+            .unwrap();
+        (directory, service, profile_id)
+    }
+
+    #[tokio::test]
+    async fn connect_and_retry_wait_for_retained_cleanup_before_starting_a_new_session() {
+        for retry in [false, true] {
+            let (_directory, service, profile_id) = recovery_entry_service().await;
+            let (client, requests) = scripted_recovery_client(vec![
+                recovery_capabilities_response(),
+                recovery_state_response(agent_v1::AgentPhase::Clean),
+            ]);
+            *service.test_windows_agent.lock().await = Some(client);
+            let (release, released) = tokio::sync::oneshot::channel();
+            *service.disconnect_cleanup.lock().await = Some(tokio::spawn(async move {
+                released.await.unwrap();
+                Ok(())
+            }));
+            let connecting = async {
+                if retry {
+                    service.retry().await
+                } else {
+                    service.connect(profile_id).await
+                }
+            };
+            tokio::pin!(connecting);
+            assert!(
+                timeout(Duration::from_millis(20), &mut connecting)
+                    .await
+                    .is_err()
+            );
+            assert!(service.data_plane.lock().await.is_none());
+            assert!(!requests.is_finished());
+            release.send(()).unwrap();
+            assert_eq!(
+                connecting.await.unwrap().phase,
+                usque_core::ConnectionPhase::Connected
+            );
+            assert_eq!(requests.await.unwrap().len(), 2);
+            let generation = service
+                .data_plane
+                .lock()
+                .await
+                .as_ref()
+                .unwrap()
+                .session_generation;
+            service.connect(profile_id).await.unwrap();
+            assert_eq!(
+                service
+                    .data_plane
+                    .lock()
+                    .await
+                    .as_ref()
+                    .unwrap()
+                    .session_generation,
+                generation,
+                "a duplicate Connect must keep the existing transaction"
+            );
+            service.shutdown().await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn disconnect_cancels_duplicate_connects_without_losing_pending_cleanup() {
+        let (_directory, service, profile_id) = recovery_entry_service().await;
+        let (client, requests) = scripted_recovery_client(vec![
+            recovery_capabilities_response(),
+            recovery_state_response(agent_v1::AgentPhase::Clean),
+        ]);
+        *service.test_windows_agent.lock().await = Some(client);
+        let (release, released) = tokio::sync::oneshot::channel();
+        *service.disconnect_cleanup.lock().await = Some(tokio::spawn(async move {
+            let _ = released.await;
+            Ok(())
+        }));
+        let mut connects = Vec::new();
+        for _ in 0..2 {
+            let service = service.clone();
+            connects.push(tokio::spawn(
+                async move { service.connect(profile_id).await },
+            ));
+        }
+        timeout(Duration::from_secs(1), async {
+            while service.disconnect_cleanup.try_lock().is_ok() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("Connect must enter its cleanup wait");
+        timeout(Duration::from_secs(1), service.disconnect())
+            .await
+            .expect("Disconnect must cancel the foreground wait without joining cleanup")
+            .unwrap();
+        for connect in connects {
+            assert_eq!(
+                connect.await.unwrap().unwrap().phase,
+                usque_core::ConnectionPhase::Disconnected
+            );
+        }
+        assert!(service.disconnect_cleanup.lock().await.is_some());
+        assert!(!requests.is_finished());
+        release.send(()).unwrap();
+        service.await_disconnect_cleanup().await.unwrap();
+        assert!(service.data_plane.lock().await.is_none());
+        assert!(service.windows_recovery.lock().await.intent.is_none());
+        assert!(service.windows_recovery.lock().await.pending.is_none());
+        service.connect(profile_id).await.unwrap();
+        assert_eq!(requests.await.unwrap().len(), 2);
+        service.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn retained_cleanup_failure_still_prevents_a_new_session() {
+        let (_directory, service, profile_id) = recovery_entry_service().await;
+        let (client, requests) = scripted_recovery_client(vec![]);
+        *service.test_windows_agent.lock().await = Some(client);
+        let (release, released) = tokio::sync::oneshot::channel();
+        *service.disconnect_cleanup.lock().await = Some(tokio::spawn(async move {
+            released.await.unwrap();
+            Err(crate::ControlServiceError::DisconnectCleanup(
+                "fixture failure".into(),
+            ))
+        }));
+        assert!(
+            timeout(
+                Duration::from_millis(10),
+                service.await_disconnect_cleanup()
+            )
+            .await
+            .is_err()
+        );
+        release.send(()).unwrap();
+        let error = service.connect(profile_id).await.unwrap_err();
+        assert_eq!(
+            error.as_structured_error().code,
+            "DISCONNECT_CLEANUP_FAILED"
+        );
+        assert!(service.data_plane.lock().await.is_none());
+        assert!(requests.await.unwrap().is_empty());
+        service.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn connecting_during_recovery_tracks_one_watch_and_internal_reconnect_cannot_reset_exhaustion()
+     {
+        let (_directory, service, profile_id) = recovery_entry_service().await;
+        let (client, task) = scripted_recovery_client(vec![
+            recovery_capabilities_response(),
+            automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Waiting),
+            recovery_capabilities_response(),
+            automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Running),
+            recovery_capabilities_response(),
+            automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Exhausted),
+        ]);
+        *service.test_windows_agent.lock().await = Some(client);
+        assert_eq!(
+            service.connect(profile_id).await.unwrap().phase,
+            usque_core::ConnectionPhase::Reconnecting
+        );
+        assert_eq!(
+            service.connect(profile_id).await.unwrap().phase,
+            usque_core::ConnectionPhase::Reconnecting
+        );
+        assert!(service.data_plane.lock().await.is_none());
+        let error = service.connect_locked(profile_id).await.unwrap_err();
+        assert_eq!(
+            error.as_structured_error().code,
+            "WINDOWS_RECOVERY_EXHAUSTED"
+        );
+        assert!(task.await.unwrap().iter().all(|request| !matches!(
+            request,
+            agent_request::Payload::RestartAutomaticRecovery(_)
+        )));
+        service.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn cancelled_connect_can_finish_cleanup_but_cannot_connect_or_install_a_watch() {
+        for phase in [
+            agent_v1::AgentPhase::Clean,
+            agent_v1::AgentPhase::RecoveryRequired,
+        ] {
+            let (_directory, service, profile_id) = recovery_entry_service().await;
+            let pause = Arc::new((tokio::sync::Notify::new(), tokio::sync::Notify::new()));
+            let final_response = if phase == agent_v1::AgentPhase::Clean {
+                recovery_state_response(phase)
+            } else {
+                automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Waiting)
+            };
+            let (client, task) = scripted_recovery_client_paused(
+                vec![
+                    recovery_capabilities_response(),
+                    automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Exhausted),
+                    final_response,
+                ],
+                Some(Arc::clone(&pause)),
+            );
+            *service.test_windows_agent.lock().await = Some(client);
+            let connect = {
+                let service = service.clone();
+                tokio::spawn(async move { service.connect(profile_id).await })
+            };
+            tokio::time::timeout(Duration::from_secs(2), pause.0.notified())
+                .await
+                .unwrap();
+            service.disconnect().await.unwrap();
+            pause.1.notify_one();
+            connect.await.unwrap().unwrap();
+            assert!(service.data_plane.lock().await.is_none());
+            assert!(service.windows_recovery.lock().await.pending.is_none());
+            assert_eq!(
+                service.state.lock().await.snapshot().phase,
+                usque_core::ConnectionPhase::Disconnected
+            );
+            assert_eq!(task.await.unwrap().len(), 3);
+            service.shutdown().await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn stale_cleanup_result_is_rechecked_and_recovery_failure_is_logged_once_per_request() {
+        use tracing::instrument::WithSubscriber;
+        let (directory, service, profile_id) = recovery_entry_service().await;
+        *service.disconnect_cleanup.lock().await = Some(tokio::spawn(async {
+            Err(crate::ControlServiceError::PlatformRecovery {
+                code: "WINDOWS_RECOVERY_EXHAUSTED",
+                message: "previous shutdown result".to_owned(),
+                retryable: true,
+            })
+        }));
+        let (client, task) = scripted_recovery_client(vec![
+            recovery_capabilities_response(),
+            automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Exhausted),
+            automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Exhausted),
+        ]);
+        *service.test_windows_agent.lock().await = Some(client);
+        let config = directory.path().join("config.json");
+        let subscriber = tracing_subscriber::fmt()
+            .json()
+            .with_writer(crate::logging::LogWriterFactory::open(&config).unwrap())
+            .finish();
+        let response = service
+            .handle(usque_ipc::v1::ControlRequest {
+                request_id: "recovery-entry".to_owned(),
+                payload: Some(usque_ipc::v1::control_request::Payload::Connect(
+                    usque_ipc::v1::ConnectRequest {
+                        profile_id: profile_id.to_string(),
+                    },
+                )),
+            })
+            .with_subscriber(subscriber)
+            .await;
+        assert_eq!(response.error.unwrap().code, "WINDOWS_RECOVERY_EXHAUSTED");
+        assert_eq!(task.await.unwrap().len(), 3);
+        let log =
+            std::fs::read_to_string(crate::logging::log_directory(&config).join("engine.jsonl"))
+                .unwrap();
+        assert_eq!(
+            log.matches("Windows network recovery did not complete")
+                .count(),
+            1
+        );
+        assert!(
+            log.contains("historical_terminal")
+                && log.contains("Explicit connection requested a new Windows recovery attempt")
+        );
+        service.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn preflight_rejects_a_changed_operation_or_regressed_generation() {
+        for wrong_operation in [false, true] {
+            let mut response =
+                automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Waiting);
+            let Some(agent_response::Payload::State(state)) = response.payload.as_mut() else {
+                unreachable!()
+            };
+            if wrong_operation {
+                state.operation_id = Uuid::new_v4().to_string();
+            } else {
+                state.journal_generation = 18;
+            }
+            let (client, task) = scripted_recovery_client(vec![
+                automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Exhausted),
+                response,
+            ]);
+            assert!(matches!(
+                client
+                    .automatic_recovery_preflight(
+                        &AgentCapabilities {
+                            automatic_recovery: true,
+                            ..Default::default()
+                        },
+                        true
+                    )
+                    .await,
+                Err(WindowsVpnError::RecoveryConflict)
+            ));
+            assert_eq!(task.await.unwrap().len(), 2);
+        }
+    }
+
+    #[tokio::test]
+    async fn explicit_preflight_reconciles_exhausted_recovery_without_an_engine_error_snapshot() {
+        let (client, task) = scripted_recovery_client(vec![
+            automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Exhausted),
+            recovery_state_response(agent_v1::AgentPhase::Clean),
+        ]);
+        let result = client
+            .automatic_recovery_preflight(
+                &AgentCapabilities {
+                    automatic_recovery: true,
+                    ..Default::default()
+                },
+                true,
+            )
+            .await
+            .unwrap();
+        assert!(matches!(result, Some(AutomaticRecoveryObservation::Clean)));
+        assert!(matches!(task.await.unwrap().as_slice(), [
+            agent_request::Payload::GetState(_),
+            agent_request::Payload::RestartAutomaticRecovery(request)
+        ] if request.operation_id == "00000000-0000-4000-8000-000000000001"
+            && request.expected_journal_generation == 19));
+    }
+
+    #[tokio::test]
+    async fn preflight_never_restarts_waiting_running_blocked_or_background_recovery() {
+        for (phase, explicit) in [
+            (agent_v1::AutomaticRecoveryPhase::Waiting, true),
+            (agent_v1::AutomaticRecoveryPhase::Running, true),
+            (agent_v1::AutomaticRecoveryPhase::Blocked, true),
+            (agent_v1::AutomaticRecoveryPhase::Exhausted, false),
+        ] {
+            let (client, task) =
+                scripted_recovery_client(vec![automatic_recovery_state_response(phase)]);
+            let result = client
+                .automatic_recovery_preflight(
+                    &AgentCapabilities {
+                        automatic_recovery: true,
+                        ..Default::default()
+                    },
+                    explicit,
+                )
+                .await
+                .unwrap();
+            assert!(result.is_some());
+            assert!(matches!(
+                task.await.unwrap().as_slice(),
+                [agent_request::Payload::GetState(_)]
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn preflight_cannot_reset_the_budget_twice_in_one_request() {
+        let (client, task) = scripted_recovery_client(vec![
+            automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Exhausted),
+            automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Exhausted),
+        ]);
+        assert!(matches!(
+            client
+                .automatic_recovery_preflight(
+                    &AgentCapabilities {
+                        automatic_recovery: true,
+                        ..Default::default()
+                    },
+                    true
+                )
+                .await
+                .unwrap(),
+            Some(AutomaticRecoveryObservation::Exhausted(_))
+        ));
+        assert_eq!(task.await.unwrap().len(), 2);
     }
 
     #[tokio::test]
@@ -3946,6 +5497,7 @@ mod tests {
     #[test]
     fn windows_vpn_requires_the_exact_generation_lease_capability() {
         let mut capabilities = AgentCapabilities {
+            reusable_tun_device: true,
             protocol_version: AGENT_PROTOCOL_VERSION,
             wintun: true,
             interface_addresses: true,
@@ -4106,6 +5658,36 @@ mod tests {
     }
 
     #[test]
+    fn gate_private_dns_is_advertised_through_internal_host_routes_without_geo() {
+        let mut profile = Profile {
+            allow_lan: true,
+            dns_servers: vec!["10.8.0.1".parse().unwrap()],
+            ..Profile::default()
+        };
+        profile.vpn_gate.enabled = true;
+        let plan = tunnel_plan_from_assignment(
+            &profile,
+            "10.8.0.2".parse().unwrap(),
+            Ipv6Addr::UNSPECIFIED,
+            &[],
+            false,
+        );
+        assert!(plan.split_dns);
+        assert_eq!(plan.dns_servers, [SPLIT_DNS_IPV4.to_string()]);
+        assert!(plan.assigned_ipv6.is_empty());
+        profile.dns_mode = usque_core::DnsMode::LocalConfigured;
+        let local = tunnel_plan_from_assignment(
+            &profile,
+            "10.8.0.2".parse().unwrap(),
+            Ipv6Addr::UNSPECIFIED,
+            &[],
+            false,
+        );
+        assert!(!local.split_dns);
+        assert_eq!(local.dns_servers, ["10.8.0.1"]);
+    }
+
+    #[test]
     fn geo_tunnel_plan_publishes_only_internal_split_dns() {
         let profile = Profile {
             mode: OperatingMode::Vpn,
@@ -4191,6 +5773,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn diagnostics_never_start_an_unavailable_agent_and_accept_an_old_response() {
+        let pipe_name = format!("{AGENT_PIPE_NAME}.test-{}", Uuid::new_v4());
+        let controller = Arc::new(StartingTestController {
+            pipe_name: pipe_name.clone(),
+            starts: AtomicUsize::new(0),
+            create_on_call: 1,
+            server: StdMutex::new(None),
+        });
+        let client = WindowsAgentClient::for_test_with_controller(
+            pipe_name,
+            Arc::clone(&controller) as Arc<dyn AgentServiceController>,
+        );
+        assert!(client.inspect_platform_state_if_running().await.is_err());
+        assert_eq!(controller.starts.load(Ordering::Acquire), 0);
+        let (client, task) = scripted_recovery_client(vec![AgentResponse {
+            payload: Some(agent_response::Payload::PlatformState(PlatformState {
+                journal_generation: 19,
+                ..Default::default()
+            })),
+            ..Default::default()
+        }]);
+        let state = client.inspect_platform_state_if_running().await.unwrap();
+        assert_eq!(
+            crate::recovery_diagnostics::summary(Some(&state))["availability"],
+            "extension_unavailable"
+        );
+        assert!(matches!(
+            task.await.unwrap().as_slice(),
+            [agent_request::Payload::InspectPlatformState(_)]
+        ));
+    }
+
+    #[tokio::test]
     async fn missing_pipe_starts_the_service_controller_only_once() {
         let pipe_name = format!("{AGENT_PIPE_NAME}.test-{}", Uuid::new_v4());
         let controller = Arc::new(StartingTestController {
@@ -4227,6 +5842,69 @@ mod tests {
         let pipe = client.open_pipe().await.expect("restarted Agent pipe");
         assert_eq!(controller.starts.load(Ordering::Acquire), 2);
         drop(pipe);
+    }
+
+    #[tokio::test]
+    async fn cancelled_gate_startup_releases_the_actual_prepare_ipc_pipe() {
+        let pipe_name = format!("{AGENT_PIPE_NAME}.test-{}", Uuid::new_v4());
+        let mut server = ServerOptions::new()
+            .first_pipe_instance(true)
+            .create(&pipe_name)
+            .unwrap();
+        let operation = Uuid::new_v4();
+        let server_task = tokio::spawn(async move {
+            server.connect().await.unwrap();
+            let mut header = [0; 4];
+            server.read_exact(&mut header).await.unwrap();
+            let mut payload = vec![0; u32::from_be_bytes(header) as usize];
+            server.read_exact(&mut payload).await.unwrap();
+            let mut frame = BytesMut::from(header.as_slice());
+            frame.extend_from_slice(&payload);
+            let request: AgentRequest = decode_frame(frame.freeze()).unwrap();
+            assert!(matches!(
+                request.payload,
+                Some(agent_request::Payload::PrepareTunnel(_))
+            ));
+            let response = AgentResponse {
+                request_id: request.request_id,
+                payload: Some(agent_response::Payload::State(AgentState {
+                    phase: agent_v1::AgentPhase::Prepared as i32,
+                    operation_id: operation.to_string(),
+                    ..Default::default()
+                })),
+                ..Default::default()
+            };
+            server
+                .write_all(&encode_frame(&response).unwrap())
+                .await
+                .unwrap();
+            match server.read(&mut [0; 1]).await {
+                Ok(0) => {}
+                Err(error) if error.kind() == io::ErrorKind::BrokenPipe => {}
+                other => panic!("expected lease EOF without promotion: {other:?}"),
+            }
+        });
+        let client = WindowsAgentClient::for_test(pipe_name);
+        let mut lease = Some(
+            client
+                .prepare(
+                    operation,
+                    agent_v1::TunnelPlan::default(),
+                    &test_device_lease(),
+                    19,
+                )
+                .await
+                .unwrap(),
+        );
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        let result: Result<(), TransportError> =
+            await_prepared_gate_startup(&cancel, &mut lease, std::future::pending()).await;
+        assert!(matches!(result, Err(TransportError::TunnelClosed)));
+        timeout(Duration::from_secs(1), server_task)
+            .await
+            .unwrap()
+            .unwrap();
     }
 
     #[tokio::test]
@@ -4267,7 +5945,12 @@ mod tests {
         });
         let client = WindowsAgentClient::for_test(pipe_name);
         let startup = client
-            .prepare(operation_id, agent_v1::TunnelPlan::default())
+            .prepare(
+                operation_id,
+                agent_v1::TunnelPlan::default(),
+                &test_device_lease(),
+                19,
+            )
             .await
             .expect("prepare lease");
         let active = client

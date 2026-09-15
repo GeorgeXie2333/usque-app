@@ -197,6 +197,7 @@ class ZeroTrustEnrollmentEditorState extends State<ZeroTrustEnrollmentEditor>
     final valid = _isValid;
     if (_reportedValidity == valid) return;
     _reportedValidity = valid;
+    if (valid) unawaited(widget.controller.cancelZeroTrustLogin());
     widget.onValidityChanged?.call(valid);
   }
 
@@ -278,6 +279,10 @@ class ZeroTrustEnrollmentEditorState extends State<ZeroTrustEnrollmentEditor>
     _emitValidity();
     try {
       final loginUrl = await widget.controller.beginZeroTrustLogin(team);
+      if (!mounted || _normalizedTeam() != team) {
+        await widget.controller.cancelZeroTrustLogin();
+        return;
+      }
       final opened = await launchUrl(
         Uri.parse(loginUrl),
         mode: LaunchMode.externalApplication,
