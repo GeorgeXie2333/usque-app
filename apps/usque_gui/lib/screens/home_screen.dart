@@ -310,6 +310,7 @@ typedef _HeroView = ({
   bool busy,
   String? errorCode,
   String profileName,
+  bool identityReady,
   FrontendSettings frontends,
   bool systemProxy,
   String geoDirect,
@@ -348,6 +349,9 @@ _HeroView _heroView(AppController controller) => (
   busy: controller.busy,
   errorCode: controller.snapshot.errorCode,
   profileName: controller.activeProfile.name,
+  identityReady:
+      controller.identityState(controller.activeProfileId) ==
+      ProfileIdentityState.ready,
   frontends: controller.activeProfile.frontends,
   systemProxy: controller.activeProfile.proxy.systemProxy,
   geoDirect: controller.activeProfile.geoDirectCountries.join(','),
@@ -380,7 +384,17 @@ class _ConnectionHero extends StatelessWidget {
     final theme = Theme.of(context);
     final presentation = ConnectionPresentation.of(view.phase);
     final status = strings.get(presentation.labelKey);
-    final action = strings.get(presentation.actionKey);
+    final error = view.phase == ConnectionPhase.error;
+    final recoveryBlocked =
+        error && view.errorCode == 'WINDOWS_RECOVERY_BLOCKED';
+    final primaryRetry = error && !recoveryBlocked && view.identityReady;
+    final action = strings.get(
+      primaryRetry
+          ? 'retry'
+          : error && !recoveryBlocked && !view.identityReady
+          ? 'configure_identity'
+          : presentation.actionKey,
+    );
     final canAct =
         (!view.busy ||
             view.phase == ConnectionPhase.preparing ||
@@ -388,8 +402,7 @@ class _ConnectionHero extends StatelessWidget {
             view.phase == ConnectionPhase.connectingH2 ||
             view.phase == ConnectionPhase.reconnecting) &&
         view.phase != ConnectionPhase.disconnecting &&
-        !(view.phase == ConnectionPhase.error &&
-            view.errorCode == 'WINDOWS_RECOVERY_BLOCKED');
+        !recoveryBlocked;
     Widget ring(double size) => ConnectionRing(
       phase: view.phase,
       busy: view.busy,
@@ -397,7 +410,11 @@ class _ConnectionHero extends StatelessWidget {
       semanticLabel: '${strings.get('connection_status')}: $status',
       size: size,
       compactControl: compact,
-      onPressed: canAct ? () => _connectOrRepairIdentity(context) : null,
+      onPressed: !canAct
+          ? null
+          : primaryRetry
+          ? controller.retry
+          : () => _connectOrRepairIdentity(context),
     );
     Widget account() => Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -436,7 +453,7 @@ class _ConnectionHero extends StatelessWidget {
       spacing: 8,
       runSpacing: 8,
       children: [
-        if (view.errorCode != 'WINDOWS_RECOVERY_BLOCKED')
+        if (!error)
           OutlinedButton.icon(
             onPressed: view.busy ? null : controller.retry,
             icon: const Icon(LucideIcons.refreshCw),
@@ -498,8 +515,7 @@ class _ConnectionHero extends StatelessWidget {
             statusText(),
             const SizedBox(height: 10),
             _ErrorSlot(controller: controller, strings: strings),
-            if (presentation.recoverable &&
-                view.errorCode != 'WINDOWS_RECOVERY_BLOCKED') ...[
+            if (presentation.recoverable && !error) ...[
               Center(
                 child: OutlinedButton.icon(
                   onPressed: view.busy ? null : controller.retry,

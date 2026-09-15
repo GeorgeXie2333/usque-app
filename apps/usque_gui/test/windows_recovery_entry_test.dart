@@ -22,17 +22,18 @@ void main() {
     });
   });
 
-  testWidgets('primary button connects after an exhausted recovery snapshot', (
+  testWidgets('primary button retries after an exhausted recovery snapshot', (
     tester,
   ) async {
     final engine = FakeEngineClient()..current = exhausted;
     await tester.pumpWidget(UsqueBootstrap(engine: engine));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Connect'));
+    await tester.tap(find.text('Retry'));
     await tester.pumpAndSettle();
     expect(find.text('Connected'), findsOneWidget);
     expect(engine.current.phase, ConnectionPhase.connected);
     expect(engine.calls.where((call) => call == 'connect').length, 1);
+    expect(engine.calls.where((call) => call == 'retry').length, 1);
   });
 
   for (final retry in <bool>[false, true]) {
