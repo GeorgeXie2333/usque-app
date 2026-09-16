@@ -27,6 +27,7 @@ go.work.sum
 !.env.example
 
 # Usque specific
+/AGENTS.md
 config*.json*
 /usque
 usque.exe

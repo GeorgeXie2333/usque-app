@@ -39,7 +39,7 @@ Usque is an independent project. It is not affiliated with, sponsored by, or end
 
 ## Download and install
 
-The release target is **v0.2.7**, a feature and reliability release for Windows and Android. Its tag workflow produces six user-facing installers plus two Windows MSI payloads reserved for automatic updates:
+This checkout describes **v0.2.7**. Check [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) for published versions. The package set has six installers; two additional Windows MSI files are reserved for in-app updates:
 
 | Platform | Minimum OS | Packages |
 | --- | --- | --- |
@@ -55,49 +55,94 @@ See [Installation and removal](docs/INSTALLATION.md) for upgrades, uninstall, re
 
 ## First connection
 
-1. Install a verified official package and open Usque.
-2. Complete the first-run permissions and terms steps. Register a Consumer WARP identity, optionally with a WARP License Key. New WARP Secret imports are not supported.
-3. Choose the outputs you need, then connect from Home. Android requests VPN consent when VPN output is first enabled; SOCKS5/HTTP-only use does not require it.
+1. Install a [verified official package](docs/INSTALLATION.md#verify-before-installing) and open Usque.
+2. Complete the first-run permissions and terms steps. Register a Consumer WARP account, optionally with a WARP License Key. Usque does not accept new WARP Secret imports.
+3. Choose how applications should connect under **Network outputs**, then connect from Home. Android requests VPN consent when VPN is first enabled; SOCKS5/HTTP-only use does not require it.
 
-| Output | What it does |
+| Connection option | When to use it |
 | --- | --- |
-| VPN/TUN | Routes system traffic through the tunnel, subject to your bypass and Android per-app settings. |
-| SOCKS5 | Provides a local TCP/UDP proxy; remote DNS is the default. |
-| HTTP proxy | Provides HTTP CONNECT and ordinary HTTP forwarding. |
-| Windows system proxy | Points Windows at the local HTTP listener; requires HTTP output. |
+| VPN/TUN | Route system traffic through the tunnel, with your bypass and Android per-app rules. |
+| SOCKS5 | Give compatible applications a local TCP/UDP proxy; remote DNS is the default. |
+| HTTP proxy | Give compatible applications a local HTTP proxy, including HTTPS through CONNECT. |
+| Windows system proxy | Point Windows proxy settings at Usque's HTTP proxy; HTTP output must be enabled. |
 
-VPN, SOCKS5, and HTTP are enabled by default on both platforms; Windows system proxy is off. Outputs share one MASQUE transport and can run together. Turning every output off leaves only the transport. Identities are stored per account, with one active account at a time; network settings are shared across accounts.
+VPN, SOCKS5 and HTTP are enabled by default; Windows system proxy is off.
+They share one WARP connection and can run together. Disabling all outputs keeps
+the transport connection but stops providing these application connection options.
+Each account stores its own credentials; only one account connects at a time.
+Network settings are shared by all accounts.
 
 ## Features
 
-- Opt-in [experimental L4 proxy mode](docs/L4_PROXY.md): TCP CONNECT over H3
-  for SOCKS5, HTTP and Windows/Android TUN, with DNS conversion and
-  identity-derived Consumer/Zero Trust SNI. Auto still excludes L4.
+- Optional [WARP → VPN Gate exit](docs/VPN_GATE.md): choose a volunteer TCP server
+  by country in **Proxy → VPN Gate**. VPN, SOCKS5 and HTTP traffic can share that
+  exit, while your explicit direct rules still apply. The feature is off by default.
+- Opt-in [experimental L4 mode](docs/L4_PROXY.md) proxies TCP over HTTP/3.
+  Without VPN Gate, it does not forward ordinary UDP; applications that need UDP
+  may not work. Auto does not select L4.
+- Automatic HTTP/3 connections with HTTP/2 fallback. IPv4 and IPv6 connection
+  attempts help find a reachable endpoint; supported H3 network changes can
+  migrate the connection. See [path behavior](docs/h3-path-infrastructure.md).
+- Full-tunnel VPN, tunneled DNS, Kill Switch, LAN access and custom CIDR bypass rules.
+- Optional country-based direct routing. Download the selected countries' GeoIP
+  data and the global GeoSite catalog separately. Usque uses domain rules when
+  the name is visible, otherwise IP rules; unknown destinations stay in the tunnel.
+- Local [network diagnostics](docs/network-doctor.md) and a Network Quality page
+  showing latency, packet-loss readings and availability, queues and 60-second
+  trends. Standard checks read local state; Deep checks send test requests only
+  after confirmation.
+- Windows tray, single-instance activation, start on boot and close-to-tray;
+  Android Quick Settings tile, launcher shortcuts, boot recovery and TV navigation.
+  Twenty-one languages, with light and dark themes.
+- Consumer WARP Secret export to a file you choose, after confirmation. Usque
+  cannot import that file to restore the account after reinstalling.
 
-- Optional [WARP → VPN Gate exit](docs/VPN_GATE.md): select a TCP server by
-  country in **Proxy → VPN Gate**. Proxied TUN, SOCKS5 and HTTP traffic shares
-  that exit; explicit direct rules remain effective. Disabled by default.
-- Consumer WARP accounts, optional License Key registration, and explicit, confirmed Secret export to a file you choose. Export does not provide an import/restore workflow in Usque.
-- Auto HTTP/3 (QUIC) with HTTP/2 (TLS) fallback and IPv4/IPv6 Happy Eyeballs for the physical path. H3 supports same-family path migration and automatic outer-path PMTU discovery.
-- Full-tunnel VPN, tunneled DNS, Kill Switch, LAN access, and custom CIDR bypass rules.
-- Optional country-based direct routing: separately downloaded per-country GeoIP data and one verified global V2Fly GeoSite catalog. Known names use GeoSite; destinations without a visible name use GeoIP. Unknown destinations stay on MASQUE.
-- A local Network Quality page with RTT, loss availability, queues, PMTU, migration, direct DNS, and 60-second trends. Network Doctor offers read-only Standard checks and explicitly authorized Deep checks.
-- Windows tray, single-instance activation, start on boot, and close-to-tray; Android Quick Settings tile, launcher shortcuts, boot recovery, and TV navigation. Twenty-one language catalogs, plus light and dark themes.
-
-Android per-app proxy is an app-wide include-only setting, not an account setting. When off, all apps use the VPN. When on, only selected apps do; newly installed apps stay outside the tunnel until selected. With Android **Block connections without VPN**, unselected apps are blocked instead of bypassing it.
+Android **Per-app proxy** applies to the whole app, across accounts. When off,
+all apps use the VPN. When on, only selected apps do; newly installed apps must
+be selected. With Android **Block connections without VPN**, unselected apps
+are blocked instead of bypassing the tunnel.
 
 ## Privacy and limits
 
-- WARP endpoint pinning is mandatory; there is no insecure TLS mode. Identity material is kept in Windows Credential Manager or Android Keystore. The Windows UI and Engine are unprivileged; a separate Agent manages privileged network state. Android uses a dedicated `:vpn` process.
-- Proxy listeners default to loopback. Non-loopback listeners have no authentication and display a warning. Proxy-only mode is not a system-wide VPN Kill Switch.
-- Diagnostics are local and redacted, with no analytics or automatic upload; quality history stays in memory. Logs default to INFO and are limited to 7 days or 20 MiB. Never post credentials or raw diagnostic bundles in a public Issue; report vulnerabilities through [SECURITY.md](SECURITY.md).
-- Android's in-app Kill Switch does not survive the VPN process being killed. Use system **Always-on VPN** together with **Block connections without VPN** for that protection; see the [Android installation guidance](docs/INSTALLATION.md#android-and-android-tv).
+- Usque requires the WARP server's public key to match the registered key.
+  There is no option to skip this check. Credentials stay in Windows Credential
+  Manager or Android Keystore. Windows uses a separate Agent for privileged
+  network operations; Android runs the VPN in a dedicated process.
+- Proxies listen on loopback by default. SOCKS5 and HTTP support optional
+  username/password authentication; without configured credentials they require
+  no authentication. Proxy-only mode does not provide a system-wide VPN Kill Switch.
+- Diagnostics are generated locally and redacted. There is no usage analytics
+  or automatic upload, and quality history stays in memory. Logs default to INFO
+  and are limited to 7 days or 20 MiB. Do not post credentials or raw diagnostic
+  bundles in public Issues; report vulnerabilities through [SECURITY.md](SECURITY.md).
+- Android's in-app Kill Switch cannot protect traffic after the VPN process dies.
+  VPN Gate terminal failures also end the connection. To keep apps blocked after
+  the VPN ends, enable both system **Always-on VPN** and **Block connections
+  without VPN**. See [Android setup](docs/INSTALLATION.md#android-and-android-tv).
+- Usque does not combine several paths for extra bandwidth. Some quality readings,
+  including HTTP/2 packet loss and PMTU, are unavailable. A local diagnostic pass
+  does not establish that no traffic leaked or that performance improved.
 
-Direct-country DNS is an explicit choice: **System** (default), **DoH**, or **DoT**. System exposes matching domains to the physical DNS provider; DoH/DoT exposes them to your chosen encrypted resolver, with numeric bootstrap, strict TLS, and no plaintext fallback. Other remote VPN queries use the final tunnel's DNS: WARP normally, or VPN Gate when enabled; explicit local and proxy DNS settings remain available. Application-owned encrypted DNS hides names from Usque, so classification uses GeoIP. Rule downloads still obey Android Lockdown and any surviving Windows Kill Switch while disconnected. See [Direct DNS](docs/encrypted-direct-dns.md).
+### DNS privacy
 
-There is one selected data plane, not multipath bandwidth aggregation. L4 may briefly keep a draining QUIC session during GOAWAY. Either physical endpoint family can carry IPv4 and IPv6 inside CONNECT-IP. Migration is same-family only; automatic PMTU does not raise the configured TUN MTU, and H2 loss and PMTU are N/A. Doctor results do not prove zero externally observed leaks or measured performance gains. Protected-runner validation is optional for publication; missing or failed evidence is never a pass.
+Country-based direct rules use **System** DNS by default: matching domain queries
+go to the DNS servers on your current network, outside the VPN. You can instead
+choose **DoH** or **DoT** and supply an encrypted resolver's name and IP addresses.
+That resolver receives the queries; connection failures do not switch them to
+plaintext DNS. See [configuration steps and examples](docs/encrypted-direct-dns.md).
 
-Zero Trust enrollment is **experimental**, limited to an organization identity using the existing MASQUE Internet tunnel. It is not production-supported Cloudflare One Client compatibility. Read its [scope and validation requirements](docs/ZERO_TRUST_EXPERIMENTAL.md) before using it. macOS source is retained but not built or released; iOS, store distribution, and a public CLI are outside the current release scope.
+Other remote VPN queries use the final tunnel's DNS: WARP normally, or VPN Gate
+when enabled. Explicit local and proxy DNS settings still apply. Apps that use
+their own encrypted DNS hide domain names from Usque, so direct routing uses IP
+rules. Rule downloads also respect Android Lockdown and any remaining Windows
+Kill Switch while disconnected.
+
+### Experimental and unsupported features
+
+[Zero Trust enrollment](docs/ZERO_TRUST_EXPERIMENTAL.md) is experimental. It uses
+an organization identity for the MASQUE Internet tunnel and does not provide full
+Cloudflare One Client compatibility. macOS source is retained but not built or
+released. iOS, store distribution and a public CLI are outside this release's scope.
 
 ## Default network settings
 

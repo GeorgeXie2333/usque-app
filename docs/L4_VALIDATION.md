@@ -8,6 +8,10 @@ Validation date: 2026-09-09. Scope: this uncommitted working tree on a Windows
 development machine. This is a development record, not signed release evidence
 or a claim about real Cloudflare throughput/leak safety.
 
+This record does not identify a complete source snapshot for the uncommitted
+changes. The results cannot be assigned to a later commit or reproduced from
+the date and test counts alone.
+
 ## Completed checks
 
 | Check | Result |

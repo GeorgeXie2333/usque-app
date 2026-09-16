@@ -90,46 +90,11 @@ are not checked in. Windows throughput with the new policy, repeated controlled
 Android throughput, platform lifecycle and externally observed leak validation
 remain `not_run` on this workstation. The change adds no publication gate.
 
-## Workstation validation, 2026-09-10
+## Validation records
 
-This records the consolidated working-tree candidate based on `5aa24a9`, including
-the receive observations, production default, retired build controls, UTF-8
-boundary tests and contextual L4 hint/localization coverage. It is not a signed
-artifact or protected-runner report. SDK paths were resolved locally;
-Flutter 3.44.7 revision `84fc5cbb223bc12f83d65b647ff8a56caf779ffd`, Java 17 and
-the pinned NDK/CMake were used. All Cargo actions below use locked dependencies.
-
-| Command / sequence | Result |
-| --- | --- |
-| `cargo fmt --all --check` | Passed |
-| `tool/build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction clippy` | Passed |
-| Same helper with `-CargoAction test` | 932 passed, 2 existing live tests ignored |
-| Same helper's default release build | Passed, compile-only |
-| `tool/build_android_rust.ps1 -AbiFilter arm64-v8a -CargoAction clippy` | Passed; no receive-experiment features |
-| `flutter pub get --enforce-lockfile`; `dart format --output=none --set-exit-if-changed lib test`; `flutter analyze --no-pub`; `flutter test --no-pub` | Passed; 425 tests including Windows goldens and all-locale transport-hint lookup |
-| `tool/prepare_windows_plugin_junctions.ps1 -FlutterProject .`; `flutter build windows --release --no-pub` from the GUI directory | Passed, compile-only; helper invoked via `../../tool/` |
-| `flutter build apk --debug --config-only --no-pub`; `gradlew.bat --no-daemon :app:ktlintCheck`; `gradlew.bat --no-daemon :app:testDebugUnitTest :app:lintDebug` | Passed; 176 Kotlin tests; fixed helper compiled all three debug JNI ABIs with no experiment |
-| `buf lint`; `buf format --exit-code --diff`; `buf breaking --against '.git#ref=5aa24a9' --against-config buf.yaml` | Passed |
-| `py -3 -m ruff check tool`; `py -3 -m ruff format --check tool`; `py -3 -m unittest discover -s tool -p 'test_*.py' -v` | Passed; Ruff 0.16.0, 71 Python tests |
-| `Invoke-ScriptAnalyzer -Path tool -Recurse -Settings tool/PSScriptAnalyzerSettings.psd1`; separate `-IncludeRule PSUseCorrectCasing` pass | PSScriptAnalyzer 1.25.0, both passed without findings |
-| `go mod verify`; `go test ./...` in `oracle/go`; `py -3 tool/verify_oracle_archive.py` | Passed; frozen reference unchanged |
-| `py -3 tool/check_repository_policy.py`; `git diff --check` | Passed |
-
-`tool/check_source.ps1`, after the supported Windows helper initialized the same
-shell, passed Rust, Dart, Flutter, Kotlin and Ruff checks but **did not complete**:
-its forced module import was blocked by the workstation software restriction
-policy for `PSScriptAnalyzer/1.25.0/ScriptAnalyzer.format.ps1xml`. The two separately
-invoked analyzer passes above and Buf checks did complete. No script, analyzer
-module or OS policy was changed to bypass that restriction. No installer or new
-APK was produced, installed or exercised for this promotion.
-
-The mode-selector follow-up passed actual selection, draft preservation,
-unsupported-engine, keyboard/D-pad, semantics, portrait/landscape and 200% text
-tests. All 21 locale catalogs resolve their localized hint in explicit and
-system-language modes. Two new real-font Windows goldens (English light and
-Chinese dark/200%) were visually reviewed; existing baselines were not changed.
-
-The three temporary packaging scripts and five experimental APKs were moved to
-the Windows Recycle Bin after target and artifact-hash checks. They are recoverable
-until that bin is emptied. Their local manifests, checksum files and test notes
-remain unchanged; unrelated historical builds and caches were not removed.
+The [historical experiment record](RECEIVE_BUFFER_EXPERIMENTS.md) retains the
+Android A/B observations and
+[2026-09-10 production-promotion checks](RECEIVE_BUFFER_EXPERIMENTS.md#production-promotion-validation-2026-09-10).
+Those results apply to the recorded working-tree candidate, not to every later
+build. For a new change, run the applicable
+[Contributing checks](../CONTRIBUTING.md#required-checks-by-change-scope).

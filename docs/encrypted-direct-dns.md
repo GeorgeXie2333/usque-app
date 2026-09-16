@@ -1,12 +1,78 @@
-# Encrypted direct DNS contract
+# Direct DNS: System, DoH and DoT
 
-Direct DNS is an explicit Profile choice: physical-system DNS (the legacy
-default), DNS over HTTPS, or DNS over TLS. It changes only Geo-selected direct
-queries. WARP/tunnel DNS, application-owned encrypted DNS, and unrelated
-traffic are not intercepted or decrypted. There are no vendor presets or
-embedded resolver bootstrap addresses.
+Direct DNS controls name lookups for destinations selected by country-based
+direct rules. It is shared across accounts. It does not change other tunnel DNS,
+intercept an application's own encrypted DNS, or decrypt unrelated traffic.
 
-## Configuration and trust
+## Choose a mode
+
+| Mode in the app | Where matching queries go | What you need to configure |
+| --- | --- | --- |
+| Physical system DNS (System, the default) | The DNS servers on your current network, outside the VPN. Those servers can see the queried names. | No custom resolver fields. |
+| DNS over HTTPS (DoH) | The encrypted resolver you choose, over HTTPS. | TLS server name, HTTPS path, port and bootstrap IP addresses. |
+| DNS over TLS (DoT) | The encrypted resolver you choose, over TLS. | TLS server name, port and bootstrap IP addresses. |
+
+The chosen DoH/DoT provider can see the names it resolves. Encryption protects
+the connection to that provider; it does not make queries anonymous to it.
+Usque has no provider presets or embedded resolver addresses.
+
+## Configure direct DNS
+
+1. In **Settings → Countries routed directly**, select the countries and download
+   their GeoIP rules and the global GeoSite catalog, then save the selection.
+   If no direct-country rule matches, these DNS settings are not used.
+2. Open **Settings → Advanced network settings → Direct DNS**.
+3. Choose System, DoH or DoT. For an encrypted resolver, enter the values from
+   your DNS provider using the field guide below.
+4. Select **Apply changes**. Editing or resetting fields alone does not apply
+   them. Read the save result and pending-state message; reconnect manually if
+   the change is saved for the next connection.
+5. Check **Network quality → Direct DNS** while connected. To test reachability,
+   run a confirmed [Deep diagnostic](network-doctor.md).
+
+In Simplified Chinese, the relevant pages are **设置 → 直接路由的国家** and
+**设置 → 高级网络设置 → 直连 DNS**. The System option is currently labelled
+**物理网络系统 DNS**.
+
+### Field guide
+
+| Field | What to enter | Format example |
+| --- | --- | --- |
+| TLS server name | The provider's certificate name, without `https://`, a port or a path. Do not enter an IP here. | `resolver.example` |
+| HTTPS path (DoH only) | The provider's path beginning with one slash, without a query string or fragment. | `/dns-query` |
+| Port (0 uses the default) | `443` for default DoH or `853` for default DoT. Use a different port only when specified by the provider. | `443` |
+| Bootstrap IP addresses | One to eight distinct IP addresses for that resolver, preferably one per line. Usque connects to these addresses without first using system DNS to find the server. | `192.0.2.53` and `2001:db8::53` |
+
+These are documentation-only examples, not a working resolver. Replace the
+example name and IPs with your provider's real values. DoT has no HTTPS path.
+The TLS certificate must match the name even though the connection uses a
+numeric IP address.
+
+## If it does not work
+
+- A validation error usually identifies a malformed name, path, port or IP.
+  Correct the field; failed validation does not save a different DNS mode.
+- If the encrypted resolver cannot be reached or authenticated, matching
+  queries fail. Usque does not switch them to System or plaintext DNS.
+  Check the provider's name, IP addresses, path, port and network reachability.
+- If the Engine does not support encrypted direct DNS, saved custom values stay
+  visible but unavailable for use. Use a compatible Engine, or explicitly choose
+  System if that is your intended privacy policy.
+- Apps using their own encrypted DNS hide names from Usque, so country routing
+  uses IP rules. The direct-DNS selector does not control those apps' resolvers.
+
+Other remote VPN queries use the final tunnel's DNS: WARP normally, VPN Gate
+when enabled. Explicit local DNS and proxy DNS settings keep their own scope.
+See the [direct DNS threat model](direct-dns-threat-model.md) for platform
+protection and diagnostic limits.
+
+## Implementation reference
+
+A runtime `Profile` receives a copy of the shared network settings. It is not a
+separate per-account direct-DNS preference. The following sections specify input
+validation, protocol handling and resource ownership.
+
+### Configuration and trust
 
 `DirectDnsSettings` is validated in core before opening a connection. TLS
 server names are IDNA-normalized DNS names, at most 253 characters/ASCII bytes
@@ -36,7 +102,7 @@ lease are dropped before retry. The two-address budget, total query deadline,
 and no-retry-on-timeout policy are unchanged. Both an outer deadline expiry
 and a transport-reported preface I/O timeout preserve the Timeout classification.
 
-## Protocol and semantic validation
+### Protocol and semantic validation
 
 DoH uses HTTP/2 POST, HTTPS authority derived from the configured name/port,
 the configured path and `application/dns-message` for Content-Type and Accept.
@@ -59,7 +125,7 @@ semantic parser is introduced. DNS name decoding is bounded before allocation
 can grow beyond the supported name length. The application's UDP response-size
 limit still applies, independently of encrypted upstream transport.
 
-## Bounds, cancellation and generations
+### Bounds, cancellation and generations
 
 - At most four encrypted DNS sockets/connections, including connecting,
   retiring and Happy Eyeballs losers. Permits live with actual I/O until its
@@ -91,7 +157,7 @@ limit still applies, independently of encrypted upstream transport.
   cannot reuse old connections. Profile shutdown rejects new work and cancels
   old work. Queued application replies recheck generation before injection.
 
-## No plaintext downgrade
+### No plaintext downgrade
 
 Only the physical-system variant can discover physical DNS servers or use
 plain UDP/TCP DNS. An encrypted resolver error returns a fixed error and Split
@@ -108,9 +174,9 @@ Disabling the internal encrypted-DNS capability rejects an encrypted Profile
 before connection. It never rewrites the saved mode or silently substitutes
 physical-system DNS. Users may explicitly change the Profile themselves.
 
-## Privacy and validation limits
+### Privacy and validation limits
 
-### Profile/config schema 13
+#### Profile/config schema 13
 
 `AppConfig.shared_network.direct_dns` is hydrated into each account's runtime
 Profile. Old schema-12 configurations and missing protobuf Profile field 17
@@ -140,5 +206,5 @@ hostname resolution. Existing system-mode truncation/oracle fixtures remain.
 
 These tests are not external leak proof. Actual device/adapter binding,
 observer packet counts and controlled performance evidence require the
-protected environments in `AGENTS.md`. Unavailable runs are `not_run`, never
-pass, and do not become publication prerequisites.
+protected environments in [Contributing](../CONTRIBUTING.md#development-machines). Unavailable runs must be recorded as `not_run`; they do not establish leak or
+performance results.

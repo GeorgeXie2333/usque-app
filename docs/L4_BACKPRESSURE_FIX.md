@@ -1,5 +1,8 @@
 # L4 high-load backpressure and stop follow-up
 
+This historical record describes the reproduced defects and their original fix.
+For current behavior, read [L4 mode](L4_PROXY.md).
+
 ## Reproduced defects
 
 The pinned stack wrapper's bounded `WakingPipeDev` checked TX readiness once,
@@ -79,7 +82,9 @@ The required change-scoped checks are in [CONTRIBUTING](../CONTRIBUTING.md).
 This follow-up is not a performance benchmark or externally observed leak test.
 
 Checks were run on the uncommitted follow-up based on `b0bce7c`. These are
-development results, not signed release evidence:
+development results, not signed release evidence. A complete source snapshot of
+the uncommitted changes is not identified here, so the baseline commit alone
+does not reproduce the tested candidate:
 
 | Check | Result |
 | --- | --- |

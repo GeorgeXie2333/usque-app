@@ -1,6 +1,6 @@
 # Code signing policy
 
-This policy says which Usque packages are signed, who may sign them, and how to tell an official signature from a local or third-party one. How the release workflow loads keys and checks artifacts is in [RELEASE.md](RELEASE.md). How to verify a download is in [INSTALLATION.md](INSTALLATION.md).
+This policy says which Usque packages are signed, who may sign them, and how to tell an official signature from a local or third-party one. How the release workflow loads keys and checks artifacts is in [RELEASE.md](RELEASE.md). For file-hash, signer and build-provenance commands, follow [Verify before installing](INSTALLATION.md#verify-before-installing).
 
 ## Official signatures
 
@@ -61,12 +61,12 @@ Only the release maintainer may approve `release-signing` and `release-publish`.
 
 ## What users should check
 
-Before installing:
-
-1. Download the package from the [GitHub Releases page](https://github.com/GeorgeXie2333/usque-app/releases).
-2. Compare the full package SHA-256 with the digest GitHub shows for that asset.
-3. Compare the signer fingerprint with the value in that release's notes.
-4. Check the GitHub artifact attestation when it is available.
+Follow [Verify before installing](INSTALLATION.md#verify-before-installing) for
+platform-specific commands and the output fields to compare. Check the exact
+filename's package SHA-256 against both `SHA256SUMS` and GitHub's asset digest,
+then compare the certificate's SHA-256 with that release's notes. Package hashes,
+certificate hashes and public-key hashes are different values. The guide also
+shows how to verify GitHub's build attestation.
 
 Do not import a signing certificate from an unofficial package, and do not turn off antivirus or the firewall to make an installer run.
 

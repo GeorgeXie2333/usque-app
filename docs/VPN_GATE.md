@@ -1,12 +1,26 @@
 # WARP → VPN Gate
 
-VPN Gate is an optional final exit for Windows, Android and Android TV. Open
-**Proxy → VPN Gate**, refresh the directory, filter by country, select a TCP
-server, and explicitly save or apply the selection. The switch is off for old
-and new configurations. Selecting a row edits a draft; it does not reconnect.
+VPN Gate lets you choose a volunteer server as the final Internet exit on
+Windows, Android and Android TV. Usque reaches that server through WARP.
+
+## Set up an exit
+
+1. Open **Proxy → VPN Gate** and turn on the VPN Gate switch. It is off by default.
+2. Refresh the directory, filter by country and select a TCP server.
+3. Save or apply the selection using the bottom bar. Selecting a row alone only
+   edits a draft; it does not reconnect.
+4. Check the live connection status to see which server is actually in use.
+
+A terminal VPN Gate failure disconnects the whole chain. On Android, ordinary
+network access resumes after the VPN ends unless system blocking is enabled.
+To keep apps blocked, enable both **Always-on VPN** and **Block connections
+without VPN** as described in [Android setup](INSTALLATION.md#keep-apps-blocked-when-the-vpn-ends).
+Your explicit direct-routing exceptions continue to apply.
 Server selection is available only while the page's VPN Gate switch is on.
 With the switch off, the directory remains browsable and existing selections
 are retained.
+
+## Saved selection and current connection
 
 The current connected server and the draft are separate. An enabled selection
 is device-wide and shared across WARP accounts. A failed apply retains the
@@ -24,7 +38,7 @@ The Home page's **WARP → VPN Gate** title and connection phase open this same
 settings subpage, with the Proxy navigation destination selected. This shortcut
 does not save a selection or change the connection.
 
-## Packet path
+## Connection behavior
 
 ```mermaid
 flowchart LR
@@ -168,7 +182,7 @@ The master switch must be on to select a server, while favorite management
 remains available with it off. Current, saved and pending selections retain
 their own node metadata and configuration hashes.
 
-## Native boundary and verification
+## Native implementation and verification
 
 `usque-openvpn` embeds OpenVPN 3 Core 3.11.7 at
 `18edfae7e7fd8051c93bd4746ec69be91eb02dbb`, C++17 and Mbed TLS 3.6.7. Its C ABI
@@ -309,9 +323,10 @@ The [local implementation validation record](VPN_GATE_VALIDATION.md) lists
 completed commands, the blocked PowerShell check and isolated checks not run.
 
 Real TUN, WFP, routes, leaks, crash recovery and Android device lifecycle must
-be checked in the environments defined by [the safety contract](../AGENTS.md).
+be checked in the environments defined by [the development safety rules](../CONTRIBUTING.md#development-machines).
 They are **not run on a development workstation**. The controlled exit matrix
 must compare TUN/SOCKS5/HTTP traffic against the same selected VPN Gate session,
 then independently exercise direct exceptions, unsupported IPv6, changed
 assignments, WARP loss, Gate loss, node switching and explicit disconnect.
-Missing isolated evidence is not a pass and is not a publication prerequisite.
+Record unavailable isolated validation as `not_run`. The shared validation and
+publication rules are in [Contributing](../CONTRIBUTING.md#development-machines).

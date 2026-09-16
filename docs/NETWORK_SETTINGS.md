@@ -1,7 +1,8 @@
-# Network settings save and application
+# Saving and applying network settings
 
-The network settings contract separates durable settings from the current
-session. Saving is not evidence that platform operations have completed.
+Settings can be saved without changing the current connection. The API reports
+saving and application separately, so the GUI can show whether a change is saved,
+active, waiting for a later connection, or awaiting confirmation.
 
 ## Entry points and ownership
 
@@ -54,6 +55,10 @@ accepted durable acknowledgement is retained for its in-flight request even
 if another snapshot arrives before that request times out.
 
 ## Application rules
+
+A hot change can update the running connection. A cold change requires a
+controlled reconnect. A deferred change is saved for a later manual connection.
+The shared planner decides which category each submitted field belongs to.
 
 Schema 15 adds `data_plane` independently of the saved CONNECT-IP transport
 policy. [Experimental L4](L4_PROXY.md) always uses HTTP/3, preserves the saved
@@ -128,7 +133,7 @@ artifacts are not baseline inputs.
 
 Real VPN lifecycle, WFP, route/DNS/system-proxy restoration, connected
 uninstall, crash recovery, Android device lifecycle, and leak observation
-require the isolated environments in [AGENTS](../AGENTS.md). Workstation
+require the isolated environments in [Contributing](../CONTRIBUTING.md#development-machines). Workstation
 unit and compile checks do not establish those results. No MSI or release
 APK is part of this change.
 
