@@ -111,6 +111,19 @@ tests as well:
 python -m unittest discover -s tool -p "test_release_contract.py" -v
 ```
 
+### Writing documentation
+
+Write user guides around tasks: where to open a feature, what to enter, how to
+apply it, and what success or failure looks like. Use the current interface
+labels and update English and Simplified Chinese product copy together. Link
+to technical references for protocol, resource and lifecycle details.
+
+Current references describe current behavior. Historical records keep their
+original date, candidate, test counts and unavailable checks; if a record does
+not identify the complete tested source, state that limit. Update the
+[documentation index](docs/README.md) when adding a guide or reference. Shared
+safety and release rules remain authoritative when shortening repeated prose.
+
 ### Aggregate source checks
 
 For multi-language changes, the aggregate script collects format and static

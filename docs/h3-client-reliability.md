@@ -1,9 +1,11 @@
 # H3 client receive and recovery behavior
 
-This change retains one data-bearing CONNECT-IP session, CUBIC with pacing,
-the existing endpoint identity/pin policy, and the existing packet/socket
-budgets. It does not enable BBR, UDP offload, larger socket buffers, a new TUN
-MTU, or any host-wide network setting.
+This reference describes CONNECT-IP HTTP/3 receive and recovery behavior.
+One selected CONNECT-IP session carries application traffic; endpoint public-key
+checks and packet/socket budgets still apply. Current algorithm choices are in
+[Congestion control](congestion-control.md), and the shared socket receive-buffer
+default is in [QUIC UDP receive buffer](UDP_RECEIVE_BUFFER.md). The configured
+TUN MTU remains independent of outer-path PMTU discovery.
 
 ## Receive path
 

@@ -1,7 +1,9 @@
 # Network quality implementation baseline
 
-This document freezes the implementation and evidence baseline required by
-`plan.md` PR-00. It describes commit
+This historical record captures PR-00, the baseline stage of the network-quality
+implementation sequence. The original local `plan.md` is not part of the tracked
+documentation; the retained [acceptance matrix](network-quality-acceptance.md)
+maps the later stages and checks. This baseline describes commit
 `3a032e7a56ed3078c58470790893590edbf2062b` on branch `dev`. No runtime or
 product behavior is changed by this baseline.
 
@@ -9,9 +11,8 @@ Baseline ID: `usque-pr00-3a032e7a56ed-20260902`
 
 ## Repository and toolchains
 
-The worktree was clean before this document was added. `git status --short`
-returned no paths; Git only warned that the sandbox could not read the user's
-global ignore file.
+The worktree was clean before this document was added; `git status --short`
+returned no changed paths.
 
 ```text
 git rev-parse HEAD

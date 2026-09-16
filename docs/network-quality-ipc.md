@@ -109,12 +109,19 @@ explicit Profile configuration message where it is required for editing.
 The Quality navigation entry requires the optional build capability. Missing
 capabilities leave old connection controls intact. The process-local controller
 retains at most 300 one-second points and displays an aligned 60-second window.
-Windows and Android share this history with both Home layouts. New engines send
-source observations with monotonic timestamps and sequence numbers. The GUI
+Windows and Android share this history with both Home layouts.
+
+### Source samples and rate calculation
+
+New engines send source observations with monotonic timestamps and sequence
+numbers. The GUI
 deduplicates the ring and computes byte rates from those source counters/times,
 including when delivered by a quality-only event. Cached state counters and
 repaint timers never create source observations. Consecutive sequence numbers,
 valid monotonic intervals and nondecreasing counters are required for a rate.
+
+### Display timing and missing data
+
 The display grid is separate from the rate calculation and follows the source
 monotonic origin. Absent beats are not interpolated. The right edge shows the
 latest complete frame while the next delivery is in flight, then advances when
@@ -127,6 +134,9 @@ valid intervals rather than averaging unequal-duration rates. Counter resets,
 clock rollback, pause, reconnecting state, or stream outages break the rate baseline.
 New connection IDs reset both history and byte-counter baselines. Paused,
 missing and stale samples stay gaps; closing the app does not persist history.
+
+### Refresh ordering and protocol limits
+
 At most one refresh is outstanding, and a late reply cannot restore a previous
 connection after disconnect. Timestamps are range checked and queues capped at
 eight in both codecs. Latest/smoothed/minimum RTT are distinct measurements.
@@ -138,11 +148,15 @@ without clearing the app's separate event-pipe-degraded indication. Android poll
 on fixed monotonic deadlines with bounded early-tick tolerance and skips catch-up
 work; Windows retains its existing fixed-rate, missed-tick-skipping event stream.
 
+### Android wire payload
+
 Android forwards a maximum 16 KiB allowlisted quality JSON object across the
 Messenger/MethodChannel boundary. It retains only fixed numeric fields, eight
 known queues, at most 16 numeric source samples, phase/reason enums, and a valid
 UUIDv4; unknown or malformed values do not become fake zero measurements. Native capability responses are real
 build flags, with safe missing-method behavior for an older JNI library.
+
+### Direct DNS editor compatibility
 
 The custom direct DNS editor has no provider presets or TLS bypass switch.
 Profile validation remains authoritative in the Engine; failed saves restore

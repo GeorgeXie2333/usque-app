@@ -129,8 +129,8 @@ class ReleaseNotesContractTests(unittest.TestCase):
             if line.startswith("- ") and " / " not in line:
                 self.assertTrue(lines[index + 1].startswith("  <br>"), line)
         self.assertLess(
-            rendered.index("is a feature and reliability release"),
-            rendered.index("是一个功能与可靠性版本"),
+            rendered.index("Usque v9.8.7-beta.3 adds optional VPN Gate exits"),
+            rendered.index("Usque v9.8.7-beta.3 新增可选的 VPN Gate 出口"),
         )
 
     def test_rejects_missing_or_unknown_template_tokens(self) -> None:
