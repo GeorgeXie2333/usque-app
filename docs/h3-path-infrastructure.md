@@ -172,5 +172,5 @@ these tests calls native route/WFP mutation APIs on the workstation.
 
 Actual Android bind/protect instrumentation, device/service lifecycle,
 external leak observation, and controlled performance measurements require
-the protected environments from `AGENTS.md`. Without those environments they
+the protected environments from [Contributing](../CONTRIBUTING.md#development-machines). Without those environments they
 are `not_run`, not passes, and the infrastructure tests do not replace them.

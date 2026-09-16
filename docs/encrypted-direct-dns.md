@@ -206,5 +206,5 @@ hostname resolution. Existing system-mode truncation/oracle fixtures remain.
 
 These tests are not external leak proof. Actual device/adapter binding,
 observer packet counts and controlled performance evidence require the
-protected environments in `AGENTS.md`. Unavailable runs must be recorded as `not_run`; they do not establish leak or
+protected environments in [Contributing](../CONTRIBUTING.md#development-machines). Unavailable runs must be recorded as `not_run`; they do not establish leak or
 performance results.

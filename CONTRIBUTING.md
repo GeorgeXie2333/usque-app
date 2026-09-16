@@ -6,9 +6,9 @@ Thanks for helping. This project changes DNS, routes, credentials, and leak prev
 
 ## Before writing code
 
-- Search existing Issues and Pull Requests first.
-- Use a Bug Issue for a reproducible defect and a Feature Issue for a product proposal.
-- Talk through large protocol, privilege, storage, installer, release, or UX changes before building them.
+- Before opening a new Issue or Pull Request, search for an existing one covering the same work.
+- When opening an Issue, use Bug for a reproducible defect and Feature for a product proposal.
+- Resolve open design decisions for large protocol, privilege, storage, installer, release, or UX changes before implementing those decisions. An agreed scope and explicit task authorization do not need repeated confirmation; all safety and release approval rules still apply.
 - Do not use a public Issue for traffic leaks, pin bypasses, credential exposure, privilege bugs, or release-chain problems.
 - Leave the Go oracle snapshot in `oracle/go` and its attribution alone. It is a frozen local reference for interoperability, not a shipping client.
 
@@ -16,18 +16,42 @@ Thanks for helping. This project changes DNS, routes, credentials, and leak prev
 
 On a normal development machine, do not:
 
-- install a generated MSI;
+- install a generated MSI or use `usque-update.exe` to start an upgrade;
+- run `usque-uninstall.exe` against a live ProductCode;
 - start Windows VPN mode or create a TUN/Wintun session;
 - apply WFP filters, routes, interface DNS, or system-proxy changes;
-- run `usque-agent --recover-state`, `--emergency-remove-kill-switch`, or the engine `--purge-user-data` just to test a build.
+- run `usque-agent --recover-state`, `--emergency-remove-kill-switch`, or the engine `--purge-user-data` just to test a build;
+- install or exercise a release APK on a personal or shared Android device;
+- invoke `usque-reliability-runner`, provision its protected labels, or set `USQUE_ISOLATED_SNAPSHOT_VM=1` as a workstation workaround.
 
 Windows VPN, recovery, upgrade, and uninstall tests need a snapshot VM with another way in. Android VPN lifecycle tests need a dedicated device or isolated emulator.
 
+Keep the protected environments distinct:
+
+- `usque-snapshot-vm`: Windows install, upgrade, connected uninstall, crash
+  recovery, platform-state restoration, and Wintun lifecycle.
+- `usque-android-device`: Android device, Doze, process, Always-on, Lockdown,
+  reboot, upgrade, and TV lifecycle.
+- `usque-network-observer`: externally observed IPv4, IPv6, DNS, Kill Switch,
+  route, endpoint, and direct-rule leak behavior.
+- `usque-performance-lab`: controlled repeated resource and performance
+  sampling.
+
+A label or environment variable alone is not proof of isolation. Windows
+destructive tests additionally require a snapshot and independent management
+channel; Android tests require a dedicated device or isolated emulator. Detailed
+runner and evidence contracts are in
+[docs/RELIABILITY_TESTING.md](docs/RELIABILITY_TESTING.md).
+
 These are safe on a development machine: SOCKS5 and HTTP loopback tests, compile-only builds, MSI table/ICE checks, `usque-agent --validate-only`, and `usque-uninstall --dry-run` without a live ProductCode.
 
-How the Windows package uninstalls and when it deletes user data is in [docs/INSTALLATION.md](docs/INSTALLATION.md). Local Windows build traps (MSVC, CMake, Ninja, libclang) are in [AGENTS.md](AGENTS.md).
+How the Windows package uninstalls and when it deletes user data is in [docs/INSTALLATION.md](docs/INSTALLATION.md). Local Windows build traps (MSVC, CMake, Ninja, libclang) are covered under [Windows Rust and MSI authoring](#windows-rust-and-msi-authoring).
 
-If you change privileged networking or the installer and cannot run the isolated tests, say so in the pull request. Do not pretend they passed.
+If you change privileged networking or the installer and cannot run the isolated tests, say so in the pull request. Do not pretend they passed. Protected-runner execution and reports are supplemental and do not gate publication; this does not waive applicable deterministic checks, compile-only gates, or release approvals.
+
+The root `AGENTS.md` is an ignored local configuration file. Keep shared
+development procedures in tracked documentation and avoid linking to local
+instruction files from published documents.
 
 ## Toolchains
 
@@ -236,7 +260,23 @@ Pin external Actions to a full commit SHA and put the human release in a trailin
 
 ### Windows Rust and MSI authoring
 
-Do not run a plain `cargo build --release` in a fresh Windows shell. Use the helper so MSVC, Ninja, CMake, and libclang are set up:
+Do not run a plain `cargo build --release` in a fresh Windows shell. Use the helper so MSVC, Ninja, CMake, and libclang are set up.
+
+With Visual Studio 18 Build Tools, CMake 3.22 cannot name the Visual Studio 18
+generator, so BoringSSL needs the helper's Ninja environment. When editing
+`tool/build_windows_rust_release.ps1`, preserve these invariants:
+
+- call the selected `vcvars*.bat` without `-arch` or `-host_arch`;
+- retain PATH normalization, Ninja selection, and loadable `libclang.dll`
+  discovery;
+- retain imported MSVC/Windows SDK include forwarding for vendored
+  `boring-sys` bindgen.
+
+A cached binding is not clean-shell evidence. After a failed configure, clean
+only `boring-sys` for the affected profile/target; never delete the whole
+`target` tree.
+
+Run the applicable checks and release build through the helper:
 
 ```powershell
 & .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction clippy
@@ -244,7 +284,7 @@ Do not run a plain `cargo build --release` in a fresh Windows shell. Use the hel
 & .\tool\build_windows_rust_release.ps1 -Variant x64-v2
 ```
 
-Why the helper exists is in [AGENTS.md](AGENTS.md). For MSI or installer-bundle work, restore the pinned .NET tool and follow the multilingual CI fixture build. Table, transform, bundle extraction, detach/reattach, and ICE validation are safe; running the bundle or installing the MSI is not.
+For MSI or installer-bundle work, restore the pinned .NET tool and follow the multilingual CI fixture build. Table, transform, bundle extraction, detach/reattach, and ICE validation are safe; running the bundle or installing the MSI is not.
 
 Run ICE validation inside the culture loop for every MSI in both architecture
 sets. `tool/test_windows_msi_localization.ps1 -MsiPath <Japanese fixture MSI>`
@@ -296,7 +336,35 @@ Application assembly and binary inspection are defined in
 not install an MSI, launch VPN mode, or demonstrate cleanup or leak behavior.
 Create a local validation MSI only when explicitly requested and only after
 fresh Rust and Flutter artifacts pass their applicable checks. Follow the
-packaging safety boundary in [AGENTS.md](AGENTS.md).
+requirements in [Local validation packages](#local-validation-packages).
+
+### Local validation packages
+
+Create a local validation MSI only when explicitly requested, after fresh Rust
+and Flutter release artifacts from the same working tree pass all applicable
+checks. Pass the current SemVer shared by `Cargo.toml` and
+`apps/usque_gui/pubspec.yaml`; `tool/build_windows_local_validation.ps1`
+otherwise copies whatever artifacts already exist.
+
+The local packaging script temporarily creates and trusts a self-signed
+identity. It may require approved certificate-store access and removes its key
+and trust entries afterward. Never install, publish, or rename its output to
+look official. Keep the custom installer UI; do not replace it with stock
+`WixUI_InstallDir`.
+
+Release APK builds also require an explicit request. Use
+`tool/build_android_rust.ps1` for JNI builds and the ephemeral build-only
+signing procedure in [Build](.github/workflows/build.yml), never official
+signing material locally. Do not commit generated `jniLibs`. Before delivery,
+verify ABI contents, absence of `kernel_blob.bin` and Vulkan validation layers,
+and the signing-certificate identity.
+
+Official packages come only from the approved tag workflow and exact staged
+candidate. Local artifacts cannot replace a failed job. Accessing signing
+secrets, moving release tags, publishing releases, or uploading artifacts
+requires an explicit request and satisfied approval gates. See
+[docs/CODE_SIGNING.md](docs/CODE_SIGNING.md) and
+[docs/RELEASE.md](docs/RELEASE.md).
 
 ### Go oracle snapshot
 

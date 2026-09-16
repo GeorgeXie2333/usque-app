@@ -203,5 +203,5 @@ Report medians, dispersion and request-level p95/p99, not an unmeasured speedup.
 Live Cloudflare interoperability, real Windows/Android lifecycle, externally
 observed leak safety and controlled performance measurements are **not run on
 a development workstation**. They require the distinct protected environments
-in [AGENTS](../AGENTS.md). Record missing or failed validation as `not_run` or `failed`. Publication policy
+in [Contributing](../CONTRIBUTING.md#development-machines). Record missing or failed validation as `not_run` or `failed`. Publication policy
 is defined in the shared contribution and release guides.

@@ -25,7 +25,7 @@ Release 的说明及标签下文档。历史验收记录只适用于其注明的
 | Document | Read it for / 用途 |
 | --- | --- |
 | [Contributing](../CONTRIBUTING.md) | Toolchain setup and change-scoped checks / 工具链准备与检查矩阵 |
-| [Repository safety contract](../AGENTS.md) | Workstation limits, isolation, and authoritative sources / 开发机安全边界与权威来源 |
+| [Development-machine safety](../CONTRIBUTING.md#development-machines) | Workstation limits, isolation, and evidence requirements / 开发机安全边界与验证要求 |
 | [Implementation progress](IMPLEMENTATION.md) | Source-tree milestones, not proof of a test run / 源码实现进度，不等同于测试通过 |
 | [GUI development](../apps/usque_gui/README.md) | Editing workflows and native UI conventions / 界面交互与布局约定 |
 | [Country flags](COUNTRY_FLAGS.md) | Bundled assets, attribution and update checks / 内置旗帜资源、来源与更新检查 |

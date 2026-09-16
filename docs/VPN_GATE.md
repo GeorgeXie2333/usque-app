@@ -323,7 +323,7 @@ The [local implementation validation record](VPN_GATE_VALIDATION.md) lists
 completed commands, the blocked PowerShell check and isolated checks not run.
 
 Real TUN, WFP, routes, leaks, crash recovery and Android device lifecycle must
-be checked in the environments defined by [the safety contract](../AGENTS.md).
+be checked in the environments defined by [the development safety rules](../CONTRIBUTING.md#development-machines).
 They are **not run on a development workstation**. The controlled exit matrix
 must compare TUN/SOCKS5/HTTP traffic against the same selected VPN Gate session,
 then independently exercise direct exceptions, unsupported IPv6, changed
