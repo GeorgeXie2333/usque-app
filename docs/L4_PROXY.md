@@ -1,9 +1,25 @@
-# Experimental L4 proxy data plane
+# Experimental L4 proxy mode
 
 L4 is an explicit, TCP-only HTTP/3 mode for Windows and Android. It is not
 part of Auto, and it never falls back to CONNECT-IP/H2 or replays established
 TCP connections through a replacement session. The default remains CONNECT-IP
 with Auto (H3, then H2).
+
+## When to use L4
+
+Use L4 when you want TCP proxying over HTTP/3 and understand the application's
+traffic requirements. With L4 alone:
+
+- SOCKS5 and HTTP support TCP connections; SOCKS5 UDP forwarding is unavailable.
+- VPN/TUN accepts TCP. Valid DNS queries on UDP port 53 are converted to TCP DNS,
+  while ordinary UDP and remote ping are not supported.
+- Applications that require UDP may fail rather than switching to TCP.
+- Switching modes or changing TUN use reconnects and ends existing application
+  connections.
+
+An enabled [VPN Gate exit](VPN_GATE.md) can carry application UDP inside its
+additional OpenVPN TCP connection. That does not make the L4 transport itself
+UDP-capable. Existing explicit direct and platform bypass rules retain their scope.
 
 ## Using it
 
@@ -29,7 +45,12 @@ Existing application exit-information requests are unchanged; L4 itself adds
 no automatic destination probe. Doctor's QUIC handshake probe alone does not
 mark CONNECT verified.
 
-## Identity and endpoints
+## Implementation reference
+
+The sections below specify identity, protocol, resource and platform behavior.
+For shared terminology, see the [technical reference index](README.md#technical-reference--技术规范).
+
+### Identity and endpoints
 
 | Loaded credential provider | Effective L4 SNI |
 | --- | --- |
@@ -51,7 +72,7 @@ are in the [L4 interoperability fixture](../crates/usque-transport/tests/fixture
 Live Consumer and Zero Trust reachability must be recorded separately; offline
 fixture success is not a Cloudflare account test.
 
-## Traffic behavior
+### Traffic behavior
 
 - TCP uses classic HTTP/3 CONNECT: only `:method` and `:authority`, followed
   by DATA after final 2xx. No CONNECT-IP address negotiation, extended CONNECT,
@@ -81,7 +102,7 @@ Echo are not transparently supported. Some applications do not fall back from
 UDP/QUIC to TCP. L4 is therefore not a transparent replacement for CONNECT-IP.
 The TUN System-DNS restriction remains unchanged.
 
-## Resource and recovery contract
+### Resource and recovery contract
 
 Each QUIC connection has one actor. It processes bounded round-robin work and
 never waits for a slow client's receive queue. Byte ownership is charged while
@@ -139,7 +160,7 @@ network and QUIC-session generations are checked before publishing results.
 Credentials and endpoint context are immutable within their cancelled runtime
 scope. Account replacement stops the old scope rather than reusing its work.
 
-## Observability and safety
+### Observability and safety
 
 Schema 15 appends the data-plane setting; schema 14 migrates to CONNECT-IP.
 The protobuf/JNI additions report mode, capabilities, CONNECT verification,
@@ -163,7 +184,7 @@ retained for fail-closed recovery unless the user explicitly disconnects.
 `pending_cleanup` includes queued/unconfirmed native stops, and such a snapshot
 does not claim that the native runtime is stopped.
 
-## Validation and performance evidence
+### Validation and performance evidence
 
 Follow the complete applicable matrix in [CONTRIBUTING](../CONTRIBUTING.md).
 Additional safe tests are `l4::actor_tests`, `l4::client_tests`, `l4::tun_tests`,
@@ -182,5 +203,5 @@ Report medians, dispersion and request-level p95/p99, not an unmeasured speedup.
 Live Cloudflare interoperability, real Windows/Android lifecycle, externally
 observed leak safety and controlled performance measurements are **not run on
 a development workstation**. They require the distinct protected environments
-in [AGENTS](../AGENTS.md). Missing/failed evidence remains `not_run`/`failed`,
-never `passed`; these supplemental reports do not become publication prerequisites.
+in [AGENTS](../AGENTS.md). Record missing or failed validation as `not_run` or `failed`. Publication policy
+is defined in the shared contribution and release guides.

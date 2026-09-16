@@ -110,7 +110,9 @@ Protected evidence remains supplemental, not a new publication prerequisite.
 ## Workstation verification, 2026-09-10
 
 This records the working-tree implementation above the stated baseline, not a
-signed release or a protected performance report. Tool versions and full command
+signed release or a protected performance report. The record does not identify
+a complete source snapshot above that baseline; do not assign these results to
+a later commit or treat the baseline alone as the tested candidate. Tool versions and full command
 requirements remain in [CONTRIBUTING.md](../CONTRIBUTING.md). Flutter commands
 used the verified pinned SDK (3.44.7, revision
 `84fc5cbb223bc12f83d65b647ff8a56caf779ffd`) and locked dependency resolution.

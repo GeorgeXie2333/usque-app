@@ -175,7 +175,31 @@ process is force-closed only after Restart Manager's bounded graceful timeout,
 and sets `MSIDISABLERMRESTART=1` so an old process is never relaunched after an
 uninstall or in the middle of a major upgrade.
 
-The build rejects unsigned project EXE/DLL files, a signer mismatch, an unversioned or version-mismatched Agent, PDBs, reparse points, a modified Wintun DLL, a missing `usque-update.exe`, a wrong service command/start type/DACL, an advertised shortcut, a missing maintenance guard, an early related-product removal sequence, a language-sensitive upgrade row, a missing or malformed bundle transform, a visible duplicate Burn uninstall entry, a direct quiet-MSI uninstall registration that would strand Burn, a wrong uninstall action/condition sequence, a 32-bit component, or an ICE failure. The signed update helper reuses the Agent's offline Authenticode verifier and additionally checks the MSI SHA-256, UpgradeCode, mapped stable ProductVersion, summary architecture, and `USQUE_UPDATE_VARIANT` property before starting Windows Installer. True uninstall runs emergency WFP cleanup, journal recovery, optional current-user data cleanup, and clean-state finalization after the service stops and before its binary is removed. A major upgrade runs the first two actions but skips user-data cleanup and clean-state finalization so the replacement service keeps user state and the machine-state directory. The installer UI exposes `INSTALLFOLDER` and stores the chosen path in the 64-bit machine registry for the next major upgrade.
+### Package rejection checks
+
+The release fails if any of these checks fail:
+
+| Area | Rejected package contents or metadata |
+| --- | --- |
+| Binaries | Unsigned project EXE/DLL files, a signer mismatch, an unversioned or version-mismatched Agent, a modified Wintun DLL, or a missing `usque-update.exe`. |
+| Payload layout | PDBs, reparse points or a 32-bit component. |
+| Service and shortcuts | A wrong service command, start type or DACL; an advertised shortcut; or a missing maintenance guard. |
+| Upgrade and removal | Early related-product removal, a language-sensitive upgrade row, or a wrong uninstall action/condition sequence. |
+| Bundle and localization | A missing or malformed language transform, a visible duplicate Burn uninstall entry, a direct quiet-MSI uninstall registration that would leave Burn registered, or an ICE failure. |
+
+The signed update helper uses the Agent's offline Authenticode verifier. Before
+starting Windows Installer it also checks the MSI SHA-256, UpgradeCode, mapped
+stable ProductVersion, summary architecture and `USQUE_UPDATE_VARIANT`.
+
+True uninstall runs emergency WFP cleanup, journal recovery, optional
+current-user data cleanup and clean-state finalization after stopping the service
+and before removing its binary. A major upgrade runs only the first two actions;
+it preserves user data and the machine-state directory for the replacement service.
+
+The installer exposes `INSTALLFOLDER` and records the selected path in the
+64-bit machine registry for the next major upgrade.
+
+### Visible uninstall entry
 
 Uninstall keeps the current user's profiles, preferences, logs, caches, and
 Credential Manager records by default. Settings does not host the MSI wizard,
@@ -185,13 +209,19 @@ also sets `DisableModify=yes` and `DisableRemove=yes`, which keeps its Burn
 registration out of Programs and Features instead of creating a second
 uninstall route. The helper asks for confirmation in the Windows UI language,
 then copies itself out of the install directory before removal begins.
-It resolves the hidden bundle through the architecture-specific stable Burn
+
+### Hidden bundle cleanup
+
+The helper resolves the hidden bundle through the architecture-specific stable Burn
 provider key, requires the cached EXE to remain in its bundle-ID cache directory
 and have the same Authenticode signer, uninstalls the current MSI, then runs the
 cached bundle quietly so Burn removes its own registration and cache.
 Windows Installer and Burn own separate per-machine elevation boundaries, so
 Windows may request administrator approval for each phase; the helper itself
 is never elevated from its user-writable temporary path.
+
+### Quiet uninstall
+
 The registered `QuietUninstallString` embeds the repository's quiet launcher
 in a hidden system PowerShell host. It stages the signed helper, waits for the
 installed staging process to exit, locks the copy against changes, rechecks
@@ -201,11 +231,17 @@ and callers receive failures and reboot requirements instead of asynchronous
 success. Installation paths are passed as process filenames, never script
 source; no execution-policy override is used. Direct `--quiet` from the install
 directory fails closed rather than detaching. The registered command keeps
-data. An administrator may request deletion explicitly; deletion covers
+data.
+
+### Data retention and MSI-only deployments
+
+An administrator may request deletion explicitly; deletion covers
 only that user's Usque directories and credential namespace. A direct
 `msiexec /x` command is reserved for MSI-only deployments because it cannot
 clean an EXE bundle registration. The shared Wintun driver package is not
 removed.
+
+### WiX argument handling
 
 The quiet launcher's fixed executable prefix and quotes are authored in WXS.
 Only its Base64 script token crosses the WiX `-define` command-line boundary;
@@ -215,6 +251,21 @@ Registry value against the trusted launcher, and CI compiles real inert MSIs
 under all three PowerShell 7 argument-passing modes.
 
 User-facing install and uninstall steps are in [INSTALLATION.md](INSTALLATION.md).
+
+## In-app update verification
+
+The app offers only non-prerelease GitHub Releases. It requires the exact update
+MSI (Windows) or APK (Android) and `release-manifest.json` from the same release.
+It streams the package into a private `.part` file, checks the declared size and
+SHA-256, and atomically exposes the completed file. Cancellation and failure
+remove partial downloads; abandoned update packages expire after seven days.
+
+On Windows, **Restart and update** flushes local settings, disconnects the Engine normally, and starts the signed `usque-update.exe` helper. The helper checks the MSI digest, Authenticode signer, UpgradeCode, ProductVersion, architecture, and installed variant before waiting for the GUI to exit and running Windows Installer in passive, no-restart mode. It deletes the MSI at a terminal result and starts the installed application again unless Windows requires a reboot. Validate the real upgrade and failure-recovery paths only in a snapshot-enabled VM.
+
+On Android, **Install update** verifies that the APK stays in Usque's private cache and has the same package name and signing identity, a higher version code, the advertised version, and native code for the running ABI. Android may first open the permission page for installing unknown apps; Usque then submits the APK with `PackageInstaller` and Android shows its normal confirmation UI. Success, failure, cancellation, package replacement, and the next startup all clean the cached APK. Validate this path only on a dedicated phone or TV.
+
+These checks complement the user-facing [update steps](INSTALLATION.md#updates).
+They do not authorize a development workstation to install or exercise a package.
 
 ## Runner isolation boundary
 

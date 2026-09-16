@@ -4,7 +4,9 @@ This is the local development record for `codex/vpngate-exit`, based on
 `80ef61ad66b9f65f92f2a326e1ecf1f01f058096`, with uncommitted implementation
 changes, on 2026-09-12 (Asia/Singapore). It is not a signed candidate report,
 protected-runner result, public-server availability test, or release approval.
-Later source changes require their own applicable checks.
+Later source changes require their own applicable checks. This record does not
+identify a complete source snapshot of those uncommitted changes; the baseline
+commit alone cannot reproduce the candidate that was tested.
 
 ## Environment and commands
 
