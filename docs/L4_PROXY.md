@@ -182,5 +182,5 @@ Report medians, dispersion and request-level p95/p99, not an unmeasured speedup.
 Live Cloudflare interoperability, real Windows/Android lifecycle, externally
 observed leak safety and controlled performance measurements are **not run on
 a development workstation**. They require the distinct protected environments
-in [AGENTS](../AGENTS.md). Missing/failed evidence remains `not_run`/`failed`,
+in [Contributing](../CONTRIBUTING.md#development-machines). Missing/failed evidence remains `not_run`/`failed`,
 never `passed`; these supplemental reports do not become publication prerequisites.

@@ -128,7 +128,7 @@ artifacts are not baseline inputs.
 
 Real VPN lifecycle, WFP, route/DNS/system-proxy restoration, connected
 uninstall, crash recovery, Android device lifecycle, and leak observation
-require the isolated environments in [AGENTS](../AGENTS.md). Workstation
+require the isolated environments in [Contributing](../CONTRIBUTING.md#development-machines). Workstation
 unit and compile checks do not establish those results. No MSI or release
 APK is part of this change.
 
