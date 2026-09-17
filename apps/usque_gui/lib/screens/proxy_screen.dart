@@ -284,11 +284,7 @@ class _ProxyScreenState extends State<ProxyScreen> {
                       ContentSection(
                         icon: LucideIcons.server,
                         title: strings.get('proxy_dns_mode'),
-                        subtitle: strings.get(
-                          profile.dataPlane == DataPlaneMode.l4Proxy
-                              ? 'l4_explanation'
-                              : 'proxy_dns_subtitle',
-                        ),
+                        subtitle: strings.get('proxy_dns_subtitle'),
                         children: [
                           DropdownButtonFormField<ProxyDnsMode>(
                             key: const ValueKey<String>('proxy-dns-mode'),

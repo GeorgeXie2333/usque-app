@@ -106,22 +106,17 @@ const Map<String, String> kNetworkQualityPt = <String, String>{
       'usa reconexão completa.',
   'nq_finding_dns_changed':
       'O modo DNS salvo difere do da conexão em execução.',
-  'nq_finding_dns_runtime':
-      'O DNS criptografado foi bem-sucedido. O estado local não prova a '
-      'ausência de vazamentos externos.',
+  'nq_finding_dns_runtime': 'O DNS criptografado está funcionando.',
   'nq_finding_dns_degraded':
       'O DNS criptografado está degradado; as consultas diretas com falha '
       'não recorrem ao DNS do sistema.',
   'nq_finding_probe_unsafe':
-      'Sonda ignorada: o estado seguro necessário ou a identidade salva '
-      'está indisponível. Um túnel ativo nunca é duplicado.',
-  'nq_finding_probe_success':
-      'A sonda autenticada foi concluída. Isto não é um teste externo de '
-      'vazamento de pacotes.',
-  'nq_finding_probe_cancelled': 'Sonda cancelada e limpeza solicitada.',
-  'nq_finding_probe_timeout': 'A sonda limitada não terminou antes do prazo.',
-  'nq_finding_probe_failed':
-      'A sonda autenticada falhou; nenhum fallback inseguro foi tentado.',
+      'Esta medição não está disponível no estado atual.',
+  'nq_finding_probe_success': 'Esta verificação passou.',
+  'nq_finding_probe_cancelled': 'Esta verificação foi cancelada.',
+  'nq_finding_probe_timeout':
+      'Tempo limite da verificação diagnóstica excedido',
+  'nq_finding_probe_failed': 'Esta verificação falhou.',
   'diag_fix_nq_profile':
       'Revise os campos DNS personalizados e o nome do certificado. Não '
       'desabilite a verificação TLS.',
@@ -155,12 +150,9 @@ const Map<String, String> kNetworkQualityPt = <String, String>{
   'nq_capability_missing':
       'Este Engine não fornece qualidade de rede. Os controles de conexão '
       'existentes continuam funcionando.',
-  'nq_empty':
-      'Conecte para ver as medições. Valores desconhecidos não são '
-      'mostrados como zero.',
+  'nq_empty': 'Conecte-se para ver as medições.',
   'nq_stale_help':
-      'A origem parou de atualizar. Estas são leituras anteriores; as '
-      'lacunas permanecem lacunas.',
+      'As atualizações foram pausadas. Exibindo as últimas leituras.',
   'nq_rtt': 'Tempo de ida e volta',
   'nq_latest': 'Mais recente',
   'nq_smoothed': 'Suavizado',
@@ -296,16 +288,10 @@ const Map<String, String> kNetworkQualityPt = <String, String>{
   'nq_dns_invalid_mode': 'Escolha um modo DNS compatível.',
   'nq_doctor_deep_title': 'Executar verificações aprofundadas de rede?',
   'nq_doctor_deep_body':
-      'As verificações aprofundadas podem enviar uma consulta DNS de teste '
-      'ao resolvedor configurado e validar um caminho QUIC protegido. '
-      'Duram no máximo 15 segundos, podem ser canceladas, nunca criam um '
-      'segundo túnel de dados e nunca alteram o DNS, as rotas, o perfil ou '
-      'o transporte.',
+      'As verificações podem enviar tráfego de teste. Duram até 15 segundos e podem ser canceladas. As configurações de conexão não serão alteradas.',
   'nq_doctor_deep_run': 'Executar verificações aprofundadas',
   'nq_doctor_evidence':
-      'As verificações locais descrevem a configuração e o estado '
-      'observado. Não são uma prova externa de ausência de vazamentos de '
-      'DNS.',
+      'Estas verificações não confirmam se há vazamentos de DNS.',
 };
 
 const Map<String, String> kWindowsRecoveryPt = <String, String>{
@@ -349,7 +335,8 @@ const Map<String, String> kL4Pt = <String, String>{
   'l4_budget_rejections': 'Admissões de recurso rejeitadas',
   'l4_not_applicable': 'Não aplicável (L4)',
   'l4_mode': 'L4 (em fase experimental)',
-  'l4_transport_hint': 'Apenas TCP; o DNS do TUN usa TCP. Auto não inclui L4.',
+  'l4_transport_hint':
+      'Somente TCP. Apps que precisam de UDP podem não funcionar. O modo automático não inclui L4.',
   'l4_explanation':
       'Somente TCP sobre HTTP/3. Compatível com VPN/TUN, SOCKS5 e HTTP; o DNS do TUN é convertido para TCP. O Auto nunca escolhe L4. Outros UDP, ping remoto, fragmentos IP e cabeçalhos de extensão não são compatíveis; alguns aplicativos podem não funcionar.',
   'l4_unsupported':

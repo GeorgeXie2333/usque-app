@@ -90,18 +90,14 @@ const Map<String, String> kNetworkQualityVi = <String, String>{
   'nq_finding_migration_reconnect':
       'Không thể chuyển đường trên đường này; đổi mạng sẽ kết nối lại hoàn toàn.',
   'nq_finding_dns_changed': 'Chế độ DNS đã lưu khác với kết nối đang chạy.',
-  'nq_finding_dns_runtime':
-      'DNS mã hóa đã thành công. Trạng thái cục bộ không phải bằng chứng không rò ra ngoài.',
+  'nq_finding_dns_runtime': 'DNS mã hóa đang hoạt động.',
   'nq_finding_dns_degraded':
       'DNS mã hóa đã suy giảm; truy vấn trực tiếp thất bại không quay về DNS hệ thống.',
-  'nq_finding_probe_unsafe':
-      'Đã bỏ qua đầu dò: thiếu trạng thái an toàn hoặc danh tính đã lưu. Không bao giờ nhân bản đường hầm đang hoạt động.',
-  'nq_finding_probe_success':
-      'Đầu dò đã xác thực hoàn tất. Đây không phải kiểm tra rò gói bên ngoài.',
-  'nq_finding_probe_cancelled': 'Đã hủy đầu dò và yêu cầu dọn dẹp.',
-  'nq_finding_probe_timeout': 'Đầu dò có giới hạn không kịp trước hạn.',
-  'nq_finding_probe_failed':
-      'Đầu dò đã xác thực thất bại; không thử đường không an toàn.',
+  'nq_finding_probe_unsafe': 'Phép đo này không có trong trạng thái hiện tại.',
+  'nq_finding_probe_success': 'Kiểm tra này đã đạt.',
+  'nq_finding_probe_cancelled': 'Kiểm tra này đã bị hủy.',
+  'nq_finding_probe_timeout': 'Kiểm tra chẩn đoán đã hết thời gian chờ',
+  'nq_finding_probe_failed': 'Kiểm tra này thất bại.',
   'diag_fix_nq_profile':
       'Xem lại các trường DNS tùy chỉnh và tên chứng chỉ. Đừng tắt xác minh TLS.',
   'diag_fix_nq_retry': 'Đợi mạng ổn định, rồi thử lại.',
@@ -131,10 +127,8 @@ const Map<String, String> kNetworkQualityVi = <String, String>{
   'nq_unsupported': 'Không được hỗ trợ',
   'nq_capability_missing':
       'Engine này không cung cấp chất lượng mạng. Các điều khiển kết nối hiện có vẫn hoạt động.',
-  'nq_empty':
-      'Kết nối để xem phép đo. Giá trị không rõ không hiện thành số không.',
-  'nq_stale_help':
-      'Nguồn đã ngừng cập nhật. Đây là số liệu trước; chỗ trống vẫn để trống.',
+  'nq_empty': 'Kết nối để xem số liệu đo.',
+  'nq_stale_help': 'Cập nhật đã tạm dừng. Đang hiển thị số liệu gần nhất.',
   'nq_rtt': 'Thời gian khứ hồi',
   'nq_latest': 'Mới nhất',
   'nq_smoothed': 'Đã làm mượt',
@@ -252,10 +246,10 @@ const Map<String, String> kNetworkQualityVi = <String, String>{
   'nq_dns_invalid_mode': 'Chọn chế độ DNS được hỗ trợ.',
   'nq_doctor_deep_title': 'Chạy kiểm tra mạng sâu?',
   'nq_doctor_deep_body':
-      'Kiểm tra sâu có thể gửi truy vấn DNS thử tới bộ phân giải đã cấu hình và xác thực một đường QUIC được bảo vệ. Kéo dài tối đa 15 giây, có thể hủy, không bao giờ tạo đường hầm dữ liệu thứ hai và không bao giờ đổi DNS, tuyến, tài khoản hay truyền tải của bạn.',
+      'Các kiểm tra có thể gửi lưu lượng thử nghiệm. Thời gian tối đa là 15 giây và có thể hủy. Cài đặt kết nối của bạn sẽ không thay đổi.',
   'nq_doctor_deep_run': 'Chạy kiểm tra sâu',
   'nq_doctor_evidence':
-      'Kiểm tra cục bộ mô tả cấu hình và trạng thái quan sát được. Chúng không phải bằng chứng bên ngoài là không rò DNS.',
+      'Các kiểm tra này không thể xác nhận có rò rỉ DNS hay không.',
 };
 
 const Map<String, String> kWindowsRecoveryVi = <String, String>{
@@ -286,7 +280,8 @@ const Map<String, String> kL4Vi = <String, String>{
   'l4_budget_rejections': 'Số lần từ chối cấp tài nguyên',
   'l4_not_applicable': 'Không áp dụng (L4)',
   'l4_mode': 'L4 (thử nghiệm)',
-  'l4_transport_hint': 'Chỉ TCP; DNS của TUN dùng TCP. Auto không bao gồm L4.',
+  'l4_transport_hint':
+      'Chỉ hỗ trợ TCP. Ứng dụng cần UDP có thể không hoạt động. Chế độ tự động không chọn L4.',
   'l4_explanation':
       'Chỉ TCP trên HTTP/3. Hỗ trợ VPN/TUN, SOCKS5 và HTTP; DNS của TUN được chuyển sang TCP. Auto không bao giờ chọn L4. UDP khác, ping từ xa, mảnh IP và header mở rộng không được hỗ trợ; một số ứng dụng có thể không chạy.',
   'l4_unsupported':

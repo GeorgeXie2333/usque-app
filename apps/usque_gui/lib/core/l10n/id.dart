@@ -5,6 +5,12 @@ const Map<String, String> kIdCatalog = <String, String>{
       "Blokir UDP/443 melalui proksi atau terowongan, termasuk protokol lain pada port tersebut. Lalu lintas langsung GEO dan koneksi HTTP/3 Usque tidak terpengaruh. QUIC pada port lain tetap diizinkan. Berlaku tanpa menghubungkan ulang.",
   'disable_quic_unsupported':
       "Perbarui atau mulai ulang mesin untuk menggunakan pengaturan ini.",
+  'technical_details': 'Detail teknis',
+  'diag_skip_disconnected': 'Hubungkan untuk menjalankan pemeriksaan ini.',
+  'diag_skip_disabled': 'Fitur ini dinonaktifkan.',
+  'diag_skip_unsupported': 'Pemeriksaan ini tidak tersedia di perangkat ini.',
+  'diag_skip_traffic': 'Gunakan koneksi, lalu jalankan pemeriksaan ini lagi.',
+  'diag_skip_deep': 'Pilih mode mendalam untuk menjalankan pemeriksaan ini.',
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'Sesi L4 tidak tersedia',
   'diag_fail_L4_PROTOCOL_ERROR': 'Galat protokol L4',
@@ -36,7 +42,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'nav_settings': 'Setelan',
   'status_stream_degraded': 'Pembaruan status langsung terganggu',
   'status_stream_degraded_body':
-      'Pengecekan status berkala aktif; pembaruan langsung akan dicoba lagi secara otomatis.',
+      'Pembaruan status tertunda. Mencoba lagi secara otomatis.',
   'connect': 'Sambungkan',
   'retry': 'Coba lagi',
   'disconnect': 'Putuskan',
@@ -152,7 +158,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'proxy_username': 'Nama pengguna',
   'proxy_password': 'Kata sandi',
   'proxy_password_hint':
-      'Hanya tulis. Masukkan ulang kata sandi untuk mengatur atau mengubah kredensial.',
+      'Masukkan kata sandi untuk mengatur atau mengubah kredensial.',
   'proxy_auth_apply': 'Simpan kredensial',
   'proxy_auth_invalid':
       'Nama pengguna harus 1–255 byte tanpa “:” atau NUL. Kata sandi 1–255 byte wajib jika ada nama pengguna.',
@@ -203,8 +209,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'update_available': 'Rilis yang lebih baru tersedia:',
   'already_latest': 'Instalasi ini sudah yang terbaru.',
   'open_release': 'Buka halaman rilis',
-  'update_startup_description':
-      'Pemeriksaan dilakukan sekali setelah Usque dimulai; kembali ke aplikasi tidak memulai pemeriksaan lagi. Periksa sekarang selalu meminta informasi rilis terbaru.',
+  'update_startup_description': 'Periksa pembaruan saat Usque dimulai.',
   'update_checking': 'Memeriksa pembaruan…',
   'update_downloading': 'Mengunduh paket pembaruan terverifikasi…',
   'update_verifying': 'Memverifikasi paket pembaruan…',
@@ -369,8 +374,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'diag_refresh_timeline': 'Segarkan linimasa',
   'diag_operation_failed': 'Operasi diagnostik gagal',
   'diag_event_stream_degraded': 'Aliran peristiwa diagnostik terputus',
-  'diag_event_stream_degraded_body':
-      'Status sesi sedang dipulihkan dengan polling terbatas; proses tidak akan dimulai ulang.',
+  'diag_event_stream_degraded_body': 'Memulihkan kemajuan diagnosis…',
   'diag_export_included': 'Termasuk:',
   'diag_export_included_body':
       'Kode galat, tahap, waktu relatif, penghitung, dan status boolean',
@@ -386,9 +390,9 @@ const Map<String, String> kIdCatalog = <String, String>{
   'diag_mode_deep': 'Mendalam',
   'diag_deep_title': 'Tentang diagnostik mendalam',
   'diag_deep_connected':
-      'Terowongan aktif: jalur data MASQUE kedua tidak akan dibuka; pemeriksaan transport aktif akan ditandai sebagai “dilewati” atau “peringatan”.',
+      'Beberapa pemeriksaan dilewati saat terhubung agar koneksi tidak terputus.',
   'diag_deep_disconnected':
-      'Saat terputus, pemeriksaan aktif dibatasi oleh batas waktu dan dapat dibatalkan. Setelah itu, status platform dibandingkan.',
+      'Pemeriksaan dapat menggunakan jaringan. Anda dapat membatalkan kapan saja.',
   'diag_start': 'Mulai diagnostik',
   'diag_session': 'Sesi diagnostik',
   'diag_progress_semantics': 'Kemajuan diagnostik {current}%',
@@ -398,8 +402,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'diag_summary_failed': 'Gagal {count}',
   'diag_summary_skipped': 'Dilewati {count}',
   'diag_check_results': 'Hasil pemeriksaan',
-  'diag_check_results_empty':
-      'Mulai diagnostik untuk melihat pemeriksaan yang dikelompokkan menurut lapisan dan ketergantungan.',
+  'diag_check_results_empty': 'Mulai diagnosis untuk memeriksa koneksi Anda.',
   'diag_timeline': 'Linimasa koneksi',
   'diag_timeline_subtitle':
       'Hanya perubahan status terbaru; isi paket dan alamat lengkap tidak pernah dicatat.',
@@ -545,7 +548,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'diag_fix_run_deep_diagnostics':
       'Jalankan diagnostik mendalam di lingkungan yang sesuai.',
   'diag_fix_run_release_leak_gate':
-      'Jalankan pengujian kebocoran rilis independen dengan pengamat jaringan eksternal.',
+      'Ekspor bundel diagnostik yang telah dibersihkan dari informasi sensitif untuk dukungan.',
   'diag_fix_inspect_platform_state':
       'Konfirmasikan status sebenarnya dengan pemeriksaan hanya-baca atas status jaringan dan proksi sistem.',
   'diag_fix_generate_tunnel_traffic':

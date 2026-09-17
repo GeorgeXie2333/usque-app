@@ -5,6 +5,12 @@ const Map<String, String> kEnCatalog = <String, String>{
       "Block UDP/443 through the proxy or tunnel, including other protocols on that port. GEO direct traffic and Usque’s HTTP/3 connection are unaffected. QUIC on other ports is allowed. Applies without reconnecting.",
   'disable_quic_unsupported':
       "Update or restart the Engine to use this setting.",
+  'technical_details': 'Technical details',
+  'diag_skip_disconnected': 'Connect to run this check.',
+  'diag_skip_disabled': 'This feature is turned off.',
+  'diag_skip_unsupported': 'This check is unavailable on this device.',
+  'diag_skip_traffic': 'Use the connection, then run this check again.',
+  'diag_skip_deep': 'Select Deep to run this check.',
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'L4 session unavailable',
   'diag_fail_L4_PROTOCOL_ERROR': 'L4 protocol error',
@@ -36,7 +42,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'nav_settings': 'Settings',
   'status_stream_degraded': 'Live status updates are degraded',
   'status_stream_degraded_body':
-      'Status polling is active; live updates will retry automatically.',
+      'Status updates are delayed. Retrying automatically.',
   'connect': 'Connect',
   'retry': 'Retry',
   'disconnect': 'Disconnect',
@@ -153,8 +159,7 @@ const Map<String, String> kEnCatalog = <String, String>{
       'Optional username and password for SOCKS5 and HTTP listeners. The password is stored in the system vault, not in the profile file.',
   'proxy_username': 'Username',
   'proxy_password': 'Password',
-  'proxy_password_hint':
-      'Write-only. Re-enter the password to set or change credentials.',
+  'proxy_password_hint': 'Enter a password to set or change credentials.',
   'proxy_auth_apply': 'Save credentials',
   'proxy_auth_invalid':
       'Username must be 1–255 bytes without “:” or NUL. A password of 1–255 bytes is required with a username.',
@@ -204,8 +209,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'update_available': 'A newer release is available:',
   'already_latest': 'This installation is already up to date.',
   'open_release': 'Open release page',
-  'update_startup_description':
-      'Checks once after Usque starts. Returning to the app does not check again. Check now always requests the latest release information.',
+  'update_startup_description': 'Check for updates when Usque starts.',
   'update_checking': 'Checking for an update…',
   'update_downloading': 'Downloading the verified update package…',
   'update_verifying': 'Verifying the update package…',
@@ -371,8 +375,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'diag_refresh_timeline': 'Refresh timeline',
   'diag_operation_failed': 'Diagnostics operation failed',
   'diag_event_stream_degraded': 'Diagnostics event stream interrupted',
-  'diag_event_stream_degraded_body':
-      'Session state is being recovered with bounded polling; the run will not restart.',
+  'diag_event_stream_degraded_body': 'Restoring diagnostic progress…',
   'diag_export_included': 'Included:',
   'diag_export_included_body':
       'Error codes, stages, relative timing, counters, and boolean state',
@@ -387,9 +390,9 @@ const Map<String, String> kEnCatalog = <String, String>{
   'diag_mode_deep': 'Deep',
   'diag_deep_title': 'About deep diagnostics',
   'diag_deep_connected':
-      'A tunnel is active: no second MASQUE data path will be opened. Active transport checks will be marked as skipped or as warnings.',
+      'Some checks are skipped while connected to avoid interrupting your connection.',
   'diag_deep_disconnected':
-      'When disconnected, active checks have time limits and can be cancelled. Usque then compares the resulting platform state.',
+      'Checks may use the network. You can cancel at any time.',
   'diag_start': 'Start diagnostics',
   'diag_session': 'Diagnostic session',
   'diag_progress_semantics': 'Diagnostic progress {current}%',
@@ -399,8 +402,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'diag_summary_failed': 'Failed {count}',
   'diag_summary_skipped': 'Skipped {count}',
   'diag_check_results': 'Check results',
-  'diag_check_results_empty':
-      'Start diagnostics to see checks grouped by layer and ordered by their dependencies.',
+  'diag_check_results_empty': 'Start diagnostics to check your connection.',
   'diag_timeline': 'Connection timeline',
   'diag_timeline_subtitle':
       'Only recent state changes are kept; packet contents and full addresses are never recorded.',
@@ -543,7 +545,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'diag_fix_run_deep_diagnostics':
       'Run deep diagnostics in an appropriate environment.',
   'diag_fix_run_release_leak_gate':
-      'Verify egress with the independent release leak test and an external network observer.',
+      'Export a diagnostic bundle with sensitive information removed for support.',
   'diag_fix_inspect_platform_state':
       'Confirm the operating system network and proxy state with a read-only inspection.',
   'diag_fix_generate_tunnel_traffic':

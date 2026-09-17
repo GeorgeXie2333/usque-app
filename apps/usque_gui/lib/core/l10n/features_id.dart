@@ -95,19 +95,15 @@ const Map<String, String> kNetworkQualityId = <String, String>{
       'Migrasi tidak tersedia di jalur ini; perubahan jaringan memakai sambungan ulang penuh.',
   'nq_finding_dns_changed':
       'Mode DNS tersimpan berbeda dari koneksi yang sedang berjalan.',
-  'nq_finding_dns_runtime':
-      'DNS terenkripsi berhasil. Status lokal bukan bukti bebas kebocoran eksternal.',
+  'nq_finding_dns_runtime': 'DNS terenkripsi berfungsi.',
   'nq_finding_dns_degraded':
       'DNS terenkripsi menurun; kueri langsung yang gagal tidak kembali ke DNS sistem.',
   'nq_finding_probe_unsafe':
-      'Probe dilewati: status aman yang diperlukan atau identitas tersimpan tidak tersedia. Terowongan aktif tidak pernah diduplikasi.',
-  'nq_finding_probe_success':
-      'Probe terautentikasi selesai. Ini bukan uji kebocoran paket eksternal.',
-  'nq_finding_probe_cancelled': 'Probe dibatalkan dan pembersihan diminta.',
-  'nq_finding_probe_timeout':
-      'Probe berbatas waktu tidak selesai sebelum tenggat.',
-  'nq_finding_probe_failed':
-      'Probe terautentikasi gagal; cadangan tidak aman tidak dicoba.',
+      'Pengukuran ini tidak tersedia pada status saat ini.',
+  'nq_finding_probe_success': 'Pemeriksaan ini lulus.',
+  'nq_finding_probe_cancelled': 'Pemeriksaan ini dibatalkan.',
+  'nq_finding_probe_timeout': 'Pemeriksaan diagnostik melewati batas waktu',
+  'nq_finding_probe_failed': 'Pemeriksaan ini gagal.',
   'diag_fix_nq_profile':
       'Tinjau kolom DNS kustom dan nama sertifikat. Jangan nonaktifkan verifikasi TLS.',
   'diag_fix_nq_retry': 'Tunggu jaringan stabil, lalu coba lagi.',
@@ -139,10 +135,8 @@ const Map<String, String> kNetworkQualityId = <String, String>{
   'nq_unsupported': 'Tidak didukung',
   'nq_capability_missing':
       'Engine ini tidak menyediakan kualitas jaringan. Kontrol koneksi yang ada tetap berfungsi.',
-  'nq_empty':
-      'Sambungkan untuk melihat pengukuran. Nilai yang tidak diketahui tidak ditampilkan sebagai nol.',
-  'nq_stale_help':
-      'Sumber berhenti memperbarui. Ini bacaan sebelumnya; celah tetap celah.',
+  'nq_empty': 'Hubungkan untuk melihat pengukuran.',
+  'nq_stale_help': 'Pembaruan terhenti. Menampilkan hasil pengukuran terakhir.',
   'nq_rtt': 'Waktu bolak-balik',
   'nq_latest': 'Terbaru',
   'nq_smoothed': 'Dihaluskan',
@@ -264,10 +258,10 @@ const Map<String, String> kNetworkQualityId = <String, String>{
   'nq_dns_invalid_mode': 'Pilih mode DNS yang didukung.',
   'nq_doctor_deep_title': 'Jalankan pemeriksaan jaringan mendalam?',
   'nq_doctor_deep_body':
-      'Pemeriksaan mendalam dapat mengirim kueri uji DNS ke resolver yang dikonfigurasi dan memvalidasi jalur QUIC terlindungi. Paling lama 15 detik, dapat dibatalkan, tidak pernah membuat terowongan data kedua, dan tidak pernah mengubah DNS, rute, profil, atau transport Anda.',
+      'Pemeriksaan dapat mengirim lalu lintas uji. Berlangsung hingga 15 detik dan dapat dibatalkan. Pengaturan koneksi Anda tidak akan berubah.',
   'nq_doctor_deep_run': 'Jalankan pemeriksaan mendalam',
   'nq_doctor_evidence':
-      'Pemeriksaan lokal menjelaskan konfigurasi dan status teramati. Itu bukan bukti eksternal bahwa tidak ada kebocoran DNS.',
+      'Pemeriksaan ini tidak dapat memastikan apakah terjadi kebocoran DNS.',
 };
 
 const Map<String, String> kWindowsRecoveryId = <String, String>{
@@ -299,7 +293,7 @@ const Map<String, String> kL4Id = <String, String>{
   'l4_not_applicable': 'Tidak berlaku (L4)',
   'l4_mode': 'L4 (eksperimental)',
   'l4_transport_hint':
-      'Hanya TCP; DNS TUN memakai TCP. Auto tidak mencakup L4.',
+      'Hanya TCP. Aplikasi yang memerlukan UDP mungkin tidak berfungsi. Mode otomatis tidak memilih L4.',
   'l4_explanation':
       'Hanya TCP melalui HTTP/3. Mendukung VPN/TUN, SOCKS5, dan HTTP; DNS TUN diubah menjadi TCP. Auto tidak pernah memilih L4. UDP lain, ping jarak jauh, fragmen IP, dan header ekstensi tidak didukung; beberapa aplikasi mungkin tidak berfungsi.',
   'l4_unsupported':

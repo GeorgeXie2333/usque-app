@@ -113,27 +113,16 @@ const Map<String, String> kNetworkQualityDe = <String, String>{
   'nq_finding_dns_changed':
       'Der gespeicherte DNS-Modus unterscheidet sich von der laufenden '
       'Verbindung.',
-  'nq_finding_dns_runtime':
-      'Verschlüsseltes DNS war erfolgreich. Der lokale Zustand ist kein '
-      'externer Nachweis gegen Lecks.',
+  'nq_finding_dns_runtime': 'Verschlüsseltes DNS funktioniert.',
   'nq_finding_dns_degraded':
       'Verschlüsseltes DNS ist beeinträchtigt; fehlgeschlagene direkte '
       'Abfragen fallen nicht auf System-DNS zurück.',
   'nq_finding_probe_unsafe':
-      'Sonde übersprungen: Der erforderliche sichere Zustand oder die '
-      'gespeicherte Identität ist nicht verfügbar. Ein aktiver Tunnel wird '
-      'niemals dupliziert.',
-  'nq_finding_probe_success':
-      'Die authentifizierte Sonde wurde abgeschlossen. Dies ist kein externer '
-      'Test auf Paketlecks.',
-  'nq_finding_probe_cancelled':
-      'Sonde abgebrochen und Bereinigung angefordert.',
-  'nq_finding_probe_timeout':
-      'Die zeitlich begrenzte Sonde wurde nicht vor Ablauf der Frist '
-      'abgeschlossen.',
-  'nq_finding_probe_failed':
-      'Die authentifizierte Sonde ist fehlgeschlagen; es wurde kein unsicherer '
-      'Rückfall versucht.',
+      'Diese Messung ist im aktuellen Zustand nicht verfügbar.',
+  'nq_finding_probe_success': 'Diese Prüfung wurde bestanden.',
+  'nq_finding_probe_cancelled': 'Diese Prüfung wurde abgebrochen.',
+  'nq_finding_probe_timeout': 'Zeitüberschreitung bei der Diagnoseprüfung',
+  'nq_finding_probe_failed': 'Diese Prüfung ist fehlgeschlagen.',
   'diag_fix_nq_profile':
       'Prüfen Sie die eigenen DNS-Felder und den Zertifikatsnamen. '
       'Deaktivieren Sie die TLS-Prüfung nicht.',
@@ -169,12 +158,9 @@ const Map<String, String> kNetworkQualityDe = <String, String>{
   'nq_capability_missing':
       'Diese Engine liefert keine Netzwerkqualität. Ihre vorhandenen '
       'Verbindungssteuerungen funktionieren weiterhin.',
-  'nq_empty':
-      'Verbinden Sie sich, um Messwerte zu sehen. Unbekannte Werte werden '
-      'nicht als 0 angezeigt.',
+  'nq_empty': 'Verbinde dich, um Messwerte zu sehen.',
   'nq_stale_help':
-      'Die Quelle hat die Aktualisierung eingestellt. Dies sind frühere '
-      'Messwerte; Lücken bleiben Lücken.',
+      'Aktualisierungen wurden angehalten. Die letzten Messwerte werden angezeigt.',
   'nq_rtt': 'Umlaufzeit',
   'nq_latest': 'Aktuell',
   'nq_smoothed': 'Geglättet',
@@ -311,15 +297,10 @@ const Map<String, String> kNetworkQualityDe = <String, String>{
   'nq_dns_invalid_mode': 'Wählen Sie einen unterstützten DNS-Modus.',
   'nq_doctor_deep_title': 'Tiefe Netzwerkprüfungen ausführen?',
   'nq_doctor_deep_body':
-      'Tiefe Prüfungen können eine DNS-Testabfrage an Ihren konfigurierten '
-      'Resolver senden und einen geschützten QUIC-Pfad validieren. Sie dauern '
-      'höchstens 15 Sekunden, können abgebrochen werden, erzeugen niemals '
-      'einen zweiten datentragenden Tunnel und ändern niemals DNS, Route, '
-      'Profil oder Transport.',
+      'Prüfungen können Testdaten senden. Sie dauern bis zu 15 Sekunden und lassen sich abbrechen. Deine Verbindungseinstellungen bleiben unverändert.',
   'nq_doctor_deep_run': 'Tiefe Prüfungen ausführen',
   'nq_doctor_evidence':
-      'Lokale Prüfungen beschreiben Konfiguration und beobachteten Zustand. '
-      'Sie sind kein externer Nachweis, dass es keine DNS-Lecks gibt.',
+      'Diese Prüfungen können nicht feststellen, ob DNS-Lecks auftreten.',
 };
 
 const Map<String, String> kWindowsRecoveryDe = <String, String>{
@@ -367,7 +348,8 @@ const Map<String, String> kL4De = <String, String>{
   'l4_budget_rejections': 'Abgelehnte Ressourcenzulassungen',
   'l4_not_applicable': 'Nicht zutreffend (L4)',
   'l4_mode': 'L4 (experimentell)',
-  'l4_transport_hint': 'Nur TCP; TUN-DNS über TCP. Auto enthält kein L4.',
+  'l4_transport_hint':
+      'Nur TCP. Apps, die UDP benötigen, funktionieren möglicherweise nicht. Der automatische Modus wählt kein L4.',
   'l4_explanation':
       'Nur TCP über HTTP/3. Unterstützt VPN/TUN, SOCKS5 und HTTP; TUN-DNS wird in TCP umgewandelt. Auto wählt L4 nie. Anderes UDP, Remote-Ping, IP-Fragmente und Erweiterungsköpfe sind nicht unterstützt; manche Apps funktionieren möglicherweise nicht.',
   'l4_unsupported':

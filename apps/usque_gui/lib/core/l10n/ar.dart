@@ -4,6 +4,12 @@ const Map<String, String> kArCatalog = <String, String>{
   'disable_quic_help':
       "يحظر UDP/443 عبر الوكيل أو النفق، بما في ذلك البروتوكولات الأخرى على هذا المنفذ. لا يتأثر اتصال GEO المباشر ولا اتصال HTTP/3 الخاص بـ Usque. يبقى QUIC مسموحاً على المنافذ الأخرى. يُطبّق دون إعادة الاتصال.",
   'disable_quic_unsupported': "حدّث المحرك أو أعد تشغيله لاستخدام هذا الإعداد.",
+  'technical_details': 'التفاصيل التقنية',
+  'diag_skip_disconnected': 'اتصل لتشغيل هذا الفحص.',
+  'diag_skip_disabled': 'هذه الميزة متوقفة.',
+  'diag_skip_unsupported': 'هذا الفحص غير متاح على هذا الجهاز.',
+  'diag_skip_traffic': 'استخدم الاتصال، ثم أعد تشغيل هذا الفحص.',
+  'diag_skip_deep': 'اختر الوضع المتعمق لتشغيل هذا الفحص.',
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'جلسة L4 غير متاحة',
   'diag_fail_L4_PROTOCOL_ERROR': 'خطأ في بروتوكول L4',
@@ -35,7 +41,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'nav_settings': 'إعدادات',
   'status_stream_degraded': 'تحديثات الحالة المباشرة متدهورة',
   'status_stream_degraded_body':
-      'استطلاع الحالة نشط؛ ستُعاد محاولة التحديثات المباشرة تلقائيًا.',
+      'تحديثات الحالة متأخرة. تجري إعادة المحاولة تلقائيًا.',
   'connect': 'اتصال',
   'retry': 'إعادة المحاولة',
   'disconnect': 'قطع الاتصال',
@@ -150,8 +156,7 @@ const Map<String, String> kArCatalog = <String, String>{
       'اسم مستخدم وكلمة مرور اختياريان لمستمعي SOCKS5 وHTTP. تُخزَّن كلمة المرور في خزينة النظام، وليس في ملف التعريف.',
   'proxy_username': 'اسم المستخدم',
   'proxy_password': 'كلمة المرور',
-  'proxy_password_hint':
-      'للكتابة فقط. أعد إدخال كلمة المرور لتعيين بيانات الاعتماد أو تغييرها.',
+  'proxy_password_hint': 'أدخل كلمة مرور لتعيين بيانات الاعتماد أو تغييرها.',
   'proxy_auth_apply': 'حفظ بيانات الاعتماد',
   'proxy_auth_invalid':
       'يجب أن يكون اسم المستخدم بطول 1–255 بايت دون «:» أو NUL. كلمة مرور بطول 1–255 بايت مطلوبة مع اسم المستخدم.',
@@ -201,8 +206,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'update_available': 'يتوفر إصدار أحدث:',
   'already_latest': 'هذا التثبيت محدَّث بالفعل.',
   'open_release': 'فتح صفحة الإصدار',
-  'update_startup_description':
-      'يتحقق مرة بعد بدء Usque. لا تؤدي العودة إلى التطبيق إلى تحقق جديد. يطلب «تحقق الآن» دائمًا أحدث معلومات الإصدار.',
+  'update_startup_description': 'التحقق من التحديثات عند بدء Usque.',
   'update_checking': 'جارٍ التحقق من وجود تحديث…',
   'update_downloading': 'جارٍ تنزيل حزمة التحديث الموثقة…',
   'update_verifying': 'جارٍ التحقق من حزمة التحديث…',
@@ -365,8 +369,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'diag_refresh_timeline': 'تحديث الخط الزمني',
   'diag_operation_failed': 'فشلت عملية التشخيص',
   'diag_event_stream_degraded': 'انقطع بث أحداث التشخيص',
-  'diag_event_stream_degraded_body':
-      'تُستعاد حالة الجلسة باستطلاع دوري محدود؛ ولن يُعاد تشغيل الفحص.',
+  'diag_event_stream_degraded_body': 'جارٍ استعادة تقدم التشخيص…',
   'diag_export_included': 'مضمّن:',
   'diag_export_included_body':
       'رموز الأخطاء والمراحل والتوقيت النسبي والعدادات والحالات المنطقية',
@@ -380,10 +383,8 @@ const Map<String, String> kArCatalog = <String, String>{
   'diag_mode_standard': 'قياسي',
   'diag_mode_deep': 'عميق',
   'diag_deep_title': 'حول التشخيص العميق',
-  'diag_deep_connected':
-      'النفق نشط: لن يُفتح مسار بيانات MASQUE ثانٍ. ستُعلَّم فحوصات النقل النشطة كفحوصات متخطاة أو كتحذيرات.',
-  'diag_deep_disconnected':
-      'عند قطع الاتصال، تُحدَّد الفحوصات النشطة بمهلة زمنية ويمكن إلغاؤها. ثم يقارن Usque حالة المنصة الناتجة.',
+  'diag_deep_connected': 'يتم تخطي بعض الفحوص أثناء الاتصال لتجنب مقاطعته.',
+  'diag_deep_disconnected': 'قد تستخدم الفحوص الشبكة. يمكنك إلغاؤها في أي وقت.',
   'diag_start': 'بدء التشخيص',
   'diag_session': 'جلسة التشخيص',
   'diag_progress_semantics': 'تقدم التشخيص {current}%',
@@ -393,8 +394,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'diag_summary_failed': 'الفحوصات الفاشلة: {count}',
   'diag_summary_skipped': 'الفحوصات المتخطاة: {count}',
   'diag_check_results': 'نتائج الفحص',
-  'diag_check_results_empty':
-      'ابدأ التشخيص لرؤية الفحوصات مجمعة حسب الطبقة ومرتبة وفق تبعياتها.',
+  'diag_check_results_empty': 'ابدأ التشخيص لفحص اتصالك.',
   'diag_timeline': 'الخط الزمني للاتصال',
   'diag_timeline_subtitle':
       'لا يُحتفظ إلا بتغيرات الحالة الحديثة؛ ولا تُسجَّل محتويات الرزم أو العناوين الكاملة.',
@@ -534,7 +534,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'diag_fix_resolve_dependency': 'عالج الشرط المسبق الفاشل أولًا.',
   'diag_fix_run_deep_diagnostics': 'شغِّل التشخيص العميق في بيئة مناسبة.',
   'diag_fix_run_release_leak_gate':
-      'تحقّق من حركة الخروج باختبار تسرب الإصدار المستقل ومراقب شبكة خارجي.',
+      'صدّر للدعم حزمة تشخيص أُزيلت منها المعلومات الحساسة.',
   'diag_fix_inspect_platform_state':
       'تحقق من حالة شبكة نظام التشغيل والوكيل بفحص للقراءة فقط.',
   'diag_fix_generate_tunnel_traffic':

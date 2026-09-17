@@ -109,22 +109,17 @@ const Map<String, String> kNetworkQualityEs = <String, String>{
       'una reconexión completa.',
   'nq_finding_dns_changed':
       'El modo DNS guardado difiere del de la conexión en ejecución.',
-  'nq_finding_dns_runtime':
-      'El DNS cifrado se completó correctamente. El estado local no '
-      'demuestra la ausencia de fugas externas.',
+  'nq_finding_dns_runtime': 'El DNS cifrado funciona correctamente.',
   'nq_finding_dns_degraded':
       'El DNS cifrado está degradado; las consultas directas fallidas no '
       'recurren al DNS del sistema.',
   'nq_finding_probe_unsafe':
-      'Sonda omitida: falta el estado seguro requerido o la identidad '
-      'guardada. Nunca se duplica un túnel activo.',
-  'nq_finding_probe_success':
-      'La sonda autenticada se completó. Esto no es una prueba externa de '
-      'fugas de paquetes.',
-  'nq_finding_probe_cancelled': 'Sonda cancelada y limpieza solicitada.',
-  'nq_finding_probe_timeout': 'La sonda acotada no terminó antes de su plazo.',
-  'nq_finding_probe_failed':
-      'La sonda autenticada falló; no se intentó un recurso inseguro.',
+      'Esta medición no está disponible en el estado actual.',
+  'nq_finding_probe_success': 'Esta comprobación se superó.',
+  'nq_finding_probe_cancelled': 'Esta comprobación se canceló.',
+  'nq_finding_probe_timeout':
+      'La comprobación de diagnóstico agotó el tiempo de espera',
+  'nq_finding_probe_failed': 'Esta comprobación falló.',
   'diag_fix_nq_profile':
       'Revise los campos DNS personalizados y el nombre del certificado. No '
       'desactive la verificación TLS.',
@@ -159,12 +154,9 @@ const Map<String, String> kNetworkQualityEs = <String, String>{
   'nq_capability_missing':
       'Este Engine no ofrece calidad de red. Los controles de conexión '
       'actuales siguen funcionando.',
-  'nq_empty':
-      'Conecte para ver las mediciones. Los valores desconocidos no se '
-      'muestran como cero.',
+  'nq_empty': 'Conéctate para ver las mediciones.',
   'nq_stale_help':
-      'El origen dejó de actualizarse. Estas son lecturas anteriores; los '
-      'huecos se conservan como huecos.',
+      'Las actualizaciones se han detenido. Se muestran las últimas lecturas.',
   'nq_rtt': 'Tiempo de ida y vuelta',
   'nq_latest': 'Más reciente',
   'nq_smoothed': 'Suavizado',
@@ -299,15 +291,10 @@ const Map<String, String> kNetworkQualityEs = <String, String>{
   'nq_dns_invalid_mode': 'Elija un modo DNS compatible.',
   'nq_doctor_deep_title': '¿Ejecutar comprobaciones profundas de red?',
   'nq_doctor_deep_body':
-      'Las comprobaciones profundas pueden enviar una consulta DNS de '
-      'prueba al resolvedor configurado y validar una ruta QUIC protegida. '
-      'Duran 15 segundos como máximo, se pueden cancelar, nunca crean un '
-      'segundo túnel de datos y nunca cambian el DNS, las rutas, el perfil '
-      'ni el transporte.',
+      'Las comprobaciones pueden enviar tráfico de prueba. Duran hasta 15 segundos y se pueden cancelar. La configuración de conexión no cambiará.',
   'nq_doctor_deep_run': 'Ejecutar comprobaciones profundas',
   'nq_doctor_evidence':
-      'Las comprobaciones locales describen la configuración y el estado '
-      'observado. No son una prueba externa de que no haya fugas de DNS.',
+      'Estas comprobaciones no permiten confirmar si hay fugas de DNS.',
 };
 
 const Map<String, String> kWindowsRecoveryEs = <String, String>{
@@ -351,7 +338,8 @@ const Map<String, String> kL4Es = <String, String>{
   'l4_budget_rejections': 'Admisiones de recursos rechazadas',
   'l4_not_applicable': 'No aplicable (L4)',
   'l4_mode': 'L4 (en fase experimental)',
-  'l4_transport_hint': 'Solo TCP; el DNS de TUN usa TCP. Auto no incluye L4.',
+  'l4_transport_hint':
+      'Solo TCP. Las apps que necesitan UDP pueden no funcionar. El modo automático excluye L4.',
   'l4_explanation':
       'Solo TCP sobre HTTP/3. Admite VPN/TUN, SOCKS5 y HTTP; el DNS de TUN se convierte a TCP. Auto nunca elige L4. El resto de UDP, el ping remoto, los fragmentos IP y las cabeceras de extensión no son compatibles; algunas aplicaciones pueden no funcionar.',
   'l4_unsupported':

@@ -10,6 +10,7 @@ import '../core/usque_theme.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
+import '../widgets/context_help_button.dart';
 import '../widgets/direct_dns_editor.dart';
 import '../widgets/save_changes_bar.dart';
 import '../widgets/unsaved_changes_guard.dart';
@@ -273,10 +274,22 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                             ),
                       ),
                       if (_dataPlane == DataPlaneMode.l4Proxy) ...[
-                        Semantics(
-                          key: const ValueKey('l4-transport-hint'),
-                          liveRegion: true,
-                          child: Text(strings.get('l4_transport_hint')),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Expanded(
+                              child: Semantics(
+                                key: const ValueKey('l4-transport-hint'),
+                                liveRegion: true,
+                                child: Text(strings.get('l4_transport_hint')),
+                              ),
+                            ),
+                            ContextHelpButton(
+                              title: strings.get('l4_mode'),
+                              message: strings.get('l4_explanation'),
+                              strings: strings,
+                            ),
+                          ],
                         ),
                         if (!l4Available) Text(strings.get('l4_unsupported')),
                       ],

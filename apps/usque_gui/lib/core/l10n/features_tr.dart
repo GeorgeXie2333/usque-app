@@ -95,18 +95,14 @@ const kNetworkQualityTr = <String, String>{
   'nq_finding_migration_reconnect':
       'Bu yolda taşıma kullanılamıyor; ağ değişikliğinde tam yeniden bağlantı kullanılır.',
   'nq_finding_dns_changed': 'Kayıtlı DNS kipi çalışan bağlantıdan farklı.',
-  'nq_finding_dns_runtime':
-      'Şifreli DNS başarılı. Yerel durum, DNS sızıntısı olmadığının harici bir kanıtı değildir.',
+  'nq_finding_dns_runtime': 'Şifreli DNS çalışıyor.',
   'nq_finding_dns_degraded':
       'Şifreli DNS bozulmuş; başarısız doğrudan sorgular sistem DNS’ine geri dönmez.',
-  'nq_finding_probe_unsafe':
-      'Sonda atlandı: gerekli güvenli durum veya kayıtlı kimlik yok. Etkin bir tünel asla çoğaltılmaz.',
-  'nq_finding_probe_success':
-      'Kimliği doğrulanmış sonda tamamlandı. Bu harici bir paket sızıntısı testi değildir.',
-  'nq_finding_probe_cancelled': 'Sonda iptal edildi ve temizlik istendi.',
-  'nq_finding_probe_timeout': 'Sınırlı sonda son tarihinden önce bitmedi.',
-  'nq_finding_probe_failed':
-      'Kimliği doğrulanmış sonda başarısız oldu; güvensiz geri dönüş denenmedi.',
+  'nq_finding_probe_unsafe': 'Bu ölçüm geçerli durumda kullanılamıyor.',
+  'nq_finding_probe_success': 'Bu denetim geçti.',
+  'nq_finding_probe_cancelled': 'Bu denetim iptal edildi.',
+  'nq_finding_probe_timeout': 'Tanılama denetimi zaman aşımına uğradı',
+  'nq_finding_probe_failed': 'Bu denetim başarısız oldu.',
   'diag_fix_nq_profile':
       'Özel DNS alanlarını ve sertifika adını gözden geçirin. TLS doğrulamasını kapatmayın.',
   'diag_fix_nq_retry': 'Ağın kararlı olmasını bekleyin, sonra yeniden deneyin.',
@@ -137,10 +133,8 @@ const kNetworkQualityTr = <String, String>{
   'nq_unsupported': 'Desteklenmiyor',
   'nq_capability_missing':
       'Bu Engine ağ kalitesi sağlamaz. Mevcut bağlantı kontrolleriniz çalışmayı sürdürür.',
-  'nq_empty':
-      'Ölçümleri görmek için bağlanın. Bilinmeyen değerler sıfır olarak gösterilmez.',
-  'nq_stale_help':
-      'Kaynak güncellemeyi durdurdu. Bunlar önceki okumalar; boşluklar boşluk olarak kalır.',
+  'nq_empty': 'Ölçümleri görmek için bağlanın.',
+  'nq_stale_help': 'Güncellemeler durakladı. Son ölçümler gösteriliyor.',
   'nq_rtt': 'Gidiş-dönüş süresi',
   'nq_latest': 'En son',
   'nq_smoothed': 'Yumuşatılmış',
@@ -260,10 +254,10 @@ const kNetworkQualityTr = <String, String>{
   'nq_dns_invalid_mode': 'Desteklenen bir DNS modu seçin.',
   'nq_doctor_deep_title': 'Derin ağ denetimleri çalıştırılsın mı?',
   'nq_doctor_deep_body':
-      'Derin denetimler, yapılandırdığınız çözümleyiciye bir DNS test sorgusu gönderebilir ve korumalı bir QUIC yolunu doğrulayabilir. En fazla 15 saniye sürer, iptal edilebilir, ikinci bir veri taşıyan tünel oluşturmaz ve DNS’inizi, rotanızı, profilinizi veya aktarımınızı değiştirmez.',
+      'Kontroller test trafiği gönderebilir. En fazla 15 saniye sürer ve iptal edilebilir. Bağlantı ayarlarınız değişmez.',
   'nq_doctor_deep_run': 'Derin denetimleri çalıştır',
   'nq_doctor_evidence':
-      'Yerel denetimler yapılandırmayı ve gözlemlenen durumu açıklar. Sıfır DNS sızıntısının dış kanıtı değildir.',
+      'Bu kontroller DNS sızıntısı olup olmadığını doğrulayamaz.',
 };
 
 const Map<String, String> kWindowsRecoveryTr = <String, String>{
@@ -294,7 +288,8 @@ const Map<String, String> kL4Tr = <String, String>{
   'l4_budget_rejections': 'Kaynak kabulleri reddedildi',
   'l4_not_applicable': 'Uygulanamaz (L4)',
   'l4_mode': 'L4 (deneysel)',
-  'l4_transport_hint': 'Yalnızca TCP; TUN DNS, TCP kullanır. Auto, L4 içermez.',
+  'l4_transport_hint':
+      'Yalnızca TCP. UDP gerektiren uygulamalar çalışmayabilir. Otomatik mod L4 içermez.',
   'l4_explanation':
       'HTTP/3 üzerinde yalnızca TCP. VPN/TUN, SOCKS5 ve HTTP desteklenir; TUN DNS TCP’ye dönüştürülür. Auto asla L4 seçmez. Diğer UDP, uzak ping, IP parçaları ve uzantı başlıkları desteklenmez; bazı uygulamalar çalışmayabilir.',
   'l4_unsupported':

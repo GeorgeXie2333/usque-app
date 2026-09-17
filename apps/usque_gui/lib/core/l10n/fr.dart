@@ -5,6 +5,15 @@ const Map<String, String> kFrCatalog = <String, String>{
       "Bloque UDP/443 via le proxy ou le tunnel, y compris les autres protocoles sur ce port. Le trafic direct GEO et la connexion HTTP/3 d’Usque restent inchangés. QUIC sur les autres ports reste autorisé. Application sans reconnexion.",
   'disable_quic_unsupported':
       "Mettez à jour ou redémarrez le moteur pour utiliser ce réglage.",
+  'technical_details': 'Détails techniques',
+  'diag_skip_disconnected': 'Connectez-vous pour effectuer cette vérification.',
+  'diag_skip_disabled': 'Cette fonction est désactivée.',
+  'diag_skip_unsupported':
+      'Cette vérification n’est pas disponible sur cet appareil.',
+  'diag_skip_traffic':
+      'Utilisez la connexion, puis relancez cette vérification.',
+  'diag_skip_deep':
+      'Sélectionnez le mode approfondi pour effectuer cette vérification.',
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'Session L4 indisponible',
   'diag_fail_L4_PROTOCOL_ERROR': 'Erreur de protocole L4',
@@ -36,7 +45,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'nav_settings': 'Réglages',
   'status_stream_degraded': 'Les mises à jour d’état en direct sont dégradées',
   'status_stream_degraded_body':
-      'L’interrogation de l’état est active ; les mises à jour en direct seront réessayées automatiquement.',
+      'La mise à jour de l’état est retardée. Nouvelle tentative automatique.',
   'connect': 'Se connecter',
   'retry': 'Réessayer',
   'disconnect': 'Se déconnecter',
@@ -157,7 +166,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'proxy_username': 'Nom d’utilisateur',
   'proxy_password': 'Mot de passe',
   'proxy_password_hint':
-      'Écriture uniquement. Saisissez de nouveau le mot de passe pour définir ou modifier les identifiants.',
+      'Saisissez un mot de passe pour définir ou modifier les identifiants.',
   'proxy_auth_apply': 'Enregistrer les identifiants',
   'proxy_auth_invalid':
       'Le nom d’utilisateur doit faire 1–255 octets, sans « : » ni NUL. Un mot de passe de 1–255 octets est requis avec un nom d’utilisateur.',
@@ -209,7 +218,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'already_latest': 'Cette installation est déjà à jour.',
   'open_release': 'Ouvrir la page de version',
   'update_startup_description':
-      'Usque vérifie une fois après son démarrage. Revenir dans l’application ne déclenche pas une nouvelle vérification. « Vérifier maintenant » interroge toujours les informations de la dernière version.',
+      'Rechercher les mises à jour au démarrage de Usque.',
   'update_checking': 'Recherche d’une mise à jour…',
   'update_downloading': 'Téléchargement du paquet de mise à jour vérifié…',
   'update_verifying': 'Vérification du paquet de mise à jour…',
@@ -382,7 +391,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'diag_operation_failed': 'Échec de l’opération de diagnostic',
   'diag_event_stream_degraded': 'Flux d’événements de diagnostic interrompu',
   'diag_event_stream_degraded_body':
-      'L’état de la session est récupéré par interrogation bornée ; l’exécution ne redémarre pas.',
+      'Restauration de la progression du diagnostic…',
   'diag_export_included': 'Inclus :',
   'diag_export_included_body':
       'Codes d’erreur, étapes, durées relatives, compteurs et états booléens',
@@ -398,9 +407,9 @@ const Map<String, String> kFrCatalog = <String, String>{
   'diag_mode_deep': 'Approfondi',
   'diag_deep_title': 'À propos du diagnostic approfondi',
   'diag_deep_connected':
-      'Un tunnel est actif : aucun second chemin de données MASQUE ne sera ouvert ; les contrôles de transport actifs seront marqués comme ignorés ou accompagnés d’un avertissement.',
+      'Certaines vérifications sont ignorées pendant la connexion pour éviter de l’interrompre.',
   'diag_deep_disconnected':
-      'Hors connexion, les contrôles actifs sont soumis à une limite de temps et peuvent être annulés ; l’état de la plateforme est ensuite comparé.',
+      'Les vérifications peuvent utiliser le réseau. Vous pouvez les annuler à tout moment.',
   'diag_start': 'Démarrer le diagnostic',
   'diag_session': 'Session de diagnostic',
   'diag_progress_semantics': 'Progression du diagnostic {current}%',
@@ -411,7 +420,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'diag_summary_skipped': 'Ignorés {count}',
   'diag_check_results': 'Résultats des contrôles',
   'diag_check_results_empty':
-      'Lancez un diagnostic pour voir les contrôles groupés par couche et dépendances.',
+      'Lancez le diagnostic pour vérifier votre connexion.',
   'diag_timeline': 'Chronologie de connexion',
   'diag_timeline_subtitle':
       'Seules les transitions d’état récentes sont conservées ; le contenu des paquets et les adresses complètes ne sont jamais enregistrés.',
@@ -559,7 +568,7 @@ const Map<String, String> kFrCatalog = <String, String>{
   'diag_fix_run_deep_diagnostics':
       'Exécutez le diagnostic approfondi dans un environnement approprié.',
   'diag_fix_run_release_leak_gate':
-      'Exécutez le test indépendant de fuites de publication avec un observateur réseau externe.',
+      'Exportez une archive de diagnostic dont les données sensibles ont été supprimées pour l’assistance.',
   'diag_fix_inspect_platform_state':
       'Confirmez l’état réel avec une vérification en lecture seule de l’état du réseau et du proxy système.',
   'diag_fix_generate_tunnel_traffic':

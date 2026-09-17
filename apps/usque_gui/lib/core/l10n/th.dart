@@ -4,6 +4,12 @@ const Map<String, String> kThCatalog = <String, String>{
   'disable_quic_help':
       "บล็อก UDP/443 ผ่านพร็อกซีหรืออุโมงค์ รวมถึงโปรโตคอลอื่นบนพอร์ตนี้ โดยไม่กระทบทราฟฟิก GEO โดยตรงหรือการเชื่อมต่อ HTTP/3 ของ Usque ยังคงอนุญาต QUIC บนพอร์ตอื่น ใช้ได้โดยไม่ต้องเชื่อมต่อใหม่",
   'disable_quic_unsupported': "อัปเดตหรือเริ่มเอนจินใหม่เพื่อใช้การตั้งค่านี้",
+  'technical_details': 'รายละเอียดทางเทคนิค',
+  'diag_skip_disconnected': 'เชื่อมต่อก่อนเริ่มการตรวจสอบนี้',
+  'diag_skip_disabled': 'ฟีเจอร์นี้ปิดอยู่',
+  'diag_skip_unsupported': 'อุปกรณ์นี้ไม่รองรับการตรวจสอบนี้',
+  'diag_skip_traffic': 'ใช้งานการเชื่อมต่อแล้วเริ่มการตรวจสอบนี้อีกครั้ง',
+  'diag_skip_deep': 'เลือกโหมดเชิงลึกเพื่อเริ่มการตรวจสอบนี้',
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'เซสชัน L4 ไม่พร้อมใช้งาน',
   'diag_fail_L4_PROTOCOL_ERROR': 'ข้อผิดพลาดโปรโตคอล L4',
@@ -35,7 +41,7 @@ const Map<String, String> kThCatalog = <String, String>{
   'nav_settings': 'การตั้งค่า',
   'status_stream_degraded': 'การอัปเดตสถานะแบบสดทำงานไม่เต็มที่',
   'status_stream_degraded_body':
-      'กำลังตรวจสอบสถานะเป็นระยะ การอัปเดตแบบสดจะลองใหม่โดยอัตโนมัติ',
+      'การอัปเดตสถานะล่าช้า กำลังลองใหม่โดยอัตโนมัติ',
   'connect': 'เชื่อมต่อ',
   'retry': 'ลองใหม่',
   'disconnect': 'ตัดการเชื่อมต่อ',
@@ -150,8 +156,7 @@ const Map<String, String> kThCatalog = <String, String>{
       'ชื่อผู้ใช้และรหัสผ่านไม่บังคับสำหรับตัวรับฟัง SOCKS5 และ HTTP รหัสผ่านเก็บในคลังของระบบ ไม่ใช่ในไฟล์โปรไฟล์',
   'proxy_username': 'ชื่อผู้ใช้',
   'proxy_password': 'รหัสผ่าน',
-  'proxy_password_hint':
-      'เขียนได้อย่างเดียว กรอกรหัสผ่านอีกครั้งเพื่อตั้งหรือเปลี่ยนข้อมูลรับรอง',
+  'proxy_password_hint': 'ป้อนรหัสผ่านเพื่อตั้งค่าหรือเปลี่ยนข้อมูลรับรอง',
   'proxy_auth_apply': 'บันทึกข้อมูลรับรอง',
   'proxy_auth_invalid':
       'ชื่อผู้ใช้ต้องยาว 1–255 ไบต์ โดยไม่มี “:” หรือ NUL หากมีชื่อผู้ใช้ ต้องมีรหัสผ่านยาว 1–255 ไบต์',
@@ -201,8 +206,7 @@ const Map<String, String> kThCatalog = <String, String>{
   'update_available': 'มีรุ่นใหม่กว่า:',
   'already_latest': 'การติดตั้งนี้เป็นรุ่นล่าสุดแล้ว',
   'open_release': 'เปิดหน้ารุ่น',
-  'update_startup_description':
-      'ตรวจสอบหนึ่งครั้งหลังเริ่ม Usque การกลับมาที่แอปจะไม่ตรวจซ้ำ «ตรวจตอนนี้» จะขอข้อมูลรุ่นล่าสุดเสมอ',
+  'update_startup_description': 'ตรวจสอบการอัปเดตเมื่อเริ่ม Usque',
   'update_checking': 'กำลังตรวจสอบการอัปเดต…',
   'update_downloading': 'กำลังดาวน์โหลดแพ็กเกจอัปเดตที่ตรวจสอบแล้ว…',
   'update_verifying': 'กำลังตรวจสอบแพ็กเกจอัปเดต…',
@@ -367,8 +371,7 @@ const Map<String, String> kThCatalog = <String, String>{
   'diag_refresh_timeline': 'รีเฟรชไทม์ไลน์',
   'diag_operation_failed': 'การดำเนินการวินิจฉัยล้มเหลว',
   'diag_event_stream_degraded': 'สตรีมเหตุการณ์วินิจฉัยถูกขัดจังหวะ',
-  'diag_event_stream_degraded_body':
-      'กำลังกู้คืนสถานะเซสชันด้วยการสำรวจแบบมีขอบเขต การทำงานจะไม่เริ่มใหม่',
+  'diag_event_stream_degraded_body': 'กำลังกู้คืนความคืบหน้าการวินิจฉัย…',
   'diag_export_included': 'รวม:',
   'diag_export_included_body':
       'รหัสข้อผิดพลาด ขั้นตอน เวลาสัมพัทธ์ ตัวนับ และสถานะบูลีน',
@@ -384,9 +387,8 @@ const Map<String, String> kThCatalog = <String, String>{
   'diag_mode_deep': 'เชิงลึก',
   'diag_deep_title': 'เกี่ยวกับการวินิจฉัยเชิงลึก',
   'diag_deep_connected':
-      'อุโมงค์กำลังทำงานอยู่ จะไม่เปิดเส้นทางข้อมูล MASQUE เส้นที่สอง การตรวจขนส่งแบบเชิงรุกจะถูกทำเครื่องหมายว่า “ข้าม” หรือ “คำเตือน”',
-  'diag_deep_disconnected':
-      'เมื่อไม่ได้เชื่อมต่อ การตรวจเชิงรุกจะมีเวลาจำกัดและยกเลิกได้ จากนั้นจึงเปรียบเทียบสถานะแพลตฟอร์ม',
+      'จะข้ามการตรวจสอบบางรายการขณะเชื่อมต่อเพื่อไม่ให้การเชื่อมต่อสะดุด',
+  'diag_deep_disconnected': 'การตรวจสอบอาจใช้เครือข่าย คุณยกเลิกได้ทุกเมื่อ',
   'diag_start': 'เริ่มการวินิจฉัย',
   'diag_session': 'เซสชันวินิจฉัย',
   'diag_progress_semantics': 'ความคืบหน้าการวินิจฉัย {current}%',
@@ -396,8 +398,7 @@ const Map<String, String> kThCatalog = <String, String>{
   'diag_summary_failed': 'ล้มเหลว {count}',
   'diag_summary_skipped': 'ข้าม {count}',
   'diag_check_results': 'ผลการตรวจ',
-  'diag_check_results_empty':
-      'เริ่มการวินิจฉัยเพื่อดูการตรวจที่จัดกลุ่มตามชั้นและเรียงตามการพึ่งพา',
+  'diag_check_results_empty': 'เริ่มการวินิจฉัยเพื่อตรวจสอบปัญหาการเชื่อมต่อ',
   'diag_timeline': 'ไทม์ไลน์การเชื่อมต่อ',
   'diag_timeline_subtitle':
       'บันทึกเฉพาะการเปลี่ยนแปลงสถานะล่าสุด เนื้อหาแพ็กเก็ตและที่อยู่เต็มจะไม่ถูกบันทึก',
@@ -539,7 +540,7 @@ const Map<String, String> kThCatalog = <String, String>{
   'diag_fix_run_deep_diagnostics':
       'เรียกใช้การวินิจฉัยเชิงลึกในสภาพแวดล้อมที่เหมาะสม',
   'diag_fix_run_release_leak_gate':
-      'เรียกใช้การทดสอบการรั่วของรุ่นแบบอิสระกับผู้สังเกตเครือข่ายภายนอก',
+      'ส่งออกชุดวินิจฉัยที่ลบข้อมูลละเอียดอ่อนแล้วสำหรับฝ่ายสนับสนุน',
   'diag_fix_inspect_platform_state':
       'ยืนยันสถานะจริงด้วยการตรวจสอบแบบอ่านอย่างเดียวสำหรับสถานะเครือข่ายและพร็อกซีของระบบ',
   'diag_fix_generate_tunnel_traffic':

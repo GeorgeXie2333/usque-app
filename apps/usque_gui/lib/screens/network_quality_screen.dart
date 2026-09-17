@@ -10,6 +10,7 @@ import '../models/diagnostics_models.dart';
 import '../models/network_quality_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
+import '../widgets/context_help_button.dart';
 import '../widgets/sparkline.dart';
 import 'diagnostics_screen.dart';
 
@@ -148,38 +149,46 @@ class NetworkQualityScreen extends StatelessWidget {
                           : 'l4_unverified',
                     ),
                   ),
-                  Text(s.get('l4_na')),
-                  if (stream != null) ...<Widget>[
-                    Text(
-                      '${s.get('l4_sessions')}: ${stream.sessions} / ${stream.drainingSessions}',
-                    ),
-                    Text(
-                      '${s.get('l4_flows')}: ${stream.activeFlows} / ${stream.pendingFlows}',
-                    ),
-                    Text(
-                      '${s.get('l4_connect')}: ${stream.connectSuccesses} / ${stream.connectFailures} / ${stream.connectTimeouts}',
-                    ),
-                    Text('${s.get('l4_buffers')}: ${stream.bufferBytes}'),
-                    Text(
-                      '${s.get('l4_backpressure')}: ${stream.sendBackpressure} / ${stream.receiveBackpressure}',
-                    ),
-                    Text(
-                      '${s.get('l4_tun_flows')}: ${stream.tunFlows} / ${stream.halfOpenFlows}',
-                    ),
-                    Text('${s.get('l4_udp')}: ${stream.udpRejected}'),
-                    Text(
-                      '${s.get('l4_unsupported_packets')}: ${stream.unsupportedPackets}',
-                    ),
-                    Text(
-                      '${s.get('l4_budget_rejections')}: ${stream.budgetRejections}',
-                    ),
-                    Text(
-                      '${s.get('l4_dns')}: ${stream.dnsSuccesses} / ${stream.dnsFailures} / ${stream.dnsTimeouts}',
-                    ),
-                    Text(
-                      '${s.get('l4_migration')}: ${stream.migrationPreservedFlows} / ${stream.reconnectTerminatedFlows}',
-                    ),
-                  ],
+                  ExpansionTile(
+                    key: const PageStorageKey<String>('l4-technical-details'),
+                    title: Text(s.get('technical_details')),
+                    expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
+                    childrenPadding: const EdgeInsets.all(16),
+                    children: <Widget>[
+                      Text(s.get('l4_na')),
+                      if (stream != null) ...<Widget>[
+                        Text(
+                          '${s.get('l4_sessions')}: ${stream.sessions} / ${stream.drainingSessions}',
+                        ),
+                        Text(
+                          '${s.get('l4_flows')}: ${stream.activeFlows} / ${stream.pendingFlows}',
+                        ),
+                        Text(
+                          '${s.get('l4_connect')}: ${stream.connectSuccesses} / ${stream.connectFailures} / ${stream.connectTimeouts}',
+                        ),
+                        Text('${s.get('l4_buffers')}: ${stream.bufferBytes}'),
+                        Text(
+                          '${s.get('l4_backpressure')}: ${stream.sendBackpressure} / ${stream.receiveBackpressure}',
+                        ),
+                        Text(
+                          '${s.get('l4_tun_flows')}: ${stream.tunFlows} / ${stream.halfOpenFlows}',
+                        ),
+                        Text('${s.get('l4_udp')}: ${stream.udpRejected}'),
+                        Text(
+                          '${s.get('l4_unsupported_packets')}: ${stream.unsupportedPackets}',
+                        ),
+                        Text(
+                          '${s.get('l4_budget_rejections')}: ${stream.budgetRejections}',
+                        ),
+                        Text(
+                          '${s.get('l4_dns')}: ${stream.dnsSuccesses} / ${stream.dnsFailures} / ${stream.dnsTimeouts}',
+                        ),
+                        Text(
+                          '${s.get('l4_migration')}: ${stream.migrationPreservedFlows} / ${stream.reconnectTerminatedFlows}',
+                        ),
+                      ],
+                    ],
+                  ),
                 ],
               ),
             if (!supported)
@@ -281,9 +290,10 @@ class NetworkQualityScreen extends StatelessWidget {
                   label: Text(s.get(state.paused ? 'nq_resume' : 'nq_pause')),
                 ),
                 if (state.paused) Text(s.get('nq_paused')),
-                Text(
-                  s.get('nq_gaps'),
-                  style: Theme.of(context).textTheme.bodySmall,
+                ContextHelpButton(
+                  title: s.get('nq_trends'),
+                  message: s.get('nq_gaps'),
+                  strings: s,
                 ),
               ],
             ),
@@ -479,6 +489,11 @@ class NetworkQualityScreen extends StatelessWidget {
                 _QualitySection(
                   title: s.get('nq_pmtu'),
                   icon: LucideIcons.scanLine,
+                  help: ContextHelpButton(
+                    title: s.get('nq_pmtu'),
+                    message: s.get('nq_pmtu_help'),
+                    strings: s,
+                  ),
                   children: <Widget>[
                     Text(_phase(s, h2 ? 'unsupported' : pmtu.phaseCode)),
                     _Readouts(
@@ -509,15 +524,16 @@ class NetworkQualityScreen extends StatelessWidget {
                         ),
                       ],
                     ),
-                    Text(
-                      s.get('nq_pmtu_help'),
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
                   ],
                 ),
                 _QualitySection(
                   title: s.get('nq_migration'),
                   icon: LucideIcons.route,
+                  help: ContextHelpButton(
+                    title: s.get('nq_migration'),
+                    message: s.get('nq_migration_help'),
+                    strings: s,
+                  ),
                   children: <Widget>[
                     Text(_phase(s, h2 ? 'unsupported' : migration.phaseCode)),
                     _Readouts(
@@ -545,10 +561,6 @@ class NetworkQualityScreen extends StatelessWidget {
                     ),
                     if (migration.lastReasonCode.isNotEmpty)
                       Text(_reason(s, migration.lastReasonCode)),
-                    Text(
-                      s.get('nq_migration_help'),
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
                   ],
                 ),
                 _QualitySection(
@@ -592,10 +604,6 @@ class NetworkQualityScreen extends StatelessWidget {
                           count(dns.timeoutCount, dnsKnown),
                         ),
                       ],
-                    ),
-                    Text(
-                      s.get('nq_dns_redacted'),
-                      style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
                 ),
@@ -692,10 +700,12 @@ class _QualitySection extends StatelessWidget {
     required this.title,
     required this.icon,
     required this.children,
+    this.help,
   });
   final String title;
   final IconData icon;
   final List<Widget> children;
+  final Widget? help;
   @override
   Widget build(BuildContext context) => ContentSection(
     child: Column(
@@ -714,6 +724,7 @@ class _QualitySection extends StatelessWidget {
                 ),
               ),
             ),
+            ?help,
           ],
         ),
         const SizedBox(height: 18),

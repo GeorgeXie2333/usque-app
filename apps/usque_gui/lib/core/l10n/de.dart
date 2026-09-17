@@ -5,6 +5,14 @@ const Map<String, String> kDeCatalog = <String, String>{
       "Blockiert UDP/443 über Proxy oder Tunnel, auch andere Protokolle auf diesem Port. GEO-Direktverkehr und Usques HTTP/3-Verbindung bleiben unbeeinflusst. QUIC auf anderen Ports bleibt erlaubt. Anwendung ohne Neuverbindung.",
   'disable_quic_unsupported':
       "Aktualisieren oder starten Sie die Engine neu, um diese Einstellung zu verwenden.",
+  'technical_details': 'Technische Details',
+  'diag_skip_disconnected': 'Verbinde dich, um diese Prüfung auszuführen.',
+  'diag_skip_disabled': 'Diese Funktion ist ausgeschaltet.',
+  'diag_skip_unsupported':
+      'Diese Prüfung ist auf diesem Gerät nicht verfügbar.',
+  'diag_skip_traffic':
+      'Nutze die Verbindung und wiederhole dann diese Prüfung.',
+  'diag_skip_deep': 'Wähle den ausführlichen Modus für diese Prüfung.',
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'L4-Sitzung nicht verfügbar',
   'diag_fail_L4_PROTOCOL_ERROR': 'L4-Protokollfehler',
@@ -37,7 +45,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'nav_settings': 'Optionen',
   'status_stream_degraded': 'Live-Statusaktualisierungen sind eingeschränkt',
   'status_stream_degraded_body':
-      'Die Statusabfrage ist aktiv; Live-Aktualisierungen werden automatisch erneut versucht.',
+      'Statusaktualisierungen sind verzögert. Ein neuer Versuch erfolgt automatisch.',
   'connect': 'Verbinden',
   'retry': 'Erneut versuchen',
   'disconnect': 'Trennen',
@@ -158,7 +166,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'proxy_username': 'Benutzername',
   'proxy_password': 'Passwort',
   'proxy_password_hint':
-      'Nur-Eingabe. Geben Sie das Passwort erneut ein, um Anmeldedaten festzulegen oder zu ändern.',
+      'Gib ein Passwort ein, um Zugangsdaten festzulegen oder zu ändern.',
   'proxy_auth_apply': 'Anmeldedaten speichern',
   'proxy_auth_invalid':
       'Der Benutzername muss 1–255 Byte ohne „:“ oder NUL umfassen. Mit einem Benutzernamen ist ein Passwort von 1–255 Byte erforderlich.',
@@ -209,8 +217,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'update_available': 'Eine neuere Version ist verfügbar:',
   'already_latest': 'Diese Installation ist bereits aktuell.',
   'open_release': 'Release-Seite öffnen',
-  'update_startup_description':
-      'Usque prüft einmal nach dem Start. Beim Zurückkehren zur App wird nicht erneut geprüft. „Jetzt prüfen“ fordert immer die aktuellen Versionsinformationen an.',
+  'update_startup_description': 'Beim Start von Usque nach Updates suchen.',
   'update_checking': 'Suche nach einem Update…',
   'update_downloading': 'Verifiziertes Update-Paket wird heruntergeladen…',
   'update_verifying': 'Update-Paket wird geprüft…',
@@ -380,7 +387,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'diag_operation_failed': 'Diagnosevorgang fehlgeschlagen',
   'diag_event_stream_degraded': 'Diagnose-Ereignisstrom unterbrochen',
   'diag_event_stream_degraded_body':
-      'Der Sitzungszustand wird mit begrenzter Abfrage wiederhergestellt; der Lauf wird nicht neu gestartet.',
+      'Diagnosefortschritt wird wiederhergestellt…',
   'diag_export_included': 'Enthalten:',
   'diag_export_included_body':
       'Fehlercodes, Phasen, relative Zeiten, Zähler und boolesche Zustände',
@@ -396,9 +403,9 @@ const Map<String, String> kDeCatalog = <String, String>{
   'diag_mode_deep': 'Tiefgehend',
   'diag_deep_title': 'Hinweise zur tiefen Diagnose',
   'diag_deep_connected':
-      'Ein Tunnel ist aktiv: Es wird kein zweiter MASQUE-Datenpfad geöffnet; aktive Transportprüfungen werden als übersprungen oder als Warnung markiert.',
+      'Während der Verbindung werden einige Prüfungen übersprungen, um sie nicht zu unterbrechen.',
   'diag_deep_disconnected':
-      'Ohne Verbindung haben aktive Prüfungen ein Zeitlimit und können abgebrochen werden; anschließend wird der Plattformzustand verglichen.',
+      'Prüfungen können das Netzwerk verwenden. Du kannst sie jederzeit abbrechen.',
   'diag_start': 'Diagnose starten',
   'diag_session': 'Diagnosesitzung',
   'diag_progress_semantics': 'Diagnosefortschritt {current}%',
@@ -409,7 +416,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'diag_summary_skipped': 'Übersprungen {count}',
   'diag_check_results': 'Prüfergebnisse',
   'diag_check_results_empty':
-      'Starten Sie eine Diagnose, um nach Ebene gruppierte Prüfungen unter Berücksichtigung ihrer Abhängigkeiten zu sehen.',
+      'Starte die Diagnose, um deine Verbindung zu prüfen.',
   'diag_timeline': 'Verbindungszeitachse',
   'diag_timeline_subtitle':
       'Nur die neuesten Zustandsänderungen werden gespeichert; Paketinhalte und vollständige Adressen werden nie aufgezeichnet.',
@@ -558,7 +565,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'diag_fix_run_deep_diagnostics':
       'Tiefe Diagnose in einer geeigneten Umgebung ausführen.',
   'diag_fix_run_release_leak_gate':
-      'Führen Sie den unabhängigen Release-Leak-Test mit einem externen Netzwerkbeobachter aus.',
+      'Ein Diagnosepaket mit entfernten sensiblen Daten für den Support exportieren.',
   'diag_fix_inspect_platform_state':
       'Bestätigen Sie den tatsächlichen Plattformzustand mit einer schreibgeschützten Prüfung des System-, Netzwerk- und Proxyzustands.',
   'diag_fix_generate_tunnel_traffic':

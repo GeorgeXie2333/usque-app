@@ -5,6 +5,12 @@ const Map<String, String> kViCatalog = <String, String>{
       "Chặn UDP/443 qua proxy hoặc đường hầm, gồm cả giao thức khác trên cổng này. Lưu lượng trực tiếp GEO và kết nối HTTP/3 của Usque không bị ảnh hưởng. QUIC trên cổng khác vẫn được phép. Áp dụng mà không kết nối lại.",
   'disable_quic_unsupported':
       "Cập nhật hoặc khởi động lại bộ máy để dùng cài đặt này.",
+  'technical_details': 'Chi tiết kỹ thuật',
+  'diag_skip_disconnected': 'Kết nối để chạy kiểm tra này.',
+  'diag_skip_disabled': 'Tính năng này đã tắt.',
+  'diag_skip_unsupported': 'Không thể chạy kiểm tra này trên thiết bị này.',
+  'diag_skip_traffic': 'Sử dụng kết nối rồi chạy lại kiểm tra này.',
+  'diag_skip_deep': 'Chọn chế độ chuyên sâu để chạy kiểm tra này.',
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'Phiên L4 không khả dụng',
   'diag_fail_L4_PROTOCOL_ERROR': 'Lỗi giao thức L4',
@@ -37,7 +43,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'nav_settings': 'Cài đặt',
   'status_stream_degraded': 'Cập nhật trạng thái trực tiếp bị suy giảm',
   'status_stream_degraded_body':
-      'Đang thăm dò trạng thái; cập nhật trực tiếp sẽ tự thử lại.',
+      'Cập nhật trạng thái bị chậm. Đang tự động thử lại.',
   'connect': 'Kết nối',
   'retry': 'Thử lại',
   'disconnect': 'Ngắt kết nối',
@@ -153,7 +159,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'proxy_username': 'Tên người dùng',
   'proxy_password': 'Mật khẩu',
   'proxy_password_hint':
-      'Chỉ ghi. Nhập lại mật khẩu để đặt hoặc đổi thông tin xác thực.',
+      'Nhập mật khẩu để thiết lập hoặc thay đổi thông tin xác thực.',
   'proxy_auth_apply': 'Lưu thông tin xác thực',
   'proxy_auth_invalid':
       'Tên người dùng phải dài 1–255 byte, không chứa “:” hoặc NUL. Cần mật khẩu 1–255 byte khi có tên người dùng.',
@@ -203,8 +209,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'update_available': 'Đã có bản phát hành mới hơn:',
   'already_latest': 'Bản cài đặt này đã là phiên bản mới nhất.',
   'open_release': 'Mở trang phát hành',
-  'update_startup_description':
-      'Kiểm tra một lần sau khi Usque khởi động; quay lại ứng dụng không kiểm tra lại. Kiểm tra ngay luôn yêu cầu thông tin bản phát hành mới nhất.',
+  'update_startup_description': 'Kiểm tra bản cập nhật khi khởi động Usque.',
   'update_checking': 'Đang kiểm tra bản cập nhật…',
   'update_downloading': 'Đang tải gói cập nhật đã xác minh…',
   'update_verifying': 'Đang xác minh gói cập nhật…',
@@ -370,8 +375,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'diag_refresh_timeline': 'Làm mới dòng thời gian',
   'diag_operation_failed': 'Thao tác chẩn đoán thất bại',
   'diag_event_stream_degraded': 'Luồng sự kiện chẩn đoán bị gián đoạn',
-  'diag_event_stream_degraded_body':
-      'Trạng thái phiên đang được khôi phục bằng thăm dò có giới hạn; lần chạy sẽ không khởi động lại.',
+  'diag_event_stream_degraded_body': 'Đang khôi phục tiến trình chẩn đoán…',
   'diag_export_included': 'Bao gồm:',
   'diag_export_included_body':
       'Mã lỗi, giai đoạn, thời gian tương đối, bộ đếm và trạng thái boolean',
@@ -386,9 +390,9 @@ const Map<String, String> kViCatalog = <String, String>{
   'diag_mode_deep': 'Sâu',
   'diag_deep_title': 'Về chẩn đoán sâu',
   'diag_deep_connected':
-      'Đường hầm đang hoạt động: sẽ không mở đường dữ liệu MASQUE thứ hai; kiểm tra vận chuyển chủ động sẽ được đánh dấu là “bỏ qua” hoặc “cảnh báo”.',
+      'Một số kiểm tra sẽ được bỏ qua khi đang kết nối để tránh gián đoạn.',
   'diag_deep_disconnected':
-      'Khi ngắt kết nối, kiểm tra chủ động bị giới hạn bởi thời gian chờ và có thể hủy. Sau đó, trạng thái nền tảng được so sánh.',
+      'Các kiểm tra có thể sử dụng mạng. Bạn có thể hủy bất cứ lúc nào.',
   'diag_start': 'Bắt đầu chẩn đoán',
   'diag_session': 'Phiên chẩn đoán',
   'diag_progress_semantics': 'Tiến trình chẩn đoán {current}%',
@@ -398,8 +402,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'diag_summary_failed': 'Thất bại {count}',
   'diag_summary_skipped': 'Đã bỏ qua {count}',
   'diag_check_results': 'Kết quả kiểm tra',
-  'diag_check_results_empty':
-      'Bắt đầu chẩn đoán để xem các kiểm tra được nhóm theo lớp và phụ thuộc.',
+  'diag_check_results_empty': 'Bắt đầu chẩn đoán để kiểm tra kết nối.',
   'diag_timeline': 'Dòng thời gian kết nối',
   'diag_timeline_subtitle':
       'Chỉ ghi các thay đổi trạng thái gần đây; nội dung gói và địa chỉ đầy đủ không bao giờ được ghi.',
@@ -545,7 +548,7 @@ const Map<String, String> kViCatalog = <String, String>{
   'diag_fix_run_deep_diagnostics':
       'Chạy chẩn đoán sâu trong môi trường phù hợp.',
   'diag_fix_run_release_leak_gate':
-      'Chạy kiểm tra rò rỉ bản phát hành độc lập với một quan sát viên mạng bên ngoài.',
+      'Xuất gói chẩn đoán đã loại bỏ thông tin nhạy cảm để hỗ trợ.',
   'diag_fix_inspect_platform_state':
       'Xác nhận trạng thái thực bằng một phép kiểm tra chỉ đọc trạng thái mạng và proxy hệ thống.',
   'diag_fix_generate_tunnel_traffic':

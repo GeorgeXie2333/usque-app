@@ -79,15 +79,14 @@ const Map<String, String> kNetworkQualityJa = <String, String>{
   'nq_finding_pmtu_degraded': 'パス MTU の検証が低下しています。',
   'nq_finding_migration_reconnect': 'この経路では移行できないため、ネットワーク変化時は完全な再接続になります。',
   'nq_finding_dns_changed': '保存済みの DNS モードが、実行中の接続と異なります。',
-  'nq_finding_dns_runtime': '暗号化 DNS は成功しています。ローカル状態は外部への漏洩がないことの証明ではありません。',
+  'nq_finding_dns_runtime': '暗号化 DNS は正常に動作しています。',
   'nq_finding_dns_degraded':
       '暗号化 DNS が低下しています。失敗した直接クエリはシステム DNS にフォールバックしません。',
-  'nq_finding_probe_unsafe':
-      'プローブをスキップしました。必要な安全な状態、または保存済みアイデンティティがありません。稼働中のトンネルを複製することはありません。',
-  'nq_finding_probe_success': '認証済みの探査が完了しました。これは外部パケット漏洩テストではありません。',
-  'nq_finding_probe_cancelled': '探査をキャンセルし、クリーンアップを要求しました。',
-  'nq_finding_probe_timeout': '制限時間内に探査が完了しませんでした。',
-  'nq_finding_probe_failed': '認証済みの探査が失敗し、安全でないフォールバックは試みていません。',
+  'nq_finding_probe_unsafe': '現在の状態では、この測定値は利用できません。',
+  'nq_finding_probe_success': 'この検査は成功しました。',
+  'nq_finding_probe_cancelled': 'この検査はキャンセルされました。',
+  'nq_finding_probe_timeout': '診断検査がタイムアウトしました',
+  'nq_finding_probe_failed': 'この検査は失敗しました。',
   'diag_fix_nq_profile': 'カスタム DNS の項目と証明書名を確認してください。TLS 検証は無効にしないでください。',
   'diag_fix_nq_retry': 'ネットワークが安定してから再試行してください。',
   'diag_fix_nq_network': 'ローカルの接続状況を確認し、新しいサンプルを比較してから設定を変更してください。',
@@ -113,8 +112,8 @@ const Map<String, String> kNetworkQualityJa = <String, String>{
   'nq_not_ready': '未準備',
   'nq_unsupported': '非対応',
   'nq_capability_missing': 'この Engine はネットワーク品質を提供しません。既存の接続操作はそのまま使えます。',
-  'nq_empty': '接続すると測定値が表示されます。不明な値は 0 としては表示しません。',
-  'nq_stale_help': 'データ源の更新が止まっています。表示は以前の読み取り値で、欠落は欠落のままです。',
+  'nq_empty': '接続すると測定結果が表示されます。',
+  'nq_stale_help': '更新が停止しています。最後の測定値を表示しています。',
   'nq_rtt': '往復遅延',
   'nq_latest': '最新',
   'nq_smoothed': '平滑値',
@@ -222,11 +221,9 @@ const Map<String, String> kNetworkQualityJa = <String, String>{
   'nq_dns_invalid_mode': '対応している DNS モードを選んでください。',
   'nq_doctor_deep_title': '詳細なネットワーク検査を実行しますか？',
   'nq_doctor_deep_body':
-      '詳細検査では、設定したリゾルバーへ DNS テストクエリを送り、保護された QUIC '
-      '経路を検証する場合があります。最長 15 秒で、キャンセルできます。データ転送用の '
-      '2 本目のトンネルは作らず、DNS、ルート、アカウント、トランスポートも変更しません。',
+      'チェックでテスト通信が発生する場合があります。最長 15 秒で、いつでもキャンセルできます。接続設定は変更されません。',
   'nq_doctor_deep_run': '詳細検査を実行',
-  'nq_doctor_evidence': 'ローカル検査は設定と観測状態を説明するだけであり、DNS 漏洩がゼロであることの外部証明ではありません。',
+  'nq_doctor_evidence': 'これらのチェックでは DNS 漏えいの有無を確認できません。',
 };
 
 const Map<String, String> kWindowsRecoveryJa = <String, String>{
@@ -261,7 +258,7 @@ const Map<String, String> kL4Ja = <String, String>{
   'l4_budget_rejections': 'リソース受付の拒否回数',
   'l4_not_applicable': '対象外（L4）',
   'l4_mode': 'L4（実験的）',
-  'l4_transport_hint': 'TCP のみ。TUN の DNS は TCP に変換。Auto に L4 は含まれません。',
+  'l4_transport_hint': 'TCP のみ対応。UDP が必要なアプリは動作しない場合があります。自動モードでは L4 を選びません。',
   'l4_explanation':
       'HTTP/3 上の TCP 専用モードです。VPN/TUN、SOCKS5、HTTP に対応し、TUN DNS は TCP に変換されます。Auto は L4 を選びません。その他の UDP、遠隔 ping、IP 断片、拡張ヘッダーは未対応で、一部のアプリは動作しないことがあります。',
   'l4_unsupported': 'この Engine は完全な L4 対応を宣言していません。L4 は有効にできません。',

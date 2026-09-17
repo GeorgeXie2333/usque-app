@@ -110,30 +110,29 @@ class DiagnosticFindingCard extends StatelessWidget {
             ),
           ] else ...<Widget>[
             Text(
-              _summaryText(strings, finding),
+              finding.status == DiagnosticCheckStatus.skipped &&
+                      finding.dependencyReason?.isNotEmpty == true
+                  ? diagnosticSkipReason(strings, finding)
+                  : _summaryText(strings, finding),
               style: theme.textTheme.bodyMedium,
             ),
-            if (finding.dependencyReason?.isNotEmpty == true) ...<Widget>[
-              const SizedBox(height: 8),
-              Text(
-                finding.dependencyReason!,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                  fontFamily: UsqueFonts.mono,
-                  fontFamilyFallback: UsqueFonts.monoFallback,
-                ),
-              ),
-            ],
           ],
           if (finding.sanitizedEvidence.isNotEmpty) ...<Widget>[
             const SizedBox(height: 10),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: finding.sanitizedEvidence
+            ExpansionTile(
+              key: PageStorageKey<String>('evidence-${finding.checkId}'),
+              title: Text(strings.get('technical_details')),
+              expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
+              childrenPadding: const EdgeInsets.all(12),
+              children: finding.sanitizedEvidence.indexed
                   .map(
-                    (value) =>
-                        Text(value, style: UsqueTheme.mono(context, size: 12)),
+                    (entry) => SelectableText(
+                      key: PageStorageKey<String>(
+                        'evidence-value-${finding.checkId}-${entry.$1}',
+                      ),
+                      entry.$2,
+                      style: UsqueTheme.mono(context, size: 12),
+                    ),
                   )
                   .toList(growable: false),
             ),

@@ -79,13 +79,13 @@ const Map<String, String> kNetworkQualityZhHk = <String, String>{
   'nq_finding_pmtu_degraded': '路徑 MTU 驗證已降級。',
   'nq_finding_migration_reconnect': '此路徑不支援遷移，切換網絡時將完整重連。',
   'nq_finding_dns_changed': '已儲存的 DNS 模式與目前連線不同。',
-  'nq_finding_dns_runtime': '加密 DNS 查詢已成功。本機狀態不等於外部無外洩證明。',
+  'nq_finding_dns_runtime': '加密 DNS 運作正常。',
   'nq_finding_dns_degraded': '加密 DNS 已降級；失敗的直連查詢不會回退系統 DNS。',
-  'nq_finding_probe_unsafe': '已略過探測：缺少安全條件或已儲存身份，絕不複製活動通道。',
-  'nq_finding_probe_success': '認證探測已完成；這不是外部數據包外洩測試。',
-  'nq_finding_probe_cancelled': '探測已取消並已要求清理。',
-  'nq_finding_probe_timeout': '有時限的探測未在截止時間前完成。',
-  'nq_finding_probe_failed': '認證探測失敗，未嘗試不安全的回退。',
+  'nq_finding_probe_unsafe': '目前狀態下此量度不可用。',
+  'nq_finding_probe_success': '檢查已通過。',
+  'nq_finding_probe_cancelled': '檢查已取消。',
+  'nq_finding_probe_timeout': '診斷檢查逾時',
+  'nq_finding_probe_failed': '檢查失敗。',
   'diag_fix_nq_profile': '檢查自訂 DNS 欄位及憑證名稱；請勿關閉 TLS 驗證。',
   'diag_fix_nq_retry': '待網絡穩定後再重試。',
   'diag_fix_nq_network': '檢查本機連通性，比較新讀數後再調整設定。',
@@ -111,8 +111,8 @@ const Map<String, String> kNetworkQualityZhHk = <String, String>{
   'nq_not_ready': '尚未就緒',
   'nq_unsupported': '不支援',
   'nq_capability_missing': '此 Engine 不提供網絡質素資料，現有連線控制仍可使用。',
-  'nq_empty': '連線後顯示量度結果。未知值不會顯示成零。',
-  'nq_stale_help': '數據源已停止更新。這裏是先前讀數，缺失取樣保留為空缺。',
+  'nq_empty': '連線後顯示測量結果。',
+  'nq_stale_help': '更新已暫停，目前顯示上次讀數。',
   'nq_rtt': '往返時延',
   'nq_latest': '最新',
   'nq_smoothed': '平滑值',
@@ -215,11 +215,9 @@ const Map<String, String> kNetworkQualityZhHk = <String, String>{
   'nq_dns_invalid_port': '請輸入 0–65535。',
   'nq_dns_invalid_mode': '請選擇支援的 DNS 模式。',
   'nq_doctor_deep_title': '執行深度網絡檢查？',
-  'nq_doctor_deep_body':
-      '深度檢查可能向你設定的解析器發送測試 DNS 查詢，並驗證受保護的 QUIC '
-      '路徑。最長 15 秒，可取消；不會建立第二條業務通道，亦不會修改 DNS、路由、帳戶或傳輸協定。',
+  'nq_doctor_deep_body': '檢查可能傳送測試流量，最長 15 秒，可隨時取消，不會修改你的連線設定。',
   'nq_doctor_deep_run': '執行深度檢查',
-  'nq_doctor_evidence': '本機檢查只描述設定與已觀測狀態，不等於外部擷包證明絕無 DNS 外洩。',
+  'nq_doctor_evidence': '這些檢查無法確認是否存在 DNS 洩漏。',
 };
 
 const Map<String, String> kWindowsRecoveryZhHk = <String, String>{
@@ -247,7 +245,7 @@ const Map<String, String> kL4ZhHk = <String, String>{
   'l4_budget_rejections': '資源准入拒絕次數',
   'l4_not_applicable': '不適用（L4）',
   'l4_mode': 'L4（實驗性）',
-  'l4_transport_hint': '僅支援 TCP；TUN DNS 自動轉換。Auto 不包含 L4。',
+  'l4_transport_hint': '只支援 TCP，需要 UDP 的應用程式可能無法使用。自動模式不包括 L4。',
   'l4_explanation':
       '基於 HTTP/3 的 TCP-only 模式，支援 VPN/TUN、SOCKS5 及 HTTP；TUN DNS 會轉為 TCP。Auto 不會選用 L4。其他 UDP、遠端 Ping、IP 分片及擴展頭不受支援，部分應用程式可能無法使用。',
   'l4_unsupported': '目前引擎尚未聲明完整的 L4 能力，不能啟用 L4。',

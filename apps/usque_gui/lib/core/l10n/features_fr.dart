@@ -111,24 +111,16 @@ const Map<String, String> kNetworkQualityFr = <String, String>{
       'utilise une reconnexion complète.',
   'nq_finding_dns_changed':
       'Le mode DNS enregistré diffère de la connexion en cours.',
-  'nq_finding_dns_runtime':
-      'Le DNS chiffré a réussi. L’état local n’est pas une preuve externe '
-      'd’absence de fuites.',
+  'nq_finding_dns_runtime': 'Le DNS chiffré fonctionne.',
   'nq_finding_dns_degraded':
       'Le DNS chiffré est dégradé ; les requêtes directes en échec ne '
       'basculent pas vers le DNS système.',
   'nq_finding_probe_unsafe':
-      'Sonde ignorée : l’état sûr requis ou l’identité enregistrée est '
-      'indisponible. Un tunnel actif n’est jamais dupliqué.',
-  'nq_finding_probe_success':
-      'La sonde authentifiée est terminée. Ce n’est pas un test externe de '
-      'fuites de paquets.',
-  'nq_finding_probe_cancelled': 'Sonde annulée et nettoyage demandé.',
-  'nq_finding_probe_timeout':
-      'La sonde bornée n’a pas terminé avant l’échéance.',
-  'nq_finding_probe_failed':
-      'La sonde authentifiée a échoué ; aucun repli non sécurisé n’a été '
-      'tenté.',
+      'Cette mesure n’est pas disponible dans l’état actuel.',
+  'nq_finding_probe_success': 'Ce contrôle a réussi.',
+  'nq_finding_probe_cancelled': 'Ce contrôle a été annulé.',
+  'nq_finding_probe_timeout': 'Contrôle de diagnostic expiré',
+  'nq_finding_probe_failed': 'Ce contrôle a échoué.',
   'diag_fix_nq_profile':
       'Examinez les champs DNS personnalisés et le nom du certificat. Ne '
       'désactivez pas la vérification TLS.',
@@ -163,12 +155,9 @@ const Map<String, String> kNetworkQualityFr = <String, String>{
   'nq_capability_missing':
       'Cet Engine ne fournit pas la qualité réseau. Vos commandes de connexion '
       'existantes fonctionnent toujours.',
-  'nq_empty':
-      'Connectez-vous pour voir les mesures. Les valeurs inconnues ne sont pas '
-      'affichées comme zéro.',
+  'nq_empty': 'Connectez-vous pour voir les mesures.',
   'nq_stale_help':
-      'La source a cessé de se mettre à jour. Ce sont d’anciennes lectures ; '
-      'les trous restent des trous.',
+      'Les mises à jour sont interrompues. Les dernières mesures sont affichées.',
   'nq_rtt': 'Temps d’aller-retour',
   'nq_latest': 'Plus récent',
   'nq_smoothed': 'Lissé',
@@ -304,15 +293,10 @@ const Map<String, String> kNetworkQualityFr = <String, String>{
   'nq_dns_invalid_mode': 'Choisissez un mode DNS pris en charge.',
   'nq_doctor_deep_title': 'Exécuter les contrôles réseau approfondis ?',
   'nq_doctor_deep_body':
-      'Les contrôles approfondis peuvent envoyer une requête DNS de test à '
-      'votre résolveur configuré et valider un chemin QUIC protégé. Ils durent '
-      'au plus 15 secondes, peuvent être annulés, ne créent jamais un second '
-      'tunnel porteur de données et ne modifient jamais votre DNS, vos routes, '
-      'votre profil ou le transport.',
+      'Les vérifications peuvent envoyer du trafic de test. Elles durent au maximum 15 secondes et peuvent être annulées. Vos paramètres de connexion restent inchangés.',
   'nq_doctor_deep_run': 'Exécuter les contrôles approfondis',
   'nq_doctor_evidence':
-      'Les contrôles locaux décrivent la configuration et l’état observé. Ils '
-      'ne constituent pas une preuve externe de l’absence de fuites DNS.',
+      'Ces vérifications ne permettent pas de confirmer la présence de fuites DNS.',
 };
 
 const Map<String, String> kWindowsRecoveryFr = <String, String>{
@@ -356,7 +340,8 @@ const Map<String, String> kL4Fr = <String, String>{
   'l4_budget_rejections': 'Admissions de ressources refusées',
   'l4_not_applicable': 'Sans objet (L4)',
   'l4_mode': 'L4 (expérimental)',
-  'l4_transport_hint': 'TCP uniquement ; DNS du TUN via TCP. Auto exclut L4.',
+  'l4_transport_hint':
+      'TCP uniquement. Les applications nécessitant UDP peuvent ne pas fonctionner. Le mode automatique exclut L4.',
   'l4_explanation':
       'TCP uniquement sur HTTP/3. Prend en charge VPN/TUN, SOCKS5 et HTTP ; le DNS TUN est converti en TCP. Auto ne choisit jamais L4. Les autres UDP, le ping distant, les fragments IP et les en-têtes d’extension ne sont pas pris en charge ; certaines applications peuvent ne pas fonctionner.',
   'l4_unsupported':

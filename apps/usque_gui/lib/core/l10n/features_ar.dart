@@ -90,18 +90,14 @@ const kNetworkQualityAr = <String, String>{
   'nq_finding_migration_reconnect':
       'الترحيل غير متاح على هذا المسار؛ ويستخدم تغيّر الشبكة إعادة اتصال كاملة.',
   'nq_finding_dns_changed': 'وضع DNS المحفوظ يختلف عن الاتصال الجاري.',
-  'nq_finding_dns_runtime':
-      'نجح DNS المشفّر. الحالة المحلية ليست إثباتًا خارجيًا لانعدام التسريب.',
+  'nq_finding_dns_runtime': 'يعمل DNS المشفّر بشكل صحيح.',
   'nq_finding_dns_degraded':
       'DNS المشفّر متدهور؛ والاستعلامات المباشرة الفاشلة لا ترجع إلى DNS النظام.',
-  'nq_finding_probe_unsafe':
-      'تم تخطي المجس: الحالة الآمنة المطلوبة أو الهوية المحفوظة غير متاحة. لا يُنشأ نفق نشط ثانٍ أبدًا.',
-  'nq_finding_probe_success':
-      'اكتمل المجس المصادق عليه. هذا ليس اختبار تسريب رزم خارجيًا.',
-  'nq_finding_probe_cancelled': 'أُلغي المجس وطُلب التنظيف.',
-  'nq_finding_probe_timeout': 'لم يكتمل المجس المحدود قبل موعده النهائي.',
-  'nq_finding_probe_failed':
-      'فشل المجس المصادق عليه؛ ولم تُحاول أي عودة غير آمنة.',
+  'nq_finding_probe_unsafe': 'هذا القياس غير متاح في الحالة الحالية.',
+  'nq_finding_probe_success': 'نجح هذا الفحص.',
+  'nq_finding_probe_cancelled': 'أُلغي هذا الفحص.',
+  'nq_finding_probe_timeout': 'انتهت مهلة فحص التشخيص',
+  'nq_finding_probe_failed': 'فشل هذا الفحص.',
   'diag_fix_nq_profile':
       'راجع حقول DNS المخصصة واسم الشهادة. لا تعطّل التحقق من TLS.',
   'diag_fix_nq_retry': 'انتظر حتى تستقر الشبكة، ثم أعد المحاولة.',
@@ -131,9 +127,8 @@ const kNetworkQualityAr = <String, String>{
   'nq_unsupported': 'غير مدعوم',
   'nq_capability_missing':
       'لا يوفّر هذا Engine جودة الشبكة. عناصر التحكم الحالية في الاتصال ما زالت تعمل.',
-  'nq_empty': 'اتصل لعرض القياسات. لا تُعرض القيم المجهولة كصفر.',
-  'nq_stale_help':
-      'توقّف المصدر عن التحديث. هذه قراءات سابقة؛ وتبقى الفجوات فجوات.',
+  'nq_empty': 'اتصل لعرض القياسات.',
+  'nq_stale_help': 'توقفت التحديثات مؤقتًا. تُعرض آخر القراءات.',
   'nq_rtt': 'زمن الذهاب والإياب',
   'nq_latest': 'الأحدث',
   'nq_smoothed': 'مُمهَّد',
@@ -247,10 +242,9 @@ const kNetworkQualityAr = <String, String>{
   'nq_dns_invalid_mode': 'اختر وضع DNS مدعومًا.',
   'nq_doctor_deep_title': 'تشغيل فحوصات الشبكة العميقة؟',
   'nq_doctor_deep_body':
-      'قد ترسل الفحوصات العميقة استعلام DNS تجريبيًا إلى المحلل الذي هيّأته وتتحقق من مسار QUIC محمي. تدوم 15 ثانية كحد أقصى، ويمكن إلغاؤها، ولا تنشئ نفق بيانات ثانيًا أبدًا، ولا تغيّر DNS أو التوجيه أو الحساب أو النقل.',
+      'قد ترسل الفحوص حركة مرور تجريبية. تستغرق حتى 15 ثانية ويمكن إلغاؤها. لن تتغير إعدادات اتصالك.',
   'nq_doctor_deep_run': 'تشغيل الفحوصات العميقة',
-  'nq_doctor_evidence':
-      'تصف الفحوصات المحلية التكوين والحالة المرصودة. وليست دليلًا خارجيًا على انعدام تسريب DNS.',
+  'nq_doctor_evidence': 'لا تستطيع هذه الفحوص تأكيد وجود تسرب DNS أو عدمه.',
 };
 
 const Map<String, String> kWindowsRecoveryAr = <String, String>{
@@ -282,7 +276,7 @@ const Map<String, String> kL4Ar = <String, String>{
   'l4_not_applicable': 'غير منطبق (L4)',
   'l4_mode': 'L4 (تجريبي)',
   'l4_transport_hint':
-      'TCP فقط؛ يستخدم DNS الخاص بـ TUN بروتوكول TCP. لا يشمل Auto وضع L4.',
+      'يدعم TCP فقط. قد لا تعمل التطبيقات التي تحتاج إلى UDP. الوضع التلقائي لا يختار L4.',
   'l4_explanation':
       'وضع TCP فقط عبر HTTP/3. يدعم VPN/TUN وSOCKS5 وHTTP؛ ويُحوَّل DNS الخاص بـ TUN إلى TCP. لا يختار Auto وضع L4 أبدًا. بقية UDP والبينغ البعيد وتجزئة IP والرؤوس الموسعة غير مدعومة؛ قد لا تعمل بعض التطبيقات.',
   'l4_unsupported': 'لم يعلن هذا المحرك عن دعم L4 كامل. لا يمكن تفعيل L4.',

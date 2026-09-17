@@ -67,6 +67,18 @@ String diagnosticFindingSummary(AppStrings strings, DiagnosticFinding finding) {
   });
 }
 
+String diagnosticSkipReason(AppStrings strings, DiagnosticFinding finding) {
+  final key = switch (finding.dependencyReason) {
+    'no_active_tunnel' || 'no_transport_handshake' => 'diag_skip_disconnected',
+    'not_configured' => 'diag_skip_disabled',
+    'platform_capability_unavailable' => 'diag_skip_unsupported',
+    'no_application_traffic' => 'diag_skip_traffic',
+    'run_deep_diagnostics' => 'diag_skip_deep',
+    _ => 'diag_finding_skipped',
+  };
+  return strings.get(key);
+}
+
 String diagnosticSessionStateLabel(
   AppStrings strings,
   DiagnosticSessionState state,

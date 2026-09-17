@@ -57,19 +57,15 @@ const kNetworkQualityEn = <String, String>{
       "Migration is unavailable on this path; a network change uses full reconnect.",
   'nq_finding_dns_changed':
       "The saved DNS mode differs from the running connection.",
-  'nq_finding_dns_runtime':
-      "Encrypted DNS has succeeded. Local state is not external leak proof.",
+  'nq_finding_dns_runtime': 'Encrypted DNS is working.',
   'nq_finding_dns_degraded':
       "Encrypted DNS is degraded; failed direct queries do not fall back to system DNS.",
   'nq_finding_probe_unsafe':
-      "Probe skipped: the required safe state or saved identity is unavailable. An active tunnel is never duplicated.",
-  'nq_finding_probe_success':
-      "The authenticated probe completed. This is not an external packet-leak test.",
-  'nq_finding_probe_cancelled': "Probe cancelled and cleanup requested.",
-  'nq_finding_probe_timeout':
-      "The bounded probe did not finish before its deadline.",
-  'nq_finding_probe_failed':
-      "The authenticated probe failed; no insecure fallback was attempted.",
+      "This measurement is not available in the current state.",
+  'nq_finding_probe_success': 'This check passed.',
+  'nq_finding_probe_cancelled': 'This check was cancelled.',
+  'nq_finding_probe_timeout': 'Diagnostic check timed out',
+  'nq_finding_probe_failed': 'This check failed.',
   'diag_fix_nq_profile':
       "Review the custom DNS fields and certificate name. Do not disable TLS verification.",
   'diag_fix_nq_retry': "Wait for a stable network, then retry.",
@@ -99,10 +95,8 @@ const kNetworkQualityEn = <String, String>{
   'nq_unsupported': 'Not supported',
   'nq_capability_missing':
       'This Engine does not provide network quality. Your existing connection controls still work.',
-  'nq_empty':
-      'Connect to see measurements. Unknown values are not shown as zero.',
-  'nq_stale_help':
-      'The source stopped updating. These are previous readings; gaps remain gaps.',
+  'nq_empty': 'Connect to see measurements.',
+  'nq_stale_help': 'Updates have paused. Showing the last readings.',
   'nq_rtt': 'Round-trip time',
   'nq_latest': 'Latest',
   'nq_smoothed': 'Smoothed',
@@ -223,10 +217,9 @@ const kNetworkQualityEn = <String, String>{
   'nq_dns_invalid_mode': 'Choose a supported DNS mode.',
   'nq_doctor_deep_title': 'Run deep network checks?',
   'nq_doctor_deep_body':
-      'Deep checks may send a DNS test query to your configured resolver and validate a protected QUIC path. They last at most 15 seconds, can be cancelled, never create a second data-bearing tunnel and never change your DNS, route, profile or transport.',
+      'Checks may send test traffic. They take up to 15 seconds and can be cancelled. Your connection settings will not change.',
   'nq_doctor_deep_run': 'Run deep checks',
-  'nq_doctor_evidence':
-      'Local checks describe configuration and observed state. They are not external proof of zero DNS leaks.',
+  'nq_doctor_evidence': 'These checks cannot confirm whether DNS leaks occur.',
 };
 
 const kNetworkQualityZhCn = <String, String>{
@@ -254,13 +247,13 @@ const kNetworkQualityZhCn = <String, String>{
   'nq_finding_pmtu_degraded': "路径 MTU 验证已降级。",
   'nq_finding_migration_reconnect': "此路径不支持迁移，切换网络时将完整重连。",
   'nq_finding_dns_changed': "已保存的 DNS 模式与当前连接不同。",
-  'nq_finding_dns_runtime': "加密 DNS 查询已成功。本地状态不等于外部无泄漏证明。",
+  'nq_finding_dns_runtime': '加密 DNS 工作正常。',
   'nq_finding_dns_degraded': "加密 DNS 已降级；失败的直连查询不会回退系统 DNS。",
-  'nq_finding_probe_unsafe': "已跳过探测：缺少安全条件或已保存身份，绝不复制活动隧道。",
-  'nq_finding_probe_success': "认证探测已完成；这不是外部数据包泄漏测试。",
-  'nq_finding_probe_cancelled': "探测已取消并已请求清理。",
-  'nq_finding_probe_timeout': "有界探测未在截止时间前完成。",
-  'nq_finding_probe_failed': "认证探测失败，未尝试不安全的回退。",
+  'nq_finding_probe_unsafe': "当前状态下此指标不可用。",
+  'nq_finding_probe_success': '检查通过。',
+  'nq_finding_probe_cancelled': '检查已取消。',
+  'nq_finding_probe_timeout': '诊断检查超时',
+  'nq_finding_probe_failed': '检查失败。',
   'diag_fix_nq_profile': "检查自定义 DNS 字段和证书名称；请勿关闭 TLS 验证。",
   'diag_fix_nq_retry': "等待网络稳定后重试。",
   'diag_fix_nq_network': "检查本地连通性，比较新读数后再调整设置。",
@@ -286,8 +279,8 @@ const kNetworkQualityZhCn = <String, String>{
   'nq_not_ready': '尚未就绪',
   'nq_unsupported': '不支持',
   'nq_capability_missing': '此 Engine 不提供网络质量信息，现有连接控制仍可使用。',
-  'nq_empty': '连接后显示测量结果。未知值不会显示成零。',
-  'nq_stale_help': '数据源已停止更新。这里是先前读数，缺失采样保留为空缺。',
+  'nq_empty': '连接后显示测量结果。',
+  'nq_stale_help': '更新已暂停，当前显示上次读数。',
   'nq_rtt': '往返时延',
   'nq_latest': '最新',
   'nq_smoothed': '平滑值',
@@ -390,10 +383,9 @@ const kNetworkQualityZhCn = <String, String>{
   'nq_dns_invalid_port': '请输入 0–65535。',
   'nq_dns_invalid_mode': '请选择支持的 DNS 模式。',
   'nq_doctor_deep_title': '运行深度网络检查？',
-  'nq_doctor_deep_body':
-      '深度检查可能向你配置的解析器发送测试 DNS 查询，并验证受保护的 QUIC 路径。最长 15 秒，可取消；不会创建第二条业务隧道，也不会修改 DNS、路由、账号或传输协议。',
+  'nq_doctor_deep_body': '检查可能发送测试流量，最长 15 秒，可随时取消，不会修改你的连接设置。',
   'nq_doctor_deep_run': '运行深度检查',
-  'nq_doctor_evidence': '本地检查仅描述配置与已观测状态，不等于外部抓包证明绝无 DNS 泄漏。',
+  'nq_doctor_evidence': '这些检查无法确认是否存在 DNS 泄漏。',
 };
 
 const Map<String, Map<String, String>> kNetworkQualityCatalogs =

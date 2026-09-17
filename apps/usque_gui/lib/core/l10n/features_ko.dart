@@ -81,14 +81,13 @@ const Map<String, String> kNetworkQualityKo = <String, String>{
   'nq_finding_migration_reconnect':
       '이 경로에서는 마이그레이션을 사용할 수 없어 네트워크 변경 시 전체 재연결을 사용합니다.',
   'nq_finding_dns_changed': '저장된 DNS 모드가 실행 중인 연결과 다릅니다.',
-  'nq_finding_dns_runtime': '암호화 DNS가 성공했습니다. 로컬 상태는 외부 누출이 없다는 증명이 아닙니다.',
+  'nq_finding_dns_runtime': '암호화 DNS가 정상 작동하고 있습니다.',
   'nq_finding_dns_degraded': '암호화 DNS가 저하되었습니다. 실패한 직접 쿼리는 시스템 DNS로 폴백하지 않습니다.',
-  'nq_finding_probe_unsafe':
-      '프로브를 건너뛰었습니다. 필요한 안전 상태 또는 저장된 신원을 사용할 수 없습니다. 활성 터널을 복제하지 않습니다.',
-  'nq_finding_probe_success': '인증된 프로브가 완료되었습니다. 외부 패킷 누출 테스트가 아닙니다.',
-  'nq_finding_probe_cancelled': '프로브가 취소되었고 정리가 요청되었습니다.',
-  'nq_finding_probe_timeout': '제한 시간 안에 프로브가 끝나지 않았습니다.',
-  'nq_finding_probe_failed': '인증된 프로브가 실패했으며 안전하지 않은 폴백은 시도하지 않았습니다.',
+  'nq_finding_probe_unsafe': '현재 상태에서는 이 측정값을 사용할 수 없습니다.',
+  'nq_finding_probe_success': '이 검사가 통과했습니다.',
+  'nq_finding_probe_cancelled': '이 검사가 취소되었습니다.',
+  'nq_finding_probe_timeout': '진단 검사 시간 초과',
+  'nq_finding_probe_failed': '이 검사가 실패했습니다.',
   'diag_fix_nq_profile': '사용자 지정 DNS 필드와 인증서 이름을 검토하세요. TLS 검증을 끄지 마세요.',
   'diag_fix_nq_retry': '네트워크가 안정된 뒤 다시 시도하세요.',
   'diag_fix_nq_network': '로컬 연결을 확인하고 새 샘플을 비교한 다음 설정을 바꾸세요.',
@@ -114,8 +113,8 @@ const Map<String, String> kNetworkQualityKo = <String, String>{
   'nq_not_ready': '준비되지 않음',
   'nq_unsupported': '지원되지 않음',
   'nq_capability_missing': '이 Engine은 네트워크 품질을 제공하지 않습니다. 기존 연결 제어는 그대로 동작합니다.',
-  'nq_empty': '연결하면 측정값이 표시됩니다. 알 수 없는 값은 0으로 표시하지 않습니다.',
-  'nq_stale_help': '원본 업데이트가 멈췄습니다. 이전 측정값이며, 빈 구간은 빈 구간으로 남습니다.',
+  'nq_empty': '연결하면 측정 결과가 표시됩니다.',
+  'nq_stale_help': '업데이트가 중단되었습니다. 마지막 측정값을 표시합니다.',
   'nq_rtt': '왕복 시간',
   'nq_latest': '최신',
   'nq_smoothed': '평활값',
@@ -225,11 +224,9 @@ const Map<String, String> kNetworkQualityKo = <String, String>{
   'nq_dns_invalid_mode': '지원되는 DNS 모드를 선택하세요.',
   'nq_doctor_deep_title': '심층 네트워크 검사를 실행할까요?',
   'nq_doctor_deep_body':
-      '심층 검사는 구성한 리졸버에 DNS 테스트 쿼리를 보내고 보호된 QUIC 경로를 '
-      '검증할 수 있습니다. 최대 15초이며 취소할 수 있고, 데이터를 실어 나르는 '
-      '두 번째 터널을 만들지 않으며 DNS, 경로, 계정, 전송을 절대 바꾸지 않습니다.',
+      '검사 중 테스트 트래픽이 전송될 수 있습니다. 최대 15초가 걸리며 언제든 취소할 수 있습니다. 연결 설정은 변경되지 않습니다.',
   'nq_doctor_deep_run': '심층 검사 실행',
-  'nq_doctor_evidence': '로컬 검사는 구성과 관측 상태를 설명할 뿐, DNS 누출이 없다는 외부 증명이 아닙니다.',
+  'nq_doctor_evidence': '이 검사로는 DNS 유출 여부를 확인할 수 없습니다.',
 };
 
 const Map<String, String> kWindowsRecoveryKo = <String, String>{
@@ -265,7 +262,8 @@ const Map<String, String> kL4Ko = <String, String>{
   'l4_budget_rejections': '리소스 수락 거부 횟수',
   'l4_not_applicable': '해당 없음(L4)',
   'l4_mode': 'L4(실험적)',
-  'l4_transport_hint': 'TCP만 지원하며 TUN DNS는 TCP로 변환됩니다. Auto에 L4는 포함되지 않습니다.',
+  'l4_transport_hint':
+      'TCP만 지원합니다. UDP가 필요한 앱은 작동하지 않을 수 있습니다. 자동 모드에는 L4가 포함되지 않습니다.',
   'l4_explanation':
       'HTTP/3 위의 TCP 전용 모드입니다. VPN/TUN, SOCKS5, HTTP를 지원하며 TUN DNS는 TCP로 변환됩니다. Auto는 L4를 선택하지 않습니다. 그 외 UDP, 원격 ping, IP 조각, 확장 헤더는 지원되지 않아 일부 앱이 동작하지 않을 수 있습니다.',
   'l4_unsupported': '이 엔진은 완전한 L4 지원을 선언하지 않았습니다. L4를 켤 수 없습니다.',

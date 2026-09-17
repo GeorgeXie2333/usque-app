@@ -5,6 +5,13 @@ const Map<String, String> kPtCatalog = <String, String>{
       "Bloqueia UDP/443 pelo proxy ou túnel, incluindo outros protocolos nessa porta. O tráfego direto GEO e a ligação HTTP/3 do Usque não são afetados. QUIC noutras portas continua permitido. Aplica-se sem voltar a ligar.",
   'disable_quic_unsupported':
       "Atualize ou reinicie o motor para usar esta definição.",
+  'technical_details': 'Detalhes técnicos',
+  'diag_skip_disconnected': 'Conecte-se para executar esta verificação.',
+  'diag_skip_disabled': 'Este recurso está desativado.',
+  'diag_skip_unsupported':
+      'Esta verificação não está disponível neste dispositivo.',
+  'diag_skip_traffic': 'Use a conexão e execute esta verificação novamente.',
+  'diag_skip_deep': 'Selecione o modo profundo para executar esta verificação.',
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'Sessão L4 indisponível',
   'diag_fail_L4_PROTOCOL_ERROR': 'Erro de protocolo L4',
@@ -37,7 +44,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'nav_settings': 'Ajustes',
   'status_stream_degraded': 'Atualizações de status em tempo real degradadas',
   'status_stream_degraded_body':
-      'A consulta periódica de status está ativa; as atualizações em tempo real serão tentadas novamente automaticamente.',
+      'As atualizações de status estão atrasadas. Nova tentativa automática em andamento.',
   'connect': 'Conectar',
   'retry': 'Tentar novamente',
   'disconnect': 'Desconectar',
@@ -157,7 +164,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'proxy_username': 'Nome de usuário',
   'proxy_password': 'Senha',
   'proxy_password_hint':
-      'Somente gravação. Insira novamente a senha para definir ou alterar as credenciais.',
+      'Digite uma senha para definir ou alterar as credenciais.',
   'proxy_auth_apply': 'Salvar credenciais',
   'proxy_auth_invalid':
       'O nome de usuário deve ter de 1 a 255 bytes, sem “:” nem NUL. Uma senha de 1 a 255 bytes é obrigatória com um nome de usuário.',
@@ -208,8 +215,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'update_available': 'Uma versão mais recente está disponível:',
   'already_latest': 'Esta instalação já está atualizada.',
   'open_release': 'Abrir página da versão',
-  'update_startup_description':
-      'O Usque verifica uma vez após iniciar. Ao voltar para o aplicativo, não há uma nova verificação. Verificar agora sempre solicita as informações da versão mais recente.',
+  'update_startup_description': 'Verificar atualizações ao iniciar o Usque.',
   'update_checking': 'Procurando uma atualização…',
   'update_downloading': 'Baixando o pacote de atualização verificado…',
   'update_verifying': 'Verificando o pacote de atualização…',
@@ -376,8 +382,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'diag_refresh_timeline': 'Atualizar linha do tempo',
   'diag_operation_failed': 'Falha na operação de diagnóstico',
   'diag_event_stream_degraded': 'Fluxo de eventos de diagnóstico interrompido',
-  'diag_event_stream_degraded_body':
-      'O estado da sessão está sendo recuperado com consulta limitada; a execução não será reiniciada.',
+  'diag_event_stream_degraded_body': 'Restaurando o progresso do diagnóstico…',
   'diag_export_included': 'Incluído:',
   'diag_export_included_body':
       'Códigos de erro, etapas, tempos relativos, contadores e estados booleanos',
@@ -393,9 +398,9 @@ const Map<String, String> kPtCatalog = <String, String>{
   'diag_mode_deep': 'Aprofundado',
   'diag_deep_title': 'Sobre o diagnóstico aprofundado',
   'diag_deep_connected':
-      'Há um túnel ativo: nenhum segundo caminho de dados MASQUE será aberto; as verificações ativas de transporte serão marcadas como ignoradas ou com um aviso.',
+      'Algumas verificações são ignoradas enquanto você está conectado para não interromper a conexão.',
   'diag_deep_disconnected':
-      'Sem conexão, as verificações ativas têm um limite de tempo e podem ser canceladas; depois o estado da plataforma é comparado.',
+      'As verificações podem usar a rede. Você pode cancelar a qualquer momento.',
   'diag_start': 'Iniciar diagnóstico',
   'diag_session': 'Sessão de diagnóstico',
   'diag_progress_semantics': 'Progresso do diagnóstico {current}%',
@@ -406,7 +411,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'diag_summary_skipped': 'Ignoradas {count}',
   'diag_check_results': 'Resultados das verificações',
   'diag_check_results_empty':
-      'Inicie um diagnóstico para ver verificações agrupadas por camada e dependências.',
+      'Inicie o diagnóstico para verificar sua conexão.',
   'diag_timeline': 'Linha do tempo da conexão',
   'diag_timeline_subtitle':
       'Somente as mudanças de estado mais recentes são mantidas; o conteúdo dos pacotes e os endereços completos nunca são registrados.',
@@ -553,7 +558,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'diag_fix_run_deep_diagnostics':
       'Execute o diagnóstico aprofundado em um ambiente adequado.',
   'diag_fix_run_release_leak_gate':
-      'Execute o teste independente de vazamento da versão com um observador de rede externo.',
+      'Exporte um pacote de diagnóstico sem dados sensíveis para o suporte.',
   'diag_fix_inspect_platform_state':
       'Confirme o estado real com uma verificação somente leitura do estado de rede e proxy do sistema.',
   'diag_fix_generate_tunnel_traffic':

@@ -5,6 +5,13 @@ const Map<String, String> kTrCatalog = <String, String>{
       "Proxy veya tünel üzerinden UDP/443 trafiğini, bu porttaki diğer protokollerle birlikte engeller. GEO doğrudan trafiği ve Usque’nin HTTP/3 bağlantısı etkilenmez. Diğer portlarda QUIC serbesttir. Yeniden bağlanmadan uygulanır.",
   'disable_quic_unsupported':
       "Bu ayarı kullanmak için motoru güncelleyin veya yeniden başlatın.",
+  'technical_details': 'Teknik ayrıntılar',
+  'diag_skip_disconnected': 'Bu kontrolü çalıştırmak için bağlanın.',
+  'diag_skip_disabled': 'Bu özellik kapalı.',
+  'diag_skip_unsupported': 'Bu kontrol bu cihazda kullanılamıyor.',
+  'diag_skip_traffic':
+      'Bağlantıyı kullanın, ardından bu kontrolü yeniden çalıştırın.',
+  'diag_skip_deep': 'Bu kontrolü çalıştırmak için derin modu seçin.',
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'L4 oturumu kullanılamıyor',
   'diag_fail_L4_PROTOCOL_ERROR': 'L4 protokol hatası',
@@ -37,7 +44,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'nav_settings': 'Ayarlar',
   'status_stream_degraded': 'Canlı durum güncellemeleri düşürüldü',
   'status_stream_degraded_body':
-      'Durum sorgulaması etkin; canlı güncellemeler otomatik olarak yeniden denenecek.',
+      'Durum güncellemeleri gecikiyor. Otomatik olarak yeniden deneniyor.',
   'connect': 'Bağlan',
   'retry': 'Yeniden dene',
   'disconnect': 'Bağlantıyı kes',
@@ -155,7 +162,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'proxy_username': 'Kullanıcı adı',
   'proxy_password': 'Parola',
   'proxy_password_hint':
-      'Yalnızca yazılabilir. Kimlik bilgilerini ayarlamak veya değiştirmek için parolayı yeniden girin.',
+      'Kimlik bilgilerini ayarlamak veya değiştirmek için parola girin.',
   'proxy_auth_apply': 'Kimlik bilgilerini kaydet',
   'proxy_auth_invalid':
       'Kullanıcı adı, “:” veya NUL içermeden 1–255 bayt olmalıdır. Kullanıcı adıyla birlikte 1–255 baytlık bir parola gerekir.',
@@ -206,8 +213,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'update_available': 'Daha yeni bir sürüm var:',
   'already_latest': 'Bu kurulum zaten güncel.',
   'open_release': 'Sürüm sayfasını aç',
-  'update_startup_description':
-      'Usque başlatıldıktan sonra bir kez denetlenir; uygulamaya dönmek yeniden denetim başlatmaz. «Şimdi denetle» her zaman en son sürüm bilgilerini ister.',
+  'update_startup_description': 'Usque başlatıldığında güncellemeleri denetle.',
   'update_checking': 'Güncelleme denetleniyor…',
   'update_downloading': 'Doğrulanmış güncelleme paketi indiriliyor…',
   'update_verifying': 'Güncelleme paketi doğrulanıyor…',
@@ -373,8 +379,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'diag_refresh_timeline': 'Zaman çizelgesini yenile',
   'diag_operation_failed': 'Tanılama işlemi başarısız',
   'diag_event_stream_degraded': 'Tanılama olay akışı kesildi',
-  'diag_event_stream_degraded_body':
-      'Oturum durumu sınırlı yoklamayla kurtarılıyor; çalışma yeniden başlatılmaz.',
+  'diag_event_stream_degraded_body': 'Tanılama ilerlemesi geri yükleniyor…',
   'diag_export_included': 'Dahil:',
   'diag_export_included_body':
       'Hata kodları, aşamalar, göreli süreler, sayaçlar ve boole durumları',
@@ -390,9 +395,9 @@ const Map<String, String> kTrCatalog = <String, String>{
   'diag_mode_deep': 'Derin',
   'diag_deep_title': 'Derin tanılama hakkında',
   'diag_deep_connected':
-      'Bir tünel etkin: ikinci bir MASQUE veri yolu açılmaz; etkin aktarım denetimleri “atlandı” veya “uyarı” olarak işaretlenir.',
+      'Bağlantınızın kesilmemesi için bağlıyken bazı kontroller atlanır.',
   'diag_deep_disconnected':
-      'Bağlı değilken etkin denetimler zaman aşımıyla sınırlıdır ve iptal edilebilir. Ardından platform durumu karşılaştırılır.',
+      'Kontroller ağı kullanabilir. İstediğiniz zaman iptal edebilirsiniz.',
   'diag_start': 'Tanılamayı başlat',
   'diag_session': 'Tanılama oturumu',
   'diag_progress_semantics': 'Tanılama ilerlemesi {current}%',
@@ -403,7 +408,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'diag_summary_skipped': 'Atlandı {count}',
   'diag_check_results': 'Denetim sonuçları',
   'diag_check_results_empty':
-      'Katmanlara ve bağımlılıklara göre gruplanmış denetimleri görmek için bir tanılama başlatın.',
+      'Bağlantınızı kontrol etmek için tanılamayı başlatın.',
   'diag_timeline': 'Bağlantı zaman çizelgesi',
   'diag_timeline_subtitle':
       'Yalnızca son durum değişiklikleri; paket içeriği ve tam adresler asla kaydedilmez.',
@@ -547,7 +552,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'diag_fix_run_deep_diagnostics':
       'Uygun bir ortamda derin tanılama çalıştırın.',
   'diag_fix_run_release_leak_gate':
-      'Harici bir ağ gözlemcisiyle bağımsız yayın sızıntısı testini çalıştırın.',
+      'Hassas bilgileri kaldırılmış tanılama paketini destek için dışa aktarın.',
   'diag_fix_inspect_platform_state':
       'Gerçek durumu, işletim sisteminin ağ ve proxy durumunu yalnızca okuyan bir denetimle doğrulayın.',
   'diag_fix_generate_tunnel_traffic':

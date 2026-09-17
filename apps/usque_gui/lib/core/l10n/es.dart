@@ -5,6 +5,14 @@ const Map<String, String> kEsCatalog = <String, String>{
       "Bloquea UDP/443 por el proxy o túnel, incluidos otros protocolos en ese puerto. El tráfico directo GEO y la conexión HTTP/3 de Usque no se ven afectados. QUIC en otros puertos sigue permitido. Se aplica sin reconectar.",
   'disable_quic_unsupported':
       "Actualiza o reinicia el motor para usar este ajuste.",
+  'technical_details': 'Detalles técnicos',
+  'diag_skip_disconnected': 'Conéctate para ejecutar esta comprobación.',
+  'diag_skip_disabled': 'Esta función está desactivada.',
+  'diag_skip_unsupported':
+      'Esta comprobación no está disponible en este dispositivo.',
+  'diag_skip_traffic': 'Usa la conexión y vuelve a ejecutar esta comprobación.',
+  'diag_skip_deep':
+      'Selecciona el modo profundo para ejecutar esta comprobación.',
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'Sesión L4 no disponible',
   'diag_fail_L4_PROTOCOL_ERROR': 'Error de protocolo L4',
@@ -38,7 +46,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'status_stream_degraded':
       'Las actualizaciones de estado en tiempo real están degradadas',
   'status_stream_degraded_body':
-      'El sondeo de estado está activo; las actualizaciones en tiempo real se reintentarán automáticamente.',
+      'Las actualizaciones de estado se retrasan. Se reintentará automáticamente.',
   'connect': 'Conectar',
   'retry': 'Reintentar',
   'disconnect': 'Desconectar',
@@ -159,7 +167,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'proxy_username': 'Nombre de usuario',
   'proxy_password': 'Contraseña',
   'proxy_password_hint':
-      'Solo escritura. Vuelva a introducir la contraseña para establecer o cambiar las credenciales.',
+      'Introduce una contraseña para configurar o cambiar las credenciales.',
   'proxy_auth_apply': 'Guardar credenciales',
   'proxy_auth_invalid':
       'El nombre de usuario debe tener entre 1 y 255 bytes, sin “:” ni NUL. Se requiere una contraseña de 1 a 255 bytes junto con un nombre de usuario.',
@@ -210,8 +218,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'update_available': 'Hay una versión más reciente disponible:',
   'already_latest': 'Esta instalación ya está actualizada.',
   'open_release': 'Abrir la página de la versión',
-  'update_startup_description':
-      'Usque comprueba una vez después de iniciarse. Al volver a la aplicación no se vuelve a comprobar. «Buscar ahora» siempre solicita la información de la última versión.',
+  'update_startup_description': 'Buscar actualizaciones al iniciar Usque.',
   'update_checking': 'Buscando una actualización…',
   'update_downloading': 'Descargando el paquete de actualización verificado…',
   'update_verifying': 'Verificando el paquete de actualización…',
@@ -378,8 +385,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'diag_refresh_timeline': 'Actualizar cronología',
   'diag_operation_failed': 'Error en la operación de diagnóstico',
   'diag_event_stream_degraded': 'Flujo de eventos de diagnóstico interrumpido',
-  'diag_event_stream_degraded_body':
-      'El estado de la sesión se recupera con sondeo acotado; la ejecución no se reinicia.',
+  'diag_event_stream_degraded_body': 'Restaurando el progreso del diagnóstico…',
   'diag_export_included': 'Incluido:',
   'diag_export_included_body':
       'Códigos de error, etapas, tiempos relativos, contadores y estados booleanos',
@@ -395,9 +401,9 @@ const Map<String, String> kEsCatalog = <String, String>{
   'diag_mode_deep': 'Profundo',
   'diag_deep_title': 'Acerca del diagnóstico profundo',
   'diag_deep_connected':
-      'Hay un túnel activo: no se abrirá un segundo camino de datos MASQUE; las comprobaciones de transporte activas se marcarán como omitidas o con una advertencia.',
+      'Algunas comprobaciones se omiten mientras estás conectado para no interrumpir la conexión.',
   'diag_deep_disconnected':
-      'Sin conexión, las comprobaciones activas tienen un tiempo límite y se pueden cancelar; después se compara el estado de la plataforma.',
+      'Las comprobaciones pueden usar la red. Puedes cancelarlas en cualquier momento.',
   'diag_start': 'Iniciar diagnóstico',
   'diag_session': 'Sesión de diagnóstico',
   'diag_progress_semantics': 'Progreso del diagnóstico {current}%',
@@ -408,7 +414,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'diag_summary_skipped': 'Omitidas {count}',
   'diag_check_results': 'Resultados de las comprobaciones',
   'diag_check_results_empty':
-      'Inicie un diagnóstico para ver comprobaciones agrupadas por capa y dependencias.',
+      'Inicia el diagnóstico para comprobar la conexión.',
   'diag_timeline': 'Cronología de conexión',
   'diag_timeline_subtitle':
       'Solo se conservan los cambios de estado más recientes; nunca se registran contenidos de paquetes ni direcciones completas.',
@@ -561,7 +567,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'diag_fix_run_deep_diagnostics':
       'Ejecute el diagnóstico profundo en un entorno adecuado.',
   'diag_fix_run_release_leak_gate':
-      'Ejecute la prueba independiente de fugas de la versión con un observador de red externo.',
+      'Exporte un paquete de diagnóstico sin datos sensibles para soporte.',
   'diag_fix_inspect_platform_state':
       'Confirme el estado real con una comprobación de solo lectura del estado de red y proxy del sistema.',
   'diag_fix_generate_tunnel_traffic':

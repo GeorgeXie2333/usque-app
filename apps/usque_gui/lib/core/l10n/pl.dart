@@ -5,6 +5,12 @@ const Map<String, String> kPlCatalog = <String, String>{
       "Blokuje UDP/443 przez serwer proxy lub tunel, także inne protokoły na tym porcie. Ruch bezpośredni GEO i połączenie HTTP/3 Usque pozostają bez zmian. QUIC na innych portach jest dozwolony. Stosowanie bez ponownego łączenia.",
   'disable_quic_unsupported':
       "Zaktualizuj lub uruchom ponownie silnik, aby użyć tego ustawienia.",
+  'technical_details': 'Szczegóły techniczne',
+  'diag_skip_disconnected': 'Połącz się, aby uruchomić ten test.',
+  'diag_skip_disabled': 'Ta funkcja jest wyłączona.',
+  'diag_skip_unsupported': 'Ten test nie jest dostępny na tym urządzeniu.',
+  'diag_skip_traffic': 'Skorzystaj z połączenia, a następnie ponów ten test.',
+  'diag_skip_deep': 'Wybierz tryb dogłębny, aby uruchomić ten test.',
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'Sesja L4 jest niedostępna',
   'diag_fail_L4_PROTOCOL_ERROR': 'Błąd protokołu L4',
@@ -37,7 +43,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'nav_settings': 'Opcje',
   'status_stream_degraded': 'Aktualizacje stanu na żywo są ograniczone',
   'status_stream_degraded_body':
-      'Odpytywanie stanu jest aktywne; aktualizacje na żywo zostaną ponowione automatycznie.',
+      'Aktualizacje stanu są opóźnione. Próba zostanie ponowiona automatycznie.',
   'connect': 'Połącz',
   'retry': 'Ponów',
   'disconnect': 'Rozłącz',
@@ -157,7 +163,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'proxy_username': 'Nazwa użytkownika',
   'proxy_password': 'Hasło',
   'proxy_password_hint':
-      'Tylko do zapisu. Wpisz hasło ponownie, aby ustawić lub zmienić poświadczenia.',
+      'Wpisz hasło, aby ustawić lub zmienić dane uwierzytelniające.',
   'proxy_auth_apply': 'Zapisz poświadczenia',
   'proxy_auth_invalid':
       'Nazwa użytkownika musi mieć 1–255 bajtów i nie może zawierać „:” ani NUL. Przy nazwie użytkownika wymagane jest hasło o długości 1–255 bajtów.',
@@ -208,7 +214,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'already_latest': 'Ta instalacja jest już aktualna.',
   'open_release': 'Otwórz stronę wydania',
   'update_startup_description':
-      'Sprawdzenie wykonywane jest raz po uruchomieniu Usque; powrót do aplikacji nie uruchamia go ponownie. „Sprawdź teraz” zawsze pobiera najnowsze informacje o wydaniu.',
+      'Sprawdzaj aktualizacje przy uruchamianiu Usque.',
   'update_checking': 'Sprawdzanie aktualizacji…',
   'update_downloading': 'Pobieranie zweryfikowanego pakietu aktualizacji…',
   'update_verifying': 'Weryfikowanie pakietu aktualizacji…',
@@ -376,8 +382,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'diag_refresh_timeline': 'Odśwież oś czasu',
   'diag_operation_failed': 'Operacja diagnostyki nie powiodła się',
   'diag_event_stream_degraded': 'Strumień zdarzeń diagnostyki przerwany',
-  'diag_event_stream_degraded_body':
-      'Stan sesji jest odzyskiwany ograniczonym odpytywaniem; przebieg nie zostanie uruchomiony ponownie.',
+  'diag_event_stream_degraded_body': 'Przywracanie postępu diagnostyki…',
   'diag_export_included': 'Zawiera:',
   'diag_export_included_body':
       'Kody błędów, etapy, czasy względne, liczniki i stany logiczne',
@@ -393,9 +398,9 @@ const Map<String, String> kPlCatalog = <String, String>{
   'diag_mode_deep': 'Głęboka',
   'diag_deep_title': 'Informacje o głębokiej diagnostyce',
   'diag_deep_connected':
-      'Tunel jest aktywny: drugi szlak danych MASQUE nie zostanie otwarty; aktywne sprawdzenia transportu będą oznaczone jako „pominięte” albo jako „ostrzeżenie”.',
+      'Podczas połączenia niektóre testy są pomijane, aby go nie przerywać.',
   'diag_deep_disconnected':
-      'Bez połączenia aktywne sprawdzenia mają ograniczony czas i można je anulować. Następnie porównywany jest stan platformy.',
+      'Testy mogą korzystać z sieci. Możesz je anulować w dowolnej chwili.',
   'diag_start': 'Rozpocznij diagnostykę',
   'diag_session': 'Sesja diagnostyki',
   'diag_progress_semantics': 'Postęp diagnostyki {current}%',
@@ -405,8 +410,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'diag_summary_failed': 'Niepowodzenia {count}',
   'diag_summary_skipped': 'Pominięte {count}',
   'diag_check_results': 'Wyniki sprawdzeń',
-  'diag_check_results_empty':
-      'Uruchom diagnostykę, aby zobaczyć sprawdzenia pogrupowane według warstwy i zależności.',
+  'diag_check_results_empty': 'Uruchom diagnostykę, aby sprawdzić połączenie.',
   'diag_timeline': 'Oś czasu połączenia',
   'diag_timeline_subtitle':
       'Tylko najnowsze zmiany stanu; treść pakietów i pełne adresy nigdy nie są zapisywane.',
@@ -558,7 +562,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'diag_fix_run_deep_diagnostics':
       'Uruchom głęboką diagnostykę w odpowiednim środowisku.',
   'diag_fix_run_release_leak_gate':
-      'Uruchom niezależny test wycieków podczas wydania z zewnętrznym obserwatorem sieci.',
+      'Wyeksportuj pakiet diagnostyczny z usuniętymi wrażliwymi danymi dla wsparcia.',
   'diag_fix_inspect_platform_state':
       'Potwierdź rzeczywisty stan za pomocą sprawdzenia tylko do odczytu stanu sieci systemowej i proxy systemowego.',
   'diag_fix_generate_tunnel_traffic':

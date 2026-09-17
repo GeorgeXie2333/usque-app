@@ -5,6 +5,15 @@ const Map<String, String> kItCatalog = <String, String>{
       "Blocca UDP/443 tramite proxy o tunnel, inclusi gli altri protocolli su quella porta. Il traffico diretto GEO e la connessione HTTP/3 di Usque restano invariati. QUIC su altre porte rimane consentito. Si applica senza riconnettere.",
   'disable_quic_unsupported':
       "Aggiorna o riavvia il motore per usare questa impostazione.",
+  'technical_details': 'Dettagli tecnici',
+  'diag_skip_disconnected': 'Connettiti per eseguire questo controllo.',
+  'diag_skip_disabled': 'Questa funzione è disattivata.',
+  'diag_skip_unsupported':
+      'Questo controllo non è disponibile su questo dispositivo.',
+  'diag_skip_traffic':
+      'Usa la connessione, poi esegui di nuovo questo controllo.',
+  'diag_skip_deep':
+      'Seleziona la modalità approfondita per eseguire questo controllo.',
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'Sessione L4 non disponibile',
   'diag_fail_L4_PROTOCOL_ERROR': 'Errore del protocollo L4',
@@ -37,7 +46,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'status_stream_degraded':
       'Gli aggiornamenti di stato in tempo reale sono degradati',
   'status_stream_degraded_body':
-      'Il polling dello stato è attivo; gli aggiornamenti in tempo reale verranno ritentati automaticamente.',
+      'Gli aggiornamenti di stato sono in ritardo. Nuovo tentativo automatico.',
   'connect': 'Connetti',
   'retry': 'Riprova',
   'disconnect': 'Disconnetti',
@@ -157,7 +166,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'proxy_username': 'Nome utente',
   'proxy_password': 'Password',
   'proxy_password_hint':
-      'Solo scrittura. Reimmettere la password per impostare o modificare le credenziali.',
+      'Inserisci una password per impostare o modificare le credenziali.',
   'proxy_auth_apply': 'Salva credenziali',
   'proxy_auth_invalid':
       'Il nome utente deve essere di 1–255 byte, senza “:” né NUL. Con un nome utente è richiesta una password di 1–255 byte.',
@@ -209,7 +218,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'already_latest': 'Questa installazione è già aggiornata.',
   'open_release': 'Apri la pagina della versione',
   'update_startup_description':
-      'Usque esegue un controllo dopo l’avvio. Tornare all’app non avvia un nuovo controllo. «Controlla ora» richiede sempre le informazioni sulla release più recente.',
+      'Controlla gli aggiornamenti all’avvio di Usque.',
   'update_checking': 'Ricerca di un aggiornamento…',
   'update_downloading': 'Download del pacchetto di aggiornamento verificato…',
   'update_verifying': 'Verifica del pacchetto di aggiornamento…',
@@ -380,7 +389,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'diag_operation_failed': 'Operazione di diagnostica non riuscita',
   'diag_event_stream_degraded': 'Flusso eventi di diagnostica interrotto',
   'diag_event_stream_degraded_body':
-      'Lo stato della sessione viene recuperato con polling limitato; l’esecuzione non riparte.',
+      'Ripristino dell’avanzamento della diagnosi…',
   'diag_export_included': 'Incluso:',
   'diag_export_included_body':
       'Codici errore, fasi, tempi relativi, contatori e stati booleani',
@@ -396,9 +405,9 @@ const Map<String, String> kItCatalog = <String, String>{
   'diag_mode_deep': 'Approfondita',
   'diag_deep_title': 'Informazioni sulla diagnostica approfondita',
   'diag_deep_connected':
-      'Un tunnel è attivo: non verrà aperto un secondo percorso dati MASQUE; i controlli di trasporto attivi saranno contrassegnati come saltati o con un avviso.',
+      'Alcuni controlli vengono saltati durante la connessione per non interromperla.',
   'diag_deep_disconnected':
-      'In assenza di connessione, i controlli attivi hanno un limite di tempo e possono essere annullati; poi si confronta lo stato della piattaforma.',
+      'I controlli possono usare la rete. Puoi annullarli in qualsiasi momento.',
   'diag_start': 'Avvia diagnostica',
   'diag_session': 'Sessione di diagnostica',
   'diag_progress_semantics': 'Avanzamento diagnostica {current}%',
@@ -409,7 +418,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'diag_summary_skipped': 'Saltati {count}',
   'diag_check_results': 'Risultati dei controlli',
   'diag_check_results_empty':
-      'Avvia una diagnostica per vedere i controlli raggruppati per livello e dipendenze.',
+      'Avvia la diagnosi per verificare la connessione.',
   'diag_timeline': 'Cronologia di connessione',
   'diag_timeline_subtitle':
       'Vengono conservati solo i cambiamenti di stato più recenti; i contenuti dei pacchetti e gli indirizzi completi non vengono mai registrati.',
@@ -558,7 +567,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'diag_fix_run_deep_diagnostics':
       'Esegui la diagnostica approfondita in un ambiente adatto.',
   'diag_fix_run_release_leak_gate':
-      'Esegui il test indipendente di fughe della release con un osservatore di rete esterno.',
+      'Esporta un pacchetto diagnostico privo di dati sensibili per il supporto.',
   'diag_fix_inspect_platform_state':
       'Conferma lo stato reale con una verifica in sola lettura dello stato di rete e del proxy di sistema.',
   'diag_fix_generate_tunnel_traffic':

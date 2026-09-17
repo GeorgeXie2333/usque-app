@@ -109,24 +109,16 @@ const Map<String, String> kNetworkQualityNl = <String, String>{
       'volledig opnieuw verbonden.',
   'nq_finding_dns_changed':
       'De opgeslagen DNS-modus verschilt van de actieve verbinding.',
-  'nq_finding_dns_runtime':
-      'Versleutelde DNS is geslaagd. De lokale status is geen extern bewijs '
-      'tegen lekken.',
+  'nq_finding_dns_runtime': 'Versleutelde DNS werkt.',
   'nq_finding_dns_degraded':
       'Versleutelde DNS is verslechterd; mislukte directe query’s vallen niet '
       'terug op systeem-DNS.',
   'nq_finding_probe_unsafe':
-      'Probe overgeslagen: de vereiste veilige status of opgeslagen identiteit '
-      'is niet beschikbaar. Een actieve tunnel wordt nooit gedupliceerd.',
-  'nq_finding_probe_success':
-      'De geverifieerde probe is voltooid. Dit is geen externe test op '
-      'pakketlekken.',
-  'nq_finding_probe_cancelled': 'Probe geannuleerd en opschoning aangevraagd.',
-  'nq_finding_probe_timeout':
-      'De begrensde probe is niet vóór de deadline voltooid.',
-  'nq_finding_probe_failed':
-      'De geverifieerde probe is mislukt; er is geen onveilige terugval '
-      'geprobeerd.',
+      'Deze meting is in de huidige status niet beschikbaar.',
+  'nq_finding_probe_success': 'Deze controle is geslaagd.',
+  'nq_finding_probe_cancelled': 'Deze controle is geannuleerd.',
+  'nq_finding_probe_timeout': 'Time-out bij diagnostische controle',
+  'nq_finding_probe_failed': 'Deze controle is mislukt.',
   'diag_fix_nq_profile':
       'Controleer de aangepaste DNS-velden en de certificaatnaam. Schakel '
       'TLS-verificatie niet uit.',
@@ -162,12 +154,9 @@ const Map<String, String> kNetworkQualityNl = <String, String>{
   'nq_capability_missing':
       'Deze Engine biedt geen netwerkkwaliteit. De bestaande '
       'verbindingsbediening blijft werken.',
-  'nq_empty':
-      'Maak verbinding om metingen te zien. Onbekende waarden worden niet als '
-      'nul weergegeven.',
+  'nq_empty': 'Maak verbinding om metingen te bekijken.',
   'nq_stale_help':
-      'De bron is gestopt met bijwerken. Dit zijn eerdere metingen; hiaten '
-      'blijven hiaten.',
+      'Updates zijn onderbroken. De laatste metingen worden getoond.',
   'nq_rtt': 'Retourtijd',
   'nq_latest': 'Nieuwste',
   'nq_smoothed': 'Afgevlakt',
@@ -302,15 +291,10 @@ const Map<String, String> kNetworkQualityNl = <String, String>{
   'nq_dns_invalid_mode': 'Kies een ondersteunde DNS-modus.',
   'nq_doctor_deep_title': 'Diepgaande netwerkcontroles uitvoeren?',
   'nq_doctor_deep_body':
-      'Diepgaande controles kunnen een DNS-testquery naar uw geconfigureerde '
-      'resolver sturen en een beveiligd QUIC-pad valideren. Ze duren maximaal '
-      '15 seconden, kunnen worden geannuleerd, maken nooit een tweede '
-      'datadragende tunnel aan en wijzigen nooit uw DNS, route, profiel of '
-      'transport.',
+      'Controles kunnen testverkeer verzenden. Ze duren maximaal 15 seconden en kunnen worden geannuleerd. Je verbindingsinstellingen blijven ongewijzigd.',
   'nq_doctor_deep_run': 'Diepgaande controles uitvoeren',
   'nq_doctor_evidence':
-      'Lokale controles beschrijven de configuratie en de waargenomen status. '
-      'Ze zijn geen extern bewijs van nul DNS-lekken.',
+      'Deze controles kunnen niet vaststellen of DNS-lekken optreden.',
 };
 
 const Map<String, String> kWindowsRecoveryNl = <String, String>{
@@ -355,7 +339,8 @@ const Map<String, String> kL4Nl = <String, String>{
   'l4_budget_rejections': 'Afgewezen resourcetoelatingen',
   'l4_not_applicable': 'Niet van toepassing (L4)',
   'l4_mode': 'L4 (experimenteel)',
-  'l4_transport_hint': 'Alleen TCP; TUN-DNS gebruikt TCP. Auto sluit L4 uit.',
+  'l4_transport_hint':
+      'Alleen TCP. Apps die UDP nodig hebben werken mogelijk niet. De automatische modus kiest geen L4.',
   'l4_explanation':
       'Alleen TCP over HTTP/3. Ondersteunt VPN/TUN, SOCKS5 en HTTP; TUN-DNS wordt naar TCP omgezet. Auto kiest nooit L4. Overige UDP, externe ping, IP-fragmenten en extensiekoppen worden niet ondersteund; sommige apps werken mogelijk niet.',
   'l4_unsupported':

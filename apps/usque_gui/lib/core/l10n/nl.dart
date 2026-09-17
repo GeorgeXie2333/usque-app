@@ -5,6 +5,13 @@ const Map<String, String> kNlCatalog = <String, String>{
       "Blokkeert UDP/443 via de proxy of tunnel, inclusief andere protocollen op die poort. Direct GEO-verkeer en Usques HTTP/3-verbinding blijven ongewijzigd. QUIC op andere poorten blijft toegestaan. Toepassen zonder opnieuw te verbinden.",
   'disable_quic_unsupported':
       "Werk de engine bij of herstart deze om deze instelling te gebruiken.",
+  'technical_details': 'Technische details',
+  'diag_skip_disconnected': 'Maak verbinding om deze controle uit te voeren.',
+  'diag_skip_disabled': 'Deze functie is uitgeschakeld.',
+  'diag_skip_unsupported': 'Deze controle is niet beschikbaar op dit apparaat.',
+  'diag_skip_traffic':
+      'Gebruik de verbinding en voer deze controle opnieuw uit.',
+  'diag_skip_deep': 'Kies de uitgebreide modus om deze controle uit te voeren.',
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'L4-sessie niet beschikbaar',
   'diag_fail_L4_PROTOCOL_ERROR': 'L4-protocolfout',
@@ -36,7 +43,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'nav_settings': 'Opties',
   'status_stream_degraded': 'Live statusupdates zijn beperkt',
   'status_stream_degraded_body':
-      'Statuspolling is actief; live updates worden automatisch opnieuw geprobeerd.',
+      'Statusupdates zijn vertraagd. Er wordt automatisch opnieuw geprobeerd.',
   'connect': 'Verbinden',
   'retry': 'Opnieuw proberen',
   'disconnect': 'Verbinding verbreken',
@@ -154,7 +161,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'proxy_username': 'Gebruikersnaam',
   'proxy_password': 'Wachtwoord',
   'proxy_password_hint':
-      'Alleen-schrijven. Voer het wachtwoord opnieuw in om inloggegevens in te stellen of te wijzigen.',
+      'Voer een wachtwoord in om inloggegevens in te stellen of te wijzigen.',
   'proxy_auth_apply': 'Inloggegevens opslaan',
   'proxy_auth_invalid':
       'De gebruikersnaam moet 1–255 bytes zijn zonder “:” of NUL. Bij een gebruikersnaam is een wachtwoord van 1–255 bytes vereist.',
@@ -205,8 +212,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'update_available': 'Er is een nieuwere versie beschikbaar:',
   'already_latest': 'Deze installatie is al up-to-date.',
   'open_release': 'Releasepagina openen',
-  'update_startup_description':
-      'Usque controleert één keer na het starten. Wanneer u naar de app terugkeert, wordt niet opnieuw gecontroleerd. “Nu controleren” vraagt altijd de nieuwste release-informatie op.',
+  'update_startup_description': 'Controleer op updates wanneer Usque start.',
   'update_checking': 'Controleren op een update…',
   'update_downloading': 'Geverifieerd updatepakket downloaden…',
   'update_verifying': 'Updatepakket verifiëren…',
@@ -374,8 +380,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'diag_refresh_timeline': 'Tijdlijn vernieuwen',
   'diag_operation_failed': 'Diagnostische bewerking mislukt',
   'diag_event_stream_degraded': 'Diagnostische gebeurtenisstroom onderbroken',
-  'diag_event_stream_degraded_body':
-      'Sessiestatus wordt hersteld met begrensde polling; de uitvoering start niet opnieuw.',
+  'diag_event_stream_degraded_body': 'Diagnosevoortgang herstellen…',
   'diag_export_included': 'Inbegrepen:',
   'diag_export_included_body':
       'Foutcodes, fasen, relatieve tijden, tellers en booleaanse status',
@@ -391,9 +396,9 @@ const Map<String, String> kNlCatalog = <String, String>{
   'diag_mode_deep': 'Diepgaand',
   'diag_deep_title': 'Over diepgaande diagnostiek',
   'diag_deep_connected':
-      'Er is een tunnel actief: er wordt geen tweede MASQUE-gegevenspad geopend; actieve transportcontroles worden als overgeslagen of als waarschuwing gemarkeerd.',
+      'Sommige controles worden overgeslagen als je verbonden bent om de verbinding niet te onderbreken.',
   'diag_deep_disconnected':
-      'Zonder verbinding hebben actieve controles een tijdslimiet en kunnen ze worden geannuleerd; daarna wordt de platformstatus vergeleken.',
+      'Controles kunnen het netwerk gebruiken. Je kunt op elk moment annuleren.',
   'diag_start': 'Diagnostiek starten',
   'diag_session': 'Diagnostieksessie',
   'diag_progress_semantics': 'Voortgang diagnostiek {current}%',
@@ -404,7 +409,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'diag_summary_skipped': 'Overgeslagen {count}',
   'diag_check_results': 'Controleresultaten',
   'diag_check_results_empty':
-      'Start een diagnostiekrun om controles gegroepeerd per laag en afhankelijkheden te zien.',
+      'Start de diagnose om je verbinding te controleren.',
   'diag_timeline': 'Verbindingstijdlijn',
   'diag_timeline_subtitle':
       'Alleen de meest recente statuswijzigingen worden bewaard; pakketinhoud en volledige adressen worden nooit vastgelegd.',
@@ -552,7 +557,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'diag_fix_run_deep_diagnostics':
       'Voer diepgaande diagnostiek uit in een geschikte omgeving.',
   'diag_fix_run_release_leak_gate':
-      'Voer de onafhankelijke release-lektest uit met een externe netwerkwaarnemer.',
+      'Exporteer een diagnostisch pakket waaruit gevoelige gegevens zijn verwijderd voor ondersteuning.',
   'diag_fix_inspect_platform_state':
       'Bevestig de werkelijke platformstatus met een alleen-lezencontrole van de netwerk- en proxystatus van het systeem.',
   'diag_fix_generate_tunnel_traffic':

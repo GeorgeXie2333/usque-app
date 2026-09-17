@@ -105,24 +105,16 @@ const Map<String, String> kNetworkQualityPl = <String, String>{
       'pełne ponowne połączenie.',
   'nq_finding_dns_changed':
       'Zapisany tryb DNS różni się od trybu działającego połączenia.',
-  'nq_finding_dns_runtime':
-      'Szyfrowany DNS zakończył się powodzeniem. Stan lokalny nie jest '
-      'zewnętrznym dowodem braku wycieków.',
+  'nq_finding_dns_runtime': 'Szyfrowany DNS działa.',
   'nq_finding_dns_degraded':
       'Szyfrowany DNS jest pogorszony; nieudane zapytania bezpośrednie nie '
       'przełączają się na systemowy DNS.',
-  'nq_finding_probe_unsafe':
-      'Pominięto sondę: wymagany bezpieczny stan lub zapisana tożsamość '
-      'jest niedostępna. Aktywny tunel nigdy nie jest duplikowany.',
-  'nq_finding_probe_success':
-      'Uwierzytelniona sonda została ukończona. To nie jest zewnętrzny '
-      'test wycieku pakietów.',
-  'nq_finding_probe_cancelled': 'Sonda anulowana i zażądano czyszczenia.',
+  'nq_finding_probe_unsafe': 'Ten pomiar jest niedostępny w bieżącym stanie.',
+  'nq_finding_probe_success': 'To sprawdzenie zakończyło się powodzeniem.',
+  'nq_finding_probe_cancelled': 'To sprawdzenie zostało anulowane.',
   'nq_finding_probe_timeout':
-      'Ograniczona sonda nie zakończyła się przed terminem.',
-  'nq_finding_probe_failed':
-      'Uwierzytelniona sonda nie powiodła się; nie próbowano '
-      'niebezpiecznego przełączenia.',
+      'Sprawdzenie diagnostyki przekroczyło limit czasu',
+  'nq_finding_probe_failed': 'To sprawdzenie nie powiodło się.',
   'diag_fix_nq_profile':
       'Przejrzyj niestandardowe pola DNS i nazwę certyfikatu. Nie wyłączaj '
       'weryfikacji TLS.',
@@ -157,12 +149,9 @@ const Map<String, String> kNetworkQualityPl = <String, String>{
   'nq_capability_missing':
       'Ten Engine nie udostępnia jakości sieci. Istniejące elementy '
       'sterowania połączeniem nadal działają.',
-  'nq_empty':
-      'Połącz, aby zobaczyć pomiary. Nieznane wartości nie są pokazywane '
-      'jako zero.',
+  'nq_empty': 'Połącz się, aby zobaczyć pomiary.',
   'nq_stale_help':
-      'Źródło przestało się aktualizować. To poprzednie odczyty; luki '
-      'pozostają lukami.',
+      'Aktualizacje są wstrzymane. Wyświetlane są ostatnie odczyty.',
   'nq_rtt': 'Czas rundy',
   'nq_latest': 'Najnowszy',
   'nq_smoothed': 'Wygładzony',
@@ -300,15 +289,10 @@ const Map<String, String> kNetworkQualityPl = <String, String>{
   'nq_dns_invalid_mode': 'Wybierz obsługiwany tryb DNS.',
   'nq_doctor_deep_title': 'Uruchomić głębokie sprawdzenia sieci?',
   'nq_doctor_deep_body':
-      'Głębokie sprawdzenia mogą wysłać testowe zapytanie DNS do '
-      'skonfigurowanego resolvera i zweryfikować chronioną ścieżkę QUIC. '
-      'Trwają najwyżej 15 sekund, można je anulować, nigdy nie tworzą '
-      'drugiego tunelu przenoszącego dane i nigdy nie zmieniają DNS, tras, '
-      'profilu ani transportu.',
+      'Testy mogą wysyłać ruch próbny. Trwają do 15 sekund i można je anulować. Ustawienia połączenia nie ulegną zmianie.',
   'nq_doctor_deep_run': 'Uruchom głębokie sprawdzenia',
   'nq_doctor_evidence':
-      'Lokalne sprawdzenia opisują konfigurację i zaobserwowany stan. Nie '
-      'stanowią zewnętrznego dowodu braku wycieków DNS.',
+      'Te testy nie pozwalają potwierdzić, czy występują wycieki DNS.',
 };
 
 const Map<String, String> kWindowsRecoveryPl = <String, String>{
@@ -353,7 +337,8 @@ const Map<String, String> kL4Pl = <String, String>{
   'l4_budget_rejections': 'Odrzucone przyjęcia zasobów',
   'l4_not_applicable': 'Nie dotyczy (L4)',
   'l4_mode': 'L4 (eksperymentalny)',
-  'l4_transport_hint': 'Tylko TCP; DNS TUN używa TCP. Auto nie obejmuje L4.',
+  'l4_transport_hint':
+      'Tylko TCP. Aplikacje wymagające UDP mogą nie działać. Tryb automatyczny nie wybiera L4.',
   'l4_explanation':
       'Tylko TCP przez HTTP/3. Obsługuje VPN/TUN, SOCKS5 i HTTP; DNS TUN jest zamieniany na TCP. Auto nigdy nie wybiera L4. Inne UDP, zdalny ping, fragmenty IP i nagłówki rozszerzeń nie są obsługiwane; niektóre aplikacje mogą nie działać.',
   'l4_unsupported':

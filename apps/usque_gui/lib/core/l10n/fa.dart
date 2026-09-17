@@ -5,6 +5,13 @@ const Map<String, String> kFaCatalog = <String, String>{
       "ترافیک UDP/443 از پراکسی یا تونل، از جمله پروتکل‌های دیگر روی این درگاه را مسدود می‌کند. ترافیک مستقیم GEO و اتصال HTTP/3 خود Usque تغییری نمی‌کند. QUIC روی درگاه‌های دیگر مجاز است. بدون اتصال مجدد اعمال می‌شود.",
   'disable_quic_unsupported':
       "برای استفاده از این تنظیم، موتور را به‌روزرسانی یا دوباره راه‌اندازی کنید.",
+  'technical_details': 'جزئیات فنی',
+  'diag_skip_disconnected': 'برای اجرای این بررسی متصل شوید.',
+  'diag_skip_disabled': 'این قابلیت خاموش است.',
+  'diag_skip_unsupported': 'این بررسی در این دستگاه در دسترس نیست.',
+  'diag_skip_traffic':
+      'از اتصال استفاده کنید، سپس این بررسی را دوباره اجرا کنید.',
+  'diag_skip_deep': 'برای اجرای این بررسی، حالت عمیق را انتخاب کنید.',
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'نشست L4 در دسترس نیست',
   'diag_fail_L4_PROTOCOL_ERROR': 'خطای پروتکل L4',
@@ -36,7 +43,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'nav_settings': 'تنظیمات',
   'status_stream_degraded': 'به‌روزرسانی زندهٔ وضعیت مختل شده است',
   'status_stream_degraded_body':
-      'پرس‌وجوی وضعیت فعال است؛ به‌روزرسانی زنده به‌صورت خودکار دوباره تلاش می‌شود.',
+      'به‌روزرسانی وضعیت با تأخیر انجام می‌شود. تلاش مجدد خودکار در حال انجام است.',
   'connect': 'اتصال',
   'retry': 'تلاش دوباره',
   'disconnect': 'قطع اتصال',
@@ -152,7 +159,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'proxy_username': 'نام کاربری',
   'proxy_password': 'رمز عبور',
   'proxy_password_hint':
-      'فقط‌نوشتنی. برای تنظیم یا تغییر اعتبارنامه، رمز عبور را دوباره وارد کنید.',
+      'برای تنظیم یا تغییر اطلاعات ورود، گذرواژه را وارد کنید.',
   'proxy_auth_apply': 'ذخیره اعتبارنامه',
   'proxy_auth_invalid':
       'نام کاربری باید ۱ تا ۲۵۵ بایت باشد و «:» یا NUL نداشته باشد. همراه با نام کاربری، رمز عبور ۱ تا ۲۵۵ بایت الزامی است.',
@@ -203,8 +210,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'update_available': 'نسخهٔ جدیدتری در دسترس است:',
   'already_latest': 'این نصب هم‌اکنون به‌روز است.',
   'open_release': 'باز کردن صفحهٔ انتشار',
-  'update_startup_description':
-      'پس از شروع Usque یک‌بار بررسی می‌کند. بازگشت به برنامه بررسی تازه‌ای انجام نمی‌دهد. «اکنون بررسی کنید» همیشه تازه‌ترین اطلاعات انتشار را درخواست می‌کند.',
+  'update_startup_description': 'هنگام شروع Usque، به‌روزرسانی‌ها بررسی شوند.',
   'update_checking': 'در حال بررسی به‌روزرسانی…',
   'update_downloading': 'در حال دریافت بستهٔ تأییدشدهٔ به‌روزرسانی…',
   'update_verifying': 'در حال تأیید بستهٔ به‌روزرسانی…',
@@ -369,8 +375,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'diag_refresh_timeline': 'بازخوانی خط زمانی',
   'diag_operation_failed': 'عملیات تشخیص ناموفق بود',
   'diag_event_stream_degraded': 'جریان رویداد تشخیص قطع شد',
-  'diag_event_stream_degraded_body':
-      'وضعیت نشست با پرس‌وجوی دوره‌ای محدود در حال بازیابی است؛ بررسی دوباره آغاز نمی‌شود.',
+  'diag_event_stream_degraded_body': 'در حال بازیابی پیشرفت عیب‌یابی…',
   'diag_export_included': 'شامل:',
   'diag_export_included_body':
       'کدهای خطا، مرحله‌ها، زمان نسبی، شمارنده‌ها و وضعیت‌های بولی',
@@ -386,9 +391,9 @@ const Map<String, String> kFaCatalog = <String, String>{
   'diag_mode_deep': 'عمیق',
   'diag_deep_title': 'درباره تشخیص عمیق',
   'diag_deep_connected':
-      'تونل فعال است: مسیر داده MASQUE دوم باز نمی‌شود. بررسی‌های فعال انتقال به‌صورت اجرانشده یا هشدار علامت‌گذاری می‌شوند.',
+      'هنگام اتصال، برخی بررسی‌ها رد می‌شوند تا اتصال قطع نشود.',
   'diag_deep_disconnected':
-      'هنگام قطع اتصال، بررسی‌های فعال محدودیت زمانی دارند و قابل لغو هستند. سپس Usque وضعیت حاصل بستر را مقایسه می‌کند.',
+      'بررسی‌ها ممکن است از شبکه استفاده کنند. هر زمان می‌توانید لغو کنید.',
   'diag_start': 'شروع تشخیص',
   'diag_session': 'نشست تشخیص',
   'diag_progress_semantics': 'پیشرفت تشخیص {current}%',
@@ -398,8 +403,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'diag_summary_failed': 'ناموفق {count}',
   'diag_summary_skipped': 'اجرانشده: {count}',
   'diag_check_results': 'نتایج بررسی',
-  'diag_check_results_empty':
-      'عیب‌یابی را آغاز کنید تا بررسی‌ها بر اساس لایه گروه‌بندی و طبق وابستگی‌هایشان مرتب شوند.',
+  'diag_check_results_empty': 'برای بررسی اتصال، عیب‌یابی را شروع کنید.',
   'diag_timeline': 'خط زمانی اتصال',
   'diag_timeline_subtitle':
       'فقط تغییرهای اخیر وضعیت نگه داشته می‌شوند؛ محتوای بسته‌ها و نشانی‌های کامل هرگز ثبت نمی‌شوند.',
@@ -541,7 +545,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'diag_fix_resolve_dependency': 'نخست پیش‌نیاز ناموفق را برطرف کنید.',
   'diag_fix_run_deep_diagnostics': 'تشخیص عمیق را در محیطی مناسب اجرا کنید.',
   'diag_fix_run_release_leak_gate':
-      'خروجی شبکه را با آزمون مستقل نشت نسخهٔ انتشار و یک ناظر شبکهٔ خارجی تأیید کنید.',
+      'برای پشتیبانی بستهٔ عیب‌یابی را پس از حذف اطلاعات حساس صادر کنید.',
   'diag_fix_inspect_platform_state':
       'وضعیت شبکه و پروکسی سیستم‌عامل را با یک بررسی فقط‌خواندنی تأیید کنید.',
   'diag_fix_generate_tunnel_traffic':

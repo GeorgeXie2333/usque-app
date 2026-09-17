@@ -109,24 +109,16 @@ const Map<String, String> kNetworkQualityIt = <String, String>{
       'usa una riconnessione completa.',
   'nq_finding_dns_changed':
       'La modalità DNS salvata differisce dalla connessione in esecuzione.',
-  'nq_finding_dns_runtime':
-      'Il DNS crittografato è riuscito. Lo stato locale non è una prova '
-      'esterna di assenza di fughe.',
+  'nq_finding_dns_runtime': 'Il DNS crittografato funziona.',
   'nq_finding_dns_degraded':
       'Il DNS crittografato è degradato; le query dirette non riuscite non '
       'tornano al DNS di sistema.',
   'nq_finding_probe_unsafe':
-      'Sonda saltata: lo stato sicuro richiesto o l’identità salvata non è '
-      'disponibile. Un tunnel attivo non viene mai duplicato.',
-  'nq_finding_probe_success':
-      'La sonda autenticata è completata. Questo non è un test esterno di fuga '
-      'di pacchetti.',
-  'nq_finding_probe_cancelled': 'Sonda annullata e pulizia richiesta.',
-  'nq_finding_probe_timeout':
-      'La sonda a tempo non è terminata prima della scadenza.',
-  'nq_finding_probe_failed':
-      'La sonda autenticata non è riuscita; non è stato tentato un fallback '
-      'insicuro.',
+      'Questa misurazione non è disponibile nello stato attuale.',
+  'nq_finding_probe_success': 'Questo controllo ha avuto esito positivo.',
+  'nq_finding_probe_cancelled': 'Questo controllo è stato annullato.',
+  'nq_finding_probe_timeout': 'Timeout del controllo diagnostico',
+  'nq_finding_probe_failed': 'Questo controllo non è riuscito.',
   'diag_fix_nq_profile':
       'Esamina i campi DNS personalizzati e il nome del certificato. Non '
       'disattivare la verifica TLS.',
@@ -161,12 +153,9 @@ const Map<String, String> kNetworkQualityIt = <String, String>{
   'nq_capability_missing':
       'Questo Engine non fornisce la qualità di rete. I comandi di connessione '
       'esistenti continuano a funzionare.',
-  'nq_empty':
-      'Connettersi per vedere le misurazioni. I valori sconosciuti non vengono '
-      'mostrati come zero.',
+  'nq_empty': 'Connettiti per vedere le misurazioni.',
   'nq_stale_help':
-      'L’origine ha smesso di aggiornarsi. Queste sono letture precedenti; i '
-      'vuoti restano vuoti.',
+      'Gli aggiornamenti sono sospesi. Sono mostrate le ultime letture.',
   'nq_rtt': 'Tempo di andata e ritorno',
   'nq_latest': 'Più recente',
   'nq_smoothed': 'Smussato',
@@ -304,14 +293,10 @@ const Map<String, String> kNetworkQualityIt = <String, String>{
   'nq_dns_invalid_mode': 'Scegliere una modalità DNS supportata.',
   'nq_doctor_deep_title': 'Eseguire i controlli di rete approfonditi?',
   'nq_doctor_deep_body':
-      'I controlli approfonditi possono inviare una query DNS di prova al '
-      'resolver configurato e convalidare un percorso QUIC protetto. Durano al '
-      'massimo 15 secondi, possono essere annullati, non creano mai un secondo '
-      'tunnel con dati e non modificano mai DNS, rotte, profilo o trasporto.',
+      'I controlli possono inviare traffico di prova. Durano fino a 15 secondi e possono essere annullati. Le impostazioni di connessione non cambieranno.',
   'nq_doctor_deep_run': 'Esegui i controlli approfonditi',
   'nq_doctor_evidence':
-      'I controlli locali descrivono la configurazione e lo stato osservato. '
-      'Non sono una prova esterna dell’assenza di fughe DNS.',
+      'Questi controlli non possono confermare se si verificano perdite DNS.',
 };
 
 const Map<String, String> kWindowsRecoveryIt = <String, String>{
@@ -355,7 +340,8 @@ const Map<String, String> kL4It = <String, String>{
   'l4_budget_rejections': 'Ammissioni di risorse rifiutate',
   'l4_not_applicable': 'Non applicabile (L4)',
   'l4_mode': 'L4 (sperimentale)',
-  'l4_transport_hint': 'Solo TCP; il DNS TUN usa TCP. Auto non include L4.',
+  'l4_transport_hint':
+      'Solo TCP. Le app che richiedono UDP potrebbero non funzionare. La modalità automatica esclude L4.',
   'l4_explanation':
       'Solo TCP su HTTP/3. Supporta VPN/TUN, SOCKS5 e HTTP; il DNS TUN viene convertito in TCP. Auto non sceglie mai L4. Altri UDP, ping remoto, frammenti IP e intestazioni di estensione non sono supportati; alcune app potrebbero non funzionare.',
   'l4_unsupported':
