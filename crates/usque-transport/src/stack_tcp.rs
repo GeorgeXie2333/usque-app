@@ -317,9 +317,63 @@ mod tests {
     use super::*;
     use crate::tcp::OwnedTcpWrite;
     use ts_netstack_smoltcp::netcore::{
-        Config, Netstack, Request, TcpBufferMetrics, TcpBufferPolicy, TcpBufferTier, flume,
-        stack_control, try_request_nonblocking,
+        Config, Netstack, NetstackControl, Request, TcpBufferMetrics, TcpBufferPolicy,
+        TcpBufferTier, flume, stack_control, try_request_nonblocking,
     };
+
+    #[tokio::test]
+    async fn mismatched_accepted_peer_reclaims_the_one_shot_socket() {
+        use std::time::Duration;
+        use ts_netstack_smoltcp::CreateSocket;
+        let (config, metrics) =
+            crate::netstack::direct_netstack_config(&usque_core::Profile::default());
+        let (server, mut server_pipe) = crate::netstack::bounded_piped(config);
+        let (client, mut client_pipe) = crate::netstack::bounded_piped(Config::default());
+        let server_channel = server.command_channel();
+        let client_channel = client.command_channel();
+        let _server = tokio_util::task::AbortOnDropHandle::new(server.spawn_tokio());
+        let _client = tokio_util::task::AbortOnDropHandle::new(client.spawn_tokio());
+        server_channel
+            .set_ips(["10.0.0.2".parse().unwrap()])
+            .await
+            .unwrap();
+        client_channel
+            .set_ips(["10.0.0.1".parse().unwrap()])
+            .await
+            .unwrap();
+        let _pump = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    packet = server_pipe.rx.recv_async() => {
+                        let Some(packet) = packet else { break; };
+                        client_pipe.tx.send_async(&packet).await;
+                    }
+                    packet = client_pipe.rx.recv_async() => {
+                        let Some(packet) = packet else { break; };
+                        server_pipe.tx.send_async(&packet).await;
+                    }
+                }
+            }
+        }));
+        let local: SocketAddr = "10.0.0.2:443".parse().unwrap();
+        let listener = OnceListener::bind(server_channel, local).await.unwrap();
+        let (_, accepted) = tokio::time::timeout(Duration::from_secs(2), async {
+            tokio::join!(
+                client_channel.tcp_connect("10.0.0.1:50000".parse().unwrap(), local),
+                listener.accept("10.0.0.1:50001".parse().unwrap()),
+            )
+        })
+        .await
+        .unwrap();
+        assert!(accepted.is_err());
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while metrics.snapshot().total_bytes != 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("mismatched accepted owner must be released");
+    }
 
     #[tokio::test]
     async fn owned_partial_commands_retain_allocation_and_remove_repeated_adapter_copies() {

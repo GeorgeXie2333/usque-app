@@ -425,6 +425,21 @@ pub(crate) fn bounded_piped(config: Config) -> (Netstack<PacketDevice>, WakingPi
     bounded_piped_with_capacity(config, PROXY_PACKET_PIPE_CAPACITY)
 }
 
+/// Direct listeners keep their existing symmetric buffers, but all listener,
+/// half-open and accepted sockets now participate in the platform budget.
+pub(crate) fn direct_netstack_config(profile: &Profile) -> (Config, TcpBufferMetrics) {
+    let (mut config, metrics) = proxy_netstack_config(profile);
+    config.tcp_listener_budgeted = true;
+    let tier = TcpBufferTier {
+        receive: config.tcp_buffer_size,
+        transmit: config.tcp_buffer_size,
+    };
+    let policy = config.tcp_buffer_policy.as_mut().expect("proxy TCP policy");
+    policy.preferred = tier;
+    policy.fallback = tier;
+    (config, metrics)
+}
+
 pub(crate) fn bounded_piped_with_capacity(
     config: Config,
     capacity: usize,

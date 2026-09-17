@@ -9,18 +9,19 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use ts_netstack_smoltcp::CreateSocket;
 use ts_netstack_smoltcp::netcore::{Channel, HasChannel, NetstackControl};
-use ts_netstack_smoltcp::netsock::{TcpListener as StackTcpListener, UdpSocket as StackUdpSocket};
+use ts_netstack_smoltcp::netsock::UdpSocket as StackUdpSocket;
 use usque_core::Profile;
 
 use crate::geo_direct::{GeoDirectPolicy, GeoRoute, bind_direct_udp, connect_direct_ip};
 use crate::h2::TransportError;
-use crate::netstack::{TrafficCounters, bounded_piped, proxy_netstack_config};
+use crate::netstack::{TrafficCounters, bounded_piped, direct_netstack_config};
 use crate::network_quality::NetworkQualityTelemetry;
 use crate::socket::DirectEgressLease;
 use crate::socket::SocketProtector;
 use crate::split_dns::{
     DnsRouteCache, SPLIT_DNS_IPV4, SPLIT_DNS_IPV6, SplitDnsConfig, SplitDnsRuntime,
 };
+use crate::stack_tcp::OnceListener;
 
 const GATEWAY_IPV4: Ipv4Addr = Ipv4Addr::new(198, 18, 0, 1);
 const GATEWAY_IPV6: Ipv6Addr = Ipv6Addr::new(0xfd00, 0, 0, 0, 0, 0, 0, 1);
@@ -256,6 +257,8 @@ pub(crate) struct DirectGatewayRouter {
     incoming_task: Option<JoinHandle<()>>,
     split_dns: Option<SplitDnsRuntime>,
     dns_hints: Arc<DnsRouteCache>,
+    #[cfg(test)]
+    tcp_metrics: ts_netstack_smoltcp::netcore::TcpBufferMetrics,
 }
 
 impl DirectGatewayRouter {
@@ -326,12 +329,14 @@ impl DirectGatewayRouter {
                     incoming_task: None,
                     split_dns: None,
                     dns_hints: Arc::new(DnsRouteCache::default()),
+                    #[cfg(test)]
+                    tcp_metrics: Default::default(),
                 },
                 incoming_rx,
             ));
         }
 
-        let (config, _) = proxy_netstack_config(profile);
+        let (config, _tcp_metrics) = direct_netstack_config(profile);
         let (stack, pipe) = bounded_piped(config);
         let channel = stack.command_channel();
         let stack_task = stack.spawn_tokio();
@@ -423,6 +428,8 @@ impl DirectGatewayRouter {
                 incoming_task: Some(incoming_task),
                 split_dns,
                 dns_hints,
+                #[cfg(test)]
+                tcp_metrics: _tcp_metrics,
             },
             incoming_rx,
         ))
@@ -491,8 +498,7 @@ impl DirectGatewayRouter {
                 return false;
             };
             let setup = match parsed.protocol {
-                6 => channel
-                    .tcp_listen(mapping.gateway)
+                6 => OnceListener::bind(channel.clone(), mapping.gateway)
                     .await
                     .map(DirectSocket::Tcp)
                     .map_err(|error| error.to_string()),
@@ -560,10 +566,10 @@ impl DirectGatewayRouter {
                     _lease,
                 } => run_udp_flow(local, physical, _lease, &flow, &mapping.cancel).await,
             };
+            if let Ok(mut flows) = flows.lock() {
+                flows.remove_if(&flow, mapping.id);
+            }
             if let Err(error) = result {
-                if let Ok(mut flows) = flows.lock() {
-                    flows.remove_if(&flow, mapping.id);
-                }
                 tracing::debug!(%error, remote = %flow.remote, "GEO direct flow ended");
             }
         });
@@ -605,7 +611,7 @@ fn is_split_dns_server_packet(packet: &[u8]) -> bool {
 }
 
 enum DirectSocket {
-    Tcp(StackTcpListener),
+    Tcp(OnceListener),
     Udp {
         local: StackUdpSocket,
         physical: tokio::net::UdpSocket,
@@ -614,22 +620,15 @@ enum DirectSocket {
 }
 
 async fn run_tcp_flow(
-    listener: StackTcpListener,
+    listener: OnceListener,
     flow: &FlowKey,
     protector: Arc<dyn SocketProtector>,
     cancellation: &CancellationToken,
 ) -> Result<(), String> {
     let accepted = tokio::select! {
         _ = cancellation.cancelled() => return Ok(()),
-        accepted = listener.accept() => accepted.map_err(|error| error.to_string())?,
+        accepted = listener.accept(flow.client) => accepted.map_err(|error| error.to_string())?,
     };
-    if accepted.remote_addr() != flow.client {
-        return Err(format!(
-            "direct TCP peer {} did not match {}",
-            accepted.remote_addr(),
-            flow.client
-        ));
-    }
     let mut local = accepted;
     let (mut physical, _lease) = tokio::select! {
         _ = cancellation.cancelled() => return Ok(()),
@@ -928,11 +927,70 @@ mod tests {
 
     use super::*;
     use crate::geo_direct::GeoDirectClassifier;
+    use crate::netstack::proxy_netstack_config;
     use crate::socket::SocketHandle;
 
     const CLIENT_IPV4: Ipv4Addr = Ipv4Addr::new(10, 0, 0, 2);
     const CLIENT_IPV6: Ipv6Addr = Ipv6Addr::new(0xfd00, 0, 0, 0, 0, 0, 0, 2);
     const TEST_TIMEOUT: Duration = Duration::from_secs(3);
+
+    #[test]
+    fn ordinary_and_one_shot_listeners_share_the_direct_buffer_budget() {
+        use ts_netstack_smoltcp::netcore::{Netstack, Request, Response, flume, tcp};
+        let (mut config, metrics) = direct_netstack_config(&Profile::default());
+        let policy = config.tcp_buffer_policy.as_mut().unwrap();
+        policy.preferred_budget = 2 * 1024 * 1024;
+        policy.total_budget = 4 * 1024 * 1024;
+        let mut stack = Netstack::new(
+            config,
+            ts_netstack_smoltcp::netcore::smoltcp::time::Instant::from_millis(0),
+        );
+        let mut command = |command: tcp::listen::Command| {
+            let (resp, reply) = flume::bounded(1);
+            stack.process_one_cmd(Request {
+                handle: None,
+                command: command.into(),
+                resp,
+            });
+            reply.try_recv().unwrap()
+        };
+        let Response::TcpListen(tcp::listen::Response::Listening { handle: ordinary }) =
+            command(tcp::listen::Command::Listen {
+                local_endpoint: ([127, 0, 0, 1], 53).into(),
+            })
+        else {
+            panic!("ordinary DNS listener must fit");
+        };
+        let Response::TcpListen(tcp::listen::Response::Listening { handle: once }) =
+            command(tcp::listen::Command::ListenOnce {
+                local_endpoint: ([127, 0, 0, 1], 40001).into(),
+            })
+        else {
+            panic!("one-shot direct listener must fit");
+        };
+        assert_eq!(metrics.snapshot().total_bytes, 4 * 1024 * 1024);
+        assert_eq!(metrics.snapshot().preferred_sockets, 1);
+        assert_eq!(metrics.snapshot().fallback_sockets, 1);
+        assert!(matches!(command(tcp::listen::Command::ListenOnce {
+            local_endpoint: ([127, 0, 0, 1], 40002).into(),
+        }), Response::Error(error) if error.is_tcp_buffer_budget_exhausted()));
+        assert_eq!(metrics.snapshot().total_bytes, 4 * 1024 * 1024);
+        assert!(matches!(
+            command(tcp::listen::Command::Close { handle: once }),
+            Response::Ok
+        ));
+        assert!(matches!(
+            command(tcp::listen::Command::Close { handle: ordinary }),
+            Response::Ok
+        ));
+        assert_eq!(metrics.snapshot().total_bytes, 0);
+        assert!(matches!(
+            command(tcp::listen::Command::ListenOnce {
+                local_endpoint: ([127, 0, 0, 1], 40003).into(),
+            }),
+            Response::TcpListen(_)
+        ));
+    }
 
     struct LoopbackClassifier;
 
@@ -982,6 +1040,7 @@ mod tests {
         client_task: JoinHandle<()>,
         pump_task: JoinHandle<()>,
         cancellation: CancellationToken,
+        tcp_metrics: ts_netstack_smoltcp::netcore::TcpBufferMetrics,
     }
 
     impl TestNetwork {
@@ -1015,6 +1074,7 @@ mod tests {
             .await
             .unwrap();
             let flows = Arc::clone(&gateway.flows);
+            let tcp_metrics = gateway.tcp_metrics.clone();
             let crate::packet_pipe::PacketPipe {
                 mut rx,
                 tx: client_incoming,
@@ -1047,6 +1107,7 @@ mod tests {
                 client_task,
                 pump_task,
                 cancellation,
+                tcp_metrics,
             }
         }
     }
@@ -1156,6 +1217,9 @@ mod tests {
             .expect("direct TCP response timed out")
             .unwrap();
         assert_eq!(&response, b"return");
+        // The connected one-shot socket owns exactly the legacy two 1 MiB
+        // buffers, with no additional accept socket waiting behind it.
+        assert_eq!(network.tcp_metrics.snapshot().total_bytes, 2 * 1024 * 1024);
         timeout(TEST_TIMEOUT, server)
             .await
             .expect("TCP echo task timed out")
@@ -1164,6 +1228,16 @@ mod tests {
         let snapshot = network.counters.snapshot();
         assert!(snapshot.bytes_sent > 0);
         assert!(snapshot.bytes_received > 0);
+        drop(stream);
+        timeout(TEST_TIMEOUT, async {
+            while network.tcp_metrics.snapshot().total_bytes != 0
+                || !network.flows.lock().unwrap().forward.is_empty()
+            {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("normal TCP close must reclaim the socket and NAT reservation");
     }
 
     #[tokio::test]

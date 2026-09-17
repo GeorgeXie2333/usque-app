@@ -84,6 +84,17 @@ the 64-datagram actor budget; an all-discarded drain yields before retrying so
 cancellation and other tasks remain responsive. Prefetched channel entries
 retain both item and byte permits until actual consumption.
 
+## Direct gateway TCP memory
+
+The direct TUN gateway charges ordinary DNS listeners, half-open sockets and
+accepted TCP sockets to its existing platform TCP budget: 48 MiB on Android32,
+128 MiB on Android64 and 256 MiB on desktop. Direct sockets retain symmetric
+1 MiB receive/send buffers. Business flows use the shared one-shot adapter,
+which does not reserve a spare accept socket. A failed admission releases its
+NAT reservation and follows the existing routing fallback; established flows
+are not evicted. These allocator bounds are not process RSS limits. Proxy TCP
+buffer tiers and L4 application budgets are unchanged.
+
 ## HTTP/2 flow control and PING
 
 CONNECT-IP uses an explicit h2 client Builder with a 4 MiB stream receive
