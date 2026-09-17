@@ -116,6 +116,21 @@ NAT reservation and follows the existing routing fallback; established flows
 are not evicted. These allocator bounds are not process RSS limits. Proxy TCP
 buffer tiers and L4 application budgets are unchanged.
 
+## Proxy DNS resolution
+
+Remote and configured proxy DNS share a four-second absolute deadline across
+A/AAAA lookups, socket admission, bind/send/receive and resolver retries. System
+lookup awaits are also bounded; late system results are discarded. Validated
+NODATA and NXDOMAIN end that query type's retry chain, while temporary failures
+may use the remaining deadline at another configured server. Question and
+record validation precedes negative-answer classification. No DNS mode falls
+back to a different mode.
+
+The internal candidate interface owns unfinished query futures and yields each
+address family as it completes. Dropping it cancels owned work. The aggregate
+resolver remains available to UDP callers, preserving IPv4-first ordering for
+remote/configured results and OS ordering for System mode.
+
 ## HTTP/2 flow control and PING
 
 CONNECT-IP uses an explicit h2 client Builder with a 4 MiB stream receive
