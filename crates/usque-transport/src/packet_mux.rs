@@ -1,6 +1,12 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::time::{Duration, Instant};
+
+const MAX_FLOWS: usize = 65_536;
+const MAX_FRAGMENTS: usize = 8_192;
+const MAINTENANCE_ITEMS: usize = 4_096;
+const FLOW_IDLE: Duration = Duration::from_secs(5 * 60);
+pub(crate) const MAINTENANCE_INTERVAL: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum PacketOrigin {
@@ -37,7 +43,6 @@ struct FlowMapping {
 #[derive(Debug, Clone)]
 struct ReverseMapping {
     flow: FlowKey,
-    last_seen: Instant,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -71,7 +76,15 @@ pub(crate) struct PacketMuxTable {
     incoming_fragments: HashMap<FragmentKey, (PacketOrigin, Instant)>,
     next_id: u16,
     next_fragment_id: u32,
-    last_sweep: Instant,
+    flow_scan: VecDeque<FlowKey>,
+    outgoing_fragment_scan: VecDeque<OriginFragmentKey>,
+    incoming_fragment_scan: VecDeque<FragmentKey>,
+    flow_limit: usize,
+    outgoing_fragment_limit: usize,
+    incoming_fragment_limit: usize,
+    rejections: [u64; 3],
+    reported_rejections: [u64; 3],
+    last_report: Instant,
 }
 
 pub(crate) struct OutgoingPacketInspection {
@@ -96,7 +109,15 @@ impl Default for PacketMuxTable {
             incoming_fragments: HashMap::new(),
             next_id: 49_152,
             next_fragment_id: 0x8000_0000,
-            last_sweep: Instant::now(),
+            flow_scan: VecDeque::new(),
+            outgoing_fragment_scan: VecDeque::new(),
+            incoming_fragment_scan: VecDeque::new(),
+            flow_limit: MAX_FLOWS,
+            outgoing_fragment_limit: MAX_FRAGMENTS,
+            incoming_fragment_limit: MAX_FRAGMENTS,
+            rejections: [0; 3],
+            reported_rejections: [0; 3],
+            last_report: Instant::now(),
         }
     }
 }
@@ -114,7 +135,6 @@ impl PacketMuxTable {
         origin: PacketOrigin,
         packet: &[u8],
     ) -> OutgoingPacketInspection {
-        self.sweep_if_needed();
         let parsed = ParsedPacket::parse(packet, Direction::Outgoing);
         let owned = match parsed.as_ref() {
             Some(ParsedPacket::Flow { tuple, .. }) => {
@@ -136,7 +156,6 @@ impl PacketMuxTable {
     }
 
     pub(crate) fn route_outgoing(&mut self, origin: PacketOrigin, packet: &mut [u8]) -> bool {
-        self.sweep_if_needed();
         let parsed = ParsedPacket::parse(packet, Direction::Outgoing);
         self.route_parsed_outgoing(origin, packet, parsed)
     }
@@ -165,17 +184,28 @@ impl PacketMuxTable {
             }
         };
         let flow = flow_key(origin, tuple);
+        if !self.forward.contains_key(&flow) && self.forward.len() >= self.flow_limit {
+            self.rejections[0] = self.rejections[0].saturating_add(1);
+            return false;
+        }
+        // Preflight every associated index before changing packet bytes or
+        // publishing a flow. A full fragment table cannot leave half a mapping.
+        let prepared_fragment = if let Some(fragment) = fragment {
+            let Some(prepared) = self.prepare_outgoing_fragment(origin, fragment) else {
+                return false;
+            };
+            Some(prepared)
+        } else {
+            None
+        };
         let now = Instant::now();
         if let Some(mapping) = self.forward.get_mut(&flow) {
             mapping.last_seen = now;
             if mapping.wire.local_id != mapping.original_id {
                 rewrite_identifier(packet, &tuple, mapping.wire.local_id);
             }
-            if let Some(reverse) = self.reverse.get_mut(&mapping.wire) {
-                reverse.last_seen = now;
-            }
-            if let Some(fragment) = fragment {
-                return self.register_outgoing_fragment(origin, packet, fragment);
+            if let Some((key, wire)) = prepared_fragment {
+                self.commit_outgoing_fragment(packet, key, wire, now);
             }
             return true;
         }
@@ -194,6 +224,7 @@ impl PacketMuxTable {
             wire.local_id = translated;
             rewrite_identifier(packet, &tuple, translated);
         }
+        self.flow_scan.push_back(flow.clone());
         self.forward.insert(
             flow.clone(),
             FlowMapping {
@@ -202,18 +233,14 @@ impl PacketMuxTable {
                 last_seen: now,
             },
         );
-        self.reverse.insert(
-            wire,
-            ReverseMapping {
-                flow,
-                last_seen: now,
-            },
-        );
-        fragment.is_none_or(|fragment| self.register_outgoing_fragment(origin, packet, fragment))
+        self.reverse.insert(wire, ReverseMapping { flow });
+        if let Some((key, wire)) = prepared_fragment {
+            self.commit_outgoing_fragment(packet, key, wire, now);
+        }
+        true
     }
 
     pub(crate) fn route_incoming(&mut self, packet: &mut [u8]) -> Option<PacketOrigin> {
-        self.sweep_if_needed();
         let Some(parsed) = ParsedPacket::parse(packet, Direction::Incoming) else {
             return self.route_incoming_icmp_error(packet);
         };
@@ -232,8 +259,12 @@ impl PacketMuxTable {
             remote_address: tuple.remote_address,
             remote_id: tuple.remote_id,
         };
-        let reverse = self.reverse.get_mut(&wire)?;
-        reverse.last_seen = Instant::now();
+        if let Some(fragment) = &fragment
+            && (!self.reverse.contains_key(&wire) || !self.admit_incoming_fragment(fragment))
+        {
+            return None;
+        }
+        let reverse = self.reverse.get(&wire)?;
         let flow = reverse.flow.clone();
         if wire.local_id != flow.local_id {
             rewrite_identifier(packet, &tuple, flow.local_id);
@@ -242,47 +273,81 @@ impl PacketMuxTable {
             forward.last_seen = Instant::now();
         }
         if let Some(fragment) = fragment {
-            self.incoming_fragments
-                .insert(fragment, (flow.origin, Instant::now()));
+            self.record_incoming_fragment(fragment, flow.origin, Instant::now());
         }
         Some(flow.origin)
     }
 
-    fn register_outgoing_fragment(
+    fn prepare_outgoing_fragment(
         &mut self,
         origin: PacketOrigin,
-        packet: &mut [u8],
         fragment: FragmentKey,
-    ) -> bool {
+    ) -> Option<(OriginFragmentKey, FragmentKey)> {
         let key = OriginFragmentKey {
             origin,
             fragment: fragment.clone(),
         };
-        if let Some(mapping) = self.outgoing_fragments.get_mut(&key) {
-            mapping.last_seen = Instant::now();
-            if mapping.wire.identifier != fragment.identifier {
-                rewrite_fragment_identifier(packet, &fragment, mapping.wire.identifier);
-            }
-            return true;
+        if let Some(mapping) = self.outgoing_fragments.get(&key) {
+            return Some((key, mapping.wire.clone()));
+        }
+        if self.outgoing_fragments.len() >= self.outgoing_fragment_limit {
+            self.rejections[1] = self.rejections[1].saturating_add(1);
+            return None;
         }
 
         let mut wire = fragment.clone();
         if self.wire_fragments.contains_key(&wire) {
-            let Some(identifier) = self.allocate_fragment_identifier(&wire) else {
-                return false;
-            };
+            let identifier = self.allocate_fragment_identifier(&wire)?;
             wire.identifier = identifier;
-            rewrite_fragment_identifier(packet, &fragment, identifier);
         }
+        Some((key, wire))
+    }
+
+    fn commit_outgoing_fragment(
+        &mut self,
+        packet: &mut [u8],
+        key: OriginFragmentKey,
+        wire: FragmentKey,
+        now: Instant,
+    ) {
+        if wire.identifier != key.fragment.identifier {
+            rewrite_fragment_identifier(packet, &key.fragment, wire.identifier);
+        }
+        if let Some(mapping) = self.outgoing_fragments.get_mut(&key) {
+            mapping.last_seen = now;
+            return;
+        }
+        self.outgoing_fragment_scan.push_back(key.clone());
         self.outgoing_fragments.insert(
             key.clone(),
             FragmentMapping {
                 wire: wire.clone(),
-                last_seen: Instant::now(),
+                last_seen: now,
             },
         );
         self.wire_fragments.insert(wire, key);
+    }
+
+    fn admit_incoming_fragment(&mut self, fragment: &FragmentKey) -> bool {
+        if !self.incoming_fragments.contains_key(fragment)
+            && self.incoming_fragments.len() >= self.incoming_fragment_limit
+        {
+            self.rejections[2] = self.rejections[2].saturating_add(1);
+            return false;
+        }
         true
+    }
+
+    fn record_incoming_fragment(
+        &mut self,
+        fragment: FragmentKey,
+        origin: PacketOrigin,
+        now: Instant,
+    ) {
+        if !self.incoming_fragments.contains_key(&fragment) {
+            self.incoming_fragment_scan.push_back(fragment.clone());
+        }
+        self.incoming_fragments.insert(fragment, (origin, now));
     }
 
     fn route_outgoing_fragment(
@@ -366,8 +431,12 @@ impl PacketMuxTable {
             remote_address: tuple.remote_address,
             remote_id: tuple.remote_id,
         };
-        let reverse = self.reverse.get_mut(&wire)?;
-        reverse.last_seen = Instant::now();
+        if let Some(fragment) = &network.fragment
+            && (!self.reverse.contains_key(&wire) || !self.admit_incoming_fragment(fragment))
+        {
+            return None;
+        }
+        let reverse = self.reverse.get(&wire)?;
         let flow = reverse.flow.clone();
         if wire.local_id != flow.local_id {
             rewrite_embedded_identifier(
@@ -382,32 +451,87 @@ impl PacketMuxTable {
             forward.last_seen = Instant::now();
         }
         if let Some(fragment) = network.fragment {
-            self.incoming_fragments
-                .insert(fragment, (flow.origin, Instant::now()));
+            self.record_incoming_fragment(fragment, flow.origin, Instant::now());
         }
         Some(flow.origin)
     }
 
-    fn sweep_if_needed(&mut self) {
-        let now = Instant::now();
-        if now.duration_since(self.last_sweep) < Duration::from_secs(30) {
-            return;
+    /// The owning mux calls this once per second. Each live mapping has exactly
+    /// one scan entry; traffic refreshes timestamps without allocating entries.
+    pub(crate) fn maintain(&mut self, now: Instant) {
+        for _ in 0..self.flow_scan.len().min(MAINTENANCE_ITEMS) {
+            let key = self.flow_scan.pop_front().expect("bounded flow scan");
+            if self
+                .forward
+                .get(&key)
+                .is_some_and(|m| now.saturating_duration_since(m.last_seen) > FLOW_IDLE)
+            {
+                if let Some(mapping) = self.forward.remove(&key) {
+                    self.reverse.remove(&mapping.wire);
+                }
+            } else {
+                self.flow_scan.push_back(key);
+            }
         }
-        self.last_sweep = now;
-        let cutoff = now - Duration::from_secs(5 * 60);
-        self.forward
-            .retain(|_, mapping| mapping.last_seen >= cutoff);
-        self.reverse
-            .retain(|_, mapping| mapping.last_seen >= cutoff);
-        self.outgoing_fragments
-            .retain(|_, mapping| mapping.last_seen >= cutoff);
-        self.wire_fragments.retain(|_, key| {
-            self.outgoing_fragments
-                .get(key)
-                .is_some_and(|mapping| mapping.last_seen >= cutoff)
-        });
-        self.incoming_fragments
-            .retain(|_, (_, last_seen)| *last_seen >= cutoff);
+        for _ in 0..self.outgoing_fragment_scan.len().min(MAINTENANCE_ITEMS) {
+            let key = self
+                .outgoing_fragment_scan
+                .pop_front()
+                .expect("bounded fragment scan");
+            if self
+                .outgoing_fragments
+                .get(&key)
+                .is_some_and(|m| now.saturating_duration_since(m.last_seen) > FLOW_IDLE)
+            {
+                if let Some(mapping) = self.outgoing_fragments.remove(&key) {
+                    self.wire_fragments.remove(&mapping.wire);
+                }
+            } else {
+                self.outgoing_fragment_scan.push_back(key);
+            }
+        }
+        for _ in 0..self.incoming_fragment_scan.len().min(MAINTENANCE_ITEMS) {
+            let key = self
+                .incoming_fragment_scan
+                .pop_front()
+                .expect("bounded incoming scan");
+            if self
+                .incoming_fragments
+                .get(&key)
+                .is_some_and(|(_, seen)| now.saturating_duration_since(*seen) > FLOW_IDLE)
+            {
+                self.incoming_fragments.remove(&key);
+            } else {
+                self.incoming_fragment_scan.push_back(key);
+            }
+        }
+        if self.forward.is_empty() {
+            self.forward = HashMap::new();
+            self.reverse = HashMap::new();
+            self.flow_scan = VecDeque::new();
+        }
+        if self.outgoing_fragments.is_empty() {
+            self.outgoing_fragments = HashMap::new();
+            self.wire_fragments = HashMap::new();
+            self.outgoing_fragment_scan = VecDeque::new();
+        }
+        if self.incoming_fragments.is_empty() {
+            self.incoming_fragments = HashMap::new();
+            self.incoming_fragment_scan = VecDeque::new();
+        }
+        if self.rejections != self.reported_rejections
+            && now.saturating_duration_since(self.last_report) >= Duration::from_secs(30)
+        {
+            tracing::warn!(
+                reason_code = "packet_mux_capacity",
+                flow_rejections = self.rejections[0],
+                outgoing_fragment_rejections = self.rejections[1],
+                incoming_fragment_rejections = self.rejections[2],
+                "packet mux rejected new mappings at its resource limit"
+            );
+            self.reported_rejections = self.rejections;
+            self.last_report = now;
+        }
     }
 }
 
@@ -784,6 +908,281 @@ fn write_u16(packet: &mut [u8], offset: usize, value: u16) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn full_flow_table_preserves_packet_bytes_and_existing_routes() {
+        let mut table = PacketMuxTable {
+            flow_limit: 1,
+            ..Default::default()
+        };
+        let original = udp_packet(50_000, 443, false);
+        assert!(table.route_outgoing(PacketOrigin::Tunnel, &mut original.clone()));
+        let mut rejected = original.clone();
+        assert!(!table.route_outgoing(PacketOrigin::Proxy, &mut rejected));
+        assert_eq!(rejected, original);
+        assert_eq!(
+            (
+                table.forward.len(),
+                table.reverse.len(),
+                table.flow_scan.len()
+            ),
+            (1, 1, 1)
+        );
+        for _ in 0..1000 {
+            assert!(table.route_outgoing(PacketOrigin::Tunnel, &mut original.clone()));
+        }
+        assert_eq!(table.flow_scan.len(), 1);
+        assert_eq!(
+            table.route_incoming(&mut udp_packet(443, 50_000, true)),
+            Some(PacketOrigin::Tunnel)
+        );
+        assert_eq!(table.rejections[0], 1);
+    }
+
+    #[test]
+    fn fragment_rejection_cannot_publish_a_flow_or_rewrite_an_existing_one() {
+        let mut table = PacketMuxTable {
+            outgoing_fragment_limit: 0,
+            ..Default::default()
+        };
+        let mut first = udp_packet(50_000, 443, false);
+        fragment(&mut first, 7, 0, true);
+        let original = first.clone();
+        assert!(!table.route_outgoing(PacketOrigin::Tunnel, &mut first));
+        assert_eq!(first, original);
+        assert!(table.forward.is_empty() && table.reverse.is_empty() && table.flow_scan.is_empty());
+        assert!(table.outgoing_fragments.is_empty() && table.wire_fragments.is_empty());
+        assert!(table.route_outgoing(PacketOrigin::Tunnel, &mut udp_packet(50_000, 443, false)));
+        assert!(table.route_outgoing(PacketOrigin::Proxy, &mut udp_packet(50_000, 443, false)));
+        assert!(!table.route_outgoing(PacketOrigin::Proxy, &mut first));
+        assert_eq!(
+            first, original,
+            "reject before the translated port is written"
+        );
+        assert_eq!(
+            (
+                table.forward.len(),
+                table.reverse.len(),
+                table.flow_scan.len()
+            ),
+            (2, 2, 2)
+        );
+    }
+
+    #[test]
+    fn full_fragment_tables_keep_existing_fragments_without_growing_scan_queues() {
+        let mut table = PacketMuxTable {
+            outgoing_fragment_limit: 1,
+            incoming_fragment_limit: 1,
+            ..Default::default()
+        };
+        let mut first = udp_packet(50_000, 443, false);
+        fragment(&mut first, 7, 0, true);
+        assert!(table.route_outgoing(PacketOrigin::Tunnel, &mut first));
+        let mut incoming = udp_packet(443, 50_000, true);
+        fragment(&mut incoming, 8, 0, true);
+        assert_eq!(
+            table.route_incoming(&mut incoming),
+            Some(PacketOrigin::Tunnel)
+        );
+        for _ in 0..1000 {
+            assert!(table.route_outgoing(PacketOrigin::Tunnel, &mut first.clone()));
+            assert_eq!(
+                table.route_incoming(&mut incoming.clone()),
+                Some(PacketOrigin::Tunnel)
+            );
+        }
+        let mut denied = udp_packet(50_001, 443, false);
+        fragment(&mut denied, 9, 0, true);
+        let original = denied.clone();
+        assert!(!table.route_outgoing(PacketOrigin::Tunnel, &mut denied));
+        assert_eq!(denied, original);
+        assert_eq!(table.forward.len(), 1);
+        let mut denied = incoming.clone();
+        fragment(&mut denied, 9, 0, true);
+        let original = denied.clone();
+        assert_eq!(table.route_incoming(&mut denied), None);
+        assert_eq!(denied, original);
+        assert!(table.route_outgoing(PacketOrigin::Tunnel, &mut later_udp_fragment(7, false)));
+        assert_eq!(
+            table.route_incoming(&mut later_udp_fragment(8, true)),
+            Some(PacketOrigin::Tunnel)
+        );
+        assert_eq!(
+            (
+                table.outgoing_fragment_scan.len(),
+                table.incoming_fragment_scan.len()
+            ),
+            (1, 1)
+        );
+        assert_eq!(
+            (table.outgoing_fragments.len(), table.wire_fragments.len()),
+            (1, 1)
+        );
+    }
+
+    #[test]
+    fn incoming_fragment_limit_precedes_port_and_icmp_quote_restoration() {
+        let mut table = PacketMuxTable {
+            incoming_fragment_limit: 0,
+            ..Default::default()
+        };
+        let mut tunnel = udp_packet(50_000, 443, false);
+        let mut proxy = tunnel.clone();
+        assert!(table.route_outgoing(PacketOrigin::Tunnel, &mut tunnel));
+        assert!(table.route_outgoing(PacketOrigin::Proxy, &mut proxy));
+        let wire_port = read_u16(&proxy, 20).unwrap();
+        assert_ne!(wire_port, 50_000);
+        let mut response = udp_packet(443, wire_port, true);
+        fragment(&mut response, 12, 0, true);
+        let original = response.clone();
+        assert_eq!(table.route_incoming(&mut response), None);
+        assert_eq!(response, original);
+        let mut icmp = icmp_unreachable(&proxy);
+        fragment(&mut icmp, 13, 0, true);
+        let original = icmp.clone();
+        assert_eq!(table.route_incoming(&mut icmp), None);
+        assert_eq!(icmp, original);
+        assert_eq!(
+            table.route_incoming(&mut udp_packet(443, wire_port, true)),
+            Some(PacketOrigin::Proxy)
+        );
+    }
+
+    #[test]
+    fn maintenance_has_a_work_bound_and_releases_empty_backing_tables() {
+        let mut table = PacketMuxTable::default();
+        let count = MAINTENANCE_ITEMS + 7;
+        for port in 1..=count {
+            assert!(table.route_outgoing(
+                PacketOrigin::Tunnel,
+                &mut udp_packet(port as u16, 443, false)
+            ));
+        }
+        let observed = Instant::now();
+        for mapping in table.forward.values_mut() {
+            mapping.last_seen = observed;
+        }
+        table.maintain(observed + FLOW_IDLE);
+        assert_eq!(
+            table.forward.len(),
+            count,
+            "retain the five-minute boundary"
+        );
+        table.maintain(observed + FLOW_IDLE + Duration::from_secs(1));
+        assert_eq!(
+            (
+                table.forward.len(),
+                table.reverse.len(),
+                table.flow_scan.len()
+            ),
+            (7, 7, 7)
+        );
+        table.maintain(observed + FLOW_IDLE + Duration::from_secs(2));
+        assert_eq!(
+            (
+                table.forward.capacity(),
+                table.reverse.capacity(),
+                table.flow_scan.capacity()
+            ),
+            (0, 0, 0)
+        );
+        assert!(table.route_outgoing(PacketOrigin::Tunnel, &mut udp_packet(50_000, 443, false)));
+    }
+
+    #[test]
+    fn fragment_maintenance_is_bounded_and_keeps_refreshed_entries() {
+        let mut table = PacketMuxTable::default();
+        for id in 0..=MAINTENANCE_ITEMS {
+            let mut out = udp_packet(50_000, 443, false);
+            fragment(&mut out, id as u16, 0, true);
+            assert!(table.route_outgoing(PacketOrigin::Tunnel, &mut out));
+            let mut incoming = udp_packet(443, 50_000, true);
+            fragment(&mut incoming, id as u16, 0, true);
+            assert_eq!(
+                table.route_incoming(&mut incoming),
+                Some(PacketOrigin::Tunnel)
+            );
+        }
+        let observed = Instant::now();
+        for mapping in table.outgoing_fragments.values_mut() {
+            mapping.last_seen = observed;
+        }
+        for (_, seen) in table.incoming_fragments.values_mut() {
+            *seen = observed;
+        }
+        table.maintain(observed + FLOW_IDLE + Duration::from_secs(1));
+        assert_eq!(
+            (
+                table.outgoing_fragments.len(),
+                table.wire_fragments.len(),
+                table.incoming_fragments.len()
+            ),
+            (1, 1, 1)
+        );
+        // Refresh the remaining entries between maintenance rounds.
+        for mapping in table.outgoing_fragments.values_mut() {
+            mapping.last_seen = observed + FLOW_IDLE;
+        }
+        for (_, seen) in table.incoming_fragments.values_mut() {
+            *seen = observed + FLOW_IDLE;
+        }
+        table.maintain(observed + FLOW_IDLE + Duration::from_secs(2));
+        assert_eq!(
+            (
+                table.outgoing_fragment_scan.len(),
+                table.incoming_fragment_scan.len()
+            ),
+            (1, 1)
+        );
+        table.maintain(observed + FLOW_IDLE * 2 + Duration::from_secs(1));
+        assert_eq!(
+            (
+                table.outgoing_fragments.capacity(),
+                table.wire_fragments.capacity(),
+                table.incoming_fragments.capacity()
+            ),
+            (0, 0, 0)
+        );
+        assert_eq!(
+            (
+                table.outgoing_fragment_scan.capacity(),
+                table.incoming_fragment_scan.capacity()
+            ),
+            (0, 0)
+        );
+    }
+
+    #[test]
+    fn production_flow_cap_rejects_the_65537th_mapping_on_every_platform() {
+        let mut table = PacketMuxTable::default();
+        assert_eq!(table.flow_limit, 65_536);
+        assert_eq!(
+            (table.outgoing_fragment_limit, table.incoming_fragment_limit),
+            (8_192, 8_192)
+        );
+        for index in 0..=MAX_FLOWS {
+            let mut packet = udp_packet(50_000, 443, false);
+            packet[16..20].copy_from_slice(&[
+                198,
+                18 + (index >> 16) as u8,
+                (index >> 8) as u8,
+                index as u8,
+            ]);
+            assert_eq!(
+                table.route_outgoing(PacketOrigin::Tunnel, &mut packet),
+                index < MAX_FLOWS
+            );
+        }
+        assert_eq!(
+            (
+                table.forward.len(),
+                table.reverse.len(),
+                table.flow_scan.len()
+            ),
+            (MAX_FLOWS, MAX_FLOWS, MAX_FLOWS)
+        );
+    }
 
     fn udp_packet(source_port: u16, destination_port: u16, reverse: bool) -> Vec<u8> {
         let mut packet = vec![0u8; 28];

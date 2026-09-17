@@ -853,6 +853,11 @@ async fn run_packet_mux(
         Err(_) => return,
     };
     let mut flows = PacketMuxTable::default();
+    let mut maintenance = tokio::time::interval_at(
+        tokio::time::Instant::now() + crate::packet_mux::MAINTENANCE_INTERVAL,
+        crate::packet_mux::MAINTENANCE_INTERVAL,
+    );
+    maintenance.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut direct_incoming_open = true;
     let mut tun_dropped_batches = 0u64;
     let mut tun_dropped_packets = 0u64;
@@ -872,6 +877,7 @@ async fn run_packet_mux(
         // equal scheduling opportunities instead of a fixed preference.
         tokio::select! {
             _ = cancellation.cancelled() => break,
+            _ = maintenance.tick() => flows.maintain(std::time::Instant::now()),
             packet = raw_outgoing.recv() => {
                 let Some(packet) = packet else { break; };
                 let TunOutbound { packet, attachment } = packet;

@@ -89,6 +89,22 @@ the 64-datagram actor budget; an all-discarded drain yields before retrying so
 cancellation and other tasks remain responsive. Prefetched channel entries
 retain both item and byte permits until actual consumption.
 
+## Packet mux mapping bounds
+
+CONNECT-IP's TUN/proxy attribution table admits at most 65,536 main flows on
+every platform, plus 8,192 outgoing and 8,192 incoming fragment mappings.
+Paired reverse indexes share their forward entry's lifetime. New mappings are
+rejected at capacity before packet headers or associated indexes change;
+existing mappings remain usable. Allocation grows on demand, not at startup.
+
+The owning mux schedules maintenance once per second, checking at most 4,096
+entries from each table per pass. Each mapping has one scan-queue entry;
+packet activity refreshes its timestamp without appending scan work. The idle
+timeout remains five minutes, with expiry discovered on a subsequent bounded
+pass. Empty tables release their backing storage; nonempty tables keep bounded
+capacity. Capacity logs contain only reason codes and cumulative counts and
+are emitted at most once per thirty seconds. No traffic identifiers are added.
+
 ## Direct gateway TCP memory
 
 The direct TUN gateway charges ordinary DNS listeners, half-open sockets and
