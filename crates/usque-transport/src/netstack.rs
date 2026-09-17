@@ -1573,7 +1573,7 @@ impl PacketIo {
                 let tx = tx.clone();
                 Box::pin(async move {
                     while let Some(packet) = batch.pop_front() {
-                        tx.send_async(&packet).await;
+                        tx.send_owned_async(packet).await;
                     }
                     true
                 })

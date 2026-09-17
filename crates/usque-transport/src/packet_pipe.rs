@@ -61,6 +61,13 @@ pub(crate) struct PacketSender {
     meter: Option<Arc<QueuePerformance>>,
 }
 impl PacketSender {
+    /// Transfer an existing allocation after reserving the bounded queue slot.
+    pub(crate) async fn send_owned_async(&self, packet: Bytes) {
+        if let Ok(permit) = self.sender.reserve().await {
+            permit.send(QueuedPacket::new(packet, self.meter.as_ref()));
+        }
+    }
+
     pub(crate) async fn send_async(&self, packet: &[u8]) {
         if let Ok(permit) = self.sender.reserve().await {
             permit.send(QueuedPacket::new(

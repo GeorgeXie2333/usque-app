@@ -946,7 +946,7 @@ async fn run_packet_mux(
                         }
                         Some(PacketOrigin::Proxy) => {
                             let queue_entry = proxy_incoming_metrics.start_entry(packet.len());
-                            proxy_incoming.send_async(&packet).await;
+                            proxy_incoming.send_owned_async(packet.freeze()).await;
                             queue_entry.complete();
                         }
                         None => tracing::debug!("dropped an unattributed MASQUE return packet"),

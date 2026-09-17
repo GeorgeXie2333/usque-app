@@ -73,6 +73,11 @@ take a mutex in the packet path. Direct DNS requests can complete out of order,
 so that low-rate control path keeps a bounded timestamp multiset under a local
 mutex; snapshots still read only the published atomic oldest timestamp.
 
+The proxy receive pipe transfers an already-owned packet into its reserved
+queue slot without copying the payload. Borrowed callers retain a copying
+convenience path. Both interfaces preserve queue capacity, cancellation and
+the device's per-TxToken reservation; this does not remove QUIC or kernel copies.
+
 The H2 ADDRESS_REQUEST rejection path is no longer unbounded. Both its pending
 control deque and writer channel are capped at 64 capsules, with a 256 KiB byte
 budget. Saturation fails closed with `SendQueueFull`.
