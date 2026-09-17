@@ -41,3 +41,14 @@ sockets retain the existing close/ownership checks.
 The outer `ts_netstack_smoltcp` crate is not patched or replaced. Usque's
 first-party packet device reserves every TX queue slot before giving smoltcp
 a token, avoiding that crate's blocking bounded-pipe send implementation.
+
+Socket creation cancellation also covers TCP connect and UDP bind, including
+the interval after a response is queued and before its handle is received.
+The core retains the response sender until the response is consumed. The
+locked flume implementation leaves an unconsumed message queued when its last
+receiver drops; tests cover both queued cancellation and successful handoff.
+Disconnected connect requests abort their pending socket and immediately free
+its TCP reservation. Already cancelled creation commands allocate nothing.
+Async creation cancellation disconnects the reply and submits a nonblocking
+`ReapCancelled` wake. A full command queue already wakes the actor, whose next
+I/O pass performs the same cleanup. No packet or external interface changes.

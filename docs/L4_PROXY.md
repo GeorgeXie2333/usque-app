@@ -151,6 +151,14 @@ has a 10-second overall dial budget; QUIC establishment uses the existing
 8-second bound and 250-ms address-family racing. Healthy MAX_STREAMS exhaustion
 waits within the original deadline, without rebuilding the session.
 
+For locally resolved HTTP/SOCKS5 targets, this ten-second deadline includes
+DNS. Each family becomes usable as soon as its answer arrives. Target dialing
+allows two attempts and 16 candidates, with 250 ms between launches and immediate
+replacement after a fast failure. The unresolved alternative family retains
+the second slot. Only losing attempts are cancelled; the winner remains owned
+by its session's cancellation token. Edge-resolved CONNECT keeps server-side
+resolution.
+
 Session failures use jittered 1/2/4/8/15/30-second backoff. Active flows retain
 the 30-second keepalive baseline. Idle sessions may expire and reconnect on
 the next request. Only an undelivered CONNECT can be retried; accepted TCP bytes

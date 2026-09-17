@@ -102,6 +102,11 @@ pub fn request(
         command: Command,
     ) -> Result<Response, Error> {
         let (resp_tx, resp_rx) = flume::bounded(1);
+        let mut cancellation = CreationCancellation {
+            channel: command_tx,
+            receiver: Some(resp_rx),
+            armed: command.creates_socket(),
+        };
 
         command_tx
             .send_async(Request {
@@ -111,7 +116,9 @@ pub fn request(
             })
             .await?;
 
-        resp_rx.recv_async().await.map_err(Error::from)
+        let result = cancellation.receiver.as_ref().unwrap().recv_async().await;
+        cancellation.armed = false;
+        result.map_err(Error::from)
     }
 
     // impl Future and the returned async block below are required to do this bit of work upgrading
@@ -122,6 +129,29 @@ pub fn request(
     async move {
         let ch = ch?;
         _request(&ch, handle, command).await
+    }
+}
+
+// A creation can allocate before its caller receives a handle. Disconnect the
+// reply first, then wake the owner. Full is safe here: queued commands already
+// wake the stack and its next I/O pass reaps cancelled creations.
+struct CreationCancellation<'a> {
+    channel: &'a flume::Sender<Request>,
+    receiver: Option<flume::Receiver<Response>>,
+    armed: bool,
+}
+
+impl Drop for CreationCancellation<'_> {
+    fn drop(&mut self) {
+        self.receiver.take();
+        if self.armed {
+            let (resp, _receiver) = flume::bounded(1);
+            drop(self.channel.try_send(Request {
+                handle: None,
+                command: Command::ReapCancelled,
+                resp,
+            }));
+        }
     }
 }
 

@@ -96,7 +96,7 @@ impl Drop for OnceListener {
     }
 }
 
-fn cleanup(
+pub(crate) fn cleanup(
     channel: &Channel,
     handle: Option<SocketHandle>,
     command: impl Fn() -> ts_netstack_smoltcp::netcore::Command + Send + 'static,

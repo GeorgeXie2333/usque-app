@@ -37,6 +37,8 @@ pub struct Request {
 /// Command that a netstack should execute.
 #[derive(Debug)]
 pub enum Command {
+    /// Wake the stack to reclaim cancelled socket creation requests.
+    ReapCancelled,
     /// Commands that configure the network stack itself (e.g. set interface IPs).
     StackControl(stack_control::Command),
 
@@ -48,6 +50,19 @@ pub enum Command {
     Udp(udp::Command),
     /// Commands for raw sockets.
     Raw(raw::Command),
+}
+
+impl Command {
+    pub(crate) fn creates_socket(&self) -> bool {
+        matches!(
+            self,
+            Self::TcpStream(tcp::stream::Command::Connect { .. })
+                | Self::Udp(udp::Command::Bind { .. })
+                | Self::TcpListen(
+                    tcp::listen::Command::Listen { .. } | tcp::listen::Command::ListenOnce { .. }
+                )
+        )
+    }
 }
 
 /// Response to a command.

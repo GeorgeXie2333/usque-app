@@ -131,6 +131,23 @@ address family as it completes. Dropping it cancels owned work. The aggregate
 resolver remains available to UDP callers, preserving IPv4-first ordering for
 remote/configured results and OS ordering for System mode.
 
+HTTP and SOCKS5 share one target connector with a ten-second deadline covering
+both resolution and dialing. It starts with the first available address, spaces
+additional attempts by 250 ms, and admits at most two simultaneous attempts and
+16 unique candidates. The second slot is reserved for the other family until
+that lookup finishes; once only one family remains, both slots can use it.
+Fast failures refill immediately. Resource-budget rejection stops new attempts
+while allowing an existing attempt to finish. Authentication rejection and
+cancellation stop the group; a winner cancels the remaining lookups and dials.
+Direct-route policy and server-side name resolution keep their existing paths.
+
+Stack creation retains ownership until its response is consumed. Cancellation
+before allocation, during a TCP handshake, or with a queued response reclaims
+the socket and TCP reservation. A cancellation wake also works with an idle
+stack; a full command queue is drained before the normal cleanup pass. DNS UDP
+owners retry close admission when that queue is full. These are in-memory
+resource guarantees, not measured throughput or device lifecycle results.
+
 ## HTTP/2 flow control and PING
 
 CONNECT-IP uses an explicit h2 client Builder with a 4 MiB stream receive

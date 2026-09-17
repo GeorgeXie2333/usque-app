@@ -17,7 +17,7 @@ use ts_netstack_smoltcp::netcore::Channel;
 use ts_netstack_smoltcp::netsock::UdpSocket as StackUdpSocket;
 use usque_core::{OperatingMode, Profile, ProxyAuthCredentials};
 
-use crate::dns::Resolver;
+use crate::dns::{CandidateResolution, Resolver};
 use crate::geo_direct::{
     GeoDirectPolicy, GeoRoute, GeoTarget, RoutedTcpStream, bind_protected_udp, connect_routed,
 };
@@ -1149,6 +1149,7 @@ async fn connect_remote_inner(
             message: "encrypted_direct_dns_failed".to_owned(),
         },
         |resolved| async {
+            let deadline = tokio::time::Instant::now() + REMOTE_CONNECT_TIMEOUT;
             if resolved.is_none()
                 && context.edge_resolved
                 && let Target::Domain(name) = target
@@ -1158,30 +1159,28 @@ async fn connect_remote_inner(
                     .dialer
                     .connect(
                         target,
-                        tokio::time::Instant::now() + REMOTE_CONNECT_TIMEOUT,
+                        deadline,
                         &context.cancellation,
                         crate::tcp::FlowClass::Business,
                     )
                     .await
                     .map_err(connect_failure);
             }
-            let addresses =
-                if let Some(addresses) = resolved {
-                    addresses
-                } else {
-                    match target {
-                        Target::Address(address) => vec![*address],
-                        Target::Domain(name) => {
-                            context.resolver.resolve(name).await.map_err(|error| {
-                                ConnectFailure {
-                                    reply: REPLY_HOST_UNREACHABLE,
-                                    message: error.to_string(),
-                                }
-                            })?
-                        }
-                    }
-                };
-            connect_tunnel_remote(context, &addresses, port).await
+            let resolution = if let Some(addresses) = resolved {
+                CandidateResolution::from_addresses(addresses)
+            } else {
+                match target {
+                    Target::Address(address) => CandidateResolution::from_addresses(vec![*address]),
+                    Target::Domain(name) => context
+                        .resolver
+                        .resolve_candidates(name, deadline)
+                        .map_err(|error| ConnectFailure {
+                            reply: REPLY_HOST_UNREACHABLE,
+                            message: error.to_string(),
+                        })?,
+                }
+            };
+            connect_tunnel_remote(context, resolution, port, deadline).await
         },
     )
     .await
@@ -1189,33 +1188,25 @@ async fn connect_remote_inner(
 
 async fn connect_tunnel_remote(
     context: &SocksContext,
-    addresses: &[IpAddr],
+    resolution: CandidateResolution,
     port: u16,
+    deadline: tokio::time::Instant,
 ) -> Result<crate::tcp::TcpStream, ConnectFailure> {
-    let deadline = tokio::time::Instant::now() + REMOTE_CONNECT_TIMEOUT;
-    let mut last = crate::tcp::DialError::Network;
-    for address in addresses.iter().take(MAX_TARGET_ADDRESSES) {
-        let target = crate::tcp::TcpTarget::address(SocketAddr::new(*address, port));
-        match context
-            .dialer
-            .connect(
-                target,
-                deadline,
-                &context.cancellation,
-                crate::tcp::FlowClass::Business,
-            )
-            .await
-        {
-            Ok(stream) => return Ok(stream),
-            Err(
-                error @ (crate::tcp::DialError::Budget
-                | crate::tcp::DialError::Cancelled
-                | crate::tcp::DialError::Rejected(401 | 403)),
-            ) => return Err(connect_failure(error)),
-            Err(error) => last = error,
-        }
-    }
-    Err(connect_failure(last))
+    crate::tcp_candidates::connect_candidates(
+        context.dialer.clone(),
+        resolution,
+        port,
+        deadline,
+        &context.cancellation,
+    )
+    .await
+    .map_err(|error| match error {
+        crate::tcp_candidates::CandidateDialError::Resolve(error) => ConnectFailure {
+            reply: REPLY_HOST_UNREACHABLE,
+            message: error.to_string(),
+        },
+        crate::tcp_candidates::CandidateDialError::Dial(error) => connect_failure(error),
+    })
 }
 
 fn connect_failure(error: crate::tcp::DialError) -> ConnectFailure {

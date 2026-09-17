@@ -40,6 +40,7 @@ mod socks5;
 mod split_dns;
 mod stack_tcp;
 mod tcp;
+mod tcp_candidates;
 mod telemetry;
 mod tunnel;
 mod udp_io;
