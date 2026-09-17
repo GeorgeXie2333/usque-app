@@ -57,7 +57,7 @@ See [Installation and removal](docs/INSTALLATION.md) for upgrades, uninstall, re
 
 1. Install a [verified official package](docs/INSTALLATION.md#verify-before-installing) and open Usque.
 2. Complete the first-run permissions and terms steps. Register a Consumer WARP account, optionally with a WARP License Key. Usque does not accept new WARP Secret imports.
-3. Choose how applications should connect under **Network outputs**, then connect from Home. Android requests VPN consent when VPN is first enabled; SOCKS5/HTTP-only use does not require it.
+3. Choose how applications should connect under **VPN and local proxies**, then connect from Home. Android requests VPN consent when VPN is first enabled; SOCKS5/HTTP-only use does not require it.
 
 | Connection option | When to use it |
 | --- | --- |

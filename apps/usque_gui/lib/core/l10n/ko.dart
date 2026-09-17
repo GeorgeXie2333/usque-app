@@ -541,4 +541,16 @@ const Map<String, String> kKoCatalog = <String, String>{
   'diag_event_queue_saturated': '전송 큐가 용량에 도달함',
   'diag_event_disconnected': '연결 해제됨',
   'diag_event_failed': '연결 실패',
+  'operation_failed':
+      '작업을 완료하지 못했습니다. 다시 시도하고 문제가 계속되면 진단에서 진단 패키지를 내보내 지원을 요청하세요.',
+  'operation_timeout': '작업 시간이 초과되었습니다. 네트워크를 확인하고 다시 시도하세요.',
+  'accounts_reset':
+      '저장된 계정 설정을 읽을 수 없어 초기화했습니다. 기기에 백업을 보관했습니다. 계정 화면에서 다시 설정하세요.',
+  'input_too_long_bytes':
+      '너무 깁니다. UTF-8 기준 {count}바이트 이내로 입력하세요. 한글 등은 한 글자가 여러 바이트입니다.',
+  'username_colon': '사용자 이름에는 콜론(:)을 사용할 수 없습니다.',
+  'username_null': '사용자 이름에 보이지 않는 문자가 있습니다. 지우고 다시 입력하세요.',
+  'dns_duplicate_address': '중복된 IP 주소를 삭제하세요.',
+  'dns_address_not_allowed':
+      'DNS 서버 연결에 사용할 수 없는 주소가 있습니다. DNS 제공업체의 서버 IP를 입력하세요.',
 };

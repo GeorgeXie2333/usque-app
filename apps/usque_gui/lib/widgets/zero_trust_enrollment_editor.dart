@@ -6,6 +6,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/app_strings.dart';
+import '../core/user_facing_errors.dart';
 import '../models/app_models.dart';
 import '../services/engine_client.dart';
 import '../services/zero_trust_callback.dart';
@@ -295,7 +296,7 @@ class ZeroTrustEnrollmentEditorState extends State<ZeroTrustEnrollmentEditor>
       if (!mounted) return;
       setState(() {
         _operationError = error is EngineException
-            ? error.message
+            ? userFacingError(_strings, error)
             : _strings.get('zero_trust_browser_failed');
       });
     } finally {
@@ -374,6 +375,7 @@ class ZeroTrustEnrollmentEditorState extends State<ZeroTrustEnrollmentEditor>
                   labelText: _strings.get('zero_trust_team'),
                   hintText: 'example-team',
                   errorText: _teamError,
+                  errorMaxLines: 6,
                   prefixIcon: const Icon(LucideIcons.building2),
                 ),
                 onChanged: (_) {
@@ -421,6 +423,7 @@ class ZeroTrustEnrollmentEditorState extends State<ZeroTrustEnrollmentEditor>
                 decoration: InputDecoration(
                   labelText: _strings.get('zero_trust_callback'),
                   errorText: _callbackError,
+                  errorMaxLines: 6,
                   prefixIcon: const Icon(LucideIcons.link),
                 ),
                 onChanged: (_) {

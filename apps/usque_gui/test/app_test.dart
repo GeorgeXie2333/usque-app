@@ -791,7 +791,8 @@ void main() {
       expect(controller.updatePhase, UpdateOperationPhase.idle);
 
       await controller.checkForUpdates();
-      expect(controller.lastError, 'release endpoint unavailable');
+      expect(controller.lastError, controller.strings.get('operation_failed'));
+      expect(controller.lastError, isNot(contains('release endpoint')));
       controller.dispose();
     },
   );
@@ -850,7 +851,7 @@ void main() {
     expect(downloader.discardedPath, path);
     expect(controller.downloadedUpdatePath, isNull);
     expect(controller.updatePhase, UpdateOperationPhase.available);
-    expect(controller.updateError, 'permission denied');
+    expect(controller.updateError, controller.strings.get('operation_failed'));
     controller.dispose();
   });
 
@@ -971,7 +972,13 @@ void main() {
       await controller.downloadGeoRules('CN');
 
       expect(controller.lastNotice, contains('1 updated'));
-      expect(controller.lastError, contains('CN geosite: checksum mismatch'));
+      expect(
+        controller.lastError,
+        controller.strings
+            .get('geo_update_failed')
+            .replaceAll('{current}', '1'),
+      );
+      expect(controller.lastError, isNot(contains('checksum mismatch')));
       expect(controller.geoProgress, isNull);
       controller.dispose();
     },
@@ -1116,34 +1123,32 @@ void main() {
     controller.dispose();
   });
 
-  testWidgets('structured Android errors surface once with their error code', (
-    tester,
-  ) async {
-    SharedPreferences.setMockInitialValues(<String, Object>{});
-    final engine = EventEngineClient();
-    final controller = AppController(engine);
-    await controller.initialize();
-    var notifications = 0;
-    controller.addListener(() => notifications += 1);
-    const failure = EngineSnapshot(
-      phase: ConnectionPhase.error,
-      warning: '127.0.0.1:1080 is already in use',
-      errorCode: 'PROXY_LISTEN_FAILED',
-    );
+  testWidgets(
+    'structured Android errors surface once without exposing backend messages',
+    (tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final engine = EventEngineClient();
+      final controller = AppController(engine);
+      await controller.initialize();
+      var notifications = 0;
+      controller.addListener(() => notifications += 1);
+      const failure = EngineSnapshot(
+        phase: ConnectionPhase.error,
+        warning: '127.0.0.1:1080 is already in use',
+        errorCode: 'PROXY_LISTEN_FAILED',
+      );
 
-    engine.emitSnapshot(failure);
-    await tester.pump();
-    expect(
-      controller.lastError,
-      'PROXY_LISTEN_FAILED: 127.0.0.1:1080 is already in use',
-    );
-    final notificationsAfterFirstError = notifications;
+      engine.emitSnapshot(failure);
+      await tester.pump();
+      expect(controller.lastError, controller.strings.get('operation_failed'));
+      final notificationsAfterFirstError = notifications;
 
-    engine.emitSnapshot(failure);
-    await tester.pump();
-    expect(notifications, notificationsAfterFirstError);
-    controller.dispose();
-  });
+      engine.emitSnapshot(failure);
+      await tester.pump();
+      expect(notifications, notificationsAfterFirstError);
+      controller.dispose();
+    },
+  );
 
   test('quality-only engine events update bounded controller state', () async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
@@ -1240,7 +1245,7 @@ void main() {
         home: DiagnosticsScreen(controller: controller),
       ),
     );
-    expect(find.text('Live status updates are degraded'), findsNothing);
+    expect(find.text('Status updates are delayed'), findsNothing);
     controller.dispose();
   });
 
@@ -1276,7 +1281,7 @@ void main() {
         home: DiagnosticsScreen(controller: controller),
       ),
     );
-    expect(find.text('Live status updates are degraded'), findsNothing);
+    expect(find.text('Status updates are delayed'), findsNothing);
     controller.dispose();
   });
 
@@ -1393,7 +1398,7 @@ void main() {
     for (final catalog in kCatalogs.entries) {
       expect(
         catalog.value['tunnel_output'],
-        'VPN (TUN)',
+        catalog.key == 'en' || catalog.key == 'zh_CN' ? 'VPN' : 'VPN (TUN)',
         reason: '${catalog.key} Windows tunnel label',
       );
       expect(
@@ -1404,7 +1409,7 @@ void main() {
     }
 
     final strings = AppStrings(LocalePreference.english);
-    expect(strings.tunnelOutputLabel(TargetPlatform.windows), 'VPN (TUN)');
+    expect(strings.tunnelOutputLabel(TargetPlatform.windows), 'VPN');
     expect(strings.tunnelOutputLabel(TargetPlatform.android), 'VPN');
   });
 
@@ -2568,14 +2573,17 @@ void main() {
     expect(find.byType(TextField), findsNWidgets(2));
     await tester.enterText(find.byType(TextField).at(0), 'Example-Team');
     await tester.enterText(find.byType(TextField).at(1), callback);
-    expect(find.text('Organization callback received securely.'), findsNothing);
+    expect(
+      find.text('Sign-in received. Continue to finish account setup.'),
+      findsNothing,
+    );
     await tester.tap(find.text('Create'));
     await tester.pumpAndSettle();
 
     expect(engine.lastProvisioningMethod, IdentityProvisioningMethod.zeroTrust);
     expect(engine.lastZeroTrustTeam, 'example-team');
     expect(engine.lastZeroTrustCallback, callback);
-    expect(find.text('Complete callback URL'), findsNothing);
+    expect(find.text('Login return link'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -2619,11 +2627,11 @@ void main() {
     expect(engine.lastZeroTrustCallback, isNull);
     expect(
       find.text(
-        'Use a com.cloudflare.warp Access callback for this organization.',
+        'This link does not match this organization login. Open the login page again and copy the complete link used to open WARP.',
       ),
       findsOneWidget,
     );
-    expect(find.text('Complete callback URL'), findsOneWidget);
+    expect(find.text('Login return link'), findsOneWidget);
   });
 
   test('connected Zero Trust repair disconnects and reconnects', () async {
@@ -2688,7 +2696,7 @@ void main() {
 
     expect(
       find.text(
-        'This endpoint is managed by the Zero Trust device registration and cannot be edited here.',
+        'This server address is set by your organization account and cannot be changed here.',
       ),
       findsNothing,
     );
@@ -2918,7 +2926,7 @@ void main() {
     expect(await controller.clearAllData(), isTrue);
 
     expect(controller.onboardingComplete, isFalse);
-    expect(controller.lastError, contains('update cache is locked'));
+    expect(controller.lastError, controller.strings.get('operation_failed'));
     expect(downloader.discardedPath, 'test-update.msi');
     controller.dispose();
   });
@@ -2945,7 +2953,7 @@ void main() {
     await tester.pump();
     await tester.tap(find.text('Continue'));
     await tester.pumpAndSettle();
-    expect(find.text('Configure WARP identity'), findsOneWidget);
+    expect(find.text('Set up WARP account'), findsOneWidget);
 
     await tester.tap(find.text('Finish setup'));
     await tester.pumpAndSettle();
@@ -3010,7 +3018,7 @@ void main() {
       'Example-Team',
     );
     await tester.enterText(
-      find.widgetWithText(TextField, 'Complete callback URL'),
+      find.widgetWithText(TextField, 'Login return link'),
       callback,
     );
     await tester.pump();
@@ -3027,7 +3035,7 @@ void main() {
     expect(engine.lastZeroTrustTeam, 'example-team');
     expect(engine.lastZeroTrustCallback, callback);
     expect(find.text('Home'), findsWidgets);
-    expect(find.text('Complete callback URL'), findsNothing);
+    expect(find.text('Login return link'), findsNothing);
     final preferences = await SharedPreferences.getInstance();
     expect(preferences.getBool('onboarding_complete'), isTrue);
     expect(tester.takeException(), isNull);
@@ -3053,14 +3061,14 @@ void main() {
       'example-team',
     );
     await tester.enterText(
-      find.widgetWithText(TextField, 'Complete callback URL'),
+      find.widgetWithText(TextField, 'Login return link'),
       'https://example-team.cloudflareaccess.com/auth?token=x',
     );
     await tester.pump();
 
     expect(
       find.text(
-        'Use a com.cloudflare.warp Access callback for this organization.',
+        'This link does not match this organization login. Open the login page again and copy the complete link used to open WARP.',
       ),
       findsOneWidget,
     );
@@ -3100,7 +3108,7 @@ void main() {
       'Example-Team',
     );
     await tester.enterText(
-      find.widgetWithText(TextField, 'Complete callback URL'),
+      find.widgetWithText(TextField, 'Login return link'),
       'com.cloudflare.warp://example-team.cloudflareaccess.com/auth?token=one-time',
     );
     await tester.pump();
@@ -3109,7 +3117,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(controller.onboardingComplete, isFalse);
-    expect(find.text('Registration failed.'), findsOneWidget);
+    expect(
+      find.text(AppStrings(LocalePreference.english).get('operation_failed')),
+      findsOneWidget,
+    );
+    expect(find.text('Registration failed.'), findsNothing);
     expect(
       tester
           .widget<TextField>(
@@ -3122,7 +3134,7 @@ void main() {
     expect(
       tester
           .widget<TextField>(
-            find.widgetWithText(TextField, 'Complete callback URL'),
+            find.widgetWithText(TextField, 'Login return link'),
           )
           .controller
           ?.text,
@@ -3174,11 +3186,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      find.text('Organization callback received securely.'),
+      find.text('Sign-in received. Continue to finish account setup.'),
       findsOneWidget,
     );
     final callbackField = tester.widget<TextField>(
-      find.widgetWithText(TextField, 'Complete callback URL'),
+      find.widgetWithText(TextField, 'Login return link'),
     );
     expect(engine.zeroTrustCancelCount, greaterThan(0));
     expect(callbackField.controller?.text, callback);
@@ -3207,21 +3219,21 @@ void main() {
       'example-team',
     );
     await tester.enterText(
-      find.widgetWithText(TextField, 'Complete callback URL'),
+      find.widgetWithText(TextField, 'Login return link'),
       'com.cloudflare.warp://example-team.cloudflareaccess.com/auth?token=discard-me',
     );
     await tester.pump();
 
     final cancellationsBeforeSwitch = engine.zeroTrustCancelCount;
-    await tester.tap(find.text('Register a new identity'));
+    await tester.tap(find.text('Create a free WARP account'));
     await tester.pumpAndSettle();
     expect(engine.zeroTrustCancelCount, greaterThan(cancellationsBeforeSwitch));
-    expect(find.text('Complete callback URL'), findsNothing);
+    expect(find.text('Login return link'), findsNothing);
 
     await tester.tap(find.text('Cloudflare Zero Trust'));
     await tester.pumpAndSettle();
     final callbackField = tester.widget<TextField>(
-      find.widgetWithText(TextField, 'Complete callback URL'),
+      find.widgetWithText(TextField, 'Login return link'),
     );
     expect(callbackField.controller?.text, isEmpty);
     expect(
@@ -3266,7 +3278,7 @@ void main() {
 
       expect(find.text('Experimental'), findsOneWidget);
       expect(find.text('Organization team name'), findsOneWidget);
-      expect(find.text('Complete callback URL'), findsOneWidget);
+      expect(find.text('Login return link'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
@@ -3283,7 +3295,7 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     await controller.connectOrDisconnect();
     expect(controller.snapshot.phase, ConnectionPhase.error);
-    expect(controller.lastError, contains('Invalid listener port'));
+    expect(controller.lastError, controller.strings.get('operation_failed'));
     expect(controller.busy, isFalse);
     controller.dispose();
   });
@@ -3303,7 +3315,7 @@ void main() {
     );
     await controller.retry();
     expect(controller.snapshot.phase, ConnectionPhase.error);
-    expect(controller.lastError, contains('Invalid protobuf field'));
+    expect(controller.lastError, controller.strings.get('operation_failed'));
     expect(controller.busy, isFalse);
     controller.dispose();
   });
@@ -3360,7 +3372,7 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.text('Home'), findsWidgets);
-    expect(find.text('Usque Engine status'), findsOneWidget);
+    expect(find.text('Connection information'), findsOneWidget);
     expect(find.text('Connect'), findsOneWidget);
   });
 
@@ -3934,7 +3946,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final directCountries = find.text('Countries routed directly');
+      final directCountries = find.text('Direct countries / regions');
       expect(directCountries, findsOneWidget);
       await tester.ensureVisible(directCountries);
       await tester.pumpAndSettle();
@@ -3944,10 +3956,7 @@ void main() {
       expect(find.byType(GeoDirectSettingsScreen), findsOneWidget);
       expect(find.text('Search countries'), findsOneWidget);
       expect(
-        find.text(
-          "Matched domains are visible to your current network's DNS; "
-          'apps using encrypted DNS are routed by IP only.',
-        ),
+        find.text(controller.strings.get('geo_direct_help')),
         findsOneWidget,
       );
       expect(find.textContaining('Android VPN'), findsNothing);
@@ -3962,7 +3971,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(AdvancedSettingsScreen), findsOneWidget);
-      expect(find.text('Countries routed directly'), findsNothing);
+      expect(find.text('Direct countries / regions'), findsNothing);
     },
   );
 
@@ -4152,7 +4161,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(DiagnosticsScreen), findsOneWidget);
-    expect(find.textContaining('clear failed'), findsOneWidget);
+    expect(
+      find.text(AppStrings(LocalePreference.english).get('operation_failed')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('clear failed'), findsNothing);
     expect(find.byType(OnboardingScreen), findsNothing);
     expect(tester.takeException(), isNull);
   });
@@ -4502,7 +4515,7 @@ void main() {
       expect(find.text('Not available'), findsNothing);
 
       final Offset engineOrigin = tester.getTopLeft(
-        find.text('Usque Engine status'),
+        find.text('Connection information'),
       );
       final Offset locationOrigin = tester.getTopLeft(find.text('Location'));
       final Offset downloadOrigin = tester.getTopLeft(find.text('Download'));
@@ -4706,14 +4719,14 @@ void main() {
           tester.widget<SettingsScreen>(find.byType(SettingsScreen));
       final controller = settings().controller;
 
-      expect(find.text('Network outputs'), findsOneWidget);
+      expect(find.text('VPN and local proxies'), findsOneWidget);
       expect(settings().controller.activeProfile.frontends.tunnel, isTrue);
       expect(settings().controller.activeProfile.frontends.socks5, isTrue);
       expect(settings().controller.activeProfile.frontends.http, isTrue);
       expect(settings().controller.activeProfile.proxy.systemProxy, isFalse);
       expect(settings().controller.activeProfile.autoConnect, isFalse);
 
-      await toggle('VPN (TUN)');
+      await toggle('VPN');
       expect(settings().controller.activeProfile.frontends.tunnel, isFalse);
 
       await toggle('Connect the current account automatically on start');
@@ -4734,7 +4747,12 @@ void main() {
       expect(controller.activeProfile.frontends.http, isFalse);
       expect(controller.activeProfile.proxy.systemProxy, isFalse);
       expect(controller.activeProfile.frontends.any, isFalse);
-      expect(find.text('No network output is enabled.'), findsOneWidget);
+      expect(
+        find.text(
+          'No app traffic will use this connection. Open Proxy and enable VPN, SOCKS5 or HTTP.',
+        ),
+        findsOneWidget,
+      );
     } finally {
       debugDefaultTargetPlatformOverride = null;
     }
@@ -4761,7 +4779,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Network outputs'), findsOneWidget);
+      expect(find.text('VPN and local proxies'), findsOneWidget);
       expect(find.text('VPN'), findsOneWidget);
       expect(find.text('VPN (TUN)'), findsNothing);
       expect(find.text('Configure system proxy'), findsNothing);
@@ -4805,7 +4823,7 @@ void main() {
       findsNothing,
     );
     expect(
-      find.descendant(of: profiles, matching: find.text('Identity ready')),
+      find.descendant(of: profiles, matching: find.text('Account ready')),
       findsNothing,
     );
     expect(
@@ -4822,7 +4840,7 @@ void main() {
     expect(find.text('Rename account'), findsOneWidget);
     expect(find.text('Account name'), findsOneWidget);
     expect(find.widgetWithText(SwitchListTile, 'SOCKS5'), findsNothing);
-    expect(find.widgetWithText(SwitchListTile, 'VPN (TUN)'), findsNothing);
+    expect(find.widgetWithText(SwitchListTile, 'VPN'), findsNothing);
     expect(
       find.widgetWithText(SwitchListTile, 'Connect this Profile automatically'),
       findsNothing,

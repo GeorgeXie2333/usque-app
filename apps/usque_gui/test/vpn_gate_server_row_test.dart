@@ -109,7 +109,7 @@ void main() {
       expect(observations, findsOneWidget);
       expect(find.text('Local time'), findsOneWidget);
       expect(
-        find.text('First seen in source: 2026-09-11 22:22:00'),
+        find.text('First listed by VPN Gate: 2026-09-11 22:22:00'),
         findsOneWidget,
       );
       expect(app.activeProfile.vpnGate.hasSelection, isFalse);
@@ -161,10 +161,10 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.text('Last in source: 22 min ago'), findsOneWidget);
+      expect(find.text('Last listed: 22 min ago'), findsOneWidget);
       now = now.add(const Duration(minutes: 1));
       await tester.pump(const Duration(minutes: 1));
-      expect(find.text('Last in source: 23 min ago'), findsOneWidget);
+      expect(find.text('Last listed: 23 min ago'), findsOneWidget);
       expect(engine.refreshes, 0);
       await tester.pumpWidget(const SizedBox());
     },

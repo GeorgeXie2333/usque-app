@@ -584,4 +584,18 @@ const Map<String, String> kTrCatalog = <String, String>{
   'diag_event_queue_saturated': 'Gönderme kuyruğu kapasitesine ulaştı',
   'diag_event_disconnected': 'Bağlantı kesildi',
   'diag_event_failed': 'Bağlantı başarısız oldu',
+  'operation_failed':
+      'İşlem tamamlanamadı. Yeniden deneyin; sorun sürerse destek için Tanılama bölümünden bir tanılama paketi dışa aktarın.',
+  'operation_timeout':
+      'İşlem zaman aşımına uğradı. Ağınızı kontrol edip yeniden deneyin.',
+  'accounts_reset':
+      'Okunamayan hesap ayarları sıfırlandı. Bu cihazda bir yedek tutuldu. Hesaplar bölümünde hesabı yeniden ayarlayın.',
+  'input_too_long_bytes':
+      'Metin çok uzun. En fazla {count} UTF-8 baytı kullanın; bazı karakterler birden fazla bayt tutar.',
+  'username_colon': 'Kullanıcı adı iki nokta (:) içeremez.',
+  'username_null':
+      'Kullanıcı adında görünmeyen bir karakter var. Silip yeniden yazın.',
+  'dns_duplicate_address': 'Yinelenen IP adreslerini kaldırın.',
+  'dns_address_not_allowed':
+      'Bir adres DNS sunucusuna bağlanmak için kullanılamıyor. DNS sağlayıcınızın verdiği sunucu IP’lerini kullanın.',
 };

@@ -35,7 +35,10 @@ internal class VpnNotificationController(
         )
     }
 
-    fun copyFor(snapshot: ServiceSnapshotState): String = copyFor(snapshot.phase, snapshot.transport)
+    fun copyFor(snapshot: ServiceSnapshotState): String =
+        snapshot.unavailableIpVersion()?.let {
+            AndroidLocaleController.getString(context, R.string.vpn_notif_ip_unavailable, it)
+        } ?: copyFor(snapshot.phase, snapshot.transport)
 
     fun copyFor(
         phase: String,

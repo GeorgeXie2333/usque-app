@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../core/app_strings.dart';
+import '../core/user_facing_errors.dart';
 import '../core/vpn_gate_presentation.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
@@ -391,7 +392,7 @@ class _VpnGateScreenState extends State<VpnGateScreen>
       if (mounted && _nodeOperation == operation) {
         setState(() {
           _saveError = 'gate_prepare_error';
-          _nodeError = error.toString();
+          _nodeError = userFacingError(_controller.strings, error);
         });
       }
       await _cancelNode();
@@ -682,9 +683,6 @@ class _VpnGateScreenState extends State<VpnGateScreen>
                     title: strings.get('gate_directory'),
                     children: [
                       Text(
-                        '${strings.get('gate_received')}: ${_directory.fetchedAt?.toLocal().toString().split('.').first ?? '—'}',
-                      ),
-                      Text(
                         '${strings.get('gate_source_fetched')}: ${_time(_directory.sourceFetchedAt)}',
                       ),
                       if (_directory.sourceFetchedAt != null &&
@@ -702,22 +700,35 @@ class _VpnGateScreenState extends State<VpnGateScreen>
                                 : 'gate_source_old',
                           ),
                         ),
-                      PageStorage(
-                        bucket: _directoryTextStorage,
-                        child: SelectableText(
-                          '${strings.get('gate_source')}: ${_directory.sourceUrl ?? '—'}',
+                      ExpansionTile(
+                        key: const PageStorageKey<String>(
+                          'vpn-gate-source-details',
                         ),
+                        title: Text(strings.get('technical_details')),
+                        expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
+                        childrenPadding: const EdgeInsets.all(12),
+                        children: [
+                          Text(
+                            '${strings.get('gate_received')}: ${_directory.fetchedAt?.toLocal().toString().split('.').first ?? '—'}',
+                          ),
+                          PageStorage(
+                            bucket: _directoryTextStorage,
+                            child: SelectableText(
+                              '${strings.get('gate_source')}: ${_directory.sourceUrl ?? '—'}',
+                            ),
+                          ),
+                          Text(
+                            strings.get(
+                              _directory.fetchedAt == null
+                                  ? 'gate_no_cache'
+                                  : _directory.cached
+                                  ? 'gate_cached'
+                                  : 'gate_verified',
+                            ),
+                          ),
+                          Text(strings.get('gate_freshness')),
+                        ],
                       ),
-                      Text(
-                        strings.get(
-                          _directory.fetchedAt == null
-                              ? 'gate_no_cache'
-                              : _directory.cached
-                              ? 'gate_cached'
-                              : 'gate_verified',
-                        ),
-                      ),
-                      Text(strings.get('gate_freshness')),
                       Align(
                         alignment: AlignmentDirectional.centerStart,
                         child: TextButton(

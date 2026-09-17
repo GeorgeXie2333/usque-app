@@ -32,4 +32,5 @@
     <string name="shortcut_disconnect">Verbreken</string>
     <string name="shortcut_profiles">Accounts</string>
     <string name="shortcut_long_label">%1$s Usque</string>
+    <string name="vpn_notif_ip_unavailable">Verbonden, maar %1$s is niet beschikbaar. Open Usque voor details.</string>
 </resources>

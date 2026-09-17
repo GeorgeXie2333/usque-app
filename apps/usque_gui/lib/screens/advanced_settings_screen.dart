@@ -347,6 +347,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                               decoration: InputDecoration(
                                 labelText: strings.get('sni'),
                                 helperText: strings.get('l4_sni_identity'),
+                                helperMaxLines: 6,
                               ),
                             )
                           else

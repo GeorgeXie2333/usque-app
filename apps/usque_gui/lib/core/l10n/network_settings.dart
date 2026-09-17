@@ -28,7 +28,7 @@ const kNetworkSettingsEn = <String, String>{
   'settings_unknown': 'Result not yet confirmed',
   'settings_saved': 'Saved',
   'settings_unsupported':
-      'Restart or update the Engine to save network settings.',
+      'Fully exit and reopen Usque, then save again. If it still fails, check for updates in Settings.',
   'settings_save_failed':
       'Settings could not be saved. Your edits are retained.',
   'settings_reconnect': 'Reconnect',
@@ -41,7 +41,7 @@ const kNetworkSettingsZh = <String, String>{
   'settings_failed': '已保存，应用失败',
   'settings_unknown': '结果尚未确认',
   'settings_saved': '已保存',
-  'settings_unsupported': '请重启或更新引擎后保存网络设置。',
+  'settings_unsupported': '请彻底退出并重新打开 Usque 后再保存；若仍失败，请在“设置”中检查更新。',
   'settings_save_failed': '设置保存失败，已保留你的修改。',
   'settings_reconnect': '重新连接',
 };

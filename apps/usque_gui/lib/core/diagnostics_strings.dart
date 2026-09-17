@@ -28,15 +28,19 @@ String diagnosticCategoryLabel(
 }
 
 String diagnosticCheckLabel(AppStrings strings, String checkId) {
-  return _catalogOrHumanize(
+  return _catalogOrFallback(
     strings,
     'diag_check_${checkId.replaceAll('.', '_')}',
-    checkId.split('.').last,
+    strings.get('diagnostics'),
   );
 }
 
 String diagnosticFailureTitle(AppStrings strings, String code) {
-  return _catalogOrHumanize(strings, 'diag_fail_$code', code);
+  return _catalogOrFallback(
+    strings,
+    'diag_fail_$code',
+    strings.get('operation_failed'),
+  );
 }
 
 String diagnosticRemediation(AppStrings strings, String key) {
@@ -150,18 +154,10 @@ String connectionEventLabel(
   });
 }
 
-String _catalogOrHumanize(AppStrings strings, String key, String fallback) {
+String _catalogOrFallback(AppStrings strings, String key, String fallback) {
   final value = strings.get(key);
   if (value == key) {
-    return _humanize(fallback);
+    return fallback;
   }
   return value;
-}
-
-String _humanize(String value) {
-  final words = value.replaceAll(RegExp(r'[_\-.]+'), ' ').trim().toLowerCase();
-  if (words.isEmpty) {
-    return value;
-  }
-  return '${words[0].toUpperCase()}${words.substring(1)}';
 }

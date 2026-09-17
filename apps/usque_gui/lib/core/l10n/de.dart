@@ -600,4 +600,18 @@ const Map<String, String> kDeCatalog = <String, String>{
       'Sendewarteschlange hat ihre Kapazität erreicht',
   'diag_event_disconnected': 'Getrennt',
   'diag_event_failed': 'Verbindung fehlgeschlagen',
+  'operation_failed':
+      'Der Vorgang konnte nicht abgeschlossen werden. Versuche es erneut. Exportiere bei anhaltenden Problemen ein Diagnosepaket für den Support.',
+  'operation_timeout':
+      'Zeitüberschreitung. Prüfe dein Netzwerk und versuche es erneut.',
+  'accounts_reset':
+      'Gespeicherte Kontoeinstellungen waren nicht lesbar und wurden zurückgesetzt. Eine Sicherung bleibt auf diesem Gerät. Richte dein Konto unter Konten erneut ein.',
+  'input_too_long_bytes':
+      'Zu lang. Verwende höchstens {count} UTF-8-Bytes; manche Zeichen benötigen mehrere Bytes.',
+  'username_colon': 'Der Benutzername darf keinen Doppelpunkt (:) enthalten.',
+  'username_null':
+      'Der Benutzername enthält ein unsichtbares Zeichen. Lösche ihn und gib ihn erneut ein.',
+  'dns_duplicate_address': 'Entferne doppelte IP-Adressen.',
+  'dns_address_not_allowed':
+      'Eine Adresse eignet sich nicht für eine DNS-Serververbindung. Verwende die Server-IP-Adressen deines DNS-Anbieters.',
 };

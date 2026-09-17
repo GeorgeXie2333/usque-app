@@ -523,7 +523,19 @@ class ServiceSnapshotStateTest {
         assertEquals("Connected via H3", snapshot.notificationText())
 
         snapshot.phase = "degraded"
-        assertEquals("Connected with reduced address-family support", snapshot.notificationText())
+        assertEquals(
+            "Connected, but some Internet access is limited. Open Usque for details.",
+            snapshot.notificationText(),
+        )
+        snapshot.tunnelIpv4Available = true
+        assertEquals("IPv6", snapshot.unavailableIpVersion())
+        assertEquals("Connected, but IPv6 is unavailable. Open Usque for details.", snapshot.notificationText())
+        snapshot.tunnelIpv4Available = false
+        snapshot.tunnelIpv6Available = true
+        assertEquals("IPv4", snapshot.unavailableIpVersion())
+        assertEquals("Connected, but IPv4 is unavailable. Open Usque for details.", snapshot.notificationText())
+        snapshot.tunnelIpv4Available = true
+        assertEquals(null, snapshot.unavailableIpVersion())
 
         snapshot.phase = "reconnecting"
         assertEquals("Reconnecting securely", snapshot.notificationText())

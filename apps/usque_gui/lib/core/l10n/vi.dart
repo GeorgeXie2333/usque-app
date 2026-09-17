@@ -580,4 +580,17 @@ const Map<String, String> kViCatalog = <String, String>{
   'diag_event_queue_saturated': 'Hàng đợi gửi đã đạt giới hạn dung lượng',
   'diag_event_disconnected': 'Đã ngắt kết nối',
   'diag_event_failed': 'Kết nối thất bại',
+  'operation_failed':
+      'Không thể hoàn tất thao tác. Hãy thử lại; nếu vẫn lỗi, hãy xuất gói chẩn đoán để được hỗ trợ.',
+  'operation_timeout':
+      'Thao tác đã hết thời gian chờ. Kiểm tra mạng rồi thử lại.',
+  'accounts_reset':
+      'Cài đặt tài khoản không đọc được đã được đặt lại. Bản sao lưu vẫn ở trên thiết bị này. Hãy thiết lập lại trong Tài khoản.',
+  'input_too_long_bytes':
+      'Nội dung quá dài. Tối đa {count} byte UTF-8; một số ký tự chiếm nhiều byte.',
+  'username_colon': 'Tên người dùng không được chứa dấu hai chấm (:).',
+  'username_null': 'Tên người dùng chứa ký tự vô hình. Hãy xóa và nhập lại.',
+  'dns_duplicate_address': 'Hãy xóa các địa chỉ IP trùng lặp.',
+  'dns_address_not_allowed':
+      'Có địa chỉ không dùng được để kết nối máy chủ DNS. Hãy dùng IP máy chủ do nhà cung cấp DNS cung cấp.',
 };

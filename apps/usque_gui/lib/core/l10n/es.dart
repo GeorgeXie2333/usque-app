@@ -600,4 +600,18 @@ const Map<String, String> kEsCatalog = <String, String>{
   'diag_event_queue_saturated': 'La cola de envío alcanzó su capacidad',
   'diag_event_disconnected': 'Desconectado',
   'diag_event_failed': 'Conexión fallida',
+  'operation_failed':
+      'No se pudo completar la operación. Inténtalo de nuevo; si el problema persiste, exporta un paquete de diagnóstico para solicitar ayuda.',
+  'operation_timeout':
+      'La operación agotó el tiempo de espera. Revisa la red e inténtalo de nuevo.',
+  'accounts_reset':
+      'Se restablecieron los ajustes de cuenta que no se podían leer. Se guardó una copia en este dispositivo. Configura de nuevo la cuenta en Cuentas.',
+  'input_too_long_bytes':
+      'El texto es demasiado largo. Usa como máximo {count} bytes UTF-8; algunos caracteres ocupan varios bytes.',
+  'username_colon': 'El nombre de usuario no puede contener dos puntos (:).',
+  'username_null':
+      'El nombre de usuario contiene un carácter invisible. Bórralo y vuelve a escribirlo.',
+  'dns_duplicate_address': 'Elimina las direcciones IP duplicadas.',
+  'dns_address_not_allowed':
+      'Una dirección no sirve para conectar con un servidor DNS. Usa las IP del servidor facilitadas por tu proveedor DNS.',
 };

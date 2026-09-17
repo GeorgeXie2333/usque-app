@@ -540,4 +540,15 @@ const Map<String, String> kJaCatalog = <String, String>{
   'diag_event_queue_saturated': '送信キューが容量に達しました',
   'diag_event_disconnected': '切断しました',
   'diag_event_failed': '接続に失敗しました',
+  'operation_failed': '操作を完了できませんでした。再試行し、解決しない場合は診断を開いて診断パッケージを出力してください。',
+  'operation_timeout': '操作がタイムアウトしました。ネットワークを確認して再試行してください。',
+  'accounts_reset':
+      '保存済みのアカウント設定を読み込めず、リセットしました。端末内にバックアップを保存しています。アカウント画面で設定し直してください。',
+  'input_too_long_bytes':
+      '長すぎます。UTF-8 で {count} バイト以内にしてください。日本語などは1文字で複数バイトになります。',
+  'username_colon': 'ユーザー名にコロン (:) は使えません。',
+  'username_null': 'ユーザー名に見えない文字が含まれています。削除して入力し直してください。',
+  'dns_duplicate_address': '重複する IP アドレスを削除してください。',
+  'dns_address_not_allowed':
+      'DNS サーバーに接続できない種類のアドレスが含まれています。DNS 提供元のサーバー IP を入力してください。',
 };

@@ -57,7 +57,7 @@ Usque 为独立项目，与 Cloudflare 无隶属、赞助或背书关系。Cloud
 
 1. 按[安装指南](docs/INSTALLATION.md#verify-before-installing)核验正式安装包，安装后打开 Usque。
 2. 完成首次启动的权限与条款步骤，注册个人版 WARP 账号；也可以填写 WARP License Key。目前不支持导入新的 WARP Secret。
-3. 在“网络输出”中选择要启用的联网方式，然后在主页连接。Android 首次启用 VPN 时会请求授权；仅使用 SOCKS5 或 HTTP 代理时无需此授权。
+3. 在“VPN 与本地代理”中选择要启用的联网方式，然后在主页连接。Android 首次启用 VPN 时会请求授权；仅使用 SOCKS5 或 HTTP 代理时无需此授权。
 
 | 联网方式 | 用途 |
 | --- | --- |

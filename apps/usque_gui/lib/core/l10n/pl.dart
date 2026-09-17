@@ -594,4 +594,17 @@ const Map<String, String> kPlCatalog = <String, String>{
   'diag_event_queue_saturated': 'Kolejka wysyłania osiągnęła limit pojemności',
   'diag_event_disconnected': 'Rozłączono',
   'diag_event_failed': 'Połączenie nie powiodło się',
+  'operation_failed':
+      'Nie udało się ukończyć operacji. Spróbuj ponownie; jeśli problem nadal występuje, wyeksportuj pakiet diagnostyczny dla pomocy technicznej.',
+  'operation_timeout': 'Upłynął limit czasu. Sprawdź sieć i spróbuj ponownie.',
+  'accounts_reset':
+      'Nieczytelne ustawienia kont zostały zresetowane. Kopia zapasowa pozostała na urządzeniu. Skonfiguruj konto ponownie w sekcji kont.',
+  'input_too_long_bytes':
+      'Tekst jest za długi. Użyj najwyżej {count} bajtów UTF-8; niektóre znaki zajmują kilka bajtów.',
+  'username_colon': 'Nazwa użytkownika nie może zawierać dwukropka (:).',
+  'username_null':
+      'Nazwa użytkownika zawiera niewidoczny znak. Usuń ją i wpisz ponownie.',
+  'dns_duplicate_address': 'Usuń powtarzające się adresy IP.',
+  'dns_address_not_allowed':
+      'Jednego z adresów nie można użyć do połączenia z serwerem DNS. Użyj adresów IP podanych przez dostawcę DNS.',
 };

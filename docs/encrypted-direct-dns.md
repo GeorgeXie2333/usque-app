@@ -8,7 +8,7 @@ intercept an application's own encrypted DNS, or decrypt unrelated traffic.
 
 | Mode in the app | Where matching queries go | What you need to configure |
 | --- | --- | --- |
-| Physical system DNS (System, the default) | The DNS servers on your current network, outside the VPN. Those servers can see the queried names. | No custom resolver fields. |
+| Current network DNS (System, the default) | The DNS servers on your current network, outside the VPN. Those servers can see the queried names. | No custom resolver fields. |
 | DNS over HTTPS (DoH) | The encrypted resolver you choose, over HTTPS. | TLS server name, HTTPS path, port and bootstrap IP addresses. |
 | DNS over TLS (DoT) | The encrypted resolver you choose, over TLS. | TLS server name, port and bootstrap IP addresses. |
 
@@ -18,7 +18,7 @@ Usque has no provider presets or embedded resolver addresses.
 
 ## Configure direct DNS
 
-1. In **Settings → Countries routed directly**, select the countries and download
+1. In **Settings → Direct countries / regions**, select the countries and download
    their GeoIP rules and the global GeoSite catalog, then save the selection.
    If no direct-country rule matches, these DNS settings are not used.
 2. Open **Settings → Advanced network settings → Direct DNS**.
@@ -30,18 +30,18 @@ Usque has no provider presets or embedded resolver addresses.
 5. Check **Network quality → Direct DNS** while connected. To test reachability,
    run a confirmed [Deep diagnostic](network-doctor.md).
 
-In Simplified Chinese, the relevant pages are **设置 → 直接路由的国家** and
+In Simplified Chinese, the relevant pages are **设置 → 直连国家／地区** and
 **设置 → 高级网络设置 → 直连 DNS**. The System option is currently labelled
-**物理网络系统 DNS**.
+**当前网络的 DNS**.
 
 ### Field guide
 
 | Field | What to enter | Format example |
 | --- | --- | --- |
-| TLS server name | The provider's certificate name, without `https://`, a port or a path. Do not enter an IP here. | `resolver.example` |
+| DNS server name | The provider's certificate name, without `https://`, a port or a path. Do not enter an IP here. | `resolver.example` |
 | HTTPS path (DoH only) | The provider's path beginning with one slash, without a query string or fragment. | `/dns-query` |
 | Port (0 uses the default) | `443` for default DoH or `853` for default DoT. Use a different port only when specified by the provider. | `443` |
-| Bootstrap IP addresses | One to eight distinct IP addresses for that resolver, preferably one per line. Usque connects to these addresses without first using system DNS to find the server. | `192.0.2.53` and `2001:db8::53` |
+| DNS server IP addresses | One to eight distinct IP addresses for that resolver, preferably one per line. Usque connects to these addresses without first using system DNS to find the server. | `192.0.2.53` and `2001:db8::53` |
 
 These are documentation-only examples, not a working resolver. Replace the
 example name and IPs with your provider's real values. DoT has no HTTPS path.

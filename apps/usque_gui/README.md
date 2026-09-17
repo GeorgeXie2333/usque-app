@@ -11,7 +11,7 @@ Build and test commands are in [CONTRIBUTING.md](../../CONTRIBUTING.md). Feature
 ## Editing and navigation
 
 - Accounts select WARP identities; network settings are shared across accounts.
-- Proxy addresses, ports, and DNS are drafts until **Apply changes** succeeds. Credentials use their separate **Save credentials** action and never enter the network draft.
+- Proxy addresses, ports, and DNS are drafts until **Apply changes** succeeds. Credentials use their separate **Save username and password** action and never enter the network draft.
 - Advanced settings have a persistent apply bar and a back-navigation guard for unapplied edits. Reset loads defaults into the draft; it does not apply them immediately.
 - **Disable QUIC** under Advanced network settings → Routing & protection blocks application UDP/443 only on proxy/tunnel paths, with GEO direct traffic exempt. It defaults off and applies without reconnecting an established session. **禁用 QUIC** 默认关闭，应用后无需重连，所有 GEO 直连连接保持可用。 See [network settings](../../docs/NETWORK_SETTINGS.md#disable-application-quic--禁用应用-quic) for scope and deferred application.
 - Inline output statuses distinguish enabled configuration from observed runtime state, including unavailable, limited, and failed states. Labels and icons carry the meaning without decorative badge surfaces.

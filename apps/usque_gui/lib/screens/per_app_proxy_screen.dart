@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../core/user_facing_errors.dart';
 import '../core/usque_theme.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
@@ -58,7 +59,7 @@ class _PerAppProxyScreenState extends State<PerAppProxyScreen> {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _loadError = error.toString();
+        _loadError = userFacingError(widget.controller.strings, error);
       });
     }
   }

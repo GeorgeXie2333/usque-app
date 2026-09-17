@@ -17,6 +17,26 @@ import '../widgets/save_changes_bar.dart';
 import '../widgets/vpn_gate_entry.dart';
 import 'vpn_gate_screen.dart';
 
+({String key, bool username})? proxyAuthError(
+  String username,
+  String password,
+) {
+  if (username.isEmpty && password.isEmpty) return null;
+  if (username.isEmpty) return (key: 'required', username: true);
+  if (utf8.encode(username).length > 255) {
+    return (key: 'input_too_long_bytes', username: true);
+  }
+  if (username.contains(':')) return (key: 'username_colon', username: true);
+  if (username.contains('\u0000')) {
+    return (key: 'username_null', username: true);
+  }
+  if (password.isEmpty) return (key: 'required', username: false);
+  if (utf8.encode(password).length > 255) {
+    return (key: 'input_too_long_bytes', username: false);
+  }
+  return null;
+}
+
 class ProxyScreen extends StatefulWidget {
   const ProxyScreen({required this.controller, this.onOpenVpnGate, super.key});
   final AppController controller;
@@ -506,6 +526,7 @@ class _AuthPanel extends StatefulWidget {
 
 class _AuthPanelState extends State<_AuthPanel> {
   final _usernameFocus = FocusNode();
+  final _passwordFocus = FocusNode();
   late final TextEditingController _username;
   late final TextEditingController _password;
   String? _authError;
@@ -545,6 +566,7 @@ class _AuthPanelState extends State<_AuthPanel> {
       ..clear()
       ..dispose();
     _usernameFocus.dispose();
+    _passwordFocus.dispose();
     super.dispose();
   }
 
@@ -577,6 +599,7 @@ class _AuthPanelState extends State<_AuthPanel> {
             final password = TextField(
               key: const ValueKey<String>('proxy-auth-password'),
               controller: _password,
+              focusNode: _passwordFocus,
               onChanged: (_) => _edited(),
               enabled: widget.enabled && !_saving,
               obscureText: true,
@@ -642,11 +665,15 @@ class _AuthPanelState extends State<_AuthPanel> {
     final profileId = widget.controller.activeProfileId;
     final username = _username.text;
     final password = _password.text;
-    if (!_validAuth(username, password)) {
-      setState(
-        () => _authError = widget.controller.strings.get('proxy_auth_invalid'),
+    final issue = proxyAuthError(username, password);
+    if (issue != null) {
+      final strings = widget.controller.strings;
+      final field = strings.get(
+        issue.username ? 'proxy_username' : 'proxy_password',
       );
-      _usernameFocus.requestFocus();
+      final reason = strings.get(issue.key).replaceAll('{count}', '255');
+      setState(() => _authError = '$field: $reason');
+      (issue.username ? _usernameFocus : _passwordFocus).requestFocus();
       return;
     }
     if (_authError != null) {
@@ -681,22 +708,4 @@ class _AuthPanelState extends State<_AuthPanel> {
     _authError = null;
     _resultMessage = null;
   });
-
-  bool _validAuth(String username, String password) {
-    if (username.isEmpty && password.isEmpty) {
-      return true;
-    }
-    final usernameBytes = utf8.encode(username);
-    final passwordBytes = utf8.encode(password);
-    if (username.isEmpty ||
-        usernameBytes.length > 255 ||
-        username.contains(':') ||
-        username.contains('\u0000')) {
-      return false;
-    }
-    if (password.isEmpty || passwordBytes.length > 255) {
-      return false;
-    }
-    return true;
-  }
 }

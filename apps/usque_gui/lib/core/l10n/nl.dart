@@ -590,4 +590,18 @@ const Map<String, String> kNlCatalog = <String, String>{
       'De verzendwachtrij heeft de capaciteit bereikt',
   'diag_event_disconnected': 'Verbinding verbroken',
   'diag_event_failed': 'Verbinding mislukt',
+  'operation_failed':
+      'De bewerking kon niet worden voltooid. Probeer opnieuw; exporteer bij aanhoudende problemen een diagnosepakket voor ondersteuning.',
+  'operation_timeout':
+      'De bewerking duurde te lang. Controleer je netwerk en probeer opnieuw.',
+  'accounts_reset':
+      'Onleesbare accountinstellingen zijn teruggezet. Er staat een reservekopie op dit apparaat. Stel je account opnieuw in bij Accounts.',
+  'input_too_long_bytes':
+      'Te lang. Gebruik maximaal {count} UTF-8-bytes; sommige tekens gebruiken meerdere bytes.',
+  'username_colon': 'De gebruikersnaam mag geen dubbele punt (:) bevatten.',
+  'username_null':
+      'De gebruikersnaam bevat een onzichtbaar teken. Wis de naam en typ deze opnieuw.',
+  'dns_duplicate_address': 'Verwijder dubbele IP-adressen.',
+  'dns_address_not_allowed':
+      'Een adres kan niet worden gebruikt voor een DNS-serververbinding. Gebruik de server-IP’s van je DNS-provider.',
 };

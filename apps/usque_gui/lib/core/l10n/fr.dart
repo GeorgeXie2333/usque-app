@@ -600,4 +600,18 @@ const Map<String, String> kFrCatalog = <String, String>{
   'diag_event_queue_saturated': 'La file d’envoi a atteint sa capacité',
   'diag_event_disconnected': 'Déconnecté',
   'diag_event_failed': 'Échec de connexion',
+  'operation_failed':
+      'Impossible de terminer l’opération. Réessayez. Si le problème persiste, exportez un paquet de diagnostic pour obtenir de l’aide.',
+  'operation_timeout': 'L’opération a expiré. Vérifiez le réseau et réessayez.',
+  'accounts_reset':
+      'Les paramètres de compte illisibles ont été réinitialisés. Une sauvegarde reste sur cet appareil. Reconfigurez votre compte dans Comptes.',
+  'input_too_long_bytes':
+      'Texte trop long. Limitez-vous à {count} octets UTF-8 ; certains caractères occupent plusieurs octets.',
+  'username_colon':
+      'Le nom d’utilisateur ne peut pas contenir de deux-points (:).',
+  'username_null':
+      'Le nom d’utilisateur contient un caractère invisible. Effacez-le et saisissez-le à nouveau.',
+  'dns_duplicate_address': 'Supprimez les adresses IP en double.',
+  'dns_address_not_allowed':
+      'Une adresse ne permet pas de joindre un serveur DNS. Utilisez les IP de serveur fournies par votre fournisseur DNS.',
 };

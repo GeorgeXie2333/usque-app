@@ -48,28 +48,33 @@ List<String> directDnsBootstrapValues(String value) => value
     .where((value) => value.isNotEmpty)
     .toList(growable: false);
 
-bool validDirectDnsBootstrap(String value) {
+bool validDirectDnsBootstrap(String value) =>
+    directDnsBootstrapError(value) == null;
+
+String? directDnsBootstrapError(String value) {
   final values = directDnsBootstrapValues(value);
-  if (values.isEmpty || values.length > 8) return false;
+  if (values.isEmpty) return 'required';
+  if (values.length > 8) return 'nq_dns_invalid_bootstrap';
   final unique = <String>{};
   for (final value in values) {
     final address = InternetAddress.tryParse(value);
-    if (address == null || value.contains('%')) return false;
+    if (address == null || value.contains('%')) return 'invalid_address';
     final raw = address.rawAddress;
-    if (raw.every((byte) => byte == 0) || !unique.add(raw.join('.'))) {
-      return false;
+    if (!unique.add(raw.join('.'))) return 'dns_duplicate_address';
+    if (raw.every((byte) => byte == 0)) {
+      return 'dns_address_not_allowed';
     }
     if (address.type == InternetAddressType.IPv4 &&
         ((raw[0] >= 224 && raw[0] <= 239) ||
             raw.every((byte) => byte == 255))) {
-      return false;
+      return 'dns_address_not_allowed';
     }
     if (address.type == InternetAddressType.IPv6 &&
         (raw[0] == 255 || raw[0] == 254 && raw[1] & 192 == 128)) {
-      return false;
+      return 'dns_address_not_allowed';
     }
   }
-  return true;
+  return null;
 }
 
 class DirectDnsEditor extends StatefulWidget {
@@ -242,7 +247,11 @@ class DirectDnsEditorState extends State<DirectDnsEditor> {
             autocorrect: false,
             enableSuggestions: false,
             maxLength: 253,
-            decoration: InputDecoration(labelText: s.get('nq_dns_server')),
+            decoration: InputDecoration(
+              labelText: s.get('nq_dns_server'),
+              hintText: 'dns.example.com',
+              errorMaxLines: 6,
+            ),
             onChanged: _emit,
             validator: (value) => !editable || validDirectDnsName(value ?? '')
                 ? null
@@ -258,7 +267,11 @@ class DirectDnsEditorState extends State<DirectDnsEditor> {
               autocorrect: false,
               enableSuggestions: false,
               maxLength: 256,
-              decoration: InputDecoration(labelText: s.get('nq_dns_path')),
+              decoration: InputDecoration(
+                labelText: s.get('nq_dns_path'),
+                hintText: '/dns-query',
+                errorMaxLines: 6,
+              ),
               onChanged: _emit,
               validator: (value) => !editable || validDirectDnsPath(value ?? '')
                   ? null
@@ -299,12 +312,14 @@ class DirectDnsEditorState extends State<DirectDnsEditor> {
               labelText: s.get('nq_dns_bootstrap'),
               helperText: s.get('nq_dns_bootstrap_help'),
               helperMaxLines: 6,
+              errorMaxLines: 6,
             ),
             onChanged: _emit,
-            validator: (value) =>
-                !editable || validDirectDnsBootstrap(value ?? '')
-                ? null
-                : s.get('nq_dns_invalid_bootstrap'),
+            validator: (value) {
+              if (!editable) return null;
+              final issue = directDnsBootstrapError(value ?? '');
+              return issue == null ? null : s.get(issue);
+            },
           ),
         ],
       ],

@@ -22,43 +22,43 @@ import 'features_zh_tw.dart';
 // back to English. Companion locale maps live in features_*.dart.
 
 const String kWindowsAdapterCleanupEn =
-    'The previous Wintun adapter could not be removed or its removal could not be verified. No new VPN connection has started.';
+    'The virtual network adapter from the previous connection could not be removed, or its removal could not be confirmed. No new VPN connection has started.';
 const String kWindowsAdapterCleanupZhCn =
-    '未能移除旧的 Wintun 适配器，或无法确认已移除。尚未建立新的 VPN 连接。';
+    '上次连接创建的虚拟网卡未能移除，或无法确认已移除。尚未建立新的 VPN 连接。';
 
 const Map<String, String> kWindowsRecoveryEn = <String, String>{
   'WINDOWS_DEVICE_REUSE_UNSUPPORTED':
-      'The application and Windows Agent must be updated together to reuse the TUN device. No new VPN connection was started.',
+      'Your Usque components need to be updated together. Open Settings and check for updates. No new VPN connection was started.',
   'WINDOWS_DEVICE_RECOVERY_REQUIRED':
-      'The previous TUN device still needs recovery. Fully exit Usque, then reopen it and retry, or inspect local diagnostics.',
+      'The previous VPN connection has not finished cleaning up. Fully exit and reopen Usque, then retry. If it still fails, open Diagnostics.',
   'WINDOWS_RECOVERY_FAILED':
       'The previous VPN network state could not be fully restored. No new VPN connection was started. Retry the connection or inspect local diagnostics.',
   'WINDOWS_RECOVERY_EXHAUSTED':
       'Windows could not restore the previous VPN network state after three automatic attempts. Retry when ready, or inspect local diagnostics.',
   'WINDOWS_RECOVERY_BLOCKED':
-      'Automatic repair stopped because the previous Windows network state could not be verified safely. Restart the Agent or update Usque, then inspect local diagnostics.',
+      'Usque stopped automatic repair because it could not confirm the previous VPN settings were safe to restore. Open Settings and check for updates, then open Diagnostics and export a diagnostic package if the problem persists.',
   'WINDOWS_RECOVERY_TIMEOUT':
       'Windows network recovery is taking longer than expected. No new VPN connection was started. Wait for recovery to finish before retrying.',
   'WINDOWS_RECOVERY_CONFLICT':
       'The network state changed or is still in use by another session. Automatic recovery was stopped to protect the active connection.',
   'WINDOWS_RECOVERY_UNSUPPORTED':
-      'This Windows Agent does not support safe automatic recovery. Update the application and Agent together, then retry.',
+      'This installation cannot automatically restore the previous VPN settings. Open Settings and update Usque before retrying.',
 };
 
 const Map<String, String> kWindowsRecoveryZhCn = <String, String>{
   'WINDOWS_DEVICE_REUSE_UNSUPPORTED':
-      '当前 Windows Agent 不支持复用 TUN 设备。请同时更新应用和 Agent，尚未建立新的 VPN 连接。',
+      'Usque 的连接组件需要一并更新。请打开“设置”检查更新。尚未建立新的 VPN 连接。',
   'WINDOWS_DEVICE_RECOVERY_REQUIRED':
-      '旧的 TUN 设备仍需恢复。请彻底退出 Usque 后重新打开并重试，或查看本地诊断。',
+      '上次 VPN 连接尚未清理完成。请彻底退出并重新打开 Usque 后重试；若仍失败，请打开“诊断”。',
   'WINDOWS_RECOVERY_FAILED': '未能完整恢复上次 VPN 的网络状态，尚未建立新 VPN 连接。请重试连接，或查看本地诊断。',
   'WINDOWS_RECOVERY_EXHAUSTED':
       'Windows 在三次自动尝试后仍未能恢复上次 VPN 网络状态。请稍后重试，或查看本地诊断。',
   'WINDOWS_RECOVERY_BLOCKED':
-      '由于无法安全验证上次 Windows 网络状态，自动修复已停止。请重启 Agent 或更新 Usque，然后查看本地诊断。',
+      'Usque 无法确认是否能安全恢复上次 VPN 的设置，已停止自动修复。请打开“设置”检查更新；若问题持续，请打开“诊断”并导出诊断包。',
   'WINDOWS_RECOVERY_TIMEOUT': 'Windows 网络状态恢复耗时较长，尚未建立新 VPN 连接。请等待恢复完成后再重试。',
   'WINDOWS_RECOVERY_CONFLICT': '网络状态已变化，或仍被其他会话使用。为保护现有连接，已停止自动恢复。',
   'WINDOWS_RECOVERY_UNSUPPORTED':
-      '当前 Windows Agent 不支持安全的自动恢复。请同时更新应用和 Agent 后重试。',
+      '当前安装的 Usque 无法自动恢复上次 VPN 的设置。请打开“设置”更新 Usque 后重试。',
 };
 
 const Map<String, Map<String, String>> kWindowsRecoveryCatalogs =

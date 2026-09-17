@@ -2,11 +2,17 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../core/app_strings.dart';
+import '../core/user_facing_errors.dart';
+import '../models/app_models.dart';
 import '../models/diagnostics_models.dart';
 import '../services/engine_client.dart';
 
 class DiagnosticsController extends ChangeNotifier {
   DiagnosticsController(this._engine);
+
+  AppStrings Function() resolveStrings = () =>
+      AppStrings(LocalePreference.system);
 
   static const Duration _activeRefreshInterval = Duration(milliseconds: 750);
 
@@ -63,7 +69,7 @@ class DiagnosticsController extends ChangeNotifier {
       await loadTimeline(silent: true);
     } on EngineException catch (error) {
       if (!silent && !_disposed) {
-        lastError = '${error.code}: ${error.message}';
+        lastError = userFacingError(resolveStrings(), error);
         state = DiagnosticsControllerState.failed;
         notifyListeners();
       }
@@ -107,7 +113,7 @@ class DiagnosticsController extends ChangeNotifier {
         return;
       }
       _requestedMode = null;
-      lastError = '${error.code}: ${error.message}';
+      lastError = userFacingError(resolveStrings(), error);
       state = DiagnosticsControllerState.failed;
       notifyListeners();
     } finally {
@@ -149,7 +155,7 @@ class DiagnosticsController extends ChangeNotifier {
       if (_disposed || generation != _operationGeneration) {
         return;
       }
-      lastError = '${error.code}: ${error.message}';
+      lastError = userFacingError(resolveStrings(), error);
       state = DiagnosticsControllerState.failed;
       _startActiveRefresh();
       notifyListeners();
@@ -201,7 +207,7 @@ class DiagnosticsController extends ChangeNotifier {
       }
     } on EngineException catch (error) {
       if (!silent && !_disposed) {
-        lastError = '${error.code}: ${error.message}';
+        lastError = userFacingError(resolveStrings(), error);
       }
     } finally {
       if (!_disposed) {
@@ -228,7 +234,7 @@ class DiagnosticsController extends ChangeNotifier {
       return destination;
     } on EngineException catch (error) {
       if (!_disposed) {
-        lastError = '${error.code}: ${error.message}';
+        lastError = userFacingError(resolveStrings(), error);
       }
       return null;
     } finally {

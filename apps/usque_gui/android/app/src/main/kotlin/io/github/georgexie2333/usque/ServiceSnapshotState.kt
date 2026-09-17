@@ -236,6 +236,14 @@ internal class ServiceSnapshotState {
             else -> "notApplicable"
         }
 
+    fun unavailableIpVersion(): String? =
+        when {
+            phase != "degraded" -> null
+            tunnelIpv4Available && !tunnelIpv6Available -> "IPv6"
+            tunnelIpv6Available && !tunnelIpv4Available -> "IPv4"
+            else -> null
+        }
+
     fun notificationText(): String =
         when (phase) {
             "preparing" -> {
@@ -255,7 +263,8 @@ internal class ServiceSnapshotState {
             }
 
             "degraded" -> {
-                "Connected with reduced address-family support"
+                unavailableIpVersion()?.let { "Connected, but $it is unavailable. Open Usque for details." }
+                    ?: "Connected, but some Internet access is limited. Open Usque for details."
             }
 
             "reconnecting" -> {

@@ -32,4 +32,5 @@
     <string name="shortcut_disconnect">قطع اتصال</string>
     <string name="shortcut_profiles">حساب‌ها</string>
     <string name="shortcut_long_label">%1$s Usque</string>
+    <string name="vpn_notif_ip_unavailable">متصل است، اما %1$s در دسترس نیست. برای جزئیات Usque را باز کنید.</string>
 </resources>

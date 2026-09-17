@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/app_strings.dart';
+import '../core/user_facing_errors.dart';
 import '../models/app_models.dart';
 import '../services/engine_client.dart';
 import '../services/update_downloader.dart';
@@ -23,6 +24,7 @@ class AppController extends ChangeNotifier {
        diagnostics = DiagnosticsController(engine),
        quality = qualityController ?? NetworkQualityController(engine),
        networkSettings = NetworkSettingsController(engine) {
+    diagnostics.resolveStrings = () => strings;
     networkSettings.addListener(_acceptNetworkSettings);
   }
 
@@ -157,13 +159,13 @@ class AppController extends ChangeNotifier {
   set snapshot(EngineSnapshot value) {
     _snapshotRevision++;
     _snapshot = value;
-    if (value.phase == ConnectionPhase.error) {
-      lastError =
-          strings.windowsRecoveryError(
-            value.errorCode,
-            details: value.warning,
-          ) ??
-          lastError;
+    if (value.phase == ConnectionPhase.error &&
+        (value.errorCode != null || value.warning?.isNotEmpty == true)) {
+      lastError = userFacingFailure(
+        strings,
+        code: value.errorCode,
+        details: value.warning,
+      );
     }
     quality.updateConnection(value);
   }
@@ -391,8 +393,7 @@ class AppController extends ChangeNotifier {
       } on Object {
         await preferences.setString(_corruptProfilesBackupKey, raw);
         await preferences.remove(_profilesKey);
-        lastError =
-            'Saved profiles were invalid and have been reset. A local backup was retained.';
+        lastError = strings.get('accounts_reset');
       }
     }
 
@@ -410,7 +411,7 @@ class AppController extends ChangeNotifier {
       _captureSharedNetwork();
       await preferences?.remove(_profilesKey);
     } on EngineException catch (error) {
-      lastError ??= error.message;
+      lastError ??= userFacingError(strings, error);
     }
   }
 
@@ -570,7 +571,7 @@ class AppController extends ChangeNotifier {
       _notifyListeners();
     } on EngineException catch (error) {
       if (!silent && !_disposed && revision == _snapshotRevision) {
-        lastError = error.message;
+        lastError = userFacingError(strings, error);
         _notifyListeners();
       }
     }
@@ -767,9 +768,7 @@ class AppController extends ChangeNotifier {
     } on Object catch (error) {
       await _updateDownloader.discard(path);
       if (!_disposed && generation == _updateOperationGeneration) {
-        updateError = error is EngineException
-            ? error.message
-            : error.toString();
+        updateError = userFacingError(strings, error);
         updatePhase = UpdateOperationPhase.failed;
         _notifyListeners();
       }
@@ -837,7 +836,7 @@ class AppController extends ChangeNotifier {
     updatePhase = updateResult?.available == true
         ? UpdateOperationPhase.available
         : UpdateOperationPhase.idle;
-    updateError = message;
+    updateError = strings.get('operation_failed');
     _notifyListeners();
   }
 
@@ -846,7 +845,7 @@ class AppController extends ChangeNotifier {
       geoRules = await _engine.listGeoRules();
       _notifyListeners();
     } on EngineException catch (error) {
-      lastError = error.message;
+      lastError = userFacingError(strings, error);
       _notifyListeners();
     }
   }
@@ -894,28 +893,17 @@ class AppController extends ChangeNotifier {
         .length;
     final failures = results
         .where((result) => result.status == GeoRulesUpdateStatus.failed)
-        .map((result) {
-          final scope = result.artifactScope == 'global'
-              ? 'global'
-              : result.countryCode;
-          final artifact = result.artifactKind.isEmpty
-              ? scope
-              : '$scope ${result.artifactKind}';
-          return result.reason.isEmpty
-              ? artifact
-              : '$artifact: ${result.reason}';
-        })
-        .join('; ');
+        .length;
     if (updated > 0 || current > 0) {
       lastNotice = strings
           .get('geo_update_complete')
           .replaceAll('{updated}', '$updated')
           .replaceAll('{current}', '$current');
     }
-    if (failures.isNotEmpty) {
+    if (failures > 0) {
       lastError = strings
           .get('geo_update_failed')
-          .replaceAll('{current}', failures);
+          .replaceAll('{current}', '$failures');
     }
   }
 
@@ -940,9 +928,7 @@ class AppController extends ChangeNotifier {
       try {
         await _updateDownloader.discard(downloadedUpdatePath);
       } on Object catch (error) {
-        cleanupWarning = error is EngineException
-            ? error.message
-            : error.toString();
+        cleanupWarning = userFacingError(strings, error);
       }
       updateResult = null;
       updatePhase = UpdateOperationPhase.idle;
@@ -1052,10 +1038,7 @@ class AppController extends ChangeNotifier {
       if (connectionIntent != null && connectionIntent != _connectionIntent) {
         return false;
       }
-      lastError = error is EngineException
-          ? strings.windowsRecoveryError(error.code, details: error.message) ??
-                error.message
-          : error.toString();
+      final message = userFacingError(strings, error);
       if (affectsConnection && snapshot.phase != ConnectionPhase.disconnected) {
         snapshot = EngineSnapshot(
           phase: ConnectionPhase.error,
@@ -1063,11 +1046,14 @@ class AppController extends ChangeNotifier {
           dataPlane: snapshot.dataPlane,
           l4: snapshot.l4,
           vpnGate: snapshot.vpnGate,
-          warning: lastError,
+          warning: message,
           errorCode: error is EngineException ? error.code : null,
           errorRetryable: error is EngineException ? error.retryable : null,
         );
       }
+      // Preserve exception-specific context after the snapshot setter maps its
+      // structured code, including timeouts and localized adapter cleanup.
+      lastError = message;
       return false;
     } finally {
       _activeOperations -= 1;
@@ -1115,7 +1101,7 @@ class AppController extends ChangeNotifier {
       }
     } on Object catch (error) {
       perAppProxy = previous;
-      lastError = error is EngineException ? error.message : error.toString();
+      lastError = userFacingError(strings, error);
     }
     _notifyListeners();
   }
@@ -1134,7 +1120,7 @@ class AppController extends ChangeNotifier {
       await _engine.setStartOnBoot(value);
     } on Object catch (error) {
       startOnBoot = previous;
-      lastError = error is EngineException ? error.message : error.toString();
+      lastError = userFacingError(strings, error);
       _notifyListeners();
     }
   }
@@ -1147,7 +1133,7 @@ class AppController extends ChangeNotifier {
       await _engine.setCloseToTray(value);
     } on Object catch (error) {
       closeToTray = previous;
-      lastError = error is EngineException ? error.message : error.toString();
+      lastError = userFacingError(strings, error);
       _notifyListeners();
     }
   }
@@ -1271,7 +1257,7 @@ class AppController extends ChangeNotifier {
     try {
       await _engine.cancelZeroTrustLogin();
     } on Object catch (error) {
-      lastError = error is EngineException ? error.message : error.toString();
+      lastError = userFacingError(strings, error);
       _notifyListeners();
     }
   }
@@ -1361,7 +1347,7 @@ class AppController extends ChangeNotifier {
           await mutation();
           succeeded = true;
         } on Object catch (error) {
-          lastError = 'Profile changes could not be saved: $error';
+          lastError = userFacingError(strings, error);
           try {
             final catalog = await _engine.importLegacyProfiles(
               const <UsqueProfile>[],
@@ -1491,11 +1477,11 @@ class AppController extends ChangeNotifier {
     final nextError =
         next.phase == ConnectionPhase.error &&
             (next.warning?.trim().isNotEmpty ?? false)
-        ? strings.windowsRecoveryError(next.errorCode, details: next.warning) ??
-              <String?>[
-                next.errorCode?.trim(),
-                next.warning?.trim(),
-              ].whereType<String>().where((part) => part.isNotEmpty).join(': ')
+        ? userFacingFailure(
+            strings,
+            code: next.errorCode,
+            details: next.warning,
+          )
         : null;
     final errorChanged = nextError != null && nextError != lastError;
     // Presentation equality intentionally ignores quality timestamps. The

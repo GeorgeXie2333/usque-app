@@ -32,4 +32,5 @@
     <string name="shortcut_disconnect">Ngắt kết nối</string>
     <string name="shortcut_profiles">Tài khoản</string>
     <string name="shortcut_long_label">%1$s Usque</string>
+    <string name="vpn_notif_ip_unavailable">Đã kết nối nhưng %1$s không khả dụng. Mở Usque để xem chi tiết.</string>
 </resources>

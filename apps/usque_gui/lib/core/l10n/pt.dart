@@ -590,4 +590,18 @@ const Map<String, String> kPtCatalog = <String, String>{
   'diag_event_queue_saturated': 'A fila de envio atingiu a capacidade',
   'diag_event_disconnected': 'Desconectado',
   'diag_event_failed': 'Falha na conexão',
+  'operation_failed':
+      'Não foi possível concluir a operação. Tente novamente; se o problema persistir, exporte um pacote de diagnóstico para obter ajuda.',
+  'operation_timeout':
+      'A operação demorou demais. Verifique a rede e tente novamente.',
+  'accounts_reset':
+      'As configurações de conta ilegíveis foram redefinidas. Uma cópia foi mantida neste dispositivo. Configure a conta novamente em Contas.',
+  'input_too_long_bytes':
+      'O texto é muito longo. Use no máximo {count} bytes UTF-8; alguns caracteres usam vários bytes.',
+  'username_colon': 'O nome de usuário não pode conter dois-pontos (:).',
+  'username_null':
+      'O nome de usuário contém um caractere invisível. Apague e digite novamente.',
+  'dns_duplicate_address': 'Remova os endereços IP duplicados.',
+  'dns_address_not_allowed':
+      'Um endereço não pode ser usado para conectar ao servidor DNS. Use os IPs fornecidos pelo seu provedor DNS.',
 };

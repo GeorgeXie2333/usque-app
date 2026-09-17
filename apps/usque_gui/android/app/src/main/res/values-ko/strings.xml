@@ -32,4 +32,5 @@
     <string name="shortcut_disconnect">연결 해제</string>
     <string name="shortcut_profiles">계정</string>
     <string name="shortcut_long_label">%1$s Usque</string>
+    <string name="vpn_notif_ip_unavailable">연결되었지만 %1$s를 사용할 수 없습니다. Usque에서 자세히 확인하세요.</string>
 </resources>

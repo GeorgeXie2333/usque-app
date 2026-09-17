@@ -32,4 +32,5 @@
     <string name="shortcut_disconnect">Desconectar</string>
     <string name="shortcut_profiles">Contas</string>
     <string name="shortcut_long_label">%1$s Usque</string>
+    <string name="vpn_notif_ip_unavailable">Conectado, mas %1$s está indisponível. Abra o Usque para ver os detalhes.</string>
 </resources>

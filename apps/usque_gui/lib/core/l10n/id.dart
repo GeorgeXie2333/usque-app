@@ -580,4 +580,18 @@ const Map<String, String> kIdCatalog = <String, String>{
   'diag_event_queue_saturated': 'Antrean pengiriman mencapai kapasitas',
   'diag_event_disconnected': 'Terputus',
   'diag_event_failed': 'Koneksi gagal',
+  'operation_failed':
+      'Operasi tidak dapat diselesaikan. Coba lagi; jika masalah berlanjut, ekspor paket diagnostik untuk mendapatkan bantuan.',
+  'operation_timeout':
+      'Operasi kehabisan waktu. Periksa jaringan lalu coba lagi.',
+  'accounts_reset':
+      'Pengaturan akun yang tidak dapat dibaca telah direset. Cadangan disimpan di perangkat ini. Siapkan kembali akun di Akun.',
+  'input_too_long_bytes':
+      'Teks terlalu panjang. Gunakan maksimal {count} byte UTF-8; beberapa karakter memakai lebih dari satu byte.',
+  'username_colon': 'Nama pengguna tidak boleh berisi titik dua (:).',
+  'username_null':
+      'Nama pengguna berisi karakter tak terlihat. Hapus lalu ketik ulang.',
+  'dns_duplicate_address': 'Hapus alamat IP yang duplikat.',
+  'dns_address_not_allowed':
+      'Salah satu alamat tidak bisa digunakan untuk terhubung ke server DNS. Gunakan IP server dari penyedia DNS Anda.',
 };

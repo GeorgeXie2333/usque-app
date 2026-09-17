@@ -599,4 +599,17 @@ const Map<String, String> kItCatalog = <String, String>{
   'diag_event_queue_saturated': 'La coda di invio ha raggiunto la capacità',
   'diag_event_disconnected': 'Disconnesso',
   'diag_event_failed': 'Connessione non riuscita',
+  'operation_failed':
+      'Impossibile completare l’operazione. Riprova; se il problema persiste, esporta un pacchetto diagnostico per ricevere assistenza.',
+  'operation_timeout': 'L’operazione è scaduta. Controlla la rete e riprova.',
+  'accounts_reset':
+      'Le impostazioni dell’account illeggibili sono state reimpostate. Una copia resta su questo dispositivo. Configura di nuovo l’account in Account.',
+  'input_too_long_bytes':
+      'Il testo è troppo lungo. Usa al massimo {count} byte UTF-8; alcuni caratteri occupano più byte.',
+  'username_colon': 'Il nome utente non può contenere i due punti (:).',
+  'username_null':
+      'Il nome utente contiene un carattere invisibile. Cancellalo e digitalo di nuovo.',
+  'dns_duplicate_address': 'Rimuovi gli indirizzi IP duplicati.',
+  'dns_address_not_allowed':
+      'Un indirizzo non è adatto alla connessione a un server DNS. Usa gli IP forniti dal tuo provider DNS.',
 };

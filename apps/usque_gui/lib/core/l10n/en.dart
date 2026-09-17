@@ -4,7 +4,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'disable_quic_help':
       "Block UDP/443 through the proxy or tunnel, including other protocols on that port. GEO direct traffic and Usque’s HTTP/3 connection are unaffected. QUIC on other ports is allowed. Applies without reconnecting.",
   'disable_quic_unsupported':
-      "Update or restart the Engine to use this setting.",
+      'Restart Usque and try again. If this setting is still unavailable, update Usque from Settings.',
   'technical_details': 'Technical details',
   'diag_skip_disconnected': 'Connect to run this check.',
   'diag_skip_disabled': 'This feature is turned off.',
@@ -27,12 +27,12 @@ const Map<String, String> kEnCatalog = <String, String>{
   'tray_disconnect_profile': 'Disconnect Active Profile',
   'tray_disconnect_exit': 'Disconnect and Exit',
   'connection_status': 'Connection status',
-  'outputs': 'Network outputs',
+  'outputs': 'VPN and local proxies',
   'home': 'Home',
   'profiles': 'Accounts',
   'profiles_subtitle': 'Switch and manage WARP accounts.',
   'proxy': 'Proxy',
-  'proxy_subtitle': 'Local listeners and DNS shared by all accounts.',
+  'proxy_subtitle': 'Set proxy addresses and DNS for all accounts.',
   'settings': 'Settings',
   'settings_subtitle': 'Connection, proxy and application settings.',
   'diagnostics': 'Diagnostics',
@@ -40,7 +40,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'nav_profiles': 'Accounts',
   'nav_proxy': 'Proxy',
   'nav_settings': 'Settings',
-  'status_stream_degraded': 'Live status updates are degraded',
+  'status_stream_degraded': 'Status updates are delayed',
   'status_stream_degraded_body':
       'Status updates are delayed. Retrying automatically.',
   'connect': 'Connect',
@@ -56,7 +56,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'error': 'Connection error',
   'active_profile': 'Current account',
   'protocol': 'Protocol',
-  'address_family': 'Address family',
+  'address_family': 'IP version',
   'duration': 'Duration',
   'download': 'Download',
   'upload': 'Upload',
@@ -66,44 +66,45 @@ const Map<String, String> kEnCatalog = <String, String>{
   'not_available': 'Not available',
   'location_disconnected': 'Waiting to connect',
   'engine_unavailable':
-      'The native Usque Engine is not available in this build yet.',
+      'Usque could not start its connection service. Fully exit and reopen Usque, then try again. If it still fails, open Diagnostics.',
   'dismiss': 'Dismiss',
   'new_profile': 'Add account',
   'profile_name': 'Account name',
   'profile_name_too_long': 'Use no more than 64 characters.',
-  'configure_identity': 'Configure WARP identity',
-  'identity_ready': 'Identity ready',
+  'configure_identity': 'Set up WARP account',
+  'identity_ready': 'Account ready',
   'warp_free': 'WARP Free',
-  'identity_missing': 'Identity required',
-  'identity_invalid': 'Identity needs repair',
-  'identity_setup_failed': 'The WARP identity could not be configured.',
+  'identity_missing': 'Account setup required',
+  'identity_invalid': 'Account needs setup again',
+  'identity_setup_failed': 'Could not set up the WARP account. Try again.',
   'use_license_key': 'Use a WARP License Key',
   'warp_license_key': 'WARP License Key',
   'zero_trust_title': 'Cloudflare Zero Trust',
   'zero_trust_subtitle': 'Sign in with an organization account',
   'zero_trust_team': 'Organization team name',
-  'zero_trust_team_invalid': 'Enter one DNS-label team name.',
+  'zero_trust_team_invalid':
+      'Use 1–63 letters, numbers or hyphens. Start and end with a letter or number, for example example-team.',
   'zero_trust_open_login': 'Open organization login',
   'zero_trust_browser_failed': 'The system browser could not be opened.',
   'zero_trust_manual_callback':
-      'After signing in, return to Usque. If the callback is not filled automatically, fill it from the clipboard or paste the complete URL.',
-  'zero_trust_callback_received': 'Organization callback received securely.',
-  'zero_trust_callback': 'Complete callback URL',
+      'After signing in, return to Usque. If sign-in is not received automatically, copy the link that the login page uses to open WARP and paste it below.',
+  'zero_trust_callback_received':
+      'Sign-in received. Continue to finish account setup.',
+  'zero_trust_callback': 'Login return link',
   'zero_trust_callback_required':
-      'Paste a fresh complete callback URL or sign in again.',
+      'Paste the complete link from the login page, or open the login page and sign in again.',
   'zero_trust_callback_invalid':
-      'Use a com.cloudflare.warp Access callback for this organization.',
+      'This link does not match this organization login. Open the login page again and copy the complete link used to open WARP.',
   'zero_trust_paste_clipboard': 'Fill from clipboard',
-  'zero_trust_clipboard_empty':
-      'The clipboard does not contain a callback URL.',
+  'zero_trust_clipboard_empty': 'No login return link found in the clipboard.',
   'zero_trust_scope_note':
-      'Experimental: uses the organization device registration for Internet access; policy sync and device posture are not implemented.',
+      'Experimental: this account can be used for public Internet access. Organization policy updates and checks of this device’s security settings are not supported.',
   'zero_trust_repair_same_team':
-      'Sign in again to the same organization to refresh this device registration.',
+      'Sign in to the same organization again to reconnect this account.',
   'zero_trust_metadata_missing':
-      'The saved organization binding is missing. For safety, this account entry cannot be repaired in place; add a new Zero Trust account.',
+      'The saved organization details are incomplete. Add a new Zero Trust account and sign in again.',
   'zero_trust_endpoint_managed':
-      'This endpoint is managed by the Zero Trust device registration and cannot be edited here.',
+      'This server address is set by your organization account and cannot be changed here.',
   'experimental': 'Experimental',
   'show_license': 'Show License Key',
   'hide_license': 'Hide License Key',
@@ -117,10 +118,10 @@ const Map<String, String> kEnCatalog = <String, String>{
   'delete': 'Delete',
   'delete_profile': 'Remove account?',
   'delete_profile_body':
-      'This removes the non-secret settings for this account entry. Stored identity data is not deleted.',
+      'This removes the account from your list and deletes its local settings. Its saved WARP login information will remain on this device.',
   'delete_zero_trust_profile_body':
-      'This deletes only the local account entry and credentials. Ask an organization administrator to remove the residual device registration in Zero Trust.',
-  'license_not_applicable': 'License not applicable · Experimental',
+      'This removes the account and its login information from this device. Ask your administrator to also remove this device from the organization’s Zero Trust dashboard.',
+  'license_not_applicable': 'Organization account · Experimental',
   'zero_trust_reauthenticate': 'Sign in again to this organization',
   'zero_trust_admin_cleanup_note':
       'Removing this account entry does not revoke the device in the Zero Trust dashboard.',
@@ -129,11 +130,12 @@ const Map<String, String> kEnCatalog = <String, String>{
   'socks_mode': 'SOCKS5',
   'http_mode': 'HTTP',
   'edit_profile': 'Rename account',
-  'tunnel_output': 'VPN (TUN)',
-  'channel_only': 'MASQUE channel only',
-  'channel_only_warning': 'No network output is enabled.',
-  'socks_listener': 'SOCKS5 listener',
-  'http_listener': 'HTTP listener',
+  'tunnel_output': 'VPN',
+  'channel_only': 'VPN and local proxies are off',
+  'channel_only_warning':
+      'No app traffic will use this connection. Open Proxy and enable VPN, SOCKS5 or HTTP.',
+  'socks_listener': 'SOCKS5 proxy',
+  'http_listener': 'HTTP proxy',
   'listen_ipv4': 'Listen IPv4',
   'listen_ipv6': 'Listen IPv6',
   'port': 'Port',
@@ -153,23 +155,23 @@ const Map<String, String> kEnCatalog = <String, String>{
   'lan_warning_body':
       'Usque does not add username/password authentication. Anyone who can reach this listener may use it.',
   'lan_warning_body_authenticated':
-      'This listener accepts authenticated non-loopback clients that present the configured username and password.',
-  'proxy_auth': 'Listener authentication',
+      'Other devices on your local network can use this proxy with the username and password you set.',
+  'proxy_auth': 'Proxy username and password',
   'proxy_auth_help':
-      'Optional username and password for SOCKS5 and HTTP listeners. The password is stored in the system vault, not in the profile file.',
+      'Require a username and password to use the SOCKS5 or HTTP proxy. The password is saved securely on this device.',
   'proxy_username': 'Username',
   'proxy_password': 'Password',
-  'proxy_password_hint': 'Enter a password to set or change credentials.',
-  'proxy_auth_apply': 'Save credentials',
-  'proxy_auth_invalid':
-      'Username must be 1–255 bytes without “:” or NUL. A password of 1–255 bytes is required with a username.',
-  'proxy_auth_saved': 'Listener credentials saved',
-  'proxy_auth_cleared': 'Listener authentication removed',
+  'proxy_password_hint':
+      'Enter a password when setting or changing the username and password.',
+  'proxy_auth_apply': 'Save username and password',
+  'proxy_auth_invalid': 'Check the username and password, then try again.',
+  'proxy_auth_saved': 'Proxy username and password saved.',
+  'proxy_auth_cleared': 'Proxy password protection removed.',
   'lan_warning_authenticated': 'Authenticated LAN listener',
   'lan_warning_authenticated_body':
       'This listener is reachable on the local network and requires the username and password you set.',
   'proxy_password_set': 'Password is set. Enter a new one to replace it.',
-  'proxy_auth_clear': 'Remove authentication',
+  'proxy_auth_clear': 'Remove password protection',
   'general': 'General',
   'system_integration': 'System integration',
   'start_on_boot': 'Start Usque when you sign in',
@@ -223,8 +225,8 @@ const Map<String, String> kEnCatalog = <String, String>{
   'update_package_unavailable':
       'No verified package is available for this device. Open the release page to continue.',
   'notice': 'Completed',
-  'identity': 'WARP identity',
-  'identity_and_license': 'Identity & license',
+  'identity': 'WARP account',
+  'identity_and_license': 'Account and license',
   'license_cleanup_pending':
       'An old WARP device registration is awaiting removal.',
   'copy_license': 'Copy License Key',
@@ -265,7 +267,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'lockdown': 'Block without VPN',
   'not_used_proxy': 'Not used in proxy mode',
   'kill_switch_help':
-      'Block traffic while connecting, reconnecting, or recovering from an engine failure. On Android this lasts while the VPN service is running; enable Always-on VPN and Block connections without VPN in system settings for protection after the app is killed.',
+      'Block traffic while connecting, reconnecting, or recovering from a connection service failure. On Android this lasts while the VPN service is running; enable Always-on VPN and Block connections without VPN in system settings for protection after the app is stopped.',
   'start_on_boot_android':
       'Start Usque after reboot. Also enable automatic connect on start.',
   'add_quick_settings_tile_help':
@@ -306,8 +308,9 @@ const Map<String, String> kEnCatalog = <String, String>{
   'invalid_dns_name': 'Invalid DNS name',
   'invalid_cidr': 'Invalid CIDR',
   'diagnostics_title': 'Diagnostics & app information',
-  'diagnostics_subtitle': 'Usque Engine state, log export, and local data.',
-  'engine_status': 'Usque Engine status',
+  'diagnostics_subtitle':
+      'Check connection problems, export logs and manage local data.',
+  'engine_status': 'Connection information',
   'version': 'Version',
   'app_version': 'Usque 0.2.7',
   'logs': 'Local logs',
@@ -319,9 +322,9 @@ const Map<String, String> kEnCatalog = <String, String>{
   'license': 'License',
   'clear_all_data': 'Clear all data',
   'clear_all_data_help':
-      'Disconnect and permanently remove every Profile, Consumer WARP identity, preference, cache, and local diagnostic record from this device.',
+      'Disconnect and permanently delete all accounts, WARP login information, settings, caches and diagnostic records from this device.',
   'clear_all_data_confirm':
-      'This cannot be undone. Usque will disconnect first, erase all saved identities and Profiles, and return to initial setup.',
+      'This cannot be undone. Usque will disconnect, delete all saved accounts and login information, then return to setup.',
   'clear_all_data_complete': 'All local Usque data was cleared.',
   'unofficial':
       'Unofficial client compatible with Cloudflare WARP. Not affiliated with or endorsed by Cloudflare.',
@@ -330,13 +333,13 @@ const Map<String, String> kEnCatalog = <String, String>{
   'get_started': 'Get started',
   'permissions_title': 'System permissions',
   'permissions_body':
-      'Usque needs permission to create a VPN interface and manage routes, DNS, firewall rules, and the system proxy.',
+      'Usque needs permission to route app traffic through the VPN. Depending on the connection mode, it also sets DNS, network routes, firewall protection or the system proxy.',
   'terms_title': 'Cloudflare terms',
   'terms_body':
       'Usque is an independent client. Your use of Consumer WARP or experimental Zero Trust enrollment remains subject to Cloudflare’s applicable terms and privacy policy.',
   'terms_accept': 'I understand and accept these conditions.',
-  'identity_title': 'Set up Consumer WARP',
-  'register_new': 'Register a new identity',
+  'identity_title': 'Set up a personal WARP account',
+  'register_new': 'Create a free WARP account',
   'manual_secret': 'Enter WARP Secret',
   'warp_secret': 'WARP Secret',
   'show_secret': 'Show secret',
@@ -351,9 +354,9 @@ const Map<String, String> kEnCatalog = <String, String>{
   'profile_required': 'Keep at least one account.',
   'socks_capabilities': 'TCP and UDP',
   'http_capabilities': 'CONNECT and ordinary forwarding',
-  'geo_direct': 'Countries routed directly',
+  'geo_direct': 'Direct countries / regions',
   'geo_direct_help':
-      'Matched domains are visible to your current network\'s DNS; apps using encrypted DNS are routed by IP only.',
+      'Traffic matching these countries or regions connects without the VPN. DNS providers on your current network may see the requested domains. Apps using encrypted DNS are matched by IP address only.',
   'geo_update_all': 'Update geographic data',
   'geo_last_updated': 'Last successful update: {current}',
   'geo_never_updated': 'Not updated yet',
@@ -369,7 +372,8 @@ const Map<String, String> kEnCatalog = <String, String>{
       'Download geographic data for this country before enabling it.',
   'geo_update_complete':
       'Geographic data: {updated} updated, {current} already current.',
-  'geo_update_failed': 'Geographic data update failed: {current}',
+  'geo_update_failed':
+      'Some rules could not be updated ({current}). Check your network and try again.',
   'diagnostics_page_subtitle':
       'Inspect connection, platform protection, and recovery state. Results remain local.',
   'diag_refresh_timeline': 'Refresh timeline',
@@ -378,14 +382,15 @@ const Map<String, String> kEnCatalog = <String, String>{
   'diag_event_stream_degraded_body': 'Restoring diagnostic progress…',
   'diag_export_included': 'Included:',
   'diag_export_included_body':
-      'Error codes, stages, relative timing, counters, and boolean state',
+      'Error codes, connection steps, timings, traffic statistics and feature status',
   'diag_export_excluded': 'Excluded:',
   'diag_export_excluded_body':
       'Keys, tokens, profile names, full addresses, SSIDs, app lists, and user paths',
   'diag_export_local_only':
       'The archive is written only to the location you choose and is never uploaded automatically.',
   'diag_run_title': 'Run network diagnostics',
-  'diag_run_subtitle': 'Standard mode performs passive, read-only checks.',
+  'diag_run_subtitle':
+      'Standard checks read connection status without sending test traffic or changing settings.',
   'diag_mode_standard': 'Standard',
   'diag_mode_deep': 'Deep',
   'diag_deep_title': 'About deep diagnostics',
@@ -394,7 +399,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'diag_deep_disconnected':
       'Checks may use the network. You can cancel at any time.',
   'diag_start': 'Start diagnostics',
-  'diag_session': 'Diagnostic session',
+  'diag_session': 'Current diagnostic run',
   'diag_progress_semantics': 'Diagnostic progress {current}%',
   'diag_waiting_check': 'Waiting for check state…',
   'diag_summary_passed': 'Passed {count}',
@@ -417,7 +422,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'diag_timeline_empty':
       'Key connection transitions will appear here after a connection attempt.',
   'diag_timeline_truncated':
-      'Showing the latest 100 events. The exported diagnostic bundle includes all events still retained by the engine.',
+      'Showing the latest 100 records. The diagnostic package includes all records still saved on this device.',
   'diag_metric_reconnects': 'Reconnects',
   'diag_metric_fallbacks': 'Transport fallbacks',
   'diag_metric_network_changes': 'Network changes',
@@ -432,9 +437,11 @@ const Map<String, String> kEnCatalog = <String, String>{
   'diag_yes': 'Yes',
   'diag_no': 'No',
   'diag_finding_passed': 'This check passed.',
-  'diag_finding_attention': 'This check needs attention.',
+  'diag_finding_attention':
+      'This check found a possible problem. Review its details before retrying.',
   'diag_finding_failed': 'This check failed.',
-  'diag_finding_skipped': 'This check did not run in the current state.',
+  'diag_finding_skipped':
+      'This check could not run. Check the connection and any failed checks, then try again.',
   'diag_finding_cancelled': 'This check was cancelled.',
   'diag_finding_running': 'This check is running.',
   'diag_finding_pending': 'This check has not started.',
@@ -451,11 +458,11 @@ const Map<String, String> kEnCatalog = <String, String>{
   'diag_cat_tunnel': 'Tunnel',
   'diag_cat_protection': 'System protection',
   'diag_cat_recovery': 'Recovery',
-  'diag_check_engine_control_channel': 'Usque Engine control channel',
-  'diag_check_engine_event_stream': 'Usque Engine event stream',
-  'diag_check_engine_capabilities': 'API capabilities',
+  'diag_check_engine_control_channel': 'Connection service communication',
+  'diag_check_engine_event_stream': 'Connection status updates',
+  'diag_check_engine_capabilities': 'Connection feature compatibility',
   'diag_check_engine_configuration': 'Configuration',
-  'diag_check_engine_secure_storage_metadata': 'Stored identity metadata',
+  'diag_check_engine_secure_storage_metadata': 'Saved login information',
   'diag_check_frontend_socks_port': 'SOCKS5 listener',
   'diag_check_frontend_http_port': 'HTTP listener',
   'diag_check_frontend_system_proxy_state': 'System proxy state',
@@ -463,7 +470,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'diag_check_physical_ipv4_route': 'Physical IPv4 route',
   'diag_check_physical_ipv6_route': 'Physical IPv6 route',
   'diag_check_physical_dns_available': 'Physical DNS',
-  'diag_check_physical_network_generation': 'Network generation',
+  'diag_check_physical_network_generation': 'Network changes',
   'diag_check_transport_h3_connect': 'HTTP/3 connection',
   'diag_check_transport_h3_datagram': 'HTTP/3 datagrams',
   'diag_check_transport_h2_tcp': 'HTTP/2 TCP',
@@ -479,10 +486,11 @@ const Map<String, String> kEnCatalog = <String, String>{
   'diag_check_tunnel_ipv6_egress': 'IPv6 egress',
   'diag_check_protection_kill_switch': 'Kill Switch state',
   'diag_check_protection_dns_path': 'DNS path',
-  'diag_check_protection_route_ownership': 'Route ownership',
+  'diag_check_protection_route_ownership': 'Network routes managed by Usque',
   'diag_check_protection_recovery_journal': 'Recovery journal',
-  'diag_fail_ENGINE_UNAVAILABLE': 'Usque Engine unavailable',
-  'diag_fail_AGENT_UNREACHABLE': 'Usque Agent unreachable',
+  'diag_fail_ENGINE_UNAVAILABLE': 'Usque connection service unavailable',
+  'diag_fail_AGENT_UNREACHABLE':
+      'Cannot reach the Usque system network service',
   'diag_fail_VPN_SERVICE_UNAVAILABLE': 'VPN service unavailable',
   'diag_fail_PROXY_PORT_IN_USE': 'Proxy port in use',
   'diag_fail_PHYSICAL_IPV4_UNAVAILABLE': 'Physical IPv4 unavailable',
@@ -531,31 +539,34 @@ const Map<String, String> kEnCatalog = <String, String>{
   'diag_fail_DIAGNOSTIC_CANCELLED': 'Diagnostic cancelled',
   'diag_fail_DIAGNOSTIC_DEPENDENCY_FAILED': 'Diagnostic dependency failed',
   'diag_fail_INTERNAL': 'Internal error',
-  'diag_fix_try_http2': 'Use HTTP/2 and keep recovery probes enabled.',
+  'diag_fix_try_http2':
+      'In Settings → Advanced network settings, select HTTP/2 and apply the change, then try connecting again.',
   'diag_fix_check_physical_network':
-      'Check the current network, DNS, and address-family availability.',
+      'Check that Wi-Fi or mobile data works without Usque, then retry the connection.',
   'diag_fix_refresh_or_replace_identity':
-      'Refresh or replace the identity before reconnecting.',
-  'diag_fix_replace_identity': 'Configure a valid identity again.',
+      'Open Accounts and choose Set up WARP account for this account. Sign in again or create a new WARP account, then reconnect.',
+  'diag_fix_replace_identity':
+      'Open Accounts and use Set up WARP account to sign in again or import valid WARP login information.',
   'diag_fix_review_configuration':
-      'Review the configuration and correct invalid values.',
+      'Open Settings → Advanced network settings, correct the highlighted values and apply changes.',
   'diag_fix_restore_platform_state':
-      'Restore platform network state before retrying.',
-  'diag_fix_resolve_dependency': 'Resolve the failed prerequisite first.',
+      'Fully exit and reopen Usque, then retry. If it still fails, open Diagnostics and export a diagnostic package for support.',
+  'diag_fix_resolve_dependency':
+      'Address the failed checks in this list first, then run diagnostics again.',
   'diag_fix_run_deep_diagnostics':
-      'Run deep diagnostics in an appropriate environment.',
+      'In Diagnostics, select Deep and start the checks. They may send test traffic; some checks are skipped while connected.',
   'diag_fix_run_release_leak_gate':
       'Export a diagnostic bundle with sensitive information removed for support.',
   'diag_fix_inspect_platform_state':
-      'Confirm the operating system network and proxy state with a read-only inspection.',
+      'Open Diagnostics and review the System protection checks. If they still fail, export a diagnostic package for support.',
   'diag_fix_generate_tunnel_traffic':
-      'Generate a small amount of tunnel traffic, then check again.',
+      'Open a web page through Usque, then run this check again.',
   'diag_fix_export_diagnostics':
       'Export a diagnostic bundle with sensitive information removed for support.',
   'diag_fix_retry': 'Try again shortly.',
   'diag_fix_none': 'No action is required.',
   'diag_fix_default':
-      'Use the error code to review the related configuration and network state.',
+      'Try again. If the problem persists, open Diagnostics and export a diagnostic package for support.',
   'diag_event_attempt_started': 'Connection attempt started',
   'diag_event_endpoint_resolved': 'Endpoint address resolved',
   'diag_event_socket_connected': 'Socket connected',
@@ -577,4 +588,18 @@ const Map<String, String> kEnCatalog = <String, String>{
   'diag_event_queue_saturated': 'Send queue reached capacity',
   'diag_event_disconnected': 'Disconnected',
   'diag_event_failed': 'Connection failed',
+  'operation_failed':
+      'Could not complete the operation. Try again; if it still fails, open Diagnostics and export a diagnostic package for support.',
+  'operation_timeout':
+      'The operation took too long. Check your network and try again.',
+  'accounts_reset':
+      'Saved account settings could not be read and were reset. A backup was kept on this device. Set up your account again in Accounts.',
+  'input_too_long_bytes':
+      'This is too long. Use no more than {count} UTF-8 bytes; non-English characters may use more than one byte.',
+  'username_colon': 'The username cannot contain a colon (:).',
+  'username_null':
+      'The username contains an invisible character. Delete it and type the username again.',
+  'dns_duplicate_address': 'Remove repeated IP addresses.',
+  'dns_address_not_allowed':
+      'One of these addresses cannot be used to connect to a DNS server. Use the server IPs supplied by your DNS provider.',
 };

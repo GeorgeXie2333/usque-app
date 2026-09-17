@@ -520,4 +520,12 @@ const Map<String, String> kZhTwCatalog = <String, String>{
   'diag_event_queue_saturated': '傳送佇列已達容量',
   'diag_event_disconnected': '連線已中斷',
   'diag_event_failed': '連線失敗',
+  'operation_failed': '未能完成操作。請重試；若仍失敗，請開啟「診斷」並匯出診斷套件尋求協助。',
+  'operation_timeout': '操作逾時，請檢查網路後重試。',
+  'accounts_reset': '已儲存的帳號設定無法讀取，已重設並在本機保留備份。請開啟「帳號」重新設定。',
+  'input_too_long_bytes': '內容過長，最多允許 {count} 個 UTF-8 位元組；中文等字元可能佔多個位元組。',
+  'username_colon': '使用者名稱不能包含冒號（:）。',
+  'username_null': '使用者名稱含有不可見字元，請清空後重新輸入。',
+  'dns_duplicate_address': '請刪除重複的 IP 位址。',
+  'dns_address_not_allowed': '其中有位址無法用來連線至 DNS 伺服器，請填寫 DNS 服務供應商提供的伺服器 IP。',
 };

@@ -32,4 +32,5 @@
     <string name="shortcut_disconnect">Отключить</string>
     <string name="shortcut_profiles">Учётные записи</string>
     <string name="shortcut_long_label">%1$s Usque</string>
+    <string name="vpn_notif_ip_unavailable">Подключено, но %1$s недоступен. Откройте Usque для подробностей.</string>
 </resources>
