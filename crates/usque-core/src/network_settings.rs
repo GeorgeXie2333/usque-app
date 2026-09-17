@@ -27,6 +27,7 @@ macro_rules! network_fields {
             "dns_mode" => dns_mode,
             "dns_servers" => dns_servers,
             "allow_lan" => allow_lan,
+            "disable_quic" => disable_quic,
             "split_exclusions" => split_exclusions,
             "kill_switch" => kill_switch,
             "auto_connect" => auto_connect,
@@ -302,6 +303,56 @@ mod tests {
         assert!(stored.allow_lan);
         assert_eq!(stored.mtu, 1400);
         assert_ne!(stored.name, "stale name");
+    }
+
+    #[test]
+    fn quic_patch_preserves_geo_and_defers_only_when_session_is_unavailable() {
+        let mut config = AppConfig::default();
+        config.network.geo_direct_countries = vec!["JP".into()];
+        let previous = config.active_profile().unwrap();
+        let mut edit = patch(&config, &["disable_quic"]);
+        edit.values.disable_quic = true;
+        edit.values.geo_direct_countries.clear();
+        let stored = merge_patch(&mut config, &edit).unwrap();
+        assert!(stored.disable_quic);
+        assert_eq!(stored.geo_direct_countries, previous.geo_direct_countries);
+        for available in [true, false] {
+            let plan = plan_application(
+                Some(&previous),
+                &stored,
+                &edit.changed_fields,
+                ConnectionPhase::Connected,
+                available,
+            )
+            .unwrap();
+            assert_eq!(
+                plan.class,
+                if available {
+                    ReconfigureClass::HotTrafficPolicy
+                } else {
+                    ReconfigureClass::PersistOnly
+                }
+            );
+            assert_eq!(
+                plan.status,
+                if available {
+                    ApplyStatus::Applying
+                } else {
+                    ApplyStatus::Deferred
+                }
+            );
+        }
+        for phase in [
+            ConnectionPhase::Disconnected,
+            ConnectionPhase::Reconnecting,
+            ConnectionPhase::Disconnecting,
+        ] {
+            let plan =
+                plan_application(Some(&previous), &stored, &edit.changed_fields, phase, true)
+                    .unwrap();
+            assert_eq!(plan.status, ApplyStatus::Deferred);
+            assert!(plan.target.is_none());
+        }
     }
 
     #[test]

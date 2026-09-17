@@ -293,6 +293,7 @@ impl ControlService {
         intent: u64,
     ) -> Result<(), ControlServiceError> {
         match class {
+            ReconfigureClass::HotTrafficPolicy => {}
             ReconfigureClass::HotFrontends => self.hot_reconfigure_frontends(target).await?,
             ReconfigureClass::HotSystemProxy => self.hot_apply_system_proxy(target).await?,
             ReconfigureClass::HotTunnelAttach => self.hot_tunnel_attach(target).await?,
@@ -318,6 +319,7 @@ impl ControlService {
             }
             ReconfigureClass::PersistOnly | ReconfigureClass::Reject => {}
         }
+        self.hot_update_traffic_policy(target).await?;
         self.apply_hot_profile_state(target).await;
         Ok(())
     }
@@ -413,6 +415,69 @@ mod tests {
         assert!(service.data_plane.lock().await.is_none());
         assert_eq!(service.store.load().unwrap().network.mtu, 1400);
         drop(lifecycle);
+    }
+
+    #[tokio::test]
+    async fn quic_hot_save_keeps_session_listeners_and_platform_leases() {
+        let (_directory, service) = service();
+        let country = usque_geo::CountryCode::parse("CN").unwrap();
+        let geoip = usque_geo::geoip_cache_path(&service.cache_dir, &country);
+        let geosite = usque_geo::geosite_cache_path(&service.cache_dir, &country);
+        std::fs::create_dir_all(geoip.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(geosite.parent().unwrap()).unwrap();
+        std::fs::write(
+            geoip,
+            include_bytes!("../../usque-geo/tests/fixtures/geoip-cn.dat"),
+        )
+        .unwrap();
+        std::fs::write(
+            geosite,
+            include_bytes!("../../usque-geo/tests/fixtures/geosite-cn.txt"),
+        )
+        .unwrap();
+        let mut profile = service.config_snapshot().await.active_profile().unwrap();
+        profile.geo_direct_countries = vec!["CN".into()];
+        service
+            .install_test_session(profile.clone(), true, 3)
+            .await
+            .unwrap();
+        let (generation, connected_at) = {
+            let active = service.data_plane.lock().await;
+            let active = active.as_ref().unwrap();
+            (active.session_generation, active.connected_at)
+        };
+        for enabled in [true, false, true] {
+            profile.disable_quic = enabled;
+            let response = service
+                .save_network_settings(request(&profile, &["disable_quic"]))
+                .await
+                .unwrap();
+            assert_eq!(response.persisted, Some(true));
+            let _finished = service.mutation_lock.lock().await;
+            let state = service.network_settings_state().await;
+            assert_eq!(state.apply_status, 3);
+            assert_eq!(state.applied_profile.unwrap().disable_quic, enabled);
+            assert_eq!(service.store.load().unwrap().network.disable_quic, enabled);
+            let active = service.data_plane.lock().await;
+            let active = active.as_ref().unwrap();
+            assert_eq!(active.session_generation, generation);
+            assert_eq!(active.connected_at, connected_at);
+            assert_eq!(active.profile.geo_direct_countries, ["CN"]);
+            let crate::active_runtime::ActiveRuntime::Harness(harness) = &active.runtime else {
+                panic!("harness")
+            };
+            assert_eq!(harness.disable_quic, enabled);
+            assert_eq!(
+                (
+                    harness.reconnect_count,
+                    harness.reconfigure_count,
+                    harness.attach_count,
+                    harness.detach_count,
+                    harness.system_proxy_apply_count
+                ),
+                (3, 0, 0, 0, 0)
+            );
+        }
     }
 
     #[tokio::test]

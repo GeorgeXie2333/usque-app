@@ -1,5 +1,10 @@
 /// Ukrainian UI catalog.
 const Map<String, String> kUkCatalog = <String, String>{
+  'disable_quic': "Вимкнути QUIC",
+  'disable_quic_help':
+      "Блокує UDP/443 через проксі або тунель, зокрема інші протоколи на цьому порту. Прямий трафік GEO та з’єднання HTTP/3 Usque не змінюються. QUIC на інших портах дозволено. Застосовується без перепідключення.",
+  'disable_quic_unsupported':
+      "Оновіть або перезапустіть рушій, щоб використовувати це налаштування.",
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'Сеанс L4 недоступний',
   'diag_fail_L4_PROTOCOL_ERROR': 'Помилка протоколу L4',

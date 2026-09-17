@@ -1,5 +1,10 @@
 /// Indonesian UI catalog.
 const Map<String, String> kIdCatalog = <String, String>{
+  'disable_quic': "Nonaktifkan QUIC",
+  'disable_quic_help':
+      "Blokir UDP/443 melalui proksi atau terowongan, termasuk protokol lain pada port tersebut. Lalu lintas langsung GEO dan koneksi HTTP/3 Usque tidak terpengaruh. QUIC pada port lain tetap diizinkan. Berlaku tanpa menghubungkan ulang.",
+  'disable_quic_unsupported':
+      "Perbarui atau mulai ulang mesin untuk menggunakan pengaturan ini.",
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'Sesi L4 tidak tersedia',
   'diag_fail_L4_PROTOCOL_ERROR': 'Galat protokol L4',

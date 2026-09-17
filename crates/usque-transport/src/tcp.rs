@@ -190,6 +190,7 @@ impl TcpDialer for StackDialer {
 /// Shared frontend context; UDP is present only on the CONNECT-IP backend.
 #[derive(Clone)]
 pub(crate) struct ProxyServices {
+    pub(crate) traffic_policy: Arc<crate::application_traffic::ApplicationTrafficPolicy>,
     pub(crate) admission: Option<Arc<FrontendAdmission>>,
     pub(crate) dialer: Arc<dyn TcpDialer>,
     pub(crate) udp: Option<Channel>,
@@ -217,6 +218,7 @@ impl ProxyServices {
         };
         Self {
             admission: None,
+            traffic_policy: Arc::clone(&stack.traffic_policy),
             dialer: Arc::new(StackDialer {
                 channel: stack.channel.clone(),
                 ipv4,

@@ -206,6 +206,7 @@ impl Socks5Frontend {
         let cancellation = services.cancellation.child_token();
         let (failure_tx, failure) = watch::channel(None);
         let context = Arc::new(SocksContext {
+            traffic_policy: services.traffic_policy,
             relay_buffer: if profile.data_plane == usque_core::DataPlaneMode::L4Proxy {
                 crate::l4::Limits::platform().relay
             } else {
@@ -280,6 +281,7 @@ impl Drop for Socks5Frontend {
 }
 
 struct SocksContext {
+    traffic_policy: Arc<crate::application_traffic::ApplicationTrafficPolicy>,
     relay_buffer: usize,
     admission: Option<Arc<crate::tcp::FrontendAdmission>>,
     channel: Option<Channel>,
@@ -587,6 +589,7 @@ async fn serve_udp_association(
                     Ok(response) => response,
                     Err(error) => break Err(TransportError::Socks5(error)),
                 };
+                if response.blocked_by(&context.traffic_policy) { continue; }
                 let Some(client_endpoint) = client_endpoint else {
                     continue;
                 };
@@ -609,6 +612,13 @@ async fn serve_udp_association(
 struct UdpResponse {
     source: SocketAddr,
     payload: bytes::Bytes,
+    route: GeoRoute,
+}
+
+impl UdpResponse {
+    fn blocked_by(&self, policy: &crate::application_traffic::ApplicationTrafficPolicy) -> bool {
+        self.route == GeoRoute::Tunnel && policy.blocks_udp(self.source.port())
+    }
 }
 
 #[derive(Default)]
@@ -758,6 +768,11 @@ async fn send_udp_routed(
         }
     }
 
+    // GEO direct has already had its opportunity. A failed direct attempt
+    // must not bypass the tunnel policy, nor trigger an unnecessary DNS query.
+    if context.traffic_policy.blocks_udp(port) {
+        return Ok(());
+    }
     let addresses = if let Some(addresses) = resolved_for_tunnel {
         addresses
     } else {
@@ -780,6 +795,10 @@ async fn send_udp_routed(
     } else {
         tunnel.v6
     };
+    // Resolution can yield while the live setting changes.
+    if context.traffic_policy.blocks_udp(port) {
+        return Ok(());
+    }
     socket
         .send_to(remote, payload)
         .await
@@ -800,7 +819,11 @@ fn spawn_udp_receiver(
                 received = socket.recv_from_bytes() => received,
             };
             let message = match received {
-                Ok((source, payload)) => Ok(UdpResponse { source, payload }),
+                Ok((source, payload)) => Ok(UdpResponse {
+                    source,
+                    payload,
+                    route: GeoRoute::Tunnel,
+                }),
                 Err(error) => Err(format!("tunnel UDP receive failed: {error}")),
             };
             let failed = message.is_err();
@@ -831,6 +854,7 @@ fn spawn_direct_udp_receiver(
                     counters.record_received(length);
                     Ok(UdpResponse {
                         source,
+                        route: GeoRoute::Direct,
                         payload: bytes::Bytes::copy_from_slice(&buffer[..length]),
                     })
                 }
@@ -1263,7 +1287,7 @@ mod tests {
         }
 
         fn ip_matches(&self, ip: IpAddr, country: &usque_geo::CountryCode) -> bool {
-            ip == Ipv4Addr::new(10, 0, 0, 2) && country.as_str() == "CN"
+            (ip == Ipv4Addr::new(10, 0, 0, 2) || ip.is_loopback()) && country.as_str() == "CN"
         }
     }
 
@@ -1335,6 +1359,7 @@ mod tests {
             reconnect_count: 0,
         });
         let context = SocksContext {
+            traffic_policy: Arc::default(),
             channel: Some(channel.clone()),
             dialer: Arc::new(crate::tcp::StackDialer {
                 channel: channel.clone(),
@@ -1517,6 +1542,172 @@ mod tests {
         }
         assert!(direct.v4.is_none());
         assert!(protector.protect_calls.load(Ordering::SeqCst) >= 1);
+    }
+
+    #[tokio::test]
+    async fn quic_hot_policy_preserves_geo_direct_socket_and_both_reply_families() {
+        for ip in [
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            IpAddr::V6(Ipv6Addr::LOCALHOST),
+        ] {
+            let server = TokioUdpSocket::bind(SocketAddr::new(ip, 443))
+                .await
+                .unwrap();
+            let protector = Arc::new(TestProtector {
+                resolved: server.local_addr().unwrap(),
+                reject: false,
+                protect_calls: AtomicUsize::new(0),
+                resolve_calls: AtomicUsize::new(0),
+            });
+            let (context, tunnel, _, tasks) = test_socks_context(protector.clone()).await;
+            let direct = DirectUdpSockets::new(protector.as_ref());
+            let (tx, mut rx) = mpsc::channel(4);
+            let cancel = CancellationToken::new();
+            let receiver = spawn_direct_udp_receiver(
+                direct
+                    .for_address(server.local_addr().unwrap())
+                    .unwrap()
+                    .clone(),
+                tx,
+                cancel.clone(),
+                context.cancellation.clone(),
+                context.counters.clone(),
+            );
+            let mut original_peer = None;
+            for blocked in [false, true, false, true] {
+                context.traffic_policy.set_disable_quic(blocked);
+                for target in [Target::Domain("direct.test".into()), Target::Address(ip)] {
+                    send_udp_routed(
+                        &context,
+                        &target,
+                        443,
+                        b"quic",
+                        &direct,
+                        TunnelUdpSockets {
+                            v4: &tunnel,
+                            v6: &tunnel,
+                        },
+                    )
+                    .await
+                    .unwrap();
+                    let mut buffer = [0; 16];
+                    let (len, peer) =
+                        timeout(Duration::from_secs(1), server.recv_from(&mut buffer))
+                            .await
+                            .unwrap()
+                            .unwrap();
+                    assert_eq!(&buffer[..len], b"quic");
+                    assert_eq!(
+                        *original_peer.get_or_insert(peer),
+                        peer,
+                        "live GEO socket must be retained"
+                    );
+                    server.send_to(b"reply", peer).await.unwrap();
+                    let response = timeout(Duration::from_secs(1), rx.recv())
+                        .await
+                        .unwrap()
+                        .unwrap()
+                        .unwrap();
+                    assert_eq!(response.route, GeoRoute::Direct);
+                    assert!(!response.blocked_by(&context.traffic_policy));
+                    assert_eq!(&response.payload[..], b"reply");
+                }
+            }
+            assert!(!context.cancellation.is_cancelled());
+            cancel.cancel();
+            receiver.await.unwrap();
+            for task in tasks {
+                task.abort();
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn quic_fallback_is_blocked_without_closing_udp_context_or_resolving_tunnel_dns() {
+        let protector = Arc::new(TestProtector {
+            resolved: SocketAddr::from((Ipv4Addr::LOCALHOST, 443)),
+            reject: true,
+            protect_calls: AtomicUsize::new(0),
+            resolve_calls: AtomicUsize::new(0),
+        });
+        let (context, tunnel, channel, tasks) = test_socks_context(protector.clone()).await;
+        let target = Ipv4Addr::new(10, 0, 0, 2);
+        let server = channel
+            .udp_bind(SocketAddr::from((target, 443)))
+            .await
+            .unwrap();
+        let direct = DirectUdpSockets::new(protector.as_ref());
+        for blocked in [false, true, false] {
+            context.traffic_policy.set_disable_quic(blocked);
+            send_udp_routed(
+                &context,
+                &Target::Address(target.into()),
+                443,
+                b"quic",
+                &direct,
+                TunnelUdpSockets {
+                    v4: &tunnel,
+                    v6: &tunnel,
+                },
+            )
+            .await
+            .unwrap();
+            let received = timeout(Duration::from_millis(100), server.recv_from_bytes()).await;
+            assert_eq!(received.is_err(), blocked);
+            if let Ok(Ok((_, payload))) = received {
+                assert_eq!(&payload[..], b"quic");
+            }
+            let response = UdpResponse {
+                source: SocketAddr::from((target, 443)),
+                payload: bytes::Bytes::new(),
+                route: GeoRoute::Tunnel,
+            };
+            assert_eq!(response.blocked_by(&context.traffic_policy), blocked);
+        }
+        context.traffic_policy.set_disable_quic(true);
+        send_udp_routed(
+            &context,
+            &Target::Domain("unmatched.test".into()),
+            443,
+            b"quic",
+            &direct,
+            TunnelUdpSockets {
+                v4: &tunnel,
+                v6: &tunnel,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(protector.resolve_calls.load(Ordering::SeqCst), 0);
+        let dns = channel
+            .udp_bind(SocketAddr::from((target, 53)))
+            .await
+            .unwrap();
+        send_udp_routed(
+            &context,
+            &Target::Address(target.into()),
+            53,
+            b"dns",
+            &direct,
+            TunnelUdpSockets {
+                v4: &tunnel,
+                v6: &tunnel,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            &timeout(Duration::from_secs(1), dns.recv_from_bytes())
+                .await
+                .unwrap()
+                .unwrap()
+                .1[..],
+            b"dns"
+        );
+        assert!(!context.cancellation.is_cancelled());
+        for task in tasks {
+            task.abort();
+        }
     }
 
     #[tokio::test]

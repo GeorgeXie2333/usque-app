@@ -1,5 +1,10 @@
 /// Spanish UI catalog.
 const Map<String, String> kEsCatalog = <String, String>{
+  'disable_quic': "Desactivar QUIC",
+  'disable_quic_help':
+      "Bloquea UDP/443 por el proxy o túnel, incluidos otros protocolos en ese puerto. El tráfico directo GEO y la conexión HTTP/3 de Usque no se ven afectados. QUIC en otros puertos sigue permitido. Se aplica sin reconectar.",
+  'disable_quic_unsupported':
+      "Actualiza o reinicia el motor para usar este ajuste.",
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'Sesión L4 no disponible',
   'diag_fail_L4_PROTOCOL_ERROR': 'Error de protocolo L4',

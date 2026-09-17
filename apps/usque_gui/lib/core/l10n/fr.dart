@@ -1,5 +1,10 @@
 /// French UI catalog.
 const Map<String, String> kFrCatalog = <String, String>{
+  'disable_quic': "Désactiver QUIC",
+  'disable_quic_help':
+      "Bloque UDP/443 via le proxy ou le tunnel, y compris les autres protocoles sur ce port. Le trafic direct GEO et la connexion HTTP/3 d’Usque restent inchangés. QUIC sur les autres ports reste autorisé. Application sans reconnexion.",
+  'disable_quic_unsupported':
+      "Mettez à jour ou redémarrez le moteur pour utiliser ce réglage.",
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'Session L4 indisponible',
   'diag_fail_L4_PROTOCOL_ERROR': 'Erreur de protocole L4',

@@ -1,5 +1,10 @@
 /// Persian UI catalog.
 const Map<String, String> kFaCatalog = <String, String>{
+  'disable_quic': "غیرفعال کردن QUIC",
+  'disable_quic_help':
+      "ترافیک UDP/443 از پراکسی یا تونل، از جمله پروتکل‌های دیگر روی این درگاه را مسدود می‌کند. ترافیک مستقیم GEO و اتصال HTTP/3 خود Usque تغییری نمی‌کند. QUIC روی درگاه‌های دیگر مجاز است. بدون اتصال مجدد اعمال می‌شود.",
+  'disable_quic_unsupported':
+      "برای استفاده از این تنظیم، موتور را به‌روزرسانی یا دوباره راه‌اندازی کنید.",
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'نشست L4 در دسترس نیست',
   'diag_fail_L4_PROTOCOL_ERROR': 'خطای پروتکل L4',

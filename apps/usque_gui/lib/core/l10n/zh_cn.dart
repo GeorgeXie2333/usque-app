@@ -1,5 +1,9 @@
 /// Simplified Chinese UI catalog.
 const Map<String, String> kZhCnCatalog = <String, String>{
+  'disable_quic': "禁用 QUIC",
+  'disable_quic_help':
+      "拦截经代理或隧道转发的 UDP/443，包括该端口的其他协议。GEO 直连和 Usque 自身 HTTP/3 连接不受影响；其他端口的 QUIC 不拦截。应用后无需重连。",
+  'disable_quic_unsupported': "请更新或重启引擎后使用此设置。",
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'L4 会话不可用',
   'diag_fail_L4_PROTOCOL_ERROR': 'L4 协议错误',

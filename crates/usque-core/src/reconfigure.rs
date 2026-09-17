@@ -7,6 +7,8 @@ use crate::config::Profile;
 pub enum ReconfigureClass {
     /// Only persisted, next-session settings changed (or no runtime change).
     PersistOnly,
+    /// Update the shared application traffic policy without replacing any flow.
+    HotTrafficPolicy,
     /// Profile id or identity-bound endpoint changed; refuse.
     Reject,
     /// Tear down MASQUE and reconnect with rollback.
@@ -30,8 +32,13 @@ pub fn classify_reconfigure(previous: &Profile, next: &Profile) -> ReconfigureCl
 
     let mut runtime_next = next.clone();
     runtime_next.congestion_control = previous.congestion_control;
+    runtime_next.disable_quic = previous.disable_quic;
     if previous == &runtime_next {
-        return ReconfigureClass::PersistOnly;
+        return if previous.disable_quic != next.disable_quic {
+            ReconfigureClass::HotTrafficPolicy
+        } else {
+            ReconfigureClass::PersistOnly
+        };
     }
     if previous.vpn_gate != next.vpn_gate {
         let mut without_gate = runtime_next.clone();
@@ -113,6 +120,50 @@ mod tests {
 
     fn base() -> Profile {
         Profile::default()
+    }
+
+    #[test]
+    fn quic_policy_is_hot_and_does_not_escalate_mixed_changes() {
+        for enabled in [false, true] {
+            let previous = Profile {
+                disable_quic: !enabled,
+                ..base()
+            };
+            let mut next = previous.clone();
+            next.disable_quic = enabled;
+            assert_eq!(
+                classify_reconfigure(&previous, &next),
+                ReconfigureClass::HotTrafficPolicy
+            );
+            next.congestion_control = crate::CongestionControlAlgorithm::Reno;
+            assert_eq!(
+                classify_reconfigure(&previous, &next),
+                ReconfigureClass::HotTrafficPolicy
+            );
+            let mut mixed = next.clone();
+            mixed.proxy.socks5_listeners[0].set_port(1081);
+            assert_eq!(
+                classify_reconfigure(&previous, &mixed),
+                ReconfigureClass::HotFrontends
+            );
+            mixed = next.clone();
+            mixed.proxy.system_proxy = !previous.proxy.system_proxy;
+            assert_eq!(
+                classify_reconfigure(&previous, &mixed),
+                ReconfigureClass::HotSystemProxy
+            );
+            mixed = next.clone();
+            mixed.vpn_gate.enabled = !previous.vpn_gate.enabled;
+            assert_eq!(
+                classify_reconfigure(&previous, &mixed),
+                ReconfigureClass::HotVpnGate
+            );
+            next.mtu += 1;
+            assert_eq!(
+                classify_reconfigure(&previous, &next),
+                ReconfigureClass::ColdReconnect
+            );
+        }
     }
 
     #[test]

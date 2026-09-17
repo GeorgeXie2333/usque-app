@@ -4545,6 +4545,7 @@ fn profile_from_proto(source: v1::Profile) -> Result<Profile, ControlServiceErro
             })
             .collect::<Result<Vec<_>, _>>()?,
         allow_lan: source.allow_lan,
+        disable_quic: source.disable_quic,
         split_exclusions: source
             .split_exclusions
             .iter()
@@ -4662,6 +4663,7 @@ pub(crate) fn profile_to_proto(profile: &Profile) -> v1::Profile {
             .map(ToString::to_string)
             .collect(),
         allow_lan: profile.allow_lan,
+        disable_quic: profile.disable_quic,
         split_exclusions: profile
             .split_exclusions
             .iter()
@@ -4794,6 +4796,7 @@ fn current_capabilities() -> v1::Capabilities {
     v1::Capabilities {
         vpn_gate_tcp: true,
         vpn_gate_pool_favorites: true,
+        application_quic_blocking: true,
         l4_tcp: true,
         l4_tun_tcp: cfg!(windows),
         l4_dns_conversion: true,

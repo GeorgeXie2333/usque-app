@@ -1,5 +1,9 @@
 /// Traditional Chinese (Taiwan) UI catalog.
 const Map<String, String> kZhTwCatalog = <String, String>{
+  'disable_quic': "停用 QUIC",
+  'disable_quic_help':
+      "封鎖經代理或隧道傳送的 UDP/443，包括該連接埠的其他協定。GEO 直連和 Usque 本身的 HTTP/3 連線不受影響；其他連接埠的 QUIC 不封鎖。套用時無須重新連線。",
+  'disable_quic_unsupported': "請更新或重新啟動引擎以使用此設定。",
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'L4 工作階段無法使用',
   'diag_fail_L4_PROTOCOL_ERROR': 'L4 通訊協定錯誤',

@@ -1,5 +1,10 @@
 /// Italian UI catalog.
 const Map<String, String> kItCatalog = <String, String>{
+  'disable_quic': "Disattiva QUIC",
+  'disable_quic_help':
+      "Blocca UDP/443 tramite proxy o tunnel, inclusi gli altri protocolli su quella porta. Il traffico diretto GEO e la connessione HTTP/3 di Usque restano invariati. QUIC su altre porte rimane consentito. Si applica senza riconnettere.",
+  'disable_quic_unsupported':
+      "Aggiorna o riavvia il motore per usare questa impostazione.",
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'Sessione L4 non disponibile',
   'diag_fail_L4_PROTOCOL_ERROR': 'Errore del protocollo L4',

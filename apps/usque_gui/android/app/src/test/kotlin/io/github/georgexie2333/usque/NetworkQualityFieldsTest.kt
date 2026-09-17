@@ -11,6 +11,21 @@ import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicInteger
 
 class NetworkQualityFieldsTest {
+    @Test fun applicationQuicCapabilityRequiresExplicitBooleanSupport() {
+        val key = "application_quic_blocking"
+        assertEquals(true, NetworkQualityFields.capabilities("{\"application_quic_blocking\":true}")[key])
+        val unsupported =
+            listOf(
+                null,
+                "{}",
+                "{\"application_quic_blocking\":false}",
+                "{\"application_quic_blocking\":\"true\"}",
+            )
+        for (source in unsupported) {
+            assertEquals(false, NetworkQualityFields.capabilities(source)[key])
+        }
+    }
+
     @Test fun sourceSamplesAreBoundedAndPreserveUnknownVersusZero() {
         val samples =
             JSONArray(

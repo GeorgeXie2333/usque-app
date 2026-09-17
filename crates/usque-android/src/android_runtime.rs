@@ -960,6 +960,10 @@ async fn handle_runtime_command(
                 next.proxy.auth_password = profile.proxy.auth_password.clone();
             }
             let code = match classify_reconfigure(profile, &next) {
+                ReconfigureClass::HotTrafficPolicy => {
+                    *profile = next;
+                    RECONFIGURE_OK
+                }
                 ReconfigureClass::PersistOnly => RECONFIGURE_OK,
                 ReconfigureClass::Reject => START_INVALID_PROFILE,
                 ReconfigureClass::ColdReconnect => RECONFIGURE_NEED_COLD,
@@ -1063,6 +1067,9 @@ async fn handle_runtime_command(
                     }
                 }
             };
+            if code == RECONFIGURE_OK {
+                tunnel.update_traffic_policy(profile.disable_quic);
+            }
             let _ = reply.send(code);
         }
         RuntimeCommand::AttachTun {
@@ -1119,6 +1126,7 @@ async fn handle_runtime_command(
                 let _ = reply.send(START_PLATFORM_FAILURE);
                 return;
             }
+            tunnel.update_traffic_policy(next.disable_quic);
             *tun = Some(attached);
             *tun_io = Some(io);
             if let Err(error) = tunnel.activate_final().await {

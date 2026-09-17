@@ -1,6 +1,9 @@
 use std::collections::{HashMap, VecDeque};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+use crate::application_traffic::ApplicationTrafficPolicy;
 
 const MAX_FLOWS: usize = 65_536;
 const MAX_FRAGMENTS: usize = 8_192;
@@ -65,15 +68,17 @@ struct OriginFragmentKey {
 struct FragmentMapping {
     wire: FragmentKey,
     last_seen: Instant,
+    application_quic: bool,
 }
 
 #[derive(Debug)]
 pub(crate) struct PacketMuxTable {
+    traffic_policy: Arc<ApplicationTrafficPolicy>,
     forward: HashMap<FlowKey, FlowMapping>,
     reverse: HashMap<WireKey, ReverseMapping>,
     outgoing_fragments: HashMap<OriginFragmentKey, FragmentMapping>,
     wire_fragments: HashMap<FragmentKey, OriginFragmentKey>,
-    incoming_fragments: HashMap<FragmentKey, (PacketOrigin, Instant)>,
+    incoming_fragments: HashMap<FragmentKey, (PacketOrigin, Instant, bool)>,
     next_id: u16,
     next_fragment_id: u32,
     flow_scan: VecDeque<FlowKey>,
@@ -102,6 +107,7 @@ impl OutgoingPacketInspection {
 impl Default for PacketMuxTable {
     fn default() -> Self {
         Self {
+            traffic_policy: Arc::default(),
             forward: HashMap::new(),
             reverse: HashMap::new(),
             outgoing_fragments: HashMap::new(),
@@ -123,6 +129,12 @@ impl Default for PacketMuxTable {
 }
 
 impl PacketMuxTable {
+    pub(crate) fn with_traffic_policy(traffic_policy: Arc<ApplicationTrafficPolicy>) -> Self {
+        Self {
+            traffic_policy,
+            ..Self::default()
+        }
+    }
     /// Parses an outgoing packet and records whether this origin already owns
     /// its flow.
     ///
@@ -183,6 +195,21 @@ impl PacketMuxTable {
                 return self.route_outgoing_fragment(origin, packet, fragment);
             }
         };
+        let application_quic = tuple.protocol == 17 && tuple.remote_id == 443;
+        if origin == PacketOrigin::Tunnel && application_quic && self.traffic_policy.blocks_udp(443)
+        {
+            // Invalidate an older allowed classification if an IP fragment ID
+            // is reused. Do not allocate state for blocked new datagrams.
+            if let Some(fragment) = &fragment
+                && let Some(mapping) = self.outgoing_fragments.get_mut(&OriginFragmentKey {
+                    origin,
+                    fragment: fragment.clone(),
+                })
+            {
+                mapping.application_quic = true;
+            }
+            return false;
+        }
         let flow = flow_key(origin, tuple);
         if !self.forward.contains_key(&flow) && self.forward.len() >= self.flow_limit {
             self.rejections[0] = self.rejections[0].saturating_add(1);
@@ -205,7 +232,7 @@ impl PacketMuxTable {
                 rewrite_identifier(packet, &tuple, mapping.wire.local_id);
             }
             if let Some((key, wire)) = prepared_fragment {
-                self.commit_outgoing_fragment(packet, key, wire, now);
+                self.commit_outgoing_fragment(packet, key, wire, now, application_quic);
             }
             return true;
         }
@@ -235,7 +262,7 @@ impl PacketMuxTable {
         );
         self.reverse.insert(wire, ReverseMapping { flow });
         if let Some((key, wire)) = prepared_fragment {
-            self.commit_outgoing_fragment(packet, key, wire, now);
+            self.commit_outgoing_fragment(packet, key, wire, now, application_quic);
         }
         true
     }
@@ -248,6 +275,12 @@ impl PacketMuxTable {
             ParsedPacket::Flow { tuple, fragment } => (tuple, fragment),
             ParsedPacket::Fragment(fragment) => {
                 let mapping = self.incoming_fragments.get_mut(&fragment)?;
+                if mapping.0 == PacketOrigin::Tunnel
+                    && mapping.2
+                    && self.traffic_policy.blocks_udp(443)
+                {
+                    return None;
+                }
                 mapping.1 = Instant::now();
                 return Some(mapping.0);
             }
@@ -266,6 +299,19 @@ impl PacketMuxTable {
         }
         let reverse = self.reverse.get(&wire)?;
         let flow = reverse.flow.clone();
+        let application_quic = flow.protocol == 17 && flow.remote_id == 443;
+        if flow.origin == PacketOrigin::Tunnel
+            && application_quic
+            && self.traffic_policy.blocks_udp(443)
+        {
+            if let Some(fragment) = &fragment
+                && let Some(mapping) = self.incoming_fragments.get_mut(fragment)
+            {
+                mapping.0 = flow.origin;
+                mapping.2 = true;
+            }
+            return None;
+        }
         if wire.local_id != flow.local_id {
             rewrite_identifier(packet, &tuple, flow.local_id);
         }
@@ -273,7 +319,7 @@ impl PacketMuxTable {
             forward.last_seen = Instant::now();
         }
         if let Some(fragment) = fragment {
-            self.record_incoming_fragment(fragment, flow.origin, Instant::now());
+            self.record_incoming_fragment(fragment, flow.origin, Instant::now(), application_quic);
         }
         Some(flow.origin)
     }
@@ -309,12 +355,14 @@ impl PacketMuxTable {
         key: OriginFragmentKey,
         wire: FragmentKey,
         now: Instant,
+        application_quic: bool,
     ) {
         if wire.identifier != key.fragment.identifier {
             rewrite_fragment_identifier(packet, &key.fragment, wire.identifier);
         }
         if let Some(mapping) = self.outgoing_fragments.get_mut(&key) {
             mapping.last_seen = now;
+            mapping.application_quic = application_quic;
             return;
         }
         self.outgoing_fragment_scan.push_back(key.clone());
@@ -323,6 +371,7 @@ impl PacketMuxTable {
             FragmentMapping {
                 wire: wire.clone(),
                 last_seen: now,
+                application_quic,
             },
         );
         self.wire_fragments.insert(wire, key);
@@ -343,11 +392,13 @@ impl PacketMuxTable {
         fragment: FragmentKey,
         origin: PacketOrigin,
         now: Instant,
+        application_quic: bool,
     ) {
         if !self.incoming_fragments.contains_key(&fragment) {
             self.incoming_fragment_scan.push_back(fragment.clone());
         }
-        self.incoming_fragments.insert(fragment, (origin, now));
+        self.incoming_fragments
+            .insert(fragment, (origin, now, application_quic));
     }
 
     fn route_outgoing_fragment(
@@ -365,6 +416,12 @@ impl PacketMuxTable {
             // intentionally dropped because it cannot be attributed safely.
             return false;
         };
+        if origin == PacketOrigin::Tunnel
+            && mapping.application_quic
+            && self.traffic_policy.blocks_udp(443)
+        {
+            return false;
+        }
         mapping.last_seen = Instant::now();
         if mapping.wire.identifier != fragment.identifier {
             rewrite_fragment_identifier(packet, &fragment, mapping.wire.identifier);
@@ -451,7 +508,7 @@ impl PacketMuxTable {
             forward.last_seen = Instant::now();
         }
         if let Some(fragment) = network.fragment {
-            self.record_incoming_fragment(fragment, flow.origin, Instant::now());
+            self.record_incoming_fragment(fragment, flow.origin, Instant::now(), false);
         }
         Some(flow.origin)
     }
@@ -498,7 +555,7 @@ impl PacketMuxTable {
             if self
                 .incoming_fragments
                 .get(&key)
-                .is_some_and(|(_, seen)| now.saturating_duration_since(*seen) > FLOW_IDLE)
+                .is_some_and(|(_, seen, _)| now.saturating_duration_since(*seen) > FLOW_IDLE)
             {
                 self.incoming_fragments.remove(&key);
             } else {
@@ -1108,7 +1165,7 @@ mod tests {
         for mapping in table.outgoing_fragments.values_mut() {
             mapping.last_seen = observed;
         }
-        for (_, seen) in table.incoming_fragments.values_mut() {
+        for (_, seen, _) in table.incoming_fragments.values_mut() {
             *seen = observed;
         }
         table.maintain(observed + FLOW_IDLE + Duration::from_secs(1));
@@ -1124,7 +1181,7 @@ mod tests {
         for mapping in table.outgoing_fragments.values_mut() {
             mapping.last_seen = observed + FLOW_IDLE;
         }
-        for (_, seen) in table.incoming_fragments.values_mut() {
+        for (_, seen, _) in table.incoming_fragments.values_mut() {
             *seen = observed + FLOW_IDLE;
         }
         table.maintain(observed + FLOW_IDLE + Duration::from_secs(2));

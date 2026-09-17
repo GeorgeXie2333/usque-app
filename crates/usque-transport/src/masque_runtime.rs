@@ -182,6 +182,10 @@ struct BoundFrontends {
 }
 
 impl MasqueRuntime {
+    /// Update all existing application forwarding tasks without replacing flows.
+    pub fn update_traffic_policy(&self, disable_quic: bool) {
+        self.stack.traffic_policy.set_disable_quic(disable_quic);
+    }
     pub async fn start(
         profile: &Profile,
         identity: MasqueTlsIdentity,
@@ -447,6 +451,7 @@ impl MasqueRuntime {
         let mux_tun_sink = tun_sink.clone();
         let mux_cancel = cancellation.clone();
         let mux_quality = quality.clone();
+        let traffic_policy = Arc::clone(&stack.traffic_policy);
         let mux_task = tokio::spawn(async move {
             run_packet_mux(
                 &mut tunnel,
@@ -456,6 +461,7 @@ impl MasqueRuntime {
                 mux_tun_sink,
                 &mux_cancel,
                 mux_quality,
+                traffic_policy,
             )
             .await;
             tunnel.shutdown().await;
@@ -854,6 +860,7 @@ async fn run_packet_mux(
     tun_sink: watch::Sender<Option<TrackedSender<PacketBatch>>>,
     cancellation: &CancellationToken,
     quality: NetworkQualityTelemetry,
+    traffic_policy: Arc<crate::application_traffic::ApplicationTrafficPolicy>,
 ) {
     let DirectGatewayMux {
         mut router,
@@ -867,7 +874,7 @@ async fn run_packet_mux(
         Ok(sender) => sender,
         Err(_) => return,
     };
-    let mut flows = PacketMuxTable::default();
+    let mut flows = PacketMuxTable::with_traffic_policy(traffic_policy);
     let mut maintenance = tokio::time::interval_at(
         tokio::time::Instant::now() + crate::packet_mux::MAINTENANCE_INTERVAL,
         crate::packet_mux::MAINTENANCE_INTERVAL,
@@ -968,7 +975,8 @@ async fn run_packet_mux(
                             proxy_incoming.send_owned_async(packet.freeze()).await;
                             queue_entry.complete();
                         }
-                        None => tracing::debug!("dropped an unattributed MASQUE return packet"),
+                        // Policy and unattributed drops do not produce per-packet logs.
+                        None => {}
                     }
                 }
                 record_tun_sink_drop(
@@ -1466,6 +1474,156 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn tun_quic_policy_preserves_live_geo_flow_and_filters_only_tunnel_packets() {
+        struct LocalGeo;
+        impl crate::GeoDirectClassifier for LocalGeo {
+            fn host_matches(&self, _: &str, _: &usque_geo::CountryCode) -> bool {
+                false
+            }
+            fn ip_matches(&self, ip: std::net::IpAddr, _: &usque_geo::CountryCode) -> bool {
+                ip.is_loopback()
+            }
+        }
+        struct Protector;
+        impl SocketProtector for Protector {
+            fn protect(&self, _: crate::SocketHandle) -> Result<(), String> {
+                Ok(())
+            }
+            fn tun_direct_available(&self) -> bool {
+                true
+            }
+        }
+        fn wire(remote: [u8; 4], local_port: u16, remote_port: u16, reply: bool) -> Bytes {
+            let mut packet = mux_udp_packet(local_port).to_vec();
+            packet[16..20].copy_from_slice(&remote);
+            packet[22..24].copy_from_slice(&remote_port.to_be_bytes());
+            if reply {
+                for n in 0..4 {
+                    packet.swap(12 + n, 16 + n);
+                }
+                for n in 0..2 {
+                    packet.swap(20 + n, 22 + n);
+                }
+            }
+            packet[10..12].fill(0);
+            let mut sum: u32 = packet[..20]
+                .chunks_exact(2)
+                .map(|w| u32::from(u16::from_be_bytes([w[0], w[1]])))
+                .sum();
+            while sum > 0xffff {
+                sum = (sum & 0xffff) + (sum >> 16);
+            }
+            packet[10..12].copy_from_slice(&(!(sum as u16)).to_be_bytes());
+            Bytes::from(packet)
+        }
+
+        let server = tokio::net::UdpSocket::bind((Ipv4Addr::new(127, 0, 0, 2), 443))
+            .await
+            .unwrap();
+        let (mut tunnel, mut inner_rx, managed_incoming) =
+            ManagedTunnelRuntime::packet_mux_test_channels(8);
+        let (mut io, raw_rx, incoming) = test_tun_io(8, 8);
+        let (tun_sink, _watch) = watch::channel(Some(incoming));
+        let (proxy_pipe, _proxy_client) = WakingPipe::bounded(4);
+        let cancellation = CancellationToken::new();
+        let policy = Arc::new(crate::application_traffic::ApplicationTrafficPolicy::default());
+        let geo = Arc::new(GeoDirectPolicy::with_classifier(
+            Arc::new(LocalGeo),
+            [usque_geo::CountryCode::parse("JP").unwrap()],
+        ));
+        let (router, incoming) = DirectGatewayRouter::start(
+            &Profile::default(),
+            geo,
+            Arc::new(Protector),
+            Arc::new(crate::netstack::TrafficCounters::default()),
+            None,
+            &cancellation,
+        )
+        .await
+        .unwrap();
+        let task_cancel = cancellation.clone();
+        let task_policy = policy.clone();
+        let task = tokio::spawn(async move {
+            run_packet_mux(
+                &mut tunnel,
+                proxy_pipe,
+                raw_rx,
+                DirectGatewayMux { router, incoming },
+                tun_sink,
+                &task_cancel,
+                NetworkQualityTelemetry::default(),
+                task_policy,
+            )
+            .await;
+        });
+        let mut original_peer = None;
+        for blocked in [false, true, false, true] {
+            policy.set_disable_quic(blocked);
+            io.send_owned_packet(wire([127, 0, 0, 2], 50000, 443, false))
+                .await
+                .unwrap();
+            let mut bytes = [0u8; 32];
+            let (_, peer) = timeout(Duration::from_secs(2), server.recv_from(&mut bytes))
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                *original_peer.get_or_insert(peer),
+                peer,
+                "do not replace the GEO socket"
+            );
+            server.send_to(b"geo", peer).await.unwrap();
+            let direct_reply = timeout(Duration::from_secs(2), io.receive_packet())
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(&direct_reply[28..], b"geo");
+            assert!(
+                inner_rx.try_recv().is_err(),
+                "GEO packet must never fall into the tunnel"
+            );
+
+            io.send_owned_packet(wire([198, 51, 100, 1], 50001, 443, false))
+                .await
+                .unwrap();
+            assert_eq!(
+                timeout(Duration::from_millis(100), inner_rx.recv())
+                    .await
+                    .is_err(),
+                blocked
+            );
+            let reply = wire([198, 51, 100, 1], 50001, 443, true);
+            let length = reply.len();
+            managed_incoming
+                .send(PacketBatch::single(reply), length)
+                .await
+                .unwrap();
+            assert_eq!(
+                timeout(Duration::from_millis(100), io.receive_packet())
+                    .await
+                    .is_err(),
+                blocked
+            );
+
+            io.send_owned_packet(wire([198, 51, 100, 1], 50002, 53, false))
+                .await
+                .unwrap();
+            assert!(
+                timeout(Duration::from_secs(1), inner_rx.recv())
+                    .await
+                    .unwrap()
+                    .is_some()
+            );
+            assert!(!task.is_finished());
+        }
+        cancellation.cancel();
+        timeout(Duration::from_secs(1), task)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
+    #[tokio::test]
     async fn packet_mux_survives_inner_backpressure_for_tun_and_proxy_sources() {
         let (mut tunnel, mut inner_rx, managed_incoming) =
             ManagedTunnelRuntime::packet_mux_test_channels(1);
@@ -1528,6 +1686,7 @@ mod tests {
                 tun_sink,
                 &task_cancellation,
                 quality,
+                Arc::default(),
             )
             .await;
         });

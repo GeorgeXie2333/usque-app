@@ -40,6 +40,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   late IpPolicy _ipPolicy;
   late bool _killSwitch;
   late bool _allowLan;
+  late bool _disableQuic;
   late DirectDnsSettings _directDns;
   final _directDnsKey = GlobalKey<DirectDnsEditorState>();
   bool _saving = false;
@@ -54,7 +55,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     8,
     (_) => GlobalKey<FormFieldState<String>>(),
   );
-  final _focus = List.generate(8, (_) => FocusNode());
+  final _focus = List.generate(9, (_) => FocusNode());
 
   List<Object> get _values => [
     _endpointV4.text,
@@ -71,6 +72,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     _ipPolicy,
     _killSwitch,
     _allowLan,
+    _disableQuic,
     _directDns,
   ];
   bool get _dirty => !listEquals(_values, _baseline);
@@ -119,6 +121,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     _ipPolicy = profile.ipPolicy;
     _killSwitch = profile.killSwitch;
     _allowLan = profile.allowLan;
+    _disableQuic = profile.disableQuic;
     _directDns = profile.directDns;
     if (baseline) {
       _baseline = _values;
@@ -447,6 +450,36 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                             ? null
                             : (value) => setState(() => _allowLan = value),
                       ),
+                      SwitchListTile(
+                        key: const ValueKey('disable-quic-switch'),
+                        focusNode: _focus[8],
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(strings.get('disable_quic')),
+                        subtitle: Text(
+                          widget
+                                      .controller
+                                      .engineCapabilities
+                                      ?.applicationQuicBlocking ==
+                                  true
+                              ? strings.get('disable_quic_help')
+                              : strings.get('disable_quic_unsupported'),
+                        ),
+                        value: _disableQuic,
+                        onChanged:
+                            _saving ||
+                                widget
+                                        .controller
+                                        .engineCapabilities
+                                        ?.applicationQuicBlocking !=
+                                    true
+                            ? null
+                            : (value) => setState(() {
+                                _disableQuic = value;
+                                _saved = false;
+                                _validationError = null;
+                                _saveError = null;
+                              }),
+                      ),
                       const SizedBox(height: 14),
                       TextFormField(
                         key: _fieldKeys[7],
@@ -685,6 +718,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
       'ip_policy',
       'kill_switch',
       'allow_lan',
+      'disable_quic',
       'direct_dns',
     ];
     final changedFields = <String>{
@@ -712,6 +746,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
         dnsIpv6: _dnsV6.text.trim(),
         killSwitch: _killSwitch,
         allowLan: _allowLan,
+        disableQuic: _disableQuic,
         directDns: _directDns,
         bypassCidrs: _bypass.text
             .split(RegExp(r'\r?\n'))

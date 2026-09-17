@@ -1,5 +1,10 @@
 /// Russian UI catalog.
 const Map<String, String> kRuCatalog = <String, String>{
+  'disable_quic': "Отключить QUIC",
+  'disable_quic_help':
+      "Блокирует UDP/443 через прокси или туннель, включая другие протоколы на этом порту. Прямой трафик GEO и соединение HTTP/3 Usque не затрагиваются. QUIC на других портах разрешён. Применяется без переподключения.",
+  'disable_quic_unsupported':
+      "Обновите или перезапустите движок, чтобы использовать эту настройку.",
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'Сеанс L4 недоступен',
   'diag_fail_L4_PROTOCOL_ERROR': 'Ошибка протокола L4',

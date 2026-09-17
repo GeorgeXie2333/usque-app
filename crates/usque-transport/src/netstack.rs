@@ -172,6 +172,7 @@ impl TrafficCounters {
 }
 
 pub(crate) struct PacketStack {
+    pub(crate) traffic_policy: Arc<crate::application_traffic::ApplicationTrafficPolicy>,
     pub(crate) channel: Channel,
     pub(crate) protector: Arc<dyn SocketProtector>,
     pub(crate) geo_policy: Arc<GeoDirectPolicy>,
@@ -225,6 +226,9 @@ impl PacketStack {
         Ok((
             Self {
                 channel,
+                traffic_policy: Arc::new(
+                    crate::application_traffic::ApplicationTrafficPolicy::new(profile.disable_quic),
+                ),
                 protector,
                 geo_policy,
                 cancellation,
@@ -329,6 +333,9 @@ impl PacketStack {
 
         Ok(Self {
             channel,
+            traffic_policy: Arc::new(crate::application_traffic::ApplicationTrafficPolicy::new(
+                profile.disable_quic,
+            )),
             protector: direct_protector,
             geo_policy: Arc::new(GeoDirectPolicy::disabled()),
             cancellation,

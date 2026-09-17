@@ -948,6 +948,36 @@ mod tests {
     }
 
     #[test]
+    fn quic_policy_and_capability_use_appended_wire_numbers() {
+        let profile = Profile {
+            disable_quic: true,
+            ..Profile::default()
+        };
+        assert_eq!(profile.encode_to_vec(), [0xa8, 0x01, 0x01]);
+        assert!(
+            Profile::decode(&*profile.encode_to_vec())
+                .unwrap()
+                .disable_quic
+        );
+        assert!(!Profile::decode(&[][..]).unwrap().disable_quic);
+        let capabilities = crate::v1::Capabilities {
+            application_quic_blocking: true,
+            ..Default::default()
+        };
+        assert_eq!(capabilities.encode_to_vec(), [0xf8, 0x01, 0x01]);
+        assert!(
+            crate::v1::Capabilities::decode(&*capabilities.encode_to_vec())
+                .unwrap()
+                .application_quic_blocking
+        );
+        assert!(
+            !crate::v1::Capabilities::decode(&[][..])
+                .unwrap()
+                .application_quic_blocking
+        );
+    }
+
+    #[test]
     fn composable_frontends_and_runtime_status_use_append_only_field_fifteen() {
         let profile = Profile {
             id: "p".to_owned(),

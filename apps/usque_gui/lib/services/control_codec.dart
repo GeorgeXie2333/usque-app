@@ -101,6 +101,7 @@ class ControlCodec {
       _congestionControlWireValue(profile.congestionControl),
     );
     writer.enumeration(19, profile.dataPlane.index + 1);
+    writer.boolean(21, profile.disableQuic);
     if (profile.vpnGate != const VpnGateSettings()) {
       writer.message(
         20,
@@ -696,6 +697,7 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
   var mode = defaults.mode;
   var transport = defaults.transport;
   var dataPlane = defaults.dataPlane;
+  var disableQuic = false;
   var congestionControl = defaults.congestionControl;
   var ipPolicy = defaults.ipPolicy;
   var endpointIpv4 = defaults.endpointIpv4;
@@ -819,6 +821,8 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
         vpnGate = VpnGateSettings.fromMap(
           _decodeVpnGate(reader.message(field), 'settings'),
         );
+      case 21:
+        disableQuic = reader.varint(field) != 0;
       default:
         reader.skip(field);
     }
@@ -837,6 +841,7 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
     transport: transport,
     dataPlane: dataPlane,
     vpnGate: vpnGate,
+    disableQuic: disableQuic,
     congestionControl: congestionControl,
     ipPolicy: ipPolicy,
     endpointIpv4: endpointIpv4,
@@ -1441,6 +1446,7 @@ ConnectionMetrics _decodeConnectionMetrics(_ProtoReader reader) {
 }
 
 EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
+  var applicationQuicBlocking = false;
   var networkSettingsApplication = false;
   var l4Tcp = false;
   var l4TunTcp = false;
@@ -1467,6 +1473,8 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
         vpnGateTcp = reader.varint(field) != 0;
       case 30:
         vpnGatePoolFavorites = reader.varint(field) != 0;
+      case 31:
+        applicationQuicBlocking = reader.varint(field) != 0;
       case 20:
         networkQuality = reader.varint(field) != 0;
       case 21:
@@ -1495,6 +1503,7 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
   }
   return EngineCapabilities(
     networkSettingsApplication: networkSettingsApplication,
+    applicationQuicBlocking: applicationQuicBlocking,
     l4Tcp: l4Tcp,
     l4TunTcp: l4TunTcp,
     l4DnsConversion: l4DnsConversion,

@@ -1,5 +1,10 @@
 /// Turkish UI catalog.
 const Map<String, String> kTrCatalog = <String, String>{
+  'disable_quic': "QUIC’i devre dışı bırak",
+  'disable_quic_help':
+      "Proxy veya tünel üzerinden UDP/443 trafiğini, bu porttaki diğer protokollerle birlikte engeller. GEO doğrudan trafiği ve Usque’nin HTTP/3 bağlantısı etkilenmez. Diğer portlarda QUIC serbesttir. Yeniden bağlanmadan uygulanır.",
+  'disable_quic_unsupported':
+      "Bu ayarı kullanmak için motoru güncelleyin veya yeniden başlatın.",
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'L4 oturumu kullanılamıyor',
   'diag_fail_L4_PROTOCOL_ERROR': 'L4 protokol hatası',

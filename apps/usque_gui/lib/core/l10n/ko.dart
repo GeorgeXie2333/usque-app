@@ -1,5 +1,9 @@
 /// Korean UI catalog.
 const Map<String, String> kKoCatalog = <String, String>{
+  'disable_quic': "QUIC 비활성화",
+  'disable_quic_help':
+      "프록시 또는 터널을 통과하는 UDP/443을 해당 포트의 다른 프로토콜과 함께 차단합니다. GEO 직접 연결과 Usque 자체 HTTP/3 연결에는 영향이 없습니다. 다른 포트의 QUIC은 허용됩니다. 재연결 없이 적용됩니다.",
+  'disable_quic_unsupported': "이 설정을 사용하려면 엔진을 업데이트하거나 다시 시작하세요.",
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'L4 세션을 사용할 수 없음',
   'diag_fail_L4_PROTOCOL_ERROR': 'L4 프로토콜 오류',

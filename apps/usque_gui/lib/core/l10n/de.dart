@@ -1,5 +1,10 @@
 /// German UI catalog.
 const Map<String, String> kDeCatalog = <String, String>{
+  'disable_quic': "QUIC deaktivieren",
+  'disable_quic_help':
+      "Blockiert UDP/443 über Proxy oder Tunnel, auch andere Protokolle auf diesem Port. GEO-Direktverkehr und Usques HTTP/3-Verbindung bleiben unbeeinflusst. QUIC auf anderen Ports bleibt erlaubt. Anwendung ohne Neuverbindung.",
+  'disable_quic_unsupported':
+      "Aktualisieren oder starten Sie die Engine neu, um diese Einstellung zu verwenden.",
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'L4-Sitzung nicht verfügbar',
   'diag_fail_L4_PROTOCOL_ERROR': 'L4-Protokollfehler',

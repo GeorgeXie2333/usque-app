@@ -126,6 +126,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCap
             "l4_dns_conversion": engine_ready(),
             "vpn_gate_tcp": engine_ready(),
             "vpn_gate_pool_favorites": engine_ready(),
+            "application_quic_blocking": engine_ready(),
             "network_quality": engine_ready() && usque_transport::PRODUCTION_NETWORK_FEATURES.network_quality_metrics,
             "encrypted_direct_dns": engine_ready() && usque_transport::ENCRYPTED_DIRECT_DNS_ENABLED,
             "quic_migration": engine_ready() && usque_transport::PRODUCTION_NETWORK_FEATURES.quic_migration,
@@ -1019,6 +1020,8 @@ fn identity_metadata(secret: &[u8]) -> Result<IdentityMetadata, String> {
 #[derive(Debug, Deserialize)]
 struct AndroidProfile {
     #[serde(default)]
+    disable_quic: bool,
+    #[serde(default)]
     vpn_gate: usque_core::vpngate::VpnGateSettings,
     #[serde(default)]
     data_plane: usque_core::DataPlaneMode,
@@ -1207,6 +1210,7 @@ fn android_profile_to_core(source: AndroidProfile) -> Result<Profile, String> {
             parse_value(&source.dns_v6, "DNS IPv6")?,
         ],
         allow_lan: source.allow_lan,
+        disable_quic: source.disable_quic,
         split_exclusions: source
             .bypass_cidrs
             .iter()
@@ -1853,6 +1857,7 @@ fn android_profile_value(
         },
         "congestion_control": profile.congestion_control,
         "data_plane": profile.data_plane,
+        "disable_quic": profile.disable_quic,
         "ip_policy": match profile.ip_policy {
             IpPolicy::Auto => "automatic",
             IpPolicy::PreferIpv4 => "preferIpv4",
@@ -3378,6 +3383,28 @@ mod tests {
         let attached =
             attach_android_proxy_password(profile, Zeroizing::new(b"s3cret".to_vec())).unwrap();
         assert!(attached.proxy.listener_credentials().unwrap().is_some());
+    }
+
+    #[test]
+    fn android_quic_policy_round_trips_and_legacy_defaults_off() {
+        let mut value: serde_json::Value = serde_json::from_str(&valid_profile_json()).unwrap();
+        assert!(
+            !parse_android_profile(&value.to_string())
+                .unwrap()
+                .disable_quic
+        );
+        value["disable_quic"] = serde_json::json!(true);
+        let profile = parse_android_profile(&value.to_string()).unwrap();
+        assert!(profile.disable_quic);
+        let exported = android_profile_value(&profile, None, false);
+        assert_eq!(exported["disable_quic"], true);
+        assert!(
+            parse_android_profile(&exported.to_string())
+                .unwrap()
+                .disable_quic
+        );
+        value["disable_quic"] = serde_json::json!("true");
+        assert!(parse_android_profile(&value.to_string()).is_err());
     }
 
     #[test]

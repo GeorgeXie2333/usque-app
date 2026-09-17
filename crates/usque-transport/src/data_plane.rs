@@ -48,6 +48,21 @@ enum RuntimeInner {
 }
 
 impl DataPlaneRuntime {
+    /// Only the final application frontend observes this policy. The outer
+    /// transport and an optional WARP underlay remain untouched.
+    pub fn update_traffic_policy(&mut self, disable_quic: bool) {
+        if let Some(pending) = &mut self.pending_frontends {
+            pending.disable_quic = disable_quic;
+        }
+        if let Some(gate) = &self.gate {
+            gate.frontend.update_traffic_policy(disable_quic);
+        } else {
+            match &self.inner {
+                RuntimeInner::ConnectIp(runtime) => runtime.update_traffic_policy(disable_quic),
+                RuntimeInner::L4(runtime) => runtime.update_traffic_policy(disable_quic),
+            }
+        }
+    }
     pub async fn start_with_geo_policy(
         profile: &Profile,
         identity: MasqueTlsIdentity,
@@ -114,6 +129,7 @@ impl DataPlaneRuntime {
         }
         let mut underlay_profile = profile.clone();
         underlay_profile.vpn_gate.enabled = false;
+        underlay_profile.disable_quic = false;
         underlay_profile.frontends.socks5 = false;
         underlay_profile.frontends.http = false;
         underlay_profile.proxy.system_proxy = false;
@@ -161,6 +177,7 @@ impl DataPlaneRuntime {
     pub fn headless_profile(profile: &Profile) -> Profile {
         let mut headless = profile.clone();
         headless.vpn_gate.enabled = false;
+        headless.disable_quic = false;
         headless.frontends = usque_core::FrontendSettings {
             tunnel: false,
             socks5: false,

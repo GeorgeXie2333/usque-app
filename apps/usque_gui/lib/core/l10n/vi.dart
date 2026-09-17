@@ -1,5 +1,10 @@
 /// Vietnamese UI catalog.
 const Map<String, String> kViCatalog = <String, String>{
+  'disable_quic': "Tắt QUIC",
+  'disable_quic_help':
+      "Chặn UDP/443 qua proxy hoặc đường hầm, gồm cả giao thức khác trên cổng này. Lưu lượng trực tiếp GEO và kết nối HTTP/3 của Usque không bị ảnh hưởng. QUIC trên cổng khác vẫn được phép. Áp dụng mà không kết nối lại.",
+  'disable_quic_unsupported':
+      "Cập nhật hoặc khởi động lại bộ máy để dùng cài đặt này.",
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'Phiên L4 không khả dụng',
   'diag_fail_L4_PROTOCOL_ERROR': 'Lỗi giao thức L4',

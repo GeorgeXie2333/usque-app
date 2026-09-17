@@ -1,5 +1,9 @@
 /// Japanese UI catalog.
 const Map<String, String> kJaCatalog = <String, String>{
+  'disable_quic': "QUIC を無効化",
+  'disable_quic_help':
+      "プロキシまたはトンネル経由の UDP/443 を、同じポートの他のプロトコルも含めて遮断します。GEO 直接接続と Usque 自身の HTTP/3 接続には影響しません。他のポートの QUIC は許可されます。再接続せずに適用します。",
+  'disable_quic_unsupported': "この設定を使うにはエンジンを更新または再起動してください。",
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'L4 セッションを利用できません',
   'diag_fail_L4_PROTOCOL_ERROR': 'L4 プロトコルエラー',

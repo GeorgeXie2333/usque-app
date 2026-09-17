@@ -1171,6 +1171,18 @@ impl WindowsVpnRuntime {
         &self.http_listeners
     }
 
+    pub(crate) fn update_traffic_policy(
+        &mut self,
+        disable_quic: bool,
+    ) -> Result<(), WindowsVpnError> {
+        require_open_vpn_transaction(self.transaction_open, self.operation_id)?;
+        self.tunnel
+            .as_mut()
+            .ok_or(WindowsVpnError::MissingMasqueRuntime)?
+            .update_traffic_policy(disable_quic);
+        Ok(())
+    }
+
     pub(crate) async fn reconfigure_frontends(
         &mut self,
         profile: &Profile,

@@ -1,5 +1,10 @@
 /// Polish UI catalog.
 const Map<String, String> kPlCatalog = <String, String>{
+  'disable_quic': "Wyłącz QUIC",
+  'disable_quic_help':
+      "Blokuje UDP/443 przez serwer proxy lub tunel, także inne protokoły na tym porcie. Ruch bezpośredni GEO i połączenie HTTP/3 Usque pozostają bez zmian. QUIC na innych portach jest dozwolony. Stosowanie bez ponownego łączenia.",
+  'disable_quic_unsupported':
+      "Zaktualizuj lub uruchom ponownie silnik, aby użyć tego ustawienia.",
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'Sesja L4 jest niedostępna',
   'diag_fail_L4_PROTOCOL_ERROR': 'Błąd protokołu L4',

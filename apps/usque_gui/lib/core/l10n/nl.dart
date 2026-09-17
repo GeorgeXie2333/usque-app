@@ -1,5 +1,10 @@
 /// Dutch UI catalog.
 const Map<String, String> kNlCatalog = <String, String>{
+  'disable_quic': "QUIC uitschakelen",
+  'disable_quic_help':
+      "Blokkeert UDP/443 via de proxy of tunnel, inclusief andere protocollen op die poort. Direct GEO-verkeer en Usques HTTP/3-verbinding blijven ongewijzigd. QUIC op andere poorten blijft toegestaan. Toepassen zonder opnieuw te verbinden.",
+  'disable_quic_unsupported':
+      "Werk de engine bij of herstart deze om deze instelling te gebruiken.",
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'L4-sessie niet beschikbaar',
   'diag_fail_L4_PROTOCOL_ERROR': 'L4-protocolfout',

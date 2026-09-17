@@ -105,6 +105,7 @@ Map<String, Object?> _fields(UsqueProfile p) => {
   'dns_mode': p.dnsMode,
   'dns_servers': [p.dnsIpv4, p.dnsIpv6],
   'allow_lan': p.allowLan,
+  'disable_quic': p.disableQuic,
   'split_exclusions': p.bypassCidrs,
   'kill_switch': p.killSwitch,
   'auto_connect': p.autoConnect,

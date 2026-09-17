@@ -195,6 +195,7 @@ message Profile {
   CongestionControlAlgorithm congestion_control = 18;
   DataPlaneMode data_plane = 19;
   VpnGateSettings vpn_gate = 20;
+  bool disable_quic = 21;
 }
 
 message VpnGateSettings {
@@ -393,6 +394,7 @@ message Capabilities {
   bool l4_dns_conversion = 28;
   bool vpn_gate_tcp = 29;
   bool vpn_gate_pool_favorites = 30;
+  bool application_quic_blocking = 31;
 }
 
 message FrontendStatus {

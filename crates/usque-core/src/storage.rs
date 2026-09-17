@@ -393,6 +393,10 @@ fn migrate_app_config(config: &mut AppConfig) {
         config.network.data_plane = crate::DataPlaneMode::ConnectIp;
         config.schema_version = 15;
     }
+    if config.schema_version < 16 {
+        // Missing fields default to false; never enable traffic filtering on upgrade.
+        config.schema_version = 16;
+    }
 }
 
 #[cfg(not(windows))]
@@ -1107,6 +1111,36 @@ mod tests {
     }
 
     #[test]
+    fn quic_policy_migrates_off_persists_and_resets_across_accounts() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ConfigStore::new(directory.path().join("config.json"));
+        let mut legacy = serde_json::to_value(AppConfig::default()).unwrap();
+        legacy["schema_version"] = serde_json::json!(15);
+        legacy["network"]
+            .as_object_mut()
+            .unwrap()
+            .remove("disable_quic");
+        fs::write(store.path(), serde_json::to_vec(&legacy).unwrap()).unwrap();
+        let mut config = store.load().unwrap();
+        assert_eq!(config.schema_version, 16);
+        assert!(!config.network.disable_quic);
+        config.network.disable_quic = true;
+        let mut account = config.profiles[0].clone();
+        account.id = uuid::Uuid::new_v4();
+        account.name = "Second".into();
+        config.profiles.push(account);
+        store.save(&config).unwrap();
+        let mut loaded = store.load().unwrap();
+        for mut profile in loaded.runtime_profiles() {
+            assert!(profile.disable_quic);
+            profile.reset_network_defaults();
+            assert!(!profile.disable_quic);
+        }
+        loaded.network.reset_user_defaults();
+        assert!(!loaded.network.disable_quic);
+    }
+
+    #[test]
     fn schema_fourteen_keeps_connect_ip_and_saved_transport_and_sni() {
         let directory = tempfile::tempdir().unwrap();
         let store = ConfigStore::new(directory.path().join("config.json"));
@@ -1121,7 +1155,7 @@ mod tests {
             .remove("data_plane");
         fs::write(store.path(), serde_json::to_vec(&legacy).unwrap()).unwrap();
         let loaded = store.load().unwrap();
-        assert_eq!(loaded.schema_version, 15);
+        assert_eq!(loaded.schema_version, CURRENT_SCHEMA_VERSION);
         for profile in loaded.runtime_profiles() {
             assert_eq!(profile.data_plane, crate::DataPlaneMode::ConnectIp);
             assert_eq!(profile.transport, crate::TransportPolicy::Http2);

@@ -1,5 +1,10 @@
 /// English UI catalog.
 const Map<String, String> kEnCatalog = <String, String>{
+  'disable_quic': "Disable QUIC",
+  'disable_quic_help':
+      "Block UDP/443 through the proxy or tunnel, including other protocols on that port. GEO direct traffic and Usque’s HTTP/3 connection are unaffected. QUIC on other ports is allowed. Applies without reconnecting.",
+  'disable_quic_unsupported':
+      "Update or restart the Engine to use this setting.",
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'L4 session unavailable',
   'diag_fail_L4_PROTOCOL_ERROR': 'L4 protocol error',

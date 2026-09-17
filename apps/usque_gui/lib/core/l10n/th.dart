@@ -1,5 +1,9 @@
 /// Thai UI catalog.
 const Map<String, String> kThCatalog = <String, String>{
+  'disable_quic': "ปิดใช้งาน QUIC",
+  'disable_quic_help':
+      "บล็อก UDP/443 ผ่านพร็อกซีหรืออุโมงค์ รวมถึงโปรโตคอลอื่นบนพอร์ตนี้ โดยไม่กระทบทราฟฟิก GEO โดยตรงหรือการเชื่อมต่อ HTTP/3 ของ Usque ยังคงอนุญาต QUIC บนพอร์ตอื่น ใช้ได้โดยไม่ต้องเชื่อมต่อใหม่",
+  'disable_quic_unsupported': "อัปเดตหรือเริ่มเอนจินใหม่เพื่อใช้การตั้งค่านี้",
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'เซสชัน L4 ไม่พร้อมใช้งาน',
   'diag_fail_L4_PROTOCOL_ERROR': 'ข้อผิดพลาดโปรโตคอล L4',

@@ -1,5 +1,9 @@
 /// Arabic UI catalog.
 const Map<String, String> kArCatalog = <String, String>{
+  'disable_quic': "تعطيل QUIC",
+  'disable_quic_help':
+      "يحظر UDP/443 عبر الوكيل أو النفق، بما في ذلك البروتوكولات الأخرى على هذا المنفذ. لا يتأثر اتصال GEO المباشر ولا اتصال HTTP/3 الخاص بـ Usque. يبقى QUIC مسموحاً على المنافذ الأخرى. يُطبّق دون إعادة الاتصال.",
+  'disable_quic_unsupported': "حدّث المحرك أو أعد تشغيله لاستخدام هذا الإعداد.",
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'جلسة L4 غير متاحة',
   'diag_fail_L4_PROTOCOL_ERROR': 'خطأ في بروتوكول L4',

@@ -1,5 +1,10 @@
 /// Portuguese (Brazil) UI catalog.
 const Map<String, String> kPtCatalog = <String, String>{
+  'disable_quic': "Desativar QUIC",
+  'disable_quic_help':
+      "Bloqueia UDP/443 pelo proxy ou túnel, incluindo outros protocolos nessa porta. O tráfego direto GEO e a ligação HTTP/3 do Usque não são afetados. QUIC noutras portas continua permitido. Aplica-se sem voltar a ligar.",
+  'disable_quic_unsupported':
+      "Atualize ou reinicie o motor para usar esta definição.",
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'Sessão L4 indisponível',
   'diag_fail_L4_PROTOCOL_ERROR': 'Erro de protocolo L4',

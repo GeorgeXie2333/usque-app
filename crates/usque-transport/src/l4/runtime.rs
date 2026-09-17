@@ -40,6 +40,9 @@ pub(crate) struct L4Runtime {
 }
 
 impl L4Runtime {
+    pub(crate) fn update_traffic_policy(&self, disable_quic: bool) {
+        self.services.traffic_policy.set_disable_quic(disable_quic);
+    }
     pub(crate) fn internal_network(&self) -> crate::InternalNetwork {
         crate::InternalNetwork::for_streams(
             self.client.clone(),
@@ -143,6 +146,9 @@ impl L4Runtime {
         }));
         let servers = dns_servers(profile);
         let services = ProxyServices {
+            traffic_policy: Arc::new(crate::application_traffic::ApplicationTrafficPolicy::new(
+                profile.disable_quic,
+            )),
             admission: Some(Arc::new(crate::tcp::FrontendAdmission::new(
                 client.budget.clone(),
                 super::Limits::platform().active + super::Limits::platform().pending,

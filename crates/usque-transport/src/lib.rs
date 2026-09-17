@@ -4,6 +4,7 @@
 //! Desktop proxy modes can therefore be exercised without changing the host's
 //! network configuration.
 
+mod application_traffic;
 mod connect_ip_control;
 mod data_plane;
 mod diagnostic_probe;

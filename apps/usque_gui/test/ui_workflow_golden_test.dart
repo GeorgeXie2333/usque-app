@@ -65,6 +65,67 @@ void main() {
     }
   });
 
+  testWidgets('QUIC traffic policy phone and TV layouts', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    for (final tv in [false, true]) {
+      tester.view.physicalSize = tv
+          ? const Size(1280, 1000)
+          : const Size(390, 1000);
+      final app = AppController(WorkflowEngine())
+        ..engineCapabilities = const EngineCapabilities(
+          networkSettingsApplication: true,
+          applicationQuicBlocking: true,
+        )
+        ..localePreference = tv
+            ? LocalePreference.simplifiedChinese
+            : LocalePreference.english;
+      final boundary = GlobalKey();
+      try {
+        await tester.pumpWidget(
+          RepaintBoundary(
+            key: boundary,
+            child: workflowHost(
+              app,
+              dark: tv,
+              scale: tv ? 2 : 1,
+              home: AdvancedSettingsScreen(controller: app),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey('disable-quic-switch')),
+        );
+        await tester.pumpAndSettle();
+        if (tv) {
+          await tester.tap(find.byKey(const ValueKey('disable-quic-switch')));
+          await tester.pumpAndSettle();
+          expect(
+            tester
+                .widget<SwitchListTile>(
+                  find.byKey(const ValueKey('disable-quic-switch')),
+                )
+                .value,
+            isTrue,
+          );
+        }
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        await expectLater(
+          find.byKey(boundary),
+          matchesGoldenFile(
+            'goldens/quic_${tv ? 'tv_dark' : 'phone_light'}.png',
+          ),
+        );
+        await tester.pumpWidget(const SizedBox.shrink());
+      } finally {
+        app.dispose();
+      }
+    }
+  }, tags: 'golden');
+
   testWidgets('VPN Gate proxy entry on desktop and phone', (tester) async {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetDevicePixelRatio);

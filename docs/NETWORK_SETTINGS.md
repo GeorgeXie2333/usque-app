@@ -110,7 +110,7 @@ Desktop account commits preserve the latest network settings. Credential I/O,
 network requests, runtime shutdown, and TUN operations stay outside the store
 transaction.
 
-The current configuration schema is 15. Settings operation tracking does not
+The current configuration schema is 16. Settings operation tracking does not
 add another schema version. Epochs, sequences, operation IDs, and application
 state are in memory and do not create a durable operation log. Passwords are
 removed from published profiles. This change does not relax Kill Switch, TUN retention,
@@ -218,3 +218,112 @@ and `python tool/verify_oracle_archive.py` from the root (verified Python
 These missing environments provide no lifecycle, cleanup, leak, or performance
 pass. They do not block the compile-only workstation checks or change the
 repository's optional protected-runner publication policy.
+
+## Disable application QUIC / 禁用应用 QUIC
+
+Open **Settings → Advanced network settings → Routing & protection**, change **Disable QUIC**,
+then choose **Apply changes**. The default is off and the setting is shared by
+all accounts. Resetting advanced settings turns it off in the draft. Older
+engines without the capability disable the control and show an update notice.
+
+打开 **设置 → 高级网络设置 → 路由与保护**，调整 **禁用 QUIC** 后点击 **应用修改**。
+默认关闭，所有账号共用；重置高级设置会在草稿中关闭它。旧引擎不支持时，开关
+不可操作并提示更新。稳定连接中单独应用此设置无需重连，现有 GEO 直连连接保持
+可用；连接中、断开或执行器忙时，界面会显示已保存并延后生效。
+
+The rule uses the same UDP destination-port 443 match as
+[Bettbox](https://github.com/appshubcc/Bettbox/blob/deef948c7291aca75a5bc59bfc00badcb3907630/lib/state.dart#L972),
+with Usque's GEO direct routing taking precedence. Direct UDP/443 remains
+available for every configured GEO country. If a direct attempt falls back to
+the tunnel, that fallback is filtered. Non-QUIC UDP on port 443 is also blocked;
+QUIC on other ports is outside this setting. TCP/443, other UDP, and Usque's
+own HTTP/3 transport are unaffected. Traffic excluded from Usque's capture is
+outside the setting's scope.
+
+此功能按 UDP 目标端口 443 匹配，并优先保留 GEO 直连。所有已配置地区的直连
+QUIC 均不受拦截；直连失败后回退到隧道的 UDP/443 会被拦截。同端口的其他 UDP
+协议也会受影响，其他端口的 QUIC 不在范围内。Usque 自身的 HTTP/3 传输不受影响。
+
+Schema 16 adds `disable_quic`, defaulting to false when absent. The control
+protocol appends `Profile.disable_quic` at field 21 and
+`Capabilities.application_quic_blocking` at field 31. Android carries the same
+fields over its existing JSON/Binder boundary.
+
+`HotTrafficPolicy` changes a shared atomic policy in the current application
+runtime. Existing TUN flows and SOCKS5 associations read it for subsequent
+tunnel UDP/443 packets in both directions; direct replies are explicitly
+exempt. Fragment associations retain their port classification, and unknown
+non-initial fragments remain unattributed and are dropped. This does not
+retract packets already handed to the transport before the update.
+
+The pure policy update preserves session identity, listeners, TUN attachment,
+GEO sockets, and platform leases. Other edits in the same submission keep
+their existing application classification. Only successful application updates
+the confirmed recovery profile. VPN Gate applies the policy at the final
+application frontend; L4 retains its existing UDP limitations. There are no
+new packet logs, DNS probes, firewall rules, or persistent traffic records.
+
+Regression tests use fake engines, in-memory packet channels, and loopback
+UDP endpoints. Real VPN lifecycle and external leak validation still require
+the isolated environments described above.
+
+### QUIC workstation validation, 2026-09-17
+
+These results describe the uncommitted QUIC working tree based on
+`a89caa1b7b3085594995f0c8481258cf8e0a7870`; they do not identify an immutable
+release candidate. Rust 1.97.1, Flutter 3.44.7 at the CI-pinned commit, Buf
+1.72.0, and the pinned Android NDK/CMake were used. The local Flutter SDK
+selection was temporarily changed for validation and restored afterward.
+
+From the repository root:
+
+| Command | Result |
+| --- | --- |
+| `cargo fmt --all --check` | passed |
+| `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction clippy` | passed |
+| `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction test` | 1,140 passed; 5 existing ignored tests |
+| `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2` | passed; compile only |
+| `& ./tool/build_android_rust.ps1 -AbiFilter arm64-v8a -CargoAction clippy` | passed |
+| `buf lint` | passed |
+| `buf format --exit-code --diff` | passed |
+| `buf breaking --against '.git#ref=a89caa1b7b3085594995f0c8481258cf8e0a7870' --against-config buf.yaml` | passed; CI still checks its PR target |
+| `python tool/check_repository_policy.py` | passed |
+| `git diff --check` | passed |
+| `pwsh -NoProfile -File tool/check_source.ps1` | failed: local software restriction policy blocked PSScriptAnalyzer 1.25.0 format-data import |
+
+The aggregate ran in the helper-initialized native environment. Its Rust,
+Dart, Flutter, Kotlin and Ruff stages passed before the module-import failure.
+PSScriptAnalyzer did not run; no local policy or check was weakened. Buf was
+run separately and passed.
+
+From `apps/usque_gui`, using the verified SDK's `flutter` and `dart`:
+
+| Command | Result |
+| --- | --- |
+| `flutter pub get --enforce-lockfile` | passed |
+| `dart format --output=none --set-exit-if-changed lib test` | passed |
+| `flutter analyze --no-pub` | passed |
+| `flutter test --no-pub` | 524 passed |
+| `flutter test --no-pub --tags golden` | 42 passed, including the final QUIC phone/TV fixtures |
+| `& ../../tool/prepare_windows_plugin_junctions.ps1 -FlutterProject .` | passed |
+| `flutter build windows --release --no-pub` | passed; compile only |
+| `flutter build apk --debug --config-only --no-pub` | passed; configuration only |
+
+The two new QUIC goldens were generated on Windows with the pinned SDK and
+visually reviewed, including Chinese dark mode at 200% text. Existing screenshot
+baselines were not regenerated. The widget cases cover Enter/Space activation,
+the exact `disable_quic` edit mask, failed-save draft retention and unsupported
+engines. Transport cases cover both address families, live GEO sockets,
+fallback filtering, existing tunnel flows, and reused fragment identifiers.
+
+From `apps/usque_gui/android`:
+
+| Command | Result |
+| --- | --- |
+| `.\gradlew.bat --no-daemon :app:ktlintCheck` | passed |
+| `.\gradlew.bat --no-daemon :app:testDebugUnitTest :app:lintDebug` | 200 unit tests passed; lint passed; debug JNI compiled for all three ABIs |
+
+Snapshot-VM, dedicated Android-device, external network-observer and
+performance-lab validation: **not_run** (no isolated environments supplied).
+No MSI, release APK, installation, live VPN session, or publication was part
+of this validation.

@@ -685,6 +685,7 @@ class UsqueProfile {
     this.dnsMode = DnsMode.tunnel,
     this.killSwitch = true,
     this.allowLan = true,
+    this.disableQuic = false,
     this.autoConnect = false,
     this.bypassCidrs = const <String>[],
     this.geoDirectCountries = const <String>[],
@@ -720,6 +721,7 @@ class UsqueProfile {
   final DnsMode dnsMode;
   final bool killSwitch;
   final bool allowLan;
+  final bool disableQuic;
   final bool autoConnect;
   final List<String> bypassCidrs;
   final List<String> geoDirectCountries;
@@ -766,6 +768,7 @@ class UsqueProfile {
       dnsIpv6: defaultDnsIpv6,
       dnsMode: DnsMode.tunnel,
       allowLan: false,
+      disableQuic: false,
       bypassCidrs: const <String>[],
       proxy: const ProxySettings(),
       directDns: const DirectDnsSettings(),
@@ -790,6 +793,7 @@ class UsqueProfile {
     DnsMode? dnsMode,
     bool? killSwitch,
     bool? allowLan,
+    bool? disableQuic,
     bool? autoConnect,
     List<String>? bypassCidrs,
     List<String>? geoDirectCountries,
@@ -820,6 +824,7 @@ class UsqueProfile {
       dnsMode: dnsMode ?? this.dnsMode,
       killSwitch: killSwitch ?? this.killSwitch,
       allowLan: allowLan ?? this.allowLan,
+      disableQuic: disableQuic ?? this.disableQuic,
       autoConnect: autoConnect ?? this.autoConnect,
       bypassCidrs: bypassCidrs ?? this.bypassCidrs,
       geoDirectCountries: geoDirectCountries ?? this.geoDirectCountries,
@@ -850,6 +855,7 @@ class UsqueProfile {
       'dns_mode': dnsMode.name,
       'kill_switch': killSwitch,
       'allow_lan': allowLan,
+      'disable_quic': disableQuic,
       'auto_connect': autoConnect,
       'bypass_cidrs': bypassCidrs,
       'geo_direct_countries': geoDirectCountries,
@@ -926,6 +932,9 @@ class UsqueProfile {
       dnsMode: _enumByName(DnsMode.values, _string(map, 'dns_mode')),
       killSwitch: _bool(map, 'kill_switch'),
       allowLan: _bool(map, 'allow_lan'),
+      disableQuic: map.containsKey('disable_quic')
+          ? _bool(map, 'disable_quic')
+          : false,
       autoConnect: _bool(map, 'auto_connect'),
       bypassCidrs: List<String>.unmodifiable(bypass),
       geoDirectCountries: List<String>.unmodifiable(geoDirect),
@@ -1838,6 +1847,7 @@ class EngineCapabilities {
     this.vpnGateTcp = false,
     this.vpnGatePoolFavorites = false,
     this.networkSettingsApplication = false,
+    this.applicationQuicBlocking = false,
     this.l4Tcp = false,
     this.l4TunTcp = false,
     this.l4DnsConversion = false,
@@ -1853,6 +1863,7 @@ class EngineCapabilities {
         vpnGateTcp: map['vpn_gate_tcp'] == true,
         vpnGatePoolFavorites: map['vpn_gate_pool_favorites'] == true,
         networkSettingsApplication: map['network_settings_application'] == true,
+        applicationQuicBlocking: map['application_quic_blocking'] == true,
         l4Tcp: map['l4_tcp'] == true,
         l4TunTcp: map['l4_tun_tcp'] == true,
         l4DnsConversion: map['l4_dns_conversion'] == true,
@@ -1875,6 +1886,7 @@ class EngineCapabilities {
   final bool vpnGateTcp;
   final bool vpnGatePoolFavorites;
   final bool networkSettingsApplication;
+  final bool applicationQuicBlocking;
   final bool l4Tcp;
   final bool l4TunTcp;
   final bool l4DnsConversion;
@@ -1891,6 +1903,7 @@ class EngineCapabilities {
           vpnGateTcp == other.vpnGateTcp &&
           vpnGatePoolFavorites == other.vpnGatePoolFavorites &&
           networkSettingsApplication == other.networkSettingsApplication &&
+          applicationQuicBlocking == other.applicationQuicBlocking &&
           l4Tcp == other.l4Tcp &&
           l4TunTcp == other.l4TunTcp &&
           l4DnsConversion == other.l4DnsConversion &&
@@ -1906,6 +1919,7 @@ class EngineCapabilities {
   @override
   int get hashCode => Object.hash(
     networkSettingsApplication,
+    applicationQuicBlocking,
     vpnGateTcp,
     vpnGatePoolFavorites,
     l4Tcp,
