@@ -15,7 +15,6 @@ pub(crate) mod stream;
 #[cfg(test)]
 pub(crate) mod test_options;
 mod tun;
-mod tun_stream;
 #[cfg(test)]
 mod tun_tests;
 mod tun_wire;

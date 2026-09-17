@@ -110,6 +110,10 @@ retained by application queues or quiche zero-copy send buffers, including
 retained slices until ACK/drop. Frontend admission is bounded before parsing
 and authentication. Local TCP listeners, half-opens and accepted sockets share
 the allocator; a one-shot listener does not allocate a spare accept socket.
+The internal `stack_tcp` adapter owns the listener and accepted stream together;
+FIN, abort and deferred cleanup retain that ownership even when the command
+queue is full. L4 uses this shared adapter with its existing buffer tiers and
+performance observer.
 
 The local packet device reserves a bounded TX slot for every packet before
 handing smoltcp a transmit token. It never performs a blocking queue send or

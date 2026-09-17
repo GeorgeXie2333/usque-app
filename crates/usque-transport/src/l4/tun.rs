@@ -19,13 +19,13 @@ use usque_core::Profile;
 
 use super::performance::{MeasuredSender, QueuedPacket, TunWriteObserver};
 use super::stream::BufferLease;
-use super::tun_stream::{OnceListener, TunStream};
 use super::tun_wire::{TcpReset, reply_allowed, udp_response, udp_unreachable, valid_transport};
 use super::{BufferBudget, L4Metrics, Limits};
 use crate::direct_gateway::{NatPacket, rewrite_destination, rewrite_source};
 use crate::geo_direct::{GeoRoute, RoutedTcpStream, connect_direct_ip};
 use crate::h2::TransportError;
 use crate::split_dns::{SPLIT_DNS_IPV4, SPLIT_DNS_IPV6, SplitDnsResolver};
+use crate::stack_tcp::{OnceListener, StackTcpStream as TunStream};
 use crate::tcp::{FlowClass, ProxyServices, TcpTarget};
 
 const PACKETS: usize = 64;

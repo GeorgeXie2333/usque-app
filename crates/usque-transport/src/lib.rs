@@ -38,6 +38,7 @@ mod relay;
 mod socket;
 mod socks5;
 mod split_dns;
+mod stack_tcp;
 mod tcp;
 mod telemetry;
 mod tunnel;

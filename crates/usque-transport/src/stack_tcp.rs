@@ -13,6 +13,8 @@ use ts_netstack_smoltcp::netcore::{
     Channel, HasChannel, Response, TcpListenerHandle, smoltcp::iface::SocketHandle, tcp,
 };
 
+const COMMAND_CHUNK_SIZE: usize = 32 * 1024;
+
 type CommandFuture =
     Pin<Box<dyn Future<Output = Result<Response, ts_netstack_smoltcp::netcore::Error>> + Send>>;
 
@@ -45,7 +47,7 @@ impl OnceListener {
         }
     }
 
-    pub(crate) async fn accept(mut self, expected: SocketAddr) -> io::Result<TunStream> {
+    pub(crate) async fn accept(mut self, expected: SocketAddr) -> io::Result<StackTcpStream> {
         let result = self
             .channel
             .request(
@@ -59,7 +61,7 @@ impl OnceListener {
         match result {
             Response::TcpListen(tcp::listen::Response::Accepted { handle, remote }) => {
                 self.transferred = true;
-                let stream = TunStream {
+                let stream = StackTcpStream {
                     listener: self.handle,
                     channel: self.channel.clone(),
                     handle,
@@ -116,7 +118,7 @@ fn cleanup(
     }
 }
 
-pub(crate) struct TunStream {
+pub(crate) struct StackTcpStream {
     listener: TcpListenerHandle,
     channel: Channel,
     handle: SocketHandle,
@@ -126,12 +128,12 @@ pub(crate) struct TunStream {
     shutdown: Option<CommandFuture>,
     buffer: Bytes,
     write_closed: bool,
-    performance: Option<Arc<super::performance::Performance>>,
+    performance: Option<Arc<crate::l4::performance::Performance>>,
     write_size: usize,
 }
 
-impl TunStream {
-    pub(crate) fn observe(&mut self, performance: Arc<super::performance::Performance>) {
+impl StackTcpStream {
+    pub(crate) fn observe(&mut self, performance: Arc<crate::l4::performance::Performance>) {
         self.performance = Some(performance);
     }
     fn start_write(&mut self, bytes: Bytes) {
@@ -177,7 +179,7 @@ impl TunStream {
     }
 }
 
-impl crate::tcp::OwnedTcpWrite for TunStream {
+impl crate::tcp::OwnedTcpWrite for StackTcpStream {
     fn poll_write_owned(&mut self, cx: &mut Context<'_>, bytes: &Bytes) -> Poll<io::Result<usize>> {
         if self.write_closed {
             return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
@@ -187,19 +189,19 @@ impl crate::tcp::OwnedTcpWrite for TunStream {
         }
         if self.write.is_none() {
             // Clones only the reference-counted handle, never the payload.
-            self.start_write(bytes.slice(..bytes.len().min(super::CHUNK_SIZE)));
+            self.start_write(bytes.slice(..bytes.len().min(COMMAND_CHUNK_SIZE)));
         }
         self.poll_sent(cx)
     }
 }
 
-impl crate::tcp::TcpIo for TunStream {
+impl crate::tcp::TcpIo for StackTcpStream {
     fn local_addr(&self) -> io::Result<SocketAddr> {
         Ok(self.local)
     }
 }
 
-impl AsyncRead for TunStream {
+impl AsyncRead for StackTcpStream {
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -212,7 +214,7 @@ impl AsyncRead for TunStream {
             if self.read.is_none() {
                 let channel = self.channel.clone();
                 let handle = self.handle;
-                let size = out.remaining().min(super::CHUNK_SIZE);
+                let size = out.remaining().min(COMMAND_CHUNK_SIZE);
                 self.read = Some(Box::pin(async move {
                     channel
                         .request(
@@ -242,7 +244,7 @@ impl AsyncRead for TunStream {
     }
 }
 
-impl AsyncWrite for TunStream {
+impl AsyncWrite for StackTcpStream {
     fn poll_write(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -255,7 +257,7 @@ impl AsyncWrite for TunStream {
             return Poll::Ready(Ok(0));
         }
         if self.write.is_none() {
-            let bytes = Bytes::copy_from_slice(&bytes[..bytes.len().min(super::CHUNK_SIZE)]);
+            let bytes = Bytes::copy_from_slice(&bytes[..bytes.len().min(COMMAND_CHUNK_SIZE)]);
             if let Some(p) = &self.performance {
                 p.adapter_copied_bytes
                     .fetch_add(bytes.len() as u64, Ordering::Relaxed);
@@ -298,7 +300,7 @@ impl AsyncWrite for TunStream {
     }
 }
 
-impl Drop for TunStream {
+impl Drop for StackTcpStream {
     fn drop(&mut self) {
         self.read.take();
         self.write.take();
@@ -322,7 +324,7 @@ mod tests {
     #[tokio::test]
     async fn owned_partial_commands_retain_allocation_and_remove_repeated_adapter_copies() {
         for owned in [false, true] {
-            let metrics = Arc::new(super::super::performance::Performance::default());
+            let metrics = Arc::new(crate::l4::performance::Performance::default());
             let mut stack = Netstack::new(
                 Config::default(),
                 ts_netstack_smoltcp::netcore::smoltcp::time::Instant::from_millis(0),
@@ -355,7 +357,7 @@ mod tests {
                     ),
                 );
             let (tx, rx) = flume::bounded::<Request>(1);
-            let mut stream = TunStream {
+            let mut stream = StackTcpStream {
                 listener,
                 handle,
                 local,
