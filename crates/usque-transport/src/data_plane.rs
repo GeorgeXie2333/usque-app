@@ -10,7 +10,7 @@ use crate::netstack::{
 use crate::pin_refresh::EndpointPinRefresher;
 use crate::socket::SocketProtector;
 use crate::{ConnectionTimelineSnapshot, NetworkQualitySnapshot};
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 use tokio::sync::watch;
@@ -730,6 +730,27 @@ enum TunIoInner {
     L4(L4TunIo),
 }
 impl TunPacketIo {
+    /// Retains a disjoint mutable slab view through CONNECT-IP header edits.
+    /// L4 continues to receive its existing immutable packet representation.
+    pub fn start_send_mut_packet(
+        &self,
+        packet: BytesMut,
+    ) -> impl std::future::Future<Output = Result<(), TransportError>> + Send + use<> {
+        enum BackendSend<C, L> {
+            ConnectIp(C),
+            L4(L),
+        }
+        let send = match &self.inner {
+            TunIoInner::ConnectIp(io) => BackendSend::ConnectIp(io.start_send_mut_packet(packet)),
+            TunIoInner::L4(io) => BackendSend::L4(io.start_send_owned_packet(packet.freeze())),
+        };
+        async move {
+            match send {
+                BackendSend::ConnectIp(send) => send.await,
+                BackendSend::L4(send) => send.await,
+            }
+        }
+    }
     /// Present only for a data plane that supports stream performance sampling.
     pub fn write_observer(&self) -> Option<crate::TunWriteObserver> {
         match &self.inner {
@@ -792,6 +813,79 @@ mod tests {
     use super::*;
     use crate::netstack::{ExternalPacketChannels, ManagedTunnelRuntime};
     use usque_core::vpngate::GateStage;
+
+    fn slab_udp(slab: &mut crate::android_tun_read_slab::TunReadSlab, mtu: usize) -> BytesMut {
+        let packet = [
+            0x45, 0, 0, 28, 0, 0, 0, 0, 64, 17, 0, 0, 172, 16, 0, 2, 198, 51, 100, 1, 0xc3, 0x50,
+            1, 0xbb, 0, 8, 0, 0,
+        ];
+        slab.prepare(mtu).unwrap();
+        slab.read_buffer()[..packet.len()].copy_from_slice(&packet);
+        slab.take_packet(packet.len()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn mutable_tun_api_rejects_the_old_attachment_and_preserves_external_ttl() {
+        let (mut runtime, mut channels) = memory_warp().await;
+        let mut slab = crate::android_tun_read_slab::TunReadSlab::new();
+        let old = runtime.attach_tun().unwrap();
+        let old_send = old.start_send_mut_packet(slab_udp(&mut slab, 1280));
+        runtime.detach_tun();
+        let current = runtime.attach_tun().unwrap();
+        assert!(matches!(old_send.await, Err(TransportError::TunnelClosed)));
+        let packet = slab_udp(&mut slab, 1500);
+        let pointer = packet.as_ptr() as usize;
+        current.start_send_mut_packet(packet).await.unwrap();
+        let packet =
+            tokio::time::timeout(std::time::Duration::from_secs(2), channels.outgoing.recv())
+                .await
+                .unwrap()
+                .unwrap();
+        assert!(matches!(
+            packet,
+            crate::outbound_packet::OutboundPacket::Mutable(_)
+        ));
+        // Same conversion used at the VPN Gate native boundary: no second
+        // forwarding mutation is introduced into the external packet path.
+        let packet = packet.freeze();
+        assert_eq!(packet.as_ptr() as usize, pointer);
+        assert_eq!(packet[8], 64);
+        assert!(channels.outgoing.try_recv().is_err());
+        runtime.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn mutable_tun_api_keeps_l4_delivery_mtu_and_cancellation_behavior() {
+        let (l4, mut outgoing) = L4TunIo::memory_test_io();
+        let io = TunPacketIo {
+            inner: TunIoInner::L4(l4),
+        };
+        let mut slab = crate::android_tun_read_slab::TunReadSlab::new();
+        let packet = slab_udp(&mut slab, 1280);
+        let pointer = packet.as_ptr() as usize;
+        let sibling = slab_udp(&mut slab, 1280);
+        io.start_send_mut_packet(packet).await.unwrap();
+        let delivered = outgoing.recv().await.unwrap().into_bytes();
+        assert_eq!(delivered.as_ptr() as usize, pointer);
+        assert_eq!(delivered[8], 64);
+        assert_eq!(sibling[8], 64);
+        let mut oversized = BytesMut::zeroed(1281);
+        oversized[0] = 0x45;
+        oversized[2..4].copy_from_slice(&1281_u16.to_be_bytes());
+        io.start_send_mut_packet(oversized).await.unwrap();
+        assert!(outgoing.try_recv().is_err());
+        io.start_send_mut_packet(sibling).await.unwrap();
+        let mut waiting = Box::pin(io.start_send_mut_packet(slab_udp(&mut slab, 1280)));
+        assert!(
+            std::future::poll_fn(|cx| std::task::Poll::Ready(waiting.as_mut().poll(cx)))
+                .await
+                .is_pending()
+        );
+        drop(io);
+        assert!(matches!(waiting.await, Err(TransportError::TunnelClosed)));
+        assert!(outgoing.recv().await.is_some());
+        assert!(outgoing.try_recv().is_err());
+    }
 
     async fn memory_warp() -> (DataPlaneRuntime, ExternalPacketChannels) {
         // Memory packet queues stand in for WARP. No OS tunnel or remote

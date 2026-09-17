@@ -2,8 +2,9 @@ use std::collections::HashSet;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 
+use crate::outbound_packet::OutboundPacket;
 use crate::packet_pipe::PacketPipe as WakingPipe;
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -44,7 +45,7 @@ pub struct MasqueTunIo {
 }
 
 struct TunOutbound {
-    packet: Bytes,
+    packet: OutboundPacket,
     attachment: CancellationToken,
 }
 
@@ -54,6 +55,20 @@ impl MasqueTunIo {
     pub(crate) fn start_send_owned_packet(
         &self,
         packet: Bytes,
+    ) -> impl std::future::Future<Output = Result<(), TransportError>> + Send + use<> {
+        self.start_send_packet(OutboundPacket::Shared(packet))
+    }
+
+    pub(crate) fn start_send_mut_packet(
+        &self,
+        packet: BytesMut,
+    ) -> impl std::future::Future<Output = Result<(), TransportError>> + Send + use<> {
+        self.start_send_packet(OutboundPacket::Mutable(packet))
+    }
+
+    fn start_send_packet(
+        &self,
+        packet: OutboundPacket,
     ) -> impl std::future::Future<Output = Result<(), TransportError>> + Send + use<> {
         let outgoing = self.outgoing.clone();
         let cancellation = self.cancellation.clone();
@@ -89,7 +104,7 @@ impl MasqueTunIo {
         self.outgoing
             .send_cancellable(
                 TunOutbound {
-                    packet,
+                    packet: packet.into(),
                     attachment: self.cancellation.clone(),
                 },
                 packet_len,
@@ -681,7 +696,7 @@ impl MasqueRuntime {
             .ok_or(TransportError::TunnelClosed)?
             .send_cancellable(
                 TunOutbound {
-                    packet,
+                    packet: packet.into(),
                     attachment: self.tun_cancellation.clone(),
                 },
                 packet_len,
@@ -882,9 +897,7 @@ async fn run_packet_mux(
                 let Some(packet) = packet else { break; };
                 let TunOutbound { packet, attachment } = packet;
                 if attachment.is_cancelled() { continue; }
-                let mut packet = packet
-                    .try_into_mut()
-                    .unwrap_or_else(|packet| bytes::BytesMut::from(packet.as_ref()));
+                let mut packet = packet.into_mut();
                 let inspection = flows.inspect_outgoing(PacketOrigin::Tunnel, &packet);
                 if !inspection.is_owned() {
                     let direct = tokio::select! {
@@ -901,7 +914,7 @@ async fn run_packet_mux(
                     let sent = tokio::select! {
                         biased;
                         _ = attachment.cancelled() => continue,
-                        result = sender.send_owned_packet(packet.freeze()) => result,
+                        result = sender.send_mut_packet(packet) => result,
                     };
                     match sent {
                         Ok(()) => {}
@@ -919,7 +932,7 @@ async fn run_packet_mux(
                     .try_into_mut()
                     .unwrap_or_else(|packet| bytes::BytesMut::from(packet.as_ref()));
                 if flows.route_outgoing(PacketOrigin::Proxy, &mut packet) {
-                    match sender.send_owned_packet(packet.freeze()).await {
+                    match sender.send_mut_packet(packet).await {
                         Ok(()) => {}
                         Err(TransportError::TunnelClosed) => break,
                         Err(error) => {
@@ -1475,7 +1488,7 @@ mod tests {
             .outgoing
             .send(
                 TunOutbound {
-                    packet: old_packet,
+                    packet: old_packet.into(),
                     attachment: old_attachment,
                 },
                 length,
@@ -1620,6 +1633,53 @@ mod tests {
             blocked_send.await,
             Err(TransportError::TunnelClosed)
         ));
+    }
+
+    #[tokio::test]
+    async fn mutable_slab_backpressure_cancellation_and_close_preserve_queue_capacity() {
+        for ending in 0..3 {
+            let (io, mut receiver, _incoming) = test_tun_io(1, 1);
+            let mut slab = crate::android_tun_read_slab::TunReadSlab::new();
+            let mut take = |port| {
+                let original = mux_udp_packet(port);
+                slab.prepare(1280).unwrap();
+                slab.read_buffer()[..original.len()].copy_from_slice(&original);
+                slab.take_packet(original.len()).unwrap()
+            };
+            let first = take(50000);
+            let pointer = first.as_ptr() as usize;
+            io.start_send_mut_packet(first).await.unwrap();
+            let mut waiting = Box::pin(io.start_send_mut_packet(take(50001)));
+            assert!(
+                std::future::poll_fn(|cx| std::task::Poll::Ready(waiting.as_mut().poll(cx)))
+                    .await
+                    .is_pending()
+            );
+            match ending {
+                0 => drop(waiting),
+                1 => {
+                    io.cancellation.cancel();
+                    assert!(matches!(waiting.await, Err(TransportError::TunnelClosed)));
+                }
+                _ => {
+                    receiver.close();
+                    assert!(matches!(waiting.await, Err(TransportError::TunnelClosed)));
+                }
+            }
+            let delivered = receiver.recv().await.unwrap().packet;
+            assert_eq!(delivered.as_ptr() as usize, pointer);
+            assert!(matches!(delivered, OutboundPacket::Mutable(_)));
+            assert!(receiver.try_recv().is_err());
+            if ending == 0 {
+                let third = take(50002);
+                let pointer = third.as_ptr() as usize;
+                io.start_send_mut_packet(third).await.unwrap();
+                assert_eq!(
+                    receiver.recv().await.unwrap().packet.as_ptr() as usize,
+                    pointer
+                );
+            }
+        }
     }
 
     #[tokio::test]

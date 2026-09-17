@@ -24,6 +24,11 @@ mod masque_runtime;
 mod migration_barrier;
 mod netstack;
 mod network_quality;
+mod outbound_packet;
+// Compile the actual Android slab producer in memory-only transport tests.
+#[cfg(test)]
+#[path = "../../usque-android/src/tun_read_slab.rs"]
+mod android_tun_read_slab;
 mod packet_batch;
 mod packet_mux;
 mod packet_pipe;

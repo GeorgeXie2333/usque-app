@@ -72,6 +72,21 @@ pub(crate) struct L4TunIo {
 }
 
 impl L4TunIo {
+    #[cfg(test)]
+    pub(crate) fn memory_test_io() -> (Self, mpsc::Receiver<QueuedPacket>) {
+        let (outgoing, receiver) = mpsc::channel(1);
+        let (_incoming, incoming) = mpsc::channel(1);
+        (
+            Self {
+                metrics: Arc::new(L4Metrics::default()),
+                outgoing: MeasuredSender::new(outgoing, Arc::default()),
+                incoming,
+                cancellation: CancellationToken::new(),
+                mtu: 1280,
+            },
+            receiver,
+        )
+    }
     pub(crate) fn write_observer(&self) -> TunWriteObserver {
         TunWriteObserver::new(self.metrics.performance.clone())
     }

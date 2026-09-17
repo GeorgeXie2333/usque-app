@@ -811,7 +811,7 @@ async fn run_session(
                             break;
                         }
                     };
-                    pending_send.set(Some(io.start_send_owned_packet(packet)));
+                    pending_send.set(Some(io.start_send_mut_packet(packet)));
                 }
                 SessionDataEvent::TunnelReceive(received) => {
                     let Some(received) = received else { continue; };

@@ -78,6 +78,23 @@ queue slot without copying the payload. Borrowed callers retain a copying
 convenience path. Both interfaces preserve queue capacity, cancellation and
 the device's per-TxToken reservation; this does not remove QUIC or kernel copies.
 
+Android reads TUN packets into eight-slot slabs and transfers disjoint
+`BytesMut` views through `TunPacketIo::start_send_mut_packet`. CONNECT-IP keeps
+these views mutable across the TUN queue, mux/NAT edits and supervisor queue.
+It freezes each view only after validation, TTL/Hop Limit decrement and checksum
+repair, so live neighboring slab packets do not force a whole-packet copy.
+The existing `Bytes` entry points remain available and copy only when a shared
+allocation needs mutation. L4 still receives its existing immutable packet
+representation. The VPN Gate external boundary freezes for native delivery
+without adding another TTL decrement.
+
+Memory-only regressions compile the actual Android slab producer and check
+pointer identity across 130 packets, batching, both IP families, NAT collisions,
+MTU changes, cancellation, backpressure and reattachment. These tests establish
+ownership and packet correctness; throughput, CPU/RSS and device lifecycle
+measurements require their separate isolated environments. MTU, buffer presets,
+configuration, JNI, IPC and protobuf formats are unchanged.
+
 The H2 ADDRESS_REQUEST rejection path is no longer unbounded. Both its pending
 control deque and writer channel are capped at 64 capsules, with a 256 KiB byte
 budget. Saturation fails closed with `SendQueueFull`.

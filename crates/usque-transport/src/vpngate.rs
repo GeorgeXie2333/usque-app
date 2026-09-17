@@ -376,6 +376,9 @@ impl Actor {
                     else { std::future::pending().await }
                 } => {
                     let Some(packet) = packet else { return Ok(()); };
+                    // The native packet boundary keeps its existing bytes API.
+                    // It owns forwarding semantics; do not decrement TTL here.
+                    let packet = packet.freeze();
                     // The decision follows DirectGatewayRouter. Unsupported
                     // proxied families are dropped here, never sent to WARP.
                     if self.connected && *self.admitted.borrow() && self.network.as_ref().is_some_and(|n| packet_family_supported(n, &packet)) {

@@ -6,7 +6,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use bytes::Bytes;
+use crate::outbound_packet::OutboundPacket;
+use bytes::{Bytes, BytesMut};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, MissedTickBehavior, interval_at, sleep, timeout};
@@ -43,6 +44,8 @@ use crate::telemetry::{
 };
 use crate::tunnel::{BatchSendFuture, MasqueTunnel};
 
+#[cfg(test)]
+mod ownership_tests;
 #[cfg(test)]
 mod shutdown_tests;
 
@@ -476,7 +479,7 @@ impl Drop for PacketStack {
 /// here originate from the platform TUN; the transport supervisor validates
 /// them and decrements TTL/hop-limit immediately before encapsulation.
 pub struct ManagedTunnelRuntime {
-    outgoing: Option<TrackedSender<Bytes>>,
+    outgoing: Option<TrackedSender<OutboundPacket>>,
     incoming: TrackedReceiver<PacketBatch>,
     pending_incoming: PacketBatch,
     cancellation: CancellationToken,
@@ -492,7 +495,7 @@ pub struct ManagedTunnelRuntime {
 /// Protocol-neutral packet boundary for an embedded, in-memory VPN. The
 /// producer owns cleanup; the existing mux owns these bounded packet queues.
 pub(crate) struct ExternalPacketChannels {
-    pub(crate) outgoing: TrackedReceiver<Bytes>,
+    pub(crate) outgoing: TrackedReceiver<OutboundPacket>,
     pub(crate) incoming: TrackedSender<PacketBatch>,
     pub(crate) health: watch::Sender<RuntimeHealth>,
     pub(crate) failure: watch::Sender<Option<String>>,
@@ -517,7 +520,7 @@ pub struct ManagedTunnelMonitor {
 
 #[derive(Clone)]
 pub struct ManagedTunnelSender {
-    outgoing: TrackedSender<Bytes>,
+    outgoing: TrackedSender<OutboundPacket>,
     telemetry: ConnectionTelemetry,
 }
 
@@ -533,6 +536,16 @@ impl ManagedTunnelSender {
     }
 
     pub async fn send_owned_packet(&self, packet: Bytes) -> Result<(), TransportError> {
+        self.send_outbound_packet(OutboundPacket::Shared(packet))
+            .await
+    }
+
+    pub async fn send_mut_packet(&self, packet: BytesMut) -> Result<(), TransportError> {
+        self.send_outbound_packet(OutboundPacket::Mutable(packet))
+            .await
+    }
+
+    async fn send_outbound_packet(&self, packet: OutboundPacket) -> Result<(), TransportError> {
         crate::h2::validate_ip_packet(&packet)?;
         let packet_bytes = packet.len();
         let queued = self
@@ -723,7 +736,11 @@ impl ManagedTunnelRuntime {
     #[cfg(test)]
     pub(crate) fn packet_mux_test_channels(
         outgoing_capacity: usize,
-    ) -> (Self, TrackedReceiver<Bytes>, TrackedSender<PacketBatch>) {
+    ) -> (
+        Self,
+        TrackedReceiver<OutboundPacket>,
+        TrackedSender<PacketBatch>,
+    ) {
         let telemetry = ConnectionTelemetry::default();
         let quality_snapshot = initial_quality_receiver(&telemetry);
         let quality = telemetry.network_quality();
@@ -1414,7 +1431,7 @@ enum PacketIo {
         buffered_outgoing: Option<Bytes>,
     },
     Channel {
-        outgoing: TrackedReceiver<Bytes>,
+        outgoing: TrackedReceiver<OutboundPacket>,
         incoming: TrackedSender<PacketBatch>,
         buffered_outgoing: Option<Bytes>,
     },
@@ -1479,9 +1496,7 @@ impl PacketIo {
                     Some(packet.freeze())
                 }),
                 Self::Channel { outgoing, .. } => outgoing.recv().await.map(|packet| {
-                    let mut packet = packet
-                        .try_into_mut()
-                        .unwrap_or_else(|packet| bytes::BytesMut::from(packet.as_ref()));
+                    let mut packet = packet.into_mut();
                     if let Err(error) = prepare_forwarded_packet(&mut packet) {
                         tracing::warn!(%error, "discarded malformed packet from the TUN source");
                         return None;
@@ -1520,7 +1535,7 @@ impl PacketIo {
                         return TryOutgoingPacket::Empty;
                     }
                     match rx.try_recv() {
-                        Some(packet) => packet,
+                        Some(packet) => OutboundPacket::Shared(packet),
                         None => return TryOutgoingPacket::Closed,
                     }
                 }
@@ -1532,9 +1547,7 @@ impl PacketIo {
                     }
                 },
             };
-            let mut packet = packet
-                .try_into_mut()
-                .unwrap_or_else(|packet| bytes::BytesMut::from(packet.as_ref()));
+            let mut packet = packet.into_mut();
             if let Err(error) = prepare_forwarded_packet(&mut packet) {
                 tracing::warn!(%error, "discarded malformed packet while building a MASQUE batch");
                 continue;
@@ -2873,7 +2886,10 @@ mod tests {
     pub(super) fn test_packet_channel(
         kind: QueueKind,
         capacity: usize,
-    ) -> (TrackedSender<Bytes>, TrackedReceiver<Bytes>) {
+    ) -> (
+        TrackedSender<OutboundPacket>,
+        TrackedReceiver<OutboundPacket>,
+    ) {
         tracked_channel(crate::queue_metrics::QueueMetrics::new(
             kind,
             capacity,
@@ -2892,11 +2908,11 @@ mod tests {
         ))
     }
 
-    fn test_managed_sender(
+    pub(super) fn test_managed_sender(
         capacity: usize,
     ) -> (
         ManagedTunnelSender,
-        TrackedReceiver<Bytes>,
+        TrackedReceiver<OutboundPacket>,
         ConnectionTelemetry,
     ) {
         let telemetry = ConnectionTelemetry::default();
@@ -2948,13 +2964,13 @@ mod tests {
             tokio::spawn(async move { blocked_sender.send_owned_packet(blocked_packet).await });
         tokio::task::yield_now().await;
         assert!(!blocked.is_finished());
-        assert_eq!(receiver.recv().await.unwrap(), first);
+        assert_eq!(receiver.recv().await.unwrap().freeze(), first);
         timeout(Duration::from_secs(1), blocked)
             .await
             .expect("sender did not resume after capacity returned")
             .unwrap()
             .unwrap();
-        assert_eq!(receiver.recv().await.unwrap(), second);
+        assert_eq!(receiver.recv().await.unwrap().freeze(), second);
 
         let metrics = telemetry.snapshot().metrics;
         assert_eq!(metrics.send_queue_drop_count, 0);
@@ -2987,7 +3003,7 @@ mod tests {
         for sequence in 0..130_u16 {
             let packet = test_ipv4_packet(sequence);
             let bytes = packet.len();
-            outgoing_tx.try_send(packet, bytes).unwrap();
+            outgoing_tx.try_send(packet.into(), bytes).unwrap();
         }
         drop(outgoing_tx);
         let mut packet_io = PacketIo::Channel {

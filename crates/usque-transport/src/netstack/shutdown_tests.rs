@@ -29,7 +29,7 @@ async fn pump_fixture(tunnel: MasqueTunnel, cancellation: CancellationToken) -> 
     let (outgoing_tx, outgoing) = super::tests::test_packet_channel(QueueKind::H3DatagramSend, 1);
     let (incoming, _incoming_rx) = super::tests::test_batch_channel(QueueKind::H3WireSend, 1);
     outgoing_tx
-        .send(super::tests::test_ipv4_packet(1), 20)
+        .send(super::tests::test_ipv4_packet(1).into(), 20)
         .await
         .unwrap();
     let mut packet_io = PacketIo::Channel {
